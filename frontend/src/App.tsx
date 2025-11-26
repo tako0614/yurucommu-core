@@ -20,6 +20,10 @@ import UserProfile from "./pages/UserProfile";
 import Onboarding from "./pages/Onboarding";
 import Home from "./pages/Home";
 import Stories from "./pages/Stories";
+import PostDetail from "./pages/PostDetail";
+import Friends from "./pages/Friends";
+import UserSearch from "./pages/UserSearch";
+import Invitations from "./pages/Invitations";
 
 const Login = resolveComponent("Login", DefaultLogin);
 const Profile = resolveComponent("Profile", DefaultProfile);
@@ -68,13 +72,33 @@ export default function App() {
                 path="/friends"
                 component={() => (
                   <RequireAuth>
-                    <Communities />
+                    <Friends />
                   </RequireAuth>
                 )}
               />
               <Route
                 path="/communities"
-                component={() => <Navigate href="/friends" />}
+                component={() => (
+                  <RequireAuth>
+                    <Communities />
+                  </RequireAuth>
+                )}
+              />
+              <Route
+                path="/users"
+                component={() => (
+                  <RequireAuth>
+                    <UserSearch />
+                  </RequireAuth>
+                )}
+              />
+              <Route
+                path="/invitations"
+                component={() => (
+                  <RequireAuth>
+                    <Invitations />
+                  </RequireAuth>
+                )}
               />
               <Route
                 path="/c/:id"
@@ -129,6 +153,14 @@ export default function App() {
                 component={() => (
                   <RequireAuth>
                     <Settings />
+                  </RequireAuth>
+                )}
+              />
+              <Route
+                path="/posts/:id"
+                component={() => (
+                  <RequireAuth>
+                    <PostDetail />
                   </RequireAuth>
                 )}
               />

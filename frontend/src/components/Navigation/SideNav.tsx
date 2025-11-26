@@ -6,6 +6,7 @@ import {
   IconSettings,
   IconUser,
   IconUsers,
+  IconSearch,
 } from "../icons";
 import logoUrl from "../../assets/solid.svg";
 import Avatar from "../Avatar";
@@ -70,8 +71,16 @@ export default function SideNav(props: Props) {
         href="/friends"
         title="友達"
       >
-        <IconUsers />
+        <IconUser />
         <span class="hidden xl:inline text-sm">友達</span>
+      </a>
+      <a
+        class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"
+        href="/communities"
+        title="コミュニティ"
+      >
+        <IconUsers />
+        <span class="hidden xl:inline text-sm">コミュニティ</span>
       </a>
       <a
         class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"
@@ -90,6 +99,14 @@ export default function SideNav(props: Props) {
         <span class="hidden xl:inline text-sm">プロフィール</span>
       </a>
       <div class="flex-1" />
+      <a
+        class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"
+        href="/users"
+        title="ユーザー検索"
+      >
+        <IconSearch />
+        <span class="hidden xl:inline text-sm">検索</span>
+      </a>
       {/* Bottom actions */}
       <a
         class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"

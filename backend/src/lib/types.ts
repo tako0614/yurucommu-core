@@ -321,6 +321,7 @@ export interface DatabaseAPI {
   updateCommunity(id: string, fields: Record<string, any>): Promise<any>;
   searchCommunities?(query: string, userId?: string): Promise<any[]>;
   setMembership(community_id: string, user_id: string, membership: MembershipInput): Promise<void>;
+  removeMembership?(community_id: string, user_id: string): Promise<void>;
   hasMembership(community_id: string, user_id: string): Promise<boolean>;
   listMembershipsByCommunity(community_id: string): Promise<any[]>;
   listUserCommunities(user_id: string): Promise<any[]>;

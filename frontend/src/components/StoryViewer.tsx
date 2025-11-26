@@ -7,7 +7,7 @@ import {
   Show,
 } from "solid-js";
 
-import { deleteStory, type Story } from "../lib/stories";
+import { deleteStory, updateStory, type Story } from "../lib/stories";
 import StoryCanvas from "./StoryCanvas";
 import Avatar from "./Avatar";
 import StoryViewerController, {
@@ -45,6 +45,7 @@ export default function StoryViewer(props: Props) {
     controller.getSnapshot(),
   );
   const [menuOpen, setMenuOpen] = createSignal(false);
+  const [extending, setExtending] = createSignal(false);
 
   const unsubscribe = controller.subscribe((snapshot: any) => setState(snapshot));
   onCleanup(() => {
@@ -190,6 +191,21 @@ export default function StoryViewer(props: Props) {
     }
   };
 
+  const handleExtend = async () => {
+    const story = currentStory();
+    if (!story || !isOwnStory() || extending()) return;
+    setExtending(true);
+    try {
+      await updateStory(story.id, { extendHours: 24 });
+      window.alert("公開期限を24時間延長しました。");
+    } catch (error: any) {
+      window.alert(error?.message || "ストーリーを更新できませんでした。");
+    } finally {
+      setExtending(false);
+      setMenuOpen(false);
+    }
+  };
+
   const next = () => {
     setMenuOpen(false);
     controller.next();
@@ -304,6 +320,29 @@ export default function StoryViewer(props: Props) {
                     <div
                       class="absolute right-0 mt-2 w-40 rounded-2xl bg-black/85 backdrop-blur border border-white/10 shadow-lg py-2"
                     >
+                      <button
+                        class="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10 flex items-center gap-2 disabled:opacity-60"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleExtend();
+                        }}
+                        disabled={extending()}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          class="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <path d="M12 8v4l3 3" />
+                          <circle cx="12" cy="12" r="9" />
+                        </svg>
+                        <span>{extending() ? "延長中…" : "24時間延長"}</span>
+                      </button>
                       <button
                         class="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-white/10 flex items-center gap-2"
                         onClick={(event) => {

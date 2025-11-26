@@ -11,262 +11,14 @@
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import { IconHeart } from "../components/icons";
-import { api, getUser } from "../lib/api";
+import { api } from "../lib/api";
 import AllStoriesBar from "../components/AllStoriesBar";
-import Avatar from "../components/Avatar";
+import PostCard from "../components/PostCard";
 import useSwipeTabs from "../hooks/useSwipeTabs";
 
 // Homeの偽StoriesBarを削除。実データ版を使用、E
 
 // HomeからコンポEザーは撤去E作Eは別ペEジへEE
-
-function formatTimestamp(value?: string) {
-  if (!value) return "";
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return value || "";
-  }
-}
-
-
-
-function FeedItem(props: { p: any }) {
-  const [isLiked, setIsLiked] = createSignal(false);
-  const [likeCount, setLikeCount] = createSignal(props.p.like_count || 0);
-  const [shareCopied, setShareCopied] = createSignal(false);
-  const [author] = createResource(async () =>
-    getUser(props.p.author_id).catch(() => null)
-  );
-
-  const mediaUrls = createMemo(() =>
-    Array.isArray(props.p.media_urls)
-      ? (props.p.media_urls as string[]).filter(
-          (url) => typeof url === "string" && url.length > 0,
-        )
-      : []
-  );
-  const formattedCreatedAt = createMemo(() => formatTimestamp(props.p.created_at));
-  const shareLabel = createMemo(() => (shareCopied() ? "コピーしました" : "共有"));
-  let shareResetTimer: ReturnType<typeof setTimeout> | undefined;
-
-  onCleanup(() => {
-    if (shareResetTimer) clearTimeout(shareResetTimer);
-  });
-
-  const handleLike = () => {
-    setIsLiked((prev) => {
-      const next = !prev;
-      setLikeCount((count) => Math.max(0, count + (next ? 1 : -1)));
-      return next;
-    });
-  };
-
-  const handleShare = async () => {
-    if (typeof window === "undefined") return;
-    const postUrl = new URL(`/posts/${props.p.id}`, window.location.origin).toString();
-    try {
-      if (typeof navigator !== "undefined" && navigator.share) {
-        await navigator.share({ url: postUrl });
-        return;
-      }
-      if (
-        typeof navigator !== "undefined" &&
-        navigator.clipboard &&
-        typeof navigator.clipboard.writeText === "function"
-      ) {
-        await navigator.clipboard.writeText(postUrl);
-      }
-    } catch {
-      // fall through to fallback UI state
-    }
-    setShareCopied(true);
-    if (shareResetTimer) clearTimeout(shareResetTimer);
-    shareResetTimer = setTimeout(() => setShareCopied(false), 2000);
-  };
-
-  return (
-    <article class="bg-white dark:bg-neutral-900 border hairline rounded-2xl shadow-sm transition-colors">
-      <Show when={props.p.community_id && (props.p.community_name || props.p.community_icon_url)}>
-        <a
-          href={`/c/${props.p.community_id}`}
-          class="px-4 pt-3 flex items-center gap-2 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-100 transition-colors"
-        >
-          <Avatar
-            src={props.p.community_icon_url || ""}
-            alt="コミュニティ"
-            class="w-4 h-4 rounded"
-            variant="community"
-          />
-          <span>{props.p.community_name || "コミュニティ"}</span>
-        </a>
-      </Show>
-      <Show when={author()}>
-        <div class="px-4 pb-4 pt-3 flex items-start gap-3">
-          <a
-            href={`/@${encodeURIComponent((props.p as any).author_handle || props.p.author_id)}`}
-            class="flex-shrink-0"
-          >
-            <Avatar
-              src={author()?.avatar_url || ""}
-              alt="アバター"
-              class="w-12 h-12 rounded-full bg-gray-200 dark:bg-neutral-700 object-cover"
-            />
-          </a>
-          <div class="flex-1 min-w-0">
-            <div class="flex flex-wrap items-center gap-x-2 text-[15px] leading-tight">
-                <a
-                href={`/@${encodeURIComponent((props.p as any).author_handle || props.p.author_id)}`}
-                class="font-semibold text-gray-900 dark:text-white truncate hover:underline"
-              >
-                {author()?.display_name}
-              </a>
-              <Show when={formattedCreatedAt()}>
-                {(createdAt) => (
-                  <>
-                    <span class="text-gray-500">·</span>
-                    <span class="text-gray-500">{createdAt()}</span>
-                  </>
-                )}
-              </Show>
-            </div>
-          <Show when={props.p.text}>
-            <div class="mt-2 text-[15px] leading-[1.5] text-gray-900 dark:text-white whitespace-pre-wrap">
-              {props.p.text}
-            </div>
-          </Show>
-          <Show when={mediaUrls().length > 0}>
-            <div class="mt-3 rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700 bg-black/5 dark:bg-white/5">
-              <Show
-                when={mediaUrls().length === 1}
-                fallback={
-                  <div class="flex overflow-x-auto gap-2 snap-x snap-mandatory">
-                    <For each={mediaUrls()}>
-                      {(url, idx) => (
-                        <div class="flex-shrink-0 basis-full snap-center">
-                          <img
-                            src={url}
-                            alt={`投稿画像${idx() + 1}`}
-                            class="w-full h-full max-h-96 object-cover"
-                          />
-                        </div>
-                      )}
-                    </For>
-                  </div>
-                }
-              >
-                <img
-                  src={mediaUrls()[0]}
-                  alt="投稿画像"
-                  class="w-full h-full max-h-96 object-cover"
-                />
-              </Show>
-            </div>
-          </Show>
-            <div class="flex items-center justify-between max-w-md mt-4 text-sm text-gray-500">
-              <button
-                type="button"
-                class="flex items-center gap-2 rounded-full px-2 py-1 hover:text-blue-500 transition-colors group"
-                aria-label="返信"
-              >
-                <div class="p-2 rounded-full group-hover:bg-blue-50 dark:group-hover:bg-blue-900/20 transition-colors">
-                  <svg
-                    class="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
-                    />
-                  </svg>
-                </div>
-                <span>{props.p.comment_count || 0}</span>
-              </button>
-              <button
-                type="button"
-                class="flex items-center gap-2 rounded-full px-2 py-1 hover:text-green-500 transition-colors group"
-                aria-label="リポスト"
-              >
-                <div class="p-2 rounded-full group-hover:bg-green-50 dark:group-hover:bg-green-900/20 transition-colors">
-                  <svg
-                    class="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                    />
-                  </svg>
-                </div>
-                <span>{props.p.reaction_count || 0}</span>
-              </button>
-              <button
-                type="button"
-                class={`flex items-center gap-2 rounded-full px-2 py-1 transition-colors group ${
-                  isLiked() ? "text-red-500" : "hover:text-red-500"
-                }`}
-                onClick={handleLike}
-                aria-label="いいね"
-              >
-                <div
-                  class={`p-2 rounded-full transition-colors group-hover:bg-red-50 dark:group-hover:bg-red-900/20 ${
-                    isLiked() ? "bg-red-50 dark:bg-red-900/20" : ""
-                  }`}
-                >
-                  <svg
-                    class={`w-5 h-5 ${isLiked() ? "fill-current" : ""}`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-                    />
-                  </svg>
-                </div>
-                <span>{likeCount()}</span>
-              </button>
-              <button
-                type="button"
-                class="flex items-center gap-2 rounded-full px-2 py-1 hover:text-blue-500 transition-colors group"
-                onClick={handleShare}
-                aria-label="共有"
-              >
-                <div class="p-2 rounded-full group-hover:bg-blue-50 dark:group-hover:bg-blue-900/20 transition-colors">
-                  <svg
-                    class="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z"
-                    />
-                  </svg>
-                </div>
-                <span aria-live="polite">{shareLabel()}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </Show>
-    </article>
-  );
-}
 
 type FilterOption =
   | { key: "all"; label: string; type: "all" }
@@ -598,6 +350,30 @@ export default function Home(props: Props) {
 
   const [feedStates, setFeedStates] = createStore<Record<string, FeedState>>({});
 
+  const updatePostInFeeds = (updatedPost: any) => {
+    Object.keys(feedStates).forEach((key) => {
+      setFeedStates(key, (state) => {
+        if (!state || !Array.isArray(state.posts)) return state;
+        const idx = state.posts.findIndex((p: any) => p.id === updatedPost?.id);
+        if (idx === -1) return state;
+        const nextPosts = [...state.posts];
+        nextPosts[idx] = { ...nextPosts[idx], ...updatedPost };
+        return { ...state, posts: nextPosts };
+      });
+    });
+  };
+
+  const removePostFromFeeds = (postId: string) => {
+    Object.keys(feedStates).forEach((key) => {
+      setFeedStates(key, (state) => {
+        if (!state || !Array.isArray(state.posts)) return state;
+        const filtered = state.posts.filter((p: any) => p.id !== postId);
+        if (filtered.length === state.posts.length) return state;
+        return { ...state, posts: filtered };
+      });
+    });
+  };
+
   type ActiveFeedSource = {
     option: FilterOption;
     comms: any[] | undefined;
@@ -886,7 +662,13 @@ export default function Home(props: Props) {
                             }
                           >
                             <For each={posts()}>
-                              {(p: any) => <FeedItem p={p} />}
+                              {(p: any) => (
+                                <PostCard
+                                  post={p}
+                                  onUpdated={updatePostInFeeds}
+                                  onDeleted={removePostFromFeeds}
+                                />
+                              )}
                             </For>
                           </Show>
                         </div>

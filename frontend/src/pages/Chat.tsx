@@ -700,18 +700,18 @@ export default function Chat() {
                                         </A>
                                         <button
                                           type="button"
-                                          class="p-1 rounded hover:bg-gray-200 dark:hover:bg-neutral-700 opacity-0 group-hover:opacity-100"
+                                          class="p-1 rounded hover:bg-gray-200 dark:hover:bg-neutral-700 text-xs"
                                           onClick={() =>
                                             editChannel(c.id, ch.id, ch.name)}
                                         >
-                                          ✏️
+                                          編集
                                         </button>
                                         <button
                                           type="button"
-                                          class="p-1 rounded hover:bg-gray-200 dark:hover:bg-neutral-700 opacity-0 group-hover:opacity-100"
+                                          class="p-1 rounded hover:bg-gray-200 dark:hover:bg-neutral-700 text-xs"
                                           onClick={() => removeChannel(c.id, ch.id)}
                                         >
-                                          🗑️
+                                          削除
                                         </button>
                                       </div>
                                     );
@@ -981,20 +981,18 @@ utral-800 flex-1 min-w-0 ${
                                             </A>
                                             <button
                                               type="button"
-                                              class="p-1 rounded hover:bg-gray-200 dark:hover:bg-neutral-700 opacity-0 group-hover
-:opacity-100"
+                                              class="p-1 rounded hover:bg-gray-200 dark:hover:bg-neutral-700 text-xs"
                                               onClick={() =>
                                                 editChannel(c.id, ch.id, ch.name)}
                                             >
-                                              ✏️
+                                              編集
                                             </button>
                                             <button
                                               type="button"
-                                              class="p-1 rounded hover:bg-gray-200 dark:hover:bg-neutral-700 opacity-0 group-hover
-:opacity-100"
+                                              class="p-1 rounded hover:bg-gray-200 dark:hover:bg-neutral-700 text-xs"
                                               onClick={() => removeChannel(c.id, ch.id)}
                                             >
-                                              🗑️
+                                              削除
                                             </button>
                                           </div>
                                         );
