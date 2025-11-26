@@ -681,4 +681,33 @@ users.post("/users/:id/friends/reject", auth, async (c) => {
   }
 });
 
+// GET /users/:id/pinned - Get user's pinned posts
+users.get("/users/:id/pinned", optionalAuth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const userId = c.req.param("id");
+    const limit = Math.min(20, Math.max(1, parseInt(c.req.query("limit") || "10", 10)));
+
+    // Check if user exists
+    const user = await store.getUser(userId);
+    if (!user) return fail(c, "user not found", 404);
+
+    // Check for blocks
+    const me = c.get("user") as any;
+    if (me?.id && userId !== me.id) {
+      const blocked = await store.isBlocked?.(me.id, userId).catch(() => false);
+      const blocking = await store.isBlocked?.(userId, me.id).catch(() => false);
+      if (blocked || blocking) {
+        return fail(c, "forbidden", 403);
+      }
+    }
+
+    // Get pinned posts
+    const pinned_posts = await store.listPinnedPostsByUser?.(userId, limit);
+    return ok(c, pinned_posts || []);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
 export default users;
