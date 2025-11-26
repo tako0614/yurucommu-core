@@ -6,7 +6,7 @@ import SideNav from "./components/Navigation/SideNav";
 import AppTab from "./components/Navigation/AppTab";
 import PostComposer from "./components/PostComposer";
 import NotificationPanel from "./components/NotificationPanel";
-import Communities from "./pages/Communities";
+import Connections from "./pages/Connections";
 import CommunityHub from "./pages/CommunityHub";
 import Chat from "./pages/Chat";
 import DefaultLogin from "./pages/Login";
@@ -21,9 +21,9 @@ import Onboarding from "./pages/Onboarding";
 import Home from "./pages/Home";
 import Stories from "./pages/Stories";
 import PostDetail from "./pages/PostDetail";
-import Friends from "./pages/Friends";
 import UserSearch from "./pages/UserSearch";
 import Invitations from "./pages/Invitations";
+import { ToastProvider } from "./components/Toast";
 
 const Login = resolveComponent("Login", DefaultLogin);
 const Profile = resolveComponent("Profile", DefaultProfile);
@@ -40,15 +40,16 @@ export default function App() {
   const closeNotifications = () => setNotificationsOpen(false);
 
   return (
-    <div class="min-h-dvh bg-white dark:bg-black flex md:grid md:grid-cols-[72px_1fr] xl:grid-cols-[220px_1fr] overflow-x-hidden">
-        {/* PC: 左サイドナビ（md以上） */}
-        <SideNav
-          onOpenComposer={openComposer}
-          onOpenNotifications={openNotifications}
-        />
+    <ToastProvider>
+      <div class="min-h-dvh bg-white dark:bg-black flex md:grid md:grid-cols-[72px_1fr] xl:grid-cols-[220px_1fr] overflow-x-hidden">
+          {/* PC: 左サイドナビ（md以上） */}
+          <SideNav
+            onOpenComposer={openComposer}
+            onOpenNotifications={openNotifications}
+          />
 
-        {/* メインコンテンツ */}
-        <Router>
+          {/* メインコンテンツ */}
+          <Router>
           <Route path="/" component={MainLayout}>
               <Route path="/auth/callback" component={AuthCallback} />
               <Route
@@ -69,21 +70,16 @@ export default function App() {
                 )}
               />
               <Route
-                path="/friends"
+                path="/connections"
                 component={() => (
                   <RequireAuth>
-                    <Friends />
+                    <Connections />
                   </RequireAuth>
                 )}
               />
-              <Route
-                path="/communities"
-                component={() => (
-                  <RequireAuth>
-                    <Communities />
-                  </RequireAuth>
-                )}
-              />
+              {/* Legacy routes redirect to connections */}
+              <Route path="/friends" component={() => <Navigate href="/connections" />} />
+              <Route path="/communities" component={() => <Navigate href="/connections" />} />
               <Route
                 path="/users"
                 component={() => (
@@ -201,6 +197,7 @@ export default function App() {
         onClose={closeNotifications}
       />
     </div>
+    </ToastProvider>
   );
 }
 
