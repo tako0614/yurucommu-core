@@ -41,7 +41,7 @@ export default function Compose() {
 
   // Load draft from URL parameter
   onMount(async () => {
-    const draftId = searchParams.draft;
+    const draftId = Array.isArray(searchParams.draft) ? searchParams.draft[0] : searchParams.draft;
     if (draftId) {
       try {
         const draft = await getPostPlan(draftId);

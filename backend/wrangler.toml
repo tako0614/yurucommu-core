@@ -23,8 +23,8 @@ bucket_name = "your-media-bucket"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "your-app-db"
-database_id = "your-database-id"
+database_name = "takos-main"
+database_id = "06de5795-6958-44b3-a35e-c09e82b9a443"
 migrations_dir = "d1_migrations"
 
 [triggers]
