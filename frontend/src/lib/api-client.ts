@@ -242,10 +242,41 @@ export function removeAccount(index: number): void {
   }
 }
 
+// Decode JWT without verification (for client-side expiry check only)
+function decodeJWT(token: string): any {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = parts[1];
+    const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
+
+// Check if JWT is expired
+function isJWTExpired(token: string): boolean {
+  const payload = decodeJWT(token);
+  if (!payload || !payload.exp) return true;
+  const now = Math.floor(Date.now() / 1000);
+  return payload.exp < now;
+}
+
 export function getJWT(): string | null {
   if (typeof window === "undefined") return null;
   try {
-    return window.localStorage.getItem(JWT_STORAGE_KEY);
+    const token = window.localStorage.getItem(JWT_STORAGE_KEY);
+    if (!token) return null;
+
+    // Check if token is expired
+    if (isJWTExpired(token)) {
+      console.warn("JWT token has expired, clearing...");
+      clearJWT();
+      return null;
+    }
+
+    return token;
   } catch {
     return null;
   }
