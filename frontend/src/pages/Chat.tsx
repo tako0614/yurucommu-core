@@ -138,13 +138,13 @@ async function sendDm(
     throw new Error("sender handle is required");
   }
   const instanceOrigin = resolveInstanceOrigin();
-  const threadId = computeThreadId(instanceOrigin, localHandle, selection.id);
+  // Send recipient handle, not the full URI
   await postDirectMessage({
-    recipients: [`${instanceOrigin}/ap/users/${selection.id}`],
+    recipients: [selection.id],
     content: text,
-    context: `${instanceOrigin}/ap/dm/${threadId}`,
   });
-  await loadDm(threadId, selection.id);
+  // Reload the conversation using the thread ID from response
+  await loadDm(computeThreadId(instanceOrigin, localHandle, selection.id), selection.id);
 }
 
 async function sendChannel(
@@ -152,14 +152,12 @@ async function sendChannel(
   text: string,
   channelName?: string,
 ) {
-  const instanceOrigin = resolveInstanceOrigin();
-  const channelSegment = channelName || selection.channelId;
-  const channelUri = `${instanceOrigin}/ap/channels/${selection.communityId}/${encodeURIComponent(channelSegment)}`;
   await postChannelMessage({
-    channelUri,
+    communityId: selection.communityId,
+    channelId: selection.channelId,
     content: text,
   });
-  await loadChannel(selection.communityId, selection.channelId, channelSegment);
+  await loadChannel(selection.communityId, selection.channelId, channelName || selection.channelId);
 }
 
 function MessageBubble(props: { msg: MessageObject; mine: boolean }) {

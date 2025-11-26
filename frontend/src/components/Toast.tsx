@@ -1,4 +1,4 @@
-import { createSignal, For, Show, onCleanup } from "solid-js";
+import { createSignal, For } from "solid-js";
 import { createContext, useContext } from "solid-js";
 import type { ParentComponent } from "solid-js";
 

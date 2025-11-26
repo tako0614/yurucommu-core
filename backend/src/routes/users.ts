@@ -466,33 +466,28 @@ users.post("/users/:id/friends", auth, async (c) => {
     const existing: any = await store
       .getFriendshipBetween(me.id, targetId)
       .catch(() => null);
-    if (existing) {
-      if (existing.status === "accepted") return ok(c, existing);
-      if (existing.status === "pending" && existing.addressee_id === me.id) {
-        const updated = await store.setFriendStatus(
-          existing.requester_id,
-          existing.addressee_id,
-          "accepted",
-        );
-        await notify(
-          store,
-          c.env as Bindings,
-          existing.requester_id,
-          "friend_accepted",
-          me.id,
-          "user",
-          me.id,
-          `${me.display_name} が友達リクエストを承認しました`,
-          {
-            allowDefaultPushFallback: true,
-            defaultPushSecret: c.env.DEFAULT_PUSH_SERVICE_SECRET || "",
-          },
-        );
-        return ok(c, updated);
-      }
-      if (existing.status === "pending" && existing.requester_id === me.id) {
-        return ok(c, existing);
-      }
+    if (existing?.status === "accepted") return ok(c, existing);
+    if (existing?.status === "pending" && existing.addressee_id === me.id) {
+      const updated = await store.setFriendStatus(
+        existing.requester_id,
+        existing.addressee_id,
+        "accepted",
+      );
+      await notify(
+        store,
+        c.env as Bindings,
+        existing.requester_id,
+        "friend_accepted",
+        me.id,
+        "user",
+        me.id,
+        `${me.display_name} が友達リクエストを承認しました`,
+        {
+          allowDefaultPushFallback: true,
+          defaultPushSecret: c.env.DEFAULT_PUSH_SERVICE_SECRET || "",
+        },
+      );
+      return ok(c, updated);
     }
     const created: any = await store.createFriendRequest(me.id, targetId);
     await notify(

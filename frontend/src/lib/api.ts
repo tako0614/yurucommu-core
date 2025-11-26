@@ -11,6 +11,7 @@ export * from "./api-client";
 
 // Import specific items we need
 import {
+  api,
   getBackendUrl,
   hasJWT,
   getJWT,
@@ -294,21 +295,6 @@ function requireBackendOrigin(): string {
   throw new Error("BACKEND_URL not configured");
 }
 
-function buildActorUri(handle: string): string {
-  return `${requireBackendOrigin().replace(/\/+$/, "")}/ap/users/${encodeURIComponent(handle)}`;
-}
-
-function canonicalizeParticipants(participants: string[]): string[] {
-  return participants
-    .map((uri) => uri.trim())
-    .filter(Boolean)
-    .sort();
-}
-
-function computeDmThreadId(localActor: string, recipients: string[]): string {
-  return canonicalizeParticipants([localActor, ...recipients]).join("#");
-}
-
 async function activityRequest(
   path: string,
   init: RequestInit = {},
@@ -402,77 +388,50 @@ export async function postDirectMessage(
     context?: string | null;
   },
 ) {
-  const me = await fetchMe();
-  const handle = (me as any)?.handle || me.id;
-  const actorUri = buildActorUri(handle);
   const recipients = Array.isArray(params.recipients)
     ? params.recipients
     : [];
   if (!recipients.length) {
     throw new Error("recipient required");
   }
-  const threadId = computeDmThreadId(actorUri, recipients);
-  const threadContext =
-    params.context ||
-    `${requireBackendOrigin().replace(/\/+$/, "")}/ap/dm/${threadId}`;
 
-  const payload = {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    type: "Create",
-    actor: actorUri,
-    to: recipients,
-    cc: [actorUri],
-    object: {
-      type: "Note",
+  // Use the standard REST API instead of ActivityPub outbox
+  const result = await api("/dm/send", {
+    method: "POST",
+    body: JSON.stringify({
+      recipients,
       content: params.content,
-      context: threadContext,
       ...(params.inReplyTo && typeof params.inReplyTo === "string" && params.inReplyTo.trim()
         ? { inReplyTo: params.inReplyTo.trim() }
         : {}),
-    },
-  };
-
-  await activityRequest(`/ap/users/${encodeURIComponent(handle)}/outbox`, {
-    method: "POST",
-    body: JSON.stringify(payload),
+    }),
   });
-  return { threadId };
+
+  return { threadId: (result as any)?.threadId };
 }
 
 export async function postChannelMessage(
   params: {
-    channelUri: string;
+    communityId: string;
+    channelId: string;
     content: string;
-    cc?: string[];
+    recipients?: string[];
     inReplyTo?: string | null;
   },
 ) {
-  const me = await fetchMe();
-  const handle = (me as any)?.handle || me.id;
-  const actorUri = buildActorUri(handle);
-  const channelUri = params.channelUri;
-  if (!channelUri) {
-    throw new Error("channelUri required");
+  if (!params.communityId || !params.channelId) {
+    throw new Error("communityId and channelId required");
   }
 
-  const payload = {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    type: "Create",
-    actor: actorUri,
-    to: [channelUri],
-    cc: Array.isArray(params.cc) ? params.cc : [],
-    object: {
-      type: "Note",
+  // Use the standard REST API instead of ActivityPub outbox
+  await api(`/communities/${encodeURIComponent(params.communityId)}/channels/${encodeURIComponent(params.channelId)}/messages`, {
+    method: "POST",
+    body: JSON.stringify({
       content: params.content,
-      context: channelUri,
+      recipients: Array.isArray(params.recipients) ? params.recipients : [],
       ...(params.inReplyTo && typeof params.inReplyTo === "string" && params.inReplyTo.trim()
         ? { inReplyTo: params.inReplyTo.trim() }
         : {}),
-    },
-  };
-
-  await activityRequest(`/ap/users/${encodeURIComponent(handle)}/outbox`, {
-    method: "POST",
-    body: JSON.stringify(payload),
+    }),
   });
 }
