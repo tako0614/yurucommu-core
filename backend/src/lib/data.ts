@@ -444,7 +444,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
         status: "pending",
         created_at: new Date(),
       },
-      update: { status: "pending" },
+      update: { status: "pending", created_at: new Date() },
     });
     return getFriendRequest(requester_id, addressee_id);
   };
