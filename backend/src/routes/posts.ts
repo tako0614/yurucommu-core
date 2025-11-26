@@ -231,6 +231,31 @@ posts.get("/posts", auth, async (c) => {
   }
 });
 
+// GET /posts/:id (single post)
+posts.get("/posts/:id", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const user = c.get("user") as any;
+    const post_id = c.req.param("id");
+    const post = await store.getPost(post_id);
+    if (!post) return fail(c, "post not found", 404);
+    if (!(await requireMember(store, (post as any).community_id, user.id))) {
+      return fail(c, "forbidden", 403);
+    }
+    const result: any = { ...post };
+    if ((post as any).community_id) {
+      const community = await store.getCommunity((post as any).community_id);
+      if (community) {
+        result.community_name = (community as any).name;
+        result.community_icon_url = (community as any).icon_url;
+      }
+    }
+    return ok(c, result);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
 // GET /posts/:id/reactions
 posts.get("/posts/:id/reactions", auth, async (c) => {
   const store = makeData(c.env as any, c);

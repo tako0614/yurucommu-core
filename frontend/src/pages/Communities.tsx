@@ -11,6 +11,7 @@ import {
   searchUsers,
   listMyFriends,
   listMyFriendRequests,
+  joinCommunity,
   useMe,
 } from "../lib/api";
 import { buildProfileUrlByHandle, buildActivityPubHandle, getUserDomain } from "../lib/url";
@@ -41,7 +42,7 @@ export default function Communities() {
   const me = useMe();
   const navigate = useNavigate();
 
-  const [viewMode, setViewMode] = createSignal<ViewMode>("overview");
+  const [viewMode, setViewMode] = createSignal<ViewMode>("communities");
   const [shareOpen, setShareOpen] = createSignal(false);
   const [profileModalView, setProfileModalView] = createSignal<"share" | "scan">("share");
 
@@ -63,6 +64,11 @@ export default function Communities() {
   const [incomingRequests] = createResource(async () => (await listMyFriendRequests("incoming").catch(() => [])) as any[]);
   const [outgoingRequests] = createResource(async () => (await listMyFriendRequests("outgoing").catch(() => [])) as any[]);
   const [createCommunityOpen, setCreateCommunityOpen] = createSignal(false);
+  const [joinCommunityId, setJoinCommunityId] = createSignal("");
+  const [joinCode, setJoinCode] = createSignal("");
+  const [joinNickname, setJoinNickname] = createSignal("");
+  const [joining, setJoining] = createSignal(false);
+  const [joinMessage, setJoinMessage] = createSignal<string | null>(null);
 
   const friends = createMemo<FriendEntry[]>(() => {
     const map = new Map<string, FriendEntry>();
@@ -230,6 +236,32 @@ export default function Communities() {
     }
   };
 
+  const handleJoinByCode = async () => {
+    const communityId = joinCommunityId().trim();
+    const code = joinCode().trim();
+    const nickname = joinNickname().trim();
+    if (!communityId || !code) {
+      setJoinMessage("コミュニティIDと招待コードを入力してください。");
+      return;
+    }
+    setJoining(true);
+    setJoinMessage(null);
+    try {
+      await joinCommunity(communityId, {
+        code,
+        nickname: nickname || undefined,
+      });
+      setJoinMessage("コミュニティに参加しました。ページへ移動します…");
+      setTimeout(() => {
+        navigate(`/c/${encodeURIComponent(communityId)}`);
+      }, 300);
+    } catch (error: any) {
+      setJoinMessage(error?.message || "コミュニティ参加に失敗しました。");
+    } finally {
+      setJoining(false);
+    }
+  };
+
   const openCreateCommunityModal = () => setCreateCommunityOpen(true);
 
   const handleCommunityCreated = (community: any) => {
@@ -314,11 +346,11 @@ export default function Communities() {
       case "communities":
         return "コミュニティ";
       default:
-        return "友達";
+        return "コミュニティ";
     }
   });
 
-  const showBack = createMemo(() => viewMode() !== "overview");
+  const showBack = createMemo(() => viewMode() === "friends");
 
   return (
     <>
@@ -479,11 +511,61 @@ export default function Communities() {
                     type="button"
                     class="px-4 py-2 rounded-full bg-blue-600 text-white"
                     onClick={() => void handleCommunitySearch()}
-                  >
-                    {communitySearching() ? "検索中..." : "検索"}
-                  </button>
+                >
+                  {communitySearching() ? "検索中..." : "検索"}
+                </button>
+              </div>
+              <p class="text-sm text-gray-500">コミュニティを検索して参加できます</p>
+              <div class="grid md:grid-cols-2 gap-4">
+                <div class="bg-white dark:bg-neutral-900 border hairline rounded-2xl p-4 space-y-3">
+                  <div class="font-semibold">招待コードで参加</div>
+                  <div class="grid gap-2">
+                    <input
+                      class="rounded-full border hairline px-3 py-2 bg-gray-50 dark:bg-neutral-900"
+                      placeholder="コミュニティID"
+                      value={joinCommunityId()}
+                      onInput={(e) => setJoinCommunityId((e.target as HTMLInputElement).value)}
+                    />
+                    <input
+                      class="rounded-full border hairline px-3 py-2 bg-gray-50 dark:bg-neutral-900"
+                      placeholder="招待コード"
+                      value={joinCode()}
+                      onInput={(e) => setJoinCode((e.target as HTMLInputElement).value)}
+                    />
+                    <input
+                      class="rounded-full border hairline px-3 py-2 bg-gray-50 dark:bg-neutral-900"
+                      placeholder="ニックネーム (任意)"
+                      value={joinNickname()}
+                      onInput={(e) => setJoinNickname((e.target as HTMLInputElement).value)}
+                    />
+                    <div class="flex items-center gap-2">
+                      <button
+                        type="button"
+                        class="px-4 py-2 rounded-full bg-gray-900 text-white disabled:opacity-60"
+                        onClick={() => void handleJoinByCode()}
+                        disabled={joining()}
+                      >
+                        {joining() ? "参加中…" : "参加する"}
+                      </button>
+                      <Show when={joinMessage()}>
+                        <span class="text-sm text-muted">{joinMessage()}</span>
+                      </Show>
+                    </div>
+                  </div>
                 </div>
-                <p class="text-sm text-gray-500">コミュニティを検索して参加できます</p>
+                <div class="bg-white dark:bg-neutral-900 border hairline rounded-2xl p-4 space-y-2">
+                  <div class="font-semibold">招待の管理</div>
+                  <p class="text-sm text-muted">
+                    受信したコミュニティ招待を確認・承認できます。
+                  </p>
+                  <a
+                    class="inline-flex items-center gap-2 px-4 py-2 rounded-full border hairline hover:bg-gray-50 text-sm"
+                    href="/invitations"
+                  >
+                    招待一覧を開く
+                  </a>
+                </div>
+              </div>
               </div>
 
               <Show when={!communitiesLoading() || communityHasSearched()} fallback={<div class="text-sm text-gray-500">読み込み中...</div>}>

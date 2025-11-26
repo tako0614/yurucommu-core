@@ -509,6 +509,32 @@ communities.post("/communities/:id/join", auth, async (c) => {
   return ok(c, { community_id, user_id: user.id });
 });
 
+// Leave community
+communities.post("/communities/:id/leave", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  const user = c.get("user") as any;
+  const community_id = c.req.param("id");
+  const community = await store.getCommunity(community_id);
+  if (!community) return fail(c, "community not found", 404);
+  const members = await store.listCommunityMembersWithUsers(community_id);
+  const membership = (members as any[]).find((m: any) => m.user_id === user.id);
+  if (!membership) return fail(c, "not a member", 400);
+  if (membership.role === "Owner") {
+    return fail(c, "owner cannot leave community", 400);
+  }
+  if (store.removeMembership) {
+    await store.removeMembership(community_id, user.id);
+  } else {
+    await store.setMembership(community_id, user.id, {
+      role: membership.role || "Member",
+      nickname: membership.nickname,
+      joined_at: membership.joined_at || nowISO(),
+      status: "left",
+    });
+  }
+  return ok(c, { community_id, left: true });
+});
+
 // Send direct member invites
 communities.post("/communities/:id/direct-invites", auth, async (c) => {
   const store = makeData(c.env as any, c);

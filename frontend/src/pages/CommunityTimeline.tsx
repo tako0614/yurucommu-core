@@ -1,10 +1,10 @@
 import { useParams } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
-import { api, getUser } from "../lib/api";
+import { api } from "../lib/api";
 import StoriesBar from "../components/StoriesBar";
 import StoryViewer from "../components/StoryViewer";
 import type { Story } from "../lib/stories";
-import Avatar from "../components/Avatar";
+import PostCard from "../components/PostCard";
 
 function PostComposer(props: { onSubmit: (text: string) => Promise<void> }) {
   const submit = async (e: Event) => {
@@ -34,69 +34,28 @@ function PostComposer(props: { onSubmit: (text: string) => Promise<void> }) {
   );
 }
 
-function FeedItem(props: { p: any; community: any }) {
-  const [author] = createResource(async () =>
-    getUser(props.p.author_id).catch(() => null)
-  );
-  return (
-    <article class="bg-white dark:bg-neutral-900 border rounded-xl">
-      {/* Community header */}
-      <div class="px-3 pt-2 flex items-center gap-2 text-xs text-gray-500">
-        <img
-          src={props.community?.icon_url || ""}
-          alt="コミュニティ"
-          class="w-4 h-4 rounded"
-        />
-        <a href={`/c/${props.community?.id}`} class="hover:underline">
-          {props.community?.name}
-        </a>
-      </div>
-      <Show when={author()}>
-        <div class="px-3 pt-2 flex items-start gap-3">
-          <a
-            href={`/@${encodeURIComponent((props.p as any).author_handle || props.p.author_id)}`}
-            class="flex-shrink-0"
-          >
-            <Avatar
-              src={author()?.avatar_url || ""}
-              alt="アバター"
-              class="w-10 h-10 rounded-full bg-gray-200 dark:bg-neutral-700 object-cover"
-            />
-          </a>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-1 text-[14px]">
-              <a
-                href={`/@${encodeURIComponent((props.p as any).author_handle || props.p.author_id)}`}
-                class="font-semibold hover:underline"
-              >
-                {author()?.display_name}
-              </a>
-            <span class="text-gray-500">·</span>
-            <span class="text-gray-500">{props.p.created_at}</span>
-          </div>
-          <div class="mt-1 whitespace-pre-wrap text-[15px] leading-relaxed">
-            {props.p.text}
-          </div>
-        </div>
-      </div>
-      <div class="px-3 pb-3 pt-2 flex items-center gap-4 text-sm">
-        <button class="hover:opacity-80">❤️ 0</button>
-        <button class="hover:opacity-80">👍 0</button>
-        <button class="hover:opacity-80 ml-auto">コメント</button>
-      </div>
-    </Show>
-    </article>
-  );
-}
-
 export default function CommunityTimeline() {
   const params = useParams();
   const [community] = createResource(async () =>
     api(`/communities/${params.id}`)
   );
-  const [posts, { refetch }] = createResource(async () =>
+  const [posts, { refetch, mutate: setPosts }] = createResource(async () =>
     api(`/communities/${params.id}/posts`)
   );
+  const handlePostUpdated = (updated: any) => {
+    setPosts((prev) => {
+      if (!Array.isArray(prev)) return prev;
+      return prev.map((p: any) =>
+        p.id === updated?.id ? { ...p, ...updated } : p,
+      );
+    });
+  };
+  const handlePostDeleted = (id: string) => {
+    setPosts((prev) => {
+      if (!Array.isArray(prev)) return prev;
+      return prev.filter((p: any) => p.id !== id);
+    });
+  };
   const [storyList, setStoryList] = createSignal<Story[] | null>(null);
   const [viewerIndex, setViewerIndex] = createSignal<number | null>(null);
   const [showSidebarMobile, setShowSidebarMobile] = createSignal(false);
@@ -141,7 +100,17 @@ export default function CommunityTimeline() {
         <PostComposer onSubmit={submit} />
         <div class="grid gap-3 pb-24">
           <For each={posts() || []}>
-            {(p: any) => <FeedItem p={p} community={community()} />}
+            {(p: any) => (
+              <PostCard
+                post={{
+                  ...p,
+                  community_name: community()?.name || (p as any).community_name,
+                  community_icon_url: community()?.icon_url || (p as any).community_icon_url,
+                }}
+                onUpdated={handlePostUpdated}
+                onDeleted={handlePostDeleted}
+              />
+            )}
           </For>
         </div>
         <Show when={viewerIndex() !== null && storyList()}>

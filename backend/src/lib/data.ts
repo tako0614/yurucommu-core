@@ -580,6 +580,17 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   const listMembershipsByCommunity = async (community_id: string) =>
     (prisma as any).memberships.findMany({ where: { community_id } });
 
+  const removeMembership = async (community_id: string, user_id: string) => {
+    try {
+      await (prisma as any).memberships.delete({
+        where: { community_id_user_id: { community_id, user_id } },
+      });
+    } catch (error) {
+      // Ignore if membership does not exist to keep idempotent behavior
+      console.warn("removeMembership failed", error);
+    }
+  };
+
   const listUserCommunities = async (user_id: string) => {
     const mems = await (prisma as any).memberships.findMany({
       where: { user_id },
@@ -2108,6 +2119,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     getCommunity,
     updateCommunity,
     setMembership,
+    removeMembership,
     hasMembership,
     listMembershipsByCommunity,
     listUserCommunities,
