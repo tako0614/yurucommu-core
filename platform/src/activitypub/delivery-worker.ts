@@ -9,7 +9,6 @@ import { makeData } from "../server/data-factory";
 import { signRequest } from "../auth/http-signature";
 import { ensureUserKeyPair } from "../auth/crypto-keys";
 import { requireInstanceDomain } from "../subdomain";
-import { withTransaction } from "../utils/utils";
 import { getOrFetchActor } from "./actor-fetch";
 
 interface Env {
@@ -204,48 +203,46 @@ export async function processDeliveryQueue(env: Env, batchSize = 10): Promise<vo
           delivery.local_user_id
         );
         
-        // Update delivery status in a transaction to ensure consistency
-        await withTransaction(store, async () => {
-          if (result.success) {
-            // Mark as delivered
+        // Update delivery status (D1 does not support transactions)
+        if (result.success) {
+          // Mark as delivered
+          await store.query(
+            `UPDATE ap_delivery_queue
+             SET status = 'delivered', delivered_at = datetime('now')
+             WHERE id = ?`,
+            [delivery.id]
+          );
+          console.log(`✓ Delivered to ${delivery.target_inbox_url}`);
+        } else {
+          // Increment retry count
+          const newRetryCount = (delivery.retry_count || 0) + 1;
+          const maxRetries = 5;
+          
+          if (newRetryCount >= maxRetries) {
+            // Mark as failed after max retries
             await store.query(
               `UPDATE ap_delivery_queue
-               SET status = 'delivered', delivered_at = datetime('now')
+               SET status = 'failed', retry_count = ?, last_error = ?, last_attempt_at = datetime('now')
                WHERE id = ?`,
-              [delivery.id]
+              [newRetryCount, result.error || "unknown error", delivery.id]
             );
-            console.log(`✓ Delivered to ${delivery.target_inbox_url}`);
+            console.error(`✗ Failed permanently: ${delivery.target_inbox_url} - ${result.error}`);
           } else {
-            // Increment retry count
-            const newRetryCount = (delivery.retry_count || 0) + 1;
-            const maxRetries = 5;
+            // Update retry count and error with exponential backoff
+            // Base delay: 5 minutes. Multiplier: 2^retry_count
+            // Retry 1: 5m, Retry 2: 10m, Retry 3: 20m, Retry 4: 40m
+            const backoffMinutes = 5 * Math.pow(2, newRetryCount - 1);
             
-            if (newRetryCount >= maxRetries) {
-              // Mark as failed after max retries
-              await store.query(
-                `UPDATE ap_delivery_queue
-                 SET status = 'failed', retry_count = ?, last_error = ?, last_attempt_at = datetime('now')
-                 WHERE id = ?`,
-                [newRetryCount, result.error || "unknown error", delivery.id]
-              );
-              console.error(`✗ Failed permanently: ${delivery.target_inbox_url} - ${result.error}`);
-            } else {
-              // Update retry count and error with exponential backoff
-              // Base delay: 5 minutes. Multiplier: 2^retry_count
-              // Retry 1: 5m, Retry 2: 10m, Retry 3: 20m, Retry 4: 40m
-              const backoffMinutes = 5 * Math.pow(2, newRetryCount - 1);
-              
-              await store.query(
-                `UPDATE ap_delivery_queue
-                 SET retry_count = ?, last_error = ?, last_attempt_at = datetime('now'),
-                     next_attempt_at = datetime('now', '+${backoffMinutes} minutes')
-                 WHERE id = ?`,
-                [newRetryCount, result.error || "unknown error", delivery.id]
-              );
-              console.warn(`⚠ Retry ${newRetryCount}/${maxRetries} in ${backoffMinutes}m: ${delivery.target_inbox_url} - ${result.error}`);
-            }
+            await store.query(
+              `UPDATE ap_delivery_queue
+               SET retry_count = ?, last_error = ?, last_attempt_at = datetime('now'),
+                   next_attempt_at = datetime('now', '+${backoffMinutes} minutes')
+               WHERE id = ?`,
+              [newRetryCount, result.error || "unknown error", delivery.id]
+            );
+            console.warn(`⚠ Retry ${newRetryCount}/${maxRetries} in ${backoffMinutes}m: ${delivery.target_inbox_url} - ${result.error}`);
           }
-        });
+        }
       } catch (error) {
         console.error(`Failed to process delivery ${delivery.id}:`, error);
         // Continue with next delivery
@@ -298,28 +295,26 @@ export async function processOutboxQueue(env: Env, batchSize = 10): Promise<void
         if (inboxes.size > 0) {
           const activityId = activity.id;
           
-          // Use transaction to ensure atomicity
-          await withTransaction(store, async () => {
-            for (const inbox of inboxes) {
-              // Check if already queued
-              const existing = await store.query(
-                `SELECT 1 FROM ap_delivery_queue WHERE activity_id = ? AND target_inbox_url = ?`,
-                [activityId, inbox]
-              );
-              
-              if (existing.length === 0) {
-                await store.query(
-                  `INSERT INTO ap_delivery_queue 
-                   (id, activity_id, target_inbox_url, status, created_at)
-                   VALUES (?, ?, ?, 'pending', datetime('now'))`,
-                  [crypto.randomUUID(), activityId, inbox]
-                );
-              }
-            }
+          // Queue deliveries (D1 does not support transactions)
+          for (const inbox of inboxes) {
+            // Check if already queued
+            const existing = await store.query(
+              `SELECT 1 FROM ap_delivery_queue WHERE activity_id = ? AND target_inbox_url = ?`,
+              [activityId, inbox]
+            );
             
-            // Delete processed job
-            await store.query(`DELETE FROM ap_outbox_jobs WHERE id = ?`, [job.id]);
-          });
+            if (existing.length === 0) {
+              await store.query(
+                `INSERT INTO ap_delivery_queue 
+                 (id, activity_id, target_inbox_url, status, created_at)
+                 VALUES (?, ?, ?, 'pending', datetime('now'))`,
+                [crypto.randomUUID(), activityId, inbox]
+              );
+            }
+          }
+          
+          // Delete processed job
+          await store.query(`DELETE FROM ap_outbox_jobs WHERE id = ?`, [job.id]);
           
           console.log(`✓ Queued activity ${activityId} to ${inboxes.size} inboxes`);
         } else {
@@ -332,6 +327,66 @@ export async function processOutboxQueue(env: Env, batchSize = 10): Promise<void
         // Don't delete failed jobs immediately, maybe add retry count later
       }
     }
+  } finally {
+    await store.disconnect?.();
+  }
+}
+
+/**
+ * Deliver a single queued delivery item immediately
+ * Used for immediate delivery of lightweight activities (Follow, Accept, Like, etc.)
+ */
+export async function deliverSingleQueuedItem(env: Env, deliveryId: string): Promise<void> {
+  const store = makeData(env);
+  try {
+    // Get the delivery item with its activity
+    const items = await store.query(
+      `SELECT dq.id, dq.activity_id, dq.target_inbox_url, dq.retry_count,
+              oa.activity_json, oa.local_user_id
+       FROM ap_delivery_queue dq
+       JOIN ap_outbox_activities oa ON dq.activity_id = oa.activity_id
+       WHERE dq.id = ?
+       LIMIT 1`,
+      [deliveryId]
+    );
+
+    if (!items || items.length === 0) {
+      console.warn(`Delivery ${deliveryId} not found for immediate delivery`);
+      return;
+    }
+
+    const delivery = items[0];
+
+    const result = await deliverActivity(
+      env,
+      delivery.activity_json,
+      delivery.target_inbox_url,
+      delivery.local_user_id
+    );
+
+    // Update delivery status (D1 does not support transactions)
+    if (result.success) {
+      await store.query(
+        `UPDATE ap_delivery_queue
+         SET status = 'delivered', delivered_at = datetime('now')
+         WHERE id = ?`,
+        [delivery.id]
+      );
+      console.log(`✓ Immediately delivered to ${delivery.target_inbox_url}`);
+    } else {
+      // Mark as pending with error for scheduled worker to retry
+      const newRetryCount = (delivery.retry_count || 0) + 1;
+      await store.query(
+        `UPDATE ap_delivery_queue
+         SET retry_count = ?, last_error = ?, last_attempt_at = datetime('now')
+         WHERE id = ?`,
+        [newRetryCount, result.error || "unknown error", delivery.id]
+      );
+      console.warn(`⚠ Immediate delivery failed, will retry: ${delivery.target_inbox_url} - ${result.error}`);
+    }
+  } catch (error) {
+    console.error(`Failed to immediately deliver ${deliveryId}:`, error);
+    throw error; // Re-throw so caller knows it failed
   } finally {
     await store.disconnect?.();
   }

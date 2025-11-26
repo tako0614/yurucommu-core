@@ -12,6 +12,7 @@ import { requireInstanceDomain, getActorUri } from "../subdomain";
 import { ACTIVITYSTREAMS_CONTEXT } from "./activitypub";
 import { sanitizeHtml } from "../utils/sanitize";
 import { handleIncomingDm, handleIncomingChannelMessage } from "./chat";
+import { deliverSingleQueuedItem } from "./delivery-worker";
 
 export interface Env {
   DB: D1Database;
@@ -383,13 +384,24 @@ async function sendAcceptActivity(
   });
 
   // Enqueue delivery
-  await db.createApDeliveryQueueItem({
+  const deliveryResult = await db.createApDeliveryQueueItem({
     activity_id: activityId,
     target_inbox_url: targetInbox,
     status: "pending",
   });
 
-  console.log(`✓ Queued Accept activity to ${targetInbox}`);
+  // Deliver immediately (Accept activities should be instant)
+  if (deliveryResult?.id) {
+    try {
+      await deliverSingleQueuedItem(env, deliveryResult.id);
+      console.log(`✓ Immediately delivered Accept activity to ${targetInbox}`);
+    } catch (error) {
+      console.warn(`Failed to immediately deliver Accept, will retry via scheduled worker:`, error);
+      // Delivery remains queued for scheduled worker to retry
+    }
+  } else {
+    console.log(`✓ Queued Accept activity to ${targetInbox} (will be delivered by scheduled worker)`);
+  }
 }
 
 /**
@@ -1113,6 +1125,68 @@ export async function processInboxQueue(env: Env, batchSize = 10): Promise<void>
 
 export async function handleInboxScheduled(env: Env, batchSize = 10): Promise<void> {
   await processInboxQueue(env, batchSize);
+}
+
+/**
+ * Process a single inbox activity immediately by ID
+ * Used for immediate processing when activity is received
+ */
+export async function processSingleInboxActivity(
+  db: DatabaseAPI,
+  env: Env,
+  activityId: string,
+): Promise<void> {
+  const activities = await db.queryRaw<{
+    id: string;
+    local_user_id: string;
+    activity_json: string;
+    activity_type: string;
+  }>(
+    `SELECT id, local_user_id, activity_json, activity_type
+     FROM ap_inbox_activities
+     WHERE id = ?
+     LIMIT 1`,
+    activityId,
+  );
+
+  if (!activities || activities.length === 0) {
+    console.warn(`Activity ${activityId} not found for immediate processing`);
+    return;
+  }
+
+  const item = activities[0];
+
+  try {
+    let activity: any;
+    try {
+      activity = JSON.parse(item.activity_json);
+    } catch (parseError) {
+      console.error(`Failed to parse inbox activity ${item.id}`, parseError);
+      await markActivityStatus(db, item.id, InboxStatus.Failed, "invalid activity json");
+      return;
+    }
+
+    if (!ACTIVITY_TYPES.has(activity?.type)) {
+      console.warn(`Skipping unknown activity type: ${activity?.type}`);
+      await markActivityStatus(db, item.id, InboxStatus.Processed);
+      return;
+    }
+
+    // Process the activity
+    await processActivity(db, env, item.local_user_id, activity);
+    await markActivityStatus(db, item.id, InboxStatus.Processed);
+
+    console.log(`✓ Immediately processed activity ${item.id} (${activity.type})`);
+  } catch (error) {
+    console.error(`Failed to immediately process activity ${item.id}:`, error);
+    await markActivityStatus(
+      db,
+      item.id,
+      InboxStatus.Failed,
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error; // Re-throw so caller knows it failed
+  }
 }
 
 // Internal hooks exported only for testing

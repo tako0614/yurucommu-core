@@ -37,6 +37,8 @@ import {
 } from "./chat";
 import { releaseStore } from "../utils/utils";
 import type { Variables } from "../types";
+import { processSingleInboxActivity } from "./inbox-worker";
+import { deliverSingleQueuedItem } from "./delivery-worker";
 
 type Bindings = {
   DB: D1Database;
@@ -605,12 +607,24 @@ app.post("/ap/groups/:slug/inbox", inboxRateLimitMiddleware(), async (c) => {
       const targetInbox = actor.inbox || actor.endpoints?.sharedInbox;
       if (targetInbox) {
         try {
-          await store.createApDeliveryQueueItem({
+          const deliveryResult = await store.createApDeliveryQueueItem({
             activity_id: acceptActivityId,
             target_inbox_url: targetInbox,
             status: "pending",
           });
-          console.log("✓ Queued Accept activity to:", targetInbox);
+          
+          // Deliver immediately (Accept activities should be instant)
+          if (deliveryResult?.id) {
+            try {
+              await deliverSingleQueuedItem(c.env as any, deliveryResult.id);
+              console.log("✓ Immediately delivered Accept activity to:", targetInbox);
+            } catch (deliverError) {
+              console.warn("Failed to immediately deliver Accept, will retry via scheduled worker:", deliverError);
+              // Delivery remains queued for scheduled worker to retry
+            }
+          } else {
+            console.log("✓ Queued Accept activity to:", targetInbox);
+          }
         } catch (error) {
           console.error(
             `Failed to enqueue Accept delivery for group ${slug}:`,
@@ -998,6 +1012,15 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
 
     if (inboxResult) {
       console.log(`Stored ${activity.type} activity from ${actorId} in inbox for ${handle} (key: ${idempotencyKey})`);
+      
+      // Process inbox activity immediately instead of waiting for scheduled worker
+      try {
+        await processSingleInboxActivity(store, c.env as any, inboxResult.id);
+        console.log(`✓ Immediately processed activity ${activityId} for ${handle}`);
+      } catch (procError) {
+        console.error(`Failed to immediately process activity ${activityId}:`, procError);
+        // Activity remains in pending state for scheduled worker to retry
+      }
     } else {
       console.log(`Activity ${activityId} already received for ${handle} (idempotent, key: ${idempotencyKey})`);
     }
