@@ -23,6 +23,59 @@ interface ChannelRow {
   created_at: string;
 }
 
+type MediaEntry = {
+  url: string;
+  description?: string;
+  content_type?: string;
+};
+
+const MAX_ALT_LENGTH = 1500;
+
+const normalizeMediaEntries = (input: any): MediaEntry[] => {
+  if (!Array.isArray(input)) return [];
+  const out: MediaEntry[] = [];
+  for (const item of input) {
+    if (typeof item === "string") {
+      const url = item.trim();
+      if (url) out.push({ url });
+      continue;
+    }
+    if (item && typeof item === "object" && typeof item.url === "string") {
+      const url = item.url.trim();
+      if (!url) continue;
+      const description =
+        typeof item.description === "string"
+          ? item.description.slice(0, MAX_ALT_LENGTH)
+          : undefined;
+      const content_type =
+        typeof item.content_type === "string" ? item.content_type.slice(0, 200) : undefined;
+      out.push({
+        url,
+        description: description && description.trim() ? description.trim() : undefined,
+        content_type,
+      });
+    }
+  }
+  return out;
+};
+
+const mapMediaEntries = (mediaJson: string): {
+  media: MediaEntry[];
+  media_urls: string[];
+} => {
+  let parsed: any[] = [];
+  try {
+    parsed = JSON.parse(mediaJson || "[]");
+  } catch {
+    parsed = [];
+  }
+  const media = normalizeMediaEntries(parsed);
+  return {
+    media,
+    media_urls: media.map((m) => m.url),
+  };
+};
+
 /**
  * Creates a Database API instance with the provided configuration
  * This function injects the Prisma client factory, allowing different
@@ -428,6 +481,105 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       include: { requester: true, addressee: true },
     });
 
+  // -------------- Blocks & Mutes --------------
+  const blockUser = async (blocker_id: string, blocked_id: string) => {
+    if (!blocker_id || !blocked_id || blocker_id === blocked_id) return;
+    await (prisma as any).user_blocks.upsert({
+      where: { blocker_id_blocked_id: { blocker_id, blocked_id } },
+      update: {},
+      create: {
+        blocker_id,
+        blocked_id,
+        created_at: new Date(),
+      },
+    });
+  };
+
+  const unblockUser = async (blocker_id: string, blocked_id: string) => {
+    if (!blocker_id || !blocked_id || blocker_id === blocked_id) return;
+    try {
+      await (prisma as any).user_blocks.delete({
+        where: { blocker_id_blocked_id: { blocker_id, blocked_id } },
+      });
+    } catch {
+      // ignore if not found
+    }
+  };
+
+  const listBlockedUsers = async (blocker_id: string) => {
+    const rows = await (prisma as any).user_blocks.findMany({
+      where: { blocker_id },
+      include: { blocked: true },
+    });
+    return rows.map((row: any) => ({
+      blocker_id: row.blocker_id,
+      blocked_id: row.blocked_id,
+      created_at: row.created_at,
+      user: row.blocked ? mapUser(row.blocked) : null,
+    }));
+  };
+
+  const listUsersBlocking = async (user_id: string) => {
+    const rows = await (prisma as any).user_blocks.findMany({
+      where: { blocked_id: user_id },
+      select: { blocker_id: true },
+    });
+    return rows.map((r: any) => r.blocker_id as string);
+  };
+
+  const isBlocked = async (blocker_id: string, target_id: string) => {
+    if (!blocker_id || !target_id) return false;
+    const found = await (prisma as any).user_blocks.findUnique({
+      where: { blocker_id_blocked_id: { blocker_id, blocked_id: target_id } },
+    });
+    return !!found;
+  };
+
+  const muteUser = async (muter_id: string, muted_id: string) => {
+    if (!muter_id || !muted_id || muter_id === muted_id) return;
+    await (prisma as any).user_mutes.upsert({
+      where: { muter_id_muted_id: { muter_id, muted_id } },
+      update: {},
+      create: {
+        muter_id,
+        muted_id,
+        created_at: new Date(),
+      },
+    });
+  };
+
+  const unmuteUser = async (muter_id: string, muted_id: string) => {
+    if (!muter_id || !muted_id || muter_id === muted_id) return;
+    try {
+      await (prisma as any).user_mutes.delete({
+        where: { muter_id_muted_id: { muter_id, muted_id } },
+      });
+    } catch {
+      // ignore if not found
+    }
+  };
+
+  const listMutedUsers = async (muter_id: string) => {
+    const rows = await (prisma as any).user_mutes.findMany({
+      where: { muter_id },
+      include: { muted: true },
+    });
+    return rows.map((row: any) => ({
+      muter_id: row.muter_id,
+      muted_id: row.muted_id,
+      created_at: row.created_at,
+      user: row.muted ? mapUser(row.muted) : null,
+    }));
+  };
+
+  const isMuted = async (muter_id: string, target_id: string) => {
+    if (!muter_id || !target_id) return false;
+    const found = await (prisma as any).user_mutes.findUnique({
+      where: { muter_id_muted_id: { muter_id, muted_id: target_id } },
+    });
+    return !!found;
+  };
+
   // -------------- Notifications --------------
   const addNotification = async (
     n: {
@@ -469,6 +621,24 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       a,
       b,
     ) => (a.created_at < b.created_at ? 1 : -1)).map((r) => ({
+      ...r,
+      read: toBool(r.read),
+    }));
+  };
+
+  const listNotificationsSince = async (user_id: string, since: Date) => {
+    const res = await (prisma as any).notifications.findMany({
+      where: {
+        user_id,
+        created_at: {
+          gt: since,
+        },
+      },
+      orderBy: {
+        created_at: "asc",
+      },
+    });
+    return (res as Array<any>).map((r) => ({
       ...r,
       read: toBool(r.read),
     }));
@@ -721,6 +891,114 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
+  // -------------- Lists --------------
+  const mapListRow = (row: any) => ({
+    ...row,
+    description: row.description ?? "",
+    is_public: toBool(row.is_public),
+    created_at:
+      row.created_at instanceof Date
+        ? row.created_at.toISOString()
+        : (row.created_at ?? new Date().toISOString()),
+    updated_at:
+      row.updated_at instanceof Date
+        ? row.updated_at.toISOString()
+        : (row.updated_at ?? new Date().toISOString()),
+  });
+
+  const createList = async (list: import("./types").ListInput) => {
+    const created = await (prisma as any).lists.create({
+      data: {
+        id: list.id,
+        owner_id: list.owner_id,
+        name: list.name,
+        description: list.description ?? "",
+        is_public: Number(list.is_public ? 1 : 0),
+        created_at: list.created_at ? new Date(list.created_at) : new Date(),
+        updated_at: list.updated_at ? new Date(list.updated_at) : new Date(),
+      },
+    });
+    return mapListRow(created);
+  };
+
+  const updateList = async (
+    id: string,
+    fields: Partial<import("./types").ListInput>,
+  ) => {
+    const data: Record<string, any> = {};
+    if (fields.name !== undefined) data.name = fields.name;
+    if (fields.description !== undefined) data.description = fields.description ?? "";
+    if (fields.is_public !== undefined) {
+      data.is_public = Number(fields.is_public ? 1 : 0);
+    }
+    if (fields.updated_at !== undefined) {
+      data.updated_at = fields.updated_at ? new Date(fields.updated_at) : new Date();
+    } else if (Object.keys(data).length) {
+      data.updated_at = new Date();
+    }
+    if (!Object.keys(data).length) return getList(id);
+    const updated = await (prisma as any).lists.update({
+      where: { id },
+      data,
+    });
+    return mapListRow(updated);
+  };
+
+  const getList = async (id: string) => {
+    const row = await (prisma as any).lists.findUnique({
+      where: { id },
+    });
+    return row ? mapListRow(row) : null;
+  };
+
+  const listListsByOwner = async (owner_id: string) => {
+    const rows = await (prisma as any).lists.findMany({
+      where: { owner_id },
+    });
+    return rows.map(mapListRow);
+  };
+
+  const addListMember = async (member: import("./types").ListMemberInput) => {
+    const res = await (prisma as any).list_members.upsert({
+      where: {
+        list_id_user_id: {
+          list_id: member.list_id,
+          user_id: member.user_id,
+        },
+      },
+      update: {},
+      create: {
+        list_id: member.list_id,
+        user_id: member.user_id,
+        added_at: member.added_at ? new Date(member.added_at) : new Date(),
+      },
+    });
+    return res;
+  };
+
+  const removeListMember = async (list_id: string, user_id: string) => {
+    await (prisma as any).list_members.deleteMany({
+      where: { list_id, user_id },
+    });
+  };
+
+  const listMembersByList = async (list_id: string) => {
+    const rows = await (prisma as any).list_members.findMany({
+      where: { list_id },
+    });
+    if (!rows.length) return [];
+    const userIds = Array.from(new Set(rows.map((r: any) => r.user_id)));
+    const users = await (prisma as any).users.findMany({
+      where: { id: { in: userIds } },
+    });
+    const userMap = new Map<string, any>();
+    users.forEach((u: any) => userMap.set(u.id, mapUser(u)));
+    return rows.map((r: any) => ({
+      ...r,
+      user: userMap.get(r.user_id) || null,
+    }));
+  };
+
   // -------------- Invites --------------
   const createInvite = async (invite: {
     code: string;
@@ -832,6 +1110,65 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   };
 
   // -------------- Posts --------------
+  const mapPostRow = (r: any) => {
+    if (!r) return null;
+    const parsedMedia = mapMediaEntries(r.media_json || "[]");
+    return {
+      ...r,
+      pinned: toBool(r.pinned),
+      broadcast_all: toBool((r as any).broadcast_all as any),
+      visible_to_friends: toBool((r as any).visible_to_friends as any),
+      sensitive: toBool((r as any).sensitive as any),
+      edit_count: (r as any).edit_count ?? 0,
+      community_id: r.community_id ?? null,
+      attributed_community_id: r.attributed_community_id ?? null,
+      media: parsedMedia.media,
+      media_urls: parsedMedia.media_urls,
+    } as any;
+  };
+
+  const getVisibilitySets = async (user_id: string) => {
+    const [blocked, blocking, muted] = await Promise.all([
+      (prisma as any).user_blocks.findMany({
+        where: { blocker_id: user_id },
+        select: { blocked_id: true },
+      }),
+      (prisma as any).user_blocks.findMany({
+        where: { blocked_id: user_id },
+        select: { blocker_id: true },
+      }),
+      (prisma as any).user_mutes.findMany({
+        where: { muter_id: user_id },
+        select: { muted_id: true },
+      }),
+    ]);
+    return {
+      blocked: new Set((blocked as any[]).map((r: any) => r.blocked_id as string)),
+      blocking: new Set((blocking as any[]).map((r: any) => r.blocker_id as string)),
+      muted: new Set((muted as any[]).map((r: any) => r.muted_id as string)),
+    };
+  };
+
+  const shouldHideForViewer = (
+    viewerId: string,
+    authorId: string,
+    sets: { blocked: Set<string>; blocking: Set<string>; muted: Set<string> },
+  ) => {
+    if (!viewerId || !authorId) return false;
+    if (authorId === viewerId) return false;
+    return (
+      sets.blocked.has(authorId) ||
+      sets.blocking.has(authorId) ||
+      sets.muted.has(authorId)
+    );
+  };
+
+  const normalizeHashtag = (tag: string) =>
+    (tag || "")
+      .trim()
+      .replace(/^#/, "")
+      .toLowerCase();
+
   const createPost = async (
     post: {
       id: string;
@@ -839,11 +1176,15 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       author_id: string;
       type: string;
       text?: string;
+      content_warning?: string | null;
+      sensitive?: boolean;
+      media?: MediaEntry[];
       media_urls?: string[];
       created_at: string | Date;
       pinned?: boolean;
       broadcast_all?: boolean;
       visible_to_friends?: boolean;
+      edit_count?: number;
       attributed_community_id?: string | null;
       ap_object_id?: string | null;
       ap_activity_id?: string | null;
@@ -855,6 +1196,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       post.visible_to_friends === undefined
         ? broadcastAll
         : !!post.visible_to_friends;
+    const mediaEntries = normalizeMediaEntries(
+      post.media ?? post.media_urls ?? [],
+    );
+    const contentWarning = post.content_warning
+      ? String(post.content_warning).slice(0, 500)
+      : null;
     await (prisma as any).posts.create({
       data: {
         id: post.id,
@@ -862,11 +1209,14 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
         author_id: post.author_id,
         type: post.type ?? "text",
         text: post.text ?? "",
-        media_json: JSON.stringify(post.media_urls ?? []),
+        content_warning: contentWarning,
+        sensitive: post.sensitive ? 1 : 0,
+        media_json: JSON.stringify(mediaEntries),
         created_at: new Date(post.created_at),
         pinned: post.pinned ? 1 : 0,
         broadcast_all: broadcastAll ? 1 : 0,
         visible_to_friends: visibleToFriends ? 1 : 0,
+        edit_count: post.edit_count ?? 0,
         attributed_community_id: post.attributed_community_id || null,
         ap_object_id: post.ap_object_id || null,
         ap_activity_id: post.ap_activity_id || null,
@@ -877,7 +1227,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       community_id: post.community_id ?? null,
       broadcast_all: broadcastAll,
       visible_to_friends: visibleToFriends,
+      edit_count: post.edit_count ?? 0,
       attributed_community_id: post.attributed_community_id || null,
+      media: mediaEntries,
+      media_urls: mediaEntries.map((m) => m.url),
+      sensitive: post.sensitive ?? false,
+      content_warning: contentWarning,
       ap_object_id: post.ap_object_id || null,
       ap_activity_id: post.ap_activity_id || null,
     };
@@ -887,17 +1242,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     const r = await (prisma as any).posts.findUnique({
       where: { id },
     });
-    return r
-      ? {
-        ...r,
-        pinned: toBool(r.pinned),
-        broadcast_all: toBool((r as any).broadcast_all as any),
-        visible_to_friends: toBool((r as any).visible_to_friends as any),
-        media_urls: JSON.parse(r.media_json || "[]"),
-        community_id: r.community_id ?? null,
-        attributed_community_id: r.attributed_community_id ?? null,
-      } as any
-      : null;
+    return mapPostRow(r);
   };
 
   const listPostsByCommunity = async (community_id: string) => {
@@ -905,15 +1250,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     const res = await (prisma as any).posts.findMany({
       where: { community_id },
     });
-    return res.map((r: any) => ({
-      ...r,
-      pinned: toBool(r.pinned),
-      broadcast_all: toBool(r.broadcast_all),
-      visible_to_friends: toBool(r.visible_to_friends),
-      community_id: r.community_id ?? null,
-      attributed_community_id: r.attributed_community_id ?? null,
-      media_urls: JSON.parse(r.media_json || "[]"),
-    })) as any;
+    return res.map(mapPostRow).filter(Boolean) as any;
   };
 
   const listGlobalPostsForUser = async (user_id: string) => {
@@ -935,13 +1272,302 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       }
     }
     const authorIds = [user_id, ...friendIds];
+    const visibility = await getVisibilitySets(user_id);
+
     const res = await (prisma as any).posts.findMany({
       where: {
         community_id: null,
         author_id: { in: authorIds as any },
       },
     });
-    const posts = res.map((r: any) => ({
+    const posts = res.map(mapPostRow).filter(Boolean) as any[];
+    const visiblePosts = posts.filter((post: any) => {
+      if (shouldHideForViewer(user_id, post.author_id, visibility)) {
+        return false;
+      }
+      if (post.author_id === user_id) return true;
+      const visibleToFriends = (post as any).visible_to_friends ?? true;
+      if (!visibleToFriends) return false;
+      return friendIds.has(post.author_id);
+    });
+
+    const reposts = await (prisma as any).post_reposts.findMany({
+      where: { user_id: { in: Array.from(authorIds) as any } },
+    });
+    const repostTargetIds = Array.from(
+      new Set((reposts as any[]).map((r: any) => r.post_id)),
+    );
+    const repostTargets = repostTargetIds.length
+      ? await (prisma as any).posts.findMany({
+        where: { id: { in: repostTargetIds as any } },
+      })
+      : [];
+    const repostTargetMap = new Map<string, any>();
+    for (const p of repostTargets) {
+      const mapped = mapPostRow(p);
+      if (mapped) {
+        repostTargetMap.set(mapped.id, mapped);
+      }
+    }
+
+    const repostItems: any[] = [];
+    for (const repost of reposts as any[]) {
+      const target = repostTargetMap.get((repost as any).post_id);
+      if (!target) continue;
+      // Only surface public/global posts to avoid leaking community-only content
+      if (target.community_id) continue;
+      if (!target.broadcast_all) continue;
+      if (shouldHideForViewer(user_id, target.author_id, visibility)) continue;
+      if (shouldHideForViewer(user_id, (repost as any).user_id, visibility)) continue;
+      if (target.author_id !== user_id) {
+        const visibleToFriends = (target as any).visible_to_friends ?? true;
+        if (!visibleToFriends || !friendIds.has(target.author_id)) continue;
+      }
+      repostItems.push({
+        ...target,
+        reposted_by: (repost as any).user_id,
+        repost_comment: (repost as any).comment || "",
+        repost_id: (repost as any).id,
+        repost_created_at: (repost as any).created_at instanceof Date
+          ? (repost as any).created_at.toISOString()
+          : (repost as any).created_at,
+      });
+    }
+
+    const combined = [...visiblePosts, ...repostItems];
+    combined.sort((a: any, b: any) => {
+      const ta = (a as any).repost_created_at || a.created_at;
+      const tb = (b as any).repost_created_at || b.created_at;
+      return ta < tb ? 1 : -1;
+    });
+    return combined;
+  };
+
+  const listPinnedPostsByUser = async (user_id: string, limit = 5) => {
+    const rows = await (prisma as any).posts.findMany({
+      where: { author_id: user_id, pinned: 1 },
+      orderBy: [{ created_at: "desc" }],
+      take: limit,
+    });
+    return rows.map(mapPostRow).filter(Boolean) as any[];
+  };
+
+  const countPinnedPostsByUser = async (user_id: string) => {
+    return await (prisma as any).posts.count({
+      where: { author_id: user_id, pinned: 1 },
+    });
+  };
+
+  const listGlobalPostsSince = async (
+    user_id: string,
+    since: Date,
+    options?: { authorIds?: string[]; friendIds?: string[]; limit?: number },
+  ) => {
+    const relations: any[] = options?.friendIds
+      ? options.friendIds.map((id) => ({ requester_id: user_id, addressee_id: id, status: "accepted" }))
+      : await (prisma as any).friendships.findMany({
+        where: {
+          status: "accepted",
+          OR: [
+            { requester_id: user_id },
+            { addressee_id: user_id },
+          ],
+        },
+      });
+
+    const friendIds = new Set<string>();
+    for (const rel of relations) {
+      if (rel.requester_id === user_id && rel.addressee_id) {
+        friendIds.add(rel.addressee_id);
+      } else if (rel.addressee_id === user_id && rel.requester_id) {
+        friendIds.add(rel.requester_id);
+      }
+    }
+
+    const authorIds = new Set<string>([
+      user_id,
+      ...friendIds,
+      ...(options?.authorIds ?? []),
+    ]);
+    const visibility = await getVisibilitySets(user_id);
+
+    const res = await (prisma as any).posts.findMany({
+      where: {
+        community_id: null,
+        author_id: { in: Array.from(authorIds) as any },
+        created_at: {
+          gt: since,
+        },
+      },
+      orderBy: {
+        created_at: "asc",
+      },
+      ...(options?.limit ? { take: options.limit } : {}),
+    });
+
+    const posts = res.map(mapPostRow).filter(Boolean) as any[];
+
+    return posts.filter((post: any) => {
+      if (shouldHideForViewer(user_id, post.author_id, visibility)) return false;
+      if (post.author_id === user_id) return true;
+      const visibleToFriends = (post as any).visible_to_friends ?? true;
+      if (!visibleToFriends) {
+        return false;
+      }
+      if (friendIds.has(post.author_id)) return true;
+      return options?.authorIds?.includes(post.author_id) ?? false;
+    });
+  };
+
+  const searchPublicPosts = async (
+    query: string,
+    limit: number = 20,
+    offset: number = 0,
+  ) => {
+    const needle = query.trim();
+    if (!needle) return [];
+    const rows = await (prisma as any).posts.findMany({
+      where: {
+        community_id: null,
+        broadcast_all: 1,
+        text: { contains: needle },
+      },
+      orderBy: { created_at: "desc" },
+      skip: offset,
+      take: limit,
+    });
+    return rows.map(mapPostRow).filter(Boolean) as any[];
+  };
+
+  // -------------- Reposts / Boosts --------------
+  const addRepost = async (
+    input: {
+      id: string;
+      post_id: string;
+      user_id: string;
+      comment?: string;
+      created_at?: string | Date;
+      ap_activity_id?: string | null;
+    },
+  ) => {
+    try {
+      return await (prisma as any).post_reposts.create({
+        data: {
+          id: input.id,
+          post_id: input.post_id,
+          user_id: input.user_id,
+          comment: input.comment ?? "",
+          created_at: input.created_at ? new Date(input.created_at) : new Date(),
+          ap_activity_id: input.ap_activity_id ?? null,
+        },
+      });
+    } catch (error: any) {
+      if (!String(error?.message ?? "").includes("UNIQUE constraint")) {
+        throw error;
+      }
+      return await (prisma as any).post_reposts.findUnique({
+        where: { post_id_user_id: { post_id: input.post_id, user_id: input.user_id } } as any,
+      });
+    }
+  };
+
+  const deleteRepost = async (post_id: string, user_id: string) => {
+    await (prisma as any).post_reposts.deleteMany({
+      where: { post_id, user_id },
+    });
+  };
+
+  const listRepostsByPost = async (
+    post_id: string,
+    limit: number = 50,
+    offset: number = 0,
+  ) => {
+    const rows = await (prisma as any).post_reposts.findMany({
+      where: { post_id },
+      orderBy: { created_at: "desc" },
+      skip: offset,
+      take: limit,
+    });
+    return rows as any[];
+  };
+
+  const countRepostsByPost = async (post_id: string) =>
+    (prisma as any).post_reposts.count({ where: { post_id } });
+
+  const findRepost = async (post_id: string, user_id: string) =>
+    (prisma as any).post_reposts.findUnique({
+      where: { post_id_user_id: { post_id, user_id } } as any,
+    });
+
+  // -------------- Bookmarks --------------
+  const addBookmark = async (
+    input: { id: string; post_id: string; user_id: string; created_at?: string | Date },
+  ) => {
+    try {
+      await (prisma as any).post_bookmarks.create({
+        data: {
+          id: input.id,
+          post_id: input.post_id,
+          user_id: input.user_id,
+          created_at: input.created_at ? new Date(input.created_at) : new Date(),
+        },
+      });
+    } catch (error: any) {
+      if (!String(error?.message ?? "").includes("UNIQUE constraint")) {
+        throw error;
+      }
+    }
+    return input;
+  };
+
+  const deleteBookmark = async (post_id: string, user_id: string) => {
+    await (prisma as any).post_bookmarks.deleteMany({
+      where: { post_id, user_id },
+    });
+  };
+
+  const listBookmarksByUser = async (
+    user_id: string,
+    limit: number = 20,
+    offset: number = 0,
+  ) => {
+    const rows = await (prisma as any).post_bookmarks.findMany({
+      where: { user_id },
+      orderBy: { created_at: "desc" },
+      skip: offset,
+      take: limit,
+    });
+    return rows as any[];
+  };
+
+  const getBookmarkedPostIds = async (user_id: string, postIds: string[]) => {
+    if (!postIds.length) return new Set<string>();
+    const rows = await (prisma as any).post_bookmarks.findMany({
+      where: { user_id, post_id: { in: postIds as any } },
+      select: { post_id: true },
+    });
+    return new Set((rows as any[]).map((r: any) => r.post_id));
+  };
+
+  const isPostBookmarked = async (post_id: string, user_id: string) => {
+    const row = await (prisma as any).post_bookmarks.findFirst({
+      where: { post_id, user_id },
+    });
+    return !!row;
+  };
+
+  const listPostsByAuthors = async (
+    author_ids: string[],
+    includeCommunity: boolean = false,
+  ) => {
+    if (!author_ids.length) return [];
+    const res = await (prisma as any).posts.findMany({
+      where: {
+        author_id: { in: author_ids as any },
+        ...(includeCommunity ? {} : { community_id: null }),
+      },
+    });
+    return res.map((r: any) => ({
       ...r,
       pinned: toBool(r.pinned),
       broadcast_all: toBool(r.broadcast_all),
@@ -950,22 +1576,25 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       attributed_community_id: r.attributed_community_id ?? null,
       media_urls: JSON.parse(r.media_json || "[]"),
     })) as any[];
-    return posts.filter((post: any) => {
-      if (post.author_id === user_id) return true;
-      const visibleToFriends = (post as any).visible_to_friends ?? true;
-      if (!visibleToFriends) return false;
-      return friendIds.has(post.author_id);
-    });
   };
 
   const updatePost = async (id: string, fields: Record<string, any>) => {
     const data: any = {};
     for (const [k, v] of Object.entries(fields)) {
-      if (k === "media_urls") data["media_json"] = JSON.stringify(v ?? []);
-      else if (k === "pinned") data["pinned"] = v ? 1 : 0;
+      if (k === "media_urls") {
+        data["media_json"] = JSON.stringify(normalizeMediaEntries(v ?? []));
+      } else if (k === "media") {
+        data["media_json"] = JSON.stringify(normalizeMediaEntries(v ?? []));
+      } else if (k === "pinned") data["pinned"] = v ? 1 : 0;
       else if (k === "broadcast_all") data["broadcast_all"] = v ? 1 : 0;
       else if (k === "visible_to_friends")
         data["visible_to_friends"] = v ? 1 : 0;
+      else if (k === "sensitive") data["sensitive"] = v ? 1 : 0;
+      else if (k === "edit_count") data["edit_count"] = Number(v ?? 0);
+      else if (k === "content_warning")
+        data["content_warning"] = v === null || v === undefined
+          ? null
+          : String(v).slice(0, 500);
       else data[k] = v;
     }
     await (prisma as any).posts.update({
@@ -981,6 +1610,251 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
+  // -------------- Post edit history --------------
+  const createPostEditHistory = async (
+    history: import("./types").PostEditHistoryInput,
+  ) => {
+    return (prisma as any).post_edit_history.create({
+      data: {
+        id: history.id,
+        post_id: history.post_id,
+        editor_id: history.editor_id,
+        previous_text: history.previous_text ?? "",
+        previous_media_json: history.previous_media_json ?? "[]",
+        diff_json: history.diff_json ?? "{}",
+        created_at: history.created_at ? new Date(history.created_at) : new Date(),
+      },
+    });
+  };
+
+  const listPostEditHistory = async (post_id: string, limit = 20, offset = 0) => {
+    const rows = await (prisma as any).post_edit_history.findMany({
+      where: { post_id },
+      orderBy: { created_at: "desc" },
+      take: limit,
+      skip: offset,
+    });
+    return rows.map((r: any) => ({
+      ...r,
+      previous_media: JSON.parse(r.previous_media_json || "[]"),
+      diff: JSON.parse(r.diff_json || "{}"),
+      created_at:
+        r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
+    }));
+  };
+
+  // -------------- Hashtags & Mentions --------------
+  const setPostHashtags = async (post_id: string, tags: string[]) => {
+    const normalized = Array.from(
+      new Set(
+        (tags || [])
+          .map((tag) => normalizeHashtag(tag))
+          .filter(Boolean),
+      ),
+    );
+    await (prisma as any).post_hashtags.deleteMany({ where: { post_id } });
+    if (!normalized.length) return;
+    for (const tag of normalized) {
+      const hashtag = await (prisma as any).hashtags.upsert({
+        where: { tag },
+        update: {},
+        create: { id: crypto.randomUUID(), tag, created_at: new Date() },
+      });
+      await (prisma as any).post_hashtags.create({
+        data: {
+          post_id,
+          hashtag_id: hashtag.id,
+          created_at: new Date(),
+        },
+      });
+    }
+  };
+
+  const listHashtagsForPost = async (post_id: string) => {
+    const rows = await (prisma as any).post_hashtags.findMany({
+      where: { post_id },
+      include: { hashtag: true },
+    });
+    return rows
+      .map((row: any) => row.hashtag?.tag || null)
+      .filter(Boolean) as string[];
+  };
+
+  const listPostsByHashtag = async (tag: string) => {
+    const normalized = normalizeHashtag(tag);
+    if (!normalized) return [];
+    const hashtag = await (prisma as any).hashtags.findUnique({
+      where: { tag: normalized },
+    });
+    if (!hashtag) return [];
+    const links = await (prisma as any).post_hashtags.findMany({
+      where: { hashtag_id: hashtag.id },
+    });
+    if (!links.length) return [];
+    const postIds = Array.from(new Set(links.map((l: any) => l.post_id)));
+    const posts = await (prisma as any).posts.findMany({
+      where: { id: { in: postIds as any } },
+    });
+    return posts.map(mapPostRow).filter(Boolean) as any[];
+  };
+
+  const listTrendingHashtags = async (since: Date, limit: number = 10) => {
+    const rows = await queryRaw<{ tag: string; uses: number }>(
+      `SELECT h.tag as tag, COUNT(ph.post_id) as uses
+       FROM post_hashtags ph
+       JOIN hashtags h ON ph.hashtag_id = h.id
+       WHERE ph.created_at >= ?
+       GROUP BY h.tag
+       ORDER BY uses DESC
+       LIMIT ?`,
+      since.toISOString(),
+      limit,
+    );
+    return rows.map((row) => ({
+      tag: row.tag,
+      uses: Number(row.uses),
+    }));
+  };
+
+  const setPostMentions = async (post_id: string, userIds: string[]) => {
+    const unique = Array.from(
+      new Set((userIds || []).map((id) => id?.trim()).filter(Boolean)),
+    );
+    await (prisma as any).post_mentions.deleteMany({ where: { post_id } });
+    if (!unique.length) return;
+    for (const uid of unique) {
+      await (prisma as any).post_mentions.upsert({
+        where: { post_id_mentioned_user_id: { post_id, mentioned_user_id: uid } },
+        update: {},
+        create: {
+          post_id,
+          mentioned_user_id: uid,
+        },
+      });
+    }
+  };
+
+  const listMentionedUsers = async (post_id: string) => {
+    const rows = await (prisma as any).post_mentions.findMany({
+      where: { post_id },
+    });
+    return rows.map((r: any) => r.mentioned_user_id);
+  };
+
+  // -------------- Post plans (drafts / scheduled) --------------
+  const mapPostPlanRow = (r: any) => ({
+    ...r,
+    community_id: r.community_id ?? null,
+    post_id: r.post_id ?? null,
+    scheduled_at: r.scheduled_at
+      ? (r.scheduled_at instanceof Date
+        ? r.scheduled_at.toISOString()
+        : r.scheduled_at)
+      : null,
+    broadcast_all: toBool(r.broadcast_all),
+    visible_to_friends: toBool(r.visible_to_friends),
+    attributed_community_id: r.attributed_community_id ?? null,
+    last_error: r.last_error ?? null,
+    media_urls: JSON.parse(r.media_json || "[]"),
+    created_at: r.created_at instanceof Date
+      ? r.created_at.toISOString()
+      : (r.created_at ?? new Date().toISOString()),
+    updated_at: r.updated_at instanceof Date
+      ? r.updated_at.toISOString()
+      : (r.updated_at ?? new Date().toISOString()),
+  });
+
+  const createPostPlan = async (plan: import("./types").PostPlanInput) => {
+    const created = await (prisma as any).post_plans.create({
+      data: {
+        id: plan.id,
+        author_id: plan.author_id,
+        community_id: plan.community_id ?? null,
+        type: plan.type,
+        text: plan.text ?? "",
+        media_json: JSON.stringify(plan.media_urls ?? []),
+        status: plan.status ?? "draft",
+        scheduled_at: plan.scheduled_at ? new Date(plan.scheduled_at) : null,
+        post_id: plan.post_id ?? null,
+        broadcast_all: plan.broadcast_all ? 1 : 0,
+        visible_to_friends: plan.visible_to_friends ? 1 : 0,
+        attributed_community_id: plan.attributed_community_id ?? null,
+        last_error: plan.last_error ?? null,
+        created_at: plan.created_at ? new Date(plan.created_at) : new Date(),
+        updated_at: plan.updated_at ? new Date(plan.updated_at) : new Date(),
+      },
+    });
+    return mapPostPlanRow(created);
+  };
+
+  const updatePostPlan = async (
+    id: string,
+    fields: Partial<import("./types").PostPlanInput>,
+  ) => {
+    const data: Record<string, any> = {};
+    if (fields.text !== undefined) data.text = fields.text ?? "";
+    if (fields.media_urls !== undefined) data.media_json = JSON.stringify(fields.media_urls ?? []);
+    if (fields.status !== undefined) data.status = fields.status;
+    if (fields.scheduled_at !== undefined) {
+      data.scheduled_at = fields.scheduled_at ? new Date(fields.scheduled_at) : null;
+    }
+    if (fields.post_id !== undefined) data.post_id = fields.post_id ?? null;
+    if (fields.broadcast_all !== undefined) data.broadcast_all = fields.broadcast_all ? 1 : 0;
+    if (fields.visible_to_friends !== undefined) data.visible_to_friends = fields.visible_to_friends ? 1 : 0;
+    if (fields.attributed_community_id !== undefined) {
+      data.attributed_community_id = fields.attributed_community_id ?? null;
+    }
+    if (fields.community_id !== undefined) data.community_id = fields.community_id ?? null;
+    if (fields.last_error !== undefined) data.last_error = fields.last_error ?? null;
+    if (fields.type !== undefined) data.type = fields.type;
+    if (fields.updated_at !== undefined) {
+      data.updated_at = fields.updated_at ? new Date(fields.updated_at) : new Date();
+    } else {
+      data.updated_at = new Date();
+    }
+    const updated = await (prisma as any).post_plans.update({
+      where: { id },
+      data,
+    });
+    return mapPostPlanRow(updated);
+  };
+
+  const getPostPlan = async (id: string) => {
+    const r = await (prisma as any).post_plans.findUnique({
+      where: { id },
+    });
+    return r ? mapPostPlanRow(r) : null;
+  };
+
+  const listPostPlansByUser = async (user_id: string, status?: string | null) => {
+    const where: any = { author_id: user_id };
+    if (status) where.status = status;
+    const res = await (prisma as any).post_plans.findMany({
+      where,
+      orderBy: { updated_at: "desc" },
+    });
+    return res.map(mapPostPlanRow);
+  };
+
+  const deletePostPlan = async (id: string) => {
+    await (prisma as any).post_plans.deleteMany({
+      where: { id },
+    });
+  };
+
+  const listDuePostPlans = async (limit: number = 10) => {
+    const now = new Date();
+    const res = await (prisma as any).post_plans.findMany({
+      where: {
+        status: "scheduled",
+        post_id: null,
+        scheduled_at: { lte: now } as any,
+      },
+      orderBy: { scheduled_at: "asc" },
+      take: limit,
+    });
+    return res.map(mapPostPlanRow);
+  };
   // -------------- Reactions --------------
   const addReaction = async (
     r: {
@@ -1005,6 +1879,9 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   const listReactionsByPost = async (post_id: string) =>
     (prisma as any).post_reactions.findMany({ where: { post_id } });
 
+  const listReactionsByUser = async (user_id: string) =>
+    (prisma as any).post_reactions.findMany({ where: { user_id } });
+
   const deleteReaction = async (id: string) => {
     await (prisma as any).post_reactions.delete({
       where: { id },
@@ -1013,6 +1890,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
 
   const getReaction = async (id: string) =>
     (prisma as any).post_reactions.findUnique({ where: { id } });
+
 
   // -------------- Comments --------------
   const addComment = async (
@@ -1048,6 +1926,169 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
 
   const getComment = async (id: string) =>
     (prisma as any).comments.findUnique({ where: { id } });
+
+  // -------------- Media --------------
+  const mapMediaRow = (row: any) =>
+    row
+      ? {
+        ...row,
+        created_at:
+          row.created_at instanceof Date
+            ? row.created_at.toISOString()
+            : row.created_at,
+        updated_at:
+          row.updated_at instanceof Date
+            ? row.updated_at.toISOString()
+            : row.updated_at,
+      }
+      : null;
+
+  const upsertMedia = async (media: import("./types").MediaRecordInput) => {
+    const now = media.updated_at ? new Date(media.updated_at) : new Date();
+    const createdAt = media.created_at ? new Date(media.created_at) : now;
+    const row = await (prisma as any).media.upsert({
+      where: { key: media.key },
+      update: {
+        user_id: media.user_id,
+        url: media.url,
+        description: media.description ?? "",
+        content_type: media.content_type ?? "",
+        updated_at: now,
+      },
+      create: {
+        key: media.key,
+        user_id: media.user_id,
+        url: media.url,
+        description: media.description ?? "",
+        content_type: media.content_type ?? "",
+        created_at: createdAt,
+        updated_at: now,
+      },
+    });
+    return mapMediaRow(row);
+  };
+
+  const getMedia = async (key: string) => {
+    const row = await (prisma as any).media.findUnique({
+      where: { key },
+    });
+    return mapMediaRow(row);
+  };
+
+  const listMediaByUser = async (user_id: string) => {
+    const rows = await (prisma as any).media.findMany({
+      where: { user_id },
+    });
+    return rows.map(mapMediaRow).filter(Boolean) as any[];
+  };
+
+  // -------------- Polls --------------
+  const createPoll = async (poll: import("./types").PollInput) => {
+    const allowsMultiple =
+      poll.allows_multiple === undefined ? false : !!poll.allows_multiple;
+    const anonymous =
+      poll.anonymous === undefined ? true : !!poll.anonymous;
+    return (prisma as any).$transaction(async (tx: any) => {
+      const created = await tx.post_polls.create({
+        data: {
+          id: poll.id,
+          post_id: poll.post_id,
+          question: poll.question ?? "",
+          allows_multiple: allowsMultiple ? 1 : 0,
+          anonymous: anonymous ? 1 : 0,
+          expires_at: poll.expires_at ? new Date(poll.expires_at) : null,
+        },
+      });
+      for (const opt of poll.options ?? []) {
+        await tx.post_poll_options.create({
+          data: {
+            id: opt.id,
+            poll_id: poll.id,
+            text: opt.text,
+            order_index: opt.order_index ?? 0,
+          },
+        });
+      }
+      return created;
+    });
+  };
+
+  const getPollByPost = async (post_id: string) => {
+    const poll = await (prisma as any).post_polls.findUnique({
+      where: { post_id },
+      include: { options: { orderBy: { order_index: "asc" } } },
+    });
+    if (!poll) return null;
+    return {
+      ...poll,
+      allows_multiple: toBool(poll.allows_multiple),
+      anonymous: toBool(poll.anonymous),
+      expires_at: poll.expires_at ?? null,
+    };
+  };
+
+  const listPollsByPostIds = async (post_ids: string[]) => {
+    if (!post_ids.length) return [];
+    const polls = await (prisma as any).post_polls.findMany({
+      where: { post_id: { in: post_ids } },
+      include: { options: { orderBy: { order_index: "asc" } } },
+    });
+    return polls.map((poll: any) => ({
+      ...poll,
+      allows_multiple: toBool(poll.allows_multiple),
+      anonymous: toBool(poll.anonymous),
+      expires_at: poll.expires_at ?? null,
+    }));
+  };
+
+  const listPollVotes = async (poll_id: string) =>
+    (prisma as any).post_poll_votes.findMany({ where: { poll_id } });
+
+  const listPollVotesByUser = async (poll_id: string, user_id: string) =>
+    (prisma as any).post_poll_votes.findMany({ where: { poll_id, user_id } });
+
+  const createPollVotes = async (poll_id: string, option_ids: string[], user_id: string) => {
+    await (prisma as any).$transaction(async (tx: any) => {
+      const poll = await tx.post_polls.findUnique({
+        where: { id: poll_id },
+        include: { options: true },
+      });
+      if (!poll) throw new Error("poll not found");
+
+      const allowsMultiple = toBool(poll.allows_multiple);
+      if (!option_ids || option_ids.length === 0) {
+        throw new Error("option required");
+      }
+      if (!allowsMultiple && option_ids.length > 1) {
+        throw new Error("multiple choices not allowed");
+      }
+
+      const optionSet = new Set((poll.options || []).map((o: any) => o.id));
+      for (const optionId of option_ids) {
+        if (!optionSet.has(optionId)) {
+          throw new Error("invalid option");
+        }
+      }
+
+      const existing = await tx.post_poll_votes.findMany({
+        where: { poll_id, user_id },
+      });
+      if (existing.length > 0) {
+        throw new Error("already voted");
+      }
+
+      for (const optionId of option_ids) {
+        await tx.post_poll_votes.create({
+          data: {
+            id: crypto.randomUUID(),
+            poll_id,
+            option_id: optionId,
+            user_id,
+          },
+        });
+      }
+    });
+  };
 
   // -------------- Stories --------------
   const createStory = async (
@@ -1824,7 +2865,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   const createApRemotePost = async (input: import("./types").ApRemotePostInput) => {
     const id = input.id || crypto.randomUUID();
     const createdAt = input.created_at ? new Date(input.created_at) : new Date();
-    const mediaJson = JSON.stringify(input.media_urls ?? []);
+    const mediaJson = JSON.stringify(
+      normalizeMediaEntries(input.media_urls ?? []),
+    );
+    const contentWarning = input.content_warning
+      ? String(input.content_warning).slice(0, 500)
+      : null;
     try {
       await runStatement(
         `INSERT INTO posts (
@@ -1833,6 +2879,8 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
           author_id,
           type,
           text,
+          content_warning,
+          sensitive,
           media_json,
           created_at,
           attributed_community_id,
@@ -1840,13 +2888,15 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
           ap_attributed_to,
           in_reply_to,
           ap_activity_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           input.community_id ?? null,
           input.author_id,
           input.type ?? "text",
           input.text ?? "",
+          contentWarning,
+          input.sensitive ? 1 : 0,
           mediaJson,
           createdAt.toISOString(),
           input.attributed_community_id ?? null,
@@ -2034,6 +3084,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
         target_actor_id: report.target_actor_id,
         target_object_id: report.target_object_id,
         reason: report.reason,
+        category: report.category || "other",
         status: report.status || "pending",
         created_at: report.created_at ? new Date(report.created_at) : new Date(),
         updated_at: report.updated_at ? new Date(report.updated_at) : new Date(),
@@ -2063,6 +3114,60 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       },
     });
   };
+
+  // -------------- Data export --------------
+  const createExportRequest = async (input: import("./types").DataExportRequestInput) => {
+    const created = await (prisma as any).data_export_requests.create({
+      data: {
+        id: input.id,
+        user_id: input.user_id,
+        format: input.format ?? "json",
+        status: input.status ?? "pending",
+        requested_at: input.requested_at ? new Date(input.requested_at) : new Date(),
+        processed_at: input.processed_at ? new Date(input.processed_at) : null,
+        download_url: input.download_url ?? null,
+        result_json: input.result_json ?? null,
+        error_message: input.error_message ?? null,
+      },
+    });
+    return created;
+  };
+
+  const updateExportRequest = async (
+    id: string,
+    fields: Partial<import("./types").DataExportRequestInput>,
+  ) => {
+    const data: Record<string, any> = {};
+    if (fields.status !== undefined) data.status = fields.status;
+    if (fields.processed_at !== undefined) data.processed_at = fields.processed_at ? new Date(fields.processed_at) : null;
+    if (fields.download_url !== undefined) data.download_url = fields.download_url ?? null;
+    if (fields.result_json !== undefined) data.result_json = fields.result_json ?? null;
+    if (fields.error_message !== undefined) data.error_message = fields.error_message ?? null;
+    if (fields.format !== undefined) data.format = fields.format;
+    const updated = await (prisma as any).data_export_requests.update({
+      where: { id },
+      data,
+    });
+    return updated;
+  };
+
+  const listExportRequestsByUser = async (user_id: string) =>
+    (prisma as any).data_export_requests.findMany({
+      where: { user_id },
+      orderBy: { requested_at: "desc" },
+    });
+
+  const listPendingExportRequests = async (limit: number = 10) =>
+    (prisma as any).data_export_requests.findMany({
+      where: { status: "pending" },
+      orderBy: { requested_at: "asc" },
+      take: limit,
+    });
+
+  const getExportRequest = async (id: string) =>
+    (prisma as any).data_export_requests.findUnique({
+      where: { id },
+    });
 
   // Low-level operations
   const transaction = async <T>(fn: (tx: import("./types").DatabaseAPI) => Promise<T>): Promise<T> => {
@@ -2109,9 +3214,19 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     createFriendRequest,
     setFriendStatus,
     listFriendships,
+    blockUser,
+    unblockUser,
+    listBlockedUsers,
+    listUsersBlocking,
+    isBlocked,
+    muteUser,
+    unmuteUser,
+    listMutedUsers,
+    isMuted,
     // notifications
     addNotification,
     listNotifications,
+    listNotificationsSince,
     markNotificationRead,
     countUnreadNotifications,
     // communities & memberships
@@ -2125,6 +3240,14 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     listUserCommunities,
     listCommunityMembersWithUsers,
     searchCommunities,
+    // lists
+    createList,
+    updateList,
+    getList,
+    listListsByOwner,
+    addListMember,
+    removeListMember,
+    listMembersByList,
     // invites
     createInvite,
     listInvites,
@@ -2149,19 +3272,63 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     createPost,
     getPost,
     listPostsByCommunity,
+    listPinnedPostsByUser,
+    countPinnedPostsByUser,
     listGlobalPostsForUser,
+    listGlobalPostsSince,
+    searchPublicPosts,
+    listPostsByAuthors,
+    listPostsByHashtag,
+    listTrendingHashtags,
+    listHashtagsForPost,
+    setPostHashtags,
+    setPostMentions,
+    listMentionedUsers,
     updatePost,
+    createPostEditHistory,
+    listPostEditHistory,
+    // polls
+    createPoll,
+    getPollByPost,
+    listPollsByPostIds,
+    listPollVotes,
+    listPollVotesByUser,
+    createPollVotes,
     deletePost,
+    // post plans
+    createPostPlan,
+    updatePostPlan,
+    getPostPlan,
+    listPostPlansByUser,
+    deletePostPlan,
+    listDuePostPlans,
     // reactions
     addReaction,
     listReactionsByPost,
+    listReactionsByUser,
     getReaction,
     deleteReaction,
+    // reposts
+    addRepost,
+    deleteRepost,
+    listRepostsByPost,
+    countRepostsByPost,
+    findRepost,
+    // bookmarks
+    addBookmark,
+    deleteBookmark,
+    listBookmarksByUser,
+    getBookmarkedPostIds,
+    isPostBookmarked,
     // comments
     addComment,
     listCommentsByPost,
     getComment,
     deleteComment,
+    // media
+    upsertMedia,
+    getMedia,
+    listMediaByUser,
     // stories
     createStory,
     getStory,
@@ -2173,6 +3340,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     createReport,
     listReports,
     updateReportStatus,
+    // exports
+    createExportRequest,
+    updateExportRequest,
+    listExportRequestsByUser,
+    listPendingExportRequests,
+    getExportRequest,
     // JWT
     getUserJwtSecret,
     setUserJwtSecret,

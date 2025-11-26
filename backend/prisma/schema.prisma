@@ -41,6 +41,20 @@ model users {
   push_devices             push_devices[]
   sessions                 sessions[]
   ap_keypairs              ap_keypairs?
+  post_reposts             post_reposts[]
+  post_bookmarks           post_bookmarks[]
+  lists                    lists[]
+  list_memberships         list_members[]
+  post_plans               post_plans[]
+  post_edits               post_edit_history[]
+  poll_votes               post_poll_votes[]
+  mentioned_in             post_mentions[]
+  bookmarks                bookmarks[]
+  blocks_initiated         user_blocks[]           @relation("user_blocks_blocker")
+  blocks_received          user_blocks[]           @relation("user_blocks_blocked")
+  mutes_initiated          user_mutes[]            @relation("user_mutes_muter")
+  mutes_received           user_mutes[]            @relation("user_mutes_muted")
+  data_exports             data_export_requests[]
 
   @@map("users")
 }
@@ -65,6 +79,7 @@ model communities {
   posts       posts[]       @relation("community_posts")
   stories     stories[]     @relation("community_stories")
   channels    channels[]
+  post_plans  post_plans[]
 
   @@map("communities")
 }
@@ -83,6 +98,35 @@ model memberships {
 
   @@id([community_id, user_id])
   @@map("memberships")
+}
+
+model lists {
+  id          String   @id
+  owner_id    String
+  name        String
+  description String   @default("")
+  is_public   Int      @default(0)
+  created_at  DateTime
+  updated_at  DateTime
+
+  // Relations
+  owner   users        @relation(fields: [owner_id], references: [id], onDelete: Cascade)
+  members list_members[]
+
+  @@map("lists")
+}
+
+model list_members {
+  list_id  String
+  user_id  String
+  added_at DateTime
+
+  // Relations
+  list lists @relation(fields: [list_id], references: [id], onDelete: Cascade)
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@id([list_id, user_id])
+  @@map("list_members")
 }
 
 model invites {
@@ -135,11 +179,14 @@ model posts {
   author_id               String
   type                    String
   text                    String   @default("")
+  content_warning         String?
+  sensitive               Int      @default(0)
   media_json              String   @default("[]")
   created_at              DateTime
   pinned                  Int      @default(0)
   broadcast_all           Int      @default(0)
   visible_to_friends      Int      @default(0)
+  edit_count              Int      @default(0)
   attributed_community_id String?
 
   // ActivityPub fields
@@ -154,8 +201,40 @@ model posts {
   reactions post_reactions[]
   comments  comments[]
   announces ap_announces[]
+  hashtags  post_hashtags[]
+  mentions      post_mentions[]
+  reposts       post_reposts[]
+  bookmarks_rel post_bookmarks[]
+  edit_history  post_edit_history[]
+  poll          post_polls?
+  bookmarks     bookmarks[]
 
   @@map("posts")
+}
+
+model post_plans {
+  id                      String   @id
+  author_id               String
+  community_id            String?
+  type                    String
+  text                    String   @default("")
+  media_json              String   @default("[]")
+  status                  String   @default("draft") // draft | scheduled | published | failed | canceled
+  scheduled_at            DateTime?
+  post_id                 String?
+  broadcast_all           Int      @default(0)
+  visible_to_friends      Int      @default(0)
+  attributed_community_id String?
+  last_error              String?
+  created_at              DateTime
+  updated_at              DateTime
+
+  // Relations
+  author    users        @relation(fields: [author_id], references: [id], onDelete: Cascade)
+  community communities? @relation(fields: [community_id], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduled_at])
+  @@map("post_plans")
 }
 
 model post_reactions {
@@ -175,6 +254,39 @@ model post_reactions {
   @@map("post_reactions")
 }
 
+model post_reposts {
+  id             String   @id
+  post_id        String
+  user_id        String
+  comment        String   @default("")
+  created_at     DateTime
+  ap_activity_id String?  @unique
+
+  // Relations
+  post posts @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([post_id, user_id])
+  @@index([user_id, created_at])
+  @@index([post_id, created_at])
+  @@map("post_reposts")
+}
+
+model post_bookmarks {
+  id         String   @id
+  post_id    String
+  user_id    String
+  created_at DateTime
+
+  // Relations
+  post posts @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([post_id, user_id])
+  @@index([user_id, created_at])
+  @@map("post_bookmarks")
+}
+
 model comments {
   id         String   @id
   post_id    String
@@ -191,6 +303,130 @@ model comments {
   author users @relation(fields: [author_id], references: [id], onDelete: Cascade)
 
   @@map("comments")
+}
+
+model media {
+  key          String   @id
+  user_id      String
+  url          String
+  description  String   @default("")
+  content_type String   @default("")
+  created_at   DateTime
+  updated_at   DateTime
+
+  @@index([user_id])
+  @@map("media")
+}
+
+model post_edit_history {
+  id                  String   @id
+  post_id             String
+  editor_id           String
+  previous_text       String   @default("")
+  previous_media_json String   @default("[]")
+  diff_json           String   @default("{}")
+  created_at          DateTime @default(now())
+
+  post   posts @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  editor users @relation(fields: [editor_id], references: [id], onDelete: Cascade)
+
+  @@index([post_id, created_at])
+  @@map("post_edit_history")
+}
+
+model post_polls {
+  id              String   @id
+  post_id         String   @unique
+  question        String   @default("")
+  allows_multiple Int      @default(0)
+  anonymous       Int      @default(1)
+  expires_at      DateTime?
+  created_at      DateTime @default(now())
+
+  post    posts               @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  options post_poll_options[]
+  votes   post_poll_votes[]
+
+  @@map("post_polls")
+}
+
+model post_poll_options {
+  id          String   @id
+  poll_id     String
+  text        String
+  order_index Int      @default(0)
+  created_at  DateTime @default(now())
+
+  poll  post_polls       @relation(fields: [poll_id], references: [id], onDelete: Cascade)
+  votes post_poll_votes[]
+
+  @@index([poll_id])
+  @@map("post_poll_options")
+}
+
+model post_poll_votes {
+  id         String   @id
+  poll_id    String
+  option_id  String
+  user_id    String
+  created_at DateTime @default(now())
+
+  poll   post_polls        @relation(fields: [poll_id], references: [id], onDelete: Cascade)
+  option post_poll_options @relation(fields: [option_id], references: [id], onDelete: Cascade)
+  user   users             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([poll_id])
+  @@unique([poll_id, user_id, option_id])
+  @@map("post_poll_votes")
+}
+
+model hashtags {
+  id         String   @id
+  tag        String   @unique
+  created_at DateTime @default(now())
+
+  posts post_hashtags[]
+
+  @@map("hashtags")
+}
+
+model post_hashtags {
+  post_id    String
+  hashtag_id String
+  created_at DateTime @default(now())
+
+  post    posts    @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  hashtag hashtags @relation(fields: [hashtag_id], references: [id], onDelete: Cascade)
+
+  @@id([post_id, hashtag_id])
+  @@map("post_hashtags")
+}
+
+model post_mentions {
+  post_id           String
+  mentioned_user_id String
+  created_at        DateTime @default(now())
+
+  post           posts @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  mentioned_user users @relation(fields: [mentioned_user_id], references: [id], onDelete: Cascade)
+
+  @@id([post_id, mentioned_user_id])
+  @@map("post_mentions")
+}
+
+model bookmarks {
+  id         String   @id
+  user_id    String
+  post_id    String
+  created_at DateTime
+
+  // Relations
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  post posts @relation(fields: [post_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([post_id])
+  @@map("bookmarks")
 }
 
 model stories {
@@ -222,6 +458,30 @@ model friendships {
 
   @@id([requester_id, addressee_id])
   @@map("friendships")
+}
+
+model user_blocks {
+  blocker_id String
+  blocked_id String
+  created_at DateTime @default(now())
+
+  blocker users @relation("user_blocks_blocker", fields: [blocker_id], references: [id], onDelete: Cascade)
+  blocked users @relation("user_blocks_blocked", fields: [blocked_id], references: [id], onDelete: Cascade)
+
+  @@id([blocker_id, blocked_id])
+  @@map("user_blocks")
+}
+
+model user_mutes {
+  muter_id String
+  muted_id String
+  created_at DateTime @default(now())
+
+  muter users @relation("user_mutes_muter", fields: [muter_id], references: [id], onDelete: Cascade)
+  muted users @relation("user_mutes_muted", fields: [muted_id], references: [id], onDelete: Cascade)
+
+  @@id([muter_id, muted_id])
+  @@map("user_mutes")
 }
 
 model user_accounts {
@@ -297,6 +557,25 @@ model notifications {
   recipient users @relation("notification_recipient", fields: [user_id], references: [id], onDelete: Cascade)
 
   @@map("notifications")
+}
+
+model data_export_requests {
+  id            String   @id
+  user_id       String
+  format        String   @default("json")
+  status        String   @default("pending") // pending | processing | completed | failed
+  requested_at  DateTime
+  processed_at  DateTime?
+  download_url  String?
+  result_json   String?
+  error_message String?
+
+  // Relations
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([user_id, requested_at])
+  @@map("data_export_requests")
 }
 
 // ActivityPub Announce/Boost tracking
@@ -495,7 +774,8 @@ model reports {
   target_actor_id   String
   target_object_id  String?
   reason            String?
-  status            String   @default("pending") // pending, resolved, rejected
+  category          String   @default("other")
+  status            String   @default("pending") // pending, reviewed, resolved, dismissed
   created_at        DateTime @default(now())
   updated_at        DateTime @default(now())
 

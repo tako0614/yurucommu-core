@@ -25,8 +25,11 @@
 - `type`: 投稿タイプ（`text`, `image`, `video` 等、デフォルト: `text`）
 - `text`: 投稿本文（テキストまたはメディアが必須）
 - `media`: メディア URL の配列（オプション）
+- `media[]`: オブジェクト形式でも指定可能（`{ "url": "...", "description": "代替テキスト" }`）。`description` は最大 1500 文字。
 - `audience`: 公開範囲（`all` または `community`、デフォルト: `all`）
 - `visible_to_friends`: フレンド限定表示（デフォルト: `true`）
+- `content_warning`: コンテンツ警告テキスト（ActivityPub `summary` にも反映）
+- `sensitive`: センシティブフラグ（true の場合は折りたたみ表示を推奨）
 
 **レスポンス** (201):
 ```json

@@ -21,4 +21,5 @@ export type {
   Community,
   Post,
   Story,
+  MediaAttachment,
 } from "./types";

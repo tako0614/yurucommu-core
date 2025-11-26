@@ -667,9 +667,23 @@ async function handleIncomingPost(
   const objectId = typeof note.id === "string" ? note.id : null;
   const content = sanitizeHtml(note.content || "");
   const published = note.published ? new Date(note.published) : new Date();
+  const contentWarning = typeof note.summary === "string" ? note.summary.slice(0, 500) : null;
+  const sensitive = typeof note.sensitive === "string"
+    ? ["1", "true", "yes", "on"].includes(note.sensitive.toLowerCase())
+    : Boolean(note.sensitive);
   const communityId = localRecipientId.startsWith("group:")
     ? localRecipientId.slice("group:".length)
     : null;
+
+  const attachments = Array.isArray(note.attachment) ? note.attachment : [];
+  const mediaEntries = attachments
+    .map((att: any) => {
+      const url = typeof att?.url === "string" ? att.url : typeof att?.href === "string" ? att.href : "";
+      if (!url) return null;
+      const description = typeof att?.name === "string" ? att.name.slice(0, 1500) : undefined;
+      return { url, description };
+    })
+    .filter(Boolean) as Array<{ url: string; description?: string }>;
 
   // Determine if actor is local or remote
   const instanceDomain = requireInstanceDomain(env);
@@ -694,9 +708,11 @@ async function handleIncomingPost(
     attributed_community_id: communityId ?? undefined,
     author_id: authorId,
     text: content,
+    content_warning: contentWarning,
+    sensitive,
     created_at: published,
     type: "text",
-    media_urls: [],
+    media_urls: mediaEntries,
     ap_object_id: objectId,
     ap_attributed_to: actorUri,
     in_reply_to: null,

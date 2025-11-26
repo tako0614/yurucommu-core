@@ -164,35 +164,61 @@ export function generateNoteObject(
   // Parse media attachments
   const attachments: any[] = [];
   try {
-    const mediaUrls = JSON.parse(post.media_json || "[]");
-    for (const url of mediaUrls) {
-      if (typeof url === "string" && url.trim()) {
-        // Infer media type from URL
-        const lowerUrl = url.toLowerCase();
-        let mediaType = "application/octet-stream";
-        if (lowerUrl.endsWith(".jpg") || lowerUrl.endsWith(".jpeg")) {
-          mediaType = "image/jpeg";
-        } else if (lowerUrl.endsWith(".png")) {
-          mediaType = "image/png";
-        } else if (lowerUrl.endsWith(".webp")) {
-          mediaType = "image/webp";
-        } else if (lowerUrl.endsWith(".gif")) {
-          mediaType = "image/gif";
-        } else if (lowerUrl.endsWith(".mp4")) {
-          mediaType = "video/mp4";
-        } else if (lowerUrl.endsWith(".webm")) {
-          mediaType = "video/webm";
-        }
+    const mediaItems = JSON.parse(post.media_json || "[]");
+    for (const item of mediaItems) {
+      const url = typeof item === "string"
+        ? item
+        : (item && typeof item.url === "string" ? item.url : "");
+      if (typeof url !== "string" || !url.trim()) continue;
+      const description =
+        item && typeof item === "object"
+          ? (typeof item.description === "string"
+              ? (item.description as string)
+              : (typeof item.name === "string" ? (item.name as string) : undefined))
+          : undefined;
+      const sanitizedDescription = description ? description.slice(0, 1500) : undefined;
 
-        attachments.push({
-          type: mediaType.startsWith("image") ? "Image" : "Video",
-          mediaType,
-          url,
-        });
+      // Infer media type from URL
+      const lowerUrl = url.toLowerCase();
+      let mediaType = "application/octet-stream";
+      if (lowerUrl.endsWith(".jpg") || lowerUrl.endsWith(".jpeg")) {
+        mediaType = "image/jpeg";
+      } else if (lowerUrl.endsWith(".png")) {
+        mediaType = "image/png";
+      } else if (lowerUrl.endsWith(".webp")) {
+        mediaType = "image/webp";
+      } else if (lowerUrl.endsWith(".gif")) {
+        mediaType = "image/gif";
+      } else if (lowerUrl.endsWith(".mp4")) {
+        mediaType = "video/mp4";
+      } else if (lowerUrl.endsWith(".webm")) {
+        mediaType = "video/webm";
       }
+
+      attachments.push({
+        type: mediaType.startsWith("image") ? "Image" : "Video",
+        mediaType,
+        url,
+        name: sanitizedDescription || undefined,
+      });
     }
   } catch (error) {
     console.error("Failed to parse media_json:", error);
+  }
+
+  const tags: any[] = [];
+  if (Array.isArray(post.ap_tags)) {
+    tags.push(...post.ap_tags);
+  } else if (Array.isArray((post as any).hashtags)) {
+    for (const tag of (post as any).hashtags) {
+      if (typeof tag === "string" && tag.trim()) {
+        tags.push({
+          type: "Hashtag",
+          href: `${baseUrl}/tags/${encodeURIComponent(tag.trim())}`,
+          name: `#${tag.trim()}`,
+        });
+      }
+    }
   }
 
   // Convert text to HTML-safe content
@@ -219,6 +245,20 @@ export function generateNoteObject(
     cc,
     url: `${baseUrl}/posts/${post.id}`,
   };
+
+  if (post.content_warning) {
+    note.summary = post.content_warning;
+  }
+
+  if (post.sensitive !== undefined) {
+    note.sensitive = Boolean(post.sensitive);
+  } else if (post.content_warning) {
+    note.sensitive = true;
+  }
+
+  if (tags.length) {
+    note.tag = tags;
+  }
 
   // Only include optional fields if they have values
   if (attachments.length > 0) {
