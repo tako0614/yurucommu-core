@@ -11,19 +11,6 @@ import AccountManager from "../components/AccountManager";
 import PostCard from "../components/PostCard";
 import { buildProfileUrlByHandle, buildActivityPubHandle, getUserDomain } from "../lib/url";
 
-function formatTimestamp(value?: string) {
-  if (!value) return "";
-  try {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-      return value;
-    }
-    return date.toLocaleString();
-  } catch {
-    return value;
-  }
-}
-
 export default function Profile() {
   const me = useMe();
   const [shareOpen, setShareOpen] = createSignal(false);

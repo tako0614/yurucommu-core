@@ -16,20 +16,6 @@ export default function Stories() {
     setViewerIndex(null);
   };
 
-  const nextStory = () => {
-    const current = viewerIndex();
-    if (current !== null && current < stories().length - 1) {
-      setViewerIndex(current + 1);
-    }
-  };
-
-  const prevStory = () => {
-    const current = viewerIndex();
-    if (current !== null && current > 0) {
-      setViewerIndex(current - 1);
-    }
-  };
-
   return (
     <div class="min-h-screen bg-white dark:bg-black">
       <HeaderBar />
@@ -53,34 +39,27 @@ export default function Stories() {
                     class="relative aspect-[9/16] rounded-xl overflow-hidden bg-gray-100 dark:bg-gray-800 hover:opacity-90 transition-opacity"
                     onClick={() => openViewer(index())}
                   >
-                    <Show when={story.elements && story.elements.length > 0}>
-                      <Show when={story.elements![0].type === "image" && story.elements![0].url}>
+                    <Show when={story.items && story.items.length > 0}>
+                      <Show when={story.items[0].type === "image"}>
                         <img
-                          src={story.elements![0].url!}
+                          src={(story.items[0] as any).url}
                           alt="ストーリー"
                           class="w-full h-full object-cover"
                         />
                       </Show>
-                      <Show when={story.elements![0].type === "text"}>
+                      <Show when={story.items[0].type === "text"}>
                         <div
-                          class="w-full h-full flex items-center justify-center p-4"
-                          style={{
-                            background: story.background_style === "gradient"
-                              ? "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
-                              : story.background_style === "solid"
-                              ? "#1a1a1a"
-                              : "transparent",
-                          }}
+                          class="w-full h-full flex items-center justify-center p-4 bg-gradient-to-br from-purple-500 to-pink-500"
                         >
                           <div class="text-white text-sm font-medium text-center line-clamp-3">
-                            {story.elements![0].content}
+                            {(story.items[0] as any).text || ""}
                           </div>
                         </div>
                       </Show>
                     </Show>
                     <div class="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/60 to-transparent">
                       <div class="text-white text-xs font-medium truncate">
-                        {story.author_display_name || "Unknown"}
+                        {story.author_id}
                       </div>
                       <div class="text-white/80 text-xs">
                         {new Date(story.created_at).toLocaleString()}
@@ -102,10 +81,8 @@ export default function Stories() {
       <Show when={viewerIndex() !== null}>
         <StoryViewer
           stories={stories()}
-          initialIndex={viewerIndex()!}
+          startIndex={viewerIndex()!}
           onClose={closeViewer}
-          onNext={nextStory}
-          onPrev={prevStory}
         />
       </Show>
     </div>
