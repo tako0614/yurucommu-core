@@ -109,11 +109,15 @@ export interface PostInput {
   author_id: string;
   type: string;
   text?: string;
+  content_warning?: string | null;
+  sensitive?: boolean;
+  media?: MediaInput[];
   media_urls?: string[];
   created_at: string | Date;
-  pinned?: boolean;
+  pinned?: boolean | number;
   broadcast_all?: boolean;
   visible_to_friends?: boolean;
+  edit_count?: number;
   attributed_community_id?: string | null;
   ap_object_id?: string | null;
   ap_activity_id?: string | null;
@@ -128,6 +132,13 @@ export interface ReactionInput {
   ap_activity_id?: string | null;
 }
 
+export interface BookmarkInput {
+  id: string;
+  user_id: string;
+  post_id: string;
+  created_at?: string | Date;
+}
+
 export interface CommentInput {
   id: string;
   post_id: string;
@@ -136,6 +147,46 @@ export interface CommentInput {
   created_at: string | Date;
   ap_object_id?: string | null;
   ap_activity_id?: string | null;
+}
+
+export interface MediaInput {
+  url: string;
+  description?: string | null;
+  content_type?: string | null;
+}
+
+export interface MediaRecordInput extends MediaInput {
+  key: string;
+  user_id: string;
+  created_at?: string | Date;
+  updated_at?: string | Date;
+}
+
+export interface PostEditHistoryInput {
+  id: string;
+  post_id: string;
+  editor_id: string;
+  previous_text: string;
+  previous_media_json: string;
+  diff_json: string;
+  created_at?: string | Date;
+}
+
+export interface PollOptionInput {
+  id: string;
+  poll_id: string;
+  text: string;
+  order_index?: number;
+}
+
+export interface PollInput {
+  id: string;
+  post_id: string;
+  question: string;
+  allows_multiple?: boolean | number;
+  anonymous?: boolean | number;
+  expires_at?: string | Date | null;
+  options: PollOptionInput[];
 }
 
 export interface StoryInput {
@@ -228,9 +279,11 @@ export interface ApRemotePostInput {
   attributed_community_id?: string | null;
   author_id: string;
   text: string;
+  content_warning?: string | null;
+  sensitive?: boolean;
   created_at?: string | Date;
   type?: string;
-  media_urls?: string[];
+  media_urls?: Array<string | MediaInput>;
   ap_object_id?: string | null;
   ap_attributed_to?: string | null;
   in_reply_to?: string | null;
@@ -296,6 +349,15 @@ export interface DatabaseAPI {
   createFriendRequest(requester_id: string, addressee_id: string): Promise<any>;
   setFriendStatus(requester_id: string, addressee_id: string, status: FriendStatus): Promise<any>;
   listFriendships(user_id: string, status?: FriendStatus | null): Promise<any[]>;
+  blockUser(blocker_id: string, blocked_id: string): Promise<void>;
+  unblockUser(blocker_id: string, blocked_id: string): Promise<void>;
+  listBlockedUsers(blocker_id: string): Promise<any[]>;
+  listUsersBlocking(user_id: string): Promise<string[]>;
+  isBlocked(blocker_id: string, target_id: string): Promise<boolean>;
+  muteUser(muter_id: string, muted_id: string): Promise<void>;
+  unmuteUser(muter_id: string, muted_id: string): Promise<void>;
+  listMutedUsers(muter_id: string): Promise<any[]>;
+  isMuted(muter_id: string, target_id: string): Promise<boolean>;
 
   // Notifications
   addNotification(notification: NotificationInput): Promise<any>;
@@ -338,16 +400,58 @@ export interface DatabaseAPI {
   createPost(post: PostInput): Promise<any>;
   getPost(id: string): Promise<any>;
   listPostsByCommunity(community_id: string): Promise<any[]>;
+  listPinnedPostsByUser?(user_id: string, limit?: number): Promise<any[]>;
+  countPinnedPostsByUser?(user_id: string): Promise<number>;
   listGlobalPostsForUser(user_id: string): Promise<any[]>;
+  searchPublicPosts(query: string, limit?: number, offset?: number): Promise<any[]>;
+  listPostsByHashtag(tag: string): Promise<any[]>;
+  listTrendingHashtags(since: Date, limit?: number): Promise<Array<{ tag: string; uses: number }>>;
+  listHashtagsForPost(post_id: string): Promise<string[]>;
+  setPostHashtags(post_id: string, tags: string[]): Promise<void>;
+  setPostMentions(post_id: string, userIds: string[]): Promise<void>;
+  listMentionedUsers(post_id: string): Promise<string[]>;
   updatePost(id: string, fields: Record<string, any>): Promise<any>;
+  createPostEditHistory(history: PostEditHistoryInput): Promise<any>;
+  listPostEditHistory(post_id: string, limit?: number, offset?: number): Promise<any[]>;
+  deletePost?(id: string): Promise<void>;
+
+  // Polls
+  createPoll(poll: PollInput): Promise<any>;
+  getPollByPost(post_id: string): Promise<any | null>;
+  listPollsByPostIds(post_ids: string[]): Promise<any[]>;
+  listPollVotes(poll_id: string): Promise<any[]>;
+  listPollVotesByUser(poll_id: string, user_id: string): Promise<any[]>;
+  createPollVotes(poll_id: string, option_ids: string[], user_id: string): Promise<void>;
 
   // Reactions
   addReaction(reaction: ReactionInput): Promise<any>;
   listReactionsByPost(post_id: string): Promise<any[]>;
+  getReaction?(id: string): Promise<any>;
+  deleteReaction?(id: string): Promise<void>;
+
+  // Reposts
+  addRepost?(input: { id: string; post_id: string; user_id: string; comment?: string; created_at?: string | Date; ap_activity_id?: string | null }): Promise<any>;
+  deleteRepost?(post_id: string, user_id: string): Promise<void>;
+  listRepostsByPost?(post_id: string, limit?: number, offset?: number): Promise<any[]>;
+  countRepostsByPost?(post_id: string): Promise<number>;
+  findRepost?(post_id: string, user_id: string): Promise<any | null>;
 
   // Comments
   addComment(comment: CommentInput): Promise<any>;
   listCommentsByPost(post_id: string): Promise<any[]>;
+  getComment(id: string): Promise<any>;
+
+  // Media
+  upsertMedia?(media: MediaRecordInput): Promise<any>;
+  getMedia?(key: string): Promise<any>;
+  listMediaByUser?(user_id: string): Promise<any[]>;
+
+  // Bookmarks
+  addBookmark?(bookmark: BookmarkInput): Promise<any>;
+  deleteBookmark?(post_id: string, user_id: string): Promise<void>;
+  listBookmarksByUser?(user_id: string, limit?: number, offset?: number): Promise<any[]>;
+  getBookmarkedPostIds?(user_id: string, postIds: string[]): Promise<Set<string>>;
+  isPostBookmarked?(post_id: string, user_id: string): Promise<boolean>;
 
   // Stories
   createStory(story: StoryInput): Promise<any>;
@@ -459,6 +563,7 @@ export interface ReportInput {
   target_actor_id: string;
   target_object_id?: string | null;
   reason?: string;
+  category?: string;
   status?: string;
   created_at?: string | Date;
   updated_at?: string | Date;

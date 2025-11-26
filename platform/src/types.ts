@@ -44,11 +44,16 @@ type HostIntegrationBindings = {
   INSTANCE_OWNER_HANDLE?: string;
 };
 
+type CronBindings = {
+  CRON_SECRET?: string;
+};
+
 export type PublicAccountBindings = BaseBindings &
   PushBindings &
   SessionBindings &
   ActivityPubBindings &
-  EnvCredentialBindings;
+  EnvCredentialBindings &
+  CronBindings;
 
 export type PrivateAccountBindings = PublicAccountBindings & HostIntegrationBindings;
 
@@ -105,7 +110,10 @@ export type Post = {
   author_id: string;
   type: string;
   text: string;
+  content_warning?: string | null;
+  sensitive?: number | boolean;
   media_json: string;
+  media?: MediaAttachment[];
   created_at: Date | string;
   pinned: number;
   broadcast_all: number;
@@ -115,6 +123,12 @@ export type Post = {
   ap_attributed_to?: string | null;
   in_reply_to?: string | null;
   ap_activity_id?: string | null;
+};
+
+export type MediaAttachment = {
+  url: string;
+  description?: string | null;
+  content_type?: string | null;
 };
 
 export type Story = {

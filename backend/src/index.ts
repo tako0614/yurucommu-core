@@ -58,6 +58,11 @@ import postsRoutes from "./routes/posts";
 import storiesRoutes from "./routes/stories";
 import chatRoutes from "./routes/chat";
 import mediaRoutes from "./routes/media";
+import moderationRoutes from "./routes/moderation";
+import realtimeRoutes from "./routes/realtime";
+import listsRoutes from "./routes/lists";
+import postPlansRoutes from "./routes/post-plans";
+import exportsRoutes from "./routes/exports";
 import { auth, authenticateUser } from "./middleware/auth";
 
 type EnsureDatabaseFn = (env: Bindings) => Promise<void>;
@@ -201,6 +206,11 @@ app.route("/", postsRoutes);
 app.route("/", storiesRoutes);
 app.route("/", chatRoutes);
 app.route("/", mediaRoutes);
+app.route("/", moderationRoutes);
+app.route("/", listsRoutes);
+app.route("/", postPlansRoutes);
+app.route("/", exportsRoutes);
+app.route("/", realtimeRoutes);
 
 // Root endpoint for health/checks and baseline tests
 app.get("/", (c) => c.text("Hello World!"));
@@ -409,6 +419,7 @@ function datePrefix(d = new Date()) {
 }
 
 const STORAGE_ROOT = "storage";
+const MAX_ALT_LENGTH = 1500;
 
 function normalizePathPrefix(input: string): string {
   const cleaned = (input || "").replace(/\\/g, "/");
@@ -458,6 +469,10 @@ app.post("/media/upload", auth, async (c) => {
     if (!form) return fail(c, "invalid form data", 400);
     const file = form.get("file") as File | null;
     if (!file) return fail(c, "file required", 400);
+    const descriptionRaw = form.get("description") ?? form.get("alt");
+    const description = typeof descriptionRaw === "string"
+      ? descriptionRaw.slice(0, MAX_ALT_LENGTH).trim()
+      : "";
     const ext = safeFileExt((file as any).name || "", file.type);
     const id = crypto.randomUUID().replace(/-/g, "");
     const prefix = `user-uploads/${(user as any)?.id || "anon"}/${datePrefix()}`;
@@ -469,7 +484,16 @@ app.post("/media/upload", auth, async (c) => {
       },
     });
     const url = `/media/${encodeURI(key)}`;
-    return ok(c, { key, url }, 201);
+    if (store.upsertMedia) {
+      await store.upsertMedia({
+        key,
+        user_id: (user as any)?.id || "",
+        url,
+        description,
+        content_type: file.type || "",
+      });
+    }
+    return ok(c, { key, url, description: description || undefined }, 201);
   } finally {
     await releaseStore(store);
   }
@@ -513,6 +537,11 @@ app.get("/storage", auth, async (c) => {
       cursor,
     });
 
+    const mediaMeta = await store.listMediaByUser?.((user as any)?.id || "");
+    const mediaMap = new Map<string, string>(
+      (mediaMeta || []).map((m: any) => [m.key, m.description || ""]),
+    );
+
     const objects = (result?.objects || []).map((obj: any) => {
       const relative = stripUserStoragePrefix(obj.key, (user as any)?.id || "anon");
       return {
@@ -524,6 +553,7 @@ app.get("/storage", auth, async (c) => {
         content_type: obj.httpMetadata?.contentType || null,
         cache_control: obj.httpMetadata?.cacheControl || null,
         url: `/media/${encodeURI(obj.key)}`,
+        description: mediaMap.get(obj.key) || undefined,
       };
     });
 
@@ -553,6 +583,10 @@ app.post("/storage/upload", auth, async (c) => {
     if (!form) return fail(c, "invalid form data", 400);
     const file = form.get("file") as File | null;
     if (!file) return fail(c, "file required", 400);
+    const descriptionRaw = form.get("description") ?? form.get("alt");
+    const description = typeof descriptionRaw === "string"
+      ? descriptionRaw.slice(0, MAX_ALT_LENGTH).trim()
+      : "";
 
     const pathInput = form.get("path");
     const basePrefix = userStoragePrefix(
@@ -573,10 +607,20 @@ app.post("/storage/upload", auth, async (c) => {
       },
     });
     const url = `/media/${encodeURI(key)}`;
+    if (store.upsertMedia) {
+      await store.upsertMedia({
+        key,
+        user_id: (user as any)?.id || "",
+        url,
+        description,
+        content_type: file.type || "",
+      });
+    }
     return ok(c, {
       key: stripUserStoragePrefix(key, (user as any)?.id || "anon"),
       full_key: key,
       url,
+      description: description || undefined,
     }, 201);
   } finally {
     await releaseStore(store);

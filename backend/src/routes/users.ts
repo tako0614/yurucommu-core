@@ -23,15 +23,21 @@ import { notify } from "../lib/notifications";
 const users = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // Get my profile
-users.get("/me", auth, (c) => {
+users.get("/me", auth, async (c) => {
   console.log("[backend] /me handler", {
     path: new URL(c.req.url).pathname,
     method: c.req.method,
   });
   const user = c.get("user") as any;
-  // Remove sensitive/internal fields before returning
-  const { jwt_secret, tenant_id, ...publicProfile } = user;
-  return ok(c, publicProfile);
+  const store = makeData(c.env as any, c);
+  try {
+    const pinned_posts = await store.listPinnedPostsByUser?.(user.id, 5);
+    // Remove sensitive/internal fields before returning
+    const { jwt_secret, tenant_id, ...publicProfile } = user;
+    return ok(c, { ...publicProfile, pinned_posts: pinned_posts ?? [] });
+  } finally {
+    await releaseStore(store);
+  }
 });
 
 // Get notifications
@@ -98,6 +104,48 @@ users.get("/me/friend-requests", auth, async (c) => {
       return true;
     });
     return ok(c, filtered);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// Block list
+users.get("/me/blocks", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const me = c.get("user") as any;
+    const list = await store.listBlockedUsers(me.id);
+    const sanitized = (list || []).map((entry: any) => {
+      const user = entry.user || {};
+      const { jwt_secret, tenant_id, ...publicProfile } = user;
+      return {
+        blocked_id: entry.blocked_id,
+        created_at: entry.created_at,
+        user: user.id ? publicProfile : null,
+      };
+    });
+    return ok(c, sanitized);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// Mute list
+users.get("/me/mutes", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const me = c.get("user") as any;
+    const list = await store.listMutedUsers(me.id);
+    const sanitized = (list || []).map((entry: any) => {
+      const user = entry.user || {};
+      const { jwt_secret, tenant_id, ...publicProfile } = user;
+      return {
+        muted_id: entry.muted_id,
+        created_at: entry.created_at,
+        user: user.id ? publicProfile : null,
+      };
+    });
+    return ok(c, sanitized);
   } finally {
     await releaseStore(store);
   }
@@ -191,6 +239,13 @@ users.get("/users/:id", optionalAuth, async (c) => {
         console.error(`[GET /users/:id] User not found in local domain`);
         return fail(c, "user not found", 404);
       }
+      if (me?.id && normalizedId !== me.id) {
+        const blocked = await store.isBlocked?.(me.id, normalizedId).catch(() => false);
+        const blocking = await store.isBlocked?.(normalizedId, me.id).catch(() => false);
+        if (blocked || blocking) {
+          return fail(c, "forbidden", 403);
+        }
+      }
 
       // Return local user profile
       let relation: any = null;
@@ -199,10 +254,12 @@ users.get("/users/:id", optionalAuth, async (c) => {
       }
 
       const { jwt_secret, tenant_id, ...publicProfile } = u;
+      const pinned_posts = await store.listPinnedPostsByUser?.(u.id, 5);
       return ok(c, {
         ...publicProfile,
         domain: instanceDomain || publicProfile.domain || undefined,
         friend_status: relation?.status || null,
+        pinned_posts: pinned_posts ?? [],
       });
     } else {
       // REMOTE DOMAIN: Fetch via ActivityPub
@@ -326,6 +383,73 @@ users.delete("/me/push-devices", auth, async (c) => {
     if (!token) return fail(c, "token required", 400);
     await store.removePushDevice(token);
     return ok(c, { deleted: true });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// Block a user
+users.post("/users/:id/block", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const me = c.get("user") as any;
+    const targetId = c.req.param("id");
+    if (!targetId || targetId === me.id) return fail(c, "invalid target", 400);
+    const target = await store.getUser(targetId);
+    if (!target) return fail(c, "user not found", 404);
+    await store.blockUser(me.id, targetId);
+    await store.unmuteUser?.(me.id, targetId);
+    const existing = await store.getFriendshipBetween(me.id, targetId).catch(() => null);
+    if (existing) {
+      const requester = existing.requester_id;
+      const addressee = existing.addressee_id;
+      await store.setFriendStatus(requester, addressee, "rejected").catch(() => null);
+    }
+    return ok(c, { blocked: true });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// Unblock a user
+users.delete("/users/:id/block", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const me = c.get("user") as any;
+    const targetId = c.req.param("id");
+    if (!targetId || targetId === me.id) return fail(c, "invalid target", 400);
+    await store.unblockUser(me.id, targetId);
+    return ok(c, { blocked: false });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// Mute a user
+users.post("/users/:id/mute", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const me = c.get("user") as any;
+    const targetId = c.req.param("id");
+    if (!targetId || targetId === me.id) return fail(c, "invalid target", 400);
+    const target = await store.getUser(targetId);
+    if (!target) return fail(c, "user not found", 404);
+    await store.muteUser(me.id, targetId);
+    return ok(c, { muted: true });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// Unmute a user
+users.delete("/users/:id/mute", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const me = c.get("user") as any;
+    const targetId = c.req.param("id");
+    if (!targetId || targetId === me.id) return fail(c, "invalid target", 400);
+    await store.unmuteUser(me.id, targetId);
+    return ok(c, { muted: false });
   } finally {
     await releaseStore(store);
   }

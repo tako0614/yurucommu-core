@@ -123,10 +123,20 @@ chat.get("/dm/with/:handle", auth, async (c) => {
     const otherHandle = c.req.param("handle");
     const limit = parseInt(c.req.query("limit") || "50", 10);
 
+    const handleLower = (otherHandle || "").toLowerCase();
+    const otherUser = await store.getUser(handleLower).catch(() => null);
+    if (otherUser) {
+      const blocked = await store.isBlocked?.(user.id, otherUser.id).catch(() => false);
+      const blocking = await store.isBlocked?.(otherUser.id, user.id).catch(() => false);
+      if (blocked || blocking) {
+        return fail(c, "forbidden", 403);
+      }
+    }
+
     const { threadId, messages } = await fetchDmThreadByHandle(
       c.env,
       user.handle || user.id,
-      otherHandle,
+      handleLower,
       limit,
     );
 
@@ -162,6 +172,20 @@ chat.post("/dm/send", auth, async (c) => {
     const content = String(body.content || "").trim();
     if (!content) {
       throw new HttpError(400, "content required");
+    }
+
+    const recipientHandles = recipients
+      .map((r: any) => String(r || "").replace(/^@/, "").toLowerCase())
+      .filter((r: string) => r && !r.startsWith("http") && !r.includes("/"));
+    for (const handle of recipientHandles) {
+      const recipient = await store.getUser(handle).catch(() => null);
+      if (recipient) {
+        const blocked = await store.isBlocked?.(user.id, recipient.id).catch(() => false);
+        const blocking = await store.isBlocked?.(recipient.id, user.id).catch(() => false);
+        if (blocked || blocking) {
+          throw new HttpError(403, "forbidden");
+        }
+      }
     }
 
     const inReplyTo = body.in_reply_to || body.inReplyTo || undefined;

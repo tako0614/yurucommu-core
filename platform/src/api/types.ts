@@ -37,6 +37,9 @@ export type Post = {
   id: string;
   text: string;
   type?: string;
+  content_warning?: string | null;
+  sensitive?: number | boolean;
+  media?: MediaAttachment[] | null;
   media_urls?: string[] | null;
   media_json?: string;
   created_at: string | Date;
@@ -55,6 +58,12 @@ export type Post = {
   ap_attributed_to?: string | null;
   in_reply_to?: string | null;
   ap_activity_id?: string | null;
+};
+
+export type MediaAttachment = {
+  url: string;
+  description?: string | null;
+  content_type?: string | null;
 };
 
 export type FriendEdge = {

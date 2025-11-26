@@ -11,6 +11,8 @@ import { auth } from "../middleware/auth";
 
 const media = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
+const MAX_ALT_LENGTH = 1500;
+
 const inferExtFromType = (t: string) => {
   const m = (t || "").toLowerCase();
   if (m.includes("jpeg")) return "jpg";
@@ -52,6 +54,10 @@ media.post("/upload", auth, async (c) => {
     if (!form) return fail(c, "invalid form data", 400);
     const file = form.get("file") as File | null;
     if (!file) return fail(c, "file required", 400);
+    const descriptionRaw = form.get("description") ?? form.get("alt");
+    const description = typeof descriptionRaw === "string"
+      ? descriptionRaw.slice(0, MAX_ALT_LENGTH).trim()
+      : "";
     const ext = safeFileExt((file as any).name || "", file.type);
     const id = crypto.randomUUID().replace(/-/g, "");
     const prefix = `user-uploads/${(user as any)?.id || "anon"}/${datePrefix()}`;
@@ -63,7 +69,16 @@ media.post("/upload", auth, async (c) => {
       },
     });
     const url = `/media/${encodeURI(key)}`;
-    return ok(c, { key, url }, 201);
+    if (store.upsertMedia) {
+      await store.upsertMedia({
+        key,
+        user_id: (user as any)?.id || "",
+        url,
+        description,
+        content_type: file.type || "",
+      });
+    }
+    return ok(c, { key, url, description: description || undefined }, 201);
   } finally {
     await releaseStore(store);
   }
