@@ -650,15 +650,13 @@ app.delete("/storage", auth, async (c) => {
   }
 });
 
-// (Removed) Mock login endpoint for development
-
-// Registration disabled - using environment variable authentication
-app.post("/auth/password/register", async (c) => {
-  if (!featureEnabled("envPasswordAuth")) {
-    return fail(c, "password authentication disabled", 404);
-  }
-  return fail(c, "registration disabled - use environment variables for authentication", 403);
-});
+// SINGLE-USER MODE: Registration not supported
+// takos (OSS) is designed for single-user instances.
+// To set up your user, configure environment variables:
+//   AUTH_USERNAME=your_username
+//   AUTH_PASSWORD=your_password
+// Then run a migration or manually insert the user into the database.
+// Login is password-only (username is implicit).
 
 app.post("/auth/password/login", async (c) => {
   if (!featureEnabled("envPasswordAuth")) {

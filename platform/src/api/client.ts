@@ -312,6 +312,55 @@ export function createApiClient(config: ApiClientConfig) {
     async logout() {
       return apiFetch('/auth/logout', { method: 'POST' });
     },
+
+    // ---- Post Plans (Drafts/Scheduled Posts) APIs ----
+    async listPostPlans(status?: 'draft' | 'scheduled' | 'published' | 'failed' | 'canceled') {
+      const query = status ? `?status=${encodeURIComponent(status)}` : '';
+      return apiFetch<any[]>(`/post-plans${query}`);
+    },
+
+    async getPostPlan(id: string) {
+      return apiFetch<any>(`/post-plans/${encodeURIComponent(id)}`);
+    },
+
+    async createPostPlan(payload: {
+      type?: string;
+      text: string;
+      media_urls?: string[];
+      community_id?: string | null;
+      broadcast_all?: boolean;
+      visible_to_friends?: boolean;
+      scheduled_at?: string | null;
+    }) {
+      return apiFetch<any>('/post-plans', {
+        method: 'POST',
+        body: payload,
+      });
+    },
+
+    async updatePostPlan(id: string, payload: {
+      text?: string;
+      media_urls?: string[];
+      scheduled_at?: string | null;
+      status?: 'draft' | 'scheduled' | 'canceled';
+    }) {
+      return apiFetch<any>(`/post-plans/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: payload,
+      });
+    },
+
+    async deletePostPlan(id: string) {
+      return apiFetch<null>(`/post-plans/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+    },
+
+    async publishPostPlan(id: string) {
+      return apiFetch<any>(`/post-plans/${encodeURIComponent(id)}/publish`, {
+        method: 'POST',
+      });
+    },
   };
 }
 

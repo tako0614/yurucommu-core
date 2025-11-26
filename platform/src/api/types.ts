@@ -99,6 +99,22 @@ export type CommunityInvitation = {
   community?: Community;
 };
 
+export type PostPlan = {
+  id: string;
+  author_id: string;
+  type: string;
+  text: string;
+  media_urls?: string[] | null;
+  community_id?: string | null;
+  broadcast_all?: number | boolean;
+  visible_to_friends?: number | boolean;
+  status: 'draft' | 'scheduled' | 'published' | 'failed' | 'canceled';
+  scheduled_at?: string | null;
+  published_post_id?: string | null;
+  created_at: string;
+  updated_at?: string;
+};
+
 export type CommunityInviteCode = {
   code: string;
   community_id: string;

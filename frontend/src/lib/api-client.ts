@@ -428,6 +428,12 @@ export const {
   markNotificationRead,
   registerPushDevice,
   removePushDevice,
+  listPostPlans,
+  getPostPlan,
+  createPostPlan,
+  updatePostPlan,
+  deletePostPlan,
+  publishPostPlan,
 } = apiClient;
 
 // Custom logout function that clears JWT
