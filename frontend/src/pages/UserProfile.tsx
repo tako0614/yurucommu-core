@@ -365,10 +365,11 @@ export default function UserProfile() {
                         </Show>
                         <Show when={user()!.friend_status === "pending"}>
                           <button
-                            class="px-3 py-1.5 rounded-full border hairline text-sm"
-                            disabled
+                            class="px-3 py-1.5 rounded-full border hairline text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
+                            disabled={loading()}
+                            onClick={onFollow}
                           >
-                            承認待ち
+                            {loading() ? "送信中…" : "承認待ち（再送信）"}
                           </button>
                         </Show>
                         <Show when={user()!.friend_status === "accepted"}>
