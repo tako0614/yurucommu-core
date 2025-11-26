@@ -509,6 +509,7 @@ export interface DatabaseAPI {
   upsertMedia?(media: MediaRecordInput): Promise<any>;
   getMedia?(key: string): Promise<any>;
   listMediaByUser?(user_id: string): Promise<any[]>;
+  deleteMedia?(key: string): Promise<void>;
 
   // Reactions
   addReaction(reaction: ReactionInput): Promise<any>;
@@ -659,6 +660,7 @@ export interface DatabaseAPI {
   // Reports
   createReport(report: ReportInput): Promise<any>;
   listReports(status?: string, limit?: number, offset?: number): Promise<any[]>;
+  listReportsByUser?(reporterActorId: string, limit?: number, offset?: number): Promise<any[]>;
   updateReportStatus(id: string, status: string): Promise<void>;
 
   // Data export

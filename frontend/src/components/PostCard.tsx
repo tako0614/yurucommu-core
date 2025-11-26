@@ -10,6 +10,7 @@ import {
 } from "solid-js";
 import Avatar from "./Avatar";
 import { api, getUser, useMe } from "../lib/api";
+import { useToast } from "./Toast";
 
 type PostCardProps = {
   post: any;
@@ -89,6 +90,7 @@ function CommentItem(props: {
 
 export default function PostCard(props: PostCardProps) {
   const me = useMe();
+  const toast = useToast();
   const [post, setPost] = createSignal(props.post);
   const [reactionState, setReactionState] = createSignal<ReactionState>({
     count:
@@ -265,8 +267,9 @@ export default function PostCard(props: PostCardProps) {
           like_count: nextCount,
         });
       }
-    } catch {
+    } catch (err: any) {
       setReactionState({ ...state, loading: false });
+      toast.showError(err?.message || "リアクションに失敗しました");
     }
   };
 
@@ -318,11 +321,13 @@ export default function PostCard(props: PostCardProps) {
       setPost((prev) => (prev ? { ...prev, comment_count: nextCount } : prev));
       props.onUpdated?.({ ...post(), comment_count: nextCount });
     } catch (err: any) {
+      const message = err?.message || "コメントを追加できませんでした";
       setCommentState((prev) => ({
         ...prev,
         posting: false,
-        error: err?.message || "コメントを追加できませんでした",
+        error: message,
       }));
+      toast.showError(message);
     }
   };
 
@@ -342,10 +347,12 @@ export default function PostCard(props: PostCardProps) {
       setPost((prev) => (prev ? { ...prev, comment_count: nextCount } : prev));
       props.onUpdated?.({ ...post(), comment_count: nextCount });
     } catch (err: any) {
+      const message = err?.message || "コメントを削除できませんでした";
       setCommentState((prev) => ({
         ...prev,
-        error: err?.message || "コメントを削除できませんでした",
+        error: message,
       }));
+      toast.showError(message);
     }
   };
 
@@ -354,16 +361,21 @@ export default function PostCard(props: PostCardProps) {
     setActionError("");
     try {
       await api(`/posts/${post().id}`, { method: "DELETE" });
+      toast.showSuccess("投稿を削除しました");
       props.onDeleted?.(post().id);
     } catch (err: any) {
-      setActionError(err?.message || "投稿を削除できませんでした");
+      const message = err?.message || "投稿を削除できませんでした";
+      setActionError(message);
+      toast.showError(message);
     }
   };
 
   const handleUpdatePost = async () => {
     const text = editText().trim();
     if (!text) {
-      setActionError("本文を入力してください");
+      const message = "本文を入力してください";
+      setActionError(message);
+      toast.showWarning(message);
       return;
     }
     setActionError("");
@@ -377,9 +389,44 @@ export default function PostCard(props: PostCardProps) {
       });
       setPost((prev) => ({ ...prev, ...updated, text }));
       setEditing(false);
+      toast.showSuccess("投稿を更新しました");
       props.onUpdated?.({ ...post(), ...updated, text });
     } catch (err: any) {
-      setActionError(err?.message || "投稿を更新できませんでした");
+      const message = err?.message || "投稿を更新できませんでした";
+      setActionError(message);
+      toast.showError(message);
+    }
+  };
+
+  const handlePinPost = async () => {
+    setActionError("");
+    try {
+      const updated = await api(`/posts/${post().id}/pin`, {
+        method: "POST",
+      });
+      setPost((prev) => ({ ...prev, ...updated, pinned: true }));
+      toast.showSuccess("投稿をピン留めしました");
+      props.onUpdated?.({ ...post(), ...updated, pinned: true });
+    } catch (err: any) {
+      const message = err?.message || "ピン留めできませんでした";
+      setActionError(message);
+      toast.showError(message);
+    }
+  };
+
+  const handleUnpinPost = async () => {
+    setActionError("");
+    try {
+      const updated = await api(`/posts/${post().id}/unpin`, {
+        method: "POST",
+      });
+      setPost((prev) => ({ ...prev, ...updated, pinned: false }));
+      toast.showSuccess("ピン留めを解除しました");
+      props.onUpdated?.({ ...post(), ...updated, pinned: false });
+    } catch (err: any) {
+      const message = err?.message || "ピン留め解除できませんでした";
+      setActionError(message);
+      toast.showError(message);
     }
   };
 
@@ -422,6 +469,11 @@ export default function PostCard(props: PostCardProps) {
                 >
                   {author()?.display_name}
                 </a>
+                <Show when={post().pinned}>
+                  <span class="text-xs px-1.5 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300" title="ピン留め投稿">
+                    📌 ピン留め
+                  </span>
+                </Show>
                 <Show when={formattedCreatedAt()}>
                   {(createdAt) => (
                     <>
@@ -433,6 +485,16 @@ export default function PostCard(props: PostCardProps) {
               </div>
               <Show when={canEdit()}>
                 <div class="ml-auto flex items-center gap-2">
+                  <Show when={!editing()}>
+                    <button
+                      type="button"
+                      class="text-xs px-2 py-1 rounded-full border hairline hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
+                      onClick={post().pinned ? handleUnpinPost : handlePinPost}
+                      title={post().pinned ? "ピン留め解除" : "ピン留め"}
+                    >
+                      {post().pinned ? "📌 解除" : "📌"}
+                    </button>
+                  </Show>
                   <button
                     type="button"
                     class="text-xs px-2 py-1 rounded-full border hairline hover:bg-gray-50 dark:hover:bg-neutral-800"

@@ -89,6 +89,23 @@ moderation.post("/reports", auth, async (c) => {
   }
 });
 
+// GET /reports - User's own reports
+moderation.get("/reports", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    const user = c.get("user") as any;
+    if (!store.listReportsByUser) return fail(c, "reports not available", 500);
+    const instanceDomain = requireInstanceDomain(c.env);
+    const reporterActorId = getActorUri(user.id, instanceDomain);
+    const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") || "20", 10)));
+    const offset = Math.max(0, parseInt(c.req.query("offset") || "0", 10));
+    const reports = await store.listReportsByUser(reporterActorId, limit, offset);
+    return ok(c, reports);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
 moderation.get("/admin/reports", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {

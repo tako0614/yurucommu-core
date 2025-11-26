@@ -68,19 +68,11 @@ export default function SideNav(props: Props) {
       </button>
       <a
         class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"
-        href="/friends"
-        title="友達"
-      >
-        <IconUser />
-        <span class="hidden xl:inline text-sm">友達</span>
-      </a>
-      <a
-        class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"
-        href="/communities"
-        title="コミュニティ"
+        href="/connections"
+        title="つながり"
       >
         <IconUsers />
-        <span class="hidden xl:inline text-sm">コミュニティ</span>
+        <span class="hidden xl:inline text-sm">つながり</span>
       </a>
       <a
         class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"

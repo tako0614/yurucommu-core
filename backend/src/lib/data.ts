@@ -1982,6 +1982,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return rows.map(mapMediaRow).filter(Boolean) as any[];
   };
 
+  const deleteMedia = async (key: string) => {
+    await (prisma as any).media.delete({
+      where: { key },
+    });
+  };
+
   // -------------- Polls --------------
   const createPoll = async (poll: import("./types").PollInput) => {
     const allowsMultiple =
@@ -3105,6 +3111,19 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
+  const listReportsByUser = async (
+    reporterActorId: string,
+    limit = 20,
+    offset = 0,
+  ) => {
+    return await (prisma as any).reports.findMany({
+      where: { reporter_actor_id: reporterActorId },
+      take: limit,
+      skip: offset,
+      orderBy: { created_at: "desc" },
+    });
+  };
+
   const updateReportStatus = async (id: string, status: string) => {
     await (prisma as any).reports.update({
       where: { id },
@@ -3329,6 +3348,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     upsertMedia,
     getMedia,
     listMediaByUser,
+    deleteMedia,
     // stories
     createStory,
     getStory,
@@ -3339,6 +3359,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     // Reports
     createReport,
     listReports,
+    listReportsByUser,
     updateReportStatus,
     // exports
     createExportRequest,

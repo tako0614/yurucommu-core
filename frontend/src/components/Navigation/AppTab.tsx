@@ -1,10 +1,13 @@
-import { IconHome, IconMessage, IconPlus, IconUsers } from "../icons";
+import { IconHome, IconMessage, IconPlus, IconUsers, IconUser } from "../icons";
+import Avatar from "../Avatar";
+import { useMe } from "../../lib/api";
 
 type Props = {
   onOpenComposer?: () => void;
 };
 
 export default function AppTab(props: Props) {
+  const me = useMe();
 
   return (
     <div class="fixed bottom-0 left-0 right-0 md:hidden h-14 border-t hairline bg-white dark:bg-neutral-900 flex items-center justify-around pb-[env(safe-area-inset-bottom)]">
@@ -18,7 +21,7 @@ export default function AppTab(props: Props) {
       </a>
       {/* Messages (DM) */}
       <a
-        href="/dm"
+        href="/chat"
         class="p-2 rounded-full active:bg-gray-100"
         aria-label="チャット"
       >
@@ -32,13 +35,29 @@ export default function AppTab(props: Props) {
       >
         <IconPlus />
       </button>
-      {/* Friends */}
+      {/* Connections (Friends & Communities) */}
       <a
-        href="/friends"
+        href="/connections"
         class="p-2 rounded-full active:bg-gray-100"
-        aria-label="友達"
+        aria-label="つながり"
       >
         <IconUsers />
+      </a>
+      {/* Profile */}
+      <a
+        href="/profile"
+        class="p-2 rounded-full active:bg-gray-100"
+        aria-label="プロフィール"
+      >
+        {me()?.avatar_url ? (
+          <Avatar
+            src={me()!.avatar_url || undefined}
+            alt="プロフィール"
+            class="w-6 h-6 rounded-full object-cover"
+          />
+        ) : (
+          <IconUser />
+        )}
       </a>
     </div>
   );
