@@ -23,6 +23,7 @@ import Stories from "./pages/Stories";
 import PostDetail from "./pages/PostDetail";
 import UserSearch from "./pages/UserSearch";
 import Invitations from "./pages/Invitations";
+import FriendRequests from "./pages/FriendRequests";
 import { ToastProvider } from "./components/Toast";
 
 const Login = resolveComponent("Login", DefaultLogin);
@@ -93,6 +94,14 @@ export default function App() {
                 component={() => (
                   <RequireAuth>
                     <Invitations />
+                  </RequireAuth>
+                )}
+              />
+              <Route
+                path="/friend-requests"
+                component={() => (
+                  <RequireAuth>
+                    <FriendRequests />
                   </RequireAuth>
                 )}
               />

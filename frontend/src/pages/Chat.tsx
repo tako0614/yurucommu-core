@@ -543,7 +543,7 @@ export default function Chat() {
               }`}
               onClick={() => setLeftTab("community")}
             >
-              コミュニティ
+              コミュ
             </button>
           </div>
         </div>
@@ -933,7 +933,7 @@ export default function Chat() {
                   }`}
                   onClick={() => setLeftTab("community")}
                 >
-                  コミュニティ
+                  コミュ
                 </button>
               </div>
             </div>

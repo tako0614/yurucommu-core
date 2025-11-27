@@ -327,10 +327,10 @@ export default function Connections() {
                 友達を招待
               </button>
               <a
-                href="/invitations"
+                href="/friend-requests"
                 class="flex items-center gap-2 px-4 py-2 rounded-full border dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
               >
-                招待を確認
+                フレンドリクエスト
               </a>
             </div>
           </div>
@@ -397,7 +397,7 @@ export default function Connections() {
                 href="/invitations"
                 class="flex items-center gap-2 px-4 py-2 rounded-full border dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
               >
-                招待を確認
+                コミュニティ招待
               </a>
             </div>
           </div>
