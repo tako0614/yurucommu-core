@@ -67,7 +67,7 @@ async function buildExportPayload(
 ) {
   const profile = await store.getUser(userId);
   const posts = await store.listPostsByAuthors([userId], true);
-  const friendships = await store.listFriendships(userId, "accepted");
+  const friendships = await store.listFriends(userId);
   const reactions = store.listReactionsByUser
     ? await store.listReactionsByUser(userId)
     : [];

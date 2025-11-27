@@ -405,12 +405,12 @@ export interface DatabaseAPI {
   getUserJwtSecret(userId: string): Promise<string | null>;
   setUserJwtSecret(userId: string, secret: string): Promise<void>;
 
-  // Friendships
-  getFriendRequest(requester_id: string, addressee_id: string): Promise<any>;
-  getFriendshipBetween(user_id: string, other_id: string): Promise<any>;
-  createFriendRequest(requester_id: string, addressee_id: string): Promise<any>;
-  setFriendStatus(requester_id: string, addressee_id: string, status: FriendStatus): Promise<any>;
-  listFriendships(user_id: string, status?: FriendStatus | null): Promise<any[]>;
+  // Friendships - deprecated, now using ActivityPub ap_followers/ap_follows
+  // Compatibility helpers for old code
+  areFriends(userId1: string, userId2: string): Promise<boolean>;
+  listFriends(userId: string): Promise<any[]>;
+
+  // Blocks & Mutes
   blockUser(blocker_id: string, blocked_id: string): Promise<void>;
   unblockUser(blocker_id: string, blocked_id: string): Promise<void>;
   listBlockedUsers(blocker_id: string): Promise<any[]>;
@@ -580,6 +580,7 @@ export interface DatabaseAPI {
   upsertApFollower(input: ApFollowerInput): Promise<any>;
   deleteApFollowers(local_user_id: string, remote_actor_id: string): Promise<void>;
   findApFollower(local_user_id: string, remote_actor_id: string): Promise<any | null>;
+  updateApFollowersStatus(local_user_id: string, remote_actor_id: string, status: string, accepted_at?: Date): Promise<void>;
   countApFollowers(local_user_id: string, status?: string): Promise<number>;
   listApFollowers(
     local_user_id: string,
@@ -589,6 +590,8 @@ export interface DatabaseAPI {
   ): Promise<Array<{ remote_actor_id: string }>>;
 
   // ActivityPub - Follows
+  upsertApFollow(input: ApFollowerInput): Promise<any>;
+  findApFollow(local_user_id: string, remote_actor_id: string): Promise<any | null>;
   updateApFollowsStatus(local_user_id: string, remote_actor_id: string, status: string, accepted_at?: Date): Promise<void>;
   countApFollows(local_user_id: string, status?: string): Promise<number>;
   listApFollows(

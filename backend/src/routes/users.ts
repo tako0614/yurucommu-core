@@ -78,32 +78,137 @@ users.get("/me/communities", auth, async (c) => {
   }
 });
 
-// Get my friends
+// Get my friends (ActivityPub based)
 users.get("/me/friends", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
     const me = c.get("user") as any;
-    const list = await store.listFriendships(me.id, "accepted");
-    return ok(c, list);
+    const instanceDomain = requireInstanceDomain(c.env);
+
+    // Get both followers and follows with accepted status
+    const followers = await store.listApFollowers(me.id, "accepted", 1000);
+    const following = await store.listApFollows(me.id, "accepted", 1000);
+
+    // Convert to user IDs
+    const parseActorToUserId = (actorUri: string): string => {
+      try {
+        const url = new URL(actorUri);
+        if (url.hostname === instanceDomain) {
+          const match = url.pathname.match(/\/ap\/users\/([a-z0-9_]{3,20})$/);
+          if (match) return match[1];
+        }
+        // Remote actor: return as @handle@domain
+        const handle = actorUri.split("/").pop() || "unknown";
+        return `@${handle}@${url.hostname}`;
+      } catch {
+        return actorUri;
+      }
+    };
+
+    const followerIds = new Set(followers.map((f: any) => parseActorToUserId(f.remote_actor_id)));
+    const followingIds = new Set(following.map((f: any) => parseActorToUserId(f.remote_actor_id)));
+
+    // Friends are mutual follows
+    const friendIds = [...followerIds].filter((id) => followingIds.has(id));
+
+    // Fetch user details for each friend
+    const friends = await Promise.all(
+      friendIds.map(async (userId) => {
+        const user = await store.getUser(userId).catch(() => null);
+        if (user) {
+          const { jwt_secret, tenant_id, ...publicProfile } = user;
+          return {
+            requester_id: userId,
+            addressee_id: me.id,
+            status: "accepted",
+            requester: publicProfile,
+            addressee: { id: me.id, display_name: me.display_name },
+          };
+        }
+        return null;
+      }),
+    );
+
+    return ok(c, friends.filter(Boolean));
   } finally {
     await releaseStore(store);
   }
 });
 
-// Get my friend requests
+// Get my friend requests (ActivityPub based)
 users.get("/me/friend-requests", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
     const me = c.get("user") as any;
     const url = new URL(c.req.url);
     const direction = url.searchParams.get("direction");
-    const list = await store.listFriendships(me.id, "pending");
-    const filtered = list.filter((edge: any) => {
-      if (direction === "incoming") return edge.addressee_id === me.id;
-      if (direction === "outgoing") return edge.requester_id === me.id;
-      return true;
-    });
-    return ok(c, filtered);
+    const instanceDomain = requireInstanceDomain(c.env);
+
+    const parseActorToUserId = (actorUri: string): string => {
+      try {
+        const urlObj = new URL(actorUri);
+        if (urlObj.hostname === instanceDomain) {
+          const match = urlObj.pathname.match(/\/ap\/users\/([a-z0-9_]{3,20})$/);
+          if (match) return match[1];
+        }
+        const handle = actorUri.split("/").pop() || "unknown";
+        return `@${handle}@${urlObj.hostname}`;
+      } catch {
+        return actorUri;
+      }
+    };
+
+    let list: any[] = [];
+
+    if (direction === "incoming" || !direction) {
+      // Incoming: people who sent us follow requests (ap_followers with status=pending)
+      const followers = await store.listApFollowers(me.id, "pending", 100);
+      const incoming = await Promise.all(
+        followers.map(async (f: any) => {
+          const requesterId = parseActorToUserId(f.remote_actor_id);
+          const requester = await store.getUser(requesterId).catch(() => null);
+          if (requester) {
+            const { jwt_secret, tenant_id, ...publicProfile } = requester;
+            return {
+              requester_id: requesterId,
+              addressee_id: me.id,
+              status: "pending",
+              requester: publicProfile,
+              addressee: { id: me.id, display_name: me.display_name },
+              created_at: new Date(),
+            };
+          }
+          return null;
+        }),
+      );
+      list = [...list, ...incoming.filter(Boolean)];
+    }
+
+    if (direction === "outgoing" || !direction) {
+      // Outgoing: people we sent follow requests to (ap_follows with status=pending)
+      const following = await store.listApFollows(me.id, "pending", 100);
+      const outgoing = await Promise.all(
+        following.map(async (f: any) => {
+          const addresseeId = parseActorToUserId(f.remote_actor_id);
+          const addressee = await store.getUser(addresseeId).catch(() => null);
+          if (addressee) {
+            const { jwt_secret, tenant_id, ...publicProfile } = addressee;
+            return {
+              requester_id: me.id,
+              addressee_id: addresseeId,
+              status: "pending",
+              requester: { id: me.id, display_name: me.display_name },
+              addressee: publicProfile,
+              created_at: new Date(),
+            };
+          }
+          return null;
+        }),
+      );
+      list = [...list, ...outgoing.filter(Boolean)];
+    }
+
+    return ok(c, list);
   } finally {
     await releaseStore(store);
   }
@@ -250,7 +355,10 @@ users.get("/users/:id", optionalAuth, async (c) => {
       // Return local user profile
       let relation: any = null;
       if (me?.id && normalizedId !== me.id) {
-        relation = await store.getFriendshipBetween(me.id, normalizedId).catch(() => null);
+        const areFriends = await store.areFriends(me.id, normalizedId).catch(() => false);
+        if (areFriends) {
+          relation = { status: "accepted" };
+        }
       }
 
       const { jwt_secret, tenant_id, ...publicProfile } = u;
@@ -399,12 +507,16 @@ users.post("/users/:id/block", auth, async (c) => {
     if (!target) return fail(c, "user not found", 404);
     await store.blockUser(me.id, targetId);
     await store.unmuteUser?.(me.id, targetId);
-    const existing = await store.getFriendshipBetween(me.id, targetId).catch(() => null);
-    if (existing) {
-      const requester = existing.requester_id;
-      const addressee = existing.addressee_id;
-      await store.setFriendStatus(requester, addressee, "rejected").catch(() => null);
+
+    // If they were friends, unfollow them (blocking should break friendship)
+    const areFriends = await store.areFriends(me.id, targetId).catch(() => false);
+    if (areFriends) {
+      const instanceDomain = requireInstanceDomain(c.env);
+      const targetActorUri = getActorUri(targetId, instanceDomain);
+      // Remove from follows and followers
+      await store.deleteApFollowers(me.id, targetActorUri).catch(() => {});
     }
+
     return ok(c, { blocked: true });
   } finally {
     await releaseStore(store);
@@ -455,7 +567,7 @@ users.delete("/users/:id/mute", auth, async (c) => {
   }
 });
 
-// ---- Friendships ----
+// ---- Friendships (ActivityPub Follow-based) ----
 // Send friend request
 users.post("/users/:id/friends", auth, async (c) => {
   const store = makeData(c.env as any, c);
@@ -463,20 +575,89 @@ users.post("/users/:id/friends", auth, async (c) => {
     const me = c.get("user") as any;
     const targetId = c.req.param("id");
     if (me.id === targetId) return fail(c, "cannot friend yourself");
-    const existing: any = await store
-      .getFriendshipBetween(me.id, targetId)
+
+    const instanceDomain = requireInstanceDomain(c.env);
+    const myActorUri = getActorUri(me.id, instanceDomain);
+    const targetActorUri = getActorUri(targetId, instanceDomain);
+
+    // Check existing follow status
+    const existingFollow: any = await store
+      .findApFollow(me.id, targetActorUri)
       .catch(() => null);
-    if (existing?.status === "accepted") return ok(c, existing);
-    if (existing?.status === "pending" && existing.addressee_id === me.id) {
-      const updated = await store.setFriendStatus(
-        existing.requester_id,
-        existing.addressee_id,
+
+    if (existingFollow?.status === "accepted") {
+      return ok(c, {
+        requester_id: me.id,
+        addressee_id: targetId,
+        status: "accepted",
+        created_at: existingFollow.created_at,
+      });
+    }
+
+    // Check if target already sent us a follow (auto-accept)
+    const existingFollower: any = await store
+      .findApFollower(me.id, targetActorUri)
+      .catch(() => null);
+
+    if (existingFollower?.status === "pending") {
+      // Auto-accept their follow request
+      await store.updateApFollowersStatus(
+        me.id,
+        targetActorUri,
         "accepted",
+        new Date(),
       );
+
+      // Send Accept activity
+      const followRecord = existingFollower;
+      const followActivityId =
+        followRecord?.activity_id || `${targetActorUri}/follows/${me.id}`;
+      const acceptActivityId = getActivityUri(
+        me.id,
+        `accept-follow-${targetId}-${Date.now()}`,
+        instanceDomain,
+      );
+
+      const acceptActivity = {
+        "@context": ACTIVITYSTREAMS_CONTEXT,
+        type: "Accept",
+        id: acceptActivityId,
+        actor: myActorUri,
+        object: {
+          type: "Follow",
+          id: followActivityId,
+          actor: targetActorUri,
+          object: myActorUri,
+        },
+        published: new Date().toISOString(),
+      };
+
+      await store.upsertApOutboxActivity({
+        id: crypto.randomUUID(),
+        local_user_id: me.id,
+        activity_id: acceptActivityId,
+        activity_type: "Accept",
+        activity_json: JSON.stringify(acceptActivity),
+        object_id: followActivityId,
+        object_type: "Follow",
+        created_at: new Date(),
+      });
+
+      // Deliver to target (local, so store in inbox)
+      await store.createApInboxActivity({
+        local_user_id: targetId,
+        remote_actor_id: myActorUri,
+        activity_id: acceptActivityId,
+        activity_type: "Accept",
+        activity_json: JSON.stringify(acceptActivity),
+        status: "pending",
+        created_at: new Date(),
+      });
+
       await notify(
         store,
         c.env as Bindings,
-        existing.requester_id,
+        targetId,
         "friend_accepted",
         me.id,
         "user",
@@ -487,9 +668,64 @@ users.post("/users/:id/friends", auth, async (c) => {
           defaultPushSecret: c.env.DEFAULT_PUSH_SERVICE_SECRET || "",
         },
       );
-      return ok(c, updated);
+
+      return ok(c, {
+        requester_id: me.id,
+        addressee_id: targetId,
+        status: "accepted",
+        created_at: new Date(),
+      });
     }
-    const created: any = await store.createFriendRequest(me.id, targetId);
+
+    // Create new follow request
+    const followActivityId = getActivityUri(
+      me.id,
+      `follow-${targetId}-${Date.now()}`,
+      instanceDomain,
+    );
+
+    const followActivity = {
+      "@context": ACTIVITYSTREAMS_CONTEXT,
+      type: "Follow",
+      id: followActivityId,
+      actor: myActorUri,
+      object: targetActorUri,
+      published: new Date().toISOString(),
+    };
+
+    // Store in ap_follows
+    await store.upsertApFollow({
+      local_user_id: me.id,
+      remote_actor_id: targetActorUri,
+      activity_id: followActivityId,
+      status: "pending",
+      created_at: new Date(),
+      accepted_at: null,
+    });
+
+    // Store in outbox
+    await store.upsertApOutboxActivity({
+      id: crypto.randomUUID(),
+      local_user_id: me.id,
+      activity_id: followActivityId,
+      activity_type: "Follow",
+      activity_json: JSON.stringify(followActivity),
+      object_id: targetActorUri,
+      object_type: "Person",
+      created_at: new Date(),
+    });
+
+    // Deliver to target (local, so store in inbox)
+    await store.createApInboxActivity({
+      local_user_id: targetId,
+      remote_actor_id: myActorUri,
+      activity_id: followActivityId,
+      activity_type: "Follow",
+      activity_json: JSON.stringify(followActivity),
+      status: "pending",
+      created_at: new Date(),
+    });
+
     await notify(
       store,
       c.env as Bindings,
@@ -504,7 +740,17 @@ users.post("/users/:id/friends", auth, async (c) => {
         defaultPushSecret: c.env.DEFAULT_PUSH_SERVICE_SECRET || "",
       },
     );
-    return ok(c, created, 201);
+
+    return ok(
+      c,
+      {
+        requester_id: me.id,
+        addressee_id: targetId,
+        status: "pending",
+        created_at: new Date(),
+      },
+      201,
+    );
   } finally {
     await releaseStore(store);
   }
@@ -516,15 +762,70 @@ users.post("/users/:id/friends/accept", auth, async (c) => {
   try {
     const me = c.get("user") as any;
     const requesterId = c.req.param("id");
-    const rel: any = await store.getFriendRequest(requesterId, me.id);
-    if (!rel || rel.status !== "pending") {
+
+    const instanceDomain = requireInstanceDomain(c.env);
+    const myActorUri = getActorUri(me.id, instanceDomain);
+    const requesterUri = getActorUri(requesterId, instanceDomain);
+
+    // Find the Follow request in ap_followers
+    const followRecord = await store.findApFollower(me.id, requesterUri);
+    if (!followRecord || followRecord.status !== "pending") {
       return fail(c, "no pending request", 400);
     }
-    const updated: any = await store.setFriendStatus(
-      requesterId,
+
+    // Update status to accepted
+    await store.updateApFollowersStatus(
       me.id,
+      requesterUri,
       "accepted",
+      new Date(),
     );
+
+    // Generate Accept Activity
+    const followActivityId = followRecord.activity_id || `${requesterUri}/follows/${me.id}`;
+    const acceptActivityId = getActivityUri(
+      me.id,
+      `accept-follow-${requesterId}-${Date.now()}`,
+      instanceDomain,
+    );
+
+    const acceptActivity = {
+      "@context": ACTIVITYSTREAMS_CONTEXT,
+      type: "Accept",
+      id: acceptActivityId,
+      actor: myActorUri,
+      object: {
+        type: "Follow",
+        id: followActivityId,
+        actor: requesterUri,
+        object: myActorUri,
+      },
+      published: new Date().toISOString(),
+    };
+
+    // Store in outbox
+    await store.upsertApOutboxActivity({
+      id: crypto.randomUUID(),
+      local_user_id: me.id,
+      activity_id: acceptActivityId,
+      activity_type: "Accept",
+      activity_json: JSON.stringify(acceptActivity),
+      object_id: followActivityId,
+      object_type: "Follow",
+      created_at: new Date(),
+    });
+
+    // Deliver to requester (local, so store in inbox)
+    await store.createApInboxActivity({
+      local_user_id: requesterId,
+      remote_actor_id: myActorUri,
+      activity_id: acceptActivityId,
+      activity_type: "Accept",
+      activity_json: JSON.stringify(acceptActivity),
+      status: "pending",
+      created_at: new Date(),
+    });
+
     await notify(
       store,
       c.env as Bindings,
@@ -540,61 +841,12 @@ users.post("/users/:id/friends/accept", auth, async (c) => {
       },
     );
 
-    // Generate and save Accept Activity for Follow
-    const instanceDomain = requireInstanceDomain(c.env);
-    const actorUri = getActorUri(me.id, instanceDomain);
-    const requesterUri = getActorUri(requesterId, instanceDomain);
-
-    // Find the original Follow activity ID (stored in ap_followers or friendships)
-    const followRecord = await store.findApFollower(me.id, requesterUri);
-    const followActivityId =
-      followRecord?.activity_id ||
-      followRecord?.id ||
-      `${requesterUri}/follows/${me.id}`;
-
-    const activityId = getActivityUri(
-      me.id,
-      `accept-follow-${requesterId}-${Date.now()}`,
-      instanceDomain,
-    );
-    const acceptActivity = {
-      "@context": ACTIVITYSTREAMS_CONTEXT,
-      type: "Accept",
-      id: activityId,
-      actor: actorUri,
-      object: {
-        type: "Follow",
-        id: followActivityId,
-        actor: requesterUri,
-        object: actorUri,
-      },
-      published: new Date().toISOString(),
-    };
-
-    await store.upsertApOutboxActivity({
-      id: crypto.randomUUID(),
-      local_user_id: me.id,
-      activity_id: activityId,
-      activity_type: "Accept",
-      activity_json: JSON.stringify(acceptActivity),
-      object_id: followActivityId,
-      object_type: "Follow",
+    return ok(c, {
+      requester_id: requesterId,
+      addressee_id: me.id,
+      status: "accepted",
       created_at: new Date(),
     });
-
-    // Enqueue delivery to requester
-    const requesterActor = await store.findApActor(requesterUri);
-    if (requesterActor?.inbox_url) {
-      await store.createApDeliveryQueueItem({
-        id: crypto.randomUUID(),
-        activity_id: activityId,
-        target_inbox_url: requesterActor.inbox_url,
-        status: "pending",
-        created_at: new Date(),
-      });
-    }
-
-    return ok(c, updated);
   } finally {
     await releaseStore(store);
   }
@@ -606,51 +858,52 @@ users.post("/users/:id/friends/reject", auth, async (c) => {
   try {
     const me = c.get("user") as any;
     const requesterId = c.req.param("id");
-    const rel: any = await store.getFriendRequest(requesterId, me.id);
-    if (!rel || rel.status !== "pending") {
-      return fail(c, "no pending request", 400);
-    }
-    const updated: any = await store.setFriendStatus(
-      requesterId,
-      me.id,
-      "rejected",
-    );
 
-    // Generate and save Reject Activity for Follow
     const instanceDomain = requireInstanceDomain(c.env);
-    const actorUri = getActorUri(me.id, instanceDomain);
+    const myActorUri = getActorUri(me.id, instanceDomain);
     const requesterUri = getActorUri(requesterId, instanceDomain);
 
-    // Find the original Follow activity ID
+    // Find the Follow request in ap_followers
     const followRecord = await store.findApFollower(me.id, requesterUri);
-    const followActivityId =
-      followRecord?.activity_id ||
-      followRecord?.id ||
-      `${requesterUri}/follows/${me.id}`;
+    if (!followRecord || followRecord.status !== "pending") {
+      return fail(c, "no pending request", 400);
+    }
 
-    const activityId = getActivityUri(
+    // Update status to rejected
+    await store.updateApFollowersStatus(
+      me.id,
+      requesterUri,
+      "rejected",
+      new Date(),
+    );
+
+    // Generate Reject Activity
+    const followActivityId = followRecord.activity_id || `${requesterUri}/follows/${me.id}`;
+    const rejectActivityId = getActivityUri(
       me.id,
       `reject-follow-${requesterId}-${Date.now()}`,
       instanceDomain,
     );
+
     const rejectActivity = {
       "@context": ACTIVITYSTREAMS_CONTEXT,
       type: "Reject",
-      id: activityId,
-      actor: actorUri,
+      id: rejectActivityId,
+      actor: myActorUri,
       object: {
         type: "Follow",
         id: followActivityId,
         actor: requesterUri,
-        object: actorUri,
+        object: myActorUri,
       },
       published: new Date().toISOString(),
     };
 
+    // Store in outbox
     await store.upsertApOutboxActivity({
       id: crypto.randomUUID(),
       local_user_id: me.id,
-      activity_id: activityId,
+      activity_id: rejectActivityId,
       activity_type: "Reject",
       activity_json: JSON.stringify(rejectActivity),
       object_id: followActivityId,
@@ -658,19 +911,23 @@ users.post("/users/:id/friends/reject", auth, async (c) => {
       created_at: new Date(),
     });
 
-    // Enqueue delivery to requester
-    const requesterActor = await store.findApActor(requesterUri);
-    if (requesterActor?.inbox_url) {
-      await store.createApDeliveryQueueItem({
-        id: crypto.randomUUID(),
-        activity_id: activityId,
-        target_inbox_url: requesterActor.inbox_url,
-        status: "pending",
-        created_at: new Date(),
-      });
-    }
+    // Deliver to requester (local, so store in inbox)
+    await store.createApInboxActivity({
+      local_user_id: requesterId,
+      remote_actor_id: myActorUri,
+      activity_id: rejectActivityId,
+      activity_type: "Reject",
+      activity_json: JSON.stringify(rejectActivity),
+      status: "pending",
+      created_at: new Date(),
+    });
 
-    return ok(c, updated);
+    return ok(c, {
+      requester_id: requesterId,
+      addressee_id: me.id,
+      status: "rejected",
+      created_at: new Date(),
+    });
   } finally {
     await releaseStore(store);
   }

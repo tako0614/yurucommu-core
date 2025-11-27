@@ -65,7 +65,7 @@ async function loadFriendIds(
   store: ReturnType<typeof makeData>,
   userId: string,
 ): Promise<Set<string>> {
-  const relations: any[] = await store.listFriendships(userId, "accepted");
+  const relations: any[] = await store.listFriends(userId);
   const ids = new Set<string>();
   for (const rel of relations) {
     if (rel.requester_id === userId && rel.addressee_id) {
