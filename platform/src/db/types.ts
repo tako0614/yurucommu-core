@@ -84,6 +84,22 @@ export interface ChannelInput {
   created_at?: string | Date;
 }
 
+export interface ListInput {
+  id: string;
+  owner_id: string;
+  name: string;
+  description?: string;
+  is_public?: number | boolean;
+  created_at?: string | Date;
+  updated_at?: string | Date;
+}
+
+export interface ListMemberInput {
+  list_id: string;
+  user_id: string;
+  added_at?: string | Date;
+}
+
 export interface InviteInput {
   code: string;
   community_id: string;
@@ -343,12 +359,12 @@ export interface DatabaseAPI {
   getUserJwtSecret(userId: string): Promise<string | null>;
   setUserJwtSecret(userId: string, secret: string): Promise<void>;
 
-  // Friendships
-  getFriendRequest(requester_id: string, addressee_id: string): Promise<any>;
-  getFriendshipBetween(user_id: string, other_id: string): Promise<any>;
-  createFriendRequest(requester_id: string, addressee_id: string): Promise<any>;
-  setFriendStatus(requester_id: string, addressee_id: string, status: FriendStatus): Promise<any>;
-  listFriendships(user_id: string, status?: FriendStatus | null): Promise<any[]>;
+  // Friendships - deprecated, now using ActivityPub ap_followers/ap_follows
+  // Compatibility helpers for old code
+  areFriends(userId1: string, userId2: string): Promise<boolean>;
+  listFriends(userId: string): Promise<any[]>;
+
+  // Blocks & Mutes
   blockUser(blocker_id: string, blocked_id: string): Promise<void>;
   unblockUser(blocker_id: string, blocked_id: string): Promise<void>;
   listBlockedUsers(blocker_id: string): Promise<any[]>;
@@ -362,6 +378,7 @@ export interface DatabaseAPI {
   // Notifications
   addNotification(notification: NotificationInput): Promise<any>;
   listNotifications(user_id: string): Promise<any[]>;
+  listNotificationsSince?(user_id: string, since: Date | string): Promise<any[]>;
   markNotificationRead(id: string): Promise<void>;
   countUnreadNotifications(user_id: string): Promise<number>;
 
@@ -369,7 +386,9 @@ export interface DatabaseAPI {
   createCommunity(community: CommunityInput): Promise<any>;
   getCommunity(id: string): Promise<any>;
   updateCommunity(id: string, fields: Record<string, any>): Promise<any>;
+  searchCommunities?(query: string, userId?: string): Promise<any[]>;
   setMembership(community_id: string, user_id: string, membership: MembershipInput): Promise<void>;
+  removeMembership?(community_id: string, user_id: string): Promise<void>;
   hasMembership(community_id: string, user_id: string): Promise<boolean>;
   listMembershipsByCommunity(community_id: string): Promise<any[]>;
   listUserCommunities(user_id: string): Promise<any[]>;
@@ -379,7 +398,19 @@ export interface DatabaseAPI {
   listChannelsByCommunity(community_id: string): Promise<any[]>;
   createChannel(community_id: string, channel: ChannelInput): Promise<any>;
   getChannel(community_id: string, id: string): Promise<any>;
+  getChannelByName?(community_id: string, name: string): Promise<any>;
+  updateChannel?(community_id: string, id: string, fields: { name?: string }): Promise<any>;
   deleteChannel(community_id: string, id: string): Promise<void>;
+
+  // Lists
+  createList(list: ListInput): Promise<any>;
+  updateList(id: string, fields: Partial<ListInput>): Promise<any>;
+  getList(id: string): Promise<any>;
+  deleteList?(id: string): Promise<void>;
+  listListsByOwner(owner_id: string): Promise<any[]>;
+  addListMember(member: ListMemberInput): Promise<any>;
+  removeListMember(list_id: string, user_id: string): Promise<void>;
+  listMembersByList(list_id: string): Promise<any[]>;
 
   // Invites
   createInvite(invite: InviteInput): Promise<any>;
@@ -411,35 +442,37 @@ export interface DatabaseAPI {
   setPostMentions(post_id: string, userIds: string[]): Promise<void>;
   listMentionedUsers(post_id: string): Promise<string[]>;
   updatePost(id: string, fields: Record<string, any>): Promise<any>;
-  createPostEditHistory(history: PostEditHistoryInput): Promise<any>;
-  listPostEditHistory(post_id: string, limit?: number, offset?: number): Promise<any[]>;
+  createPostEditHistory?(history: PostEditHistoryInput): Promise<any>;
+  listPostEditHistory?(post_id: string, limit?: number, offset?: number): Promise<any[]>;
   deletePost?(id: string): Promise<void>;
 
   // Polls
-  createPoll(poll: PollInput): Promise<any>;
-  getPollByPost(post_id: string): Promise<any | null>;
-  listPollsByPostIds(post_ids: string[]): Promise<any[]>;
-  listPollVotes(poll_id: string): Promise<any[]>;
-  listPollVotesByUser(poll_id: string, user_id: string): Promise<any[]>;
-  createPollVotes(poll_id: string, option_ids: string[], user_id: string): Promise<void>;
+  createPoll?(poll: PollInput): Promise<any>;
+  getPollByPost?(post_id: string): Promise<any | null>;
+  listPollsByPostIds?(post_ids: string[]): Promise<any[]>;
+  listPollVotes?(poll_id: string): Promise<any[]>;
+  listPollVotesByUser?(poll_id: string, user_id: string): Promise<any[]>;
+  createPollVotes?(poll_id: string, option_ids: string[], user_id: string): Promise<void>;
 
   // Reactions
   addReaction(reaction: ReactionInput): Promise<any>;
   listReactionsByPost(post_id: string): Promise<any[]>;
-  getReaction?(id: string): Promise<any>;
-  deleteReaction?(id: string): Promise<void>;
+  listReactionsByUser?(user_id: string): Promise<any[]>;
+  getReaction(id: string): Promise<any>;
+  deleteReaction(id: string): Promise<void>;
 
   // Reposts
-  addRepost?(input: { id: string; post_id: string; user_id: string; comment?: string; created_at?: string | Date; ap_activity_id?: string | null }): Promise<any>;
-  deleteRepost?(post_id: string, user_id: string): Promise<void>;
-  listRepostsByPost?(post_id: string, limit?: number, offset?: number): Promise<any[]>;
-  countRepostsByPost?(post_id: string): Promise<number>;
-  findRepost?(post_id: string, user_id: string): Promise<any | null>;
+  addRepost(input: { id: string; post_id: string; user_id: string; comment?: string; created_at?: string | Date; ap_activity_id?: string | null }): Promise<any>;
+  deleteRepost(post_id: string, user_id: string): Promise<void>;
+  listRepostsByPost(post_id: string, limit?: number, offset?: number): Promise<any[]>;
+  countRepostsByPost(post_id: string): Promise<number>;
+  findRepost(post_id: string, user_id: string): Promise<any | null>;
 
   // Comments
   addComment(comment: CommentInput): Promise<any>;
   listCommentsByPost(post_id: string): Promise<any[]>;
   getComment(id: string): Promise<any>;
+  deleteComment(id: string): Promise<void>;
 
   // Media
   upsertMedia?(media: MediaRecordInput): Promise<any>;
@@ -448,11 +481,11 @@ export interface DatabaseAPI {
   deleteMedia?(key: string): Promise<void>;
 
   // Bookmarks
-  addBookmark?(bookmark: BookmarkInput): Promise<any>;
-  deleteBookmark?(post_id: string, user_id: string): Promise<void>;
-  listBookmarksByUser?(user_id: string, limit?: number, offset?: number): Promise<any[]>;
-  getBookmarkedPostIds?(user_id: string, postIds: string[]): Promise<Set<string>>;
-  isPostBookmarked?(post_id: string, user_id: string): Promise<boolean>;
+  addBookmark(input: BookmarkInput): Promise<any>;
+  deleteBookmark(post_id: string, user_id: string): Promise<void>;
+  listBookmarksByUser(user_id: string, limit?: number, offset?: number): Promise<any[]>;
+  getBookmarkedPostIds(user_id: string, postIds: string[]): Promise<Set<string>>;
+  isPostBookmarked(post_id: string, user_id: string): Promise<boolean>;
 
   // Stories
   createStory(story: StoryInput): Promise<any>;

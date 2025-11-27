@@ -47,7 +47,6 @@ model users {
   post_edits              post_edit_history[]
   poll_votes              post_poll_votes[]
   mentioned_in            post_mentions[]
-  bookmarks               bookmarks[]
   blocks_initiated        user_blocks[]           @relation("user_blocks_blocker")
   blocks_received         user_blocks[]           @relation("user_blocks_blocked")
   mutes_initiated         user_mutes[]            @relation("user_mutes_muter")
@@ -205,7 +204,6 @@ model posts {
   bookmarks_rel post_bookmarks[]
   edit_history  post_edit_history[]
   poll          post_polls?
-  bookmarks     bookmarks[]
 
   @@map("posts")
 }
@@ -410,21 +408,6 @@ model post_mentions {
 
   @@id([post_id, mentioned_user_id])
   @@map("post_mentions")
-}
-
-model bookmarks {
-  id         String   @id
-  user_id    String
-  post_id    String
-  created_at DateTime
-
-  // Relations
-  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
-  post posts @relation(fields: [post_id], references: [id], onDelete: Cascade)
-
-  @@index([user_id])
-  @@index([post_id])
-  @@map("bookmarks")
 }
 
 model stories {
