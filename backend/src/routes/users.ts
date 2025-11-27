@@ -15,6 +15,7 @@ import {
   releaseStore,
   webfingerLookup,
   getOrFetchActor,
+  processSingleInboxActivity,
 } from "@takos/platform/server";
 import { auth, optionalAuth } from "../middleware/auth";
 import { makeData } from "../data";
@@ -644,7 +645,7 @@ users.post("/users/:id/friends", auth, async (c) => {
       });
 
       // Deliver to target (local, so store in inbox)
-      await store.createApInboxActivity({
+      const inboxResult = await store.createApInboxActivity({
         local_user_id: targetId,
         remote_actor_id: myActorUri,
         activity_id: acceptActivityId,
@@ -653,6 +654,14 @@ users.post("/users/:id/friends", auth, async (c) => {
         status: "pending",
         created_at: new Date(),
       });
+      // Process immediately for local delivery so pending requests surface without the worker
+      try {
+        if (inboxResult?.id) {
+          await processSingleInboxActivity(store, c.env as any, inboxResult.id);
+        }
+      } catch (error) {
+        console.error("Failed to process local Accept inbox activity", error);
+      }
 
       await notify(
         store,
@@ -716,7 +725,7 @@ users.post("/users/:id/friends", auth, async (c) => {
     });
 
     // Deliver to target (local, so store in inbox)
-    await store.createApInboxActivity({
+    const inboxResult = await store.createApInboxActivity({
       local_user_id: targetId,
       remote_actor_id: myActorUri,
       activity_id: followActivityId,
@@ -725,6 +734,14 @@ users.post("/users/:id/friends", auth, async (c) => {
       status: "pending",
       created_at: new Date(),
     });
+    // Process immediately for local delivery so requests appear without waiting for the queue
+    try {
+      if (inboxResult?.id) {
+        await processSingleInboxActivity(store, c.env as any, inboxResult.id);
+      }
+    } catch (error) {
+      console.error("Failed to process local Follow inbox activity", error);
+    }
 
     await notify(
       store,
@@ -816,7 +833,7 @@ users.post("/users/:id/friends/accept", auth, async (c) => {
     });
 
     // Deliver to requester (local, so store in inbox)
-    await store.createApInboxActivity({
+    const inboxResult = await store.createApInboxActivity({
       local_user_id: requesterId,
       remote_actor_id: myActorUri,
       activity_id: acceptActivityId,
@@ -825,6 +842,14 @@ users.post("/users/:id/friends/accept", auth, async (c) => {
       status: "pending",
       created_at: new Date(),
     });
+    // Process immediately so the sender sees the accepted state without the scheduled worker
+    try {
+      if (inboxResult?.id) {
+        await processSingleInboxActivity(store, c.env as any, inboxResult.id);
+      }
+    } catch (error) {
+      console.error("Failed to process local Accept inbox activity", error);
+    }
 
     await notify(
       store,
@@ -912,7 +937,7 @@ users.post("/users/:id/friends/reject", auth, async (c) => {
     });
 
     // Deliver to requester (local, so store in inbox)
-    await store.createApInboxActivity({
+    const inboxResult = await store.createApInboxActivity({
       local_user_id: requesterId,
       remote_actor_id: myActorUri,
       activity_id: rejectActivityId,
@@ -921,6 +946,14 @@ users.post("/users/:id/friends/reject", auth, async (c) => {
       status: "pending",
       created_at: new Date(),
     });
+    // Process immediately so the requester sees the rejected state without waiting
+    try {
+      if (inboxResult?.id) {
+        await processSingleInboxActivity(store, c.env as any, inboxResult.id);
+      }
+    } catch (error) {
+      console.error("Failed to process local Reject inbox activity", error);
+    }
 
     return ok(c, {
       requester_id: requesterId,
