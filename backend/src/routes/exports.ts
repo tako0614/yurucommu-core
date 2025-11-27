@@ -67,7 +67,7 @@ async function buildExportPayload(
 ) {
   const profile = await store.getUser(userId);
   const posts = await store.listPostsByAuthors([userId], true);
-  const friendships = await store.listFriends(userId);
+  const friends = await store.listFriends(userId);
   const reactions = store.listReactionsByUser
     ? await store.listReactionsByUser(userId)
     : [];
@@ -78,7 +78,7 @@ async function buildExportPayload(
     generated_at: nowISO(),
     profile,
     posts,
-    friendships,
+    friends,
     reactions,
     bookmarks,
   };

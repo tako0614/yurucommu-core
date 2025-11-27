@@ -407,8 +407,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
-  // -------------- Friendships --------------
-  // -------------- Friendships - deprecated, now using ActivityPub --------------
+  // -------------- Friends (ActivityPub-based mutual follows) --------------
   // Helper: Check if two users are mutually following (friends)
   const areFriends = async (userId1: string, userId2: string): Promise<boolean> => {
     try {
@@ -3211,7 +3210,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     updateAccountUser,
     updateUserAccountPassword,
     listAccountsByUser,
-    // friendships - deprecated (compatibility helpers using ActivityPub)
+    // Friends (mutual follows via ActivityPub)
     areFriends,
     listFriends,
     // Blocks & Mutes

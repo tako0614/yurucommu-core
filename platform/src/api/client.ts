@@ -169,7 +169,7 @@ export function createApiClient(config: ApiClientConfig) {
       );
     },
 
-    // ---- Friendship APIs ----
+    // ---- Friends APIs (ActivityPub Follow-based) ----
     async listMyFriends() {
       return apiFetch<FriendEdge[]>('/me/friends');
     },
