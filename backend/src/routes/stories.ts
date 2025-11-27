@@ -235,10 +235,10 @@ stories.get("/stories/:id", auth, async (c) => {
       if (!visibleToFriends) {
         return fail(c, "forbidden", 403);
       }
-      const relation = await store
-        .getFriendshipBetween(user.id, story.author_id)
-        .catch(() => null);
-      if (!relation || relation.status !== "accepted") {
+      const areFriends = await store
+        .areFriends(user.id, story.author_id)
+        .catch(() => false);
+      if (!areFriends) {
         return fail(c, "forbidden", 403);
       }
     }

@@ -167,7 +167,7 @@ lists.get("/lists/:id/timeline", auth, async (c) => {
     );
     const posts = await store.listPostsByAuthors(authorIds, false);
     // Filter visibility for viewer
-    const friendships = await store.listFriendships(user.id, "accepted");
+    const friendships = await store.listFriends(user.id);
     const friendSet = new Set<string>();
     for (const f of friendships) {
       if (f.requester_id === user.id && f.addressee_id) friendSet.add(f.addressee_id);

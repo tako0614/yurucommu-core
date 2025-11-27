@@ -23,38 +23,36 @@ model users {
   manually_approves_followers Int     @default(0) // Require approval for followers
 
   // Relations
-  accounts                 user_accounts[]
-  friend_requests_received friendships[]           @relation("addressee")
-  friend_requests_sent     friendships[]           @relation("requester")
-  created_communities      communities[]           @relation("community_creator")
-  memberships              memberships[]
-  invites_created          invites[]               @relation("invite_creator")
-  member_invites_sent      member_invites[]        @relation("inviter")
-  member_invites_received  member_invites[]        @relation("invitee")
-  posts                    posts[]                 @relation("post_author")
-  post_reactions           post_reactions[]
-  comments                 comments[]
-  stories                  stories[]               @relation("story_author")
-  dm_messages              chat_dm_messages[]
-  channel_messages         chat_channel_messages[]
-  notifications            notifications[]         @relation("notification_recipient")
-  push_devices             push_devices[]
-  sessions                 sessions[]
-  ap_keypairs              ap_keypairs?
-  post_reposts             post_reposts[]
-  post_bookmarks           post_bookmarks[]
-  lists                    lists[]
-  list_memberships         list_members[]
-  post_plans               post_plans[]
-  post_edits               post_edit_history[]
-  poll_votes               post_poll_votes[]
-  mentioned_in             post_mentions[]
-  bookmarks                bookmarks[]
-  blocks_initiated         user_blocks[]           @relation("user_blocks_blocker")
-  blocks_received          user_blocks[]           @relation("user_blocks_blocked")
-  mutes_initiated          user_mutes[]            @relation("user_mutes_muter")
-  mutes_received           user_mutes[]            @relation("user_mutes_muted")
-  data_exports             data_export_requests[]
+  accounts                user_accounts[]
+  created_communities     communities[]           @relation("community_creator")
+  memberships             memberships[]
+  invites_created         invites[]               @relation("invite_creator")
+  member_invites_sent     member_invites[]        @relation("inviter")
+  member_invites_received member_invites[]        @relation("invitee")
+  posts                   posts[]                 @relation("post_author")
+  post_reactions          post_reactions[]
+  comments                comments[]
+  stories                 stories[]               @relation("story_author")
+  dm_messages             chat_dm_messages[]
+  channel_messages        chat_channel_messages[]
+  notifications           notifications[]         @relation("notification_recipient")
+  push_devices            push_devices[]
+  sessions                sessions[]
+  ap_keypairs             ap_keypairs?
+  post_reposts            post_reposts[]
+  post_bookmarks          post_bookmarks[]
+  lists                   lists[]
+  list_memberships        list_members[]
+  post_plans              post_plans[]
+  post_edits              post_edit_history[]
+  poll_votes              post_poll_votes[]
+  mentioned_in            post_mentions[]
+  bookmarks               bookmarks[]
+  blocks_initiated        user_blocks[]           @relation("user_blocks_blocker")
+  blocks_received         user_blocks[]           @relation("user_blocks_blocked")
+  mutes_initiated         user_mutes[]            @relation("user_mutes_muter")
+  mutes_received          user_mutes[]            @relation("user_mutes_muted")
+  data_exports            data_export_requests[]
 
   @@map("users")
 }
@@ -110,7 +108,7 @@ model lists {
   updated_at  DateTime
 
   // Relations
-  owner   users        @relation(fields: [owner_id], references: [id], onDelete: Cascade)
+  owner   users          @relation(fields: [owner_id], references: [id], onDelete: Cascade)
   members list_members[]
 
   @@map("lists")
@@ -196,12 +194,12 @@ model posts {
   ap_activity_id   String? @unique // Create Activity URI
 
   // Relations
-  author    users            @relation("post_author", fields: [author_id], references: [id], onDelete: Cascade)
-  community communities?     @relation("community_posts", fields: [community_id], references: [id], onDelete: Cascade)
-  reactions post_reactions[]
-  comments  comments[]
-  announces ap_announces[]
-  hashtags  post_hashtags[]
+  author        users               @relation("post_author", fields: [author_id], references: [id], onDelete: Cascade)
+  community     communities?        @relation("community_posts", fields: [community_id], references: [id], onDelete: Cascade)
+  reactions     post_reactions[]
+  comments      comments[]
+  announces     ap_announces[]
+  hashtags      post_hashtags[]
   mentions      post_mentions[]
   reposts       post_reposts[]
   bookmarks_rel post_bookmarks[]
@@ -213,17 +211,17 @@ model posts {
 }
 
 model post_plans {
-  id                      String   @id
+  id                      String    @id
   author_id               String
   community_id            String?
   type                    String
-  text                    String   @default("")
-  media_json              String   @default("[]")
-  status                  String   @default("draft") // draft | scheduled | published | failed | canceled
+  text                    String    @default("")
+  media_json              String    @default("[]")
+  status                  String    @default("draft") // draft | scheduled | published | failed | canceled
   scheduled_at            DateTime?
   post_id                 String?
-  broadcast_all           Int      @default(0)
-  visible_to_friends      Int      @default(0)
+  broadcast_all           Int       @default(0)
+  visible_to_friends      Int       @default(0)
   attributed_community_id String?
   last_error              String?
   created_at              DateTime
@@ -335,13 +333,13 @@ model post_edit_history {
 }
 
 model post_polls {
-  id              String   @id
-  post_id         String   @unique
-  question        String   @default("")
-  allows_multiple Int      @default(0)
-  anonymous       Int      @default(1)
+  id              String    @id
+  post_id         String    @unique
+  question        String    @default("")
+  allows_multiple Int       @default(0)
+  anonymous       Int       @default(1)
   expires_at      DateTime?
-  created_at      DateTime @default(now())
+  created_at      DateTime  @default(now())
 
   post    posts               @relation(fields: [post_id], references: [id], onDelete: Cascade)
   options post_poll_options[]
@@ -357,7 +355,7 @@ model post_poll_options {
   order_index Int      @default(0)
   created_at  DateTime @default(now())
 
-  poll  post_polls       @relation(fields: [poll_id], references: [id], onDelete: Cascade)
+  poll  post_polls        @relation(fields: [poll_id], references: [id], onDelete: Cascade)
   votes post_poll_votes[]
 
   @@index([poll_id])
@@ -375,8 +373,8 @@ model post_poll_votes {
   option post_poll_options @relation(fields: [option_id], references: [id], onDelete: Cascade)
   user   users             @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  @@index([poll_id])
   @@unique([poll_id, user_id, option_id])
+  @@index([poll_id])
   @@map("post_poll_votes")
 }
 
@@ -447,19 +445,6 @@ model stories {
   @@map("stories")
 }
 
-model friendships {
-  requester_id String
-  addressee_id String
-  status       String // 'pending' | 'accepted' | 'rejected'
-  created_at   DateTime
-
-  requester users @relation("requester", fields: [requester_id], references: [id])
-  addressee users @relation("addressee", fields: [addressee_id], references: [id])
-
-  @@id([requester_id, addressee_id])
-  @@map("friendships")
-}
-
 model user_blocks {
   blocker_id String
   blocked_id String
@@ -473,8 +458,8 @@ model user_blocks {
 }
 
 model user_mutes {
-  muter_id String
-  muted_id String
+  muter_id   String
+  muted_id   String
   created_at DateTime @default(now())
 
   muter users @relation("user_mutes_muter", fields: [muter_id], references: [id], onDelete: Cascade)
@@ -560,10 +545,10 @@ model notifications {
 }
 
 model data_export_requests {
-  id            String   @id
+  id            String    @id
   user_id       String
-  format        String   @default("json")
-  status        String   @default("pending") // pending | processing | completed | failed
+  format        String    @default("json")
+  status        String    @default("pending") // pending | processing | completed | failed
   requested_at  DateTime
   processed_at  DateTime?
   download_url  String?

@@ -407,79 +407,46 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   };
 
   // -------------- Friendships --------------
-  type FriendStatus = "pending" | "accepted" | "rejected";
+  // -------------- Friendships - deprecated, now using ActivityPub --------------
+  // Helper: Check if two users are mutually following (friends)
+  const areFriends = async (userId1: string, userId2: string): Promise<boolean> => {
+    try {
+      const followers = await listApFollowers(userId1, "accepted", 1000);
+      const following = await listApFollows(userId1, "accepted", 1000);
 
-  const getFriendRequest = async (requester_id: string, addressee_id: string) =>
-    (prisma as any).friendships.findFirst({
-      where: {
-        requester_id,
-        addressee_id,
-      },
-    });
+      const followerIds = new Set(followers.map((f: any) => {
+        // Extract user ID from actor URI
+        const match = f.remote_actor_id.match(/\/ap\/users\/([a-z0-9_]+)$/);
+        return match ? match[1] : f.remote_actor_id;
+      }));
 
-  const getFriendshipBetween = async (user_id: string, other_id: string) =>
-    (prisma as any).friendships.findFirst({
-      where: {
-        OR: [
-          { requester_id: user_id, addressee_id: other_id },
-          { requester_id: other_id, addressee_id: user_id },
-        ],
-      },
-    });
+      const followingIds = new Set(following.map((f: any) => {
+        const match = f.remote_actor_id.match(/\/ap\/users\/([a-z0-9_]+)$/);
+        return match ? match[1] : f.remote_actor_id;
+      }));
 
-  const createFriendRequest = async (
-    requester_id: string,
-    addressee_id: string,
-  ) => {
-    await (prisma as any).friendships.upsert({
-      where: {
-        requester_id_addressee_id: {
-          requester_id,
-          addressee_id,
-        },
-      },
-      create: {
-        requester_id,
-        addressee_id,
-        status: "pending",
-        created_at: new Date(),
-      },
-      update: { status: "pending", created_at: new Date() },
-    });
-    return getFriendRequest(requester_id, addressee_id);
+      return followerIds.has(userId2) && followingIds.has(userId2);
+    } catch {
+      return false;
+    }
   };
 
-  const setFriendStatus = async (
-    requester_id: string,
-    addressee_id: string,
-    status: FriendStatus,
-  ) => {
-    await (prisma as any).friendships.update({
-      where: {
-        requester_id_addressee_id: {
-          requester_id,
-          addressee_id,
-        },
-      },
-      data: { status },
-    });
-    return getFriendRequest(requester_id, addressee_id);
-  };
+  // Helper: List friends (mutual follows) with accepted status - returns array like old listFriendships
+  const listFriends = async (userId: string): Promise<any[]> => {
+    const followers = await listApFollowers(userId, "accepted", 1000);
+    const following = await listApFollows(userId, "accepted", 1000);
 
-  const listFriendships = async (
-    user_id: string,
-    status: FriendStatus | null = null,
-  ) =>
-    (prisma as any).friendships.findMany({
-      where: {
-        ...(status ? { status } : {}),
-        OR: [
-          { requester_id: user_id },
-          { addressee_id: user_id },
-        ],
-      },
-      include: { requester: true, addressee: true },
-    });
+    const followerSet = new Set(followers.map((f: any) => f.remote_actor_id));
+    const mutualFollows = following
+      .filter((f: any) => followerSet.has(f.remote_actor_id))
+      .map((f: any) => ({
+        requester_id: userId,
+        addressee_id: f.remote_actor_id.match(/\/ap\/users\/([a-z0-9_]+)$/)?.[1] || f.remote_actor_id,
+        status: "accepted",
+      }));
+
+    return mutualFollows;
+  };
 
   // -------------- Blocks & Mutes --------------
   const blockUser = async (blocker_id: string, blocked_id: string) => {
@@ -2470,6 +2437,21 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
+  const updateApFollowersStatus = async (
+    local_user_id: string,
+    remote_actor_id: string,
+    status: string,
+    accepted_at?: Date,
+  ) => {
+    await (prisma as any).ap_followers.updateMany({
+      where: { local_user_id, remote_actor_id, status: "pending" },
+      data: {
+        status,
+        accepted_at: accepted_at || new Date(),
+      },
+    });
+  };
+
   const countApFollowers = async (local_user_id: string, status?: string) => {
     const where: Record<string, any> = { local_user_id };
     if (status) {
@@ -2502,6 +2484,43 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   };
 
   // ActivityPub - Follows
+  const upsertApFollow = async (input: import("./types").ApFollowerInput) => {
+    const data = {
+      id: input.id || crypto.randomUUID(),
+      local_user_id: input.local_user_id,
+      remote_actor_id: input.remote_actor_id,
+      activity_id: input.activity_id,
+      status: input.status,
+      created_at: input.created_at ? new Date(input.created_at) : new Date(),
+      accepted_at: input.accepted_at ? new Date(input.accepted_at) : null,
+    };
+    return (prisma as any).ap_follows.upsert({
+      where: {
+        ap_follows_local_user_id_remote_actor_id_key: {
+          local_user_id: input.local_user_id,
+          remote_actor_id: input.remote_actor_id,
+        },
+      },
+      update: {
+        activity_id: data.activity_id,
+        status: data.status,
+        accepted_at: data.accepted_at,
+      },
+      create: data,
+    });
+  };
+
+  const findApFollow = async (local_user_id: string, remote_actor_id: string) => {
+    return (prisma as any).ap_follows.findUnique({
+      where: {
+        ap_follows_local_user_id_remote_actor_id_key: {
+          local_user_id,
+          remote_actor_id,
+        },
+      },
+    });
+  };
+
   const updateApFollowsStatus = async (
     local_user_id: string,
     remote_actor_id: string,
@@ -3227,12 +3246,10 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     updateAccountUser,
     updateUserAccountPassword,
     listAccountsByUser,
-    // friendships
-    getFriendRequest,
-    getFriendshipBetween,
-    createFriendRequest,
-    setFriendStatus,
-    listFriendships,
+    // friendships - deprecated (compatibility helpers using ActivityPub)
+    areFriends,
+    listFriends,
+    // Blocks & Mutes
     blockUser,
     unblockUser,
     listBlockedUsers,
@@ -3391,8 +3408,11 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     upsertApFollower,
     deleteApFollowers,
     findApFollower,
+    updateApFollowersStatus,
     countApFollowers,
     listApFollowers,
+    upsertApFollow,
+    findApFollow,
     updateApFollowsStatus,
     countApFollows,
     listApFollows,
