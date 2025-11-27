@@ -509,9 +509,9 @@ users.post("/users/:id/block", auth, async (c) => {
     await store.blockUser(me.id, targetId);
     await store.unmuteUser?.(me.id, targetId);
 
-    // If they were friends, unfollow them (blocking should break friendship)
-    const areFriends = await store.areFriends(me.id, targetId).catch(() => false);
-    if (areFriends) {
+    // If they were friends (mutual follows), unfollow them
+    const isFriend = await store.areFriends(me.id, targetId).catch(() => false);
+    if (isFriend) {
       const instanceDomain = requireInstanceDomain(c.env);
       const targetActorUri = getActorUri(targetId, instanceDomain);
       // Remove from follows and followers
@@ -568,7 +568,7 @@ users.delete("/users/:id/mute", auth, async (c) => {
   }
 });
 
-// ---- Friendships (ActivityPub Follow-based) ----
+// ---- Friends (ActivityPub Follow-based) ----
 // Send friend request
 users.post("/users/:id/friends", auth, async (c) => {
   const store = makeData(c.env as any, c);

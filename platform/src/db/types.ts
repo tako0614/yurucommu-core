@@ -359,7 +359,7 @@ export interface DatabaseAPI {
   getUserJwtSecret(userId: string): Promise<string | null>;
   setUserJwtSecret(userId: string, secret: string): Promise<void>;
 
-  // Friendships - deprecated, now using ActivityPub ap_followers/ap_follows
+  // Friends (mutual follows via ActivityPub)
   // Compatibility helpers for old code
   areFriends(userId1: string, userId2: string): Promise<boolean>;
   listFriends(userId: string): Promise<any[]>;

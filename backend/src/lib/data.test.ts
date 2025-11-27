@@ -3,13 +3,6 @@ import { createDatabaseAPI } from "./data";
 import type { D1Database } from "@cloudflare/workers-types";
 import type { DatabaseConfig } from "./prisma-factory";
 
-type FriendRecord = {
-  requester_id: string;
-  addressee_id: string;
-  status: string;
-  created_at: Date;
-};
-
 const createMockDb = (): D1Database =>
   ({
     prepare: () => ({
@@ -23,58 +16,18 @@ const createMockDb = (): D1Database =>
   }) as unknown as D1Database;
 
 const createMockPrisma = () => {
-  const friendships: FriendRecord[] = [];
-
-  const findFirst = vi.fn(async ({ where }: any) => {
-    if (where?.OR?.length) {
-      return (
-        friendships.find((record) =>
-          where.OR.some(
-            (cond: any) =>
-              cond.requester_id === record.requester_id &&
-              cond.addressee_id === record.addressee_id,
-          ),
-        ) || null
-      );
-    }
-
-    return (
-      friendships.find(
-        (record) =>
-          record.requester_id === where?.requester_id &&
-          record.addressee_id === where?.addressee_id,
-      ) || null
-    );
-  });
-
-  const upsert = vi.fn(
-    async ({
-      where,
-      create,
-      update,
-    }: {
-      where: { requester_id_addressee_id: { requester_id: string; addressee_id: string } };
-      create: FriendRecord;
-      update: Partial<FriendRecord>;
-    }) => {
-      const key = where.requester_id_addressee_id;
-      const index = friendships.findIndex(
-        (record) =>
-          record.requester_id === key.requester_id && record.addressee_id === key.addressee_id,
-      );
-      if (index >= 0) {
-        friendships[index] = { ...friendships[index], ...update } as FriendRecord;
-        return friendships[index];
-      }
-      friendships.push(create);
-      return create;
-    },
-  );
+  // ActivityPub-based follow/friend relationships
+  const ap_follows: any[] = [];
+  const ap_followers: any[] = [];
 
   return {
-    friendships: {
-      findFirst,
-      upsert,
+    ap_follows: {
+      findMany: vi.fn(async () => ap_follows),
+      findFirst: vi.fn(async () => null),
+    },
+    ap_followers: {
+      findMany: vi.fn(async () => ap_followers),
+      findFirst: vi.fn(async () => null),
     },
   };
 };
@@ -89,26 +42,27 @@ const createApi = () => {
   return { api, mockPrisma };
 };
 
-describe("createFriendRequest", () => {
+describe("areFriends", () => {
   afterEach(() => {
-    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  it("updates timestamp when re-sending a pending request", async () => {
-    vi.useFakeTimers();
-    const { api, mockPrisma } = createApi();
+  it("returns false when users are not mutual followers", async () => {
+    const { api } = createApi();
+    // Friends are now determined by mutual ActivityPub Follow relationships
+    const result = await api.areFriends("alice", "bob");
+    expect(result).toBe(false);
+  });
+});
 
-    // Friend request tests disabled - now using ActivityPub Follow/Accept workflow
-    // vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
-    // const first = await api.createFriendRequest("alice", "bob");
+describe("listFriends", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
-    // vi.setSystemTime(new Date("2024-01-02T00:00:00.000Z"));
-    // const second = await api.createFriendRequest("alice", "bob");
-
-    // expect(mockPrisma.friendships.upsert).toHaveBeenCalledTimes(2);
-    // expect((second?.created_at as Date).getTime()).toBeGreaterThan(
-    //   (first?.created_at as Date).getTime(),
-    // );
+  it("returns empty array when user has no mutual follows", async () => {
+    const { api } = createApi();
+    const result = await api.listFriends("alice");
+    expect(result).toEqual([]);
   });
 });

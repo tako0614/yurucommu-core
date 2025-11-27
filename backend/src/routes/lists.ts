@@ -166,10 +166,10 @@ lists.get("/lists/:id/timeline", auth, async (c) => {
       new Set<string>([list.owner_id, ...members.map((m: any) => m.user_id)]),
     );
     const posts = await store.listPostsByAuthors(authorIds, false);
-    // Filter visibility for viewer
-    const friendships = await store.listFriends(user.id);
+    // Filter visibility for viewer - get mutual follows (friends)
+    const friends = await store.listFriends(user.id);
     const friendSet = new Set<string>();
-    for (const f of friendships) {
+    for (const f of friends) {
       if (f.requester_id === user.id && f.addressee_id) friendSet.add(f.addressee_id);
       if (f.addressee_id === user.id && f.requester_id) friendSet.add(f.requester_id);
     }
