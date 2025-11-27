@@ -23,6 +23,29 @@ import { notify } from "../lib/notifications";
 
 const users = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
+export function parseActorToUserId(actorUri: string, instanceDomain: string): string {
+  try {
+    const urlObj = new URL(actorUri);
+    const normalizedDomain = instanceDomain.trim().toLowerCase();
+    const host = urlObj.host.toLowerCase();
+    const hostname = urlObj.hostname.toLowerCase();
+    const isLocal =
+      host === normalizedDomain ||
+      hostname === normalizedDomain;
+
+    if (isLocal) {
+      const match = urlObj.pathname.match(/\/ap\/users\/([a-z0-9_]{3,20})\/?$/);
+      if (match) return match[1];
+    }
+
+    const segments = urlObj.pathname.split("/").filter(Boolean);
+    const handle = segments[segments.length - 1] || actorUri.split("/").pop() || "unknown";
+    return `@${handle}@${urlObj.host || urlObj.hostname}`;
+  } catch {
+    return actorUri;
+  }
+}
+
 // Get my profile
 users.get("/me", auth, async (c) => {
   console.log("[backend] /me handler", {
@@ -91,23 +114,12 @@ users.get("/me/friends", auth, async (c) => {
     const following = await store.listApFollows(me.id, "accepted", 1000);
 
     // Convert to user IDs
-    const parseActorToUserId = (actorUri: string): string => {
-      try {
-        const url = new URL(actorUri);
-        if (url.hostname === instanceDomain) {
-          const match = url.pathname.match(/\/ap\/users\/([a-z0-9_]{3,20})$/);
-          if (match) return match[1];
-        }
-        // Remote actor: return as @handle@domain
-        const handle = actorUri.split("/").pop() || "unknown";
-        return `@${handle}@${url.hostname}`;
-      } catch {
-        return actorUri;
-      }
-    };
-
-    const followerIds = new Set(followers.map((f: any) => parseActorToUserId(f.remote_actor_id)));
-    const followingIds = new Set(following.map((f: any) => parseActorToUserId(f.remote_actor_id)));
+    const followerIds = new Set(
+      followers.map((f: any) => parseActorToUserId(f.remote_actor_id, instanceDomain)),
+    );
+    const followingIds = new Set(
+      following.map((f: any) => parseActorToUserId(f.remote_actor_id, instanceDomain)),
+    );
 
     // Friends are mutual follows
     const friendIds = [...followerIds].filter((id) => followingIds.has(id));
@@ -116,17 +128,19 @@ users.get("/me/friends", auth, async (c) => {
     const friends = await Promise.all(
       friendIds.map(async (userId) => {
         const user = await store.getUser(userId).catch(() => null);
-        if (user) {
-          const { jwt_secret, tenant_id, ...publicProfile } = user;
-          return {
-            requester_id: userId,
-            addressee_id: me.id,
-            status: "accepted",
-            requester: publicProfile,
-            addressee: { id: me.id, display_name: me.display_name },
-          };
-        }
-        return null;
+        const baseProfile = user
+          ? (() => {
+              const { jwt_secret, tenant_id, ...publicProfile } = user;
+              return publicProfile;
+            })()
+          : { id: userId, display_name: userId };
+        return {
+          requester_id: userId,
+          addressee_id: me.id,
+          status: "accepted",
+          requester: baseProfile,
+          addressee: { id: me.id, display_name: me.display_name },
+        };
       }),
     );
 
@@ -145,20 +159,6 @@ users.get("/me/friend-requests", auth, async (c) => {
     const direction = url.searchParams.get("direction");
     const instanceDomain = requireInstanceDomain(c.env);
 
-    const parseActorToUserId = (actorUri: string): string => {
-      try {
-        const urlObj = new URL(actorUri);
-        if (urlObj.hostname === instanceDomain) {
-          const match = urlObj.pathname.match(/\/ap\/users\/([a-z0-9_]{3,20})$/);
-          if (match) return match[1];
-        }
-        const handle = actorUri.split("/").pop() || "unknown";
-        return `@${handle}@${urlObj.hostname}`;
-      } catch {
-        return actorUri;
-      }
-    };
-
     let list: any[] = [];
 
     if (direction === "incoming" || !direction) {
@@ -166,20 +166,22 @@ users.get("/me/friend-requests", auth, async (c) => {
       const followers = await store.listApFollowers(me.id, "pending", 100);
       const incoming = await Promise.all(
         followers.map(async (f: any) => {
-          const requesterId = parseActorToUserId(f.remote_actor_id);
+          const requesterId = parseActorToUserId(f.remote_actor_id, instanceDomain);
           const requester = await store.getUser(requesterId).catch(() => null);
-          if (requester) {
-            const { jwt_secret, tenant_id, ...publicProfile } = requester;
-            return {
-              requester_id: requesterId,
-              addressee_id: me.id,
-              status: "pending",
-              requester: publicProfile,
-              addressee: { id: me.id, display_name: me.display_name },
-              created_at: new Date(),
-            };
-          }
-          return null;
+          const requesterProfile = requester
+            ? (() => {
+                const { jwt_secret, tenant_id, ...publicProfile } = requester;
+                return publicProfile;
+              })()
+            : { id: requesterId, display_name: requesterId };
+          return {
+            requester_id: requesterId,
+            addressee_id: me.id,
+            status: "pending",
+            requester: requesterProfile,
+            addressee: { id: me.id, display_name: me.display_name },
+            created_at: new Date(),
+          };
         }),
       );
       list = [...list, ...incoming.filter(Boolean)];
@@ -190,20 +192,22 @@ users.get("/me/friend-requests", auth, async (c) => {
       const following = await store.listApFollows(me.id, "pending", 100);
       const outgoing = await Promise.all(
         following.map(async (f: any) => {
-          const addresseeId = parseActorToUserId(f.remote_actor_id);
+          const addresseeId = parseActorToUserId(f.remote_actor_id, instanceDomain);
           const addressee = await store.getUser(addresseeId).catch(() => null);
-          if (addressee) {
-            const { jwt_secret, tenant_id, ...publicProfile } = addressee;
-            return {
-              requester_id: me.id,
-              addressee_id: addresseeId,
-              status: "pending",
-              requester: { id: me.id, display_name: me.display_name },
-              addressee: publicProfile,
-              created_at: new Date(),
-            };
-          }
-          return null;
+          const addresseeProfile = addressee
+            ? (() => {
+                const { jwt_secret, tenant_id, ...publicProfile } = addressee;
+                return publicProfile;
+              })()
+            : { id: addresseeId, display_name: addresseeId };
+          return {
+            requester_id: me.id,
+            addressee_id: addresseeId,
+            status: "pending",
+            requester: { id: me.id, display_name: me.display_name },
+            addressee: addresseeProfile,
+            created_at: new Date(),
+          };
         }),
       );
       list = [...list, ...outgoing.filter(Boolean)];
@@ -782,7 +786,34 @@ users.post("/users/:id/friends/accept", auth, async (c) => {
 
     const instanceDomain = requireInstanceDomain(c.env);
     const myActorUri = getActorUri(me.id, instanceDomain);
-    const requesterUri = getActorUri(requesterId, instanceDomain);
+
+    // Check if requester is a remote user (format: @handle@domain)
+    const isRemoteUser = requesterId.startsWith("@") && requesterId.split("@").length === 3;
+    let requesterUri: string;
+    let isLocal = true;
+
+    if (isRemoteUser) {
+      // Remote user - resolve via WebFinger
+      const parts = requesterId.slice(1).split("@"); // Remove leading @
+      const remoteHandle = parts[0];
+      const remoteDomain = parts[1];
+      isLocal = remoteDomain.toLowerCase() === instanceDomain.toLowerCase();
+
+      if (isLocal) {
+        // Actually a local user with full handle format
+        requesterUri = getActorUri(remoteHandle, instanceDomain);
+      } else {
+        // True remote user - lookup via WebFinger
+        const lookupResult = await webfingerLookup(`${remoteHandle}@${remoteDomain}`);
+        if (!lookupResult) {
+          return fail(c, "could not resolve remote user", 400);
+        }
+        requesterUri = lookupResult;
+      }
+    } else {
+      // Local user
+      requesterUri = getActorUri(requesterId, instanceDomain);
+    }
 
     // Find the Follow request in ap_followers
     const followRecord = await store.findApFollower(me.id, requesterUri);
@@ -802,7 +833,7 @@ users.post("/users/:id/friends/accept", auth, async (c) => {
     const followActivityId = followRecord.activity_id || `${requesterUri}/follows/${me.id}`;
     const acceptActivityId = getActivityUri(
       me.id,
-      `accept-follow-${requesterId}-${Date.now()}`,
+      `accept-follow-${requesterId.replace(/@/g, "_")}-${Date.now()}`,
       instanceDomain,
     );
 
@@ -832,39 +863,58 @@ users.post("/users/:id/friends/accept", auth, async (c) => {
       created_at: new Date(),
     });
 
-    // Deliver to requester (local, so store in inbox)
-    const inboxResult = await store.createApInboxActivity({
-      local_user_id: requesterId,
-      remote_actor_id: myActorUri,
-      activity_id: acceptActivityId,
-      activity_type: "Accept",
-      activity_json: JSON.stringify(acceptActivity),
-      status: "pending",
-      created_at: new Date(),
-    });
-    // Process immediately so the sender sees the accepted state without the scheduled worker
-    try {
-      if (inboxResult?.id) {
-        await processSingleInboxActivity(store, c.env as any, inboxResult.id);
+    if (isLocal) {
+      // Local user - deliver via inbox
+      const localRequesterId = isRemoteUser
+        ? requesterId.slice(1).split("@")[0] // Extract handle from @handle@domain
+        : requesterId;
+      const inboxResult = await store.createApInboxActivity({
+        local_user_id: localRequesterId,
+        remote_actor_id: myActorUri,
+        activity_id: acceptActivityId,
+        activity_type: "Accept",
+        activity_json: JSON.stringify(acceptActivity),
+        status: "pending",
+        created_at: new Date(),
+      });
+      // Process immediately so the sender sees the accepted state without the scheduled worker
+      try {
+        if (inboxResult?.id) {
+          await processSingleInboxActivity(store, c.env as any, inboxResult.id);
+        }
+      } catch (error) {
+        console.error("Failed to process local Accept inbox activity", error);
       }
-    } catch (error) {
-      console.error("Failed to process local Accept inbox activity", error);
-    }
 
-    await notify(
-      store,
-      c.env as Bindings,
-      requesterId,
-      "friend_accepted",
-      me.id,
-      "user",
-      me.id,
-      `${me.display_name} が友達リクエストを承認しました`,
-      {
-        allowDefaultPushFallback: true,
-        defaultPushSecret: c.env.DEFAULT_PUSH_SERVICE_SECRET || "",
-      },
-    );
+      await notify(
+        store,
+        c.env as Bindings,
+        localRequesterId,
+        "friend_accepted",
+        me.id,
+        "user",
+        me.id,
+        `${me.display_name} が友達リクエストを承認しました`,
+        {
+          allowDefaultPushFallback: true,
+          defaultPushSecret: c.env.DEFAULT_PUSH_SERVICE_SECRET || "",
+        },
+      );
+    } else {
+      // Remote user - fetch actor to get inbox and deliver via HTTP
+      const remoteActor = await getOrFetchActor(requesterUri, c.env as any);
+      if (remoteActor?.inbox) {
+        const deliveryResult = await store.createApDeliveryQueueItem({
+          activity_id: acceptActivityId,
+          target_inbox_url: remoteActor.inbox,
+          status: "pending",
+        });
+        console.log(`✓ Queued Accept activity to remote inbox ${remoteActor.inbox}`);
+        // Note: Delivery will be handled by the scheduled delivery worker
+      } else {
+        console.warn(`Could not find inbox for remote actor ${requesterUri}`);
+      }
+    }
 
     return ok(c, {
       requester_id: requesterId,
@@ -886,7 +936,34 @@ users.post("/users/:id/friends/reject", auth, async (c) => {
 
     const instanceDomain = requireInstanceDomain(c.env);
     const myActorUri = getActorUri(me.id, instanceDomain);
-    const requesterUri = getActorUri(requesterId, instanceDomain);
+
+    // Check if requester is a remote user (format: @handle@domain)
+    const isRemoteUser = requesterId.startsWith("@") && requesterId.split("@").length === 3;
+    let requesterUri: string;
+    let isLocal = true;
+
+    if (isRemoteUser) {
+      // Remote user - resolve via WebFinger
+      const parts = requesterId.slice(1).split("@"); // Remove leading @
+      const remoteHandle = parts[0];
+      const remoteDomain = parts[1];
+      isLocal = remoteDomain.toLowerCase() === instanceDomain.toLowerCase();
+
+      if (isLocal) {
+        // Actually a local user with full handle format
+        requesterUri = getActorUri(remoteHandle, instanceDomain);
+      } else {
+        // True remote user - lookup via WebFinger
+        const lookupResult = await webfingerLookup(`${remoteHandle}@${remoteDomain}`);
+        if (!lookupResult) {
+          return fail(c, "could not resolve remote user", 400);
+        }
+        requesterUri = lookupResult;
+      }
+    } else {
+      // Local user
+      requesterUri = getActorUri(requesterId, instanceDomain);
+    }
 
     // Find the Follow request in ap_followers
     const followRecord = await store.findApFollower(me.id, requesterUri);
@@ -906,7 +983,7 @@ users.post("/users/:id/friends/reject", auth, async (c) => {
     const followActivityId = followRecord.activity_id || `${requesterUri}/follows/${me.id}`;
     const rejectActivityId = getActivityUri(
       me.id,
-      `reject-follow-${requesterId}-${Date.now()}`,
+      `reject-follow-${requesterId.replace(/@/g, "_")}-${Date.now()}`,
       instanceDomain,
     );
 
@@ -936,23 +1013,42 @@ users.post("/users/:id/friends/reject", auth, async (c) => {
       created_at: new Date(),
     });
 
-    // Deliver to requester (local, so store in inbox)
-    const inboxResult = await store.createApInboxActivity({
-      local_user_id: requesterId,
-      remote_actor_id: myActorUri,
-      activity_id: rejectActivityId,
-      activity_type: "Reject",
-      activity_json: JSON.stringify(rejectActivity),
-      status: "pending",
-      created_at: new Date(),
-    });
-    // Process immediately so the requester sees the rejected state without waiting
-    try {
-      if (inboxResult?.id) {
-        await processSingleInboxActivity(store, c.env as any, inboxResult.id);
+    if (isLocal) {
+      // Local user - deliver via inbox
+      const localRequesterId = isRemoteUser
+        ? requesterId.slice(1).split("@")[0] // Extract handle from @handle@domain
+        : requesterId;
+      const inboxResult = await store.createApInboxActivity({
+        local_user_id: localRequesterId,
+        remote_actor_id: myActorUri,
+        activity_id: rejectActivityId,
+        activity_type: "Reject",
+        activity_json: JSON.stringify(rejectActivity),
+        status: "pending",
+        created_at: new Date(),
+      });
+      // Process immediately so the requester sees the rejected state without waiting
+      try {
+        if (inboxResult?.id) {
+          await processSingleInboxActivity(store, c.env as any, inboxResult.id);
+        }
+      } catch (error) {
+        console.error("Failed to process local Reject inbox activity", error);
       }
-    } catch (error) {
-      console.error("Failed to process local Reject inbox activity", error);
+    } else {
+      // Remote user - fetch actor to get inbox and deliver via HTTP
+      const remoteActor = await getOrFetchActor(requesterUri, c.env as any);
+      if (remoteActor?.inbox) {
+        const deliveryResult = await store.createApDeliveryQueueItem({
+          activity_id: rejectActivityId,
+          target_inbox_url: remoteActor.inbox,
+          status: "pending",
+        });
+        console.log(`✓ Queued Reject activity to remote inbox ${remoteActor.inbox}`);
+        // Note: Delivery will be handled by the scheduled delivery worker
+      } else {
+        console.warn(`Could not find inbox for remote actor ${requesterUri}`);
+      }
     }
 
     return ok(c, {
