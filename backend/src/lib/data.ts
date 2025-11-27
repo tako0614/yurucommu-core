@@ -329,13 +329,14 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
         where: { author_id: oldId },
         data: { author_id: newId },
       });
-      await tx.friendships.updateMany({
-        where: { requester_id: oldId },
-        data: { requester_id: newId },
+      // Note: friendships table has been removed - using ap_follows/ap_followers instead
+      await tx.ap_follows.updateMany({
+        where: { local_user_id: oldId },
+        data: { local_user_id: newId },
       });
-      await tx.friendships.updateMany({
-        where: { addressee_id: oldId },
-        data: { addressee_id: newId },
+      await tx.ap_followers.updateMany({
+        where: { local_user_id: oldId },
+        data: { local_user_id: newId },
       });
       await tx.notifications.updateMany({
         where: { user_id: oldId },
@@ -1221,23 +1222,11 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   };
 
   const listGlobalPostsForUser = async (user_id: string) => {
-    const relations: any[] = await (prisma as any).friendships.findMany({
-      where: {
-        status: "accepted",
-        OR: [
-          { requester_id: user_id },
-          { addressee_id: user_id },
-        ],
-      },
-    });
-    const friendIds = new Set<string>();
-    for (const rel of relations) {
-      if (rel.requester_id === user_id && rel.addressee_id) {
-        friendIds.add(rel.addressee_id);
-      } else if (rel.addressee_id === user_id && rel.requester_id) {
-        friendIds.add(rel.requester_id);
-      }
-    }
+    // Get mutual follows (friends) using ActivityPub tables
+    const mutualFollows = await listFriends(user_id);
+    const friendIds = new Set<string>(
+      mutualFollows.map((f: any) => f.addressee_id)
+    );
     const authorIds = [user_id, ...friendIds];
     const visibility = await getVisibilitySets(user_id);
 
@@ -1330,26 +1319,14 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     since: Date,
     options?: { authorIds?: string[]; friendIds?: string[]; limit?: number },
   ) => {
-    const relations: any[] = options?.friendIds
+    // Get mutual follows (friends) using ActivityPub tables
+    const mutualFollows = options?.friendIds
       ? options.friendIds.map((id) => ({ requester_id: user_id, addressee_id: id, status: "accepted" }))
-      : await (prisma as any).friendships.findMany({
-        where: {
-          status: "accepted",
-          OR: [
-            { requester_id: user_id },
-            { addressee_id: user_id },
-          ],
-        },
-      });
+      : await listFriends(user_id);
 
-    const friendIds = new Set<string>();
-    for (const rel of relations) {
-      if (rel.requester_id === user_id && rel.addressee_id) {
-        friendIds.add(rel.addressee_id);
-      } else if (rel.addressee_id === user_id && rel.requester_id) {
-        friendIds.add(rel.requester_id);
-      }
-    }
+    const friendIds = new Set<string>(
+      mutualFollows.map((f: any) => f.addressee_id)
+    );
 
     const authorIds = new Set<string>([
       user_id,
@@ -2141,23 +2118,11 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   };
 
   const listGlobalStoriesForUser = async (user_id: string) => {
-    const relations: any[] = await (prisma as any).friendships.findMany({
-      where: {
-        status: "accepted",
-        OR: [
-          { requester_id: user_id },
-          { addressee_id: user_id },
-        ],
-      },
-    });
-    const friendIds = new Set<string>();
-    for (const rel of relations) {
-      if (rel.requester_id === user_id && rel.addressee_id) {
-        friendIds.add(rel.addressee_id);
-      } else if (rel.addressee_id === user_id && rel.requester_id) {
-        friendIds.add(rel.requester_id);
-      }
-    }
+    // Get mutual follows (friends) using ActivityPub tables
+    const mutualFollows = await listFriends(user_id);
+    const friendIds = new Set<string>(
+      mutualFollows.map((f: any) => f.addressee_id)
+    );
     const authorIds = [user_id, ...friendIds];
     const res = await (prisma as any).stories.findMany({
       where: {
