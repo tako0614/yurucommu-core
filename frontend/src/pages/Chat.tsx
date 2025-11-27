@@ -325,15 +325,15 @@ export default function Chat() {
     Record<string, boolean>
   >({});
   const [mobileSettingsOpen, setMobileSettingsOpen] = createSignal(false);
-  const [leftTab, setLeftTab] = createSignal<"friends" | "community">(
-    "friends",
+  const [leftTab, setLeftTab] = createSignal<"all" | "friends" | "community">(
+    "all",
   );
 
-  // useSwipeTabs hook handles swipe state/logic for the left list (friends/community)
+  // useSwipeTabs hook handles swipe state/logic for the left list (all/friends/community)
   const swipe = useSwipeTabs({
-    length: 2,
-    currentIndex: () => (leftTab() === "friends" ? 0 : 1),
-    setIndex: (i) => setLeftTab(i === 0 ? "friends" : "community"),
+    length: 3,
+    currentIndex: () => (leftTab() === "all" ? 0 : leftTab() === "friends" ? 1 : 2),
+    setIndex: (i) => setLeftTab(i === 0 ? "all" : i === 1 ? "friends" : "community"),
   });
 
   // helper: latest message preview for a conversation key
@@ -517,6 +517,16 @@ export default function Chat() {
           <div class="flex rounded-full bg-gray-100 dark:bg-neutral-800 p-1 gap-1 w-full">
             <button
               class={`flex-1 text-sm px-3 py-1 rounded-full ${
+                leftTab() === "all"
+                  ? "bg-white dark:bg-neutral-900 font-medium"
+                  : ""
+              }`}
+              onClick={() => setLeftTab("all")}
+            >
+              すべて
+            </button>
+            <button
+              class={`flex-1 text-sm px-3 py-1 rounded-full ${
                 leftTab() === "friends"
                   ? "bg-white dark:bg-neutral-900 font-medium"
                   : ""
@@ -551,12 +561,110 @@ export default function Chat() {
               "transition-none": swipe.dragging(),
             }}
             style={{
-              width: `${2 * 100}%`,
+              width: `${3 * 100}%`,
               transform: swipe.sliderTransform(),
             }}
           >
+            {/* All panel */}
+            <div class="flex-none px-1" style={{ width: "33.333%" }}>
+              <div class="space-y-4">
+                <div>
+                  <div class="px-2 text-xs uppercase tracking-wide text-muted mb-1">
+                    すべて
+                  </div>
+                  <div class="flex flex-col gap-1">
+                    {/* DMs */}
+                    <For each={friendEntries() || []}>
+                      {({ user: dm, edge }) => {
+                        const k = `dm:${dm.id}`;
+                        return (
+                          <A
+                            href={`/chat/dm/${encodeURIComponent(dm.id)}`}
+                            class={`px-2 py-2 rounded-lg hover:bg-gray-100 active:opacity-80 ${
+                              dmActive(dm.id) ? "bg-gray-100" : ""
+                            }`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setSelection({ kind: "dm", id: dm.id });
+                              navigate(`/chat/dm/${encodeURIComponent(dm.id)}`);
+                            }}
+                          >
+                            <div class="flex items-center gap-3">
+                              <Avatar
+                                src={dm.avatar_url || ""}
+                                alt="アバター"
+                                class="w-9 h-9 rounded-full"
+                              />
+                              <div class="flex-1 min-w-0">
+                                <div class="text-sm font-medium truncate">
+                                  {dm.display_name || dm.id}
+                                </div>
+                                <div class="text-[12px] text-muted truncate">
+                                  {latestPreview(k) || (edge.status || "active")}
+                                </div>
+                              </div>
+                            </div>
+                          </A>
+                        );
+                      }}
+                    </For>
+                    {/* Channels */}
+                    <For each={comms() || []}>
+                      {(c) => (
+                        <For each={channelsByCommunity[c.id] || []}>
+                          {(ch) => {
+                            const href = `/chat/c/${encodeURIComponent(c.id)}/${encodeURIComponent(ch.id)}`;
+                            const kch = `channel:${c.id}#${ch.id}`;
+                            return (
+                              <A
+                                href={href}
+                                class={`px-2 py-2 rounded-lg hover:bg-gray-100 active:opacity-80 ${
+                                  chActive(c.id, ch.id) ? "bg-gray-100" : ""
+                                }`}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setSelection({
+                                    kind: "channel",
+                                    communityId: c.id,
+                                    channelId: ch.id,
+                                  });
+                                  navigate(href);
+                                }}
+                              >
+                                <div class="flex items-center gap-3">
+                                  <Avatar
+                                    src={c.icon_url || ""}
+                                    alt="コミュニティ"
+                                    class="w-9 h-9 rounded-full"
+                                    variant="community"
+                                  />
+                                  <div class="flex-1 min-w-0">
+                                    <div class="text-sm font-medium truncate">
+                                      {c.name || c.id} / #{ch.name}
+                                    </div>
+                                    <div class="text-[12px] text-muted truncate">
+                                      {latestPreview(kch) || "チャンネル"}
+                                    </div>
+                                  </div>
+                                </div>
+                              </A>
+                            );
+                          }}
+                        </For>
+                      )}
+                    </For>
+                    <Show when={(friendEntries() || []).length === 0 && (comms() || []).length === 0}>
+                      <div class="px-3 py-6 text-xs text-muted">
+                        会話がありません
+                      </div>
+                    </Show>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Friends panel */}
-            <div class="flex-none pr-2" style={{ width: "50%" }}>
+            <div class="flex-none px-1" style={{ width: "33.333%" }}>
               <div class="space-y-4">
                 <div>
                   <div class="px-2 text-xs uppercase tracking-wide text-muted mb-1">
@@ -609,7 +717,7 @@ export default function Chat() {
             </div>
 
             {/* Community panel */}
-            <div class="flex-none pl-2" style={{ width: "50%" }}>
+            <div class="flex-none px-1" style={{ width: "33.333%" }}>
               <div class="space-y-2">
                 <div class="px-2 text-xs uppercase tracking-wide text-muted mb-1">
                   コミュニティ
@@ -799,6 +907,16 @@ export default function Chat() {
               <div class="flex rounded-full bg-gray-100 dark:bg-neutral-800 p-1 gap-1 w-full">
                 <button
                   class={`flex-1 text-sm px-3 py-1 rounded-full ${
+                    leftTab() === "all"
+                      ? "bg-white dark:bg-neutral-900 font-medium"
+                      : ""
+                  }`}
+                  onClick={() => setLeftTab("all")}
+                >
+                  すべて
+                </button>
+                <button
+                  class={`flex-1 text-sm px-3 py-1 rounded-full ${
                     leftTab() === "friends"
                       ? "bg-white dark:bg-neutral-900 font-medium"
                       : ""
@@ -832,11 +950,104 @@ export default function Chat() {
                   "transition-none": swipe.dragging(),
                 }}
                 style={{
-                  width: `${2 * 100}%`,
+                  width: `${3 * 100}%`,
                   transform: swipe.sliderTransform(),
                 }}
               >
-                <div class="flex-none pr-1 h-full" style={{ width: "50%" }}>
+                {/* All panel (mobile) */}
+                <div class="flex-none px-1 h-full" style={{ width: "33.333%" }}>
+                  <div class="h-full overflow-y-auto p-2" style="touch-action: pan-y;">
+                    <div class="space-y-1">
+                      {/* DMs */}
+                      <For each={friendEntries() || []}>
+                        {({ user: dm, edge }) => {
+                          const k = `dm:${dm.id}`;
+                          return (
+                            <A
+                              href={`/chat/dm/${encodeURIComponent(dm.id)}`}
+                              class={`block px-2 py-2 rounded-lg hover:bg-gray-100 active:opacity-80 ${
+                                dmActive(dm.id) ? "bg-gray-100" : ""
+                              }`}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setSelection({ kind: "dm", id: dm.id });
+                                navigate(`/chat/dm/${encodeURIComponent(dm.id)}`);
+                              }}
+                            >
+                              <div class="flex items-center gap-3">
+                                <Avatar
+                                  src={dm.avatar_url || ""}
+                                  alt="アバター"
+                                  class="w-9 h-9 rounded-full"
+                                />
+                                <div class="flex-1 min-w-0">
+                                  <div class="text-sm font-medium truncate">
+                                    {dm.display_name || dm.id}
+                                  </div>
+                                  <div class="text-[12px] text-muted truncate">
+                                    {latestPreview(k) || (edge.status || "active")}
+                                  </div>
+                                </div>
+                              </div>
+                            </A>
+                          );
+                        }}
+                      </For>
+                      {/* Channels */}
+                      <For each={comms() || []}>
+                        {(c) => (
+                          <For each={channelsByCommunity[c.id] || []}>
+                            {(ch) => {
+                              const href = `/chat/c/${encodeURIComponent(c.id)}/${encodeURIComponent(ch.id)}`;
+                              const kch = `channel:${c.id}#${ch.id}`;
+                              return (
+                                <A
+                                  href={href}
+                                  class={`block px-2 py-2 rounded-lg hover:bg-gray-100 active:opacity-80 ${
+                                    chActive(c.id, ch.id) ? "bg-gray-100" : ""
+                                  }`}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setSelection({
+                                      kind: "channel",
+                                      communityId: c.id,
+                                      channelId: ch.id,
+                                    });
+                                    navigate(href);
+                                  }}
+                                >
+                                  <div class="flex items-center gap-3">
+                                    <Avatar
+                                      src={c.icon_url || ""}
+                                      alt="コミュニティ"
+                                      class="w-9 h-9 rounded-full"
+                                      variant="community"
+                                    />
+                                    <div class="flex-1 min-w-0">
+                                      <div class="text-sm font-medium truncate">
+                                        {c.name || c.id} / #{ch.name}
+                                      </div>
+                                      <div class="text-[12px] text-muted truncate">
+                                        {latestPreview(kch) || "チャンネル"}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </A>
+                              );
+                            }}
+                          </For>
+                        )}
+                      </For>
+                      <Show when={(friendEntries() || []).length === 0 && (comms() || []).length === 0}>
+                        <div class="px-3 py-6 text-xs text-muted">
+                          会話がありません
+                        </div>
+                      </Show>
+                    </div>
+                  </div>
+                </div>
+                {/* Friends panel (mobile) */}
+                <div class="flex-none px-1 h-full" style={{ width: "33.333%" }}>
                   <div class="h-full overflow-y-auto p-2" style="touch-action: pan-y;">
                     <div class="space-y-1">
                       <For each={friendEntries() || []}>
@@ -881,7 +1092,8 @@ export default function Chat() {
                     </div>
                   </div>
                 </div>
-                <div class="flex-none pl-1 h-full" style={{ width: "50%" }}>
+                {/* Community panel (mobile) */}
+                <div class="flex-none px-1 h-full" style={{ width: "33.333%" }}>
                   <div class="h-full overflow-y-auto p-2" style="touch-action: pan-y;">
                     <div class="space-y-2">
                       <For each={comms() || []}>

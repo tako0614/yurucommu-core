@@ -9,6 +9,8 @@ import {
   listMyCommunities,
   listMyFriends,
   listMyFriendRequests,
+  acceptFriendRequest,
+  rejectFriendRequest,
   useMe,
 } from "../lib/api";
 import { buildProfileUrlByHandle, buildActivityPubHandle, getUserDomain } from "../lib/url";
@@ -44,11 +46,12 @@ export default function Connections() {
   const [shareOpen, setShareOpen] = createSignal(false);
   const [profileModalView, setProfileModalView] = createSignal<"share" | "scan">("share");
   const [createCommunityOpen, setCreateCommunityOpen] = createSignal(false);
+  const [actionUser, setActionUser] = createSignal<string | null>(null);
 
   // Friends data
-  const [friendsList] = createResource(async () => (await listMyFriends().catch(() => [])) as any[]);
-  const [incomingRequests] = createResource(async () => (await listMyFriendRequests("incoming").catch(() => [])) as any[]);
-  const [outgoingRequests] = createResource(async () => (await listMyFriendRequests("outgoing").catch(() => [])) as any[]);
+  const [friendsList, { refetch: refetchFriends }] = createResource(async () => (await listMyFriends().catch(() => [])) as any[]);
+  const [incomingRequests, { refetch: refetchIncoming }] = createResource(async () => (await listMyFriendRequests("incoming").catch(() => [])) as any[]);
+  const [outgoingRequests, { refetch: refetchOutgoing }] = createResource(async () => (await listMyFriendRequests("outgoing").catch(() => [])) as any[]);
 
   // Communities data
   const [myCommunities, { mutate: setMyCommunities, refetch: refetchMyCommunities }] = createResource(
@@ -144,6 +147,30 @@ export default function Connections() {
     }
   };
 
+  const handleAcceptFriend = async (userId: string) => {
+    setActionUser(userId);
+    try {
+      await acceptFriendRequest(userId);
+      await Promise.all([refetchIncoming(), refetchFriends()]);
+    } catch (error) {
+      console.error("Failed to accept friend request:", error);
+    } finally {
+      setActionUser(null);
+    }
+  };
+
+  const handleRejectFriend = async (userId: string) => {
+    setActionUser(userId);
+    try {
+      await rejectFriendRequest(userId);
+      await Promise.all([refetchIncoming(), refetchOutgoing()]);
+    } catch (error) {
+      console.error("Failed to reject friend request:", error);
+    } finally {
+      setActionUser(null);
+    }
+  };
+
   const handleCommunityCreated = (community: any) => {
     setCreateCommunityOpen(false);
     setMyCommunities((prev) => {
@@ -159,7 +186,7 @@ export default function Connections() {
       <div class="max-w-2xl mx-auto px-4 py-4">
         {/* Header */}
         <header class="flex items-center gap-3 mb-4">
-          <h1 class="text-xl font-bold">つながり</h1>
+          <h1 class="text-xl font-bold">友達</h1>
           <div class="flex-1" />
           
           {/* Action buttons */}
@@ -243,25 +270,46 @@ export default function Connections() {
               <div class="space-y-1">
                 <For each={friends()}>
                   {(entry) => (
-                    <a
-                      href={`/@${encodeURIComponent(entry.user.id)}`}
-                      class="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-neutral-800 transition-colors"
-                    >
+                    <div class="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-neutral-800 transition-colors">
                       <Avatar
                         src={entry.user.avatar_url || ""}
                         alt={entry.user.display_name || entry.user.id}
                         class="w-12 h-12 rounded-full shrink-0"
                       />
                       <div class="min-w-0 flex-1">
-                        <div class="font-medium truncate">
-                          {entry.user.display_name || entry.user.id}
-                        </div>
-                        <div class="text-sm text-gray-500 dark:text-gray-400 truncate">
-                          @{entry.user.id}
-                        </div>
+                        <a href={`/@${encodeURIComponent(entry.user.id)}`} class="block">
+                          <div class="font-medium truncate">
+                            {entry.user.display_name || entry.user.id}
+                          </div>
+                          <div class="text-sm text-gray-500 dark:text-gray-400 truncate">
+                            @{entry.user.id}
+                          </div>
+                        </a>
                       </div>
-                      {relationBadge(entry.relation)}
-                    </a>
+                      <Show when={entry.relation === "incoming"}>
+                        <div class="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            class="px-3 py-1.5 rounded-full bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
+                            disabled={actionUser() === entry.user.id}
+                            onClick={() => handleAcceptFriend(entry.user.id)}
+                          >
+                            {actionUser() === entry.user.id ? "処理中…" : "承認"}
+                          </button>
+                          <button
+                            type="button"
+                            class="px-3 py-1.5 rounded-full border dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800 disabled:opacity-60"
+                            disabled={actionUser() === entry.user.id}
+                            onClick={() => handleRejectFriend(entry.user.id)}
+                          >
+                            拒否
+                          </button>
+                        </div>
+                      </Show>
+                      <Show when={entry.relation !== "incoming"}>
+                        {relationBadge(entry.relation)}
+                      </Show>
+                    </div>
                   )}
                 </For>
               </div>
