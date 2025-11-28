@@ -335,11 +335,11 @@ async function handleIncomingFollow(
     await db.addNotification({
       id: crypto.randomUUID(),
       user_id: localUserId,
-      type: "friend_request",
+      type: "follow_request",
       actor_id: remoteUserId,
       ref_type: "user",
       ref_id: remoteUserId,
-      message: `${remoteUserId} sent you a friend request`,
+      message: `${remoteUserId} sent you a follow request`,
       created_at: new Date(),
       read: false,
     });
@@ -450,17 +450,17 @@ async function handleIncomingAccept(
       await db.addNotification({
         id: crypto.randomUUID(),
         user_id: localUserId,
-        type: "friend_accepted",
+        type: "follow_accepted",
         actor_id: remoteUserId,
         ref_type: "user",
         ref_id: remoteUserId,
-        message: `${remoteUserId} accepted your friend request`,
+        message: `${remoteUserId} accepted your follow request`,
         created_at: new Date(),
         read: false,
       });
-      console.log(`✓ Notification sent to ${localUserId} for friend acceptance from ${remoteUserId}`);
+      console.log(`✓ Notification sent to ${localUserId} for follow acceptance from ${remoteUserId}`);
     } catch (error) {
-      console.error("Failed to create notification for friend acceptance", error);
+      console.error("Failed to create notification for follow acceptance", error);
     }
   }
 
@@ -513,17 +513,17 @@ async function handleIncomingReject(
       await db.addNotification({
         id: crypto.randomUUID(),
         user_id: localUserId,
-        type: "friend_rejected",
+        type: "follow_rejected",
         actor_id: remoteUserId,
         ref_type: "user",
         ref_id: remoteUserId,
-        message: `${remoteUserId} rejected your friend request`,
+        message: `${remoteUserId} rejected your follow request`,
         created_at: new Date(),
         read: false,
       });
-      console.log(`✓ Notification sent to ${localUserId} for friend rejection from ${remoteUserId}`);
+      console.log(`✓ Notification sent to ${localUserId} for follow rejection from ${remoteUserId}`);
     } catch (error) {
-      console.error("Failed to create notification for friend rejection", error);
+      console.error("Failed to create notification for follow rejection", error);
     }
   }
 

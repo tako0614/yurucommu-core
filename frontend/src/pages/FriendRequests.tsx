@@ -3,9 +3,9 @@ import { useNavigate } from "@solidjs/router";
 
 import Avatar from "../components/Avatar";
 import {
-  listMyFriendRequests,
-  acceptFriendRequest,
-  rejectFriendRequest,
+  listMyFollowRequests,
+  acceptFollowRequest,
+  rejectFollowRequest,
 } from "../lib/api";
 
 type User = {
@@ -25,7 +25,7 @@ export default function FriendRequests() {
   const [actionUser, setActionUser] = createSignal<string | null>(null);
 
   const [incomingRequests, { refetch: refetchIncoming }] = createResource(
-    async () => (await listMyFriendRequests("incoming").catch(() => [])) as FriendRequest[]
+    async () => (await listMyFollowRequests("incoming").catch(() => [])) as FriendRequest[]
   );
 
   const loading = createMemo(() => incomingRequests.loading);
@@ -35,7 +35,7 @@ export default function FriendRequests() {
   const handleAcceptFriend = async (userId: string) => {
     setActionUser(userId);
     try {
-      await acceptFriendRequest(userId);
+      await acceptFollowRequest(userId);
       await refetchIncoming();
     } catch (error) {
       console.error("Failed to accept friend request:", error);
@@ -47,7 +47,7 @@ export default function FriendRequests() {
   const handleRejectFriend = async (userId: string) => {
     setActionUser(userId);
     try {
-      await rejectFriendRequest(userId);
+      await rejectFollowRequest(userId);
       await refetchIncoming();
     } catch (error) {
       console.error("Failed to reject friend request:", error);

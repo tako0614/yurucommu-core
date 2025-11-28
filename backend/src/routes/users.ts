@@ -238,8 +238,8 @@ users.get("/me/followers", auth, async (c) => {
   }
 });
 
-// Get my friend requests (ActivityPub based)
-users.get("/me/friend-requests", auth, async (c) => {
+// Get my follow requests (ActivityPub based)
+users.get("/me/follow-requests", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
     const me = c.get("user") as any;
@@ -780,7 +780,7 @@ async function createFollowRequest(
       store,
       c.env as Bindings,
       targetId,
-      "friend_accepted",
+      "follow_accepted",
       me.id,
       "user",
       me.id,
@@ -854,16 +854,16 @@ async function createFollowRequest(
     console.error("Failed to process local Follow inbox activity", error);
   }
 
-  await notify(
-    store,
-    c.env as Bindings,
-    targetId,
-    "friend_request",
-    me.id,
-    "user",
-    me.id,
-    `${me.display_name} からフォローリクエスト`,
-    {
+    await notify(
+      store,
+      c.env as Bindings,
+      targetId,
+      "follow_request",
+      me.id,
+      "user",
+      me.id,
+      `${me.display_name} からフォローリクエスト`,
+      {
       allowDefaultPushFallback: true,
       defaultPushSecret: c.env.DEFAULT_PUSH_SERVICE_SECRET || "",
     },
@@ -880,23 +880,7 @@ async function createFollowRequest(
   };
 }
 
-// Send friend request
-users.post("/users/:id/friends", auth, async (c) => {
-  const store = makeData(c.env as any, c);
-  try {
-    const me = c.get("user") as any;
-    const targetId = c.req.param("id");
-    if (me.id === targetId) return fail(c, "cannot friend yourself");
-
-    const instanceDomain = requireInstanceDomain(c.env);
-    const { data, status } = await createFollowRequest(store, c, me, targetId, instanceDomain);
-    return ok(c, data, status);
-  } finally {
-    await releaseStore(store);
-  }
-});
-
-// Follow a user (alias for friend request)
+// Follow a user (primary follow endpoint)
 users.post("/users/:id/follow", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
@@ -1014,8 +998,8 @@ users.delete("/users/:id/follow", auth, async (c) => {
   }
 });
 
-// Accept friend request
-users.post("/users/:id/friends/accept", auth, async (c) => {
+// Accept follow request
+users.post("/users/:id/follow/accept", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
     const me = c.get("user") as any;
@@ -1189,7 +1173,7 @@ users.post("/users/:id/friends/accept", auth, async (c) => {
         store,
         c.env as Bindings,
         localRequesterId,
-        "friend_accepted",
+        "follow_accepted",
         me.id,
         "user",
         me.id,
@@ -1226,8 +1210,8 @@ users.post("/users/:id/friends/accept", auth, async (c) => {
   }
 });
 
-// Reject friend request
-users.post("/users/:id/friends/reject", auth, async (c) => {
+// Reject follow request
+users.post("/users/:id/follow/reject", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
     const me = c.get("user") as any;

@@ -1,6 +1,6 @@
 # ユーザー API
 
-ユーザープロフィール、検索、フレンド機能に関する API です。
+ユーザープロフィール、検索、フォロー/友達（相互フォロー）に関する API です。
 
 ## エンドポイント
 
@@ -131,23 +131,23 @@ GET /users?q=alice&limit=10
 
 ---
 
-## フレンド機能
+## フォロー / フレンド（相互フォロー）
 
-### POST /users/:id/friends
+### POST /users/:id/follow
 
-ユーザーにフレンドリクエストを送信します。
+ユーザーにフォローリクエストを送信します。
 
 **認証**: 必須
 
 **パスパラメータ**:
-- `id`: フレンドリクエストを送信する相手のユーザー ID
+- `id`: フォローリクエストを送信する相手のユーザー ID
 
 **レスポンス** (201):
 ```json
 {
   "ok": true,
   "data": {
-    "id": "friend-request-id",
+    "id": "follow-request-id",
     "from_user_id": "my-user-id",
     "to_user_id": "target-user-id",
     "status": "pending",
@@ -160,25 +160,25 @@ GET /users?q=alice&limit=10
 
 **エラー**:
 - `404 Not Found` - ユーザーが見つからない
-- `400 Bad Request` - 既にフレンドまたはリクエスト送信済み
+- `400 Bad Request` - 既にフォロー中またはリクエスト送信済み
 
 ---
 
-### POST /users/:id/friends/accept
+### POST /users/:id/follow/accept
 
-受け取ったフレンドリクエストを承認します。
+受け取ったフォローリクエストを承認します。
 
 **認証**: 必須
 
 **パスパラメータ**:
-- `id`: フレンドリクエストを送信してきたユーザーの ID
+- `id`: フォローリクエストを送信してきたユーザーの ID
 
 **レスポンス** (200):
 ```json
 {
   "ok": true,
   "data": {
-    "id": "friend-request-id",
+    "id": "follow-request-id",
     "from_user_id": "requester-user-id",
     "to_user_id": "my-user-id",
     "status": "accepted",
@@ -190,26 +190,26 @@ GET /users?q=alice&limit=10
 **ActivityPub**: このエンドポイントは自動的に ActivityPub `Accept` アクティビティを送信します。
 
 **エラー**:
-- `404 Not Found` - フレンドリクエストが見つからない
+- `404 Not Found` - フォローリクエストが見つからない
 - `403 Forbidden` - 自分宛てのリクエストではない
 
 ---
 
-### POST /users/:id/friends/reject
+### POST /users/:id/follow/reject
 
-受け取ったフレンドリクエストを拒否します。
+受け取ったフォローリクエストを拒否します。
 
 **認証**: 必須
 
 **パスパラメータ**:
-- `id`: フレンドリクエストを送信してきたユーザーの ID
+- `id`: フォローリクエストを送信してきたユーザーの ID
 
 **レスポンス** (200):
 ```json
 {
   "ok": true,
   "data": {
-    "id": "friend-request-id",
+    "id": "follow-request-id",
     "status": "rejected"
   }
 }
@@ -221,7 +221,7 @@ GET /users?q=alice&limit=10
 
 ### GET /me/friends
 
-現在のユーザーのフレンド一覧を取得します。
+現在のユーザーのフレンド一覧（相互フォロー）を取得します。
 
 **認証**: 必須
 
@@ -252,9 +252,9 @@ GET /users?q=alice&limit=10
 
 ---
 
-### GET /me/friend-requests
+### GET /me/follow-requests
 
-現在のユーザーが受け取ったフレンドリクエスト一覧を取得します。
+現在のユーザーが受け取ったフォローリクエスト一覧を取得します。
 
 **認証**: 必須
 
@@ -295,7 +295,7 @@ GET /users?q=alice&limit=10
 | `is_private` | number (0 or 1) | プライベートアカウントフラグ |
 | `profile_completed_at` | string \| null | プロフィール完成日時 |
 
-### Friend Request
+### Follow Request
 
 | フィールド | 型 | 説明 |
 |----------|---|------|
@@ -310,27 +310,27 @@ GET /users?q=alice&limit=10
 
 ## 使用例
 
-### フレンドリクエストの送信と承認
+### フォローリクエストの送信と承認
 
 ```javascript
-// 1. Alice が Bob にフレンドリクエストを送信
-const requestResponse = await fetch('https://example.com/users/bob-id/friends', {
+// 1. Alice が Bob にフォローリクエストを送信
+const requestResponse = await fetch('https://example.com/users/bob-id/follow', {
   method: 'POST',
   headers: { 'Authorization': 'Bearer alice-token' }
 });
 
 // 2. Bob がリクエスト一覧を確認
-const requestsResponse = await fetch('https://example.com/me/friend-requests', {
+const requestsResponse = await fetch('https://example.com/me/follow-requests', {
   headers: { 'Authorization': 'Bearer bob-token' }
 });
 
 // 3. Bob が Alice のリクエストを承認
-const acceptResponse = await fetch('https://example.com/users/alice-id/friends/accept', {
+const acceptResponse = await fetch('https://example.com/users/alice-id/follow/accept', {
   method: 'POST',
   headers: { 'Authorization': 'Bearer bob-token' }
 });
 
-// 4. Alice のフレンド一覧に Bob が表示される
+// 4. Alice のフレンド一覧（相互フォロー）に Bob が表示される
 const friendsResponse = await fetch('https://example.com/me/friends', {
   headers: { 'Authorization': 'Bearer alice-token' }
 });
@@ -340,9 +340,9 @@ const friendsResponse = await fetch('https://example.com/me/friends', {
 
 ## ActivityPub 統合
 
-フレンド機能は ActivityPub と統合されています：
+フォロー／友達機能は ActivityPub と統合されています：
 
-- **フレンドリクエスト送信** → `Follow` アクティビティ送信
+- **フォローリクエスト送信** → `Follow` アクティビティ送信
 - **リクエスト承認** → `Accept` アクティビティ送信
 - **リクエスト拒否** → `Reject` アクティビティ送信
 

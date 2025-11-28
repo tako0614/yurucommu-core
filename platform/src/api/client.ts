@@ -193,30 +193,30 @@ export function createApiClient(config: ApiClientConfig) {
       });
     },
 
-    // ---- Friends APIs (ActivityPub Follow-based) ----
+    // ---- Friends (mutual follows) & Follow requests ----
     async listMyFriends() {
       return apiFetch<FriendEdge[]>('/me/friends');
     },
 
-    async listMyFriendRequests(direction?: 'incoming' | 'outgoing') {
+    async listMyFollowRequests(direction?: 'incoming' | 'outgoing') {
       const query = direction ? `?direction=${encodeURIComponent(direction)}` : '';
-      return apiFetch<FriendEdge[]>(`/me/friend-requests${query}`);
+      return apiFetch<FriendEdge[]>(`/me/follow-requests${query}`);
     },
 
-    async sendFriendRequest(userId: string) {
-      return apiFetch(`/users/${encodeURIComponent(userId)}/friends`, {
+    async sendFollowRequest(userId: string) {
+      return apiFetch(`/users/${encodeURIComponent(userId)}/follow`, {
         method: 'POST',
       });
     },
 
-    async acceptFriendRequest(userId: string) {
-      return apiFetch(`/users/${encodeURIComponent(userId)}/friends/accept`, {
+    async acceptFollowRequest(userId: string) {
+      return apiFetch(`/users/${encodeURIComponent(userId)}/follow/accept`, {
         method: 'POST',
       });
     },
 
-    async rejectFriendRequest(userId: string) {
-      return apiFetch(`/users/${encodeURIComponent(userId)}/friends/reject`, {
+    async rejectFollowRequest(userId: string) {
+      return apiFetch(`/users/${encodeURIComponent(userId)}/follow/reject`, {
         method: 'POST',
       });
     },

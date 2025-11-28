@@ -98,13 +98,14 @@ export default function App() {
                 )}
               />
               <Route
-                path="/friend-requests"
+                path="/follow-requests"
                 component={() => (
                   <RequireAuth>
                     <FriendRequests />
                   </RequireAuth>
                 )}
               />
+              <Route path="/friend-requests" component={() => <Navigate href="/follow-requests" />} />
               <Route
                 path="/c/:id"
                 component={() => (

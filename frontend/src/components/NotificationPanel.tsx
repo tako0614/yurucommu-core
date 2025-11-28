@@ -1,9 +1,9 @@
 import { createSignal, For, onMount, Show } from "solid-js";
 import {
-  acceptFriendRequest,
+  acceptFollowRequest,
   listNotifications,
   markNotificationRead,
-  rejectFriendRequest,
+  rejectFollowRequest,
 } from "../lib/api";
 
 type Props = {
@@ -61,13 +61,13 @@ export default function NotificationPanel(props: Props) {
                       {n.message || n.type}
                     </div>
                     <div class="text-xs text-gray-500 mt-1">{n.time}</div>
-                    <Show when={n.type === "friend_request"}>
+                    <Show when={n.type === "follow_request"}>
                       <div class="mt-2 flex items-center gap-2">
                         <button
                           class="px-3 py-1.5 rounded-full bg-black text-white hover:opacity-90"
                           onClick={async () => {
                             try {
-                              await acceptFriendRequest(n.actor_id);
+                              await acceptFollowRequest(n.actor_id);
                               await markNotificationRead(n.id);
                               setItems((prev) =>
                                 (prev || []).filter((x: any) => x.id !== n.id)
@@ -81,7 +81,7 @@ export default function NotificationPanel(props: Props) {
                           class="px-3 py-1.5 rounded-full border hairline hover:bg-gray-50 dark:hover:bg-neutral-800"
                           onClick={async () => {
                             try {
-                              await rejectFriendRequest(n.actor_id);
+                              await rejectFollowRequest(n.actor_id);
                               await markNotificationRead(n.id);
                               setItems((prev) =>
                                 (prev || []).filter((x: any) => x.id !== n.id)
@@ -93,7 +93,7 @@ export default function NotificationPanel(props: Props) {
                         </button>
                       </div>
                     </Show>
-                    <Show when={n.type !== "friend_request"}>
+                    <Show when={n.type !== "follow_request"}>
                       <button
                         class="mt-2 text-xs text-blue-600 hover:underline"
                         onClick={() =>
