@@ -44,10 +44,11 @@ Community actors add federation glue that differs from user accounts and match L
 
 - **Owner-backed keys** — `generateGroupActor` reuses the community owner's key pair; the group `publicKey.owner` correctly points at the group URI and the PEM payload is issued by `ensureUserKeyPair` for the owner. Rotating the owner's key therefore refreshes the community actor as well. This approach allows the owner to sign activities on behalf of the group.
 - **Followers as members** — Community members are represented as followers who have been accepted. The standard `followers` collection is used instead of a custom `members` field for ActivityPub compatibility.
-- **Auto-accept follows** — Incoming `Follow` requests to the group inbox trigger an automatic `Accept` activity recorded in the owner’s outbox and enqueued for delivery (`group:{slug}` becomes the local follower record).
-- **Inbox gating** — Any activity other than `Follow` is rejected unless the remote actor already appears in the group’s follower table with `status = "accepted"`, effectively turning `Follow` into the membership handshake.
+- **Invite-only follow handling** — Groups reject unsolicited `Follow` requests; membership must be granted via a direct `Invite` activity (or other out-of-band approval), then marked accepted on the follower record. Follow requests receive a `Reject`.
+- **Inbox gating** — Any activity other than `Invite`/approved membership is rejected unless the remote actor already appears in the group’s follower table with `status = "accepted"`, effectively enforcing invite-first membership.
 - **Redirect for non-ActivityPub requests** — Plain HTTP requests to `/ap/groups/:slug` are redirected to `/communities/:slug`, letting humans view the community page while bots fetch JSON.
 - **Lemmy-compatible fields** — Group actors emit `@context = ["https://join-lemmy.org/context.json", "https://www.w3.org/ns/activitystreams", ...]` and surface `preferredUsername`, `summary` + `source`, `sensitive`, `postingRestrictedToMods`, `featured`, `icon`/`image`, and `publicKey` alongside `inbox`/`outbox`/`followers`.
+- **Invite codes deprecated** — Code-based community invites are disabled. Membership is gained via direct ActivityPub `Invite` or by following the Group actor and being accepted.
 
 ### Remote actors in memberships and invites
 
@@ -55,6 +56,7 @@ Community actors add federation glue that differs from user accounts and match L
 - **Remote invites** — Community direct invites deliver `Invite` activities to the resolved actor inbox, aligning with the “followers as members” rule above so remote servers can join without a local account.
 - **Lists** — List membership accepts remote actors; timelines include posts from remote members because posts store `author_id` as `@handle@domain` for non-local authors.
 - **Membership checks** — REST-side membership guards (community timelines, channels, reactions) now treat accepted group followers (`local_user_id = "group:{slug}"` in `ap_followers`) as members in addition to local `memberships` rows, so remote followers aren’t blocked by UI/API checks. `/communities/:id/members` surfaces these remote actors alongside local members.
+- **Community discovery** — `/communities?q=...` accepts remote group identifiers (actor URI or `@group@domain`) and resolves/fetches the Group actor over ActivityPub to show remote communities next to local ones.
 
 ## Collections
 
