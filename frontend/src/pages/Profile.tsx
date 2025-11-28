@@ -4,6 +4,8 @@ import {
   listCommunityPosts,
   listGlobalPosts,
   listMyFriends,
+  listMyFollowers,
+  listMyFollowing,
   useMe,
 } from "../lib/api";
 import ProfileModal from "../components/ProfileModal";
@@ -23,6 +25,12 @@ export default function Profile() {
 
   const [friends] = createResource(async () =>
     listMyFriends().catch(() => [])
+  );
+  const [followers] = createResource(async () =>
+    listMyFollowers().catch(() => [])
+  );
+  const [following] = createResource(async () =>
+    listMyFollowing().catch(() => [])
   );
 
   // 自分の投稿（参加コミュニティ横断で取得して author_id で絞り込み）
@@ -96,6 +104,8 @@ export default function Profile() {
     return buildActivityPubHandle(handle, domain);
   });
   const shareAvatar = createMemo(() => me()?.avatar_url || "");
+  const followerCount = createMemo(() => (followers() || []).length);
+  const followingCount = createMemo(() => (following() || []).length);
   const friendCount = createMemo(() => (friends() || []).length);
   const communityCount = createMemo(() => (communities() || []).length);
   const postCount = createMemo(() => (myPosts() || []).length);
@@ -138,10 +148,15 @@ export default function Profile() {
                     ID: @{(me()! as any).handle || me()!.id}
                   </span>
                 </div>
-                <div class="mt-2 grid grid-cols-3 gap-4 max-w-md">
+                <div class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-xl">
                   <div class="rounded-lg bg-gray-50 dark:bg-neutral-900 border hairline px-3 py-2">
-                    <div class="text-[12px] text-muted">フレンド</div>
-                    <div class="text-lg font-semibold">{friendCount()}</div>
+                    <div class="text-[12px] text-muted">フォロー中</div>
+                    <div class="text-lg font-semibold">{followingCount()}</div>
+                    <div class="text-[11px] text-gray-500 dark:text-gray-400">友達 {friendCount()}</div>
+                  </div>
+                  <div class="rounded-lg bg-gray-50 dark:bg-neutral-900 border hairline px-3 py-2">
+                    <div class="text-[12px] text-muted">フォロワー</div>
+                    <div class="text-lg font-semibold">{followerCount()}</div>
                   </div>
                   <div class="rounded-lg bg-gray-50 dark:bg-neutral-900 border hairline px-3 py-2">
                     <div class="text-[12px] text-muted">コミュニティ</div>

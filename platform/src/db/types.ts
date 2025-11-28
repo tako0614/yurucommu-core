@@ -522,20 +522,21 @@ export interface DatabaseAPI {
   countApFollowers(local_user_id: string, status?: string): Promise<number>;
   listApFollowers(
     local_user_id: string,
-    status?: string,
+    status?: string | null,
     limit?: number,
     offset?: number,
-  ): Promise<Array<{ remote_actor_id: string }>>;
+  ): Promise<Array<{ remote_actor_id: string; status?: string | null; created_at?: Date | string; accepted_at?: Date | string | null }>>;
 
   // ActivityPub - Follows
+  deleteApFollows(local_user_id: string, remote_actor_id: string): Promise<void>;
   updateApFollowsStatus(local_user_id: string, remote_actor_id: string, status: string, accepted_at?: Date): Promise<void>;
   countApFollows(local_user_id: string, status?: string): Promise<number>;
   listApFollows(
     local_user_id: string,
-    status?: string,
+    status?: string | null,
     limit?: number,
     offset?: number,
-  ): Promise<Array<{ remote_actor_id: string }>>;
+  ): Promise<Array<{ remote_actor_id: string; status?: string | null; created_at?: Date | string; accepted_at?: Date | string | null }>>;
 
   // ActivityPub - Inbox Activities
   createApInboxActivity(input: ApInboxActivityInput): Promise<any>;

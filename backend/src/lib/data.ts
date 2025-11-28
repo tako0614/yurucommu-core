@@ -2426,12 +2426,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
 
   const listApFollowers = async (
     local_user_id: string,
-    status: string = "accepted",
+    status: string | null = "accepted",
     limit = 100,
     offset = 0,
   ) => {
     const where: Record<string, any> = { local_user_id };
-    if (status) {
+    if (status && status !== "all") {
       where.status = status;
     }
     const orderBy =
@@ -2443,7 +2443,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       orderBy,
       skip: offset,
       take: limit,
-      select: { remote_actor_id: true },
+      select: {
+        remote_actor_id: true,
+        status: true,
+        created_at: true,
+        accepted_at: true,
+      },
     });
   };
 
@@ -2510,12 +2515,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
 
   const listApFollows = async (
     local_user_id: string,
-    status: string = "accepted",
+    status: string | null = "accepted",
     limit = 100,
     offset = 0,
   ) => {
     const where: Record<string, any> = { local_user_id };
-    if (status) {
+    if (status && status !== "all") {
       where.status = status;
     }
     const orderBy =
@@ -2527,7 +2532,18 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       orderBy,
       skip: offset,
       take: limit,
-      select: { remote_actor_id: true },
+      select: {
+        remote_actor_id: true,
+        status: true,
+        created_at: true,
+        accepted_at: true,
+      },
+    });
+  };
+
+  const deleteApFollows = async (local_user_id: string, remote_actor_id: string) => {
+    await (prisma as any).ap_follows.deleteMany({
+      where: { local_user_id, remote_actor_id },
     });
   };
 
@@ -3376,6 +3392,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     countApFollowers,
     listApFollowers,
     upsertApFollow,
+    deleteApFollows,
     findApFollow,
     updateApFollowsStatus,
     countApFollows,

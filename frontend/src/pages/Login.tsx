@@ -18,7 +18,7 @@ export default function Login() {
   const redirectTarget =
     redirectParam && redirectParam.startsWith("/")
       ? redirectParam
-      : "/friends";
+      : "/connections";
   const isAddAccountFlow = searchParams.get("addAccount") === "1";
 
   onMount(async () => {

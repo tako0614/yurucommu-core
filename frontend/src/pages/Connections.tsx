@@ -7,15 +7,18 @@ import CommunityCreateModal from "../components/CommunityCreateModal";
 import { IconPlus, IconQr, IconSearch } from "../components/icons";
 import {
   listMyCommunities,
-  listMyFriends,
+  listMyFollowing,
+  listMyFollowers,
   listMyFriendRequests,
   acceptFriendRequest,
   rejectFriendRequest,
+  followUser,
+  unfollowUser,
   useMe,
 } from "../lib/api";
 import { buildProfileUrlByHandle, buildActivityPubHandle, getUserDomain } from "../lib/url";
 
-type TabMode = "friends" | "communities";
+type TabMode = "follows" | "communities";
 
 type User = {
   id: string;
@@ -23,16 +26,20 @@ type User = {
   avatar_url?: string;
 };
 
-type FriendEntry = { user: User; relation: string };
+type ConnectionEntry = { user: User; relation: string };
 
 function relationBadge(relation: string) {
   switch (relation) {
     case "friend":
-      return null;
+      return <span class="text-xs text-green-700 bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded-full">友達</span>;
+    case "following":
+      return <span class="text-xs text-gray-700 bg-gray-100 dark:bg-neutral-800 px-2 py-0.5 rounded-full">フォロー中</span>;
+    case "follower":
+      return <span class="text-xs text-blue-700 bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 rounded-full">フォロワー</span>;
     case "outgoing":
-      return <span class="text-xs text-gray-500 bg-gray-100 dark:bg-neutral-800 px-2 py-0.5 rounded-full">リクエスト中</span>;
+      return <span class="text-xs text-gray-600 bg-gray-100 dark:bg-neutral-800 px-2 py-0.5 rounded-full">フォロー申請中</span>;
     case "incoming":
-      return <span class="text-xs text-blue-600 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded-full">リクエスト</span>;
+      return <span class="text-xs text-blue-600 bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded-full">フォローリクエスト</span>;
     default:
       return null;
   }
@@ -42,14 +49,15 @@ export default function Connections() {
   const me = useMe();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = createSignal<TabMode>("friends");
+  const [activeTab, setActiveTab] = createSignal<TabMode>("follows");
   const [shareOpen, setShareOpen] = createSignal(false);
   const [profileModalView, setProfileModalView] = createSignal<"share" | "scan">("share");
   const [createCommunityOpen, setCreateCommunityOpen] = createSignal(false);
   const [actionUser, setActionUser] = createSignal<string | null>(null);
 
-  // Friends data
-  const [friendsList, { refetch: refetchFriends }] = createResource(async () => (await listMyFriends().catch(() => [])) as any[]);
+  // Follow data
+  const [following, { refetch: refetchFollowing }] = createResource(async () => (await listMyFollowing().catch(() => [])) as any[]);
+  const [followers, { refetch: refetchFollowers }] = createResource(async () => (await listMyFollowers().catch(() => [])) as any[]);
   const [incomingRequests, { refetch: refetchIncoming }] = createResource(async () => (await listMyFriendRequests("incoming").catch(() => [])) as any[]);
   const [outgoingRequests, { refetch: refetchOutgoing }] = createResource(async () => (await listMyFriendRequests("outgoing").catch(() => [])) as any[]);
 
@@ -58,13 +66,35 @@ export default function Connections() {
     async () => (await listMyCommunities().catch(() => [])) as any[]
   );
 
-  const friends = createMemo<FriendEntry[]>(() => {
-    const map = new Map<string, FriendEntry>();
-    const meId = me()?.id;
+  const connections = createMemo<ConnectionEntry[]>(() => {
+    const map = new Map<string, ConnectionEntry>();
 
-    (friendsList() || []).forEach((edge: any) => {
-      const user = edge.requester_id === meId ? edge.addressee : edge.requester;
-      if (user?.id) map.set(user.id, { user, relation: "friend" });
+    (following() || []).forEach((edge: any) => {
+      const user = edge.user;
+      if (user?.id) {
+        map.set(user.id, {
+          user,
+          relation: edge.is_friend ? "friend" : "following",
+        });
+      }
+    });
+
+    (followers() || []).forEach((edge: any) => {
+      const user = edge.user;
+      if (!user?.id) return;
+      const existing = map.get(user.id);
+      if (existing) {
+        map.set(user.id, {
+          user,
+          relation:
+            existing.relation === "friend" || edge.is_friend ? "friend" : existing.relation,
+        });
+      } else {
+        map.set(user.id, {
+          user,
+          relation: edge.is_friend ? "friend" : "follower",
+        });
+      }
     });
 
     (outgoingRequests() || []).forEach((edge: any) => {
@@ -84,8 +114,8 @@ export default function Connections() {
     });
   });
 
-  const friendsLoading = createMemo(
-    () => friendsList.loading || incomingRequests.loading || outgoingRequests.loading
+  const followsLoading = createMemo(
+    () => following.loading || followers.loading || incomingRequests.loading || outgoingRequests.loading
   );
   const communitiesLoading = createMemo(() => myCommunities.loading);
 
@@ -151,7 +181,7 @@ export default function Connections() {
     setActionUser(userId);
     try {
       await acceptFriendRequest(userId);
-      await Promise.all([refetchIncoming(), refetchFriends()]);
+      await Promise.all([refetchIncoming(), refetchFollowing(), refetchFollowers()]);
     } catch (error) {
       console.error("Failed to accept friend request:", error);
     } finally {
@@ -163,9 +193,33 @@ export default function Connections() {
     setActionUser(userId);
     try {
       await rejectFriendRequest(userId);
-      await Promise.all([refetchIncoming(), refetchOutgoing()]);
+      await Promise.all([refetchIncoming(), refetchOutgoing(), refetchFollowers()]);
     } catch (error) {
       console.error("Failed to reject friend request:", error);
+    } finally {
+      setActionUser(null);
+    }
+  };
+
+  const handleFollowBack = async (userId: string) => {
+    setActionUser(userId);
+    try {
+      await followUser(userId);
+      await Promise.all([refetchFollowing(), refetchFollowers(), refetchOutgoing(), refetchIncoming()]);
+    } catch (error) {
+      console.error("Failed to follow user:", error);
+    } finally {
+      setActionUser(null);
+    }
+  };
+
+  const handleUnfollow = async (userId: string) => {
+    setActionUser(userId);
+    try {
+      await unfollowUser(userId);
+      await Promise.all([refetchFollowing(), refetchFollowers(), refetchOutgoing()]);
+    } catch (error) {
+      console.error("Failed to unfollow user:", error);
     } finally {
       setActionUser(null);
     }
@@ -186,7 +240,7 @@ export default function Connections() {
       <div class="max-w-2xl mx-auto px-4 py-4">
         {/* Header */}
         <header class="flex items-center gap-3 mb-4">
-          <h1 class="text-xl font-bold">友達</h1>
+          <h1 class="text-xl font-bold">フォロー</h1>
           <div class="flex-1" />
           
           {/* Action buttons */}
@@ -223,13 +277,13 @@ export default function Connections() {
           <button
             type="button"
             class={`flex-1 py-2 px-4 text-sm font-medium rounded-full transition-colors ${
-              activeTab() === "friends"
+              activeTab() === "follows"
                 ? "bg-white dark:bg-neutral-900 shadow-sm"
                 : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
             }`}
-            onClick={() => setActiveTab("friends")}
+            onClick={() => setActiveTab("follows")}
           >
-            友達
+            フォロー
             <Show when={incomingCount() > 0}>
               <span class="ml-1 text-xs bg-blue-600 text-white px-1.5 py-0.5 rounded-full">
                 {incomingCount()}
@@ -249,26 +303,26 @@ export default function Connections() {
           </button>
         </div>
 
-        {/* Friends Tab */}
-        <Show when={activeTab() === "friends"}>
-          <Show when={!friendsLoading()} fallback={
+        {/* Follows Tab */}
+        <Show when={activeTab() === "follows"}>
+          <Show when={!followsLoading()} fallback={
             <div class="text-center py-8 text-gray-500">読み込み中...</div>
           }>
-            <Show when={friends().length > 0} fallback={
+            <Show when={connections().length > 0} fallback={
               <div class="text-center py-12">
                 <div class="text-gray-400 text-4xl mb-3">👋</div>
-                <div class="text-gray-600 dark:text-gray-400 mb-4">まだ友達がいません</div>
+                <div class="text-gray-600 dark:text-gray-400 mb-4">まだフォローがありません</div>
                 <button
                   type="button"
                   class="px-4 py-2 rounded-full bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
                   onClick={() => openProfileModal("share")}
                 >
-                  友達を招待
+                  プロフィールを共有
                 </button>
               </div>
             }>
               <div class="space-y-1">
-                <For each={friends()}>
+                <For each={connections()}>
                   {(entry) => (
                     <div class="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-neutral-800 transition-colors">
                       <Avatar
@@ -306,8 +360,44 @@ export default function Connections() {
                           </button>
                         </div>
                       </Show>
-                      <Show when={entry.relation !== "incoming"}>
-                        {relationBadge(entry.relation)}
+                      <Show when={entry.relation === "follower"}>
+                        <div class="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            class="px-3 py-1.5 rounded-full bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
+                            disabled={actionUser() === entry.user.id}
+                            onClick={() => handleFollowBack(entry.user.id)}
+                          >
+                            {actionUser() === entry.user.id ? "処理中…" : "フォローする"}
+                          </button>
+                          {relationBadge(entry.relation)}
+                        </div>
+                      </Show>
+                      <Show when={entry.relation === "following" || entry.relation === "friend"}>
+                        <div class="flex items-center gap-2 shrink-0">
+                          {relationBadge(entry.relation)}
+                          <button
+                            type="button"
+                            class="px-3 py-1.5 rounded-full border dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800 disabled:opacity-60"
+                            disabled={actionUser() === entry.user.id}
+                            onClick={() => handleUnfollow(entry.user.id)}
+                          >
+                            {actionUser() === entry.user.id ? "解除中…" : "フォロー解除"}
+                          </button>
+                        </div>
+                      </Show>
+                      <Show when={entry.relation === "outgoing"}>
+                        <div class="flex items-center gap-2 shrink-0">
+                          {relationBadge(entry.relation)}
+                          <button
+                            type="button"
+                            class="px-3 py-1.5 rounded-full border dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800 disabled:opacity-60"
+                            disabled={actionUser() === entry.user.id}
+                            onClick={() => handleUnfollow(entry.user.id)}
+                          >
+                            {actionUser() === entry.user.id ? "取消中…" : "取消"}
+                          </button>
+                        </div>
                       </Show>
                     </div>
                   )}
@@ -316,7 +406,7 @@ export default function Connections() {
             </Show>
           </Show>
 
-          {/* Quick actions for friends */}
+          {/* Quick actions for follows */}
           <div class="mt-6 pt-4 border-t dark:border-neutral-800">
             <div class="flex flex-wrap gap-2">
               <button
@@ -324,13 +414,13 @@ export default function Connections() {
                 class="flex items-center gap-2 px-4 py-2 rounded-full border dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
                 onClick={() => openProfileModal("share")}
               >
-                友達を招待
+                プロフィールを共有
               </button>
               <a
                 href="/friend-requests"
                 class="flex items-center gap-2 px-4 py-2 rounded-full border dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
               >
-                フレンドリクエスト
+                フォローリクエスト
               </a>
             </div>
           </div>

@@ -13,6 +13,7 @@ export type User = {
   is_private?: number;
   manually_approves_followers?: number;
   friend_status?: 'pending' | 'accepted' | 'rejected' | null;
+  relationship?: Relationship;
   created_at?: Date | string;
 };
 
@@ -73,6 +74,20 @@ export type FriendEdge = {
   created_at?: string;
   requester?: User | null;
   addressee?: User | null;
+};
+
+export type FollowEdge = {
+  user: User;
+  status?: string | null;
+  follows_back?: boolean;
+  is_friend?: boolean;
+  direction?: "following" | "follower";
+};
+
+export type Relationship = {
+  following?: string | null;
+  followed_by?: string | null;
+  is_friend?: boolean;
 };
 
 export type Channel = {

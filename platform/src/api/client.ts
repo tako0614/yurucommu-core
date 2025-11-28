@@ -11,6 +11,7 @@ import type {
   Community,
   Post,
   FriendEdge,
+  FollowEdge,
   Channel,
   Notification,
   CommunityInvitation,
@@ -167,6 +168,29 @@ export function createApiClient(config: ApiClientConfig) {
           method: 'DELETE',
         },
       );
+    },
+
+    // ---- Follow APIs ----
+    async listMyFollowing(status?: 'pending' | 'accepted' | 'all') {
+      const query = status ? `?status=${encodeURIComponent(status)}` : '';
+      return apiFetch<FollowEdge[]>(`/me/following${query}`);
+    },
+
+    async listMyFollowers(status?: 'pending' | 'accepted' | 'all') {
+      const query = status ? `?status=${encodeURIComponent(status)}` : '';
+      return apiFetch<FollowEdge[]>(`/me/followers${query}`);
+    },
+
+    async followUser(userId: string) {
+      return apiFetch(`/users/${encodeURIComponent(userId)}/follow`, {
+        method: 'POST',
+      });
+    },
+
+    async unfollowUser(userId: string) {
+      return apiFetch(`/users/${encodeURIComponent(userId)}/follow`, {
+        method: 'DELETE',
+      });
     },
 
     // ---- Friends APIs (ActivityPub Follow-based) ----
