@@ -79,6 +79,18 @@ function normalizeUserProfile(raw: any, fallbackHandle: string, fallbackDomain?:
   return normalized;
 }
 
+function buildFollowTargetId(user: any): string | null {
+  const rawId = (user?.id || user?.handle || "").toString().trim();
+  if (!rawId) return null;
+  if (rawId.includes("@")) return rawId;
+  const domain =
+    typeof user?.domain === "string" && user.domain.trim()
+      ? user.domain.trim()
+      : null;
+  const handle = rawId.replace(/^@+/, "");
+  return domain ? `@${handle}@${domain}` : handle;
+}
+
 export default function UserProfile() {
   console.log("[UserProfile] Component rendering");
   const params = useParams();
@@ -199,9 +211,11 @@ export default function UserProfile() {
 
   const onFollow = async () => {
     if (!user()) return;
+    const target = buildFollowTargetId(user());
+    if (!target) return;
     setLoading(true);
     try {
-      await followUser(user()!.id);
+      await followUser(target);
       setUser((prev) =>
         prev
           ? ({
@@ -220,9 +234,11 @@ export default function UserProfile() {
 
   const onUnfollow = async () => {
     if (!user()) return;
+    const target = buildFollowTargetId(user());
+    if (!target) return;
     setLoading(true);
     try {
-      await unfollowUser(user()!.id);
+      await unfollowUser(target);
       setUser((prev) =>
         prev
           ? ({

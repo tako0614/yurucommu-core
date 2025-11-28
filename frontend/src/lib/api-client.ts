@@ -16,7 +16,6 @@ import {
   type Channel,
   type Notification,
   type CommunityInvitation,
-  type CommunityInviteCode,
   type FirebasePublicConfig,
   type ApiRequestInit,
 } from '@takos/platform';
@@ -37,7 +36,6 @@ export type {
   Channel,
   Notification,
   CommunityInvitation,
-  CommunityInviteCode,
   FirebasePublicConfig,
   ApiRequestInit,
 };
@@ -454,11 +452,6 @@ export const {
   acceptFollowRequest,
   rejectFollowRequest,
   listMyInvitations,
-  listCommunityInvites,
-  createInviteCode,
-  disableInviteCode,
-  resetCommunityInvites,
-  joinCommunity,
   leaveCommunity,
   createDirectInvites,
   acceptCommunityInvite,

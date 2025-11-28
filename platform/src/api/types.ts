@@ -130,17 +130,6 @@ export type PostPlan = {
   updated_at?: string;
 };
 
-export type CommunityInviteCode = {
-  code: string;
-  community_id: string;
-  created_by?: string | null;
-  created_at?: string | Date;
-  expires_at?: string | null;
-  max_uses?: number | null;
-  uses?: number | null;
-  active?: number | boolean;
-};
-
 export class ApiError extends Error {
   status: number;
   payload: unknown;

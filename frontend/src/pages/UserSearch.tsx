@@ -2,6 +2,18 @@ import { For, Show, createResource, createSignal } from "solid-js";
 import Avatar from "../components/Avatar";
 import { searchUsers, followUser } from "../lib/api";
 
+function buildFollowTargetId(user: any): string | null {
+  const rawId = (user?.id || user?.handle || "").toString().trim();
+  if (!rawId) return null;
+  if (rawId.includes("@")) return rawId;
+  const domain =
+    typeof user?.domain === "string" && user.domain.trim()
+      ? user.domain.trim()
+      : null;
+  const handle = rawId.replace(/^@+/, "");
+  return domain ? `@${handle}@${domain}` : handle;
+}
+
 export default function UserSearch() {
   const [query, setQuery] = createSignal("");
   const [results, setResults] = createSignal<any[]>([]);
@@ -32,11 +44,16 @@ export default function UserSearch() {
     }
   };
 
-  const requestFollow = async (userId: string) => {
-    setBusyId(userId);
+  const requestFollow = async (user: any) => {
+    const target = buildFollowTargetId(user);
+    if (!target) {
+      setHint("フォロー対象のユーザーを解決できませんでした。");
+      return;
+    }
+    setBusyId(target);
     setHint(null);
     try {
-      await followUser(userId);
+      await followUser(target);
       setHint("フォローリクエストを送信しました。");
     } catch (error: any) {
       setHint(error?.message || "フォローリクエストの送信に失敗しました。");
@@ -103,13 +120,18 @@ export default function UserSearch() {
                   >
                     プロフィール
                   </a>
+                  {(() => {
+                    const targetId = buildFollowTargetId(user) || user.id;
+                    return (
                   <button
                     class="text-xs px-3 py-1 rounded-full bg-gray-900 text-white disabled:opacity-60"
-                    disabled={busyId() === user.id}
-                    onClick={() => requestFollow(user.id)}
+                    disabled={busyId() === targetId}
+                    onClick={() => requestFollow(user)}
                   >
-                    {busyId() === user.id ? "送信中…" : "フォロー"}
+                    {busyId() === targetId ? "送信中…" : "フォロー"}
                   </button>
+                    );
+                  })()}
                 </div>
               )}
             </For>

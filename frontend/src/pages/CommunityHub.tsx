@@ -7,10 +7,6 @@ import {
   searchUsers,
   updateCommunity,
   uploadMedia,
-  listCommunityInvites,
-  createInviteCode,
-  disableInviteCode,
-  resetCommunityInvites,
   leaveCommunity,
 } from "../lib/api";
 import type { Community } from "../lib/api";
@@ -101,69 +97,6 @@ export default function CommunityHub() {
       alert(e?.message || "招待に失敗しました");
     } finally {
       setBusyInvite(null);
-    }
-  };
-
-  const [inviteCodes, { refetch: refetchInviteCodes }] = createResource(
-    () => community()?.id,
-    async (id) => {
-      if (!id) return [];
-      try {
-        return await listCommunityInvites(id);
-      } catch {
-        return [];
-      }
-    },
-  );
-  const [inviteMaxUses, setInviteMaxUses] = createSignal("1");
-  const [inviteExpiresAt, setInviteExpiresAt] = createSignal("");
-  const [inviteBusy, setInviteBusy] = createSignal(false);
-  const [inviteMessage, setInviteMessage] = createSignal<string | null>(null);
-
-  const createCode = async () => {
-    if (!params.id) return;
-    setInviteBusy(true);
-    setInviteMessage(null);
-    try {
-      const maxUses = Number(inviteMaxUses()) || 1;
-      const expires = inviteExpiresAt().trim() || null;
-      await createInviteCode(params.id, { max_uses: maxUses, expires_at: expires });
-      await refetchInviteCodes();
-      setInviteMessage("招待コードを作成しました。");
-      setInviteMaxUses("1");
-      setInviteExpiresAt("");
-    } catch (error: any) {
-      setInviteMessage(error?.message || "招待コードの作成に失敗しました。");
-    } finally {
-      setInviteBusy(false);
-    }
-  };
-
-  const disableCode = async (code: string) => {
-    if (!params.id) return;
-    setInviteBusy(true);
-    try {
-      await disableInviteCode(params.id, code);
-      await refetchInviteCodes();
-    } catch (error: any) {
-      setInviteMessage(error?.message || "無効化に失敗しました。");
-    } finally {
-      setInviteBusy(false);
-    }
-  };
-
-  const resetCodes = async () => {
-    if (!params.id) return;
-    if (!confirm("すべての招待コードを失効させますか？")) return;
-    setInviteBusy(true);
-    try {
-      await resetCommunityInvites(params.id);
-      await refetchInviteCodes();
-      setInviteMessage("すべての招待コードを無効化しました。");
-    } catch (error: any) {
-      setInviteMessage(error?.message || "リセットに失敗しました。");
-    } finally {
-      setInviteBusy(false);
     }
   };
 
@@ -425,105 +358,12 @@ export default function CommunityHub() {
         </Show>
 
         <Show when={canInvite()}>
-          <div class="mb-6 grid gap-4 md:grid-cols-2">
-            <div class="bg-white dark:bg-neutral-900 border hairline rounded-xl p-4 space-y-3">
-              <div class="flex items-center gap-2">
-                <div class="font-semibold">招待コード</div>
-                <span class="text-xs text-muted">権限: モデレーター以上</span>
-              </div>
-              <div class="grid gap-2">
-                <label class="text-sm text-muted">最大利用回数</label>
-                <input
-                  class="rounded-full px-3 py-2 bg-gray-50 dark:bg-neutral-900 border hairline"
-                  type="number"
-                  min="1"
-                  value={inviteMaxUses()}
-                  onInput={(e) => setInviteMaxUses((e.target as HTMLInputElement).value)}
-                />
-                <label class="text-sm text-muted">有効期限 (ISO日時, 任意)</label>
-                <input
-                  class="rounded-full px-3 py-2 bg-gray-50 dark:bg-neutral-900 border hairline"
-                  placeholder="例: 2024-12-31T15:00:00Z"
-                  value={inviteExpiresAt()}
-                  onInput={(e) => setInviteExpiresAt((e.target as HTMLInputElement).value)}
-                />
-                <div class="flex items-center gap-2">
-                  <button
-                    type="button"
-                    class="px-4 py-2 rounded-full bg-gray-900 text-white text-sm disabled:opacity-60"
-                    disabled={inviteBusy()}
-                    onClick={() => void createCode()}
-                  >
-                    {inviteBusy() ? "作成中…" : "コードを作成"}
-                  </button>
-                  <button
-                    type="button"
-                    class="px-4 py-2 rounded-full border hairline text-sm disabled:opacity-60"
-                    disabled={inviteBusy()}
-                    onClick={() => void resetCodes()}
-                  >
-                    全コードを無効化
-                  </button>
-                </div>
-                <Show when={inviteMessage()}>
-                  <div class="text-sm text-muted">{inviteMessage()}</div>
-                </Show>
-              </div>
-            </div>
-            <div class="bg-white dark:bg-neutral-900 border hairline rounded-xl p-4 space-y-3">
-              <div class="font-semibold flex items-center justify-between">
-                <span>発行済みコード</span>
-                <button
-                  class="text-xs text-blue-600 hover:underline"
-                  type="button"
-                  onClick={() => refetchInviteCodes()}
-                >
-                  再読込
-                </button>
-              </div>
-              <Show
-                when={!inviteCodes.loading}
-                fallback={<div class="text-sm text-muted">読み込み中…</div>}
-              >
-                <Show
-                  when={(inviteCodes() || []).length > 0}
-                  fallback={<div class="text-sm text-muted">招待コードはありません。</div>}
-                >
-                  <div class="flex flex-col gap-2">
-                    <For each={inviteCodes() || []}>
-                      {(inv: any) => (
-                        <div class="border hairline rounded-lg px-3 py-2">
-                          <div class="flex items-center gap-2">
-                            <span class="font-mono text-sm break-all">{inv.code}</span>
-                            <button
-                              type="button"
-                              class="text-xs px-2 py-1 rounded-full border hairline"
-                              onClick={() => navigator.clipboard?.writeText(inv.code)}
-                            >
-                              コピー
-                            </button>
-                          </div>
-                          <div class="text-xs text-muted mt-1">
-                            利用 {inv.uses ?? 0}/{inv.max_uses ?? "∞"} ・
-                            {inv.active ? "有効" : "無効"}
-                            {inv.expires_at ? ` ・期限 ${inv.expires_at}` : ""}
-                          </div>
-                          <div class="mt-1 flex items-center gap-2">
-                            <button
-                              type="button"
-                              class="text-xs px-3 py-1 rounded-full bg-gray-100 dark:bg-neutral-800 disabled:opacity-60"
-                              disabled={inviteBusy()}
-                              onClick={() => disableCode(inv.code)}
-                            >
-                              無効化
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-              </Show>
+          <div class="mb-6">
+            <div class="bg-white dark:bg-neutral-900 border hairline rounded-xl p-4 space-y-2">
+              <div class="font-semibold">招待について</div>
+              <p class="text-sm text-muted">
+                コミュニティは直接招待のみ対応しています。参加させたいユーザーを検索し「招待を送る」を使ってください。
+              </p>
             </div>
           </div>
         </Show>

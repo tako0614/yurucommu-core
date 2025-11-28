@@ -15,7 +15,6 @@ import type {
   Channel,
   Notification,
   CommunityInvitation,
-  CommunityInviteCode,
   ApiRequestInit,
 } from './types';
 
@@ -224,52 +223,6 @@ export function createApiClient(config: ApiClientConfig) {
     // ---- Invitation APIs ----
     async listMyInvitations() {
       return apiFetch<CommunityInvitation[]>('/me/invitations');
-    },
-
-    async listCommunityInvites(communityId: string) {
-      return apiFetch<CommunityInviteCode[]>(
-        `/communities/${encodeURIComponent(communityId)}/invites`,
-      );
-    },
-
-    async createInviteCode(
-      communityId: string,
-      payload: { max_uses?: number | null; expires_at?: string | null },
-    ) {
-      return apiFetch<CommunityInviteCode>(
-        `/communities/${encodeURIComponent(communityId)}/invites`,
-        {
-          method: 'POST',
-          body: payload,
-        },
-      );
-    },
-
-    async disableInviteCode(communityId: string, code: string) {
-      return apiFetch<CommunityInviteCode>(
-        `/communities/${encodeURIComponent(communityId)}/invites/${encodeURIComponent(code)}/disable`,
-        { method: 'POST' },
-      );
-    },
-
-    async resetCommunityInvites(communityId: string) {
-      return apiFetch(
-        `/communities/${encodeURIComponent(communityId)}/invites/reset`,
-        { method: 'POST' },
-      );
-    },
-
-    async joinCommunity(
-      communityId: string,
-      payload: { code?: string | null; nickname?: string | null } = {},
-    ) {
-      return apiFetch(
-        `/communities/${encodeURIComponent(communityId)}/join`,
-        {
-          method: 'POST',
-          body: payload,
-        },
-      );
     },
 
     async leaveCommunity(communityId: string) {

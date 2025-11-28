@@ -20,6 +20,18 @@ import { buildProfileUrlByHandle, buildActivityPubHandle, getUserDomain } from "
 
 type TabMode = "follows" | "communities";
 
+function buildFollowTargetId(user: any): string | null {
+  const rawId = (user?.id || user?.handle || "").toString().trim();
+  if (!rawId) return null;
+  if (rawId.includes("@")) return rawId;
+  const domain =
+    typeof user?.domain === "string" && user.domain.trim()
+      ? user.domain.trim()
+      : null;
+  const handle = rawId.replace(/^@+/, "");
+  return domain ? `@${handle}@${domain}` : handle;
+}
+
 type User = {
   id: string;
   display_name?: string;
@@ -201,10 +213,12 @@ export default function Connections() {
     }
   };
 
-  const handleFollowBack = async (userId: string) => {
-    setActionUser(userId);
+  const handleFollowBack = async (user: any) => {
+    const target = buildFollowTargetId(user) || user?.id;
+    if (!target) return;
+    setActionUser(target);
     try {
-      await followUser(userId);
+      await followUser(target);
       await Promise.all([refetchFollowing(), refetchFollowers(), refetchOutgoing(), refetchIncoming()]);
     } catch (error) {
       console.error("Failed to follow user:", error);
@@ -213,10 +227,12 @@ export default function Connections() {
     }
   };
 
-  const handleUnfollow = async (userId: string) => {
-    setActionUser(userId);
+  const handleUnfollow = async (user: any) => {
+    const target = buildFollowTargetId(user) || user?.id;
+    if (!target) return;
+    setActionUser(target);
     try {
-      await unfollowUser(userId);
+      await unfollowUser(target);
       await Promise.all([refetchFollowing(), refetchFollowers(), refetchOutgoing()]);
     } catch (error) {
       console.error("Failed to unfollow user:", error);
@@ -323,7 +339,9 @@ export default function Connections() {
             }>
               <div class="space-y-1">
                 <For each={connections()}>
-                  {(entry) => (
+                  {(entry) => {
+                    const followTarget = buildFollowTargetId(entry.user) || entry.user.id;
+                    return (
                     <div class="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-gray-50 dark:hover:bg-neutral-800 transition-colors">
                       <Avatar
                         src={entry.user.avatar_url || ""}
@@ -365,10 +383,10 @@ export default function Connections() {
                           <button
                             type="button"
                             class="px-3 py-1.5 rounded-full bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
-                            disabled={actionUser() === entry.user.id}
-                            onClick={() => handleFollowBack(entry.user.id)}
+                            disabled={actionUser() === followTarget}
+                            onClick={() => handleFollowBack(entry.user)}
                           >
-                            {actionUser() === entry.user.id ? "処理中…" : "フォローする"}
+                            {actionUser() === followTarget ? "処理中…" : "フォローする"}
                           </button>
                           {relationBadge(entry.relation)}
                         </div>
@@ -379,10 +397,10 @@ export default function Connections() {
                           <button
                             type="button"
                             class="px-3 py-1.5 rounded-full border dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800 disabled:opacity-60"
-                            disabled={actionUser() === entry.user.id}
-                            onClick={() => handleUnfollow(entry.user.id)}
+                            disabled={actionUser() === followTarget}
+                            onClick={() => handleUnfollow(entry.user)}
                           >
-                            {actionUser() === entry.user.id ? "解除中…" : "フォロー解除"}
+                            {actionUser() === followTarget ? "解除中…" : "フォロー解除"}
                           </button>
                         </div>
                       </Show>
@@ -392,15 +410,16 @@ export default function Connections() {
                           <button
                             type="button"
                             class="px-3 py-1.5 rounded-full border dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800 disabled:opacity-60"
-                            disabled={actionUser() === entry.user.id}
-                            onClick={() => handleUnfollow(entry.user.id)}
+                            disabled={actionUser() === followTarget}
+                            onClick={() => handleUnfollow(entry.user)}
                           >
-                            {actionUser() === entry.user.id ? "取消中…" : "取消"}
+                            {actionUser() === followTarget ? "取消中…" : "取消"}
                           </button>
                         </div>
                       </Show>
                     </div>
-                  )}
+                    );
+                  }}
                 </For>
               </div>
             </Show>
