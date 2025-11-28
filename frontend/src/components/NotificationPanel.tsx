@@ -15,6 +15,7 @@ export default function NotificationPanel(props: Props) {
   const [items, setItems] = createSignal<any[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  let closeButtonRef: HTMLButtonElement | undefined;
 
   const load = async () => {
     setLoading(true);
@@ -40,6 +41,25 @@ export default function NotificationPanel(props: Props) {
     }
   });
 
+  createEffect(() => {
+    if (!props.open) return;
+    const body = typeof document !== "undefined" ? document.body : null;
+    const previousOverflow = body?.style.overflow || "";
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        props.onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeydown);
+    if (body) body.style.overflow = "hidden";
+    queueMicrotask(() => closeButtonRef?.focus());
+    return () => {
+      window.removeEventListener("keydown", handleKeydown);
+      if (body) body.style.overflow = previousOverflow;
+    };
+  });
+
   return (
     <Show when={props.open}>
       {/* Overlay */}
@@ -54,6 +74,9 @@ export default function NotificationPanel(props: Props) {
           <div class="h-14 flex items-center justify-between px-4 border-b hairline">
             <div class="text-[16px] font-semibold">通知</div>
             <button
+              ref={(el) => {
+                closeButtonRef = el ?? undefined;
+              }}
               class="text-sm text-gray-500 hover:text-gray-800"
               onClick={props.onClose}
             >

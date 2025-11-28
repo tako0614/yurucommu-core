@@ -1,3 +1,4 @@
+import { A } from "@solidjs/router";
 import { IconHome, IconMessage, IconPlus, IconUsers, IconUser } from "../icons";
 import Avatar from "../Avatar";
 import { useMe } from "../../lib/api";
@@ -12,21 +13,21 @@ export default function AppTab(props: Props) {
   return (
     <div class="fixed bottom-0 left-0 right-0 md:hidden h-14 border-t hairline bg-white dark:bg-neutral-900 flex items-center justify-around pb-[env(safe-area-inset-bottom)]">
       {/* Home */}
-      <a
+      <A
         href="/"
         class="p-2 rounded-full active:bg-gray-100"
         aria-label="ホーム"
       >
         <IconHome />
-      </a>
+      </A>
       {/* Messages (DM) */}
-      <a
+      <A
         href="/chat"
         class="p-2 rounded-full active:bg-gray-100"
         aria-label="チャット"
       >
         <IconMessage />
-      </a>
+      </A>
       {/* Create */}
       <button
         class="p-2 rounded-full active:bg-gray-100"
@@ -36,15 +37,15 @@ export default function AppTab(props: Props) {
         <IconPlus />
       </button>
       {/* Connections (Friends & Communities) */}
-      <a
+      <A
         href="/connections"
         class="p-2 rounded-full active:bg-gray-100"
         aria-label="つながり"
       >
         <IconUsers />
-      </a>
+      </A>
       {/* Profile */}
-      <a
+      <A
         href="/profile"
         class="p-2 rounded-full active:bg-gray-100"
         aria-label="プロフィール"
@@ -58,7 +59,7 @@ export default function AppTab(props: Props) {
         ) : (
           <IconUser />
         )}
-      </a>
+      </A>
     </div>
   );
 }
