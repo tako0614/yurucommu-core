@@ -325,6 +325,7 @@ export default function Chat() {
     Record<string, boolean>
   >({});
   const [mobileSettingsOpen, setMobileSettingsOpen] = createSignal(false);
+  const [query, setQuery] = createSignal("");
   const [leftTab, setLeftTab] = createSignal<"all" | "friends" | "community">(
     "all",
   );
@@ -387,6 +388,43 @@ export default function Chat() {
         return user?.id ? { user, edge } : null;
       })
       .filter(Boolean) as Array<{ user: any; edge: any }>;
+  });
+
+  const queryValue = createMemo(() => query().trim().toLowerCase());
+  const matchesQuery = (text?: string) => {
+    const q = queryValue();
+    if (!q) return true;
+    const target = (text || "").toLowerCase();
+    return target.includes(q);
+  };
+
+  const filteredFriends = createMemo(() =>
+    friendEntries().filter(
+      ({ user }) =>
+        matchesQuery(user.display_name) ||
+        matchesQuery(user.handle) ||
+        matchesQuery(user.id),
+    ),
+  );
+
+  const filterChannels = (communityId: string, communityName?: string) => {
+    const list = channelsByCommunity[communityId] || [];
+    const commMatches = matchesQuery(communityName) || matchesQuery(communityId);
+    if (!queryValue()) return list;
+    return list.filter(
+      (ch) =>
+        commMatches || matchesQuery(ch.name) || matchesQuery(ch.id),
+    );
+  };
+
+  const filteredCommunities = createMemo(() => {
+    const list = comms() || [];
+    if (!queryValue()) return list;
+    return list.filter((c) => {
+      const commMatches = matchesQuery(c.name) || matchesQuery(c.id);
+      const chMatches = filterChannels(c.id, c.name).length > 0;
+      return commMatches || chMatches;
+    });
   });
 
   const selTitle = createMemo(() => {
@@ -459,10 +497,6 @@ export default function Chat() {
     }
   };
 
-  const showFeatureNotReady = () => {
-    alert("この機能はまだ実装されていません。");
-  };
-
   // type guards for Selection
   const dmActive = (dmId: string) => {
     const s = selection();
@@ -499,7 +533,8 @@ export default function Chat() {
           <button
             type="button"
             class="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-full hover:bg-gray-100 active:opacity-80"
-            onClick={showFeatureNotReady}
+            disabled
+            title="新規作成は近日追加予定です"
             aria-label="新しいメッセージを作成"
           >
             <IconMessagePlus size={18} />
@@ -509,7 +544,9 @@ export default function Chat() {
           <input
             class="w-full bg-white dark:bg-neutral-900 border hairline rounded-lg px-3 py-2 text-sm"
             placeholder="検索"
-          />
+            value={query()}
+            onInput={(e) => setQuery(e.currentTarget.value)}
+            />
         </div>
 
         {/* tab control */}
@@ -574,7 +611,7 @@ export default function Chat() {
                   </div>
                   <div class="flex flex-col gap-1">
                     {/* DMs */}
-                    <For each={friendEntries() || []}>
+                    <For each={filteredFriends() || []}>
                       {({ user: dm, edge }) => {
                         const k = `dm:${dm.id}`;
                         return (
@@ -609,9 +646,9 @@ export default function Chat() {
                       }}
                     </For>
                     {/* Channels */}
-                    <For each={comms() || []}>
+                    <For each={filteredCommunities() || []}>
                       {(c) => (
-                        <For each={channelsByCommunity[c.id] || []}>
+                        <For each={filterChannels(c.id, c.name)}>
                           {(ch) => {
                             const href = `/chat/c/${encodeURIComponent(c.id)}/${encodeURIComponent(ch.id)}`;
                             const kch = `channel:${c.id}#${ch.id}`;
@@ -653,7 +690,7 @@ export default function Chat() {
                         </For>
                       )}
                     </For>
-                    <Show when={(friendEntries() || []).length === 0 && (comms() || []).length === 0}>
+                    <Show when={(filteredFriends() || []).length === 0 && (filteredCommunities() || []).length === 0}>
                       <div class="px-3 py-6 text-xs text-muted">
                         会話がありません
                       </div>
@@ -671,7 +708,7 @@ export default function Chat() {
                     友達
                   </div>
                   <div class="flex flex-col gap-1">
-                    <For each={friendEntries() || []}>
+                    <For each={filteredFriends() || []}>
                       {({ user: dm, edge }) => {
                         const k = `dm:${dm.id}`;
                         return (
@@ -706,7 +743,7 @@ export default function Chat() {
                         );
                       }}
                     </For>
-                    <Show when={(friendEntries() || []).length === 0}>
+                    <Show when={(filteredFriends() || []).length === 0}>
                       <div class="px-3 py-6 text-xs text-muted">
                         友達がいません
                       </div>
@@ -723,7 +760,7 @@ export default function Chat() {
                   コミュニティ
                 </div>
                 <div class="flex flex-col gap-2">
-                  <For each={comms() || []}>
+                  <For each={filteredCommunities() || []}>
                     {(c) => {
                       const k = `c:${c.id}#general`;
                       const expanded = () => !!expandedComms[c.id];
@@ -771,7 +808,7 @@ export default function Chat() {
                           <Show when={expanded()}>
                             <div class="px-2 pb-2">
                               <div class="flex flex-col gap-1">
-                                <For each={channelsByCommunity[c.id] || []}>
+                                <For each={filterChannels(c.id, c.name)}>
                                   {(ch) => {
                                     const href = `/chat/c/${
                                       encodeURIComponent(c.id)
@@ -838,7 +875,7 @@ export default function Chat() {
                       );
                     }}
                   </For>
-                  <Show when={(comms() || []).length === 0}>
+                  <Show when={(filteredCommunities() || []).length === 0}>
                     <div class="px-3 py-6 text-xs text-muted">
                       参加中のコミュニティはありません
                     </div>
@@ -897,7 +934,8 @@ export default function Chat() {
               <button
                 type="button"
                 class="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-full hover:bg-gray-100 active:opacity-80"
-                onClick={showFeatureNotReady}
+                disabled
+                title="新規作成は近日追加予定です"
                 aria-label="新しいメッセージを作成"
               >
                 <IconMessagePlus size={18} />
@@ -959,7 +997,7 @@ export default function Chat() {
                   <div class="h-full overflow-y-auto p-2" style="touch-action: pan-y;">
                     <div class="space-y-1">
                       {/* DMs */}
-                      <For each={friendEntries() || []}>
+                      <For each={filteredFriends() || []}>
                         {({ user: dm, edge }) => {
                           const k = `dm:${dm.id}`;
                           return (
@@ -994,9 +1032,9 @@ export default function Chat() {
                         }}
                       </For>
                       {/* Channels */}
-                      <For each={comms() || []}>
+                      <For each={filteredCommunities() || []}>
                         {(c) => (
-                          <For each={channelsByCommunity[c.id] || []}>
+                          <For each={filterChannels(c.id, c.name)}>
                             {(ch) => {
                               const href = `/chat/c/${encodeURIComponent(c.id)}/${encodeURIComponent(ch.id)}`;
                               const kch = `channel:${c.id}#${ch.id}`;
@@ -1038,7 +1076,7 @@ export default function Chat() {
                           </For>
                         )}
                       </For>
-                      <Show when={(friendEntries() || []).length === 0 && (comms() || []).length === 0}>
+                      <Show when={(filteredFriends() || []).length === 0 && (filteredCommunities() || []).length === 0}>
                         <div class="px-3 py-6 text-xs text-muted">
                           会話がありません
                         </div>
@@ -1050,7 +1088,7 @@ export default function Chat() {
                 <div class="flex-none px-1 h-full" style={{ width: "33.333%" }}>
                   <div class="h-full overflow-y-auto p-2" style="touch-action: pan-y;">
                     <div class="space-y-1">
-                      <For each={friendEntries() || []}>
+                      <For each={filteredFriends() || []}>
                         {({ user: dm, edge }) => {
                           const k = `dm:${dm.id}`;
                           return (
@@ -1084,7 +1122,7 @@ export default function Chat() {
                           );
                         }}
                       </For>
-                      <Show when={(friendEntries() || []).length === 0}>
+                      <Show when={(filteredFriends() || []).length === 0}>
                         <div class="px-3 py-6 text-xs text-muted">
                           友達がいません
                         </div>
@@ -1096,7 +1134,7 @@ export default function Chat() {
                 <div class="flex-none px-1 h-full" style={{ width: "33.333%" }}>
                   <div class="h-full overflow-y-auto p-2" style="touch-action: pan-y;">
                     <div class="space-y-2">
-                      <For each={comms() || []}>
+                      <For each={filteredCommunities() || []}>
                         {(c) => {
                           const k = `c:${c.id}#general`;
                           const expanded = () => !!expandedComms[c.id];
@@ -1144,7 +1182,7 @@ export default function Chat() {
                                   <div class="flex flex-col gap-1">
                                     <Show
                                       when={channelsLoading[c.id] &&
-                                        !(channelsByCommunity[c.id] || []).length}
+                                        !(filterChannels(c.id, c.name) || []).length}
                                     >
                                       <div class="text-xs text-muted px-3 py-1">
                                         読み込み中…
@@ -1155,7 +1193,7 @@ export default function Chat() {
                                         {channelsError[c.id]}
                                       </div>
                                     </Show>
-                                    <For each={channelsByCommunity[c.id] || []}>
+                                    <For each={filterChannels(c.id, c.name)}>
                                       {(ch) => {
                                         const href = `/chat/c/${
                                           encodeURIComponent(c.id)
@@ -1232,11 +1270,11 @@ utral-800 flex-1 min-w-0 ${
                           );
                         }}
                       </For>
-                      <Show when={(comms() || []).length === 0}>
-                        <div class="px-3 py-6 text-xs text-muted">
-                          参加中のコミュニティはありません
-                        </div>
-                      </Show>
+                  <Show when={(filteredCommunities() || []).length === 0}>
+                    <div class="px-3 py-6 text-xs text-muted">
+                      参加中のコミュニティはありません
+                    </div>
+                  </Show>
                     </div>
                   </div>
                 </div>

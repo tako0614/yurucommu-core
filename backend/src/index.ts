@@ -929,7 +929,9 @@ app.post("/communities/:id/posts", auth, async (c) => {
     });
     
     // Enqueue delivery to followers (optimized)
-    await enqueueDeliveriesToFollowers(store, user.id, post.ap_activity_id!);
+    await enqueueDeliveriesToFollowers(store, user.id, post.ap_activity_id!, {
+      env: c.env,
+    });
     
     return ok(c, post, 201);
   } catch (error) {
@@ -987,7 +989,9 @@ app.post("/posts", auth, async (c) => {
     });
     
     // Enqueue delivery to followers (optimized)
-    await enqueueDeliveriesToFollowers(store, user.id, post.ap_activity_id!);
+    await enqueueDeliveriesToFollowers(store, user.id, post.ap_activity_id!, {
+      env: c.env,
+    });
     
     return ok(c, post, 201);
   } catch (error) {
@@ -1145,7 +1149,9 @@ app.post("/posts/:id/reactions", auth, async (c) => {
   }
   
   // Enqueue delivery to followers (optimized)
-  await enqueueDeliveriesToFollowers(store, user.id, ap_activity_id);
+  await enqueueDeliveriesToFollowers(store, user.id, ap_activity_id, {
+    env: c.env,
+  });
   
   // Keep notification for real-time UI updates
   if ((post as any).author_id !== user.id) {
@@ -1249,7 +1255,9 @@ app.post("/posts/:id/comments", auth, async (c) => {
   }
   
   // Enqueue delivery to followers (optimized)
-  await enqueueDeliveriesToFollowers(store, user.id, ap_activity_id);
+  await enqueueDeliveriesToFollowers(store, user.id, ap_activity_id, {
+    env: c.env,
+  });
   
   // Keep notification for real-time UI updates
   if ((post as any).author_id !== user.id) {

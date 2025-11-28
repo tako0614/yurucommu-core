@@ -1010,15 +1010,15 @@ users.post("/users/:id/follow/accept", auth, async (c) => {
 
     // Check if requester is a remote user (format: @handle@domain)
     const isRemoteUser = requesterId.startsWith("@") && requesterId.split("@").length === 3;
-    let requesterUri: string;
+    let requesterUri: string | null = null;
     let isLocal = true;
 
     if (isRemoteUser) {
       // Remote user - resolve via WebFinger
       const parts = requesterId.slice(1).split("@"); // Remove leading @
-      const remoteHandle = parts[0];
-      const remoteDomain = parts[1];
-      isLocal = remoteDomain.toLowerCase() === instanceDomain.toLowerCase();
+      const remoteHandle = parts[0].toLowerCase();
+      const remoteDomain = parts[1].toLowerCase();
+      isLocal = remoteDomain === instanceDomain.toLowerCase();
 
       if (isLocal) {
         // Actually a local user with full handle format
@@ -1026,14 +1026,23 @@ users.post("/users/:id/follow/accept", auth, async (c) => {
       } else {
         // True remote user - lookup via WebFinger
         const lookupResult = await webfingerLookup(`${remoteHandle}@${remoteDomain}`);
-        if (!lookupResult) {
-          return fail(c, "could not resolve remote user", 400);
+        if (lookupResult) {
+          requesterUri = lookupResult;
+        } else {
+          const cachedActor = await store.findApActorByHandleAndDomain(remoteHandle, remoteDomain);
+          if (!cachedActor) {
+            return fail(c, "could not resolve remote user", 400);
+          }
+          requesterUri = cachedActor.id;
         }
-        requesterUri = lookupResult;
       }
     } else {
       // Local user
       requesterUri = getActorUri(requesterId, instanceDomain);
+    }
+
+    if (!requesterUri) {
+      return fail(c, "could not resolve remote user", 400);
     }
 
     // Find the Follow request in ap_followers
@@ -1222,15 +1231,15 @@ users.post("/users/:id/follow/reject", auth, async (c) => {
 
     // Check if requester is a remote user (format: @handle@domain)
     const isRemoteUser = requesterId.startsWith("@") && requesterId.split("@").length === 3;
-    let requesterUri: string;
+    let requesterUri: string | null = null;
     let isLocal = true;
 
     if (isRemoteUser) {
       // Remote user - resolve via WebFinger
       const parts = requesterId.slice(1).split("@"); // Remove leading @
-      const remoteHandle = parts[0];
-      const remoteDomain = parts[1];
-      isLocal = remoteDomain.toLowerCase() === instanceDomain.toLowerCase();
+      const remoteHandle = parts[0].toLowerCase();
+      const remoteDomain = parts[1].toLowerCase();
+      isLocal = remoteDomain === instanceDomain.toLowerCase();
 
       if (isLocal) {
         // Actually a local user with full handle format
@@ -1238,14 +1247,23 @@ users.post("/users/:id/follow/reject", auth, async (c) => {
       } else {
         // True remote user - lookup via WebFinger
         const lookupResult = await webfingerLookup(`${remoteHandle}@${remoteDomain}`);
-        if (!lookupResult) {
-          return fail(c, "could not resolve remote user", 400);
+        if (lookupResult) {
+          requesterUri = lookupResult;
+        } else {
+          const cachedActor = await store.findApActorByHandleAndDomain(remoteHandle, remoteDomain);
+          if (!cachedActor) {
+            return fail(c, "could not resolve remote user", 400);
+          }
+          requesterUri = cachedActor.id;
         }
-        requesterUri = lookupResult;
       }
     } else {
       // Local user
       requesterUri = getActorUri(requesterId, instanceDomain);
+    }
+
+    if (!requesterUri) {
+      return fail(c, "could not resolve remote user", 400);
     }
 
     // Find the Follow request in ap_followers

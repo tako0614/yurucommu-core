@@ -522,7 +522,9 @@ async function createPostWithActivity(
     created_at: new Date(),
   });
 
-  await enqueueDeliveriesToFollowers(store, user.id, post.ap_activity_id!);
+  await enqueueDeliveriesToFollowers(store, user.id, post.ap_activity_id!, {
+    env: c.env,
+  });
 }
 
 async function annotateBookmarks(
@@ -899,7 +901,9 @@ posts.post("/posts/:id/reposts", auth, async (c) => {
       });
     }
 
-    await enqueueDeliveriesToFollowers(store, user.id, announceId);
+    await enqueueDeliveriesToFollowers(store, user.id, announceId, {
+      env: c.env,
+    });
     return ok(c, { ...record, reposted: true }, 201);
   } finally {
     await releaseStore(store);
@@ -949,7 +953,9 @@ posts.delete("/posts/:id/reposts", auth, async (c) => {
       created_at: new Date(),
     });
 
-    await enqueueDeliveriesToFollowers(store, user.id, undoActivity.id);
+    await enqueueDeliveriesToFollowers(store, user.id, undoActivity.id, {
+      env: c.env,
+    });
     await store.deleteRepost(post_id, user.id);
     await store.deleteApAnnouncesByActivityId(announceId);
     return ok(c, { deleted: true });
@@ -1273,7 +1279,9 @@ posts.post("/posts/:id/reactions", auth, async (c) => {
     }
 
     // Enqueue delivery to followers (optimized)
-    await enqueueDeliveriesToFollowers(store, user.id, ap_activity_id);
+    await enqueueDeliveriesToFollowers(store, user.id, ap_activity_id, {
+      env: c.env,
+    });
 
     // Keep notification for real-time UI updates
     if ((post as any).author_id !== user.id) {
@@ -1381,7 +1389,9 @@ posts.post("/posts/:id/comments", auth, async (c) => {
     }
 
     // Enqueue delivery to followers (optimized)
-    await enqueueDeliveriesToFollowers(store, user.id, ap_activity_id);
+    await enqueueDeliveriesToFollowers(store, user.id, ap_activity_id, {
+      env: c.env,
+    });
 
     // Keep notification for real-time UI updates
     if ((post as any).author_id !== user.id) {
@@ -1444,7 +1454,9 @@ posts.delete("/:id", auth, async (c) => {
     });
 
     // Enqueue delivery to followers
-    await enqueueDeliveriesToFollowers(store, user.id, deleteActivityId);
+    await enqueueDeliveriesToFollowers(store, user.id, deleteActivityId, {
+      env: c.env,
+    });
 
     // Delete the post from database
     await store.deletePost(post_id);
@@ -1598,7 +1610,9 @@ posts.patch("/:id", auth, async (c) => {
     });
 
     // Enqueue delivery to followers
-    await enqueueDeliveriesToFollowers(store, user.id, updateActivityId);
+    await enqueueDeliveriesToFollowers(store, user.id, updateActivityId, {
+      env: c.env,
+    });
 
     return ok(c, updatedPost);
   } finally {
@@ -1689,7 +1703,9 @@ posts.delete("/:id/comments/:commentId", auth, async (c) => {
     });
 
     // Enqueue delivery to followers
-    await enqueueDeliveriesToFollowers(store, user.id, deleteActivityId);
+    await enqueueDeliveriesToFollowers(store, user.id, deleteActivityId, {
+      env: c.env,
+    });
 
     // Delete the comment from database
     await store.deleteComment(comment_id);
@@ -1753,7 +1769,9 @@ posts.delete("/:id/reactions/:reactionId", auth, async (c) => {
     });
 
     // Enqueue delivery to followers
-    await enqueueDeliveriesToFollowers(store, user.id, undoActivityId);
+    await enqueueDeliveriesToFollowers(store, user.id, undoActivityId, {
+      env: c.env,
+    });
 
     // Delete the reaction from database
     await store.deleteReaction(reaction_id);

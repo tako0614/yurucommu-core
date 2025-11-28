@@ -1,4 +1,4 @@
-import { createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, onMount, Show } from "solid-js";
 import {
   acceptFollowRequest,
   listNotifications,
@@ -13,8 +13,12 @@ type Props = {
 
 export default function NotificationPanel(props: Props) {
   const [items, setItems] = createSignal<any[]>([]);
+  const [loading, setLoading] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
 
   const load = async () => {
+    setLoading(true);
+    setError(null);
     try {
       const list = await listNotifications();
       const mapped = (list as any[]).map((n: any) => ({
@@ -22,10 +26,19 @@ export default function NotificationPanel(props: Props) {
         time: new Date(n.created_at).toLocaleString(),
       }));
       setItems(mapped);
-    } catch {}
+    } catch (err: any) {
+      setError(err?.message || "通知を読み込めませんでした");
+    } finally {
+      setLoading(false);
+    }
   };
 
   onMount(load);
+  createEffect(() => {
+    if (props.open) {
+      void load();
+    }
+  });
 
   return (
     <Show when={props.open}>
@@ -48,8 +61,22 @@ export default function NotificationPanel(props: Props) {
             </button>
           </div>
           <div class="flex-1 overflow-y-auto divide-y hairline">
+            <Show when={loading()}>
+              <div class="p-4 text-sm text-muted">読み込み中…</div>
+            </Show>
+            <Show when={error()}>
+              <div class="p-4 text-sm text-red-500 flex items-center justify-between gap-2">
+                <span>{error()}</span>
+                <button
+                  class="text-xs px-2 py-1 rounded border hairline"
+                  onClick={() => load()}
+                >
+                  再読み込み
+                </button>
+              </div>
+            </Show>
             <Show
-              when={items().length > 0}
+              when={!loading() && !error() && items().length > 0}
               fallback={
                 <div class="p-4 text-sm text-muted">通知はありません</div>
               }
@@ -72,7 +99,9 @@ export default function NotificationPanel(props: Props) {
                               setItems((prev) =>
                                 (prev || []).filter((x: any) => x.id !== n.id)
                               );
-                            } catch {}
+                            } catch (err: any) {
+                              setError(err?.message || "処理に失敗しました");
+                            }
                           }}
                         >
                           承認
@@ -86,7 +115,9 @@ export default function NotificationPanel(props: Props) {
                               setItems((prev) =>
                                 (prev || []).filter((x: any) => x.id !== n.id)
                               );
-                            } catch {}
+                            } catch (err: any) {
+                              setError(err?.message || "処理に失敗しました");
+                            }
                           }}
                         >
                           拒否
@@ -97,7 +128,7 @@ export default function NotificationPanel(props: Props) {
                       <button
                         class="mt-2 text-xs text-blue-600 hover:underline"
                         onClick={() =>
-                          markNotificationRead(n.id).then(load).catch(() => {})}
+                          markNotificationRead(n.id).then(load).catch((err: any) => setError(err?.message || "更新に失敗しました"))}
                       >
                         既読にする
                       </button>

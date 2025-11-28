@@ -114,7 +114,9 @@ async function publishPlan(
     created_at: new Date(),
   });
 
-  await enqueueDeliveriesToFollowers(store as any, user.id, ap_activity_id);
+  await enqueueDeliveriesToFollowers(store as any, user.id, ap_activity_id, {
+    env: c.env,
+  });
 
   return postPayload;
 }
