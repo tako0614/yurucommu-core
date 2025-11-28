@@ -170,10 +170,54 @@ communities.get("/communities", auth, async (c) => {
     const q = (url.searchParams.get("q") || "").trim().toLowerCase();
     const list = await store.listUserCommunities(user.id);
     if (!q) return ok(c, list);
+
+    // Local filter first
     const filtered = list.filter((comm: any) =>
       (comm?.name || "").toLowerCase().includes(q),
     );
-    return ok(c, filtered);
+
+    // If query looks like a remote actor URI or acct, try to resolve a remote Group
+    const resolvedRemotes: any[] = [];
+    const instanceDomain = requireInstanceDomain(c.env);
+    const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
+    const attemptRemoteGroup = async (query: string) => {
+      let actorUri: string | null = null;
+      const trimmed = query.trim();
+      if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        actorUri = trimmed;
+      } else if (trimmed.includes("@")) {
+        const acct = trimmed.replace(/^@+/, "");
+        actorUri = await webfingerLookup(acct, internalFetcher).catch(() => null);
+      }
+      if (!actorUri) return;
+      const actor = await getOrFetchActor(actorUri, c.env as any, false, internalFetcher).catch(
+        () => null,
+      );
+      if (!actor || actor.type !== "Group") return;
+      const domain = (() => {
+        try {
+          return new URL(actor.id || actorUri).hostname.toLowerCase();
+        } catch {
+          return null;
+        }
+      })();
+      resolvedRemotes.push({
+        id: actor.id,
+        name: actor.name || actor.preferredUsername || actor.id,
+        description: actor.summary || "",
+        icon_url:
+          (Array.isArray(actor.icon)
+            ? actor.icon.find((i: any) => i?.url)?.url
+            : actor.icon?.url) || "",
+        domain: domain || instanceDomain,
+        ap_id: actor.id,
+        remote: true,
+      });
+    };
+
+    await attemptRemoteGroup(q);
+
+    return ok(c, [...filtered, ...resolvedRemotes]);
   } finally {
     await releaseStore(store);
   }
@@ -462,163 +506,27 @@ communities.delete("/communities/:id/channels/:channelId", auth, async (c) => {
 
 // Create invite code
 communities.post("/communities/:id/invites", auth, async (c) => {
-  const store = makeData(c.env as any, c);
-  const user = c.get("user") as any;
-  const community_id = c.req.param("id");
-  const community = await store.getCommunity(community_id);
-  if (!community) return fail(c, "community not found", 404);
-  if (
-    !(await requireRole(store, community_id, user.id, ["Owner", "Moderator"], c.env))
-  ) return fail(c, "forbidden", 403);
-  const body = await c.req.json().catch(() => ({})) as any;
-  const max_uses = Number(body.max_uses || 1);
-  const expires_at = body.expires_at || null;
-  const code = crypto.getRandomValues(new Uint8Array(16)).reduce(
-    (s, b) => s + b.toString(16).padStart(2, "0"),
-    "",
-  );
-  const invite = {
-    code,
-    community_id,
-    expires_at,
-    created_by: user.id,
-    max_uses,
-    uses: 0,
-    active: true,
-  };
-  await store.createInvite(invite);
-  return ok(c, invite, 201);
+  return fail(c, "invite codes are disabled; use direct invites", 410);
 });
 
 // List invite codes
 communities.get("/communities/:id/invites", auth, async (c) => {
-  const store = makeData(c.env as any, c);
-  const user = c.get("user") as any;
-  const community_id = c.req.param("id");
-  const community = await store.getCommunity(community_id);
-  if (!community) return fail(c, "community not found", 404);
-  if (
-    !(await requireRole(store, community_id, user.id, ["Owner", "Moderator"], c.env))
-  ) return fail(c, "forbidden", 403);
-  const list = await store.listInvites(community_id);
-  return ok(c, list);
+  return fail(c, "invite codes are disabled; use direct invites", 410);
 });
 
 // Disable invite code
 communities.post("/communities/:id/invites/:code/disable", auth, async (c) => {
-  const store = makeData(c.env as any, c);
-  const user = c.get("user") as any;
-  const community_id = c.req.param("id");
-  const code = c.req.param("code");
-  const community = await store.getCommunity(community_id);
-  if (!community) return fail(c, "community not found", 404);
-  if (
-    !(await requireRole(store, community_id, user.id, ["Owner", "Moderator"], c.env))
-  ) return fail(c, "forbidden", 403);
-  const invite = await store.getInvite(code);
-  if (!invite || (invite as any).community_id !== community_id) {
-    return fail(c, "invite not found", 404);
-  }
-  const updated = await store.updateInvite(code, { active: 0 });
-  return ok(c, updated);
+  return fail(c, "invite codes are disabled; use direct invites", 410);
 });
 
 // Reset all invites
 communities.post("/communities/:id/invites/reset", auth, async (c) => {
-  const store = makeData(c.env as any, c);
-  const user = c.get("user") as any;
-  const community_id = c.req.param("id");
-  const community = await store.getCommunity(community_id);
-  if (!community) return fail(c, "community not found", 404);
-  if (
-    !(await requireRole(store, community_id, user.id, ["Owner", "Moderator"], c.env))
-  ) return fail(c, "forbidden", 403);
-  await store.resetInvites(community_id);
-  return ok(c, { community_id, reset: true });
+  return fail(c, "invite codes are disabled; use direct invites", 410);
 });
 
 // Join community with invite code
 communities.post("/communities/:id/join", auth, async (c) => {
-  const store = makeData(c.env as any, c);
-  const user = c.get("user") as any;
-  const community_id = c.req.param("id");
-  const community = await store.getCommunity(community_id);
-  if (!community) return fail(c, "community not found", 404);
-  const body = await c.req.json().catch(() => ({})) as any;
-  const code = body.code || "";
-  const nickname = body.nickname || user.display_name;
-  if (!(await requireMember(store, community_id, user.id, c.env))) {
-    const invite: any = await store.getInvite(code);
-    const now = Date.now();
-    if (!invite || invite.community_id !== community_id) {
-      return fail(c, "invalid invite", 400);
-    }
-    if (!invite.active) return fail(c, "invite inactive", 400);
-    if (invite.expires_at && now > Date.parse(invite.expires_at)) {
-      return fail(c, "invite expired", 400);
-    }
-    if (invite.max_uses && invite.uses >= invite.max_uses) {
-      return fail(c, "invite exhausted", 400);
-    }
-    const newUses = (invite.uses || 0) + 1;
-    await store.updateInvite(code, {
-      uses: newUses,
-      active: (invite.max_uses && newUses >= invite.max_uses) ? 0 : 1,
-    });
-  }
-  await store.setMembership(community_id, user.id, {
-    role: "Member",
-    nickname,
-    joined_at: nowISO(),
-    status: "active",
-  });
-
-  // Generate and save Join Activity for Group
-  const instanceDomain = requireInstanceDomain(c.env);
-  const ap_id = (community as any).ap_id ||
-    `https://${instanceDomain}/ap/groups/${community_id}`;
-
-  const actorUri = getActorUri(user.id, instanceDomain);
-  const activityId = getActivityUri(
-    user.id,
-    `join-group-${community_id}-${Date.now()}`,
-    instanceDomain,
-  );
-  const joinActivity = {
-    "@context": ACTIVITYSTREAMS_CONTEXT,
-    type: "Join",
-    id: activityId,
-    actor: actorUri,
-    object: ap_id,
-    published: new Date().toISOString(),
-  };
-
-  await store.upsertApOutboxActivity({
-    id: crypto.randomUUID(),
-    local_user_id: user.id,
-    activity_id: activityId,
-    activity_type: "Join",
-    activity_json: JSON.stringify(joinActivity),
-    object_id: ap_id,
-    object_type: "Group",
-    created_at: new Date(),
-  });
-
-  // Enqueue delivery to group owner
-  const ownerActor = await store.findApActor(
-    getActorUri(community.created_by, instanceDomain),
-  );
-  if (ownerActor?.inbox_url) {
-    await store.createApDeliveryQueueItem({
-      id: crypto.randomUUID(),
-      activity_id: activityId,
-      target_inbox_url: ownerActor.inbox_url,
-      status: "pending",
-      created_at: new Date(),
-    });
-  }
-
-  return ok(c, { community_id, user_id: user.id });
+  return fail(c, "invite codes are disabled; ask for a direct invite", 410);
 });
 
 // Leave community

@@ -556,88 +556,39 @@ app.post("/ap/groups/:slug/inbox", inboxRateLimitMiddleware(), async (c) => {
         return fail(c, "invalid follow target", 400);
       }
 
-      await store.upsertApFollower({
-        local_user_id: localGroupId,
-        remote_actor_id: followerActor,
-        activity_id: followActivityId,
-        status: "accepted",
-        created_at: new Date(),
-        accepted_at: new Date(),
-      });
-
-      try {
-        await ensureUserKeyPair(
-          store,
-          c.env as any,
-          ownerHandle,
-        );
-      } catch (error) {
-        console.error(
-          `Failed to ensure owner keypair for group ${slug}:`,
-          error instanceof Error ? error.message : error,
-        );
-      }
-
-      const acceptActivityId = `${groupUri}/activities/accept-${crypto.randomUUID()}`;
-      const acceptActivity = {
+      // Invite-only: reject follow requests and instruct caller to use Invite
+      const rejectActivityId = `${groupUri}/activities/reject-${crypto.randomUUID()}`;
+      const rejectActivity = {
         "@context": ACTIVITYSTREAMS_CONTEXT,
-        type: "Accept",
-        id: acceptActivityId,
+        type: "Reject",
+        id: rejectActivityId,
         actor: groupUri,
         object: activity,
         published: new Date().toISOString(),
       };
 
-      try {
-        await store.upsertApOutboxActivity({
-          local_user_id: ownerHandle,
-          activity_id: acceptActivityId,
-          activity_type: "Accept",
-          activity_json: JSON.stringify(acceptActivity),
-          object_id: followActivityId,
-          object_type: "Follow",
-        });
-      } catch (error) {
-        console.error(
-          `Failed to record Accept activity for group ${slug}:`,
-          error instanceof Error ? error.message : error,
-        );
-      }
-
       const targetInbox = actor.inbox || actor.endpoints?.sharedInbox;
       if (targetInbox) {
         try {
-          const deliveryResult = await store.createApDeliveryQueueItem({
-            activity_id: acceptActivityId,
+          await store.createApDeliveryQueueItem({
+            id: crypto.randomUUID(),
+            activity_id: rejectActivityId,
             target_inbox_url: targetInbox,
             status: "pending",
+            created_at: new Date(),
           });
-          
-          // Deliver immediately (Accept activities should be instant)
-          if (deliveryResult?.id) {
-            try {
-              await deliverSingleQueuedItem(c.env as any, deliveryResult.id);
-              console.log("✓ Immediately delivered Accept activity to:", targetInbox);
-            } catch (deliverError) {
-              console.warn("Failed to immediately deliver Accept, will retry via scheduled worker:", deliverError);
-              // Delivery remains queued for scheduled worker to retry
-            }
-          } else {
-            console.log("✓ Queued Accept activity to:", targetInbox);
-          }
         } catch (error) {
           console.error(
-            `Failed to enqueue Accept delivery for group ${slug}:`,
+            `Failed to enqueue Reject delivery for group ${slug}:`,
             error instanceof Error ? error.message : error,
           );
         }
-      } else {
-        console.warn(
-          `No inbox found for follower ${followerActor}; Accept not queued`,
-        );
       }
 
-      return c.json({}, 202);
+      console.warn(`Group ${slug} is invite-only; rejected Follow from ${followerActor}`);
+      return fail(c, "invite-only community; use direct invite", 403);
+
+      return c.json({}, 403);
     }
 
     const follower = await store.findApFollower(localGroupId, actorId);
