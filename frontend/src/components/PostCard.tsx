@@ -117,6 +117,7 @@ export default function PostCard(props: PostCardProps) {
   const [shareCopied, setShareCopied] = createSignal(false);
   let shareResetTimer: ReturnType<typeof setTimeout> | undefined;
   let lastPostId = props.post?.id;
+  let commentInputRef: HTMLTextAreaElement | undefined;
 
   onCleanup(() => {
     if (shareResetTimer) clearTimeout(shareResetTimer);
@@ -296,7 +297,13 @@ export default function PostCard(props: PostCardProps) {
   };
 
   const toggleComments = () => {
-    setCommentsOpen((v) => !v);
+    setCommentsOpen((v) => {
+      const next = !v;
+      if (!v) {
+        queueMicrotask(() => commentInputRef?.focus());
+      }
+      return next;
+    });
   };
 
   const submitComment = async (e: Event) => {
@@ -587,7 +594,7 @@ export default function PostCard(props: PostCardProps) {
             <div class="flex items-center justify-between max-w-md mt-4 text-sm text-gray-500">
               <button
                 type="button"
-                class="flex items-center gap-2 rounded-full px-2 py-1 hover:text-blue-500 transition-colors group"
+                class="flex items-center gap-2 rounded-full px-3 py-2 hover:text-blue-500 transition-colors group"
                 aria-label="コメント"
                 onClick={toggleComments}
               >
@@ -606,37 +613,18 @@ export default function PostCard(props: PostCardProps) {
                     />
                   </svg>
                 </div>
-                <span>{commentCount()}</span>
+                <span class="tabular-nums">{commentCount()}</span>
               </button>
               <button
                 type="button"
-                class="flex items-center gap-2 rounded-full px-2 py-1 hover:text-green-500 transition-colors group"
-                aria-label="リアクション数"
-              >
-                <div class="p-2 rounded-full group-hover:bg-green-50 dark:group-hover:bg-green-900/20 transition-colors">
-                  <svg
-                    class="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                    />
-                  </svg>
-                </div>
-                <span>{reactionState().count}</span>
-              </button>
-              <button
-                type="button"
-                class={`flex items-center gap-2 rounded-full px-2 py-1 transition-colors group ${
-                  reactionState().myReactionId ? "text-red-500" : "hover:text-red-500"
+                class={`flex items-center gap-2 rounded-full px-3 py-2 transition-colors group ${
+                  reactionState().myReactionId
+                    ? "text-red-500"
+                    : "hover:text-red-500"
                 }`}
                 onClick={toggleLike}
                 aria-label="いいね"
+                aria-pressed={reactionState().myReactionId ? "true" : "false"}
                 disabled={reactionState().loading}
               >
                 <div
@@ -658,11 +646,11 @@ export default function PostCard(props: PostCardProps) {
                     />
                   </svg>
                 </div>
-                <span>{reactionState().count}</span>
+                <span class="tabular-nums">{reactionState().count}</span>
               </button>
               <button
                 type="button"
-                class="flex items-center gap-2 rounded-full px-2 py-1 hover:text-blue-500 transition-colors group"
+                class="flex items-center gap-2 rounded-full px-3 py-2 hover:text-blue-500 transition-colors group"
                 onClick={handleShare}
                 aria-label="共有"
               >
@@ -692,13 +680,16 @@ export default function PostCard(props: PostCardProps) {
                 <form class="flex gap-2 items-start" onSubmit={submitComment}>
                   <textarea
                     class="flex-1 rounded-lg border hairline bg-white dark:bg-neutral-900 text-sm px-3 py-2 text-gray-900 dark:text-white"
-                    placeholder="コメントを書く…"
-                    rows={2}
-                    value={commentText()}
-                    onInput={(e) =>
-                      setCommentText((e.target as HTMLTextAreaElement).value)
-                    }
-                  />
+                  placeholder="コメントを書く…"
+                  rows={2}
+                  value={commentText()}
+                  ref={(el) => {
+                    commentInputRef = el ?? undefined;
+                  }}
+                  onInput={(e) =>
+                    setCommentText((e.target as HTMLTextAreaElement).value)
+                  }
+                />
                   <button
                     type="submit"
                     class="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-50"

@@ -1,3 +1,4 @@
+import { A } from "@solidjs/router";
 import {
   IconHeart,
   IconHome,
@@ -23,7 +24,7 @@ export default function SideNav(props: Props) {
   return (
     <nav class="hidden md:flex flex-col gap-3 md:pt-12 md:pb-6 border-r hairline min-h-dvh md:w-[72px] xl:w-[220px] items-center xl:items-start">
       {/* Brand / Title */}
-      <a
+      <A
         href="/"
         class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start rounded-full px-0 xl:px-3 select-none"
       >
@@ -32,16 +33,16 @@ export default function SideNav(props: Props) {
         <span class="hidden xl:inline text-[18px] font-semibold tracking-tight">
           YuruCommu
         </span>
-      </a>
+      </A>
       {/* Main list items */}
-      <a
+      <A
         class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"
         href="/"
         title="ホーム"
       >
         <IconHome />
         <span class="hidden xl:inline text-sm">ホーム</span>
-      </a>
+      </A>
       <button
         class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"
         title="通知"
@@ -50,14 +51,14 @@ export default function SideNav(props: Props) {
         <IconHeart />
         <span class="hidden xl:inline text-sm">通知</span>
       </button>
-      <a
+      <A
         class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"
         href="/chat"
         title="メッセージ"
       >
         <IconMessage />
         <span class="hidden xl:inline text-sm">メッセージ</span>
-      </a>
+      </A>
       <button
         class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"
         title="作成"
@@ -66,15 +67,15 @@ export default function SideNav(props: Props) {
         <IconPlus />
         <span class="hidden xl:inline text-sm">作成</span>
       </button>
-      <a
+      <A
         class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"
         href="/connections"
         title="つながり"
       >
         <IconUsers />
         <span class="hidden xl:inline text-sm">つながり</span>
-      </a>
-      <a
+      </A>
+      <A
         class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"
         href="/profile"
         title="プロフィール"
@@ -89,25 +90,25 @@ export default function SideNav(props: Props) {
           <IconUser />
         )}
         <span class="hidden xl:inline text-sm">プロフィール</span>
-      </a>
+      </A>
       <div class="flex-1" />
-      <a
+      <A
         class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"
         href="/users"
         title="ユーザー検索"
       >
         <IconSearch />
         <span class="hidden xl:inline text-sm">検索</span>
-      </a>
+      </A>
       {/* Bottom actions */}
-      <a
+      <A
         class="md:w-10 xl:w-full h-10 flex items-center justify-center xl:justify-start gap-0 xl:gap-3 rounded-full hover:bg-gray-100 active:opacity-80 px-0 xl:px-3"
         href="/settings"
         title="設定"
       >
         <IconSettings />
         <span class="hidden xl:inline text-sm">設定</span>
-      </a>
+      </A>
     </nav>
   );
 }

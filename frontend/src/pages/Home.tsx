@@ -11,10 +11,11 @@
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import { IconHeart } from "../components/icons";
-import { api } from "../lib/api";
+import { api, useMe } from "../lib/api";
 import AllStoriesBar from "../components/AllStoriesBar";
 import PostCard from "../components/PostCard";
 import useSwipeTabs from "../hooks/useSwipeTabs";
+import Avatar from "../components/Avatar";
 
 // Homeの偽StoriesBarを削除。実データ版を使用、E
 
@@ -182,9 +183,44 @@ function TimelineFilter(props: {
 
 type Props = {
   onOpenNotifications?: () => void;
+  onOpenComposer?: () => void;
 };
 
+function InlineComposer(props: {
+  avatarUrl?: string;
+  displayName?: string;
+  onCompose?: () => void;
+}) {
+  return (
+    <div class="rounded-2xl border hairline bg-white/80 dark:bg-neutral-900/80 shadow-sm backdrop-blur">
+      <div class="p-3 sm:p-4 flex gap-3">
+        <Avatar
+          src={props.avatarUrl || ""}
+          alt={props.displayName || "あなた"}
+          class="w-12 h-12 rounded-full object-cover"
+        />
+        <div class="flex-1 min-w-0">
+          <button
+            type="button"
+            class="w-full text-left border hairline rounded-2xl px-4 py-3 bg-gray-50 dark:bg-neutral-800 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-neutral-600 transition-colors"
+            onClick={props.onCompose}
+          >
+            <div class="text-sm font-medium text-gray-600 dark:text-gray-300">
+              いまどうしてる？
+            </div>
+            <div class="flex gap-2 mt-2 text-xs text-blue-600">
+              <span class="px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-900/30">投稿を書く</span>
+              <span class="px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-900/30">画像を追加</span>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home(props: Props) {
+  const me = useMe();
   const [selectedCommunities, setSelectedCommunities] = createSignal<string[]>(
     [],
   );
@@ -579,7 +615,7 @@ export default function Home(props: Props) {
   // Composeは別ペEジに移勁E
 
   return (
-    <div class="w-full h-screen flex flex-col">
+    <div class="w-full flex flex-col min-h-full">
       {/* Mobile header (Home only): title left, heart right */}
       <div class="md:hidden sticky top-0 z-20 bg-white dark:bg-neutral-900 border-b hairline">
         <div class="h-14 px-3 sm:px-4 w-full flex items-center justify-between">
@@ -598,11 +634,20 @@ export default function Home(props: Props) {
       {/* デスクトップ: 1カラム(中央タイムライン), モバイル: 1カラム */}
       <div class="flex flex-row justify-center gap-4 xl:gap-6 flex-1 overflow-hidden">
         {/* メインコンテンツ (タイムライン) */}
-        <div class="flex-1 min-w-0 px-3 sm:px-4 lg:px-0 overflow-y-auto hidden-scrollbar">
+        <div class="flex-1 min-w-0 px-3 sm:px-4 lg:px-0">
           <div class="max-w-[680px] mx-auto">
             {/* ストーリーズ */}
             <div class="mt-6">
               <AllStoriesBar preferredCommunityId={selectedCommunities()[0]} />
+            </div>
+
+            {/* クイック作成（Twitter風のツイートボックス） */}
+            <div class="mt-4">
+              <InlineComposer
+                avatarUrl={me()?.avatar_url || ""}
+                displayName={me()?.display_name || ""}
+                onCompose={props.onOpenComposer}
+              />
             </div>
 
             {/* 表示範囲フィルター */}
