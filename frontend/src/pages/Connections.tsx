@@ -9,9 +9,9 @@ import {
   listMyCommunities,
   listMyFollowing,
   listMyFollowers,
-  listMyFriendRequests,
-  acceptFriendRequest,
-  rejectFriendRequest,
+  listMyFollowRequests,
+  acceptFollowRequest,
+  rejectFollowRequest,
   followUser,
   unfollowUser,
   useMe,
@@ -58,8 +58,8 @@ export default function Connections() {
   // Follow data
   const [following, { refetch: refetchFollowing }] = createResource(async () => (await listMyFollowing().catch(() => [])) as any[]);
   const [followers, { refetch: refetchFollowers }] = createResource(async () => (await listMyFollowers().catch(() => [])) as any[]);
-  const [incomingRequests, { refetch: refetchIncoming }] = createResource(async () => (await listMyFriendRequests("incoming").catch(() => [])) as any[]);
-  const [outgoingRequests, { refetch: refetchOutgoing }] = createResource(async () => (await listMyFriendRequests("outgoing").catch(() => [])) as any[]);
+  const [incomingRequests, { refetch: refetchIncoming }] = createResource(async () => (await listMyFollowRequests("incoming").catch(() => [])) as any[]);
+  const [outgoingRequests, { refetch: refetchOutgoing }] = createResource(async () => (await listMyFollowRequests("outgoing").catch(() => [])) as any[]);
 
   // Communities data
   const [myCommunities, { mutate: setMyCommunities, refetch: refetchMyCommunities }] = createResource(
@@ -180,7 +180,7 @@ export default function Connections() {
   const handleAcceptFriend = async (userId: string) => {
     setActionUser(userId);
     try {
-      await acceptFriendRequest(userId);
+      await acceptFollowRequest(userId);
       await Promise.all([refetchIncoming(), refetchFollowing(), refetchFollowers()]);
     } catch (error) {
       console.error("Failed to accept friend request:", error);
@@ -192,7 +192,7 @@ export default function Connections() {
   const handleRejectFriend = async (userId: string) => {
     setActionUser(userId);
     try {
-      await rejectFriendRequest(userId);
+      await rejectFollowRequest(userId);
       await Promise.all([refetchIncoming(), refetchOutgoing(), refetchFollowers()]);
     } catch (error) {
       console.error("Failed to reject friend request:", error);
@@ -417,7 +417,7 @@ export default function Connections() {
                 プロフィールを共有
               </button>
               <a
-                href="/friend-requests"
+                href="/follow-requests"
                 class="flex items-center gap-2 px-4 py-2 rounded-full border dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
               >
                 フォローリクエスト

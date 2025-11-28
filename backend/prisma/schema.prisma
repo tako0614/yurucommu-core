@@ -513,7 +513,7 @@ model chat_channel_messages {
 model notifications {
   id         String   @id
   user_id    String // recipient
-  type       String // 'friend_request' | 'friend_accepted' | 'like' | 'comment'
+  type       String // 'follow_request' | 'follow_accepted' | 'like' | 'comment'
   actor_id   String
   ref_type   String // 'post' | 'comment' | 'user'
   ref_id     String

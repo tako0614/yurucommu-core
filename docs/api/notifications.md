@@ -18,11 +18,11 @@
     {
       "id": "notification-1",
       "user_id": "my-user-id",
-      "type": "friend_request",
+      "type": "follow_request",
       "actor_id": "user-2",
       "ref_type": "user",
       "ref_id": "user-2",
-      "message": "Alice さんからフレンドリクエストが届きました",
+      "message": "Alice さんからフォローリクエストが届きました",
       "created_at": "2024-01-01T00:00:00.000Z",
       "read": 0
     },
@@ -51,8 +51,8 @@
 ```
 
 **通知タイプ**:
-- `friend_request`: フレンドリクエスト受信
-- `friend_accepted`: フレンドリクエスト承認
+- `follow_request`: フォローリクエスト受信
+- `follow_accepted`: フォローリクエスト承認
 - `like`: 投稿へのリアクション
 - `comment`: 投稿へのコメント
 - `mention`: メンション
