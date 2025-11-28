@@ -1,6 +1,6 @@
 import { For, Show, createResource, createSignal } from "solid-js";
 import Avatar from "../components/Avatar";
-import { searchUsers, sendFriendRequest } from "../lib/api";
+import { searchUsers, followUser } from "../lib/api";
 
 export default function UserSearch() {
   const [query, setQuery] = createSignal("");
@@ -32,14 +32,14 @@ export default function UserSearch() {
     }
   };
 
-  const requestFriend = async (userId: string) => {
+  const requestFollow = async (userId: string) => {
     setBusyId(userId);
     setHint(null);
     try {
-      await sendFriendRequest(userId);
-      setHint("フレンドリクエストを送信しました。");
+      await followUser(userId);
+      setHint("フォローリクエストを送信しました。");
     } catch (error: any) {
-      setHint(error?.message || "フレンドリクエストの送信に失敗しました。");
+      setHint(error?.message || "フォローリクエストの送信に失敗しました。");
     } finally {
       setBusyId(null);
     }
@@ -49,9 +49,9 @@ export default function UserSearch() {
     <div class="max-w-4xl mx-auto px-4 py-6 space-y-6">
       <header class="flex items-center gap-3">
         <h1 class="text-2xl font-bold">ユーザー検索</h1>
-        <span class="text-sm text-muted">友達を見つけましょう</span>
-        <a class="ml-auto text-sm text-blue-600 hover:underline" href="/friends">
-          フレンド一覧へ
+        <span class="text-sm text-muted">フォローする相手を見つけましょう</span>
+        <a class="ml-auto text-sm text-blue-600 hover:underline" href="/connections">
+          フォロー管理へ
         </a>
       </header>
 
@@ -106,9 +106,9 @@ export default function UserSearch() {
                   <button
                     class="text-xs px-3 py-1 rounded-full bg-gray-900 text-white disabled:opacity-60"
                     disabled={busyId() === user.id}
-                    onClick={() => requestFriend(user.id)}
+                    onClick={() => requestFollow(user.id)}
                   >
-                    {busyId() === user.id ? "送信中…" : "フレンド申請"}
+                    {busyId() === user.id ? "送信中…" : "フォロー"}
                   </button>
                 </div>
               )}

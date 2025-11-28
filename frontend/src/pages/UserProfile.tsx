@@ -1,6 +1,6 @@
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 import { useParams, useLocation } from "@solidjs/router";
-import { api, getUser, sendFriendRequest, useMe } from "../lib/api";
+import { api, getUser, followUser, unfollowUser, useMe } from "../lib/api";
 import ProfileModal from "../components/ProfileModal";
 import PostCard from "../components/PostCard";
 import { buildProfileUrlByHandle, buildActivityPubHandle, getUserDomain } from "../lib/url";
@@ -193,12 +193,49 @@ export default function UserProfile() {
     });
   };
 
+  const relationship = createMemo(() => (user() as any)?.relationship || {});
+  const followingStatus = createMemo(() => (relationship() as any).following || null);
+  const isFriend = createMemo(() => !!(relationship() as any).is_friend);
+
   const onFollow = async () => {
     if (!user()) return;
     setLoading(true);
     try {
-      await sendFriendRequest(user()!.id);
-      setUser({ ...user()!, friend_status: "pending" } as any);
+      await followUser(user()!.id);
+      setUser((prev) =>
+        prev
+          ? ({
+              ...prev,
+              relationship: {
+                ...(prev as any).relationship,
+                following: "pending",
+                is_friend: (prev as any).relationship?.is_friend || false,
+              },
+            } as any)
+          : prev,
+      );
+    } catch {}
+    setLoading(false);
+  };
+
+  const onUnfollow = async () => {
+    if (!user()) return;
+    setLoading(true);
+    try {
+      await unfollowUser(user()!.id);
+      setUser((prev) =>
+        prev
+          ? ({
+              ...prev,
+              relationship: {
+                ...(prev as any).relationship,
+                following: null,
+                is_friend: false,
+              },
+              friend_status: null,
+            } as any)
+          : prev,
+      );
     } catch {}
     setLoading(false);
   };
@@ -353,31 +390,37 @@ export default function UserProfile() {
                 <div class="mt-3 flex items-center">
                   <div class="ml-auto flex items-center gap-2">
                     <Show when={me() && user() && me()!.id !== user()!.id}>
-                      <div>
-                        <Show when={!user()!.friend_status}>
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <Show when={isFriend()}>
+                          <span class="px-3 py-1.5 rounded-full bg-green-100 text-green-800 text-xs font-semibold">
+                            友達（相互フォロー）
+                          </span>
+                        </Show>
+                        <Show when={followingStatus() === "accepted"}>
+                          <button
+                            class="px-3 py-1.5 rounded-full border hairline text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
+                            disabled={loading()}
+                            onClick={onUnfollow}
+                          >
+                            {loading() ? "解除中…" : "フォロー中"}
+                          </button>
+                        </Show>
+                        <Show when={followingStatus() === "pending"}>
+                          <button
+                            class="px-3 py-1.5 rounded-full border hairline text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
+                            disabled={loading()}
+                            onClick={onUnfollow}
+                          >
+                            {loading() ? "キャンセル中…" : "フォロー申請中 (取消)"}
+                          </button>
+                        </Show>
+                        <Show when={!followingStatus()}>
                           <button
                             class="px-3 py-1.5 rounded-full bg-black text-white hover:opacity-90 text-sm"
                             disabled={loading()}
                             onClick={onFollow}
                           >
-                            友達になる
-                          </button>
-                        </Show>
-                        <Show when={user()!.friend_status === "pending"}>
-                          <button
-                            class="px-3 py-1.5 rounded-full border hairline text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
-                            disabled={loading()}
-                            onClick={onFollow}
-                          >
-                            {loading() ? "送信中…" : "承認待ち（再送信）"}
-                          </button>
-                        </Show>
-                        <Show when={user()!.friend_status === "accepted"}>
-                          <button
-                            class="px-3 py-1.5 rounded-full border hairline text-sm"
-                            disabled
-                          >
-                            友達
+                            {loading() ? "送信中…" : "フォローする"}
                           </button>
                         </Show>
                       </div>

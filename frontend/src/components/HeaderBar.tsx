@@ -39,9 +39,9 @@ export default function HeaderBar(props: Props) {
             <IconMessage />
           </a>
           <a
-            href="/friends"
+            href="/connections"
             class="p-2 rounded-full hover:bg-gray-100 transition-opacity active:opacity-80"
-            aria-label="友達"
+            aria-label="フォロー"
           >
             <IconUsers />
           </a>

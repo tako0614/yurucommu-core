@@ -63,30 +63,30 @@ export default function FriendRequests() {
         <button
           type="button"
           class="p-2 -ml-2 rounded-full hover:bg-gray-100 dark:hover:bg-neutral-800"
-          onClick={() => navigate("/connections")}
-          aria-label="戻る"
-        >
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <h1 class="text-xl font-bold">フレンドリクエスト</h1>
+      onClick={() => navigate("/connections")}
+      aria-label="戻る"
+    >
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+      </svg>
+    </button>
+        <h1 class="text-xl font-bold">フォローリクエスト</h1>
       </header>
 
       <Show when={!loading()} fallback={
         <div class="text-center py-8 text-gray-500">読み込み中...</div>
       }>
         <Show when={incomingCount() > 0} fallback={
-          <div class="text-center py-12">
-            <div class="text-gray-400 text-4xl mb-3">👋</div>
-            <div class="text-gray-600 dark:text-gray-400 mb-2">
-              フレンドリクエストはありません
+            <div class="text-center py-12">
+              <div class="text-gray-400 text-4xl mb-3">👋</div>
+              <div class="text-gray-600 dark:text-gray-400 mb-2">
+              フォローリクエストはありません
+              </div>
+              <p class="text-sm text-gray-500">
+              フォローのリクエストがあると、ここに表示されます
+              </p>
             </div>
-            <p class="text-sm text-gray-500">
-              友達からのリクエストがあると、ここに表示されます
-            </p>
-          </div>
-        }>
+          }>
           <div class="space-y-1">
             <For each={incomingRequests()}>
               {(request) => (
