@@ -883,6 +883,7 @@ async function createFollowRequest(
     console.error("Failed to process local Follow inbox activity", error);
   }
 
+  try {
     await notify(
       store,
       c.env as Bindings,
@@ -893,10 +894,13 @@ async function createFollowRequest(
       me.id,
       `${me.display_name} からフォローリクエスト`,
       {
-      allowDefaultPushFallback: true,
-      defaultPushSecret: c.env.DEFAULT_PUSH_SERVICE_SECRET || "",
-    },
-  );
+        allowDefaultPushFallback: true,
+        defaultPushSecret: c.env.DEFAULT_PUSH_SERVICE_SECRET || "",
+      },
+    );
+  } catch (error) {
+    console.error("Failed to create follow request notification", error);
+  }
 
   return {
     data: {
@@ -916,6 +920,11 @@ users.post("/users/:id/follow", auth, async (c) => {
     const me = c.get("user") as any;
     const targetId = c.req.param("id");
     if (me.id === targetId) return fail(c, "cannot follow yourself");
+
+    const targetUser = await store.getUser(targetId).catch(() => null);
+    if (!targetUser) {
+      return fail(c, "user not found", 404);
+    }
 
     const instanceDomain = requireInstanceDomain(c.env);
     const { data, status } = await createFollowRequest(store, c, me, targetId, instanceDomain);

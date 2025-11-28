@@ -11,7 +11,7 @@
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import { IconHeart } from "../components/icons";
-import { api, useMe } from "../lib/api";
+import { api } from "../lib/api";
 import AllStoriesBar from "../components/AllStoriesBar";
 import PostCard from "../components/PostCard";
 import useSwipeTabs from "../hooks/useSwipeTabs";
@@ -181,16 +181,17 @@ function TimelineFilter(props: {
   );
 }
 
-type Props = {};
+type Props = {
+  onOpenNotifications?: () => void;
+  onOpenComposer?: () => void;
+};
 
 export default function Home(props: Props) {
   const outlet = useShellContext();
-
-  const openComposer = () => props.onOpenComposer?.() ?? outlet?.onOpenComposer?.();
-  const openNotifications = () =>
-    props.onOpenNotifications?.() ?? outlet?.onOpenNotifications?.();
-
-  const me = useMe();
+  const openNotifications =
+    outlet?.onOpenNotifications ??
+    props.onOpenNotifications ??
+    (() => undefined);
   const [selectedCommunities, setSelectedCommunities] = createSignal<string[]>(
     [],
   );
