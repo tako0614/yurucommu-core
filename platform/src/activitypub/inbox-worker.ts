@@ -293,6 +293,12 @@ async function handleIncomingFollow(
   localUserId: string,
   activity: any,
 ): Promise<void> {
+  const targetUser = await db.getUser(localUserId).catch(() => null);
+  if (!targetUser) {
+    console.warn(`Follow activity received for unknown user: ${localUserId}`);
+    return;
+  }
+
   const followerUri = extractActorUri(activity.actor);
   if (!followerUri || !isRemoteActorAllowed(followerUri, env)) {
     console.error("Follow activity has invalid actor URI");
