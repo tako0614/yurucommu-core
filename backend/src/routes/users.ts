@@ -80,6 +80,15 @@ function makeInternalFetcher(env: Record<string, unknown>) {
   };
 }
 
+function parseUserIdParam(input: string): { local: string; domain?: string } {
+  const trimmed = (input || "").trim();
+  const withoutPrefix = trimmed.replace(/^@+/, "");
+  const parts = withoutPrefix.split("@");
+  const local = (parts.shift() || "").trim();
+  const domain = parts.length ? parts.join("@").trim() : undefined;
+  return { local, domain: domain || undefined };
+}
+
 // Get my profile
 users.get("/me", auth, async (c) => {
   console.log("[backend] /me handler", {
@@ -408,15 +417,61 @@ users.get("/users", auth, async (c) => {
     const raw = (url.searchParams.get("q") || "").trim();
     const q = raw.startsWith("@") ? raw.slice(1) : raw;
     if (!q) return ok(c, []);
+
+    const instanceDomain = requireInstanceDomain(c.env);
+    const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
+    const seen = new Set<string>();
+    const results: any[] = [];
+
+    const pushUnique = (profile: any) => {
+      const keyParts = [
+        (profile.id || profile.handle || "").toLowerCase(),
+        (profile.domain || "").toLowerCase(),
+      ];
+      const key = keyParts.filter(Boolean).join("@");
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      results.push(profile);
+    };
+
     const users =
       (await store.searchUsers?.(q, 20)) ??
       (await store.searchUsersByName(q, 20));
-    // Remove sensitive/internal fields from each user
-    const sanitized = (users || []).map((u: any) => {
-      const { jwt_secret, tenant_id, ...publicProfile } = u;
-      return publicProfile;
-    });
-    return ok(c, sanitized);
+    for (const u of users || []) {
+      const { jwt_secret, tenant_id, ...publicProfile } = u as any;
+      pushUnique(publicProfile);
+    }
+
+    // If query looks like a remote account, try WebFinger
+    if (q.includes("@")) {
+      const account = q.replace(/^@+/, "");
+      const actorUri = await webfingerLookup(account, internalFetcher).catch(() => null);
+      if (actorUri) {
+        const actor = await getOrFetchActor(actorUri, c.env as any, false, internalFetcher).catch(
+          () => null,
+        );
+        if (actor) {
+          const avatar =
+            (Array.isArray(actor.icon) ? actor.icon.find((i: any) => i?.url)?.url : undefined) ||
+            (actor.icon && typeof actor.icon === "object" ? (actor.icon as any).url : undefined) ||
+            null;
+          const parts = account.split("@");
+          const handle = (parts.shift() || account).trim();
+          const domain = parts.join("@").trim() || instanceDomain;
+          pushUnique({
+            id: handle,
+            handle,
+            domain,
+            actor_id: actor.id,
+            display_name: actor.name || actor.preferredUsername || handle,
+            avatar_url: avatar,
+            url: (actor as any).url || actor.id,
+          });
+        }
+      }
+    }
+
+    return ok(c, results);
   } finally {
     await releaseStore(store);
   }
@@ -533,6 +588,14 @@ users.get("/users/:id", optionalAuth, async (c) => {
         (Array.isArray(actor.icon) ? actor.icon.find((i: any) => i?.url)?.url : undefined) ||
         (actor.icon && typeof actor.icon === "object" ? (actor.icon as any).url : undefined) ||
         null;
+
+      if (me?.id) {
+        const remoteBlockKey = `@${normalizedId}@${requestedDomain}`;
+        const blocked = await store.isBlocked?.(me.id, remoteBlockKey).catch(() => false);
+        if (blocked) {
+          return fail(c, "forbidden", 403);
+        }
+      }
 
       let followingStatus: string | null = null;
       let followedByStatus: string | null = null;
@@ -660,21 +723,41 @@ users.post("/users/:id/block", auth, async (c) => {
     const me = c.get("user") as any;
     const targetId = c.req.param("id");
     if (!targetId || targetId === me.id) return fail(c, "invalid target", 400);
-    const target = await store.getUser(targetId);
-    if (!target) return fail(c, "user not found", 404);
-    await store.blockUser(me.id, targetId);
-    await store.unmuteUser?.(me.id, targetId);
 
-    // If they were friends (mutual follows), unfollow them
-    const isFriend = await store.areFriends(me.id, targetId).catch(() => false);
-    if (isFriend) {
-      const instanceDomain = requireInstanceDomain(c.env);
-      const targetActorUri = getActorUri(targetId, instanceDomain);
-      // Remove from follows and followers
-      await store.deleteApFollowers(me.id, targetActorUri).catch(() => {});
+    const instanceDomain = requireInstanceDomain(c.env);
+    const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
+    const { local: normalizedId, domain: requestedDomain } = parseUserIdParam(targetId);
+    if (!normalizedId) return fail(c, "invalid target", 400);
+
+    const isRemote =
+      requestedDomain && requestedDomain.toLowerCase() !== instanceDomain.toLowerCase();
+
+    let blockKey = normalizedId;
+    let targetActorUri: string | null = null;
+
+    if (isRemote) {
+      const fullHandle = `${normalizedId}@${requestedDomain}`;
+      const actorUri = await webfingerLookup(fullHandle, internalFetcher);
+      if (!actorUri) return fail(c, "could not resolve remote user", 404);
+      blockKey = `@${normalizedId}@${requestedDomain}`;
+      targetActorUri = actorUri;
+    } else {
+      const target = await store.getUser(normalizedId);
+      if (!target) return fail(c, "user not found", 404);
+      targetActorUri = getActorUri(normalizedId, instanceDomain);
     }
 
-    return ok(c, { blocked: true });
+    await store.blockUser(me.id, blockKey);
+    await store.unmuteUser?.(me.id, blockKey);
+
+    if (targetActorUri) {
+      await Promise.all([
+        store.deleteApFollowers(me.id, targetActorUri).catch(() => {}),
+        store.deleteApFollows?.(me.id, targetActorUri).catch(() => {}),
+      ]);
+    }
+
+    return ok(c, { blocked: true, blocked_id: blockKey });
   } finally {
     await releaseStore(store);
   }
@@ -687,7 +770,16 @@ users.delete("/users/:id/block", auth, async (c) => {
     const me = c.get("user") as any;
     const targetId = c.req.param("id");
     if (!targetId || targetId === me.id) return fail(c, "invalid target", 400);
-    await store.unblockUser(me.id, targetId);
+
+    const instanceDomain = requireInstanceDomain(c.env);
+    const { local: normalizedId, domain: requestedDomain } = parseUserIdParam(targetId);
+    if (!normalizedId) return fail(c, "invalid target", 400);
+
+    const isRemote =
+      requestedDomain && requestedDomain.toLowerCase() !== instanceDomain.toLowerCase();
+    const blockKey = isRemote ? `@${normalizedId}@${requestedDomain}` : normalizedId;
+
+    await store.unblockUser(me.id, blockKey);
     return ok(c, { blocked: false });
   } finally {
     await releaseStore(store);
@@ -701,10 +793,28 @@ users.post("/users/:id/mute", auth, async (c) => {
     const me = c.get("user") as any;
     const targetId = c.req.param("id");
     if (!targetId || targetId === me.id) return fail(c, "invalid target", 400);
-    const target = await store.getUser(targetId);
-    if (!target) return fail(c, "user not found", 404);
-    await store.muteUser(me.id, targetId);
-    return ok(c, { muted: true });
+
+    const instanceDomain = requireInstanceDomain(c.env);
+    const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
+    const { local: normalizedId, domain: requestedDomain } = parseUserIdParam(targetId);
+    if (!normalizedId) return fail(c, "invalid target", 400);
+
+    const isRemote =
+      requestedDomain && requestedDomain.toLowerCase() !== instanceDomain.toLowerCase();
+    let muteKey = normalizedId;
+
+    if (isRemote) {
+      const fullHandle = `${normalizedId}@${requestedDomain}`;
+      const actorUri = await webfingerLookup(fullHandle, internalFetcher);
+      if (!actorUri) return fail(c, "could not resolve remote user", 404);
+      muteKey = `@${normalizedId}@${requestedDomain}`;
+    } else {
+      const target = await store.getUser(normalizedId);
+      if (!target) return fail(c, "user not found", 404);
+    }
+
+    await store.muteUser(me.id, muteKey);
+    return ok(c, { muted: true, muted_id: muteKey });
   } finally {
     await releaseStore(store);
   }
@@ -717,7 +827,16 @@ users.delete("/users/:id/mute", auth, async (c) => {
     const me = c.get("user") as any;
     const targetId = c.req.param("id");
     if (!targetId || targetId === me.id) return fail(c, "invalid target", 400);
-    await store.unmuteUser(me.id, targetId);
+
+    const instanceDomain = requireInstanceDomain(c.env);
+    const { local: normalizedId, domain: requestedDomain } = parseUserIdParam(targetId);
+    if (!normalizedId) return fail(c, "invalid target", 400);
+
+    const isRemote =
+      requestedDomain && requestedDomain.toLowerCase() !== instanceDomain.toLowerCase();
+    const muteKey = isRemote ? `@${normalizedId}@${requestedDomain}` : normalizedId;
+
+    await store.unmuteUser(me.id, muteKey);
     return ok(c, { muted: false });
   } finally {
     await releaseStore(store);
@@ -921,12 +1040,117 @@ users.post("/users/:id/follow", auth, async (c) => {
     const targetId = c.req.param("id");
     if (me.id === targetId) return fail(c, "cannot follow yourself");
 
+    const instanceDomain = requireInstanceDomain(c.env);
+    const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
+    const isRemoteUser = targetId.startsWith("@") && targetId.split("@").length === 3;
+
+    if (isRemoteUser) {
+      const [, handle, domainRaw] = targetId.split("@");
+      const domain = domainRaw?.toLowerCase() ?? "";
+      const isLocalDomain = domain === instanceDomain.toLowerCase();
+
+      if (!isLocalDomain) {
+        const fullHandle = `${handle}@${domain}`;
+        const actorUri = await webfingerLookup(fullHandle, internalFetcher);
+        if (!actorUri) {
+          return fail(c, "could not resolve remote user", 404);
+        }
+
+        const remoteActor = await getOrFetchActor(actorUri, c.env as any, false, internalFetcher);
+        if (!remoteActor) {
+          return fail(c, "could not resolve remote user", 404);
+        }
+
+        const existingFollow = await store.findApFollow(me.id, remoteActor.id).catch(() => null);
+        if (existingFollow?.status === "accepted") {
+          return ok(c, {
+            requester_id: me.id,
+            addressee_id: targetId,
+            status: "accepted",
+            created_at: existingFollow.created_at,
+          });
+        }
+        if (existingFollow?.status === "pending") {
+          return ok(c, {
+            requester_id: me.id,
+            addressee_id: targetId,
+            status: "pending",
+            created_at: existingFollow.created_at,
+          });
+        }
+
+        const myActorUri = getActorUri(me.id, instanceDomain);
+        const followActivityId = getActivityUri(
+          me.id,
+          `follow-${handle}-${Date.now()}`,
+          instanceDomain,
+        );
+
+        const followActivity = {
+          "@context": ACTIVITYSTREAMS_CONTEXT,
+          type: "Follow",
+          id: followActivityId,
+          actor: myActorUri,
+          object: remoteActor.id,
+          published: new Date().toISOString(),
+        };
+
+        await store.upsertApFollow({
+          local_user_id: me.id,
+          remote_actor_id: remoteActor.id,
+          activity_id: followActivityId,
+          status: "pending",
+          created_at: new Date(),
+          accepted_at: null,
+        });
+
+        await store.upsertApOutboxActivity({
+          id: crypto.randomUUID(),
+          local_user_id: me.id,
+          activity_id: followActivityId,
+          activity_type: "Follow",
+          activity_json: JSON.stringify(followActivity),
+          object_id: remoteActor.id,
+          object_type: "Person",
+          created_at: new Date(),
+        });
+
+        const inboxUrl = remoteActor.inbox || (remoteActor.endpoints as any)?.sharedInbox;
+        if (inboxUrl) {
+          await store.createApDeliveryQueueItem({
+            activity_id: followActivityId,
+            target_inbox_url: inboxUrl,
+            status: "pending",
+          });
+        }
+
+        return ok(
+          c,
+          {
+            requester_id: me.id,
+            addressee_id: targetId,
+            status: "pending",
+            created_at: new Date(),
+          },
+          201,
+        );
+      }
+
+      // Local domain with @handle@domain format - treat as local user
+      const targetUser = await store.getUser(handle).catch(() => null);
+      if (!targetUser) {
+        return fail(c, "user not found", 404);
+      }
+
+      const { data, status } = await createFollowRequest(store, c, me, handle, instanceDomain);
+      return ok(c, data, status);
+    }
+
     const targetUser = await store.getUser(targetId).catch(() => null);
     if (!targetUser) {
       return fail(c, "user not found", 404);
     }
 
-    const instanceDomain = requireInstanceDomain(c.env);
     const { data, status } = await createFollowRequest(store, c, me, targetId, instanceDomain);
     return ok(c, data, status);
   } finally {
@@ -1408,24 +1632,42 @@ users.post("/users/:id/follow/reject", auth, async (c) => {
 users.get("/users/:id/pinned", optionalAuth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
-    const userId = c.req.param("id");
+    const rawId = c.req.param("id");
     const limit = Math.min(20, Math.max(1, parseInt(c.req.query("limit") || "10", 10)));
+    const instanceDomain = requireInstanceDomain(c.env);
+    const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
+    const { local: userId, domain: requestedDomain } = parseUserIdParam(rawId);
 
-    // Check if user exists
-    const user = await store.getUser(userId);
-    if (!user) return fail(c, "user not found", 404);
+    if (!userId) return fail(c, "invalid user id", 400);
+
+    const isRemote =
+      requestedDomain && requestedDomain.toLowerCase() !== instanceDomain.toLowerCase();
 
     // Check for blocks
     const me = c.get("user") as any;
     if (me?.id && userId !== me.id) {
-      const blocked = await store.isBlocked?.(me.id, userId).catch(() => false);
-      const blocking = await store.isBlocked?.(userId, me.id).catch(() => false);
+      const blockKey = isRemote ? `@${userId}@${requestedDomain}` : userId;
+      const blocked = await store.isBlocked?.(me.id, blockKey).catch(() => false);
+      const blocking = await store.isBlocked?.(blockKey, me.id).catch(() => false);
       if (blocked || blocking) {
         return fail(c, "forbidden", 403);
       }
     }
 
-    // Get pinned posts
+    if (isRemote) {
+      // Remote user: resolve actor to validate, but we don't store remote pinned posts yet.
+      const account = `${userId}@${requestedDomain}`;
+      const actorUri = await webfingerLookup(account, internalFetcher);
+      if (!actorUri) return fail(c, "user not found", 404);
+      const actor = await getOrFetchActor(actorUri, c.env as any, false, internalFetcher);
+      if (!actor) return fail(c, "user not found", 404);
+      return ok(c, []);
+    }
+
+    // Local user
+    const user = await store.getUser(userId);
+    if (!user) return fail(c, "user not found", 404);
+
     const pinned_posts = await store.listPinnedPostsByUser?.(userId, limit);
     return ok(c, pinned_posts || []);
   } finally {

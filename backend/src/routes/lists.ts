@@ -6,6 +6,10 @@ import {
   releaseStore,
   uuid,
   nowISO,
+  requireInstanceDomain,
+  getActorUri,
+  webfingerLookup,
+  getOrFetchActor,
 } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
 import { makeData } from "../data";
@@ -26,6 +30,47 @@ async function assertListAccess(
     return { status: 403, message: "forbidden" } as const;
   }
   return { list };
+}
+
+async function resolveUserIdToActor(
+  store: ReturnType<typeof makeData>,
+  env: any,
+  raw: string,
+): Promise<{ id: string; actorUri: string } | null> {
+  const input = String(raw || "").trim();
+  if (!input) return null;
+  const instanceDomain = requireInstanceDomain(env);
+
+  // Local user first
+  const local = await store.getUser(input).catch(() => null);
+  if (local) {
+    const actorUri = getActorUri(local.id, instanceDomain);
+    return { id: local.id, actorUri };
+  }
+
+  // Full actor URI
+  if (input.startsWith("http://") || input.startsWith("https://")) {
+    const actorUri = input;
+    const actor = await getOrFetchActor(actorUri, env as any).catch(() => null);
+    if (!actor) return null;
+    const handle = actor.preferredUsername || actorUri.split("/").pop() || "unknown";
+    const domain = new URL(actorUri).hostname.toLowerCase();
+    return { id: `@${handle}@${domain}`, actorUri };
+  }
+
+  // acct-style @user@domain
+  const acct = input.replace(/^@+/, "");
+  if (acct.includes("@")) {
+    const actorUri = await webfingerLookup(acct, fetch).catch(() => null);
+    if (!actorUri) return null;
+    const actor = await getOrFetchActor(actorUri, env as any).catch(() => null);
+    if (!actor) return null;
+    const handle = actor.preferredUsername || acct.split("@")[0] || acct;
+    const domain = new URL(actorUri).hostname.toLowerCase();
+    return { id: `@${handle}@${domain}`, actorUri };
+  }
+
+  return null;
 }
 
 // POST /lists
@@ -118,11 +163,13 @@ lists.post("/lists/:id/members", auth, async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as any;
     const targetUserId = String(body.user_id || "").trim();
     if (!targetUserId) return fail(c, "user_id is required", 400);
-    const targetUser = await store.getUser(targetUserId);
-    if (!targetUser) return fail(c, "user not found", 404);
+
+    const resolved = await resolveUserIdToActor(store, c.env, targetUserId);
+    if (!resolved) return fail(c, "user not found", 404);
+
     await store.addListMember({
       list_id: listId,
-      user_id: targetUserId,
+      user_id: resolved.id,
       added_at: nowISO(),
     });
     const members = await store.listMembersByList(listId);
@@ -170,8 +217,20 @@ lists.get("/lists/:id/timeline", auth, async (c) => {
     const friends = await store.listFriends(user.id);
     const friendSet = new Set<string>();
     for (const f of friends) {
-      if (f.requester_id === user.id && f.addressee_id) friendSet.add(f.addressee_id);
-      if (f.addressee_id === user.id && f.requester_id) friendSet.add(f.requester_id);
+      const addAll = (value: string | null | undefined, aliases?: any) => {
+        if (value) friendSet.add(value);
+        if (Array.isArray(aliases)) {
+          for (const alias of aliases) {
+            if (alias) friendSet.add(alias);
+          }
+        }
+      };
+      if (f.requester_id === user.id) {
+        addAll(f.addressee_id, f.addressee_aliases);
+      }
+      if (f.addressee_id === user.id) {
+        addAll(f.requester_id, f.requester_aliases);
+      }
     }
     const visible = posts.filter((post: any) => {
       if (post.author_id === user.id) return true;

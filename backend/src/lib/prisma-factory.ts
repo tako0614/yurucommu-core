@@ -14,5 +14,5 @@ export type PrismaClientFactory = (db: D1Database) => PrismaClient;
 export interface DatabaseConfig {
   DB: D1Database;
   createPrismaClient: PrismaClientFactory;
+  instanceDomain?: string;
 }
-

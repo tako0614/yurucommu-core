@@ -21,6 +21,8 @@ import {
   requireInstanceDomain,
   generateNoteObject,
   ACTIVITYSTREAMS_CONTEXT,
+  webfingerLookup,
+  getOrFetchActor,
 } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
 import { notify } from "../lib/notifications";
@@ -36,9 +38,16 @@ async function requireMember(
   store: ReturnType<typeof makeData>,
   communityId: string | null | undefined,
   userId: string,
+  env?: any,
 ): Promise<boolean> {
   if (!communityId) return true;
-  return await store.hasMembership(communityId, userId);
+  const localMember = await store.hasMembership(communityId, userId);
+  if (localMember) return true;
+  if (!env) return false;
+  const instanceDomain = requireInstanceDomain(env as any);
+  const actorUri = getActorUri(userId, instanceDomain);
+  const follower = await store.findApFollower?.(`group:${communityId}`, actorUri).catch(() => null);
+  return follower?.status === "accepted";
 }
 
 const sanitizeContentWarning = (value: unknown): string | null => {
@@ -155,7 +164,7 @@ function isAuthorHidden(authorId: string, filters: VisibilityFilters, viewerId: 
 function buildApTags(
   instanceDomain: string,
   hashtags: string[],
-  mentionUsers: Array<{ id: string }>,
+  mentionUsers: Array<{ id: string; actorUri?: string }>,
 ): any[] {
   const tags: any[] = [];
   const base = `https://${instanceDomain}`;
@@ -168,11 +177,21 @@ function buildApTags(
     });
   }
   const uniqueMentions = Array.from(new Set((mentionUsers || []).map((u) => u.id)));
-  for (const id of uniqueMentions) {
+  for (const rawId of uniqueMentions) {
+    const parsed = rawId.replace(/^@+/, "");
+    const parts = parsed.split("@");
+    let href: string;
+    if (parts.length >= 2) {
+      const handle = parts.shift() || "";
+      const domain = parts.join("@");
+      href = `https://${domain}/ap/users/${handle}`;
+    } else {
+      href = getActorUri(parsed, instanceDomain);
+    }
     tags.push({
       type: "Mention",
-      href: getActorUri(id, instanceDomain),
-      name: `@${id}`,
+      href,
+      name: parts.length >= 2 ? `@${parsed}` : `@${parsed}`,
     });
   }
   return tags;
@@ -181,12 +200,43 @@ function buildApTags(
 async function resolveMentionUsers(
   store: ReturnType<typeof makeData>,
   handles: string[],
-): Promise<any[]> {
+  env: Bindings,
+): Promise<Array<{ id: string; display_name?: string; actorUri?: string }>> {
+  const instanceDomain = requireInstanceDomain(env);
   const uniqueHandles = Array.from(new Set(handles.map((h) => h.trim()).filter(Boolean)));
   const users: any[] = [];
   for (const handle of uniqueHandles) {
-    const user = await store.getUser(handle).catch(() => null);
-    if (user) users.push(user);
+    const cleaned = handle.replace(/^@+/, "");
+    if (!cleaned) continue;
+    const parts = cleaned.split("@");
+
+    // Remote mention
+    if (parts.length >= 2) {
+      const localPart = parts.shift() || "";
+      const domainPart = parts.join("@").toLowerCase();
+      const account = `${localPart}@${domainPart}`;
+
+      if (domainPart === instanceDomain.toLowerCase()) {
+        const localUser = await store.getUser(localPart).catch(() => null);
+        if (localUser) {
+          users.push({ id: localUser.id, display_name: localUser.display_name });
+          continue;
+        }
+      }
+
+      const actorUri = await webfingerLookup(account).catch(() => null);
+      if (actorUri) {
+        await getOrFetchActor(actorUri, env as any).catch(() => null);
+        users.push({
+          id: `@${localPart}@${domainPart}`,
+          actorUri,
+        });
+      }
+      continue;
+    }
+
+    const user = await store.getUser(cleaned).catch(() => null);
+    if (user) users.push({ id: user.id, display_name: user.display_name });
   }
   return users;
 }
@@ -194,9 +244,9 @@ async function resolveMentionUsers(
 async function filterMentionTargets(
   store: ReturnType<typeof makeData>,
   actorId: string,
-  mentionUsers: Array<{ id: string }>,
-): Promise<Array<{ id: string }>> {
-  const allowed: Array<{ id: string }> = [];
+  mentionUsers: Array<{ id: string; actorUri?: string }>,
+): Promise<Array<{ id: string; actorUri?: string }>> {
+  const allowed: Array<{ id: string; actorUri?: string }> = [];
   for (const target of mentionUsers) {
     if (!target?.id || target.id === actorId) continue;
     const blocked = await store.isBlocked?.(actorId, target.id).catch(() => false);
@@ -224,10 +274,11 @@ async function notifyMentions(
   env: Bindings,
   actor: any,
   postId: string,
-  mentionUsers: Array<{ id: string }>,
+  mentionUsers: Array<{ id: string; actorUri?: string }>,
 ): Promise<void> {
   for (const target of mentionUsers) {
     if (!target?.id || target.id === actor.id) continue;
+    if (target.id.includes("@")) continue;
     const blocked = await store.isBlocked?.(target.id, actor.id).catch(() => false);
     const blocking = await store.isBlocked?.(actor.id, target.id).catch(() => false);
     if (blocked || blocking) continue;
@@ -265,7 +316,7 @@ async function buildPostPayload(
   if (targetCommunityId) {
     const community = await store.getCommunity(targetCommunityId);
     if (!community) throw new HttpError(404, "community not found");
-    if (!(await requireMember(store, targetCommunityId, user.id))) {
+    if (!(await requireMember(store, targetCommunityId, user.id, env))) {
       throw new HttpError(403, "forbidden");
     }
   }
@@ -566,6 +617,7 @@ posts.post("/communities/:id/posts", auth, async (c) => {
     const mentionUsers = await resolveMentionUsers(
       store,
       extractMentions(post.text || ""),
+      c.env as Bindings,
     );
     const allowedMentions = await filterMentionTargets(store, user.id, mentionUsers);
     const instanceDomain = requireInstanceDomain(c.env);
@@ -606,6 +658,7 @@ posts.post("/posts", auth, async (c) => {
     const mentionUsers = await resolveMentionUsers(
       store,
       extractMentions(post.text || ""),
+      c.env as Bindings,
     );
     const allowedMentions = await filterMentionTargets(store, user.id, mentionUsers);
     const instanceDomain = requireInstanceDomain(c.env);
@@ -640,7 +693,7 @@ posts.get("/communities/:id/posts", auth, async (c) => {
     if (!(await store.getCommunity(community_id))) {
       return fail(c, "community not found", 404);
     }
-    if (!(await requireMember(store, community_id, user.id))) {
+    if (!(await requireMember(store, community_id, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
     const list: any[] = await store.listPostsByCommunity(community_id);
@@ -719,7 +772,7 @@ posts.get("/hashtags/:tag/posts", auth, async (c) => {
     for (const post of postsByTag as any[]) {
       if (isAuthorHidden((post as any).author_id, filters, user.id)) continue;
       if ((post as any).community_id) {
-        if (!(await requireMember(store, (post as any).community_id, user.id))) continue;
+        if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) continue;
       }
       visible.push(post);
     }
@@ -758,7 +811,7 @@ posts.get("/posts/:id", auth, async (c) => {
     if (isAuthorHidden((post as any).author_id, filters, user.id)) {
       return fail(c, "forbidden", 403);
     }
-    if (!(await requireMember(store, (post as any).community_id, user.id))) {
+    if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
     const result: any = { ...post };
@@ -789,7 +842,7 @@ posts.get("/posts/:id/history", auth, async (c) => {
     const post_id = c.req.param("id");
     const post = await store.getPost(post_id);
     if (!post) return fail(c, "post not found", 404);
-    if (!(await requireMember(store, (post as any).community_id, user.id))) {
+    if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
     if ((post as any).author_id !== user.id && !isAdminUser(user, c.env as Bindings)) {
@@ -811,7 +864,7 @@ posts.get("/posts/:id/poll", auth, async (c) => {
     const post_id = c.req.param("id");
     const post = await store.getPost(post_id);
     if (!post) return fail(c, "post not found", 404);
-    if (!(await requireMember(store, (post as any).community_id, user.id))) {
+    if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
     const poll = await loadPollSummaryForPost(store, post_id, user.id);
@@ -978,7 +1031,7 @@ posts.get("/posts/:id/reposts", auth, async (c) => {
     const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10));
     const post = await store.getPost(post_id);
     if (!post) return fail(c, "post not found", 404);
-    if (!(await requireMember(store, (post as any).community_id, user.id))) {
+    if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
     const rows = await store.listRepostsByPost(post_id, limit, offset);
@@ -1010,7 +1063,7 @@ posts.post("/posts/:id/vote", auth, async (c) => {
     const post_id = c.req.param("id");
     const post = await store.getPost(post_id);
     if (!post) return fail(c, "post not found", 404);
-    if (!(await requireMember(store, (post as any).community_id, user.id))) {
+    if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
     if (!store.getPollByPost || !store.createPollVotes) {
@@ -1070,7 +1123,7 @@ posts.get("/posts/:id/reactions", auth, async (c) => {
     const post_id = c.req.param("id");
     const post = await store.getPost(post_id);
     if (!post) return fail(c, "post not found", 404);
-    if (!(await requireMember(store, (post as any).community_id, user.id))) {
+    if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
     const list = await store.listReactionsByPost(post_id);
@@ -1088,7 +1141,7 @@ posts.post("/posts/:id/bookmark", auth, async (c) => {
     const post_id = c.req.param("id");
     const post = await store.getPost(post_id);
     if (!post) return fail(c, "post not found", 404);
-    if (!(await requireMember(store, (post as any).community_id, user.id))) {
+    if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
     await store.addBookmark({
@@ -1111,7 +1164,7 @@ posts.delete("/posts/:id/bookmark", auth, async (c) => {
     const post_id = c.req.param("id");
     const post = await store.getPost(post_id);
     if (!post) return fail(c, "post not found", 404);
-    if (!(await requireMember(store, (post as any).community_id, user.id))) {
+    if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
     await store.deleteBookmark(post_id, user.id);
@@ -1138,7 +1191,7 @@ posts.get("/me/bookmarks", auth, async (c) => {
       const post = await store.getPost((row as any).post_id);
       if (!post) continue;
       if ((post as any).community_id) {
-        if (!(await requireMember(store, (post as any).community_id, user.id))) continue;
+        if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) continue;
       }
       posts.push({
         ...post,
@@ -1164,7 +1217,7 @@ posts.get("/posts/:id/comments", auth, async (c) => {
     const post_id = c.req.param("id");
     const post = await store.getPost(post_id);
     if (!post) return fail(c, "post not found", 404);
-    if (!(await requireMember(store, (post as any).community_id, user.id))) {
+    if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
     const filters = await getVisibilityFilters(store, user.id);
@@ -1188,7 +1241,7 @@ posts.get("/communities/:id/reactions-summary", auth, async (c) => {
     if (!(await store.getCommunity(community_id))) {
       return fail(c, "community not found", 404);
     }
-    if (!(await requireMember(store, community_id, user.id))) {
+    if (!(await requireMember(store, community_id, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
     const communityPosts: any[] = await store.listPostsByCommunity(community_id);
@@ -1217,7 +1270,7 @@ posts.post("/posts/:id/reactions", auth, async (c) => {
     const post_id = c.req.param("id");
     const post = await store.getPost(post_id);
     if (!post) return fail(c, "post not found", 404);
-    if (!(await requireMember(store, (post as any).community_id, user.id))) {
+    if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
     const body = await c.req.json().catch(() => ({})) as any;
@@ -1310,7 +1363,7 @@ posts.post("/posts/:id/comments", auth, async (c) => {
     const post_id = c.req.param("id");
     const post = await store.getPost(post_id);
     if (!post) return fail(c, "post not found", 404);
-    if (!(await requireMember(store, (post as any).community_id, user.id))) {
+    if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
     const body = await c.req.json().catch(() => ({})) as any;
@@ -1566,6 +1619,7 @@ posts.patch("/:id", auth, async (c) => {
     const mentionUsers = await resolveMentionUsers(
       store,
       extractMentions((updatedPost as any).text || ""),
+      c.env as Bindings,
     );
     const allowedMentions = await filterMentionTargets(store, user.id, mentionUsers);
     await persistPostMetadata(store, post_id, hashtags, allowedMentions);

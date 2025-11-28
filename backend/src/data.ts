@@ -11,6 +11,7 @@ import type {
   EnvWithDatabase,
   PublicAccountBindings,
 } from "@takos/platform/server";
+import { requireInstanceDomain } from "@takos/platform/server";
 
 export type DataFactory = (env: EnvWithDatabase) => DatabaseAPI;
 
@@ -18,6 +19,7 @@ let currentFactory: DataFactory = (env) =>
   createDatabaseAPI({
     DB: env.DB,
     createPrismaClient: getPrisma,
+    instanceDomain: requireInstanceDomain(env as any),
   });
 
 /**
@@ -46,5 +48,6 @@ export function getDefaultDataFactory(): DataFactory {
     createDatabaseAPI({
       DB: env.DB,
       createPrismaClient: getPrisma,
+      instanceDomain: requireInstanceDomain(env as any),
     });
 }
