@@ -15,7 +15,6 @@ import { api, useMe } from "../lib/api";
 import AllStoriesBar from "../components/AllStoriesBar";
 import PostCard from "../components/PostCard";
 import useSwipeTabs from "../hooks/useSwipeTabs";
-import Avatar from "../components/Avatar";
 import { useShellContext } from "../lib/shell-context";
 
 // Homeの偽StoriesBarを削除。実データ版を使用、E
@@ -182,43 +181,7 @@ function TimelineFilter(props: {
   );
 }
 
-type Props = {
-  onOpenNotifications?: () => void;
-  onOpenComposer?: () => void;
-};
-
-function InlineComposer(props: {
-  avatarUrl?: string;
-  displayName?: string;
-  onCompose?: () => void;
-}) {
-  return (
-    <div class="rounded-2xl border hairline bg-white/80 dark:bg-neutral-900/80 shadow-sm backdrop-blur">
-      <div class="p-3 sm:p-4 flex gap-3">
-        <Avatar
-          src={props.avatarUrl || ""}
-          alt={props.displayName || "あなた"}
-          class="w-12 h-12 rounded-full object-cover"
-        />
-        <div class="flex-1 min-w-0">
-          <button
-            type="button"
-            class="w-full text-left border hairline rounded-2xl px-4 py-3 bg-gray-50 dark:bg-neutral-800 text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-neutral-600 transition-colors"
-            onClick={props.onCompose}
-          >
-            <div class="text-sm font-medium text-gray-600 dark:text-gray-300">
-              いまどうしてる？
-            </div>
-            <div class="flex gap-2 mt-2 text-xs text-blue-600">
-              <span class="px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-900/30">投稿を書く</span>
-              <span class="px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-900/30">画像を追加</span>
-            </div>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+type Props = {};
 
 export default function Home(props: Props) {
   const outlet = useShellContext();
@@ -646,15 +609,6 @@ export default function Home(props: Props) {
             {/* ストーリーズ */}
             <div class="mt-6">
               <AllStoriesBar preferredCommunityId={selectedCommunities()[0]} />
-            </div>
-
-            {/* クイック作成（Twitter風のツイートボックス） */}
-            <div class="mt-4">
-              <InlineComposer
-                avatarUrl={me()?.avatar_url || ""}
-                displayName={me()?.display_name || ""}
-                onCompose={openComposer}
-              />
             </div>
 
             {/* 表示範囲フィルター */}
