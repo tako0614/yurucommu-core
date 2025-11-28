@@ -581,22 +581,23 @@ export interface DatabaseAPI {
   deleteApFollowers(local_user_id: string, remote_actor_id: string): Promise<void>;
   findApFollower(local_user_id: string, remote_actor_id: string): Promise<any | null>;
   updateApFollowersStatus(local_user_id: string, remote_actor_id: string, status: string, accepted_at?: Date): Promise<void>;
-  countApFollowers(local_user_id: string, status?: string): Promise<number>;
+  countApFollowers(local_user_id: string, status?: string | null): Promise<number>;
   listApFollowers(
     local_user_id: string,
-    status?: string,
+    status?: string | null,
     limit?: number,
     offset?: number,
   ): Promise<Array<{ remote_actor_id: string }>>;
 
   // ActivityPub - Follows
   upsertApFollow(input: ApFollowerInput): Promise<any>;
+  deleteApFollows(local_user_id: string, remote_actor_id: string): Promise<void>;
   findApFollow(local_user_id: string, remote_actor_id: string): Promise<any | null>;
   updateApFollowsStatus(local_user_id: string, remote_actor_id: string, status: string, accepted_at?: Date): Promise<void>;
-  countApFollows(local_user_id: string, status?: string): Promise<number>;
+  countApFollows(local_user_id: string, status?: string | null): Promise<number>;
   listApFollows(
     local_user_id: string,
-    status?: string,
+    status?: string | null,
     limit?: number,
     offset?: number,
   ): Promise<Array<{ remote_actor_id: string }>>;
@@ -637,6 +638,7 @@ export interface DatabaseAPI {
 
   // ActivityPub - Actor Cache
   findApActor(id: string): Promise<any | null>;
+  findApActorByHandleAndDomain(handle: string, domain: string): Promise<any | null>;
   upsertApActor(actor: Record<string, any>): Promise<any>;
 
   // ActivityPub - Keypairs

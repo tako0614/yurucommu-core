@@ -2416,7 +2416,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
-  const countApFollowers = async (local_user_id: string, status?: string) => {
+  const countApFollowers = async (local_user_id: string, status?: string | null) => {
     const where: Record<string, any> = { local_user_id };
     if (status) {
       where.status = status;
@@ -2505,7 +2505,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
-  const countApFollows = async (local_user_id: string, status?: string) => {
+  const countApFollows = async (local_user_id: string, status?: string | null) => {
     const where: Record<string, any> = { local_user_id };
     if (status) {
       where.status = status;
@@ -2985,6 +2985,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
+  const findApActorByHandleAndDomain = async (handle: string, domain: string) => {
+    return (prisma as any).ap_actors.findFirst({
+      where: { handle, domain: domain.toLowerCase() },
+    });
+  };
+
   const upsertApActor = async (actor: Record<string, any>) => {
     return (prisma as any).ap_actors.upsert({
       where: { id: actor.id },
@@ -3421,6 +3427,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     createApAnnounce,
     deleteApAnnouncesByActivityId,
     findApActor,
+    findApActorByHandleAndDomain,
     upsertApActor,
     // ActivityPub - Keypairs
     getApKeypair,

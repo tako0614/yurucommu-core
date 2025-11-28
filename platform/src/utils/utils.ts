@@ -3,6 +3,7 @@
  */
 
 import { makeData } from "../server/data-factory";
+import { deliverSingleQueuedItem } from "../activitypub/delivery-worker";
 
 type Disconnectable = { disconnect?: () => Promise<void> | void };
 type QueryableStore = Disconnectable & { query: (sql: string, params?: any[]) => Promise<any[]> };
@@ -95,33 +96,103 @@ export async function withTransaction<T>(
   }
 }
 
+type EnqueueDeliveriesOptions = {
+  env?: any;
+  /**
+   * Followers below this count are delivered immediately (still queued for retry),
+   * otherwise they stay queued for the scheduled worker.
+   */
+  immediateThreshold?: number;
+};
+
 /**
- * Enqueue activity deliveries to followers (optimized with JOIN)
- * Avoids N+1 queries by using a single INSERT INTO...SELECT statement
- * 
- * @param store - Database store
- * @param userId - Local user ID
- * @param activityId - Activity ID to deliver
+ * Enqueue activity deliveries to followers.
+ * - For large fanout (>= immediateThreshold), enqueue only and let the worker handle it.
+ * - For small fanout, enqueue then immediately attempt delivery to avoid waiting for cron.
  */
 export async function enqueueDeliveriesToFollowers(
   store: QueryableStore,
   userId: string,
   activityId: string,
+  options: EnqueueDeliveriesOptions = {},
 ): Promise<void> {
-  // Use INSERT INTO...SELECT with JOIN to avoid N+1 queries
-  await store.query(
-    `INSERT INTO ap_delivery_queue (id, activity_id, target_inbox_url, status, created_at)
-     SELECT 
-       lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))),
-       ?,
-       a.inbox_url,
-       'pending',
-       datetime('now')
+  const threshold = options.immediateThreshold ?? 500;
+
+  // Count followers that can receive deliveries
+  const followerCountRows = await store.query(
+    `SELECT COUNT(*) as count
      FROM ap_followers f
      JOIN ap_actors a ON f.remote_actor_id = a.id
-     WHERE f.local_user_id = ? 
+     WHERE f.local_user_id = ?
        AND f.status = 'accepted'
        AND a.inbox_url IS NOT NULL`,
-    [activityId, userId]
+    [userId],
   );
+  const followerCount = Number(followerCountRows?.[0]?.count ?? 0);
+
+  if (followerCount === 0) {
+    return;
+  }
+
+  const shouldQueueOnly = !options.env || followerCount >= threshold;
+
+  if (shouldQueueOnly) {
+    // Use INSERT INTO...SELECT with JOIN to avoid N+1 queries
+    await store.query(
+      `INSERT INTO ap_delivery_queue (id, activity_id, target_inbox_url, status, created_at)
+       SELECT 
+         lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))),
+         ?,
+         a.inbox_url,
+         'pending',
+         datetime('now')
+       FROM ap_followers f
+       JOIN ap_actors a ON f.remote_actor_id = a.id
+       WHERE f.local_user_id = ? 
+         AND f.status = 'accepted'
+         AND a.inbox_url IS NOT NULL`,
+      [activityId, userId],
+    );
+    return;
+  }
+
+  // Small fanout: insert per recipient so we can immediately deliver them
+  const followers = await store.query(
+    `SELECT a.inbox_url
+     FROM ap_followers f
+     JOIN ap_actors a ON f.remote_actor_id = a.id
+     WHERE f.local_user_id = ?
+       AND f.status = 'accepted'
+       AND a.inbox_url IS NOT NULL`,
+    [userId],
+  );
+
+  const deliveryIds: string[] = [];
+
+  for (const follower of followers) {
+    const inboxUrl = follower?.inbox_url;
+    if (!inboxUrl) continue;
+
+    const deliveryId = crypto.randomUUID();
+    deliveryIds.push(deliveryId);
+
+    await store.query(
+      `INSERT INTO ap_delivery_queue 
+       (id, activity_id, target_inbox_url, status, created_at)
+       VALUES (?, ?, ?, 'pending', datetime('now'))`,
+      [deliveryId, activityId, inboxUrl],
+    );
+  }
+
+  // Attempt immediate delivery; failures stay queued for the worker to retry.
+  for (const deliveryId of deliveryIds) {
+    try {
+      await deliverSingleQueuedItem(options.env as any, deliveryId);
+    } catch (error) {
+      console.warn(
+        `[delivery] immediate delivery failed, will retry via worker`,
+        { deliveryId, error },
+      );
+    }
+  }
 }

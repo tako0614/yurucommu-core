@@ -146,7 +146,9 @@ communities.post("/communities", auth, async (c) => {
     created_at: new Date(),
   });
 
-  await enqueueDeliveriesToFollowers(store, user.id, activityId);
+  await enqueueDeliveriesToFollowers(store, user.id, activityId, {
+    env: c.env,
+  });
 
   return ok(c, community, 201);
 });
@@ -256,7 +258,9 @@ communities.patch("/communities/:id", auth, async (c) => {
     created_at: new Date(),
   });
 
-  await enqueueDeliveriesToFollowers(store, user.id, activityId);
+  await enqueueDeliveriesToFollowers(store, user.id, activityId, {
+    env: c.env,
+  });
 
   return ok(c, updated);
 });

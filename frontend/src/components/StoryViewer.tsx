@@ -411,13 +411,14 @@ export default function StoryViewer(props: Props) {
         />
 
         <div class="absolute inset-x-4 bottom-6">
-          <div class="flex items-center gap-3 text-white">
-            <div class="flex-1 flex items-center gap-3 rounded-full bg-white/15 backdrop-blur px-5 py-3 text-sm text-white/80">
-              <span>メッセージを送信</span>
+          <div class="flex items-center gap-3 text-white/90 text-sm rounded-2xl bg-white/10 backdrop-blur px-4 py-3">
+            <div class="flex-1">
+              現在ストーリーへの返信・リアクションは未対応です。近日アップデート予定です。
             </div>
             <button
               class="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"
-              aria-label="リアクション"
+              onClick={() => props.onClose()}
+              aria-label="閉じる"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -429,25 +430,8 @@ export default function StoryViewer(props: Props) {
                 stroke-linecap="round"
                 stroke-linejoin="round"
               >
-                <path d="M4.318 6.318a4.5 4.5 0 0 1 6.364 0L12 7.636l1.318-1.318a4.5 4.5 0 0 1 6.364 6.364L12 21.682l-7.682-7.682a4.5 4.5 0 0 1 0-6.364Z" />
-              </svg>
-            </button>
-            <button
-              class="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center"
-              aria-label="送信"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                class="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="m22 2-7 20-4-9-9-4Z" />
-                <path d="M22 2 11 13" />
+                <path d="M18 6 6 18" />
+                <path d="m6 6 12 12" />
               </svg>
             </button>
           </div>

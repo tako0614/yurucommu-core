@@ -15,7 +15,7 @@ export default function Compose() {
   const [audience, setAudience] = createSignal<"community" | "all">("all");
   const [showDrafts, setShowDrafts] = createSignal(false);
   const [currentDraftId, setCurrentDraftId] = createSignal<string | null>(null);
-  const [saveStatus, setSaveStatus] = createSignal<"" | "saving" | "saved" | "error">("");
+  const [saveStatus, setSaveStatus] = createSignal<"" | "saving" | "saved" | "error" | "pending-images">("");
   const [scheduledAt, setScheduledAt] = createSignal<string>("");
   const [showScheduler, setShowScheduler] = createSignal(false);
   const [communities] = createResource(async () =>
@@ -76,15 +76,21 @@ export default function Compose() {
     if (saveTimeout) clearTimeout(saveTimeout);
 
     saveTimeout = setTimeout(async () => {
-      await saveDraft();
+      await saveDraft({ auto: true });
     }, 2000);
   });
 
-  const saveDraft = async () => {
+  const saveDraft = async (opts?: { auto?: boolean }) => {
+    const auto = opts?.auto ?? false;
     const t = text().trim();
     const mediaUrls = uploadedMediaUrls();
 
     if (!t && selectedImages().length === 0 && mediaUrls.length === 0) return;
+
+    if (auto && selectedImages().length > 0) {
+      setSaveStatus("pending-images");
+      return;
+    }
 
     setSaveStatus("saving");
     try {
@@ -326,8 +332,24 @@ export default function Compose() {
         </div>
         <div class="flex items-center gap-3">
           {saveStatus() && (
-            <span class={`text-sm ${saveStatus() === "saved" ? "text-green-600" : saveStatus() === "saving" ? "text-blue-600" : "text-red-600"}`}>
-              {saveStatus() === "saved" ? "保存済み" : saveStatus() === "saving" ? "保存中..." : "保存失敗"}
+            <span
+              class={`text-sm ${
+                saveStatus() === "saved"
+                  ? "text-green-600"
+                  : saveStatus() === "saving"
+                  ? "text-blue-600"
+                  : saveStatus() === "pending-images"
+                  ? "text-amber-600"
+                  : "text-red-600"
+              }`}
+            >
+              {saveStatus() === "saved"
+                ? "保存済み"
+                : saveStatus() === "saving"
+                ? "保存中..."
+                : saveStatus() === "pending-images"
+                ? "画像を含む下書きは「下書き保存」を押して保存してください"
+                : "保存失敗"}
             </span>
           )}
           <button
@@ -580,7 +602,7 @@ export default function Compose() {
           <button
             type="button"
             class="px-6 py-2 rounded-full font-semibold bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600"
-            onClick={saveDraft}
+            onClick={() => saveDraft()}
           >
             下書き保存
           </button>
