@@ -49,6 +49,13 @@ Community actors add federation glue that differs from user accounts and match L
 - **Redirect for non-ActivityPub requests** — Plain HTTP requests to `/ap/groups/:slug` are redirected to `/communities/:slug`, letting humans view the community page while bots fetch JSON.
 - **Lemmy-compatible fields** — Group actors emit `@context = ["https://join-lemmy.org/context.json", "https://www.w3.org/ns/activitystreams", ...]` and surface `preferredUsername`, `summary` + `source`, `sensitive`, `postingRestrictedToMods`, `featured`, `icon`/`image`, and `publicKey` alongside `inbox`/`outbox`/`followers`.
 
+### Remote actors in memberships and invites
+
+- **Canonical IDs** — Anywhere the REST layer accepts a `user_id` (community direct invites, list membership), the value may be a local handle, `@user@domain`, or a full actor URI. The server resolves it via WebFinger/ActivityPub fetch and stores the canonical `@user@domain` alongside the actor URI.
+- **Remote invites** — Community direct invites deliver `Invite` activities to the resolved actor inbox, aligning with the “followers as members” rule above so remote servers can join without a local account.
+- **Lists** — List membership accepts remote actors; timelines include posts from remote members because posts store `author_id` as `@handle@domain` for non-local authors.
+- **Membership checks** — REST-side membership guards (community timelines, channels, reactions) now treat accepted group followers (`local_user_id = "group:{slug}"` in `ap_followers`) as members in addition to local `memberships` rows, so remote followers aren’t blocked by UI/API checks. `/communities/:id/members` surfaces these remote actors alongside local members.
+
 ## Collections
 
 Takos exposes ActivityStreams collections that mirror the database tables listed below.

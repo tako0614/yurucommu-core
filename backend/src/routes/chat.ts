@@ -12,13 +12,15 @@ import {
   HttpError,
   releaseStore,
   requireInstanceDomain,
+  getActorUri,
+  webfingerLookup,
+  getOrFetchActor,
 } from "@takos/platform/server";
 import {
   sendDirectMessage,
   sendChannelMessage,
   getDmThreadMessages,
   getChannelMessages,
-  fetchDmThreadByHandle,
   computeParticipantsHash,
   canonicalizeParticipants,
 } from "@takos/platform/server";
@@ -31,8 +33,88 @@ async function requireMember(
   store: ReturnType<typeof makeData>,
   communityId: string,
   userId: string,
+  env: any,
 ): Promise<boolean> {
-  return await store.hasMembership(communityId, userId);
+  const localMember = await store.hasMembership(communityId, userId);
+  if (localMember) return true;
+
+  const instanceDomain = requireInstanceDomain(env as any);
+  const actorUri = getActorUri(userId, instanceDomain);
+  const follower = await store.findApFollower?.(`group:${communityId}`, actorUri).catch(() => null);
+  return follower?.status === "accepted";
+}
+
+function makeInternalFetcher(env: Record<string, unknown>) {
+  const rawRoot = typeof (env as any).ROOT_DOMAIN === "string" ? (env as any).ROOT_DOMAIN.trim() : "";
+  const rootDomain = rawRoot ? rawRoot.toLowerCase() : "";
+  const binding = (env as any).ACCOUNT_BACKEND;
+
+  if (!rootDomain || !binding?.fetch) {
+    return null;
+  }
+
+  return (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    try {
+      const urlStr = input instanceof Request ? input.url : input.toString();
+      const url = new URL(urlStr);
+      if (url.hostname.toLowerCase().endsWith(`.${rootDomain}`)) {
+        return binding.fetch(input, init);
+      }
+    } catch {
+      // Fall through
+    }
+    return fetch(input, init);
+  };
+}
+
+async function resolveRecipientActorUris(
+  env: Record<string, unknown>,
+  rawRecipients: string[],
+): Promise<string[]> {
+  const instanceDomain = requireInstanceDomain(env as any);
+  const internalFetcher = makeInternalFetcher(env) ?? fetch;
+  const actorUris: string[] = [];
+
+  for (const raw of rawRecipients) {
+    const normalized = String(raw || "").trim();
+    if (!normalized) continue;
+
+    if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
+      actorUris.push(normalized);
+      continue;
+    }
+
+    const withoutPrefix = normalized.replace(/^@+/, "");
+    const parts = withoutPrefix.split("@");
+
+    if (parts.length >= 2) {
+      const handle = (parts.shift() || "").trim();
+      const domain = parts.join("@").trim().toLowerCase();
+      if (!handle || !domain) continue;
+      const account = `${handle}@${domain}`;
+      const actorUri = await webfingerLookup(account, internalFetcher).catch(() => null);
+      if (!actorUri) continue;
+      const actor = await getOrFetchActor(actorUri, env as any, false, internalFetcher).catch(() => null);
+      actorUris.push((actor as any)?.id || actorUri);
+      continue;
+    }
+
+    actorUris.push(getActorUri(withoutPrefix.toLowerCase(), instanceDomain));
+  }
+
+  return Array.from(new Set(actorUris));
+}
+
+async function getOrCreateDmThread(
+  store: ReturnType<typeof makeData>,
+  participants: string[],
+  limit: number,
+) {
+  const normalized = canonicalizeParticipants(participants);
+  const hash = computeParticipantsHash(normalized);
+  const thread = await store.upsertDmThread(hash, JSON.stringify(normalized));
+  const messages = await store.listDmMessages(thread.id, limit);
+  return { threadId: thread.id, messages };
 }
 
 // GET /dm/threads - List all DM threads for the authenticated user
@@ -41,7 +123,7 @@ chat.get("/dm/threads", auth, async (c) => {
   try {
     const user = c.get("user") as any;
     const instanceDomain = requireInstanceDomain(c.env);
-    const userActorUri = `https://${instanceDomain}/ap/users/${user.handle || user.id}`;
+    const userActorUri = getActorUri(user.handle || user.id, instanceDomain);
 
     // Get all threads where user is a participant
     const allThreads = await store.listAllDmThreads?.();
@@ -95,7 +177,7 @@ chat.get("/dm/threads/:threadId/messages", auth, async (c) => {
     }
 
     const instanceDomain = requireInstanceDomain(c.env);
-    const userActorUri = `https://${instanceDomain}/ap/users/${user.handle || user.id}`;
+    const userActorUri = getActorUri(user.handle || user.id, instanceDomain);
     const participants = JSON.parse(thread.participants_json || "[]");
 
     if (!participants.includes(userActorUri)) {
@@ -133,12 +215,16 @@ chat.get("/dm/with/:handle", auth, async (c) => {
       }
     }
 
-    const { threadId, messages } = await fetchDmThreadByHandle(
-      c.env,
-      user.handle || user.id,
-      handleLower,
-      limit,
-    );
+    const instanceDomain = requireInstanceDomain(c.env);
+    const senderActorUri = getActorUri(user.handle || user.id, instanceDomain);
+    const recipientActors = await resolveRecipientActorUris(c.env as any, [handleLower]);
+    const targetActor = recipientActors[0];
+    if (!targetActor) {
+      return fail(c, "user not found", 404);
+    }
+
+    const participants = canonicalizeParticipants([senderActorUri, targetActor]);
+    const { threadId, messages } = await getOrCreateDmThread(store, participants, limit);
 
     return ok(c, { threadId, messages });
   } catch (error: unknown) {
@@ -188,12 +274,17 @@ chat.post("/dm/send", auth, async (c) => {
       }
     }
 
+    const actorRecipients = await resolveRecipientActorUris(c.env as any, recipients);
+    if (!actorRecipients.length) {
+      throw new HttpError(404, "recipients not found");
+    }
+
     const inReplyTo = body.in_reply_to || body.inReplyTo || undefined;
 
     const { threadId, activity } = await sendDirectMessage(
       c.env,
       user.handle || user.id,
-      recipients,
+      actorRecipients,
       content,
       inReplyTo,
     );
@@ -226,7 +317,7 @@ chat.get("/communities/:id/channels/:channelId/messages", auth, async (c) => {
     }
 
     // Verify user is member
-    if (!(await requireMember(store, communityId, user.id))) {
+    if (!(await requireMember(store, communityId, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
 
@@ -265,7 +356,7 @@ chat.post("/communities/:id/channels/:channelId/messages", auth, async (c) => {
     }
 
     // Verify user is member
-    if (!(await requireMember(store, communityId, user.id))) {
+    if (!(await requireMember(store, communityId, user.id, c.env))) {
       throw new HttpError(403, "forbidden");
     }
 

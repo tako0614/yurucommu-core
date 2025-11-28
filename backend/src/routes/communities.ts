@@ -14,6 +14,8 @@ import {
   getActivityUri,
   ACTIVITYSTREAMS_CONTEXT,
   enqueueDeliveriesToFollowers,
+  webfingerLookup,
+  getOrFetchActor,
 } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
 import { makeData } from "../data";
@@ -35,11 +37,16 @@ async function requireRole(
   communityId: string,
   userId: string,
   roles: string[],
+  env: any,
 ) {
   const list = await store.listMembershipsByCommunity(communityId);
   const m = (list as any[]).find((x) => (x as any).user_id === userId);
-  if (!m) return false;
-  return roles.includes((m as any).role);
+  if (m) return roles.includes((m as any).role);
+
+  // Allow remote members (followers) to act only as baseline Member (never Moderator/Owner)
+  const isMember = await requireMember(store, communityId, userId, env);
+  if (!isMember) return false;
+  return roles.includes("Member") || roles.includes("member");
 }
 
 function canInvite(community: any, myRole: string | null) {
@@ -48,13 +55,110 @@ function canInvite(community: any, myRole: string | null) {
   return myRole === "Owner" || myRole === "Moderator";
 }
 
+async function loadRemoteMembers(
+  store: ReturnType<typeof makeData>,
+  env: any,
+  communityId: string,
+) {
+  const instanceDomain = requireInstanceDomain(env);
+  const followers =
+    (await store.listApFollowers?.(`group:${communityId}`, "accepted", 500).catch(() => [])) ?? [];
+  const remotes: any[] = [];
+  for (const follower of followers as any[]) {
+    const actorId = (follower as any).remote_actor_id;
+    if (!actorId) continue;
+    try {
+      const hostname = new URL(actorId).hostname.toLowerCase();
+      if (hostname === instanceDomain.toLowerCase()) continue;
+    } catch {
+      // ignore invalid URLs
+    }
+
+    let actorProfile: any = null;
+    try {
+      actorProfile = await getOrFetchActor(actorId, env as any);
+    } catch {
+      actorProfile = null;
+    }
+
+    const avatar =
+      (Array.isArray(actorProfile?.icon)
+        ? actorProfile.icon.find((i: any) => i?.url)?.url
+        : actorProfile?.icon?.url) || null;
+
+    const displayName =
+      actorProfile?.name || actorProfile?.preferredUsername || actorId;
+
+    remotes.push({
+      user_id: actorId,
+      role: "Member",
+      nickname: null,
+      joined_at: (follower as any).accepted_at || (follower as any).created_at || nowISO(),
+      display_name: displayName,
+      avatar_url: avatar,
+      handle: actorProfile?.preferredUsername || actorId,
+      remote: true,
+    });
+  }
+  return remotes;
+}
+
+async function resolveActorId(
+  store: ReturnType<typeof makeData>,
+  env: any,
+  rawId: string,
+): Promise<{ id: string; actorUri: string } | null> {
+  const input = String(rawId || "").trim();
+  if (!input) return null;
+  const instanceDomain = requireInstanceDomain(env);
+
+  // Local
+  const local = await store.getUser(input).catch(() => null);
+  if (local) {
+    const actorUri = getActorUri(local.id, instanceDomain);
+    return { id: local.id, actorUri };
+  }
+
+  // Actor URI
+  if (input.startsWith("http://") || input.startsWith("https://")) {
+    const actorUri = input;
+    const actor = await getOrFetchActor(actorUri, env as any).catch(() => null);
+    if (!actor) return null;
+    const handle = actor.preferredUsername || actorUri.split("/").pop() || "unknown";
+    const domain = new URL(actorUri).hostname.toLowerCase();
+    return { id: `@${handle}@${domain}`, actorUri };
+  }
+
+  // acct: @user@domain
+  const acct = input.replace(/^@+/, "");
+  if (acct.includes("@")) {
+    const actorUri = await webfingerLookup(acct, fetch).catch(() => null);
+    if (!actorUri) return null;
+    const actor = await getOrFetchActor(actorUri, env as any).catch(() => null);
+    if (!actor) return null;
+    const handle = actor.preferredUsername || acct.split("@")[0] || acct;
+    const domain = new URL(actorUri).hostname.toLowerCase();
+    return { id: `@${handle}@${domain}`, actorUri };
+  }
+
+  return null;
+}
+
 async function requireMember(
   store: ReturnType<typeof makeData>,
   communityId: string | null | undefined,
   userId: string,
+  env: any,
 ) {
   if (!communityId) return true;
-  return await store.hasMembership(communityId, userId);
+  const isLocalMember = await store.hasMembership(communityId, userId);
+  if (isLocalMember) return true;
+
+  // Fallback: federated member via accepted Follow on the group actor
+  const instanceDomain = requireInstanceDomain(env as any);
+  const actorUri = getActorUri(userId, instanceDomain);
+  const follower = await store.findApFollower?.(`group:${communityId}`, actorUri).catch(() => null);
+  return follower?.status === "accepted";
 }
 
 // Get/search communities
@@ -160,18 +264,20 @@ communities.get("/communities/:id", auth, async (c) => {
   const id = c.req.param("id");
   const community: any = await store.getCommunity(id);
   if (!community) return fail(c, "community not found", 404);
-  if (!(await store.hasMembership(id, user.id))) {
+  if (!(await requireMember(store, id, user.id, c.env))) {
     return fail(c, "forbidden", 403);
   }
   const members = await store.listCommunityMembersWithUsers(id);
+  const remoteMembers = await loadRemoteMembers(store, c.env, id);
   const myRole = (members as any[]).find((m) =>
     (m as any).user_id === user.id
   )?.role || null;
   return ok(c, {
     ...community,
-    member_count: (members as any[]).length,
+    member_count: (members as any[]).length + remoteMembers.length,
     my_role: myRole,
-    members: (members as any[]).map((m) => ({
+    members: [
+      ...(members as any[]).map((m) => ({
       user_id: (m as any).user_id,
       role: (m as any).role,
       nickname: (m as any).nickname,
@@ -179,7 +285,9 @@ communities.get("/communities/:id", auth, async (c) => {
       display_name: (m as any).user?.display_name || "",
       avatar_url: (m as any).user?.avatar_url || "",
       handle: (m as any).user?.handle || null,
-    })),
+      })),
+      ...remoteMembers,
+    ],
   });
 });
 
@@ -190,7 +298,7 @@ communities.patch("/communities/:id", auth, async (c) => {
   const id = c.req.param("id");
   const community: any = await store.getCommunity(id);
   if (!community) return fail(c, "community not found", 404);
-  if (!(await requireRole(store, id, user.id, ["Owner", "Moderator"]))) {
+  if (!(await requireRole(store, id, user.id, ["Owner", "Moderator"], c.env))) {
     return fail(c, "forbidden", 403);
   }
   const body = await c.req.json().catch(() => ({})) as any;
@@ -272,7 +380,7 @@ communities.get("/communities/:id/channels", auth, async (c) => {
   const community_id = c.req.param("id");
   const community = await store.getCommunity(community_id);
   if (!community) return fail(c, "community not found", 404);
-  if (!(await store.hasMembership(community_id, user.id))) {
+  if (!(await requireMember(store, community_id, user.id, c.env))) {
     return fail(c, "forbidden", 403);
   }
   const list = await store.listChannelsByCommunity(community_id);
@@ -296,7 +404,7 @@ communities.post("/communities/:id/channels", auth, async (c) => {
   const community = await store.getCommunity(community_id);
   if (!community) return fail(c, "community not found", 404);
   if (
-    !(await requireRole(store, community_id, user.id, ["Owner", "Moderator"]))
+    !(await requireRole(store, community_id, user.id, ["Owner", "Moderator"], c.env))
   ) return fail(c, "forbidden", 403);
   const body = await c.req.json().catch(() => ({})) as any;
   let name = String(body.name || "").trim();
@@ -326,7 +434,7 @@ communities.patch("/communities/:id/channels/:channelId", auth, async (c) => {
   const channelId = c.req.param("channelId");
   const community = await store.getCommunity(community_id);
   if (!community) return fail(c, "community not found", 404);
-  if (!(await requireRole(store, community_id, user.id, ["Owner", "Moderator"]))) {
+  if (!(await requireRole(store, community_id, user.id, ["Owner", "Moderator"], c.env))) {
     return fail(c, "forbidden", 403);
   }
   const body = await c.req.json().catch(() => ({})) as any;
@@ -344,7 +452,7 @@ communities.delete("/communities/:id/channels/:channelId", auth, async (c) => {
   const channelId = c.req.param("channelId");
   const community = await store.getCommunity(community_id);
   if (!community) return fail(c, "community not found", 404);
-  if (!(await requireRole(store, community_id, user.id, ["Owner", "Moderator"]))) {
+  if (!(await requireRole(store, community_id, user.id, ["Owner", "Moderator"], c.env))) {
     return fail(c, "forbidden", 403);
   }
   if (channelId === "general") return fail(c, "cannot delete general channel", 400);
@@ -360,7 +468,7 @@ communities.post("/communities/:id/invites", auth, async (c) => {
   const community = await store.getCommunity(community_id);
   if (!community) return fail(c, "community not found", 404);
   if (
-    !(await requireRole(store, community_id, user.id, ["Owner", "Moderator"]))
+    !(await requireRole(store, community_id, user.id, ["Owner", "Moderator"], c.env))
   ) return fail(c, "forbidden", 403);
   const body = await c.req.json().catch(() => ({})) as any;
   const max_uses = Number(body.max_uses || 1);
@@ -390,7 +498,7 @@ communities.get("/communities/:id/invites", auth, async (c) => {
   const community = await store.getCommunity(community_id);
   if (!community) return fail(c, "community not found", 404);
   if (
-    !(await requireRole(store, community_id, user.id, ["Owner", "Moderator"]))
+    !(await requireRole(store, community_id, user.id, ["Owner", "Moderator"], c.env))
   ) return fail(c, "forbidden", 403);
   const list = await store.listInvites(community_id);
   return ok(c, list);
@@ -405,7 +513,7 @@ communities.post("/communities/:id/invites/:code/disable", auth, async (c) => {
   const community = await store.getCommunity(community_id);
   if (!community) return fail(c, "community not found", 404);
   if (
-    !(await requireRole(store, community_id, user.id, ["Owner", "Moderator"]))
+    !(await requireRole(store, community_id, user.id, ["Owner", "Moderator"], c.env))
   ) return fail(c, "forbidden", 403);
   const invite = await store.getInvite(code);
   if (!invite || (invite as any).community_id !== community_id) {
@@ -423,7 +531,7 @@ communities.post("/communities/:id/invites/reset", auth, async (c) => {
   const community = await store.getCommunity(community_id);
   if (!community) return fail(c, "community not found", 404);
   if (
-    !(await requireRole(store, community_id, user.id, ["Owner", "Moderator"]))
+    !(await requireRole(store, community_id, user.id, ["Owner", "Moderator"], c.env))
   ) return fail(c, "forbidden", 403);
   await store.resetInvites(community_id);
   return ok(c, { community_id, reset: true });
@@ -439,7 +547,7 @@ communities.post("/communities/:id/join", auth, async (c) => {
   const body = await c.req.json().catch(() => ({})) as any;
   const code = body.code || "";
   const nickname = body.nickname || user.display_name;
-  if (!(await store.hasMembership(community_id, user.id))) {
+  if (!(await requireMember(store, community_id, user.id, c.env))) {
     const invite: any = await store.getInvite(code);
     const now = Date.now();
     if (!invite || invite.community_id !== community_id) {
@@ -546,7 +654,7 @@ communities.post("/communities/:id/direct-invites", auth, async (c) => {
   const community_id = c.req.param("id");
   const community: any = await store.getCommunity(community_id);
   if (!community) return fail(c, "community not found", 404);
-  if (!(await store.hasMembership(community_id, me.id))) {
+  if (!(await requireMember(store, community_id, me.id, c.env))) {
     return fail(c, "forbidden", 403);
   }
   const members = await store.listCommunityMembersWithUsers(community_id);
@@ -566,12 +674,14 @@ communities.post("/communities/:id/direct-invites", auth, async (c) => {
 
   const created: any[] = [];
   for (const uid of ids) {
-    if (await store.hasMembership(community_id, uid)) continue;
+    const resolved = await resolveActorId(store, c.env, uid);
+    if (!resolved) continue;
+    if (await requireMember(store, community_id, resolved.id, c.env)) continue;
     const invId = crypto.randomUUID();
     const inv = await store.createMemberInvite({
       id: invId,
       community_id,
-      invited_user_id: uid,
+      invited_user_id: resolved.id,
       invited_by: me.id,
       status: "pending",
       created_at: nowISO(),
@@ -579,7 +689,7 @@ communities.post("/communities/:id/direct-invites", auth, async (c) => {
     await notify(
       store,
       c.env as Bindings,
-      uid,
+      resolved.id,
       "community_invite",
       me.id,
       "community",
@@ -590,7 +700,7 @@ communities.post("/communities/:id/direct-invites", auth, async (c) => {
 
     // Generate and save Invite Activity
     const actorUri = getActorUri(me.id, instanceDomain);
-    const targetActorUri = getActorUri(uid, instanceDomain);
+    const targetActorUri = resolved.actorUri;
     const activityId = getActivityUri(me.id, `invite-${invId}`, instanceDomain);
     const inviteActivity = {
       "@context": ACTIVITYSTREAMS_CONTEXT,
@@ -614,12 +724,18 @@ communities.post("/communities/:id/direct-invites", auth, async (c) => {
     });
 
     // Enqueue delivery to invited user
-    const targetActor = await store.findApActor(targetActorUri);
-    if (targetActor?.inbox_url) {
+    const targetActor =
+      (await store.findApActor?.(targetActorUri)) ??
+      (await getOrFetchActor(targetActorUri, c.env as any).catch(() => null));
+    const inboxUrl =
+      (targetActor as any)?.inbox ||
+      (targetActor as any)?.endpoints?.sharedInbox ||
+      (targetActor as any)?.inbox_url;
+    if (inboxUrl) {
       await store.createApDeliveryQueueItem({
         id: crypto.randomUUID(),
         activity_id: activityId,
-        target_inbox_url: targetActor.inbox_url,
+        target_inbox_url: inboxUrl,
         status: "pending",
         created_at: new Date(),
       });
@@ -673,11 +789,12 @@ communities.get("/communities/:id/members", auth, async (c) => {
   const community_id = c.req.param("id");
   const community = await store.getCommunity(community_id);
   if (!community) return fail(c, "community not found", 404);
-  if (!(await store.hasMembership(community_id, me.id))) {
+  if (!(await requireMember(store, community_id, me.id, c.env))) {
     return fail(c, "forbidden", 403);
   }
   const members = await store.listCommunityMembersWithUsers(community_id);
-  return ok(c, members);
+  const remoteMembers = await loadRemoteMembers(store, c.env, community_id);
+  return ok(c, [...members, ...remoteMembers]);
 });
 
 // Get community posts
@@ -688,7 +805,7 @@ communities.get("/communities/:id/posts", auth, async (c) => {
   if (!(await store.getCommunity(community_id))) {
     return fail(c, "community not found", 404);
   }
-  if (!(await requireMember(store, community_id, user.id))) {
+  if (!(await requireMember(store, community_id, user.id, c.env))) {
     return fail(c, "forbidden", 403);
   }
   const list: any[] = await store.listPostsByCommunity(community_id);
@@ -707,7 +824,7 @@ communities.get("/communities/:id/reactions-summary", auth, async (c) => {
   if (!(await store.getCommunity(community_id))) {
     return fail(c, "community not found", 404);
   }
-  if (!(await requireMember(store, community_id, user.id))) {
+  if (!(await requireMember(store, community_id, user.id, c.env))) {
     return fail(c, "forbidden", 403);
   }
   const summary: Record<string, Record<string, number>> = {};

@@ -76,6 +76,62 @@ const mapMediaEntries = (mediaJson: string): {
   };
 };
 
+const normalizeDomain = (value?: string) =>
+  typeof value === "string" ? value.trim().toLowerCase() : "";
+
+function parseUserIdentifier(input: string): { handle: string | null; domain: string | null } {
+  const trimmed = (input || "").trim();
+  if (!trimmed) return { handle: null, domain: null };
+
+  const withoutPrefix = trimmed.replace(/^@+/, "");
+  const parts = withoutPrefix.split("@");
+  if (parts.length >= 2) {
+    const handle = (parts.shift() || "").trim();
+    const domain = parts.join("@").trim();
+    if (handle && domain) {
+      return { handle, domain: domain.toLowerCase() };
+    }
+  }
+
+  try {
+    const url = new URL(trimmed);
+    const match = url.pathname.match(/\/ap\/users\/([a-z0-9_]{3,20})\/?$/);
+    if (match) {
+      return { handle: match[1], domain: url.hostname.toLowerCase() };
+    }
+  } catch {
+    // ignore parse errors
+  }
+
+  return { handle: null, domain: null };
+}
+
+function canonicalizeUserId(
+  input: string,
+  localDomain: string,
+): { primary: string; aliases: string[] } {
+  const parsed = parseUserIdentifier(input);
+  const aliases = new Set<string>();
+  const trimmed = (input || "").trim();
+  if (trimmed) aliases.add(trimmed);
+
+  if (parsed.handle) {
+    aliases.add(parsed.handle);
+  }
+
+  if (parsed.handle && parsed.domain) {
+    const withDomain = `@${parsed.handle}@${parsed.domain}`;
+    aliases.add(withDomain);
+    const isLocal = localDomain && parsed.domain === localDomain;
+    const primary = isLocal ? parsed.handle : withDomain;
+    aliases.add(primary);
+    return { primary, aliases: Array.from(aliases) };
+  }
+
+  const primary = trimmed || input;
+  return { primary, aliases: Array.from(aliases) };
+}
+
 /**
  * Creates a Database API instance with the provided configuration
  * This function injects the Prisma client factory, allowing different
@@ -84,6 +140,7 @@ const mapMediaEntries = (mediaJson: string): {
 export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   const prisma = config.createPrismaClient(config.DB);
   const db = config.DB;
+  const localDomain = normalizeDomain(config.instanceDomain);
 
   if (!db) {
     throw new Error("D1 database binding (DB) is required");
@@ -414,18 +471,16 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       const followers = await listApFollowers(userId1, "accepted", 1000);
       const following = await listApFollows(userId1, "accepted", 1000);
 
-      const followerIds = new Set(followers.map((f: any) => {
-        // Extract user ID from actor URI
-        const match = f.remote_actor_id.match(/\/ap\/users\/([a-z0-9_]+)$/);
-        return match ? match[1] : f.remote_actor_id;
-      }));
+      const followerIds = new Set(
+        followers.map((f: any) => canonicalizeUserId(f.remote_actor_id, localDomain).primary),
+      );
 
-      const followingIds = new Set(following.map((f: any) => {
-        const match = f.remote_actor_id.match(/\/ap\/users\/([a-z0-9_]+)$/);
-        return match ? match[1] : f.remote_actor_id;
-      }));
+      const followingIds = new Set(
+        following.map((f: any) => canonicalizeUserId(f.remote_actor_id, localDomain).primary),
+      );
 
-      return followerIds.has(userId2) && followingIds.has(userId2);
+      const target = canonicalizeUserId(userId2, localDomain).primary;
+      return followerIds.has(target) && followingIds.has(target);
     } catch {
       return false;
     }
@@ -436,16 +491,21 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     const followers = await listApFollowers(userId, "accepted", 1000);
     const following = await listApFollows(userId, "accepted", 1000);
 
-    const followerSet = new Set(followers.map((f: any) => f.remote_actor_id));
-    const mutualFollows = following
-      .filter((f: any) => followerSet.has(f.remote_actor_id))
-      .map((f: any) => ({
-        requester_id: userId,
-        addressee_id: f.remote_actor_id.match(/\/ap\/users\/([a-z0-9_]+)$/)?.[1] || f.remote_actor_id,
-        status: "accepted",
-      }));
+    const followerSet = new Set(
+      followers.map((f: any) => canonicalizeUserId(f.remote_actor_id, localDomain).primary),
+    );
 
-    return mutualFollows;
+    return following
+      .filter((f: any) => followerSet.has(canonicalizeUserId(f.remote_actor_id, localDomain).primary))
+      .map((f: any) => {
+        const canonical = canonicalizeUserId(f.remote_actor_id, localDomain);
+        return {
+          requester_id: userId,
+          addressee_id: canonical.primary,
+          addressee_aliases: canonical.aliases,
+          status: "accepted",
+        };
+      });
   };
 
   // -------------- Blocks & Mutes --------------
@@ -1223,9 +1283,15 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   const listGlobalPostsForUser = async (user_id: string) => {
     // Get mutual follows (friends) using ActivityPub tables
     const mutualFollows = await listFriends(user_id);
-    const friendIds = new Set<string>(
-      mutualFollows.map((f: any) => f.addressee_id)
-    );
+    const friendIds = new Set<string>();
+    for (const rel of mutualFollows as any[]) {
+      const aliases = Array.isArray((rel as any).addressee_aliases)
+        ? (rel as any).addressee_aliases
+        : [];
+      [rel.addressee_id, ...aliases].forEach((id) => {
+        if (id) friendIds.add(id);
+      });
+    }
     const authorIds = [user_id, ...friendIds];
     const visibility = await getVisibilitySets(user_id);
 
@@ -1320,12 +1386,23 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   ) => {
     // Get mutual follows (friends) using ActivityPub tables
     const mutualFollows = options?.friendIds
-      ? options.friendIds.map((id) => ({ requester_id: user_id, addressee_id: id, status: "accepted" }))
+      ? options.friendIds.map((id) => ({
+        requester_id: user_id,
+        addressee_id: id,
+        addressee_aliases: [id],
+        status: "accepted",
+      }))
       : await listFriends(user_id);
 
-    const friendIds = new Set<string>(
-      mutualFollows.map((f: any) => f.addressee_id)
-    );
+    const friendIds = new Set<string>();
+    for (const rel of mutualFollows as any[]) {
+      const aliases = Array.isArray((rel as any).addressee_aliases)
+        ? (rel as any).addressee_aliases
+        : [];
+      [rel.addressee_id, ...aliases].forEach((id) => {
+        if (id) friendIds.add(id);
+      });
+    }
 
     const authorIds = new Set<string>([
       user_id,
@@ -2119,9 +2196,15 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   const listGlobalStoriesForUser = async (user_id: string) => {
     // Get mutual follows (friends) using ActivityPub tables
     const mutualFollows = await listFriends(user_id);
-    const friendIds = new Set<string>(
-      mutualFollows.map((f: any) => f.addressee_id)
-    );
+    const friendIds = new Set<string>();
+    for (const rel of mutualFollows as any[]) {
+      const aliases = Array.isArray((rel as any).addressee_aliases)
+        ? (rel as any).addressee_aliases
+        : [];
+      [rel.addressee_id, ...aliases].forEach((id) => {
+        if (id) friendIds.add(id);
+      });
+    }
     const authorIds = [user_id, ...friendIds];
     const res = await (prisma as any).stories.findMany({
       where: {

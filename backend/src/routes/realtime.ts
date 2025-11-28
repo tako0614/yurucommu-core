@@ -67,11 +67,19 @@ async function loadFriendIds(
 ): Promise<Set<string>> {
   const relations: any[] = await store.listFriends(userId);
   const ids = new Set<string>();
+  const addAll = (value: string | null | undefined, aliases?: any) => {
+    if (value) ids.add(value);
+    if (Array.isArray(aliases)) {
+      for (const alias of aliases) {
+        if (alias) ids.add(alias);
+      }
+    }
+  };
   for (const rel of relations) {
     if (rel.requester_id === userId && rel.addressee_id) {
-      ids.add(rel.addressee_id);
+      addAll(rel.addressee_id, rel.addressee_aliases);
     } else if (rel.addressee_id === userId && rel.requester_id) {
-      ids.add(rel.requester_id);
+      addAll(rel.requester_id, rel.requester_aliases);
     }
   }
   return ids;

@@ -14,7 +14,7 @@ import type {
   Variables,
 } from "@takos/platform/server";
 import { makeData } from "../data";
-import { 
+import {
   ok, 
   fail, 
   nowISO, 
@@ -25,6 +25,7 @@ import {
   publishStoryCreate,
   publishStoryDelete
 } from "@takos/platform/server";
+import { requireInstanceDomain, getActorUri } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
 
 const stories = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -34,9 +35,15 @@ async function requireMember(
   store: ReturnType<typeof makeData>,
   communityId: string | null | undefined,
   userId: string,
+  env: any,
 ): Promise<boolean> {
   if (!communityId) return true;
-  return await store.hasMembership(communityId, userId);
+  const localMember = await store.hasMembership(communityId, userId);
+  if (localMember) return true;
+  const instanceDomain = requireInstanceDomain(env as any);
+  const actorUri = getActorUri(userId, instanceDomain);
+  const follower = await store.findApFollower?.(`group:${communityId}`, actorUri).catch(() => null);
+  return follower?.status === "accepted";
 }
 
 // Helper: check role
@@ -45,11 +52,14 @@ async function requireRole(
   communityId: string,
   userId: string,
   roles: string[],
+  env: any,
 ): Promise<boolean> {
   const list = await store.listMembershipsByCommunity(communityId);
   const m = (list as any[]).find((x) => (x as any).user_id === userId);
-  if (!m) return false;
-  return roles.includes((m as any).role);
+  if (m) return roles.includes((m as any).role);
+  const isMember = await requireMember(store, communityId, userId, env);
+  if (!isMember) return false;
+  return roles.includes("Member") || roles.includes("member");
 }
 
 const defaultDurationForItem = (item: StoryItem) => {
@@ -84,9 +94,10 @@ async function buildStoryPayload(
   options: {
     communityId?: string | null;
     allowBodyCommunityOverride?: boolean;
-  } = {}
+    env: Bindings;
+  },
 ): Promise<StoryInput> {
-  const { communityId, allowBodyCommunityOverride } = options;
+  const { communityId, allowBodyCommunityOverride, env } = options;
   let targetCommunityId = communityId ?? null;
 
   if (allowBodyCommunityOverride && body.community_id) {
@@ -96,7 +107,7 @@ async function buildStoryPayload(
   if (targetCommunityId) {
     const community = await store.getCommunity(targetCommunityId);
     if (!community) throw new HttpError(404, "community not found");
-    if (!(await requireMember(store, targetCommunityId, user.id))) {
+    if (!(await requireMember(store, targetCommunityId, user.id, env))) {
       throw new HttpError(403, "forbidden");
     }
   }
@@ -144,6 +155,7 @@ stories.post("/communities/:id/stories", auth, async (c) => {
     const story = await buildStoryPayload(store, user, body, {
       communityId: community_id,
       allowBodyCommunityOverride: false,
+      env: c.env,
     });
     await store.createStory(story);
     await publishStoryCreate(c.env, story);
@@ -165,7 +177,7 @@ stories.post("/stories", auth, async (c) => {
   try {
     const user = c.get("user") as any;
     const body = await c.req.json().catch(() => ({})) as any;
-    const story = await buildStoryPayload(store, user, body);
+    const story = await buildStoryPayload(store, user, body, { env: c.env });
     await store.createStory(story);
     await publishStoryCreate(c.env, story);
     return ok(c, story, 201);
@@ -204,7 +216,7 @@ stories.get("/communities/:id/stories", auth, async (c) => {
     const community_id = c.req.param("id");
     const community = await store.getCommunity(community_id);
     if (!community) return fail(c, "community not found", 404);
-    if (!(await requireMember(store, community_id, user.id))) {
+    if (!(await requireMember(store, community_id, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
     cleanupExpiredStories();
@@ -227,7 +239,7 @@ stories.get("/stories/:id", auth, async (c) => {
     const story = (await store.getStory(id)) as Story | null;
     if (!story) return fail(c, "story not found", 404);
     if (story.community_id) {
-      if (!(await requireMember(store, story.community_id, user.id))) {
+      if (!(await requireMember(store, story.community_id, user.id, c.env))) {
         return fail(c, "forbidden", 403);
       }
     } else if (story.author_id !== user.id) {
@@ -268,7 +280,7 @@ stories.patch("/stories/:id", auth, async (c) => {
         ? await requireRole(store, story.community_id, user.id, [
             "Owner",
             "Moderator",
-          ])
+          ], c.env)
         : false);
     if (!privileged) return fail(c, "forbidden", 403);
     const body = await c.req.json().catch(() => ({})) as any;
@@ -322,7 +334,7 @@ stories.delete("/stories/:id", auth, async (c) => {
         ? await requireRole(store, story.community_id, user.id, [
             "Owner",
             "Moderator",
-          ])
+          ], c.env)
         : false);
     if (!privileged) return fail(c, "forbidden", 403);
     await store.deleteStory(id);
