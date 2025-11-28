@@ -16,6 +16,7 @@ import AllStoriesBar from "../components/AllStoriesBar";
 import PostCard from "../components/PostCard";
 import useSwipeTabs from "../hooks/useSwipeTabs";
 import Avatar from "../components/Avatar";
+import { useShellContext } from "../lib/shell-context";
 
 // Homeの偽StoriesBarを削除。実データ版を使用、E
 
@@ -220,6 +221,12 @@ function InlineComposer(props: {
 }
 
 export default function Home(props: Props) {
+  const outlet = useShellContext();
+
+  const openComposer = () => props.onOpenComposer?.() ?? outlet?.onOpenComposer?.();
+  const openNotifications = () =>
+    props.onOpenNotifications?.() ?? outlet?.onOpenNotifications?.();
+
   const me = useMe();
   const [selectedCommunities, setSelectedCommunities] = createSignal<string[]>(
     [],
@@ -625,7 +632,7 @@ export default function Home(props: Props) {
           <button
             class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-neutral-800 active:opacity-80"
             aria-label="通知"
-            onClick={props.onOpenNotifications}
+            onClick={openNotifications}
           >
             <IconHeart />
           </button>
@@ -646,7 +653,7 @@ export default function Home(props: Props) {
               <InlineComposer
                 avatarUrl={me()?.avatar_url || ""}
                 displayName={me()?.display_name || ""}
-                onCompose={props.onOpenComposer}
+                onCompose={openComposer}
               />
             </div>
 

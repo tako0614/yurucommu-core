@@ -25,13 +25,159 @@ import UserSearch from "./pages/UserSearch";
 import Invitations from "./pages/Invitations";
 import FriendRequests from "./pages/FriendRequests";
 import { ToastProvider } from "./components/Toast";
+import { ShellContextProvider } from "./lib/shell-context";
 
 const Login = resolveComponent("Login", DefaultLogin);
 const Profile = resolveComponent("Profile", DefaultProfile);
 const AuthCallback = resolveComponent("AuthCallback", DefaultAuthCallback);
 
 export default function App() {
-  console.log("[App] Component mounted");
+  return (
+    <ToastProvider>
+      <Router>
+        <Route path="/" component={Shell}>
+          <Route path="/auth/callback" component={AuthCallback} />
+          <Route
+            path="/"
+            component={() => (
+              <RequireAuth allowIncompleteProfile>
+                <Home />
+              </RequireAuth>
+            )}
+          />
+          <Route path="/login" component={Login} />
+          <Route
+            path="/onboarding"
+            component={() => (
+              <RequireAuth allowIncompleteProfile>
+                <Onboarding />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/connections"
+            component={() => (
+              <RequireAuth>
+                <Connections />
+              </RequireAuth>
+            )}
+          />
+          {/* Legacy routes redirect to connections */}
+          <Route path="/friends" component={() => <Navigate href="/connections" />} />
+          <Route path="/communities" component={() => <Navigate href="/connections" />} />
+          <Route
+            path="/users"
+            component={() => (
+              <RequireAuth>
+                <UserSearch />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/invitations"
+            component={() => (
+              <RequireAuth>
+                <Invitations />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/follow-requests"
+            component={() => (
+              <RequireAuth>
+                <FriendRequests />
+              </RequireAuth>
+            )}
+          />
+          <Route path="/friend-requests" component={() => <Navigate href="/follow-requests" />} />
+          <Route
+            path="/c/:id"
+            component={() => (
+              <RequireAuth>
+                <CommunityHub />
+              </RequireAuth>
+            )}
+          />
+          {/* Legacy community chat path -> unified chat */}
+          <Route
+            path="/c/:id/chat"
+            component={LegacyCommunityChatRedirect}
+          />
+          {/* Unified Chat routes - single mount to prevent remount/reset */}
+          <Route
+            path="/chat/*"
+            component={() => (
+              <RequireAuth>
+                <Chat />
+              </RequireAuth>
+            )}
+          />
+          {/* Legacy DM paths -> unified chat */}
+          <Route path="/dm" component={() => <Navigate href="/chat" />} />
+          <Route
+            path="/dm/:id"
+            component={() => (
+              <RequireAuth>
+                <LegacyDMRedirect />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/compose"
+            component={() => (
+              <RequireAuth>
+                <Compose />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/stories"
+            component={() => (
+              <RequireAuth>
+                <Stories />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/settings"
+            component={() => (
+              <RequireAuth>
+                <Settings />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/posts/:id"
+            component={() => (
+              <RequireAuth>
+                <PostDetail />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/profile"
+            component={() => (
+              <RequireAuth>
+                <Profile />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/profile/edit"
+            component={() => (
+              <RequireAuth>
+                <EditProfile />
+              </RequireAuth>
+            )}
+          />
+          <Route path="*" component={CatchAllRoute} />
+        </Route>
+      </Router>
+    </ToastProvider>
+  );
+}
+
+function Shell(props: RouteSectionProps) {
   const [composerOpen, setComposerOpen] = createSignal(false);
   const [notificationsOpen, setNotificationsOpen] = createSignal(false);
 
@@ -41,177 +187,45 @@ export default function App() {
   const closeNotifications = () => setNotificationsOpen(false);
 
   return (
-    <ToastProvider>
-      <Router>
-        <div class="min-h-dvh bg-white dark:bg-black flex md:grid md:grid-cols-[72px_1fr] xl:grid-cols-[220px_1fr] overflow-x-hidden">
-          {/* PC: 左サイドナビ（md以上） */}
-          <SideNav
-            onOpenComposer={openComposer}
-            onOpenNotifications={openNotifications}
-          />
+    <ShellContextProvider
+      value={{
+        onOpenComposer: openComposer,
+        onOpenNotifications: openNotifications,
+      }}
+    >
+      <div class="min-h-dvh bg-white dark:bg-black flex md:grid md:grid-cols-[72px_1fr] xl:grid-cols-[220px_1fr] overflow-x-hidden">
+        {/* PC: 左サイドナビ（md以上） */}
+        <SideNav
+          onOpenComposer={openComposer}
+          onOpenNotifications={openNotifications}
+        />
 
-          {/* メインコンテンツ */}
-          <Route path="/" component={MainLayout}>
-            <Route path="/auth/callback" component={AuthCallback} />
-            <Route
-              path="/"
-              component={() => (
-                <RequireAuth allowIncompleteProfile>
-                  <Home onOpenComposer={openComposer} onOpenNotifications={openNotifications} />
-                </RequireAuth>
-              )}
-            />
-            <Route path="/login" component={Login} />
-            <Route
-              path="/onboarding"
-              component={() => (
-                <RequireAuth allowIncompleteProfile>
-                  <Onboarding />
-                </RequireAuth>
-              )}
-            />
-            <Route
-              path="/connections"
-              component={() => (
-                <RequireAuth>
-                  <Connections />
-                </RequireAuth>
-              )}
-            />
-            {/* Legacy routes redirect to connections */}
-            <Route path="/friends" component={() => <Navigate href="/connections" />} />
-            <Route path="/communities" component={() => <Navigate href="/connections" />} />
-            <Route
-              path="/users"
-              component={() => (
-                <RequireAuth>
-                  <UserSearch />
-                </RequireAuth>
-              )}
-            />
-            <Route
-              path="/invitations"
-              component={() => (
-                <RequireAuth>
-                  <Invitations />
-                </RequireAuth>
-              )}
-            />
-            <Route
-              path="/follow-requests"
-              component={() => (
-                <RequireAuth>
-                  <FriendRequests />
-                </RequireAuth>
-              )}
-            />
-            <Route path="/friend-requests" component={() => <Navigate href="/follow-requests" />} />
-            <Route
-              path="/c/:id"
-              component={() => (
-                <RequireAuth>
-                  <CommunityHub />
-                </RequireAuth>
-              )}
-            />
-            {/* Legacy community chat path -> unified chat */}
-            <Route
-              path="/c/:id/chat"
-              component={LegacyCommunityChatRedirect}
-            />
-            {/* Unified Chat routes - single mount to prevent remount/reset */}
-            <Route
-              path="/chat/*"
-              component={() => (
-                <RequireAuth>
-                  <Chat />
-                </RequireAuth>
-              )}
-            />
-            {/* Legacy DM paths -> unified chat */}
-            <Route path="/dm" component={() => <Navigate href="/chat" />} />
-            <Route
-              path="/dm/:id"
-              component={() => (
-                <RequireAuth>
-                  <LegacyDMRedirect />
-                </RequireAuth>
-              )}
-            />
-            <Route
-              path="/compose"
-              component={() => (
-                <RequireAuth>
-                  <Compose />
-                </RequireAuth>
-              )}
-            />
-            <Route
-              path="/stories"
-              component={() => (
-                <RequireAuth>
-                  <Stories />
-                </RequireAuth>
-              )}
-            />
-            <Route
-              path="/settings"
-              component={() => (
-                <RequireAuth>
-                  <Settings />
-                </RequireAuth>
-              )}
-            />
-            <Route
-              path="/posts/:id"
-              component={() => (
-                <RequireAuth>
-                  <PostDetail />
-                </RequireAuth>
-              )}
-            />
-            <Route
-              path="/profile"
-              component={() => (
-                <RequireAuth>
-                  <Profile />
-                </RequireAuth>
-              )}
-            />
-            <Route
-              path="/profile/edit"
-              component={() => (
-                <RequireAuth>
-                  <EditProfile />
-                </RequireAuth>
-              )}
-            />
-            <Route path="*" component={CatchAllRoute} />
-          </Route>
+        {/* メインコンテンツ */}
+        <MainLayout>
+          {props.children}
+        </MainLayout>
 
-          {/* モバイル下部タブ（md未満） */}
-          <AppTab onOpenComposer={openComposer} />
+        {/* モバイル下部タブ（md未満） */}
+        <AppTab onOpenComposer={openComposer} />
 
-          {/* 投稿作成ダイアログ */}
-          <PostComposer
-            open={composerOpen()}
-            onClose={closeComposer}
-            onCreated={() => {
-              // 投稿が作成されたら、必要に応じてページを更新
-              closeComposer();
-            }}
-          />
-          <NotificationPanel
-            open={notificationsOpen()}
-            onClose={closeNotifications}
-          />
-        </div>
-      </Router>
-    </ToastProvider>
+        {/* 投稿作成ダイアログ */}
+        <PostComposer
+          open={composerOpen()}
+          onClose={closeComposer}
+          onCreated={() => {
+            closeComposer();
+          }}
+        />
+        <NotificationPanel
+          open={notificationsOpen()}
+          onClose={closeNotifications}
+        />
+      </div>
+    </ShellContextProvider>
   );
 }
 
-function MainLayout(props: RouteSectionProps) {
+function MainLayout(props: { children?: any }) {
   const location = useLocation();
   let mainRef: HTMLElement | undefined;
 
