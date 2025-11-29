@@ -34,32 +34,69 @@ export const authenticateUser = async (c: any, store: any) => {
 };
 
 export const auth = async (c: any, next: () => Promise<void>) => {
+  const path = new URL(c.req.url).pathname;
+  const method = c.req.method;
+  const started = performance.now();
   const store = makeData(c.env as any, c);
+  const storeMs = Number((performance.now() - started).toFixed(2));
   try {
     console.log("[backend] auth start", {
-      path: new URL(c.req.url).pathname,
-      method: c.req.method,
+      path,
+      method,
+      ms_makeData: storeMs,
     });
+    const authStarted = performance.now();
     const authResult = await authenticateUser(c, store);
+    const authMs = Number((performance.now() - authStarted).toFixed(2));
+    console.log("[backend] auth authenticateUser", {
+      path,
+      ok: !!authResult,
+      ms: authMs,
+    });
     if (!authResult) return fail(c, "Unauthorized", 401);
     c.set("user", authResult.user);
     await next();
   } finally {
+    const releaseStarted = performance.now();
     await releaseStore(store);
+    const releaseMs = Number((performance.now() - releaseStarted).toFixed(2));
+    const totalMs = Number((performance.now() - started).toFixed(2));
+    console.log("[backend] auth end", {
+      path,
+      ms_release: releaseMs,
+      ms_total: totalMs,
+    });
   }
 };
 
 export const optionalAuth = async (c: any, next: () => Promise<void>) => {
+  const path = new URL(c.req.url).pathname;
+  const started = performance.now();
   const store = makeData(c.env as any, c);
   try {
+    const authStarted = performance.now();
     const authResult = await authenticateUser(c, store);
+    const authMs = Number((performance.now() - authStarted).toFixed(2));
+    console.log("[backend] optionalAuth authenticateUser", {
+      path,
+      ok: !!authResult,
+      ms: authMs,
+    });
     if (authResult) {
       c.set("user", authResult.user);
     }
   } catch {
     // ignore authentication failures and continue as guest
   } finally {
+    const releaseStarted = performance.now();
     await releaseStore(store);
+    const releaseMs = Number((performance.now() - releaseStarted).toFixed(2));
+    const totalMs = Number((performance.now() - started).toFixed(2));
+    console.log("[backend] optionalAuth end", {
+      path,
+      ms_release: releaseMs,
+      ms_total: totalMs,
+    });
   }
   await next();
 };
