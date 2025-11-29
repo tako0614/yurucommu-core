@@ -35,7 +35,7 @@ import {
   sendDirectMessage,
   sendChannelMessage,
 } from "./chat";
-import { releaseStore } from "../utils/utils";
+import { releaseStore, queueImmediateDelivery } from "../utils/utils";
 import type { Variables } from "../types";
 import { processSingleInboxActivity } from "./inbox-worker";
 import { deliverSingleQueuedItem } from "./delivery-worker";
@@ -570,7 +570,7 @@ app.post("/ap/groups/:slug/inbox", inboxRateLimitMiddleware(), async (c) => {
       const targetInbox = actor.inbox || actor.endpoints?.sharedInbox;
       if (targetInbox) {
         try {
-          await store.createApDeliveryQueueItem({
+          await queueImmediateDelivery(store, c.env as any, {
             id: crypto.randomUUID(),
             activity_id: rejectActivityId,
             target_inbox_url: targetInbox,

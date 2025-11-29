@@ -33,6 +33,7 @@ import {
   releaseStore,
   withStore,
   enqueueDeliveriesToFollowers,
+  queueImmediateDelivery,
   createUserJWT,
   authenticateJWT,
   activityPubRoutes,
@@ -1142,11 +1143,11 @@ app.post("/posts/:id/reactions", auth, async (c) => {
     object_type: "Note",
     created_at: new Date(),
   });
-  
+
   // Enqueue delivery to post author (for local inbox processing)
   if ((post as any).author_id !== user.id) {
     const postAuthorInbox = `https://${instanceDomain}/ap/users/${(post as any).author_id}/inbox`;
-    await store.createApDeliveryQueueItem({
+    await queueImmediateDelivery(store, c.env as any, {
       id: crypto.randomUUID(),
       activity_id: ap_activity_id,
       target_inbox_url: postAuthorInbox,
@@ -1248,11 +1249,11 @@ app.post("/posts/:id/comments", auth, async (c) => {
     object_type: "Note",
     created_at: new Date(),
   });
-  
+
   // Enqueue delivery to post author (for local inbox processing)
   if ((post as any).author_id !== user.id) {
     const postAuthorInbox = `https://${instanceDomain}/ap/users/${(post as any).author_id}/inbox`;
-    await store.createApDeliveryQueueItem({
+    await queueImmediateDelivery(store, c.env as any, {
       id: crypto.randomUUID(),
       activity_id: ap_activity_id,
       target_inbox_url: postAuthorInbox,
