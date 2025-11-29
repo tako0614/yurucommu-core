@@ -2456,7 +2456,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     };
     return (prisma as any).ap_followers.upsert({
       where: {
-        ap_followers_local_user_id_remote_actor_id_key: {
+        local_user_id_remote_actor_id: {
           local_user_id: input.local_user_id,
           remote_actor_id: input.remote_actor_id,
         },
@@ -2477,11 +2477,28 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   };
 
   const findApFollower = async (local_user_id: string, remote_actor_id: string) => {
-    return (prisma as any).ap_followers.findUnique({
+    // Try normalized version first
+    const normalized = (prisma as any).ap_followers.findUnique({
       where: {
         local_user_id_remote_actor_id: { local_user_id, remote_actor_id },
       },
     });
+
+    // If normalized version is found, return it
+    const result = await normalized;
+    if (result) return result;
+
+    // Fallback: search case-insensitively for legacy data
+    // This handles old data that may have been saved with different casing
+    const allFollowers = await (prisma as any).ap_followers.findMany({
+      where: {
+        local_user_id,
+      },
+    });
+
+    return allFollowers.find((f: any) =>
+      f.remote_actor_id.toLowerCase() === remote_actor_id.toLowerCase()
+    ) || null;
   };
 
   const updateApFollowersStatus = async (
@@ -2548,7 +2565,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     };
     return (prisma as any).ap_follows.upsert({
       where: {
-        ap_follows_local_user_id_remote_actor_id_key: {
+        local_user_id_remote_actor_id: {
           local_user_id: input.local_user_id,
           remote_actor_id: input.remote_actor_id,
         },
@@ -2563,14 +2580,31 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   };
 
   const findApFollow = async (local_user_id: string, remote_actor_id: string) => {
-    return (prisma as any).ap_follows.findUnique({
+    // Try normalized version first
+    const normalized = (prisma as any).ap_follows.findUnique({
       where: {
-        ap_follows_local_user_id_remote_actor_id_key: {
+        local_user_id_remote_actor_id: {
           local_user_id,
           remote_actor_id,
         },
       },
     });
+
+    // If normalized version is found, return it
+    const result = await normalized;
+    if (result) return result;
+
+    // Fallback: search case-insensitively for legacy data
+    // This handles old data that may have been saved with different casing
+    const allFollows = await (prisma as any).ap_follows.findMany({
+      where: {
+        local_user_id,
+      },
+    });
+
+    return allFollows.find((f: any) =>
+      f.remote_actor_id.toLowerCase() === remote_actor_id.toLowerCase()
+    ) || null;
   };
 
   const updateApFollowsStatus = async (

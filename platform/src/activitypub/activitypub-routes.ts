@@ -936,8 +936,9 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
     console.log(`✓ Verified signature from ${actorId} for activity ${activity.type}`);
 
     // Check if actor is a friend (accepted follower) - all accounts only accept from friends
-    // EXCEPT for Follow activities (which are used to become friends)
-    if (activity.type !== "Follow" && activity.type !== "Undo") {
+    // EXCEPT for Follow (new request), Undo (cancel), Accept/Reject (response to Follow)
+    const allowUnauthenticatedTypes = new Set(["Follow", "Undo", "Accept", "Reject"]);
+    if (!allowUnauthenticatedTypes.has(activity.type)) {
       const follower = await store.findApFollower(handle, actorId);
 
       // Only accept activities from accepted followers

@@ -534,10 +534,18 @@ users.get("/users/:id", optionalAuth, async (c) => {
       let relationship: any = null;
       if (me?.id && normalizedId !== me.id) {
         const targetActorUri = getActorUri(normalizedId, instanceDomain);
+        console.log(`[GET /users/:id] Checking relationship: me=${me.id}, target=${normalizedId}, targetActorUri=${targetActorUri}`);
         const [followingRecord, followerRecord] = await Promise.all([
-          store.findApFollow(me.id, targetActorUri).catch(() => null),
-          store.findApFollower(me.id, targetActorUri).catch(() => null),
+          store.findApFollow(me.id, targetActorUri).catch((err) => {
+            console.error(`[GET /users/:id] findApFollow error:`, err);
+            return null;
+          }),
+          store.findApFollower(me.id, targetActorUri).catch((err) => {
+            console.error(`[GET /users/:id] findApFollower error:`, err);
+            return null;
+          }),
         ]);
+        console.log(`[GET /users/:id] followingRecord:`, followingRecord, `followerRecord:`, followerRecord);
         const followingStatus = followingRecord?.status || null;
         const followedByStatus = followerRecord?.status || null;
         const isFriend =
@@ -551,6 +559,7 @@ users.get("/users/:id", optionalAuth, async (c) => {
           followed_by: followedByStatus,
           is_friend: isFriend,
         };
+        console.log(`[GET /users/:id] Final relationship:`, relationship);
       }
 
       const publicProfile = sanitizeUser(u) as any;
