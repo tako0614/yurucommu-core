@@ -218,14 +218,12 @@ app.get("/", (c) => c.text("Hello World!"));
 
 app.get("/.well-known/takos-push.json", (c) => {
   const instance = c.env.INSTANCE_DOMAIN?.trim();
-  const tenant = instance || "";
   const publicKey = c.env.PUSH_REGISTRATION_PUBLIC_KEY?.trim();
   if (!instance || !publicKey) {
     return c.json({ ok: false, error: "push not configured" }, 503);
   }
   const body = {
     instance,
-    tenant,
     registrationPublicKey: publicKey,
     webhook: {
       algorithm: "ES256",

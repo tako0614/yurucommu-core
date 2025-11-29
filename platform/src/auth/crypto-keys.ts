@@ -150,12 +150,8 @@ export async function ensureUserKeyPair(
   const encryptionKey = await getEncryptionKey(env);
 
   // Check if keypair exists
-  // Note: In multi-tenant setup, instance_id is the tenant_id
-  // The column name in DB might be 'instance_id' (OSS) or 'tenant_id' (SaaS)
-  // We try to detect which one to use based on the error or context, but for now
-  // we'll use a try-catch approach or check the schema if possible.
-  // However, since this is shared code, we should probably use the store abstraction
-  // instead of raw SQL if possible, OR handle both column names.
+  // The column name in DB might be 'instance_id' (current) or 'tenant_id' in
+  // older forks; prefer the store abstraction to hide column differences.
   
   // Better approach: Use store.getApKeypair if available (it abstracts the query)
   if (typeof store.getApKeypair === 'function') {

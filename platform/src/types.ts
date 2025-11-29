@@ -7,7 +7,6 @@ export type BaseBindings = {
   DB: any; // D1Database from @cloudflare/workers-types
   ASSETS: any;
   MEDIA?: any; // R2Bucket from @cloudflare/workers-types
-  ACCOUNT_BACKEND?: any; // Service Binding (Fetcher) for sibling tenant access
 };
 
 type PushBindings = {

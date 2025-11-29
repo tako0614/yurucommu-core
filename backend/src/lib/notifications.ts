@@ -111,7 +111,6 @@ export async function notify(
 
   const instanceDomain =
     options.instanceDomain ?? requireInstanceDomain(env);
-  const tenant = instanceDomain;
 
   if (env.FCM_SERVER_KEY) {
     try {
@@ -123,7 +122,6 @@ export async function notify(
   }
 
   const payload = {
-    tenant,
     instance: instanceDomain,
     userId,
     notification: record,

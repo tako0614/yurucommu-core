@@ -44,35 +44,13 @@ async function requireMember(
   return follower?.status === "accepted";
 }
 
-function makeInternalFetcher(env: Record<string, unknown>) {
-  const rawRoot = typeof (env as any).ROOT_DOMAIN === "string" ? (env as any).ROOT_DOMAIN.trim() : "";
-  const rootDomain = rawRoot ? rawRoot.toLowerCase() : "";
-  const binding = (env as any).ACCOUNT_BACKEND;
-
-  if (!rootDomain || !binding?.fetch) {
-    return null;
-  }
-
-  return (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    try {
-      const urlStr = input instanceof Request ? input.url : input.toString();
-      const url = new URL(urlStr);
-      if (url.hostname.toLowerCase().endsWith(`.${rootDomain}`)) {
-        return binding.fetch(input, init);
-      }
-    } catch {
-      // Fall through
-    }
-    return fetch(input, init);
-  };
-}
 
 async function resolveRecipientActorUris(
   env: Record<string, unknown>,
   rawRecipients: string[],
 ): Promise<string[]> {
   const instanceDomain = requireInstanceDomain(env as any);
-  const internalFetcher = makeInternalFetcher(env) ?? fetch;
+  const fetcher = fetch;
   const actorUris: string[] = [];
 
   for (const raw of rawRecipients) {
@@ -92,9 +70,9 @@ async function resolveRecipientActorUris(
       const domain = parts.join("@").trim().toLowerCase();
       if (!handle || !domain) continue;
       const account = `${handle}@${domain}`;
-      const actorUri = await webfingerLookup(account, internalFetcher).catch(() => null);
+      const actorUri = await webfingerLookup(account, fetcher).catch(() => null);
       if (!actorUri) continue;
-      const actor = await getOrFetchActor(actorUri, env as any, false, internalFetcher).catch(() => null);
+      const actor = await getOrFetchActor(actorUri, env as any, false, fetcher).catch(() => null);
       actorUris.push((actor as any)?.id || actorUri);
       continue;
     }

@@ -50,21 +50,6 @@ type Bindings = {
 
 type ActivityPubContext = Context<{ Bindings: Bindings; Variables: Variables }>;
 
-function createInternalFetcher(env: any) {
-  return async (input: RequestInfo | URL, init?: RequestInit) => {
-    const urlStr = input.toString();
-    try {
-      const url = new URL(urlStr);
-      if (env.ACCOUNT_BACKEND && env.ROOT_DOMAIN && url.hostname.endsWith(env.ROOT_DOMAIN)) {
-         return env.ACCOUNT_BACKEND.fetch(input, init);
-      }
-    } catch (e) {
-      // ignore invalid URL
-    }
-    return fetch(input, init);
-  };
-}
-
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 const fail = (c: ActivityPubContext, message: string, status = 400) =>
@@ -497,7 +482,7 @@ app.post("/ap/groups/:slug/inbox", inboxRateLimitMiddleware(), async (c) => {
     }
     const keyId = keyIdMatch[1];
 
-    const fetcher = createInternalFetcher(c.env);
+    const fetcher = fetch;
     const ownsKey = await verifyActorOwnsKey(actorId, keyId, c.env as any, fetcher);
     if (!ownsKey) {
       console.error(`Actor ${actorId} does not own key ${keyId}`);
@@ -898,7 +883,7 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
     const keyId = keyIdMatch[1];
 
     // Verify actor owns the key
-    const fetcher = createInternalFetcher(c.env);
+    const fetcher = fetch;
     const ownsKey = await verifyActorOwnsKey(actorId, keyId, c.env as any, fetcher);
     if (!ownsKey) {
       console.error(`Actor ${actorId} does not own key ${keyId}`);
@@ -1242,7 +1227,7 @@ app.post("/ap/inbox", inboxRateLimitMiddleware(), async (c) => {
     const keyId = keyIdMatch[1];
 
     // Verify actor owns the key
-    const fetcher = createInternalFetcher(c.env);
+    const fetcher = fetch;
     const ownsKey = await verifyActorOwnsKey(actorId, keyId, c.env as any, fetcher);
     if (!ownsKey) {
       return fail(c, "key ownership verification failed", 403);
