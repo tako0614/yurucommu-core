@@ -122,7 +122,7 @@ function TimelineFilter(props: {
         }}
         type="button"
         data-option-key={props.option.key}
-        class={`relative z-10 flex-shrink-0 px-4 py-2 text-sm font-semibold whitespace-nowrap rounded-full transition-colors ${
+        class={`relative z-10 shrink-0 px-4 py-2 text-sm font-semibold whitespace-nowrap rounded-full transition-colors ${
           isActive()
             ? "text-gray-900 dark:text-white"
             : "text-muted hover:text-gray-900 dark:hover:text-white"

@@ -69,7 +69,7 @@ export default function Login() {
   };
 
   return (
-    <div class="min-h-dvh bg-gradient-to-br from-slate-100 via-slate-50 to-white dark:from-neutral-950 dark:via-neutral-950 dark:to-neutral-950 flex items-center justify-center px-6 py-12">
+    <div class="min-h-dvh bg-linear-to-br from-slate-100 via-slate-50 to-white dark:from-neutral-950 dark:via-neutral-950 dark:to-neutral-950 flex items-center justify-center px-6 py-12">
       <div class="w-full max-w-md space-y-6">
         <div class="text-center space-y-2">
           <div class="text-3xl font-bold text-slate-900 dark:text-slate-100">
