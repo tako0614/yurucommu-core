@@ -402,6 +402,11 @@ export default function UserProfile() {
                   <span class="text-xs text-muted break-all">
                     ID: @{user()!.handle || user()!.id}
                   </span>
+                  <Show when={isFriend()}>
+                    <span class="text-xs font-semibold text-green-700 dark:text-green-300">
+                      友達（相互フォロー）
+                    </span>
+                  </Show>
                 </div>
                 <div class="mt-3 flex items-center gap-8">
                   <div>
@@ -415,11 +420,6 @@ export default function UserProfile() {
                   <div class="ml-auto flex items-center gap-2">
                     <Show when={me() && user() && me()!.id !== user()!.id}>
                       <div class="flex items-center gap-2 flex-wrap">
-                        <Show when={isFriend()}>
-                          <span class="px-3 py-1.5 rounded-full bg-green-100 text-green-800 text-xs font-semibold">
-                            友達（相互フォロー）
-                          </span>
-                        </Show>
                         <Show when={followingStatus() === "accepted"}>
                           <button
                             class="px-3 py-1.5 rounded-full border hairline text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"

@@ -1,9 +1,8 @@
 /**
  * Instance utilities for the single-instance OSS deployment.
  *
- * Previously this module handled multi-tenant subdomain routing. In the OSS
- * build we only care about resolving the configured INSTANCE_DOMAIN to build
- * ActivityPub URLs.
+ * Multi-tenant routing lives in takos-private; the OSS build only resolves the
+ * configured INSTANCE_DOMAIN to build ActivityPub URLs.
  */
 
 const DEFAULT_INSTANCE_DOMAIN = "example.com";

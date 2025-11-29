@@ -53,34 +53,6 @@ function sanitizeUser(user: any) {
   return publicProfile;
 }
 
-function getRootDomain(env: Record<string, unknown>): string | null {
-  const raw = typeof (env as any).ROOT_DOMAIN === "string" ? (env as any).ROOT_DOMAIN.trim() : "";
-  return raw ? raw.toLowerCase() : null;
-}
-
-function makeInternalFetcher(env: Record<string, unknown>) {
-  const rootDomain = getRootDomain(env);
-  const binding = (env as any).ACCOUNT_BACKEND;
-
-  if (!rootDomain || !binding?.fetch) {
-    return null;
-  }
-
-  return (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    try {
-      const urlStr = input instanceof Request ? input.url : input.toString();
-      const url = new URL(urlStr);
-      const hostname = url.hostname.toLowerCase();
-      if (hostname.endsWith(`.${rootDomain}`)) {
-        return binding.fetch(input, init);
-      }
-    } catch {
-      // Fall through to default fetch
-    }
-    return fetch(input, init);
-  };
-}
-
 function parseUserIdParam(input: string): { local: string; domain?: string } {
   const trimmed = (input || "").trim();
   const withoutPrefix = trimmed.replace(/^@+/, "");
@@ -420,7 +392,7 @@ users.get("/users", auth, async (c) => {
     if (!q) return ok(c, []);
 
     const instanceDomain = requireInstanceDomain(c.env);
-    const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
+    const fetcher = fetch;
     const seen = new Set<string>();
     const results: any[] = [];
 
@@ -446,9 +418,9 @@ users.get("/users", auth, async (c) => {
     // If query looks like a remote account, try WebFinger
     if (q.includes("@")) {
       const account = q.replace(/^@+/, "");
-      const actorUri = await webfingerLookup(account, internalFetcher).catch(() => null);
+      const actorUri = await webfingerLookup(account, fetcher).catch(() => null);
       if (actorUri) {
-        const actor = await getOrFetchActor(actorUri, c.env as any, false, internalFetcher).catch(
+        const actor = await getOrFetchActor(actorUri, c.env as any, false, fetcher).catch(
           () => null,
         );
         if (actor) {
@@ -576,8 +548,8 @@ users.get("/users/:id", optionalAuth, async (c) => {
       const account = `${normalizedId}@${requestedDomain}`;
       console.log(`[GET /users/:id] Remote domain - fetching via ActivityPub: "${account}"`);
 
-      const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
-      const actorUri = await webfingerLookup(account, internalFetcher);
+      const fetcher = fetch;
+      const actorUri = await webfingerLookup(account, fetcher);
       console.log(`[GET /users/:id] WebFinger result: ${actorUri ? `found actorUri="${actorUri}"` : "not found"}`);
 
       if (!actorUri) {
@@ -586,7 +558,7 @@ users.get("/users/:id", optionalAuth, async (c) => {
       }
 
       console.log(`[GET /users/:id] Fetching remote actor from actorUri="${actorUri}"`);
-      const actor = await getOrFetchActor(actorUri, c.env as any, false, internalFetcher);
+      const actor = await getOrFetchActor(actorUri, c.env as any, false, fetcher);
       console.log(`[GET /users/:id] Remote actor result: ${actor ? `success` : "failed"}`);
 
       if (!actor) {
@@ -735,7 +707,7 @@ users.post("/users/:id/block", auth, async (c) => {
     if (!targetId || targetId === me.id) return fail(c, "invalid target", 400);
 
     const instanceDomain = requireInstanceDomain(c.env);
-    const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
+    const fetcher = fetch;
     const { local: normalizedId, domain: requestedDomain } = parseUserIdParam(targetId);
     if (!normalizedId) return fail(c, "invalid target", 400);
 
@@ -747,7 +719,7 @@ users.post("/users/:id/block", auth, async (c) => {
 
     if (isRemote) {
       const fullHandle = `${normalizedId}@${requestedDomain}`;
-      const actorUri = await webfingerLookup(fullHandle, internalFetcher);
+      const actorUri = await webfingerLookup(fullHandle, fetcher);
       if (!actorUri) return fail(c, "could not resolve remote user", 404);
       blockKey = `@${normalizedId}@${requestedDomain}`;
       targetActorUri = actorUri;
@@ -805,7 +777,7 @@ users.post("/users/:id/mute", auth, async (c) => {
     if (!targetId || targetId === me.id) return fail(c, "invalid target", 400);
 
     const instanceDomain = requireInstanceDomain(c.env);
-    const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
+    const fetcher = fetch;
     const { local: normalizedId, domain: requestedDomain } = parseUserIdParam(targetId);
     if (!normalizedId) return fail(c, "invalid target", 400);
 
@@ -815,7 +787,7 @@ users.post("/users/:id/mute", auth, async (c) => {
 
     if (isRemote) {
       const fullHandle = `${normalizedId}@${requestedDomain}`;
-      const actorUri = await webfingerLookup(fullHandle, internalFetcher);
+      const actorUri = await webfingerLookup(fullHandle, fetcher);
       if (!actorUri) return fail(c, "could not resolve remote user", 404);
       muteKey = `@${normalizedId}@${requestedDomain}`;
     } else {
@@ -1051,7 +1023,7 @@ users.post("/users/:id/follow", auth, async (c) => {
     if (me.id === targetId) return fail(c, "cannot follow yourself");
 
     const instanceDomain = requireInstanceDomain(c.env);
-    const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
+    const fetcher = fetch;
     const isRemoteUser = targetId.startsWith("@") && targetId.split("@").length === 3;
 
     if (isRemoteUser) {
@@ -1061,12 +1033,12 @@ users.post("/users/:id/follow", auth, async (c) => {
 
       if (!isLocalDomain) {
         const fullHandle = `${handle}@${domain}`;
-        const actorUri = await webfingerLookup(fullHandle, internalFetcher);
+        const actorUri = await webfingerLookup(fullHandle, fetcher);
         if (!actorUri) {
           return fail(c, "could not resolve remote user", 404);
         }
 
-        const remoteActor = await getOrFetchActor(actorUri, c.env as any, false, internalFetcher);
+        const remoteActor = await getOrFetchActor(actorUri, c.env as any, false, fetcher);
         if (!remoteActor) {
           return fail(c, "could not resolve remote user", 404);
         }
@@ -1178,7 +1150,7 @@ users.delete("/users/:id/follow", auth, async (c) => {
 
     const instanceDomain = requireInstanceDomain(c.env);
     const myActorUri = getActorUri(me.id, instanceDomain);
-    const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
+    const fetcher = fetch;
 
     const isRemoteUser = targetId.startsWith("@") && targetId.split("@").length === 3;
     let targetActorUri: string;
@@ -1190,7 +1162,7 @@ users.delete("/users/:id/follow", auth, async (c) => {
         localTargetId = handle;
         targetActorUri = getActorUri(handle, instanceDomain);
       } else {
-        const lookup = await webfingerLookup(`${handle}@${domain}`, internalFetcher);
+        const lookup = await webfingerLookup(`${handle}@${domain}`, fetcher);
         if (!lookup) return fail(c, "could not resolve remote user", 400);
         targetActorUri = lookup;
       }
@@ -1255,7 +1227,7 @@ users.delete("/users/:id/follow", auth, async (c) => {
         console.error("Failed to process local Undo inbox activity", error);
       }
     } else {
-      const remoteActor = await getOrFetchActor(targetActorUri, c.env as any, false, internalFetcher);
+      const remoteActor = await getOrFetchActor(targetActorUri, c.env as any, false, fetcher);
       if (remoteActor?.inbox) {
         await queueImmediateDelivery(store, c.env as any, {
           activity_id: undoActivityId,
@@ -1280,7 +1252,7 @@ users.post("/users/:id/follow/accept", auth, async (c) => {
 
     const instanceDomain = requireInstanceDomain(c.env);
     const myActorUri = getActorUri(me.id, instanceDomain);
-    const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
+    const fetcher = fetch;
 
     // Check if requester is a remote user (format: @handle@domain)
     const isRemoteUser = requesterId.startsWith("@") && requesterId.split("@").length === 3;
@@ -1299,7 +1271,7 @@ users.post("/users/:id/follow/accept", auth, async (c) => {
         requesterUri = getActorUri(remoteHandle, instanceDomain);
       } else {
         // True remote user - lookup via WebFinger
-        const lookupResult = await webfingerLookup(`${remoteHandle}@${remoteDomain}`, internalFetcher);
+        const lookupResult = await webfingerLookup(`${remoteHandle}@${remoteDomain}`, fetcher);
         if (lookupResult) {
           requesterUri = lookupResult;
         } else {
@@ -1468,7 +1440,7 @@ users.post("/users/:id/follow/accept", auth, async (c) => {
       );
     } else {
       // Remote user - fetch actor to get inbox and deliver via HTTP
-      const remoteActor = await getOrFetchActor(requesterUri, c.env as any, false, internalFetcher);
+      const remoteActor = await getOrFetchActor(requesterUri, c.env as any, false, fetcher);
       if (remoteActor?.inbox) {
         const deliveryId = await queueImmediateDelivery(store, c.env as any, {
           activity_id: acceptActivityId,
@@ -1503,7 +1475,7 @@ users.post("/users/:id/follow/reject", auth, async (c) => {
 
     const instanceDomain = requireInstanceDomain(c.env);
     const myActorUri = getActorUri(me.id, instanceDomain);
-    const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
+    const fetcher = fetch;
 
     // Check if requester is a remote user (format: @handle@domain)
     const isRemoteUser = requesterId.startsWith("@") && requesterId.split("@").length === 3;
@@ -1522,7 +1494,7 @@ users.post("/users/:id/follow/reject", auth, async (c) => {
         requesterUri = getActorUri(remoteHandle, instanceDomain);
       } else {
         // True remote user - lookup via WebFinger
-        const lookupResult = await webfingerLookup(`${remoteHandle}@${remoteDomain}`, internalFetcher);
+        const lookupResult = await webfingerLookup(`${remoteHandle}@${remoteDomain}`, fetcher);
         if (lookupResult) {
           requesterUri = lookupResult;
         } else {
@@ -1614,7 +1586,7 @@ users.post("/users/:id/follow/reject", auth, async (c) => {
       }
     } else {
       // Remote user - fetch actor to get inbox and deliver via HTTP
-      const remoteActor = await getOrFetchActor(requesterUri, c.env as any, false, internalFetcher);
+      const remoteActor = await getOrFetchActor(requesterUri, c.env as any, false, fetcher);
       if (remoteActor?.inbox) {
         const deliveryId = await queueImmediateDelivery(store, c.env as any, {
           activity_id: rejectActivityId,
@@ -1647,7 +1619,7 @@ users.get("/users/:id/pinned", optionalAuth, async (c) => {
     const rawId = c.req.param("id");
     const limit = Math.min(20, Math.max(1, parseInt(c.req.query("limit") || "10", 10)));
     const instanceDomain = requireInstanceDomain(c.env);
-    const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
+    const fetcher = fetch;
     const { local: userId, domain: requestedDomain } = parseUserIdParam(rawId);
 
     if (!userId) return fail(c, "invalid user id", 400);
@@ -1669,9 +1641,9 @@ users.get("/users/:id/pinned", optionalAuth, async (c) => {
     if (isRemote) {
       // Remote user: resolve actor to validate, but we don't store remote pinned posts yet.
       const account = `${userId}@${requestedDomain}`;
-      const actorUri = await webfingerLookup(account, internalFetcher);
+      const actorUri = await webfingerLookup(account, fetcher);
       if (!actorUri) return fail(c, "user not found", 404);
-      const actor = await getOrFetchActor(actorUri, c.env as any, false, internalFetcher);
+      const actor = await getOrFetchActor(actorUri, c.env as any, false, fetcher);
       if (!actor) return fail(c, "user not found", 404);
       return ok(c, []);
     }
