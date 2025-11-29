@@ -15,6 +15,7 @@ import {
   HttpError,
   releaseStore,
   enqueueDeliveriesToFollowers,
+  queueImmediateDelivery,
   getActorUri,
   getObjectUri,
   getActivityUri,
@@ -945,7 +946,7 @@ posts.post("/posts/:id/reposts", auth, async (c) => {
 
     if ((post as any).author_id !== user.id) {
       const postAuthorInbox = `https://${instanceDomain}/ap/users/${(post as any).author_id}/inbox`;
-      await store.createApDeliveryQueueItem({
+      await queueImmediateDelivery(store, c.env as any, {
         id: crypto.randomUUID(),
         activity_id: announceId,
         target_inbox_url: postAuthorInbox,
@@ -1322,7 +1323,7 @@ posts.post("/posts/:id/reactions", auth, async (c) => {
     // Enqueue delivery to post author (for local inbox processing)
     if ((post as any).author_id !== user.id) {
       const postAuthorInbox = `https://${instanceDomain}/ap/users/${(post as any).author_id}/inbox`;
-      await store.createApDeliveryQueueItem({
+      await queueImmediateDelivery(store, c.env as any, {
         id: crypto.randomUUID(),
         activity_id: ap_activity_id,
         target_inbox_url: postAuthorInbox,
@@ -1432,7 +1433,7 @@ posts.post("/posts/:id/comments", auth, async (c) => {
     // Enqueue delivery to post author (for local inbox processing)
     if ((post as any).author_id !== user.id) {
       const postAuthorInbox = `https://${instanceDomain}/ap/users/${(post as any).author_id}/inbox`;
-      await store.createApDeliveryQueueItem({
+      await queueImmediateDelivery(store, c.env as any, {
         id: crypto.randomUUID(),
         activity_id: ap_activity_id,
         target_inbox_url: postAuthorInbox,

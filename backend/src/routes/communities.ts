@@ -14,6 +14,7 @@ import {
   getActivityUri,
   ACTIVITYSTREAMS_CONTEXT,
   enqueueDeliveriesToFollowers,
+  queueImmediateDelivery,
   webfingerLookup,
   getOrFetchActor,
 } from "@takos/platform/server";
@@ -640,7 +641,7 @@ communities.post("/communities/:id/direct-invites", auth, async (c) => {
       (targetActor as any)?.endpoints?.sharedInbox ||
       (targetActor as any)?.inbox_url;
     if (inboxUrl) {
-      await store.createApDeliveryQueueItem({
+      await queueImmediateDelivery(store, c.env as any, {
         id: crypto.randomUUID(),
         activity_id: activityId,
         target_inbox_url: inboxUrl,

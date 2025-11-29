@@ -3,10 +3,12 @@
  */
 
 import { makeData } from "../server/data-factory";
+import type { DatabaseAPI } from "../db/types";
 import { deliverSingleQueuedItem } from "../activitypub/delivery-worker";
 
 type Disconnectable = { disconnect?: () => Promise<void> | void };
 type QueryableStore = Disconnectable & { query: (sql: string, params?: any[]) => Promise<any[]> };
+type DeliveryQueueStore = Pick<DatabaseAPI, "createApDeliveryQueueItem">;
 
 /**
  * Release database store connection
@@ -195,4 +197,45 @@ export async function enqueueDeliveriesToFollowers(
       );
     }
   }
+}
+
+type ImmediateDeliveryInput = {
+  activity_id: string;
+  target_inbox_url: string;
+  id?: string;
+  status?: string;
+  created_at?: string | Date;
+};
+
+/**
+ * Queue a single delivery and attempt to send it immediately.
+ * Falls back to the delivery worker if the synchronous send fails.
+ */
+export async function queueImmediateDelivery(
+  store: DeliveryQueueStore,
+  env: any,
+  input: ImmediateDeliveryInput,
+): Promise<string | null> {
+  const delivery = await store.createApDeliveryQueueItem({
+    id: input.id,
+    activity_id: input.activity_id,
+    target_inbox_url: input.target_inbox_url,
+    status: input.status ?? "pending",
+    created_at: input.created_at,
+  });
+
+  if (!delivery?.id || !env) {
+    return delivery?.id ?? null;
+  }
+
+  try {
+    await deliverSingleQueuedItem(env as any, delivery.id);
+  } catch (error) {
+    console.warn("[delivery] immediate delivery failed, left queued for worker", {
+      deliveryId: delivery.id,
+      error,
+    });
+  }
+
+  return delivery.id;
 }

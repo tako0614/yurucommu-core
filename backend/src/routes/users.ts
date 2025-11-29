@@ -16,6 +16,7 @@ import {
   webfingerLookup,
   getOrFetchActor,
   processSingleInboxActivity,
+  queueImmediateDelivery,
 } from "@takos/platform/server";
 import { auth, optionalAuth } from "../middleware/auth";
 import { makeData } from "../data";
@@ -1117,7 +1118,7 @@ users.post("/users/:id/follow", auth, async (c) => {
 
         const inboxUrl = remoteActor.inbox || (remoteActor.endpoints as any)?.sharedInbox;
         if (inboxUrl) {
-          await store.createApDeliveryQueueItem({
+          await queueImmediateDelivery(store, c.env as any, {
             activity_id: followActivityId,
             target_inbox_url: inboxUrl,
             status: "pending",
@@ -1247,7 +1248,7 @@ users.delete("/users/:id/follow", auth, async (c) => {
     } else {
       const remoteActor = await getOrFetchActor(targetActorUri, c.env as any, false, internalFetcher);
       if (remoteActor?.inbox) {
-        await store.createApDeliveryQueueItem({
+        await queueImmediateDelivery(store, c.env as any, {
           activity_id: undoActivityId,
           target_inbox_url: remoteActor.inbox,
           status: "pending",
@@ -1460,13 +1461,14 @@ users.post("/users/:id/follow/accept", auth, async (c) => {
       // Remote user - fetch actor to get inbox and deliver via HTTP
       const remoteActor = await getOrFetchActor(requesterUri, c.env as any, false, internalFetcher);
       if (remoteActor?.inbox) {
-        const deliveryResult = await store.createApDeliveryQueueItem({
+        const deliveryId = await queueImmediateDelivery(store, c.env as any, {
           activity_id: acceptActivityId,
           target_inbox_url: remoteActor.inbox,
           status: "pending",
         });
-        console.log(`✓ Queued Accept activity to remote inbox ${remoteActor.inbox}`);
-        // Note: Delivery will be handled by the scheduled delivery worker
+        if (deliveryId) {
+          console.log(`✓ Queued and attempted immediate Accept delivery to ${remoteActor.inbox}`);
+        }
       } else {
         console.warn(`Could not find inbox for remote actor ${requesterUri}`);
       }
@@ -1605,13 +1607,14 @@ users.post("/users/:id/follow/reject", auth, async (c) => {
       // Remote user - fetch actor to get inbox and deliver via HTTP
       const remoteActor = await getOrFetchActor(requesterUri, c.env as any, false, internalFetcher);
       if (remoteActor?.inbox) {
-        const deliveryResult = await store.createApDeliveryQueueItem({
+        const deliveryId = await queueImmediateDelivery(store, c.env as any, {
           activity_id: rejectActivityId,
           target_inbox_url: remoteActor.inbox,
           status: "pending",
         });
-        console.log(`✓ Queued Reject activity to remote inbox ${remoteActor.inbox}`);
-        // Note: Delivery will be handled by the scheduled delivery worker
+        if (deliveryId) {
+          console.log(`✓ Queued and attempted immediate Reject delivery to ${remoteActor.inbox}`);
+        }
       } else {
         console.warn(`Could not find inbox for remote actor ${requesterUri}`);
       }
