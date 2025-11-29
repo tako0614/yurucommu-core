@@ -235,9 +235,9 @@ function ChatWindow(props: {
         </button>
         <div class="flex-1 truncate px-1">{props.title}</div>
         <button class="md:hidden px-2 py-1 rounded hover:bg-gray-100 active:opacity-80" onClick={() => props.onOpenSettings?.()} aria-label="設定を開く">
-          <span class="block w-5 h-[2px] bg-current mb-[4px]"></span>
-          <span class="block w-5 h-[2px] bg-current mb-[4px]"></span>
-          <span class="block w-5 h-[2px] bg-current"></span>
+          <span class="block w-5 h-0.5 bg-current mb-1"></span>
+          <span class="block w-5 h-0.5 bg-current mb-1"></span>
+          <span class="block w-5 h-0.5 bg-current"></span>
         </button>
       </div>
       <div class="flex-1 overflow-y-auto bg-white dark:bg-neutral-900">
@@ -1304,7 +1304,7 @@ utral-800 flex-1 min-w-0 ${
 
       {/* Mobile settings drawer (channels removed) */}
       <Show when={mobileSettingsOpen()}>
-        <div class="md:hidden fixed inset-0 z-[60]">
+        <div class="md:hidden fixed inset-0 z-60">
           <div
             class="absolute inset-0 bg-black/30"
             onClick={() => setMobileSettingsOpen(false)}
