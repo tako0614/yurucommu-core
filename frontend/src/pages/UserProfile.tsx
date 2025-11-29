@@ -206,8 +206,16 @@ export default function UserProfile() {
   };
 
   const relationship = createMemo(() => (user() as any)?.relationship || {});
-  const followingStatus = createMemo(() => (relationship() as any).following || null);
-  const isFriend = createMemo(() => !!(relationship() as any).is_friend);
+  const friendStatus = createMemo(() => (user() as any)?.friend_status || null);
+  const followingStatus = createMemo(() => {
+    const rel = relationship() as any;
+    return rel?.following ?? friendStatus() ?? null;
+  });
+  const isFriend = createMemo(() => {
+    const rel = relationship() as any;
+    if (typeof rel?.is_friend === "boolean") return rel.is_friend;
+    return friendStatus() === "accepted";
+  });
 
   const onFollow = async () => {
     if (!user()) return;

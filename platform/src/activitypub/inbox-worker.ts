@@ -419,30 +419,40 @@ async function handleIncomingAccept(
   localUserId: string,
   activity: any,
 ): Promise<void> {
-  // Extract the Follow activity from the Accept
-  const followActivity = activity.object;
-  if (!followActivity || followActivity.type !== "Follow") {
-    console.error("Accept activity does not contain Follow object");
-    return;
-  }
-
   const actorUri = extractActorUri(activity.actor);
   if (!actorUri || !isRemoteActorAllowed(actorUri, env)) {
     console.error("Accept activity has invalid actor URI");
     return;
   }
 
-  const followedUri = typeof followActivity.object === "string"
-    ? followActivity.object
-    : followActivity.object?.id;
+  // Extract Follow info (robust to object or string)
+  const followActivity = activity.object;
+  const followActivityId =
+    typeof followActivity === "string"
+      ? followActivity
+      : typeof followActivity === "object"
+        ? followActivity.id
+        : null;
 
-  if (!followedUri) {
-    console.error("Accept activity missing follow target");
+  const followedUri =
+    typeof followActivity === "object"
+      ? typeof followActivity.object === "string"
+        ? followActivity.object
+        : followActivity.object?.id
+      : null;
+
+  if (!followActivityId && !followedUri) {
+    console.error("Accept activity does not contain Follow object");
     return;
   }
 
+  if (!followedUri) {
+    console.warn("Accept activity missing follow target; falling back to actor URI");
+  }
+
   // Update following relationship to accepted
-  await db.updateApFollowsStatus(localUserId, followedUri, "accepted", new Date());
+  const targetUri = followedUri || actorUri;
+  await db.updateApFollowsStatus(localUserId, targetUri, "accepted", new Date());
 
   // Fetch remote actor info for notification
   const remoteActor = await getOrFetchActor(actorUri, env);
@@ -482,30 +492,40 @@ async function handleIncomingReject(
   localUserId: string,
   activity: any,
 ): Promise<void> {
-  // Extract the Follow activity from the Reject
-  const followActivity = activity.object;
-  if (!followActivity || followActivity.type !== "Follow") {
-    console.error("Reject activity does not contain Follow object");
-    return;
-  }
-
   const actorUri = extractActorUri(activity.actor);
   if (!actorUri || !isRemoteActorAllowed(actorUri, env)) {
     console.error("Reject activity has invalid actor URI");
     return;
   }
 
-  const followedUri = typeof followActivity.object === "string"
-    ? followActivity.object
-    : followActivity.object?.id;
+  // Extract Follow info (robust to object or string)
+  const followActivity = activity.object;
+  const followActivityId =
+    typeof followActivity === "string"
+      ? followActivity
+      : typeof followActivity === "object"
+        ? followActivity.id
+        : null;
 
-  if (!followedUri) {
-    console.error("Reject activity missing follow target");
+  const followedUri =
+    typeof followActivity === "object"
+      ? typeof followActivity.object === "string"
+        ? followActivity.object
+        : followActivity.object?.id
+      : null;
+
+  if (!followActivityId && !followedUri) {
+    console.error("Reject activity does not contain Follow object");
     return;
   }
 
+  if (!followedUri) {
+    console.warn("Reject activity missing follow target; falling back to actor URI");
+  }
+
   // Update following relationship to rejected
-  await db.updateApFollowsStatus(localUserId, followedUri, "rejected", new Date());
+  const targetUri = followedUri || actorUri;
+  await db.updateApFollowsStatus(localUserId, targetUri, "rejected", new Date());
 
   // Fetch remote actor info for notification
   const remoteActor = await getOrFetchActor(actorUri, env);

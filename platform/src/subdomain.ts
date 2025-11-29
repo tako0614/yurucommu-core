@@ -41,7 +41,10 @@ export function getActorUri(
   instanceDomain: string,
   protocol = "https",
 ): string {
-  return `${protocol}://${instanceDomain}/ap/users/${handle}`;
+  // Normalize handle and instanceDomain to lowercase for consistency
+  const normalizedHandle = handle.toLowerCase();
+  const normalizedDomain = instanceDomain.toLowerCase();
+  return `${protocol}://${normalizedDomain}/ap/users/${normalizedHandle}`;
 }
 
 export function getObjectUri(

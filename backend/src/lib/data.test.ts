@@ -42,6 +42,14 @@ const createApi = () => {
   return { api, mockPrisma };
 };
 
+const createApiWithPrisma = (prisma: any) => {
+  const config: DatabaseConfig = {
+    DB: createMockDb(),
+    createPrismaClient: () => prisma as any,
+  };
+  return createDatabaseAPI(config);
+};
+
 describe("areFriends", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -64,5 +72,76 @@ describe("listFriends", () => {
     const { api } = createApi();
     const result = await api.listFriends("alice");
     expect(result).toEqual([]);
+  });
+});
+
+describe("ActivityPub follow persistence", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("uses the composite key when upserting follows", async () => {
+    const upsert = vi.fn(async (args: any) => args);
+    const api = createApiWithPrisma({
+      ap_follows: { upsert },
+    });
+
+    const createdAt = new Date("2024-01-01T00:00:00.000Z");
+    await api.upsertApFollow({
+      local_user_id: "alice",
+      remote_actor_id: "https://remote.example/ap/users/bob",
+      activity_id: "act-1",
+      status: "pending",
+      created_at: createdAt,
+      accepted_at: null,
+    });
+
+    expect(upsert).toHaveBeenCalledTimes(1);
+    const call = upsert.mock.calls[0]?.[0] || {};
+    expect(call.where).toEqual({
+      local_user_id_remote_actor_id: {
+        local_user_id: "alice",
+        remote_actor_id: "https://remote.example/ap/users/bob",
+      },
+    });
+    expect(call.update).toEqual({
+      activity_id: "act-1",
+      status: "pending",
+      accepted_at: null,
+    });
+    expect(call.create).toMatchObject({
+      local_user_id: "alice",
+      remote_actor_id: "https://remote.example/ap/users/bob",
+      activity_id: "act-1",
+      status: "pending",
+      created_at: createdAt,
+      accepted_at: null,
+    });
+  });
+
+  it("uses the composite key when upserting followers", async () => {
+    const upsert = vi.fn(async (args: any) => args);
+    const api = createApiWithPrisma({
+      ap_followers: { upsert },
+    });
+
+    const createdAt = new Date("2024-02-02T00:00:00.000Z");
+    await api.upsertApFollower({
+      local_user_id: "bob",
+      remote_actor_id: "https://remote.example/ap/users/alice",
+      activity_id: "act-2",
+      status: "pending",
+      created_at: createdAt,
+      accepted_at: null,
+    });
+
+    expect(upsert).toHaveBeenCalledTimes(1);
+    const call = upsert.mock.calls[0]?.[0] || {};
+    expect(call.where).toEqual({
+      local_user_id_remote_actor_id: {
+        local_user_id: "bob",
+        remote_actor_id: "https://remote.example/ap/users/alice",
+      },
+    });
   });
 });
