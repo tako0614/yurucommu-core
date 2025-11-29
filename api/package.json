@@ -1,5 +1,5 @@
 {
-  "name": "@takos/backend",
+  "name": "@takos/api",
   "version": "0.0.0",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -11,14 +11,8 @@
   },
   "private": true,
   "scripts": {
-    "deploy": "wrangler deploy",
-    "deploy:prod": "wrangler deploy",
-    "dev": "wrangler dev --ip=0.0.0.0 --port=8787",
-    "start": "wrangler dev --ip=0.0.0.0 --port=8787",
     "test": "vitest",
-    "prisma:generate": "prisma generate",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "db:migrate-diff": "prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.19",
@@ -33,6 +27,7 @@
     "wrangler": "^4.35.0"
   },
   "dependencies": {
-    "@takos/api": "*"
+    "@takos/platform": "*",
+    "hono": "^4.9.6"
   }
 }

@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["@cloudflare/workers-types", "@types/node"],
+    "baseUrl": ".",
+    "paths": {
+      "@takos/platform": ["../platform/src/index.ts"],
+      "@takos/platform/*": ["../platform/src/*"],
+      "@takos/platform/server": ["../platform/src/server/index.ts"],
+      "@takos/platform/server/*": ["../platform/src/server/*"],
+      "@takos/core": ["../core/src/index.ts"],
+      "@takos/core/*": ["../core/src/*"]
+    },
+    "rootDirs": ["./src", "../platform"]
+  },
+  "include": ["src/**/*.ts"]
+}
