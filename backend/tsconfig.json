@@ -10,14 +10,13 @@
     "types": ["@cloudflare/workers-types", "@types/node"],
     "baseUrl": ".",
     "paths": {
-      "@takos/platform": ["../../platform/src/index.ts"],
-      "@takos/platform/*": ["../../platform/src/*"],
-      "@takos/platform/server": ["../../platform/src/server/index.ts"],
-      "@takos/platform/server/*": ["../../platform/src/server/*"],
-      "@takos/core": ["../../core/src/index.ts"],
-      "@takos/core/*": ["../../core/src/*"]
-    },
-    "rootDirs": ["./src", "../../platform"]
+      "@takos/api": ["../api/src/index.ts"],
+      "@takos/api/*": ["../api/src/*"],
+      "@takos/platform": ["../platform/src/index.ts"],
+      "@takos/platform/*": ["../platform/src/*"],
+      "@takos/platform/server": ["../platform/src/server/index.ts"],
+      "@takos/platform/server/*": ["../platform/src/server/*"]
+    }
   },
   "include": ["src/**/*.ts", "prisma.config.ts"]
 }
