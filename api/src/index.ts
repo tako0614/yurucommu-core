@@ -58,7 +58,6 @@ import communitiesRoutes from "./routes/communities";
 import postsRoutes from "./routes/posts";
 import storiesRoutes from "./routes/stories";
 import chatRoutes from "./routes/chat";
-import mediaRoutes from "./routes/media";
 import moderationRoutes from "./routes/moderation";
 import realtimeRoutes from "./routes/realtime";
 import listsRoutes from "./routes/lists";
@@ -206,7 +205,6 @@ app.route("/", communitiesRoutes);
 app.route("/", postsRoutes);
 app.route("/", storiesRoutes);
 app.route("/", chatRoutes);
-app.route("/", mediaRoutes);
 app.route("/", moderationRoutes);
 app.route("/", listsRoutes);
 app.route("/", postPlansRoutes);
@@ -456,13 +454,13 @@ function safeFileName(name: string, fallback: string, ext: string): string {
   return base;
 }
 
-app.post("/media/upload", auth, async (c) => {
+app.post("/media/upload", async (c) => {
   const env = c.env as Bindings;
   if (!env.MEDIA) return fail(c, "media storage not configured", 500);
   const store = makeData(c.env as any, c);
   try {
-    const user = c.get("user") as any;
-    if (!user?.id) return fail(c, "Unauthorized", 401);
+    const authResult = await authenticateUser(c, store).catch(() => null);
+    const userId = (authResult as any)?.user?.id || "anon";
 
     const form = await c.req.formData().catch(() => null);
     if (!form) return fail(c, "invalid form data", 400);
@@ -474,7 +472,7 @@ app.post("/media/upload", auth, async (c) => {
       : "";
     const ext = safeFileExt((file as any).name || "", file.type);
     const id = crypto.randomUUID().replace(/-/g, "");
-    const prefix = `user-uploads/${(user as any)?.id || "anon"}/${datePrefix()}`;
+    const prefix = `user-uploads/${userId}/${datePrefix()}`;
     const key = `${prefix}/${id}${ext ? "." + ext : ""}`;
     await env.MEDIA.put(key, file, {
       httpMetadata: {
@@ -486,7 +484,7 @@ app.post("/media/upload", auth, async (c) => {
     if (store.upsertMedia) {
       await store.upsertMedia({
         key,
-        user_id: (user as any)?.id || "",
+        user_id: userId,
         url,
         description,
         content_type: file.type || "",
@@ -649,41 +647,110 @@ app.delete("/storage", auth, async (c) => {
   }
 });
 
-// SINGLE-USER MODE: Registration not supported
-// takos (OSS) is designed for single-user instances.
-// To set up your user, configure environment variables:
+// Password auth for OSS single-instance setup.
+// You can pre-provision a user with:
 //   AUTH_USERNAME=your_username
 //   AUTH_PASSWORD=your_password
-// Then run a migration or manually insert the user into the database.
-// Login is password-only (username is implicit).
+// Or allow users to self-register via /auth/password/register.
+
+app.post("/auth/password/register", async (c) => {
+  if (!featureEnabled("envPasswordAuth")) {
+    return fail(c, "password authentication disabled", 404);
+  }
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, any>;
+  const handleRaw = typeof body.handle === "string" ? body.handle : "";
+  const password = typeof body.password === "string" ? body.password : "";
+  const displayName =
+    typeof body.display_name === "string" && body.display_name.trim()
+      ? body.display_name
+      : handleRaw;
+
+  const handle = normalizeHandle(handleRaw);
+  if (!handle || !isValidHandle(handle)) {
+    return fail(c, "invalid handle", 400);
+  }
+  if (!isValidPassword(password)) {
+    return fail(c, "invalid password", 400);
+  }
+
+  const store = makeData(c.env as any, c);
+  try {
+    const exists = await store.getUser(handle).catch(() => null);
+    if (exists) {
+      return fail(c, "handle already taken", 409);
+    }
+
+    const user = await store.createUser({
+      id: handle,
+      display_name: displayName || handle,
+      is_private: 0,
+      created_at: nowISO(),
+    });
+
+    const hashed = await hashPasswordValue(password);
+    await store.createUserAccount({
+      id: crypto.randomUUID(),
+      user_id: handle,
+      provider: PASSWORD_PROVIDER,
+      provider_account_id: hashed,
+      created_at: nowISO(),
+      updated_at: nowISO(),
+    });
+
+    const { token } = await createUserJWT(c, store, user.id);
+    const { jwt_secret, tenant_id, ...publicProfile } = user as any;
+    return ok(c, { user: publicProfile, token }, 201);
+  } finally {
+    await releaseStore(store);
+  }
+});
 
 app.post("/auth/password/login", async (c) => {
   if (!featureEnabled("envPasswordAuth")) {
     return fail(c, "password authentication disabled", 404);
   }
   const body = (await c.req.json().catch(() => ({}))) as Record<string, any>;
+  const handleRaw = typeof body.handle === "string" ? body.handle : "";
   const password = typeof body.password === "string" ? body.password : "";
+
+  const normalizedHandle = normalizeHandle(handleRaw || "");
 
   // Check against environment variables
   const envUsername = c.env.AUTH_USERNAME;
   const envPassword = c.env.AUTH_PASSWORD;
 
-  if (!envUsername || !envPassword) {
-    return fail(c, "authentication not configured", 500);
-  }
-
-  // Only check password - username is implicit (single-user instance)
-  if (password !== envPassword) {
-    return fail(c, "invalid credentials", 401);
-  }
-
-  // Get the single user from database (assumes single-user setup)
   const store = makeData(c.env as any, c);
   try {
-    const user: any = await store.getUser(envUsername);
-    if (!user) {
-      return fail(c, "user not found in database", 500);
+    const defaultHandle = normalizeHandle(envUsername || "");
+    const targetHandle = normalizedHandle || defaultHandle;
+    if (!targetHandle || !password) {
+      return fail(c, "invalid credentials", 401);
     }
+
+    const user: any = await store.getUser(targetHandle).catch(() => null);
+    if (!user) {
+      return fail(c, "invalid credentials", 401);
+    }
+
+    const passwordAccount = await getPasswordAccount(c.env.DB, user.id);
+    let verified = false;
+    if (passwordAccount?.secret) {
+      verified = await verifyPasswordValue(password, passwordAccount.secret);
+    }
+    if (
+      !verified &&
+      defaultHandle &&
+      envPassword &&
+      user.id === defaultHandle &&
+      password === envPassword
+    ) {
+      verified = true;
+    }
+
+    if (!verified) {
+      return fail(c, "invalid credentials", 401);
+    }
+
     const { token } = await createUserJWT(c, store, user.id);
     // Remove sensitive/internal fields before returning
     const { jwt_secret, tenant_id, ...publicProfile } = user;
