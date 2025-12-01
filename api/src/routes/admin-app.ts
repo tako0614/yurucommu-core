@@ -11,6 +11,7 @@ import {
 } from "@takos/platform/server";
 import { makeData } from "../data";
 import { guardAgentRequest } from "../lib/agent-guard";
+import { buildAppRevisionDiff, renderAppRevisionDiffHtml } from "../lib/app-revision-diff";
 
 type AdminAuthResult =
   | { ok: true; admin: string }
@@ -18,10 +19,16 @@ type AdminAuthResult =
 
 function decodeBasicAuth(encoded: string): string | null {
   try {
-    return atob(encoded);
+    if (typeof atob === "function") {
+      return atob(encoded);
+    }
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(encoded, "base64").toString("utf-8");
+    }
   } catch {
-    return null;
+    // fall through
   }
+  return null;
 }
 
 function checkAdminAuth(c: any): AdminAuthResult {
@@ -80,6 +87,41 @@ adminAppRoutes.get("/admin/app/revisions", async (c) => {
       state,
       revisions,
     });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+adminAppRoutes.get("/admin/app/revisions/diff", async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    if (!store.listAppRevisions) {
+      return fail(c as any, "app revisions are not supported", 501);
+    }
+    const revisions = await store.listAppRevisions(2);
+    if (!revisions || revisions.length === 0) {
+      return fail(c as any, "no app revisions found", 404);
+    }
+    const newer = revisions[0];
+    const older = revisions[1] ?? null;
+
+    const diff = buildAppRevisionDiff(newer, older);
+    if (!diff.ok) {
+      return fail(c as any, diff.error, 500);
+    }
+
+    const format = (c.req.query("format") || "").trim().toLowerCase();
+    const wantsHtml =
+      format === "html" || (c.req.header("accept") || "").toLowerCase().includes("text/html");
+
+    if (wantsHtml) {
+      return c.html(renderAppRevisionDiffHtml(diff.diff));
+    }
+
+    return ok(c as any, diff.diff);
+  } catch (error) {
+    console.error("failed to compute app revision diff", error);
+    return fail(c as any, "failed to compute app revision diff", 500);
   } finally {
     await releaseStore(store);
   }

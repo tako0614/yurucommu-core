@@ -98,6 +98,25 @@ export type AiRedactionResult<T extends AiPayloadSlices> = {
   redacted: AiRedaction[];
 };
 
+export type AiPolicyOptions<T extends AiPayloadSlices> = {
+  payload: T;
+  actionPolicy?: Partial<EffectiveAiDataPolicy>;
+  providerId?: string;
+  onRedaction?: (result: AiRedactionResult<T>) => void;
+};
+
+export type AiPolicyContext<T extends AiPayloadSlices> = AiRedactionResult<T> & {
+  provider: AiProviderClient;
+};
+
+export type AiCallResult<T extends AiPayloadSlices, TResult> = AiPolicyContext<T> & {
+  result: TResult;
+};
+
+export type AiCallExecutor<T extends AiPayloadSlices, TResult> = (
+  ctx: AiPolicyContext<T>,
+) => Promise<TResult>;
+
 export function redactPayload<T extends AiPayloadSlices>(
   payload: T,
   policy: EffectiveAiDataPolicy,
@@ -281,6 +300,35 @@ export class AiProviderRegistry {
   ): AiRedactionResult<T> {
     const policy = this.combinePolicy(actionPolicy);
     return redactPayload(payload, policy);
+  }
+
+  prepareCall<T extends AiPayloadSlices>(
+    options: AiPolicyOptions<T>,
+  ): AiPolicyContext<T> {
+    const provider = this.require(options.providerId);
+    const redaction = this.redact(options.payload, options.actionPolicy);
+
+    if (redaction.redacted.length > 0 && typeof options.onRedaction === "function") {
+      try {
+        options.onRedaction(redaction);
+      } catch (error) {
+        console.error("AiProviderRegistry onRedaction callback failed", error);
+      }
+    }
+
+    return {
+      provider,
+      ...redaction,
+    };
+  }
+
+  async callWithPolicy<T extends AiPayloadSlices, TResult>(
+    options: AiPolicyOptions<T>,
+    execute: AiCallExecutor<T, TResult>,
+  ): Promise<AiCallResult<T, TResult>> {
+    const prepared = this.prepareCall(options);
+    const result = await execute(prepared);
+    return { ...prepared, result };
   }
 }
 

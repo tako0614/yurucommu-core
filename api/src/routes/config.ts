@@ -11,11 +11,11 @@ import {
   checkDistroCompatibility,
   diffConfigs,
   loadStoredConfig,
-  persistConfig,
   stripSecretsFromConfig,
 } from "../lib/config-utils";
 import { guardAgentRequest } from "../lib/agent-guard";
 import { listConfigAudit, recordConfigAudit } from "../lib/config-audit";
+import { persistConfigWithReloadGuard } from "../lib/config-reload";
 
 const configRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -182,7 +182,11 @@ configRoutes.post("/admin/config/import", auth, async (c) => {
   const incoming = sanitizeConfig(validation.config);
   const warnings = [...compatibility.warnings, ...incoming.warnings];
 
-  await persistConfig((c.env as Bindings).DB, incoming.config);
+  const applyResult = await persistConfigWithReloadGuard({
+    env: c.env as Bindings,
+    nextConfig: incoming.config,
+    previousConfig: activeConfig.config,
+  });
   await recordConfigAudit((c.env as Bindings).DB, {
     action: "config_import",
     actorId: user?.id ?? null,
@@ -193,7 +197,12 @@ configRoutes.post("/admin/config/import", auth, async (c) => {
       force,
       distro: incoming.config.distro,
       schema_version: incoming.config.schema_version,
-      warnings,
+      warnings: [...warnings, ...(applyResult.reload.warnings || [])],
+      reload_ok: applyResult.reload.ok,
+      reload_error: applyResult.reload.error ?? null,
+      reload_source: applyResult.reload.source ?? null,
+      reload_reloaded: applyResult.reload.reloaded ?? null,
+      rolled_back: applyResult.rolledBack,
       stripped_fields: incoming.strippedFields,
       previous_stripped_fields: activeConfig.strippedFields,
       previous_config: activeConfig.config,
@@ -201,9 +210,19 @@ configRoutes.post("/admin/config/import", auth, async (c) => {
     },
   });
 
+  if (!applyResult.ok) {
+    const reason = applyResult.reload.error || "config reload failed";
+    return fail(
+      c,
+      `${reason}; restored previous config`,
+      500,
+    );
+  }
+
   return ok(c, {
     config: incoming.config,
-    warnings,
+    warnings: [...warnings, ...(applyResult.reload.warnings || [])],
+    reload: applyResult.reload,
   });
 });
 

@@ -10,6 +10,7 @@ SESSION_TTL_HOURS = "8760"
 SESSION_REFRESH_INTERVAL_SECONDS = "2592000"
 INSTANCE_DOMAIN = "yourdomain.com"
 ACTIVITYPUB_ENABLED = "true"
+CRON_TRIGGERS = "*/5 * * * *,0 2 * * *"
 # Authentication credentials (change these!)
 AUTH_USERNAME = "admin"
 AUTH_PASSWORD = "changeme"

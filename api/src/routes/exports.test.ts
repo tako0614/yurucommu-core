@@ -19,6 +19,7 @@ vi.mock("../data", () => ({
 }));
 
 import exportsRoute, {
+  buildCoreActivityPubPayload,
   collectDmBundles,
   collectMediaBundles,
   computeRetryDelayMs,
@@ -52,6 +53,58 @@ describe("parseExportOptions", () => {
     expect(options.format).toBe("activitypub");
     expect(options.includeDm).toBe(true);
     expect(options.includeMedia).toBe(true);
+  });
+});
+
+describe("buildCoreActivityPubPayload", () => {
+  it("resolves activitypub references and contexts", () => {
+    const payload = buildCoreActivityPubPayload(
+      {
+        profile: { id: "alice", display_name: "Alice" },
+        posts: [
+          {
+            id: "post-1",
+            text: "hello world",
+            created_at: "2024-01-01T00:00:00.000Z",
+            broadcast_all: true,
+            visible_to_friends: false,
+            media_json: "[]",
+          },
+        ],
+        friends: [
+          {
+            addressee_id: "@bob@remote.example",
+            addressee_aliases: ["https://remote.example/ap/users/bob"],
+          },
+        ],
+        reactions: [
+          {
+            id: "react-1",
+            post_id: "object-1",
+            user_id: "@carol@elsewhere.example",
+            emoji: "👍",
+            created_at: "2024-01-02T00:00:00.000Z",
+          },
+        ],
+        bookmarks: [
+          {
+            id: "bm-1",
+            post_id: "post-2",
+            created_at: "2024-01-02T01:00:00.000Z",
+          },
+        ],
+      } as any,
+      "example.com",
+    );
+
+    const core: any = payload.payload;
+    expect(Array.isArray(core["@context"])).toBe(true);
+    expect(core.friends[0]).toBe("https://remote.example/ap/users/bob");
+    expect(core.reactions[0].actor).toBe("https://elsewhere.example/ap/users/carol");
+    expect(core.reactions[0].object).toBe("https://example.com/ap/objects/object-1");
+    expect(core.bookmarks[0].object).toBe("https://example.com/ap/objects/post-2");
+    expect(core.references.actors).toContain("https://elsewhere.example/ap/users/carol");
+    expect(core.references.objects).toContain("https://example.com/ap/objects/object-1");
   });
 });
 
@@ -93,9 +146,13 @@ describe("collectDmBundles", () => {
     expect(result.counts.dmThreads).toBe(1);
     expect(result.counts.dmMessages).toBe(1);
     expect(result.json?.threads[0]?.messages[0]?.content_html).toContain("hello");
+    expect(result.json?.threads[0]?.participants[0]).toBe("https://example.com/ap/users/alice");
+    expect(result.json?.threads[0]?.raw_participants[0]).toContain("alice");
+    expect(result.json?.threads[0]?.messages[0]?.actor).toBe("https://example.com/ap/users/alice");
     expect(
       result.activitypub?.threads[0]?.activities[0]?.object?.content,
     ).toContain("hello");
+    expect(result.activitypub?.threads[0]?.participants[0]).toBe("https://example.com/ap/users/alice");
   });
 });
 

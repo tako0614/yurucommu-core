@@ -104,4 +104,67 @@ describe("AiProviderRegistry redaction", () => {
       expect.arrayContaining(["communityPosts", "dmMessages", "profile"]),
     );
   });
+
+  it("applies the redaction pipeline before executing provider calls", async () => {
+    const aiConfig: TakosAiConfig = {
+      providers: {
+        local: {
+          type: "openai-compatible",
+          base_url: "https://llm.local/v1",
+          api_key_env: "LLM_KEY",
+        },
+      },
+      data_policy: {
+        send_public_posts: true,
+        send_community_posts: true,
+        send_dm: false,
+        send_profile: true,
+      },
+    };
+
+    const registry = buildAiProviderRegistry(aiConfig, { LLM_KEY: "secret" });
+    const payload = {
+      publicPosts: ["post"],
+      communityPosts: ["community"],
+      dmMessages: ["dm"],
+      profile: { bio: "hi" },
+    };
+
+    const redactionLog: string[][] = [];
+
+    const result = await registry.callWithPolicy(
+      {
+        payload,
+        actionPolicy: { sendCommunityPosts: false, sendDm: true },
+        onRedaction: (res) => redactionLog.push(res.redacted.map((r) => r.field)),
+      },
+      async ({ provider, payload: sanitized, policy, redacted }) => {
+        expect(provider.id).toBe("local");
+        expect(policy.sendPublicPosts).toBe(true);
+        expect(policy.sendCommunityPosts).toBe(false);
+        expect(policy.sendDm).toBe(false);
+
+        expect(sanitized.publicPosts).toEqual(["post"]);
+        expect(sanitized.communityPosts).toBeUndefined();
+        expect(sanitized.dmMessages).toBeUndefined();
+        expect(sanitized.profile).toEqual({ bio: "hi" });
+
+        expect(redacted.map((r) => r.field)).toEqual(
+          expect.arrayContaining(["communityPosts", "dmMessages"]),
+        );
+
+        return { ok: true, sent: sanitized };
+      },
+    );
+
+    expect(result.result.ok).toBe(true);
+    expect(result.payload.publicPosts).toEqual(["post"]);
+    expect(result.payload.communityPosts).toBeUndefined();
+    expect(result.redacted.map((r) => r.field)).toEqual(
+      expect.arrayContaining(["communityPosts", "dmMessages"]),
+    );
+    expect(redactionLog).toHaveLength(1);
+    expect(redactionLog[0]).toEqual(expect.arrayContaining(["communityPosts", "dmMessages"]));
+    expect(payload.dmMessages).toEqual(["dm"]);
+  });
 });

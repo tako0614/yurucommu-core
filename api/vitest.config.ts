@@ -7,6 +7,7 @@ const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 export default defineConfig({
   test: {
     environment: "node",
+    setupFiles: ["./src/test-setup.ts"],
   },
   server: {
     fs: {

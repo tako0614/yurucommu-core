@@ -2,11 +2,13 @@ import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings, Variables } from "@takos/platform/server";
 import {
   ACTIVITYSTREAMS_CONTEXT,
+  SECURITY_CONTEXT,
   fail,
   generateNoteObject,
   generatePersonActor,
   getActivityUri,
   getActorUri,
+  parseActorUri,
   nowISO,
   ok,
   releaseStore,
@@ -66,6 +68,133 @@ const EXPORT_RETRY_MAX_DELAY_MS = 30 * 60_000;
 const EXPORT_BATCH_SIZE = 5;
 
 const exportsRoute = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+
+const isUrl = (value: string) =>
+  typeof value === "string" &&
+  (value.startsWith("http://") || value.startsWith("https://"));
+
+const dedupeStrings = (values: Array<string | null | undefined>): string[] => {
+  const set = new Set(
+    values
+      .filter((v): v is string => typeof v === "string")
+      .map((v) => v.trim())
+      .filter(Boolean),
+  );
+  return Array.from(set);
+};
+
+function parseActorHandle(value: string): { handle: string; domain?: string } | null {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return null;
+
+  const withoutPrefix = trimmed.replace(/^@+/, "");
+  const parts = withoutPrefix.split("@");
+  if (parts.length >= 2) {
+    const handle = (parts.shift() || "").trim();
+    const domain = parts.join("@").trim();
+    if (handle && domain) {
+      return { handle: handle.toLowerCase(), domain: domain.toLowerCase() };
+    }
+  }
+
+  try {
+    const url = new URL(trimmed);
+    const match = url.pathname.match(/\/ap\/users\/([a-z0-9_]{3,20})\/?$/i);
+    if (match) {
+      return { handle: match[1].toLowerCase(), domain: url.hostname.toLowerCase() };
+    }
+  } catch {
+    // ignore parse errors
+  }
+
+  if (/^[a-z0-9_]{3,}$/i.test(trimmed)) {
+    return { handle: trimmed.toLowerCase() };
+  }
+
+  return null;
+}
+
+function resolveActorRef(
+  input: any,
+  instanceDomain: string,
+  aliases: string[] = [],
+): { id: string; aliases: string[] } | null {
+  const candidates: string[] = [];
+
+  if (typeof input === "string") {
+    candidates.push(input);
+  } else if (input) {
+    for (const key of ["actor", "actor_id", "user_id", "handle", "id", "addressee_id"]) {
+      const value = (input as any)[key];
+      if (typeof value === "string") {
+        candidates.push(value);
+      }
+    }
+  }
+
+  for (const alias of aliases) {
+    if (typeof alias === "string") {
+      candidates.push(alias);
+    }
+  }
+
+  const normalized = candidates.map((v) => v.trim()).filter(Boolean);
+  if (!normalized.length) return null;
+
+  const aliasSet = new Set(normalized);
+
+  const urlCandidate = normalized.find((v) => isUrl(v));
+  if (urlCandidate) {
+    aliasSet.add(urlCandidate);
+    return { id: urlCandidate, aliases: Array.from(aliasSet) };
+  }
+
+  for (const candidate of normalized) {
+    const parsed = parseActorHandle(candidate);
+    if (parsed?.handle && parsed.domain) {
+      const id = `https://${parsed.domain}/ap/users/${parsed.handle}`;
+      aliasSet.add(id);
+      return { id, aliases: Array.from(aliasSet) };
+    }
+  }
+
+  for (const candidate of normalized) {
+    const parsed = parseActorHandle(candidate);
+    if (parsed?.handle) {
+      const domain = parsed.domain || instanceDomain;
+      const id = getActorUri(parsed.handle, domain);
+      aliasSet.add(id);
+      return { id, aliases: Array.from(aliasSet) };
+    }
+  }
+
+  return null;
+}
+
+function resolveObjectRef(input: any, instanceDomain: string): string | null {
+  const raw = typeof input === "string" ? input.trim() : "";
+  if (!raw) return null;
+  if (isUrl(raw)) return raw;
+  const normalized = raw.startsWith("/") ? raw.slice(1) : raw;
+  const path = normalized.startsWith("ap/objects/") ? normalized : `ap/objects/${normalized}`;
+  return `https://${instanceDomain}/${path}`;
+}
+
+function buildActivityUriForActor(actorId: string, activityId: string, instanceDomain: string): string {
+  const parsed = parseActorUri(actorId, instanceDomain);
+  if (parsed?.domain) {
+    return `https://${parsed.domain}/ap/activities/${activityId}`;
+  }
+  try {
+    const url = new URL(actorId);
+    if (url.hostname) {
+      return `https://${url.hostname}/ap/activities/${activityId}`;
+    }
+  } catch {
+    // ignore parse errors and fall back to instance domain
+  }
+  return `https://${instanceDomain}/ap/activities/${activityId}`;
+}
 
 function parseExportOptions(body: any): ExportOptions {
   const format = body?.format === "activitypub" ? "activitypub" : "json";
@@ -178,25 +307,100 @@ function buildCoreActivityPubPayload(
       getActivityUri(data.profile.id, post.id, instanceDomain);
     return wrapInCreateActivity(note, actor.id, activityId);
   });
-  const friendActors = (data.friends || [])
-    .map((friend: any) => getActorUri(friend.id || friend.handle || "", instanceDomain))
-    .filter(Boolean);
+  const friendActors = dedupeStrings(
+    (data.friends || []).map((friend: any) =>
+      resolveActorRef(
+        friend?.addressee_id ?? friend?.id ?? friend?.handle,
+        instanceDomain,
+        Array.isArray(friend?.addressee_aliases) ? friend.addressee_aliases : [],
+      )?.id
+    ),
+  );
+
+  const reactions = (data.reactions || []).map((reaction: any) => {
+    const actorRef = resolveActorRef(reaction?.user_id ?? actor.id, instanceDomain);
+    const reactionActor = actorRef?.id ?? actor.id;
+    const activityId = reaction?.ap_activity_id ||
+      buildActivityUriForActor(reactionActor, reaction?.id || uuid(), instanceDomain);
+    const object = resolveObjectRef(
+      (reaction as any)?.ap_object_id ||
+        (reaction as any)?.post_ap_object_id ||
+        reaction?.post_id,
+      instanceDomain,
+    ) || reaction?.post_id;
+    return {
+      "@context": ACTIVITYSTREAMS_CONTEXT,
+      type: "Like",
+      id: activityId,
+      actor: reactionActor,
+      object,
+      name: reaction?.emoji || undefined,
+      published: reaction?.created_at || undefined,
+    };
+  });
+
+  const bookmarks = (data.bookmarks || []).map((bookmark: any) => {
+    const object = resolveObjectRef(
+      (bookmark as any)?.ap_object_id ||
+        (bookmark as any)?.post_ap_object_id ||
+        bookmark?.post_id,
+      instanceDomain,
+    ) || bookmark?.post_id;
+    const activityId = buildActivityUriForActor(
+      actor.id,
+      bookmark?.id || uuid(),
+      instanceDomain,
+    );
+    return {
+      "@context": ACTIVITYSTREAMS_CONTEXT,
+      type: "Bookmark",
+      id: activityId,
+      actor: actor.id,
+      object,
+      published: bookmark?.created_at || undefined,
+    };
+  });
+
+  const objectRefs = dedupeStrings([
+    ...activities.map((activity: any) =>
+      activity?.object && typeof activity.object === "object"
+        ? (activity.object as any).id
+        : null
+    ),
+    ...reactions.map((reaction: any) =>
+      typeof reaction.object === "string" ? reaction.object : null
+    ),
+    ...bookmarks.map((bookmark: any) =>
+      typeof bookmark.object === "string" ? bookmark.object : null
+    ),
+  ]);
+
+  const actorRefs = dedupeStrings([
+    actor.id,
+    ...friendActors,
+    ...reactions.map((reaction: any) => reaction.actor as string),
+    ...bookmarks.map((bookmark: any) => bookmark.actor as string),
+  ]);
 
   return {
     payload: {
-      "@context": ACTIVITYSTREAMS_CONTEXT,
+      "@context": [ACTIVITYSTREAMS_CONTEXT, SECURITY_CONTEXT],
       generated_at: nowISO(),
       actor,
       outbox: activities,
       friends: friendActors,
-      reactions: data.reactions,
-      bookmarks: data.bookmarks,
+      reactions,
+      bookmarks,
+      references: {
+        actors: actorRefs,
+        objects: objectRefs,
+      },
     },
     counts: {
       posts: data.posts.length,
       friends: data.friends.length,
-      reactions: data.reactions.length,
-      bookmarks: data.bookmarks.length,
+      reactions: reactions.length,
+      bookmarks: bookmarks.length,
     },
   };
 }
@@ -223,6 +427,7 @@ function buildDmActivity(
   message: any,
   participants: string[],
   threadUri: string,
+  instanceDomain: string,
 ) {
   if (message?.raw_activity_json) {
     try {
@@ -231,21 +436,26 @@ function buildDmActivity(
       // ignore and fall back to synthetic activity
     }
   }
+  const actorRef = resolveActorRef(message?.author_id, instanceDomain);
+  const actor = actorRef?.id || message?.author_id || participants[0] || threadUri;
   const published = message?.created_at || nowISO();
+  const activityId = message?.ap_activity_id ||
+    `${threadUri}/activities/${message?.id || uuid()}`;
   const objectId = message?.id
     ? `${threadUri}/messages/${message.id}`
     : `${threadUri}/messages/${uuid()}`;
   return {
     "@context": ACTIVITYSTREAMS_CONTEXT,
+    id: activityId,
     type: "Create",
-    actor: message?.author_id,
+    actor,
     to: participants,
     cc: participants,
     published,
     object: {
       type: "Note",
       id: objectId,
-      attributedTo: message?.author_id,
+      attributedTo: actor,
       content: message?.content_html || "",
       context: threadUri,
       published,
@@ -272,7 +482,10 @@ async function collectDmBundles(
   const threads = await store.listAllDmThreads();
   const relevantThreads = (threads || []).filter((thread: any) => {
     const participants = parseParticipants(thread?.participants_json);
-    return participants.some((p) => aliases.has(p) || p.endsWith(`/${userId}`));
+    const resolved = dedupeStrings(
+      participants.map((p) => resolveActorRef(p, instanceDomain)?.id ?? p),
+    );
+    return resolved.some((p) => aliases.has(p) || p.endsWith(`/${userId}`));
   });
 
   const jsonThreads: any[] = [];
@@ -280,7 +493,10 @@ async function collectDmBundles(
   let messageCount = 0;
 
   for (const thread of relevantThreads) {
-    const participants = parseParticipants(thread?.participants_json);
+    const rawParticipants = parseParticipants(thread?.participants_json);
+    const participants = dedupeStrings(
+      rawParticipants.map((p) => resolveActorRef(p, instanceDomain)?.id ?? p),
+    );
     const rawMessages = await store.listDmMessages(thread.id, 0);
     const messages = [...(rawMessages || [])].sort(
       (a: any, b: any) =>
@@ -292,10 +508,12 @@ async function collectDmBundles(
     jsonThreads.push({
       id: thread.id,
       participants,
+      raw_participants: rawParticipants,
       created_at: thread.created_at,
       messages: messages.map((msg: any) => ({
         id: msg.id,
         author_id: msg.author_id,
+        actor: resolveActorRef(msg.author_id, instanceDomain)?.id ?? msg.author_id,
         content_html: msg.content_html,
         created_at: msg.created_at,
         raw_activity_json: msg.raw_activity_json || null,
@@ -308,7 +526,7 @@ async function collectDmBundles(
       thread: threadUri,
       participants,
       activities: messages.map((msg: any) =>
-        buildDmActivity(msg, participants, threadUri)
+        buildDmActivity(msg, participants, threadUri, instanceDomain)
       ),
     });
   }
@@ -506,25 +724,38 @@ exportsRoute.post("/admin/exports/:id/retry", auth, async (c) => {
   }
 });
 
-// Cron/queue endpoint for export processing
-exportsRoute.post("/internal/tasks/process-exports", async (c) => {
-  const secret = c.env.CRON_SECRET;
-  const headerSecret = c.req.header("Cron-Secret");
-  if (secret && secret !== headerSecret) {
-    return fail(c as any, "unauthorized", 401);
-  }
-  const store = makeData(c.env as any, c);
+export type ExportQueueResult = {
+  supported: boolean;
+  processed: Array<{
+    id: string;
+    status: string;
+    attempt?: number;
+    max_attempts?: number;
+    error?: string;
+    reason?: string;
+    retry_at?: string;
+  }>;
+};
+
+export async function processExportQueue(
+  env: Bindings,
+  options: { limit?: number } = {},
+): Promise<ExportQueueResult> {
+  const limit = options.limit ?? EXPORT_BATCH_SIZE;
+  const store = makeData(env as any);
+  const results: ExportQueueResult["processed"] = [];
+
   try {
     if (!store.listPendingExportRequests || !store.updateExportRequest) {
-      return fail(c as any, "data export not supported", 501);
+      return { supported: false, processed: results };
     }
-    const pending = await store.listPendingExportRequests(EXPORT_BATCH_SIZE);
-    const results = [];
-    const instanceDomain = requireInstanceDomain(c.env as any);
+
+    const pending = await store.listPendingExportRequests(limit);
+    const instanceDomain = requireInstanceDomain(env as any);
 
     for (const request of pending) {
       const storedOptions = parseStoredOptions(request);
-      const options: ExportOptions = {
+      const resolvedOptions: ExportOptions = {
         format: request.format === "activitypub" ? "activitypub" : "json",
         includeDm: storedOptions.includeDm,
         includeMedia: storedOptions.includeMedia,
@@ -540,9 +771,9 @@ exportsRoute.post("/internal/tasks/process-exports", async (c) => {
           attempts,
           max_attempts: maxAttempts,
           options: {
-            include_dm: options.includeDm,
-            include_media: options.includeMedia,
-            format: options.format,
+            include_dm: resolvedOptions.includeDm,
+            include_media: resolvedOptions.includeMedia,
+            format: resolvedOptions.format,
           },
         };
         await store.updateExportRequest!(request.id, {
@@ -588,14 +819,14 @@ exportsRoute.post("/internal/tasks/process-exports", async (c) => {
 
         const baseData = await loadBaseUserData(store, request.user_id);
         const core =
-          options.format === "activitypub"
+          resolvedOptions.format === "activitypub"
             ? buildCoreActivityPubPayload(baseData, instanceDomain)
             : buildCoreJsonPayload(baseData);
 
-        const dmBundles = options.includeDm
+        const dmBundles = resolvedOptions.includeDm
           ? await collectDmBundles(store, request.user_id, instanceDomain)
           : { json: null, activitypub: null, counts: { dmThreads: 0, dmMessages: 0 } };
-        const mediaBundles = options.includeMedia
+        const mediaBundles = resolvedOptions.includeMedia
           ? await collectMediaBundles(store, request.user_id, instanceDomain)
           : { json: null, activitypub: null, counts: { media: 0 } };
 
@@ -609,35 +840,35 @@ exportsRoute.post("/internal/tasks/process-exports", async (c) => {
         } = {};
 
         artifacts.core = await putJsonArtifact(
-          c.env as any,
-          `${baseKey}/core.${options.format}.json`,
+          env as any,
+          `${baseKey}/core.${resolvedOptions.format}.json`,
           core.payload,
         );
 
         if (dmBundles.json) {
           artifacts.dmJson = await putJsonArtifact(
-            c.env as any,
+            env as any,
             `${baseKey}/dm.json`,
             dmBundles.json,
           );
         }
         if (dmBundles.activitypub) {
           artifacts.dmActivityPub = await putJsonArtifact(
-            c.env as any,
+            env as any,
             `${baseKey}/dm.activitypub.json`,
             dmBundles.activitypub,
           );
         }
         if (mediaBundles.json) {
           artifacts.mediaJson = await putJsonArtifact(
-            c.env as any,
+            env as any,
             `${baseKey}/media.json`,
             mediaBundles.json,
           );
         }
         if (mediaBundles.activitypub) {
           artifacts.mediaActivityPub = await putJsonArtifact(
-            c.env as any,
+            env as any,
             `${baseKey}/media.activitypub.json`,
             mediaBundles.activitypub,
           );
@@ -645,12 +876,15 @@ exportsRoute.post("/internal/tasks/process-exports", async (c) => {
 
         const summary = {
           generated_at: nowISO(),
-          format: options.format,
+          format: resolvedOptions.format,
+          format_description: resolvedOptions.format === "activitypub"
+            ? "ActivityPub JSON-LD export with resolved actor/object references"
+            : "Application JSON export with raw identifiers",
           attempts: attemptNumber,
           max_attempts: maxAttempts,
           options: {
-            include_dm: options.includeDm,
-            include_media: options.includeMedia,
+            include_dm: resolvedOptions.includeDm,
+            include_media: resolvedOptions.includeMedia,
           },
           counts: {
             posts: core.counts.posts,
@@ -663,14 +897,14 @@ exportsRoute.post("/internal/tasks/process-exports", async (c) => {
           },
           artifacts: {
             core: artifacts.core,
-            dm: options.includeDm
+            dm: resolvedOptions.includeDm
               ? {
                 status: dmBundles.json || dmBundles.activitypub ? "completed" : "skipped",
                 json: artifacts.dmJson,
                 activitypub: artifacts.dmActivityPub,
               }
               : { status: "skipped" },
-            media: options.includeMedia
+            media: resolvedOptions.includeMedia
               ? {
                 status: mediaBundles.json || mediaBundles.activitypub ? "completed" : "skipped",
                 json: artifacts.mediaJson,
@@ -707,9 +941,9 @@ exportsRoute.post("/internal/tasks/process-exports", async (c) => {
           failed_at: failedAt,
           will_retry: nextStatus === "pending",
           options: {
-            include_dm: options.includeDm,
-            include_media: options.includeMedia,
-            format: options.format,
+            include_dm: resolvedOptions.includeDm,
+            include_media: resolvedOptions.includeMedia,
+            format: resolvedOptions.format,
           },
         };
         await store.updateExportRequest!(request.id, {
@@ -729,10 +963,27 @@ exportsRoute.post("/internal/tasks/process-exports", async (c) => {
         });
       }
     }
-    return ok(c as any, { processed: results });
+
+    return { supported: true, processed: results };
   } finally {
     await releaseStore(store);
   }
+}
+
+// Cron/queue endpoint for export processing
+exportsRoute.post("/internal/tasks/process-exports", async (c) => {
+  const secret = c.env.CRON_SECRET;
+  const headerSecret = c.req.header("Cron-Secret");
+  if (secret && secret !== headerSecret) {
+    return fail(c as any, "unauthorized", 401);
+  }
+  const result = await processExportQueue(c.env as Bindings, {
+    limit: EXPORT_BATCH_SIZE,
+  });
+  if (!result.supported) {
+    return fail(c as any, "data export not supported", 501);
+  }
+  return ok(c as any, result);
 });
 
 export {
@@ -744,5 +995,6 @@ export {
   computeRetryDelayMs,
   normalizeAttempts,
   shouldBackoff,
+  processExportQueue,
 };
 export default exportsRoute;

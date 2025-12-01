@@ -30,6 +30,8 @@ import { auth } from "../middleware/auth";
 
 const stories = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
+let lastStoryCleanupRunMs = 0;
+
 // Helper: check community membership
 async function requireMember(
   store: ReturnType<typeof makeData>,
@@ -141,8 +143,84 @@ async function buildStoryPayload(
   };
 }
 
-function cleanupExpiredStories() {
-  /* read-time filter only */
+export type StoryCleanupResult = {
+  deleted: number;
+  checked: number;
+  ranAt: string;
+  skipped?: boolean;
+  reason?: string;
+  lastRun?: string | null;
+};
+
+export async function cleanupExpiredStories(
+  env: Bindings,
+  options: { limit?: number; force?: boolean; throttleMs?: number; publishDeletes?: boolean } = {},
+): Promise<StoryCleanupResult> {
+  const limit = options.limit ?? 50;
+  const throttleMs = options.throttleMs ?? 15 * 60 * 1000;
+  const now = Date.now();
+  const lastRun = lastStoryCleanupRunMs ? new Date(lastStoryCleanupRunMs).toISOString() : null;
+
+  if (!options.force && throttleMs > 0 && now - lastStoryCleanupRunMs < throttleMs) {
+    return {
+      deleted: 0,
+      checked: 0,
+      ranAt: new Date(now).toISOString(),
+      skipped: true,
+      reason: "throttled",
+      lastRun,
+    };
+  }
+
+  const store = makeData(env as any);
+  try {
+    if (!store.queryRaw || !store.getStory || !store.deleteStory) {
+      return {
+        deleted: 0,
+        checked: 0,
+        ranAt: new Date(now).toISOString(),
+        skipped: true,
+        reason: "stories not supported",
+        lastRun,
+      };
+    }
+
+    const cutoff = new Date().toISOString();
+    const expired = await store.queryRaw<{ id: string }>(
+      `SELECT id FROM stories WHERE expires_at <= ? ORDER BY expires_at ASC LIMIT ?`,
+      cutoff,
+      limit,
+    );
+
+    let deleted = 0;
+    for (const storyRow of expired) {
+      const story = await store.getStory(storyRow.id);
+      if (!story) continue;
+      if (options.publishDeletes !== false) {
+        try {
+          await publishStoryDelete(env, story);
+        } catch (error) {
+          console.warn("failed to publish story delete for expired story", {
+            id: storyRow.id,
+            error,
+          });
+        }
+      }
+      await store.deleteStory(storyRow.id);
+      deleted += 1;
+    }
+
+    lastStoryCleanupRunMs = now;
+
+    return {
+      deleted,
+      checked: expired.length,
+      ranAt: new Date(now).toISOString(),
+      lastRun,
+    };
+  } finally {
+    await releaseStore(store);
+  }
 }
 
 // POST /communities/:id/stories
@@ -197,7 +275,10 @@ stories.get("/stories", auth, async (c) => {
   const store = makeData(c.env, c);
   try {
     const user = c.get("user") as any;
-    cleanupExpiredStories();
+    void cleanupExpiredStories(c.env as Bindings, {
+      publishDeletes: false,
+      throttleMs: 10 * 60 * 1000,
+    });
     let list: any[] = await store.listGlobalStoriesForUser(user.id);
     const now = Date.now();
     list = list.filter((s) => Date.parse((s as any).expires_at) > now);
@@ -219,7 +300,10 @@ stories.get("/communities/:id/stories", auth, async (c) => {
     if (!(await requireMember(store, community_id, user.id, c.env))) {
       return fail(c, "forbidden", 403);
     }
-    cleanupExpiredStories();
+    void cleanupExpiredStories(c.env as Bindings, {
+      publishDeletes: false,
+      throttleMs: 10 * 60 * 1000,
+    });
     let list: any[] = await store.listStoriesByCommunity(community_id);
     const now = Date.now();
     list = list.filter((s) => Date.parse((s as any).expires_at) > now);
@@ -343,6 +427,22 @@ stories.delete("/stories/:id", auth, async (c) => {
   } finally {
     await releaseStore(store);
   }
+});
+
+stories.post("/internal/tasks/cleanup-stories", async (c) => {
+  const secret = c.env.CRON_SECRET;
+  const headerSecret = c.req.header("Cron-Secret");
+  if (secret && secret !== headerSecret) {
+    return fail(c as any, "unauthorized", 401);
+  }
+  const result = await cleanupExpiredStories(c.env as Bindings, {
+    limit: 100,
+    force: true,
+  });
+  if (result.skipped) {
+    return fail(c as any, result.reason || "cleanup skipped", 503);
+  }
+  return ok(c as any, result);
 });
 
 export default stories;
