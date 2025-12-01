@@ -11,14 +11,24 @@ export type {
   Variables,
   AppContext,
 } from "../types";
+export * from "./context";
+export * from "./dev-data-isolation";
+export * from "../config/takos-config.js";
+export * from "../app/manifest";
+export * from "../app/storage";
+export * from "../app/manifest-router";
 export * from "../subdomain";
 export * from "../guards";
 export * from "../auth/crypto-keys";
 export * from "../auth/http-signature";
 export * from "../auth/auth-state";
 export * from "../utils/utils";
+export * from "../utils/semver.js";
 export * from "../utils/rate-limit";
 export * from "../utils/response-helpers";
+export * from "../ai/agent-policy";
+export * from "../ai/action-registry.js";
+export * from "../ai/provider-registry";
 export * from "../activitypub/activitypub";
 export * from "../activitypub/activitypub-routes";
 export * from "../activitypub/activitypub-story";
@@ -26,6 +36,7 @@ export * from "../activitypub/actor-fetch";
 export * from "../activitypub/chat";
 export * from "../activitypub/cleanup-worker";
 export * from "../activitypub/delivery";
+export * from "../activitypub/federation-policy";
 export {
   processDeliveryQueue,
   handleDeliveryScheduled,

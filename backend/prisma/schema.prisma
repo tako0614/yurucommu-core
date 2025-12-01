@@ -532,6 +532,8 @@ model data_export_requests {
   user_id       String
   format        String    @default("json")
   status        String    @default("pending") // pending | processing | completed | failed
+  attempt_count Int       @default(0)
+  max_attempts  Int       @default(3)
   requested_at  DateTime
   processed_at  DateTime?
   download_url  String?
@@ -750,4 +752,38 @@ model reports {
   @@index([status])
   @@index([target_actor_id])
   @@map("reports")
+}
+
+// App revision history (prod)
+model app_revisions {
+  id                  String   @id
+  created_at          DateTime @default(now())
+  author_type         String
+  author_name         String?
+  message             String?
+  schema_version      String
+  manifest_snapshot   String
+  script_snapshot_ref String
+
+  @@map("app_revisions")
+}
+
+// Single-row table tracking the currently active revision
+model app_state {
+  id                 Int      @id @default(1)
+  active_revision_id String?
+  updated_at         DateTime @default(now())
+
+  active_revision app_revisions? @relation(fields: [active_revision_id], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@map("app_state")
+}
+
+// AI configuration (node-level)
+model ai_config {
+  id          String   @id
+  config_json String
+  updated_at  DateTime @default(now())
+
+  @@map("ai_config")
 }

@@ -1,10 +1,401 @@
 import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings, Variables } from "@takos/platform/server";
-import { ok, fail, uuid, nowISO, releaseStore } from "@takos/platform/server";
+import {
+  ACTIVITYSTREAMS_CONTEXT,
+  fail,
+  generateNoteObject,
+  generatePersonActor,
+  getActivityUri,
+  getActorUri,
+  nowISO,
+  ok,
+  releaseStore,
+  requireInstanceDomain,
+  uuid,
+  wrapInCreateActivity,
+} from "@takos/platform/server";
 import { makeData } from "../data";
 import { auth } from "../middleware/auth";
 
+type ExportOptions = {
+  format: "json" | "activitypub";
+  includeDm: boolean;
+  includeMedia: boolean;
+};
+
+type ArtifactRef = {
+  key: string;
+  url: string;
+  contentType: string;
+};
+
+type BaseUserData = {
+  profile: any;
+  posts: any[];
+  friends: any[];
+  reactions: any[];
+  bookmarks: any[];
+};
+
+type CorePayload = {
+  payload: any;
+  counts: {
+    posts: number;
+    friends: number;
+    reactions: number;
+    bookmarks: number;
+  };
+};
+
+type DmBundleResult = {
+  json: any | null;
+  activitypub: any | null;
+  counts: { dmThreads: number; dmMessages: number };
+};
+
+type MediaBundleResult = {
+  json: any | null;
+  activitypub: any | null;
+  counts: { media: number };
+};
+
+const MEDIA_CACHE_CONTROL = "private, max-age=0, no-store";
+const DEFAULT_EXPORT_MAX_ATTEMPTS = 3;
+const EXPORT_RETRY_BASE_DELAY_MS = 60_000;
+const EXPORT_RETRY_MAX_DELAY_MS = 30 * 60_000;
+const EXPORT_BATCH_SIZE = 5;
+
 const exportsRoute = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+
+function parseExportOptions(body: any): ExportOptions {
+  const format = body?.format === "activitypub" ? "activitypub" : "json";
+  const includeDm = Boolean(
+    body?.include_dm ?? body?.includeDm ?? body?.dm ?? false,
+  );
+  const includeMedia = Boolean(
+    body?.include_media ?? body?.includeMedia ?? body?.media ?? false,
+  );
+  return { format, includeDm, includeMedia };
+}
+
+function parseStoredOptions(request: any): Pick<ExportOptions, "includeDm" | "includeMedia"> {
+  try {
+    const parsed = JSON.parse(request?.result_json || "{}");
+    const options = parsed?.options || parsed?.requested_options || parsed;
+    return {
+      includeDm: Boolean(options?.include_dm ?? options?.includeDm ?? false),
+      includeMedia: Boolean(options?.include_media ?? options?.includeMedia ?? false),
+    };
+  } catch {
+    return { includeDm: false, includeMedia: false };
+  }
+}
+
+function normalizeAttempts(request: any): { attempts: number; maxAttempts: number } {
+  const attempts = Math.max(0, Number(request?.attempt_count ?? 0));
+  const maxAttemptsRaw = request?.max_attempts ?? DEFAULT_EXPORT_MAX_ATTEMPTS;
+  const maxAttempts = Math.max(1, Number(maxAttemptsRaw) || DEFAULT_EXPORT_MAX_ATTEMPTS);
+  return { attempts, maxAttempts };
+}
+
+function computeRetryDelayMs(attemptCount: number): number {
+  if (attemptCount <= 0) return 0;
+  const exponent = Math.max(0, attemptCount - 1);
+  const delay = EXPORT_RETRY_BASE_DELAY_MS * 2 ** exponent;
+  return Math.min(EXPORT_RETRY_MAX_DELAY_MS, delay);
+}
+
+function toDateMs(value: any): number | null {
+  if (!value) return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const ms = value instanceof Date ? value.getTime() : Date.parse(String(value));
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function shouldBackoff(request: any): { wait: boolean; retryAt?: string } {
+  const { attempts } = normalizeAttempts(request);
+  if (attempts <= 0) return { wait: false };
+  const lastAttemptMs = toDateMs(request?.processed_at);
+  if (!lastAttemptMs) return { wait: false };
+  const retryDelay = computeRetryDelayMs(attempts);
+  const retryAtMs = lastAttemptMs + retryDelay;
+  if (Date.now() < retryAtMs) {
+    return { wait: true, retryAt: new Date(retryAtMs).toISOString() };
+  }
+  return { wait: false };
+}
+
+function isAdminUser(user: any, env: Bindings): boolean {
+  return !!env.AUTH_USERNAME && user?.id === env.AUTH_USERNAME;
+}
+
+async function loadBaseUserData(
+  store: ReturnType<typeof makeData>,
+  userId: string,
+): Promise<BaseUserData> {
+  const profile = await store.getUser(userId);
+  if (!profile) {
+    throw new Error("user not found");
+  }
+  const posts = await store.listPostsByAuthors([userId], true);
+  const friends = await store.listFriends(userId);
+  const reactions = store.listReactionsByUser
+    ? await store.listReactionsByUser(userId)
+    : [];
+  const bookmarks = store.listBookmarksByUser
+    ? await store.listBookmarksByUser(userId)
+    : [];
+  return { profile, posts, friends, reactions, bookmarks };
+}
+
+function buildCoreJsonPayload(data: BaseUserData): CorePayload {
+  return {
+    payload: {
+      generated_at: nowISO(),
+      profile: data.profile,
+      posts: data.posts,
+      friends: data.friends,
+      reactions: data.reactions,
+      bookmarks: data.bookmarks,
+    },
+    counts: {
+      posts: data.posts.length,
+      friends: data.friends.length,
+      reactions: data.reactions.length,
+      bookmarks: data.bookmarks.length,
+    },
+  };
+}
+
+function buildCoreActivityPubPayload(
+  data: BaseUserData,
+  instanceDomain: string,
+): CorePayload {
+  const actor = generatePersonActor(data.profile, instanceDomain);
+  const activities = (data.posts || []).map((post: any) => {
+    const note = generateNoteObject(post, data.profile, instanceDomain);
+    const activityId = post.ap_activity_id ||
+      getActivityUri(data.profile.id, post.id, instanceDomain);
+    return wrapInCreateActivity(note, actor.id, activityId);
+  });
+  const friendActors = (data.friends || [])
+    .map((friend: any) => getActorUri(friend.id || friend.handle || "", instanceDomain))
+    .filter(Boolean);
+
+  return {
+    payload: {
+      "@context": ACTIVITYSTREAMS_CONTEXT,
+      generated_at: nowISO(),
+      actor,
+      outbox: activities,
+      friends: friendActors,
+      reactions: data.reactions,
+      bookmarks: data.bookmarks,
+    },
+    counts: {
+      posts: data.posts.length,
+      friends: data.friends.length,
+      reactions: data.reactions.length,
+      bookmarks: data.bookmarks.length,
+    },
+  };
+}
+
+function parseParticipants(input: any): string[] {
+  if (Array.isArray(input)) {
+    return input.map((p) => String(p || "").trim()).filter(Boolean);
+  }
+  try {
+    const parsed = JSON.parse(input || "[]");
+    if (Array.isArray(parsed)) {
+      return parsed.map((p) => String(p || "").trim()).filter(Boolean);
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+const buildThreadUri = (instanceDomain: string, threadId: string) =>
+  `https://${instanceDomain}/ap/dm/${threadId}`;
+
+function buildDmActivity(
+  message: any,
+  participants: string[],
+  threadUri: string,
+) {
+  if (message?.raw_activity_json) {
+    try {
+      return JSON.parse(message.raw_activity_json);
+    } catch {
+      // ignore and fall back to synthetic activity
+    }
+  }
+  const published = message?.created_at || nowISO();
+  const objectId = message?.id
+    ? `${threadUri}/messages/${message.id}`
+    : `${threadUri}/messages/${uuid()}`;
+  return {
+    "@context": ACTIVITYSTREAMS_CONTEXT,
+    type: "Create",
+    actor: message?.author_id,
+    to: participants,
+    cc: participants,
+    published,
+    object: {
+      type: "Note",
+      id: objectId,
+      attributedTo: message?.author_id,
+      content: message?.content_html || "",
+      context: threadUri,
+      published,
+      to: participants,
+      cc: participants,
+    },
+  };
+}
+
+async function collectDmBundles(
+  store: ReturnType<typeof makeData>,
+  userId: string,
+  instanceDomain: string,
+): Promise<DmBundleResult> {
+  if (!store.listAllDmThreads || !store.listDmMessages) {
+    return { json: null, activitypub: null, counts: { dmThreads: 0, dmMessages: 0 } };
+  }
+  const actorUri = getActorUri(userId, instanceDomain);
+  const aliases = new Set<string>([
+    userId,
+    actorUri,
+    `@${userId}@${instanceDomain}`,
+  ]);
+  const threads = await store.listAllDmThreads();
+  const relevantThreads = (threads || []).filter((thread: any) => {
+    const participants = parseParticipants(thread?.participants_json);
+    return participants.some((p) => aliases.has(p) || p.endsWith(`/${userId}`));
+  });
+
+  const jsonThreads: any[] = [];
+  const apThreads: any[] = [];
+  let messageCount = 0;
+
+  for (const thread of relevantThreads) {
+    const participants = parseParticipants(thread?.participants_json);
+    const rawMessages = await store.listDmMessages(thread.id, 0);
+    const messages = [...(rawMessages || [])].sort(
+      (a: any, b: any) =>
+        new Date(a?.created_at || 0).getTime() -
+        new Date(b?.created_at || 0).getTime(),
+    );
+    messageCount += messages.length;
+
+    jsonThreads.push({
+      id: thread.id,
+      participants,
+      created_at: thread.created_at,
+      messages: messages.map((msg: any) => ({
+        id: msg.id,
+        author_id: msg.author_id,
+        content_html: msg.content_html,
+        created_at: msg.created_at,
+        raw_activity_json: msg.raw_activity_json || null,
+      })),
+    });
+
+    const threadUri = buildThreadUri(instanceDomain, thread.id);
+    apThreads.push({
+      id: thread.id,
+      thread: threadUri,
+      participants,
+      activities: messages.map((msg: any) =>
+        buildDmActivity(msg, participants, threadUri)
+      ),
+    });
+  }
+
+  return {
+    json: {
+      generated_at: nowISO(),
+      threads: jsonThreads,
+    },
+    activitypub: {
+      "@context": ACTIVITYSTREAMS_CONTEXT,
+      generated_at: nowISO(),
+      threads: apThreads,
+    },
+    counts: { dmThreads: relevantThreads.length, dmMessages: messageCount },
+  };
+}
+
+const absoluteMediaUrl = (url: string, instanceDomain: string) => {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  const normalized = url.startsWith("/") ? url : `/${url}`;
+  return `https://${instanceDomain}${normalized}`;
+};
+
+function buildMediaActivity(item: any, instanceDomain: string) {
+  const url = absoluteMediaUrl(item?.url || "", instanceDomain);
+  const contentType = item?.content_type || "application/octet-stream";
+  const lower = contentType.toLowerCase();
+  const isImage = lower.startsWith("image/");
+  const isVideo = lower.startsWith("video/");
+  return {
+    type: isImage ? "Image" : isVideo ? "Video" : "Document",
+    mediaType: contentType,
+    url,
+    name: item?.description || undefined,
+    updated: item?.updated_at || undefined,
+  };
+}
+
+async function collectMediaBundles(
+  store: ReturnType<typeof makeData>,
+  userId: string,
+  instanceDomain: string,
+): Promise<MediaBundleResult> {
+  if (!store.listMediaByUser) {
+    return { json: null, activitypub: null, counts: { media: 0 } };
+  }
+  const media = await store.listMediaByUser(userId);
+  return {
+    json: {
+      generated_at: nowISO(),
+      files: media,
+    },
+    activitypub: {
+      "@context": ACTIVITYSTREAMS_CONTEXT,
+      type: "OrderedCollection",
+      totalItems: media.length,
+      orderedItems: (media || []).map((item: any) =>
+        buildMediaActivity(item, instanceDomain)
+      ),
+    },
+    counts: { media: media.length },
+  };
+}
+
+async function putJsonArtifact(
+  env: Bindings,
+  key: string,
+  payload: any,
+): Promise<ArtifactRef> {
+  if (!env.MEDIA) {
+    throw new Error("media storage not configured for exports");
+  }
+  const body = JSON.stringify(payload, null, 2);
+  await env.MEDIA.put(key, body, {
+    httpMetadata: {
+      contentType: "application/json",
+      cacheControl: MEDIA_CACHE_CONTROL,
+    },
+  });
+  return {
+    key,
+    url: `/media/${encodeURI(key)}`,
+    contentType: "application/json",
+  };
+}
 
 // POST /exports - enqueue data export
 exportsRoute.post("/exports", auth, async (c) => {
@@ -15,13 +406,16 @@ exportsRoute.post("/exports", auth, async (c) => {
     }
     const user = c.get("user") as any;
     const body = (await c.req.json().catch(() => ({}))) as any;
-    const format = body.format === "activitypub" ? "activitypub" : "json";
+    const options = parseExportOptions(body);
     const request = await store.createExportRequest({
       id: uuid(),
       user_id: user.id,
-      format,
+      format: options.format,
       status: "pending",
       requested_at: nowISO(),
+      attempt_count: 0,
+      max_attempts: DEFAULT_EXPORT_MAX_ATTEMPTS,
+      result_json: JSON.stringify({ options }),
     });
     return ok(c, request, 202);
   } finally {
@@ -61,28 +455,56 @@ exportsRoute.get("/exports/:id", auth, async (c) => {
   }
 });
 
-async function buildExportPayload(
-  store: ReturnType<typeof makeData>,
-  userId: string,
-) {
-  const profile = await store.getUser(userId);
-  const posts = await store.listPostsByAuthors([userId], true);
-  const friends = await store.listFriends(userId);
-  const reactions = store.listReactionsByUser
-    ? await store.listReactionsByUser(userId)
-    : [];
-  const bookmarks = store.listBookmarksByUser
-    ? await store.listBookmarksByUser(userId)
-    : [];
-  return {
-    generated_at: nowISO(),
-    profile,
-    posts,
-    friends,
-    reactions,
-    bookmarks,
-  };
-}
+// Admin: reset or trigger retry for an export request
+exportsRoute.post("/admin/exports/:id/retry", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    if (!store.getExportRequest || !store.updateExportRequest) {
+      return fail(c, "data export not supported", 501);
+    }
+    const user = c.get("user") as any;
+    if (!isAdminUser(user, c.env as Bindings)) {
+      return fail(c, "forbidden", 403);
+    }
+    const requestId = c.req.param("id");
+    const current = await store.getExportRequest(requestId);
+    if (!current) return fail(c, "export not found", 404);
+
+    const body = (await c.req.json().catch(() => ({}))) as any;
+    const resetAttempts = Boolean(body?.reset_attempts ?? body?.resetAttempts ?? false);
+    const maxAttemptsInput = Number(body?.max_attempts ?? body?.maxAttempts);
+    const parsedMaxAttempts = Number.isFinite(maxAttemptsInput)
+      ? Math.max(1, Math.min(10, Math.trunc(maxAttemptsInput)))
+      : null;
+
+    const normalized = normalizeAttempts(current);
+    const nextAttempts = resetAttempts ? 0 : normalized.attempts;
+    const nextMaxAttempts = parsedMaxAttempts !== null ? parsedMaxAttempts : normalized.maxAttempts;
+
+    if (nextAttempts >= nextMaxAttempts) {
+      return fail(c, "max attempts exhausted; increase max_attempts or reset attempts", 409);
+    }
+
+    await store.updateExportRequest!(requestId, {
+      status: "pending",
+      attempt_count: nextAttempts,
+      max_attempts: nextMaxAttempts,
+      processed_at: null,
+      download_url: null,
+      error_message: resetAttempts ? null : current.error_message ?? null,
+    });
+
+    return ok(c, {
+      id: requestId,
+      status: "pending",
+      attempt_count: nextAttempts,
+      max_attempts: nextMaxAttempts,
+      reset_attempts: resetAttempts,
+    });
+  } finally {
+    await releaseStore(store);
+  }
+});
 
 // Cron/queue endpoint for export processing
 exportsRoute.post("/internal/tasks/process-exports", async (c) => {
@@ -96,25 +518,215 @@ exportsRoute.post("/internal/tasks/process-exports", async (c) => {
     if (!store.listPendingExportRequests || !store.updateExportRequest) {
       return fail(c as any, "data export not supported", 501);
     }
-    const pending = await store.listPendingExportRequests(5);
+    const pending = await store.listPendingExportRequests(EXPORT_BATCH_SIZE);
     const results = [];
+    const instanceDomain = requireInstanceDomain(c.env as any);
+
     for (const request of pending) {
+      const storedOptions = parseStoredOptions(request);
+      const options: ExportOptions = {
+        format: request.format === "activitypub" ? "activitypub" : "json",
+        includeDm: storedOptions.includeDm,
+        includeMedia: storedOptions.includeMedia,
+      };
+      const { attempts, maxAttempts } = normalizeAttempts(request);
+
+      if (attempts >= maxAttempts) {
+        const exhaustedAt = nowISO();
+        const errorMessage = request.error_message || "maximum export attempts reached";
+        const failureSummary = {
+          status: "failed",
+          error: errorMessage,
+          attempts,
+          max_attempts: maxAttempts,
+          options: {
+            include_dm: options.includeDm,
+            include_media: options.includeMedia,
+            format: options.format,
+          },
+        };
+        await store.updateExportRequest!(request.id, {
+          status: "failed",
+          processed_at: request.processed_at ?? exhaustedAt,
+          error_message: errorMessage,
+          result_json: JSON.stringify(failureSummary),
+          attempt_count: attempts,
+          max_attempts: maxAttempts,
+        });
+        results.push({
+          id: request.id,
+          status: "failed",
+          reason: "max_attempts",
+          attempt: attempts,
+          max_attempts: maxAttempts,
+        });
+        continue;
+      }
+
+      const backoff = shouldBackoff(request);
+      if (backoff.wait) {
+        results.push({
+          id: request.id,
+          status: "pending",
+          reason: "backoff",
+          attempt: attempts,
+          max_attempts: maxAttempts,
+          retry_at: backoff.retryAt,
+        });
+        continue;
+      }
+
+      const attemptNumber = attempts + 1;
+
       try {
-        await store.updateExportRequest!(request.id, { status: "processing" });
-        const payload = await buildExportPayload(store, request.user_id);
+        await store.updateExportRequest!(request.id, {
+          status: "processing",
+          attempt_count: attemptNumber,
+          max_attempts: maxAttempts,
+          error_message: null,
+        });
+
+        const baseData = await loadBaseUserData(store, request.user_id);
+        const core =
+          options.format === "activitypub"
+            ? buildCoreActivityPubPayload(baseData, instanceDomain)
+            : buildCoreJsonPayload(baseData);
+
+        const dmBundles = options.includeDm
+          ? await collectDmBundles(store, request.user_id, instanceDomain)
+          : { json: null, activitypub: null, counts: { dmThreads: 0, dmMessages: 0 } };
+        const mediaBundles = options.includeMedia
+          ? await collectMediaBundles(store, request.user_id, instanceDomain)
+          : { json: null, activitypub: null, counts: { media: 0 } };
+
+        const baseKey = `exports/${request.user_id}/${request.id}`;
+        const artifacts: {
+          core?: ArtifactRef;
+          dmJson?: ArtifactRef;
+          dmActivityPub?: ArtifactRef;
+          mediaJson?: ArtifactRef;
+          mediaActivityPub?: ArtifactRef;
+        } = {};
+
+        artifacts.core = await putJsonArtifact(
+          c.env as any,
+          `${baseKey}/core.${options.format}.json`,
+          core.payload,
+        );
+
+        if (dmBundles.json) {
+          artifacts.dmJson = await putJsonArtifact(
+            c.env as any,
+            `${baseKey}/dm.json`,
+            dmBundles.json,
+          );
+        }
+        if (dmBundles.activitypub) {
+          artifacts.dmActivityPub = await putJsonArtifact(
+            c.env as any,
+            `${baseKey}/dm.activitypub.json`,
+            dmBundles.activitypub,
+          );
+        }
+        if (mediaBundles.json) {
+          artifacts.mediaJson = await putJsonArtifact(
+            c.env as any,
+            `${baseKey}/media.json`,
+            mediaBundles.json,
+          );
+        }
+        if (mediaBundles.activitypub) {
+          artifacts.mediaActivityPub = await putJsonArtifact(
+            c.env as any,
+            `${baseKey}/media.activitypub.json`,
+            mediaBundles.activitypub,
+          );
+        }
+
+        const summary = {
+          generated_at: nowISO(),
+          format: options.format,
+          attempts: attemptNumber,
+          max_attempts: maxAttempts,
+          options: {
+            include_dm: options.includeDm,
+            include_media: options.includeMedia,
+          },
+          counts: {
+            posts: core.counts.posts,
+            friends: core.counts.friends,
+            reactions: core.counts.reactions,
+            bookmarks: core.counts.bookmarks,
+            dm_threads: dmBundles.counts.dmThreads,
+            dm_messages: dmBundles.counts.dmMessages,
+            media_files: mediaBundles.counts.media,
+          },
+          artifacts: {
+            core: artifacts.core,
+            dm: options.includeDm
+              ? {
+                status: dmBundles.json || dmBundles.activitypub ? "completed" : "skipped",
+                json: artifacts.dmJson,
+                activitypub: artifacts.dmActivityPub,
+              }
+              : { status: "skipped" },
+            media: options.includeMedia
+              ? {
+                status: mediaBundles.json || mediaBundles.activitypub ? "completed" : "skipped",
+                json: artifacts.mediaJson,
+                activitypub: artifacts.mediaActivityPub,
+              }
+              : { status: "skipped" },
+          },
+        };
+
         await store.updateExportRequest!(request.id, {
           status: "completed",
           processed_at: nowISO(),
-          result_json: JSON.stringify(payload),
+          download_url: artifacts.core?.url ?? null,
+          result_json: JSON.stringify(summary),
+          error_message: null,
+          attempt_count: attemptNumber,
+          max_attempts: maxAttempts,
         });
-        results.push({ id: request.id, status: "completed" });
+        results.push({
+          id: request.id,
+          status: "completed",
+          attempt: attemptNumber,
+          max_attempts: maxAttempts,
+        });
       } catch (err: any) {
-        await store.updateExportRequest!(request.id, {
+        const failedAt = nowISO();
+        const errorMessage = String(err?.message || err || "unknown error");
+        const nextStatus = attemptNumber >= maxAttempts ? "failed" : "pending";
+        const failureSummary = {
           status: "failed",
-          error_message: String(err?.message || err || "unknown error"),
-          processed_at: nowISO(),
+          error: errorMessage,
+          attempt: attemptNumber,
+          max_attempts: maxAttempts,
+          failed_at: failedAt,
+          will_retry: nextStatus === "pending",
+          options: {
+            include_dm: options.includeDm,
+            include_media: options.includeMedia,
+            format: options.format,
+          },
+        };
+        await store.updateExportRequest!(request.id, {
+          status: nextStatus,
+          error_message: errorMessage,
+          processed_at: failedAt,
+          result_json: JSON.stringify(failureSummary),
+          attempt_count: attemptNumber,
+          max_attempts: maxAttempts,
         });
-        results.push({ id: request.id, status: "failed" });
+        results.push({
+          id: request.id,
+          status: nextStatus,
+          attempt: attemptNumber,
+          max_attempts: maxAttempts,
+          error: errorMessage,
+        });
       }
     }
     return ok(c as any, { processed: results });
@@ -123,4 +735,14 @@ exportsRoute.post("/internal/tasks/process-exports", async (c) => {
   }
 });
 
+export {
+  buildCoreActivityPubPayload,
+  buildCoreJsonPayload,
+  collectDmBundles,
+  collectMediaBundles,
+  parseExportOptions,
+  computeRetryDelayMs,
+  normalizeAttempts,
+  shouldBackoff,
+};
 export default exportsRoute;

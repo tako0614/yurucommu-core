@@ -8,6 +8,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { makeData } from "../server/data-factory";
+import { getActivityPubAvailability } from "../server/context";
 import {
   generatePersonActor,
   generateGroupActor,
@@ -39,6 +40,7 @@ import { releaseStore, queueImmediateDelivery } from "../utils/utils";
 import type { Variables } from "../types";
 import { processSingleInboxActivity } from "./inbox-worker";
 import { deliverSingleQueuedItem } from "./delivery-worker";
+import { applyFederationPolicy, buildActivityPubPolicy } from "./federation-policy";
 
 type Bindings = {
   DB: D1Database;
@@ -71,6 +73,22 @@ function getInstanceDomain(c: ActivityPubContext): string {
   return requireInstanceDomain(c.env);
 }
 
+function attachTakosConfigToEnv<T extends Record<string, unknown>>(c: ActivityPubContext): T {
+  const config = c.get("takosConfig");
+  if (config) {
+    (c.env as any).takosConfig = config;
+  }
+  return c.env as any;
+}
+
+function getFederationPolicy(c: ActivityPubContext) {
+  const takosConfig = c.get("takosConfig") as any;
+  return buildActivityPubPolicy({
+    env: c.env,
+    config: takosConfig?.activitypub ?? (c.env as any)?.takosConfig?.activitypub,
+  });
+}
+
 function parseBooleanEnv(value: string | boolean | undefined, fallback: boolean): boolean {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") {
@@ -79,6 +97,24 @@ function parseBooleanEnv(value: string | boolean | undefined, fallback: boolean)
     if (["0", "false", "no", "off"].includes(normalized)) return false;
   }
   return fallback;
+}
+
+function guardActivityPubDisabled(
+  c: ActivityPubContext,
+  feature: string,
+) {
+  const availability = getActivityPubAvailability(c.env as any);
+  if (!availability.enabled) {
+    console.warn(
+      `[ActivityPub] Blocked ${feature} in ${availability.context} context: ${availability.reason}`,
+    );
+    return activityPubResponse(
+      c,
+      { ok: false, error: availability.reason || "ActivityPub federation disabled" },
+      503,
+    );
+  }
+  return null;
 }
 
 // ============================================
@@ -443,7 +479,11 @@ app.get("/ap/groups/:slug/followers", accessTokenGuard, async (c) => {
  * POST /ap/groups/:slug/inbox
  */
 app.post("/ap/groups/:slug/inbox", inboxRateLimitMiddleware(), async (c) => {
+  const blocked = guardActivityPubDisabled(c, "group inbox");
+  if (blocked) return blocked;
+
   const store = makeData(c.env as any);
+  const envWithConfig = attachTakosConfigToEnv(c);
   try {
     const slug = c.req.param("slug");
     const community = await store.getCommunity(slug);
@@ -467,6 +507,14 @@ app.post("/ap/groups/:slug/inbox", inboxRateLimitMiddleware(), async (c) => {
     const actorId = typeof activity.actor === "string" ? activity.actor : activity.actor?.id;
     if (!actorId) {
       return fail(c, "missing actor", 400);
+    }
+
+    const federationDecision = applyFederationPolicy(actorId, getFederationPolicy(c));
+    if (!federationDecision.allowed) {
+      console.warn(
+        `[federation] blocked group inbox request from ${actorId} (${federationDecision.hostname ?? "unknown host"})`,
+      );
+      return fail(c, "federation blocked", 403);
     }
 
     const signatureHeader = c.req.header("signature");
@@ -555,7 +603,7 @@ app.post("/ap/groups/:slug/inbox", inboxRateLimitMiddleware(), async (c) => {
       const targetInbox = actor.inbox || actor.endpoints?.sharedInbox;
       if (targetInbox) {
         try {
-          await queueImmediateDelivery(store, c.env as any, {
+          await queueImmediateDelivery(store, envWithConfig as any, {
             id: crypto.randomUUID(),
             activity_id: rejectActivityId,
             target_inbox_url: targetInbox,
@@ -838,7 +886,11 @@ app.get("/ap/users/:handle/following", accessTokenGuard, async (c) => {
  * Includes HTTP Signature verification and rate limiting
  */
 app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
+  const blocked = guardActivityPubDisabled(c, "user inbox");
+  if (blocked) return blocked;
+
   const store = makeData(c.env as any);
+  const envWithConfig = attachTakosConfigToEnv(c);
   try {
     const handle = c.req.param("handle");
 
@@ -865,6 +917,14 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
     const actorId = typeof activity.actor === "string" ? activity.actor : activity.actor?.id;
     if (!actorId) {
       return fail(c, "missing actor", 400);
+    }
+
+    const federationDecision = applyFederationPolicy(actorId, getFederationPolicy(c));
+    if (!federationDecision.allowed) {
+      console.warn(
+        `[federation] blocked inbox request from ${actorId} (${federationDecision.hostname ?? "unknown host"})`,
+      );
+      return fail(c, "federation blocked", 403);
     }
 
     // Verify HTTP Signature
@@ -952,7 +1012,7 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
       
       // Process inbox activity immediately instead of waiting for scheduled worker
       try {
-        await processSingleInboxActivity(store, c.env as any, inboxResult.id);
+        await processSingleInboxActivity(store, envWithConfig as any, inboxResult.id);
         console.log(`✓ Immediately processed activity ${activityId} for ${handle}`);
       } catch (procError) {
         console.error(`Failed to immediately process activity ${activityId}:`, procError);
@@ -973,6 +1033,9 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
 });
 
 app.post("/ap/users/:handle/outbox", accessTokenGuard, async (c) => {
+  const blocked = guardActivityPubDisabled(c, "user outbox");
+  if (blocked) return blocked;
+
   const handle = c.req.param("handle");
   const body = await c.req.json();
   
@@ -1191,6 +1254,9 @@ app.get("/nodeinfo/2.0", async (c) => {
  * Improves federation performance by reducing the number of requests.
  */
 app.post("/ap/inbox", inboxRateLimitMiddleware(), async (c) => {
+  const blocked = guardActivityPubDisabled(c, "shared inbox");
+  if (blocked) return blocked;
+
   const store = makeData(c.env as any);
   try {
     // Parse activity
@@ -1211,6 +1277,14 @@ app.post("/ap/inbox", inboxRateLimitMiddleware(), async (c) => {
     const actorId = typeof activity.actor === "string" ? activity.actor : activity.actor?.id;
     if (!actorId) {
       return fail(c, "missing actor", 400);
+    }
+
+    const federationDecision = applyFederationPolicy(actorId, getFederationPolicy(c));
+    if (!federationDecision.allowed) {
+      console.warn(
+        `[federation] blocked shared inbox request from ${actorId} (${federationDecision.hostname ?? "unknown host"})`,
+      );
+      return fail(c, "federation blocked", 403);
     }
 
     // Verify HTTP Signature

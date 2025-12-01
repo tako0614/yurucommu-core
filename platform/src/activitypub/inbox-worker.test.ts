@@ -103,6 +103,29 @@ describe("inbox-worker Announce/Undo", () => {
     expect(db.createApAnnounce).not.toHaveBeenCalled();
   });
 
+  it("blocks Announce when takos-config lists the instance", async () => {
+    const db = makeDb();
+    const configEnv = {
+      ...env,
+      takosConfig: { activitypub: { blocked_instances: ["remote.example"] } },
+    };
+
+    await processActivity(
+      db as any,
+      configEnv as any,
+      "alice",
+      {
+        type: "Announce",
+        id: "https://remote.example/activities/announce-1",
+        actor: remoteActor,
+        object: localPostUri,
+      },
+    );
+
+    expect(db.findPostByApObjectId).not.toHaveBeenCalled();
+    expect(db.createApAnnounce).not.toHaveBeenCalled();
+  });
+
   it("rejects Announce when allowlist is set and domain not allowed", async () => {
     const db = makeDb();
     const allowEnv = { ...env, AP_ALLOWLIST: "friends.example" };

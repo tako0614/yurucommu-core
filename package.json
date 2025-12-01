@@ -11,9 +11,21 @@
     "dev": "npm --workspace backend run dev",
     "deploy": "npm --workspace backend run deploy",
     "lint": "npm --workspaces run lint || true",
-    "test": "npm --workspace api run test && npm --workspace platform run test"
+    "test": "npm --workspace api run test && npm --workspace platform run test",
+    "dev:watch-app": "tsx scripts/watch-app-workspace.ts",
+    "init:config": "node scripts/init-config.js",
+    "validate:profile": "node scripts/validate-takos-profile.js",
+    "ui:contract": "node frontend/scripts/validate-ui-contract.mjs",
+    "ui:contract:generate": "node frontend/scripts/generate-ui-contract.mjs"
   },
   "dependencies": {
     "ky": "^1.14.0"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "chokidar": "^3.6.0",
+    "semver": "^7.7.3",
+    "tsx": "^4.19.2"
   }
 }

@@ -9,6 +9,11 @@
       "import": "./src/index.ts"
     }
   },
+  "bin": {
+    "ai-action": "./bin/ai-action-init.js",
+    "ai-action:init": "./bin/ai-action-init.js",
+    "takos-config": "./bin/takos-config.js"
+  },
   "private": true,
   "scripts": {
     "test": "vitest",

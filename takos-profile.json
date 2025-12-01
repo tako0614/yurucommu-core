@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0",
+  "name": "takos-oss",
+  "display_name": "Takos OSS",
+  "description": "Single-instance takos distribution for Cloudflare Workers.",
+  "version": "0.1.0",
+  "kind": "distro",
+  "tags": ["oss", "reference"],
+  "base": {
+    "core_version": ">=1.3.0 <2.0.0",
+    "repo": "https://github.com/your-org/takos"
+  },
+  "runtime": {
+    "supported": ["cloudflare-workers"],
+    "default": "cloudflare-workers"
+  },
+  "activitypub": {
+    "contexts": ["https://docs.takos.jp/ns/activitypub/v1.jsonld"],
+    "profile": "https://docs.takos.jp/",
+    "node_type": "takos-node"
+  },
+  "ui": {
+    "client_repo": "https://github.com/your-org/takos",
+    "theme": "standard"
+  },
+  "metadata": {
+    "maintainer": {
+      "name": "Takos Project"
+    },
+    "license": "AGPL-3.0-or-later",
+    "repo": "https://github.com/your-org/takos",
+    "docs": "https://docs.takos.jp/"
+  }
+}
