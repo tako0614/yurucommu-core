@@ -115,10 +115,57 @@ async function publishPlan(
   });
 
   await enqueueDeliveriesToFollowers(store as any, user.id, ap_activity_id, {
-    env: c.env,
+    env,
   });
 
   return postPayload;
+}
+
+export type PostPlanQueueResult = {
+  supported: boolean;
+  processed: Array<{ id: string; status: string; post_id?: string; error?: string }>;
+};
+
+export async function processPostPlanQueue(
+  env: Bindings,
+  options: { limit?: number } = {},
+): Promise<PostPlanQueueResult> {
+  const limit = options.limit ?? 10;
+  const store = makeData(env as any);
+  const results: Array<{ id: string; status: string; post_id?: string; error?: string }> = [];
+
+  try {
+    if (!store.listDuePostPlans || !store.updatePostPlan) {
+      return { supported: false, processed: results };
+    }
+
+    const due = await store.listDuePostPlans(limit);
+
+    for (const plan of due) {
+      try {
+        const post = await publishPlan(store, env, plan);
+        await store.updatePostPlan!(plan.id, {
+          status: "published",
+          post_id: post.id,
+          updated_at: nowISO(),
+          last_error: null,
+        });
+        results.push({ id: plan.id, status: "published", post_id: post.id });
+      } catch (err: any) {
+        const last_error = String(err?.message || err || "unknown error");
+        await store.updatePostPlan!(plan.id, {
+          status: "failed",
+          last_error,
+          updated_at: nowISO(),
+        });
+        results.push({ id: plan.id, status: "failed", error: last_error });
+      }
+    }
+
+    return { supported: true, processed: results };
+  } finally {
+    await releaseStore(store);
+  }
 }
 
 // POST /post-plans (create draft or scheduled)
@@ -290,36 +337,11 @@ postPlans.post("/internal/tasks/process-post-plans", async (c) => {
   if (secret && secret !== headerSecret) {
     return fail(c as any, "unauthorized", 401);
   }
-  const store = makeData(c.env as any, c);
-  try {
-    if (!store.listDuePostPlans || !store.updatePostPlan) {
-      return fail(c as any, "post plans not supported", 501);
-    }
-    const due = await store.listDuePostPlans(10);
-    const results = [];
-    for (const plan of due) {
-      try {
-        const post = await publishPlan(store, c.env as Bindings, plan);
-        await store.updatePostPlan!(plan.id, {
-          status: "published",
-          post_id: post.id,
-          updated_at: nowISO(),
-          last_error: null,
-        });
-        results.push({ id: plan.id, status: "published", post_id: post.id });
-      } catch (err: any) {
-        await store.updatePostPlan!(plan.id, {
-          status: "failed",
-          last_error: String(err?.message || err || "unknown error"),
-          updated_at: nowISO(),
-        });
-        results.push({ id: plan.id, status: "failed" });
-      }
-    }
-    return ok(c as any, { processed: results });
-  } finally {
-    await releaseStore(store);
+  const result = await processPostPlanQueue(c.env as Bindings, { limit: 10 });
+  if (!result.supported) {
+    return fail(c as any, "post plans not supported", 501);
   }
+  return ok(c as any, result);
 });
 
 export default postPlans;

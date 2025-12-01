@@ -115,6 +115,18 @@ npm run dev
 
 ローカル開発サーバーが `http://127.0.0.1:8787` で起動します。
 
+### 開発用フィクスチャ投入
+
+ローカルの D1 にサンプルユーザー・投稿・コミュニティ・DM を投入します（dev コンテキストで ActivityPub は発火しません）。
+
+```bash
+npm --workspace backend run seed:dev
+# DB パスを明示する場合:
+# npm --workspace backend run seed:dev -- --db file:.wrangler/state/v3/d1/miniflare-D1DatabaseObject/your-db.sqlite --domain example.com
+```
+
+デフォルト認証: `admin`/`AUTH_PASSWORD`（または `password123`）、`alice`/`password123`、`bob`/`password123`。
+
 ### デプロイ
 
 ```bash

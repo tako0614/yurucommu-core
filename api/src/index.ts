@@ -58,13 +58,13 @@ import { authenticateSession } from "@takos/platform/server/session";
 import usersRoutes from "./routes/users";
 import communitiesRoutes from "./routes/communities";
 import postsRoutes from "./routes/posts";
-import storiesRoutes from "./routes/stories";
+import storiesRoutes, { cleanupExpiredStories } from "./routes/stories";
 import chatRoutes from "./routes/chat";
 import moderationRoutes from "./routes/moderation";
 import realtimeRoutes from "./routes/realtime";
 import listsRoutes from "./routes/lists";
-import postPlansRoutes from "./routes/post-plans";
-import exportsRoutes from "./routes/exports";
+import postPlansRoutes, { processPostPlanQueue } from "./routes/post-plans";
+import exportsRoutes, { processExportQueue } from "./routes/exports";
 import adminPushRoutes from "./routes/admin-push";
 import adminAiRoutes from "./routes/admin-ai";
 import activityPubAdminRoutes from "./routes/activitypub-admin";
@@ -76,6 +76,11 @@ import activityPubMetadataRoutes from "./routes/activitypub-metadata.js";
 import { getTakosConfig } from "./lib/runtime-config";
 import { auth, authenticateUser } from "./middleware/auth";
 import { buildPushWellKnownPayload } from "./lib/push-check";
+import {
+  getCronTasksForSchedule,
+  validateCronConfig,
+} from "./lib/cron-tasks";
+import type { CronTaskDefinition, CronValidationResult } from "./lib/cron-tasks";
 
 type EnsureDatabaseFn = (env: Bindings) => Promise<void>;
 
@@ -152,6 +157,29 @@ function applyConfig(config: CreateTakosAppConfig = {}): void {
 
 applyConfig();
 
+let cronValidation: CronValidationResult | null = null;
+let cronValidationPromise: Promise<CronValidationResult> | null = null;
+
+async function ensureCronValidation(env: Bindings): Promise<CronValidationResult | null> {
+  if (cronValidation) return cronValidation;
+  if (!cronValidationPromise) {
+    cronValidationPromise = Promise.resolve(validateCronConfig(env));
+  }
+  try {
+    cronValidation = await cronValidationPromise;
+    cronValidationPromise = null;
+    for (const warning of cronValidation.warnings) {
+      console.warn(`[cron] ${warning}`);
+    }
+    for (const error of cronValidation.errors) {
+      console.error(`[cron] ${error}`);
+    }
+  } catch (error) {
+    console.error("[cron] validation failed", error);
+  }
+  return cronValidation;
+}
+
 let devIsolationStatus: DevDataIsolationResult | null = null;
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -198,6 +226,12 @@ app.use("*", async (c, next) => {
   responseHeaders.set("Access-Control-Expose-Headers", exposeHeaders);
   responseHeaders.append("Vary", "Origin");
   responseHeaders.append("Vary", "Access-Control-Request-Headers");
+});
+
+// Validate cron configuration once per worker start
+app.use("*", async (c, next) => {
+  await ensureCronValidation(c.env as Bindings);
+  await next();
 });
 
 // Enforce dev/prod data isolation before touching data bindings
@@ -1883,6 +1917,70 @@ export function createTakosApp(
 // Scheduled handlers for delivery, inbox, and cleanup workers
 import { handleDeliveryScheduled, processInboxQueue, handleCleanupScheduled } from "@takos/platform/server";
 
+type ScheduledTaskRunner = (event: ScheduledEvent, env: any) => Promise<void>;
+
+const scheduledTaskHandlers: Record<string, ScheduledTaskRunner> = {
+  "activitypub-workers": async (event, env) => {
+    await Promise.all([
+      handleDeliveryScheduled(event, env),
+      processInboxQueue(env, 10),
+    ]);
+  },
+  "scheduled-posts": async (_event, env) => {
+    const result = await processPostPlanQueue(env as Bindings, { limit: 25 });
+    if (!result.supported) {
+      console.warn("[cron] post plan processing skipped: not supported by data store");
+      return;
+    }
+    console.log(`[cron] processed ${result.processed.length} scheduled post(s)`);
+  },
+  "data-exports": async (_event, env) => {
+    const result = await processExportQueue(env as Bindings);
+    if (!result.supported) {
+      console.warn("[cron] export processing skipped: data export not supported");
+      return;
+    }
+    console.log(`[cron] processed ${result.processed.length} export request(s)`);
+  },
+  "story-expiration": async (_event, env) => {
+    const result = await cleanupExpiredStories(env as Bindings, {
+      limit: 100,
+      force: true,
+      throttleMs: 0,
+    });
+    if (result.skipped) {
+      console.log(`[cron] story cleanup skipped: ${result.reason ?? "throttled"}`);
+      return;
+    }
+    console.log(
+      `[cron] story cleanup deleted ${result.deleted} expired stories (checked ${result.checked})`,
+    );
+  },
+  "activitypub-cleanup": async (event, env) => {
+    await handleCleanupScheduled(event, env);
+  },
+};
+
+async function runScheduledTasksForCron(event: ScheduledEvent, env: any): Promise<void> {
+  const tasksForSchedule: CronTaskDefinition[] = getCronTasksForSchedule(event.cron || "");
+  if (!tasksForSchedule.length) {
+    console.warn(`[cron] no registered tasks for schedule "${event.cron}"`);
+    return;
+  }
+  for (const task of tasksForSchedule) {
+    const runner = scheduledTaskHandlers[task.id];
+    if (!runner) {
+      console.warn(`[cron] no runner registered for task "${task.id}"`);
+      continue;
+    }
+    try {
+      await runner(event, env);
+    } catch (error) {
+      console.error(`[cron] task "${task.id}" failed`, error);
+    }
+  }
+}
+
 export async function handleScheduled(event: ScheduledEvent, env: any): Promise<void> {
   console.log("Scheduled event triggered:", event.cron);
   let envWithConfig: any = env;
@@ -1892,21 +1990,7 @@ export async function handleScheduled(event: ScheduledEvent, env: any): Promise<
   } catch (error) {
     console.warn("[config] failed to resolve takos-config for scheduled worker", error);
   }
-  
-  // Check if this is the daily cleanup cron (0 2 * * *)
-  // vs the regular worker cron (*/5 * * * *)
-  const isCleanupCron = event.cron === "0 2 * * *";
-  
-  if (isCleanupCron) {
-    // Daily cleanup at 2 AM UTC
-    console.log("Running daily cleanup worker...");
-    await handleCleanupScheduled(event, envWithConfig);
-  } else {
-    // Regular workers (every 5 minutes)
-    console.log("Running delivery and inbox workers...");
-    await Promise.all([
-      handleDeliveryScheduled(event, envWithConfig),
-      processInboxQueue(envWithConfig, 10),
-    ]);
-  }
+
+  await ensureCronValidation(envWithConfig as Bindings);
+  await runScheduledTasksForCron(event, envWithConfig);
 }

@@ -27,6 +27,7 @@ PUSH_REGISTRATION_PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----\\nREPLACE_WITH_PUBLIC
 # ActivityPub configuration
 INSTANCE_DOMAIN = "yourdomain.com"  # Replace with your instance domain
 ACTIVITYPUB_ENABLED = "true"
+CRON_TRIGGERS = "*/5 * * * *,0 2 * * *"  # Mirrors [triggers].crons for runtime checks
 # Dev/Prod data separation (PLAN 5.4.6)
 TAKOS_REQUIRE_DEV_DATA_ISOLATION = "false"  # Set to "true" in dev to require dedicated D1/R2/KV bindings
 DEV_D1_BINDING = "DEV_DB"

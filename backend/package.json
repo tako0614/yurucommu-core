@@ -18,7 +18,8 @@
     "test": "vitest",
     "prisma:generate": "prisma generate",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "db:migrate-diff": "prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script"
+    "db:migrate-diff": "prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script",
+    "seed:dev": "tsx scripts/seed-dev.ts"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.19",

@@ -11,9 +11,9 @@ import {
   ok,
 } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
-import { buildRuntimeConfig, loadStoredConfig, persistConfig } from "../lib/config-utils";
+import { buildRuntimeConfig, loadStoredConfig } from "../lib/config-utils";
 import { guardAgentRequest } from "../lib/agent-guard";
-import { getTakosConfig } from "../lib/runtime-config";
+import { persistConfigWithReloadGuard } from "../lib/config-reload";
 
 type ConfigSource = "stored" | "runtime";
 
@@ -175,12 +175,22 @@ activityPubAdminRoutes.post("/admin/activitypub/blocked-instances", async (c) =>
 
   const nextBlocked = [...configBlocked, normalized];
   const nextConfig = applyBlockedInstances(config, nextBlocked);
-  await persistConfig((c.env as Bindings).DB, nextConfig);
-  await getTakosConfig(c.env as Bindings, { refresh: true });
+  const applyResult = await persistConfigWithReloadGuard({
+    env: c.env as Bindings,
+    nextConfig,
+    previousConfig: config,
+  });
+
+  if (!applyResult.ok) {
+    const reason = applyResult.reload.error || "config reload failed";
+    const message = applyResult.rolledBack ? `${reason}; restored previous config` : reason;
+    return fail(c, message, 500);
+  }
 
   return ok(c, {
     ...buildBlockedPayload(c.env as Bindings, nextBlocked, "stored"),
     updated: true,
+    reload: applyResult.reload,
   });
 });
 
@@ -207,13 +217,23 @@ activityPubAdminRoutes.delete("/admin/activitypub/blocked-instances/:domain", as
 
   const nextBlocked = configBlocked.filter((item) => item !== normalized);
   const nextConfig = applyBlockedInstances(config, nextBlocked);
-  await persistConfig((c.env as Bindings).DB, nextConfig);
-  await getTakosConfig(c.env as Bindings, { refresh: true });
+  const applyResult = await persistConfigWithReloadGuard({
+    env: c.env as Bindings,
+    nextConfig,
+    previousConfig: config,
+  });
+
+  if (!applyResult.ok) {
+    const reason = applyResult.reload.error || "config reload failed";
+    const message = applyResult.rolledBack ? `${reason}; restored previous config` : reason;
+    return fail(c, message, 500);
+  }
 
   return ok(c, {
     ...buildBlockedPayload(c.env as Bindings, nextBlocked, "stored"),
     updated: true,
     still_blocked: envBlocked.includes(normalized),
+    reload: applyResult.reload,
   });
 });
 
