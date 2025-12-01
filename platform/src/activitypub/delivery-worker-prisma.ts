@@ -11,12 +11,32 @@ import type { DatabaseAPI } from "../db/types";
 import { signRequest } from "../auth/http-signature";
 import { requireInstanceDomain } from "../subdomain";
 import { makeData } from "../server/data-factory";
+import { getActivityPubAvailability } from "../server/context";
 import { ensureUserKeyPair } from "../auth/crypto-keys";
+import { applyFederationPolicy, buildActivityPubPolicy } from "./federation-policy";
 
 interface Env {
   DB: D1Database;
   INSTANCE_DOMAIN?: string;
   DB_ENCRYPTION_KEY?: string;
+  takosConfig?: any;
+}
+
+const resolvePolicy = (env: Env) =>
+  buildActivityPubPolicy({
+    env,
+    config: (env as any)?.takosConfig?.activitypub ?? (env as any)?.activitypub ?? null,
+  });
+
+function isActivityPubDisabled(env: Env, feature: string): boolean {
+  const availability = getActivityPubAvailability(env);
+  if (!availability.enabled) {
+    console.warn(
+      `[ActivityPub] ${feature} skipped in ${availability.context} context: ${availability.reason}`,
+    );
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -58,6 +78,14 @@ async function deliverActivity(
   actorHandle: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const decision = applyFederationPolicy(targetInboxUrl, resolvePolicy(env));
+    if (!decision.allowed) {
+      console.warn(
+        `[delivery] blocked delivery to ${targetInboxUrl} (${decision.hostname ?? "unknown host"})`,
+      );
+      return { success: false, error: "blocked by activitypub policy" };
+    }
+
     const instanceDomain = requireInstanceDomain(env);
     const localCheck = isLocalInbox(targetInboxUrl, instanceDomain);
 
@@ -135,6 +163,10 @@ async function deliverActivity(
  * Process delivery queue with concurrency control
  */
 export async function processDeliveryQueue(env: Env, batchSize = 10): Promise<void> {
+  if (isActivityPubDisabled(env, "delivery queue")) {
+    return;
+  }
+
   const db = makeData(env);
   const processedIds = new Set<string>();
   let claimedIds: string[] = [];
@@ -251,6 +283,9 @@ export async function processDeliveryQueue(env: Env, batchSize = 10): Promise<vo
  */
 export async function handleDeliveryScheduled(event: ScheduledEvent, env: Env): Promise<void> {
   console.log("Delivery worker triggered at", new Date(event.scheduledTime).toISOString());
+  if (isActivityPubDisabled(env, "delivery worker (scheduled)")) {
+    return;
+  }
   await processDeliveryQueue(env, 20);
 }
 

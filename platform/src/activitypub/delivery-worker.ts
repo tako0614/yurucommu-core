@@ -6,15 +6,35 @@
  */
 
 import { makeData } from "../server/data-factory";
+import { getActivityPubAvailability } from "../server/context";
 import { signRequest } from "../auth/http-signature";
 import { ensureUserKeyPair } from "../auth/crypto-keys";
 import { requireInstanceDomain } from "../subdomain";
 import { getOrFetchActor } from "./actor-fetch";
+import { applyFederationPolicy, buildActivityPubPolicy } from "./federation-policy";
 
 interface Env {
   DB: D1Database;
   INSTANCE_DOMAIN?: string;
   DB_ENCRYPTION_KEY?: string;
+  takosConfig?: any;
+}
+
+const resolvePolicy = (env: Env) =>
+  buildActivityPubPolicy({
+    env,
+    config: (env as any)?.takosConfig?.activitypub ?? (env as any)?.activitypub ?? null,
+  });
+
+function isActivityPubDisabled(env: Env, feature: string): boolean {
+  const availability = getActivityPubAvailability(env);
+  if (!availability.enabled) {
+    console.warn(
+      `[ActivityPub] ${feature} skipped in ${availability.context} context: ${availability.reason}`,
+    );
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -54,6 +74,14 @@ async function deliverActivity(
   targetInboxUrl: string,
   actorHandle: string,
 ): Promise<{ success: boolean; error?: string }> {
+  const decision = applyFederationPolicy(targetInboxUrl, resolvePolicy(env));
+  if (!decision.allowed) {
+    console.warn(
+      `[delivery] blocked delivery to ${targetInboxUrl} (${decision.hostname ?? "unknown host"})`,
+    );
+    return { success: false, error: "blocked by activitypub policy" };
+  }
+
   const store = makeData(env);
   try {
     const instanceDomain = requireInstanceDomain(env);
@@ -135,6 +163,14 @@ async function resolveInbox(recipient: string, env: Env): Promise<string | null>
     return null;
   }
 
+  const decision = applyFederationPolicy(recipient, resolvePolicy(env));
+  if (!decision.allowed) {
+    console.warn(
+      `[delivery] skipping blocked recipient ${recipient} (${decision.hostname ?? "unknown host"})`,
+    );
+    return null;
+  }
+
   // If it's already an inbox URL, use it
   if (recipient.endsWith("/inbox")) {
     return recipient;
@@ -168,6 +204,10 @@ async function resolveInbox(recipient: string, env: Env): Promise<string | null>
  * Fetches pending deliveries and attempts to deliver them
  */
 export async function processDeliveryQueue(env: Env, batchSize = 10): Promise<void> {
+  if (isActivityPubDisabled(env, "delivery queue")) {
+    return;
+  }
+
   const store = makeData(env);
   try {
     // Get pending deliveries
@@ -258,6 +298,10 @@ export async function processDeliveryQueue(env: Env, batchSize = 10): Promise<vo
  * Expands activities to recipients and queues them for delivery
  */
 export async function processOutboxQueue(env: Env, batchSize = 10): Promise<void> {
+  if (isActivityPubDisabled(env, "outbox queue")) {
+    return;
+  }
+
   const store = makeData(env);
   try {
     // Get pending outbox jobs
@@ -337,6 +381,10 @@ export async function processOutboxQueue(env: Env, batchSize = 10): Promise<void
  * Used for immediate delivery of lightweight activities (Follow, Accept, Like, etc.)
  */
 export async function deliverSingleQueuedItem(env: Env, deliveryId: string): Promise<void> {
+  if (isActivityPubDisabled(env, "immediate delivery")) {
+    return;
+  }
+
   const store = makeData(env);
   try {
     // Get the delivery item with its activity
@@ -397,6 +445,9 @@ export async function deliverSingleQueuedItem(env: Env, deliveryId: string): Pro
  */
 export async function handleScheduled(event: ScheduledEvent, env: Env): Promise<void> {
   console.log("Delivery worker triggered at", new Date(event.scheduledTime).toISOString());
+  if (isActivityPubDisabled(env, "delivery worker (scheduled)")) {
+    return;
+  }
   
   // Process outbox jobs first (expand to delivery queue)
   await processOutboxQueue(env, 10);

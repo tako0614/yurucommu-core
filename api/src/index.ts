@@ -37,6 +37,7 @@ import {
   createUserJWT,
   authenticateJWT,
   activityPubRoutes,
+  resolveDevDataIsolation,
   setDataFactory,
   setPrismaFactory,
   setInstanceConfig,
@@ -48,6 +49,7 @@ import type {
   PublicAccountBindings as Bindings,
   Variables,
   PrismaEnv,
+  DevDataIsolationResult,
 } from "@takos/platform/server";
 import { authenticateSession } from "@takos/platform/server/session";
 /// <reference types="@cloudflare/workers-types" />
@@ -63,7 +65,17 @@ import realtimeRoutes from "./routes/realtime";
 import listsRoutes from "./routes/lists";
 import postPlansRoutes from "./routes/post-plans";
 import exportsRoutes from "./routes/exports";
+import adminPushRoutes from "./routes/admin-push";
+import adminAiRoutes from "./routes/admin-ai";
+import activityPubAdminRoutes from "./routes/activitypub-admin";
+import configRoutes from "./routes/config";
+import appPreviewRoutes from "./routes/app-preview";
+import appDebugRoutes from "./routes/app-debug";
+import adminAppRoutes from "./routes/admin-app";
+import activityPubMetadataRoutes from "./routes/activitypub-metadata.js";
+import { getTakosConfig } from "./lib/runtime-config";
 import { auth, authenticateUser } from "./middleware/auth";
+import { buildPushWellKnownPayload } from "./lib/push-check";
 
 type EnsureDatabaseFn = (env: Bindings) => Promise<void>;
 
@@ -140,6 +152,8 @@ function applyConfig(config: CreateTakosAppConfig = {}): void {
 
 applyConfig();
 
+let devIsolationStatus: DevDataIsolationResult | null = null;
+
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // Trace entry into backend router for debugging.
@@ -186,9 +200,55 @@ app.use("*", async (c, next) => {
   responseHeaders.append("Vary", "Access-Control-Request-Headers");
 });
 
+// Enforce dev/prod data isolation before touching data bindings
+app.use("*", async (c, next) => {
+  devIsolationStatus = devIsolationStatus ?? resolveDevDataIsolation(c.env as any);
+  const status = devIsolationStatus;
+  if (status?.required) {
+    if (!status.ok) {
+      console.error("[dev-data] refusing to start with prod data bindings", {
+        errors: status.errors,
+      });
+      return c.json(
+        { ok: false, error: "dev data isolation failed", details: status.errors },
+        503,
+      );
+    }
+    const env = c.env as any;
+    if (status.resolved.db) {
+      env.DB = status.resolved.db as any;
+    }
+    if (status.resolved.media) {
+      env.MEDIA = status.resolved.media as any;
+    }
+    if (status.resolved.kv) {
+      env.KV = status.resolved.kv as any;
+    }
+    if (status.warnings.length) {
+      console.warn(`[dev-data] ${status.warnings.join("; ")}`);
+    }
+  }
+  await next();
+});
+
 // Ensure the D1 schema exists before any handlers run
 app.use("*", async (c, next) => {
   await ensureDatabaseFn(c.env);
+  await next();
+});
+
+// Load takos-config (stored or runtime) and expose it on context/env
+app.use("*", async (c, next) => {
+  try {
+    const { config, warnings } = await getTakosConfig(c.env as Bindings);
+    c.set("takosConfig", config);
+    (c.env as any).takosConfig = config;
+    if (warnings.length) {
+      console.warn(`[config] ${warnings.join("; ")}`);
+    }
+  } catch (error) {
+    console.warn("[config] failed to resolve takos-config", error);
+  }
   await next();
 });
 
@@ -196,6 +256,7 @@ app.use("*", async (c, next) => {
 // ActivityPub routes define their own full paths (/ap/..., /.well-known/..., /nodeinfo/...)
 // so we mount at root.
 app.route("/", activityPubRoutes);
+app.route("/", activityPubMetadataRoutes);
 
 // Mount feature route modules
 // IMPORTANT: usersRoutes and communitiesRoutes must be mounted BEFORE postsRoutes
@@ -209,26 +270,24 @@ app.route("/", moderationRoutes);
 app.route("/", listsRoutes);
 app.route("/", postPlansRoutes);
 app.route("/", exportsRoutes);
+app.route("/", adminPushRoutes);
+app.route("/", adminAiRoutes);
+app.route("/", activityPubAdminRoutes);
+app.route("/", configRoutes);
+app.route("/", adminAppRoutes);
 app.route("/", realtimeRoutes);
+app.route("/", appPreviewRoutes);
+app.route("/", appDebugRoutes);
 
 // Root endpoint for health/checks and baseline tests
 app.get("/", (c) => c.text("Hello World!"));
 
 app.get("/.well-known/takos-push.json", (c) => {
-  const instance = c.env.INSTANCE_DOMAIN?.trim();
-  const publicKey = c.env.PUSH_REGISTRATION_PUBLIC_KEY?.trim();
-  if (!instance || !publicKey) {
+  const wellKnown = buildPushWellKnownPayload(c.env as Bindings);
+  if (!wellKnown) {
     return c.json({ ok: false, error: "push not configured" }, 503);
   }
-  const body = {
-    instance,
-    registrationPublicKey: publicKey,
-    webhook: {
-      algorithm: "ES256",
-      publicKey,
-    },
-  };
-  const response = c.json(body);
+  const response = c.json(wellKnown);
   response.headers.set("Cache-Control", "public, max-age=300, immutable");
   return response;
 });
@@ -1826,6 +1885,13 @@ import { handleDeliveryScheduled, processInboxQueue, handleCleanupScheduled } fr
 
 export async function handleScheduled(event: ScheduledEvent, env: any): Promise<void> {
   console.log("Scheduled event triggered:", event.cron);
+  let envWithConfig: any = env;
+  try {
+    const { config } = await getTakosConfig(env as Bindings);
+    envWithConfig = { ...env, takosConfig: config };
+  } catch (error) {
+    console.warn("[config] failed to resolve takos-config for scheduled worker", error);
+  }
   
   // Check if this is the daily cleanup cron (0 2 * * *)
   // vs the regular worker cron (*/5 * * * *)
@@ -1834,13 +1900,13 @@ export async function handleScheduled(event: ScheduledEvent, env: any): Promise<
   if (isCleanupCron) {
     // Daily cleanup at 2 AM UTC
     console.log("Running daily cleanup worker...");
-    await handleCleanupScheduled(event, env);
+    await handleCleanupScheduled(event, envWithConfig);
   } else {
     // Regular workers (every 5 minutes)
     console.log("Running delivery and inbox workers...");
     await Promise.all([
-      handleDeliveryScheduled(event, env),
-      processInboxQueue(env, 10),
+      handleDeliveryScheduled(event, envWithConfig),
+      processInboxQueue(envWithConfig, 10),
     ]);
   }
 }

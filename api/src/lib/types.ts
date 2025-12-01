@@ -1,4 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
+import type { TakosAiConfig } from "@takos/platform/server";
 
 /**
  * Database API interface with multi-instance support
@@ -374,11 +375,32 @@ export interface DataExportRequestInput {
   user_id: string;
   format?: string;
   status?: string;
+  attempt_count?: number;
+  max_attempts?: number;
   requested_at?: string | Date;
   processed_at?: string | Date | null;
   download_url?: string | null;
   result_json?: string | null;
   error_message?: string | null;
+}
+
+export type AppRevisionAuthorType = "human" | "agent";
+
+export interface AppRevisionInput {
+  id?: string;
+  schema_version: string;
+  manifest_snapshot: string;
+  script_snapshot_ref: string;
+  message?: string | null;
+  author_type: AppRevisionAuthorType;
+  author_name?: string | null;
+  created_at?: string | Date;
+}
+
+export interface AppStateRecord {
+  active_revision_id: string | null;
+  updated_at: string | Date;
+  revision?: any | null;
 }
 
 /**
@@ -400,6 +422,11 @@ export interface DatabaseAPI {
   updateAccountUser(provider: string, providerAccountId: string, user_id: string): Promise<any>;
   updateUserAccountPassword(accountId: string, newPasswordHash: string): Promise<any>;
   listAccountsByUser(user_id: string): Promise<any[]>;
+
+  // AI configuration
+  getAiConfig(): Promise<TakosAiConfig>;
+  updateAiConfig(patch: Partial<TakosAiConfig>): Promise<TakosAiConfig>;
+  setAiEnabledActions(actionIds: string[]): Promise<TakosAiConfig>;
 
   // JWT
   getUserJwtSecret(userId: string): Promise<string | null>;
@@ -667,6 +694,13 @@ export interface DatabaseAPI {
   listReports(status?: string, limit?: number, offset?: number): Promise<any[]>;
   listReportsByUser?(reporterActorId: string, limit?: number, offset?: number): Promise<any[]>;
   updateReportStatus(id: string, status: string): Promise<void>;
+
+  // App revisions
+  createAppRevision(revision: AppRevisionInput): Promise<any>;
+  getAppRevision(id: string): Promise<any | null>;
+  listAppRevisions(limit?: number): Promise<any[]>;
+  setActiveAppRevision(revisionId: string | null): Promise<void>;
+  getActiveAppRevision(): Promise<AppStateRecord | null>;
 
   // Data export
   createExportRequest?(input: DataExportRequestInput): Promise<any>;

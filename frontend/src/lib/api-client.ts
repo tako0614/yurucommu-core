@@ -566,6 +566,47 @@ export async function loginWithPassword(input: {
   });
 }
 
+// ActivityPub blocked instances (admin)
+export type BlockSource = "config" | "env" | "config+env";
+
+export type BlockedInstanceEntry = {
+  domain: string;
+  source: BlockSource;
+  config: boolean;
+  env: boolean;
+};
+
+export type BlockedInstancesResponse = {
+  blocked_instances: BlockedInstanceEntry[];
+  config_blocked_instances: string[];
+  env_blocked_instances: string[];
+  effective_blocked_instances: string[];
+  source: "stored" | "runtime";
+  updated?: boolean;
+  still_blocked?: boolean;
+};
+
+export async function listBlockedInstances(): Promise<BlockedInstancesResponse> {
+  return apiFetch<BlockedInstancesResponse>("/admin/activitypub/blocked-instances");
+}
+
+export async function addBlockedInstance(domain: string): Promise<BlockedInstancesResponse> {
+  return apiFetch<BlockedInstancesResponse>("/admin/activitypub/blocked-instances", {
+    method: "POST",
+    body: { domain },
+  });
+}
+
+export async function removeBlockedInstance(domain: string): Promise<BlockedInstancesResponse> {
+  const normalized = domain.trim();
+  return apiFetch<BlockedInstancesResponse>(
+    `/admin/activitypub/blocked-instances/${encodeURIComponent(normalized)}`,
+    {
+    method: "DELETE",
+    },
+  );
+}
+
 // Storage management
 export interface StorageFile {
   key: string;

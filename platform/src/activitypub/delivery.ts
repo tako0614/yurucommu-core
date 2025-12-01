@@ -1,8 +1,24 @@
 import { makeData } from "../server/data-factory";
+import { getActivityPubAvailability } from "../server/context";
 import { ensureUserKeyPair } from "../auth/crypto-keys";
 import { signRequest } from "../auth/http-signature";
+import { applyFederationPolicy, buildActivityPubPolicy } from "./federation-policy";
+
+const resolvePolicy = (env: any) =>
+  buildActivityPubPolicy({
+    env,
+    config: (env as any)?.takosConfig?.activitypub ?? (env as any)?.activitypub ?? null,
+  });
 
 async function postWithSignature(env: any, actorHandle: string, inboxUrl: string, activity: any) {
+  const availability = getActivityPubAvailability(env);
+  if (!availability.enabled) {
+    console.warn(
+      `[ActivityPub] Delivery blocked in ${availability.context} context: ${availability.reason}`,
+    );
+    return;
+  }
+
   const store = makeData(env);
   try {
     const keypair = await ensureUserKeyPair(store, env, actorHandle);
@@ -39,6 +55,14 @@ async function resolveInbox(recipient: string, env: any): Promise<string | null>
     return null;
   }
 
+  const decision = applyFederationPolicy(recipient, resolvePolicy(env));
+  if (!decision.allowed) {
+    console.warn(
+      `[delivery] skipping blocked recipient ${recipient} (${decision.hostname ?? "unknown host"})`,
+    );
+    return null;
+  }
+
   // If it's already an inbox URL, use it
   if (recipient.endsWith("/inbox")) {
     return recipient;
@@ -70,6 +94,14 @@ async function resolveInbox(recipient: string, env: any): Promise<string | null>
 }
 
 export async function deliverActivity(env: any, activity: any) {
+  const availability = getActivityPubAvailability(env);
+  if (!availability.enabled) {
+    console.warn(
+      `[ActivityPub] deliverActivity skipped in ${availability.context} context: ${availability.reason}`,
+    );
+    return;
+  }
+
   const allRecipients = [
     ...(activity.to || []),
     ...(activity.cc || []),

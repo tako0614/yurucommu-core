@@ -7,16 +7,31 @@
 
 import type { DatabaseAPI } from "../db/types";
 import { makeData } from "../server/data-factory";
+import { getActivityPubAvailability } from "../server/context";
 import { getOrFetchActor, fetchRemoteObject } from "./actor-fetch";
 import { requireInstanceDomain, getActorUri } from "../subdomain";
 import { ACTIVITYSTREAMS_CONTEXT } from "./activitypub";
 import { sanitizeHtml } from "../utils/sanitize";
 import { handleIncomingDm, handleIncomingChannelMessage } from "./chat";
 import { deliverSingleQueuedItem } from "./delivery-worker";
+import { applyFederationPolicy, buildActivityPubPolicy } from "./federation-policy";
+import type { TakosActivityPubConfig } from "../config/takos-config";
 
 export interface Env {
   DB: D1Database;
   INSTANCE_DOMAIN?: string;
+  takosConfig?: any;
+}
+
+function isActivityPubDisabled(env: Env, feature: string): boolean {
+  const availability = getActivityPubAvailability(env);
+  if (!availability.enabled) {
+    console.warn(
+      `[ActivityPub] ${feature} skipped in ${availability.context} context: ${availability.reason}`,
+    );
+    return true;
+  }
+  return false;
 }
 
 const MAX_BATCH_SIZE = 50;
@@ -238,43 +253,23 @@ function parseDomain(uri: string): string | null {
   }
 }
 
-function domainMatches(hostname: string, pattern: string): boolean {
-  const host = hostname.toLowerCase();
-  const pat = pattern.toLowerCase();
-  return host === pat || host.endsWith(`.${pat}`);
-}
-
-function parseList(value: any): string[] {
-  if (!value || typeof value !== "string") return [];
-  return value
-    .split(",")
-    .map((v) => v.trim())
-    .filter(Boolean);
-}
-
-function isBlockedDomain(hostname: string, env: any): boolean {
-  const blocklist = parseList(env?.AP_BLOCKLIST ?? env?.ACTIVITYPUB_BLOCKLIST);
-  return blocklist.some((entry) => domainMatches(hostname, entry));
-}
-
-function isAllowedDomain(hostname: string, env: any): boolean {
-  const allowlist = parseList(env?.AP_ALLOWLIST ?? env?.ACTIVITYPUB_ALLOWLIST);
-  if (!allowlist.length) return true;
-  return allowlist.some((entry) => domainMatches(hostname, entry));
+function resolveActivityPubPolicy(env: any): ReturnType<typeof buildActivityPubPolicy> {
+  const activitypubConfig: TakosActivityPubConfig | null =
+    (env as any)?.takosConfig?.activitypub ?? (env as any)?.activitypub ?? null;
+  return buildActivityPubPolicy({
+    env,
+    config: activitypubConfig,
+  });
 }
 
 function isFederationDomainAllowed(actorUri: string, env: any): boolean {
   const hostname = parseDomain(actorUri);
   if (!hostname) return false;
-  if (isBlockedDomain(hostname, env)) {
-    console.warn(`Federation blocked for ${hostname}`);
-    return false;
-  }
-  if (!isAllowedDomain(hostname, env)) {
-    console.warn(`Federation denied by allowlist for ${hostname}`);
-    return false;
-  }
-  return true;
+  const decision = applyFederationPolicy(actorUri, resolveActivityPubPolicy(env));
+  if (decision.allowed) return true;
+  const reason = decision.reason === "blocked" ? "blocked instance" : "not on allowlist";
+  console.warn(`[federation] denied for ${hostname}: ${reason}`);
+  return false;
 }
 
 function isRemoteActorAllowed(actorUri: string, env: any): boolean {
@@ -1100,6 +1095,10 @@ async function handleIncomingFlag(
  * Process a batch of pending inbox activities
  */
 export async function processInboxQueue(env: Env, batchSize = 10): Promise<void> {
+  if (isActivityPubDisabled(env, "inbox queue")) {
+    return;
+  }
+
   const effectiveBatchSize = Math.min(Math.max(batchSize, 1), MAX_BATCH_SIZE);
   const db = makeData(env);
 
@@ -1166,6 +1165,9 @@ export async function processInboxQueue(env: Env, batchSize = 10): Promise<void>
 }
 
 export async function handleInboxScheduled(env: Env, batchSize = 10): Promise<void> {
+  if (isActivityPubDisabled(env, "inbox worker (scheduled)")) {
+    return;
+  }
   await processInboxQueue(env, batchSize);
 }
 
@@ -1178,6 +1180,10 @@ export async function processSingleInboxActivity(
   env: Env,
   activityId: string,
 ): Promise<void> {
+  if (isActivityPubDisabled(env, "inbox activity processing")) {
+    return;
+  }
+
   const activities = await db.queryRaw<{
     id: string;
     local_user_id: string;

@@ -25,6 +25,14 @@
     "./activitypub/*": {
       "import": "./src/activitypub/*.ts",
       "types": "./src/activitypub/*.ts"
+    },
+    "./app": {
+      "import": "./src/app/index.ts",
+      "types": "./src/app/index.ts"
+    },
+    "./app/*": {
+      "import": "./src/app/*.ts",
+      "types": "./src/app/*.ts"
     }
   },
   "scripts": {

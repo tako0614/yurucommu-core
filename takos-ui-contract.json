@@ -1,0 +1,124 @@
+{
+  "schema_version": "1.0",
+  "screens": [
+    {
+      "id": "screen.home",
+      "label": "Home Timeline",
+      "routes": ["/"],
+      "steps_from_home": 0
+    },
+    {
+      "id": "screen.community",
+      "label": "Community Hub",
+      "routes": ["/connections", "/c/:id"],
+      "steps_from_home": 1
+    },
+    {
+      "id": "screen.channel",
+      "label": "Community Channel",
+      "routes": ["/chat/c/:communityId/:channelId?"],
+      "steps_from_home": 2
+    },
+    {
+      "id": "screen.dm_list",
+      "label": "Direct Messages",
+      "routes": ["/chat"],
+      "steps_from_home": 1
+    },
+    {
+      "id": "screen.dm_thread",
+      "label": "Direct Message Thread",
+      "routes": ["/chat/dm/:id"],
+      "steps_from_home": 2
+    },
+    {
+      "id": "screen.story_viewer",
+      "label": "Stories",
+      "routes": ["/stories"],
+      "steps_from_home": 1
+    },
+    {
+      "id": "screen.profile",
+      "label": "Profile",
+      "routes": ["/profile"],
+      "steps_from_home": 1
+    },
+    {
+      "id": "screen.settings",
+      "label": "Settings",
+      "routes": ["/settings"],
+      "steps_from_home": 1
+    }
+  ],
+  "actions": [
+    {
+      "id": "action.open_composer",
+      "available_on": [
+        "screen.home",
+        "screen.community",
+        "screen.channel",
+        "screen.dm_list",
+        "screen.dm_thread",
+        "screen.profile",
+        "screen.settings",
+        "screen.story_viewer"
+      ],
+      "max_steps_from_home": 1
+    },
+    {
+      "id": "action.send_post",
+      "available_on": [
+        "screen.home",
+        "screen.community",
+        "screen.channel",
+        "screen.profile",
+        "screen.settings"
+      ],
+      "max_steps_from_home": 2
+    },
+    {
+      "id": "action.open_notifications",
+      "available_on": [
+        "screen.home",
+        "screen.community",
+        "screen.channel",
+        "screen.dm_list",
+        "screen.dm_thread",
+        "screen.profile",
+        "screen.settings",
+        "screen.story_viewer"
+      ],
+      "max_steps_from_home": 1
+    },
+    {
+      "id": "action.open_dm_thread",
+      "available_on": ["screen.dm_list"],
+      "max_steps_from_home": 2
+    },
+    {
+      "id": "action.send_dm",
+      "available_on": ["screen.dm_thread"],
+      "max_steps_from_home": 2
+    },
+    {
+      "id": "action.reply",
+      "available_on": ["screen.home", "screen.community", "screen.channel"],
+      "max_steps_from_home": 2
+    },
+    {
+      "id": "action.react",
+      "available_on": ["screen.home", "screen.community", "screen.channel"],
+      "max_steps_from_home": 1
+    },
+    {
+      "id": "action.view_story",
+      "available_on": ["screen.home", "screen.story_viewer"],
+      "max_steps_from_home": 1
+    },
+    {
+      "id": "action.edit_profile",
+      "available_on": ["screen.profile", "screen.settings"],
+      "max_steps_from_home": 2
+    }
+  ]
+}

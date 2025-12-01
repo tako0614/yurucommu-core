@@ -2,11 +2,24 @@
 
 import type { Context } from "hono";
 import type { StoryItem } from "./stories/story-schema";
+import type { TakosConfig } from "./config/takos-config";
 
 export type BaseBindings = {
   DB: any; // D1Database from @cloudflare/workers-types
   ASSETS: any;
   MEDIA?: any; // R2Bucket from @cloudflare/workers-types
+  KV?: any; // KVNamespace from @cloudflare/workers-types
+  DEV_DB?: any;
+  DEV_MEDIA?: any;
+  DEV_KV?: any;
+  DEV_D1_BINDING?: string;
+  DEV_DB_BINDING?: string;
+  DEV_R2_BINDING?: string;
+  DEV_MEDIA_BINDING?: string;
+  DEV_KV_BINDING?: string;
+  TAKOS_REQUIRE_DEV_DATA_ISOLATION?: string | boolean;
+  REQUIRE_DEV_DATA_ISOLATION?: string | boolean;
+  DEV_DATA_ISOLATION_REQUIRED?: string | boolean;
 };
 
 type PushBindings = {
@@ -62,6 +75,7 @@ export type Bindings = PrivateAccountBindings;
 export type Variables = {
   user: any;
   activityPubUser?: any;
+  takosConfig?: TakosConfig;
 };
 
 export type AppContext<TBindings extends BaseBindings = Bindings> = Context<{

@@ -4,6 +4,7 @@
 
 import { makeData } from "../server/data-factory";
 import type { DatabaseAPI } from "../db/types";
+import { getActivityPubAvailability } from "../server/context";
 import { deliverSingleQueuedItem } from "../activitypub/delivery-worker";
 
 type Disconnectable = { disconnect?: () => Promise<void> | void };
@@ -118,6 +119,14 @@ export async function enqueueDeliveriesToFollowers(
   activityId: string,
   options: EnqueueDeliveriesOptions = {},
 ): Promise<void> {
+  const availability = getActivityPubAvailability(options.env ?? {});
+  if (!availability.enabled) {
+    console.warn(
+      `[ActivityPub] follower delivery skipped in ${availability.context} context: ${availability.reason}`,
+    );
+    return;
+  }
+
   const threshold = options.immediateThreshold ?? 500;
 
   // Count followers that can receive deliveries
@@ -216,6 +225,14 @@ export async function queueImmediateDelivery(
   env: any,
   input: ImmediateDeliveryInput,
 ): Promise<string | null> {
+  const availability = getActivityPubAvailability(env ?? {});
+  if (!availability.enabled) {
+    console.warn(
+      `[ActivityPub] immediate delivery skipped in ${availability.context} context: ${availability.reason}`,
+    );
+    return null;
+  }
+
   const delivery = await store.createApDeliveryQueueItem({
     id: input.id,
     activity_id: input.activity_id,

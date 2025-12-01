@@ -27,6 +27,11 @@ PUSH_REGISTRATION_PUBLIC_KEY = "-----BEGIN PUBLIC KEY-----\\nREPLACE_WITH_PUBLIC
 # ActivityPub configuration
 INSTANCE_DOMAIN = "yourdomain.com"  # Replace with your instance domain
 ACTIVITYPUB_ENABLED = "true"
+# Dev/Prod data separation (PLAN 5.4.6)
+TAKOS_REQUIRE_DEV_DATA_ISOLATION = "false"  # Set to "true" in dev to require dedicated D1/R2/KV bindings
+DEV_D1_BINDING = "DEV_DB"
+DEV_R2_BINDING = "DEV_MEDIA"
+DEV_KV_BINDING = "DEV_KV"
 
 [observability]
 enabled = true
@@ -34,12 +39,21 @@ enabled = true
 [[r2_buckets]]
 binding = "MEDIA"
 bucket_name = "your-media-bucket"  # Create with: wrangler r2 bucket create your-media-bucket
+# Optional: dev-only R2 binding used when TAKOS_REQUIRE_DEV_DATA_ISOLATION=true
+# [[r2_buckets]]
+# binding = "DEV_MEDIA"
+# bucket_name = "your-media-bucket-dev"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "your-app-db"
 database_id = "your-database-id"  # Create with: wrangler d1 create your-app-db
 migrations_dir = "d1_migrations"
+# Optional: dev-only D1 binding used when TAKOS_REQUIRE_DEV_DATA_ISOLATION=true
+# [[d1_databases]]
+# binding = "DEV_DB"
+# database_name = "your-app-db-dev"
+# database_id = "your-dev-database-id"
 
 # Cron Triggers for ActivityPub workers
 [triggers]

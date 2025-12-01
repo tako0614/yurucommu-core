@@ -98,6 +98,15 @@ npm install
    npx wrangler secret put PUSH_NOTIFICATION_TITLE
    ```
 
+### 設定テンプレートの生成
+
+```bash
+npm run init:config
+```
+
+ルートに `takos-profile.json` と `takos-config.json` のコメント付き雛形を生成します。
+生の JSON が欲しい場合は `npm run init:config -- --no-comments` を、既存ファイルを上書きする場合は `--force` を付けてください。
+
 ### 開発
 
 ```bash

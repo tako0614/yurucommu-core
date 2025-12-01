@@ -5,6 +5,8 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { normalizeStoryItems } from "@takos/platform";
+import type { TakosAiConfig } from "@takos/platform/server";
+import { DEFAULT_TAKOS_AI_CONFIG, mergeTakosAiConfig } from "@takos/platform/server";
 import type { DatabaseAPI } from "./types";
 import type { DatabaseConfig } from "./prisma-factory";
 
@@ -2339,7 +2341,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     (prisma as any).chat_dm_messages.findMany({
       where: { thread_id: threadId },
       orderBy: { created_at: "desc" },
-      take: limit,
+      ...(limit && Number.isFinite(limit) && limit > 0 ? { take: limit } : {}),
     });
 
   const getDmThread = async (threadId: string) =>
@@ -2432,6 +2434,61 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     } catch (error) {
       if ((error as any)?.code !== "P2025") throw error;
     }
+  };
+
+  // -------------- AI configuration --------------
+  const ensureAiConfigTable = async () => {
+    await runStatement(
+      "CREATE TABLE IF NOT EXISTS ai_config (id TEXT PRIMARY KEY, config_json TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
+    );
+  };
+
+  const writeAiConfig = async (config: TakosAiConfig) => {
+    await ensureAiConfigTable();
+    const normalized = mergeTakosAiConfig(DEFAULT_TAKOS_AI_CONFIG, config);
+    await runStatement(
+      "INSERT OR REPLACE INTO ai_config (id, config_json, updated_at) VALUES ('default', ?, datetime('now'))",
+      [JSON.stringify(normalized)],
+    );
+    return normalized;
+  };
+
+  const getAiConfig = async (): Promise<TakosAiConfig> => {
+    await ensureAiConfigTable();
+    const rows = (await runStatement(
+      "SELECT config_json FROM ai_config WHERE id = 'default' LIMIT 1",
+    )) as Array<{ config_json?: string }>;
+
+    if (!rows || rows.length === 0) {
+      return writeAiConfig(DEFAULT_TAKOS_AI_CONFIG);
+    }
+
+    const payload = rows[0]?.config_json;
+    if (!payload || typeof payload !== "string") {
+      return writeAiConfig(DEFAULT_TAKOS_AI_CONFIG);
+    }
+
+    try {
+      const parsed = JSON.parse(payload) as Partial<TakosAiConfig>;
+      return mergeTakosAiConfig(DEFAULT_TAKOS_AI_CONFIG, parsed);
+    } catch {
+      return writeAiConfig(DEFAULT_TAKOS_AI_CONFIG);
+    }
+  };
+
+  const updateAiConfig = async (
+    patch: Partial<TakosAiConfig>,
+  ): Promise<TakosAiConfig> => {
+    const current = await getAiConfig().catch(() => DEFAULT_TAKOS_AI_CONFIG);
+    const next = mergeTakosAiConfig(current, patch);
+    return writeAiConfig(next);
+  };
+
+  const setAiEnabledActions = async (actionIds: string[]) => {
+    const normalized = Array.from(
+      new Set((actionIds || []).map((id) => String(id || "").trim()).filter(Boolean)),
+    );
+    return updateAiConfig({ enabled_actions: normalized });
   };
 
   // Raw SQL query helper for ActivityPub operations
@@ -3256,14 +3313,122 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
   };
 
+  // -------------- App revisions --------------
+  const mapAppRevision = (row: any) => {
+    if (!row) return null;
+    return {
+      id: row.id,
+      created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+      author_type: row.author_type,
+      author_name: row.author_name ?? null,
+      message: row.message ?? null,
+      schema_version: row.schema_version,
+      manifest_snapshot: row.manifest_snapshot,
+      script_snapshot_ref: row.script_snapshot_ref,
+    };
+  };
+
+  const ensureAppStateRow = async () => {
+    await runStatement(
+      "INSERT OR IGNORE INTO app_state (id, updated_at) VALUES (1, CURRENT_TIMESTAMP)",
+    );
+  };
+
+  const createAppRevision = async (revision: import("./types").AppRevisionInput) => {
+    const id =
+      revision.id?.trim() || `rev_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+    const createdAt = revision.created_at ? new Date(revision.created_at) : new Date();
+    await runStatement(
+      `INSERT INTO app_revisions (
+        id,
+        created_at,
+        author_type,
+        author_name,
+        message,
+        schema_version,
+        manifest_snapshot,
+        script_snapshot_ref
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        createdAt.toISOString(),
+        revision.author_type,
+        revision.author_name ?? null,
+        revision.message ?? null,
+        revision.schema_version,
+        revision.manifest_snapshot,
+        revision.script_snapshot_ref,
+      ],
+    );
+    return getAppRevision(id);
+  };
+
+  const getAppRevision = async (id: string) => {
+    const rows = await runStatement(
+      `SELECT id, created_at, author_type, author_name, message, schema_version, manifest_snapshot, script_snapshot_ref
+       FROM app_revisions WHERE id = ?`,
+      [id],
+      true,
+    );
+    if (!rows.length) return null;
+    return mapAppRevision(rows[0]);
+  };
+
+  const listAppRevisions = async (limit: number = 20) => {
+    const rows = await runStatement(
+      `SELECT id, created_at, author_type, author_name, message, schema_version, manifest_snapshot, script_snapshot_ref
+       FROM app_revisions
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      [limit],
+      true,
+    );
+    return rows.map(mapAppRevision);
+  };
+
+  const setActiveAppRevision = async (revisionId: string | null) => {
+    await ensureAppStateRow();
+    await runStatement(
+      `UPDATE app_state
+       SET active_revision_id = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = 1`,
+      [revisionId ?? null],
+    );
+  };
+
+  const getActiveAppRevision = async () => {
+    await ensureAppStateRow();
+    const rows = await runStatement(
+      `SELECT active_revision_id, updated_at FROM app_state WHERE id = 1`,
+      [],
+      true,
+    );
+    if (!rows.length) return null;
+    const state = rows[0] as any;
+    const active_revision_id = state.active_revision_id ?? null;
+    const revision = active_revision_id ? await getAppRevision(String(active_revision_id)) : null;
+    return {
+      active_revision_id,
+      updated_at:
+        state.updated_at instanceof Date ? state.updated_at.toISOString() : state.updated_at,
+      revision,
+    };
+  };
+
   // -------------- Data export --------------
   const createExportRequest = async (input: import("./types").DataExportRequestInput) => {
+    const attempt_count =
+      input.attempt_count === undefined ? 0 : Math.max(0, Number(input.attempt_count) || 0);
+    const max_attempts =
+      input.max_attempts === undefined ? 3 : Math.max(1, Number(input.max_attempts) || 1);
     const created = await (prisma as any).data_export_requests.create({
       data: {
         id: input.id,
         user_id: input.user_id,
         format: input.format ?? "json",
         status: input.status ?? "pending",
+        attempt_count,
+        max_attempts,
         requested_at: input.requested_at ? new Date(input.requested_at) : new Date(),
         processed_at: input.processed_at ? new Date(input.processed_at) : null,
         download_url: input.download_url ?? null,
@@ -3285,6 +3450,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     if (fields.result_json !== undefined) data.result_json = fields.result_json ?? null;
     if (fields.error_message !== undefined) data.error_message = fields.error_message ?? null;
     if (fields.format !== undefined) data.format = fields.format;
+    if (fields.attempt_count !== undefined) {
+      data.attempt_count = Math.max(0, Number(fields.attempt_count) || 0);
+    }
+    if (fields.max_attempts !== undefined) {
+      data.max_attempts = Math.max(1, Number(fields.max_attempts) || 1);
+    }
     const updated = await (prisma as any).data_export_requests.update({
       where: { id },
       data,
@@ -3481,6 +3652,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     listReports,
     listReportsByUser,
     updateReportStatus,
+    // App revisions
+    createAppRevision,
+    getAppRevision,
+    listAppRevisions,
+    setActiveAppRevision,
+    getActiveAppRevision,
     // exports
     createExportRequest,
     updateExportRequest,
@@ -3490,6 +3667,10 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     // JWT
     getUserJwtSecret,
     setUserJwtSecret,
+    // AI config
+    getAiConfig,
+    updateAiConfig,
+    setAiEnabledActions,
     // push devices
     registerPushDevice,
     listPushDevicesByUser,

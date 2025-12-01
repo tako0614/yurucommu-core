@@ -5,6 +5,8 @@ export * from "./api";
 
 // Configuration utilities
 export * from "./config/env";
+export * from "./app/manifest";
+export * from "./utils/semver.js";
 
 // Story domain (used by web/mobile clients)
 export * from "./stories/story-schema";
