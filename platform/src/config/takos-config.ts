@@ -63,6 +63,7 @@ export type TakosAiDataPolicy = {
 
 export type TakosAiConfig = {
   enabled?: boolean;
+  requires_external_network?: boolean;
   default_provider?: string;
   enabled_actions?: string[];
   providers?: Record<string, TakosAiProviderConfig>;
@@ -106,7 +107,8 @@ export type JsonSchema = {
 };
 
 export const DEFAULT_TAKOS_AI_CONFIG: TakosAiConfig = {
-  enabled: true,
+  enabled: false,
+  requires_external_network: true,
   default_provider: undefined,
   enabled_actions: [],
   providers: {},
@@ -231,6 +233,7 @@ export const takosConfigSchema: JsonSchema = {
       additionalProperties: true,
       properties: {
         enabled: { type: "boolean" },
+        requires_external_network: { type: "boolean" },
         default_provider: { type: "string" },
         enabled_actions: {
           type: "array",
@@ -403,6 +406,12 @@ export function validateTakosConfig(config: unknown): TakosConfigValidationResul
     } else {
       if (config.ai.enabled !== undefined && typeof config.ai.enabled !== "boolean") {
         errors.push("ai.enabled: expected boolean");
+      }
+      if (
+        config.ai.requires_external_network !== undefined &&
+        typeof config.ai.requires_external_network !== "boolean"
+      ) {
+        errors.push("ai.requires_external_network: expected boolean");
       }
       if (
         config.ai.default_provider !== undefined &&

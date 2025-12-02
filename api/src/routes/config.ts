@@ -13,6 +13,7 @@ import {
   loadStoredConfig,
   stripSecretsFromConfig,
 } from "../lib/config-utils";
+import { assertConfigAiActionsAllowed } from "../lib/ai-action-allowlist";
 import { guardAgentRequest } from "../lib/agent-guard";
 import { listConfigAudit, recordConfigAudit } from "../lib/config-audit";
 import { persistConfigWithReloadGuard } from "../lib/config-reload";
@@ -21,12 +22,42 @@ import {
   enforceAgentConfigAllowlist,
   getAgentConfigAllowlist,
 } from "../lib/agent-config-allowlist";
+import { isOwnerUser, resolveOwnerHandle } from "../lib/owner-auth";
 
 const configRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 function isAdminUser(user: any, env: Bindings): boolean {
   return !!env.AUTH_USERNAME && user?.id === env.AUTH_USERNAME;
 }
+
+type ConfigActor = {
+  role: "admin" | "owner";
+  user: any;
+  ownerHandle?: string;
+};
+
+const getSessionUser = (c: any) =>
+  (c.get("sessionUser") as any) || (c.get("user") as any) || null;
+
+const resolveActorHandle = (actor: ConfigActor | null) =>
+  actor?.user?.handle ?? actor?.ownerHandle ?? actor?.user?.id ?? null;
+
+const requireOwnerSession = (c: any): ConfigActor | null => {
+  const ownerHandle = resolveOwnerHandle(c.env as Bindings);
+  const sessionUser = getSessionUser(c);
+  if (!isOwnerUser(sessionUser, c.env as Bindings)) {
+    return null;
+  }
+  return { role: "owner", user: sessionUser, ownerHandle };
+};
+
+const requireAdminActor = (c: any): ConfigActor | null => {
+  const sessionUser = getSessionUser(c);
+  if (!isAdminUser(sessionUser, c.env as Bindings)) {
+    return null;
+  }
+  return { role: "admin", user: sessionUser };
+};
 
 type ActiveConfig = {
   config: TakosConfig;
@@ -58,6 +89,7 @@ async function loadActiveConfig(env: Bindings): Promise<ActiveConfig> {
   }
 
   const baseConfig = stored.config ?? buildRuntimeConfig(env);
+  assertConfigAiActionsAllowed(baseConfig);
   const sanitized = sanitizeConfig(baseConfig);
   warnings.push(...sanitized.warnings);
 
@@ -69,12 +101,7 @@ async function loadActiveConfig(env: Bindings): Promise<ActiveConfig> {
   };
 }
 
-configRoutes.get("/admin/config/export", auth, async (c) => {
-  const user = c.get("user") as any;
-  if (!isAdminUser(user, c.env as Bindings)) {
-    return fail(c, "forbidden", 403);
-  }
-
+async function handleConfigExport(c: any) {
   const activeConfig = await loadActiveConfig(c.env as Bindings);
 
   return ok(c, {
@@ -84,11 +111,27 @@ configRoutes.get("/admin/config/export", auth, async (c) => {
     source: activeConfig.source,
     warnings: activeConfig.warnings,
   });
+}
+
+configRoutes.get("/admin/config/export", auth, async (c) => {
+  const actor = requireAdminActor(c);
+  if (!actor) {
+    return fail(c, "forbidden", 403);
+  }
+  return handleConfigExport(c);
+});
+
+configRoutes.get("/-/config/export", auth, async (c) => {
+  const owner = requireOwnerSession(c);
+  if (!owner) {
+    return fail(c, "owner session required", 403);
+  }
+  return handleConfigExport(c);
 });
 
 configRoutes.get("/admin/config/audit", auth, async (c) => {
-  const user = c.get("user") as any;
-  if (!isAdminUser(user, c.env as Bindings)) {
+  const actor = requireAdminActor(c);
+  if (!actor) {
     return fail(c, "forbidden", 403);
   }
 
@@ -99,12 +142,7 @@ configRoutes.get("/admin/config/audit", auth, async (c) => {
   return ok(c, { entries });
 });
 
-configRoutes.post("/admin/config/diff", auth, async (c) => {
-  const user = c.get("user") as any;
-  if (!isAdminUser(user, c.env as Bindings)) {
-    return fail(c, "forbidden", 403);
-  }
-
+async function handleConfigDiff(c: any) {
   const force = c.req.query("force") === "true";
   const agentGuard = guardAgentRequest(c.req, { toolId: "tool.updateTakosConfig" });
   if (!agentGuard.ok) {
@@ -131,6 +169,12 @@ configRoutes.post("/admin/config/diff", auth, async (c) => {
 
   if (!compatibility.ok) {
     return fail(c, compatibility.error || "config incompatible with this distro", 409);
+  }
+
+  try {
+    assertConfigAiActionsAllowed(validation.config);
+  } catch (error: any) {
+    return fail(c, error?.message || "invalid AI action allowlist", 400);
   }
 
   const incoming = sanitizeConfig(validation.config);
@@ -159,14 +203,9 @@ configRoutes.post("/admin/config/diff", auth, async (c) => {
     source: activeConfig.source,
     warnings,
   });
-});
+}
 
-configRoutes.post("/admin/config/import", auth, async (c) => {
-  const user = c.get("user") as any;
-  if (!isAdminUser(user, c.env as Bindings)) {
-    return fail(c, "forbidden", 403);
-  }
-
+async function handleConfigImport(c: any, actor: ConfigActor) {
   const force = c.req.query("force") === "true";
   const agentGuard = guardAgentRequest(c.req, { toolId: "tool.updateTakosConfig" });
   if (!agentGuard.ok) {
@@ -194,6 +233,12 @@ configRoutes.post("/admin/config/import", auth, async (c) => {
     return fail(c, compatibility.error || "config incompatible with this distro", 409);
   }
 
+  try {
+    assertConfigAiActionsAllowed(validation.config);
+  } catch (error: any) {
+    return fail(c, error?.message || "invalid AI action allowlist", 400);
+  }
+
   const incoming = sanitizeConfig(validation.config);
   const diff = diffConfigs(activeConfig.config, incoming.config);
   if (agentGuard.agentType) {
@@ -216,8 +261,8 @@ configRoutes.post("/admin/config/import", auth, async (c) => {
   });
   await recordConfigAudit((c.env as Bindings).DB, {
     action: "config_import",
-    actorId: user?.id ?? null,
-    actorHandle: user?.handle ?? null,
+    actorId: actor?.user?.id ?? null,
+    actorHandle: resolveActorHandle(actor),
     agentType: agentGuard.agentType ?? null,
     details: {
       source: activeConfig.source,
@@ -251,6 +296,38 @@ configRoutes.post("/admin/config/import", auth, async (c) => {
     warnings: [...warnings, ...(applyResult.reload.warnings || [])],
     reload: applyResult.reload,
   });
+}
+
+configRoutes.post("/admin/config/diff", auth, async (c) => {
+  const actor = requireAdminActor(c);
+  if (!actor) {
+    return fail(c, "forbidden", 403);
+  }
+  return handleConfigDiff(c);
+});
+
+configRoutes.post("/-/config/diff", auth, async (c) => {
+  const owner = requireOwnerSession(c);
+  if (!owner) {
+    return fail(c, "owner session required", 403);
+  }
+  return handleConfigDiff(c);
+});
+
+configRoutes.post("/admin/config/import", auth, async (c) => {
+  const actor = requireAdminActor(c);
+  if (!actor) {
+    return fail(c, "forbidden", 403);
+  }
+  return handleConfigImport(c, actor);
+});
+
+configRoutes.post("/-/config/import", auth, async (c) => {
+  const owner = requireOwnerSession(c);
+  if (!owner) {
+    return fail(c, "owner session required", 403);
+  }
+  return handleConfigImport(c, owner);
 });
 
 export default configRoutes;

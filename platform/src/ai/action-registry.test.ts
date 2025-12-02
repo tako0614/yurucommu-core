@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertActionsInAllowlist,
   createAiActionRegistry,
   dispatchAiAction,
   type AiActionDefinition,
@@ -134,5 +135,17 @@ describe("AI action registry", () => {
     );
 
     expect(result.echoed).toBe("hello");
+  });
+
+  it("accepts enabled actions that are present in the takos-profile allowlist", () => {
+    expect(() =>
+      assertActionsInAllowlist(["ai.echo", "ai.summary"], ["ai.summary", "ai.echo", "ai.chat"]),
+    ).not.toThrow();
+  });
+
+  it("rejects enabled actions that are missing from the takos-profile allowlist", () => {
+    expect(() => assertActionsInAllowlist(["ai.echo", "ai.unknown"], ["ai.echo"])).toThrow(
+      /not allowed by takos-profile/i,
+    );
   });
 });

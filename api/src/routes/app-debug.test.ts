@@ -4,7 +4,7 @@ import appDebug from "./app-debug";
 import { getDefaultDataFactory, setBackendDataFactory } from "../data";
 import type { AppLogEntry } from "@takos/platform/app";
 
-const authEnv = { AUTH_USERNAME: "admin", AUTH_PASSWORD: "secret" };
+const authEnv = { INSTANCE_OWNER_HANDLE: "owner" };
 const bearer = (token: string) => `Bearer ${token}`;
 
 describe("app debug routes", () => {
@@ -39,9 +39,9 @@ describe("app debug routes", () => {
   });
 
   it("runs a handler in dev sandbox and persists logs", async () => {
-    const token = await createJWT("admin", secret, 3600);
+    const token = await createJWT("owner", secret, 3600);
     const res = await appDebug.request(
-      "/admin/app/debug/run",
+      "/-/app/debug/run",
       {
         method: "POST",
         headers: {
@@ -66,7 +66,36 @@ describe("app debug routes", () => {
     expect(sharedLogs.length).toBeGreaterThan(0);
     const runIds = new Set(sharedLogs.map((log) => log.runId));
     expect(runIds.size).toBe(1);
+    expect(runIds.has(json.runId)).toBe(true);
+    expect(sharedLogs.every((log) => log.mode === "dev")).toBe(true);
+    expect(sharedLogs.every((log) => log.workspaceId === "ws_demo")).toBe(true);
+    expect(sharedLogs.some((log) => log.message.includes("ActivityPub disabled"))).toBe(true);
     expect(sharedLogs.some((log) => log.workspaceId === "ws_demo")).toBe(true);
+  });
+
+  it("rejects non-owner callers", async () => {
+    const token = await createJWT("alice", secret, 3600);
+    const res = await appDebug.request(
+      "/-/app/debug/run",
+      {
+        method: "POST",
+        headers: {
+          Authorization: bearer(token),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: "dev",
+          workspaceId: "ws_demo",
+          handler: "ping",
+        }),
+      },
+      authEnv,
+    );
+
+    expect(res.status).toBe(403);
+    const json: any = await res.json();
+    expect(json.ok).toBe(false);
+    expect(json.error).toBe("owner_required");
   });
 
   it("returns stored logs with filters applied", async () => {
@@ -89,9 +118,9 @@ describe("app debug routes", () => {
         message: "prod log",
       },
     );
-    const token = await createJWT("admin", secret, 3600);
+    const token = await createJWT("owner", secret, 3600);
     const res = await appDebug.request(
-      "/admin/app/debug/logs?workspaceId=ws_demo&handler=ping&mode=dev",
+      "/-/app/debug/logs?workspaceId=ws_demo&handler=ping&mode=dev",
       {
         method: "GET",
         headers: { Authorization: bearer(token) },

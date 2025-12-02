@@ -1,18 +1,23 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createJWT } from "@takos/platform/server";
 import { getDefaultDataFactory, setBackendDataFactory } from "../data";
 import appPreview from "./app-preview";
 
 const request = (
   path: string,
   body: Record<string, any>,
-  env?: Record<string, any>,
+  env: Record<string, any> = {},
   headers?: Record<string, string>,
 ) =>
-  appPreview.request(path, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...(headers ?? {}) },
-    body: JSON.stringify(body),
-  }, env);
+  appPreview.request(
+    path,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(headers ?? {}) },
+      body: JSON.stringify(body),
+    },
+    env,
+  );
 
 const containsText = (node: any, text: string): boolean => {
   if (!node || typeof node !== "object") return false;
@@ -47,7 +52,13 @@ const testManifest = {
   },
 };
 
+const ownerHandle = "owner";
+const secret = "jwt-secret";
+const authEnv = { INSTANCE_OWNER_HANDLE: ownerHandle };
+const bearer = (token: string) => `Bearer ${token}`;
+
 const createWorkspaceEnv = (manifest = testManifest) => ({
+  ...authEnv,
   workspaceStore: {
     async getWorkspaceFile(workspaceId: string, path: string) {
       return {
@@ -88,15 +99,39 @@ const createWorkspaceEnv = (manifest = testManifest) => ({
   },
 });
 
+const createStore = (overrides: Record<string, any> = {}) =>
+  ({
+    getUser: async (id: string) => ({ id }),
+    getUserJwtSecret: async () => secret,
+    setUserJwtSecret: async () => {},
+    getActiveAppRevision: async () => null,
+    disconnect: async () => {},
+    ...overrides,
+  }) as any;
+
 const defaultFactory = getDefaultDataFactory();
+let ownerToken = "";
+
+const authedRequest = (
+  path: string,
+  body: Record<string, any>,
+  env?: Record<string, any>,
+  headers?: Record<string, string>,
+) => request(path, body, env ?? authEnv, { Authorization: bearer(ownerToken), ...(headers ?? {}) });
+
+beforeEach(async () => {
+  ownerToken = await createJWT(ownerHandle, secret, 3600);
+  setBackendDataFactory(() => createStore());
+});
 
 afterEach(() => {
+  ownerToken = "";
   setBackendDataFactory(defaultFactory);
 });
 
-describe("/admin/app/preview/screen", () => {
+describe("/-/app/preview/screen", () => {
   it("returns a resolved tree for a workspace manifest", async () => {
-    const res = await request("/admin/app/preview/screen", {
+    const res = await authedRequest("/-/app/preview/screen", {
       workspaceId: "ws_test",
       screenId: "screen.home",
       viewMode: "json",
@@ -107,10 +142,11 @@ describe("/admin/app/preview/screen", () => {
     expect(json.ok).toBe(true);
     expect(json.resolvedTree?.type).toBeDefined();
     expect(Array.isArray(json.warnings)).toBe(true);
+    expect(Array.isArray(json.contractWarnings)).toBe(true);
   });
 
   it("rejects unsupported image preview requests", async () => {
-    const res = await request("/admin/app/preview/screen", {
+    const res = await authedRequest("/-/app/preview/screen", {
       workspaceId: "ws_test",
       screenId: "screen.home",
       viewMode: "image",
@@ -121,26 +157,36 @@ describe("/admin/app/preview/screen", () => {
     expect(json.error).toBe("view_mode_not_supported");
   });
 
-  it("requires the preview token when configured", async () => {
-    const res = await request(
-      "/admin/app/preview/screen",
+  it("requires an owner session", async () => {
+    const missingAuth = await request(
+      "/-/app/preview/screen",
       {
         workspaceId: "ws_test",
         screenId: "screen.home",
         viewMode: "json",
       },
-      { ...createWorkspaceEnv(), APP_PREVIEW_TOKEN: "secret-token" },
+      createWorkspaceEnv(),
     );
+    expect(missingAuth.status).toBe(401);
 
-    expect(res.status).toBe(401);
-    const json: any = await res.json();
-    expect(json.ok).toBe(false);
+    const nonOwnerToken = await createJWT("alice", secret, 3600);
+    const nonOwner = await request(
+      "/-/app/preview/screen",
+      {
+        workspaceId: "ws_test",
+        screenId: "screen.home",
+        viewMode: "json",
+      },
+      createWorkspaceEnv(),
+      { Authorization: bearer(nonOwnerToken) },
+    );
+    expect(nonOwner.status).toBe(403);
   });
 
   it("loads the active prod manifest when mode is prod", async () => {
     setBackendDataFactory(
       () =>
-        ({
+        createStore({
           getActiveAppRevision: async () => ({
             active_revision_id: "rev_prod",
             revision: { id: "rev_prod", manifest_snapshot: JSON.stringify(testManifest) },
@@ -148,11 +194,11 @@ describe("/admin/app/preview/screen", () => {
         }) as any,
     );
 
-    const res = await request("/admin/app/preview/screen", {
+    const res = await authedRequest("/-/app/preview/screen", {
       mode: "prod",
       screenId: "screen.home",
       viewMode: "json",
-    }, {});
+    }, authEnv);
 
     expect(res.status).toBe(200);
     const json: any = await res.json();
@@ -164,7 +210,7 @@ describe("/admin/app/preview/screen", () => {
   it("uses the prod manifest when workspaceId is prod to make before/after comparisons easy", async () => {
     setBackendDataFactory(
       () =>
-        ({
+        createStore({
           getActiveAppRevision: async () => ({
             active_revision_id: "rev_prod",
             revision: { id: "rev_prod", manifest_snapshot: JSON.stringify(testManifest) },
@@ -172,10 +218,10 @@ describe("/admin/app/preview/screen", () => {
         }) as any,
     );
 
-    const res = await request("/admin/app/preview/screen", {
+    const res = await authedRequest("/-/app/preview/screen", {
       workspaceId: "prod",
       screenId: "screen.home",
-    }, {});
+    }, authEnv);
 
     expect(res.status).toBe(200);
     const json: any = await res.json();
@@ -185,7 +231,7 @@ describe("/admin/app/preview/screen", () => {
   });
 
   it("accepts previews mode as a workspace preview alias", async () => {
-    const res = await request("/admin/app/preview/screen", {
+    const res = await authedRequest("/-/app/preview/screen", {
       mode: "previews",
       workspaceId: "ws_test",
       screenId: "screen.home",
@@ -199,9 +245,9 @@ describe("/admin/app/preview/screen", () => {
   });
 });
 
-describe("/admin/app/preview/screen-with-patch", () => {
+describe("/-/app/preview/screen-with-patch", () => {
   it("applies patches before resolving preview without persisting", async () => {
-    const res = await request("/admin/app/preview/screen-with-patch", {
+    const res = await authedRequest("/-/app/preview/screen-with-patch", {
       workspaceId: "ws_test",
       screenId: "screen.home",
       viewMode: "json",
@@ -228,8 +274,8 @@ describe("/admin/app/preview/screen-with-patch", () => {
     expect(json.patchesApplied).toBe(1);
     expect(containsText(json.resolvedTree, "Patched from test")).toBe(true);
 
-    const base = await request(
-      "/admin/app/preview/screen",
+    const base = await authedRequest(
+      "/-/app/preview/screen",
       {
         workspaceId: "ws_test",
         screenId: "screen.home",
@@ -242,7 +288,7 @@ describe("/admin/app/preview/screen-with-patch", () => {
   });
 
   it("rejects invalid patch payloads", async () => {
-    const res = await request("/admin/app/preview/screen-with-patch", {
+    const res = await authedRequest("/-/app/preview/screen-with-patch", {
       workspaceId: "ws_test",
       screenId: "screen.home",
       viewMode: "json",
@@ -254,32 +300,33 @@ describe("/admin/app/preview/screen-with-patch", () => {
     expect(json.ok).toBe(false);
   });
 
-  it("requires the preview token when configured", async () => {
+  it("requires an owner session", async () => {
     const unauthorized = await request(
-      "/admin/app/preview/screen-with-patch",
+      "/-/app/preview/screen-with-patch",
       {
         workspaceId: "ws_test",
         screenId: "screen.home",
         viewMode: "json",
         patches: [],
       },
-      { ...createWorkspaceEnv(), APP_PREVIEW_TOKEN: "secret-token" },
+      createWorkspaceEnv(),
     );
 
     expect(unauthorized.status).toBe(401);
 
-    const authorized = await request(
-      "/admin/app/preview/screen-with-patch",
+    const nonOwnerToken = await createJWT("guest", secret, 3600);
+    const forbidden = await request(
+      "/-/app/preview/screen-with-patch",
       {
         workspaceId: "ws_test",
         screenId: "screen.home",
         viewMode: "json",
         patches: [],
       },
-      { ...createWorkspaceEnv(), APP_PREVIEW_TOKEN: "secret-token" },
-      { "x-app-preview-token": "secret-token" },
+      createWorkspaceEnv(),
+      { Authorization: bearer(nonOwnerToken) },
     );
 
-    expect(authorized.status).toBe(200);
+    expect(forbidden.status).toBe(403);
   });
 });

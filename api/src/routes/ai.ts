@@ -4,7 +4,9 @@ import {
   aiActionRegistry,
   buildAiProviderRegistry,
   dispatchAiAction,
+  DEFAULT_TAKOS_AI_CONFIG,
   fail,
+  mergeTakosAiConfig,
   ok,
 } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
@@ -22,9 +24,12 @@ const resolveConfig = (c: any): TakosConfig | null => {
 
 const mapDispatchError = (error: unknown): { status: number; message: string } => {
   const message = error instanceof Error ? error.message : String(error);
-  if (/Unknown AI action/i.test(message)) return { status: 404, message: "unknown action" };
+  if (/Unknown AI action/i.test(message)) return { status: 403, message: "unknown action" };
   if (/not enabled/i.test(message)) return { status: 403, message };
   if (/AI is disabled/i.test(message)) return { status: 403, message };
+  if (/external network access is disabled/i.test(message)) {
+    return { status: 503, message };
+  }
   if (/DataPolicyViolation/i.test(message)) return { status: 400, message };
   return { status: 500, message: "failed to run AI action" };
 };
@@ -45,6 +50,9 @@ ai.post("/api/ai/actions/:id/run", auth, async (c) => {
     return fail(c, "takos-config is not available for this node", 500);
   }
 
+  const aiConfig = mergeTakosAiConfig(DEFAULT_TAKOS_AI_CONFIG, nodeConfig.ai ?? {});
+  const normalizedConfig: TakosConfig = { ...nodeConfig, ai: aiConfig };
+
   let input: unknown;
   try {
     input = await c.req.json();
@@ -52,9 +60,13 @@ ai.post("/api/ai/actions/:id/run", auth, async (c) => {
     return fail(c, "invalid JSON body", 400);
   }
 
+  if (aiConfig.requires_external_network === false) {
+    return fail(c, "AI external network access is disabled for this node", 503);
+  }
+
   let providers;
   try {
-    providers = buildAiProviderRegistry(nodeConfig.ai, c.env as any);
+    providers = buildAiProviderRegistry(aiConfig, c.env as any);
     if (providers.warnings?.length) {
       console.warn(`[ai] provider warnings: ${providers.warnings.join("; ")}`);
     }
@@ -65,7 +77,7 @@ ai.post("/api/ai/actions/:id/run", auth, async (c) => {
 
   try {
     const result = await dispatchAiAction(aiActionRegistry, actionId, {
-      nodeConfig,
+      nodeConfig: normalizedConfig,
       user: c.get("user"),
       agentType: agentGuard.agentType,
       providers,

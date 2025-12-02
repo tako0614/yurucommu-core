@@ -1,5 +1,6 @@
 import type { PublicAccountBindings as Bindings, TakosConfig } from "@takos/platform/server";
 import { buildRuntimeConfig, loadStoredConfig } from "./config-utils";
+import { assertConfigAiActionsAllowed } from "./ai-action-allowlist";
 
 type Cached = {
   config: TakosConfig;
@@ -48,6 +49,8 @@ const loadConfig = async (env: Bindings): Promise<Cached> => {
   const config = stored.config ?? buildRuntimeConfig(env);
   const warnings = [...(stored.warnings ?? [])];
   const source: Cached["source"] = stored.config ? "stored" : "runtime";
+
+  assertConfigAiActionsAllowed(config);
 
   return { config, source, warnings, fetchedAt };
 };

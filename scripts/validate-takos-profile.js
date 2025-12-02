@@ -48,6 +48,49 @@ function validateActivityPubContexts(activitypub) {
   return errors;
 }
 
+function validateActivityPubExtensions(activitypub) {
+  const extensions = activitypub?.extensions;
+  if (extensions === undefined) return [];
+  if (!Array.isArray(extensions)) {
+    return ["activitypub.extensions must be an array of extension objects"];
+  }
+
+  const errors = [];
+  extensions.forEach((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      errors.push(`activitypub.extensions[${index}] must be an object`);
+      return;
+    }
+    if (typeof entry.id !== "string" || !entry.id.trim()) {
+      errors.push(`activitypub.extensions[${index}].id must be a non-empty string`);
+    }
+    if (entry.description !== undefined && typeof entry.description !== "string") {
+      errors.push(`activitypub.extensions[${index}].description must be a string when provided`);
+    }
+    if (entry.spec_url !== undefined) {
+      if (typeof entry.spec_url !== "string") {
+        errors.push(`activitypub.extensions[${index}].spec_url must be a string URL`);
+        return;
+      }
+      const candidate = entry.spec_url.trim();
+      if (!candidate) {
+        errors.push(`activitypub.extensions[${index}].spec_url must not be empty`);
+        return;
+      }
+      try {
+        const url = new URL(candidate);
+        if (!["http:", "https:"].includes(url.protocol)) {
+          errors.push(`activitypub.extensions[${index}].spec_url must use http(s) scheme`);
+        }
+      } catch {
+        errors.push(`activitypub.extensions[${index}].spec_url must be an absolute URL`);
+      }
+    }
+  });
+
+  return errors;
+}
+
 function fail(message, details = []) {
   if (details.length > 0) {
     details.forEach((detail) => {
@@ -101,7 +144,9 @@ if (profile.runtime?.default && Array.isArray(profile.runtime.supported)) {
 }
 
 const contextErrors = validateActivityPubContexts(profile.activitypub);
+const extensionErrors = validateActivityPubExtensions(profile.activitypub);
 semanticErrors.push(...contextErrors);
+semanticErrors.push(...extensionErrors);
 
 if (semanticErrors.length > 0) {
   fail("takos-profile semantic validation failed", semanticErrors);

@@ -7,6 +7,7 @@ import {
 import { DEFAULT_TAKOS_AI_CONFIG, mergeTakosAiConfig } from "@takos/platform/server";
 
 const baseConfig = mergeTakosAiConfig(DEFAULT_TAKOS_AI_CONFIG, {
+  enabled: true,
   providers: {
     "openai-main": {
       type: "openai",
@@ -24,6 +25,13 @@ describe("admin AI helpers", () => {
     const providersWithKey = buildProviderStatuses(baseConfig, { OPENAI_KEY: "sk-test" });
     expect(providersWithKey[0].configured).toBe(true);
     expect(providersWithKey[0].eligible).toBe(true);
+  });
+
+  it("marks providers as ineligible when external network access is disabled", () => {
+    const config = mergeTakosAiConfig(baseConfig, { requires_external_network: false });
+    const providers = buildProviderStatuses(config, { OPENAI_KEY: "sk-test" });
+    expect(providers[0].configured).toBe(true);
+    expect(providers[0].eligible).toBe(false);
   });
 
   it("blocks DM actions when node policy forbids DM sharing", () => {

@@ -3,17 +3,23 @@
     {
       "id": "ap_note_to_post",
       "match": { "type": ["Note", "Article"] },
-      "handler": "mapActivityNote"
+      "handler": "mapActivityNote",
+      "description": "Maps Note/Article objects into takos posts.",
+      "spec_url": "https://docs.takos.jp/activitypub"
     },
     {
       "id": "ap_question_to_poll",
       "match": { "type": ["Question"] },
-      "handler": "mapActivityQuestion"
+      "handler": "mapActivityQuestion",
+      "description": "Maps ActivityPub Question objects to poll view models.",
+      "spec_url": "https://docs.takos.jp/activitypub"
     },
     {
       "id": "ap_announce_to_repost",
       "match": { "type": ["Announce"] },
-      "handler": "mapActivityAnnounce"
+      "handler": "mapActivityAnnounce",
+      "description": "Maps Announce activities into reposts.",
+      "spec_url": "https://docs.takos.jp/activitypub"
     }
   ]
 }

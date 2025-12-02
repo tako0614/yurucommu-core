@@ -133,6 +133,7 @@ async function handleDescribeNode(
     allowed_tools: listAllowedTools(agentType),
     ai: {
       enabled: aiConfig.enabled !== false,
+      requires_external_network: aiConfig.requires_external_network !== false,
       default_provider: registry.getDefaultProviderId() ?? null,
       data_policy: registry.getDataPolicy(),
       providers: registry.list().map((provider) => sanitizeProvider(provider)),
@@ -218,6 +219,9 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
   const aiConfig = mergeTakosAiConfig(DEFAULT_TAKOS_AI_CONFIG, takosConfig.ai ?? {});
   if (aiConfig.enabled === false) {
     return fail(c, "AI is disabled for this node", 503);
+  }
+  if (aiConfig.requires_external_network === false) {
+    return fail(c, "AI external network access is disabled for this node", 503);
   }
 
   const enabledActions = new Set((aiConfig.enabled_actions ?? []).map((id) => id.trim()));

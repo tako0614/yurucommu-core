@@ -109,6 +109,30 @@
         "node_type": {
           "type": "string",
           "minLength": 1
+        },
+        "extensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "spec_url": {
+                "type": "string",
+                "format": "uri",
+                "pattern": "^https?://"
+              }
+            }
+          },
+          "uniqueItems": true
         }
       }
     },
@@ -129,6 +153,12 @@
     "ai": {
       "type": "object",
       "additionalProperties": false,
+      "required": [
+        "enabled",
+        "requires_external_network",
+        "providers",
+        "actions"
+      ],
       "properties": {
         "enabled": {
           "type": "boolean"
@@ -142,6 +172,7 @@
             "type": "string",
             "minLength": 1
           },
+          "minItems": 1,
           "uniqueItems": true
         },
         "actions": {
@@ -150,6 +181,7 @@
             "type": "string",
             "minLength": 1
           },
+          "minItems": 1,
           "uniqueItems": true
         }
       }

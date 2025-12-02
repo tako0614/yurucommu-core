@@ -1,7 +1,8 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import type { PublicAccountBindings } from "@takos/platform/server";
-import { releaseStore } from "@takos/platform/server";
+import type { DevDataIsolationResult, PublicAccountBindings } from "@takos/platform/server";
+import { releaseStore, resolveDevDataIsolation } from "@takos/platform/server";
+import { parseUiContractJson, type AppManifestValidationIssue, type UiContract } from "@takos/platform/app";
 import { makeData } from "../data";
 import type { AppWorkspaceManifest, PreviewMode } from "./app-preview";
 
@@ -135,6 +136,7 @@ const demoWorkspace: AppWorkspaceManifest = {
   },
 };
 export const DEFAULT_MANIFEST_PATH = "takos-app.json";
+export const DEFAULT_UI_CONTRACT_PATH = "takos-ui-contract.json";
 
 type WorkspaceEnv = Partial<PublicAccountBindings> & {
   DB?: D1Database;
@@ -145,6 +147,12 @@ export type LoadWorkspaceOptions = {
   mode: PreviewMode;
   env?: WorkspaceEnv | null;
   store?: WorkspaceStore | null;
+};
+
+export type WorkspaceResolution = {
+  env: WorkspaceEnv;
+  store: WorkspaceStore | null;
+  isolation: DevDataIsolationResult | null;
 };
 
 const normalizeStatus = (status?: string): AppWorkspaceStatus => {
@@ -411,16 +419,97 @@ export function createWorkspaceStore(db: D1Database): WorkspaceStore {
   };
 }
 
-const resolveWorkspaceStore = (options?: LoadWorkspaceOptions): WorkspaceStore | null => {
-  if (!options) return null;
-  if (options.store) return options.store;
-  const fromEnv = (options.env as any)?.workspaceStore;
-  if (fromEnv) return fromEnv as WorkspaceStore;
-  if (options.env?.DB) {
-    return createWorkspaceStore(options.env.DB);
+export function resolveWorkspaceEnv(
+  options?: LoadWorkspaceOptions & { requireIsolation?: boolean },
+): WorkspaceResolution {
+  const mode: PreviewMode = options?.mode === "prod" ? "prod" : "dev";
+  const env: WorkspaceEnv = { ...(options?.env ?? {}) };
+  const storeProvided = Boolean(options?.store || (env as any).workspaceStore);
+  const shouldRequireIsolation = mode === "dev" && (options?.requireIsolation ?? !storeProvided);
+
+  let isolation: DevDataIsolationResult | null = null;
+
+  if (shouldRequireIsolation) {
+    isolation = resolveDevDataIsolation(
+      { ...env, TAKOS_CONTEXT: "dev" },
+      { required: options?.requireIsolation ?? true },
+    );
+    if (isolation.required) {
+      if (!isolation.ok) {
+        return { env, store: null, isolation };
+      }
+      if (isolation.resolved.db) {
+        env.DB = isolation.resolved.db as any;
+      }
+      if (isolation.resolved.media) {
+        env.MEDIA = isolation.resolved.media as any;
+      }
+      if (isolation.resolved.kv) {
+        env.KV = isolation.resolved.kv as any;
+      }
+      if (isolation.warnings.length) {
+        console.warn(`[dev-data] ${isolation.warnings.join("; ")}`);
+      }
+    }
   }
-  return null;
-};
+
+  const store =
+    (options?.store as WorkspaceStore | null | undefined) ??
+    ((env as any).workspaceStore as WorkspaceStore | null | undefined) ??
+    (env.DB ? createWorkspaceStore(env.DB) : null);
+
+  return { env, store: store ?? null, isolation };
+}
+
+export async function ensureDefaultWorkspace(store: WorkspaceStore | null): Promise<boolean> {
+  if (
+    !store ||
+    typeof store.getWorkspace !== "function" ||
+    typeof store.upsertWorkspace !== "function" ||
+    typeof store.getWorkspaceFile !== "function" ||
+    typeof store.saveWorkspaceFile !== "function"
+  ) {
+    return false;
+  }
+
+  const workspaceId = getDemoWorkspace().id || "ws_demo";
+  let seeded = false;
+
+  try {
+    const existing = await store.getWorkspace(workspaceId);
+    if (!existing) {
+      const now = new Date().toISOString();
+      await store.upsertWorkspace({
+        id: workspaceId,
+        status: "validated",
+        author_type: "agent",
+        author_name: "system",
+        created_at: now,
+        updated_at: now,
+      });
+      seeded = true;
+    }
+
+    const manifest = await store.getWorkspaceFile(workspaceId, DEFAULT_MANIFEST_PATH);
+    if (!manifest) {
+      await store.saveWorkspaceFile(
+        workspaceId,
+        DEFAULT_MANIFEST_PATH,
+        JSON.stringify(getDemoWorkspace()),
+        "application/json",
+      );
+      seeded = true;
+    }
+  } catch (error) {
+    console.warn("[workspace] failed to seed default workspace", error);
+    return false;
+  }
+
+  return seeded;
+}
+
+const resolveWorkspaceStore = (options?: LoadWorkspaceOptions): WorkspaceStore | null =>
+  resolveWorkspaceEnv(options).store;
 export { resolveWorkspaceStore };
 
 const loadProdManifest = async (env?: WorkspaceEnv | null): Promise<AppWorkspaceManifest | null> => {
@@ -463,15 +552,58 @@ const loadProdManifest = async (env?: WorkspaceEnv | null): Promise<AppWorkspace
   }
 };
 
+export async function loadWorkspaceUiContract(
+  workspaceId: string,
+  options?: LoadWorkspaceOptions,
+): Promise<{ contract: UiContract | null; issues: AppManifestValidationIssue[] }> {
+  const issues: AppManifestValidationIssue[] = [];
+  const mode: PreviewMode = options?.mode === "prod" ? "prod" : "dev";
+  const { store, isolation } = resolveWorkspaceEnv({ ...options, mode });
+  if (isolation?.required && !isolation.ok) {
+    issues.push({
+      severity: "error",
+      message: isolation.errors[0] || "dev data isolation failed",
+    });
+    return { contract: null, issues };
+  }
+  if (!store || !workspaceId) {
+    return { contract: null, issues };
+  }
+
+  try {
+    const file = await store.getWorkspaceFile(workspaceId, DEFAULT_UI_CONTRACT_PATH);
+    if (!file) {
+      return { contract: null, issues };
+    }
+    const text = decoder.decode(file.content);
+    const parsed = parseUiContractJson(text, DEFAULT_UI_CONTRACT_PATH);
+    issues.push(...parsed.issues);
+    return { contract: parsed.contract ?? null, issues };
+  } catch (error) {
+    issues.push({
+      severity: "warning",
+      message: `failed to load ${DEFAULT_UI_CONTRACT_PATH}: ${(error as Error).message}`,
+      file: DEFAULT_UI_CONTRACT_PATH,
+    });
+    return { contract: null, issues };
+  }
+}
+
 export async function loadWorkspaceManifest(
   workspaceId: string,
   options?: LoadWorkspaceOptions,
 ): Promise<AppWorkspaceManifest | null> {
   const mode: PreviewMode = options?.mode === "prod" ? "prod" : "dev";
+  const { env, store, isolation } = resolveWorkspaceEnv({ ...options, mode });
   const normalizedId = typeof workspaceId === "string" ? workspaceId.trim() : "";
 
+  if (isolation?.required && !isolation.ok) {
+    console.error("[workspace] dev data isolation failed", isolation.errors);
+    return null;
+  }
+
   if (mode === "prod") {
-    const prodManifest = await loadProdManifest(options?.env ?? null);
+    const prodManifest = await loadProdManifest(env ?? null);
     if (prodManifest) {
       return prodManifest;
     }
@@ -481,8 +613,10 @@ export async function loadWorkspaceManifest(
     return getDemoWorkspace();
   }
 
-  const store = resolveWorkspaceStore(options);
   if (!store || !normalizedId) return null;
+  if (mode === "dev") {
+    await ensureDefaultWorkspace(store);
+  }
 
   const workspace = await store.getWorkspace(normalizedId);
   if (!workspace) return null;

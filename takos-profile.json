@@ -17,11 +17,24 @@
   "activitypub": {
     "contexts": ["https://docs.takos.jp/ns/activitypub/v1.jsonld"],
     "profile": "https://docs.takos.jp/",
-    "node_type": "takos-node"
+    "node_type": "takos-node",
+    "extensions": [
+      {
+        "id": "takos-core-ap",
+        "description": "Core takos ActivityPub handlers for posts, questions, and announces.",
+        "spec_url": "https://docs.takos.jp/activitypub"
+      }
+    ]
   },
   "ui": {
     "client_repo": "https://github.com/your-org/takos",
     "theme": "standard"
+  },
+  "ai": {
+    "enabled": true,
+    "requires_external_network": true,
+    "providers": ["openai"],
+    "actions": ["ai.chat", "ai.summary", "ai.tag-suggest", "ai.dm-moderator"]
   },
   "metadata": {
     "maintainer": {
