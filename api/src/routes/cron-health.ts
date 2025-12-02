@@ -13,9 +13,9 @@ import type {
   PostPlanQueueHealth,
 } from "../lib/types";
 
-const ownerHealthRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const cronHealthRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-const isOwnerUser = (user: any, env: Bindings): boolean =>
+const isAuthenticated = (user: any, env: Bindings): boolean =>
   !!env.AUTH_USERNAME && user?.id === env.AUTH_USERNAME;
 
 const EMPTY_POST_PLAN_HEALTH: PostPlanQueueHealth = {
@@ -69,9 +69,9 @@ const withSupport = <T>(
   ...(data ?? fallback),
 });
 
-ownerHealthRoutes.get("/owner/cron/health", auth, async (c) => {
+cronHealthRoutes.get("/api/cron/health", auth, async (c) => {
   const user = c.get("user") as any;
-  if (!isOwnerUser(user, c.env as Bindings)) {
+  if (!isAuthenticated(user, c.env as Bindings)) {
     return fail(c, "forbidden", 403);
   }
   const store = makeData(c.env as any, c);
@@ -100,4 +100,4 @@ ownerHealthRoutes.get("/owner/cron/health", auth, async (c) => {
   }
 });
 
-export default ownerHealthRoutes;
+export default cronHealthRoutes;

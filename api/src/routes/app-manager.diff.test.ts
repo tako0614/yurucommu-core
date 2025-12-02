@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import ownerAppRoutes from "./owner-app";
+import appManagerRoutes from "./app-manager";
 import { getDefaultDataFactory, setBackendDataFactory } from "../data";
 
 const authEnv = { AUTH_USERNAME: "admin", AUTH_PASSWORD: "secret" };
@@ -44,7 +44,7 @@ describe("/admin/app/revisions/diff", () => {
         }) as any,
     );
 
-    const res = await ownerAppRoutes.request(
+    const res = await appManagerRoutes.request(
       "/admin/app/revisions/diff",
       { method: "GET", headers: { Authorization: authHeader } },
       authEnv,
@@ -71,7 +71,7 @@ describe("/admin/app/revisions/diff", () => {
         }) as any,
     );
 
-    const res = await ownerAppRoutes.request(
+    const res = await appManagerRoutes.request(
       "/admin/app/revisions/diff?format=html",
       { method: "GET", headers: { Authorization: authHeader, Accept: "text/html" } },
       authEnv,
