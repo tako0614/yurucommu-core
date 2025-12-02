@@ -4,14 +4,65 @@ import appDebug from "./app-debug";
 import { getDefaultDataFactory, setBackendDataFactory } from "../data";
 import type { AppLogEntry } from "@takos/platform/app";
 
-const authEnv = { INSTANCE_OWNER_HANDLE: "owner" };
 const bearer = (token: string) => `Bearer ${token}`;
+
+const createMockWorkspaceStore = () => {
+  const workspaces = new Map<string, any>();
+  const files = new Map<string, any>();
+  return {
+    getWorkspace: async (id: string) => workspaces.get(id) ?? null,
+    listWorkspaces: async () => Array.from(workspaces.values()),
+    upsertWorkspace: async (workspace: any) => {
+      const record = {
+        id: workspace.id,
+        base_revision_id: workspace.base_revision_id ?? null,
+        status: workspace.status ?? "draft",
+        author_type: workspace.author_type ?? "human",
+        author_name: workspace.author_name ?? null,
+        created_at: workspace.created_at ?? new Date().toISOString(),
+        updated_at: workspace.updated_at ?? new Date().toISOString(),
+      };
+      workspaces.set(record.id, record);
+      return record;
+    },
+    updateWorkspaceStatus: async (id: string, status: string) => {
+      const existing = workspaces.get(id);
+      if (!existing) return null;
+      const next = { ...existing, status, updated_at: new Date().toISOString() };
+      workspaces.set(id, next);
+      return next;
+    },
+    saveWorkspaceFile: async (workspaceId: string, path: string, content: any, contentType?: string | null) => {
+      const bytes =
+        typeof content === "string"
+          ? new TextEncoder().encode(content)
+          : content instanceof Uint8Array
+            ? content
+            : new Uint8Array(content as ArrayBuffer);
+      const record = {
+        workspace_id: workspaceId,
+        path,
+        content: bytes,
+        content_type: contentType ?? null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      files.set(`${workspaceId}:${path}`, record);
+      return record;
+    },
+    getWorkspaceFile: async (workspaceId: string, path: string) =>
+      files.get(`${workspaceId}:${path}`) ?? null,
+    listWorkspaceFiles: async (workspaceId: string) =>
+      Array.from(files.values()).filter((file) => file.workspace_id === workspaceId),
+  };
+};
 
 describe("app debug routes", () => {
   const defaultFactory = getDefaultDataFactory();
   const sharedLogs: AppLogEntry[] = [];
   const secret = "jwt-secret";
   let lastLogQuery: any = null;
+  let authEnv: any;
 
   const dataFactory = () =>
     ({
@@ -31,6 +82,13 @@ describe("app debug routes", () => {
   beforeEach(() => {
     sharedLogs.length = 0;
     lastLogQuery = null;
+    authEnv = {
+      INSTANCE_OWNER_HANDLE: "owner",
+      DEV_DB: {},
+      DEV_MEDIA: {},
+      DEV_KV: {},
+      workspaceStore: createMockWorkspaceStore(),
+    };
     setBackendDataFactory(() => dataFactory());
   });
 

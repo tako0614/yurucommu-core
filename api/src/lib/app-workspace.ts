@@ -2,9 +2,9 @@ import type { AppManifestValidationIssue } from "@takos/platform/app";
 import { APP_MANIFEST_SCHEMA_VERSION, checkSemverCompatibility } from "@takos/platform/server";
 import type { AppWorkspaceStatus } from "./types";
 import {
-  createWorkspaceStore,
+  ensureDefaultWorkspace,
   loadWorkspaceManifest,
-  resolveWorkspaceStore,
+  resolveWorkspaceEnv,
   type WorkspaceStore,
 } from "./workspace-store";
 
@@ -64,12 +64,25 @@ const normalizeScriptRef = (manifest: Record<string, unknown>): string => {
 
 const buildDefaultLoader = (): NonNullable<WorkspaceLoader> => {
   return async (workspaceId: string, options?: WorkspaceLoaderOptions) => {
-    const store =
-      resolveWorkspaceStore({ env: options?.env as any, store: options?.store ?? null, mode: "dev" }) ??
-      (options?.env?.DB ? createWorkspaceStore(options.env.DB) : null);
+    const resolution = resolveWorkspaceEnv({
+      env: options?.env as any,
+      store: options?.store ?? null,
+      mode: "dev",
+      requireIsolation: true,
+    });
+
+    if (resolution.isolation?.required && !resolution.isolation.ok) {
+      return null;
+    }
+
+    const store = resolution.store;
 
     if (!store && !workspaceId) {
       return null;
+    }
+
+    if (store) {
+      await ensureDefaultWorkspace(store);
     }
 
     const workspace = store ? await store.getWorkspace(workspaceId) : null;
@@ -80,10 +93,9 @@ const buildDefaultLoader = (): NonNullable<WorkspaceLoader> => {
     const manifest =
       (await loadWorkspaceManifest(workspaceId, {
         mode: "dev",
-        env: options?.env as any,
+        env: resolution.env,
         store: store ?? undefined,
-      })) ??
-      null;
+      })) ?? null;
     if (!manifest) return null;
     const normalizedManifest: Record<string, unknown> = {
       routes: [],
