@@ -6,7 +6,7 @@ import type { AppWorkspaceRecord } from "../lib/types";
 
 const defaultFactory = getDefaultDataFactory();
 
-const owner = { id: "owner", handle: "owner", display_name: "Owner" };
+const testUser = { id: "testuser", handle: "testuser", display_name: "Test User" };
 const jwtSecret = "secret";
 
 const createDevDb = () =>
@@ -22,7 +22,6 @@ const createDevDb = () =>
   }) as any;
 
 const buildEnv = (overrides?: Record<string, unknown>) => ({
-  INSTANCE_OWNER_HANDLE: owner.id,
   TAKOS_CONTEXT: "dev",
   DEV_DB: createDevDb(),
   DEV_MEDIA: {},
@@ -32,7 +31,7 @@ const buildEnv = (overrides?: Record<string, unknown>) => ({
 
 const buildStore = () =>
   ({
-    getUser: vi.fn().mockResolvedValue(owner),
+    getUser: vi.fn().mockResolvedValue(testUser),
     getUserJwtSecret: vi.fn().mockResolvedValue(jwtSecret),
     setUserJwtSecret: vi.fn(),
     createSession: vi.fn(),
@@ -43,7 +42,7 @@ const buildStore = () =>
   }) as any;
 
 const authHeaders = async () => ({
-  Authorization: `Bearer ${await createJWT(owner.id, jwtSecret)}`,
+  Authorization: `Bearer ${await createJWT(testUser.id, jwtSecret)}`,
   "content-type": "application/json",
 });
 
@@ -52,7 +51,7 @@ const baseWorkspace: AppWorkspaceRecord = {
   base_revision_id: null,
   status: "draft",
   author_type: "human",
-  author_name: owner.display_name,
+  author_name: testUser.display_name,
   created_at: "2025-01-01T00:00:00.000Z",
   updated_at: "2025-01-01T00:00:00.000Z",
 };
@@ -76,7 +75,7 @@ describe("/-/app/workspaces", () => {
   const withStore = (overrides: Record<string, unknown>) =>
     Object.assign(buildStore(), overrides);
 
-  it("creates a draft workspace as the owner", async () => {
+  it("creates a draft workspace when authenticated", async () => {
     const createAppWorkspace = vi.fn(async (input: any) => ({
       ...baseWorkspace,
       id: input.id ?? "ws_new",

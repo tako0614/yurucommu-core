@@ -18,7 +18,7 @@ import type {
   RunAIActionInput,
   RunAIActionOutput,
 } from "@takos/platform/ai/agent-tools";
-import { requireOwner, checkDataPolicy } from "@takos/platform/ai/agent-tools";
+import { requireAuthenticated, checkDataPolicy } from "@takos/platform/ai/agent-tools";
 import type { AiRegistry } from "@takos/platform/ai/action-registry";
 import type { TakosConfig } from "@takos/platform/config/takos-config";
 
@@ -248,7 +248,7 @@ export function createAgentTools(options: {
       ctx: ToolContext,
       input: UpdateTakosConfigInput,
     ): Promise<UpdateTakosConfigOutput> {
-      requireOwner(ctx);
+      requireAuthenticated(ctx);
 
       const { path, value } = input;
 
@@ -292,7 +292,7 @@ export function createAgentTools(options: {
       ctx: ToolContext,
       input: ApplyCodePatchInput,
     ): Promise<ApplyCodePatchOutput> {
-      requireOwner(ctx);
+      requireAuthenticated(ctx);
 
       const workspaceId = input.workspaceId || "default";
       const { filePath, patch, description } = input;

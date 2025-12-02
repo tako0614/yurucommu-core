@@ -2,7 +2,7 @@
  * App Manifest Loader
  *
  * Fetches and manages the logical App Manifest from the backend
- * (PLAN.md 5.4.2: takos-app.json + app/**/*.json merge)
+ * (PLAN.md 5.4.2: takos-app.json + app/ directory JSON files merge)
  */
 
 export interface AppManifestRoute {

@@ -111,7 +111,7 @@ export default function AgentConfigAllowlistManager() {
           <Show when={sourceBadge(allowlist()?.source)}>
             {(label) => (
               <span class="px-2 py-1 text-xs rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300">
-                {label}
+                {label()}
               </span>
             )}
           </Show>

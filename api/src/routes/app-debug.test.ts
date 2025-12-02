@@ -83,7 +83,6 @@ describe("app debug routes", () => {
     sharedLogs.length = 0;
     lastLogQuery = null;
     authEnv = {
-      INSTANCE_OWNER_HANDLE: "owner",
       DEV_DB: {},
       DEV_MEDIA: {},
       DEV_KV: {},
@@ -131,14 +130,12 @@ describe("app debug routes", () => {
     expect(sharedLogs.some((log) => log.workspaceId === "ws_demo")).toBe(true);
   });
 
-  it("rejects non-owner callers", async () => {
-    const token = await createJWT("alice", secret, 3600);
+  it("rejects unauthenticated callers", async () => {
     const res = await appDebug.request(
       "/-/app/debug/run",
       {
         method: "POST",
         headers: {
-          Authorization: bearer(token),
           "content-type": "application/json",
         },
         body: JSON.stringify({
@@ -150,10 +147,7 @@ describe("app debug routes", () => {
       authEnv,
     );
 
-    expect(res.status).toBe(403);
-    const json: any = await res.json();
-    expect(json.ok).toBe(false);
-    expect(json.error).toBe("owner_required");
+    expect(res.status).toBe(401);
   });
 
   it("returns stored logs with filters applied", async () => {
