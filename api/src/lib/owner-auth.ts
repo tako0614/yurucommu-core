@@ -12,16 +12,16 @@ export function isValidHandle(handle: string): boolean {
 
 export function resolveOwnerHandle(env: Bindings): string {
   const preferred =
-    typeof env.INSTANCE_OWNER_HANDLE === "string"
-      ? normalizeHandle(env.INSTANCE_OWNER_HANDLE)
+    typeof (env as any).INSTANCE_OWNER_HANDLE === "string"
+      ? normalizeHandle((env as any).INSTANCE_OWNER_HANDLE)
       : "";
   if (preferred && isValidHandle(preferred)) {
     return preferred;
   }
 
   const legacy =
-    typeof env.AUTH_USERNAME === "string"
-      ? normalizeHandle(env.AUTH_USERNAME)
+    typeof (env as any).AUTH_USERNAME === "string"
+      ? normalizeHandle((env as any).AUTH_USERNAME)
       : "";
   if (legacy && isValidHandle(legacy)) {
     return legacy;

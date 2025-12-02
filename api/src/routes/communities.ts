@@ -180,7 +180,7 @@ communities.get("/communities", auth, async (c) => {
     // If query looks like a remote actor URI or acct, try to resolve a remote Group
     const resolvedRemotes: any[] = [];
     const instanceDomain = requireInstanceDomain(c.env);
-    const internalFetcher = makeInternalFetcher(c.env) ?? fetch;
+    const internalFetcher = fetch;
     const attemptRemoteGroup = async (query: string) => {
       let actorUri: string | null = null;
       const trimmed = query.trim();

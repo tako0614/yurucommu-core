@@ -27,7 +27,7 @@ import { assertConfigAiActionsAllowed } from "../lib/ai-action-allowlist";
 
 type AiCapability = "chat" | "completion" | "embedding";
 
-export type AdminAiActionDefinition = {
+export type OwnerAiActionDefinition = {
   id: string;
   label: string;
   description: string;
@@ -46,7 +46,7 @@ export type ProviderStatus = {
   capabilities: AiCapability[];
 };
 
-export type ActionStatus = AdminAiActionDefinition & {
+export type ActionStatus = OwnerAiActionDefinition & {
   enabled: boolean;
   eligible: boolean;
   active: boolean;
@@ -62,7 +62,7 @@ const PROVIDER_CAPABILITIES: Record<AiProviderType, AiCapability[]> = {
   "openai-compatible": ["chat", "completion"],
 };
 
-function toAdminPolicy(actionPolicy: PlatformAiActionDefinition["dataPolicy"]): TakosAiDataPolicy {
+function toOwnerPolicy(actionPolicy: PlatformAiActionDefinition["dataPolicy"]): TakosAiDataPolicy {
   return {
     send_public_posts: Boolean(actionPolicy?.sendPublicPosts),
     send_community_posts: Boolean(actionPolicy?.sendCommunityPosts),
@@ -72,27 +72,27 @@ function toAdminPolicy(actionPolicy: PlatformAiActionDefinition["dataPolicy"]): 
   };
 }
 
-function toAdminActionDefinition(
+function toOwnerActionDefinition(
   definition: PlatformAiActionDefinition,
-): AdminAiActionDefinition {
+): OwnerAiActionDefinition {
   return {
     id: definition.id,
     label: definition.label,
     description: definition.description,
     providerCapabilities: definition.providerCapabilities as AiCapability[],
-    dataPolicy: toAdminPolicy(definition.dataPolicy),
+    dataPolicy: toOwnerPolicy(definition.dataPolicy),
   };
 }
 
-export const AI_ACTIONS: AdminAiActionDefinition[] = getBuiltinActionDefinitions().map(
-  toAdminActionDefinition,
+export const AI_ACTIONS: OwnerAiActionDefinition[] = getBuiltinActionDefinitions().map(
+  toOwnerActionDefinition,
 );
 
 function normalizeConfig(config?: Partial<TakosAiConfig>): TakosAiConfig {
   return mergeTakosAiConfig(DEFAULT_TAKOS_AI_CONFIG, config ?? {});
 }
 
-function isAdminUser(c: any): boolean {
+function isOwnerUser(c: any): boolean {
   const user = c.get("user");
   const owner = typeof c.env.INSTANCE_OWNER_HANDLE === "string"
     ? c.env.INSTANCE_OWNER_HANDLE.trim()
@@ -143,7 +143,7 @@ function dataPolicyBlocks(
 }
 
 export function buildActionStatuses(
-  actions: AdminAiActionDefinition[],
+  actions: OwnerAiActionDefinition[],
   config: TakosAiConfig,
   providers: ProviderStatus[],
 ): ActionStatus[] {
@@ -218,16 +218,16 @@ const applyAgentConfigAllowlist = (config: TakosConfig, allowlist: string[]): Ta
   ai: mergeTakosAiConfig(config.ai ?? {}, { agent_config_allowlist: allowlist }),
 });
 
-const adminAi = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const ownerAi = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-adminAi.use("/admin/ai/*", auth, async (c, next) => {
-  if (!isAdminUser(c)) {
+ownerAi.use("/owner/ai/*", auth, async (c, next) => {
+  if (!isOwnerUser(c)) {
     return fail(c, "forbidden", 403);
   }
   await next();
 });
 
-adminAi.get("/admin/ai", async (c) => {
+ownerAi.get("/owner/ai", async (c) => {
   const store = makeData(c.env as any, c);
   const supportsAiConfig =
     typeof (store as any).getAiConfig === "function" &&
@@ -258,7 +258,7 @@ adminAi.get("/admin/ai", async (c) => {
   }
 });
 
-adminAi.get("/admin/ai/agent-config-allowlist", async (c) => {
+ownerAi.get("/owner/ai/agent-config-allowlist", async (c) => {
   const resolved = await resolveConfigAllowlist(c.env as Bindings);
   return ok(c, {
     allowlist: resolved.allowlist,
@@ -267,7 +267,7 @@ adminAi.get("/admin/ai/agent-config-allowlist", async (c) => {
   });
 });
 
-adminAi.post("/admin/ai/agent-config-allowlist", async (c) => {
+ownerAi.post("/owner/ai/agent-config-allowlist", async (c) => {
   const agentGuard = guardAgentRequest(c.req, { toolId: "tool.updateTakosConfig" });
   if (!agentGuard.ok) {
     return fail(c, agentGuard.error, agentGuard.status);
@@ -328,7 +328,7 @@ adminAi.post("/admin/ai/agent-config-allowlist", async (c) => {
   }
 });
 
-adminAi.post("/admin/ai/actions/:id/toggle", async (c) => {
+ownerAi.post("/owner/ai/actions/:id/toggle", async (c) => {
   const actionId = c.req.param("id");
   const body = (await c.req.json().catch(() => ({}))) as { enabled?: boolean };
   const enable = body.enabled !== false;
@@ -406,4 +406,4 @@ adminAi.post("/admin/ai/actions/:id/toggle", async (c) => {
   }
 });
 
-export default adminAi;
+export default ownerAi;

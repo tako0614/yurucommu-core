@@ -27,7 +27,7 @@ export type BlockedInstanceEntry = {
   env: boolean;
 };
 
-function isAdminUser(user: any, env: Bindings): boolean {
+function isOwnerUser(user: any, env: Bindings): boolean {
   return !!env.AUTH_USERNAME && user?.id === env.AUTH_USERNAME;
 }
 
@@ -35,15 +35,18 @@ export function normalizeBlockedInstance(input: string): string | null {
   if (!input || typeof input !== "string") return null;
   const trimmed = input.trim();
   if (!trimmed) return null;
+  // First try to parse as URL with scheme prepended to handle "domain:port" correctly
+  const withScheme = trimmed.includes("://") ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(withScheme);
+    const hostname = parsed.hostname.toLowerCase().replace(/^\*\./, "");
+    if (hostname) return hostname;
+  } catch {
+    // Continue to fallback handling
+  }
+  // Fallback: use extractHostname for other cases (e.g., full ActivityPub URIs)
   const hostname = extractHostname(trimmed);
   let normalized = (hostname ?? trimmed).replace(/^\*\./, "").trim().toLowerCase();
-  if (!normalized) return null;
-  try {
-    const parsed = new URL(normalized.includes("://") ? normalized : `https://${normalized}`);
-    normalized = parsed.hostname.toLowerCase();
-  } catch {
-    // keep normalized best-effort for bare domains
-  }
   if (!normalized) return null;
   return normalized;
 }
@@ -133,22 +136,22 @@ function buildBlockedPayload(
   };
 }
 
-const activityPubAdminRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const activityPubOwnerRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-activityPubAdminRoutes.use("/admin/activitypub/*", auth, async (c, next) => {
+activityPubOwnerRoutes.use("/owner/activitypub/*", auth, async (c, next) => {
   const user = c.get("user") as any;
-  if (!isAdminUser(user, c.env as Bindings)) {
+  if (!isOwnerUser(user, c.env as Bindings)) {
     return fail(c, "forbidden", 403);
   }
   await next();
 });
 
-activityPubAdminRoutes.get("/admin/activitypub/blocked-instances", async (c) => {
+activityPubOwnerRoutes.get("/owner/activitypub/blocked-instances", async (c) => {
   const { source, configBlocked } = await resolveConfig(c.env as Bindings);
   return ok(c, buildBlockedPayload(c.env as Bindings, configBlocked, source));
 });
 
-activityPubAdminRoutes.post("/admin/activitypub/blocked-instances", async (c) => {
+activityPubOwnerRoutes.post("/owner/activitypub/blocked-instances", async (c) => {
   const agentGuard = guardAgentRequest(c.req, { toolId: "tool.updateTakosConfig" });
   if (!agentGuard.ok) {
     return fail(c, agentGuard.error, agentGuard.status);
@@ -206,7 +209,7 @@ activityPubAdminRoutes.post("/admin/activitypub/blocked-instances", async (c) =>
   });
 });
 
-activityPubAdminRoutes.delete("/admin/activitypub/blocked-instances/:domain", async (c) => {
+activityPubOwnerRoutes.delete("/owner/activitypub/blocked-instances/:domain", async (c) => {
   const agentGuard = guardAgentRequest(c.req, { toolId: "tool.updateTakosConfig" });
   if (!agentGuard.ok) {
     return fail(c, agentGuard.error, agentGuard.status);
@@ -260,4 +263,4 @@ activityPubAdminRoutes.delete("/admin/activitypub/blocked-instances/:domain", as
   });
 });
 
-export default activityPubAdminRoutes;
+export default activityPubOwnerRoutes;

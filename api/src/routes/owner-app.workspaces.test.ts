@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import adminAppRoutes from "./admin-app";
+import ownerAppRoutes from "./owner-app";
 import { createJWT } from "@takos/platform/server";
 import { getDefaultDataFactory, setBackendDataFactory } from "../data";
 import type { AppWorkspaceRecord } from "../lib/types";
@@ -88,7 +88,7 @@ describe("/-/app/workspaces", () => {
 
     setBackendDataFactory(() => withStore({ createAppWorkspace }));
 
-    const res = await adminAppRoutes.request(
+    const res = await ownerAppRoutes.request(
       "/-/app/workspaces",
       {
         method: "POST",
@@ -115,7 +115,7 @@ describe("/-/app/workspaces", () => {
     const listAppWorkspaces = vi.fn(async () => [baseWorkspace]);
     setBackendDataFactory(() => withStore({ listAppWorkspaces }));
 
-    const res = await adminAppRoutes.request(
+    const res = await ownerAppRoutes.request(
       "/-/app/workspaces?limit=200",
       {
         method: "GET",
@@ -151,7 +151,7 @@ describe("/-/app/workspaces", () => {
       },
     };
 
-    const res = await adminAppRoutes.request(
+    const res = await ownerAppRoutes.request(
       "/-/app/workspaces/ws_123/status",
       {
         method: "POST",
@@ -187,7 +187,7 @@ describe("/-/app/workspaces", () => {
       },
     };
 
-    const res = await adminAppRoutes.request(
+    const res = await ownerAppRoutes.request(
       "/-/app/workspaces/ws_123/status",
       {
         method: "POST",
@@ -216,7 +216,7 @@ describe("/-/app/workspaces", () => {
       }),
     );
 
-    const res = await adminAppRoutes.request(
+    const res = await ownerAppRoutes.request(
       "/-/app/workspaces/ws_123/status",
       {
         method: "POST",
@@ -233,7 +233,7 @@ describe("/-/app/workspaces", () => {
   it("forbids agent calls", async () => {
     setBackendDataFactory(() => withStore({}));
 
-    const res = await adminAppRoutes.request(
+    const res = await ownerAppRoutes.request(
       "/-/app/workspaces",
       {
         method: "GET",
@@ -272,7 +272,7 @@ describe("/-/app/workspaces", () => {
 
     setBackendDataFactory(() => withStore({}));
 
-    const saveRes = await adminAppRoutes.request(
+    const saveRes = await ownerAppRoutes.request(
       `/-/app/workspaces/${baseWorkspace.id}/files`,
       {
         method: "POST",
@@ -287,7 +287,7 @@ describe("/-/app/workspaces", () => {
     expect(saved.data?.file?.path).toBe("takos-app.json");
     expect(files["takos-app.json"]).toBeDefined();
 
-    const listRes = await adminAppRoutes.request(
+    const listRes = await ownerAppRoutes.request(
       `/-/app/workspaces/${baseWorkspace.id}/files`,
       {
         method: "GET",

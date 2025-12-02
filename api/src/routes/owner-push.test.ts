@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import adminPush from "./admin-push";
+import ownerPush from "./owner-push";
 
 const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElz2RiMa/yrG5zE4iDeK+TW1sHmHd
@@ -19,7 +19,7 @@ const request = (
   envOverrides?: Record<string, any>,
   headers?: Record<string, string>,
 ) =>
-  adminPush.request(
+  ownerPush.request(
     "/admin/push/verify",
     {
       method: "POST",

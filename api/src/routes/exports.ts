@@ -995,6 +995,5 @@ export {
   computeRetryDelayMs,
   normalizeAttempts,
   shouldBackoff,
-  processExportQueue,
 };
 export default exportsRoute;

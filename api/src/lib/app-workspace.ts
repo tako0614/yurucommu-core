@@ -127,6 +127,7 @@ export async function loadWorkspaceSnapshot(
   workspaceId: string,
   options?: WorkspaceLoaderOptions,
 ): Promise<WorkspaceSnapshot | null> {
+  if (!workspaceLoader) return null;
   const snapshot = await workspaceLoader(workspaceId, options);
   return snapshot ?? null;
 }

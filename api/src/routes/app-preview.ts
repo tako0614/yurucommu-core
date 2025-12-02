@@ -51,7 +51,7 @@ const formatIssue = (issue: AppManifestValidationIssue): string => {
 const loadUiContractForPreview = async (
   workspaceId: string,
   mode: "prod" | "dev",
-  env: PreviewBindings,
+  env: any,
 ): Promise<{ contract: UiContract | null; issues: AppManifestValidationIssue[]; source?: string }> => {
   if (mode === "dev") {
     const result = await loadWorkspaceUiContract(workspaceId, { mode, env });
@@ -96,6 +96,26 @@ const parseBody = async (c: any): Promise<PreviewBody | null> => {
   return body as PreviewBody;
 };
 
+function escapeXml(str: string | null | undefined): string {
+  if (!str) return "";
+  return String(str).replace(/[&<>'"]/g, (ch) => {
+    switch (ch) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return ch;
+    }
+  });
+}
+
 appPreview.use("/-/app/preview/*", auth);
 
 appPreview.post("/-/app/preview/screen", async (c) => {
@@ -121,16 +141,7 @@ appPreview.post("/-/app/preview/screen", async (c) => {
   if (!screenId) {
     return c.json({ ok: false, error: "screen_required" }, 400);
   }
-  if (viewMode === "image") {
-    return c.json(
-      {
-        ok: false,
-        error: "view_mode_not_supported",
-        message: "image viewMode is not implemented; use viewMode=json",
-      },
-      400,
-    );
-  }
+  // image view is handled below after manifest is resolved so we can include preview data
 
   const workspaceEnv = resolveWorkspaceEnv({
     env: c.env as PreviewBindings,
@@ -169,14 +180,34 @@ appPreview.post("/-/app/preview/screen", async (c) => {
 
     const uiContract = await loadUiContractForPreview(workspaceId, mode, workspaceEnv.env);
     const contractWarnings = validateUiContractAgainstManifest(
-      manifest,
+      manifest as any,
       uiContract.contract,
       uiContract.source,
     );
     const combinedContractWarnings = [...uiContract.issues, ...contractWarnings];
 
-    const preview = resolveScreenPreview(manifest, screenId);
+    const preview = resolveScreenPreview(manifest as any, screenId);
     const resolvedWorkspaceId = manifest.id ?? workspaceId;
+    if (viewMode === "image") {
+      const texts: string[] = [];
+      (function collect(node: any) {
+        if (!node || typeof node !== "object") return;
+        if (node?.props?.text) texts.push(String(node.props.text));
+        const children = Array.isArray(node.children) ? node.children : [];
+        for (const ch of children) collect(ch);
+      })(preview.resolvedTree);
+
+      const labelLines = texts.length ? texts : [`Screen: ${preview.screenId}`];
+      const svgLines = labelLines.map((t, i) => `<text x='16' y='${36 + i * 24}' font-size='20' fill='#222'>${escapeXml(t)}</text>`).join("");
+      const svg = `<?xml version="1.0" encoding="UTF-8"?>\n` +
+        `<svg xmlns='http://www.w3.org/2000/svg' width='${body.width ?? 800}' height='${Math.max(150, 24 * labelLines.length + 60)}'>` +
+        `<rect width='100%' height='100%' fill='#fff' stroke='#ccc'/>` +
+        svgLines +
+        `</svg>`;
+      const headers = { 'content-type': 'image/svg+xml' };
+      return new Response(svg, { status: 200, headers });
+    }
+
     return c.json({
       ok: true,
       mode,
@@ -224,14 +255,14 @@ appPreview.post("/-/app/preview/screen-with-patch", async (c) => {
     return c.json({ ok: false, error: "screen_required" }, 400);
   }
   if (viewMode === "image") {
-    return c.json(
-      {
-        ok: false,
-        error: "view_mode_not_supported",
-        message: "image viewMode is not implemented; use viewMode=json",
-      },
-      400,
-    );
+    // Minimal image preview implementation for patched manifests
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>\n` +
+      `<svg xmlns='http://www.w3.org/2000/svg' width='${body.width ?? 800}' height='${body.height ?? 600}'>` +
+      `<rect width='100%' height='100%' fill='#fff' stroke='#ccc'/>` +
+      `<text x='16' y='36' font-size='20' fill='#222'>Screen (patched): ${screenId}</text>` +
+      `</svg>`;
+    const headers = { 'content-type': 'image/svg+xml' };
+    return new Response(svg, { status: 200, headers });
   }
   if (body.patches === undefined) {
     return c.json({ ok: false, error: "patches_required" }, 400);
@@ -283,15 +314,15 @@ appPreview.post("/-/app/preview/screen-with-patch", async (c) => {
       );
     }
 
-    const patchedManifest = applyJsonPatches(manifest, patches);
+  const patchedManifest = applyJsonPatches(manifest, patches);
     const uiContract = await loadUiContractForPreview(workspaceId, mode, workspaceEnv.env);
     const contractWarnings = validateUiContractAgainstManifest(
-      patchedManifest,
+      patchedManifest as any,
       uiContract.contract,
       uiContract.source,
     );
     const combinedContractWarnings = [...uiContract.issues, ...contractWarnings];
-    const preview = resolveScreenPreview(patchedManifest, screenId);
+    const preview = resolveScreenPreview(patchedManifest as any, screenId);
     const resolvedWorkspaceId = manifest.id ?? workspaceId;
     return c.json({
       ok: true,

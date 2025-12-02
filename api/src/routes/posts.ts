@@ -575,7 +575,7 @@ async function createPostWithActivity(
   });
 
   await enqueueDeliveriesToFollowers(store, user.id, post.ap_activity_id!, {
-    env: c.env,
+    env,
   });
 }
 

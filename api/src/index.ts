@@ -71,16 +71,16 @@ import realtimeRoutes from "./routes/realtime";
 import listsRoutes from "./routes/lists";
 import postPlansRoutes, { processPostPlanQueue } from "./routes/post-plans";
 import exportsRoutes, { processExportQueue } from "./routes/exports";
-import adminPushRoutes from "./routes/admin-push";
-import adminAiRoutes from "./routes/admin-ai";
+import ownerPushRoutes from "./routes/owner-push";
+import ownerAiRoutes from "./routes/owner-ai";
 import aiChatRoutes from "./routes/ai-chat";
 import aiRoutes from "./routes/ai";
-import activityPubAdminRoutes from "./routes/activitypub-admin";
+import activityPubOwnerRoutes from "./routes/activitypub-owner";
 import configRoutes from "./routes/config";
 import appPreviewRoutes from "./routes/app-preview";
 import appDebugRoutes from "./routes/app-debug";
-import adminAppRoutes from "./routes/admin-app";
-import adminHealthRoutes from "./routes/admin-health";
+import ownerAppRoutes from "./routes/owner-app";
+import ownerHealthRoutes from "./routes/owner-health";
 import activityPubMetadataRoutes from "./routes/activitypub-metadata.js";
 import { getTakosConfig } from "./lib/runtime-config";
 import {
@@ -350,14 +350,14 @@ app.route("/", moderationRoutes);
 app.route("/", listsRoutes);
 app.route("/", postPlansRoutes);
 app.route("/", exportsRoutes);
-app.route("/", adminPushRoutes);
-app.route("/", adminAiRoutes);
+app.route("/", ownerPushRoutes);
+app.route("/", ownerAiRoutes);
 app.route("/", aiChatRoutes);
 app.route("/", aiRoutes);
-app.route("/", activityPubAdminRoutes);
+app.route("/", activityPubOwnerRoutes);
 app.route("/", configRoutes);
-app.route("/", adminHealthRoutes);
-app.route("/", adminAppRoutes);
+app.route("/", ownerHealthRoutes);
+app.route("/", ownerAppRoutes);
 app.route("/", realtimeRoutes);
 app.route("/", appPreviewRoutes);
 app.route("/", appDebugRoutes);
@@ -962,9 +962,9 @@ app.post("/auth/active-user", auth, async (c) => {
       return fail(c, "forbidden", 403);
     }
 
-    setActiveUserCookie(c, selection.activeUserId, ownerSession.ownerHandle);
+    setActiveUserCookie(c, selection.activeUserId!, ownerSession.ownerHandle);
     c.set("user", selection.user ?? user);
-    c.set("activeUserId", selection.activeUserId);
+    (c as any).set("activeUserId", selection.activeUserId);
     return ok(c, { active_user_id: selection.activeUserId, user: sanitizeUser(selection.user ?? user) });
   } finally {
     await releaseStore(store);
@@ -1028,12 +1028,12 @@ app.post("/auth/owner/actors", auth, async (c) => {
     if (activate) {
       setActiveUserCookie(c, user.id, ownerSession.ownerHandle);
       c.set("user", user);
-      c.set("activeUserId", user.id);
+      (c as any).set("activeUserId", user.id);
     }
 
     const response: Record<string, unknown> = {
       user: sanitizeUser(user),
-      active_user_id: activate ? user.id : c.get("activeUserId") ?? null,
+      active_user_id: activate ? user.id : (c as any).get("activeUserId") ?? null,
       created,
     };
 
@@ -1050,7 +1050,7 @@ app.post("/auth/owner/actors", auth, async (c) => {
 
 app.delete("/auth/active-user", auth, async (c) => {
   clearActiveUserCookie(c);
-  const sessionUser = (c.get("sessionUser") as any) || (c.get("user") as any);
+  const sessionUser = ((c as any).get("sessionUser")) || (c.get("user") as any);
   const fallbackUser = sessionUser ? sanitizeUser(sessionUser) : null;
   return ok(c, { active_user_id: null, user: fallbackUser });
 });
@@ -1176,7 +1176,7 @@ async function buildStoryPayload(
   store: ReturnType<typeof makeData>,
   user: any,
   rawBody: any,
-  options: { communityId?: string | null; allowBodyCommunityOverride?: boolean } = {},
+  options: { communityId?: string | null; allowBodyCommunityOverride?: boolean; env?: any } = {},
 ): Promise<StoryInput> {
   const body = rawBody ?? {};
   let targetCommunityId = options.communityId ?? null;
@@ -1622,7 +1622,8 @@ app.post("/posts/:id/comments", auth, async (c) => {
   return ok(c, comment, 201);
 });
 
-function cleanupExpiredStories() {/* read-time filter only */}
+// Local no-op function for read-time story filtering (actual cleanup happens via cron)
+function localStoryFilterCleanup() {/* read-time filter only */}
 
 async function requireRole(
   store: ReturnType<typeof makeData>,
@@ -1683,7 +1684,7 @@ app.post("/stories", auth, async (c) => {
 app.get("/stories", auth, async (c) => {
   const store = makeData(c.env, c);
   const user = c.get("user") as any;
-  cleanupExpiredStories();
+  localStoryFilterCleanup();
   let list: any[] = await store.listGlobalStoriesForUser(user.id);
   const now = Date.now();
   list = list.filter((s) => Date.parse((s as any).expires_at) > now);
@@ -1700,7 +1701,7 @@ app.get("/communities/:id/stories", auth, async (c) => {
   if (!(await requireMember(store, community_id, user.id, c.env))) {
     return fail(c, "forbidden", 403);
   }
-  cleanupExpiredStories();
+  localStoryFilterCleanup();
   let list: any[] = await store.listStoriesByCommunity(community_id);
   const now = Date.now();
   list = list.filter((s) => Date.parse((s as any).expires_at) > now);
