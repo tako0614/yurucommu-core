@@ -424,6 +424,9 @@ export function resolveWorkspaceEnv(
 ): WorkspaceResolution {
   const mode: PreviewMode = options?.mode === "prod" ? "prod" : "dev";
   const env: WorkspaceEnv = { ...(options?.env ?? {}) };
+  if (mode === "dev") {
+    (env as any).TAKOS_CONTEXT = "dev";
+  }
   const storeProvided = Boolean(options?.store || (env as any).workspaceStore);
   const shouldRequireIsolation = mode === "dev" && (options?.requireIsolation ?? !storeProvided);
 

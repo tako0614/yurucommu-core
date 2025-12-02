@@ -54,7 +54,25 @@ const testManifest = {
 
 const ownerHandle = "owner";
 const secret = "jwt-secret";
-const authEnv = { INSTANCE_OWNER_HANDLE: ownerHandle };
+const createDevDb = () =>
+  ({
+    prepare: () => ({
+      bind: () => ({
+        all: async () => ({ results: [] }),
+        run: async () => ({}),
+      }),
+      all: async () => ({ results: [] }),
+      run: async () => ({}),
+    }),
+  }) as any;
+
+const authEnv = {
+  INSTANCE_OWNER_HANDLE: ownerHandle,
+  TAKOS_CONTEXT: "dev",
+  DEV_DB: createDevDb(),
+  DEV_MEDIA: {},
+  DEV_KV: {},
+};
 const bearer = (token: string) => `Bearer ${token}`;
 
 const createWorkspaceEnv = (manifest = testManifest) => ({
@@ -130,6 +148,22 @@ afterEach(() => {
 });
 
 describe("/-/app/preview/screen", () => {
+  it("fails when dev isolation bindings are missing", async () => {
+    const res = await authedRequest(
+      "/-/app/preview/screen",
+      {
+        workspaceId: "ws_missing",
+        screenId: "screen.home",
+        viewMode: "json",
+      },
+      { INSTANCE_OWNER_HANDLE: ownerHandle, TAKOS_CONTEXT: "dev" },
+    );
+
+    expect(res.status).toBe(503);
+    const json: any = await res.json();
+    expect(json.error).toBe("dev_data_isolation_failed");
+  });
+
   it("returns a resolved tree for a workspace manifest", async () => {
     const res = await authedRequest("/-/app/preview/screen", {
       workspaceId: "ws_test",

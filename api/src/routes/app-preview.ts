@@ -132,9 +132,32 @@ appPreview.post("/-/app/preview/screen", async (c) => {
     );
   }
 
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env as PreviewBindings,
+    mode,
+    requireIsolation: mode === "dev",
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return c.json(
+      {
+        ok: false,
+        error: "dev_data_isolation_failed",
+        details: workspaceEnv.isolation.errors,
+      },
+      503,
+    );
+  }
+  if (mode === "dev" && !workspaceEnv.store) {
+    return c.json({ ok: false, error: "workspace_store_unavailable" }, 503);
+  }
+
   try {
+    if (mode === "dev") {
+      await ensureDefaultWorkspace(workspaceEnv.store);
+    }
     const manifest = await loadWorkspaceManifest(workspaceId, {
-      env: c.env as PreviewBindings,
+      env: workspaceEnv.env,
+      store: workspaceEnv.store,
       mode,
     });
     if (!manifest) {
@@ -144,7 +167,7 @@ appPreview.post("/-/app/preview/screen", async (c) => {
       );
     }
 
-    const uiContract = await loadUiContractForPreview(workspaceId, mode, c.env as PreviewBindings);
+    const uiContract = await loadUiContractForPreview(workspaceId, mode, workspaceEnv.env);
     const contractWarnings = validateUiContractAgainstManifest(
       manifest,
       uiContract.contract,
@@ -225,9 +248,32 @@ appPreview.post("/-/app/preview/screen-with-patch", async (c) => {
     return c.json({ ok: false, error: "invalid_request" }, 400);
   }
 
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env as PreviewBindings,
+    mode,
+    requireIsolation: mode === "dev",
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return c.json(
+      {
+        ok: false,
+        error: "dev_data_isolation_failed",
+        details: workspaceEnv.isolation.errors,
+      },
+      503,
+    );
+  }
+  if (mode === "dev" && !workspaceEnv.store) {
+    return c.json({ ok: false, error: "workspace_store_unavailable" }, 503);
+  }
+
   try {
+    if (mode === "dev") {
+      await ensureDefaultWorkspace(workspaceEnv.store);
+    }
     const manifest = await loadWorkspaceManifest(workspaceId, {
-      env: c.env as PreviewBindings,
+      env: workspaceEnv.env,
+      store: workspaceEnv.store,
       mode,
     });
     if (!manifest) {
@@ -238,7 +284,7 @@ appPreview.post("/-/app/preview/screen-with-patch", async (c) => {
     }
 
     const patchedManifest = applyJsonPatches(manifest, patches);
-    const uiContract = await loadUiContractForPreview(workspaceId, mode, c.env as PreviewBindings);
+    const uiContract = await loadUiContractForPreview(workspaceId, mode, workspaceEnv.env);
     const contractWarnings = validateUiContractAgainstManifest(
       patchedManifest,
       uiContract.contract,

@@ -17,6 +17,7 @@ import { auth } from "../middleware/auth";
 import { makeData } from "../data";
 import type { DatabaseAPI, ListAppLogsOptions } from "../lib/types";
 import { isOwnerUser, resolveOwnerHandle } from "../lib/owner-auth";
+import { ensureDefaultWorkspace, resolveWorkspaceEnv } from "../lib/workspace-store";
 
 type DebugMode = "dev" | "prod-preview";
 
@@ -206,20 +207,6 @@ function parseLogQuery(c: any): ListAppLogsOptions {
   };
 }
 
-const buildRunEnv = (env: Bindings, mode: AppRuntimeMode): Bindings => {
-  if (mode !== "dev") return env;
-  const next: any = { ...(env as any) };
-  next.TAKOS_CONTEXT = "dev";
-  next.APP_CONTEXT = "dev";
-  next.APP_MODE = "dev";
-  next.EXECUTION_CONTEXT = "dev";
-  next.ACTIVITYPUB_ENABLED = "false";
-  if (env.DEV_DB) next.DB = env.DEV_DB;
-  if (env.DEV_MEDIA) next.MEDIA = env.DEV_MEDIA;
-  if ((env as any).DEV_KV) next.KV = (env as any).DEV_KV;
-  return next;
-};
-
 debugApp.post("/-/app/debug/run", auth, async (c) => {
   const payload = (await c.req.json().catch(() => ({}))) as RunRequestBody;
   const mode = normalizeMode(payload.mode);
@@ -250,9 +237,41 @@ debugApp.post("/-/app/debug/run", auth, async (c) => {
     runId,
     handler: handlerName,
   };
-  const pushLog = (entry: PartialLogEntry) => logs.push(applyLogContext(entry, logContext));
+  const pushLog = (entry: PartialLogEntry) => {
+    logs.push(applyLogContext(entry, logContext));
+  };
   const restoreConsole = captureConsole(pushLog);
-  const runEnv = buildRunEnv(c.env as Bindings, runtimeMode);
+
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env as Bindings,
+    mode: runtimeMode === "dev" ? "dev" : "prod",
+    requireIsolation: runtimeMode === "dev",
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return c.json(
+      { ok: false, error: "dev_data_isolation_failed", details: workspaceEnv.isolation.errors },
+      503,
+    );
+  }
+  if (runtimeMode === "dev" && !workspaceEnv.store) {
+    return c.json({ ok: false, error: "workspace_store_unavailable" }, 503);
+  }
+
+  const runEnv: Bindings = {
+    ...(workspaceEnv.env as any),
+    ...(runtimeMode === "dev"
+      ? {
+          TAKOS_CONTEXT: "dev",
+          APP_CONTEXT: "dev",
+          APP_MODE: "dev",
+          EXECUTION_CONTEXT: "dev",
+          ACTIVITYPUB_ENABLED: "false",
+        }
+      : {}),
+  };
+  if (runtimeMode === "dev") {
+    await ensureDefaultWorkspace(workspaceEnv.store);
+  }
 
   let store: DatabaseAPI | null = null;
   try {
@@ -282,9 +301,8 @@ debugApp.post("/-/app/debug/run", auth, async (c) => {
       mode: runtimeMode,
       workspaceId: runtimeMode === "dev" ? workspaceId : undefined,
       logSink: (entry) => pushLog(entry),
-      resolveDb: () => (runtimeMode === "dev" ? (runEnv as any).DEV_DB ?? (runEnv as any).DB : (runEnv as any).DB),
-      resolveStorage: () =>
-        runtimeMode === "dev" ? (runEnv as any).DEV_MEDIA ?? (runEnv as any).MEDIA : (runEnv as any).MEDIA,
+      resolveDb: () => (runEnv as any).DB,
+      resolveStorage: () => (runEnv as any).MEDIA,
     });
 
     const started = performance.now();
@@ -343,9 +361,30 @@ debugApp.get("/-/app/debug/logs", auth, async (c) => {
     return c.json({ ok: false, error: "owner_required" }, 403);
   }
   const options = parseLogQuery(c);
-  const envForLogs: Bindings = options.mode
-    ? buildRunEnv(c.env as Bindings, options.mode)
-    : (c.env as Bindings);
+  const targetMode: AppRuntimeMode = options.mode ?? "dev";
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env as Bindings,
+    mode: targetMode === "dev" ? "dev" : "prod",
+    requireIsolation: targetMode === "dev",
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return c.json(
+      { ok: false, error: "dev_data_isolation_failed", details: workspaceEnv.isolation.errors },
+      503,
+    );
+  }
+  const envForLogs: Bindings = {
+    ...(workspaceEnv.env as any),
+    ...(targetMode === "dev"
+      ? {
+          TAKOS_CONTEXT: "dev",
+          APP_CONTEXT: "dev",
+          APP_MODE: "dev",
+          EXECUTION_CONTEXT: "dev",
+          ACTIVITYPUB_ENABLED: "false",
+        }
+      : {}),
+  };
   const store = makeData(envForLogs as any, c);
   try {
     if (!store.listAppLogEntries) {

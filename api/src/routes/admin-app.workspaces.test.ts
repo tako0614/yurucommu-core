@@ -9,8 +9,24 @@ const defaultFactory = getDefaultDataFactory();
 const owner = { id: "owner", handle: "owner", display_name: "Owner" };
 const jwtSecret = "secret";
 
+const createDevDb = () =>
+  ({
+    prepare: () => ({
+      bind: () => ({
+        all: async () => ({ results: [] }),
+        run: async () => ({}),
+      }),
+      all: async () => ({ results: [] }),
+      run: async () => ({}),
+    }),
+  }) as any;
+
 const buildEnv = (overrides?: Record<string, unknown>) => ({
   INSTANCE_OWNER_HANDLE: owner.id,
+  TAKOS_CONTEXT: "dev",
+  DEV_DB: createDevDb(),
+  DEV_MEDIA: {},
+  DEV_KV: {},
   ...overrides,
 });
 
