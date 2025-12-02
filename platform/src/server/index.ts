@@ -29,6 +29,7 @@ export * from "../utils/response-helpers";
 export * from "../ai/agent-policy";
 export * from "../ai/action-registry.js";
 export * from "../ai/provider-registry";
+export * from "../ai/agent-tools";
 export * from "../activitypub/activitypub";
 export * from "../activitypub/activitypub-routes";
 export * from "../activitypub/activitypub-story";

@@ -1069,6 +1069,94 @@ app.delete("/auth/active-user", auth, async (c) => {
   return ok(c, { active_user_id: null, user: fallbackUser });
 });
 
+app.get("/auth/owner/actors", auth, async (c) => {
+  const ownerSession = requireOwnerSession(c);
+  if (!ownerSession) {
+    return fail(c, "owner session required", 403);
+  }
+
+  const store = makeData(c.env as any, c);
+  try {
+    if (typeof store.listAccountsByUser !== "function") {
+      return fail(c, "multi-actor feature not supported", 501);
+    }
+
+    const accounts = await store.listAccountsByUser(ownerSession.ownerUser);
+    const actors = await Promise.all(
+      accounts.map(async (acc: any) => {
+        const user = await store.getUser(acc.actor_id).catch(() => null);
+        return user ? sanitizeUser(user) : null;
+      })
+    );
+
+    const filteredActors = actors.filter((a) => a !== null);
+    const activeUserId = (c as any).get("activeUserId") ?? null;
+
+    return ok(c, {
+      actors: filteredActors,
+      active_user_id: activeUserId,
+    });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+app.delete("/auth/owner/actors/:actorId", auth, async (c) => {
+  const ownerSession = requireOwnerSession(c);
+  if (!ownerSession) {
+    return fail(c, "owner session required", 403);
+  }
+
+  const store = makeData(c.env as any, c);
+  try {
+    const actorId = c.req.param("actorId");
+    const normalizedActorId = normalizeHandle(actorId);
+
+    if (!normalizedActorId) {
+      return fail(c, "invalid actor_id", 400);
+    }
+
+    // Cannot delete the owner actor itself
+    if (normalizedActorId === ownerSession.ownerHandle) {
+      return fail(c, "cannot delete owner actor", 403);
+    }
+
+    // Verify this actor belongs to the owner
+    const ownsActor = buildOwnerActorValidator(
+      typeof store.listAccountsByUser === "function"
+        ? (userId: string) => store.listAccountsByUser(userId)
+        : undefined,
+    );
+
+    const isOwned = await ownsActor(ownerSession.ownerUser, normalizedActorId);
+    if (!isOwned) {
+      return fail(c, "actor not found or not owned by this user", 404);
+    }
+
+    // TODO: Implement user deletion in DatabaseAPI
+    // For now, return not implemented
+    return fail(c, "actor deletion not yet implemented", 501);
+
+    // Future implementation:
+    // const user = await store.getUser(normalizedActorId);
+    // if (!user) {
+    //   return fail(c, "actor not found", 404);
+    // }
+    //
+    // await store.deleteUser(normalizedActorId);
+    //
+    // // If this was the active actor, clear it
+    // const currentActiveUserId = (c as any).get("activeUserId");
+    // if (currentActiveUserId === normalizedActorId) {
+    //   clearActiveUserCookie(c);
+    // }
+    //
+    // return ok(c, { deleted: true, actor_id: normalizedActorId });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
 app.post("/auth/logout", async (c) => {
   // JWT logout: client will clear localStorage, no server-side action needed
   return ok(c, { success: true });
