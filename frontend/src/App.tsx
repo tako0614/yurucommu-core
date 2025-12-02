@@ -26,6 +26,14 @@ import Invitations from "./pages/Invitations";
 import FriendRequests from "./pages/FriendRequests";
 import { ToastProvider } from "./components/Toast";
 import { ShellContextProvider } from "./lib/shell-context";
+import DynamicScreen from "./pages/DynamicScreen";
+
+/**
+ * Feature flag for App Manifest driven UI
+ * Set to true to enable dynamic screen rendering from App Manifest
+ * (PLAN.md 5.4: App Manifest 駆動 UI)
+ */
+const USE_DYNAMIC_SCREENS = false;
 
 const Login = resolveComponent("Login", DefaultLogin);
 const Profile = resolveComponent("Profile", DefaultProfile);
@@ -266,6 +274,13 @@ function CatchAllRoute() {
   if (location.pathname.startsWith("/@")) {
     console.log("[CatchAllRoute] Rendering UserProfile");
     return <UserProfile />;
+  }
+
+  // When USE_DYNAMIC_SCREENS is enabled, try to render from App Manifest
+  // This allows App Manifest defined screens to be rendered for unknown routes
+  if (USE_DYNAMIC_SCREENS) {
+    console.log("[CatchAllRoute] Trying DynamicScreen for:", location.pathname);
+    return <DynamicScreen />;
   }
 
   // Otherwise show 404

@@ -52,7 +52,7 @@ const testManifest = {
   },
 };
 
-const ownerHandle = "owner";
+const testUserHandle = "testuser";
 const secret = "jwt-secret";
 const createDevDb = () =>
   ({
@@ -67,7 +67,6 @@ const createDevDb = () =>
   }) as any;
 
 const authEnv = {
-  INSTANCE_OWNER_HANDLE: ownerHandle,
   TAKOS_CONTEXT: "dev",
   DEV_DB: createDevDb(),
   DEV_MEDIA: {},
@@ -128,22 +127,22 @@ const createStore = (overrides: Record<string, any> = {}) =>
   }) as any;
 
 const defaultFactory = getDefaultDataFactory();
-let ownerToken = "";
+let authToken = "";
 
 const authedRequest = (
   path: string,
   body: Record<string, any>,
   env?: Record<string, any>,
   headers?: Record<string, string>,
-) => request(path, body, env ?? authEnv, { Authorization: bearer(ownerToken), ...(headers ?? {}) });
+) => request(path, body, env ?? authEnv, { Authorization: bearer(authToken), ...(headers ?? {}) });
 
 beforeEach(async () => {
-  ownerToken = await createJWT(ownerHandle, secret, 3600);
+  authToken = await createJWT(testUserHandle, secret, 3600);
   setBackendDataFactory(() => createStore());
 });
 
 afterEach(() => {
-  ownerToken = "";
+  authToken = "";
   setBackendDataFactory(defaultFactory);
 });
 
@@ -156,7 +155,7 @@ describe("/-/app/preview/screen", () => {
         screenId: "screen.home",
         viewMode: "json",
       },
-      { INSTANCE_OWNER_HANDLE: ownerHandle, TAKOS_CONTEXT: "dev" },
+      { TAKOS_CONTEXT: "dev" },
     );
 
     expect(res.status).toBe(503);
@@ -194,7 +193,7 @@ describe("/-/app/preview/screen", () => {
   expect(text.includes("Hello Preview") || text.includes("Screen:" )).toBe(true);
   });
 
-  it("requires an owner session", async () => {
+  it("requires authentication", async () => {
     const missingAuth = await request(
       "/-/app/preview/screen",
       {
@@ -205,19 +204,6 @@ describe("/-/app/preview/screen", () => {
       createWorkspaceEnv(),
     );
     expect(missingAuth.status).toBe(401);
-
-    const nonOwnerToken = await createJWT("alice", secret, 3600);
-    const nonOwner = await request(
-      "/-/app/preview/screen",
-      {
-        workspaceId: "ws_test",
-        screenId: "screen.home",
-        viewMode: "json",
-      },
-      createWorkspaceEnv(),
-      { Authorization: bearer(nonOwnerToken) },
-    );
-    expect(nonOwner.status).toBe(403);
   });
 
   it("loads the active prod manifest when mode is prod", async () => {
@@ -366,7 +352,7 @@ describe("/-/app/preview/screen-with-patch", () => {
     expect(json.ok).toBe(false);
   });
 
-  it("requires an owner session", async () => {
+  it("requires authentication", async () => {
     const unauthorized = await request(
       "/-/app/preview/screen-with-patch",
       {
@@ -379,20 +365,5 @@ describe("/-/app/preview/screen-with-patch", () => {
     );
 
     expect(unauthorized.status).toBe(401);
-
-    const nonOwnerToken = await createJWT("guest", secret, 3600);
-    const forbidden = await request(
-      "/-/app/preview/screen-with-patch",
-      {
-        workspaceId: "ws_test",
-        screenId: "screen.home",
-        viewMode: "json",
-        patches: [],
-      },
-      createWorkspaceEnv(),
-      { Authorization: bearer(nonOwnerToken) },
-    );
-
-    expect(forbidden.status).toBe(403);
   });
 });

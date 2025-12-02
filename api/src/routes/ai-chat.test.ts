@@ -6,7 +6,7 @@ import { getDefaultDataFactory, setBackendDataFactory } from "../data";
 const defaultFactory = getDefaultDataFactory();
 const originalFetch = global.fetch;
 
-const user = { id: "owner", handle: "owner" };
+const user = { id: "testuser", handle: "testuser" };
 const jwtSecret = "secret";
 
 const buildEnv = (overrides?: Record<string, unknown>) => ({
@@ -175,7 +175,7 @@ describe("/api/ai/chat", () => {
           tool: "tool.inspectService",
         }),
       },
-      buildEnv({ INSTANCE_OWNER_HANDLE: "owner" }),
+      buildEnv(),
     );
 
     expect(res.status).toBe(403);

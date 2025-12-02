@@ -1,4 +1,5 @@
-import { Component, createSignal, createEffect, onMount, Show } from "solid-js";
+import type { Component } from "solid-js";
+import { createSignal, createEffect, onMount, Show } from "solid-js";
 import { useLocation } from "@solidjs/router";
 import { RenderScreen } from "../lib/ui-runtime";
 import { loadAppManifest, getScreenByRoute, extractRouteParams, type AppManifest, type AppManifestScreen } from "../lib/app-manifest";

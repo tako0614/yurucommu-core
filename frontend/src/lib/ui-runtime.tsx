@@ -1,4 +1,5 @@
-import { Component, JSX, For, Show, createSignal, createMemo } from "solid-js";
+import type { Component, JSX } from "solid-js";
+import { For, Show, createMemo, createResource, Suspense } from "solid-js";
 
 /**
  * UiNode Type Definitions (PLAN.md 5.4)
@@ -17,11 +18,32 @@ export interface Screen {
 }
 
 /**
+ * Data Source Definition for API binding
+ */
+export interface DataSource {
+  type: "api" | "static";
+  route?: string;
+  method?: string;
+  path?: string;
+  params?: Record<string, string>;
+}
+
+/**
+ * Runtime Context passed to components
+ */
+export interface UiRuntimeContext {
+  routeParams: Record<string, string>;
+  location: string;
+  data?: Record<string, any>;
+  actions?: Record<string, () => void>;
+}
+
+/**
  * Component Registry for UiNode types
  */
 type UiComponentProps = {
   node: UiNode;
-  context?: Record<string, any>;
+  context?: UiRuntimeContext;
 };
 
 /**
@@ -136,6 +158,205 @@ const Input: Component<{ placeholder?: string; value?: string; onChange?: (value
 };
 
 /**
+ * Card Component - displays content in a card container
+ */
+const Card: Component<{ id?: string; padding?: number; shadow?: boolean; children?: JSX.Element }> = (props) => {
+  return (
+    <div
+      id={props.id}
+      style={{
+        padding: props.padding ? `${props.padding}px` : "16px",
+        background: "white",
+        "border-radius": "8px",
+        "box-shadow": props.shadow !== false ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
+        border: "1px solid #e5e7eb",
+      }}
+    >
+      {props.children}
+    </div>
+  );
+};
+
+/**
+ * Image Component - displays an image
+ */
+const Image: Component<{ src?: string; alt?: string; width?: number | string; height?: number | string; rounded?: boolean }> = (props) => {
+  return (
+    <img
+      src={props.src}
+      alt={props.alt || ""}
+      style={{
+        width: typeof props.width === "number" ? `${props.width}px` : props.width,
+        height: typeof props.height === "number" ? `${props.height}px` : props.height,
+        "border-radius": props.rounded ? "50%" : undefined,
+        "object-fit": "cover",
+      }}
+    />
+  );
+};
+
+/**
+ * Link Component - clickable link with routing support
+ */
+const Link: Component<{ href?: string; text?: string; children?: JSX.Element }> = (props) => {
+  return (
+    <a
+      href={props.href}
+      style={{
+        color: "#3b82f6",
+        "text-decoration": "none",
+      }}
+    >
+      {props.children || props.text}
+    </a>
+  );
+};
+
+/**
+ * Divider Component - horizontal separator
+ */
+const Divider: Component<{ margin?: number }> = (props) => {
+  const m = props.margin ?? 16;
+  return (
+    <hr
+      style={{
+        border: "none",
+        "border-top": "1px solid #e5e7eb",
+        margin: `${m}px 0`,
+      }}
+    />
+  );
+};
+
+/**
+ * Badge Component - small label/tag
+ */
+const Badge: Component<{ text?: string; variant?: "default" | "primary" | "success" | "warning" | "error" }> = (props) => {
+  const colors: Record<string, { bg: string; text: string }> = {
+    default: { bg: "#e5e7eb", text: "#374151" },
+    primary: { bg: "#dbeafe", text: "#1d4ed8" },
+    success: { bg: "#dcfce7", text: "#15803d" },
+    warning: { bg: "#fef3c7", text: "#b45309" },
+    error: { bg: "#fee2e2", text: "#b91c1c" },
+  };
+  const c = colors[props.variant || "default"];
+  return (
+    <span
+      style={{
+        padding: "2px 8px",
+        "border-radius": "9999px",
+        "font-size": "0.75rem",
+        background: c.bg,
+        color: c.text,
+      }}
+    >
+      {props.text}
+    </span>
+  );
+};
+
+/**
+ * Icon Component - displays an icon (using text-based icons for simplicity)
+ */
+const Icon: Component<{ name?: string; size?: number }> = (props) => {
+  const icons: Record<string, string> = {
+    home: "🏠",
+    user: "👤",
+    settings: "⚙️",
+    message: "💬",
+    notification: "🔔",
+    search: "🔍",
+    plus: "➕",
+    close: "✕",
+    check: "✓",
+    arrow_right: "→",
+    arrow_left: "←",
+  };
+  return (
+    <span style={{ "font-size": props.size ? `${props.size}px` : "1rem" }}>
+      {icons[props.name || ""] || props.name}
+    </span>
+  );
+};
+
+/**
+ * ApiData Component - fetches data from API and renders children with data context
+ */
+const ApiData: Component<{
+  source?: DataSource;
+  path?: string;
+  method?: string;
+  children?: JSX.Element;
+}> = (props) => {
+  const [data] = createResource(
+    () => ({ path: props.source?.path || props.path, method: props.source?.method || props.method || "GET" }),
+    async (params) => {
+      if (!params.path) return null;
+      try {
+        const response = await fetch(params.path, { method: params.method });
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        return response.json();
+      } catch (err) {
+        console.error("[ApiData] Fetch error:", err);
+        return null;
+      }
+    }
+  );
+
+  return (
+    <Suspense fallback={<div style={{ padding: "8px", color: "#6b7280" }}>Loading...</div>}>
+      <Show when={data()} fallback={<div style={{ color: "#ef4444" }}>Failed to load data</div>}>
+        {props.children}
+      </Show>
+    </Suspense>
+  );
+};
+
+/**
+ * ApiList Component - fetches list data and renders items
+ */
+const ApiList: Component<{
+  source?: DataSource;
+  path?: string;
+  itemTemplate?: UiNode;
+  emptyText?: string;
+  children?: JSX.Element;
+}> = (props) => {
+  const [items] = createResource(
+    () => props.source?.path || props.path,
+    async (path) => {
+      if (!path) return [];
+      try {
+        const response = await fetch(path);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        const data = await response.json();
+        return Array.isArray(data) ? data : data.items || data.data || [];
+      } catch (err) {
+        console.error("[ApiList] Fetch error:", err);
+        return [];
+      }
+    }
+  );
+
+  return (
+    <Suspense fallback={<div style={{ padding: "8px", color: "#6b7280" }}>Loading...</div>}>
+      <Show
+        when={items() && items()!.length > 0}
+        fallback={<div style={{ padding: "16px", color: "#6b7280", "text-align": "center" }}>{props.emptyText || "No items"}</div>}
+      >
+        <For each={items()}>
+          {(item) => (
+            <div data-item={JSON.stringify(item)}>
+              {props.children}
+            </div>
+          )}
+        </For>
+      </Show>
+    </Suspense>
+  );
+};
+
+/**
  * Component Registry
  */
 const componentRegistry: Record<string, Component<any>> = {
@@ -146,6 +367,14 @@ const componentRegistry: Record<string, Component<any>> = {
   Placeholder,
   Button,
   Input,
+  Card,
+  Image,
+  Link,
+  Divider,
+  Badge,
+  Icon,
+  ApiData,
+  ApiList,
 };
 
 /**
@@ -190,7 +419,7 @@ export const RenderUiNode: Component<UiComponentProps> = (props) => {
  *
  * Renders a Screen definition from App Manifest
  */
-export const RenderScreen: Component<{ screen: Screen; context?: Record<string, any> }> = (props) => {
+export const RenderScreen: Component<{ screen: Screen; context?: UiRuntimeContext }> = (props) => {
   return (
     <div data-screen-id={props.screen.id} data-screen-route={props.screen.route}>
       <RenderUiNode node={props.screen.layout} context={props.context} />

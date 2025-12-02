@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises";
-
 export const TAKOS_CONFIG_SCHEMA_VERSION = "1.0";
 
 export type TakosRegistrationMode = "open" | "invite-only" | "closed";
@@ -522,7 +520,14 @@ export function parseTakosConfig(json: string): TakosConfig {
   return validation.config;
 }
 
+/**
+ * Load takos-config.json from file system (Node.js only)
+ * This function should only be called in Node.js environments
+ */
 export async function loadTakosConfig(filePath = "takos-config.json"): Promise<TakosConfig> {
-  const content = await readFile(filePath, "utf-8");
+  // Dynamic import to avoid bundler issues in browser environments
+  // @ts-expect-error - node:fs/promises is only available in Node.js
+  const fs = await import("node:fs/promises");
+  const content = await fs.readFile(filePath, "utf-8");
   return parseTakosConfig(content);
 }
