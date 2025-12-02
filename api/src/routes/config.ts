@@ -16,6 +16,11 @@ import {
 import { guardAgentRequest } from "../lib/agent-guard";
 import { listConfigAudit, recordConfigAudit } from "../lib/config-audit";
 import { persistConfigWithReloadGuard } from "../lib/config-reload";
+import {
+  changedPathsFromDiff,
+  enforceAgentConfigAllowlist,
+  getAgentConfigAllowlist,
+} from "../lib/agent-config-allowlist";
 
 const configRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -130,6 +135,16 @@ configRoutes.post("/admin/config/diff", auth, async (c) => {
 
   const incoming = sanitizeConfig(validation.config);
   const diff = diffConfigs(activeConfig.config, incoming.config);
+  if (agentGuard.agentType) {
+    const allowlistCheck = enforceAgentConfigAllowlist({
+      agentType: agentGuard.agentType,
+      allowlist: getAgentConfigAllowlist(activeConfig.config),
+      changedPaths: changedPathsFromDiff(diff),
+    });
+    if (!allowlistCheck.ok) {
+      return fail(c, allowlistCheck.error, allowlistCheck.status);
+    }
+  }
   const warnings = [
     ...activeConfig.warnings,
     ...compatibility.warnings,
@@ -180,6 +195,18 @@ configRoutes.post("/admin/config/import", auth, async (c) => {
   }
 
   const incoming = sanitizeConfig(validation.config);
+  const diff = diffConfigs(activeConfig.config, incoming.config);
+  if (agentGuard.agentType) {
+    const allowlistCheck = enforceAgentConfigAllowlist({
+      agentType: agentGuard.agentType,
+      allowlist: getAgentConfigAllowlist(activeConfig.config),
+      changedPaths: changedPathsFromDiff(diff),
+    });
+    if (!allowlistCheck.ok) {
+      return fail(c, allowlistCheck.error, allowlistCheck.status);
+    }
+  }
+
   const warnings = [...compatibility.warnings, ...incoming.warnings];
 
   const applyResult = await persistConfigWithReloadGuard({

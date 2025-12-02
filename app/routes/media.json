@@ -1,0 +1,36 @@
+{
+  "routes": [
+    {
+      "id": "media_upload",
+      "method": "POST",
+      "path": "/media/upload",
+      "handler": "uploadMedia",
+      "auth": false,
+      "description": "Upload public media to R2."
+    },
+    {
+      "id": "storage_list",
+      "method": "GET",
+      "path": "/storage",
+      "handler": "listStorageObjects",
+      "auth": true,
+      "description": "List objects in the owner's storage namespace."
+    },
+    {
+      "id": "storage_upload",
+      "method": "POST",
+      "path": "/storage/upload",
+      "handler": "uploadStorageObject",
+      "auth": true,
+      "description": "Upload a file to the owner's storage namespace."
+    },
+    {
+      "id": "storage_delete",
+      "method": "DELETE",
+      "path": "/storage",
+      "handler": "deleteStorageObject",
+      "auth": true,
+      "description": "Delete an object from the owner's storage namespace."
+    }
+  ]
+}

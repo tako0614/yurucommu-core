@@ -1,0 +1,173 @@
+{
+  "screens": [
+    {
+      "id": "screen.home",
+      "route": "/",
+      "title": "Home",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "root", "gap": 12 },
+        "children": [
+          {
+            "type": "Row",
+            "props": { "id": "header", "slot": "header", "gap": 8, "align": "center" },
+            "children": [
+              { "type": "Text", "props": { "text": "Home", "variant": "title" } },
+              { "type": "Spacer", "props": { "flex": 1 } }
+            ]
+          },
+          {
+            "type": "Row",
+            "props": { "id": "body", "gap": 12 },
+            "children": [
+              {
+                "type": "Column",
+                "props": { "id": "main", "slot": "main", "flex": 2, "gap": 8 },
+                "children": [
+                  { "type": "Placeholder", "props": { "text": "Timeline feed" } }
+                ]
+              },
+              {
+                "type": "Column",
+                "props": { "id": "right-sidebar", "slot": "right-sidebar", "flex": 1, "gap": 8 },
+                "children": [
+                  { "type": "Placeholder", "props": { "text": "Sidebar widgets" } }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.community",
+      "route": "/communities/:id",
+      "title": "Community",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "community-root", "gap": 10 },
+        "children": [
+          {
+            "type": "Row",
+            "props": { "id": "community-header", "slot": "header", "gap": 6, "align": "center" },
+            "children": [
+              { "type": "Text", "props": { "text": "Community", "variant": "title" } },
+              { "type": "Spacer", "props": { "flex": 1 } }
+            ]
+          },
+          {
+            "type": "Row",
+            "props": { "id": "community-body", "gap": 12 },
+            "children": [
+              {
+                "type": "Column",
+                "props": { "id": "community-main", "slot": "main", "flex": 2, "gap": 6 },
+                "children": [
+                  { "type": "Placeholder", "props": { "text": "Community timeline" } }
+                ]
+              },
+              {
+                "type": "Column",
+                "props": { "id": "community-sidebar", "slot": "right-sidebar", "flex": 1, "gap": 6 },
+                "children": [
+                  { "type": "Placeholder", "props": { "text": "Members & channels" } }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.dm_list",
+      "route": "/dm",
+      "title": "Direct Messages",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "dm-root", "gap": 10 },
+        "children": [
+          {
+            "type": "Row",
+            "props": { "id": "dm-header", "slot": "header", "gap": 8, "align": "center" },
+            "children": [
+              { "type": "Text", "props": { "text": "Messages", "variant": "title" } },
+              { "type": "Spacer", "props": { "flex": 1 } }
+            ]
+          },
+          {
+            "type": "Row",
+            "props": { "id": "dm-body", "gap": 12 },
+            "children": [
+              {
+                "type": "Column",
+                "props": { "id": "dm-threads", "slot": "main", "flex": 2, "gap": 8 },
+                "children": [
+                  { "type": "Placeholder", "props": { "text": "Thread list" } }
+                ]
+              },
+              {
+                "type": "Column",
+                "props": { "id": "dm-preview", "slot": "right-sidebar", "flex": 1, "gap": 8 },
+                "children": [
+                  { "type": "Placeholder", "props": { "text": "Selected thread preview" } }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.profile",
+      "route": "/profile/:id",
+      "title": "Profile",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "profile-root", "gap": 10 },
+        "children": [
+          {
+            "type": "Row",
+            "props": { "id": "profile-header", "slot": "header", "gap": 6, "align": "center" },
+            "children": [
+              { "type": "Text", "props": { "text": "Profile", "variant": "title" } },
+              { "type": "Spacer", "props": { "flex": 1 } }
+            ]
+          },
+          {
+            "type": "Column",
+            "props": { "id": "profile-main", "slot": "main", "gap": 8 },
+            "children": [
+              { "type": "Placeholder", "props": { "text": "Profile header and feed" } }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.settings",
+      "route": "/settings",
+      "title": "Settings",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "settings-root", "gap": 10 },
+        "children": [
+          {
+            "type": "Row",
+            "props": { "id": "settings-header", "slot": "header", "gap": 6, "align": "center" },
+            "children": [
+              { "type": "Text", "props": { "text": "Settings", "variant": "title" } },
+              { "type": "Spacer", "props": { "flex": 1 } }
+            ]
+          },
+          {
+            "type": "Column",
+            "props": { "id": "settings-main", "slot": "main", "gap": 8 },
+            "children": [
+              { "type": "Placeholder", "props": { "text": "Preferences" } }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

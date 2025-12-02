@@ -67,6 +67,7 @@ export type TakosAiConfig = {
   enabled_actions?: string[];
   providers?: Record<string, TakosAiProviderConfig>;
   data_policy?: TakosAiDataPolicy;
+  agent_config_allowlist?: string[];
   [key: string]: unknown;
 };
 
@@ -110,6 +111,19 @@ export const DEFAULT_TAKOS_AI_CONFIG: TakosAiConfig = {
   enabled_actions: [],
   providers: {},
   data_policy: { send_public_posts: true, send_dm: false },
+  agent_config_allowlist: [],
+};
+
+const normalizeAllowlist = (allowlist?: unknown): string[] => {
+  if (!Array.isArray(allowlist)) return [];
+  return Array.from(
+    new Set(
+      allowlist
+        .map((item) => (typeof item === "string" ? item : String(item ?? "")))
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
 };
 
 export function mergeTakosAiConfig(
@@ -137,12 +151,15 @@ export function mergeTakosAiConfig(
     ...(working.data_policy ?? {}),
   };
 
+  const agent_config_allowlist = normalizeAllowlist(working.agent_config_allowlist);
+
   return {
     ...DEFAULT_TAKOS_AI_CONFIG,
     ...working,
     enabled_actions,
     providers: working.providers ?? DEFAULT_TAKOS_AI_CONFIG.providers,
     data_policy,
+    agent_config_allowlist,
   };
 }
 
@@ -246,6 +263,10 @@ export const takosConfigSchema: JsonSchema = {
             send_profile: { type: "boolean" },
             notes: { type: "string" },
           },
+        },
+        agent_config_allowlist: {
+          type: "array",
+          items: { type: "string" },
         },
       },
     },
@@ -457,6 +478,14 @@ export function validateTakosConfig(config: unknown): TakosConfigValidationResul
           ) {
             errors.push("ai.data_policy.notes: expected string");
           }
+        }
+      }
+
+      if (config.ai.agent_config_allowlist !== undefined) {
+        if (!isStringArray(config.ai.agent_config_allowlist)) {
+          errors.push("ai.agent_config_allowlist: expected string[]");
+        } else if (config.ai.agent_config_allowlist.some((item) => item.trim().length === 0)) {
+          errors.push("ai.agent_config_allowlist: entries must be non-empty strings");
         }
       }
     }

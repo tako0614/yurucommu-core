@@ -27,7 +27,8 @@ export function guardAgentRequest(
   const { agentType, raw } = readAgentType(req);
 
   if (raw !== null && agentType === null) {
-    return { ok: false, status: 400, error: "invalid agent type header" };
+    const status = options?.forbidAgents ? 403 : 400;
+    return { ok: false, status, error: "invalid agent type header" };
   }
 
   if (options?.forbidAgents && agentType) {

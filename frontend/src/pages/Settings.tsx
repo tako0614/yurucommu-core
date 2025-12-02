@@ -1,6 +1,7 @@
 import { createSignal, Show } from "solid-js";
 import StorageManager from "../components/StorageManager";
 import ActivityPubBlocklistManager from "../components/ActivityPubBlocklistManager";
+import AgentConfigAllowlistManager from "../components/AgentConfigAllowlistManager";
 import { registerPushDevice, removePushDevice } from "../lib/api";
 
 export default function Settings() {
@@ -54,6 +55,8 @@ export default function Settings() {
       <h1 class="text-2xl font-bold mb-6">設定</h1>
 
       <div class="space-y-6">
+        <AgentConfigAllowlistManager />
+
         <ActivityPubBlocklistManager />
 
         {/* Storage Management Section */}

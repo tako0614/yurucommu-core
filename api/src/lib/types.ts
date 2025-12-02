@@ -1,4 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
+import type { AppLogEntry } from "@takos/platform/app";
+export type { AppLogEntry } from "@takos/platform/app";
 import type { TakosAiConfig } from "@takos/platform/server";
 
 /**
@@ -384,6 +386,49 @@ export interface DataExportRequestInput {
   error_message?: string | null;
 }
 
+export type PostPlanQueueHealth = {
+  scheduled: number;
+  due: number;
+  failed: number;
+  oldest_due_at: string | null;
+  max_delay_ms: number | null;
+  last_failed_at: string | null;
+  last_error: string | null;
+};
+
+export type ExportQueueHealth = {
+  pending: number;
+  processing: number;
+  failed: number;
+  completed: number;
+  oldest_pending_at: string | null;
+  max_delay_ms: number | null;
+  last_failed_at: string | null;
+  last_error: string | null;
+};
+
+export type ApDeliveryQueueHealth = {
+  pending: number;
+  processing: number;
+  failed: number;
+  delivered: number;
+  oldest_pending_at: string | null;
+  max_delay_ms: number | null;
+  last_failed_at: string | null;
+  last_error: string | null;
+};
+
+export type ApInboxQueueHealth = {
+  pending: number;
+  processing: number;
+  failed: number;
+  processed: number;
+  oldest_pending_at: string | null;
+  max_delay_ms: number | null;
+  last_failed_at: string | null;
+  last_error: string | null;
+};
+
 export type AppRevisionAuthorType = "human" | "agent";
 
 export interface AppRevisionInput {
@@ -402,6 +447,86 @@ export interface AppStateRecord {
   updated_at: string | Date;
   revision?: any | null;
 }
+
+export type AppLogRecord = AppLogEntry & { id: number };
+
+export type ListAppLogsOptions = {
+  mode?: "dev" | "prod";
+  workspaceId?: string | null;
+  handler?: string | null;
+  since?: string | Date;
+  limit?: number;
+};
+
+export type AppWorkspaceStatus = "draft" | "validated" | "testing" | "ready" | "applied";
+
+export interface AppWorkspaceInput {
+  id?: string;
+  base_revision_id?: string | null;
+  status?: AppWorkspaceStatus;
+  author_type: AppRevisionAuthorType;
+  author_name?: string | null;
+  created_at?: string | Date;
+  updated_at?: string | Date;
+}
+
+export interface AppWorkspaceRecord {
+  id: string;
+  base_revision_id: string | null;
+  status: AppWorkspaceStatus;
+  author_type: AppRevisionAuthorType;
+  author_name: string | null;
+  created_at: string | Date;
+  updated_at: string | Date;
+}
+
+export type AppRevisionAuditAction = "apply" | "rollback";
+export type AppRevisionAuditResult = "success" | "error";
+
+export type AppRevisionSchemaCheck = {
+  expected: string | null;
+  actual: string | null;
+  ok: boolean;
+  warnings: string[];
+  error?: string | null;
+  from?: string | null;
+  to?: string | null;
+};
+
+export type AppRevisionAuditDetails = {
+  performed_by?: string | null;
+  from_revision_id?: string | null;
+  to_revision_id?: string | null;
+  schema_version?: {
+    platform: AppRevisionSchemaCheck;
+    previous_active?: AppRevisionSchemaCheck | null;
+  };
+  warnings?: string[];
+  workspace?: {
+    id: string;
+    status?: string | null;
+    validated_at?: string | null;
+  } | null;
+};
+
+export type AppRevisionAuditRecord = {
+  id: number;
+  action: AppRevisionAuditAction;
+  revision_id: string | null;
+  workspace_id: string | null;
+  result: AppRevisionAuditResult;
+  details: AppRevisionAuditDetails | null;
+  created_at: string;
+};
+
+export type AppRevisionAuditInput = {
+  action: AppRevisionAuditAction;
+  revision_id: string | null;
+  workspace_id?: string | null;
+  result?: AppRevisionAuditResult;
+  details?: AppRevisionAuditDetails | null;
+  created_at?: string;
+};
 
 /**
  * Complete Database API interface with instance support
@@ -566,6 +691,7 @@ export interface DatabaseAPI {
   listPostPlansByUser?(user_id: string, status?: string | null): Promise<any[]>;
   deletePostPlan?(id: string): Promise<void>;
   listDuePostPlans?(limit?: number): Promise<any[]>;
+  getPostPlanQueueHealth?(): Promise<PostPlanQueueHealth>;
 
   // Comments
   addComment(comment: CommentInput): Promise<any>;
@@ -644,6 +770,8 @@ export interface DatabaseAPI {
   resetStaleDeliveries(minutes: number): Promise<void>;
   getApInboxStats(): Promise<{ pending: number; processed: number }>;
   getApDeliveryQueueStats(): Promise<{ pending: number; delivered: number; failed: number }>;
+  getApDeliveryQueueHealth?(): Promise<ApDeliveryQueueHealth>;
+  getApInboxQueueHealth?(): Promise<ApInboxQueueHealth>;
   countApRateLimits(): Promise<number>;
 
   // ActivityPub - Rate Limiting
@@ -701,6 +829,18 @@ export interface DatabaseAPI {
   listAppRevisions(limit?: number): Promise<any[]>;
   setActiveAppRevision(revisionId: string | null): Promise<void>;
   getActiveAppRevision(): Promise<AppStateRecord | null>;
+  recordAppRevisionAudit?(
+    input: AppRevisionAuditInput,
+  ): Promise<AppRevisionAuditRecord | void>;
+  listAppRevisionAudit?(limit?: number): Promise<AppRevisionAuditRecord[]>;
+  // App runtime logs
+  appendAppLogEntries?(entries: AppLogEntry[]): Promise<void>;
+  listAppLogEntries?(options?: ListAppLogsOptions): Promise<AppLogRecord[]>;
+  // App workspaces
+  createAppWorkspace(workspace: AppWorkspaceInput): Promise<AppWorkspaceRecord | null>;
+  getAppWorkspace(id: string): Promise<AppWorkspaceRecord | null>;
+  listAppWorkspaces(limit?: number): Promise<AppWorkspaceRecord[]>;
+  updateAppWorkspaceStatus(id: string, status: AppWorkspaceStatus): Promise<AppWorkspaceRecord | null>;
 
   // Data export
   createExportRequest?(input: DataExportRequestInput): Promise<any>;
@@ -708,4 +848,5 @@ export interface DatabaseAPI {
   listExportRequestsByUser?(user_id: string): Promise<any[]>;
   listPendingExportRequests?(limit?: number): Promise<any[]>;
   getExportRequest?(id: string): Promise<any | null>;
+  getExportQueueHealth?(): Promise<ExportQueueHealth>;
 }

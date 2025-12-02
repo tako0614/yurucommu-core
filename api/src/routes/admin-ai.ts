@@ -1,9 +1,11 @@
 import { Hono } from "hono";
 import type {
   AiProviderType,
+  AiActionDefinition as PlatformAiActionDefinition,
   Bindings,
   TakosAiConfig,
   TakosAiDataPolicy,
+  TakosConfig,
   Variables,
 } from "@takos/platform/server";
 import {
@@ -17,10 +19,14 @@ import { auth } from "../middleware/auth";
 import { makeData } from "../data";
 import { guardAgentRequest } from "../lib/agent-guard";
 import { recordConfigAudit } from "../lib/config-audit";
+import { enforceAgentConfigAllowlist, getAgentConfigAllowlist } from "../lib/agent-config-allowlist";
+import { getBuiltinActionDefinitions } from "../ai/actions";
+import { buildRuntimeConfig, loadStoredConfig } from "../lib/config-utils";
+import { persistConfigWithReloadGuard } from "../lib/config-reload";
 
 type AiCapability = "chat" | "completion" | "embedding";
 
-export type AiActionDefinition = {
+export type AdminAiActionDefinition = {
   id: string;
   label: string;
   description: string;
@@ -39,7 +45,7 @@ export type ProviderStatus = {
   capabilities: AiCapability[];
 };
 
-export type ActionStatus = AiActionDefinition & {
+export type ActionStatus = AdminAiActionDefinition & {
   enabled: boolean;
   eligible: boolean;
   active: boolean;
@@ -55,29 +61,31 @@ const PROVIDER_CAPABILITIES: Record<AiProviderType, AiCapability[]> = {
   "openai-compatible": ["chat", "completion"],
 };
 
-export const AI_ACTIONS: AiActionDefinition[] = [
-  {
-    id: "ai.summary",
-    label: "Summarize content",
-    description: "Summarize public posts or timelines into a concise digest.",
-    providerCapabilities: ["chat"],
-    dataPolicy: { send_public_posts: true, send_dm: false },
-  },
-  {
-    id: "ai.tag-suggest",
-    label: "Hashtag suggestions",
-    description: "Suggest tags for a draft post based on its text and media descriptions.",
-    providerCapabilities: ["chat"],
-    dataPolicy: { send_public_posts: true, send_dm: false },
-  },
-  {
-    id: "ai.dm-moderator",
-    label: "DM safety review",
-    description: "Review or summarize DM conversations for safety or moderation support.",
-    providerCapabilities: ["chat"],
-    dataPolicy: { send_dm: true },
-  },
-];
+function toAdminPolicy(actionPolicy: PlatformAiActionDefinition["dataPolicy"]): TakosAiDataPolicy {
+  return {
+    send_public_posts: Boolean(actionPolicy?.sendPublicPosts),
+    send_community_posts: Boolean(actionPolicy?.sendCommunityPosts),
+    send_dm: Boolean(actionPolicy?.sendDm),
+    send_profile: Boolean(actionPolicy?.sendProfile),
+    ...(actionPolicy?.notes ? { notes: actionPolicy.notes } : {}),
+  };
+}
+
+function toAdminActionDefinition(
+  definition: PlatformAiActionDefinition,
+): AdminAiActionDefinition {
+  return {
+    id: definition.id,
+    label: definition.label,
+    description: definition.description,
+    providerCapabilities: definition.providerCapabilities as AiCapability[],
+    dataPolicy: toAdminPolicy(definition.dataPolicy),
+  };
+}
+
+export const AI_ACTIONS: AdminAiActionDefinition[] = getBuiltinActionDefinitions().map(
+  toAdminActionDefinition,
+);
 
 function normalizeConfig(config?: Partial<TakosAiConfig>): TakosAiConfig {
   return mergeTakosAiConfig(DEFAULT_TAKOS_AI_CONFIG, config ?? {});
@@ -133,7 +141,7 @@ function dataPolicyBlocks(
 }
 
 export function buildActionStatuses(
-  actions: AiActionDefinition[],
+  actions: AdminAiActionDefinition[],
   config: TakosAiConfig,
   providers: ProviderStatus[],
 ): ActionStatus[] {
@@ -169,6 +177,43 @@ export function buildActionStatuses(
     };
   });
 }
+
+type ConfigSource = "stored" | "runtime";
+
+const normalizeAllowlistInput = (value: unknown): string[] => {
+  if (typeof value === "string") {
+    return value
+      .split(/[\n,]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  if (Array.isArray(value)) {
+    return value;
+  }
+  return [];
+};
+
+const sameAllowlist = (a: string[], b: string[]): boolean => {
+  if (a.length !== b.length) return false;
+  const setB = new Set(b);
+  return a.every((item) => setB.has(item));
+};
+
+async function resolveConfigAllowlist(
+  env: Bindings,
+): Promise<{ config: TakosConfig; source: ConfigSource; allowlist: string[]; warnings: string[] }> {
+  const stored = await loadStoredConfig(env.DB);
+  const config = stored.config ?? buildRuntimeConfig(env);
+  const allowlist = getAgentConfigAllowlist(config);
+  const source: ConfigSource = stored.config ? "stored" : "runtime";
+  const warnings = stored.warnings ?? [];
+  return { config, source, allowlist, warnings };
+}
+
+const applyAgentConfigAllowlist = (config: TakosConfig, allowlist: string[]): TakosConfig => ({
+  ...config,
+  ai: mergeTakosAiConfig(config.ai ?? {}, { agent_config_allowlist: allowlist }),
+});
 
 const adminAi = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -209,6 +254,76 @@ adminAi.get("/admin/ai", async (c) => {
   }
 });
 
+adminAi.get("/admin/ai/agent-config-allowlist", async (c) => {
+  const resolved = await resolveConfigAllowlist(c.env as Bindings);
+  return ok(c, {
+    allowlist: resolved.allowlist,
+    source: resolved.source,
+    warnings: resolved.warnings,
+  });
+});
+
+adminAi.post("/admin/ai/agent-config-allowlist", async (c) => {
+  const agentGuard = guardAgentRequest(c.req, { toolId: "tool.updateTakosConfig" });
+  if (!agentGuard.ok) {
+    return fail(c, agentGuard.error, agentGuard.status);
+  }
+
+  const body = (await c.req.json().catch(() => ({}))) as { allowlist?: unknown };
+  const incoming = getAgentConfigAllowlist({
+    ai: { agent_config_allowlist: normalizeAllowlistInput(body.allowlist) },
+  });
+
+  const resolved = await resolveConfigAllowlist(c.env as Bindings);
+
+  if (agentGuard.agentType) {
+    const allowlistCheck = enforceAgentConfigAllowlist({
+      agentType: agentGuard.agentType,
+      allowlist: resolved.allowlist,
+      changedPaths: ["ai.agent_config_allowlist"],
+    });
+    if (!allowlistCheck.ok) {
+      return fail(c, allowlistCheck.error, allowlistCheck.status);
+    }
+  }
+
+  if (sameAllowlist(incoming, resolved.allowlist)) {
+    return ok(c, {
+      allowlist: resolved.allowlist,
+      source: resolved.source,
+      updated: false,
+      warnings: resolved.warnings,
+    });
+  }
+
+  const nextConfig = applyAgentConfigAllowlist(resolved.config, incoming);
+
+  try {
+    const applyResult = await persistConfigWithReloadGuard({
+      env: c.env as Bindings,
+      nextConfig,
+      previousConfig: resolved.config,
+    });
+
+    if (!applyResult.ok) {
+      const reason = applyResult.reload.error || "config reload failed";
+      const message = applyResult.rolledBack ? `${reason}; restored previous config` : reason;
+      return fail(c, message, 500);
+    }
+
+    return ok(c, {
+      allowlist: getAgentConfigAllowlist(nextConfig),
+      source: "stored",
+      updated: true,
+      reload: applyResult.reload,
+      warnings: [...resolved.warnings, ...(applyResult.reload.warnings ?? [])],
+    });
+  } catch (error: any) {
+    const message = error?.message || "failed to update agent config allowlist";
+    return fail(c, message, 400);
+  }
+});
+
 adminAi.post("/admin/ai/actions/:id/toggle", async (c) => {
   const actionId = c.req.param("id");
   const body = (await c.req.json().catch(() => ({}))) as { enabled?: boolean };
@@ -237,6 +352,16 @@ adminAi.post("/admin/ai/actions/:id/toggle", async (c) => {
 
   try {
     const config = normalizeConfig(await (store as any).getAiConfig());
+    if (agentGuard.agentType) {
+      const allowlistCheck = enforceAgentConfigAllowlist({
+        agentType: agentGuard.agentType,
+        allowlist: getAgentConfigAllowlist({ ai: config }),
+        changedPaths: ["ai.enabled_actions"],
+      });
+      if (!allowlistCheck.ok) {
+        return fail(c, allowlistCheck.error, allowlistCheck.status);
+      }
+    }
     const wasEnabled = new Set(config.enabled_actions ?? []).has(actionId);
     const actionsSet = new Set(config.enabled_actions ?? []);
     if (enable) {

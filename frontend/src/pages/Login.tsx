@@ -1,7 +1,7 @@
 import { Show, createSignal, onMount } from "solid-js";
 import { useLocation, useNavigate } from "@solidjs/router";
 import {
-  loginWithPassword,
+  login,
   refreshAuth,
   setJWT,
 } from "../lib/api";
@@ -44,7 +44,7 @@ export default function Login() {
     }
     setSubmitting(true);
     try {
-      const result = await loginWithPassword({
+      const result = await login({
         password: password(),
       });
       const token = typeof (result as any)?.token === "string" ? (result as any).token : null;

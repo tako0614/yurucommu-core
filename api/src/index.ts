@@ -51,7 +51,13 @@ import type {
   PrismaEnv,
   DevDataIsolationResult,
 } from "@takos/platform/server";
-import { authenticateSession } from "@takos/platform/server/session";
+import {
+  authenticateSession,
+  createUserSession,
+  getSessionCookieName,
+  getSessionTtlSeconds,
+} from "@takos/platform/server/session";
+import { setCookie } from "hono/cookie";
 /// <reference types="@cloudflare/workers-types" />
 
 // Import route modules
@@ -67,14 +73,29 @@ import postPlansRoutes, { processPostPlanQueue } from "./routes/post-plans";
 import exportsRoutes, { processExportQueue } from "./routes/exports";
 import adminPushRoutes from "./routes/admin-push";
 import adminAiRoutes from "./routes/admin-ai";
+import aiChatRoutes from "./routes/ai-chat";
+import aiRoutes from "./routes/ai";
 import activityPubAdminRoutes from "./routes/activitypub-admin";
 import configRoutes from "./routes/config";
 import appPreviewRoutes from "./routes/app-preview";
 import appDebugRoutes from "./routes/app-debug";
 import adminAppRoutes from "./routes/admin-app";
+import adminHealthRoutes from "./routes/admin-health";
 import activityPubMetadataRoutes from "./routes/activitypub-metadata.js";
 import { getTakosConfig } from "./lib/runtime-config";
-import { auth, authenticateUser } from "./middleware/auth";
+import {
+  ACTIVE_USER_COOKIE_NAME,
+  auth,
+  authenticateUser,
+} from "./middleware/auth";
+import {
+  buildOwnerActorValidator,
+  isOwnerUser,
+  normalizeHandle,
+  resolveOwnerHandle,
+  selectActiveUser,
+  isValidHandle,
+} from "./lib/owner-auth";
 import { buildPushWellKnownPayload } from "./lib/push-check";
 import {
   getCronTasksForSchedule,
@@ -306,8 +327,11 @@ app.route("/", postPlansRoutes);
 app.route("/", exportsRoutes);
 app.route("/", adminPushRoutes);
 app.route("/", adminAiRoutes);
+app.route("/", aiChatRoutes);
+app.route("/", aiRoutes);
 app.route("/", activityPubAdminRoutes);
 app.route("/", configRoutes);
+app.route("/", adminHealthRoutes);
 app.route("/", adminAppRoutes);
 app.route("/", realtimeRoutes);
 app.route("/", appPreviewRoutes);
@@ -333,10 +357,6 @@ const addHours = (date: Date, h: number) =>
   new Date(date.getTime() + h * 3600 * 1000);
 
 const encoder = new TextEncoder();
-const PASSWORD_PROVIDER = "password";
-const HANDLE_REGEX = /^[a-z0-9_]{3,32}$/;
-const MIN_PASSWORD_LENGTH = 8;
-const MAX_PASSWORD_LENGTH = 128;
 
 const toHex = (bytes: Uint8Array) =>
   Array.from(bytes)
@@ -346,18 +366,6 @@ const toHex = (bytes: Uint8Array) =>
 async function sha256Hex(input: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(input));
   return toHex(new Uint8Array(digest));
-}
-
-function generateSalt(length = 16): string {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return toHex(bytes);
-}
-
-async function hashPasswordValue(password: string, salt?: string) {
-  const actualSalt = salt || generateSalt();
-  const hash = await sha256Hex(`${actualSalt}:${password}`);
-  return `${actualSalt}$${hash}`;
 }
 
 async function verifyPasswordValue(password: string, stored: string | null) {
@@ -378,74 +386,76 @@ function subtleTimingSafeEqual(a: string, b: string) {
   return diff === 0;
 }
 
-async function getPasswordAccount(
-  db: D1Database,
-  userId: string,
-): Promise<{ id: string; secret: string } | null> {
-  const prisma = getPrisma(db);
-  try {
-    const account = await prisma.user_accounts.findFirst({
-      where: { provider: PASSWORD_PROVIDER, user_id: userId },
-      select: { id: true, provider_account_id: true },
-    });
-    return account
-      ? { id: account.id, secret: account.provider_account_id }
-      : null;
-  } finally {
-    await prisma.$disconnect();
-  }
-}
-
-async function upsertPasswordAccount(
-  db: D1Database,
-  userId: string,
-  hashed: string,
-) {
-  const prisma = getPrisma(db);
-  try {
-    const existing = await prisma.user_accounts.findFirst({
-      where: { provider: PASSWORD_PROVIDER, user_id: userId },
-      select: { id: true },
-    });
-
-    if (existing) {
-      await prisma.user_accounts.update({
-        where: { id: existing.id },
-        data: {
-          provider_account_id: hashed,
-          updated_at: new Date(),
-        },
-      });
-      return;
+async function verifyMasterPassword(input: string, expected: string): Promise<boolean> {
+  if (!input || !expected) return false;
+  if (expected.includes("$")) {
+    try {
+      if (await verifyPasswordValue(input, expected)) {
+        return true;
+      }
+    } catch {
+      // Ignore malformed hash values and fall back to direct comparison.
     }
-
-    await prisma.user_accounts.create({
-      data: {
-        id: crypto.randomUUID(),
-        user_id: userId,
-        provider: PASSWORD_PROVIDER,
-        provider_account_id: hashed,
-        created_at: new Date(),
-        updated_at: new Date(),
-      },
-    });
-  } finally {
-    await prisma.$disconnect();
   }
+  return subtleTimingSafeEqual(input, expected);
 }
 
-function normalizeHandle(input: string): string {
-  return input.trim().toLowerCase();
+async function ensureOwnerUser(store: ReturnType<typeof makeData>, handle: string) {
+  const existing = await store.getUser(handle).catch(() => null);
+  if (existing) return existing;
+  return store.createUser({
+    id: handle,
+    display_name: handle,
+    is_private: 0,
+    created_at: nowISO(),
+  });
 }
 
-function isValidHandle(handle: string) {
-  return HANDLE_REGEX.test(handle);
-}
+const getSessionUser = (c: any) =>
+  (c.get("sessionUser") as any) || (c.get("user") as any) || null;
 
-function isValidPassword(password: string) {
-  if (password.length < MIN_PASSWORD_LENGTH) return false;
-  if (password.length > MAX_PASSWORD_LENGTH) return false;
-  return true;
+const requireOwnerSession = (
+  c: any,
+): { ownerHandle: string; ownerUser: any } | null => {
+  const ownerHandle = resolveOwnerHandle(c.env as Bindings);
+  const sessionUser = getSessionUser(c);
+  if (!isOwnerUser(sessionUser, c.env as Bindings)) {
+    return null;
+  }
+  return { ownerHandle, ownerUser: sessionUser };
+};
+
+const OWNER_ACCOUNT_PROVIDER = "owner";
+
+async function ensureOwnerActorAccount(
+  store: ReturnType<typeof makeData>,
+  ownerHandle: string,
+  userId: string,
+) {
+  if (!store?.listAccountsByUser || !store?.createUserAccount) return;
+  const normalizedOwner = normalizeHandle(ownerHandle);
+  const normalizedUser = normalizeHandle(userId);
+  if (!normalizedOwner || !normalizedUser) return;
+
+  const ownerAccountId = `${normalizedOwner}:${normalizedUser}`;
+  const accounts = await store.listAccountsByUser(userId).catch(() => []);
+  const alreadyLinked = accounts.some((account: any) => {
+    const provider = normalizeHandle((account as any)?.provider ?? "");
+    const accountId = String((account as any)?.provider_account_id ?? "")
+      .trim()
+      .toLowerCase();
+    return provider === OWNER_ACCOUNT_PROVIDER && accountId === ownerAccountId;
+  });
+  if (alreadyLinked) return;
+
+  await store.createUserAccount({
+    id: crypto.randomUUID(),
+    user_id: userId,
+    provider: OWNER_ACCOUNT_PROVIDER,
+    provider_account_id: ownerAccountId,
+    created_at: nowISO(),
+    updated_at: nowISO(),
+  });
 }
 
 class HttpError extends Error {
@@ -475,6 +485,44 @@ async function notify(
     defaultPushSecret: env.DEFAULT_PUSH_SERVICE_SECRET || "",
   });
 }
+
+const sanitizeUser = (user: any) => {
+  if (!user) return null;
+  const { jwt_secret, tenant_id, ...publicProfile } = user;
+  return publicProfile;
+};
+
+const formatActiveUserCookieValue = (userId: string, ownerId?: string | null) => {
+  const trimmedUser = (userId || "").trim();
+  const trimmedOwner = (ownerId || "").trim();
+  if (!trimmedUser) return "";
+  return encodeURIComponent(
+    trimmedOwner ? `${trimmedUser}:${trimmedOwner}` : trimmedUser,
+  );
+};
+
+const setActiveUserCookie = (c: any, userId: string, ownerId?: string | null) => {
+  const ttlSeconds = getSessionTtlSeconds(c.env as Bindings);
+  const requestUrl = new URL(c.req.url);
+  setCookie(c, ACTIVE_USER_COOKIE_NAME, formatActiveUserCookieValue(userId, ownerId), {
+    maxAge: ttlSeconds,
+    path: "/",
+    sameSite: "Lax",
+    secure: requestUrl.protocol === "https:",
+    httpOnly: true,
+  });
+};
+
+const clearActiveUserCookie = (c: any) => {
+  const requestUrl = new URL(c.req.url);
+  setCookie(c, ACTIVE_USER_COOKIE_NAME, "", {
+    maxAge: 0,
+    path: "/",
+    sameSite: "Lax",
+    secure: requestUrl.protocol === "https:",
+    httpOnly: true,
+  });
+};
 
 
 // -------- Media (R2) upload and serve --------
@@ -740,117 +788,78 @@ app.delete("/storage", auth, async (c) => {
   }
 });
 
-// Password auth for OSS single-instance setup.
-// You can pre-provision a user with:
-//   AUTH_USERNAME=your_username
-//   AUTH_PASSWORD=your_password
-// Or allow users to self-register via /auth/password/register.
+// Owner-mode password auth for OSS single-instance setup.
+// Canonical login endpoint: POST /auth/login (legacy /auth/password/login remains for compatibility).
+// Configure a single master password via AUTH_PASSWORD (plain or salt$hash).
+// The owner actor defaults to INSTANCE_OWNER_HANDLE (or "owner" if unset).
 
 app.post("/auth/password/register", async (c) => {
-  if (!featureEnabled("envPasswordAuth")) {
-    return fail(c, "password authentication disabled", 404);
-  }
-  const body = (await c.req.json().catch(() => ({}))) as Record<string, any>;
-  const handleRaw = typeof body.handle === "string" ? body.handle : "";
-  const password = typeof body.password === "string" ? body.password : "";
-  const displayName =
-    typeof body.display_name === "string" && body.display_name.trim()
-      ? body.display_name
-      : handleRaw;
-
-  const handle = normalizeHandle(handleRaw);
-  if (!handle || !isValidHandle(handle)) {
-    return fail(c, "invalid handle", 400);
-  }
-  if (!isValidPassword(password)) {
-    return fail(c, "invalid password", 400);
-  }
-
-  const store = makeData(c.env as any, c);
-  try {
-    const exists = await store.getUser(handle).catch(() => null);
-    if (exists) {
-      return fail(c, "handle already taken", 409);
-    }
-
-    const user = await store.createUser({
-      id: handle,
-      display_name: displayName || handle,
-      is_private: 0,
-      created_at: nowISO(),
-    });
-
-    const hashed = await hashPasswordValue(password);
-    await store.createUserAccount({
-      id: crypto.randomUUID(),
-      user_id: handle,
-      provider: PASSWORD_PROVIDER,
-      provider_account_id: hashed,
-      created_at: nowISO(),
-      updated_at: nowISO(),
-    });
-
-    const { token } = await createUserJWT(c, store, user.id);
-    const { jwt_secret, tenant_id, ...publicProfile } = user as any;
-    return ok(c, { user: publicProfile, token }, 201);
-  } finally {
-    await releaseStore(store);
-  }
+  return fail(
+    c,
+    "password registration is disabled; use owner-managed actor creation instead",
+    404,
+  );
 });
 
-app.post("/auth/password/login", async (c) => {
+async function ownerPasswordLogin(c: any) {
   if (!featureEnabled("envPasswordAuth")) {
     return fail(c, "password authentication disabled", 404);
   }
   const body = (await c.req.json().catch(() => ({}))) as Record<string, any>;
-  const handleRaw = typeof body.handle === "string" ? body.handle : "";
   const password = typeof body.password === "string" ? body.password : "";
 
-  const normalizedHandle = normalizeHandle(handleRaw || "");
+  const masterPassword =
+    typeof c.env.AUTH_PASSWORD === "string" ? c.env.AUTH_PASSWORD.trim() : "";
+  if (!password || !masterPassword) {
+    return fail(c, "invalid credentials", 401);
+  }
 
-  // Check against environment variables
-  const envUsername = c.env.AUTH_USERNAME;
-  const envPassword = c.env.AUTH_PASSWORD;
+  const verified = await verifyMasterPassword(password, masterPassword);
+  if (!verified) {
+    return fail(c, "invalid credentials", 401);
+  }
 
   const store = makeData(c.env as any, c);
   try {
-    const defaultHandle = normalizeHandle(envUsername || "");
-    const targetHandle = normalizedHandle || defaultHandle;
-    if (!targetHandle || !password) {
-      return fail(c, "invalid credentials", 401);
-    }
+    const ownerHandle = resolveOwnerHandle(c.env as Bindings);
+    const user: any = await ensureOwnerUser(store, ownerHandle);
 
-    const user: any = await store.getUser(targetHandle).catch(() => null);
-    if (!user) {
-      return fail(c, "invalid credentials", 401);
-    }
+    const { id: sessionId, expiresAt } = await createUserSession(store as any, c.env as any, user.id);
+    const cookieName = getSessionCookieName(c.env as Bindings);
+    const ttlSeconds = getSessionTtlSeconds(c.env as Bindings);
+    const requestUrl = new URL(c.req.url);
+    setCookie(c, cookieName, encodeURIComponent(sessionId), {
+      maxAge: ttlSeconds,
+      path: "/",
+      sameSite: "Lax",
+      secure: requestUrl.protocol === "https:",
+      httpOnly: true,
+    });
 
-    const passwordAccount = await getPasswordAccount(c.env.DB, user.id);
-    let verified = false;
-    if (passwordAccount?.secret) {
-      verified = await verifyPasswordValue(password, passwordAccount.secret);
-    }
-    if (
-      !verified &&
-      defaultHandle &&
-      envPassword &&
-      user.id === defaultHandle &&
-      password === envPassword
-    ) {
-      verified = true;
-    }
-
-    if (!verified) {
-      return fail(c, "invalid credentials", 401);
-    }
-
-    const { token } = await createUserJWT(c, store, user.id);
+    const { token } = await createUserJWT(c, store as any, user.id);
     // Remove sensitive/internal fields before returning
     const { jwt_secret, tenant_id, ...publicProfile } = user;
-    return ok(c, { user: publicProfile, token });
+    const sessionExpiresAt =
+      expiresAt instanceof Date ? expiresAt.toISOString() : null;
+    return ok(c, {
+      user: publicProfile,
+      token,
+      session: {
+        id: sessionId,
+        expires_at: sessionExpiresAt,
+      },
+    });
   } finally {
     await releaseStore(store);
   }
+}
+
+app.post("/auth/login", ownerPasswordLogin);
+
+app.post("/auth/password/login", async (c) => {
+  const response = await ownerPasswordLogin(c);
+  response.headers.set("X-Deprecated-Endpoint", "Use POST /auth/login");
+  return response;
 });
 
 app.post("/auth/session/token", async (c) => {
@@ -872,6 +881,153 @@ app.post("/auth/session/token", async (c) => {
   } finally {
     await releaseStore(store);
   }
+});
+
+app.post("/auth/active-user", auth, async (c) => {
+  const ownerSession = requireOwnerSession(c);
+  if (!ownerSession) {
+    return fail(c, "owner session required", 403);
+  }
+  const store = makeData(c.env as any, c);
+  try {
+    const ownsActor = buildOwnerActorValidator(
+      typeof store.listAccountsByUser === "function"
+        ? (userId: string) => store.listAccountsByUser(userId)
+        : undefined,
+    );
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, any>;
+    const requestedId =
+      typeof body.user_id === "string"
+        ? body.user_id
+        : typeof body.active_user_id === "string"
+          ? body.active_user_id
+          : typeof body.userId === "string"
+            ? body.userId
+            : "";
+    const normalizedHandle = normalizeHandle(requestedId);
+    if (!normalizedHandle) {
+      return fail(c, "user_id required", 400);
+    }
+
+    if (!isValidHandle(normalizedHandle)) {
+      return fail(c, "invalid handle", 400);
+    }
+
+    const user = await store.getUser(normalizedHandle).catch(() => null);
+    if (!user) {
+      return fail(c, "user not found", 404);
+    }
+
+    if (normalizeHandle(user.id) !== ownerSession.ownerHandle) {
+      await ensureOwnerActorAccount(store, ownerSession.ownerHandle, user.id);
+    }
+
+    const selection = await selectActiveUser(
+      user.id,
+      ownerSession.ownerUser,
+      c.env as Bindings,
+      async (id: string) => {
+        if (id === user.id) return user;
+        return store.getUser(id).catch(() => null);
+      },
+      ownsActor,
+    );
+
+    if (selection.activeUserId !== user.id) {
+      return fail(c, "forbidden", 403);
+    }
+
+    setActiveUserCookie(c, selection.activeUserId, ownerSession.ownerHandle);
+    c.set("user", selection.user ?? user);
+    c.set("activeUserId", selection.activeUserId);
+    return ok(c, { active_user_id: selection.activeUserId, user: sanitizeUser(selection.user ?? user) });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+app.post("/auth/owner/actors", auth, async (c) => {
+  const ownerSession = requireOwnerSession(c);
+  if (!ownerSession) {
+    return fail(c, "owner session required", 403);
+  }
+
+  const store = makeData(c.env as any, c);
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, any>;
+    const handleRaw =
+      typeof body.handle === "string"
+        ? body.handle
+        : typeof body.user_id === "string"
+          ? body.user_id
+          : typeof body.userId === "string"
+            ? body.userId
+            : "";
+    const handle = normalizeHandle(handleRaw);
+    if (!handle || !isValidHandle(handle)) {
+      return fail(c, "invalid handle", 400);
+    }
+    const displayName =
+      typeof body.display_name === "string" && body.display_name.trim()
+        ? body.display_name
+        : handleRaw || handle;
+    const create =
+      body.create === undefined && body.create_if_missing === undefined
+        ? true
+        : !!(body.create ?? body.create_if_missing);
+    const activate =
+      body.activate === undefined && body.set_active === undefined
+        ? true
+        : !!(body.activate ?? body.set_active);
+    const issueToken = body.issue_token === true;
+
+    let user = await store.getUser(handle).catch(() => null);
+    let created = false;
+    if (!user) {
+      if (!create) {
+        return fail(c, "user not found", 404);
+      }
+      user = await store.createUser({
+        id: handle,
+        display_name: displayName || handle,
+        is_private: 0,
+        created_at: nowISO(),
+      });
+      created = true;
+    }
+
+    if (normalizeHandle((user as any)?.id ?? "") !== ownerSession.ownerHandle) {
+      await ensureOwnerActorAccount(store, ownerSession.ownerHandle, (user as any).id);
+    }
+
+    if (activate) {
+      setActiveUserCookie(c, user.id, ownerSession.ownerHandle);
+      c.set("user", user);
+      c.set("activeUserId", user.id);
+    }
+
+    const response: Record<string, unknown> = {
+      user: sanitizeUser(user),
+      active_user_id: activate ? user.id : c.get("activeUserId") ?? null,
+      created,
+    };
+
+    if (issueToken) {
+      const { token } = await createUserJWT(c, store as any, (user as any).id);
+      response.token = token;
+    }
+
+    return ok(c, response, created ? 201 : 200);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+app.delete("/auth/active-user", auth, async (c) => {
+  clearActiveUserCookie(c);
+  const sessionUser = (c.get("sessionUser") as any) || (c.get("user") as any);
+  const fallbackUser = sessionUser ? sanitizeUser(sessionUser) : null;
+  return ok(c, { active_user_id: null, user: fallbackUser });
 });
 
 app.post("/auth/logout", async (c) => {

@@ -47,6 +47,7 @@ function createValidConfig(): TakosConfig {
         },
       },
       data_policy: { send_public_posts: true, send_dm: false },
+      agent_config_allowlist: ["ai.enabled_actions"],
     },
     custom: { feature_flag: true },
   };
@@ -75,6 +76,25 @@ describe("takos-config loader", () => {
     expect(result.errors.some((message) => message.includes("ai.providers.bad.type"))).toBe(true);
   });
 
+  it("validates agent config allowlist entries", () => {
+    const validConfig = createValidConfig();
+    validConfig.ai = {
+      ...validConfig.ai,
+      agent_config_allowlist: ["ai.enabled_actions", "custom.flag"],
+    };
+    const valid = validateTakosConfig(validConfig);
+    expect(valid.ok).toBe(true);
+
+    const invalidConfig = createValidConfig();
+    invalidConfig.ai = {
+      ...invalidConfig.ai,
+      agent_config_allowlist: ["   ", 123 as any],
+    };
+    const invalid = validateTakosConfig(invalidConfig);
+    expect(invalid.ok).toBe(false);
+    expect(invalid.errors.some((message) => message.includes("agent_config_allowlist"))).toBe(true);
+  });
+
   it("loads from a file path", async () => {
     const dir = await mkdtemp(join(tmpdir(), "takos-config-"));
     const filePath = join(dir, "takos-config.json");
@@ -95,16 +115,19 @@ describe("takos-config loader", () => {
         ai_feature_flag: true,
         enabled_actions: ["ai.summary", "ai.summary", "ai.tag-suggest"],
         data_policy: { send_public_posts: true },
+        agent_config_allowlist: ["ai.enabled_actions", " ai.enabled_actions "],
       } as any,
       {
         enabled: true,
         enabled_actions: ["ai.moderation"],
         data_policy: { send_dm: true },
+        agent_config_allowlist: ["custom.ai.toggle", "ai.enabled_actions"],
       },
     );
 
     expect(merged.enabled).toBe(true);
     expect(merged.enabled_actions).toEqual(["ai.summary", "ai.tag-suggest", "ai.moderation"]);
     expect(merged.data_policy).toEqual({ ...DEFAULT_TAKOS_AI_CONFIG.data_policy, send_public_posts: true, send_dm: true });
+    expect(merged.agent_config_allowlist).toEqual(["custom.ai.toggle", "ai.enabled_actions"]);
   });
 });

@@ -779,6 +779,54 @@ model app_state {
   @@map("app_state")
 }
 
+// App workspaces (dev)
+model app_workspaces {
+  id               String   @id
+  base_revision_id String?
+  status           String   @default("draft") // draft, validated, testing, ready, applied
+  author_type      String
+  author_name      String?
+  created_at       DateTime @default(now())
+  updated_at       DateTime @default(now())
+
+  base_revision app_revisions? @relation("AppWorkspaceBaseRevision", fields: [base_revision_id], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  files         app_workspace_files[]
+
+  @@map("app_workspaces")
+}
+
+model app_workspace_files {
+  workspace_id String
+  path         String
+  content      Bytes
+  content_type String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now())
+
+  workspace app_workspaces @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([workspace_id, path])
+  @@map("app_workspace_files")
+}
+
+// App runtime logs (dev/prod preview sandbox)
+model app_debug_logs {
+  id           Int      @id @default(autoincrement())
+  timestamp    DateTime @default(now())
+  mode         String
+  workspace_id String?
+  run_id       String
+  handler      String?
+  level        String
+  message      String
+  data_json    String?
+
+  @@index([timestamp], map: "app_debug_logs_timestamp_idx")
+  @@index([workspace_id], map: "app_debug_logs_workspace_idx")
+  @@index([handler], map: "app_debug_logs_handler_idx")
+  @@map("app_debug_logs")
+}
+
 // AI configuration (node-level)
 model ai_config {
   id          String   @id

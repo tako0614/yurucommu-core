@@ -5,24 +5,119 @@ import type {
   AppContext,
   PublicAccountBindings as Bindings,
 } from "@takos/platform/server";
-import { fail, releaseStore, authenticateJWT } from "@takos/platform/server";
+import {
+  fail,
+  releaseStore,
+  authenticateJWT,
+} from "@takos/platform/server";
 import { authenticateSession } from "@takos/platform/server/session";
+import { getCookie } from "hono/cookie";
 import { makeData } from "../data";
 import { createJwtStoreAdapter } from "../lib/jwt-store";
+import { buildOwnerActorValidator, selectActiveUser } from "../lib/owner-auth";
 
 type AuthContext = AppContext<Bindings> & {
   env: Bindings;
 };
 
+export const ACTIVE_USER_COOKIE_NAME = "activeUserId";
+export const ACTIVE_USER_HEADER_NAME = "x-active-user-id";
+
+type AuthenticatedUser = {
+  user: any;
+  sessionUser: any;
+  activeUserId: string | null;
+  sessionId: string | null;
+  token: string | null;
+};
+
+const parseActiveUserCookie = (raw: string | null | undefined) => {
+  if (!raw) {
+    return { userId: null, ownerId: null };
+  }
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  })();
+  const [userId, ownerId] = decoded.split(":");
+  return {
+    userId: userId?.trim() || null,
+    ownerId: ownerId?.trim() || null,
+  };
+};
+
+const extractActiveUserId = (
+  c: any,
+  baseUserId: string | null | undefined,
+): { requestedUserId: string | null; ownerId: string | null; source: "cookie" | null } => {
+  const { userId, ownerId } = parseActiveUserCookie(getCookie(c, ACTIVE_USER_COOKIE_NAME));
+  if (!userId) {
+    return { requestedUserId: null, ownerId: null, source: null };
+  }
+
+  const normalizedBase = (baseUserId || "").trim() || null;
+  const normalizedOwner = (ownerId || "").trim() || null;
+
+  if (normalizedOwner && normalizedBase && normalizedOwner !== normalizedBase) {
+    return { requestedUserId: null, ownerId: null, source: null };
+  }
+
+  if (!normalizedOwner && normalizedBase && userId !== normalizedBase) {
+    return { requestedUserId: null, ownerId: null, source: null };
+  }
+
+  return {
+    requestedUserId: userId,
+    ownerId: normalizedOwner ?? normalizedBase,
+    source: "cookie",
+  };
+};
+
+const resolveActiveUser = async (
+  c: any,
+  store: any,
+  baseUser: any,
+): Promise<{ user: any; activeUserId: string | null }> => {
+  const ownsActor = buildOwnerActorValidator(
+    typeof store.listAccountsByUser === "function"
+      ? (userId: string) => store.listAccountsByUser(userId)
+      : undefined,
+  );
+  const { requestedUserId } = extractActiveUserId(c, baseUser?.id);
+  return selectActiveUser(
+    requestedUserId,
+    baseUser,
+    c.env as Bindings,
+    async (id: string) => await store.getUser(id).catch(() => null),
+    ownsActor,
+  );
+};
+
 // Unified auth: prefer JWT, fall back to session cookie for legacy paths.
-export const authenticateUser = async (c: any, store: any) => {
+export const authenticateUser = async (
+  c: any,
+  store: any,
+): Promise<AuthenticatedUser | null> => {
   const jwtStore = createJwtStoreAdapter(store);
   const jwtResult = await authenticateJWT(c, jwtStore).catch(() => null);
   console.log("[backend] auth jwt", {
     path: new URL(c.req.url).pathname,
     ok: !!jwtResult,
   });
-  if (jwtResult) return jwtResult;
+  if (jwtResult?.user) {
+    const active = await resolveActiveUser(c, store, jwtResult.user);
+    return {
+      user: active.user,
+      activeUserId: active.activeUserId,
+      sessionUser: jwtResult.user,
+      sessionId: null,
+      token: jwtResult.token ?? null,
+    };
+  }
+
   const sessionResult = await authenticateSession(c, store, { renewCookie: true }).catch(
     () => null,
   );
@@ -30,7 +125,17 @@ export const authenticateUser = async (c: any, store: any) => {
     path: new URL(c.req.url).pathname,
     ok: !!sessionResult,
   });
-  return sessionResult;
+  if (!sessionResult?.user) {
+    return null;
+  }
+  const active = await resolveActiveUser(c, store, sessionResult.user);
+  return {
+    user: active.user,
+    activeUserId: active.activeUserId,
+    sessionUser: sessionResult.user,
+    sessionId: sessionResult.sessionId ?? null,
+    token: null,
+  };
 };
 
 export const auth = async (c: any, next: () => Promise<void>) => {
@@ -55,6 +160,14 @@ export const auth = async (c: any, next: () => Promise<void>) => {
     });
     if (!authResult) return fail(c, "Unauthorized", 401);
     c.set("user", authResult.user);
+    c.set("sessionUser", authResult.sessionUser);
+    c.set("activeUserId", authResult.activeUserId);
+    c.set("authContext", {
+      sessionId: authResult.sessionId,
+      token: authResult.token,
+      sessionUserId: authResult.sessionUser?.id ?? null,
+      activeUserId: authResult.activeUserId ?? null,
+    });
     await next();
   } finally {
     const releaseStarted = performance.now();
@@ -84,6 +197,14 @@ export const optionalAuth = async (c: any, next: () => Promise<void>) => {
     });
     if (authResult) {
       c.set("user", authResult.user);
+      c.set("sessionUser", authResult.sessionUser);
+      c.set("activeUserId", authResult.activeUserId);
+      c.set("authContext", {
+        sessionId: authResult.sessionId,
+        token: authResult.token,
+        sessionUserId: authResult.sessionUser?.id ?? null,
+        activeUserId: authResult.activeUserId ?? null,
+      });
     }
   } catch {
     // ignore authentication failures and continue as guest

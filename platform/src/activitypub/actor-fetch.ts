@@ -6,6 +6,7 @@
 
 import type { D1Database } from "@cloudflare/workers-types";
 import { makeData } from "../server/data-factory";
+import { getActivityPubAvailability } from "../server/context";
 
 export interface RemoteActor {
   id: string; // Actor URI
@@ -246,20 +247,36 @@ export async function getOrFetchActor(
   forceRefresh = false,
   fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = fetch
 ): Promise<RemoteActor | null> {
+  const availability = getActivityPubAvailability(env as any);
   const db = makeData(env as any);
 
   try {
-    // Check cache first
-    if (!forceRefresh) {
-      const cached = await db.findApActor(actorUri);
+    const cached = await db.findApActor(actorUri);
+    const updatedAt = cached?.last_fetched_at ?? cached?.updated_at;
+    const age = updatedAt ? Date.now() - updatedAt.getTime() : Number.POSITIVE_INFINITY;
+
+    if (cached && !forceRefresh && age < CACHE_TTL_MS) {
+      console.log(`Using cached actor: ${actorUri}`);
+      return mapRowToRemoteActor(cached);
+    }
+
+    if (!availability.enabled) {
       if (cached) {
-        const updatedAt = cached.last_fetched_at ?? cached.updated_at;
-        const age = updatedAt ? Date.now() - updatedAt.getTime() : Number.POSITIVE_INFINITY;
-        if (age < CACHE_TTL_MS) {
-          console.log(`Using cached actor: ${actorUri}`);
-          return mapRowToRemoteActor(cached);
-        }
+        console.warn(
+          `[ActivityPub] Using stale cached actor in ${availability.context} context: ${availability.reason}`,
+        );
+        return mapRowToRemoteActor(cached);
       }
+
+      console.warn(
+        `[ActivityPub] Remote actor fetch skipped in ${availability.context} context: ${availability.reason}`,
+      );
+      return null;
+    }
+
+    // Check cache first
+    if (!forceRefresh && cached) {
+      console.log(`Refreshing stale actor cache: ${actorUri}`);
     }
 
     // Fetch from remote

@@ -1,0 +1,188 @@
+{
+  "routes": [
+    {
+      "id": "posts_create",
+      "method": "POST",
+      "path": "/posts",
+      "handler": "createPost",
+      "auth": true,
+      "description": "Create a new post."
+    },
+    {
+      "id": "posts_list",
+      "method": "GET",
+      "path": "/posts",
+      "handler": "listPosts",
+      "auth": true,
+      "description": "List timeline posts."
+    },
+    {
+      "id": "posts_search",
+      "method": "GET",
+      "path": "/posts/search",
+      "handler": "searchPosts",
+      "auth": true,
+      "description": "Full-text search across posts."
+    },
+    {
+      "id": "posts_get",
+      "method": "GET",
+      "path": "/posts/:id",
+      "handler": "getPost",
+      "auth": true,
+      "description": "Fetch a single post."
+    },
+    {
+      "id": "posts_update",
+      "method": "PATCH",
+      "path": "/posts/:id",
+      "handler": "updatePost",
+      "auth": true,
+      "description": "Edit an existing post."
+    },
+    {
+      "id": "posts_delete",
+      "method": "DELETE",
+      "path": "/posts/:id",
+      "handler": "deletePost",
+      "auth": true,
+      "description": "Delete a post."
+    },
+    {
+      "id": "posts_history",
+      "method": "GET",
+      "path": "/posts/:id/history",
+      "handler": "getPostHistory",
+      "auth": true,
+      "description": "Return edit history for a post."
+    },
+    {
+      "id": "posts_poll",
+      "method": "GET",
+      "path": "/posts/:id/poll",
+      "handler": "getPostPoll",
+      "auth": true,
+      "description": "Fetch poll metadata for a post."
+    },
+    {
+      "id": "posts_vote",
+      "method": "POST",
+      "path": "/posts/:id/vote",
+      "handler": "voteOnPost",
+      "auth": true,
+      "description": "Vote on a poll attached to a post."
+    },
+    {
+      "id": "posts_repost",
+      "method": "POST",
+      "path": "/posts/:id/reposts",
+      "handler": "repost",
+      "auth": true,
+      "description": "Repost or boost a post."
+    },
+    {
+      "id": "posts_unrepost",
+      "method": "DELETE",
+      "path": "/posts/:id/reposts",
+      "handler": "undoRepost",
+      "auth": true,
+      "description": "Undo a repost."
+    },
+    {
+      "id": "posts_reposts",
+      "method": "GET",
+      "path": "/posts/:id/reposts",
+      "handler": "listReposts",
+      "auth": true,
+      "description": "List reposts for a post."
+    },
+    {
+      "id": "posts_reactions",
+      "method": "GET",
+      "path": "/posts/:id/reactions",
+      "handler": "listPostReactions",
+      "auth": true,
+      "description": "List reactions attached to a post."
+    },
+    {
+      "id": "posts_add_reaction",
+      "method": "POST",
+      "path": "/posts/:id/reactions",
+      "handler": "addPostReaction",
+      "auth": true,
+      "description": "Add a reaction to a post."
+    },
+    {
+      "id": "posts_remove_reaction",
+      "method": "DELETE",
+      "path": "/posts/:id/reactions/:reactionId",
+      "handler": "removePostReaction",
+      "auth": true,
+      "description": "Remove a reaction from a post."
+    },
+    {
+      "id": "posts_comments",
+      "method": "GET",
+      "path": "/posts/:id/comments",
+      "handler": "listComments",
+      "auth": true,
+      "description": "List comments for a post."
+    },
+    {
+      "id": "posts_add_comment",
+      "method": "POST",
+      "path": "/posts/:id/comments",
+      "handler": "addComment",
+      "auth": true,
+      "description": "Add a new comment to a post."
+    },
+    {
+      "id": "posts_delete_comment",
+      "method": "DELETE",
+      "path": "/posts/:id/comments/:commentId",
+      "handler": "deleteComment",
+      "auth": true,
+      "description": "Delete a comment."
+    },
+    {
+      "id": "posts_bookmark",
+      "method": "POST",
+      "path": "/posts/:id/bookmark",
+      "handler": "addBookmark",
+      "auth": true,
+      "description": "Bookmark a post."
+    },
+    {
+      "id": "posts_unbookmark",
+      "method": "DELETE",
+      "path": "/posts/:id/bookmark",
+      "handler": "removeBookmark",
+      "auth": true,
+      "description": "Remove a bookmark."
+    },
+    {
+      "id": "posts_bookmarks",
+      "method": "GET",
+      "path": "/me/bookmarks",
+      "handler": "listBookmarks",
+      "auth": true,
+      "description": "List bookmarked posts."
+    },
+    {
+      "id": "posts_create_in_community",
+      "method": "POST",
+      "path": "/communities/:id/posts",
+      "handler": "createCommunityPost",
+      "auth": true,
+      "description": "Create a post inside a community."
+    },
+    {
+      "id": "posts_list_in_community",
+      "method": "GET",
+      "path": "/communities/:id/posts",
+      "handler": "listCommunityPosts",
+      "auth": true,
+      "description": "List posts within a community."
+    }
+  ]
+}

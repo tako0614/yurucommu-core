@@ -1,0 +1,19 @@
+{
+  "handlers": [
+    {
+      "id": "ap_note_to_post",
+      "match": { "type": ["Note", "Article"] },
+      "handler": "mapActivityNote"
+    },
+    {
+      "id": "ap_question_to_poll",
+      "match": { "type": ["Question"] },
+      "handler": "mapActivityQuestion"
+    },
+    {
+      "id": "ap_announce_to_repost",
+      "match": { "type": ["Announce"] },
+      "handler": "mapActivityAnnounce"
+    }
+  ]
+}

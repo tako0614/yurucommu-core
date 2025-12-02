@@ -7,7 +7,14 @@ import type { PrismaClient } from "@prisma/client";
 import { normalizeStoryItems } from "@takos/platform";
 import type { TakosAiConfig } from "@takos/platform/server";
 import { DEFAULT_TAKOS_AI_CONFIG, mergeTakosAiConfig } from "@takos/platform/server";
-import type { DatabaseAPI } from "./types";
+import type {
+  AppLogEntry,
+  AppLogRecord,
+  AppRevisionAuditInput,
+  AppRevisionAuditRecord,
+  DatabaseAPI,
+  ListAppLogsOptions,
+} from "./types";
 import type { DatabaseConfig } from "./prisma-factory";
 
 const toBool = (v: number | boolean | null | undefined) =>
@@ -133,6 +140,24 @@ function canonicalizeUserId(
   const primary = trimmed || input;
   return { primary, aliases: Array.from(aliases) };
 }
+
+const toDateSafe = (value: NullableDate): Date | null => {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const toISOStringSafe = (value: NullableDate): string | null => {
+  const date = toDateSafe(value);
+  return date ? date.toISOString() : null;
+};
+
+const computeLagMs = (value: NullableDate, nowMs: number): number | null => {
+  const date = toDateSafe(value);
+  if (!date) return null;
+  const diff = nowMs - date.getTime();
+  return diff > 0 ? diff : 0;
+};
 
 /**
  * Creates a Database API instance with the provided configuration
@@ -3328,6 +3353,131 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     };
   };
 
+  const parseRevisionAuditDetails = (
+    raw: unknown,
+  ): AppRevisionAuditRecord["details"] => {
+    if (!raw) return null;
+    try {
+      return typeof raw === "string" ? JSON.parse(raw) : (raw as any);
+    } catch {
+      return null;
+    }
+  };
+
+  const mapAppRevisionAudit = (row: any): AppRevisionAuditRecord => ({
+    id: Number(row?.id ?? 0),
+    action: row?.action as AppRevisionAuditRecord["action"],
+    revision_id: row?.revision_id ?? null,
+    workspace_id: row?.workspace_id ?? null,
+    result: row?.result === "error" ? "error" : "success",
+    details: parseRevisionAuditDetails(row?.details_json),
+    created_at:
+      row?.created_at instanceof Date
+        ? row.created_at.toISOString()
+        : String(row?.created_at ?? new Date().toISOString()),
+  });
+
+  const ensureAppRevisionAuditTable = async () => {
+    await runStatement(
+      "CREATE TABLE IF NOT EXISTS app_revision_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL CHECK (action IN ('apply','rollback')), revision_id TEXT, workspace_id TEXT, result TEXT NOT NULL DEFAULT 'success' CHECK (result IN ('success','error')), details_json TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))",
+    );
+    await runStatement(
+      "CREATE INDEX IF NOT EXISTS idx_app_revision_audit_created ON app_revision_audit (created_at DESC, id DESC)",
+    );
+  };
+
+  const normalizeAuditLimit = (limit?: number | null) => {
+    if (!Number.isFinite(limit)) return 50;
+    return Math.min(Math.max(Math.trunc(limit as number), 1), 200);
+  };
+
+  const recordAppRevisionAudit = async (
+    entry: AppRevisionAuditInput,
+  ): Promise<AppRevisionAuditRecord> => {
+    await ensureAppRevisionAuditTable();
+    const createdAt = entry.created_at ? new Date(entry.created_at) : new Date();
+    const detailsJson = entry.details ? JSON.stringify(entry.details) : null;
+    const result = entry.result === "error" ? "error" : "success";
+
+    await runStatement(
+      `INSERT INTO app_revision_audit (action, revision_id, workspace_id, result, details_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        entry.action,
+        entry.revision_id ?? null,
+        entry.workspace_id ?? null,
+        result,
+        detailsJson,
+        createdAt.toISOString(),
+      ],
+    );
+
+    const idRows = await runStatement("SELECT last_insert_rowid() as id", [], true);
+    const insertedId = Number(idRows?.[0]?.id ?? 0);
+    const rows = await runStatement(
+      `SELECT id, action, revision_id, workspace_id, result, details_json, created_at
+       FROM app_revision_audit
+       WHERE id = ?`,
+      [insertedId],
+      true,
+    );
+    const row =
+      rows?.[0] ??
+      ({
+        id: insertedId,
+        action: entry.action,
+        revision_id: entry.revision_id ?? null,
+        workspace_id: entry.workspace_id ?? null,
+        result,
+        details_json: detailsJson,
+        created_at: createdAt.toISOString(),
+      } as any);
+    return mapAppRevisionAudit(row);
+  };
+
+  const listAppRevisionAudit = async (limit: number = 50) => {
+    await ensureAppRevisionAuditTable();
+    const normalizedLimit = normalizeAuditLimit(limit);
+    const rows = await runStatement(
+      `SELECT id, action, revision_id, workspace_id, result, details_json, created_at
+       FROM app_revision_audit
+       ORDER BY created_at DESC, id DESC
+       LIMIT ?`,
+      [normalizedLimit],
+      true,
+    );
+    return rows.map(mapAppRevisionAudit);
+  };
+
+  const validWorkspaceStatuses: import("./types").AppWorkspaceStatus[] = [
+    "draft",
+    "validated",
+    "testing",
+    "ready",
+    "applied",
+  ];
+
+  const normalizeWorkspaceStatus = (
+    status?: import("./types").AppWorkspaceStatus | string | null,
+  ): import("./types").AppWorkspaceStatus | null => {
+    if (!status) return null;
+    const normalized = String(status).trim().toLowerCase();
+    return validWorkspaceStatuses.find((value) => value === normalized) ?? null;
+  };
+
+  const mapAppWorkspace = (row: any): import("./types").AppWorkspaceRecord | null => {
+    if (!row) return null;
+    return {
+      id: row.id,
+      base_revision_id: row.base_revision_id ?? null,
+      status: row.status,
+      author_type: row.author_type,
+      author_name: row.author_name ?? null,
+      created_at: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+      updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : row.updated_at,
+    };
+  };
+
   const ensureAppStateRow = async () => {
     await runStatement(
       "INSERT OR IGNORE INTO app_state (id, updated_at) VALUES (1, CURRENT_TIMESTAMP)",
@@ -3415,6 +3565,197 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     };
   };
 
+  // -------------- App runtime logs --------------
+  const normalizeLogMode = (mode: any): "dev" | "prod" => (mode === "prod" ? "prod" : "dev");
+
+  const normalizeLogLevel = (level: any): "debug" | "info" | "warn" | "error" => {
+    const value = String(level || "").toLowerCase();
+    if (value === "debug" || value === "info" || value === "warn" || value === "warning") {
+      return value === "warning" ? "warn" : (value as any);
+    }
+    return "error";
+  };
+
+  const mapAppLog = (row: any): AppLogRecord => {
+    const parsedData = (() => {
+      const raw = row?.data_json;
+      if (raw === undefined || raw === null) return undefined;
+      try {
+        return typeof raw === "string" ? JSON.parse(raw) : raw;
+      } catch {
+        return undefined;
+      }
+    })();
+
+    return {
+      id: Number(row.id),
+      timestamp: row.timestamp instanceof Date ? row.timestamp.toISOString() : String(row.timestamp),
+      mode: normalizeLogMode(row.mode),
+      workspaceId: row.workspace_id ?? undefined,
+      runId: row.run_id,
+      handler: row.handler ?? undefined,
+      level: normalizeLogLevel(row.level),
+      message: row.message ?? "",
+      data: parsedData,
+    };
+  };
+
+  const appendAppLogEntries = async (entries: AppLogEntry[]): Promise<void> => {
+    if (!entries || entries.length === 0) return;
+    for (const entry of entries) {
+      const timestamp =
+        typeof entry.timestamp === "string" && entry.timestamp.trim().length > 0
+          ? entry.timestamp
+          : new Date().toISOString();
+      const dataJson =
+        entry.data === undefined ? null : JSON.stringify(entry.data);
+      await runStatement(
+        `INSERT INTO app_debug_logs (
+          timestamp,
+          mode,
+          workspace_id,
+          run_id,
+          handler,
+          level,
+          message,
+          data_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          timestamp,
+          normalizeLogMode(entry.mode),
+          entry.workspaceId ?? null,
+          entry.runId,
+          entry.handler ?? null,
+          normalizeLogLevel(entry.level),
+          entry.message ?? "",
+          dataJson,
+        ],
+      );
+    }
+  };
+
+  const listAppLogEntries = async (
+    options: ListAppLogsOptions = {},
+  ): Promise<AppLogRecord[]> => {
+    const where: string[] = [];
+    const params: any[] = [];
+    if (options.mode) {
+      where.push("mode = ?");
+      params.push(normalizeLogMode(options.mode));
+    }
+    if (options.workspaceId) {
+      where.push("workspace_id = ?");
+      params.push(options.workspaceId);
+    }
+    if (options.handler) {
+      where.push("handler = ?");
+      params.push(options.handler);
+    }
+    if (options.since) {
+      const sinceDate = new Date(options.since);
+      if (!Number.isNaN(sinceDate.getTime())) {
+        where.push("timestamp >= ?");
+        params.push(sinceDate.toISOString());
+      }
+    }
+    const limit = Math.max(1, Math.min(500, Number(options.limit) || 100));
+    const clauses = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    const rows = await runStatement(
+      `SELECT id, timestamp, mode, workspace_id, run_id, handler, level, message, data_json
+       FROM app_debug_logs
+       ${clauses}
+       ORDER BY timestamp DESC, id DESC
+       LIMIT ?`,
+      [...params, limit],
+      true,
+    );
+    return rows.map(mapAppLog);
+  };
+
+  const createAppWorkspace = async (workspace: import("./types").AppWorkspaceInput) => {
+    const id =
+      workspace.id?.trim() || `ws_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+    const baseRevisionId =
+      typeof workspace.base_revision_id === "string" && workspace.base_revision_id.trim().length > 0
+        ? workspace.base_revision_id.trim()
+        : null;
+    const status =
+      normalizeWorkspaceStatus(workspace.status) ??
+      normalizeWorkspaceStatus("draft") ??
+      "draft";
+    const author_type = workspace.author_type === "agent" ? "agent" : "human";
+    const author_name =
+      typeof workspace.author_name === "string" && workspace.author_name.trim().length > 0
+        ? workspace.author_name.trim()
+        : null;
+    const createdAt = workspace.created_at ? new Date(workspace.created_at) : new Date();
+    const updatedAt = workspace.updated_at ? new Date(workspace.updated_at) : createdAt;
+
+    await runStatement(
+      `INSERT INTO app_workspaces (
+        id,
+        base_revision_id,
+        status,
+        author_type,
+        author_name,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        baseRevisionId,
+        status,
+        author_type,
+        author_name,
+        createdAt.toISOString(),
+        updatedAt.toISOString(),
+      ],
+    );
+    return getAppWorkspace(id);
+  };
+
+  const getAppWorkspace = async (id: string) => {
+    const rows = await runStatement(
+      `SELECT id, base_revision_id, status, author_type, author_name, created_at, updated_at
+       FROM app_workspaces WHERE id = ?`,
+      [id],
+      true,
+    );
+    if (!rows.length) return null;
+    return mapAppWorkspace(rows[0]);
+  };
+
+  const listAppWorkspaces = async (limit: number = 50) => {
+    const rows = await runStatement(
+      `SELECT id, base_revision_id, status, author_type, author_name, created_at, updated_at
+       FROM app_workspaces
+       ORDER BY updated_at DESC
+       LIMIT ?`,
+      [limit],
+      true,
+    );
+    return rows
+      .map((row) => mapAppWorkspace(row))
+      .filter(Boolean) as import("./types").AppWorkspaceRecord[];
+  };
+
+  const updateAppWorkspaceStatus = async (
+    id: string,
+    status: import("./types").AppWorkspaceStatus,
+  ) => {
+    const normalized = normalizeWorkspaceStatus(status);
+    if (!normalized) {
+      throw new Error("invalid workspace status");
+    }
+    await runStatement(
+      `UPDATE app_workspaces
+       SET status = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [normalized, id],
+    );
+    return getAppWorkspace(id);
+  };
+
   // -------------- Data export --------------
   const createExportRequest = async (input: import("./types").DataExportRequestInput) => {
     const attempt_count =
@@ -3480,6 +3821,172 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     (prisma as any).data_export_requests.findUnique({
       where: { id },
     });
+
+  // -------------- Queue health summaries --------------
+  const getPostPlanQueueHealth =
+    async (): Promise<import("./types").PostPlanQueueHealth> => {
+      const nowMs = Date.now();
+      const now = new Date(nowMs);
+      const [scheduled, due, failed, oldestDue, lastFailed] = await Promise.all([
+        (prisma as any).post_plans.count({ where: { status: "scheduled", post_id: null } }),
+        (prisma as any).post_plans.count({
+          where: {
+            status: "scheduled",
+            post_id: null,
+            scheduled_at: { lte: now } as any,
+          },
+        }),
+        (prisma as any).post_plans.count({ where: { status: "failed" } }),
+        (prisma as any).post_plans.findFirst({
+          where: {
+            status: "scheduled",
+            post_id: null,
+            scheduled_at: { lte: now } as any,
+          },
+          orderBy: { scheduled_at: "asc" },
+          select: { scheduled_at: true },
+        }),
+        (prisma as any).post_plans.findFirst({
+          where: { status: "failed" },
+          orderBy: { updated_at: "desc" },
+          select: { updated_at: true, last_error: true },
+        }),
+      ]);
+
+      const oldestDueAt = oldestDue?.scheduled_at ?? null;
+      const lastFailedAt = lastFailed?.updated_at ?? null;
+
+      return {
+        scheduled: scheduled ?? 0,
+        due: due ?? 0,
+        failed: failed ?? 0,
+        oldest_due_at: toISOStringSafe(oldestDueAt),
+        max_delay_ms: computeLagMs(oldestDueAt, nowMs),
+        last_failed_at: toISOStringSafe(lastFailedAt),
+        last_error: (lastFailed as any)?.last_error ?? null,
+      };
+    };
+
+  const getExportQueueHealth =
+    async (): Promise<import("./types").ExportQueueHealth> => {
+      const nowMs = Date.now();
+      const [pending, processing, failed, completed, oldestPending, lastFailed] = await Promise.all(
+        [
+          (prisma as any).data_export_requests.count({ where: { status: "pending" } }),
+          (prisma as any).data_export_requests.count({ where: { status: "processing" } }),
+          (prisma as any).data_export_requests.count({ where: { status: "failed" } }),
+          (prisma as any).data_export_requests.count({ where: { status: "completed" } }),
+          (prisma as any).data_export_requests.findFirst({
+            where: { status: { in: ["pending", "processing"] } },
+            orderBy: { requested_at: "asc" },
+            select: { requested_at: true },
+          }),
+          (prisma as any).data_export_requests.findFirst({
+            where: { status: "failed" },
+            orderBy: [
+              { processed_at: "desc" },
+              { requested_at: "desc" },
+            ],
+            select: { processed_at: true, requested_at: true, error_message: true },
+          }),
+        ],
+      );
+
+      const oldestPendingAt = oldestPending?.requested_at ?? null;
+      const lastFailedAt =
+        lastFailed?.processed_at ?? (lastFailed as any)?.requested_at ?? null;
+
+      return {
+        pending: pending ?? 0,
+        processing: processing ?? 0,
+        failed: failed ?? 0,
+        completed: completed ?? 0,
+        oldest_pending_at: toISOStringSafe(oldestPendingAt),
+        max_delay_ms: computeLagMs(oldestPendingAt, nowMs),
+        last_failed_at: toISOStringSafe(lastFailedAt),
+        last_error: (lastFailed as any)?.error_message ?? null,
+      };
+    };
+
+  const getApDeliveryQueueHealth =
+    async (): Promise<import("./types").ApDeliveryQueueHealth> => {
+      const nowMs = Date.now();
+      const [pending, processing, failed, delivered, oldestPending, lastFailed] =
+        await Promise.all([
+          (prisma as any).ap_delivery_queue.count({ where: { status: "pending" } }),
+          (prisma as any).ap_delivery_queue.count({ where: { status: "processing" } }),
+          (prisma as any).ap_delivery_queue.count({ where: { status: "failed" } }),
+          (prisma as any).ap_delivery_queue.count({ where: { status: "delivered" } }),
+          (prisma as any).ap_delivery_queue.findFirst({
+            where: { status: { in: ["pending", "processing"] } },
+            orderBy: { created_at: "asc" },
+            select: { created_at: true },
+          }),
+          (prisma as any).ap_delivery_queue.findFirst({
+            where: { status: "failed" },
+            orderBy: [
+              { last_attempt_at: "desc" },
+              { created_at: "desc" },
+            ],
+            select: { last_attempt_at: true, created_at: true, last_error: true },
+          }),
+        ]);
+
+      const oldestPendingAt = oldestPending?.created_at ?? null;
+      const lastFailedAt =
+        lastFailed?.last_attempt_at ?? (lastFailed as any)?.created_at ?? null;
+
+      return {
+        pending: pending ?? 0,
+        processing: processing ?? 0,
+        failed: failed ?? 0,
+        delivered: delivered ?? 0,
+        oldest_pending_at: toISOStringSafe(oldestPendingAt),
+        max_delay_ms: computeLagMs(oldestPendingAt, nowMs),
+        last_failed_at: toISOStringSafe(lastFailedAt),
+        last_error: (lastFailed as any)?.last_error ?? null,
+      };
+    };
+
+  const getApInboxQueueHealth =
+    async (): Promise<import("./types").ApInboxQueueHealth> => {
+      const nowMs = Date.now();
+      const [pending, processing, failed, processed, oldestPending, lastFailed] =
+        await Promise.all([
+          (prisma as any).ap_inbox_activities.count({ where: { status: "pending" } }),
+          (prisma as any).ap_inbox_activities.count({ where: { status: "processing" } }),
+          (prisma as any).ap_inbox_activities.count({ where: { status: "failed" } }),
+          (prisma as any).ap_inbox_activities.count({ where: { status: "processed" } }),
+          (prisma as any).ap_inbox_activities.findFirst({
+            where: { status: { in: ["pending", "processing"] } },
+            orderBy: { created_at: "asc" },
+            select: { created_at: true },
+          }),
+          (prisma as any).ap_inbox_activities.findFirst({
+            where: { status: "failed" },
+            orderBy: [
+              { processed_at: "desc" },
+              { created_at: "desc" },
+            ],
+            select: { processed_at: true, created_at: true, error_message: true },
+          }),
+        ]);
+
+      const oldestPendingAt = oldestPending?.created_at ?? null;
+      const lastFailedAt =
+        lastFailed?.processed_at ?? (lastFailed as any)?.created_at ?? null;
+
+      return {
+        pending: pending ?? 0,
+        processing: processing ?? 0,
+        failed: failed ?? 0,
+        processed: processed ?? 0,
+        oldest_pending_at: toISOStringSafe(oldestPendingAt),
+        max_delay_ms: computeLagMs(oldestPendingAt, nowMs),
+        last_failed_at: toISOStringSafe(lastFailedAt),
+        last_error: (lastFailed as any)?.error_message ?? null,
+      };
+    };
 
   // Low-level operations
   const transaction = async <T>(fn: (tx: import("./types").DatabaseAPI) => Promise<T>): Promise<T> => {
@@ -3612,6 +4119,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     listPostPlansByUser,
     deletePostPlan,
     listDuePostPlans,
+    getPostPlanQueueHealth,
     // reactions
     addReaction,
     listReactionsByPost,
@@ -3658,12 +4166,22 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     listAppRevisions,
     setActiveAppRevision,
     getActiveAppRevision,
+    recordAppRevisionAudit,
+    listAppRevisionAudit,
+    appendAppLogEntries,
+    listAppLogEntries,
+    // App workspaces
+    createAppWorkspace,
+    getAppWorkspace,
+    listAppWorkspaces,
+    updateAppWorkspaceStatus,
     // exports
     createExportRequest,
     updateExportRequest,
     listExportRequestsByUser,
     listPendingExportRequests,
     getExportRequest,
+    getExportQueueHealth,
     // JWT
     getUserJwtSecret,
     setUserJwtSecret,
@@ -3711,6 +4229,8 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     resetStaleDeliveries,
     getApInboxStats,
     getApDeliveryQueueStats,
+    getApDeliveryQueueHealth,
+    getApInboxQueueHealth,
     countApRateLimits,
     // ActivityPub - Rate Limiting
     deleteOldRateLimits,
