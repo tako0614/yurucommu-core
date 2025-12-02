@@ -29,6 +29,18 @@ type TagSuggestOutput = {
   tags: string[];
 };
 
+type TranslationInput = {
+  text: string;
+  targetLanguage: string;
+  sourceLanguage?: string;
+};
+
+type TranslationOutput = {
+  translatedText: string;
+  detectedLanguage?: string;
+};
+
+
 type DmModeratorMessage = {
   from?: string;
   text?: string;
@@ -85,6 +97,27 @@ const tagSuggestOutputSchema: JsonSchema = {
   },
   required: ["tags"],
 };
+
+const translationInputSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    text: { type: "string", description: "Text to translate" },
+    targetLanguage: { type: "string", description: "Target language code (e.g., 'en', 'ja', 'es')" },
+    sourceLanguage: { type: "string", description: "Optional source language code" },
+  },
+  required: ["text", "targetLanguage"],
+  additionalProperties: false,
+};
+
+const translationOutputSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    translatedText: { type: "string" },
+    detectedLanguage: { type: "string" },
+  },
+  required: ["translatedText"],
+};
+
 
 const dmModeratorInputSchema: JsonSchema = {
   type: "object",
@@ -218,6 +251,29 @@ const tagSuggestHandler: AiActionHandler<TagSuggestInput, TagSuggestOutput> = as
   return { tags: pickTags(text, maxTags) };
 };
 
+const translationHandler: AiActionHandler<TranslationInput, TranslationOutput> = async (
+  ctx,
+  input,
+) => {
+  const text = normalizeText(input?.text);
+  const targetLanguage = normalizeText(input?.targetLanguage);
+
+  if (!text || !targetLanguage) {
+    return { translatedText: text || "" };
+  }
+
+  // For now, this is a placeholder that would be enhanced by actual AI provider
+  // In a real implementation, this would call the AI provider to translate
+  // The AI provider integration would happen through ctx.provider
+
+  // Simple passthrough for now - in production this would use the AI provider
+  return {
+    translatedText: text,
+    detectedLanguage: input?.sourceLanguage || "unknown",
+  };
+};
+
+
 const dmModeratorHandler: AiActionHandler<DmModeratorInput, DmModeratorOutput> = async (
   _ctx,
   input,
@@ -280,6 +336,21 @@ const tagSuggestAction: AiAction<TagSuggestInput, TagSuggestOutput> = {
   handler: tagSuggestHandler,
 };
 
+const translationAction: AiAction<TranslationInput, TranslationOutput> = {
+  definition: {
+    id: "ai.translation",
+    label: "Translate content",
+    description: "Translate text content to a target language.",
+    inputSchema: translationInputSchema,
+    outputSchema: translationOutputSchema,
+    providerCapabilities: ["chat"],
+    dataPolicy: {
+      sendPublicPosts: true,
+    },
+  },
+  handler: translationHandler,
+};
+
 const dmModeratorAction: AiAction<DmModeratorInput, DmModeratorOutput> = {
   definition: {
     id: "ai.dm-moderator",
@@ -299,8 +370,10 @@ const dmModeratorAction: AiAction<DmModeratorInput, DmModeratorOutput> = {
 export const builtinAiActions: AiAction<unknown, unknown>[] = [
   summaryAction as AiAction<unknown, unknown>,
   tagSuggestAction as AiAction<unknown, unknown>,
+  translationAction as AiAction<unknown, unknown>,
   dmModeratorAction as AiAction<unknown, unknown>,
 ];
+
 
 export function registerBuiltinAiActions(registry: AiRegistry = aiActionRegistry): void {
   for (const action of builtinAiActions) {

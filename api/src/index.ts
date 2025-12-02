@@ -82,6 +82,7 @@ import appDebugRoutes from "./routes/app-debug";
 import appManagerRoutes from "./routes/app-manager";
 import cronHealthRoutes from "./routes/cron-health";
 import activityPubMetadataRoutes from "./routes/activitypub-metadata.js";
+import activityPubExtensionsRoutes from "./routes/activitypub-extensions.js";
 import { getTakosConfig } from "./lib/runtime-config";
 import {
   isManifestRoutingEnabled,
@@ -107,8 +108,19 @@ import {
   validateCronConfig,
 } from "./lib/cron-tasks";
 import type { CronTaskDefinition, CronValidationResult } from "./lib/cron-tasks";
+import takosProfile from "../../takos-profile.json";
+import { validateTakosProfile } from "./lib/profile-validator";
+
+// Validate takos-profile.json on startup
+const profileValidation = validateTakosProfile(takosProfile);
+if (!profileValidation.ok) {
+  console.error("[profile] validation failed", profileValidation.errors);
+} else if (profileValidation.warnings.length > 0) {
+  console.warn("[profile] validation warnings", profileValidation.warnings);
+}
 
 type EnsureDatabaseFn = (env: Bindings) => Promise<void>;
+
 
 export type FeatureConfig = {
   envPasswordAuth?: boolean;
@@ -337,6 +349,8 @@ app.use("*", async (c, next) => {
 // so we mount at root.
 app.route("/", activityPubRoutes);
 app.route("/", activityPubMetadataRoutes);
+app.route("/", activityPubExtensionsRoutes);
+
 
 // Mount feature route modules
 // IMPORTANT: usersRoutes and communitiesRoutes must be mounted BEFORE postsRoutes
@@ -1108,8 +1122,8 @@ async function buildPostPayload(
   const text = typeof body.text === "string" ? body.text : "";
   const mediaUrls = Array.isArray(body.media_urls)
     ? (body.media_urls as any[])
-        .map((url) => (typeof url === "string" ? url.trim() : ""))
-        .filter((url) => url.length > 0)
+      .map((url) => (typeof url === "string" ? url.trim() : ""))
+      .filter((url) => url.length > 0)
     : [];
 
   const audienceInput = String(body.audience || "all");
@@ -1242,7 +1256,7 @@ app.post("/communities/:id/posts", auth, async (c) => {
       env: c.env,
     });
     await store.createPost(post);
-    
+
     // Generate and save Create Activity to ap_outbox_activities
     const instanceDomain = c.env.INSTANCE_DOMAIN
     const protocol = "https";
@@ -1263,7 +1277,7 @@ app.post("/communities/:id/posts", auth, async (c) => {
       to: noteObject.to,
       cc: noteObject.cc,
     };
-    
+
     await store.upsertApOutboxActivity({
       id: crypto.randomUUID(),
       local_user_id: user.id,
@@ -1274,12 +1288,12 @@ app.post("/communities/:id/posts", auth, async (c) => {
       object_type: "Note",
       created_at: new Date(),
     });
-    
+
     // Enqueue delivery to followers (optimized)
     await enqueueDeliveriesToFollowers(store, user.id, post.ap_activity_id!, {
       env: c.env,
     });
-    
+
     return ok(c, post, 201);
   } catch (error) {
     if (error instanceof HttpError) {
@@ -1301,10 +1315,10 @@ app.post("/posts", auth, async (c) => {
       env: c.env,
     });
     await store.createPost(post);
-    
+
     // Generate and save Create Activity to ap_outbox_activities
     const instanceDomain = c.env.INSTANCE_DOMAIN
-      "example.com";
+    "example.com";
     const protocol = "https";
     const noteObject = generateNoteObject(
       { ...post, media_json: JSON.stringify(post.media_urls) },
@@ -1323,7 +1337,7 @@ app.post("/posts", auth, async (c) => {
       to: noteObject.to,
       cc: noteObject.cc,
     };
-    
+
     await store.upsertApOutboxActivity({
       id: crypto.randomUUID(),
       local_user_id: user.id,
@@ -1334,12 +1348,12 @@ app.post("/posts", auth, async (c) => {
       object_type: "Note",
       created_at: new Date(),
     });
-    
+
     // Enqueue delivery to followers (optimized)
     await enqueueDeliveriesToFollowers(store, user.id, post.ap_activity_id!, {
       env: c.env,
     });
-    
+
     return ok(c, post, 201);
   } catch (error) {
     if (error instanceof HttpError) {
@@ -1438,7 +1452,7 @@ app.post("/posts/:id/reactions", auth, async (c) => {
   }
   const body = await c.req.json().catch(() => ({})) as any;
   const emoji = body.emoji || "👍";
-  
+
   // Generate ActivityPub URIs
   const instanceDomain = requireInstanceDomain(c.env);
   const reactionId = uuid();
@@ -1447,7 +1461,7 @@ app.post("/posts/:id/reactions", auth, async (c) => {
     `like-${reactionId}`,
     instanceDomain,
   );
-  
+
   const reaction = {
     id: reactionId,
     post_id,
@@ -1457,7 +1471,7 @@ app.post("/posts/:id/reactions", auth, async (c) => {
     ap_activity_id,
   };
   // Note: Reaction will be stored by inbox-worker after delivery
-  
+
   // Generate and save Like Activity
   const postObjectId = (post as any).ap_object_id ||
     getObjectUri((post as any).author_id, post_id, instanceDomain);
@@ -1471,7 +1485,7 @@ app.post("/posts/:id/reactions", auth, async (c) => {
     published: new Date(reaction.created_at).toISOString(),
     content: emoji !== "👍" ? emoji : undefined, // For emoji reactions (Misskey compat)
   };
-  
+
   await store.upsertApOutboxActivity({
     id: crypto.randomUUID(),
     local_user_id: user.id,
@@ -1494,12 +1508,12 @@ app.post("/posts/:id/reactions", auth, async (c) => {
       created_at: new Date(),
     });
   }
-  
+
   // Enqueue delivery to followers (optimized)
   await enqueueDeliveriesToFollowers(store, user.id, ap_activity_id, {
     env: c.env,
   });
-  
+
   // Keep notification for real-time UI updates
   if ((post as any).author_id !== user.id) {
     await notify(
@@ -1528,7 +1542,7 @@ app.post("/posts/:id/comments", auth, async (c) => {
   const body = await c.req.json().catch(() => ({})) as any;
   const text = (body.text || "").trim();
   if (!text) return fail(c, "text is required");
-  
+
   // Generate ActivityPub URIs
   const instanceDomain = requireInstanceDomain(c.env);
   const commentId = uuid();
@@ -1538,7 +1552,7 @@ app.post("/posts/:id/comments", auth, async (c) => {
     `create-comment-${commentId}`,
     instanceDomain,
   );
-  
+
   const comment = {
     id: commentId,
     post_id,
@@ -1549,7 +1563,7 @@ app.post("/posts/:id/comments", auth, async (c) => {
     ap_activity_id,
   };
   // Note: Comment will be stored by inbox-worker after delivery
-  
+
   // Generate and save Create Activity (Note with inReplyTo)
   const noteObject = {
     "@context": ACTIVITYSTREAMS_CONTEXT,
@@ -1577,7 +1591,7 @@ app.post("/posts/:id/comments", auth, async (c) => {
     published: noteObject.published,
     to: noteObject.to,
   };
-  
+
   await store.upsertApOutboxActivity({
     id: crypto.randomUUID(),
     local_user_id: user.id,
@@ -1600,12 +1614,12 @@ app.post("/posts/:id/comments", auth, async (c) => {
       created_at: new Date(),
     });
   }
-  
+
   // Enqueue delivery to followers (optimized)
   await enqueueDeliveriesToFollowers(store, user.id, ap_activity_id, {
     env: c.env,
   });
-  
+
   // Keep notification for real-time UI updates
   if ((post as any).author_id !== user.id) {
     await notify(
@@ -1623,7 +1637,7 @@ app.post("/posts/:id/comments", auth, async (c) => {
 });
 
 // Local no-op function for read-time story filtering (actual cleanup happens via cron)
-function localStoryFilterCleanup() {/* read-time filter only */}
+function localStoryFilterCleanup() {/* read-time filter only */ }
 
 async function requireRole(
   store: ReturnType<typeof makeData>,
@@ -1750,9 +1764,9 @@ app.patch("/stories/:id", auth, async (c) => {
     story.author_id === user.id ||
     (story.community_id
       ? await requireRole(store, story.community_id, user.id, [
-          "Owner",
-          "Moderator",
-        ], c.env)
+        "Owner",
+        "Moderator",
+      ], c.env)
       : false);
   if (!privileged) return fail(c, "forbidden", 403);
   const body = await c.req.json().catch(() => ({})) as any;
@@ -1773,8 +1787,8 @@ app.patch("/stories/:id", auth, async (c) => {
     updates.broadcast_all = nextBroadcastAll;
     updates.visible_to_friends = nextBroadcastAll
       ? (body.visible_to_friends === undefined
-          ? true
-          : !!body.visible_to_friends)
+        ? true
+        : !!body.visible_to_friends)
       : false;
   } else if (body.visible_to_friends !== undefined) {
     const currentBroadcastAll = !!(story as any).broadcast_all;
@@ -1799,9 +1813,9 @@ app.delete("/stories/:id", auth, async (c) => {
     story.author_id === user.id ||
     (story.community_id
       ? await requireRole(store, story.community_id, user.id, [
-          "Owner",
-          "Moderator",
-        ], c.env)
+        "Owner",
+        "Moderator",
+      ], c.env)
       : false);
   if (!privileged) return fail(c, "forbidden", 403);
   await store.deleteStory(id);
@@ -1954,8 +1968,8 @@ app.post("/dm/send", auth, async (c) => {
     const recipients = Array.isArray(body.recipients)
       ? body.recipients
       : body.recipient
-      ? [body.recipient]
-      : [];
+        ? [body.recipient]
+        : [];
 
     if (recipients.length === 0) {
       return fail(c, "recipients required", 400);

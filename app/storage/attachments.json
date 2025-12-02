@@ -1,0 +1,27 @@
+{
+    "buckets": {
+        "app:attachments": {
+            "comment": "User attachments for notes and custom content",
+            "base_path": "app/attachments/{userId}/",
+            "allowed_mime": [
+                "image/*",
+                "video/*",
+                "application/pdf",
+                "text/plain"
+            ],
+            "max_size_mb": 50,
+            "auto_delete_days": null
+        },
+        "app:exports": {
+            "comment": "Temporary storage for generated export files",
+            "base_path": "app/exports/{userId}/",
+            "allowed_mime": [
+                "application/json",
+                "application/zip",
+                "text/csv"
+            ],
+            "max_size_mb": 500,
+            "auto_delete_days": 7
+        }
+    }
+}
