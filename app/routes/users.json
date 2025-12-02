@@ -46,7 +46,7 @@
       "path": "/me/following",
       "handler": "listFollowing",
       "auth": true,
-      "description": "List users the owner is following."
+      "description": "List users the current user is following."
     },
     {
       "id": "user_list_followers",
@@ -54,7 +54,7 @@
       "path": "/me/followers",
       "handler": "listFollowers",
       "auth": true,
-      "description": "List followers for the owner."
+      "description": "List followers for the current user."
     },
     {
       "id": "user_list_follow_requests",

@@ -16,7 +16,6 @@ import { getActivityPubAvailability, ok, releaseStore } from "@takos/platform/se
 import { auth } from "../middleware/auth";
 import { makeData } from "../data";
 import type { DatabaseAPI, ListAppLogsOptions } from "../lib/types";
-import { isOwnerUser, resolveOwnerHandle } from "../lib/owner-auth";
 import { ensureDefaultWorkspace, resolveWorkspaceEnv } from "../lib/workspace-store";
 
 type DebugMode = "dev" | "prod-preview";
@@ -84,14 +83,14 @@ function serializeForLog(value: unknown): string {
   }
 }
 
-const resolveOwnerSession = (
+const requireAuthenticated = (
   c: any,
-): { ownerHandle: string; ownerUser: any } | null => {
+): { user: any } | null => {
   const sessionUser = (c.get("sessionUser") as any) || (c.get("user") as any);
-  if (!sessionUser || !isOwnerUser(sessionUser, c.env as Bindings)) {
+  if (!sessionUser?.id) {
     return null;
   }
-  return { ownerHandle: resolveOwnerHandle(c.env as Bindings), ownerUser: sessionUser };
+  return { user: sessionUser };
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -224,9 +223,9 @@ debugApp.post("/-/app/debug/run", auth, async (c) => {
     return c.json({ ok: false, error: "handler_required" }, 400);
   }
 
-  const ownerSession = resolveOwnerSession(c);
-  if (!ownerSession) {
-    return c.json({ ok: false, error: "owner_required" }, 403);
+  const authSession = requireAuthenticated(c);
+  if (!authSession) {
+    return c.json({ ok: false, error: "authentication_required" }, 403);
   }
 
   const logs: AppLogEntry[] = [];
@@ -356,9 +355,9 @@ debugApp.post("/-/app/debug/run", auth, async (c) => {
 });
 
 debugApp.get("/-/app/debug/logs", auth, async (c) => {
-  const ownerSession = resolveOwnerSession(c);
-  if (!ownerSession) {
-    return c.json({ ok: false, error: "owner_required" }, 403);
+  const authSession = requireAuthenticated(c);
+  if (!authSession) {
+    return c.json({ ok: false, error: "authentication_required" }, 403);
   }
   const options = parseLogQuery(c);
   const targetMode: AppRuntimeMode = options.mode ?? "dev";

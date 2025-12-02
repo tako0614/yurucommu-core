@@ -53,7 +53,8 @@ type EnvCredentialBindings = {
 type HostIntegrationBindings = {
   HOST_ORIGIN?: string;
   HOST_SHARED_SECRET?: string;
-  INSTANCE_OWNER_HANDLE?: string;
+  // Note: INSTANCE_OWNER_HANDLE was removed - authentication is now password-based only
+  // and any authenticated user can manage all local users
 };
 
 type CronBindings = {

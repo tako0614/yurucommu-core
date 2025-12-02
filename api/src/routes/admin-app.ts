@@ -26,7 +26,6 @@ import {
 import { loadWorkspaceSnapshot, validateWorkspaceForApply } from "../lib/app-workspace";
 import { ensureDefaultWorkspace, resolveWorkspaceEnv } from "../lib/workspace-store";
 import { auth } from "../middleware/auth";
-import { isOwnerUser } from "../lib/owner-auth";
 import type {
   AppRevisionAuditDetails,
   AppRevisionAuditInput,
@@ -580,20 +579,21 @@ const prepareRevisionCandidate = async (
 
 const adminAppRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-const requireOwnerSession = async (c: any, next: () => Promise<void>) => {
+/** Require authenticated user for workspace operations */
+const requireAuthenticatedSession = async (c: any, next: () => Promise<void>) => {
   const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
   if (!agentGuard.ok) {
     return fail(c as any, agentGuard.error, agentGuard.status);
   }
   const user = c.get("user");
-  if (!isOwnerUser(user, c.env as Bindings)) {
-    return fail(c as any, "owner session required", 403);
+  if (!user?.id) {
+    return fail(c as any, "authentication required", 403);
   }
   await next();
 };
 
-adminAppRoutes.use("/-/app/workspaces", auth, requireOwnerSession);
-adminAppRoutes.use("/-/app/workspaces/*", auth, requireOwnerSession);
+adminAppRoutes.use("/-/app/workspaces", auth, requireAuthenticatedSession);
+adminAppRoutes.use("/-/app/workspaces/*", auth, requireAuthenticatedSession);
 adminAppRoutes.use("/admin/app/*", async (c, next) => {
   const auth = checkAdminAuth(c);
   if (!auth.ok) {
@@ -1267,7 +1267,7 @@ adminAppRoutes.post("/-/app/workspaces/:id/files", async (c) => {
   });
 });
 
-adminAppRoutes.post("/-/app/workspaces/:id/apply-patch", auth, requireOwnerSession, async (c) => {
+adminAppRoutes.post("/-/app/workspaces/:id/apply-patch", auth, requireAuthenticatedSession, async (c) => {
   const agentGuard = guardAgentRequest(c.req, { toolId: "tool.applyCodePatch" });
   if (!agentGuard.ok) {
     return fail(c as any, agentGuard.error, agentGuard.status);

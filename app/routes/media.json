@@ -14,7 +14,7 @@
       "path": "/storage",
       "handler": "listStorageObjects",
       "auth": true,
-      "description": "List objects in the owner's storage namespace."
+      "description": "List objects in the user's storage namespace."
     },
     {
       "id": "storage_upload",
@@ -22,7 +22,7 @@
       "path": "/storage/upload",
       "handler": "uploadStorageObject",
       "auth": true,
-      "description": "Upload a file to the owner's storage namespace."
+      "description": "Upload a file to the user's storage namespace."
     },
     {
       "id": "storage_delete",
@@ -30,7 +30,7 @@
       "path": "/storage",
       "handler": "deleteStorageObject",
       "auth": true,
-      "description": "Delete an object from the owner's storage namespace."
+      "description": "Delete an object from the user's storage namespace."
     }
   ]
 }

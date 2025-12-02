@@ -51,7 +51,7 @@ vi.mock("../lib/config-audit", () => ({
   listConfigAudit: vi.fn(),
 }));
 
-const defaultEnv = { INSTANCE_OWNER_HANDLE: "owner" };
+const defaultEnv = {};
 
 const request = (
   path: string,
@@ -86,22 +86,20 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("/-/config owner endpoints", () => {
-  it("rejects non-owner sessions for export", async () => {
+describe("/-/config endpoints (authenticated access)", () => {
+  it("rejects unauthenticated requests for export", async () => {
+    const res = await request(
+      "/-/config/export",
+      { method: "GET" },
+    );
+
+    expect(res.status).toBe(401);
+  });
+
+  it("exports the active config for any authenticated user", async () => {
     const res = await request(
       "/-/config/export",
       { method: "GET", headers: { "x-user-id": "alice" } },
-    );
-
-    expect(res.status).toBe(403);
-    const json: any = await res.json();
-    expect(json.error).toBe("owner session required");
-  });
-
-  it("exports the active config for the owner", async () => {
-    const res = await request(
-      "/-/config/export",
-      { method: "GET", headers: { "x-user-id": "owner" } },
     );
 
     expect(res.status).toBe(200);
@@ -112,14 +110,14 @@ describe("/-/config owner endpoints", () => {
     expect(json.data.warnings).toContain("stored-warning");
   });
 
-  it("returns a config diff for the owner", async () => {
+  it("returns a config diff for any authenticated user", async () => {
     const res = await request(
       "/-/config/diff",
       {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-user-id": "owner",
+          "x-user-id": "bob",
         },
         body: JSON.stringify(nextConfig),
       },
@@ -135,14 +133,14 @@ describe("/-/config owner endpoints", () => {
     expect(payload.warnings).toContain("compat-warning");
   });
 
-  it("imports config updates and records an audit entry", async () => {
+  it("imports config updates and records an audit entry for any authenticated user", async () => {
     const res = await request(
       "/-/config/import",
       {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-user-id": "owner",
+          "x-user-id": "charlie",
         },
         body: JSON.stringify(nextConfig),
       },
@@ -158,8 +156,8 @@ describe("/-/config owner endpoints", () => {
     });
     expect(mockRecordConfigAudit).toHaveBeenCalledTimes(1);
     const audit = mockRecordConfigAudit.mock.calls[0][1];
-    expect(audit.actorId).toBe("owner");
-    expect(audit.actorHandle).toBe("owner");
+    expect(audit.actorId).toBe("charlie");
+    expect(audit.actorHandle).toBe("charlie");
     expect(payload.reload.warnings).toContain("reload-warning");
   });
 });

@@ -94,11 +94,7 @@ function normalizeConfig(config?: Partial<TakosAiConfig>): TakosAiConfig {
 
 function isAuthenticated(c: any): boolean {
   const user = c.get("user");
-  const owner = typeof c.env.INSTANCE_OWNER_HANDLE === "string"
-    ? c.env.INSTANCE_OWNER_HANDLE.trim()
-    : "";
-  if (!owner) return true;
-  return Boolean(user && (user.id === owner || user.handle === owner));
+  return !!user?.id;
 }
 
 export function buildProviderStatuses(
@@ -227,7 +223,7 @@ aiConfigRoutes.use("/api/ai/*", auth, async (c, next) => {
   await next();
 });
 
-aiConfigRoutes.get("/owner/ai", async (c) => {
+aiConfigRoutes.get("/auth/ai", async (c) => {
   const store = makeData(c.env as any, c);
   const supportsAiConfig =
     typeof (store as any).getAiConfig === "function" &&

@@ -11,7 +11,7 @@
                         "primary": true
                     },
                     {
-                        "name": "owner_id",
+                        "name": "user_id",
                         "type": "TEXT",
                         "nullable": false
                     },
@@ -43,9 +43,9 @@
             },
             "indexes": [
                 {
-                    "name": "idx_notes_owner_created",
+                    "name": "idx_notes_user_created",
                     "columns": [
-                        "owner_id",
+                        "user_id",
                         "created_at DESC"
                     ]
                 },

@@ -22,41 +22,26 @@ import {
   enforceAgentConfigAllowlist,
   getAgentConfigAllowlist,
 } from "../lib/agent-config-allowlist";
-import { isOwnerUser, resolveOwnerHandle } from "../lib/owner-auth";
 
 const configRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-function isAdminUser(user: any, env: Bindings): boolean {
-  return !!env.AUTH_USERNAME && user?.id === env.AUTH_USERNAME;
-}
-
 type ConfigActor = {
-  role: "admin" | "owner";
   user: any;
-  ownerHandle?: string;
 };
 
 const getSessionUser = (c: any) =>
   (c.get("sessionUser") as any) || (c.get("user") as any) || null;
 
 const resolveActorHandle = (actor: ConfigActor | null) =>
-  actor?.user?.handle ?? actor?.ownerHandle ?? actor?.user?.id ?? null;
+  actor?.user?.handle ?? actor?.user?.id ?? null;
 
-const requireOwnerSession = (c: any): ConfigActor | null => {
-  const ownerHandle = resolveOwnerHandle(c.env as Bindings);
+/** Require any authenticated user */
+const requireAuthenticatedUser = (c: any): ConfigActor | null => {
   const sessionUser = getSessionUser(c);
-  if (!isOwnerUser(sessionUser, c.env as Bindings)) {
+  if (!sessionUser?.id) {
     return null;
   }
-  return { role: "owner", user: sessionUser, ownerHandle };
-};
-
-const requireAdminActor = (c: any): ConfigActor | null => {
-  const sessionUser = getSessionUser(c);
-  if (!isAdminUser(sessionUser, c.env as Bindings)) {
-    return null;
-  }
-  return { role: "admin", user: sessionUser };
+  return { user: sessionUser };
 };
 
 type ActiveConfig = {
@@ -114,25 +99,25 @@ async function handleConfigExport(c: any) {
 }
 
 configRoutes.get("/admin/config/export", auth, async (c) => {
-  const actor = requireAdminActor(c);
+  const actor = requireAuthenticatedUser(c);
   if (!actor) {
-    return fail(c, "forbidden", 403);
+    return fail(c, "authentication required", 403);
   }
   return handleConfigExport(c);
 });
 
 configRoutes.get("/-/config/export", auth, async (c) => {
-  const owner = requireOwnerSession(c);
-  if (!owner) {
-    return fail(c, "owner session required", 403);
+  const actor = requireAuthenticatedUser(c);
+  if (!actor) {
+    return fail(c, "authentication required", 403);
   }
   return handleConfigExport(c);
 });
 
 configRoutes.get("/admin/config/audit", auth, async (c) => {
-  const actor = requireAdminActor(c);
+  const actor = requireAuthenticatedUser(c);
   if (!actor) {
-    return fail(c, "forbidden", 403);
+    return fail(c, "authentication required", 403);
   }
 
   const limitParam = c.req.query("limit");
@@ -299,35 +284,35 @@ async function handleConfigImport(c: any, actor: ConfigActor) {
 }
 
 configRoutes.post("/admin/config/diff", auth, async (c) => {
-  const actor = requireAdminActor(c);
+  const actor = requireAuthenticatedUser(c);
   if (!actor) {
-    return fail(c, "forbidden", 403);
+    return fail(c, "authentication required", 403);
   }
   return handleConfigDiff(c);
 });
 
 configRoutes.post("/-/config/diff", auth, async (c) => {
-  const owner = requireOwnerSession(c);
-  if (!owner) {
-    return fail(c, "owner session required", 403);
+  const actor = requireAuthenticatedUser(c);
+  if (!actor) {
+    return fail(c, "authentication required", 403);
   }
   return handleConfigDiff(c);
 });
 
 configRoutes.post("/admin/config/import", auth, async (c) => {
-  const actor = requireAdminActor(c);
+  const actor = requireAuthenticatedUser(c);
   if (!actor) {
-    return fail(c, "forbidden", 403);
+    return fail(c, "authentication required", 403);
   }
   return handleConfigImport(c, actor);
 });
 
 configRoutes.post("/-/config/import", auth, async (c) => {
-  const owner = requireOwnerSession(c);
-  if (!owner) {
-    return fail(c, "owner session required", 403);
+  const actor = requireAuthenticatedUser(c);
+  if (!actor) {
+    return fail(c, "authentication required", 403);
   }
-  return handleConfigImport(c, owner);
+  return handleConfigImport(c, actor);
 });
 
 export default configRoutes;

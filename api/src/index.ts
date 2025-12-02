@@ -83,6 +83,9 @@ import appManagerRoutes from "./routes/app-manager";
 import cronHealthRoutes from "./routes/cron-health";
 import activityPubMetadataRoutes from "./routes/activitypub-metadata.js";
 import activityPubExtensionsRoutes from "./routes/activitypub-extensions.js";
+import coreRecoveryRoutes from "./routes/core-recovery";
+import appManifestRoutes from "./routes/app-manifest";
+import takosConfigRoutes from "./routes/takos-config";
 import { getTakosConfig } from "./lib/runtime-config";
 import {
   isManifestRoutingEnabled,
@@ -94,14 +97,14 @@ import {
   auth,
   authenticateUser,
 } from "./middleware/auth";
-import {
-  buildOwnerActorValidator,
-  isOwnerUser,
-  normalizeHandle,
-  resolveOwnerHandle,
-  selectActiveUser,
-  isValidHandle,
-} from "./lib/owner-auth";
+// Handle validation helpers
+const HANDLE_REGEX = /^[a-z0-9_]{3,32}$/;
+function normalizeHandle(input: string): string {
+  return (input || "").trim().toLowerCase();
+}
+function isValidHandle(handle: string): boolean {
+  return HANDLE_REGEX.test(handle);
+}
 import { buildPushWellKnownPayload } from "./lib/push-check";
 import {
   getCronTasksForSchedule,
@@ -350,6 +353,13 @@ app.use("*", async (c, next) => {
 app.route("/", activityPubRoutes);
 app.route("/", activityPubMetadataRoutes);
 app.route("/", activityPubExtensionsRoutes);
+app.route("/", coreRecoveryRoutes);
+
+// Mount App Manifest endpoint
+app.route("/-/app/manifest", appManifestRoutes);
+
+// Mount takos-config.json export/import
+app.route("/-/config", takosConfigRoutes);
 
 
 // Mount feature route modules
@@ -439,7 +449,8 @@ async function verifyMasterPassword(input: string, expected: string): Promise<bo
   return subtleTimingSafeEqual(input, expected);
 }
 
-async function ensureOwnerUser(store: ReturnType<typeof makeData>, handle: string) {
+/** Ensure a default user exists for initial login */
+async function ensureDefaultUser(store: ReturnType<typeof makeData>, handle: string) {
   const existing = await store.getUser(handle).catch(() => null);
   if (existing) return existing;
   return store.createUser({
@@ -453,49 +464,14 @@ async function ensureOwnerUser(store: ReturnType<typeof makeData>, handle: strin
 const getSessionUser = (c: any) =>
   (c.get("sessionUser") as any) || (c.get("user") as any) || null;
 
-const requireOwnerSession = (
-  c: any,
-): { ownerHandle: string; ownerUser: any } | null => {
-  const ownerHandle = resolveOwnerHandle(c.env as Bindings);
+/** Check if user is authenticated (any authenticated user can manage all users) */
+const requireAuthenticated = (c: any): { user: any } | null => {
   const sessionUser = getSessionUser(c);
-  if (!isOwnerUser(sessionUser, c.env as Bindings)) {
+  if (!sessionUser?.id) {
     return null;
   }
-  return { ownerHandle, ownerUser: sessionUser };
+  return { user: sessionUser };
 };
-
-const OWNER_ACCOUNT_PROVIDER = "owner";
-
-async function ensureOwnerActorAccount(
-  store: ReturnType<typeof makeData>,
-  ownerHandle: string,
-  userId: string,
-) {
-  if (!store?.listAccountsByUser || !store?.createUserAccount) return;
-  const normalizedOwner = normalizeHandle(ownerHandle);
-  const normalizedUser = normalizeHandle(userId);
-  if (!normalizedOwner || !normalizedUser) return;
-
-  const ownerAccountId = `${normalizedOwner}:${normalizedUser}`;
-  const accounts = await store.listAccountsByUser(userId).catch(() => []);
-  const alreadyLinked = accounts.some((account: any) => {
-    const provider = normalizeHandle((account as any)?.provider ?? "");
-    const accountId = String((account as any)?.provider_account_id ?? "")
-      .trim()
-      .toLowerCase();
-    return provider === OWNER_ACCOUNT_PROVIDER && accountId === ownerAccountId;
-  });
-  if (alreadyLinked) return;
-
-  await store.createUserAccount({
-    id: crypto.randomUUID(),
-    user_id: userId,
-    provider: OWNER_ACCOUNT_PROVIDER,
-    provider_account_id: ownerAccountId,
-    created_at: nowISO(),
-    updated_at: nowISO(),
-  });
-}
 
 class HttpError extends Error {
   status: number;
@@ -531,19 +507,16 @@ const sanitizeUser = (user: any) => {
   return publicProfile;
 };
 
-const formatActiveUserCookieValue = (userId: string, ownerId?: string | null) => {
+const formatActiveUserCookieValue = (userId: string) => {
   const trimmedUser = (userId || "").trim();
-  const trimmedOwner = (ownerId || "").trim();
   if (!trimmedUser) return "";
-  return encodeURIComponent(
-    trimmedOwner ? `${trimmedUser}:${trimmedOwner}` : trimmedUser,
-  );
+  return encodeURIComponent(trimmedUser);
 };
 
-const setActiveUserCookie = (c: any, userId: string, ownerId?: string | null) => {
+const setActiveUserCookie = (c: any, userId: string) => {
   const ttlSeconds = getSessionTtlSeconds(c.env as Bindings);
   const requestUrl = new URL(c.req.url);
-  setCookie(c, ACTIVE_USER_COOKIE_NAME, formatActiveUserCookieValue(userId, ownerId), {
+  setCookie(c, ACTIVE_USER_COOKIE_NAME, formatActiveUserCookieValue(userId), {
     maxAge: ttlSeconds,
     path: "/",
     sameSite: "Lax",
@@ -827,20 +800,29 @@ app.delete("/storage", auth, async (c) => {
   }
 });
 
-// Owner-mode password auth for OSS single-instance setup.
+// Password auth for single-instance setup.
 // Canonical login endpoint: POST /auth/login (legacy /auth/password/login remains for compatibility).
 // Configure a single master password via AUTH_PASSWORD (plain or salt$hash).
-// The owner actor defaults to INSTANCE_OWNER_HANDLE (or "owner" if unset).
+// Default user handle is "user" (configurable via DEFAULT_USER_HANDLE).
+
+const DEFAULT_USER_HANDLE = "user";
+
+function resolveDefaultHandle(env: Bindings): string {
+  const configured = typeof (env as any).DEFAULT_USER_HANDLE === "string"
+    ? normalizeHandle((env as any).DEFAULT_USER_HANDLE)
+    : "";
+  return configured && isValidHandle(configured) ? configured : DEFAULT_USER_HANDLE;
+}
 
 app.post("/auth/password/register", async (c) => {
   return fail(
     c,
-    "password registration is disabled; use owner-managed actor creation instead",
+    "password registration is disabled; use authenticated actor creation instead",
     404,
   );
 });
 
-async function ownerPasswordLogin(c: any) {
+async function passwordLogin(c: any) {
   if (!featureEnabled("envPasswordAuth")) {
     return fail(c, "password authentication disabled", 404);
   }
@@ -860,8 +842,8 @@ async function ownerPasswordLogin(c: any) {
 
   const store = makeData(c.env as any, c);
   try {
-    const ownerHandle = resolveOwnerHandle(c.env as Bindings);
-    const user: any = await ensureOwnerUser(store, ownerHandle);
+    const defaultHandle = resolveDefaultHandle(c.env as Bindings);
+    const user: any = await ensureDefaultUser(store, defaultHandle);
 
     const { id: sessionId, expiresAt } = await createUserSession(store as any, c.env as any, user.id);
     const cookieName = getSessionCookieName(c.env as Bindings);
@@ -893,10 +875,10 @@ async function ownerPasswordLogin(c: any) {
   }
 }
 
-app.post("/auth/login", ownerPasswordLogin);
+app.post("/auth/login", passwordLogin);
 
 app.post("/auth/password/login", async (c) => {
-  const response = await ownerPasswordLogin(c);
+  const response = await passwordLogin(c);
   response.headers.set("X-Deprecated-Endpoint", "Use POST /auth/login");
   return response;
 });
@@ -922,18 +904,14 @@ app.post("/auth/session/token", async (c) => {
   }
 });
 
+// Switch active user - any authenticated user can switch to any existing user
 app.post("/auth/active-user", auth, async (c) => {
-  const ownerSession = requireOwnerSession(c);
-  if (!ownerSession) {
-    return fail(c, "owner session required", 403);
+  const authSession = requireAuthenticated(c);
+  if (!authSession) {
+    return fail(c, "authentication required", 403);
   }
   const store = makeData(c.env as any, c);
   try {
-    const ownsActor = buildOwnerActorValidator(
-      typeof store.listAccountsByUser === "function"
-        ? (userId: string) => store.listAccountsByUser(userId)
-        : undefined,
-    );
     const body = (await c.req.json().catch(() => ({}))) as Record<string, any>;
     const requestedId =
       typeof body.user_id === "string"
@@ -957,38 +935,20 @@ app.post("/auth/active-user", auth, async (c) => {
       return fail(c, "user not found", 404);
     }
 
-    if (normalizeHandle(user.id) !== ownerSession.ownerHandle) {
-      await ensureOwnerActorAccount(store, ownerSession.ownerHandle, user.id);
-    }
-
-    const selection = await selectActiveUser(
-      user.id,
-      ownerSession.ownerUser,
-      c.env as Bindings,
-      async (id: string) => {
-        if (id === user.id) return user;
-        return store.getUser(id).catch(() => null);
-      },
-      ownsActor,
-    );
-
-    if (selection.activeUserId !== user.id) {
-      return fail(c, "forbidden", 403);
-    }
-
-    setActiveUserCookie(c, selection.activeUserId!, ownerSession.ownerHandle);
-    c.set("user", selection.user ?? user);
-    (c as any).set("activeUserId", selection.activeUserId);
-    return ok(c, { active_user_id: selection.activeUserId, user: sanitizeUser(selection.user ?? user) });
+    setActiveUserCookie(c, user.id);
+    c.set("user", user);
+    (c as any).set("activeUserId", user.id);
+    return ok(c, { active_user_id: user.id, user: sanitizeUser(user) });
   } finally {
     await releaseStore(store);
   }
 });
 
-app.post("/auth/owner/actors", auth, async (c) => {
-  const ownerSession = requireOwnerSession(c);
-  if (!ownerSession) {
-    return fail(c, "owner session required", 403);
+// Create or switch to actor - any authenticated user can manage all actors
+app.post("/auth/actors", auth, async (c) => {
+  const authSession = requireAuthenticated(c);
+  if (!authSession) {
+    return fail(c, "authentication required", 403);
   }
 
   const store = makeData(c.env as any, c);
@@ -1035,12 +995,8 @@ app.post("/auth/owner/actors", auth, async (c) => {
       created = true;
     }
 
-    if (normalizeHandle((user as any)?.id ?? "") !== ownerSession.ownerHandle) {
-      await ensureOwnerActorAccount(store, ownerSession.ownerHandle, (user as any).id);
-    }
-
     if (activate) {
-      setActiveUserCookie(c, user.id, ownerSession.ownerHandle);
+      setActiveUserCookie(c, user.id);
       c.set("user", user);
       (c as any).set("activeUserId", user.id);
     }
@@ -1062,6 +1018,15 @@ app.post("/auth/owner/actors", auth, async (c) => {
   }
 });
 
+// Legacy endpoint - redirect to /auth/actors
+app.post("/auth/owner/actors", auth, async (c) => {
+  // Forward to new endpoint
+  const newUrl = new URL(c.req.url);
+  newUrl.pathname = "/auth/actors";
+  const newReq = new Request(newUrl.toString(), c.req.raw);
+  return app.fetch(newReq, c.env, c.executionCtx);
+});
+
 app.delete("/auth/active-user", auth, async (c) => {
   clearActiveUserCookie(c);
   const sessionUser = ((c as any).get("sessionUser")) || (c.get("user") as any);
@@ -1069,42 +1034,46 @@ app.delete("/auth/active-user", auth, async (c) => {
   return ok(c, { active_user_id: null, user: fallbackUser });
 });
 
-app.get("/auth/owner/actors", auth, async (c) => {
-  const ownerSession = requireOwnerSession(c);
-  if (!ownerSession) {
-    return fail(c, "owner session required", 403);
+// List all actors - returns current active user info
+// Note: Full user listing requires DatabaseAPI.listUsers which may not be implemented
+app.get("/auth/actors", auth, async (c) => {
+  const authSession = requireAuthenticated(c);
+  if (!authSession) {
+    return fail(c, "authentication required", 403);
   }
 
-  const store = makeData(c.env as any, c);
-  try {
-    if (typeof store.listAccountsByUser !== "function") {
-      return fail(c, "multi-actor feature not supported", 501);
-    }
+  const activeUserId = (c as any).get("activeUserId") ?? null;
+  const sessionUser = getSessionUser(c);
+  const activeUser = c.get("user") as any;
 
-    const accounts = await store.listAccountsByUser(ownerSession.ownerUser);
-    const actors = await Promise.all(
-      accounts.map(async (acc: any) => {
-        const user = await store.getUser(acc.actor_id).catch(() => null);
-        return user ? sanitizeUser(user) : null;
-      })
-    );
-
-    const filteredActors = actors.filter((a) => a !== null);
-    const activeUserId = (c as any).get("activeUserId") ?? null;
-
-    return ok(c, {
-      actors: filteredActors,
-      active_user_id: activeUserId,
-    });
-  } finally {
-    await releaseStore(store);
+  // Return available actor info
+  const actors: any[] = [];
+  if (sessionUser) {
+    actors.push(sanitizeUser(sessionUser));
   }
+  if (activeUser && activeUser.id !== sessionUser?.id) {
+    actors.push(sanitizeUser(activeUser));
+  }
+
+  return ok(c, {
+    actors,
+    active_user_id: activeUserId,
+  });
 });
 
-app.delete("/auth/owner/actors/:actorId", auth, async (c) => {
-  const ownerSession = requireOwnerSession(c);
-  if (!ownerSession) {
-    return fail(c, "owner session required", 403);
+// Legacy endpoint - redirect to /auth/actors
+app.get("/auth/owner/actors", auth, async (c) => {
+  const newUrl = new URL(c.req.url);
+  newUrl.pathname = "/auth/actors";
+  const newReq = new Request(newUrl.toString(), c.req.raw);
+  return app.fetch(newReq, c.env, c.executionCtx);
+});
+
+// Delete actor - any authenticated user can delete any actor (except currently active)
+app.delete("/auth/actors/:actorId", auth, async (c) => {
+  const authSession = requireAuthenticated(c);
+  if (!authSession) {
+    return fail(c, "authentication required", 403);
   }
 
   const store = makeData(c.env as any, c);
@@ -1116,45 +1085,33 @@ app.delete("/auth/owner/actors/:actorId", auth, async (c) => {
       return fail(c, "invalid actor_id", 400);
     }
 
-    // Cannot delete the owner actor itself
-    if (normalizedActorId === ownerSession.ownerHandle) {
-      return fail(c, "cannot delete owner actor", 403);
+    // Cannot delete the session user's actor
+    const sessionUserId = normalizeHandle(authSession.user?.id ?? "");
+    if (normalizedActorId === sessionUserId) {
+      return fail(c, "cannot delete current session actor", 403);
     }
 
-    // Verify this actor belongs to the owner
-    const ownsActor = buildOwnerActorValidator(
-      typeof store.listAccountsByUser === "function"
-        ? (userId: string) => store.listAccountsByUser(userId)
-        : undefined,
-    );
-
-    const isOwned = await ownsActor(ownerSession.ownerUser, normalizedActorId);
-    if (!isOwned) {
-      return fail(c, "actor not found or not owned by this user", 404);
+    // Check if actor exists
+    const actor = await store.getUser(normalizedActorId).catch(() => null);
+    if (!actor) {
+      return fail(c, "actor not found", 404);
     }
 
     // TODO: Implement user deletion in DatabaseAPI
     // For now, return not implemented
     return fail(c, "actor deletion not yet implemented", 501);
-
-    // Future implementation:
-    // const user = await store.getUser(normalizedActorId);
-    // if (!user) {
-    //   return fail(c, "actor not found", 404);
-    // }
-    //
-    // await store.deleteUser(normalizedActorId);
-    //
-    // // If this was the active actor, clear it
-    // const currentActiveUserId = (c as any).get("activeUserId");
-    // if (currentActiveUserId === normalizedActorId) {
-    //   clearActiveUserCookie(c);
-    // }
-    //
-    // return ok(c, { deleted: true, actor_id: normalizedActorId });
   } finally {
     await releaseStore(store);
   }
+});
+
+// Legacy endpoint - redirect to /auth/actors/:actorId
+app.delete("/auth/owner/actors/:actorId", auth, async (c) => {
+  const actorId = c.req.param("actorId");
+  const newUrl = new URL(c.req.url);
+  newUrl.pathname = `/auth/actors/${actorId}`;
+  const newReq = new Request(newUrl.toString(), c.req.raw);
+  return app.fetch(newReq, c.env, c.executionCtx);
 });
 
 app.post("/auth/logout", async (c) => {
