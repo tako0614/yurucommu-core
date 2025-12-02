@@ -27,7 +27,7 @@ export type BlockedInstanceEntry = {
   env: boolean;
 };
 
-function isOwnerUser(user: any, env: Bindings): boolean {
+function isAuthenticated(user: any, env: Bindings): boolean {
   return !!env.AUTH_USERNAME && user?.id === env.AUTH_USERNAME;
 }
 
@@ -136,22 +136,22 @@ function buildBlockedPayload(
   };
 }
 
-const activityPubOwnerRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const activityPubConfigRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-activityPubOwnerRoutes.use("/owner/activitypub/*", auth, async (c, next) => {
+activityPubConfigRoutes.use("/api/activitypub/*", auth, async (c, next) => {
   const user = c.get("user") as any;
-  if (!isOwnerUser(user, c.env as Bindings)) {
+  if (!isAuthenticated(user, c.env as Bindings)) {
     return fail(c, "forbidden", 403);
   }
   await next();
 });
 
-activityPubOwnerRoutes.get("/owner/activitypub/blocked-instances", async (c) => {
+activityPubConfigRoutes.get("/api/activitypub/blocked-instances", async (c) => {
   const { source, configBlocked } = await resolveConfig(c.env as Bindings);
   return ok(c, buildBlockedPayload(c.env as Bindings, configBlocked, source));
 });
 
-activityPubOwnerRoutes.post("/owner/activitypub/blocked-instances", async (c) => {
+activityPubConfigRoutes.post("/api/activitypub/blocked-instances", async (c) => {
   const agentGuard = guardAgentRequest(c.req, { toolId: "tool.updateTakosConfig" });
   if (!agentGuard.ok) {
     return fail(c, agentGuard.error, agentGuard.status);
@@ -209,7 +209,7 @@ activityPubOwnerRoutes.post("/owner/activitypub/blocked-instances", async (c) =>
   });
 });
 
-activityPubOwnerRoutes.delete("/owner/activitypub/blocked-instances/:domain", async (c) => {
+activityPubConfigRoutes.delete("/api/activitypub/blocked-instances/:domain", async (c) => {
   const agentGuard = guardAgentRequest(c.req, { toolId: "tool.updateTakosConfig" });
   if (!agentGuard.ok) {
     return fail(c, agentGuard.error, agentGuard.status);
@@ -263,4 +263,4 @@ activityPubOwnerRoutes.delete("/owner/activitypub/blocked-instances/:domain", as
   });
 });
 
-export default activityPubOwnerRoutes;
+export default activityPubConfigRoutes;

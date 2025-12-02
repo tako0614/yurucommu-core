@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeBlockedSources, normalizeBlockedInstance } from "./activitypub-owner";
+import { mergeBlockedSources, normalizeBlockedInstance } from "./activitypub-config";
 
 describe("normalizeBlockedInstance", () => {
   it("extracts and lowercases hostnames", () => {

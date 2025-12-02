@@ -9,41 +9,7 @@ import {
   buildPushWellKnownPayload,
   resolvePushTarget,
 } from "../lib/push-check";
-
-type OwnerAuthResult =
-  | { ok: true; owner: string }
-  | { ok: false; status: number; message: string };
-
-function decodeBasicAuth(encoded: string): string | null {
-  try {
-    return atob(encoded);
-  } catch {
-    return null;
-  }
-}
-
-function checkOwnerAuth(c: any): OwnerAuthResult {
-  const username = c.env.AUTH_USERNAME?.trim();
-  const password = c.env.AUTH_PASSWORD?.trim();
-  if (!username || !password) {
-    return { ok: false, status: 500, message: "owner credentials are not configured" };
-  }
-  const header = c.req.header("Authorization") || "";
-  if (!header.startsWith("Basic ")) {
-    return { ok: false, status: 401, message: "owner basic auth required" };
-  }
-  const encoded = header.slice("Basic ".length).trim();
-  const decoded = decodeBasicAuth(encoded);
-  if (!decoded || !decoded.includes(":")) {
-    return { ok: false, status: 401, message: "invalid authorization header" };
-  }
-  const [user, ...rest] = decoded.split(":");
-  const pass = rest.join(":");
-  if (user !== username || pass !== password) {
-    return { ok: false, status: 401, message: "invalid credentials" };
-  }
-  return { ok: true, owner: user };
-}
+import { auth } from "../middleware/auth";
 
 type PushVerifyRequest = {
   sendTest?: boolean;
@@ -52,19 +18,10 @@ type PushVerifyRequest = {
   message?: string;
 };
 
-const ownerPush = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const pushRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-ownerPush.use("/owner/push/*", async (c, next) => {
-  const auth = checkOwnerAuth(c);
-  if (!auth.ok) {
-    if (auth.status === 401) {
-      c.header("WWW-Authenticate", 'Basic realm="takos-owner"');
-    }
-    return fail(c as any, auth.message, auth.status);
-  }
-  (c as any).set("ownerUser", auth.owner);
-  await next();
-});
+// Require authentication for all push configuration endpoints
+pushRoutes.use("/api/push/*", auth);
 
 const buildTestPayload = (instance: string, userId: string, message?: string) => ({
   instance,
@@ -77,7 +34,7 @@ const buildTestPayload = (instance: string, userId: string, message?: string) =>
   },
 });
 
-ownerPush.post("/owner/push/verify", async (c) => {
+pushRoutes.post("/api/push/verify", async (c) => {
   const env = c.env as Bindings;
   let instance: string;
   try {
@@ -110,10 +67,11 @@ ownerPush.post("/owner/push/verify", async (c) => {
     );
   }
 
+  const user = c.get("user") as any;
   const userId =
     typeof body.userId === "string" && body.userId.trim()
       ? body.userId.trim()
-      : ((c as any).get("ownerUser") as string) || "push-owner";
+      : user?.id || "system";
 
   const testPayload = hasPrivateKey
     ? buildTestPayload(instance, userId, body.message)
@@ -209,4 +167,4 @@ ownerPush.post("/owner/push/verify", async (c) => {
   });
 });
 
-export default ownerPush;
+export default pushRoutes;

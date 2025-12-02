@@ -34,8 +34,8 @@ import type {
 } from "../lib/types";
 import defaultUiContract from "../../../takos-ui-contract.json";
 
-type OwnerAuthResult =
-  | { ok: true; owner: string }
+type AdminAuthResult =
+  | { ok: true; admin: string }
   | { ok: false; status: number; message: string };
 
 function decodeBasicAuth(encoded: string): string | null {
@@ -52,15 +52,15 @@ function decodeBasicAuth(encoded: string): string | null {
   return null;
 }
 
-function checkOwnerAuth(c: any): OwnerAuthResult {
+function checkAdminAuth(c: any): AdminAuthResult {
   const username = c.env.AUTH_USERNAME?.trim();
   const password = c.env.AUTH_PASSWORD?.trim();
   if (!username || !password) {
-    return { ok: false, status: 500, message: "owner credentials are not configured" };
+    return { ok: false, status: 500, message: "admin credentials are not configured" };
   }
   const header = c.req.header("Authorization") || "";
   if (!header.startsWith("Basic ")) {
-    return { ok: false, status: 401, message: "owner basic auth required" };
+    return { ok: false, status: 401, message: "admin basic auth required" };
   }
   const encoded = header.slice("Basic ".length).trim();
   const decoded = decodeBasicAuth(encoded);
@@ -72,7 +72,7 @@ function checkOwnerAuth(c: any): OwnerAuthResult {
   if (user !== username || pass !== password) {
     return { ok: false, status: 401, message: "invalid credentials" };
   }
-  return { ok: true, owner: user };
+  return { ok: true, admin: user };
 }
 
 type WorkspaceLifecycleStatus = Extract<AppWorkspaceStatus, "draft" | "validated" | "ready">;
@@ -578,7 +578,7 @@ const prepareRevisionCandidate = async (
   };
 };
 
-const ownerAppRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const adminAppRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 const requireOwnerSession = async (c: any, next: () => Promise<void>) => {
   const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
@@ -592,21 +592,21 @@ const requireOwnerSession = async (c: any, next: () => Promise<void>) => {
   await next();
 };
 
-ownerAppRoutes.use("/-/app/workspaces", auth, requireOwnerSession);
-ownerAppRoutes.use("/-/app/workspaces/*", auth, requireOwnerSession);
-ownerAppRoutes.use("/owner/app/*", async (c, next) => {
-  const auth = checkOwnerAuth(c);
+adminAppRoutes.use("/-/app/workspaces", auth, requireOwnerSession);
+adminAppRoutes.use("/-/app/workspaces/*", auth, requireOwnerSession);
+adminAppRoutes.use("/admin/app/*", async (c, next) => {
+  const auth = checkAdminAuth(c);
   if (!auth.ok) {
     if (auth.status === 401) {
-      c.header("WWW-Authenticate", 'Basic realm="takos-owner"');
+      c.header("WWW-Authenticate", 'Basic realm="takos-admin"');
     }
     return fail(c as any, auth.message, auth.status);
   }
-  (c as any).set("ownerUser", auth.owner);
+  (c as any).set("adminUser", auth.admin);
   await next();
 });
 
-ownerAppRoutes.get("/owner/app/revisions", async (c) => {
+adminAppRoutes.get("/admin/app/revisions", async (c) => {
   const store = makeData(c.env as any, c);
   try {
     const limit = Math.min(
@@ -630,7 +630,7 @@ ownerAppRoutes.get("/owner/app/revisions", async (c) => {
   }
 });
 
-ownerAppRoutes.get("/owner/app/revisions/audit", async (c) => {
+adminAppRoutes.get("/admin/app/revisions/audit", async (c) => {
   const store = makeData(c.env as any, c);
   try {
     if (!store.listAppRevisionAudit) {
@@ -653,7 +653,7 @@ ownerAppRoutes.get("/owner/app/revisions/audit", async (c) => {
   }
 });
 
-ownerAppRoutes.get("/owner/app/revisions/diff", async (c) => {
+adminAppRoutes.get("/admin/app/revisions/diff", async (c) => {
   const store = makeData(c.env as any, c);
   try {
     if (!store.listAppRevisions) {
@@ -688,7 +688,7 @@ ownerAppRoutes.get("/owner/app/revisions/diff", async (c) => {
   }
 });
 
-ownerAppRoutes.post("/owner/app/revisions/apply", async (c) => {
+adminAppRoutes.post("/admin/app/revisions/apply", async (c) => {
   const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
   if (!agentGuard.ok) {
     return fail(c as any, agentGuard.error, agentGuard.status);
@@ -735,7 +735,7 @@ ownerAppRoutes.post("/owner/app/revisions/apply", async (c) => {
     const authorName =
       typeof author.name === "string" && author.name.trim().length > 0
         ? author.name.trim()
-        : (c as any).get("ownerUser");
+        : (c as any).get("adminUser");
     const saved = await store.createAppRevision({
       id: requestedId || undefined,
       schema_version: normalizedSchemaVersion,
@@ -763,7 +763,7 @@ ownerAppRoutes.post("/owner/app/revisions/apply", async (c) => {
     );
     const auditTimestamp = nowISO();
     const auditDetails: AppRevisionAuditDetails = {
-      performed_by: (c as any).get("ownerUser") ?? null,
+      performed_by: (c as any).get("adminUser") ?? null,
       from_revision_id: previousState?.active_revision_id ?? null,
       to_revision_id: revisionId,
       schema_version: {
@@ -809,7 +809,7 @@ ownerAppRoutes.post("/owner/app/revisions/apply", async (c) => {
   }
 });
 
-ownerAppRoutes.post("/owner/app/revisions/apply/diff", async (c) => {
+adminAppRoutes.post("/admin/app/revisions/apply/diff", async (c) => {
   const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
   if (!agentGuard.ok) {
     return fail(c as any, agentGuard.error, agentGuard.status);
@@ -841,7 +841,7 @@ ownerAppRoutes.post("/owner/app/revisions/apply/diff", async (c) => {
       id: targetRevisionId,
       created_at: nowISO(),
       author_type: "human",
-      author_name: (c as any).get("ownerUser") ?? null,
+      author_name: (c as any).get("adminUser") ?? null,
       message:
         typeof (body as any).message === "string" && (body as any).message.trim().length > 0
           ? (body as any).message.trim()
@@ -879,7 +879,7 @@ ownerAppRoutes.post("/owner/app/revisions/apply/diff", async (c) => {
   }
 });
 
-ownerAppRoutes.post("/owner/app/revisions/:id/rollback", async (c) => {
+adminAppRoutes.post("/admin/app/revisions/:id/rollback", async (c) => {
   const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
   if (!agentGuard.ok) {
     return fail(c as any, agentGuard.error, agentGuard.status);
@@ -963,7 +963,7 @@ ownerAppRoutes.post("/owner/app/revisions/:id/rollback", async (c) => {
     const uniqueWarnings = Array.from(new Set(warnings));
     const auditTimestamp = nowISO();
     const auditDetails: AppRevisionAuditDetails = {
-      performed_by: (c as any).get("ownerUser") ?? null,
+      performed_by: (c as any).get("adminUser") ?? null,
       from_revision_id: currentState?.active_revision_id ?? null,
       to_revision_id: revisionId,
       schema_version: {
@@ -997,7 +997,7 @@ ownerAppRoutes.post("/owner/app/revisions/:id/rollback", async (c) => {
   }
 });
 
-ownerAppRoutes.get("/-/app/workspaces", async (c) => {
+adminAppRoutes.get("/-/app/workspaces", async (c) => {
   const workspaceEnv = resolveWorkspaceEnv({
     env: c.env,
     mode: "dev",
@@ -1034,7 +1034,7 @@ ownerAppRoutes.get("/-/app/workspaces", async (c) => {
   }
 });
 
-ownerAppRoutes.post("/-/app/workspaces", async (c) => {
+adminAppRoutes.post("/-/app/workspaces", async (c) => {
   const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body || typeof body !== "object") {
     return fail(c as any, "invalid workspace payload", 400);
@@ -1097,7 +1097,7 @@ ownerAppRoutes.post("/-/app/workspaces", async (c) => {
   }
 });
 
-ownerAppRoutes.post("/-/app/workspaces/:id/status", async (c) => {
+adminAppRoutes.post("/-/app/workspaces/:id/status", async (c) => {
   const workspaceId = (c.req.param("id") || "").trim();
   if (!workspaceId) {
     return fail(c as any, "workspaceId is required", 400);
@@ -1163,7 +1163,7 @@ ownerAppRoutes.post("/-/app/workspaces/:id/status", async (c) => {
   }
 });
 
-ownerAppRoutes.get("/-/app/workspaces/:id/files", async (c) => {
+adminAppRoutes.get("/-/app/workspaces/:id/files", async (c) => {
   const workspaceId = (c.req.param("id") || "").trim();
   if (!workspaceId) {
     return fail(c as any, "workspaceId is required", 400);
@@ -1203,7 +1203,7 @@ ownerAppRoutes.get("/-/app/workspaces/:id/files", async (c) => {
   return ok(c as any, { workspace_id: workspaceId, files: mapped });
 });
 
-ownerAppRoutes.post("/-/app/workspaces/:id/files", async (c) => {
+adminAppRoutes.post("/-/app/workspaces/:id/files", async (c) => {
   const workspaceId = (c.req.param("id") || "").trim();
   if (!workspaceId) {
     return fail(c as any, "workspaceId is required", 400);
@@ -1267,7 +1267,7 @@ ownerAppRoutes.post("/-/app/workspaces/:id/files", async (c) => {
   });
 });
 
-ownerAppRoutes.post("/-/app/workspaces/:id/apply-patch", auth, requireOwnerSession, async (c) => {
+adminAppRoutes.post("/-/app/workspaces/:id/apply-patch", auth, requireOwnerSession, async (c) => {
   const agentGuard = guardAgentRequest(c.req, { toolId: "tool.applyCodePatch" });
   if (!agentGuard.ok) {
     return fail(c as any, agentGuard.error, agentGuard.status);
@@ -1426,4 +1426,4 @@ ownerAppRoutes.post("/-/app/workspaces/:id/apply-patch", auth, requireOwnerSessi
   });
 });
 
-export default ownerAppRoutes;
+export default adminAppRoutes;
