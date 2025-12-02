@@ -1,0 +1,61 @@
+{
+    "collections": {
+        "app:notes": {
+            "engine": "sqlite",
+            "comment": "User-created notes that can be attached to posts or standalone",
+            "schema": {
+                "columns": [
+                    {
+                        "name": "id",
+                        "type": "TEXT",
+                        "primary": true
+                    },
+                    {
+                        "name": "owner_id",
+                        "type": "TEXT",
+                        "nullable": false
+                    },
+                    {
+                        "name": "title",
+                        "type": "TEXT",
+                        "nullable": false
+                    },
+                    {
+                        "name": "content",
+                        "type": "TEXT",
+                        "nullable": false
+                    },
+                    {
+                        "name": "tags",
+                        "type": "TEXT",
+                        "comment": "JSON array of tags"
+                    },
+                    {
+                        "name": "created_at",
+                        "type": "TEXT",
+                        "nullable": false
+                    },
+                    {
+                        "name": "updated_at",
+                        "type": "TEXT"
+                    }
+                ]
+            },
+            "indexes": [
+                {
+                    "name": "idx_notes_owner_created",
+                    "columns": [
+                        "owner_id",
+                        "created_at DESC"
+                    ]
+                },
+                {
+                    "name": "idx_notes_tags",
+                    "columns": [
+                        "tags"
+                    ]
+                }
+            ]
+        }
+    }
+}

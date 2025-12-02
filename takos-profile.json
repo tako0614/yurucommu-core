@@ -34,7 +34,7 @@
     "enabled": true,
     "requires_external_network": true,
     "providers": ["openai"],
-    "actions": ["ai.chat", "ai.summary", "ai.tag-suggest", "ai.dm-moderator"]
+    "actions": ["ai.chat", "ai.summary", "ai.translation", "ai.tag-suggest", "ai.dm-moderator"]
   },
   "metadata": {
     "maintainer": {
