@@ -85,10 +85,8 @@ function normalizeToolId(raw: unknown): AgentToolId | null {
   return null;
 }
 
-function isOwner(user: any, env: Bindings): boolean {
-  const owner = typeof env.INSTANCE_OWNER_HANDLE === "string" ? env.INSTANCE_OWNER_HANDLE.trim() : "";
-  if (!owner) return true;
-  return user?.id === owner || user?.handle === owner;
+function isAuthenticated(user: any): boolean {
+  return !!user?.id;
 }
 
 function listAllowedTools(agentType: AgentType): AgentToolId[] {
@@ -265,8 +263,8 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
     }
 
     const user = c.get("user");
-    if ((toolId === "tool.inspectService" || toolId === "tool.applyCodePatch" || toolId === "tool.updateTakosConfig") && !isOwner(user, c.env as Bindings)) {
-      return fail(c, "forbidden", 403);
+    if ((toolId === "tool.inspectService" || toolId === "tool.applyCodePatch" || toolId === "tool.updateTakosConfig") && !isAuthenticated(user)) {
+      return fail(c, "authentication required", 403);
     }
 
     const config = mergeTakosAiConfig(

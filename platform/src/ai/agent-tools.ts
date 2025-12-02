@@ -18,7 +18,6 @@ export interface ToolContext {
   auth: {
     userId: string | null;
     isAuthenticated: boolean;
-    isOwner: boolean;
   };
   /** ノード設定 */
   nodeConfig: TakosConfig;
@@ -207,9 +206,9 @@ export interface AgentTools {
 /**
  * ツールの実行権限チェック
  */
-export function requireOwner(ctx: ToolContext): void {
-  if (!ctx.auth.isOwner) {
-    throw new Error("This tool requires owner authentication");
+export function requireAuthenticated(ctx: ToolContext): void {
+  if (!ctx.auth.isAuthenticated) {
+    throw new Error("This tool requires authentication");
   }
 }
 

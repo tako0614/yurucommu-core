@@ -22,7 +22,6 @@ import {
 } from "@takos/platform/app";
 import defaultUiContract from "../../../takos-ui-contract.json";
 import { auth } from "../middleware/auth";
-import { isOwnerUser } from "../lib/owner-auth";
 
 type PreviewBody = {
   mode?: string;
@@ -120,8 +119,8 @@ appPreview.use("/-/app/preview/*", auth);
 
 appPreview.post("/-/app/preview/screen", async (c) => {
   const sessionUser = getSessionUser(c);
-  if (!isOwnerUser(sessionUser, c.env as PreviewBindings)) {
-    return c.json({ ok: false, error: "owner_session_required" }, 403);
+  if (!sessionUser?.id) {
+    return c.json({ ok: false, error: "authentication_required" }, 403);
   }
 
   const body = await parseBody(c);
@@ -233,8 +232,8 @@ appPreview.post("/-/app/preview/screen", async (c) => {
 
 appPreview.post("/-/app/preview/screen-with-patch", async (c) => {
   const sessionUser = getSessionUser(c);
-  if (!isOwnerUser(sessionUser, c.env as PreviewBindings)) {
-    return c.json({ ok: false, error: "owner_session_required" }, 403);
+  if (!sessionUser?.id) {
+    return c.json({ ok: false, error: "authentication_required" }, 403);
   }
 
   const body = (await parseBody(c)) as PatchPreviewBody | null;

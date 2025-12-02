@@ -26,7 +26,6 @@ import {
 import { loadWorkspaceSnapshot, validateWorkspaceForApply } from "../lib/app-workspace";
 import { ensureDefaultWorkspace, resolveWorkspaceEnv } from "../lib/workspace-store";
 import { auth } from "../middleware/auth";
-import { isOwnerUser } from "../lib/owner-auth";
 import type {
   AppRevisionAuditDetails,
   AppRevisionAuditInput,
@@ -35,7 +34,7 @@ import type {
 import defaultUiContract from "../../../takos-ui-contract.json";
 
 type AuthResult =
-  | { ok: true; owner: string }
+  | { ok: true; user: string }
   | { ok: false; status: number; message: string };
 
 function decodeBasicAuth(encoded: string): string | null {
@@ -72,7 +71,7 @@ function checkAuth(c: any): AuthResult {
   if (user !== username || pass !== password) {
     return { ok: false, status: 401, message: "invalid credentials" };
   }
-  return { ok: true, owner: user };
+  return { ok: true, user };
 }
 
 type WorkspaceLifecycleStatus = Extract<AppWorkspaceStatus, "draft" | "validated" | "ready">;
@@ -580,29 +579,30 @@ const prepareRevisionCandidate = async (
 
 const appManagerRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-const requireOwnerSession = async (c: any, next: () => Promise<void>) => {
+/** Require authenticated user for workspace operations */
+const requireAuthenticatedSession = async (c: any, next: () => Promise<void>) => {
   const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
   if (!agentGuard.ok) {
     return fail(c as any, agentGuard.error, agentGuard.status);
   }
   const user = c.get("user");
-  if (!isOwnerUser(user, c.env as Bindings)) {
-    return fail(c as any, "owner session required", 403);
+  if (!user?.id) {
+    return fail(c as any, "authentication required", 403);
   }
   await next();
 };
 
-appManagerRoutes.use("/-/app/workspaces", auth, requireOwnerSession);
-appManagerRoutes.use("/-/app/workspaces/*", auth, requireOwnerSession);
+appManagerRoutes.use("/-/app/workspaces", auth, requireAuthenticatedSession);
+appManagerRoutes.use("/-/app/workspaces/*", auth, requireAuthenticatedSession);
 appManagerRoutes.use("/api/app/*", async (c, next) => {
-  const auth = checkAuth(c);
-  if (!auth.ok) {
-    if (auth.status === 401) {
+  const authResult = checkAuth(c);
+  if (!authResult.ok) {
+    if (authResult.status === 401) {
       c.header("WWW-Authenticate", 'Basic realm="takos-api"');
     }
-    return fail(c as any, auth.message, auth.status);
+    return fail(c as any, authResult.message, authResult.status);
   }
-  (c as any).set("authenticatedUser", auth.owner);
+  (c as any).set("authenticatedUser", authResult.user);
   await next();
 });
 
@@ -1267,7 +1267,7 @@ appManagerRoutes.post("/-/app/workspaces/:id/files", async (c) => {
   });
 });
 
-appManagerRoutes.post("/-/app/workspaces/:id/apply-patch", auth, requireOwnerSession, async (c) => {
+appManagerRoutes.post("/-/app/workspaces/:id/apply-patch", auth, requireAuthenticatedSession, async (c) => {
   const agentGuard = guardAgentRequest(c.req, { toolId: "tool.applyCodePatch" });
   if (!agentGuard.ok) {
     return fail(c as any, agentGuard.error, agentGuard.status);

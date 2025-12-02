@@ -14,7 +14,6 @@ import { authenticateSession } from "@takos/platform/server/session";
 import { getCookie } from "hono/cookie";
 import { makeData } from "../data";
 import { createJwtStoreAdapter } from "../lib/jwt-store";
-import { buildOwnerActorValidator, selectActiveUser } from "../lib/owner-auth";
 
 type AuthContext = AppContext<Bindings> & {
   env: Bindings;
@@ -33,7 +32,7 @@ type AuthenticatedUser = {
 
 const parseActiveUserCookie = (raw: string | null | undefined) => {
   if (!raw) {
-    return { userId: null, ownerId: null };
+    return { userId: null };
   }
   const decoded = (() => {
     try {
@@ -42,58 +41,55 @@ const parseActiveUserCookie = (raw: string | null | undefined) => {
       return raw;
     }
   })();
-  const [userId, ownerId] = decoded.split(":");
+  // Format: "userId" or "userId:sessionUserId" (legacy format, we only need userId)
+  const [userId] = decoded.split(":");
   return {
     userId: userId?.trim() || null,
-    ownerId: ownerId?.trim() || null,
   };
 };
 
 const extractActiveUserId = (
   c: any,
-  baseUserId: string | null | undefined,
-): { requestedUserId: string | null; ownerId: string | null; source: "cookie" | null } => {
-  const { userId, ownerId } = parseActiveUserCookie(getCookie(c, ACTIVE_USER_COOKIE_NAME));
+): { requestedUserId: string | null; source: "cookie" | null } => {
+  const { userId } = parseActiveUserCookie(getCookie(c, ACTIVE_USER_COOKIE_NAME));
   if (!userId) {
-    return { requestedUserId: null, ownerId: null, source: null };
+    return { requestedUserId: null, source: null };
   }
-
-  const normalizedBase = (baseUserId || "").trim() || null;
-  const normalizedOwner = (ownerId || "").trim() || null;
-
-  if (normalizedOwner && normalizedBase && normalizedOwner !== normalizedBase) {
-    return { requestedUserId: null, ownerId: null, source: null };
-  }
-
-  if (!normalizedOwner && normalizedBase && userId !== normalizedBase) {
-    return { requestedUserId: null, ownerId: null, source: null };
-  }
-
   return {
     requestedUserId: userId,
-    ownerId: normalizedOwner ?? normalizedBase,
     source: "cookie",
   };
 };
 
+/**
+ * Resolve active user - authenticated users can switch to any local user they've created.
+ * Since authentication is done via single password, any authenticated session can access all users.
+ */
 const resolveActiveUser = async (
   c: any,
   store: any,
   baseUser: any,
 ): Promise<{ user: any; activeUserId: string | null }> => {
-  const ownsActor = buildOwnerActorValidator(
-    typeof store.listAccountsByUser === "function"
-      ? (userId: string) => store.listAccountsByUser(userId)
-      : undefined,
-  );
-  const { requestedUserId } = extractActiveUserId(c, baseUser?.id);
-  return selectActiveUser(
-    requestedUserId,
-    baseUser,
-    c.env as Bindings,
-    async (id: string) => await store.getUser(id).catch(() => null),
-    ownsActor,
-  );
+  const { requestedUserId } = extractActiveUserId(c);
+
+  // If no specific user requested, use the session user
+  if (!requestedUserId) {
+    return { user: baseUser, activeUserId: baseUser?.id ?? null };
+  }
+
+  // If requesting the same user as session, just return it
+  if (requestedUserId === baseUser?.id) {
+    return { user: baseUser, activeUserId: baseUser?.id ?? null };
+  }
+
+  // Authenticated users can switch to any existing user
+  const requestedUser = await store.getUser(requestedUserId).catch(() => null);
+  if (requestedUser) {
+    return { user: requestedUser, activeUserId: requestedUser.id };
+  }
+
+  // Fallback to session user if requested user doesn't exist
+  return { user: baseUser, activeUserId: baseUser?.id ?? null };
 };
 
 // Unified auth: prefer JWT, fall back to session cookie for legacy paths.

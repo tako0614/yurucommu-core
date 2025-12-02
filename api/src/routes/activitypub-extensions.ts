@@ -1,8 +1,7 @@
 import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings } from "@takos/platform/server";
 import { requireInstanceDomain } from "@takos/platform/server";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import takosProfile from "../../../takos-profile.json";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -23,39 +22,16 @@ interface TakosActivityPubExtensions {
  * per PLAN.md section 4.2
  */
 function buildTakosActivityPubExtensions(instanceDomain: string): TakosActivityPubExtensions {
-  // Try to load takos-profile.json
-  let profile: any = null;
-  try {
-    // In production, this would be loaded from the deployment
-    // For now, we'll construct a minimal response
-    profile = {
-      version: "0.1.0",
-      activitypub: {
-        contexts: ["https://takos.io/ap/context/takos-core.v1.jsonld"],
-        profile: "https://docs.takos.jp/",
-        extensions: [
-          {
-            id: "takos-core-ap",
-            description: "Core takos ActivityPub handlers for posts, questions, and announces.",
-            spec_url: "https://docs.takos.jp/activitypub"
-          }
-        ]
-      }
-    };
-  } catch (err) {
-    console.warn("[takos-activitypub] Could not load takos-profile.json", err);
-  }
-
   const nodeUrl = `https://${instanceDomain}`;
-  
+
   return {
     node: nodeUrl,
-    core_version: profile?.version || "0.1.0",
-    profile: profile?.activitypub?.profile,
-    contexts: profile?.activitypub?.contexts || [
-      "https://takos.io/ap/context/takos-core.v1.jsonld"
+    core_version: takosProfile.version || "0.1.0",
+    profile: takosProfile.activitypub?.profile,
+    contexts: takosProfile.activitypub?.contexts || [
+      "https://docs.takos.jp/ns/activitypub/v1.jsonld"
     ],
-    extensions: profile?.activitypub?.extensions || []
+    extensions: takosProfile.activitypub?.extensions || []
   };
 }
 
