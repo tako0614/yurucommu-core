@@ -3,7 +3,7 @@ import {
   AI_ACTIONS,
   buildActionStatuses,
   buildProviderStatuses,
-} from "./admin-ai";
+} from "./owner-ai";
 import { DEFAULT_TAKOS_AI_CONFIG, mergeTakosAiConfig } from "@takos/platform/server";
 
 const baseConfig = mergeTakosAiConfig(DEFAULT_TAKOS_AI_CONFIG, {

@@ -1,9 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
-import adminAppRoutes from "./admin-app";
+import ownerAppRoutes from "./owner-app";
 import { getDefaultDataFactory, setBackendDataFactory } from "../data";
 import { setWorkspaceLoader } from "../lib/app-workspace";
 
-const authEnv = { AUTH_USERNAME: "admin", AUTH_PASSWORD: "secret" };
+const authEnv = {
+  AUTH_USERNAME: "admin",
+  AUTH_PASSWORD: "secret",
+  DEV_DB: {},
+  DEV_MEDIA: {},
+  DEV_KV: {},
+};
 const authHeader = `Basic ${Buffer.from("admin:secret").toString("base64")}`;
 const defaultFactory = getDefaultDataFactory();
 
@@ -63,7 +69,7 @@ describe("/admin/app/revisions/apply (workspace)", () => {
         }) as any,
     );
 
-    const res = await adminAppRoutes.request(
+    const res = await ownerAppRoutes.request(
       "/admin/app/revisions/apply",
       {
         method: "POST",
@@ -124,7 +130,7 @@ describe("/admin/app/revisions/apply (workspace)", () => {
         }) as any,
     );
 
-    const res = await adminAppRoutes.request(
+    const res = await ownerAppRoutes.request(
       "/admin/app/revisions/apply",
       {
         method: "POST",
@@ -192,7 +198,7 @@ describe("/admin/app/revisions/apply/diff", () => {
         }) as any,
     );
 
-    const res = await adminAppRoutes.request(
+    const res = await ownerAppRoutes.request(
       "/admin/app/revisions/apply/diff",
       {
         method: "POST",
@@ -248,7 +254,7 @@ describe("/admin/app/revisions/apply/diff", () => {
         }) as any,
     );
 
-    const res = await adminAppRoutes.request(
+    const res = await ownerAppRoutes.request(
       "/admin/app/revisions/apply/diff",
       {
         method: "POST",
@@ -298,7 +304,7 @@ describe("/admin/app/revisions/:id/rollback", () => {
         }) as any,
     );
 
-    const res = await adminAppRoutes.request(
+    const res = await ownerAppRoutes.request(
       "/admin/app/revisions/rev-target/rollback",
       { method: "POST", headers: { Authorization: authHeader } },
       authEnv,
@@ -342,7 +348,7 @@ describe("/admin/app/revisions/:id/rollback", () => {
         }) as any,
     );
 
-    const res = await adminAppRoutes.request(
+    const res = await ownerAppRoutes.request(
       "/admin/app/revisions/rev-next/rollback",
       { method: "POST", headers: { Authorization: authHeader } },
       authEnv,
@@ -427,7 +433,7 @@ describe("app revision audit logging", () => {
         }) as any,
     );
 
-    const res = await adminAppRoutes.request(
+    const res = await ownerAppRoutes.request(
       "/admin/app/revisions/apply",
       {
         method: "POST",
@@ -450,7 +456,7 @@ describe("app revision audit logging", () => {
     expect(audits[0].workspace_id).toBe("ws_audit");
     expect(audits[0].details?.schema_version?.platform?.ok).toBe(true);
 
-    const listRes = await adminAppRoutes.request(
+    const listRes = await ownerAppRoutes.request(
       "/admin/app/revisions/audit",
       { method: "GET", headers: { Authorization: authHeader } },
       authEnv,
@@ -508,7 +514,7 @@ describe("app revision audit logging", () => {
         }) as any,
     );
 
-    const res = await adminAppRoutes.request(
+    const res = await ownerAppRoutes.request(
       "/admin/app/revisions/rev-next/rollback",
       { method: "POST", headers: { Authorization: authHeader } },
       authEnv,
@@ -521,7 +527,7 @@ describe("app revision audit logging", () => {
     expect(audits[0].revision_id).toBe("rev-next");
     expect(audits[0].details?.schema_version?.previous_active?.from).toBe("1.0.0");
 
-    const listRes = await adminAppRoutes.request(
+    const listRes = await ownerAppRoutes.request(
       "/admin/app/revisions/audit",
       { method: "GET", headers: { Authorization: authHeader } },
       authEnv,

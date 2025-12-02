@@ -236,8 +236,9 @@ describe("admin export retry endpoint", () => {
 
     expect(res.status).toBe(200);
     const json: any = await res.json();
-    expect(json.attempt_count).toBe(0);
-    expect(json.max_attempts).toBe(5);
+    expect(json.ok).toBe(true);
+    expect(json.data.attempt_count).toBe(0);
+    expect(json.data.max_attempts).toBe(5);
     expect(mockStore.updateExportRequest).toHaveBeenCalledWith("exp-1", {
       status: "pending",
       attempt_count: 0,

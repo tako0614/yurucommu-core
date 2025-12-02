@@ -23,7 +23,7 @@ const containsText = (node: any, text: string): boolean => {
   if (!node || typeof node !== "object") return false;
   if (node?.props?.text === text) return true;
   if (Array.isArray(node.children)) {
-    return node.children.some((child) => containsText(child, text));
+    return node.children.some((child: any) => containsText(child, text));
   }
   return false;
 };
@@ -186,9 +186,12 @@ describe("/-/app/preview/screen", () => {
       viewMode: "image",
     }, createWorkspaceEnv());
 
-    expect(res.status).toBe(400);
-    const json: any = await res.json();
-    expect(json.error).toBe("view_mode_not_supported");
+    // We return a lightweight SVG placeholder for image previews
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/image\/(svg\+xml|svg)/);
+    const text = await res.text();
+  expect(text.includes("<svg")).toBe(true);
+  expect(text.includes("Hello Preview") || text.includes("Screen:" )).toBe(true);
   });
 
   it("requires an owner session", async () => {
@@ -319,6 +322,35 @@ describe("/-/app/preview/screen-with-patch", () => {
     );
     const baseJson: any = await base.json();
     expect(containsText(baseJson.resolvedTree, "Patched from test")).toBe(false);
+  });
+
+  it("returns an image preview for patched manifests", async () => {
+    const res = await authedRequest("/-/app/preview/screen-with-patch", {
+      workspaceId: "ws_test",
+      screenId: "screen.home",
+      viewMode: "image",
+      patches: [
+        {
+          op: "add",
+          path: "/views/insert/-",
+          value: {
+            screen: "screen.home",
+            position: "main",
+            order: 99,
+            node: {
+              type: "Text",
+              props: { text: "Patched from test" },
+            },
+          },
+        },
+      ],
+    }, createWorkspaceEnv());
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/image\/(svg\+xml|svg)/);
+    const text = await res.text();
+  expect(text.includes("<svg")).toBe(true);
+  expect(text.includes("Patched from test") || text.includes("Screen (patched):")).toBe(true);
   });
 
   it("rejects invalid patch payloads", async () => {

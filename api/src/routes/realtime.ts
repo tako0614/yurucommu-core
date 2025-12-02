@@ -64,11 +64,17 @@ function parseTopics(raw: string | null): ParsedTopics {
 
 function parseCursor(raw: string | null | undefined): number | null {
   if (!raw) return null;
-  const head = raw.split(":")[0];
-  const numeric = Number(head);
+  // First try parsing the whole string as a number (Unix timestamp)
+  const numeric = Number(raw);
   if (!Number.isNaN(numeric) && numeric > 0) return numeric;
-  const parsed = Date.parse(head);
-  return Number.isNaN(parsed) ? null : parsed;
+  // Then try parsing as ISO date string
+  const parsed = Date.parse(raw);
+  if (!Number.isNaN(parsed)) return parsed;
+  // Finally, try splitting on ":" for cursor format "timestamp:type"
+  const head = raw.split(":")[0];
+  const headNumeric = Number(head);
+  if (!Number.isNaN(headNumeric) && headNumeric > 0) return headNumeric;
+  return null;
 }
 
 function getInitialCursor(url: URL, headerValue?: string | null): number {

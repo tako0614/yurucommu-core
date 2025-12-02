@@ -51,7 +51,7 @@ describe("builtin AI actions", () => {
       { nodeConfig: config },
       { text: "Hello world. This is a small document for testing summaries." },
     );
-    expect(summary.summary.length).toBeGreaterThan(0);
+    expect((summary as any).summary.length).toBeGreaterThan(0);
 
     await expect(
       dispatchAiAction(

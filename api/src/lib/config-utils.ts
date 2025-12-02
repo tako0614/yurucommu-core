@@ -116,7 +116,11 @@ const collectDiffs = (
     return;
   }
 
-  if (isPlainObject(current) && isPlainObject(incoming)) {
+  const currentIsObject = isPlainObject(current);
+  const incomingIsObject = isPlainObject(incoming);
+
+  // Both are objects - recurse into keys from both sides
+  if (currentIsObject && incomingIsObject) {
     const keys = Array.from(new Set([...Object.keys(current), ...Object.keys(incoming)])).sort();
     for (const key of keys) {
       const nextPath = path ? `${path}.${key}` : key;
@@ -125,6 +129,25 @@ const collectDiffs = (
     return;
   }
 
+  // Only incoming is an object (added nested structure) - recurse into incoming keys
+  if (!currentIsObject && incomingIsObject) {
+    for (const key of Object.keys(incoming)) {
+      const nextPath = path ? `${path}.${key}` : key;
+      collectDiffs(undefined, (incoming as any)[key], nextPath, acc);
+    }
+    return;
+  }
+
+  // Only current is an object (removed nested structure) - recurse into current keys
+  if (currentIsObject && !incomingIsObject) {
+    for (const key of Object.keys(current)) {
+      const nextPath = path ? `${path}.${key}` : key;
+      collectDiffs((current as any)[key], undefined, nextPath, acc);
+    }
+    return;
+  }
+
+  // Neither are objects - record leaf-level change
   const change: ConfigDiffChange =
     current === undefined ? "added" : incoming === undefined ? "removed" : "changed";
 

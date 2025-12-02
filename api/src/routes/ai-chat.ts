@@ -11,7 +11,7 @@ import {
   AI_ACTIONS,
   buildActionStatuses,
   buildProviderStatuses,
-} from "./admin-ai";
+} from "./owner-ai";
 import {
   DEFAULT_TAKOS_AI_CONFIG,
   buildAiProviderRegistry,
@@ -20,6 +20,8 @@ import {
   mergeTakosAiConfig,
   ok,
   releaseStore,
+  aiActionRegistry,
+  dispatchAiAction,
 } from "@takos/platform/server";
 import { buildRuntimeConfig } from "../lib/config-utils";
 import { guardAgentRequest } from "../lib/agent-guard";
@@ -165,6 +167,85 @@ async function handleInspectService(c: any, service: string, env: Bindings) {
   }
 }
 
+async function handleRunAIAction(
+  c: any,
+  body: ChatRequestBody,
+  agentType: AgentType,
+  aiConfig: any,
+) {
+  const actionId = typeof body.service === "string" ? body.service.trim() : "";
+  if (!actionId) {
+    return fail(c, "action id is required for tool.runAIAction", 400);
+  }
+
+  const enabledActions = new Set((aiConfig.enabled_actions ?? []).map((id: string) => id.trim()));
+  if (!enabledActions.has(actionId)) {
+    return fail(c, `AI action "${actionId}" is not enabled for this node`, 403);
+  }
+
+  if (aiConfig.requires_external_network === false) {
+    return fail(c, "AI external network access is disabled for this node", 503);
+  }
+
+  let providers;
+  try {
+    providers = buildAiProviderRegistry(aiConfig, c.env as any);
+    if (providers.warnings?.length) {
+      console.warn(`[ai] provider warnings: ${providers.warnings.join("; ")}`);
+    }
+  } catch (error: any) {
+    const message = error?.message || "failed to resolve AI providers";
+    return fail(c, message, 400);
+  }
+
+  const nodeConfig: TakosConfig = {
+    ...(c.get("takosConfig") as TakosConfig | undefined ?? buildRuntimeConfig(c.env as Bindings)),
+    ai: aiConfig,
+  };
+
+  let input: unknown;
+  try {
+    input = typeof body.dm_messages === "object" && body.dm_messages !== null
+      ? body.dm_messages
+      : typeof body.public_posts === "object" && body.public_posts !== null
+        ? body.public_posts
+        : typeof body.community_posts === "object" && body.community_posts !== null
+          ? body.community_posts
+          : typeof body.profile === "object" && body.profile !== null
+            ? body.profile
+            : {};
+  } catch {
+    return fail(c, "invalid input payload", 400);
+  }
+
+  try {
+    const result = await dispatchAiAction(aiActionRegistry, actionId, {
+      nodeConfig,
+      user: c.get("user"),
+      agentType,
+      providers,
+    }, input);
+
+    return ok(c, {
+      tool: "tool.runAIAction",
+      action_id: actionId,
+      result,
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/Unknown AI action/i.test(message)) {
+      return fail(c, "unknown action", 403);
+    }
+    if (/not enabled/i.test(message)) {
+      return fail(c, message, 403);
+    }
+    if (/DataPolicyViolation/i.test(message)) {
+      return fail(c, message, 400);
+    }
+    return fail(c, "failed to run AI action", 500);
+  }
+}
+
 const aiChatRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
@@ -184,7 +265,7 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
     }
 
     const user = c.get("user");
-    if ((toolId === "tool.inspectService" || toolId === "tool.applyCodePatch") && !isOwner(user, c.env as Bindings)) {
+    if ((toolId === "tool.inspectService" || toolId === "tool.applyCodePatch" || toolId === "tool.updateTakosConfig") && !isOwner(user, c.env as Bindings)) {
       return fail(c, "forbidden", 403);
     }
 
@@ -205,6 +286,14 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
     if (toolId === "tool.inspectService") {
       const service = typeof body.service === "string" ? body.service.trim() : "database";
       return handleInspectService(c, service || "database", c.env as Bindings);
+    }
+
+    if (toolId === "tool.runAIAction") {
+      return handleRunAIAction(c, body, agentGuard.agentType, config);
+    }
+
+    if (toolId === "tool.applyCodePatch") {
+      return fail(c, "tool.applyCodePatch must be called via /-/app/workspaces/:id/apply-patch endpoint", 400);
     }
 
     return fail(c, "unsupported tool", 400);

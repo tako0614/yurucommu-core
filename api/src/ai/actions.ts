@@ -296,10 +296,10 @@ const dmModeratorAction: AiAction<DmModeratorInput, DmModeratorOutput> = {
   handler: dmModeratorHandler,
 };
 
-export const builtinAiActions: AiAction[] = [
-  summaryAction,
-  tagSuggestAction,
-  dmModeratorAction,
+export const builtinAiActions: AiAction<unknown, unknown>[] = [
+  summaryAction as AiAction<unknown, unknown>,
+  tagSuggestAction as AiAction<unknown, unknown>,
+  dmModeratorAction as AiAction<unknown, unknown>,
 ];
 
 export function registerBuiltinAiActions(registry: AiRegistry = aiActionRegistry): void {

@@ -119,12 +119,12 @@ describe("app debug routes", () => {
     expect(res.status).toBe(200);
     const json: any = await res.json();
     expect(json.ok).toBe(true);
-    expect(json.handler).toBe("ping");
-    expect(Array.isArray(json.logs)).toBe(true);
+    expect(json.data.handler).toBe("ping");
+    expect(Array.isArray(json.data.logs)).toBe(true);
     expect(sharedLogs.length).toBeGreaterThan(0);
     const runIds = new Set(sharedLogs.map((log) => log.runId));
     expect(runIds.size).toBe(1);
-    expect(runIds.has(json.runId)).toBe(true);
+    expect(runIds.has(json.data.runId)).toBe(true);
     expect(sharedLogs.every((log) => log.mode === "dev")).toBe(true);
     expect(sharedLogs.every((log) => log.workspaceId === "ws_demo")).toBe(true);
     expect(sharedLogs.some((log) => log.message.includes("ActivityPub disabled"))).toBe(true);
@@ -189,8 +189,8 @@ describe("app debug routes", () => {
     expect(res.status).toBe(200);
     const json: any = await res.json();
     expect(json.ok).toBe(true);
-    expect(Array.isArray(json.logs)).toBe(true);
-    expect(json.logs.length).toBeGreaterThan(0);
+    expect(Array.isArray(json.data.logs)).toBe(true);
+    expect(json.data.logs.length).toBeGreaterThan(0);
     expect(lastLogQuery?.workspaceId).toBe("ws_demo");
     expect(lastLogQuery?.handler).toBe("ping");
     expect(lastLogQuery?.mode).toBe("dev");

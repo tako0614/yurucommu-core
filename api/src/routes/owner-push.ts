@@ -10,8 +10,8 @@ import {
   resolvePushTarget,
 } from "../lib/push-check";
 
-type AdminAuthResult =
-  | { ok: true; admin: string }
+type OwnerAuthResult =
+  | { ok: true; owner: string }
   | { ok: false; status: number; message: string };
 
 function decodeBasicAuth(encoded: string): string | null {
@@ -22,15 +22,15 @@ function decodeBasicAuth(encoded: string): string | null {
   }
 }
 
-function checkAdminAuth(c: any): AdminAuthResult {
+function checkOwnerAuth(c: any): OwnerAuthResult {
   const username = c.env.AUTH_USERNAME?.trim();
   const password = c.env.AUTH_PASSWORD?.trim();
   if (!username || !password) {
-    return { ok: false, status: 500, message: "admin credentials are not configured" };
+    return { ok: false, status: 500, message: "owner credentials are not configured" };
   }
   const header = c.req.header("Authorization") || "";
   if (!header.startsWith("Basic ")) {
-    return { ok: false, status: 401, message: "admin basic auth required" };
+    return { ok: false, status: 401, message: "owner basic auth required" };
   }
   const encoded = header.slice("Basic ".length).trim();
   const decoded = decodeBasicAuth(encoded);
@@ -42,7 +42,7 @@ function checkAdminAuth(c: any): AdminAuthResult {
   if (user !== username || pass !== password) {
     return { ok: false, status: 401, message: "invalid credentials" };
   }
-  return { ok: true, admin: user };
+  return { ok: true, owner: user };
 }
 
 type PushVerifyRequest = {
@@ -52,17 +52,17 @@ type PushVerifyRequest = {
   message?: string;
 };
 
-const adminPush = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const ownerPush = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-adminPush.use("/admin/push/*", async (c, next) => {
-  const auth = checkAdminAuth(c);
+ownerPush.use("/owner/push/*", async (c, next) => {
+  const auth = checkOwnerAuth(c);
   if (!auth.ok) {
     if (auth.status === 401) {
-      c.header("WWW-Authenticate", 'Basic realm="takos-admin"');
+      c.header("WWW-Authenticate", 'Basic realm="takos-owner"');
     }
     return fail(c as any, auth.message, auth.status);
   }
-  (c as any).set("adminUser", auth.admin);
+  (c as any).set("ownerUser", auth.owner);
   await next();
 });
 
@@ -77,7 +77,7 @@ const buildTestPayload = (instance: string, userId: string, message?: string) =>
   },
 });
 
-adminPush.post("/admin/push/verify", async (c) => {
+ownerPush.post("/owner/push/verify", async (c) => {
   const env = c.env as Bindings;
   let instance: string;
   try {
@@ -113,7 +113,7 @@ adminPush.post("/admin/push/verify", async (c) => {
   const userId =
     typeof body.userId === "string" && body.userId.trim()
       ? body.userId.trim()
-      : ((c as any).get("adminUser") as string) || "push-admin";
+      : ((c as any).get("ownerUser") as string) || "push-owner";
 
   const testPayload = hasPrivateKey
     ? buildTestPayload(instance, userId, body.message)
@@ -209,4 +209,4 @@ adminPush.post("/admin/push/verify", async (c) => {
   });
 });
 
-export default adminPush;
+export default ownerPush;
