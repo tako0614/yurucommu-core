@@ -57,6 +57,22 @@ describe("resolveAiProviders", () => {
     expect(resolution.errors).not.toHaveLength(0);
     expect(() => buildAiProviderRegistry(aiConfig, {})).toThrow(/OPENAI_KEY/);
   });
+
+  it("blocks provider usage when external network access is disabled", () => {
+    const aiConfig: TakosAiConfig = {
+      requires_external_network: false,
+      providers: {
+        local: {
+          type: "openai-compatible",
+          base_url: "https://llm.local/v1",
+          api_key_env: "LLM_KEY",
+        },
+      },
+    };
+
+    const registry = buildAiProviderRegistry(aiConfig, { LLM_KEY: "secret" });
+    expect(() => registry.require()).toThrow(/external network access is disabled/i);
+  });
 });
 
 describe("AiProviderRegistry policy enforcement", () => {

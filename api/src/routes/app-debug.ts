@@ -12,10 +12,11 @@ import type {
   PublicAccountBindings as Bindings,
   Variables,
 } from "@takos/platform/server";
-import { ok, releaseStore } from "@takos/platform/server";
+import { getActivityPubAvailability, ok, releaseStore } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
 import { makeData } from "../data";
 import type { DatabaseAPI, ListAppLogsOptions } from "../lib/types";
+import { isOwnerUser, resolveOwnerHandle } from "../lib/owner-auth";
 
 type DebugMode = "dev" | "prod-preview";
 
@@ -82,18 +83,38 @@ function serializeForLog(value: unknown): string {
   }
 }
 
-function isAdminUser(user: any, env: Bindings): boolean {
-  return !!env.AUTH_USERNAME && user?.id === env.AUTH_USERNAME;
-}
+const resolveOwnerSession = (
+  c: any,
+): { ownerHandle: string; ownerUser: any } | null => {
+  const sessionUser = (c.get("sessionUser") as any) || (c.get("user") as any);
+  if (!sessionUser || !isOwnerUser(sessionUser, c.env as Bindings)) {
+    return null;
+  }
+  return { ownerHandle: resolveOwnerHandle(c.env as Bindings), ownerUser: sessionUser };
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function captureConsole(
-  logs: AppLogEntry[],
-  base: Pick<AppLogEntry, "mode" | "runId" | "workspaceId" | "handler">,
-): () => void {
+type LogContext = Pick<AppLogEntry, "mode" | "runId" | "workspaceId" | "handler">;
+
+type PartialLogEntry = Partial<AppLogEntry> & Pick<AppLogEntry, "level" | "message">;
+
+function applyLogContext(entry: PartialLogEntry, context: LogContext): AppLogEntry {
+  return {
+    timestamp: entry.timestamp ?? new Date().toISOString(),
+    mode: context.mode,
+    workspaceId: context.workspaceId,
+    runId: context.runId,
+    handler: entry.handler ?? context.handler,
+    level: entry.level ?? "info",
+    message: entry.message ?? "",
+    ...(entry.data === undefined ? {} : { data: entry.data }),
+  };
+}
+
+function captureConsole(push: (entry: PartialLogEntry) => void): () => void {
   const original = {
     log: console.log,
     info: console.info,
@@ -101,33 +122,25 @@ function captureConsole(
     error: console.error,
     debug: console.debug,
   };
-  const push = (level: AppLogEntry["level"], args: unknown[]) => {
-    logs.push({
-      ...base,
-      timestamp: new Date().toISOString(),
-      level,
-      message: args.map(serializeForLog).join(" "),
-    });
-  };
   console.log = (...args: unknown[]) => {
     original.log(...args);
-    push("info", args);
+    push({ level: "info", message: args.map(serializeForLog).join(" ") });
   };
   console.info = (...args: unknown[]) => {
     original.info(...args);
-    push("info", args);
+    push({ level: "info", message: args.map(serializeForLog).join(" ") });
   };
   console.warn = (...args: unknown[]) => {
     original.warn(...args);
-    push("warn", args);
+    push({ level: "warn", message: args.map(serializeForLog).join(" ") });
   };
   console.error = (...args: unknown[]) => {
     original.error(...args);
-    push("error", args);
+    push({ level: "error", message: args.map(serializeForLog).join(" ") });
   };
   console.debug = (...args: unknown[]) => {
     original.debug(...args);
-    push("debug", args);
+    push({ level: "debug", message: args.map(serializeForLog).join(" ") });
   };
   return () => {
     console.log = original.log;
@@ -193,7 +206,21 @@ function parseLogQuery(c: any): ListAppLogsOptions {
   };
 }
 
-debugApp.post("/admin/app/debug/run", auth, async (c) => {
+const buildRunEnv = (env: Bindings, mode: AppRuntimeMode): Bindings => {
+  if (mode !== "dev") return env;
+  const next: any = { ...(env as any) };
+  next.TAKOS_CONTEXT = "dev";
+  next.APP_CONTEXT = "dev";
+  next.APP_MODE = "dev";
+  next.EXECUTION_CONTEXT = "dev";
+  next.ACTIVITYPUB_ENABLED = "false";
+  if (env.DEV_DB) next.DB = env.DEV_DB;
+  if (env.DEV_MEDIA) next.MEDIA = env.DEV_MEDIA;
+  if ((env as any).DEV_KV) next.KV = (env as any).DEV_KV;
+  return next;
+};
+
+debugApp.post("/-/app/debug/run", auth, async (c) => {
   const payload = (await c.req.json().catch(() => ({}))) as RunRequestBody;
   const mode = normalizeMode(payload.mode);
   if (!mode) {
@@ -210,25 +237,28 @@ debugApp.post("/admin/app/debug/run", auth, async (c) => {
     return c.json({ ok: false, error: "handler_required" }, 400);
   }
 
-  const user = c.get("user");
-  if (!isAdminUser(user, c.env as Bindings)) {
-    return c.json({ ok: false, error: "forbidden" }, 403);
+  const ownerSession = resolveOwnerSession(c);
+  if (!ownerSession) {
+    return c.json({ ok: false, error: "owner_required" }, 403);
   }
 
   const logs: AppLogEntry[] = [];
   const runId = createRunId();
-  const restoreConsole = captureConsole(logs, {
+  const logContext: LogContext = {
     mode: runtimeMode,
     workspaceId: runtimeMode === "dev" ? workspaceId : undefined,
     runId,
     handler: handlerName,
-  });
+  };
+  const pushLog = (entry: PartialLogEntry) => logs.push(applyLogContext(entry, logContext));
+  const restoreConsole = captureConsole(pushLog);
+  const runEnv = buildRunEnv(c.env as Bindings, runtimeMode);
 
   let store: DatabaseAPI | null = null;
   try {
-    store = makeData(c.env as any, c);
+    store = makeData(runEnv as any, c);
     const { registry, source } = await loadAppRegistry({
-      env: c.env as Bindings,
+      env: runEnv,
       mode: runtimeMode,
       workspaceId: runtimeMode === "dev" ? workspaceId : undefined,
     });
@@ -238,16 +268,23 @@ debugApp.post("/admin/app/debug/run", auth, async (c) => {
       return c.json({ ok: false, error: `handler_not_found:${handlerName}` }, 404);
     }
 
+    if (runtimeMode === "dev") {
+      const availability = getActivityPubAvailability(runEnv as any);
+      pushLog({
+        level: "info",
+        message: "ActivityPub disabled for dev run",
+        data: { availability },
+      });
+    }
+
     const sandbox = createAppSandbox({
       registry,
       mode: runtimeMode,
       workspaceId: runtimeMode === "dev" ? workspaceId : undefined,
-      logSink: (entry) => {
-        logs.push(entry);
-      },
-      resolveDb: () => (runtimeMode === "dev" ? (c.env as any).DEV_DB ?? (c.env as any).DB : (c.env as any).DB),
+      logSink: (entry) => pushLog(entry),
+      resolveDb: () => (runtimeMode === "dev" ? (runEnv as any).DEV_DB ?? (runEnv as any).DB : (runEnv as any).DB),
       resolveStorage: () =>
-        runtimeMode === "dev" ? (c.env as any).DEV_MEDIA ?? (c.env as any).MEDIA : (c.env as any).MEDIA,
+        runtimeMode === "dev" ? (runEnv as any).DEV_MEDIA ?? (runEnv as any).MEDIA : (runEnv as any).MEDIA,
     });
 
     const started = performance.now();
@@ -285,12 +322,7 @@ debugApp.post("/admin/app/debug/run", auth, async (c) => {
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "handler_failed";
-    logs.push({
-      timestamp: new Date().toISOString(),
-      mode: runtimeMode,
-      workspaceId: runtimeMode === "dev" ? workspaceId : undefined,
-      runId,
-      handler: handlerName,
+    pushLog({
       level: "error",
       message,
       data: error instanceof Error && error.stack ? { stack: error.stack } : undefined,
@@ -305,17 +337,20 @@ debugApp.post("/admin/app/debug/run", auth, async (c) => {
   }
 });
 
-debugApp.get("/admin/app/debug/logs", auth, async (c) => {
-  const user = c.get("user");
-  if (!isAdminUser(user, c.env as Bindings)) {
-    return c.json({ ok: false, error: "forbidden" }, 403);
+debugApp.get("/-/app/debug/logs", auth, async (c) => {
+  const ownerSession = resolveOwnerSession(c);
+  if (!ownerSession) {
+    return c.json({ ok: false, error: "owner_required" }, 403);
   }
-  const store = makeData(c.env as any, c);
+  const options = parseLogQuery(c);
+  const envForLogs: Bindings = options.mode
+    ? buildRunEnv(c.env as Bindings, options.mode)
+    : (c.env as Bindings);
+  const store = makeData(envForLogs as any, c);
   try {
     if (!store.listAppLogEntries) {
       return c.json({ ok: false, error: "log_store_unavailable" }, 501);
     }
-    const options = parseLogQuery(c);
     const logs = await store.listAppLogEntries(options);
     return ok(c, { logs, filters: options });
   } finally {

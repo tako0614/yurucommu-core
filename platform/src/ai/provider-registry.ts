@@ -29,6 +29,7 @@ export type AiProviderClient = {
   model?: string;
   apiKey: string;
   headers: Record<string, string>;
+  requiresExternalNetwork: boolean;
 };
 
 export type AiProviderResolution = {
@@ -37,6 +38,7 @@ export type AiProviderResolution = {
   dataPolicy: EffectiveAiDataPolicy;
   errors: string[];
   warnings: string[];
+  externalNetworkAllowed: boolean;
 };
 
 export type EffectiveAiDataPolicy = {
@@ -244,6 +246,7 @@ export function resolveAiProviders(
   const errors: string[] = [];
   const warnings: string[] = [];
   const dataPolicy = normalizeAiDataPolicy(aiConfig?.data_policy);
+  const externalNetworkAllowed = aiConfig?.requires_external_network !== false;
 
   const entries = Object.entries(aiConfig?.providers ?? {});
   for (const [providerId, providerConfig] of entries) {
@@ -273,12 +276,17 @@ export function resolveAiProviders(
     }
   }
 
+  if (!externalNetworkAllowed && entries.length > 0) {
+    warnings.push("ai.requires_external_network is false; provider calls will be blocked");
+  }
+
   return {
     providers,
     defaultProviderId,
     dataPolicy,
     errors,
     warnings,
+    externalNetworkAllowed,
   };
 }
 
@@ -328,6 +336,7 @@ function resolveSingleProvider(
       model: providerConfig.model,
       apiKey,
       headers,
+      requiresExternalNetwork: true,
     },
   };
 }
@@ -349,6 +358,7 @@ export class AiProviderRegistry {
   private readonly providers: Map<string, AiProviderClient>;
   private readonly defaultProviderId?: string;
   private readonly policy: EffectiveAiDataPolicy;
+  private readonly externalNetworkAllowed: boolean;
   readonly warnings: string[];
 
   constructor(resolution: AiProviderResolution) {
@@ -359,6 +369,7 @@ export class AiProviderRegistry {
     this.defaultProviderId = resolution.defaultProviderId;
     this.policy = resolution.dataPolicy;
     this.warnings = resolution.warnings;
+    this.externalNetworkAllowed = resolution.externalNetworkAllowed;
   }
 
   list(): AiProviderClient[] {
@@ -373,7 +384,12 @@ export class AiProviderRegistry {
 
   require(providerId?: string): AiProviderClient {
     const client = this.get(providerId);
-    if (client) return client;
+    if (client) {
+      if (client.requiresExternalNetwork && !this.externalNetworkAllowed) {
+        throw new Error("AI external network access is disabled by configuration");
+      }
+      return client;
+    }
     const requested = providerId ?? this.defaultProviderId ?? "(unset)";
     throw new Error(`AI provider "${requested}" is not configured`);
   }

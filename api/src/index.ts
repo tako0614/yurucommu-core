@@ -84,6 +84,11 @@ import adminHealthRoutes from "./routes/admin-health";
 import activityPubMetadataRoutes from "./routes/activitypub-metadata.js";
 import { getTakosConfig } from "./lib/runtime-config";
 import {
+  isManifestRoutingEnabled,
+  matchesManifestRoute,
+  resolveManifestRouter,
+} from "./lib/manifest-routing";
+import {
   ACTIVE_USER_COOKIE_NAME,
   auth,
   authenticateUser,
@@ -305,6 +310,26 @@ app.use("*", async (c, next) => {
     console.warn("[config] failed to resolve takos-config", error);
   }
   await next();
+});
+
+// Route API requests through manifest-defined handlers when enabled.
+app.use("*", async (c, next) => {
+  if (!isManifestRoutingEnabled(c.env as any)) {
+    return next();
+  }
+  const router = await resolveManifestRouter(c.env as Bindings, auth);
+  if (!router) {
+    return next();
+  }
+
+  const pathname = new URL(c.req.url).pathname;
+  const method = c.req.method.toUpperCase();
+  if (!matchesManifestRoute(router, method, pathname)) {
+    return next();
+  }
+
+  const response = await router.app.fetch(c.req.raw, c.env, c.executionCtx);
+  return response;
 });
 
 // Mount ActivityPub routes (WebFinger, Actor, Inbox, Outbox)

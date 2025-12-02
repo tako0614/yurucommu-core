@@ -6,6 +6,7 @@ import {
   checkSemverCompatibility,
   validateTakosConfig,
 } from "@takos/platform/server";
+import { assertConfigAiActionsAllowed } from "./ai-action-allowlist";
 
 const DEFAULT_DISTRO_NAME = "takos-oss";
 const DEFAULT_DISTRO_VERSION = "0.1.0";
@@ -171,6 +172,11 @@ export function buildRuntimeConfig(env: Bindings): TakosConfig {
   const aiDataPolicy = jsonEnv<Record<string, any>>(
     (env as any).AI_DATA_POLICY_JSON || (env as any).TAKOS_AI_DATA_POLICY,
   );
+  const aiRequiresExternalNetwork = boolEnv(
+    (env as any).AI_REQUIRES_EXTERNAL_NETWORK ||
+      (env as any).TAKOS_AI_REQUIRES_EXTERNAL_NETWORK,
+    true,
+  );
   const aiAgentConfigAllowlist = listEnv(
     (env as any).AI_AGENT_CONFIG_ALLOWLIST || (env as any).TAKOS_AI_AGENT_CONFIG_ALLOWLIST,
   );
@@ -178,7 +184,7 @@ export function buildRuntimeConfig(env: Bindings): TakosConfig {
     (env as any).TAKOS_CUSTOM_CONFIG || (env as any).CUSTOM_CONFIG_JSON,
   );
 
-  return {
+  const config: TakosConfig = {
     schema_version: TAKOS_CONFIG_SCHEMA_VERSION,
     distro: {
       name: (env as any).DISTRO_NAME || (env as any).TAKOS_DISTRO_NAME || DEFAULT_DISTRO_NAME,
@@ -212,6 +218,7 @@ export function buildRuntimeConfig(env: Bindings): TakosConfig {
     },
     ai: {
       enabled: boolEnv((env as any).AI_ENABLED, false),
+      requires_external_network: aiRequiresExternalNetwork,
       default_provider: (env as any).AI_DEFAULT_PROVIDER || undefined,
       enabled_actions: listEnv((env as any).AI_ENABLED_ACTIONS),
       providers: aiProviders,
@@ -220,6 +227,9 @@ export function buildRuntimeConfig(env: Bindings): TakosConfig {
     },
     custom: customConfig,
   };
+
+  assertConfigAiActionsAllowed(config);
+  return config;
 }
 
 export function checkDistroCompatibility(
@@ -297,6 +307,17 @@ export async function loadStoredConfig(db: D1Database): Promise<StoredConfigResu
         ],
       };
     }
+    try {
+      assertConfigAiActionsAllowed(validation.config);
+    } catch (error: any) {
+      return {
+        config: null,
+        warnings: [
+          "stored config failed AI action allowlist",
+          error?.message || String(error),
+        ],
+      };
+    }
     return { config: validation.config, warnings: [] };
   } catch (err: any) {
     return {
@@ -311,6 +332,7 @@ export async function persistConfig(db: D1Database, config: TakosConfig): Promis
   if (!validation.ok || !validation.config) {
     throw new Error(`invalid config: ${validation.errors.join("; ")}`);
   }
+  assertConfigAiActionsAllowed(validation.config);
   await ensureConfigTable(db);
   await db
     .prepare(

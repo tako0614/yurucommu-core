@@ -20,5 +20,5 @@
     },
     "rootDirs": ["./src", "../platform"]
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "../takos-profile.json"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "../takos-profile.json", "../takos-ui-contract.json"]
 }

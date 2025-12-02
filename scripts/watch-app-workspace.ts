@@ -1,12 +1,15 @@
 import chokidar from "chokidar";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   AppHandlerRegistry,
   loadAppManifest,
+  parseUiContractJson,
+  validateUiContractAgainstManifest,
   type AppManifest,
   type AppManifestValidationIssue,
+  type UiContract,
 } from "@takos/platform/app";
 
 type CliOptions = {
@@ -26,6 +29,7 @@ type PreviewIndexEntry = {
   screenId: string;
   file?: string;
   warnings?: string[];
+  contractWarnings?: string[];
   error?: string;
 };
 
@@ -37,6 +41,8 @@ type UiNode = {
 };
 
 const DEFAULT_ROOT = path.resolve(process.cwd(), "dev/workspace");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CONTRACT_FILENAME = "takos-ui-contract.json";
 const args = parseArgs(process.argv.slice(2));
 const workspaceRoot = path.resolve(args.root ?? DEFAULT_ROOT);
 const previewDir = path.resolve(args.previewDir ?? path.join(workspaceRoot, ".preview"));
@@ -95,19 +101,29 @@ async function runValidation(reason: string) {
       availableHandlers: handlerInfo.handlers,
     });
 
-    await persistValidationSummary(manifestResult.issues, handlerInfo);
+    const uiContract = await loadUiContract(workspaceRoot);
 
-    const errors = manifestResult.issues.filter((issue) => issue.severity === "error");
+    const contractWarnings =
+      manifestResult.manifest && uiContract.contract
+        ? validateUiContractAgainstManifest(manifestResult.manifest, uiContract.contract, uiContract.source)
+        : manifestResult.manifest
+          ? validateUiContractAgainstManifest(manifestResult.manifest, null, uiContract.source)
+          : [];
+    const allIssues = [...manifestResult.issues, ...uiContract.issues, ...contractWarnings];
+
+    await persistValidationSummary(allIssues, handlerInfo);
+
+    const errors = allIssues.filter((issue) => issue.severity === "error");
     if (!manifestResult.manifest || errors.length > 0) {
-      logIssues(manifestResult.issues);
+      logIssues(allIssues);
       return;
     }
 
     const screens = manifestResult.manifest.views?.screens ?? [];
-    const previews = await emitPreviews(manifestResult.manifest, handlerInfo.notes);
+    const previews = await emitPreviews(manifestResult.manifest, handlerInfo.notes, contractWarnings);
     const duration = Date.now() - started;
     log(
-      `ok (${screens.length} screens, ${handlerInfo.handlers.size} handlers, ${manifestResult.issues.length} issues) in ${duration}ms`,
+      `ok (${screens.length} screens, ${handlerInfo.handlers.size} handlers, ${allIssues.length} issues) in ${duration}ms`,
     );
     if (previews.errors > 0) {
       log(`preview generation warnings: ${previews.errors}`);
@@ -156,6 +172,50 @@ async function collectHandlers(root: string): Promise<HandlerInfo> {
       notes,
     };
   }
+}
+
+async function loadUiContract(
+  root: string,
+): Promise<{ contract: UiContract | null; issues: AppManifestValidationIssue[]; source?: string }> {
+  const issues: AppManifestValidationIssue[] = [];
+  const workspacePath = path.join(root, CONTRACT_FILENAME);
+  const defaultPath = path.resolve(__dirname, "..", CONTRACT_FILENAME);
+
+  const parseFromFile = async (filePath: string, label: string): Promise<UiContract | null> => {
+    try {
+      const raw = await fs.readFile(filePath, "utf8");
+      const parsed = parseUiContractJson(raw, label);
+      issues.push(...parsed.issues);
+      return parsed.contract ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const fromWorkspace = await parseFromFile(workspacePath, CONTRACT_FILENAME);
+  if (fromWorkspace) {
+    return { contract: fromWorkspace, issues, source: CONTRACT_FILENAME };
+  }
+
+  if (!(await fs.access(workspacePath).then(() => true).catch(() => false))) {
+    issues.push({
+      severity: "warning",
+      message: `${CONTRACT_FILENAME} not found in workspace; using default contract`,
+      file: CONTRACT_FILENAME,
+    });
+  }
+
+  const fallback = await parseFromFile(defaultPath, defaultPath);
+  if (fallback) {
+    return { contract: fallback, issues, source: defaultPath };
+  }
+
+  issues.push({
+    severity: "warning",
+    message: `${CONTRACT_FILENAME} not found; UI contract validation skipped`,
+    file: CONTRACT_FILENAME,
+  });
+  return { contract: null, issues, source: CONTRACT_FILENAME };
 }
 
 async function findAppMain(root: string): Promise<string | null> {
@@ -224,10 +284,12 @@ async function persistValidationSummary(
 async function emitPreviews(
   manifest: AppManifest,
   handlerNotes: string[],
+  contractWarnings: AppManifestValidationIssue[],
 ): Promise<{ errors: number }> {
   const screens = Array.isArray(manifest.views?.screens) ? manifest.views.screens : [];
   const index: PreviewIndexEntry[] = [];
   let errorCount = 0;
+  const contractWarningMessages = contractWarnings.map((issue) => formatIssue(issue));
 
   await fs.mkdir(previewDir, { recursive: true });
 
@@ -237,20 +299,27 @@ async function emitPreviews(
       const safeName = screenIdToFile(screen.id);
       const fileName = `screen.${safeName}.json`;
       const filePath = path.join(previewDir, fileName);
+      const warnings = [...contractWarningMessages, ...preview.warnings];
       await fs.writeFile(
         filePath,
         JSON.stringify(
           {
             workspaceId,
             screenId: preview.screenId,
-            warnings: preview.warnings,
+            warnings,
+            contractWarnings: contractWarningMessages,
             resolvedTree: preview.resolvedTree,
           },
           null,
           2,
         ),
       );
-      index.push({ screenId: screen.id, file: fileName, warnings: preview.warnings });
+      index.push({
+        screenId: screen.id,
+        file: fileName,
+        warnings,
+        contractWarnings: contractWarningMessages,
+      });
     } catch (error) {
       errorCount += 1;
       index.push({ screenId: screen.id, error: (error as Error).message });

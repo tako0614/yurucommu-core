@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
 import { Hono } from "hono";
-import type { PublicAccountBindings } from "@takos/platform/server";
+import type { PublicAccountBindings, Variables } from "@takos/platform/server";
 import {
   AppPreviewError,
   applyJsonPatches,
@@ -9,7 +9,20 @@ import {
   normalizeJsonPatchOperations,
   resolveScreenPreview,
 } from "../lib/app-preview";
-import { loadWorkspaceManifest } from "../lib/workspace-store";
+import {
+  ensureDefaultWorkspace,
+  loadWorkspaceManifest,
+  loadWorkspaceUiContract,
+  resolveWorkspaceEnv,
+} from "../lib/workspace-store";
+import {
+  validateUiContractAgainstManifest,
+  type AppManifestValidationIssue,
+  type UiContract,
+} from "@takos/platform/app";
+import defaultUiContract from "../../../takos-ui-contract.json";
+import { auth } from "../middleware/auth";
+import { isOwnerUser } from "../lib/owner-auth";
 
 type PreviewBody = {
   mode?: string;
@@ -24,11 +37,42 @@ type PatchPreviewBody = PreviewBody & {
   patches?: unknown;
 };
 
-type PreviewBindings = PublicAccountBindings & {
-  APP_PREVIEW_TOKEN?: string;
+type PreviewBindings = PublicAccountBindings & { workspaceStore?: any };
+
+const appPreview = new Hono<{ Bindings: PreviewBindings; Variables: Variables }>();
+
+const getSessionUser = (c: any) => c.get("sessionUser") ?? c.get("user") ?? null;
+
+const formatIssue = (issue: AppManifestValidationIssue): string => {
+  const location = [issue.file, issue.path].filter(Boolean).join("#");
+  return `${issue.message}${location ? ` [${location}]` : ""}`;
 };
 
-const appPreview = new Hono<{ Bindings: PreviewBindings }>();
+const loadUiContractForPreview = async (
+  workspaceId: string,
+  mode: "prod" | "dev",
+  env: PreviewBindings,
+): Promise<{ contract: UiContract | null; issues: AppManifestValidationIssue[]; source?: string }> => {
+  if (mode === "dev") {
+    const result = await loadWorkspaceUiContract(workspaceId, { mode, env });
+    if (result.contract) {
+      return { contract: result.contract, issues: result.issues, source: "takos-ui-contract.json" };
+    }
+    return {
+      contract: defaultUiContract as UiContract,
+      issues: [
+        ...result.issues,
+        {
+          severity: "warning",
+          message: "takos-ui-contract.json not found in workspace; using default contract",
+          file: "takos-ui-contract.json",
+        },
+      ],
+      source: "takos-ui-contract.json",
+    };
+  }
+  return { contract: defaultUiContract as UiContract, issues: [], source: "takos-ui-contract.json" };
+};
 
 const normalizePreviewMode = (mode: unknown, workspaceId?: string): "prod" | "dev" => {
   const normalizedMode = typeof mode === "string" ? mode.trim().toLowerCase() : "";
@@ -52,17 +96,12 @@ const parseBody = async (c: any): Promise<PreviewBody | null> => {
   return body as PreviewBody;
 };
 
-const requirePreviewAccess = (c: any) => {
-  const env = (c?.env ?? {}) as PreviewBindings;
-  const token = env.APP_PREVIEW_TOKEN?.trim();
-  if (!token) return true;
-  const provided = c.req.header("x-app-preview-token")?.trim();
-  return provided === token;
-};
+appPreview.use("/-/app/preview/*", auth);
 
-appPreview.post("/admin/app/preview/screen", async (c) => {
-  if (!requirePreviewAccess(c)) {
-    return c.json({ ok: false, error: "unauthorized" }, 401);
+appPreview.post("/-/app/preview/screen", async (c) => {
+  const sessionUser = getSessionUser(c);
+  if (!isOwnerUser(sessionUser, c.env as PreviewBindings)) {
+    return c.json({ ok: false, error: "owner_session_required" }, 403);
   }
 
   const body = await parseBody(c);
@@ -105,6 +144,14 @@ appPreview.post("/admin/app/preview/screen", async (c) => {
       );
     }
 
+    const uiContract = await loadUiContractForPreview(workspaceId, mode, c.env as PreviewBindings);
+    const contractWarnings = validateUiContractAgainstManifest(
+      manifest,
+      uiContract.contract,
+      uiContract.source,
+    );
+    const combinedContractWarnings = [...uiContract.issues, ...contractWarnings];
+
     const preview = resolveScreenPreview(manifest, screenId);
     const resolvedWorkspaceId = manifest.id ?? workspaceId;
     return c.json({
@@ -114,7 +161,8 @@ appPreview.post("/admin/app/preview/screen", async (c) => {
       screenId: preview.screenId,
       viewMode: "json",
       resolvedTree: preview.resolvedTree,
-      warnings: preview.warnings,
+      warnings: [...combinedContractWarnings.map(formatIssue), ...preview.warnings],
+      contractWarnings: combinedContractWarnings,
       width: typeof body.width === "number" ? body.width : undefined,
       height: typeof body.height === "number" ? body.height : undefined,
     });
@@ -129,9 +177,10 @@ appPreview.post("/admin/app/preview/screen", async (c) => {
   }
 });
 
-appPreview.post("/admin/app/preview/screen-with-patch", async (c) => {
-  if (!requirePreviewAccess(c)) {
-    return c.json({ ok: false, error: "unauthorized" }, 401);
+appPreview.post("/-/app/preview/screen-with-patch", async (c) => {
+  const sessionUser = getSessionUser(c);
+  if (!isOwnerUser(sessionUser, c.env as PreviewBindings)) {
+    return c.json({ ok: false, error: "owner_session_required" }, 403);
   }
 
   const body = (await parseBody(c)) as PatchPreviewBody | null;
@@ -189,6 +238,13 @@ appPreview.post("/admin/app/preview/screen-with-patch", async (c) => {
     }
 
     const patchedManifest = applyJsonPatches(manifest, patches);
+    const uiContract = await loadUiContractForPreview(workspaceId, mode, c.env as PreviewBindings);
+    const contractWarnings = validateUiContractAgainstManifest(
+      patchedManifest,
+      uiContract.contract,
+      uiContract.source,
+    );
+    const combinedContractWarnings = [...uiContract.issues, ...contractWarnings];
     const preview = resolveScreenPreview(patchedManifest, screenId);
     const resolvedWorkspaceId = manifest.id ?? workspaceId;
     return c.json({
@@ -198,7 +254,8 @@ appPreview.post("/admin/app/preview/screen-with-patch", async (c) => {
       screenId: preview.screenId,
       viewMode: "json",
       resolvedTree: preview.resolvedTree,
-      warnings: preview.warnings,
+      warnings: [...combinedContractWarnings.map(formatIssue), ...preview.warnings],
+      contractWarnings: combinedContractWarnings,
       patchesApplied: patches.length,
       width: typeof body.width === "number" ? body.width : undefined,
       height: typeof body.height === "number" ? body.height : undefined,

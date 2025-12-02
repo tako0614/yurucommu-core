@@ -68,6 +68,10 @@ function normalizeId(id: string): string {
   return id.trim();
 }
 
+function normalizeActionList(actions: readonly string[]): string[] {
+  return Array.from(new Set(actions.map(normalizeId).filter(Boolean)));
+}
+
 function cloneDefinition(definition: AiActionDefinition): AiActionDefinition {
   return {
     ...definition,
@@ -207,4 +211,17 @@ export async function dispatchAiAction<I, O>(
 
   ensureAiActionAllowed(action.definition, ctx.nodeConfig);
   return await action.handler(ctx, input) as O;
+}
+
+export function assertActionsInAllowlist(
+  enabledActions: readonly string[],
+  allowedActions: readonly string[],
+): void {
+  const allowlist = new Set(normalizeActionList(allowedActions));
+  const disallowed = normalizeActionList(enabledActions).filter((id) => !allowlist.has(id));
+
+  if (disallowed.length > 0) {
+    const suffix = disallowed.length === 1 ? disallowed[0] : disallowed.join(", ");
+    throw new Error(`AI actions not allowed by takos-profile: ${suffix}`);
+  }
 }

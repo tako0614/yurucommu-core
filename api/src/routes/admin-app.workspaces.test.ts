@@ -1,19 +1,42 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import adminAppRoutes from "./admin-app";
+import { createJWT } from "@takos/platform/server";
 import { getDefaultDataFactory, setBackendDataFactory } from "../data";
 import type { AppWorkspaceRecord } from "../lib/types";
 
-const authEnv = { AUTH_USERNAME: "admin", AUTH_PASSWORD: "secret" };
-const authHeader = `Basic ${Buffer.from("admin:secret").toString("base64")}`;
-
 const defaultFactory = getDefaultDataFactory();
+
+const owner = { id: "owner", handle: "owner", display_name: "Owner" };
+const jwtSecret = "secret";
+
+const buildEnv = (overrides?: Record<string, unknown>) => ({
+  INSTANCE_OWNER_HANDLE: owner.id,
+  ...overrides,
+});
+
+const buildStore = () =>
+  ({
+    getUser: vi.fn().mockResolvedValue(owner),
+    getUserJwtSecret: vi.fn().mockResolvedValue(jwtSecret),
+    setUserJwtSecret: vi.fn(),
+    createSession: vi.fn(),
+    getSession: vi.fn(),
+    updateSession: vi.fn(),
+    deleteSession: vi.fn(),
+    disconnect: vi.fn(),
+  }) as any;
+
+const authHeaders = async () => ({
+  Authorization: `Bearer ${await createJWT(owner.id, jwtSecret)}`,
+  "content-type": "application/json",
+});
 
 const baseWorkspace: AppWorkspaceRecord = {
   id: "ws_123",
   base_revision_id: null,
   status: "draft",
   author_type: "human",
-  author_name: "admin",
+  author_name: owner.display_name,
   created_at: "2025-01-01T00:00:00.000Z",
   updated_at: "2025-01-01T00:00:00.000Z",
 };
@@ -28,11 +51,14 @@ const buildWorkspaceFile = (path: string, content: string) => ({
   updated_at: baseWorkspace.updated_at,
 });
 
-describe("/admin/app/workspaces", () => {
+describe("/-/app/workspaces", () => {
   afterEach(() => {
     setBackendDataFactory(defaultFactory);
     vi.restoreAllMocks();
   });
+
+  const withStore = (overrides: Record<string, unknown>) =>
+    Object.assign(buildStore(), overrides);
 
   it("creates a draft workspace as the owner", async () => {
     const createAppWorkspace = vi.fn(async (input: any) => ({
@@ -44,22 +70,16 @@ describe("/admin/app/workspaces", () => {
       author_name: input.author_name,
     }));
 
-    setBackendDataFactory(
-      () =>
-        ({
-          createAppWorkspace,
-          disconnect: vi.fn(),
-        }) as any,
-    );
+    setBackendDataFactory(() => withStore({ createAppWorkspace }));
 
     const res = await adminAppRoutes.request(
-      "/admin/app/workspaces",
+      "/-/app/workspaces",
       {
         method: "POST",
-        headers: { Authorization: authHeader, "content-type": "application/json" },
+        headers: await authHeaders(),
         body: JSON.stringify({ baseRevisionId: "rev_base" }),
       },
-      authEnv,
+      buildEnv(),
     );
 
     expect(res.status).toBe(200);
@@ -77,21 +97,15 @@ describe("/admin/app/workspaces", () => {
 
   it("lists workspaces with a clamped limit", async () => {
     const listAppWorkspaces = vi.fn(async () => [baseWorkspace]);
-    setBackendDataFactory(
-      () =>
-        ({
-          listAppWorkspaces,
-          disconnect: vi.fn(),
-        }) as any,
-    );
+    setBackendDataFactory(() => withStore({ listAppWorkspaces }));
 
     const res = await adminAppRoutes.request(
-      "/admin/app/workspaces?limit=200",
+      "/-/app/workspaces?limit=200",
       {
         method: "GET",
-        headers: { Authorization: authHeader },
+        headers: await authHeaders(),
       },
-      authEnv,
+      buildEnv(),
     );
 
     expect(res.status).toBe(200);
@@ -108,13 +122,11 @@ describe("/admin/app/workspaces", () => {
       status,
     }));
 
-    setBackendDataFactory(
-      () =>
-        ({
-          getAppWorkspace,
-          updateAppWorkspaceStatus,
-          disconnect: vi.fn(),
-        }) as any,
+    setBackendDataFactory(() =>
+      withStore({
+        getAppWorkspace,
+        updateAppWorkspaceStatus,
+      }),
     );
 
     const workspaceStore = {
@@ -124,13 +136,13 @@ describe("/admin/app/workspaces", () => {
     };
 
     const res = await adminAppRoutes.request(
-      "/admin/app/workspaces/ws_123/status",
+      "/-/app/workspaces/ws_123/status",
       {
         method: "POST",
-        headers: { Authorization: authHeader, "content-type": "application/json" },
+        headers: await authHeaders(),
         body: JSON.stringify({ status: "validated" }),
       },
-      { ...authEnv, workspaceStore },
+      { ...buildEnv(), workspaceStore },
     );
 
     expect(res.status).toBe(200);
@@ -138,7 +150,7 @@ describe("/admin/app/workspaces", () => {
     expect(json.ok).toBe(true);
     expect(json.workspace?.status).toBe("validated");
     expect(Array.isArray(json.issues)).toBe(true);
-    expect(json.issues.length).toBe(0);
+    expect(json.issues.every((issue: any) => issue?.severity !== "error")).toBe(true);
     expect(updateAppWorkspaceStatus).toHaveBeenCalledWith("ws_123", "validated");
   });
 
@@ -146,13 +158,11 @@ describe("/admin/app/workspaces", () => {
     const getAppWorkspace = vi.fn(async () => baseWorkspace);
     const updateAppWorkspaceStatus = vi.fn();
 
-    setBackendDataFactory(
-      () =>
-        ({
-          getAppWorkspace,
-          updateAppWorkspaceStatus,
-          disconnect: vi.fn(),
-        }) as any,
+    setBackendDataFactory(() =>
+      withStore({
+        getAppWorkspace,
+        updateAppWorkspaceStatus,
+      }),
     );
 
     const workspaceStore = {
@@ -162,13 +172,13 @@ describe("/admin/app/workspaces", () => {
     };
 
     const res = await adminAppRoutes.request(
-      "/admin/app/workspaces/ws_123/status",
+      "/-/app/workspaces/ws_123/status",
       {
         method: "POST",
-        headers: { Authorization: authHeader, "content-type": "application/json" },
+        headers: await authHeaders(),
         body: JSON.stringify({ status: "validated" }),
       },
-      { ...authEnv, workspaceStore },
+      { ...buildEnv(), workspaceStore },
     );
 
     expect(res.status).toBe(400);
@@ -183,23 +193,21 @@ describe("/admin/app/workspaces", () => {
     const getAppWorkspace = vi.fn(async () => baseWorkspace);
     const updateAppWorkspaceStatus = vi.fn();
 
-    setBackendDataFactory(
-      () =>
-        ({
-          getAppWorkspace,
-          updateAppWorkspaceStatus,
-          disconnect: vi.fn(),
-        }) as any,
+    setBackendDataFactory(() =>
+      withStore({
+        getAppWorkspace,
+        updateAppWorkspaceStatus,
+      }),
     );
 
     const res = await adminAppRoutes.request(
-      "/admin/app/workspaces/ws_123/status",
+      "/-/app/workspaces/ws_123/status",
       {
         method: "POST",
-        headers: { Authorization: authHeader, "content-type": "application/json" },
+        headers: await authHeaders(),
         body: JSON.stringify({ status: "ready" }),
       },
-      authEnv,
+      buildEnv(),
     );
 
     expect(res.status).toBe(400);
@@ -207,16 +215,18 @@ describe("/admin/app/workspaces", () => {
   });
 
   it("forbids agent calls", async () => {
+    setBackendDataFactory(() => withStore({}));
+
     const res = await adminAppRoutes.request(
-      "/admin/app/workspaces",
+      "/-/app/workspaces",
       {
         method: "GET",
         headers: {
-          Authorization: authHeader,
+          ...(await authHeaders()),
           "x-takos-agent-type": "system",
         },
       },
-      authEnv,
+      buildEnv(),
     );
 
     expect(res.status).toBe(403);
@@ -244,14 +254,16 @@ describe("/admin/app/workspaces", () => {
       },
     };
 
+    setBackendDataFactory(() => withStore({}));
+
     const saveRes = await adminAppRoutes.request(
-      `/admin/app/workspaces/${baseWorkspace.id}/files`,
+      `/-/app/workspaces/${baseWorkspace.id}/files`,
       {
         method: "POST",
-        headers: { Authorization: authHeader, "content-type": "application/json" },
+        headers: await authHeaders(),
         body: JSON.stringify({ path: "takos-app.json", content: '{"hello":"world"}' }),
       },
-      { ...authEnv, workspaceStore },
+      { ...buildEnv(), workspaceStore },
     );
 
     expect(saveRes.status).toBe(200);
@@ -260,12 +272,12 @@ describe("/admin/app/workspaces", () => {
     expect(files["takos-app.json"]).toBeDefined();
 
     const listRes = await adminAppRoutes.request(
-      `/admin/app/workspaces/${baseWorkspace.id}/files`,
+      `/-/app/workspaces/${baseWorkspace.id}/files`,
       {
         method: "GET",
-        headers: { Authorization: authHeader },
+        headers: await authHeaders(),
       },
-      { ...authEnv, workspaceStore },
+      { ...buildEnv(), workspaceStore },
     );
 
     expect(listRes.status).toBe(200);

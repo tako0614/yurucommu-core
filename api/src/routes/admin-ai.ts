@@ -23,6 +23,7 @@ import { enforceAgentConfigAllowlist, getAgentConfigAllowlist } from "../lib/age
 import { getBuiltinActionDefinitions } from "../ai/actions";
 import { buildRuntimeConfig, loadStoredConfig } from "../lib/config-utils";
 import { persistConfigWithReloadGuard } from "../lib/config-reload";
+import { assertConfigAiActionsAllowed } from "../lib/ai-action-allowlist";
 
 type AiCapability = "chat" | "completion" | "embedding";
 
@@ -105,6 +106,7 @@ export function buildProviderStatuses(
   env: Record<string, unknown>,
 ): ProviderStatus[] {
   const providers = config.providers ?? {};
+  const externalNetworkAllowed = config.requires_external_network !== false;
   return Object.entries(providers).map(([id, provider]) => {
     const capabilities = PROVIDER_CAPABILITIES[provider.type] ?? [];
     const apiKeyEnv =
@@ -119,7 +121,7 @@ export function buildProviderStatuses(
       base_url: provider.base_url ?? null,
       api_key_env: apiKeyEnv || undefined,
       configured,
-      eligible: configured,
+      eligible: configured && externalNetworkAllowed,
       capabilities,
     };
   });
@@ -204,6 +206,7 @@ async function resolveConfigAllowlist(
 ): Promise<{ config: TakosConfig; source: ConfigSource; allowlist: string[]; warnings: string[] }> {
   const stored = await loadStoredConfig(env.DB);
   const config = stored.config ?? buildRuntimeConfig(env);
+  assertConfigAiActionsAllowed(config);
   const allowlist = getAgentConfigAllowlist(config);
   const source: ConfigSource = stored.config ? "stored" : "runtime";
   const warnings = stored.warnings ?? [];
@@ -244,6 +247,7 @@ adminAi.get("/admin/ai", async (c) => {
         enabled: config.enabled !== false,
         default_provider: config.default_provider ?? null,
         enabled_actions: config.enabled_actions ?? [],
+        requires_external_network: config.requires_external_network !== false,
         data_policy: config.data_policy ?? DEFAULT_TAKOS_AI_CONFIG.data_policy,
       },
       providers,
@@ -391,6 +395,7 @@ adminAi.post("/admin/ai/actions/:id/toggle", async (c) => {
         enabled: nextConfig.enabled !== false,
         default_provider: nextConfig.default_provider ?? null,
         enabled_actions: nextConfig.enabled_actions ?? [],
+        requires_external_network: nextConfig.requires_external_network !== false,
         data_policy: nextConfig.data_policy ?? DEFAULT_TAKOS_AI_CONFIG.data_policy,
       },
       providers,

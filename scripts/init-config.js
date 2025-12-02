@@ -51,7 +51,15 @@ const profileTemplate = `{
     // Optional: specification / profile URL
     "profile": "https://node.example.com/docs/takos-distro",
     // Optional: node type label
-    "node_type": "takos-node"
+    "node_type": "takos-node",
+    // Optional: ActivityPub extensions published by this distro
+    "extensions": [
+      {
+        "id": "custom-extension",
+        "description": "Describe any custom ActivityPub mappings or vocabulary.",
+        "spec_url": "https://node.example.com/docs/ap/custom-extension"
+      }
+    ]
   },
   // Optional: UI metadata (reference only)
   "ui": {
@@ -121,7 +129,8 @@ const configTemplate = `{
   },
   // Optional: AI routing and policy
   "ai": {
-    "enabled": true,
+    "enabled": false,
+    "requires_external_network": true,
     "default_provider": "openai-main",
     "enabled_actions": ["ai.summary"],
     "providers": {

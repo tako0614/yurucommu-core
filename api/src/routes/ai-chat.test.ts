@@ -112,6 +112,30 @@ describe("/api/ai/chat", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("rejects chat when external network access is disabled", async () => {
+    setBackendDataFactory(() => buildStore());
+    const fetchMock = vi.fn();
+    (global as any).fetch = fetchMock as any;
+
+    const res = await aiChatRoutes.request(
+      "/api/ai/chat",
+      {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({
+          messages: [{ role: "user", content: "hello" }],
+        }),
+      },
+      buildEnv({ AI_REQUIRES_EXTERNAL_NETWORK: "false" }),
+    );
+
+    expect(res.status).toBe(503);
+    const json: any = await res.json();
+    expect(json.ok).toBe(false);
+    expect(String(json.error)).toMatch(/network/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("blocks chat when ai.chat is not allowlisted", async () => {
     setBackendDataFactory(() => buildStore());
     const fetchMock = vi.fn();

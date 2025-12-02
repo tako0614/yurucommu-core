@@ -13,6 +13,7 @@
     "lint": "npm --workspaces run lint || true",
     "test": "npm --workspace api run test && npm --workspace platform run test",
     "dev:watch-app": "tsx scripts/watch-app-workspace.ts",
+    "validate:app": "tsx scripts/validate-app-manifest.ts",
     "init:config": "node scripts/init-config.js",
     "validate:profile": "node scripts/validate-takos-profile.js",
     "ui:contract": "node frontend/scripts/validate-ui-contract.mjs",

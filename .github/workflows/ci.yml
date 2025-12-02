@@ -22,8 +22,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate takos-profile.json
+        run: npm run validate:profile
+
       - name: Run tests
         run: npm test
+
+      - name: Validate app manifest
+        run: npm run validate:app
 
       - name: Validate UI contract
         run: npm run ui:contract

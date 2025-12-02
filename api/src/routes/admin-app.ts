@@ -8,7 +8,14 @@ import {
   ok,
   releaseStore,
 } from "@takos/platform/server";
-import { createInMemoryAppSource, loadAppManifest, type AppManifestValidationIssue } from "@takos/platform/app";
+import {
+  createInMemoryAppSource,
+  loadAppManifest,
+  parseUiContractJson,
+  validateUiContractAgainstManifest,
+  type AppManifestValidationIssue,
+  type UiContract,
+} from "@takos/platform/app";
 import { makeData } from "../data";
 import { guardAgentRequest } from "../lib/agent-guard";
 import {
@@ -17,12 +24,15 @@ import {
   type AppRevisionRecord,
 } from "../lib/app-revision-diff";
 import { loadWorkspaceSnapshot, validateWorkspaceForApply } from "../lib/app-workspace";
-import { createWorkspaceStore } from "../lib/workspace-store";
+import { ensureDefaultWorkspace, resolveWorkspaceEnv } from "../lib/workspace-store";
+import { auth } from "../middleware/auth";
+import { isOwnerUser } from "../lib/owner-auth";
 import type {
   AppRevisionAuditDetails,
   AppRevisionAuditInput,
   AppWorkspaceStatus,
 } from "../lib/types";
+import defaultUiContract from "../../../takos-ui-contract.json";
 
 type AdminAuthResult =
   | { ok: true; admin: string }
@@ -87,11 +97,9 @@ const canTransitionWorkspaceStatus = (
   return false;
 };
 
-const resolveWorkspaceStore = (env: any) =>
-  env?.workspaceStore ?? (env?.DB ? createWorkspaceStore(env.DB) : null);
-
 const textDecoder = new TextDecoder();
 const APP_MAIN_CANDIDATES = ["app-main.ts", "app-main.tsx", "app-main.js", "app-main.mjs", "app-main.cjs"];
+const UI_CONTRACT_FILENAME = "takos-ui-contract.json";
 
 const shouldValidateWorkspaceStatus = (status: WorkspaceLifecycleStatus): boolean =>
   status === "validated" || status === "ready";
@@ -187,12 +195,39 @@ const detectWorkspaceHandlers = (
   return { handlers: null, issues: [] };
 };
 
+const loadUiContractFromWorkspace = (
+  files: Record<string, string>,
+): { contract: UiContract | null; issues: AppManifestValidationIssue[] } => {
+  const raw = files[UI_CONTRACT_FILENAME];
+  if (typeof raw !== "string") {
+    return { contract: null, issues: [] };
+  }
+  const parsed = parseUiContractJson(raw, UI_CONTRACT_FILENAME);
+  return { contract: parsed.contract ?? null, issues: parsed.issues };
+};
+
 const validateWorkspaceManifest = async (
   workspaceId: string,
   env: any,
 ): Promise<{ ok: boolean; issues: AppManifestValidationIssue[]; status: number }> => {
   const issues: AppManifestValidationIssue[] = [];
-  const store = resolveWorkspaceStore(env);
+  const { store, isolation } = resolveWorkspaceEnv({
+    env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (isolation?.required && !isolation.ok) {
+    return {
+      ok: false,
+      issues: [
+        {
+          severity: "error",
+          message: isolation.errors[0] || "dev data isolation failed",
+        },
+      ],
+      status: 503,
+    };
+  }
   if (!store?.listWorkspaceFiles) {
     return {
       ok: false,
@@ -203,6 +238,7 @@ const validateWorkspaceManifest = async (
 
   let files: any[] = [];
   try {
+    await ensureDefaultWorkspace(store);
     files = await store.listWorkspaceFiles(workspaceId);
   } catch (error) {
     return {
@@ -230,12 +266,35 @@ const validateWorkspaceManifest = async (
   const handlerInfo = detectWorkspaceHandlers(fileMap);
   issues.push(...handlerInfo.issues);
 
+  const uiContract = loadUiContractFromWorkspace(fileMap);
+  issues.push(...uiContract.issues);
+  const resolvedContract: UiContract =
+    uiContract.contract ?? (defaultUiContract as UiContract);
+  if (!uiContract.contract) {
+    issues.push({
+      severity: "warning",
+      message: `${UI_CONTRACT_FILENAME} not found in workspace; using default contract`,
+      file: UI_CONTRACT_FILENAME,
+    });
+  }
+
   try {
     const result = await loadAppManifest({
       source: createInMemoryAppSource(fileMap),
       availableHandlers: handlerInfo.handlers ?? undefined,
     });
     issues.push(...result.issues);
+
+    if (result.manifest) {
+      issues.push(
+        ...validateUiContractAgainstManifest(
+          result.manifest,
+          resolvedContract,
+          uiContract.contract ? UI_CONTRACT_FILENAME : undefined,
+        ),
+      );
+    }
+
     const hasErrors = issues.some((issue) => issue.severity === "error");
     return {
       ok: Boolean(result.manifest) && !hasErrors,
@@ -403,12 +462,25 @@ const prepareRevisionCandidate = async (
     null;
 
   if (workspaceId) {
-    const workspaceStore =
-      (c.env as any)?.workspaceStore ??
-      ((c.env as any)?.DB ? createWorkspaceStore((c.env as any).DB) : null);
-    const workspace = await loadWorkspaceSnapshot(workspaceId, {
+    const workspaceEnv = resolveWorkspaceEnv({
       env: c.env,
-      store: workspaceStore,
+      mode: "dev",
+      requireIsolation: true,
+    });
+    if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+      return {
+        ok: false,
+        response: fail(
+          c as any,
+          workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+          503,
+        ),
+      };
+    }
+    await ensureDefaultWorkspace(workspaceEnv.store);
+    const workspace = await loadWorkspaceSnapshot(workspaceId, {
+      env: workspaceEnv.env,
+      store: workspaceEnv.store,
     });
     if (!workspace) {
       return { ok: false, response: fail(c as any, "workspace not found", 404) };
@@ -508,6 +580,20 @@ const prepareRevisionCandidate = async (
 
 const adminAppRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
+const requireOwnerSession = async (c: any, next: () => Promise<void>) => {
+  const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
+  if (!agentGuard.ok) {
+    return fail(c as any, agentGuard.error, agentGuard.status);
+  }
+  const user = c.get("user");
+  if (!isOwnerUser(user, c.env as Bindings)) {
+    return fail(c as any, "owner session required", 403);
+  }
+  await next();
+};
+
+adminAppRoutes.use("/-/app/workspaces", auth, requireOwnerSession);
+adminAppRoutes.use("/-/app/workspaces/*", auth, requireOwnerSession);
 adminAppRoutes.use("/admin/app/*", async (c, next) => {
   const auth = checkAdminAuth(c);
   if (!auth.ok) {
@@ -911,12 +997,25 @@ adminAppRoutes.post("/admin/app/revisions/:id/rollback", async (c) => {
   }
 });
 
-adminAppRoutes.get("/admin/app/workspaces", async (c) => {
-  const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
-  if (!agentGuard.ok) {
-    return fail(c as any, agentGuard.error, agentGuard.status);
+adminAppRoutes.get("/-/app/workspaces", async (c) => {
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return fail(
+      c as any,
+      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+      503,
+    );
   }
-  const store = makeData(c.env as any, c);
+  if (!workspaceEnv.store) {
+    return fail(c as any, "workspace store is not configured", 503);
+  }
+  await ensureDefaultWorkspace(workspaceEnv.store);
+
+  const store = makeData(workspaceEnv.env as any, c);
   try {
     if (!store.listAppWorkspaces) {
       return fail(c as any, "app workspaces are not supported", 501);
@@ -935,16 +1034,29 @@ adminAppRoutes.get("/admin/app/workspaces", async (c) => {
   }
 });
 
-adminAppRoutes.post("/admin/app/workspaces", async (c) => {
-  const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
-  if (!agentGuard.ok) {
-    return fail(c as any, agentGuard.error, agentGuard.status);
-  }
+adminAppRoutes.post("/-/app/workspaces", async (c) => {
   const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body || typeof body !== "object") {
     return fail(c as any, "invalid workspace payload", 400);
   }
-  const store = makeData(c.env as any, c);
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return fail(
+      c as any,
+      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+      503,
+    );
+  }
+  if (!workspaceEnv.store) {
+    return fail(c as any, "workspace store is not configured", 503);
+  }
+  await ensureDefaultWorkspace(workspaceEnv.store);
+
+  const store = makeData(workspaceEnv.env as any, c);
   try {
     if (!store.createAppWorkspace) {
       return fail(c as any, "app workspaces are not supported", 501);
@@ -957,10 +1069,15 @@ adminAppRoutes.post("/admin/app/workspaces", async (c) => {
       typeof (body as any).baseRevisionId === "string" && (body as any).baseRevisionId.trim().length > 0
         ? (body as any).baseRevisionId.trim()
         : null;
+    const user = c.get("user");
     const authorName =
-      typeof (body as any).authorName === "string" && (body as any).authorName.trim().length > 0
-        ? (body as any).authorName.trim()
-        : (c as any).get("adminUser");
+      typeof user?.display_name === "string" && user.display_name.trim().length > 0
+        ? user.display_name.trim()
+        : typeof user?.name === "string" && user.name.trim().length > 0
+          ? user.name.trim()
+          : typeof (body as any).authorName === "string" && (body as any).authorName.trim().length > 0
+            ? (body as any).authorName.trim()
+            : user?.id ?? null;
 
     const workspace = await store.createAppWorkspace({
       id: requestedId || undefined,
@@ -980,11 +1097,7 @@ adminAppRoutes.post("/admin/app/workspaces", async (c) => {
   }
 });
 
-adminAppRoutes.post("/admin/app/workspaces/:id/status", async (c) => {
-  const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
-  if (!agentGuard.ok) {
-    return fail(c as any, agentGuard.error, agentGuard.status);
-  }
+adminAppRoutes.post("/-/app/workspaces/:id/status", async (c) => {
   const workspaceId = (c.req.param("id") || "").trim();
   if (!workspaceId) {
     return fail(c as any, "workspaceId is required", 400);
@@ -995,7 +1108,24 @@ adminAppRoutes.post("/admin/app/workspaces/:id/status", async (c) => {
     return fail(c as any, "status must be one of draft, validated, ready", 400);
   }
 
-  const store = makeData(c.env as any, c);
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return fail(
+      c as any,
+      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+      503,
+    );
+  }
+  if (!workspaceEnv.store) {
+    return fail(c as any, "workspace store is not configured", 503);
+  }
+  await ensureDefaultWorkspace(workspaceEnv.store);
+
+  const store = makeData(workspaceEnv.env as any, c);
   try {
     if (!store.getAppWorkspace || !store.updateAppWorkspaceStatus) {
       return fail(c as any, "app workspaces are not supported", 501);
@@ -1010,7 +1140,7 @@ adminAppRoutes.post("/admin/app/workspaces/:id/status", async (c) => {
 
     let validationIssues: AppManifestValidationIssue[] = [];
     if (shouldValidateWorkspaceStatus(nextStatus)) {
-      const validation = await validateWorkspaceManifest(workspaceId, c.env);
+      const validation = await validateWorkspaceManifest(workspaceId, workspaceEnv.env);
       validationIssues = validation.issues;
       if (!validation.ok) {
         return c.json(
@@ -1033,19 +1163,28 @@ adminAppRoutes.post("/admin/app/workspaces/:id/status", async (c) => {
   }
 });
 
-adminAppRoutes.get("/admin/app/workspaces/:id/files", async (c) => {
-  const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
-  if (!agentGuard.ok) {
-    return fail(c as any, agentGuard.error, agentGuard.status);
-  }
+adminAppRoutes.get("/-/app/workspaces/:id/files", async (c) => {
   const workspaceId = (c.req.param("id") || "").trim();
   if (!workspaceId) {
     return fail(c as any, "workspaceId is required", 400);
   }
-  const store = resolveWorkspaceStore(c.env as any);
-  if (!store) {
-    return fail(c as any, "workspace store is not configured", 500);
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return fail(
+      c as any,
+      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+      503,
+    );
   }
+  const store = workspaceEnv.store;
+  if (!store) {
+    return fail(c as any, "workspace store is not configured", 503);
+  }
+  await ensureDefaultWorkspace(store);
   const workspace = await store.getWorkspace(workspaceId);
   if (!workspace) {
     return fail(c as any, "workspace not found", 404);
@@ -1064,11 +1203,7 @@ adminAppRoutes.get("/admin/app/workspaces/:id/files", async (c) => {
   return ok(c as any, { workspace_id: workspaceId, files: mapped });
 });
 
-adminAppRoutes.post("/admin/app/workspaces/:id/files", async (c) => {
-  const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
-  if (!agentGuard.ok) {
-    return fail(c as any, agentGuard.error, agentGuard.status);
-  }
+adminAppRoutes.post("/-/app/workspaces/:id/files", async (c) => {
   const workspaceId = (c.req.param("id") || "").trim();
   if (!workspaceId) {
     return fail(c as any, "workspaceId is required", 400);
@@ -1092,10 +1227,23 @@ adminAppRoutes.post("/admin/app/workspaces/:id/files", async (c) => {
       ? payload.content_type.trim()
       : "application/json";
 
-  const store = resolveWorkspaceStore(c.env as any);
-  if (!store) {
-    return fail(c as any, "workspace store is not configured", 500);
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return fail(
+      c as any,
+      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+      503,
+    );
   }
+  const store = workspaceEnv.store;
+  if (!store) {
+    return fail(c as any, "workspace store is not configured", 503);
+  }
+  await ensureDefaultWorkspace(store);
   const workspace = await store.getWorkspace(workspaceId);
   if (!workspace) {
     return fail(c as any, "workspace not found", 404);
