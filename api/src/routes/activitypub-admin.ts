@@ -14,6 +14,7 @@ import { auth } from "../middleware/auth";
 import { buildRuntimeConfig, loadStoredConfig } from "../lib/config-utils";
 import { guardAgentRequest } from "../lib/agent-guard";
 import { persistConfigWithReloadGuard } from "../lib/config-reload";
+import { enforceAgentConfigAllowlist, getAgentConfigAllowlist } from "../lib/agent-config-allowlist";
 
 type ConfigSource = "stored" | "runtime";
 
@@ -173,6 +174,17 @@ activityPubAdminRoutes.post("/admin/activitypub/blocked-instances", async (c) =>
     });
   }
 
+  if (agentGuard.agentType) {
+    const allowlistCheck = enforceAgentConfigAllowlist({
+      agentType: agentGuard.agentType,
+      allowlist: getAgentConfigAllowlist(config),
+      changedPaths: ["activitypub.blocked_instances"],
+    });
+    if (!allowlistCheck.ok) {
+      return fail(c, allowlistCheck.error, allowlistCheck.status);
+    }
+  }
+
   const nextBlocked = [...configBlocked, normalized];
   const nextConfig = applyBlockedInstances(config, nextBlocked);
   const applyResult = await persistConfigWithReloadGuard({
@@ -213,6 +225,17 @@ activityPubAdminRoutes.delete("/admin/activitypub/blocked-instances/:domain", as
       return fail(c, "domain is blocked via environment and cannot be removed", 400);
     }
     return fail(c, "blocked instance not found", 404);
+  }
+
+  if (agentGuard.agentType) {
+    const allowlistCheck = enforceAgentConfigAllowlist({
+      agentType: agentGuard.agentType,
+      allowlist: getAgentConfigAllowlist(config),
+      changedPaths: ["activitypub.blocked_instances"],
+    });
+    if (!allowlistCheck.ok) {
+      return fail(c, allowlistCheck.error, allowlistCheck.status);
+    }
   }
 
   const nextBlocked = configBlocked.filter((item) => item !== normalized);

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { TakosAiConfig } from "../config/takos-config";
 import { buildAiProviderRegistry, resolveAiProviders } from "./provider-registry";
 
@@ -59,8 +59,8 @@ describe("resolveAiProviders", () => {
   });
 });
 
-describe("AiProviderRegistry redaction", () => {
-  it("redacts payload slices based on combined policy", () => {
+describe("AiProviderRegistry policy enforcement", () => {
+  it("blocks and logs when payload slices violate combined policy", async () => {
     const aiConfig: TakosAiConfig = {
       providers: {
         local: {
@@ -77,35 +77,37 @@ describe("AiProviderRegistry redaction", () => {
     };
 
     const registry = buildAiProviderRegistry(aiConfig, { LLM_KEY: "secret" });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const result = registry.redact(
-      {
-        publicPosts: ["post"],
-        communityPosts: ["community"],
-        dmMessages: ["dm"],
-        profile: { bio: "hi" },
-      },
-      {
-        sendCommunityPosts: false,
-        sendDm: true,
-      },
-    );
+    await expect(
+      registry.callWithPolicy(
+        {
+          payload: {
+            publicPosts: ["post"],
+            communityPosts: ["community"],
+            dmMessages: ["dm"],
+            profile: { bio: "hi" },
+          },
+          actionPolicy: { sendCommunityPosts: false, sendDm: true },
+          actionId: "ai.summary",
+        },
+        async () => ({ ok: true }),
+      ),
+    ).rejects.toThrow(/DataPolicyViolation/i);
 
-    expect(result.policy.sendPublicPosts).toBe(true);
-    expect(result.policy.sendCommunityPosts).toBe(false);
-    expect(result.policy.sendDm).toBe(false);
+    expect(warnSpy).toHaveBeenCalled();
+    const [message, data] = warnSpy.mock.calls[0] as [string, Record<string, unknown>];
+    expect(message).toContain("ai-policy");
+    expect(data).toMatchObject({
+      blocked_fields: expect.arrayContaining(["sendCommunityPosts", "sendDm", "sendProfile"]),
+      actionId: "ai.summary",
+      providerId: "local",
+    });
 
-    expect(result.payload.publicPosts).toEqual(["post"]);
-    expect(result.payload.communityPosts).toBeUndefined();
-    expect(result.payload.dmMessages).toBeUndefined();
-    expect(result.payload.profile).toBeUndefined();
-
-    expect(result.redacted.map((r) => r.field)).toEqual(
-      expect.arrayContaining(["communityPosts", "dmMessages", "profile"]),
-    );
+    warnSpy.mockRestore();
   });
 
-  it("applies the redaction pipeline before executing provider calls", async () => {
+  it("redacts disallowed slices and executes when no violations are present", async () => {
     const aiConfig: TakosAiConfig = {
       providers: {
         local: {
@@ -125,8 +127,7 @@ describe("AiProviderRegistry redaction", () => {
     const registry = buildAiProviderRegistry(aiConfig, { LLM_KEY: "secret" });
     const payload = {
       publicPosts: ["post"],
-      communityPosts: ["community"],
-      dmMessages: ["dm"],
+      communityPosts: [] as unknown[],
       profile: { bio: "hi" },
     };
 
@@ -135,8 +136,8 @@ describe("AiProviderRegistry redaction", () => {
     const result = await registry.callWithPolicy(
       {
         payload,
-        actionPolicy: { sendCommunityPosts: false, sendDm: true },
-        onRedaction: (res) => redactionLog.push(res.redacted.map((r) => r.field)),
+        actionPolicy: { sendCommunityPosts: false, sendDm: false },
+        onRedaction: (res) => redactionLog.push(res.redacted.map((r) => String(r.field))),
       },
       async ({ provider, payload: sanitized, policy, redacted }) => {
         expect(provider.id).toBe("local");
@@ -146,12 +147,9 @@ describe("AiProviderRegistry redaction", () => {
 
         expect(sanitized.publicPosts).toEqual(["post"]);
         expect(sanitized.communityPosts).toBeUndefined();
-        expect(sanitized.dmMessages).toBeUndefined();
         expect(sanitized.profile).toEqual({ bio: "hi" });
 
-        expect(redacted.map((r) => r.field)).toEqual(
-          expect.arrayContaining(["communityPosts", "dmMessages"]),
-        );
+        expect(redacted.map((r) => String(r.field))).toEqual(expect.arrayContaining(["communityPosts"]));
 
         return { ok: true, sent: sanitized };
       },
@@ -160,11 +158,8 @@ describe("AiProviderRegistry redaction", () => {
     expect(result.result.ok).toBe(true);
     expect(result.payload.publicPosts).toEqual(["post"]);
     expect(result.payload.communityPosts).toBeUndefined();
-    expect(result.redacted.map((r) => r.field)).toEqual(
-      expect.arrayContaining(["communityPosts", "dmMessages"]),
-    );
+    expect(result.redacted.map((r) => String(r.field))).toEqual(expect.arrayContaining(["communityPosts"]));
     expect(redactionLog).toHaveLength(1);
-    expect(redactionLog[0]).toEqual(expect.arrayContaining(["communityPosts", "dmMessages"]));
-    expect(payload.dmMessages).toEqual(["dm"]);
+    expect(redactionLog[0]).toEqual(expect.arrayContaining(["communityPosts"]));
   });
 });

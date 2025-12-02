@@ -1,0 +1,12 @@
+{
+  "routes": [
+    {
+      "id": "realtime_stream",
+      "method": "GET",
+      "path": "/realtime/stream",
+      "handler": "streamRealtime",
+      "auth": true,
+      "description": "Server-sent events stream for home, notifications, or user topics."
+    }
+  ]
+}

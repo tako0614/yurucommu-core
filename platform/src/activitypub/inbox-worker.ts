@@ -360,6 +360,10 @@ async function sendAcceptActivity(
   followActivity: any,
   targetInbox: string,
 ): Promise<void> {
+  if (isActivityPubDisabled(env, "Accept follow")) {
+    return;
+  }
+
   const instanceDomain = requireInstanceDomain(env);
   const actorUri = getActorUri(localUserId, instanceDomain);
   const activityId = `https://${instanceDomain}/ap/activities/accept-${crypto.randomUUID()}`;

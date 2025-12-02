@@ -1,4 +1,7 @@
+/// <reference types="@cloudflare/workers-types" />
+
 import { Hono } from "hono";
+import type { PublicAccountBindings } from "@takos/platform/server";
 import {
   AppPreviewError,
   applyJsonPatches,
@@ -21,11 +24,27 @@ type PatchPreviewBody = PreviewBody & {
   patches?: unknown;
 };
 
-type PreviewBindings = {
+type PreviewBindings = PublicAccountBindings & {
   APP_PREVIEW_TOKEN?: string;
 };
 
 const appPreview = new Hono<{ Bindings: PreviewBindings }>();
+
+const normalizePreviewMode = (mode: unknown, workspaceId?: string): "prod" | "dev" => {
+  const normalizedMode = typeof mode === "string" ? mode.trim().toLowerCase() : "";
+  const normalizedWorkspaceId = typeof workspaceId === "string" ? workspaceId.trim().toLowerCase() : "";
+
+  if (["prod", "production", "prod-preview", "prod_preview"].includes(normalizedMode)) {
+    return "prod";
+  }
+  if (["dev", "preview", "previews", "workspace", "development"].includes(normalizedMode)) {
+    return "dev";
+  }
+  if (["prod", "production"].includes(normalizedWorkspaceId)) {
+    return "prod";
+  }
+  return "dev";
+};
 
 const parseBody = async (c: any): Promise<PreviewBody | null> => {
   const body = await c.req.json().catch(() => null);
@@ -51,12 +70,13 @@ appPreview.post("/admin/app/preview/screen", async (c) => {
     return c.json({ ok: false, error: "invalid_json" }, 400);
   }
 
-  const mode = body.mode === "prod" ? "prod" : "dev";
-  const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
+  const requestedWorkspaceId = typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
+  const mode: "prod" | "dev" = normalizePreviewMode(body.mode, requestedWorkspaceId);
+  const workspaceId = requestedWorkspaceId || (mode === "prod" ? "prod" : "");
   const screenId = typeof body.screenId === "string" ? body.screenId.trim() : "";
   const viewMode = body.viewMode === "image" ? "image" : "json";
 
-  if (!workspaceId) {
+  if (mode === "dev" && !workspaceId) {
     return c.json({ ok: false, error: "workspace_required" }, 400);
   }
   if (!screenId) {
@@ -74,16 +94,23 @@ appPreview.post("/admin/app/preview/screen", async (c) => {
   }
 
   try {
-    const manifest = await loadWorkspaceManifest(workspaceId);
+    const manifest = await loadWorkspaceManifest(workspaceId, {
+      env: c.env as PreviewBindings,
+      mode,
+    });
     if (!manifest) {
-      throw new AppPreviewError("workspace_not_found", `Workspace not found: ${workspaceId}`);
+      throw new AppPreviewError(
+        "workspace_not_found",
+        `Workspace not found: ${workspaceId || requestedWorkspaceId || "prod"}`,
+      );
     }
 
     const preview = resolveScreenPreview(manifest, screenId);
+    const resolvedWorkspaceId = manifest.id ?? workspaceId;
     return c.json({
       ok: true,
       mode,
-      workspaceId,
+      workspaceId: resolvedWorkspaceId,
       screenId: preview.screenId,
       viewMode: "json",
       resolvedTree: preview.resolvedTree,
@@ -112,12 +139,13 @@ appPreview.post("/admin/app/preview/screen-with-patch", async (c) => {
     return c.json({ ok: false, error: "invalid_json" }, 400);
   }
 
-  const mode = body.mode === "prod" ? "prod" : "dev";
-  const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
+  const requestedWorkspaceId = typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
+  const mode: "prod" | "dev" = normalizePreviewMode(body.mode, requestedWorkspaceId);
+  const workspaceId = requestedWorkspaceId || (mode === "prod" ? "prod" : "");
   const screenId = typeof body.screenId === "string" ? body.screenId.trim() : "";
   const viewMode = body.viewMode === "image" ? "image" : "json";
 
-  if (!workspaceId) {
+  if (mode === "dev" && !workspaceId) {
     return c.json({ ok: false, error: "workspace_required" }, 400);
   }
   if (!screenId) {
@@ -149,17 +177,24 @@ appPreview.post("/admin/app/preview/screen-with-patch", async (c) => {
   }
 
   try {
-    const manifest = await loadWorkspaceManifest(workspaceId);
+    const manifest = await loadWorkspaceManifest(workspaceId, {
+      env: c.env as PreviewBindings,
+      mode,
+    });
     if (!manifest) {
-      throw new AppPreviewError("workspace_not_found", `Workspace not found: ${workspaceId}`);
+      throw new AppPreviewError(
+        "workspace_not_found",
+        `Workspace not found: ${workspaceId || requestedWorkspaceId || "prod"}`,
+      );
     }
 
     const patchedManifest = applyJsonPatches(manifest, patches);
     const preview = resolveScreenPreview(patchedManifest, screenId);
+    const resolvedWorkspaceId = manifest.id ?? workspaceId;
     return c.json({
       ok: true,
       mode,
-      workspaceId,
+      workspaceId: resolvedWorkspaceId,
       screenId: preview.screenId,
       viewMode: "json",
       resolvedTree: preview.resolvedTree,

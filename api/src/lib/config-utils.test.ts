@@ -74,6 +74,20 @@ describe("config utils", () => {
     expect(config.node.registration?.mode).toBe("invite-only");
     expect(config.distro.name).toBe("takos-oss");
     expect(config.distro.version).toBe("1.0.0");
+    expect(config.ai?.agent_config_allowlist).toEqual([]);
+  });
+
+  it("reads AI agent config allowlist from env", () => {
+    const env: any = {
+      INSTANCE_DOMAIN: "node.example.com",
+      DISTRO_NAME: "takos-oss",
+      DISTRO_VERSION: "1.0.0",
+      AI_AGENT_CONFIG_ALLOWLIST: "ai.enabled_actions,custom.flag",
+    };
+
+    const config = buildRuntimeConfig(env);
+
+    expect(config.ai?.agent_config_allowlist).toEqual(["ai.enabled_actions", "custom.flag"]);
   });
 
   it("produces added/removed/changed entries for config diffs", () => {

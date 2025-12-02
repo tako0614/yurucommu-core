@@ -171,6 +171,9 @@ export function buildRuntimeConfig(env: Bindings): TakosConfig {
   const aiDataPolicy = jsonEnv<Record<string, any>>(
     (env as any).AI_DATA_POLICY_JSON || (env as any).TAKOS_AI_DATA_POLICY,
   );
+  const aiAgentConfigAllowlist = listEnv(
+    (env as any).AI_AGENT_CONFIG_ALLOWLIST || (env as any).TAKOS_AI_AGENT_CONFIG_ALLOWLIST,
+  );
   const customConfig = jsonEnv<Record<string, unknown>>(
     (env as any).TAKOS_CUSTOM_CONFIG || (env as any).CUSTOM_CONFIG_JSON,
   );
@@ -213,6 +216,7 @@ export function buildRuntimeConfig(env: Bindings): TakosConfig {
       enabled_actions: listEnv((env as any).AI_ENABLED_ACTIONS),
       providers: aiProviders,
       data_policy: aiDataPolicy,
+      agent_config_allowlist: aiAgentConfigAllowlist,
     },
     custom: customConfig,
   };

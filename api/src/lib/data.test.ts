@@ -145,3 +145,100 @@ describe("ActivityPub follow persistence", () => {
     });
   });
 });
+
+describe("queue health summaries", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("calculates post plan delay and failure metadata", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-02T00:10:00.000Z"));
+
+    const prisma = {
+      post_plans: {
+        count: vi.fn(async (args: any) => {
+          if (args?.where?.status === "scheduled" && args?.where?.post_id === null && args?.where?.scheduled_at) {
+            return 2;
+          }
+          if (args?.where?.status === "scheduled") {
+            return 3;
+          }
+          if (args?.where?.status === "failed") {
+            return 1;
+          }
+          return 0;
+        }),
+        findFirst: vi.fn(async (args: any) => {
+          if (args?.where?.status === "scheduled") {
+            return { scheduled_at: new Date("2024-01-02T00:00:00.000Z") };
+          }
+          if (args?.where?.status === "failed") {
+            return { updated_at: new Date("2024-01-01T23:50:00.000Z"), last_error: "boom" };
+          }
+          return null;
+        }),
+      },
+    };
+
+    const api = createApiWithPrisma(prisma);
+    const result = await api.getPostPlanQueueHealth!();
+
+    expect(result.scheduled).toBe(3);
+    expect(result.due).toBe(2);
+    expect(result.failed).toBe(1);
+    expect(result.oldest_due_at).toBe("2024-01-02T00:00:00.000Z");
+    expect(result.max_delay_ms).toBe(10 * 60 * 1000);
+    expect(result.last_failed_at).toBe("2024-01-01T23:50:00.000Z");
+    expect(result.last_error).toBe("boom");
+  });
+
+  it("summarizes ActivityPub delivery backlog", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-03-10T12:00:00.000Z"));
+
+    const prisma = {
+      ap_delivery_queue: {
+        count: vi.fn(async ({ where }: any) => {
+          switch (where?.status) {
+            case "pending":
+              return 4;
+            case "processing":
+              return 1;
+            case "failed":
+              return 2;
+            case "delivered":
+              return 7;
+            default:
+              return 0;
+          }
+        }),
+        findFirst: vi.fn(async ({ where }: any) => {
+          if (Array.isArray(where?.status?.in) && where.status.in.includes("pending")) {
+            return { created_at: new Date("2024-03-10T11:40:00.000Z") };
+          }
+          if (where?.status === "failed") {
+            return {
+              last_attempt_at: new Date("2024-03-10T11:50:00.000Z"),
+              last_error: "timeout",
+            };
+          }
+          return null;
+        }),
+      },
+    };
+
+    const api = createApiWithPrisma(prisma);
+    const result = await api.getApDeliveryQueueHealth!();
+
+    expect(result.pending).toBe(4);
+    expect(result.processing).toBe(1);
+    expect(result.failed).toBe(2);
+    expect(result.delivered).toBe(7);
+    expect(result.oldest_pending_at).toBe("2024-03-10T11:40:00.000Z");
+    expect(result.max_delay_ms).toBe(20 * 60 * 1000);
+    expect(result.last_failed_at).toBe("2024-03-10T11:50:00.000Z");
+    expect(result.last_error).toBe("timeout");
+  });
+});

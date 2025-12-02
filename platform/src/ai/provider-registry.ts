@@ -103,6 +103,8 @@ export type AiPolicyOptions<T extends AiPayloadSlices> = {
   actionPolicy?: Partial<EffectiveAiDataPolicy>;
   providerId?: string;
   onRedaction?: (result: AiRedactionResult<T>) => void;
+  onViolation?: (report: AiPolicyViolationReport) => void;
+  actionId?: string;
 };
 
 export type AiPolicyContext<T extends AiPayloadSlices> = AiRedactionResult<T> & {
@@ -116,6 +118,24 @@ export type AiCallResult<T extends AiPayloadSlices, TResult> = AiPolicyContext<T
 export type AiCallExecutor<T extends AiPayloadSlices, TResult> = (
   ctx: AiPolicyContext<T>,
 ) => Promise<TResult>;
+
+type DataPolicyKey = keyof Omit<EffectiveAiDataPolicy, "notes">;
+
+export type AiPolicyViolationSource = "node" | "action";
+
+export type AiPolicyViolation = {
+  field: keyof AiPayloadSlices;
+  policyKey: DataPolicyKey;
+  sources: AiPolicyViolationSource[];
+};
+
+export type AiPolicyViolationReport = {
+  violations: AiPolicyViolation[];
+  policy: EffectiveAiDataPolicy;
+  actionPolicy?: Partial<EffectiveAiDataPolicy>;
+  actionId?: string;
+  providerId?: string;
+};
 
 export function redactPayload<T extends AiPayloadSlices>(
   payload: T,
@@ -138,6 +158,82 @@ export function redactPayload<T extends AiPayloadSlices>(
   redact(policy.sendProfile, "profile", "sendProfile not allowed by policy");
 
   return { payload: clone, policy, redacted };
+}
+
+const PAYLOAD_POLICY_FIELDS: Array<{ field: keyof AiPayloadSlices; key: DataPolicyKey }> = [
+  { field: "publicPosts", key: "sendPublicPosts" },
+  { field: "communityPosts", key: "sendCommunityPosts" },
+  { field: "dmMessages", key: "sendDm" },
+  { field: "profile", key: "sendProfile" },
+];
+
+function hasDataSlice(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "object") return Object.keys(value as Record<string, unknown>).length > 0;
+  return true;
+}
+
+function findPolicyViolations<T extends AiPayloadSlices>(
+  payload: T,
+  nodePolicy: EffectiveAiDataPolicy,
+  actionPolicy: Partial<EffectiveAiDataPolicy> | undefined,
+  combinedPolicy: EffectiveAiDataPolicy,
+): AiPolicyViolation[] {
+  const violations: AiPolicyViolation[] = [];
+
+  for (const { field, key } of PAYLOAD_POLICY_FIELDS) {
+    const value = payload?.[field];
+    if (!hasDataSlice(value)) continue;
+    if (combinedPolicy[key]) continue;
+
+    const sources: AiPolicyViolationSource[] = [];
+    if (!nodePolicy[key]) sources.push("node");
+    if (actionPolicy && actionPolicy[key] === false) {
+      sources.push("action");
+    }
+    if (!sources.length) {
+      sources.push("node");
+    }
+
+    violations.push({ field, policyKey: key, sources });
+  }
+
+  return violations;
+}
+
+function logPolicyViolation(report: AiPolicyViolationReport): void {
+  try {
+    console.warn("[ai-policy] blocked AI call due to data policy", {
+      blocked_fields: report.violations.map((v) => v.policyKey),
+      sources: report.violations.map((v) => ({ field: v.field, sources: v.sources })),
+      actionId: report.actionId,
+      providerId: report.providerId,
+    });
+  } catch {
+    // ignore logging failures
+  }
+}
+
+function buildViolationError(violations: AiPolicyViolation[]): Error {
+  const details = Array.from(
+    new Set(
+      violations.map((violation) => {
+        const fromNode = violation.sources.includes("node");
+        const fromAction = violation.sources.includes("action");
+        const source = fromNode && fromAction
+          ? "node and action AI data policy"
+          : fromNode
+            ? "node AI data policy"
+            : "action AI data policy";
+        return `${violation.policyKey} is not allowed by ${source}`;
+      }),
+    ),
+  );
+
+  const suffix = details.length === 1 ? details[0] : details.join("; ");
+  return new Error(`DataPolicyViolation: ${suffix}`);
 }
 
 export function resolveAiProviders(
@@ -306,7 +402,36 @@ export class AiProviderRegistry {
     options: AiPolicyOptions<T>,
   ): AiPolicyContext<T> {
     const provider = this.require(options.providerId);
-    const redaction = this.redact(options.payload, options.actionPolicy);
+    const combinedPolicy = this.combinePolicy(options.actionPolicy);
+    const violations = findPolicyViolations(
+      options.payload,
+      this.policy,
+      options.actionPolicy,
+      combinedPolicy,
+    );
+
+    if (violations.length > 0) {
+      const report: AiPolicyViolationReport = {
+        violations,
+        policy: combinedPolicy,
+        actionPolicy: options.actionPolicy,
+        actionId: options.actionId,
+        providerId: provider.id,
+      };
+
+      if (typeof options.onViolation === "function") {
+        try {
+          options.onViolation(report);
+        } catch (error) {
+          console.error("AiProviderRegistry onViolation callback failed", error);
+        }
+      }
+
+      logPolicyViolation(report);
+      throw buildViolationError(violations);
+    }
+
+    const redaction = redactPayload(options.payload, combinedPolicy);
 
     if (redaction.redacted.length > 0 && typeof options.onRedaction === "function") {
       try {

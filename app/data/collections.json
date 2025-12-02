@@ -1,0 +1,30 @@
+{
+  "collections": {
+    "app:notes": {
+      "engine": "sqlite",
+      "schema": {
+        "id": { "type": "text", "primary_key": true },
+        "owner_id": { "type": "text", "not_null": true },
+        "title": { "type": "text", "not_null": true },
+        "body": { "type": "text" },
+        "created_at": { "type": "text", "not_null": true, "default": "CURRENT_TIMESTAMP" }
+      },
+      "indexes": [
+        {
+          "columns": ["owner_id", "created_at"],
+          "name": "idx_app_notes_owner_created"
+        }
+      ]
+    },
+    "app:user-settings": {
+      "engine": "sqlite",
+      "schema": {
+        "user_id": { "type": "text", "not_null": true },
+        "key": { "type": "text", "not_null": true },
+        "value": { "type": "json" },
+        "updated_at": { "type": "text", "not_null": true, "default": "CURRENT_TIMESTAMP" }
+      },
+      "primary_key": ["user_id", "key"]
+    }
+  }
+}

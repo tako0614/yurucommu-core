@@ -133,6 +133,7 @@ export function clearHostHandle(): void {
 const JWT_STORAGE_KEY = "takos_jwt";
 const ACCOUNTS_STORAGE_KEY = "takos_accounts";
 const ACTIVE_ACCOUNT_INDEX_KEY = "takos_active_account_index";
+const ACTIVE_USER_MAP_STORAGE_KEY = "takos_active_user_map";
 
 export interface StoredAccount {
   userId: string;
@@ -242,6 +243,66 @@ export function removeAccount(index: number): void {
     clearJWT();
     clearHostHandle();
   }
+}
+
+type ActiveUserMap = Record<string, string>;
+
+function loadActiveUserMap(): ActiveUserMap {
+  if (typeof window === "undefined") return {};
+  try {
+    const stored = window.localStorage.getItem(ACTIVE_USER_MAP_STORAGE_KEY);
+    return stored ? (JSON.parse(stored) as ActiveUserMap) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveActiveUserMap(map: ActiveUserMap): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(ACTIVE_USER_MAP_STORAGE_KEY, JSON.stringify(map));
+  } catch (error) {
+    console.warn("Failed to persist active user map", error);
+  }
+}
+
+function buildActiveUserKey(base: string | null): string | null {
+  const normalizedBase = normalizeBase(base || "");
+  if (!normalizedBase) return null;
+  const account = getCurrentAccount();
+  const accountKey = account?.userId || "default";
+  return `${normalizedBase}::${accountKey}`;
+}
+
+function getActiveUserIdForBase(base: string | null): string | null {
+  const key = buildActiveUserKey(base);
+  if (!key) return null;
+  const map = loadActiveUserMap();
+  return map[key] || null;
+}
+
+function setActiveUserIdForBase(base: string | null, userId: string | null): void {
+  const key = buildActiveUserKey(base);
+  if (!key) return;
+  const map = loadActiveUserMap();
+  if (userId) {
+    map[key] = userId;
+  } else {
+    delete map[key];
+  }
+  saveActiveUserMap(map);
+}
+
+export function getActiveUserId(): string | null {
+  const backend = getBackendUrl();
+  if (!backend) return null;
+  return getActiveUserIdForBase(backend);
+}
+
+function rememberActiveUserId(userId: string | null): void {
+  const backend = getBackendUrl();
+  if (!backend) return;
+  setActiveUserIdForBase(backend, userId);
 }
 
 // Decode JWT without verification (for client-side expiry check only)
@@ -392,9 +453,10 @@ async function apiFetch<T = unknown>(path: string, init: ApiRequestInit = {}): P
   const body = maybeJson(init.body ?? undefined);
 
   const res = await fetch(`${backendUrl}${path}`, {
-    ...init,
+    ...(init as RequestInit),
     headers,
     body,
+    credentials: (init as RequestInit).credentials ?? "include",
   });
 
   const json = await res.json().catch(() => ({}));
@@ -471,7 +533,9 @@ export const {
 // Custom logout function that clears JWT
 export async function logout(): Promise<void> {
   try {
+    rememberActiveUserId(null);
     await apiClient.logout();
+    await clearActiveUser();
   } finally {
     clearJWT();
     clearHostHandle();
@@ -546,24 +610,60 @@ export async function getFirebasePublicConfig(): Promise<FirebasePublicConfig | 
   }
 }
 
-export async function registerWithPassword(input: {
+export async function createOwnerActor(input: {
   handle: string;
-  password: string;
   display_name?: string;
+  create?: boolean;
+  activate?: boolean;
+  issue_token?: boolean;
 }) {
-  return apiFetch("/auth/password/register", {
+  return apiFetch("/auth/owner/actors", {
     method: "POST",
-    body: input,
+    body: {
+      create: true,
+      activate: true,
+      ...input,
+    },
   });
 }
 
 export async function loginWithPassword(input: {
   password: string;
 }) {
-  return apiFetch("/auth/password/login", {
+  return apiFetch("/auth/login", {
     method: "POST",
     body: input,
   });
+}
+
+export async function login(input: { password: string }) {
+  return loginWithPassword(input);
+}
+
+export async function setActiveUser(userId: string): Promise<void> {
+  const target = (userId || "").trim();
+  if (!target) {
+    throw new Error("userId is required to set active user");
+  }
+  rememberActiveUserId(target);
+  try {
+    await apiFetch("/auth/active-user", {
+      method: "POST",
+      body: { user_id: target },
+    });
+  } catch (error) {
+    rememberActiveUserId(null);
+    throw error;
+  }
+}
+
+export async function clearActiveUser(): Promise<void> {
+  rememberActiveUserId(null);
+  try {
+    await apiFetch("/auth/active-user", { method: "DELETE" });
+  } catch (error) {
+    console.warn("failed to clear active user", error);
+  }
 }
 
 // ActivityPub blocked instances (admin)
@@ -586,6 +686,22 @@ export type BlockedInstancesResponse = {
   still_blocked?: boolean;
 };
 
+export type ConfigReloadInfo = {
+  ok: boolean;
+  reloaded: boolean;
+  source?: "stored" | "runtime";
+  warnings?: string[];
+  error?: string;
+};
+
+export type AgentConfigAllowlistResponse = {
+  allowlist: string[];
+  source: "stored" | "runtime";
+  updated?: boolean;
+  warnings?: string[];
+  reload?: ConfigReloadInfo;
+};
+
 export async function listBlockedInstances(): Promise<BlockedInstancesResponse> {
   return apiFetch<BlockedInstancesResponse>("/admin/activitypub/blocked-instances");
 }
@@ -605,6 +721,19 @@ export async function removeBlockedInstance(domain: string): Promise<BlockedInst
     method: "DELETE",
     },
   );
+}
+
+export async function getAgentConfigAllowlist(): Promise<AgentConfigAllowlistResponse> {
+  return apiFetch<AgentConfigAllowlistResponse>("/admin/ai/agent-config-allowlist");
+}
+
+export async function updateAgentConfigAllowlist(
+  allowlist: string[],
+): Promise<AgentConfigAllowlistResponse> {
+  return apiFetch<AgentConfigAllowlistResponse>("/admin/ai/agent-config-allowlist", {
+    method: "POST",
+    body: { allowlist },
+  });
 }
 
 // Storage management

@@ -4,22 +4,21 @@ takos の認証システムについて説明します。
 
 ## 認証方式
 
-takos は以下の認証方式をサポートします：
+takos は Owner モード専用の単一ログインフローを持ちます：
 
-1. **環境変数認証** (推奨) - 管理者が設定した固定ユーザー名・パスワード
+1. **オーナーパスワードログイン** - 環境変数 `AUTH_PASSWORD` のマスターパスワードを `POST /auth/login` で送信し、オーナーセッションと JWT を取得
 2. **JWT トークン** - ログイン後に発行される Bearer トークン
 3. **セッション Cookie** - `takos-session` cookie による認証
 
 ## エンドポイント
 
-### POST /auth/password/login
+### POST /auth/login
 
-環境変数で設定されたユーザー名・パスワードでログインします。
+マスターパスワードでオーナーモードにログインします（ユーザー名やメールアドレスは不要）。
 
 **リクエスト**:
 ```json
 {
-  "username": "admin",
   "password": "your-password"
 }
 ```
@@ -30,33 +29,74 @@ takos は以下の認証方式をサポートします：
   "ok": true,
   "data": {
     "user": {
-      "id": "user-id",
-      "handle": "admin",
-      "display_name": "管理者",
-      "avatar_url": null,
-      "created_at": "2024-01-01T00:00:00.000Z"
+      "id": "owner",
+      "display_name": "owner",
+      "created_at": "2024-01-01T00:00:00.000Z",
+      "is_private": 0
     },
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
     "session": {
       "id": "session-id",
-      "user_id": "user-id",
-      "created_at": "2024-01-01T00:00:00.000Z",
-      "expires_at": null
+      "expires_at": "2024-01-01T00:00:00.000Z"
     }
   }
 }
 ```
 
 **エラー**:
-- `401 Unauthorized` - ユーザー名またはパスワードが不正
+- `401 Unauthorized` - パスワードが不正、または未設定
 
 **環境変数**:
 ```bash
-# wrangler.toml または環境変数
-AUTH_USERNAME=admin
-AUTH_PASSWORD=your-secure-password
+AUTH_PASSWORD=your-secure-password      # 平文または salt$sha256 形式
+INSTANCE_OWNER_HANDLE=owner             # 任意。省略時は "owner"
+# AUTH_USERNAME はレガシー互換のハンドル指定にのみ利用し、ログインには不要
 ```
 
-**注意**: パスワード登録エンドポイント (`POST /auth/password/register`) は現在無効化されています。
+**注意**:
+- 標準のログインエンドポイントは `POST /auth/login` です。
+- `POST /auth/password/login` は後方互換のために一時的に残りますが、新規実装では使用しないでください。
+- パスワード登録エンドポイント (`POST /auth/password/register`) は無効化されています。ローカルアクターの作成・切替はオーナーセッション専用の `/auth/owner/actors` を使用してください。
+
+---
+
+### POST /auth/owner/actors
+
+オーナーセッションでローカルアクターを作成・切り替えます（パスワード不要）。
+
+**認証**: 必須（オーナー）
+
+**リクエスト例**:
+```json
+{
+  "handle": "alice",
+  "display_name": "Alice",
+  "create": true,
+  "activate": true,
+  "issue_token": true
+}
+```
+
+**レスポンス** (201 when created):
+```json
+{
+  "ok": true,
+  "data": {
+    "user": {
+      "id": "alice",
+      "display_name": "Alice",
+      "avatar_url": "",
+      "created_at": "2024-01-01T00:00:00.000Z",
+      "is_private": 0
+    },
+    "active_user_id": "alice",
+    "created": true,
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  }
+}
+```
+
+既存ユーザーを切り替える場合は `create` を省略するか `false` を指定してください。
 
 ---
 
@@ -84,9 +124,9 @@ AUTH_PASSWORD=your-secure-password
 **使用例**:
 ```bash
 # 1. ログインしてセッション取得
-curl -X POST https://example.com/auth/password/login \
+curl -X POST https://example.com/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"pass"}' \
+  -d '{"password":"pass"}' \
   -c cookies.txt
 
 # 2. セッションからトークン発行
@@ -166,11 +206,11 @@ Cookie: takos-session=<session-id>
 
 | ステータス | エラー | 説明 |
 |-----------|-------|------|
-| 400 | `username and password required` | リクエストボディが不正 |
-| 401 | `invalid credentials` | ユーザー名またはパスワードが不正 |
+| 401 | `invalid credentials` | パスワードが不正、または未設定 |
 | 401 | `unauthorized` | 認証が必要 |
 | 401 | `invalid token` | JWT トークンが不正 |
 | 401 | `session expired` | セッションが期限切れ |
+| 404 | `password authentication disabled` | 環境変数によるログインが無効 |
 
 ---
 
@@ -180,10 +220,10 @@ Cookie: takos-session=<session-id>
 
 ```javascript
 // 1. ログイン
-const loginResponse = await fetch('https://example.com/auth/password/login', {
+const loginResponse = await fetch('https://example.com/auth/login', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ username: 'admin', password: 'pass' }),
+  body: JSON.stringify({ password: 'pass' }),
   credentials: 'include' // Cookie を保存
 });
 
@@ -197,10 +237,10 @@ const meResponse = await fetch('https://example.com/me', {
 
 ```javascript
 // 1. ログイン
-const loginResponse = await fetch('https://example.com/auth/password/login', {
+const loginResponse = await fetch('https://example.com/auth/login', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ username: 'admin', password: 'pass' }),
+  body: JSON.stringify({ password: 'pass' }),
   credentials: 'include'
 });
 
