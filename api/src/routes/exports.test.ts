@@ -276,3 +276,163 @@ describe("admin export retry endpoint", () => {
     expect(mockStore.updateExportRequest).not.toHaveBeenCalled();
   });
 });
+
+describe("staged download endpoints", () => {
+  it("GET /exports/:id/artifacts returns artifact list for completed export", async () => {
+    mockStore.getExportRequest.mockResolvedValue({
+      id: "exp-artifacts",
+      user_id: "admin",
+      format: "json",
+      status: "completed",
+      result_json: JSON.stringify({
+        format: "json",
+        generated_at: "2024-01-01T00:00:00.000Z",
+        counts: {
+          posts: 10,
+          friends: 5,
+          reactions: 20,
+          bookmarks: 3,
+          dm_threads: 2,
+          dm_messages: 15,
+          media_files: 8,
+        },
+        artifacts: {
+          core: {
+            key: "exports/admin/exp-artifacts/core.json.json",
+            url: "/media/exports/admin/exp-artifacts/core.json.json",
+            contentType: "application/json",
+          },
+          dm: {
+            status: "completed",
+            json: {
+              key: "exports/admin/exp-artifacts/dm.json",
+              url: "/media/exports/admin/exp-artifacts/dm.json",
+              contentType: "application/json",
+            },
+            activitypub: {
+              key: "exports/admin/exp-artifacts/dm.activitypub.json",
+              url: "/media/exports/admin/exp-artifacts/dm.activitypub.json",
+              contentType: "application/json",
+            },
+          },
+          media: {
+            status: "completed",
+            json: {
+              key: "exports/admin/exp-artifacts/media.json",
+              url: "/media/exports/admin/exp-artifacts/media.json",
+              contentType: "application/json",
+            },
+          },
+        },
+      }),
+    });
+
+    const res = await exportsRoute.request(
+      "/exports/exp-artifacts/artifacts",
+      { method: "GET" },
+      {} as any,
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.ok).toBe(true);
+    expect(json.data.id).toBe("exp-artifacts");
+    expect(json.data.artifacts).toHaveLength(4);
+    expect(json.data.artifacts[0].key).toBe("core");
+    expect(json.data.artifacts[1].key).toBe("dm-json");
+    expect(json.data.artifacts[2].key).toBe("dm-activitypub");
+    expect(json.data.artifacts[3].key).toBe("media-json");
+  });
+
+  it("GET /exports/:id/artifacts returns 400 for non-completed export", async () => {
+    mockStore.getExportRequest.mockResolvedValue({
+      id: "exp-pending",
+      user_id: "admin",
+      format: "json",
+      status: "pending",
+      result_json: "{}",
+    });
+
+    const res = await exportsRoute.request(
+      "/exports/exp-pending/artifacts",
+      { method: "GET" },
+      {} as any,
+    );
+
+    expect(res.status).toBe(400);
+  });
+
+  it("GET /exports/:id/media-urls returns media file list", async () => {
+    mockStore.getExportRequest.mockResolvedValue({
+      id: "exp-media",
+      user_id: "admin",
+      format: "json",
+      status: "completed",
+      result_json: JSON.stringify({
+        artifacts: {
+          media: { status: "completed" },
+        },
+      }),
+    });
+    (mockStore as any).listMediaByUser = vi.fn().mockResolvedValue([
+      {
+        key: "user-uploads/admin/2024/01/01/file1.png",
+        url: "/media/user-uploads/admin/2024/01/01/file1.png",
+        content_type: "image/png",
+        size: 12345,
+        description: "Test image",
+        created_at: "2024-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const res = await exportsRoute.request(
+      "/exports/exp-media/media-urls",
+      { method: "GET" },
+      { INSTANCE_DOMAIN: "example.com" } as any,
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.ok).toBe(true);
+    expect(json.data.totalFiles).toBe(1);
+    expect(json.data.files[0].filename).toBe("file1.png");
+    expect(json.data.files[0].contentType).toBe("image/png");
+  });
+
+  it("GET /exports/:id/dm-threads returns DM thread list", async () => {
+    mockStore.getExportRequest.mockResolvedValue({
+      id: "exp-dm",
+      user_id: "admin",
+      format: "json",
+      status: "completed",
+      result_json: JSON.stringify({
+        artifacts: {
+          dm: { status: "completed" },
+        },
+      }),
+    });
+    (mockStore as any).listAllDmThreads = vi.fn().mockResolvedValue([
+      {
+        id: "thread-1",
+        participants_json: JSON.stringify([
+          "https://example.com/ap/users/admin",
+          "https://remote.example/ap/users/bob",
+        ]),
+        created_at: "2024-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    const res = await exportsRoute.request(
+      "/exports/exp-dm/dm-threads",
+      { method: "GET" },
+      { INSTANCE_DOMAIN: "example.com" } as any,
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.ok).toBe(true);
+    expect(json.data.totalThreads).toBe(1);
+    expect(json.data.threads[0].id).toBe("thread-1");
+    expect(json.data.threads[0].participantCount).toBe(2);
+  });
+});

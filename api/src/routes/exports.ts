@@ -970,6 +970,216 @@ export async function processExportQueue(
   }
 }
 
+// GET /exports/:id/artifacts - list all artifacts for an export
+exportsRoute.get("/exports/:id/artifacts", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    if (!store.getExportRequest) {
+      return fail(c, "data export not supported", 501);
+    }
+    const user = c.get("user") as any;
+    const request = await store.getExportRequest(c.req.param("id"));
+    if (!request) return fail(c, "export not found", 404);
+    if (request.user_id !== user.id) return fail(c, "forbidden", 403);
+    if (request.status !== "completed") {
+      return fail(c, "export not completed", 400);
+    }
+
+    let resultData: any;
+    try {
+      resultData = JSON.parse(request.result_json || "{}");
+    } catch {
+      return fail(c, "invalid export result", 500);
+    }
+
+    const artifacts = resultData.artifacts || {};
+    const response: any = {
+      id: request.id,
+      status: request.status,
+      format: resultData.format,
+      generated_at: resultData.generated_at,
+      counts: resultData.counts,
+      artifacts: [],
+    };
+
+    // Core artifact
+    if (artifacts.core) {
+      response.artifacts.push({
+        key: "core",
+        type: "data",
+        url: artifacts.core.url,
+        contentType: artifacts.core.contentType,
+        description: `Core data (profile, posts, friends, reactions, bookmarks) in ${resultData.format} format`,
+      });
+    }
+
+    // DM artifacts
+    if (artifacts.dm?.status === "completed") {
+      if (artifacts.dm.json) {
+        response.artifacts.push({
+          key: "dm-json",
+          type: "dm",
+          url: artifacts.dm.json.url,
+          contentType: artifacts.dm.json.contentType,
+          description: "Direct messages in JSON format",
+        });
+      }
+      if (artifacts.dm.activitypub) {
+        response.artifacts.push({
+          key: "dm-activitypub",
+          type: "dm",
+          url: artifacts.dm.activitypub.url,
+          contentType: artifacts.dm.activitypub.contentType,
+          description: "Direct messages in ActivityPub format",
+        });
+      }
+    }
+
+    // Media artifacts
+    if (artifacts.media?.status === "completed") {
+      if (artifacts.media.json) {
+        response.artifacts.push({
+          key: "media-json",
+          type: "media-metadata",
+          url: artifacts.media.json.url,
+          contentType: artifacts.media.json.contentType,
+          description: "Media file metadata in JSON format",
+        });
+      }
+      if (artifacts.media.activitypub) {
+        response.artifacts.push({
+          key: "media-activitypub",
+          type: "media-metadata",
+          url: artifacts.media.activitypub.url,
+          contentType: artifacts.media.activitypub.contentType,
+          description: "Media file metadata in ActivityPub format",
+        });
+      }
+    }
+
+    return ok(c, response);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// GET /exports/:id/media-urls - generate download URLs for media files
+exportsRoute.get("/exports/:id/media-urls", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    if (!store.getExportRequest || !store.listMediaByUser) {
+      return fail(c, "data export not supported", 501);
+    }
+    const user = c.get("user") as any;
+    const request = await store.getExportRequest(c.req.param("id"));
+    if (!request) return fail(c, "export not found", 404);
+    if (request.user_id !== user.id) return fail(c, "forbidden", 403);
+    if (request.status !== "completed") {
+      return fail(c, "export not completed", 400);
+    }
+
+    // Check if media was included in export
+    let resultData: any;
+    try {
+      resultData = JSON.parse(request.result_json || "{}");
+    } catch {
+      return fail(c, "invalid export result", 500);
+    }
+
+    if (resultData.artifacts?.media?.status !== "completed") {
+      return fail(c, "media was not included in this export", 400);
+    }
+
+    const instanceDomain = requireInstanceDomain(c.env as any);
+    const media = await store.listMediaByUser(user.id);
+
+    const mediaUrls = (media || []).map((item: any) => ({
+      key: item.key,
+      filename: item.key?.split("/").pop() || item.key,
+      url: absoluteMediaUrl(item.url || `/media/${item.key}`, instanceDomain),
+      contentType: item.content_type || "application/octet-stream",
+      size: item.size || null,
+      description: item.description || null,
+      createdAt: item.created_at || null,
+    }));
+
+    return ok(c, {
+      exportId: request.id,
+      totalFiles: mediaUrls.length,
+      files: mediaUrls,
+    });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+// GET /exports/:id/dm-threads - get detailed DM threads list
+exportsRoute.get("/exports/:id/dm-threads", auth, async (c) => {
+  const store = makeData(c.env as any, c);
+  try {
+    if (!store.getExportRequest || !store.listAllDmThreads) {
+      return fail(c, "data export not supported", 501);
+    }
+    const user = c.get("user") as any;
+    const request = await store.getExportRequest(c.req.param("id"));
+    if (!request) return fail(c, "export not found", 404);
+    if (request.user_id !== user.id) return fail(c, "forbidden", 403);
+    if (request.status !== "completed") {
+      return fail(c, "export not completed", 400);
+    }
+
+    // Check if DM was included in export
+    let resultData: any;
+    try {
+      resultData = JSON.parse(request.result_json || "{}");
+    } catch {
+      return fail(c, "invalid export result", 500);
+    }
+
+    if (resultData.artifacts?.dm?.status !== "completed") {
+      return fail(c, "DM was not included in this export", 400);
+    }
+
+    const instanceDomain = requireInstanceDomain(c.env as any);
+    const actorUri = getActorUri(user.id, instanceDomain);
+    const aliases = new Set<string>([
+      user.id,
+      actorUri,
+      `@${user.id}@${instanceDomain}`,
+    ]);
+
+    const threads = await store.listAllDmThreads();
+    const relevantThreads = (threads || []).filter((thread: any) => {
+      const participants = parseParticipants(thread?.participants_json);
+      const resolved = dedupeStrings(
+        participants.map((p) => resolveActorRef(p, instanceDomain)?.id ?? p),
+      );
+      return resolved.some((p) => aliases.has(p) || p.endsWith(`/${user.id}`));
+    });
+
+    const threadSummaries = relevantThreads.map((thread: any) => {
+      const rawParticipants = parseParticipants(thread?.participants_json);
+      const participants = dedupeStrings(
+        rawParticipants.map((p) => resolveActorRef(p, instanceDomain)?.id ?? p),
+      );
+      return {
+        id: thread.id,
+        participants,
+        participantCount: participants.length,
+        createdAt: thread.created_at,
+      };
+    });
+
+    return ok(c, {
+      exportId: request.id,
+      totalThreads: threadSummaries.length,
+      threads: threadSummaries,
+    });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
 // Cron/queue endpoint for export processing
 exportsRoute.post("/internal/tasks/process-exports", async (c) => {
   const secret = c.env.CRON_SECRET;

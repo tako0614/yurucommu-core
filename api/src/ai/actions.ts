@@ -1,12 +1,15 @@
 import type {
   AiAction,
+  AiActionContext,
   AiActionDefinition,
   AiActionHandler,
   AiRegistry,
   AiProviderRegistry,
   JsonSchema,
+  AiProviderClient,
 } from "@takos/platform/server";
-import { aiActionRegistry } from "@takos/platform/server";
+import { aiActionRegistry, chatCompletion } from "@takos/platform/server";
+import type { ChatMessage } from "@takos/platform/server";
 
 type SummaryInput = {
   text: string;
@@ -18,6 +21,7 @@ type SummaryOutput = {
   summary: string;
   sentences: string[];
   originalLength: number;
+  usedAi?: boolean;
 };
 
 type TagSuggestInput = {
@@ -27,6 +31,7 @@ type TagSuggestInput = {
 
 type TagSuggestOutput = {
   tags: string[];
+  usedAi?: boolean;
 };
 
 type TranslationInput = {
@@ -38,6 +43,7 @@ type TranslationInput = {
 type TranslationOutput = {
   translatedText: string;
   detectedLanguage?: string;
+  usedAi?: boolean;
 };
 
 
@@ -54,6 +60,7 @@ type DmModeratorOutput = {
   flagged: boolean;
   reasons: string[];
   summary?: string;
+  usedAi?: boolean;
 };
 
 const summaryInputSchema: JsonSchema = {
@@ -76,6 +83,7 @@ const summaryOutputSchema: JsonSchema = {
     summary: { type: "string" },
     sentences: { type: "array", items: { type: "string" } },
     originalLength: { type: "number" },
+    usedAi: { type: "boolean" },
   },
   required: ["summary", "sentences", "originalLength"],
 };
@@ -94,6 +102,7 @@ const tagSuggestOutputSchema: JsonSchema = {
   type: "object",
   properties: {
     tags: { type: "array", items: { type: "string" } },
+    usedAi: { type: "boolean" },
   },
   required: ["tags"],
 };
@@ -114,6 +123,7 @@ const translationOutputSchema: JsonSchema = {
   properties: {
     translatedText: { type: "string" },
     detectedLanguage: { type: "string" },
+    usedAi: { type: "boolean" },
   },
   required: ["translatedText"],
 };
@@ -145,6 +155,7 @@ const dmModeratorOutputSchema: JsonSchema = {
     flagged: { type: "boolean" },
     reasons: { type: "array", items: { type: "string" } },
     summary: { type: "string" },
+    usedAi: { type: "boolean" },
   },
   required: ["flagged", "reasons"],
 };
@@ -192,7 +203,7 @@ const splitSentences = (text: string): string[] => {
     .filter(Boolean);
 };
 
-const buildSummary = (text: string, maxSentences: number): SummaryOutput => {
+const buildSummaryFallback = (text: string, maxSentences: number): SummaryOutput => {
   const sentences = splitSentences(text);
   const limited = sentences.slice(0, maxSentences);
   const chosen = limited.length ? limited : [text.slice(0, 240).trim()];
@@ -200,10 +211,11 @@ const buildSummary = (text: string, maxSentences: number): SummaryOutput => {
     summary: chosen.join(" "),
     sentences: chosen,
     originalLength: text.length,
+    usedAi: false,
   };
 };
 
-const pickTags = (text: string, maxTags: number): string[] => {
+const pickTagsFallback = (text: string, maxTags: number): string[] => {
   const hashtags = Array.from(text.matchAll(/#([a-zA-Z0-9_]{2,})/g)).map((match) =>
     match[1].toLowerCase(),
   );
@@ -230,25 +242,119 @@ const summarizeDm = (messages: DmModeratorMessage[]): string => {
     .join(" / ");
 };
 
-const summaryHandler: AiActionHandler<SummaryInput, SummaryOutput> = async (_ctx, input) => {
+/**
+ * Get AI provider client from context if available
+ */
+function getProviderClient(ctx: AiActionContext): AiProviderClient | null {
+  const providers = ctx.providers as AiProviderRegistry | undefined;
+  if (!providers) return null;
+  try {
+    return providers.require();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Call AI provider for chat completion
+ */
+async function callAiProvider(
+  client: AiProviderClient,
+  messages: ChatMessage[],
+): Promise<string | null> {
+  try {
+    const result = await chatCompletion(client, messages, {
+      temperature: 0.7,
+      maxTokens: 1024,
+    });
+    return result.choices[0]?.message?.content ?? null;
+  } catch (error) {
+    console.error("[ai-actions] Provider call failed:", error);
+    return null;
+  }
+}
+
+const summaryHandler: AiActionHandler<SummaryInput, SummaryOutput> = async (ctx, input) => {
   const text = normalizeText(input?.text);
   if (!text) {
-    return { summary: "", sentences: [], originalLength: 0 };
+    return { summary: "", sentences: [], originalLength: 0, usedAi: false };
   }
+
   const maxSentences = clamp(Number(input?.maxSentences) || 3, 1, 6);
-  return buildSummary(text, maxSentences);
+  const language = input?.language || "";
+
+  // Try to use AI provider if available
+  const client = getProviderClient(ctx);
+  if (client) {
+    const languageHint = language ? ` Respond in ${language}.` : "";
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `You are a helpful assistant that summarizes content concisely. Provide a summary in ${maxSentences} sentences or less.${languageHint} Return only the summary text, no additional commentary.`,
+      },
+      {
+        role: "user",
+        content: `Please summarize the following content:\n\n${text}`,
+      },
+    ];
+
+    const aiResponse = await callAiProvider(client, messages);
+    if (aiResponse) {
+      const sentences = splitSentences(aiResponse);
+      return {
+        summary: aiResponse,
+        sentences: sentences.length > 0 ? sentences : [aiResponse],
+        originalLength: text.length,
+        usedAi: true,
+      };
+    }
+  }
+
+  // Fallback to simple sentence extraction
+  return buildSummaryFallback(text, maxSentences);
 };
 
 const tagSuggestHandler: AiActionHandler<TagSuggestInput, TagSuggestOutput> = async (
-  _ctx,
+  ctx,
   input,
 ) => {
   const text = normalizeText(input?.text);
   if (!text) {
-    return { tags: [] };
+    return { tags: [], usedAi: false };
   }
+
   const maxTags = clamp(Number(input?.maxTags) || 5, 1, 12);
-  return { tags: pickTags(text, maxTags) };
+
+  // Try to use AI provider if available
+  const client = getProviderClient(ctx);
+  if (client) {
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `You are a helpful assistant that suggests relevant hashtags for social media posts. Suggest up to ${maxTags} hashtags that are relevant, popular, and help with discoverability. Return only the hashtags, one per line, without the # symbol.`,
+      },
+      {
+        role: "user",
+        content: `Suggest hashtags for this post:\n\n${text}`,
+      },
+    ];
+
+    const aiResponse = await callAiProvider(client, messages);
+    if (aiResponse) {
+      const tags = aiResponse
+        .split(/[\n,]/)
+        .map((tag) => tag.trim().replace(/^#/, "").toLowerCase())
+        .filter((tag) => tag.length > 0 && tag.length <= 50)
+        .slice(0, maxTags);
+
+      if (tags.length > 0) {
+        return { tags, usedAi: true };
+      }
+    }
+  }
+
+  // Fallback to keyword extraction
+  return { tags: pickTagsFallback(text, maxTags), usedAi: false };
 };
 
 const translationHandler: AiActionHandler<TranslationInput, TranslationOutput> = async (
@@ -259,23 +365,49 @@ const translationHandler: AiActionHandler<TranslationInput, TranslationOutput> =
   const targetLanguage = normalizeText(input?.targetLanguage);
 
   if (!text || !targetLanguage) {
-    return { translatedText: text || "" };
+    return { translatedText: text || "", usedAi: false };
   }
 
-  // For now, this is a placeholder that would be enhanced by actual AI provider
-  // In a real implementation, this would call the AI provider to translate
-  // The AI provider integration would happen through ctx.provider
+  const sourceLanguage = input?.sourceLanguage;
 
-  // Simple passthrough for now - in production this would use the AI provider
+  // Try to use AI provider if available
+  const client = getProviderClient(ctx);
+  if (client) {
+    const sourceHint = sourceLanguage
+      ? `from ${sourceLanguage} `
+      : "";
+    const messages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `You are a professional translator. Translate the following text ${sourceHint}to ${targetLanguage}. Preserve the original meaning and tone. Return only the translated text, no additional commentary.`,
+      },
+      {
+        role: "user",
+        content: text,
+      },
+    ];
+
+    const aiResponse = await callAiProvider(client, messages);
+    if (aiResponse) {
+      return {
+        translatedText: aiResponse,
+        detectedLanguage: sourceLanguage || "auto-detected",
+        usedAi: true,
+      };
+    }
+  }
+
+  // Fallback: return original text with a note
   return {
     translatedText: text,
-    detectedLanguage: input?.sourceLanguage || "unknown",
+    detectedLanguage: sourceLanguage || "unknown",
+    usedAi: false,
   };
 };
 
 
 const dmModeratorHandler: AiActionHandler<DmModeratorInput, DmModeratorOutput> = async (
-  _ctx,
+  ctx,
   input,
 ) => {
   const messages = Array.isArray(input?.messages) ? input.messages : [];
@@ -283,26 +415,96 @@ const dmModeratorHandler: AiActionHandler<DmModeratorInput, DmModeratorOutput> =
     .map((msg) => ({ from: normalizeText(msg.from), text: normalizeText(msg.text) }))
     .filter((msg) => msg.text.length > 0);
 
-  const reasons = new Set<string>();
+  if (normalized.length === 0) {
+    return { flagged: false, reasons: [], usedAi: false };
+  }
+
+  // First, do quick keyword-based checks (always run, even with AI)
+  const quickReasons = new Set<string>();
   for (const msg of normalized) {
     const text = msg.text.toLowerCase();
     for (const flag of DM_RED_FLAGS) {
       if (text.includes(flag)) {
-        reasons.add(`contains_${flag}`);
+        quickReasons.add(`contains_${flag}`);
       }
     }
     if (text.length > 1000) {
-      reasons.add("very_long_message");
+      quickReasons.add("very_long_message");
     }
   }
 
-  const flagged = reasons.size > 0;
+  // Try to use AI provider for more sophisticated analysis
+  const client = getProviderClient(ctx);
+  if (client) {
+    const conversationText = normalized
+      .map((msg) => `${msg.from || "Unknown"}: ${msg.text}`)
+      .join("\n");
+
+    const chatMessages: ChatMessage[] = [
+      {
+        role: "system",
+        content: `You are a content moderation assistant. Analyze the following conversation for potential safety issues such as:
+- Scams or phishing attempts
+- Harassment or threats
+- Spam or unwanted solicitation
+- Inappropriate or harmful content
+
+Respond in JSON format with the following structure:
+{
+  "flagged": true/false,
+  "reasons": ["reason1", "reason2"],
+  "summary": "brief summary of the conversation and any concerns"
+}
+
+Be conservative - only flag content that has clear safety issues. Return valid JSON only.`,
+      },
+      {
+        role: "user",
+        content: `Analyze this conversation:\n\n${conversationText}`,
+      },
+    ];
+
+    const aiResponse = await callAiProvider(client, chatMessages);
+    if (aiResponse) {
+      try {
+        // Try to parse JSON response
+        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]) as {
+            flagged?: boolean;
+            reasons?: string[];
+            summary?: string;
+          };
+
+          const allReasons = Array.from(
+            new Set([
+              ...quickReasons,
+              ...(parsed.reasons || []),
+            ]),
+          );
+
+          return {
+            flagged: parsed.flagged === true || quickReasons.size > 0,
+            reasons: allReasons,
+            summary: parsed.summary || summarizeDm(normalized),
+            usedAi: true,
+          };
+        }
+      } catch {
+        // JSON parsing failed, fall through to keyword-based result
+      }
+    }
+  }
+
+  // Fallback to keyword-based analysis
+  const flagged = quickReasons.size > 0;
   const summary = summarizeDm(normalized);
 
   return {
     flagged,
-    reasons: Array.from(reasons),
+    reasons: Array.from(quickReasons),
     ...(summary ? { summary } : {}),
+    usedAi: false,
   };
 };
 
@@ -310,7 +512,7 @@ const summaryAction: AiAction<SummaryInput, SummaryOutput> = {
   definition: {
     id: "ai.summary",
     label: "Summarize content",
-    description: "Summarize public posts or timelines into a concise digest.",
+    description: "Summarize public posts or timelines into a concise digest using AI when available.",
     inputSchema: summaryInputSchema,
     outputSchema: summaryOutputSchema,
     providerCapabilities: ["chat"],
@@ -325,7 +527,7 @@ const tagSuggestAction: AiAction<TagSuggestInput, TagSuggestOutput> = {
   definition: {
     id: "ai.tag-suggest",
     label: "Hashtag suggestions",
-    description: "Suggest tags for a draft post based on its text and media descriptions.",
+    description: "Suggest relevant hashtags for a draft post using AI when available.",
     inputSchema: tagSuggestInputSchema,
     outputSchema: tagSuggestOutputSchema,
     providerCapabilities: ["chat"],
@@ -340,7 +542,7 @@ const translationAction: AiAction<TranslationInput, TranslationOutput> = {
   definition: {
     id: "ai.translation",
     label: "Translate content",
-    description: "Translate text content to a target language.",
+    description: "Translate text content to a target language using AI.",
     inputSchema: translationInputSchema,
     outputSchema: translationOutputSchema,
     providerCapabilities: ["chat"],
@@ -355,13 +557,13 @@ const dmModeratorAction: AiAction<DmModeratorInput, DmModeratorOutput> = {
   definition: {
     id: "ai.dm-moderator",
     label: "DM safety review",
-    description: "Review or summarize DM conversations for safety or moderation support.",
+    description: "Review DM conversations for safety issues using AI-powered analysis.",
     inputSchema: dmModeratorInputSchema,
     outputSchema: dmModeratorOutputSchema,
     providerCapabilities: ["chat"],
     dataPolicy: {
       sendDm: true,
-      notes: "DM content may be inspected for safety signals before invoking a provider.",
+      notes: "DM content is sent to AI provider for safety analysis.",
     },
   },
   handler: dmModeratorHandler,

@@ -6,35 +6,19 @@
       "title": "Home",
       "layout": {
         "type": "Column",
-        "props": { "id": "root", "gap": 12 },
+        "props": { "id": "root", "gap": 16 },
         "children": [
           {
-            "type": "Row",
-            "props": { "id": "header", "slot": "header", "gap": 8, "align": "center" },
-            "children": [
-              { "type": "Text", "props": { "text": "Home", "variant": "title" } },
-              { "type": "Spacer", "props": { "flex": 1 } }
-            ]
+            "type": "StoriesBar",
+            "props": { "id": "stories" }
           },
           {
-            "type": "Row",
-            "props": { "id": "body", "gap": 12 },
-            "children": [
-              {
-                "type": "Column",
-                "props": { "id": "main", "slot": "main", "flex": 2, "gap": 8 },
-                "children": [
-                  { "type": "Placeholder", "props": { "text": "Timeline feed" } }
-                ]
-              },
-              {
-                "type": "Column",
-                "props": { "id": "right-sidebar", "slot": "right-sidebar", "flex": 1, "gap": 8 },
-                "children": [
-                  { "type": "Placeholder", "props": { "text": "Sidebar widgets" } }
-                ]
-              }
-            ]
+            "type": "PostFeed",
+            "props": {
+              "id": "timeline",
+              "source": "home",
+              "emptyText": "まだ投稿がありません"
+            }
           }
         ]
       }
@@ -45,35 +29,27 @@
       "title": "Community",
       "layout": {
         "type": "Column",
-        "props": { "id": "community-root", "gap": 10 },
+        "props": { "id": "community-root", "gap": 16 },
         "children": [
           {
-            "type": "Row",
-            "props": { "id": "community-header", "slot": "header", "gap": 6, "align": "center" },
-            "children": [
-              { "type": "Text", "props": { "text": "Community", "variant": "title" } },
-              { "type": "Spacer", "props": { "flex": 1 } }
-            ]
+            "type": "PageHeader",
+            "props": {
+              "id": "community-header",
+              "title": "Community",
+              "backHref": "/connections"
+            }
           },
           {
-            "type": "Row",
-            "props": { "id": "community-body", "gap": 12 },
-            "children": [
-              {
-                "type": "Column",
-                "props": { "id": "community-main", "slot": "main", "flex": 2, "gap": 6 },
-                "children": [
-                  { "type": "Placeholder", "props": { "text": "Community timeline" } }
-                ]
-              },
-              {
-                "type": "Column",
-                "props": { "id": "community-sidebar", "slot": "right-sidebar", "flex": 1, "gap": 6 },
-                "children": [
-                  { "type": "Placeholder", "props": { "text": "Members & channels" } }
-                ]
-              }
-            ]
+            "type": "StoriesBar",
+            "props": { "id": "community-stories" }
+          },
+          {
+            "type": "PostFeed",
+            "props": {
+              "id": "community-feed",
+              "source": "community",
+              "emptyText": "このコミュニティにはまだ投稿がありません"
+            }
           }
         ]
       }
@@ -84,35 +60,47 @@
       "title": "Direct Messages",
       "layout": {
         "type": "Column",
-        "props": { "id": "dm-root", "gap": 10 },
+        "props": { "id": "dm-root", "gap": 16 },
         "children": [
           {
-            "type": "Row",
-            "props": { "id": "dm-header", "slot": "header", "gap": 8, "align": "center" },
-            "children": [
-              { "type": "Text", "props": { "text": "Messages", "variant": "title" } },
-              { "type": "Spacer", "props": { "flex": 1 } }
-            ]
+            "type": "PageHeader",
+            "props": {
+              "id": "dm-header",
+              "title": "メッセージ"
+            }
           },
           {
-            "type": "Row",
-            "props": { "id": "dm-body", "gap": 12 },
-            "children": [
-              {
-                "type": "Column",
-                "props": { "id": "dm-threads", "slot": "main", "flex": 2, "gap": 8 },
-                "children": [
-                  { "type": "Placeholder", "props": { "text": "Thread list" } }
-                ]
-              },
-              {
-                "type": "Column",
-                "props": { "id": "dm-preview", "slot": "right-sidebar", "flex": 1, "gap": 8 },
-                "children": [
-                  { "type": "Placeholder", "props": { "text": "Selected thread preview" } }
-                ]
-              }
-            ]
+            "type": "ThreadList",
+            "props": {
+              "id": "dm-threads",
+              "emptyText": "メッセージはまだありません"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.communities",
+      "route": "/communities",
+      "title": "Communities",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "communities-root", "gap": 16 },
+        "children": [
+          {
+            "type": "PageHeader",
+            "props": {
+              "id": "communities-header",
+              "title": "コミュニティ"
+            }
+          },
+          {
+            "type": "CommunityList",
+            "props": {
+              "id": "community-list",
+              "showJoined": true,
+              "emptyText": "まだコミュニティに参加していません"
+            }
           }
         ]
       }
@@ -123,22 +111,19 @@
       "title": "Profile",
       "layout": {
         "type": "Column",
-        "props": { "id": "profile-root", "gap": 10 },
+        "props": { "id": "profile-root", "gap": 16 },
         "children": [
           {
-            "type": "Row",
-            "props": { "id": "profile-header", "slot": "header", "gap": 6, "align": "center" },
-            "children": [
-              { "type": "Text", "props": { "text": "Profile", "variant": "title" } },
-              { "type": "Spacer", "props": { "flex": 1 } }
-            ]
+            "type": "PageHeader",
+            "props": {
+              "id": "profile-header",
+              "title": "プロフィール",
+              "backHref": "/"
+            }
           },
           {
-            "type": "Column",
-            "props": { "id": "profile-main", "slot": "main", "gap": 8 },
-            "children": [
-              { "type": "Placeholder", "props": { "text": "Profile header and feed" } }
-            ]
+            "type": "Placeholder",
+            "props": { "text": "Profile content (use native component for now)" }
           }
         ]
       }
@@ -149,22 +134,19 @@
       "title": "Settings",
       "layout": {
         "type": "Column",
-        "props": { "id": "settings-root", "gap": 10 },
+        "props": { "id": "settings-root", "gap": 16 },
         "children": [
           {
-            "type": "Row",
-            "props": { "id": "settings-header", "slot": "header", "gap": 6, "align": "center" },
-            "children": [
-              { "type": "Text", "props": { "text": "Settings", "variant": "title" } },
-              { "type": "Spacer", "props": { "flex": 1 } }
-            ]
+            "type": "PageHeader",
+            "props": {
+              "id": "settings-header",
+              "title": "設定",
+              "backHref": "/"
+            }
           },
           {
-            "type": "Column",
-            "props": { "id": "settings-main", "slot": "main", "gap": 8 },
-            "children": [
-              { "type": "Placeholder", "props": { "text": "Preferences" } }
-            ]
+            "type": "Placeholder",
+            "props": { "text": "Settings content (use native component for now)" }
           }
         ]
       }

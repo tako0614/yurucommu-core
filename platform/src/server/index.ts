@@ -30,6 +30,8 @@ export * from "../ai/agent-policy";
 export * from "../ai/action-registry.js";
 export * from "../ai/provider-registry";
 export * from "../ai/agent-tools";
+export * from "../ai/provider-adapters";
+export * from "../ai/workflow/index";
 export * from "../activitypub/activitypub";
 export * from "../activitypub/activitypub-routes";
 export * from "../activitypub/activitypub-story";
@@ -46,3 +48,9 @@ export * from "../activitypub/inbox-worker";
 export * from "../activitypub/outbox";
 export * from "../activitypub/story-publisher";
 export { default as activityPubRoutes } from "../activitypub/activitypub-routes";
+
+// Runtime adapters
+export * from "../adapters/index";
+export { CloudflareAdapter, createCloudflareAdapter } from "../adapters/cloudflare";
+export { NodeAdapter, createNodeAdapter } from "../adapters/node";
+export { TakosServer, createServer, startNodeServer } from "../adapters/server";

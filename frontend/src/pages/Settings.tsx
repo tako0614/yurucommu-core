@@ -1,6 +1,6 @@
 import { createSignal, Show } from "solid-js";
 import StorageManager from "../components/StorageManager";
-import ActivityPubBlocklistManager from "../components/ActivityPubBlocklistManager";
+import FederationPolicyManager from "../components/FederationPolicyManager";
 import AgentConfigAllowlistManager from "../components/AgentConfigAllowlistManager";
 import { registerPushDevice, removePushDevice } from "../lib/api";
 
@@ -57,7 +57,7 @@ export default function Settings() {
       <div class="space-y-6">
         <AgentConfigAllowlistManager />
 
-        <ActivityPubBlocklistManager />
+        <FederationPolicyManager />
 
         {/* Storage Management Section */}
         <section class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6">

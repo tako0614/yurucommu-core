@@ -7,7 +7,12 @@ import {
   type BlockedInstancesResponse,
 } from "../lib/api-client";
 
-export default function ActivityPubBlocklistManager() {
+/**
+ * Federation Policy Manager
+ * Manages blocked_instances for ActivityPub federation.
+ * Future: May include allowlist management when API is available.
+ */
+export default function FederationPolicyManager() {
   const [input, setInput] = createSignal("");
   const [message, setMessage] = createSignal("");
   const [error, setError] = createSignal("");
@@ -104,9 +109,9 @@ export default function ActivityPubBlocklistManager() {
     <section class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6">
       <div class="flex items-start justify-between gap-3 mb-4">
         <div>
-          <h2 class="text-lg font-semibold">ActivityPub ブロックリスト</h2>
+          <h2 class="text-lg font-semibold">Federation Policy</h2>
           <p class="text-sm text-gray-600 dark:text-gray-400">
-            blocked_instances を管理します。変更はすぐに連合ルーティングへ反映されます。
+            ActivityPub フェデレーションのブロックリストを管理します。変更はすぐに連合ルーティングへ反映されます。
           </p>
         </div>
         <div class="flex items-center gap-2">
@@ -133,6 +138,16 @@ export default function ActivityPubBlocklistManager() {
       </Show>
 
       <Show when={!forbidden()}>
+        {/* Blocked Instances Section */}
+        <div class="mb-4">
+          <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            ブロックリスト
+          </h3>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            ブロックしたインスタンスからのアクティビティは拒否されます。
+          </p>
+        </div>
+
         <form class="flex flex-col md:flex-row gap-2 mb-3" onSubmit={(e) => void handleAdd(e)}>
           <input
             class="flex-1 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 bg-gray-50 dark:bg-neutral-900"

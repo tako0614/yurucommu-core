@@ -79,9 +79,24 @@ export async function loadAppManifest(): Promise<AppManifest> {
       throw new Error(`Failed to load manifest: ${response.statusText}`);
     }
 
-    const manifest: AppManifest = await response.json();
-    cachedManifest = manifest;
-    return manifest;
+    const data = await response.json();
+
+    // Backend returns { manifest, issues } format
+    const manifest: AppManifest = data.manifest || data;
+
+    // Normalize field names (backend uses camelCase, frontend expects snake_case for some fields)
+    const normalizedManifest: AppManifest = {
+      schema_version: manifest.schema_version || manifest.schemaVersion || "1.0",
+      version: manifest.version || "0.0.0",
+      routes: manifest.routes || [],
+      views: manifest.views || { screens: [], insert: [] },
+      ap: manifest.ap,
+      data: manifest.data,
+      storage: manifest.storage,
+    };
+
+    cachedManifest = normalizedManifest;
+    return normalizedManifest;
   } catch (error) {
     console.error("[AppManifest] Failed to load manifest:", error);
 

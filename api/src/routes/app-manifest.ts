@@ -7,8 +7,13 @@
 import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings } from "@takos/platform/server";
 import { fail } from "@takos/platform/server";
-import { loadAppManifest, type AppDefinitionSource } from "@takos/platform/app/manifest-loader";
+import { loadAppManifest, createInMemoryAppSource, type AppDefinitionSource } from "@takos/platform/app/manifest-loader";
 import { optionalAuth } from "../middleware/auth";
+
+// Static manifest files bundled at build time
+import takosAppJson from "../../../takos-app.json";
+import screensCoreJson from "../../../app/views/screens-core.json";
+import insertCoreJson from "../../../app/views/insert-core.json";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -81,26 +86,17 @@ function createNodeFsSource(): AppDefinitionSource {
       return fs.promises.readFile(filePath, "utf-8");
     },
 
-    async readdir(dirPath: string): Promise<string[]> {
+    async listFiles(dirPath: string): Promise<string[]> {
       try {
         const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
         return entries
           .filter((entry: any) => entry.isFile() && entry.name.endsWith(".json"))
-          .map((entry: any) => path.join(dirPath, entry.name));
+          .map((entry: any) => entry.name);
       } catch (err: any) {
         if (err.code === "ENOENT") {
           return [];
         }
         throw err;
-      }
-    },
-
-    async exists(filePath: string): Promise<boolean> {
-      try {
-        await fs.promises.access(filePath);
-        return true;
-      } catch {
-        return false;
       }
     },
   };
@@ -109,24 +105,17 @@ function createNodeFsSource(): AppDefinitionSource {
 /**
  * 静的マニフェスト（ビルド時バンドル）を返すソース
  *
- * Cloudflare Workers では、ビルドプロセスで takos-app.json を含める必要がある
+ * Cloudflare Workers では、ビルドプロセスで JSON ファイルをバンドル
  */
 function createStaticSource(): AppDefinitionSource {
-  // TODO: ビルド時に manifest を静的にバンドルする実装
-  // 現在は空の実装（将来的に wrangler.toml の [site] または KV を使用）
-  return {
-    async readFile(filePath: string): Promise<string> {
-      throw new Error("Static manifest source not implemented yet");
-    },
-
-    async readdir(dirPath: string): Promise<string[]> {
-      return [];
-    },
-
-    async exists(filePath: string): Promise<boolean> {
-      return false;
-    },
+  // ビルド時にインポートされた JSON ファイルをインメモリソースとして提供
+  const files: Record<string, string> = {
+    "takos-app.json": JSON.stringify(takosAppJson),
+    "app/views/screens-core.json": JSON.stringify(screensCoreJson),
+    "app/views/insert-core.json": JSON.stringify(insertCoreJson),
   };
+
+  return createInMemoryAppSource(files);
 }
 
 export default app;
