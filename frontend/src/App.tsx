@@ -27,13 +27,26 @@ import FriendRequests from "./pages/FriendRequests";
 import { ToastProvider } from "./components/Toast";
 import { ShellContextProvider } from "./lib/shell-context";
 import DynamicScreen from "./pages/DynamicScreen";
+import { registerCustomComponents } from "./lib/ui-components";
+
+// Register custom UiNode components on module load
+registerCustomComponents();
 
 /**
  * Feature flag for App Manifest driven UI
  * Set to true to enable dynamic screen rendering from App Manifest
  * (PLAN.md 5.4: App Manifest 駆動 UI)
+ *
+ * When enabled:
+ * - CatchAllRoute will try to render screens from App Manifest
+ * - Unknown routes will fall back to DynamicScreen instead of 404
+ *
+ * Migration strategy:
+ * 1. Keep existing routes as-is for stability
+ * 2. New screens can be defined in App Manifest
+ * 3. Gradually replace existing screens with UiNode definitions
  */
-const USE_DYNAMIC_SCREENS = false;
+const USE_DYNAMIC_SCREENS = true;
 
 const Login = resolveComponent("Login", DefaultLogin);
 const Profile = resolveComponent("Profile", DefaultProfile);

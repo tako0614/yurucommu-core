@@ -22,7 +22,10 @@ import {
   releaseStore,
   aiActionRegistry,
   dispatchAiAction,
+  chatCompletion,
+  chatCompletionStream,
 } from "@takos/platform/server";
+import type { ChatMessage as AdapterChatMessage } from "@takos/platform/server";
 import { buildRuntimeConfig } from "../lib/config-utils";
 import { guardAgentRequest } from "../lib/agent-guard";
 import { auth } from "../middleware/auth";
@@ -40,6 +43,8 @@ type ChatRequestBody = {
   stream?: boolean;
   provider?: string;
   model?: string;
+  temperature?: number;
+  max_tokens?: number;
   tool?: AgentToolId | { id?: AgentToolId };
   service?: string;
   dm_messages?: unknown;
@@ -347,58 +352,51 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
   }
 
   const stream = body.stream === true;
-  const baseUrl = provider.baseUrl.endsWith("/")
-    ? provider.baseUrl.slice(0, -1)
-    : provider.baseUrl;
-  const apiUrl = `${baseUrl}/chat/completions`;
-  const payload: Record<string, unknown> = {
-    model,
-    messages,
-  };
-  if (stream) payload.stream = true;
 
-  let response: Response;
+  // Convert messages to adapter format
+  const adapterMessages: AdapterChatMessage[] = messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+
+  const completionOptions = {
+    model,
+    temperature: typeof body.temperature === "number" ? body.temperature : undefined,
+    maxTokens: typeof body.max_tokens === "number" ? body.max_tokens : undefined,
+  };
+
   try {
-    response = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...provider.headers,
-      },
-      body: JSON.stringify(payload),
+    if (stream) {
+      // Use the new streaming adapter
+      const streamResult = await chatCompletionStream(provider, adapterMessages, completionOptions);
+
+      const headers = new Headers();
+      headers.set("content-type", "text/event-stream");
+      headers.set("cache-control", "no-cache");
+      headers.set("connection", "keep-alive");
+      headers.set("x-ai-provider", provider.id);
+      headers.set("x-ai-model", model);
+
+      return new Response(streamResult.stream, { status: 200, headers });
+    }
+
+    // Use the new non-streaming adapter
+    const result = await chatCompletion(provider, adapterMessages, completionOptions);
+
+    return ok(c, {
+      provider: result.provider,
+      model: result.model,
+      message: result.choices[0]?.message ?? null,
+      usage: result.usage ?? null,
+      raw: result.raw,
     });
   } catch (error: any) {
     const message = error?.message || "failed to reach AI provider";
-    return fail(c, message, 502);
+    // Check if it's a provider-specific error with status code
+    const statusMatch = message.match(/\((\d{3})\)/);
+    const status = statusMatch ? parseInt(statusMatch[1], 10) : 502;
+    return fail(c, message, status >= 400 && status < 600 ? status : 502);
   }
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    return fail(c, errorText || "AI provider error", response.status);
-  }
-
-  if (stream) {
-    const headers = new Headers();
-    headers.set(
-      "content-type",
-      response.headers.get("content-type") || "text/event-stream",
-    );
-    headers.set("x-ai-provider", provider.id);
-    return new Response(response.body, { status: response.status, headers });
-  }
-
-  const json = (await response.json().catch(() => null)) as any;
-  if (!json || !json.choices || !Array.isArray(json.choices)) {
-    return fail(c, "invalid response from AI provider", 502);
-  }
-
-  const message = json.choices[0]?.message ?? null;
-  return ok(c, {
-    provider: provider.id,
-    model,
-    message,
-    raw: json,
-  });
 });
 
 export default aiChatRoutes;

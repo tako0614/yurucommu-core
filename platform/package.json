@@ -33,6 +33,14 @@
     "./app/*": {
       "import": "./src/app/*.ts",
       "types": "./src/app/*.ts"
+    },
+    "./ai/*": {
+      "import": "./src/ai/*.ts",
+      "types": "./src/ai/*.ts"
+    },
+    "./ai/workflow": {
+      "import": "./src/ai/workflow/index.ts",
+      "types": "./src/ai/workflow/index.ts"
     }
   },
   "scripts": {

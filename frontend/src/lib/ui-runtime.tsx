@@ -410,8 +410,8 @@ export const RenderUiNode: Component<UiComponentProps> = (props) => {
     );
   });
 
-  // Pass props and rendered children to component
-  return <ComponentImpl {...node.props}>{children()}</ComponentImpl>;
+  // Pass props, context, and rendered children to component
+  return <ComponentImpl {...node.props} context={context}>{children()}</ComponentImpl>;
 };
 
 /**
