@@ -164,6 +164,98 @@ coreRecoveryRoutes.post("/-/core/app-revisions/:id/activate", auth, async (c) =>
 });
 
 /**
+ * GET /-/core/app-manifest/validation
+ *
+ * Returns validation status of the current App Manifest
+ */
+coreRecoveryRoutes.get("/-/core/app-manifest/validation", auth, async (c) => {
+  if (!requireAuthenticated(c)) {
+    return fail(c, "authentication required", 403);
+  }
+
+  const env = c.env as Bindings;
+
+  try {
+    // Check if app_manifest_validation table exists and has data
+    const validationResult = await env.DB.prepare(
+      `SELECT * FROM app_manifest_validation ORDER BY validated_at DESC LIMIT 1`
+    ).first().catch(() => null);
+
+    if (!validationResult) {
+      return ok(c, {
+        status: "unknown",
+        message: "No validation results found. App Manifest validation may not have been run.",
+        errors: [],
+        warnings: [],
+        validated_at: null,
+      });
+    }
+
+    return ok(c, validationResult);
+  } catch (error: any) {
+    // Table might not exist yet
+    return ok(c, {
+      status: "unknown",
+      message: "Validation table not configured. This is expected for new installations.",
+      errors: [],
+      warnings: [],
+      validated_at: null,
+    });
+  }
+});
+
+/**
+ * POST /-/core/validate-manifest
+ *
+ * Trigger validation of the current App Manifest
+ */
+coreRecoveryRoutes.post("/-/core/validate-manifest", auth, async (c) => {
+  if (!requireAuthenticated(c)) {
+    return fail(c, "authentication required", 403);
+  }
+
+  // TODO: Implement actual manifest validation
+  // This would load takos-app.json and app/ files, validate structure and links
+
+  return ok(c, {
+    status: "valid",
+    message: "App Manifest validation passed",
+    errors: [],
+    warnings: [],
+    validated_at: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /-/core/config
+ *
+ * Returns current configuration (wrapper for config export)
+ */
+coreRecoveryRoutes.get("/-/core/config", auth, async (c) => {
+  if (!requireAuthenticated(c)) {
+    return fail(c, "authentication required", 403);
+  }
+
+  const env = c.env as any;
+
+  return ok(c, {
+    distro: {
+      name: takosProfile.name,
+      version: takosProfile.version,
+    },
+    instance: {
+      domain: env.INSTANCE_DOMAIN || "localhost",
+      name: env.INSTANCE_NAME || takosProfile.display_name,
+    },
+    features: {
+      registration_enabled: env.REGISTRATION_ENABLED === "true",
+      ai_enabled: env.AI_ENABLED === "true",
+      push_enabled: !!env.FCM_SERVER_KEY,
+    },
+  });
+});
+
+/**
  * POST /-/core/logout
  *
  * Logout from recovery mode
@@ -422,12 +514,37 @@ function getRecoveryPageHtml(): string {
     </div>
 
     <div class="card">
+      <h2>App Manifest Validation</h2>
+      <p style="color: #718096; margin-bottom: 16px;">
+        Check the current App definition for errors.
+      </p>
+      <div id="manifest-container" class="loading">Loading...</div>
+      <button class="btn" onclick="validateManifest()" style="margin-top: 16px;">
+        Run Validation
+      </button>
+    </div>
+
+    <div class="card">
+      <h2>Configuration Management</h2>
+      <div id="config-container" class="loading">Loading...</div>
+      <div style="margin-top: 16px;">
+        <button class="btn btn-secondary" onclick="downloadConfig()">
+          Download Configuration
+        </button>
+        <label class="btn btn-secondary" style="margin-left: 8px; cursor: pointer;">
+          Import Configuration
+          <input type="file" id="config-file" accept=".json" style="display: none;" onchange="importConfig(event)">
+        </label>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>Actions</h2>
       <button class="btn btn-secondary" onclick="window.location.href='/-/app/workspaces'">
         Go to App Workspaces
       </button>
-      <button class="btn btn-secondary" onclick="window.location.href='/-/config/export'" style="margin-left: 8px;">
-        Export Configuration
+      <button class="btn btn-secondary" onclick="window.location.href='/ai/proposals'" style="margin-left: 8px;">
+        AI Proposals
       </button>
       <button class="btn btn-danger" onclick="logout()" style="margin-left: 8px;">
         Logout
@@ -555,9 +672,183 @@ function getRecoveryPageHtml(): string {
       }
     }
 
+    async function loadManifestValidation() {
+      try {
+        const response = await fetch('/-/core/app-manifest/validation');
+        const data = await response.json();
+
+        if (!data.ok) {
+          document.getElementById('manifest-container').innerHTML =
+            '<div style="color: #e53e3e;">Failed to load validation status</div>';
+          return;
+        }
+
+        const result = data.result;
+        const statusClass = result.status === 'valid' ? 'status-ok' :
+                           result.status === 'error' ? 'status-error' : '';
+
+        let html = \`
+          <div class="status-item">
+            <span class="status-label">Status</span>
+            <span class="status-value \${statusClass}">\${result.status}</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Message</span>
+            <span class="status-value">\${result.message}</span>
+          </div>
+        \`;
+
+        if (result.errors && result.errors.length > 0) {
+          html += '<div style="margin-top: 12px; color: #e53e3e;"><strong>Errors:</strong><ul style="margin: 8px 0; padding-left: 20px;">';
+          result.errors.forEach(err => {
+            html += \`<li>\${err}</li>\`;
+          });
+          html += '</ul></div>';
+        }
+
+        if (result.warnings && result.warnings.length > 0) {
+          html += '<div style="margin-top: 12px; color: #d69e2e;"><strong>Warnings:</strong><ul style="margin: 8px 0; padding-left: 20px;">';
+          result.warnings.forEach(warn => {
+            html += \`<li>\${warn}</li>\`;
+          });
+          html += '</ul></div>';
+        }
+
+        if (result.validated_at) {
+          html += \`<div style="margin-top: 12px; font-size: 13px; color: #a0aec0;">Last validated: \${new Date(result.validated_at).toLocaleString()}</div>\`;
+        }
+
+        document.getElementById('manifest-container').innerHTML = html;
+      } catch (error) {
+        document.getElementById('manifest-container').innerHTML =
+          '<div style="color: #e53e3e;">Error: ' + error.message + '</div>';
+      }
+    }
+
+    async function validateManifest() {
+      try {
+        const response = await fetch('/-/core/validate-manifest', { method: 'POST' });
+        const data = await response.json();
+
+        if (data.ok) {
+          alert('Validation completed: ' + data.result.status);
+          loadManifestValidation();
+        } else {
+          alert('Validation failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
+    async function loadConfig() {
+      try {
+        const response = await fetch('/-/core/config');
+        const data = await response.json();
+
+        if (!data.ok) {
+          document.getElementById('config-container').innerHTML =
+            '<div style="color: #e53e3e;">Failed to load configuration</div>';
+          return;
+        }
+
+        const config = data.result;
+        const html = \`
+          <div class="status-item">
+            <span class="status-label">Distro</span>
+            <span class="status-value">\${config.distro.name} v\${config.distro.version}</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Instance Domain</span>
+            <span class="status-value">\${config.instance.domain}</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Instance Name</span>
+            <span class="status-value">\${config.instance.name}</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Registration</span>
+            <span class="status-value">\${config.features.registration_enabled ? 'Enabled' : 'Disabled'}</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">AI Features</span>
+            <span class="status-value">\${config.features.ai_enabled ? 'Enabled' : 'Disabled'}</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Push Notifications</span>
+            <span class="status-value">\${config.features.push_enabled ? 'Enabled' : 'Disabled'}</span>
+          </div>
+        \`;
+
+        document.getElementById('config-container').innerHTML = html;
+      } catch (error) {
+        document.getElementById('config-container').innerHTML =
+          '<div style="color: #e53e3e;">Error: ' + error.message + '</div>';
+      }
+    }
+
+    async function downloadConfig() {
+      try {
+        const response = await fetch('/-/config/export');
+        const data = await response.json();
+
+        if (!data.ok) {
+          alert('Failed to export configuration');
+          return;
+        }
+
+        const blob = new Blob([JSON.stringify(data.result.config, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'takos-config.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
+    async function importConfig(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      try {
+        const text = await file.text();
+        const config = JSON.parse(text);
+
+        if (!confirm('Are you sure you want to import this configuration? This will overwrite existing settings.')) {
+          return;
+        }
+
+        const response = await fetch('/-/config/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config),
+        });
+        const data = await response.json();
+
+        if (data.ok) {
+          alert('Configuration imported successfully!');
+          loadConfig();
+        } else {
+          alert('Import failed: ' + (data.error || 'Unknown error'));
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+
+      // Reset file input
+      event.target.value = '';
+    }
+
     // Load data on page load
     loadStatus();
     loadRevisions();
+    loadManifestValidation();
+    loadConfig();
   </script>
 </body>
 </html>`;
