@@ -34,6 +34,10 @@
       "import": "./src/app/*.ts",
       "types": "./src/app/*.ts"
     },
+    "./app/services": {
+      "import": "./src/app/services/index.ts",
+      "types": "./src/app/services/index.ts"
+    },
     "./ai/*": {
       "import": "./src/ai/*.ts",
       "types": "./src/ai/*.ts"

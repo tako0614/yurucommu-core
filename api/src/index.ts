@@ -76,6 +76,7 @@ import aiConfigRoutes from "./routes/ai-config";
 import aiChatRoutes from "./routes/ai-chat";
 import aiRoutes from "./routes/ai";
 import aiWorkflowsRoutes from "./routes/ai-workflows";
+import aiProposalsRoutes from "./routes/ai-proposals";
 import activityPubConfigRoutes from "./routes/activitypub-config";
 import configRoutes from "./routes/config";
 import appPreviewRoutes from "./routes/app-preview";
@@ -86,7 +87,7 @@ import activityPubMetadataRoutes from "./routes/activitypub-metadata.js";
 import activityPubExtensionsRoutes from "./routes/activitypub-extensions.js";
 import coreRecoveryRoutes from "./routes/core-recovery";
 import appManifestRoutes from "./routes/app-manifest";
-import takosConfigRoutes from "./routes/takos-config";
+// takos-config.ts is deprecated; config routes are now unified in config.ts per PLAN.md 5.3
 import { getTakosConfig } from "./lib/runtime-config";
 import {
   isManifestRoutingEnabled,
@@ -359,9 +360,8 @@ app.route("/", coreRecoveryRoutes);
 // Mount App Manifest endpoint
 app.route("/-/app/manifest", appManifestRoutes);
 
-// Mount takos-config.json export/import
-app.route("/-/config", takosConfigRoutes);
-
+// Note: takos-config routes (/-/config/export, /-/config/import, /-/config/diff)
+// are now handled by configRoutes (unified with /admin/config) per PLAN.md 5.3.
 
 // Mount feature route modules
 // IMPORTANT: usersRoutes and communitiesRoutes must be mounted BEFORE postsRoutes
@@ -380,6 +380,7 @@ app.route("/", aiConfigRoutes);
 app.route("/", aiChatRoutes);
 app.route("/", aiRoutes);
 app.route("/ai/workflows", aiWorkflowsRoutes);
+app.route("/ai/proposals", aiProposalsRoutes);
 app.route("/", activityPubConfigRoutes);
 app.route("/", configRoutes);
 app.route("/", cronHealthRoutes);
