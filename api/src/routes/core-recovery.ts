@@ -6,6 +6,12 @@ import type {
 import { ok, fail } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
 import takosProfile from "../../../takos-profile.json";
+import { loadAppManifest, createInMemoryAppSource, type AppDefinitionSource } from "@takos/platform/app/manifest-loader";
+
+// Static manifest files bundled at build time for validation
+import takosAppJson from "../../../takos-app.json";
+import screensCoreJson from "../../../app/views/screens-core.json";
+import insertCoreJson from "../../../app/views/insert-core.json";
 
 const coreRecoveryRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -191,7 +197,17 @@ coreRecoveryRoutes.get("/-/core/app-manifest/validation", auth, async (c) => {
       });
     }
 
-    return ok(c, validationResult);
+    // Parse JSON fields stored in database
+    const result = validationResult as Record<string, unknown>;
+    return ok(c, {
+      status: result.status,
+      message: result.message,
+      errors: typeof result.errors === "string" ? JSON.parse(result.errors) : (result.errors || []),
+      warnings: typeof result.warnings === "string" ? JSON.parse(result.warnings) : (result.warnings || []),
+      validated_at: result.validated_at,
+      manifest_version: result.manifest_version,
+      schema_version: result.schema_version,
+    });
   } catch (error: any) {
     // Table might not exist yet
     return ok(c, {
@@ -214,17 +230,80 @@ coreRecoveryRoutes.post("/-/core/validate-manifest", auth, async (c) => {
     return fail(c, "authentication required", 403);
   }
 
-  // TODO: Implement actual manifest validation
-  // This would load takos-app.json and app/ files, validate structure and links
+  const env = c.env as Bindings;
 
-  return ok(c, {
-    status: "valid",
-    message: "App Manifest validation passed",
-    errors: [],
-    warnings: [],
-    validated_at: new Date().toISOString(),
-  });
+  try {
+    // Create manifest source from bundled static files
+    const source = createStaticManifestSource();
+
+    // Load and validate the manifest
+    const result = await loadAppManifest({
+      rootDir: ".",
+      source,
+    });
+
+    const errors = result.issues?.filter((issue) => issue.severity === "error") || [];
+    const warnings = result.issues?.filter((issue) => issue.severity === "warning") || [];
+    const validatedAt = new Date().toISOString();
+
+    const status = errors.length > 0 ? "error" : (warnings.length > 0 ? "warning" : "valid");
+    const message = errors.length > 0
+      ? `App Manifest validation failed with ${errors.length} error(s)`
+      : (warnings.length > 0
+        ? `App Manifest validation passed with ${warnings.length} warning(s)`
+        : "App Manifest validation passed");
+
+    const validationResult = {
+      status,
+      message,
+      errors: errors.map((e) => `${e.file ? `[${e.file}] ` : ""}${e.message}`),
+      warnings: warnings.map((w) => `${w.file ? `[${w.file}] ` : ""}${w.message}`),
+      validated_at: validatedAt,
+      manifest_version: result.manifest?.version || null,
+      schema_version: result.manifest?.schemaVersion || null,
+      route_count: result.manifest?.routes?.length || 0,
+      screen_count: result.manifest?.views?.screens?.length || 0,
+    };
+
+    // Store validation result in database for GET endpoint to read
+    try {
+      await env.DB.prepare(
+        `INSERT OR REPLACE INTO app_manifest_validation
+         (id, status, message, errors, warnings, validated_at, manifest_version, schema_version)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        validationResult.status,
+        validationResult.message,
+        JSON.stringify(validationResult.errors),
+        JSON.stringify(validationResult.warnings),
+        validationResult.validated_at,
+        validationResult.manifest_version,
+        validationResult.schema_version,
+      ).run();
+    } catch (dbError) {
+      // Table might not exist yet - this is non-fatal for validation
+      console.warn("Failed to store validation result:", dbError);
+    }
+
+    return ok(c, validationResult);
+  } catch (error: any) {
+    return fail(c, `Manifest validation failed: ${error.message}`, 500);
+  }
 });
+
+/**
+ * Create manifest source from bundled static files
+ * Used in Cloudflare Workers environment where filesystem access is unavailable
+ */
+function createStaticManifestSource(): AppDefinitionSource {
+  const files: Record<string, string> = {
+    "takos-app.json": JSON.stringify(takosAppJson),
+    "app/views/screens-core.json": JSON.stringify(screensCoreJson),
+    "app/views/insert-core.json": JSON.stringify(insertCoreJson),
+  };
+
+  return createInMemoryAppSource(files);
+}
 
 /**
  * GET /-/core/config

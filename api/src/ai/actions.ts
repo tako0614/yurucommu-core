@@ -11,10 +11,104 @@ import type {
 import { aiActionRegistry, chatCompletion } from "@takos/platform/server";
 import type { ChatMessage } from "@takos/platform/server";
 
+type ChatActionInput = {
+  messages: ChatMessage[];
+  system?: string;
+  provider?: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  publicPosts?: unknown;
+  communityPosts?: unknown;
+  dmMessages?: unknown;
+  profile?: unknown;
+};
+
+type ChatActionOutput = {
+  provider: string | null;
+  model: string | null;
+  message: ChatMessage | null;
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
+  redacted?: { field: string; reason: string }[];
+  raw?: unknown;
+  usedAi: boolean;
+};
+
 type SummaryInput = {
   text: string;
   maxSentences?: number;
   language?: string;
+};
+
+const chatMessageSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    role: { type: "string", enum: ["user", "assistant", "system"] },
+    content: { type: "string" },
+  },
+  required: ["role", "content"],
+  additionalProperties: false,
+};
+
+const chatInputSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    messages: {
+      type: "array",
+      items: chatMessageSchema,
+      minItems: 1,
+    },
+    system: { type: "string", description: "Optional system prompt to prepend" },
+    provider: { type: "string", description: "Provider ID to use for this call" },
+    model: { type: "string", description: "Model ID to use for this call" },
+    temperature: { type: "number", description: "Sampling temperature (0-2)" },
+    maxTokens: { type: "number", description: "Max tokens to generate (1-8192)" },
+    publicPosts: { type: ["object", "array", "string"] },
+    communityPosts: { type: ["object", "array", "string"] },
+    dmMessages: { type: ["object", "array", "string"] },
+    profile: { type: ["object", "array", "string"] },
+  },
+  required: ["messages"],
+  additionalProperties: false,
+};
+
+const chatOutputSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    provider: { type: ["string", "null"] },
+    model: { type: ["string", "null"] },
+    message: {
+      anyOf: [chatMessageSchema, { type: "null" }],
+    },
+    usage: {
+      type: "object",
+      properties: {
+        promptTokens: { type: "number" },
+        completionTokens: { type: "number" },
+        totalTokens: { type: "number" },
+      },
+      additionalProperties: true,
+    },
+    redacted: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          field: { type: "string" },
+          reason: { type: "string" },
+        },
+        required: ["field", "reason"],
+        additionalProperties: false,
+      },
+    },
+    raw: {},
+    usedAi: { type: "boolean" },
+  },
+  required: ["provider", "model", "message", "usedAi"],
 };
 
 type SummaryOutput = {
@@ -196,6 +290,32 @@ const normalizeText = (value: unknown): string => {
   return value.trim();
 };
 
+const hasPayloadSlice = (value: unknown): boolean => {
+  if (value === undefined || value === null) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "object") return Object.keys(value as Record<string, unknown>).length > 0;
+  return true;
+};
+
+const normalizeChatMessages = (input: unknown): ChatMessage[] => {
+  if (!Array.isArray(input)) return [];
+  const allowedRoles = new Set<ChatMessage["role"]>(["user", "assistant", "system"]);
+  const normalized: ChatMessage[] = [];
+
+  for (const item of input) {
+    if (!item || typeof item !== "object") continue;
+    const roleRaw = (item as any).role;
+    const content = normalizeText((item as any).content);
+    if (!content) continue;
+    const role = typeof roleRaw === "string" ? roleRaw.trim().toLowerCase() : "";
+    if (!allowedRoles.has(role as ChatMessage["role"])) continue;
+    normalized.push({ role: role as ChatMessage["role"], content });
+  }
+
+  return normalized;
+};
+
 const splitSentences = (text: string): string[] => {
   return text
     .split(/(?<=[.!?])\s+/)
@@ -242,6 +362,15 @@ const summarizeDm = (messages: DmModeratorMessage[]): string => {
     .join(" / ");
 };
 
+const buildChatFallback = (messages: ChatMessage[]): ChatMessage => {
+  const lastUser = [...messages].reverse().find((msg) => msg.role === "user");
+  if (lastUser?.content) {
+    const snippet = lastUser.content.slice(0, 240);
+    return { role: "assistant", content: `AI provider unavailable. Echoing: ${snippet}` };
+  }
+  return { role: "assistant", content: "AI provider unavailable." };
+};
+
 /**
  * Get AI provider client from context if available
  */
@@ -273,6 +402,82 @@ async function callAiProvider(
     return null;
   }
 }
+
+const chatActionHandler: AiActionHandler<ChatActionInput, ChatActionOutput> = async (ctx, input) => {
+  const system = normalizeText(input?.system);
+  const messages = normalizeChatMessages(input?.messages);
+  if (system) {
+    messages.unshift({ role: "system", content: system });
+  }
+
+  if (!messages.length) {
+    throw new Error("messages are required for ai.chat");
+  }
+
+  const providerId = normalizeText(input?.provider) || undefined;
+  const model = normalizeText(input?.model) || null;
+  const temperature = typeof input?.temperature === "number"
+    ? clamp(input.temperature, 0, 2)
+    : undefined;
+  const maxTokens = typeof input?.maxTokens === "number"
+    ? clamp(Math.floor(input.maxTokens), 1, 8192)
+    : undefined;
+
+  const payload = {
+    publicPosts: (input as any)?.publicPosts ?? (input as any)?.public_posts,
+    communityPosts: (input as any)?.communityPosts ?? (input as any)?.community_posts,
+    dmMessages: (input as any)?.dmMessages ?? (input as any)?.dm_messages,
+    profile: (input as any)?.profile,
+  };
+
+  const providers = ctx.providers as AiProviderRegistry | undefined;
+  if (providers) {
+    try {
+      const policy = {
+        sendPublicPosts: hasPayloadSlice(payload.publicPosts),
+        sendCommunityPosts: hasPayloadSlice(payload.communityPosts),
+        sendDm: hasPayloadSlice(payload.dmMessages),
+        sendProfile: hasPayloadSlice(payload.profile),
+      };
+
+      const prepared = providers.prepareCall({
+        payload,
+        providerId,
+        actionPolicy: policy,
+        actionId: "ai.chat",
+      });
+
+      const completion = await chatCompletion(prepared.provider, messages, {
+        model: model ?? undefined,
+        temperature,
+        maxTokens,
+      });
+
+      return {
+        provider: completion.provider || prepared.provider.id,
+        model: completion.model || model || prepared.provider.model || null,
+        message: completion.choices[0]?.message ?? null,
+        usage: completion.usage,
+        raw: completion.raw,
+        redacted: prepared.redacted.length ? prepared.redacted : undefined,
+        usedAi: true,
+      };
+    } catch (error: any) {
+      const message = error?.message || "";
+      if (/DataPolicyViolation/i.test(message)) {
+        throw error;
+      }
+      console.error("[ai-actions] ai.chat provider call failed:", error);
+    }
+  }
+
+  return {
+    provider: null,
+    model,
+    message: buildChatFallback(messages),
+    usedAi: false,
+  };
+};
 
 const summaryHandler: AiActionHandler<SummaryInput, SummaryOutput> = async (ctx, input) => {
   const text = normalizeText(input?.text);
@@ -508,6 +713,21 @@ Be conservative - only flag content that has clear safety issues. Return valid J
   };
 };
 
+const chatAction: AiAction<ChatActionInput, ChatActionOutput> = {
+  definition: {
+    id: "ai.chat",
+    label: "AI chat",
+    description: "General chat completion with optional context slices and provider selection.",
+    inputSchema: chatInputSchema,
+    outputSchema: chatOutputSchema,
+    providerCapabilities: ["chat"],
+    dataPolicy: {
+      notes: "Context slices (public/community/DM/profile) are optional and checked per-call.",
+    },
+  },
+  handler: chatActionHandler,
+};
+
 const summaryAction: AiAction<SummaryInput, SummaryOutput> = {
   definition: {
     id: "ai.summary",
@@ -570,6 +790,7 @@ const dmModeratorAction: AiAction<DmModeratorInput, DmModeratorOutput> = {
 };
 
 export const builtinAiActions: AiAction<unknown, unknown>[] = [
+  chatAction as AiAction<unknown, unknown>,
   summaryAction as AiAction<unknown, unknown>,
   tagSuggestAction as AiAction<unknown, unknown>,
   translationAction as AiAction<unknown, unknown>,

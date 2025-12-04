@@ -5,6 +5,8 @@
  * AI からの設定変更提案を「提案キュー」に蓄積し、オーナーが個別に承認するフロー
  */
 
+/// <reference types="@cloudflare/workers-types" />
+
 export type ProposalType =
   | "config_change"      // takos-config.json の変更
   | "code_patch"         // App Layer のコード変更
@@ -196,6 +198,154 @@ function generateProposalId(): string {
     return `prop_${(g.crypto as { randomUUID: () => string }).randomUUID()}`;
   }
   return `prop_${Math.random().toString(36).slice(2, 10)}_${Date.now().toString(36)}`;
+}
+
+/**
+ * D1 Proposal Queue Storage（本番用）
+ */
+export class D1ProposalQueueStorage implements ProposalQueueStorage {
+  constructor(private db: D1Database) {}
+
+  private parseRow(row: Record<string, unknown>): Proposal {
+    return {
+      id: row.id as string,
+      type: row.type as ProposalType,
+      status: row.status as ProposalStatus,
+      content: JSON.parse(row.content_json as string) as ProposalContent,
+      metadata: JSON.parse(row.metadata_json as string) as ProposalMetadata,
+      createdAt: row.created_at as string,
+      updatedAt: row.updated_at as string,
+      expiresAt: row.expires_at as string | undefined,
+      reviewedBy: row.reviewed_by as string | undefined,
+      reviewedAt: row.reviewed_at as string | undefined,
+      reviewComment: row.review_comment as string | undefined,
+    };
+  }
+
+  async save(proposal: Proposal): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO ai_proposals (id, type, status, content_json, metadata_json, created_at, updated_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        proposal.id,
+        proposal.type,
+        proposal.status,
+        JSON.stringify(proposal.content),
+        JSON.stringify(proposal.metadata),
+        proposal.createdAt,
+        proposal.updatedAt,
+        proposal.expiresAt ?? null
+      )
+      .run();
+  }
+
+  async get(id: string): Promise<Proposal | null> {
+    const result = await this.db
+      .prepare("SELECT * FROM ai_proposals WHERE id = ?")
+      .bind(id)
+      .first();
+    if (!result) return null;
+    return this.parseRow(result as Record<string, unknown>);
+  }
+
+  async list(params: ListProposalsParams): Promise<Proposal[]> {
+    const conditions: string[] = [];
+    const bindings: unknown[] = [];
+
+    if (params.status) {
+      const statuses = Array.isArray(params.status) ? params.status : [params.status];
+      conditions.push(`status IN (${statuses.map(() => "?").join(", ")})`);
+      bindings.push(...statuses);
+    }
+    if (params.type) {
+      const types = Array.isArray(params.type) ? params.type : [params.type];
+      conditions.push(`type IN (${types.map(() => "?").join(", ")})`);
+      bindings.push(...types);
+    }
+    if (params.agentType) {
+      conditions.push("json_extract(metadata_json, '$.agentType') = ?");
+      bindings.push(params.agentType);
+    }
+
+    const orderBy = params.orderBy === "updatedAt" ? "updated_at" : "created_at";
+    const orderDir = params.desc ? "DESC" : "ASC";
+    const limit = params.limit ?? 50;
+    const offset = params.offset ?? 0;
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const sql = `SELECT * FROM ai_proposals ${whereClause} ORDER BY ${orderBy} ${orderDir} LIMIT ? OFFSET ?`;
+    bindings.push(limit, offset);
+
+    const stmt = this.db.prepare(sql);
+    const result = await stmt.bind(...bindings).all();
+    return (result.results || []).map((row) => this.parseRow(row as Record<string, unknown>));
+  }
+
+  async update(id: string, updates: Partial<Proposal>): Promise<void> {
+    const sets: string[] = [];
+    const bindings: unknown[] = [];
+
+    if (updates.status !== undefined) {
+      sets.push("status = ?");
+      bindings.push(updates.status);
+    }
+    if (updates.reviewedBy !== undefined) {
+      sets.push("reviewed_by = ?");
+      bindings.push(updates.reviewedBy);
+    }
+    if (updates.reviewedAt !== undefined) {
+      sets.push("reviewed_at = ?");
+      bindings.push(updates.reviewedAt);
+    }
+    if (updates.reviewComment !== undefined) {
+      sets.push("review_comment = ?");
+      bindings.push(updates.reviewComment);
+    }
+
+    sets.push("updated_at = ?");
+    bindings.push(new Date().toISOString());
+    bindings.push(id);
+
+    const sql = `UPDATE ai_proposals SET ${sets.join(", ")} WHERE id = ?`;
+    await this.db.prepare(sql).bind(...bindings).run();
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.db.prepare("DELETE FROM ai_proposals WHERE id = ?").bind(id).run();
+  }
+
+  async getStats(): Promise<ProposalQueueStats> {
+    const result = await this.db
+      .prepare(
+        `SELECT
+           SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+           SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
+           SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected,
+           SUM(CASE WHEN status = 'expired' THEN 1 ELSE 0 END) as expired
+         FROM ai_proposals`
+      )
+      .first();
+    return {
+      pending: (result?.pending as number) || 0,
+      approved: (result?.approved as number) || 0,
+      rejected: (result?.rejected as number) || 0,
+      expired: (result?.expired as number) || 0,
+    };
+  }
+
+  async expireOld(before: string): Promise<number> {
+    const result = await this.db
+      .prepare(
+        `UPDATE ai_proposals
+         SET status = 'expired', updated_at = ?
+         WHERE status = 'pending' AND expires_at IS NOT NULL AND expires_at < ?`
+      )
+      .bind(new Date().toISOString(), before)
+      .run();
+    return result.meta?.changes || 0;
+  }
 }
 
 /**

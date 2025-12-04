@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings, Variables } from "@takos/platform/server";
 import {
   APP_MANIFEST_SCHEMA_VERSION,
+  applyPatch,
   checkSemverCompatibility,
   fail,
   nowISO,
@@ -1375,12 +1376,20 @@ appManagerRoutes.post("/-/app/workspaces/:id/apply-patch", auth, requireAuthenti
         continue;
       }
 
-      results.push({
-        path: filePath,
-        success: false,
-        error: "diff application is not yet implemented; use full content replacement",
-      });
-      continue;
+      // Apply the diff using the platform utility
+      const existingContent = textDecoder.decode(existingFile.content);
+      const patchResult = applyPatch(existingContent, patchEntry.diff);
+
+      if (!patchResult.success && patchResult.error) {
+        results.push({
+          path: filePath,
+          success: false,
+          error: patchResult.error,
+        });
+        continue;
+      }
+
+      contentToSave = patchResult.content;
     }
 
     try {

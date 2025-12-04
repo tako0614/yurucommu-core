@@ -114,6 +114,61 @@ export interface PostPage {
   next_cursor?: string | null;
 }
 
+export interface PostHistoryEntry {
+  id?: string;
+  post_id?: string;
+  content?: string;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+export interface SearchPostsParams {
+  query?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface PollVoteInput {
+  post_id: string;
+  option_ids: string[];
+}
+
+export interface RepostInput {
+  post_id: string;
+  comment?: string | null;
+}
+
+export interface RepostListParams {
+  post_id: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface RepostListResult {
+  items: Array<{
+    id: string;
+    user: User | { id: string };
+    comment?: string | null;
+    created_at?: string;
+  }>;
+  count: number;
+  next_offset: number | null;
+}
+
+export interface Reaction {
+  id: string;
+  post_id: string;
+  user_id: string;
+  emoji: string;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+export interface BookmarkPage {
+  items: Post[];
+  next_offset: number | null;
+}
+
 /**
  * PostService Interface
  *
@@ -167,6 +222,76 @@ export interface PostService {
    * @returns 投稿
    */
   getPost(ctx: AppAuthContext, id: string): Promise<Post | null>;
+
+  /**
+   * 投稿を検索
+   */
+  searchPosts(ctx: AppAuthContext, params: SearchPostsParams): Promise<PostPage>;
+
+  /**
+   * 投稿の編集履歴を取得
+   */
+  listPostHistory(ctx: AppAuthContext, postId: string): Promise<PostHistoryEntry[]>;
+
+  /**
+   * 投稿に紐づく投票情報を取得
+   */
+  getPoll(ctx: AppAuthContext, postId: string): Promise<Poll | null>;
+
+  /**
+   * 投票する
+   */
+  voteOnPoll(ctx: AppAuthContext, input: PollVoteInput): Promise<Poll | null>;
+
+  /**
+   * リポストする
+   */
+  repost(ctx: AppAuthContext, input: RepostInput): Promise<{ reposted: boolean; id?: string }>;
+
+  /**
+   * リポストを取り消す
+   */
+  undoRepost(ctx: AppAuthContext, postId: string): Promise<void>;
+
+  /**
+   * リポスト一覧
+   */
+  listReposts(ctx: AppAuthContext, params: RepostListParams): Promise<RepostListResult>;
+
+  /**
+   * リアクション一覧
+   */
+  listReactions(ctx: AppAuthContext, postId: string): Promise<Reaction[]>;
+
+  /**
+   * リアクション削除
+   */
+  removeReaction(ctx: AppAuthContext, reactionId: string): Promise<void>;
+
+  /**
+   * コメント一覧
+   */
+  listComments(ctx: AppAuthContext, postId: string): Promise<Post[]>;
+
+  /**
+   * ブックマーク追加
+   */
+  addBookmark(ctx: AppAuthContext, postId: string): Promise<void>;
+
+  /**
+   * ブックマーク削除
+   */
+  removeBookmark(ctx: AppAuthContext, postId: string): Promise<void>;
+
+  /**
+   * ブックマーク一覧
+   */
+  listBookmarks(ctx: AppAuthContext, params?: { limit?: number; offset?: number }): Promise<BookmarkPage>;
+
+  /**
+   * ピン留め投稿一覧
+   */
+  listPinnedPosts(ctx: AppAuthContext, params?: { user_id?: string; limit?: number }): Promise<Post[]>;
 }
 
 /**

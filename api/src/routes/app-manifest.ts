@@ -22,7 +22,7 @@ const app = new Hono<{ Bindings: Bindings }>();
  *
  * GET /-/app/manifest
  *
- * takos-app.json と app/**/*.json をマージして返す
+ * takos-app.json と app/ 以下の *.json をマージして返す
  */
 app.get("/", optionalAuth, async (c) => {
   try {

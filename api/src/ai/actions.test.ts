@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   TAKOS_CONFIG_SCHEMA_VERSION,
   createAiActionRegistry,
@@ -6,6 +6,8 @@ import {
   type TakosConfig,
 } from "@takos/platform/server";
 import { builtinAiActions, registerBuiltinAiActions } from "./actions";
+
+const originalFetch = global.fetch;
 
 const buildConfig = (
   enabledActions: string[],
@@ -25,6 +27,11 @@ const buildConfig = (
     },
     ...aiOverrides,
   },
+});
+
+afterEach(() => {
+  (global as any).fetch = originalFetch;
+  vi.restoreAllMocks();
 });
 
 describe("builtin AI actions", () => {
@@ -78,5 +85,59 @@ describe("builtin AI actions", () => {
         { messages: [{ text: "Potentially harmful message" }] },
       ),
     ).rejects.toThrow(/DataPolicyViolation/i);
+  });
+
+  it("dispatches ai.chat using the configured provider", async () => {
+    const registry = createAiActionRegistry();
+    registerBuiltinAiActions(registry);
+    const config = buildConfig(["ai.chat"]);
+
+    const provider = {
+      id: "openai-main",
+      type: "openai",
+      baseUrl: "https://example.com/v1",
+      model: "gpt-test",
+      apiKey: "sk-test",
+      headers: {},
+      requiresExternalNetwork: false,
+    };
+
+    const providers = {
+      prepareCall: vi.fn().mockReturnValue({
+        provider,
+        payload: {},
+        policy: {},
+        redacted: [],
+      }),
+    } as any;
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "chatcmpl-1",
+          object: "chat.completion",
+          created: 0,
+          model: "gpt-test",
+          choices: [{ index: 0, message: { role: "assistant", content: "pong" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    (global as any).fetch = fetchMock as any;
+
+    const result = await dispatchAiAction(
+      registry,
+      "ai.chat",
+      { nodeConfig: config, providers },
+      { messages: [{ role: "user", content: "ping" }] },
+    );
+
+    expect((result as any).provider).toBe("openai-main");
+    expect((result as any).model).toBe("gpt-test");
+    expect((result as any).message?.content).toBe("pong");
+    expect((result as any).usedAi).toBe(true);
+    expect(fetchMock).toHaveBeenCalled();
+    expect(providers.prepareCall).toHaveBeenCalled();
   });
 });

@@ -26,6 +26,7 @@ export * from "../utils/utils";
 export * from "../utils/semver.js";
 export * from "../utils/rate-limit";
 export * from "../utils/response-helpers";
+export * from "../utils/diff";
 export * from "../ai/agent-policy";
 export * from "../ai/action-registry.js";
 export * from "../ai/provider-registry";

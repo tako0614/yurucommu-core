@@ -117,6 +117,14 @@ export interface StoryService {
    * @param id ストーリーID
    */
   deleteStory(ctx: AppAuthContext, id: string): Promise<void>;
+
+  /**
+   * ストーリーを更新
+   */
+  updateStory(
+    ctx: AppAuthContext,
+    input: { id: string; items?: StoryItem[]; audience?: "all" | "community"; visible_to_friends?: boolean },
+  ): Promise<Story>;
 }
 
 /**

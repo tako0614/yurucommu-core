@@ -1,6 +1,6 @@
 import { Navigate, Route, Router, useLocation, useNavigate } from "@solidjs/router";
 import type { RouteSectionProps } from "@solidjs/router";
-import { Show, createEffect, createSignal, onMount } from "solid-js";
+import { Show, createEffect, createMemo, createResource, createSignal, onMount, type JSX, type Resource } from "solid-js";
 import "./App.css";
 import SideNav from "./components/Navigation/SideNav";
 import AppTab from "./components/Navigation/AppTab";
@@ -28,6 +28,8 @@ import { ToastProvider } from "./components/Toast";
 import { ShellContextProvider } from "./lib/shell-context";
 import DynamicScreen from "./pages/DynamicScreen";
 import { registerCustomComponents } from "./lib/ui-components";
+import { RenderScreen } from "./lib/ui-runtime";
+import { extractRouteParams, getScreenByRoute, loadAppManifest, type AppManifest, type AppManifestScreen } from "./lib/app-manifest";
 
 // Register custom UiNode components on module load
 registerCustomComponents();
@@ -53,6 +55,8 @@ const Profile = resolveComponent("Profile", DefaultProfile);
 const AuthCallback = resolveComponent("AuthCallback", DefaultAuthCallback);
 
 export default function App() {
+  const [manifest] = createResource<AppManifest | undefined>(loadAppManifest);
+
   return (
     <ToastProvider>
       <Router>
@@ -62,7 +66,7 @@ export default function App() {
             path="/"
             component={() => (
               <RequireAuth allowIncompleteProfile>
-                <Home />
+                <ManifestScreenBoundary manifest={manifest} fallback={<Home />} />
               </RequireAuth>
             )}
           />
@@ -85,7 +89,14 @@ export default function App() {
           />
           {/* Legacy routes redirect to connections */}
           <Route path="/friends" component={() => <Navigate href="/connections" />} />
-          <Route path="/communities" component={() => <Navigate href="/connections" />} />
+          <Route
+            path="/communities"
+            component={() => (
+              <RequireAuth>
+                <ManifestScreenBoundary manifest={manifest} fallback={<Navigate href="/connections" />} />
+              </RequireAuth>
+            )}
+          />
           <Route
             path="/users"
             component={() => (
@@ -129,12 +140,19 @@ export default function App() {
             path="/chat/*"
             component={() => (
               <RequireAuth>
-                <Chat />
+                <ManifestScreenBoundary manifest={manifest} fallback={<Chat />} />
               </RequireAuth>
             )}
           />
           {/* Legacy DM paths -> unified chat */}
-          <Route path="/dm" component={() => <Navigate href="/chat" />} />
+          <Route
+            path="/dm"
+            component={() => (
+              <RequireAuth>
+                <ManifestScreenBoundary manifest={manifest} fallback={<Navigate href="/chat" />} />
+              </RequireAuth>
+            )}
+          />
           <Route
             path="/dm/:id"
             component={() => (
@@ -155,7 +173,7 @@ export default function App() {
             path="/stories"
             component={() => (
               <RequireAuth>
-                <Stories />
+                <ManifestScreenBoundary manifest={manifest} fallback={<Stories />} />
               </RequireAuth>
             )}
           />
@@ -163,7 +181,7 @@ export default function App() {
             path="/settings"
             component={() => (
               <RequireAuth>
-                <Settings />
+                <ManifestScreenBoundary manifest={manifest} fallback={<Settings />} />
               </RequireAuth>
             )}
           />
@@ -179,7 +197,7 @@ export default function App() {
             path="/profile"
             component={() => (
               <RequireAuth>
-                <Profile />
+                <ManifestScreenBoundary manifest={manifest} fallback={<Profile />} />
               </RequireAuth>
             )}
           />
@@ -276,6 +294,50 @@ function MainLayout(props: { children?: any }) {
         {props.children}
       </main>
     </div>
+  );
+}
+
+function ManifestScreenBoundary(props: { manifest: Resource<AppManifest | undefined>; fallback: JSX.Element }) {
+  const location = useLocation();
+
+  const matchedScreen = createMemo<AppManifestScreen | undefined>(() => {
+    if (!USE_DYNAMIC_SCREENS) return undefined;
+    const m = props.manifest();
+    if (!m) return undefined;
+    return getScreenByRoute(m, location.pathname);
+  });
+
+  const routeParams = createMemo(() => {
+    const screen = matchedScreen();
+    if (!screen) return {};
+    return extractRouteParams(screen.route, location.pathname);
+  });
+
+  if (!USE_DYNAMIC_SCREENS) {
+    return props.fallback;
+  }
+
+  if (props.manifest.loading && !matchedScreen()) {
+    return <div class="p-6 text-center">App UI を読み込み中...</div>;
+  }
+
+  if (props.manifest.error && !matchedScreen()) {
+    console.warn("[ManifestScreenBoundary] Manifest load failed:", props.manifest.error);
+    return props.fallback;
+  }
+
+  return (
+    <Show when={matchedScreen()} fallback={props.fallback}>
+      {(screen) => (
+        <RenderScreen
+          screen={screen()}
+          context={{
+            routeParams: routeParams(),
+            location: location.pathname,
+          }}
+        />
+      )}
+    </Show>
   );
 }
 

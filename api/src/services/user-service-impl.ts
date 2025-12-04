@@ -21,6 +21,7 @@ import {
   publishFollow,
   publishUndo,
   publishBlock,
+  getActivityUri,
 } from "@takos/platform/server";
 
 /**
@@ -73,6 +74,30 @@ async function resolveUser(
   };
 }
 
+function parseActorToUserId(actorUri: string, instanceDomain: string): string {
+  try {
+    const urlObj = new URL(actorUri);
+    const host = urlObj.host.toLowerCase();
+    const isLocal =
+      host === instanceDomain.toLowerCase() || urlObj.hostname.toLowerCase() === instanceDomain.toLowerCase();
+    if (isLocal) {
+      const match = urlObj.pathname.match(/\/ap\/users\/([a-z0-9_]{3,20})\/?$/);
+      if (match) return match[1];
+    }
+    const segments = urlObj.pathname.split("/").filter(Boolean);
+    const handle = segments[segments.length - 1] || actorUri.split("/").pop() || "unknown";
+    return `@${handle}@${urlObj.host || urlObj.hostname}`;
+  } catch {
+    return actorUri;
+  }
+}
+
+function sanitizeUser(user: any): any {
+  if (!user) return null;
+  const { jwt_secret, tenant_id, ...rest } = user;
+  return rest;
+}
+
 export function createUserService(env: any): UserService {
   return {
     async getUser(ctx: AppAuthContext, userId: string): Promise<User | null> {
@@ -114,6 +139,28 @@ export function createUserService(env: any): UserService {
         }
 
         return user as User;
+      } finally {
+        await releaseStore(store);
+      }
+    },
+
+    async updateProfile(ctx: AppAuthContext, input: any): Promise<User> {
+      if (!ctx.userId) {
+        throw new Error("Authentication required");
+      }
+      const store = makeData(env, null as any);
+      try {
+        const payload: Record<string, unknown> = {};
+        if (typeof input.display_name === "string") payload.display_name = input.display_name;
+        if (typeof input.avatar === "string") payload.avatar_url = input.avatar;
+        if (typeof input.is_private === "boolean") payload.is_private = input.is_private;
+        if (typeof input.bio === "string") payload.bio = input.bio;
+        await store.updateUser(ctx.userId, payload);
+        const updated = await resolveUser(store, ctx.userId, env);
+        if (!updated) {
+          throw new Error("User not found");
+        }
+        return updated as User;
       } finally {
         await releaseStore(store);
       }
@@ -349,6 +396,270 @@ export function createUserService(env: any): UserService {
           next_offset: users.length === limit ? offset + limit : null,
           next_cursor: null,
         };
+      } finally {
+        await releaseStore(store);
+      }
+    },
+
+    async listFollowRequests(
+      ctx: AppAuthContext,
+      params?: { direction?: "incoming" | "outgoing" | "all" },
+    ): Promise<any> {
+      if (!ctx.userId) {
+        throw new Error("Authentication required");
+      }
+      const store = makeData(env, null as any);
+      try {
+        const direction = params?.direction ?? "all";
+        const instanceDomain = requireInstanceDomain(env as any);
+        const incoming: any[] = [];
+        const outgoing: any[] = [];
+
+        if (direction === "incoming" || direction === "all") {
+          const followers = await store.listApFollowers?.(ctx.userId, "pending", 100).catch(() => []) ?? [];
+          for (const f of followers as any[]) {
+            const requesterId = parseActorToUserId((f as any).remote_actor_id, instanceDomain);
+            const requester = await resolveUser(store, requesterId, env).catch(() => null);
+            incoming.push({
+              requester_id: requesterId,
+              addressee_id: ctx.userId,
+              status: "pending",
+              created_at: new Date().toISOString(),
+              requester: requester || { id: requesterId },
+              addressee: { id: ctx.userId },
+            });
+          }
+        }
+
+        if (direction === "outgoing" || direction === "all") {
+          const following = await store.listApFollows?.(ctx.userId, "pending", 100).catch(() => []) ?? [];
+          for (const f of following as any[]) {
+            const addresseeId = parseActorToUserId((f as any).remote_actor_id, instanceDomain);
+            const addressee = await resolveUser(store, addresseeId, env).catch(() => null);
+            outgoing.push({
+              requester_id: ctx.userId,
+              addressee_id: addresseeId,
+              status: "pending",
+              created_at: new Date().toISOString(),
+              requester: { id: ctx.userId },
+              addressee: addressee || { id: addresseeId },
+            });
+          }
+        }
+
+        return { incoming, outgoing };
+      } finally {
+        await releaseStore(store);
+      }
+    },
+
+    async acceptFollowRequest(ctx: AppAuthContext, requesterId: string): Promise<void> {
+      if (!ctx.userId) {
+        throw new Error("Authentication required");
+      }
+      const store = makeData(env, null as any);
+      try {
+        const instanceDomain = requireInstanceDomain(env as any);
+        const myActorUri = getActorUri(ctx.userId, instanceDomain);
+        const requester = await resolveUser(store, requesterId, env);
+        if (!requester) {
+          throw new Error("User not found");
+        }
+        const requesterUri = requester.id.startsWith("http")
+          ? requester.id
+          : getActorUri(requester.id, instanceDomain);
+        const followRecord = await store.findApFollower?.(ctx.userId, requesterUri);
+        if (!followRecord || followRecord.status !== "pending") {
+          throw new Error("no pending request");
+        }
+        await store.updateApFollowersStatus?.(ctx.userId, requesterUri, "accepted", new Date());
+        await store.upsertApFollow?.({
+          local_user_id: ctx.userId,
+          remote_actor_id: requesterUri,
+          activity_id: followRecord.activity_id || `${requesterUri}/follows/${ctx.userId}`,
+          status: "accepted",
+          created_at: new Date(),
+          accepted_at: new Date(),
+        });
+        await store.upsertApOutboxActivity?.({
+          id: crypto.randomUUID(),
+          local_user_id: ctx.userId,
+          activity_id: getActivityUri(
+            ctx.userId,
+            `accept-follow-${requesterId.replace(/@/g, "_")}-${Date.now()}`,
+            instanceDomain,
+          ),
+          activity_type: "Accept",
+          activity_json: JSON.stringify({
+            type: "Accept",
+            actor: myActorUri,
+            object: {
+              type: "Follow",
+              actor: requesterUri,
+              object: myActorUri,
+            },
+          }),
+          object_id: requesterUri,
+          object_type: "Follow",
+          created_at: new Date(),
+        });
+      } finally {
+        await releaseStore(store);
+      }
+    },
+
+    async rejectFollowRequest(ctx: AppAuthContext, requesterId: string): Promise<void> {
+      if (!ctx.userId) {
+        throw new Error("Authentication required");
+      }
+      const store = makeData(env, null as any);
+      try {
+        const instanceDomain = requireInstanceDomain(env as any);
+        const requester = await resolveUser(store, requesterId, env);
+        if (!requester) {
+          throw new Error("User not found");
+        }
+        const requesterUri = requester.id.startsWith("http")
+          ? requester.id
+          : getActorUri(requester.id, instanceDomain);
+        const followRecord = await store.findApFollower?.(ctx.userId, requesterUri);
+        if (!followRecord || followRecord.status !== "pending") {
+          throw new Error("no pending request");
+        }
+        await store.updateApFollowersStatus?.(ctx.userId, requesterUri, "rejected", new Date());
+        await store.upsertApOutboxActivity?.({
+          id: crypto.randomUUID(),
+          local_user_id: ctx.userId,
+          activity_id: getActivityUri(
+            ctx.userId,
+            `reject-follow-${requesterId.replace(/@/g, "_")}-${Date.now()}`,
+            instanceDomain,
+          ),
+          activity_type: "Reject",
+          activity_json: JSON.stringify({
+            type: "Reject",
+            actor: getActorUri(ctx.userId, instanceDomain),
+            object: {
+              type: "Follow",
+              actor: requesterUri,
+              object: getActorUri(ctx.userId, instanceDomain),
+            },
+          }),
+          object_id: requesterUri,
+          object_type: "Follow",
+          created_at: new Date(),
+        });
+      } finally {
+        await releaseStore(store);
+      }
+    },
+
+    async unblock(ctx: AppAuthContext, targetUserId: string): Promise<void> {
+      if (!ctx.userId) {
+        throw new Error("Authentication required");
+      }
+      const store = makeData(env, null as any);
+      try {
+        await store.unblockUser?.(ctx.userId, targetUserId);
+      } finally {
+        await releaseStore(store);
+      }
+    },
+
+    async unmute(ctx: AppAuthContext, targetUserId: string): Promise<void> {
+      if (!ctx.userId) {
+        throw new Error("Authentication required");
+      }
+      const store = makeData(env, null as any);
+      try {
+        await store.unmuteUser?.(ctx.userId, targetUserId);
+      } finally {
+        await releaseStore(store);
+      }
+    },
+
+    async listBlocks(
+      ctx: AppAuthContext,
+      params?: { limit?: number; offset?: number },
+    ): Promise<UserPage> {
+      if (!ctx.userId) {
+        throw new Error("Authentication required");
+      }
+      const store = makeData(env, null as any);
+      try {
+        const limit = Math.min(params?.limit || 50, 200);
+        const offset = params?.offset || 0;
+        const list = await store.listBlockedUsers?.(ctx.userId).catch(() => []) ?? [];
+        const paged = (list as any[]).slice(offset, offset + limit);
+        const users = await Promise.all(
+          paged.map(async (entry: any) => {
+            if (entry.user) return sanitizeUser(entry.user);
+            return await resolveUser(store, entry.blocked_id, env).catch(() => ({ id: entry.blocked_id }));
+          }),
+        );
+        const next = list.length > offset + paged.length ? offset + paged.length : null;
+        return { users: users as User[], next_offset: next, next_cursor: null };
+      } finally {
+        await releaseStore(store);
+      }
+    },
+
+    async listMutes(
+      ctx: AppAuthContext,
+      params?: { limit?: number; offset?: number },
+    ): Promise<UserPage> {
+      if (!ctx.userId) {
+        throw new Error("Authentication required");
+      }
+      const store = makeData(env, null as any);
+      try {
+        const limit = Math.min(params?.limit || 50, 200);
+        const offset = params?.offset || 0;
+        const list = await store.listMutedUsers?.(ctx.userId).catch(() => []) ?? [];
+        const paged = (list as any[]).slice(offset, offset + limit);
+        const users = await Promise.all(
+          paged.map(async (entry: any) => {
+            if (entry.user) return sanitizeUser(entry.user);
+            return await resolveUser(store, entry.muted_id, env).catch(() => ({ id: entry.muted_id }));
+          }),
+        );
+        const next = list.length > offset + paged.length ? offset + paged.length : null;
+        return { users: users as User[], next_offset: next, next_cursor: null };
+      } finally {
+        await releaseStore(store);
+      }
+    },
+
+    async listNotifications(
+      ctx: AppAuthContext,
+      params?: { since?: string },
+    ): Promise<any[]> {
+      if (!ctx.userId) {
+        throw new Error("Authentication required");
+      }
+      const store = makeData(env, null as any);
+      try {
+        if (params?.since && store.listNotificationsSince) {
+          return await store.listNotificationsSince(ctx.userId, new Date(params.since));
+        }
+        return await store.listNotifications(ctx.userId);
+      } finally {
+        await releaseStore(store);
+      }
+    },
+
+    async markNotificationRead(
+      ctx: AppAuthContext,
+      notificationId: string,
+    ): Promise<{ id: string; unread_count?: number }> {
+      if (!ctx.userId) {
+        throw new Error("Authentication required");
+      }
+      const store = makeData(env, null as any);
+      try {
+        await store.markNotificationRead(notificationId);
+        const count = await store.countUnreadNotifications?.(ctx.userId).catch(() => 0);
+        return { id: notificationId, unread_count: count ?? undefined };
       } finally {
         await releaseStore(store);
       }

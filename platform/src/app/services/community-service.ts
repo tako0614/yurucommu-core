@@ -52,6 +52,64 @@ export interface CommunityPage {
   next_cursor?: string | null;
 }
 
+export interface Channel {
+  id: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  created_at?: string;
+}
+
+export interface CreateChannelInput {
+  community_id: string;
+  name: string;
+  description?: string;
+}
+
+export interface UpdateChannelInput {
+  community_id: string;
+  channel_id: string;
+  name?: string;
+  description?: string;
+}
+
+export interface ChannelMessage {
+  id: string;
+  community_id: string;
+  channel_id: string;
+  content: string;
+  author_id: string;
+  created_at: string;
+  in_reply_to?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ChannelMessageParams {
+  community_id: string;
+  channel_id: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface SendChannelMessageInput {
+  community_id: string;
+  channel_id: string;
+  content: string;
+  media_ids?: string[];
+  recipients?: string[];
+  in_reply_to?: string | null;
+}
+
+export interface CommunityMember {
+  user_id: string;
+  role?: string | null;
+  nickname?: string | null;
+  joined_at?: string;
+  status?: string | null;
+  user?: { id: string; display_name?: string; avatar_url?: string; handle?: string };
+  [key: string]: unknown;
+}
+
 /**
  * CommunityService Interface
  */
@@ -101,6 +159,60 @@ export interface CommunityService {
    * @returns コミュニティ（存在しない場合はnull）
    */
   getCommunity(ctx: AppAuthContext, communityId: string): Promise<Community | null>;
+
+  /**
+   * チャンネル一覧
+   */
+  listChannels(ctx: AppAuthContext, communityId: string): Promise<Channel[]>;
+
+  /**
+   * チャンネル作成
+   */
+  createChannel(ctx: AppAuthContext, input: CreateChannelInput): Promise<Channel>;
+
+  /**
+   * チャンネル更新
+   */
+  updateChannel(ctx: AppAuthContext, input: UpdateChannelInput): Promise<Channel>;
+
+  /**
+   * チャンネル削除
+   */
+  deleteChannel(ctx: AppAuthContext, communityId: string, channelId: string): Promise<void>;
+
+  /**
+   * メンバー一覧取得
+   */
+  listMembers(ctx: AppAuthContext, communityId: string): Promise<CommunityMember[]>;
+
+  /**
+   * ダイレクト招待を送信
+   */
+  sendDirectInvite(
+    ctx: AppAuthContext,
+    input: { community_id: string; user_ids: string[] },
+  ): Promise<any[]>;
+
+  /**
+   * リアクション集計
+   */
+  getReactionSummary(
+    ctx: AppAuthContext,
+    communityId: string,
+  ): Promise<Record<string, Record<string, number>>>;
+
+  /**
+   * チャンネルメッセージ一覧
+   */
+  listChannelMessages(
+    ctx: AppAuthContext,
+    params: ChannelMessageParams,
+  ): Promise<ChannelMessage[]>;
+
+  /**
+   * チャンネルメッセージ送信
+   */
+  sendChannelMessage(ctx: AppAuthContext, input: SendChannelMessageInput): Promise<{ activity?: unknown }>;
 }
 
 export type CommunityServiceFactory = (env: unknown) => CommunityService;
