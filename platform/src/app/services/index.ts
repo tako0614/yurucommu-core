@@ -6,17 +6,49 @@
  */
 
 // 型の重複を避けるため、必要な型のみを個別エクスポート
-export type { PostService, CreatePostInput, UpdatePostInput, Post, PostPage, TimelineParams } from "./post-service";
-export type { UserService } from "./user-service";
-export type { CommunityService } from "./community-service";
+export type {
+  PostService,
+  CreatePostInput,
+  UpdatePostInput,
+  Post,
+  PostPage,
+  TimelineParams,
+  SearchPostsParams,
+  PostHistoryEntry,
+  PollVoteInput,
+  RepostInput,
+  RepostListParams,
+  RepostListResult,
+  Reaction,
+  BookmarkPage,
+} from "./post-service";
+export type {
+  UserService,
+  UpdateProfileInput,
+  FollowRequest,
+  FollowRequestList,
+  NotificationEntry,
+} from "./user-service";
+export type {
+  CommunityService,
+  Channel,
+  CommunityMember,
+  CreateChannelInput,
+  UpdateChannelInput,
+  ChannelMessage,
+  ChannelMessageParams,
+  SendChannelMessageInput,
+} from "./community-service";
 export type { DMService, DmThread, DmMessage, DmThreadPage, DmMessagePage, OpenThreadInput, SendMessageInput, ListThreadsParams, ListMessagesParams } from "./dm-service";
 export type { StoryService, Story, StoryPage, StoryItem, CreateStoryInput, ListStoriesParams } from "./story-service";
+export type { MediaService, MediaObject, ListMediaParams, MediaListResult } from "./media-service";
 
 import type { PostService } from "./post-service";
 import type { UserService } from "./user-service";
 import type { CommunityService } from "./community-service";
 import type { DMService } from "./dm-service";
 import type { StoryService } from "./story-service";
+import type { MediaService } from "./media-service";
 
 /**
  * Core Kernel サービスのレジストリ
@@ -29,4 +61,5 @@ export interface CoreServices {
   communities: CommunityService;
   dm: DMService;
   stories: StoryService;
+  media?: MediaService;
 }

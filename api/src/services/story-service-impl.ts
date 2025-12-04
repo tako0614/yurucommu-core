@@ -29,6 +29,7 @@ import {
   DEFAULT_VIDEO_DURATION_MS,
   normalizeStoryItems,
 } from "@takos/platform";
+import type { AppAuthContext as RuntimeAuthContext } from "@takos/platform/app/services";
 
 const defaultDurationForItem = (item: StoryItem) => {
   switch (item.type) {
@@ -224,6 +225,49 @@ export function createStoryService(env: any): StoryService {
         }
 
         await store.deleteStory?.(id);
+      } finally {
+        await releaseStore(store);
+      }
+    },
+
+    async updateStory(
+      ctx: RuntimeAuthContext,
+      input: { id: string; items?: StoryItem[]; audience?: "all" | "community"; visible_to_friends?: boolean },
+    ): Promise<Story> {
+      if (!ctx.userId) {
+        throw new Error("Authentication required");
+      }
+
+      const store = makeData(env, null as any);
+      try {
+        const story = await store.getStory?.(input.id);
+        if (!story) {
+          throw new Error("Story not found");
+        }
+        if (story.author_id !== ctx.userId) {
+          throw new Error("Forbidden: not the author");
+        }
+
+        const items = input.items ? sanitizeStoryItems(input.items) : story.items;
+        const audienceInput = String(input.audience || (story.broadcast_all ? "all" : "community"));
+        const audience =
+          audienceInput === "community" && story.community_id ? "community" : "all";
+        const broadcast_all = audience === "all";
+        const visible_to_friends =
+          broadcast_all && input.visible_to_friends !== undefined
+            ? !!input.visible_to_friends
+            : story.visible_to_friends;
+
+        const updated = await store.updateStory?.(input.id, {
+          items,
+          broadcast_all,
+          visible_to_friends,
+        });
+
+        if (!updated) {
+          throw new Error("Update failed");
+        }
+        return updated as Story;
       } finally {
         await releaseStore(store);
       }

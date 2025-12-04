@@ -3,14 +3,26 @@ import {
   AppHandlerRegistry,
   loadAppMainFromModule,
   mountManifestRoutes,
+  type ManifestRouteHandler,
   type AppManifest,
   type AppRouteAdapterIssue,
   type AppScriptModule,
 } from "@takos/platform/app";
+import { createTakosContext } from "@takos/platform/app/runtime/context";
+import type { AppAuthContext, AppResponse } from "@takos/platform/app/runtime/types";
+import type { CoreServices } from "@takos/platform/app/services";
 import type { PublicAccountBindings as Bindings } from "@takos/platform/server";
 import { releaseStore } from "@takos/platform/server";
 import { makeData } from "../data";
 import * as bundledAppMain from "../../../app-main";
+import {
+  createPostService,
+  createUserService,
+  createCommunityService,
+  createDMService,
+  createStoryService,
+  createMediaService,
+} from "../services";
 
 export type ManifestRouterInstance = {
   app: Hono;
@@ -36,6 +48,57 @@ type RouteMatcher = {
 type RegistryResult = {
   registry: AppHandlerRegistry;
   source: string;
+};
+
+const buildServices = (env: Bindings): CoreServices => ({
+  posts: createPostService(env as any),
+  users: createUserService(env as any),
+  communities: createCommunityService(env as any),
+  dm: createDMService(env as any),
+  stories: createStoryService(env as any),
+  media: createMediaService(env as any),
+});
+
+const toAppAuthContext = (c: any): AppAuthContext => {
+  const user = c.get("user") as any;
+  const activeUserId = c.get("activeUserId") as string | null;
+  if (user?.id || activeUserId) {
+    return { userId: activeUserId || user?.id || null };
+  }
+  return { userId: null };
+};
+
+const normalizeInput = async (c: any): Promise<Record<string, unknown>> => {
+  const url = new URL(c.req.url);
+  const query: Record<string, unknown> = {};
+  url.searchParams.forEach((value, key) => {
+    if (!(key in query)) query[key] = value;
+  });
+  const params = typeof c.req.param === "function" ? c.req.param() : {};
+  let body: any = {};
+  if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+    body = (await c.req.json().catch(() => ({}))) as any;
+  }
+  return { ...query, ...(params || {}), ...(typeof body === "object" && body !== null ? body : {}) };
+};
+
+const toResponse = (res: AppResponse): Response => {
+  if (res.type === "json") {
+    return new Response(JSON.stringify(res.body ?? null), {
+      status: res.status,
+      headers: { "Content-Type": "application/json", ...(res.headers || {}) },
+    });
+  }
+  if (res.type === "redirect") {
+    return new Response(null, {
+      status: res.status,
+      headers: { Location: res.location, ...(res.headers || {}) },
+    });
+  }
+  return new Response(res.message, {
+    status: res.status,
+    headers: res.headers,
+  });
 };
 
 const boolFromEnv = (value: unknown): boolean => {
@@ -278,7 +341,26 @@ export const createManifestRouter = (options: {
   revisionId: string;
   source: string;
 }): ManifestRouterInstance => {
-  const resolveHandler = (name: string) => options.registry.get(name) ?? undefined;
+  const resolveHandler = (name: string) => {
+    const appHandler = options.registry.get(name);
+    if (!appHandler) return undefined;
+    const honoHandler: ManifestRouteHandler = async (c: any) => {
+      const services = buildServices(c.env as Bindings);
+      const auth = toAppAuthContext(c);
+      const input = await normalizeInput(c);
+      const ctx = createTakosContext({
+        mode: "prod",
+        handlerName: name,
+        auth,
+        services: services as unknown as Record<string, unknown>,
+        logSink: (entry) => console.log("[app]", entry),
+      });
+      const result = await appHandler(ctx, input);
+      const response = (result as any)?.type ? (result as AppResponse) : ctx.json(result);
+      return toResponse(response);
+    };
+    return honoHandler;
+  };
   const mountResult = mountManifestRoutes({
     manifest: options.manifest,
     handlers: resolveHandler,

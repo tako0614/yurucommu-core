@@ -9,6 +9,7 @@ export { createDMService } from "./dm-service-impl";
 export { createStoryService } from "./story-service-impl";
 export { createCommunityService } from "./community-service-impl";
 export { createUserService } from "./user-service-impl";
+export { createMediaService } from "./media-service-impl";
 
 export type {
   PostService,
@@ -16,4 +17,5 @@ export type {
   StoryService,
   CommunityService,
   UserService,
+  MediaService,
 } from "@takos/platform/app/services";

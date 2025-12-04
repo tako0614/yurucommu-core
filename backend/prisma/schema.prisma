@@ -835,3 +835,24 @@ model ai_config {
 
   @@map("ai_config")
 }
+
+// AI proposal queue (PLAN.md 6.4.3)
+model ai_proposals {
+  id              String   @id
+  type            String // config_change, code_patch, action_enable, action_disable
+  status          String   @default("pending") // pending, approved, rejected, expired
+  content_json    String // ProposalContent serialized
+  metadata_json   String // ProposalMetadata serialized
+  created_at      DateTime @default(now())
+  updated_at      DateTime @default(now())
+  expires_at      DateTime?
+  reviewed_by     String?
+  reviewed_at     DateTime?
+  review_comment  String?
+
+  @@index([status])
+  @@index([type])
+  @@index([created_at])
+  @@index([expires_at])
+  @@map("ai_proposals")
+}

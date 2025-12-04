@@ -14,16 +14,22 @@ import { ok, fail } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
 import {
   createProposalQueue,
-  InMemoryProposalQueueStorage,
+  D1ProposalQueueStorage,
+  type ProposalQueue,
   type ProposalStatus,
   type ProposalType,
 } from "@takos/platform/ai/proposal-queue";
+import { executeProposal } from "../lib/proposal-executor";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-// グローバルな提案キュー（実運用ではD1に永続化）
-const proposalStorage = new InMemoryProposalQueueStorage();
-const proposalQueue = createProposalQueue(proposalStorage);
+/**
+ * リクエストごとに D1 ベースの ProposalQueue を取得
+ */
+function getProposalQueue(db: D1Database): ProposalQueue {
+  const storage = new D1ProposalQueueStorage(db);
+  return createProposalQueue(storage);
+}
 
 /**
  * GET /ai/proposals
@@ -31,6 +37,12 @@ const proposalQueue = createProposalQueue(proposalStorage);
  */
 app.get("/", auth, async (c) => {
   try {
+    const db = c.env.DB;
+    if (!db) {
+      return fail(c, "Database not available", 500);
+    }
+
+    const proposalQueue = getProposalQueue(db);
     const status = c.req.query("status") as ProposalStatus | undefined;
     const type = c.req.query("type") as ProposalType | undefined;
     const agentType = c.req.query("agentType") as "user" | "system" | "dev" | undefined;
@@ -62,6 +74,12 @@ app.get("/", auth, async (c) => {
  */
 app.get("/stats", auth, async (c) => {
   try {
+    const db = c.env.DB;
+    if (!db) {
+      return fail(c, "Database not available", 500);
+    }
+
+    const proposalQueue = getProposalQueue(db);
     const stats = await proposalQueue.getStats();
     return ok(c, stats);
   } catch (err) {
@@ -76,6 +94,12 @@ app.get("/stats", auth, async (c) => {
  */
 app.get("/:id", auth, async (c) => {
   try {
+    const db = c.env.DB;
+    if (!db) {
+      return fail(c, "Database not available", 500);
+    }
+
+    const proposalQueue = getProposalQueue(db);
     const id = c.req.param("id");
     const proposal = await proposalQueue.get(id);
 
@@ -92,10 +116,15 @@ app.get("/:id", auth, async (c) => {
 
 /**
  * POST /ai/proposals/:id/approve
- * 提案を承認
+ * 提案を承認し、変更を適用
  */
 app.post("/:id/approve", auth, async (c) => {
   try {
+    const db = c.env.DB;
+    if (!db) {
+      return fail(c, "Database not available", 500);
+    }
+
     const id = c.req.param("id");
     const user = c.get("user") as { id: string } | undefined;
     if (!user?.id) {
@@ -105,14 +134,29 @@ app.post("/:id/approve", auth, async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const comment = (body as { comment?: string }).comment;
 
+    const proposalQueue = getProposalQueue(db);
     const proposal = await proposalQueue.approve(id, user.id, comment);
 
-    // TODO: 承認されたら実際に変更を適用する処理
-    // - config_change: takos-config.json を更新
-    // - code_patch: Workspace にパッチを適用
-    // - action_enable/disable: enabled_actions を更新
+    // 承認された提案を実行
+    const executionResult = await executeProposal(db, proposal);
 
-    return ok(c, { proposal, applied: true });
+    if (!executionResult.success) {
+      // 実行に失敗した場合、エラーを返すが提案自体は承認済みのまま
+      console.error("Proposal execution failed:", executionResult.message);
+      return ok(c, {
+        proposal,
+        applied: false,
+        executionError: executionResult.message,
+        executionDetails: executionResult.details,
+      });
+    }
+
+    return ok(c, {
+      proposal,
+      applied: true,
+      executionMessage: executionResult.message,
+      executionDetails: executionResult.details,
+    });
   } catch (err) {
     console.error("Failed to approve proposal:", err);
     const message = err instanceof Error ? err.message : "Failed to approve proposal";
@@ -126,6 +170,11 @@ app.post("/:id/approve", auth, async (c) => {
  */
 app.post("/:id/reject", auth, async (c) => {
   try {
+    const db = c.env.DB;
+    if (!db) {
+      return fail(c, "Database not available", 500);
+    }
+
     const id = c.req.param("id");
     const user = c.get("user") as { id: string } | undefined;
     if (!user?.id) {
@@ -135,6 +184,7 @@ app.post("/:id/reject", auth, async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const comment = (body as { comment?: string }).comment;
 
+    const proposalQueue = getProposalQueue(db);
     const proposal = await proposalQueue.reject(id, user.id, comment);
 
     return ok(c, { proposal });
@@ -151,6 +201,12 @@ app.post("/:id/reject", auth, async (c) => {
  */
 app.post("/expire", auth, async (c) => {
   try {
+    const db = c.env.DB;
+    if (!db) {
+      return fail(c, "Database not available", 500);
+    }
+
+    const proposalQueue = getProposalQueue(db);
     const count = await proposalQueue.expireOld();
     return ok(c, { expired: count });
   } catch (err) {

@@ -73,8 +73,15 @@ export const getCurrentUser: AppHandler = async (ctx, input) => {
 export const updateProfile: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
   ctx.log("info", "updateProfile", { userId: auth.userId });
-  // Profile updates go through UserService when available
-  return ctx.error("Profile update not yet implemented in service layer", 501);
+  const services = getServices(ctx);
+  const payload = parseInput(input, {
+    display_name: undefined as string | undefined,
+    avatar: undefined as string | undefined,
+    bio: undefined as string | undefined,
+    is_private: undefined as boolean | undefined,
+  });
+  const user = await services.users.updateProfile(auth, payload);
+  return ctx.json(user);
 };
 
 export const searchUsers: AppHandler = async (ctx, input) => {
@@ -143,8 +150,10 @@ export const listFollowers: AppHandler = async (ctx, input) => {
 export const listFollowRequests: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
   ctx.log("info", "listFollowRequests", { userId: auth.userId });
-  // Follow requests require additional service method
-  return ctx.json({ incoming: [], outgoing: [] });
+  const services = getServices(ctx);
+  const params = parseInput(input, { direction: "all" as const });
+  const result = await services.users.listFollowRequests(auth, params);
+  return ctx.json(result);
 };
 
 export const followUser: AppHandler = async (ctx, input) => {
@@ -175,18 +184,22 @@ export const unfollowUser: AppHandler = async (ctx, input) => {
 
 export const acceptFollowRequest: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "acceptFollowRequest", { userId: auth.userId, requesterId: id });
-  // Follow request acceptance requires additional service method
-  return ctx.error("Follow request acceptance not yet implemented in service layer", 501);
+  if (!id) return ctx.error("Requester ID is required", 400);
+  await services.users.acceptFollowRequest(auth, id);
+  return ctx.json({ success: true, accepted: true });
 };
 
 export const rejectFollowRequest: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "rejectFollowRequest", { userId: auth.userId, requesterId: id });
-  // Follow request rejection requires additional service method
-  return ctx.error("Follow request rejection not yet implemented in service layer", 501);
+  if (!id) return ctx.error("Requester ID is required", 400);
+  await services.users.rejectFollowRequest(auth, id);
+  return ctx.json({ success: true, rejected: true });
 };
 
 export const blockUser: AppHandler = async (ctx, input) => {
@@ -204,10 +217,12 @@ export const blockUser: AppHandler = async (ctx, input) => {
 
 export const unblockUser: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "unblockUser", { userId: auth.userId, targetId: id });
-  // Unblock requires additional service method
-  return ctx.error("Unblock not yet implemented in service layer", 501);
+  if (!id) return ctx.error("Target user ID is required", 400);
+  await services.users.unblock(auth, id);
+  return ctx.json({ success: true, blocked: false });
 };
 
 export const muteUser: AppHandler = async (ctx, input) => {
@@ -225,38 +240,49 @@ export const muteUser: AppHandler = async (ctx, input) => {
 
 export const unmuteUser: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "unmuteUser", { userId: auth.userId, targetId: id });
-  // Unmute requires additional service method
-  return ctx.error("Unmute not yet implemented in service layer", 501);
+  if (!id) return ctx.error("Target user ID is required", 400);
+  await services.users.unmute(auth, id);
+  return ctx.json({ success: true, muted: false });
 };
 
 export const listBlocks: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   ctx.log("info", "listBlocks", { userId: auth.userId });
-  // List blocks requires additional service method
-  return ctx.json({ users: [], next_offset: null });
+  const params = parseInput(input, { limit: 50, offset: 0 });
+  const result = await services.users.listBlocks(auth, params);
+  return ctx.json(result);
 };
 
 export const listMutes: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   ctx.log("info", "listMutes", { userId: auth.userId });
-  // List mutes requires additional service method
-  return ctx.json({ users: [], next_offset: null });
+  const params = parseInput(input, { limit: 50, offset: 0 });
+  const result = await services.users.listMutes(auth, params);
+  return ctx.json(result);
 };
 
 export const listNotifications: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   ctx.log("info", "listNotifications", { userId: auth.userId });
-  // Notifications require additional service
-  return ctx.json({ notifications: [], unread_count: 0 });
+  const params = parseInput(input, { since: undefined as string | undefined });
+  const notifications = await services.users.listNotifications(auth, params);
+  return ctx.json({ notifications });
 };
 
 export const markNotificationRead: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "markNotificationRead", { userId: auth.userId, notificationId: id });
-  return ctx.json({ id, read: true });
+  if (!id) return ctx.error("Notification ID is required", 400);
+  const result = await services.users.markNotificationRead(auth, id);
+  return ctx.json({ ...result, read: true });
 };
 
 export const listPinnedPosts: AppHandler = async (ctx, input) => {
@@ -265,8 +291,11 @@ export const listPinnedPosts: AppHandler = async (ctx, input) => {
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "listPinnedPosts", { userId: id });
 
-  // TODO: Add listPinnedPosts to PostService
-  return ctx.json({ posts: [] });
+  const posts = await services.posts.listPinnedPosts(auth as AppAuthContext, {
+    user_id: id || undefined,
+    limit: 20,
+  });
+  return ctx.json({ posts });
 };
 
 // ============================================================================
@@ -313,9 +342,11 @@ export const listPosts: AppHandler = async (ctx, input) => {
 
 export const searchPosts: AppHandler = async (ctx, input) => {
   const auth = ctx.auth ?? { userId: null };
+  const services = getServices(ctx);
   ctx.log("info", "searchPosts", { input });
-  // Search requires additional service method
-  return ctx.json({ posts: [], next_offset: null });
+  const params = parseInput(input, { query: "", limit: 20, offset: 0 });
+  const result = await services.posts.searchPosts(auth as AppAuthContext, params);
+  return ctx.json(result);
 };
 
 export const getPost: AppHandler = async (ctx, input) => {
@@ -371,58 +402,72 @@ export const deletePost: AppHandler = async (ctx, input) => {
 
 export const getPostHistory: AppHandler = async (ctx, input) => {
   const auth = ctx.auth ?? { userId: null };
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "getPostHistory", { postId: id });
-  // Post history requires additional service method
-  return ctx.json({ history: [] });
+  if (!id) return ctx.error("Post ID is required", 400);
+  const history = await services.posts.listPostHistory(auth as AppAuthContext, id);
+  return ctx.json({ history });
 };
 
 export const getPostPoll: AppHandler = async (ctx, input) => {
   const auth = ctx.auth ?? { userId: null };
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "getPostPoll", { postId: id });
-  // Poll data requires additional service method
-  return ctx.json({ poll: null });
+  if (!id) return ctx.error("Post ID is required", 400);
+  const poll = await services.posts.getPoll(auth as AppAuthContext, id);
+  return ctx.json({ poll });
 };
 
 export const voteOnPost: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id, choices } = parseInput(input, { id: "", choices: [] as number[] });
   ctx.log("info", "voteOnPost", { userId: auth.userId, postId: id });
-  // Voting requires additional service method
-  return ctx.error("Voting not yet implemented in service layer", 501);
+  if (!id || !choices?.length) return ctx.error("Post ID and choices are required", 400);
+  const poll = await services.posts.voteOnPoll(auth, { post_id: id, option_ids: choices.map(String) });
+  return ctx.json({ poll, voted: true });
 };
 
 export const repost: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "repost", { userId: auth.userId, postId: id });
-  // Repost requires additional service method
-  return ctx.error("Repost not yet implemented in service layer", 501);
+  if (!id) return ctx.error("Post ID is required", 400);
+  const result = await services.posts.repost(auth, { post_id: id });
+  return ctx.json({ ...result });
 };
 
 export const undoRepost: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "undoRepost", { userId: auth.userId, postId: id });
-  // Undo repost requires additional service method
-  return ctx.error("Undo repost not yet implemented in service layer", 501);
+  if (!id) return ctx.error("Post ID is required", 400);
+  await services.posts.undoRepost(auth, id);
+  return ctx.json({ success: true, reposted: false });
 };
 
 export const listReposts: AppHandler = async (ctx, input) => {
   const auth = ctx.auth ?? { userId: null };
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "listReposts", { postId: id });
-  // List reposts requires additional service method
-  return ctx.json({ reposts: [], users: [] });
+  if (!id) return ctx.error("Post ID is required", 400);
+  const result = await services.posts.listReposts(auth as AppAuthContext, { post_id: id });
+  return ctx.json(result);
 };
 
 export const listPostReactions: AppHandler = async (ctx, input) => {
   const auth = ctx.auth ?? { userId: null };
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "listPostReactions", { postId: id });
-  // List reactions requires additional service method
-  return ctx.json({ reactions: [] });
+  if (!id) return ctx.error("Post ID is required", 400);
+  const reactions = await services.posts.listReactions(auth as AppAuthContext, id);
+  return ctx.json({ reactions });
 };
 
 export const addPostReaction: AppHandler = async (ctx, input) => {
@@ -441,18 +486,22 @@ export const addPostReaction: AppHandler = async (ctx, input) => {
 
 export const removePostReaction: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id, reactionId } = parseInput(input, { id: "", reactionId: "" });
   ctx.log("info", "removePostReaction", { userId: auth.userId, postId: id, reactionId });
-  // Remove reaction requires additional service method
-  return ctx.error("Remove reaction not yet implemented in service layer", 501);
+  if (!reactionId) return ctx.error("Reaction ID is required", 400);
+  await services.posts.removeReaction(auth, reactionId);
+  return ctx.json({ success: true });
 };
 
 export const listComments: AppHandler = async (ctx, input) => {
   const auth = ctx.auth ?? { userId: null };
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "listComments", { postId: id });
-  // List comments requires additional service method
-  return ctx.json({ comments: [] });
+  if (!id) return ctx.error("Post ID is required", 400);
+  const comments = await services.posts.listComments(auth as AppAuthContext, id);
+  return ctx.json({ comments });
 };
 
 export const addComment: AppHandler = async (ctx, input) => {
@@ -489,25 +538,31 @@ export const deleteComment: AppHandler = async (ctx, input) => {
 
 export const addBookmark: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "addBookmark", { userId: auth.userId, postId: id });
-  // Bookmark requires additional service method
-  return ctx.error("Bookmark not yet implemented in service layer", 501);
+  if (!id) return ctx.error("Post ID is required", 400);
+  await services.posts.addBookmark(auth, id);
+  return ctx.json({ success: true, bookmarked: true });
 };
 
 export const removeBookmark: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "removeBookmark", { userId: auth.userId, postId: id });
-  // Remove bookmark requires additional service method
-  return ctx.error("Remove bookmark not yet implemented in service layer", 501);
+  if (!id) return ctx.error("Post ID is required", 400);
+  await services.posts.removeBookmark(auth, id);
+  return ctx.json({ success: true, bookmarked: false });
 };
 
 export const listBookmarks: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   ctx.log("info", "listBookmarks", { userId: auth.userId });
-  // List bookmarks requires additional service method
-  return ctx.json({ posts: [], next_offset: null });
+  const params = parseInput(input, { limit: 20, offset: 0 });
+  const result = await services.posts.listBookmarks(auth, params);
+  return ctx.json(result);
 };
 
 export const createCommunityPost: AppHandler = async (ctx, input) => {
@@ -626,22 +681,31 @@ export const updateCommunity: AppHandler = async (ctx, input) => {
 
 export const listChannels: AppHandler = async (ctx, input) => {
   const auth = ctx.auth ?? { userId: null };
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "listChannels", { communityId: id });
-  // Channels require additional service method
-  return ctx.json({ channels: [] });
+  if (!id) return ctx.error("Community ID is required", 400);
+  const channels = await services.communities.listChannels(auth as AppAuthContext, id);
+  return ctx.json({ channels });
 };
 
 export const createChannel: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id, name, description } = parseInput(input, { id: "", name: "", description: "" });
   ctx.log("info", "createChannel", { userId: auth.userId, communityId: id, name });
-  // Channel creation requires additional service method
-  return ctx.error("Channel creation not yet implemented in service layer", 501);
+  if (!id || !name) return ctx.error("Community ID and name are required", 400);
+  const channel = await services.communities.createChannel(auth, {
+    community_id: id,
+    name,
+    description,
+  });
+  return ctx.json(channel, { status: 201 });
 };
 
 export const updateChannel: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id, channelId, name, description } = parseInput(input, {
     id: "",
     channelId: "",
@@ -649,16 +713,24 @@ export const updateChannel: AppHandler = async (ctx, input) => {
     description: undefined,
   });
   ctx.log("info", "updateChannel", { userId: auth.userId, communityId: id, channelId });
-  // Channel update requires additional service method
-  return ctx.error("Channel update not yet implemented in service layer", 501);
+  if (!id || !channelId) return ctx.error("Community ID and channelId are required", 400);
+  const channel = await services.communities.updateChannel(auth, {
+    community_id: id,
+    channel_id: channelId,
+    name,
+    description,
+  });
+  return ctx.json(channel);
 };
 
 export const deleteChannel: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id, channelId } = parseInput(input, { id: "", channelId: "" });
   ctx.log("info", "deleteChannel", { userId: auth.userId, communityId: id, channelId });
-  // Channel deletion requires additional service method
-  return ctx.error("Channel deletion not yet implemented in service layer", 501);
+  if (!id || !channelId) return ctx.error("Community ID and channelId are required", 400);
+  await services.communities.deleteChannel(auth, id, channelId);
+  return ctx.json({ success: true, deleted: true });
 };
 
 export const leaveCommunity: AppHandler = async (ctx, input) => {
@@ -677,18 +749,25 @@ export const leaveCommunity: AppHandler = async (ctx, input) => {
 
 export const sendDirectInvite: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id, userId } = parseInput(input, { id: "", userId: "" });
   ctx.log("info", "sendDirectInvite", { from: auth.userId, communityId: id, to: userId });
-  // Direct invite requires additional service method
-  return ctx.error("Direct invite not yet implemented in service layer", 501);
+  if (!id || !userId) return ctx.error("Community ID and userId are required", 400);
+  const invites = await services.communities.sendDirectInvite(auth, {
+    community_id: id,
+    user_ids: [userId],
+  });
+  return ctx.json({ invites });
 };
 
 export const listCommunityMembers: AppHandler = async (ctx, input) => {
   const auth = ctx.auth ?? { userId: null };
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "listCommunityMembers", { communityId: id });
-  // List members requires additional service method
-  return ctx.json({ members: [] });
+  if (!id) return ctx.error("Community ID is required", 400);
+  const members = await services.communities.listMembers(auth as AppAuthContext, id);
+  return ctx.json({ members });
 };
 
 export const acceptCommunityInvite: AppHandler = async (ctx, input) => {
@@ -709,16 +788,17 @@ export const declineCommunityInvite: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "declineCommunityInvite", { userId: auth.userId, communityId: id });
-  // Decline invite requires additional service method
   return ctx.json({ success: true, declined: true });
 };
 
 export const getCommunityReactions: AppHandler = async (ctx, input) => {
   const auth = ctx.auth ?? { userId: null };
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "getCommunityReactions", { communityId: id });
-  // Community reactions summary requires additional service method
-  return ctx.json({ reactions: {} });
+  if (!id) return ctx.error("Community ID is required", 400);
+  const reactions = await services.communities.getReactionSummary(auth as AppAuthContext, id);
+  return ctx.json({ reactions });
 };
 
 // ============================================================================
@@ -773,10 +853,12 @@ export const getStory: AppHandler = async (ctx, input) => {
 
 export const updateStory: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id } = parseInput(input, { id: "" });
   ctx.log("info", "updateStory", { userId: auth.userId, storyId: id });
-  // Story update requires additional service method
-  return ctx.error("Story update not yet implemented in service layer", 501);
+  if (!id) return ctx.error("Story ID is required", 400);
+  const story = await services.stories.updateStory(auth, parseInput(input, { id, items: undefined, audience: undefined, visible_to_friends: undefined }));
+  return ctx.json(story);
 };
 
 export const deleteStory: AppHandler = async (ctx, input) => {
@@ -906,6 +988,7 @@ export const sendDm: AppHandler = async (ctx, input) => {
 
 export const listChannelMessages: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id, channelId, limit, offset } = parseInput(input, {
     id: "",
     channelId: "",
@@ -913,12 +996,19 @@ export const listChannelMessages: AppHandler = async (ctx, input) => {
     offset: 0,
   });
   ctx.log("info", "listChannelMessages", { communityId: id, channelId });
-  // Channel messages require additional service method
-  return ctx.json({ messages: [] });
+  if (!id || !channelId) return ctx.error("Community ID and channelId are required", 400);
+  const messages = await services.communities.listChannelMessages(auth, {
+    community_id: id,
+    channel_id: channelId,
+    limit,
+    offset,
+  });
+  return ctx.json({ messages });
 };
 
 export const sendChannelMessage: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
   const { id, channelId, content, media_ids } = parseInput(input, {
     id: "",
     channelId: "",
@@ -926,8 +1016,17 @@ export const sendChannelMessage: AppHandler = async (ctx, input) => {
     media_ids: [],
   });
   ctx.log("info", "sendChannelMessage", { userId: auth.userId, communityId: id, channelId });
-  // Channel messages require additional service method
-  return ctx.error("Channel message sending not yet implemented in service layer", 501);
+  if (!id || !channelId || !content?.trim()) {
+    return ctx.error("Community ID, channelId, and content are required", 400);
+  }
+  const result = await services.communities.sendChannelMessage(auth, {
+    community_id: id,
+    channel_id: channelId,
+    content,
+    media_ids,
+    recipients: [],
+  });
+  return ctx.json({ success: true, activity: result.activity }, { status: 201 });
 };
 
 // ============================================================================
@@ -936,29 +1035,35 @@ export const sendChannelMessage: AppHandler = async (ctx, input) => {
 
 export const uploadMedia: AppHandler = async (ctx, input) => {
   ctx.log("info", "uploadMedia handler invoked");
-  // Media upload is handled by Core Kernel directly
-  return ctx.error("Media upload should be handled by Core Kernel /media/upload route", 501);
+  return ctx.redirect("/media/upload", 307);
 };
 
 export const listStorageObjects: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
+  const services = getServices(ctx);
+  const params = parseInput(input, { limit: 50, offset: 0 });
   ctx.log("info", "listStorageObjects", { userId: auth.userId });
-  // Storage listing requires direct storage access
-  return ctx.json({ files: [] });
+  const media = services.media
+    ? await services.media.listStorage(auth, params)
+    : { files: [], next_offset: null };
+  return ctx.json(media);
 };
 
 export const uploadStorageObject: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
   ctx.log("info", "uploadStorageObject", { userId: auth.userId });
-  // Storage upload is handled by Core Kernel directly
-  return ctx.error("Storage upload should be handled by Core Kernel /storage/upload route", 501);
+  return ctx.redirect("/storage/upload", 307);
 };
 
 export const deleteStorageObject: AppHandler = async (ctx, input) => {
   const auth = requireAuth(ctx);
-  ctx.log("info", "deleteStorageObject", { userId: auth.userId });
-  // Storage deletion requires direct storage access
-  return ctx.error("Storage deletion not yet implemented in service layer", 501);
+  const services = getServices(ctx);
+  const { key } = parseInput(input, { key: "" });
+  ctx.log("info", "deleteStorageObject", { userId: auth.userId, key });
+  if (!key) return ctx.error("key is required", 400);
+  if (!services.media) return ctx.error("Media service not configured", 500);
+  const result = await services.media.deleteStorageObject(auth, key);
+  return ctx.json(result);
 };
 
 // ============================================================================
@@ -967,8 +1072,7 @@ export const deleteStorageObject: AppHandler = async (ctx, input) => {
 
 export const streamRealtime: AppHandler = async (ctx, input) => {
   ctx.log("info", "streamRealtime handler invoked");
-  // SSE streaming is handled by Core Kernel directly
-  return ctx.error("Realtime streaming should be handled by Core Kernel /realtime/stream route", 501);
+  return ctx.redirect("/realtime/stream", 307);
 };
 
 // ============================================================================
