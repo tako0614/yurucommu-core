@@ -6,39 +6,233 @@
  */
 
 import type { Component, JSX } from "solid-js";
-import { For, Show, createSignal, createResource, Suspense } from "solid-js";
+import { For, Show, Suspense, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
 import { registerUiComponent, type UiRuntimeContext } from "./ui-runtime";
 
 // Import existing components
 import PostCard from "../components/PostCard";
 import AllStoriesBar from "../components/AllStoriesBar";
 import Avatar from "../components/Avatar";
-import { api } from "./api";
+import { api, getUser, markNotificationRead, uploadMedia } from "./api";
+
+// Shared helpers
+const toArray = (result: unknown): any[] => {
+  if (Array.isArray(result)) return result;
+  if (Array.isArray((result as any)?.data)) return (result as any).data;
+  if (Array.isArray((result as any)?.items)) return (result as any).items;
+  return [];
+};
+
+const toDateKey = (value: unknown): string => {
+  const date = value instanceof Date ? value : new Date(value as any);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  return date.toISOString().slice(0, 10);
+};
+
+const formatDateLabel = (value: unknown): string => {
+  const date = value instanceof Date ? value : new Date(value as any);
+  if (Number.isNaN(date.getTime())) return "不明な日付";
+  return date.toLocaleDateString();
+};
+
+const formatDateTime = (value: unknown): string => {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value as any);
+  if (Number.isNaN(date.getTime())) return String(value ?? "");
+  return date.toLocaleString();
+};
+
+const parseSort = (value?: string) => {
+  if (!value) return null;
+  const [fieldRaw, dirRaw] = value.split(":");
+  const field = fieldRaw?.trim() || "created_at";
+  const direction = dirRaw?.trim().toLowerCase() === "asc" ? "asc" : "desc";
+  return { field, direction } as const;
+};
+
+const userCache = new Map<string, any>();
+const fetchUser = async (id?: string | null) => {
+  if (!id) return null;
+  if (userCache.has(id)) return userCache.get(id);
+  const user = await getUser(id).catch(() => null);
+  if (user) {
+    userCache.set(id, user);
+  }
+  return user;
+};
 
 /**
  * PostFeed - Displays a list of posts
+ *
+ * Accepts manifest-driven fetch parameters to keep data sourcing declarative.
  */
 const PostFeed: Component<{
   source?: string;
   communityId?: string;
+  endpoint?: string;
+  filter?: Record<string, unknown>;
+  sort?: string;
+  limit?: number;
   emptyText?: string;
   context?: UiRuntimeContext;
 }> = (props) => {
+  const resolveEndpoint = () => {
+    const explicit = (props.endpoint || "").trim();
+    if (explicit) return explicit;
+
+    const source = props.source;
+    const communityId =
+      props.communityId || props.context?.routeParams?.id;
+
+    if (source === "community" && communityId) {
+      return `/communities/${communityId}/posts`;
+    }
+    if (source === "user" && props.context?.routeParams?.userId) {
+      return `/users/${props.context.routeParams.userId}/posts`;
+    }
+    return "/posts";
+  };
+
+  const appendParam = (
+    search: URLSearchParams,
+    key: string,
+    value: unknown
+  ) => {
+    if (value === undefined || value === null) return;
+    if (Array.isArray(value)) {
+      value.forEach((v) => appendParam(search, `${key}[]`, v));
+      return;
+    }
+    if (typeof value === "object") {
+      try {
+        search.set(key, JSON.stringify(value));
+        return;
+      } catch {
+        // fall through
+      }
+    }
+    search.set(key, String(value));
+  };
+
+  const buildQueryString = (
+    filter?: Record<string, unknown>,
+    sort?: string,
+    limit?: number
+  ) => {
+    const search = new URLSearchParams();
+    if (filter && typeof filter === "object") {
+      Object.entries(filter).forEach(([key, value]) =>
+        appendParam(search, key, value)
+      );
+    }
+    if (sort) {
+      search.set("sort", sort);
+    }
+    if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) {
+      search.set("limit", String(limit));
+    }
+    const query = search.toString();
+    return query ? `?${query}` : "";
+  };
+
+  const buildRequestUrl = (
+    base: string,
+    filter?: Record<string, unknown>,
+    sort?: string,
+    limit?: number
+  ) => {
+    const query = buildQueryString(filter, sort, limit);
+    if (!query) return base;
+    if (base.includes("?")) {
+      const separator = base.endsWith("&") || base.endsWith("?") ? "" : "&";
+      return `${base}${separator}${query.replace(/^\?/, "")}`;
+    }
+    return `${base}${query}`;
+  };
+
+  const normalizePosts = (result: unknown) => {
+    if (Array.isArray(result)) return result;
+    const payload =
+      (result as any)?.data !== undefined ? (result as any).data : result;
+    if (Array.isArray(payload?.items)) return payload.items;
+    if (Array.isArray(payload?.posts)) return payload.posts;
+    if (Array.isArray(payload?.orderedItems)) return payload.orderedItems;
+    if (Array.isArray(payload)) return payload;
+    return [];
+  };
+
+  const applyLocalFilter = (
+    items: any[],
+    filter?: Record<string, unknown>
+  ) => {
+    if (!filter || typeof filter !== "object") return items;
+    const entries = Object.entries(filter).filter(
+      ([, value]) => value !== undefined && value !== null
+    );
+    if (entries.length === 0) return items;
+
+    return items.filter((item) =>
+      entries.every(([key, value]) => {
+        const target = (item as any)?.[key];
+        if (Array.isArray(value)) {
+          return value.includes(target);
+        }
+        if (typeof value === "object") {
+          return JSON.stringify(target) === JSON.stringify(value);
+        }
+        return target === value;
+      })
+    );
+  };
+
+  const applyLocalSort = (items: any[], sort?: string) => {
+    if (!sort) return items;
+    const [field, dir] = sort.split(":");
+    if (!field) return items;
+    const direction = dir === "desc" ? -1 : 1;
+    const toComparable = (value: unknown) => {
+      if (typeof value === "number") return value;
+      if (typeof value === "string") {
+        const timestamp = Date.parse(value);
+        if (!Number.isNaN(timestamp)) return timestamp;
+      }
+      return value;
+    };
+    return [...items].sort((a, b) => {
+      const av = toComparable((a as any)?.[field]);
+      const bv = toComparable((b as any)?.[field]);
+      if (av === bv) return 0;
+      if (av === undefined || av === null) return 1;
+      if (bv === undefined || bv === null) return -1;
+      if (typeof av === "number" && typeof bv === "number") {
+        return (av - bv) * direction;
+      }
+      return String(av).localeCompare(String(bv)) * direction;
+    });
+  };
+
+  const applyLimit = (items: any[], limit?: number) => {
+    if (typeof limit !== "number" || !Number.isFinite(limit) || limit <= 0) {
+      return items;
+    }
+    return items.slice(0, limit);
+  };
+
   const [posts] = createResource(
     () => ({
-      source: props.source,
-      communityId: props.communityId || props.context?.routeParams?.id,
+      endpoint: resolveEndpoint(),
+      filter: props.filter,
+      sort: props.sort,
+      limit: props.limit,
     }),
-    async ({ source, communityId }) => {
+    async ({ endpoint, filter, sort, limit }) => {
       try {
-        if (source === "community" && communityId) {
-          return await api(`/communities/${communityId}/posts`);
-        }
-        if (source === "user" && props.context?.routeParams?.userId) {
-          return await api(`/users/${props.context.routeParams.userId}/posts`);
-        }
-        // Default: home timeline
-        return await api("/posts");
+        const url = buildRequestUrl(endpoint, filter, sort, limit);
+        const result = await api(url);
+        const normalized = normalizePosts(result);
+        const filtered = applyLocalFilter(normalized, filter);
+        const sorted = applyLocalSort(filtered, sort);
+        return applyLimit(sorted, limit);
       } catch (err) {
         console.error("[PostFeed] Failed to load posts:", err);
         return [];
@@ -237,6 +431,988 @@ const CommunityList: Component<{
 };
 
 /**
+ * NotificationList - Notifications with date grouping and unread filter
+ */
+const NotificationList: Component<{
+  id?: string;
+  endpoint?: string;
+  emptyText?: string;
+  limit?: number;
+  groupByDate?: boolean;
+  unreadOnly?: boolean;
+  context?: UiRuntimeContext;
+}> = (props) => {
+  const resolvedEndpoint = () => (props.endpoint?.trim() || "/notifications");
+
+  const [notifications, { refetch }] = createResource(
+    () => ({ endpoint: resolvedEndpoint(), unreadOnly: props.unreadOnly, limit: props.limit }),
+    async ({ endpoint }) => {
+      if (!endpoint) return [];
+      try {
+        const result = await api(endpoint);
+        return toArray(result);
+      } catch (err) {
+        console.error("[NotificationList] Failed to load notifications:", err);
+        throw err;
+      }
+    }
+  );
+
+  createEffect(() => {
+    if (!props.id || !props.context?.registerRefetch) return;
+    const unregister = props.context.registerRefetch(props.id, () => refetch());
+    onCleanup(unregister);
+  });
+
+  const filteredItems = createMemo(() => {
+    const items = toArray(notifications() || []);
+    const filtered = props.unreadOnly ? items.filter((item: any) => !item?.read) : items;
+    if (typeof props.limit === "number" && Number.isFinite(props.limit) && props.limit > 0) {
+      return filtered.slice(0, props.limit);
+    }
+    return filtered;
+  });
+
+  const groupedItems = createMemo(() => {
+    const shouldGroup = props.groupByDate !== false;
+    if (!shouldGroup) return [];
+    const groups = new Map<string, any[]>();
+    for (const item of filteredItems()) {
+      const key = toDateKey((item as any)?.created_at);
+      const current = groups.get(key) || [];
+      current.push(item);
+      groups.set(key, current);
+    }
+    return Array.from(groups.entries()).map(([key, items]) => ({
+      key,
+      label: formatDateLabel(key),
+      items,
+    }));
+  });
+
+  const markRead = async (item: any) => {
+    if (!item?.id || item.read) return;
+    try {
+      await markNotificationRead(item.id);
+      await refetch();
+    } catch (err) {
+      console.error("[NotificationList] Failed to mark as read:", err);
+    }
+  };
+
+  const renderNotification = (item: any) => {
+    const title = item?.message || item?.type || "通知";
+    const timestamp = formatDateTime(item?.created_at);
+    const link = item?.ref_type === "post" && item?.ref_id ? `/posts/${item.ref_id}` : null;
+
+    return (
+      <div class="flex gap-3 px-3 py-3 hover:bg-gray-50 dark:hover:bg-neutral-800">
+        <div class="mt-1">
+          <span class="inline-flex h-9 w-9 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300">
+            🔔
+          </span>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-semibold text-gray-900 dark:text-white">{title}</div>
+          <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{timestamp}</div>
+          <Show when={link}>
+            <a href={link as string} class="text-xs text-blue-600 hover:underline dark:text-blue-400">
+              詳細を見る
+            </a>
+          </Show>
+        </div>
+        <div class="flex flex-col items-end gap-2">
+          <Show when={!item?.read}>
+            <span class="h-2 w-2 rounded-full bg-blue-500" aria-label="未読" />
+          </Show>
+          <Show when={!item?.read}>
+            <button
+              type="button"
+              class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+              onClick={() => markRead(item)}
+            >
+              既読にする
+            </button>
+          </Show>
+        </div>
+      </div>
+    );
+  };
+
+  const errorMessage = () => {
+    const err = notifications.error;
+    if (!err) return null;
+    return (err as any).message || String(err);
+  };
+
+  return (
+    <Suspense fallback={<div class="text-center py-6 text-muted">読み込み中…</div>}>
+      <Show when={!notifications.error} fallback={<div class="p-3 text-sm text-red-500">{errorMessage()}</div>}>
+        <Show
+          when={filteredItems().length > 0}
+          fallback={<div class="text-center py-6 text-muted">{props.emptyText || "通知はありません"}</div>}
+        >
+          {props.groupByDate !== false ? (
+            <div class="space-y-4">
+              <For each={groupedItems()}>
+                {(group) => (
+                  <div class="space-y-2">
+                    <div class="text-xs font-semibold text-gray-500 dark:text-gray-400">{group.label}</div>
+                    <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-neutral-800 divide-y divide-gray-200 dark:divide-neutral-800">
+                      <For each={group.items}>{(item) => renderNotification(item)}</For>
+                    </div>
+                  </div>
+                )}
+              </For>
+            </div>
+          ) : (
+            <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-neutral-800 divide-y divide-gray-200 dark:divide-neutral-800">
+              <For each={filteredItems()}>{(item) => renderNotification(item)}</For>
+            </div>
+          )}
+        </Show>
+      </Show>
+    </Suspense>
+  );
+};
+
+/**
+ * PostComposer - Lightweight post creation form
+ */
+const PostComposer: Component<{
+  endpoint?: string;
+  defaultVisibility?: "public" | "followers" | "private";
+  maxLength?: number;
+  onPosted?: (payload?: any) => void;
+  context?: UiRuntimeContext;
+}> = (props) => {
+  const [text, setText] = createSignal("");
+  const [files, setFiles] = createSignal<File[]>([]);
+  const [visibility, setVisibility] = createSignal<"public" | "followers" | "private">(props.defaultVisibility || "public");
+  const [posting, setPosting] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+
+  const resolvedEndpoint = () => props.endpoint?.trim() || "/posts";
+  const maxLength = createMemo(() => {
+    const value = props.maxLength;
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+    return 500;
+  });
+
+  const remaining = createMemo(() => maxLength() - text().length);
+  const isOverLimit = createMemo(() => remaining() < 0);
+  const isDisabled = createMemo(() => posting() || isOverLimit() || (!text().trim() && files().length === 0));
+
+  const handleFiles = (list: FileList | null) => {
+    const next = list ? Array.from(list) : [];
+    if (!next.length) return;
+    setFiles((prev) => [...prev, ...next]);
+  };
+
+  const removeFile = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async (ev: Event) => {
+    ev.preventDefault();
+    const content = text().trim();
+    if (!content && files().length === 0) {
+      setError("投稿内容を入力してください");
+      return;
+    }
+    const endpoint = resolvedEndpoint();
+    if (!endpoint) {
+      setError("投稿先が指定されていません");
+      return;
+    }
+
+    setPosting(true);
+    setError(null);
+    try {
+      const mediaUrls: string[] = [];
+      for (const file of files()) {
+        const url = await uploadMedia(file);
+        mediaUrls.push(url);
+      }
+
+      const payload: Record<string, any> = {
+        text: content,
+        type: mediaUrls.length > 0 ? "image" : "text",
+        visibility: visibility(),
+        audience: "all",
+        visible_to_friends: visibility() !== "private",
+      };
+
+      if (mediaUrls.length > 0) {
+        payload.media = mediaUrls.map((url) => ({ url }));
+      }
+
+      const result = await api(endpoint, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      setText("");
+      setFiles([]);
+
+      if (typeof props.onPosted === "function") {
+        await props.onPosted(result);
+      } else if (props.context?.refresh) {
+        props.context.refresh();
+      }
+    } catch (err: any) {
+      setError(err?.message || "投稿に失敗しました");
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  return (
+    <form class="grid gap-3 rounded-lg border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4" onSubmit={handleSubmit}>
+      <textarea
+        class="w-full min-h-[120px] resize-none rounded-md border border-gray-200 dark:border-neutral-800 bg-transparent p-3 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-500 focus:outline-none"
+        placeholder="いま何を考えていますか？"
+        value={text()}
+        maxLength={maxLength()}
+        onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
+      />
+
+      <Show when={files().length > 0}>
+        <div class="flex flex-wrap gap-2">
+          <For each={files()}>
+            {(file, index) => (
+              <div class="flex items-center gap-2 rounded-full bg-gray-100 dark:bg-neutral-800 px-3 py-1 text-xs text-gray-800 dark:text-gray-100">
+                <span class="max-w-[180px] truncate" title={file.name}>{file.name}</span>
+                <button
+                  type="button"
+                  class="text-gray-500 hover:text-red-500"
+                  onClick={() => removeFile(index())}
+                >
+                  ×
+                </button>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+
+      <Show when={error()}>
+        <div class="text-sm text-red-500">{error()}</div>
+      </Show>
+
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <label class="inline-flex cursor-pointer items-center gap-2 rounded-full bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-200 dark:bg-neutral-800 dark:text-gray-100 dark:hover:bg-neutral-700">
+            画像を追加
+            <input type="file" accept="image/*" multiple class="hidden" onChange={(e) => handleFiles((e.target as HTMLInputElement).files)} />
+          </label>
+
+          <select
+            class="rounded-full border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-gray-100"
+            value={visibility()}
+            onChange={(e) => setVisibility((e.target as HTMLSelectElement).value as any)}
+          >
+            <option value="public">公開</option>
+            <option value="followers">フォロワー</option>
+            <option value="private">非公開</option>
+          </select>
+        </div>
+
+        <div class="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+          <span class={isOverLimit() ? "text-red-500" : ""}>{remaining()} 文字</span>
+          <button
+            type="submit"
+            class="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
+            disabled={isDisabled()}
+          >
+            {posting() ? "投稿中…" : "投稿"}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+};
+
+/**
+ * Comment item for CommentList
+ */
+const CommentItem: Component<{ comment: any }> = (props) => {
+  const [author] = createResource(() => props.comment?.author_id, fetchUser);
+  const displayName = createMemo(
+    () => author()?.display_name || author()?.handle || props.comment?.author_id || "ユーザー",
+  );
+  const avatarUrl = createMemo(() => author()?.avatar_url || "");
+  const createdAt = createMemo(() => formatDateTime(props.comment?.created_at));
+
+  return (
+    <div class="flex gap-3">
+      <Avatar
+        src={avatarUrl()}
+        alt={displayName()}
+        class="w-10 h-10 rounded-full bg-gray-200 dark:bg-neutral-700"
+      />
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-semibold text-gray-900 dark:text-white">{displayName()}</span>
+          <span class="text-xs text-gray-500 dark:text-gray-400">{createdAt()}</span>
+        </div>
+        <div class="mt-1 text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap leading-relaxed">
+          {props.comment?.text || ""}
+        </div>
+        <div class="mt-2 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+          <button type="button" class="hover:text-blue-600 dark:hover:text-blue-400">返信</button>
+          <button type="button" class="hover:text-blue-600 dark:hover:text-blue-400">いいね</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * CommentList - Comments for a post
+ */
+const CommentList: Component<{
+  id?: string;
+  endpoint?: string;
+  emptyText?: string;
+  sort?: string;
+  context?: UiRuntimeContext;
+}> = (props) => {
+  const resolvedEndpoint = () => {
+    if (props.endpoint && props.endpoint.trim()) return props.endpoint.trim();
+    const postId = props.context?.routeParams?.id;
+    return postId ? `/posts/${postId}/comments` : "";
+  };
+
+  const [comments, { refetch }] = createResource(
+    () => ({ path: resolvedEndpoint(), sort: props.sort }),
+    async ({ path }) => {
+      if (!path) return [];
+      try {
+        const result = await api(path);
+        return toArray(result);
+      } catch (err) {
+        console.error("[CommentList] Failed to load comments:", err);
+        throw err;
+      }
+    }
+  );
+
+  createEffect(() => {
+    if (!props.id || !props.context?.registerRefetch) return;
+    const unregister = props.context.registerRefetch(props.id, () => refetch());
+    onCleanup(unregister);
+  });
+
+  const sortedComments = createMemo(() => {
+    const items = toArray(comments() || []);
+    const sort = parseSort(props.sort);
+    if (!sort) return items;
+    const direction = sort.direction === "asc" ? 1 : -1;
+    return [...items].sort((a, b) => {
+      const av = (a as any)?.[sort.field];
+      const bv = (b as any)?.[sort.field];
+      const ad = new Date(av as any).getTime();
+      const bd = new Date(bv as any).getTime();
+      if (!Number.isNaN(ad) && !Number.isNaN(bd) && ad !== bd) {
+        return (ad - bd) * direction;
+      }
+      return String(av ?? "").localeCompare(String(bv ?? "")) * direction;
+    });
+  });
+
+  const errorMessage = () => {
+    const err = comments.error;
+    if (!err) return null;
+    return (err as any).message || String(err);
+  };
+
+  return (
+    <Suspense fallback={<div class="text-center py-6 text-muted">読み込み中…</div>}>
+      <Show when={!comments.error} fallback={<div class="p-3 text-sm text-red-500">{errorMessage()}</div>}>
+        <Show
+          when={sortedComments().length > 0}
+          fallback={<div class="text-center py-6 text-muted">{props.emptyText || "コメントはまだありません"}</div>}
+        >
+          <div class="space-y-4">
+            <For each={sortedComments()}>{(comment: any) => <CommentItem comment={comment} />}</For>
+          </div>
+        </Show>
+      </Show>
+    </Suspense>
+  );
+};
+
+/**
+ * CommentForm - Create a new comment
+ */
+const CommentForm: Component<{
+  endpoint?: string;
+  placeholder?: string;
+  autoFocus?: boolean;
+  onPosted?: (payload?: any) => void;
+  context?: UiRuntimeContext;
+}> = (props) => {
+  const [text, setText] = createSignal("");
+  const [posting, setPosting] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+
+  const resolvedEndpoint = () => {
+    if (props.endpoint && props.endpoint.trim()) return props.endpoint.trim();
+    const postId = props.context?.routeParams?.id;
+    return postId ? `/posts/${postId}/comments` : "";
+  };
+
+  const submit = async (ev: Event) => {
+    ev.preventDefault();
+    const content = text().trim();
+    if (!content) {
+      setError("コメントを入力してください");
+      return;
+    }
+    const endpoint = resolvedEndpoint();
+    if (!endpoint) {
+      setError("投稿先が設定されていません");
+      return;
+    }
+
+    setPosting(true);
+    setError(null);
+    try {
+      const result = await api(endpoint, {
+        method: "POST",
+        body: JSON.stringify({ text: content }),
+      });
+      setText("");
+      if (typeof props.onPosted === "function") {
+        await props.onPosted(result);
+      } else if (props.context?.refresh) {
+        props.context.refresh();
+      }
+    } catch (err: any) {
+      setError(err?.message || "コメントを投稿できませんでした");
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  return (
+    <form class="grid gap-2" onSubmit={submit}>
+      <textarea
+        class="w-full min-h-[80px] resize-none rounded-md border border-gray-200 dark:border-neutral-800 bg-transparent p-3 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-500 focus:outline-none"
+        placeholder={props.placeholder || "コメントを書く…"}
+        value={text()}
+        onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
+        autofocus={props.autoFocus}
+      />
+      <Show when={error()}>
+        <div class="text-sm text-red-500">{error()}</div>
+      </Show>
+      <div class="flex items-center justify-between gap-3">
+        <div class="text-xs text-gray-500 dark:text-gray-400">{text().length} 文字</div>
+        <button
+          type="submit"
+          class="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
+          disabled={posting() || !text().trim()}
+        >
+          {posting() ? "送信中…" : "送信"}
+        </button>
+      </div>
+    </form>
+  );
+};
+
+/**
+ * FriendList - Display friends list
+ */
+const FriendList: Component<{
+  id?: string;
+  endpoint?: string;
+  emptyText?: string;
+  context?: UiRuntimeContext;
+}> = (props) => {
+  const resolvedEndpoint = () => props.endpoint?.trim() || "/me/friends";
+
+  const [friends, { refetch }] = createResource(
+    resolvedEndpoint,
+    async (path) => {
+      try {
+        const result = await api(path);
+        return toArray(result);
+      } catch (err) {
+        console.error("[FriendList] Failed to load friends:", err);
+        return [];
+      }
+    }
+  );
+
+  createEffect(() => {
+    if (!props.id || !props.context?.registerRefetch) return;
+    const unregister = props.context.registerRefetch(props.id, () => refetch());
+    onCleanup(unregister);
+  });
+
+  return (
+    <Suspense fallback={<div class="text-center py-6 text-muted">読み込み中…</div>}>
+      <Show
+        when={friends() && friends()!.length > 0}
+        fallback={
+          <div class="text-center py-6 text-muted">
+            {props.emptyText || "まだ友達がいません"}
+          </div>
+        }
+      >
+        <div class="divide-y divide-gray-200 dark:divide-neutral-700">
+          <For each={friends()}>
+            {(friend: any) => {
+              const user = friend.user || friend;
+              return (
+                <a
+                  href={`/@${user.handle || user.id}`}
+                  class="flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-neutral-800"
+                >
+                  <Avatar
+                    src={user.avatar_url || ""}
+                    alt={user.display_name || user.handle || "User"}
+                    class="w-10 h-10 rounded-full bg-gray-200 dark:bg-neutral-700"
+                  />
+                  <div class="flex-1 min-w-0">
+                    <div class="font-semibold text-gray-900 dark:text-white truncate">
+                      {user.display_name || user.handle || "Unknown"}
+                    </div>
+                    <Show when={user.handle}>
+                      <div class="text-sm text-gray-500 truncate">@{user.handle}</div>
+                    </Show>
+                  </div>
+                </a>
+              );
+            }}
+          </For>
+        </div>
+      </Show>
+    </Suspense>
+  );
+};
+
+/**
+ * UserSearchResults - Search results for users
+ */
+const UserSearchResults: Component<{
+  id?: string;
+  query?: string;
+  emptyText?: string;
+  context?: UiRuntimeContext;
+}> = (props) => {
+  const resolvedQuery = () => props.query || props.context?.state?.userQuery || "";
+
+  const [users, { refetch }] = createResource(
+    resolvedQuery,
+    async (query) => {
+      if (!query.trim()) return [];
+      try {
+        const result = await api(`/users?q=${encodeURIComponent(query)}`);
+        return toArray(result);
+      } catch (err) {
+        console.error("[UserSearchResults] Failed to search users:", err);
+        return [];
+      }
+    }
+  );
+
+  createEffect(() => {
+    if (!props.id || !props.context?.registerRefetch) return;
+    const unregister = props.context.registerRefetch(props.id, () => refetch());
+    onCleanup(unregister);
+  });
+
+  return (
+    <Suspense fallback={<div class="text-center py-6 text-muted">検索中…</div>}>
+      <Show when={resolvedQuery().trim()}>
+        <Show
+          when={users() && users()!.length > 0}
+          fallback={
+            <div class="text-center py-6 text-muted">
+              {props.emptyText || "ユーザーが見つかりません"}
+            </div>
+          }
+        >
+          <div class="divide-y divide-gray-200 dark:divide-neutral-700">
+            <For each={users()}>
+              {(user: any) => (
+                <a
+                  href={`/@${user.handle || user.id}`}
+                  class="flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-neutral-800"
+                >
+                  <Avatar
+                    src={user.avatar_url || ""}
+                    alt={user.display_name || user.handle || "User"}
+                    class="w-10 h-10 rounded-full bg-gray-200 dark:bg-neutral-700"
+                  />
+                  <div class="flex-1 min-w-0">
+                    <div class="font-semibold text-gray-900 dark:text-white truncate">
+                      {user.display_name || "Unknown"}
+                    </div>
+                    <Show when={user.handle}>
+                      <div class="text-sm text-gray-500 truncate">@{user.handle}</div>
+                    </Show>
+                  </div>
+                </a>
+              )}
+            </For>
+          </div>
+        </Show>
+      </Show>
+    </Suspense>
+  );
+};
+
+/**
+ * InvitationList - Community invitations list
+ */
+const InvitationList: Component<{
+  id?: string;
+  endpoint?: string;
+  emptyText?: string;
+  context?: UiRuntimeContext;
+}> = (props) => {
+  const resolvedEndpoint = () => props.endpoint?.trim() || "/me/invitations";
+
+  const [invitations, { refetch }] = createResource(
+    resolvedEndpoint,
+    async (path) => {
+      try {
+        const result = await api(path);
+        return toArray(result);
+      } catch (err) {
+        console.error("[InvitationList] Failed to load invitations:", err);
+        return [];
+      }
+    }
+  );
+
+  createEffect(() => {
+    if (!props.id || !props.context?.registerRefetch) return;
+    const unregister = props.context.registerRefetch(props.id, () => refetch());
+    onCleanup(unregister);
+  });
+
+  const handleAccept = async (communityId: string) => {
+    try {
+      await api(`/communities/${communityId}/invitations/accept`, { method: "POST" });
+      await refetch();
+    } catch (err) {
+      console.error("[InvitationList] Failed to accept invitation:", err);
+    }
+  };
+
+  const handleDecline = async (communityId: string) => {
+    try {
+      await api(`/communities/${communityId}/invitations/decline`, { method: "POST" });
+      await refetch();
+    } catch (err) {
+      console.error("[InvitationList] Failed to decline invitation:", err);
+    }
+  };
+
+  return (
+    <Suspense fallback={<div class="text-center py-6 text-muted">読み込み中…</div>}>
+      <Show
+        when={invitations() && invitations()!.length > 0}
+        fallback={
+          <div class="text-center py-6 text-muted">
+            {props.emptyText || "招待はありません"}
+          </div>
+        }
+      >
+        <div class="space-y-3">
+          <For each={invitations()}>
+            {(invitation: any) => (
+              <div class="rounded-lg border border-gray-200 dark:border-neutral-700 p-4 bg-white dark:bg-neutral-800">
+                <div class="flex items-start gap-3">
+                  <Show when={invitation.community?.icon_url}>
+                    <img
+                      src={invitation.community.icon_url}
+                      alt=""
+                      class="w-12 h-12 rounded-lg object-cover"
+                    />
+                  </Show>
+                  <div class="flex-1 min-w-0">
+                    <div class="font-semibold text-gray-900 dark:text-white">
+                      {invitation.community?.name || invitation.community_id}
+                    </div>
+                    <Show when={invitation.message}>
+                      <div class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                        {invitation.message}
+                      </div>
+                    </Show>
+                  </div>
+                </div>
+                <div class="flex gap-2 mt-3">
+                  <button
+                    type="button"
+                    class="flex-1 rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                    onClick={() => handleAccept(invitation.community_id)}
+                  >
+                    参加する
+                  </button>
+                  <button
+                    type="button"
+                    class="flex-1 rounded-full border border-gray-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-700"
+                    onClick={() => handleDecline(invitation.community_id)}
+                  >
+                    辞退する
+                  </button>
+                </div>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+    </Suspense>
+  );
+};
+
+/**
+ * FollowRequestList - Follow requests list
+ */
+const FollowRequestList: Component<{
+  id?: string;
+  endpoint?: string;
+  emptyText?: string;
+  context?: UiRuntimeContext;
+}> = (props) => {
+  const resolvedEndpoint = () => props.endpoint?.trim() || "/me/follow-requests";
+
+  const [requests, { refetch }] = createResource(
+    resolvedEndpoint,
+    async (path) => {
+      try {
+        const result = await api(path);
+        return toArray(result);
+      } catch (err) {
+        console.error("[FollowRequestList] Failed to load follow requests:", err);
+        return [];
+      }
+    }
+  );
+
+  createEffect(() => {
+    if (!props.id || !props.context?.registerRefetch) return;
+    const unregister = props.context.registerRefetch(props.id, () => refetch());
+    onCleanup(unregister);
+  });
+
+  const handleAccept = async (requesterId: string) => {
+    try {
+      await api(`/users/${requesterId}/follow/accept`, { method: "POST" });
+      await refetch();
+    } catch (err) {
+      console.error("[FollowRequestList] Failed to accept request:", err);
+    }
+  };
+
+  const handleReject = async (requesterId: string) => {
+    try {
+      await api(`/users/${requesterId}/follow/reject`, { method: "POST" });
+      await refetch();
+    } catch (err) {
+      console.error("[FollowRequestList] Failed to reject request:", err);
+    }
+  };
+
+  return (
+    <Suspense fallback={<div class="text-center py-6 text-muted">読み込み中…</div>}>
+      <Show
+        when={requests() && requests()!.length > 0}
+        fallback={
+          <div class="text-center py-6 text-muted">
+            {props.emptyText || "フォローリクエストはありません"}
+          </div>
+        }
+      >
+        <div class="space-y-3">
+          <For each={requests()}>
+            {(request: any) => {
+              const requester = request.requester || {};
+              return (
+                <div class="rounded-lg border border-gray-200 dark:border-neutral-700 p-4 bg-white dark:bg-neutral-800">
+                  <div class="flex items-center gap-3">
+                    <Avatar
+                      src={requester.avatar_url || ""}
+                      alt={requester.display_name || "User"}
+                      class="w-12 h-12 rounded-full bg-gray-200 dark:bg-neutral-700"
+                    />
+                    <div class="flex-1 min-w-0">
+                      <div class="font-semibold text-gray-900 dark:text-white truncate">
+                        {requester.display_name || "Unknown"}
+                      </div>
+                      <Show when={requester.handle}>
+                        <div class="text-sm text-gray-500 truncate">@{requester.handle}</div>
+                      </Show>
+                    </div>
+                  </div>
+                  <div class="flex gap-2 mt-3">
+                    <button
+                      type="button"
+                      class="flex-1 rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                      onClick={() => handleAccept(request.requester_id)}
+                    >
+                      承認
+                    </button>
+                    <button
+                      type="button"
+                      class="flex-1 rounded-full border border-gray-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-700"
+                      onClick={() => handleReject(request.requester_id)}
+                    >
+                      拒否
+                    </button>
+                  </div>
+                </div>
+              );
+            }}
+          </For>
+        </div>
+      </Show>
+    </Suspense>
+  );
+};
+
+/**
+ * MessageThread - DM message thread view
+ */
+const MessageThread: Component<{
+  id?: string;
+  threadId?: string;
+  emptyText?: string;
+  context?: UiRuntimeContext;
+}> = (props) => {
+  const resolvedThreadId = () =>
+    props.threadId || props.context?.state?.activeThreadId || props.context?.routeParams?.id || "";
+
+  const [messages, { refetch }] = createResource(
+    resolvedThreadId,
+    async (threadId) => {
+      if (!threadId) return [];
+      try {
+        const result = await api(`/dm/threads/${threadId}/messages`);
+        return toArray(result);
+      } catch (err) {
+        console.error("[MessageThread] Failed to load messages:", err);
+        return [];
+      }
+    }
+  );
+
+  createEffect(() => {
+    if (!props.id || !props.context?.registerRefetch) return;
+    const unregister = props.context.registerRefetch(props.id, () => refetch());
+    onCleanup(unregister);
+  });
+
+  return (
+    <Suspense fallback={<div class="text-center py-6 text-muted">読み込み中…</div>}>
+      <Show when={resolvedThreadId()}>
+        <Show
+          when={messages() && messages()!.length > 0}
+          fallback={
+            <div class="text-center py-6 text-muted">
+              {props.emptyText || "メッセージはまだありません"}
+            </div>
+          }
+        >
+          <div class="space-y-3 max-h-[50vh] overflow-y-auto p-2">
+            <For each={messages()}>
+              {(message: any) => (
+                <div class="rounded-lg bg-gray-100 dark:bg-neutral-800 p-3">
+                  <div class="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">
+                    {message.content || message.text || ""}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {formatDateTime(message.published || message.created_at)}
+                  </div>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+      </Show>
+    </Suspense>
+  );
+};
+
+/**
+ * MessageComposer - DM message composer
+ */
+const MessageComposer: Component<{
+  threadId?: string;
+  recipients?: string[];
+  placeholder?: string;
+  onSent?: () => void;
+  context?: UiRuntimeContext;
+}> = (props) => {
+  const [text, setText] = createSignal("");
+  const [sending, setSending] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+
+  const resolvedRecipients = () =>
+    props.recipients || props.context?.state?.activeRecipients || [];
+
+  const handleSubmit = async (ev: Event) => {
+    ev.preventDefault();
+    const content = text().trim();
+    if (!content) {
+      setError("メッセージを入力してください");
+      return;
+    }
+
+    setSending(true);
+    setError(null);
+    try {
+      await api("/dm/send", {
+        method: "POST",
+        body: JSON.stringify({
+          recipients: resolvedRecipients(),
+          content,
+        }),
+      });
+      setText("");
+      if (typeof props.onSent === "function") {
+        props.onSent();
+      } else if (props.context?.refresh) {
+        props.context.refresh();
+      }
+    } catch (err: any) {
+      setError(err?.message || "送信に失敗しました");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <form class="grid gap-2" onSubmit={handleSubmit}>
+      <textarea
+        class="w-full min-h-[80px] resize-none rounded-md border border-gray-200 dark:border-neutral-800 bg-transparent p-3 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 focus:outline-none"
+        placeholder={props.placeholder || "メッセージを入力"}
+        value={text()}
+        onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
+      />
+      <Show when={error()}>
+        <div class="text-sm text-red-500">{error()}</div>
+      </Show>
+      <div class="flex justify-end">
+        <button
+          type="submit"
+          class="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
+          disabled={sending() || !text().trim()}
+        >
+          {sending() ? "送信中…" : "送信"}
+        </button>
+      </div>
+    </form>
+  );
+};
+
+/**
  * NavLink - Navigation link with active state
  */
 const NavLink: Component<{
@@ -297,11 +1473,22 @@ const PageHeader: Component<{
  * Register all custom components
  */
 export function registerCustomComponents() {
+  // Data display components
   registerUiComponent("PostFeed", PostFeed);
   registerUiComponent("StoriesBar", StoriesBar);
   registerUiComponent("UserAvatar", UserAvatar);
   registerUiComponent("ThreadList", ThreadList);
   registerUiComponent("CommunityList", CommunityList);
+  registerUiComponent("NotificationList", NotificationList);
+  registerUiComponent("PostComposer", PostComposer);
+  registerUiComponent("CommentList", CommentList);
+  registerUiComponent("CommentForm", CommentForm);
+  registerUiComponent("FriendList", FriendList);
+  registerUiComponent("UserSearchResults", UserSearchResults);
+  registerUiComponent("InvitationList", InvitationList);
+  registerUiComponent("FollowRequestList", FollowRequestList);
+  registerUiComponent("MessageThread", MessageThread);
+  registerUiComponent("MessageComposer", MessageComposer);
   registerUiComponent("NavLink", NavLink);
   registerUiComponent("PageHeader", PageHeader);
 

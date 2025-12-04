@@ -18,6 +18,7 @@ export interface AppManifestScreen {
   route: string;
   title: string;
   layout: any; // UiNode
+  state?: Record<string, { default: any }>;
 }
 
 export interface AppManifestInsert {

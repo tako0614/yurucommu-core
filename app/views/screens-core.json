@@ -6,104 +6,277 @@
       "title": "Home",
       "layout": {
         "type": "Column",
-        "props": { "id": "root", "gap": 16 },
+        "props": { "id": "home-root", "gap": 16 },
         "children": [
           {
-            "type": "StoriesBar",
-            "props": { "id": "stories" }
+            "type": "Header",
+            "props": { "title": "ホーム", "slot": "header" }
           },
           {
-            "type": "PostFeed",
-            "props": {
-              "id": "timeline",
-              "source": "home",
-              "emptyText": "まだ投稿がありません"
-            }
+            "type": "Row",
+            "props": { "gap": 16 },
+            "children": [
+              {
+                "type": "Column",
+                "props": { "gap": 12, "flex": 3 },
+                "children": [
+                  {
+                    "type": "Card",
+                    "props": { "padding": 12 },
+                    "children": [
+                      {
+                        "type": "PostComposer",
+                        "props": {
+                          "id": "home-composer",
+                          "defaultVisibility": "public",
+                          "onPosted": { "type": "refresh", "target": "home-feed" }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "StoriesBar",
+                    "props": { "id": "stories" }
+                  },
+                  {
+                    "type": "PostFeed",
+                    "props": {
+                      "id": "home-feed",
+                      "source": "home",
+                      "emptyText": "まだ投稿がありません"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Column",
+                "props": { "gap": 12, "flex": 1, "slot": "right-sidebar", "id": "home-sidebar" },
+                "children": [
+                  {
+                    "type": "Card",
+                    "props": { "padding": 12 },
+                    "children": [
+                      { "type": "Text", "props": { "text": "クイックアクセス", "variant": "subtitle" } },
+                      {
+                        "type": "Button",
+                        "props": {
+                          "text": "投稿する",
+                          "variant": "primary",
+                          "fullWidth": true,
+                          "action": "openComposer"
+                        }
+                      },
+                      {
+                        "type": "NavLink",
+                        "props": { "href": "/stories", "text": "ストーリーを見る" }
+                      },
+                      {
+                        "type": "NavLink",
+                        "props": { "href": "/settings", "text": "設定" }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
     },
+
     {
       "id": "screen.community_hub",
       "route": "/c/:id",
       "title": "Community",
       "layout": {
         "type": "Column",
-        "props": { "id": "community-hub-root", "gap": 16 },
+        "props": { "id": "community-root", "gap": 16 },
         "children": [
           {
-            "type": "PageHeader",
+            "type": "Header",
             "props": {
-              "id": "community-hub-header",
               "title": "コミュニティ",
-              "backHref": "/connections"
+              "backHref": "/connections",
+              "slot": "header"
             }
           },
           {
-            "type": "StoriesBar",
-            "props": { "id": "community-stories" }
-          },
-          {
-            "type": "PostFeed",
-            "props": {
-              "id": "community-feed",
-              "source": "community",
-              "emptyText": "このコミュニティにはまだ投稿がありません"
-            }
+            "type": "Row",
+            "props": { "gap": 16 },
+            "children": [
+              {
+                "type": "Column",
+                "props": { "gap": 12, "flex": 3 },
+                "children": [
+                  {
+                    "type": "Card",
+                    "props": { "padding": 12 },
+                    "children": [
+                      {
+                        "type": "PostComposer",
+                        "props": {
+                          "id": "community-composer",
+                          "endpoint": "/communities/{{routeParams.id}}/posts",
+                          "defaultVisibility": "public",
+                          "onPosted": { "type": "refresh", "target": "community-feed" }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "StoriesBar",
+                    "props": { "id": "community-stories", "communityId": "{{routeParams.id}}" }
+                  },
+                  {
+                    "type": "PostFeed",
+                    "props": {
+                      "id": "community-feed",
+                      "source": "community",
+                      "communityId": "{{routeParams.id}}",
+                      "emptyText": "このコミュニティにはまだ投稿がありません"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Column",
+                "props": { "gap": 12, "flex": 1, "slot": "community-sidebar", "id": "community-sidebar" },
+                "children": [
+                  {
+                    "type": "Card",
+                    "props": { "padding": 12 },
+                    "children": [
+                      { "type": "Text", "props": { "text": "コミュニティ ID", "variant": "subtitle" } },
+                      { "type": "Text", "props": { "text": "{{routeParams.id}}" } }
+                    ]
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
     },
+
     {
       "id": "screen.chat",
       "route": "/chat",
       "title": "Chat",
+      "state": {
+        "activeThreadId": { "default": "" },
+        "activeRecipients": { "default": [] }
+      },
       "layout": {
         "type": "Column",
-        "props": { "id": "chat-root", "gap": 16 },
+        "props": { "id": "chat-root", "gap": 12 },
         "children": [
+          { "type": "Header", "props": { "title": "メッセージ", "slot": "header" } },
           {
-            "type": "PageHeader",
-            "props": {
-              "id": "chat-header",
-              "title": "チャット"
-            }
-          },
-          {
-            "type": "ThreadList",
-            "props": {
-              "id": "chat-threads",
-              "emptyText": "メッセージはまだありません"
-            }
+            "type": "Row",
+            "props": { "gap": 12 },
+            "children": [
+              {
+                "type": "Column",
+                "props": { "gap": 12, "flex": 1 },
+                "children": [
+                  {
+                    "type": "Card",
+                    "props": { "padding": 12 },
+                    "children": [
+                      { "type": "Text", "props": { "text": "DMスレッド", "variant": "subtitle" } },
+                      {
+                        "type": "ThreadList",
+                        "props": { "id": "dmThreads", "emptyText": "メッセージはまだありません" }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Column",
+                "props": { "gap": 12, "flex": 2 },
+                "children": [
+                  {
+                    "type": "Conditional",
+                    "props": { "if": { "$state": "activeThreadId" } },
+                    "children": [
+                      {
+                        "type": "Card",
+                        "props": { "padding": 12 },
+                        "children": [
+                          { "type": "Text", "props": { "text": "スレッド", "variant": "subtitle" } },
+                          {
+                            "type": "MessageThread",
+                            "props": { "id": "dmMessages", "emptyText": "メッセージはまだありません" }
+                          },
+                          {
+                            "type": "MessageComposer",
+                            "props": { "placeholder": "メッセージを入力" }
+                          }
+                        ]
+                      }
+                    ],
+                    "else": [
+                      { "type": "Placeholder", "props": { "text": "左のスレッドから選択してください" } }
+                    ]
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
     },
+
+    {
+      "id": "screen.dm_thread",
+      "route": "/chat/dm/:id",
+      "title": "Direct Message",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "dm-thread-root", "gap": 12 },
+        "children": [
+          {
+            "type": "Header",
+            "props": {
+              "title": "DM",
+              "backHref": "/chat",
+              "slot": "header"
+            }
+          },
+          {
+            "type": "Card",
+            "props": { "padding": 12 },
+            "children": [
+              {
+                "type": "MessageThread",
+                "props": { "id": "dmThreadMessages", "emptyText": "メッセージはまだありません" }
+              },
+              {
+                "type": "MessageComposer",
+                "props": { "placeholder": "メッセージを入力" }
+              }
+            ]
+          }
+        ]
+      }
+    },
+
     {
       "id": "screen.dm_list",
       "route": "/dm",
       "title": "Direct Messages",
       "layout": {
         "type": "Column",
-        "props": { "id": "dm-root", "gap": 16 },
+        "props": { "id": "dm-redirect", "gap": 12 },
         "children": [
-          {
-            "type": "PageHeader",
-            "props": {
-              "id": "dm-header",
-              "title": "メッセージ"
-            }
-          },
-          {
-            "type": "ThreadList",
-            "props": {
-              "id": "dm-threads",
-              "emptyText": "メッセージはまだありません"
-            }
-          }
+          { "type": "Header", "props": { "title": "DM", "slot": "header" } },
+          { "type": "Placeholder", "props": { "text": "DM は /chat に統合されています。" } },
+          { "type": "NavLink", "props": { "href": "/chat", "text": "チャットに移動" } }
         ]
       }
     },
+
     {
       "id": "screen.communities",
       "route": "/communities",
@@ -112,24 +285,15 @@
         "type": "Column",
         "props": { "id": "communities-root", "gap": 16 },
         "children": [
-          {
-            "type": "PageHeader",
-            "props": {
-              "id": "communities-header",
-              "title": "コミュニティ"
-            }
-          },
+          { "type": "Header", "props": { "title": "コミュニティ", "slot": "header" } },
           {
             "type": "CommunityList",
-            "props": {
-              "id": "community-list",
-              "showJoined": true,
-              "emptyText": "まだコミュニティに参加していません"
-            }
+            "props": { "id": "community-list", "showJoined": true, "emptyText": "まだコミュニティに参加していません" }
           }
         ]
       }
     },
+
     {
       "id": "screen.connections",
       "route": "/connections",
@@ -138,20 +302,38 @@
         "type": "Column",
         "props": { "id": "connections-root", "gap": 16 },
         "children": [
+          { "type": "Header", "props": { "title": "つながり", "slot": "header" } },
           {
-            "type": "PageHeader",
-            "props": {
-              "id": "connections-header",
-              "title": "つながり"
-            }
-          },
-          {
-            "type": "Placeholder",
-            "props": { "text": "Connections content (use native component for now)" }
+            "type": "Row",
+            "props": { "gap": 12 },
+            "children": [
+              {
+                "type": "Card",
+                "props": { "padding": 12, "shadow": true, "flex": 2 },
+                "children": [
+                  { "type": "Text", "props": { "text": "友達", "variant": "subtitle" } },
+                  {
+                    "type": "FriendList",
+                    "props": { "id": "friends", "emptyText": "まだ友達がいません" }
+                  }
+                ]
+              },
+              {
+                "type": "Card",
+                "props": { "padding": 12, "shadow": true, "flex": 1 },
+                "children": [
+                  { "type": "Text", "props": { "text": "アクション", "variant": "subtitle" } },
+                  { "type": "NavLink", "props": { "href": "/follow-requests", "text": "フォロー申請" } },
+                  { "type": "NavLink", "props": { "href": "/invitations", "text": "コミュニティ招待" } },
+                  { "type": "NavLink", "props": { "href": "/users", "text": "ユーザー検索" } }
+                ]
+              }
+            ]
           }
         ]
       }
     },
+
     {
       "id": "screen.stories",
       "route": "/stories",
@@ -160,20 +342,28 @@
         "type": "Column",
         "props": { "id": "stories-root", "gap": 16 },
         "children": [
+          { "type": "Header", "props": { "title": "ストーリー", "slot": "header" } },
+          { "type": "StoriesBar", "props": { "id": "stories-bar" } },
           {
-            "type": "PageHeader",
-            "props": {
-              "id": "stories-header",
-              "title": "ストーリー"
-            }
-          },
-          {
-            "type": "StoriesBar",
-            "props": { "id": "stories-bar" }
+            "type": "ApiList",
+            "props": { "id": "stories-list", "path": "/stories", "emptyText": "ストーリーはありません" },
+            "children": [
+              {
+                "type": "Card",
+                "props": { "padding": 12, "shadow": false },
+                "children": [
+                  { "type": "Text", "props": { "text": "{{item.author_id}}", "variant": "subtitle" } },
+                  { "type": "Text", "props": { "text": "{{item.user_id}}", "variant": "subtitle" } },
+                  { "type": "Text", "props": { "text": "{{item.caption}}" } },
+                  { "type": "Text", "props": { "text": "{{item.created_at}}", "variant": "subtitle" } }
+                ]
+              }
+            ]
           }
         ]
       }
     },
+
     {
       "id": "screen.compose",
       "route": "/compose",
@@ -183,20 +373,40 @@
         "props": { "id": "compose-root", "gap": 16 },
         "children": [
           {
-            "type": "PageHeader",
-            "props": {
-              "id": "compose-header",
-              "title": "新規投稿",
-              "backHref": "/"
-            }
+            "type": "Header",
+            "props": { "title": "新規投稿", "backHref": "/", "slot": "header" }
           },
           {
-            "type": "Placeholder",
-            "props": { "text": "Compose content (use native component for now)" }
+            "type": "Card",
+            "props": { "padding": 12 },
+            "children": [
+              {
+                "type": "PostComposer",
+                "props": {
+                  "id": "compose-composer",
+                  "defaultVisibility": "public"
+                }
+              }
+            ]
+          },
+          {
+            "type": "ApiList",
+            "props": { "id": "drafts", "path": "/post-plans?status=draft", "emptyText": "下書きはありません" },
+            "children": [
+              {
+                "type": "Card",
+                "props": { "padding": 10, "shadow": false },
+                "children": [
+                  { "type": "Text", "props": { "text": "{{item.text}}", "variant": "body" } },
+                  { "type": "Text", "props": { "text": "{{item.scheduled_at}}", "variant": "subtitle" } }
+                ]
+              }
+            ]
           }
         ]
       }
     },
+
     {
       "id": "screen.post_detail",
       "route": "/posts/:id",
@@ -206,20 +416,30 @@
         "props": { "id": "post-detail-root", "gap": 16 },
         "children": [
           {
-            "type": "PageHeader",
-            "props": {
-              "id": "post-detail-header",
-              "title": "投稿",
-              "backHref": "/"
-            }
+            "type": "Header",
+            "props": { "title": "投稿", "backHref": "/", "slot": "header" }
           },
           {
-            "type": "Placeholder",
-            "props": { "text": "Post detail content (use native component for now)" }
-          }
+            "type": "ApiData",
+            "props": { "path": "/posts/{{routeParams.id}}" },
+            "children": [
+              {
+                "type": "Card",
+                "props": { "padding": 12 },
+                "children": [
+                  { "type": "Text", "props": { "text": "{{data.author_id}}", "variant": "subtitle" } },
+                  { "type": "Text", "props": { "text": "{{data.text}}" } },
+                  { "type": "Text", "props": { "text": "{{data.created_at}}", "variant": "subtitle" } }
+                ]
+              }
+            ]
+          },
+          { "type": "CommentForm", "props": { "endpoint": "/posts/{{routeParams.id}}/comments", "autoFocus": true } },
+          { "type": "CommentList", "props": { "id": "comments", "endpoint": "/posts/{{routeParams.id}}/comments" } }
         ]
       }
     },
+
     {
       "id": "screen.profile",
       "route": "/profile",
@@ -228,21 +448,28 @@
         "type": "Column",
         "props": { "id": "profile-root", "gap": 16 },
         "children": [
+          { "type": "Header", "props": { "title": "プロフィール", "slot": "header" } },
           {
-            "type": "PageHeader",
-            "props": {
-              "id": "profile-header",
-              "title": "プロフィール",
-              "backHref": "/"
-            }
-          },
-          {
-            "type": "Placeholder",
-            "props": { "text": "Profile content (use native component for now)" }
+            "type": "ApiData",
+            "props": { "path": "/me" },
+            "children": [
+              {
+                "type": "Card",
+                "props": { "padding": 12 },
+                "children": [
+                  { "type": "UserAvatar", "props": { "src": "{{data.avatar_url}}", "size": "lg", "alt": "{{data.display_name}}" } },
+                  { "type": "Text", "props": { "text": "{{data.display_name}}", "variant": "subtitle" } },
+                  { "type": "Text", "props": { "text": "{{data.handle}}", "variant": "subtitle" } },
+                  { "type": "Text", "props": { "text": "{{data.id}}", "variant": "subtitle" } },
+                  { "type": "NavLink", "props": { "href": "/profile/edit", "text": "プロフィール編集" } }
+                ]
+              }
+            ]
           }
         ]
       }
     },
+
     {
       "id": "screen.profile_edit",
       "route": "/profile/edit",
@@ -252,20 +479,34 @@
         "props": { "id": "profile-edit-root", "gap": 16 },
         "children": [
           {
-            "type": "PageHeader",
-            "props": {
-              "id": "profile-edit-header",
-              "title": "プロフィール編集",
-              "backHref": "/profile"
-            }
+            "type": "Header",
+            "props": { "title": "プロフィール編集", "backHref": "/profile", "slot": "header" }
           },
           {
-            "type": "Placeholder",
-            "props": { "text": "Profile edit content (use native component for now)" }
+            "type": "Form",
+            "props": {
+              "gap": 12,
+              "onSubmit": {
+                "type": "api",
+                "method": "PATCH",
+                "endpoint": "/me",
+                "body": {
+                  "display_name": "{{form.values.display_name}}",
+                  "avatar_url": "{{form.values.avatar_url}}"
+                },
+                "onSuccess": { "type": "navigate", "to": "/profile" }
+              }
+            },
+            "children": [
+              { "type": "Input", "props": { "name": "display_name", "placeholder": "表示名", "required": true } },
+              { "type": "Input", "props": { "name": "avatar_url", "placeholder": "アバターURL" } },
+              { "type": "Button", "props": { "text": "保存", "submit": true, "loadingText": "保存中..." } }
+            ]
           }
         ]
       }
     },
+
     {
       "id": "screen.settings",
       "route": "/settings",
@@ -274,43 +515,69 @@
         "type": "Column",
         "props": { "id": "settings-root", "gap": 16 },
         "children": [
+          { "type": "Header", "props": { "title": "設定", "backHref": "/", "slot": "header" } },
           {
-            "type": "PageHeader",
-            "props": {
-              "id": "settings-header",
-              "title": "設定",
-              "backHref": "/"
-            }
-          },
-          {
-            "type": "Placeholder",
-            "props": { "text": "Settings content (use native component for now)" }
+            "type": "Row",
+            "props": { "gap": 12 },
+            "children": [
+              {
+                "type": "Card",
+                "props": { "padding": 12 },
+                "children": [
+                  { "type": "Text", "props": { "text": "アカウント", "variant": "subtitle" } },
+                  { "type": "NavLink", "props": { "href": "/profile", "text": "プロフィールを見る" } },
+                  { "type": "NavLink", "props": { "href": "/profile/edit", "text": "プロフィール編集" } }
+                ]
+              },
+              {
+                "type": "Card",
+                "props": { "padding": 12 },
+                "children": [
+                  { "type": "Text", "props": { "text": "通知", "variant": "subtitle" } },
+                  { "type": "NavLink", "props": { "href": "/notifications", "text": "通知を見る" } }
+                ]
+              }
+            ]
           }
         ]
       }
     },
+
     {
       "id": "screen.users",
       "route": "/users",
       "title": "User Search",
+      "state": {
+        "userQuery": { "default": "" }
+      },
       "layout": {
         "type": "Column",
         "props": { "id": "users-root", "gap": 16 },
         "children": [
+          { "type": "Header", "props": { "title": "ユーザー検索", "slot": "header" } },
           {
-            "type": "PageHeader",
+            "type": "Form",
             "props": {
-              "id": "users-header",
-              "title": "ユーザー検索"
-            }
+              "gap": 8,
+              "onSubmit": {
+                "type": "setState",
+                "key": "userQuery",
+                "value": "{{form.values.query}}"
+              }
+            },
+            "children": [
+              { "type": "Input", "props": { "name": "query", "placeholder": "@handle や名前を入力", "required": true } },
+              { "type": "Button", "props": { "text": "検索", "submit": true } }
+            ]
           },
           {
-            "type": "Placeholder",
-            "props": { "text": "User search content (use native component for now)" }
+            "type": "UserSearchResults",
+            "props": { "id": "user-search-results", "emptyText": "ユーザーが見つかりません" }
           }
         ]
       }
     },
+
     {
       "id": "screen.invitations",
       "route": "/invitations",
@@ -319,20 +586,15 @@
         "type": "Column",
         "props": { "id": "invitations-root", "gap": 16 },
         "children": [
+          { "type": "Header", "props": { "title": "招待", "slot": "header" } },
           {
-            "type": "PageHeader",
-            "props": {
-              "id": "invitations-header",
-              "title": "招待"
-            }
-          },
-          {
-            "type": "Placeholder",
-            "props": { "text": "Invitations content (use native component for now)" }
+            "type": "InvitationList",
+            "props": { "id": "invitations-list", "emptyText": "招待はありません" }
           }
         ]
       }
     },
+
     {
       "id": "screen.follow_requests",
       "route": "/follow-requests",
@@ -341,20 +603,32 @@
         "type": "Column",
         "props": { "id": "follow-requests-root", "gap": 16 },
         "children": [
+          { "type": "Header", "props": { "title": "フォローリクエスト", "slot": "header" } },
           {
-            "type": "PageHeader",
-            "props": {
-              "id": "follow-requests-header",
-              "title": "フォローリクエスト"
-            }
-          },
-          {
-            "type": "Placeholder",
-            "props": { "text": "Follow requests content (use native component for now)" }
+            "type": "FollowRequestList",
+            "props": { "id": "follow-requests", "emptyText": "リクエストはありません" }
           }
         ]
       }
     },
+
+    {
+      "id": "screen.notifications",
+      "route": "/notifications",
+      "title": "Notifications",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "notifications-root", "gap": 16 },
+        "children": [
+          { "type": "Header", "props": { "title": "通知", "slot": "header" } },
+          {
+            "type": "NotificationList",
+            "props": { "id": "notifications-list", "groupByDate": true, "emptyText": "通知はありません" }
+          }
+        ]
+      }
+    },
+
     {
       "id": "screen.onboarding",
       "route": "/onboarding",
@@ -363,16 +637,23 @@
         "type": "Column",
         "props": { "id": "onboarding-root", "gap": 16 },
         "children": [
+          { "type": "Header", "props": { "title": "はじめに", "slot": "header" } },
           {
-            "type": "PageHeader",
+            "type": "Form",
             "props": {
-              "id": "onboarding-header",
-              "title": "はじめに"
-            }
-          },
-          {
-            "type": "Placeholder",
-            "props": { "text": "Onboarding content (use native component for now)" }
+              "gap": 12,
+              "onSubmit": {
+                "type": "api",
+                "method": "PATCH",
+                "endpoint": "/me",
+                "body": { "display_name": "{{form.values.display_name}}" },
+                "onSuccess": { "type": "navigate", "to": "/" }
+              }
+            },
+            "children": [
+              { "type": "Input", "props": { "name": "display_name", "placeholder": "表示名を入力", "required": true } },
+              { "type": "Button", "props": { "text": "開始する", "submit": true } }
+            ]
           }
         ]
       }

@@ -25,7 +25,7 @@ import UserSearch from "./pages/UserSearch";
 import Invitations from "./pages/Invitations";
 import FriendRequests from "./pages/FriendRequests";
 import { ToastProvider } from "./components/Toast";
-import { ShellContextProvider } from "./lib/shell-context";
+import { ShellContextProvider, useShellContext } from "./lib/shell-context";
 import DynamicScreen from "./pages/DynamicScreen";
 import { registerCustomComponents } from "./lib/ui-components";
 import { RenderScreen } from "./lib/ui-runtime";
@@ -299,6 +299,7 @@ function MainLayout(props: { children?: any }) {
 
 function ManifestScreenBoundary(props: { manifest: Resource<AppManifest | undefined>; fallback: JSX.Element }) {
   const location = useLocation();
+  const shell = useShellContext();
 
   const matchedScreen = createMemo<AppManifestScreen | undefined>(() => {
     if (!USE_DYNAMIC_SCREENS) return undefined;
@@ -312,6 +313,11 @@ function ManifestScreenBoundary(props: { manifest: Resource<AppManifest | undefi
     if (!screen) return {};
     return extractRouteParams(screen.route, location.pathname);
   });
+
+  const actions = createMemo(() => ({
+    ...(shell?.onOpenComposer ? { openComposer: shell.onOpenComposer } : {}),
+    ...(shell?.onOpenNotifications ? { openNotifications: shell.onOpenNotifications } : {}),
+  }));
 
   if (!USE_DYNAMIC_SCREENS) {
     return props.fallback;
@@ -334,6 +340,7 @@ function ManifestScreenBoundary(props: { manifest: Resource<AppManifest | undefi
           context={{
             routeParams: routeParams(),
             location: location.pathname,
+            actions: actions(),
           }}
         />
       )}

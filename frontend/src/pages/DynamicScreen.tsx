@@ -3,6 +3,7 @@ import { createSignal, createEffect, onMount, Show } from "solid-js";
 import { useLocation } from "@solidjs/router";
 import { RenderScreen } from "../lib/ui-runtime";
 import { loadAppManifest, getScreenByRoute, extractRouteParams, type AppManifest, type AppManifestScreen } from "../lib/app-manifest";
+import { useShellContext } from "../lib/shell-context";
 
 /**
  * DynamicScreen Component
@@ -12,6 +13,7 @@ import { loadAppManifest, getScreenByRoute, extractRouteParams, type AppManifest
  */
 const DynamicScreen: Component = () => {
   const location = useLocation();
+  const shell = useShellContext();
   const [manifest, setManifest] = createSignal<AppManifest | null>(null);
   const [screen, setScreen] = createSignal<AppManifestScreen | null>(null);
   const [routeParams, setRouteParams] = createSignal<Record<string, string>>({});
@@ -70,6 +72,10 @@ const DynamicScreen: Component = () => {
             context={{
               routeParams: routeParams(),
               location: location.pathname,
+              actions: {
+                ...(shell?.onOpenComposer ? { openComposer: shell.onOpenComposer } : {}),
+                ...(shell?.onOpenNotifications ? { openNotifications: shell.onOpenNotifications } : {}),
+              },
             }}
           />
         )}
