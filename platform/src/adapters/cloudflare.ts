@@ -217,7 +217,9 @@ class CloudflareCrypto implements CryptoAdapter {
   }
 
   getRandomValues<T extends ArrayBufferView | null>(array: T): T {
-    return crypto.getRandomValues(array);
+    if (array === null) return array;
+    // TypeScript has strict generics constraints; use unknown cast
+    return crypto.getRandomValues(array as unknown as Uint8Array) as unknown as T;
   }
 }
 

@@ -6,7 +6,8 @@ import type {
 import { ok, fail } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
 import takosProfile from "../../../takos-profile.json";
-import { loadAppManifest, createInMemoryAppSource, type AppDefinitionSource } from "@takos/platform/app/manifest-loader";
+import { loadAppManifest, createInMemoryAppSource } from "@takos/platform/app/manifest-loader";
+import type { AppDefinitionSource } from "@takos/platform/app";
 
 // Static manifest files bundled at build time for validation
 import takosAppJson from "../../../takos-app.json";

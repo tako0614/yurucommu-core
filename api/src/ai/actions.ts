@@ -459,7 +459,9 @@ const chatActionHandler: AiActionHandler<ChatActionInput, ChatActionOutput> = as
         message: completion.choices[0]?.message ?? null,
         usage: completion.usage,
         raw: completion.raw,
-        redacted: prepared.redacted.length ? prepared.redacted : undefined,
+        redacted: prepared.redacted.length
+          ? prepared.redacted.map((r) => ({ field: String(r.field), reason: r.reason }))
+          : undefined,
         usedAi: true,
       };
     } catch (error: any) {

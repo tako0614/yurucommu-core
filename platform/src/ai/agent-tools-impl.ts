@@ -18,7 +18,7 @@ import type {
   RunAIActionOutput,
   AgentTools,
 } from "./agent-tools.js";
-import type { AiActionRegistry } from "./action-registry.js";
+import type { AiRegistry, AiActionDefinition } from "./action-registry.js";
 import type { ProposalQueue, ProposalMetadata } from "./proposal-queue.js";
 
 /**
@@ -78,7 +78,7 @@ function getValueByPath(obj: unknown, path: string): unknown {
  */
 export interface AgentToolsFactoryOptions {
   /** AI Action Registry */
-  actionRegistry: AiActionRegistry;
+  actionRegistry: AiRegistry;
   /** 提案キュー（手動承認モード用） */
   proposalQueue?: ProposalQueue;
   /** 設定変更の allowlist */
@@ -180,7 +180,7 @@ export function createAgentTools(options: AgentToolsFactoryOptions): AgentTools 
       coreVersion: config.schema_version ?? "1.0",
       distroName: config.distro?.name ?? "takos-oss",
       distroVersion: config.distro?.version ?? "0.1.0",
-      availableActions: input.level === "full" ? allActions : allActions.map((a) => ({
+      availableActions: input.level === "full" ? allActions : allActions.map((a: AiActionDefinition) => ({
         id: a.id,
         label: a.label,
         description: a.description,
@@ -197,10 +197,10 @@ export function createAgentTools(options: AgentToolsFactoryOptions): AgentTools 
         dm: true,
       },
       dataPolicy: config.ai?.data_policy ? {
-        sendPublicPosts: config.ai.data_policy.sendPublicPosts ?? true,
-        sendCommunityPosts: config.ai.data_policy.sendCommunityPosts ?? false,
-        sendDm: config.ai.data_policy.sendDm ?? false,
-        sendProfile: config.ai.data_policy.sendProfile ?? true,
+        sendPublicPosts: config.ai.data_policy.send_public_posts ?? true,
+        sendCommunityPosts: config.ai.data_policy.send_community_posts ?? false,
+        sendDm: config.ai.data_policy.send_dm ?? false,
+        sendProfile: config.ai.data_policy.send_profile ?? true,
       } : undefined,
     };
   };

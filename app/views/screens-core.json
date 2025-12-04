@@ -24,18 +24,18 @@
       }
     },
     {
-      "id": "screen.community",
-      "route": "/communities/:id",
+      "id": "screen.community_hub",
+      "route": "/c/:id",
       "title": "Community",
       "layout": {
         "type": "Column",
-        "props": { "id": "community-root", "gap": 16 },
+        "props": { "id": "community-hub-root", "gap": 16 },
         "children": [
           {
             "type": "PageHeader",
             "props": {
-              "id": "community-header",
-              "title": "Community",
+              "id": "community-hub-header",
+              "title": "コミュニティ",
               "backHref": "/connections"
             }
           },
@@ -49,6 +49,31 @@
               "id": "community-feed",
               "source": "community",
               "emptyText": "このコミュニティにはまだ投稿がありません"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.chat",
+      "route": "/chat",
+      "title": "Chat",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "chat-root", "gap": 16 },
+        "children": [
+          {
+            "type": "PageHeader",
+            "props": {
+              "id": "chat-header",
+              "title": "チャット"
+            }
+          },
+          {
+            "type": "ThreadList",
+            "props": {
+              "id": "chat-threads",
+              "emptyText": "メッセージはまだありません"
             }
           }
         ]
@@ -106,8 +131,98 @@
       }
     },
     {
+      "id": "screen.connections",
+      "route": "/connections",
+      "title": "Connections",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "connections-root", "gap": 16 },
+        "children": [
+          {
+            "type": "PageHeader",
+            "props": {
+              "id": "connections-header",
+              "title": "つながり"
+            }
+          },
+          {
+            "type": "Placeholder",
+            "props": { "text": "Connections content (use native component for now)" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.stories",
+      "route": "/stories",
+      "title": "Stories",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "stories-root", "gap": 16 },
+        "children": [
+          {
+            "type": "PageHeader",
+            "props": {
+              "id": "stories-header",
+              "title": "ストーリー"
+            }
+          },
+          {
+            "type": "StoriesBar",
+            "props": { "id": "stories-bar" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.compose",
+      "route": "/compose",
+      "title": "Compose",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "compose-root", "gap": 16 },
+        "children": [
+          {
+            "type": "PageHeader",
+            "props": {
+              "id": "compose-header",
+              "title": "新規投稿",
+              "backHref": "/"
+            }
+          },
+          {
+            "type": "Placeholder",
+            "props": { "text": "Compose content (use native component for now)" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.post_detail",
+      "route": "/posts/:id",
+      "title": "Post",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "post-detail-root", "gap": 16 },
+        "children": [
+          {
+            "type": "PageHeader",
+            "props": {
+              "id": "post-detail-header",
+              "title": "投稿",
+              "backHref": "/"
+            }
+          },
+          {
+            "type": "Placeholder",
+            "props": { "text": "Post detail content (use native component for now)" }
+          }
+        ]
+      }
+    },
+    {
       "id": "screen.profile",
-      "route": "/profile/:id",
+      "route": "/profile",
       "title": "Profile",
       "layout": {
         "type": "Column",
@@ -124,6 +239,29 @@
           {
             "type": "Placeholder",
             "props": { "text": "Profile content (use native component for now)" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.profile_edit",
+      "route": "/profile/edit",
+      "title": "Edit Profile",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "profile-edit-root", "gap": 16 },
+        "children": [
+          {
+            "type": "PageHeader",
+            "props": {
+              "id": "profile-edit-header",
+              "title": "プロフィール編集",
+              "backHref": "/profile"
+            }
+          },
+          {
+            "type": "Placeholder",
+            "props": { "text": "Profile edit content (use native component for now)" }
           }
         ]
       }
@@ -147,6 +285,94 @@
           {
             "type": "Placeholder",
             "props": { "text": "Settings content (use native component for now)" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.users",
+      "route": "/users",
+      "title": "User Search",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "users-root", "gap": 16 },
+        "children": [
+          {
+            "type": "PageHeader",
+            "props": {
+              "id": "users-header",
+              "title": "ユーザー検索"
+            }
+          },
+          {
+            "type": "Placeholder",
+            "props": { "text": "User search content (use native component for now)" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.invitations",
+      "route": "/invitations",
+      "title": "Invitations",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "invitations-root", "gap": 16 },
+        "children": [
+          {
+            "type": "PageHeader",
+            "props": {
+              "id": "invitations-header",
+              "title": "招待"
+            }
+          },
+          {
+            "type": "Placeholder",
+            "props": { "text": "Invitations content (use native component for now)" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.follow_requests",
+      "route": "/follow-requests",
+      "title": "Follow Requests",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "follow-requests-root", "gap": 16 },
+        "children": [
+          {
+            "type": "PageHeader",
+            "props": {
+              "id": "follow-requests-header",
+              "title": "フォローリクエスト"
+            }
+          },
+          {
+            "type": "Placeholder",
+            "props": { "text": "Follow requests content (use native component for now)" }
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.onboarding",
+      "route": "/onboarding",
+      "title": "Onboarding",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "onboarding-root", "gap": 16 },
+        "children": [
+          {
+            "type": "PageHeader",
+            "props": {
+              "id": "onboarding-header",
+              "title": "はじめに"
+            }
+          },
+          {
+            "type": "Placeholder",
+            "props": { "text": "Onboarding content (use native component for now)" }
           }
         ]
       }

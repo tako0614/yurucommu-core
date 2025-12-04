@@ -75,7 +75,7 @@ export default function App() {
             path="/onboarding"
             component={() => (
               <RequireAuth allowIncompleteProfile>
-                <Onboarding />
+                <ManifestScreenBoundary manifest={manifest} fallback={<Onboarding />} />
               </RequireAuth>
             )}
           />
@@ -83,7 +83,7 @@ export default function App() {
             path="/connections"
             component={() => (
               <RequireAuth>
-                <Connections />
+                <ManifestScreenBoundary manifest={manifest} fallback={<Connections />} />
               </RequireAuth>
             )}
           />
@@ -101,7 +101,7 @@ export default function App() {
             path="/users"
             component={() => (
               <RequireAuth>
-                <UserSearch />
+                <ManifestScreenBoundary manifest={manifest} fallback={<UserSearch />} />
               </RequireAuth>
             )}
           />
@@ -109,7 +109,7 @@ export default function App() {
             path="/invitations"
             component={() => (
               <RequireAuth>
-                <Invitations />
+                <ManifestScreenBoundary manifest={manifest} fallback={<Invitations />} />
               </RequireAuth>
             )}
           />
@@ -117,7 +117,7 @@ export default function App() {
             path="/follow-requests"
             component={() => (
               <RequireAuth>
-                <FriendRequests />
+                <ManifestScreenBoundary manifest={manifest} fallback={<FriendRequests />} />
               </RequireAuth>
             )}
           />
@@ -126,7 +126,7 @@ export default function App() {
             path="/c/:id"
             component={() => (
               <RequireAuth>
-                <CommunityHub />
+                <ManifestScreenBoundary manifest={manifest} fallback={<CommunityHub />} />
               </RequireAuth>
             )}
           />
@@ -165,7 +165,7 @@ export default function App() {
             path="/compose"
             component={() => (
               <RequireAuth>
-                <Compose />
+                <ManifestScreenBoundary manifest={manifest} fallback={<Compose />} />
               </RequireAuth>
             )}
           />
@@ -189,7 +189,7 @@ export default function App() {
             path="/posts/:id"
             component={() => (
               <RequireAuth>
-                <PostDetail />
+                <ManifestScreenBoundary manifest={manifest} fallback={<PostDetail />} />
               </RequireAuth>
             )}
           />
@@ -205,7 +205,7 @@ export default function App() {
             path="/profile/edit"
             component={() => (
               <RequireAuth>
-                <EditProfile />
+                <ManifestScreenBoundary manifest={manifest} fallback={<EditProfile />} />
               </RequireAuth>
             )}
           />

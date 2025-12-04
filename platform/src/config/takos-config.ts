@@ -102,6 +102,10 @@ export type JsonSchema = {
   additionalProperties?: boolean | JsonSchema;
   default?: unknown;
   anyOf?: JsonSchema[];
+  minItems?: number;
+  maxItems?: number;
+  minimum?: number;
+  maximum?: number;
 };
 
 export const DEFAULT_TAKOS_AI_CONFIG: TakosAiConfig = {
@@ -526,7 +530,6 @@ export function parseTakosConfig(json: string): TakosConfig {
  */
 export async function loadTakosConfig(filePath = "takos-config.json"): Promise<TakosConfig> {
   // Dynamic import to avoid bundler issues in browser environments
-  // @ts-expect-error - node:fs/promises is only available in Node.js
   const fs = await import("node:fs/promises");
   const content = await fs.readFile(filePath, "utf-8");
   return parseTakosConfig(content);

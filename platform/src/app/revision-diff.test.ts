@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { diffAppRevisionManifests } from "./revision-diff";
+import type { AppManifest, HttpMethod } from "./types";
 
-const baseManifest = {
+const baseManifest: AppManifest = {
   schemaVersion: "1.0",
   version: "1.0.0",
   routes: [
-    { id: "home", method: "GET", path: "/", handler: "homeTimeline" },
-    { id: "me", method: "GET", path: "/me", handler: "getMe", auth: true },
+    { id: "home", method: "GET" as HttpMethod, path: "/", handler: "homeTimeline" },
+    { id: "me", method: "GET" as HttpMethod, path: "/me", handler: "getMe", auth: true },
   ],
   views: {
     screens: [{ id: "screen.home", route: "/", title: "Home", layout: { type: "Text" } }],
@@ -27,13 +28,13 @@ const baseManifest = {
   },
 };
 
-const nextManifest = {
+const nextManifest: AppManifest = {
   ...baseManifest,
   version: "1.1.0",
   routes: [
-    { id: "home", method: "GET", path: "/", handler: "homeTimeline" },
-    { id: "me", method: "GET", path: "/users/me", handler: "getMe", auth: true },
-    { id: "posts", method: "POST", path: "/posts", handler: "createPost", auth: true },
+    { id: "home", method: "GET" as HttpMethod, path: "/", handler: "homeTimeline" },
+    { id: "me", method: "GET" as HttpMethod, path: "/users/me", handler: "getMe", auth: true },
+    { id: "posts", method: "POST" as HttpMethod, path: "/posts", handler: "createPost", auth: true },
   ],
   views: {
     screens: [
