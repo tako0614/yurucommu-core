@@ -22,6 +22,33 @@ export type {
   Reaction,
   BookmarkPage,
 } from "./post-service";
+
+// ObjectService (PLAN.md 10.2 / 10.5)
+export type {
+  ObjectService,
+  ObjectServiceFactory,
+  APObject,
+  APObjectType,
+  APVisibility,
+  APAttachment,
+  APTag,
+  APPoll,
+  APStory,
+  APStoryItem,
+  StoredObject,
+  CreateObjectInput,
+  UpdateObjectInput,
+  ObjectQueryParams,
+  ObjectTimelineParams,
+  ObjectPage,
+} from "./object-service";
+export {
+  visibilityToRecipients,
+  recipientsToVisibility,
+  createTakosContext,
+  generateLocalId,
+  generateObjectId,
+} from "./object-service";
 export type {
   UserService,
   UpdateProfileInput,
@@ -49,6 +76,7 @@ import type { CommunityService } from "./community-service";
 import type { DMService } from "./dm-service";
 import type { StoryService } from "./story-service";
 import type { MediaService } from "./media-service";
+import type { ObjectService } from "./object-service";
 
 /**
  * Core Kernel サービスのレジストリ
@@ -62,4 +90,6 @@ export interface CoreServices {
   dm: DMService;
   stories: StoryService;
   media?: MediaService;
+  /** Objects コレクション統合サービス (PLAN.md 10.2) */
+  objects?: ObjectService;
 }
