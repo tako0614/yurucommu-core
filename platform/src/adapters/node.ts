@@ -292,6 +292,7 @@ class SQLiteDatabase implements DatabaseAdapter {
 
     // Try better-sqlite3 first (faster, but requires native compilation)
     try {
+      // @ts-expect-error - better-sqlite3 is an optional dependency
       const Database = (await import("better-sqlite3")).default;
       this.db = new Database(this.databasePath);
       this.useSqlJs = false;
@@ -301,6 +302,7 @@ class SQLiteDatabase implements DatabaseAdapter {
     }
 
     try {
+      // @ts-expect-error - sql.js is an optional dependency
       const initSqlJs = (await import("sql.js")).default;
       const SQL = await initSqlJs();
       const fs = await import("fs/promises");
@@ -410,18 +412,19 @@ class SQLiteDatabase implements DatabaseAdapter {
 
 // Node.js crypto adapter using Web Crypto API (available in Node 15+)
 class NodeCrypto implements CryptoAdapter {
-  private cryptoModule: typeof globalThis.crypto | null = null;
+  private cryptoModule: Crypto | null = null;
 
   private async ensureCrypto() {
     if (this.cryptoModule) return;
     // Node.js 15+ has globalThis.crypto
-    if (typeof globalThis.crypto !== "undefined") {
-      this.cryptoModule = globalThis.crypto;
+    const globalCrypto = (globalThis as unknown as { crypto?: Crypto }).crypto;
+    if (globalCrypto) {
+      this.cryptoModule = globalCrypto;
       return;
     }
     // For older Node.js, use the crypto module
     const { webcrypto } = await import("crypto");
-    this.cryptoModule = webcrypto as unknown as typeof globalThis.crypto;
+    this.cryptoModule = webcrypto as unknown as Crypto;
   }
 
   get subtle(): SubtleCrypto {
@@ -442,7 +445,9 @@ class NodeCrypto implements CryptoAdapter {
     if (!this.cryptoModule) {
       throw new Error("Crypto not initialized. Call initialize() first.");
     }
-    return this.cryptoModule.getRandomValues(array);
+    if (array === null) return array;
+    // TypeScript has strict generics constraints; use unknown cast
+    return this.cryptoModule.getRandomValues(array as unknown as Uint8Array) as unknown as T;
   }
 
   async initialize() {

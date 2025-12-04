@@ -48,7 +48,12 @@ class CloudflareWebSocketAdapter implements WebSocketAdapter {
   }
 
   send(data: string | ArrayBuffer | Blob): void {
-    this.ws.send(data);
+    // Cloudflare Workers WebSocket doesn't support Blob directly
+    if (data instanceof Blob) {
+      data.arrayBuffer().then((buf) => this.ws.send(buf));
+    } else {
+      this.ws.send(data);
+    }
   }
 
   close(code?: number, reason?: string): void {

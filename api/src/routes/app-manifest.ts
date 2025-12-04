@@ -7,7 +7,8 @@
 import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings } from "@takos/platform/server";
 import { fail } from "@takos/platform/server";
-import { loadAppManifest, createInMemoryAppSource, type AppDefinitionSource } from "@takos/platform/app/manifest-loader";
+import { loadAppManifest, createInMemoryAppSource } from "@takos/platform/app/manifest-loader";
+import type { AppDefinitionSource } from "@takos/platform/app";
 import { optionalAuth } from "../middleware/auth";
 
 // Static manifest files bundled at build time

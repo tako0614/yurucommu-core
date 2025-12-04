@@ -163,8 +163,14 @@ const parseManifestSnapshot = (snapshot: unknown): AppManifest | null => {
   return null;
 };
 
-const validateAppManifest = (manifest: AppManifest): { ok: boolean; issues: AppRouteAdapterIssue[] } => {
-  const issues: AppRouteAdapterIssue[] = [];
+type ManifestValidationIssue = {
+  severity: "error" | "warning";
+  message: string;
+  context?: string;
+};
+
+const validateAppManifest = (manifest: AppManifest): { ok: boolean; issues: ManifestValidationIssue[] } => {
+  const issues: ManifestValidationIssue[] = [];
 
   // Validate Routes
   const routeIds = new Set<string>();
@@ -176,7 +182,7 @@ const validateAppManifest = (manifest: AppManifest): { ok: boolean; issues: AppR
       issues.push({
         severity: "error",
         message: `Duplicate route ID: ${route.id}`,
-        context: `route:${route.id}`
+        context: `route:${route.id}`,
       });
     } else {
       routeIds.add(route.id);

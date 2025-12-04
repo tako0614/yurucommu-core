@@ -159,6 +159,9 @@ app.post("/:id/run", auth, async (c) => {
   try {
     const instance = await engine.start(id, body.input || {}, {
       nodeConfig: {
+        schema_version: "1.0",
+        distro: { name: "takos", version: "0.1.0" },
+        node: { url: `https://${env.INSTANCE_DOMAIN || "localhost"}` },
         ai: {
           enabled: true,
           enabled_actions: ["ai.summary", "ai.tag-suggest", "ai.translation", "ai.dm-moderator"],
