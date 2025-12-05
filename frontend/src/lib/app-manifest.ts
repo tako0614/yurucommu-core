@@ -87,7 +87,7 @@ export async function loadAppManifest(): Promise<AppManifest> {
 
     // Normalize field names (backend uses camelCase, frontend expects snake_case for some fields)
     const normalizedManifest: AppManifest = {
-      schema_version: manifest.schema_version || manifest.schemaVersion || "1.0",
+      schema_version: manifest.schema_version || (manifest as any).schemaVersion || "1.0",
       version: manifest.version || "0.0.0",
       routes: manifest.routes || [],
       views: manifest.views || { screens: [], insert: [] },

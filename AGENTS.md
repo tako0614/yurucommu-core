@@ -1,203 +1,32 @@
-# takos OSS コントリビューションガイドライン
+# Repository Guidelines
 
-このドキュメントは、**takos OSS プロジェクト**への開発・コントリビューションに関するガイドラインです。
+## Project Structure & Module Organization
+- Root workspace ties together `api/` (shared API types/CLI), `backend/` (Cloudflare Worker API, Prisma schemas, D1 migrations), and `platform/` (shared domain logic and ActivityPub helpers). `frontend/` hosts the SolidJS reference UI, and `docs/` holds protocol/API notes. Supporting scripts live in `scripts/` and `backend/scripts/`.
+- Source is TypeScript ES modules; look for entrypoints in `app-main.ts`, `backend/src/index.ts`, and platform barrel files under `platform/src/**/index.ts`.
 
-takos は活発に開発が進んでいるオープンソースプロジェクトです。改善提案、バグ報告、プルリクエストを歓迎しています。
+## Build, Test, and Development Commands
+- Install once at the repo root: `npm install`.
+- Local worker: `npm run dev` (backend via wrangler on 0.0.0.0:8787). Seed fixtures when needed: `npm --workspace backend run seed:dev`.
+- Platform/API tests: `npm run test` (runs `api` then `platform` via Vitest).
+- Type checking: `npm --workspace backend run typecheck` and `npm --workspace platform run typecheck`.
+- Deploy: `npm run deploy` (Cloudflare Worker). Regenerate config templates: `npm run init:config`; validate manifests: `npm run validate:app` / `npm run validate:profile`.
 
-## プロジェクト概要
+## Coding Style & Naming Conventions
+- TypeScript + ESM with explicit `.js/.ts` extensions in imports. Prefer 2-space indentation, trailing semicolons, and double quotes to match existing files.
+- Naming: camelCase for variables/functions, PascalCase for types/classes/Solid components, suffix request handlers with `Handler`, and keep file names kebab-case for utilities and PascalCase for components.
+- Export through barrel `index.ts` files in each feature folder to keep public surfaces clear.
 
-**takos** は、ActivityPub 対応の分散型 SNS バックエンドおよび共通モジュール群をまとめた完全独立のオープンソースプロジェクトです。OSS 版はシングルインスタンス専用で、マルチテナントは `takos-private` 側で提供します。
-- Cloudflare Workers + D1 + R2 で実装
-- TypeScript + SolidJS（フロントエンド）
+## Testing Guidelines
+- Vitest is used across workspaces. Place unit tests beside sources with `.test.ts`. Mock Cloudflare bindings/Prisma clients in unit tests; reserve integration tests for wrangler contexts.
+- Run focused suites with `npm --workspace backend run test -- --watch` or `npm --workspace platform run test -- --runInBand`. Add coverage when touching auth/federation paths (`vitest --coverage`).
 
-### リポジトリ構成
+## Commit & Pull Request Guidelines
+- Follow the current history: short, imperative subjects with prefixes like `feat:`, `fix:`, `chore:`, `refactor:`. Keep scope narrow and mention the affected package if helpful (e.g., `feat(platform): ...`).
+- PRs should include a concise summary, linked issue or context, test results, migration/config steps (D1, R2, wrangler vars), and screenshots for UI-facing changes.
 
-```
-takos/
-├── backend/          … Cloudflare Worker API（認証・投稿・ActivityPub）
-├── platform/         … 共有ドメインロジック（ユーザー・コミュニティ・ポスト）
-├── frontend/         … SolidJS リファレンス UI
-├── docs/             … API ドキュメント・ActivityPub 仕様
-└── README.md         … プロジェクト概要
-```
-
-## コード規約
-
-### 言語・フレームワーク
-
-- **言語**: TypeScript（必須）
-- **バックエンド**: Cloudflare Workers + Hono
-- **フロントエンド**: SolidJS + Vite
-- **ORM**: Prisma（D1 スキーマ管理）
-- **テスト**: Vitest
-
-### ファイル構成・命名
-
-- モジュールは ES module 形式（`.js` / `.ts` 拡張子を明示）
-- インデント: **2 スペース**（タブ不可）
-- 末尾セミコロン: **必須**
-- ダブルクォート: **必須** (`import "..."`)
-
-### 命名規則
-
-| カテゴリ | 規則 | 例 |
-|---------|------|-----|
-| 関数・変数 | camelCase | `getUserPosts()`, `currentUser` |
-| クラス・型 | PascalCase | `User`, `CreatePostRequest` |
-| Solid コンポーネント | PascalCase | `UserCard`, `PostList` |
-| Worker ハンドラ | 〜`Handler` サフィックス | `getPostHandler`, `createCommentHandler` |
-| ファイル | kebab-case / PascalCase | `user-service.ts`, `UserCard.tsx` |
-
-### platform モジュール公開インターフェース
-
-`platform/src/` の各機能フォルダには `index.ts` バレルファイルを用意してください：
-
-```typescript
-// platform/src/users/index.ts
-export { User, UserService } from "./types.js";
-export { createUser, getUserById } from "./user-service.js";
-```
-
-## 開発環境
-
-### セットアップ
-
-```bash
-# リポジトリクローン
-git clone https://github.com/your-org/takos.git
-cd takos
-
-# 全ワークスペースの依存をインストール
-npm install
-
-# ワークスペースの確認
-npm workspaces list
-```
-
-### ローカル開発
-
-#### バックエンド
-
-```bash
-npm run dev
-```
-
-- `http://127.0.0.1:8787` で起動
-- ホットリロード対応
-- D1 はローカル SQLite を使用（`.wrangler/state/v3/d1/`）
-
-#### フロントエンド（オプション）
-
-```bash
-npm --workspace frontend run dev
-```
-
-- `http://localhost:5173` で起動（デフォルト）
-- Vite 開発サーバー
-
-### ビルド・デプロイ
-
-```bash
-# platform の型チェック
-npm --workspace platform run typecheck
-
-# backend の型チェック
-npm --workspace backend run typecheck
-
-# backend テスト実行
-npm --workspace backend run test
-
-# backend デプロイ
-npm run deploy
-```
-
-## テスト
-
-### テストフレームワーク
-
-Vitest を使用しています。
-
-```bash
-# platform のテスト
-npm --workspace platform run test
-
-# backend のテスト
-npm --workspace backend run test
-
-# カバレッジ付き実行
-npm --workspace backend run test:coverage
-```
-
-### テストの書き方
-
-テストファイルはソースの隣に `.test.ts` サフィックスで配置：
-
-```
-src/
-├── user-service.ts
-├── user-service.test.ts    ← 隣に配置
-└── types.ts
-```
-
-**テストの指針:**
-
-- 高速な単体テスト（Cloudflare bindings はスタブ化）
-- 統合テストは wrangler コンテキストをモック
-- 新機能・バグ修正は対応するテストを追加
-- PR 説明に「テスト実行結果」を記載
-
-```typescript
-import { describe, it, expect, vi } from "vitest";
-import { createUser } from "./user-service.js";
-
-describe("UserService", () => {
-  it("should create a user with valid data", async () => {
-    const db = {
-      query: vi.fn().mockResolvedValue({ id: "user-123" }),
-    };
-    const user = await createUser(db, { handle: "alice" });
-    expect(user.id).toBe("user-123");
-  });
-});
-```
-
-## データベース管理
-
-### スキーマ変更ワークフロー
-
-1. **`backend/prisma/schema.prisma` を編集**
-
-   ```prisma
-   model User {
-     id    String @id
-     email String @unique
-     name  String
-   }
-   ```
-
-2. **マイグレーション生成**
-
-   ```bash
-   cd backend
-   npx prisma migrate diff --from-empty --to-schema-datasource prisma/schema.prisma --script > d1_migrations/NNNN_description.sql
-   ```
-
-3. **ローカルで検証**
-
-   ```bash
-   npx wrangler d1 migrations apply takos-db --local
-   ```
-
-4. **リモート適用**
-
-   ```bash
-   npx wrangler d1 migrations apply takos-db --remote
-   ```
-
-5. **Prisma クライアント再生成**
-
-   ```bash
-   npx prisma generate
+## Security & Configuration Tips
+- Copy `backend/example.wrangler.toml` when bootstrapping; never commit real secrets. Use `wrangler secret put` for credentials and keep `takos-config.json` / `takos-profile.json` free of sensitive data when sharing.
+- For schema changes, edit `backend/prisma/schema.prisma`, generate a migration in `backend/d1_migrations/`, and note the apply command in your PR description.
    ```
 
 ## Git ワークフロー

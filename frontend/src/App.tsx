@@ -1,32 +1,16 @@
 import { Navigate, Route, Router, useLocation, useNavigate } from "@solidjs/router";
 import type { RouteSectionProps } from "@solidjs/router";
-import { Show, createEffect, createMemo, createResource, createSignal, onMount, type JSX, type Resource } from "solid-js";
+import { Show, createEffect, createMemo, createResource, createSignal, onMount, type Resource } from "solid-js";
 import "./App.css";
 import SideNav from "./components/Navigation/SideNav";
 import AppTab from "./components/Navigation/AppTab";
 import PostComposer from "./components/PostComposer";
 import NotificationPanel from "./components/NotificationPanel";
-import Connections from "./pages/Connections";
-import CommunityHub from "./pages/CommunityHub";
-import Chat from "./pages/Chat";
 import DefaultLogin from "./pages/Login";
-import Compose from "./pages/Compose";
-import Settings from "./pages/Settings";
 import { authStatus, refreshAuth, fetchMe } from "./lib/api";
-import DefaultProfile from "./pages/Profile";
 import { resolveComponent } from "./lib/plugins";
-import EditProfile from "./pages/EditProfile";
-import UserProfile from "./pages/UserProfile";
-import Onboarding from "./pages/Onboarding";
-import Home from "./pages/Home";
-import Stories from "./pages/Stories";
-import PostDetail from "./pages/PostDetail";
-import UserSearch from "./pages/UserSearch";
-import Invitations from "./pages/Invitations";
-import FriendRequests from "./pages/FriendRequests";
 import { ToastProvider } from "./components/Toast";
 import { ShellContextProvider, useShellContext } from "./lib/shell-context";
-import DynamicScreen from "./pages/DynamicScreen";
 import { registerCustomComponents } from "./lib/ui-components";
 import { RenderScreen } from "./lib/ui-runtime";
 import { extractRouteParams, getScreenByRoute, loadAppManifest, type AppManifest, type AppManifestScreen } from "./lib/app-manifest";
@@ -34,24 +18,7 @@ import { extractRouteParams, getScreenByRoute, loadAppManifest, type AppManifest
 // Register custom UiNode components on module load
 registerCustomComponents();
 
-/**
- * Feature flag for App Manifest driven UI
- * Set to true to enable dynamic screen rendering from App Manifest
- * (PLAN.md 5.4: App Manifest 駆動 UI)
- *
- * When enabled:
- * - CatchAllRoute will try to render screens from App Manifest
- * - Unknown routes will fall back to DynamicScreen instead of 404
- *
- * Migration strategy:
- * 1. Keep existing routes as-is for stability
- * 2. New screens can be defined in App Manifest
- * 3. Gradually replace existing screens with UiNode definitions
- */
-const USE_DYNAMIC_SCREENS = true;
-
 const Login = resolveComponent("Login", DefaultLogin);
-const Profile = resolveComponent("Profile", DefaultProfile);
 const AuthCallback = resolveComponent("AuthCallback", DefaultAuthCallback);
 
 export default function App() {
@@ -66,7 +33,7 @@ export default function App() {
             path="/"
             component={() => (
               <RequireAuth allowIncompleteProfile>
-                <ManifestScreenBoundary manifest={manifest} fallback={<Home />} />
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
           />
@@ -75,7 +42,7 @@ export default function App() {
             path="/onboarding"
             component={() => (
               <RequireAuth allowIncompleteProfile>
-                <ManifestScreenBoundary manifest={manifest} fallback={<Onboarding />} />
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
           />
@@ -83,7 +50,7 @@ export default function App() {
             path="/connections"
             component={() => (
               <RequireAuth>
-                <ManifestScreenBoundary manifest={manifest} fallback={<Connections />} />
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
           />
@@ -93,7 +60,7 @@ export default function App() {
             path="/communities"
             component={() => (
               <RequireAuth>
-                <ManifestScreenBoundary manifest={manifest} fallback={<Navigate href="/connections" />} />
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
           />
@@ -101,7 +68,7 @@ export default function App() {
             path="/users"
             component={() => (
               <RequireAuth>
-                <ManifestScreenBoundary manifest={manifest} fallback={<UserSearch />} />
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
           />
@@ -109,7 +76,7 @@ export default function App() {
             path="/invitations"
             component={() => (
               <RequireAuth>
-                <ManifestScreenBoundary manifest={manifest} fallback={<Invitations />} />
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
           />
@@ -117,7 +84,7 @@ export default function App() {
             path="/follow-requests"
             component={() => (
               <RequireAuth>
-                <ManifestScreenBoundary manifest={manifest} fallback={<FriendRequests />} />
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
           />
@@ -126,7 +93,7 @@ export default function App() {
             path="/c/:id"
             component={() => (
               <RequireAuth>
-                <ManifestScreenBoundary manifest={manifest} fallback={<CommunityHub />} />
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
           />
@@ -135,12 +102,12 @@ export default function App() {
             path="/c/:id/chat"
             component={LegacyCommunityChatRedirect}
           />
-          {/* Unified Chat routes - single mount to prevent remount/reset */}
+          {/* Unified Chat routes */}
           <Route
             path="/chat/*"
             component={() => (
               <RequireAuth>
-                <ManifestScreenBoundary manifest={manifest} fallback={<Chat />} />
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
           />
@@ -149,7 +116,7 @@ export default function App() {
             path="/dm"
             component={() => (
               <RequireAuth>
-                <ManifestScreenBoundary manifest={manifest} fallback={<Navigate href="/chat" />} />
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
           />
@@ -165,7 +132,7 @@ export default function App() {
             path="/compose"
             component={() => (
               <RequireAuth>
-                <ManifestScreenBoundary manifest={manifest} fallback={<Compose />} />
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
           />
@@ -173,7 +140,7 @@ export default function App() {
             path="/stories"
             component={() => (
               <RequireAuth>
-                <ManifestScreenBoundary manifest={manifest} fallback={<Stories />} />
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
           />
@@ -181,7 +148,15 @@ export default function App() {
             path="/settings"
             component={() => (
               <RequireAuth>
-                <ManifestScreenBoundary manifest={manifest} fallback={<Settings />} />
+                <ManifestScreen manifest={manifest} />
+              </RequireAuth>
+            )}
+          />
+          <Route
+            path="/notifications"
+            component={() => (
+              <RequireAuth>
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
           />
@@ -189,7 +164,7 @@ export default function App() {
             path="/posts/:id"
             component={() => (
               <RequireAuth>
-                <ManifestScreenBoundary manifest={manifest} fallback={<PostDetail />} />
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
           />
@@ -197,7 +172,7 @@ export default function App() {
             path="/profile"
             component={() => (
               <RequireAuth>
-                <ManifestScreenBoundary manifest={manifest} fallback={<Profile />} />
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
           />
@@ -205,9 +180,14 @@ export default function App() {
             path="/profile/edit"
             component={() => (
               <RequireAuth>
-                <ManifestScreenBoundary manifest={manifest} fallback={<EditProfile />} />
+                <ManifestScreen manifest={manifest} />
               </RequireAuth>
             )}
+          />
+          {/* User profile route - public, no auth required */}
+          <Route
+            path="/@:handle"
+            component={() => <ManifestScreen manifest={manifest} />}
           />
           <Route path="*" component={CatchAllRoute} />
         </Route>
@@ -269,12 +249,6 @@ function MainLayout(props: { children?: any }) {
   let mainRef: HTMLElement | undefined;
 
   createEffect(() => {
-    // Reset scroll position when navigating to a new route
-    console.log("[MainLayout] location changed:", {
-      pathname: location.pathname,
-      search: location.search,
-      hash: location.hash,
-    });
     location.pathname;
     location.search;
     location.hash;
@@ -297,12 +271,17 @@ function MainLayout(props: { children?: any }) {
   );
 }
 
-function ManifestScreenBoundary(props: { manifest: Resource<AppManifest | undefined>; fallback: JSX.Element }) {
+/**
+ * ManifestScreen - App Manifest 駆動の画面レンダリング
+ *
+ * screens-core.json から画面定義を取得し、UiNode としてレンダリングする。
+ * 画面が見つからない場合は404を表示。
+ */
+function ManifestScreen(props: { manifest: Resource<AppManifest | undefined> }) {
   const location = useLocation();
   const shell = useShellContext();
 
   const matchedScreen = createMemo<AppManifestScreen | undefined>(() => {
-    if (!USE_DYNAMIC_SCREENS) return undefined;
     const m = props.manifest();
     if (!m) return undefined;
     return getScreenByRoute(m, location.pathname);
@@ -319,58 +298,52 @@ function ManifestScreenBoundary(props: { manifest: Resource<AppManifest | undefi
     ...(shell?.onOpenNotifications ? { openNotifications: shell.onOpenNotifications } : {}),
   }));
 
-  if (!USE_DYNAMIC_SCREENS) {
-    return props.fallback;
+  // Loading state
+  if (props.manifest.loading) {
+    return <div class="p-6 text-center text-muted">読み込み中...</div>;
   }
 
-  if (props.manifest.loading && !matchedScreen()) {
-    return <div class="p-6 text-center">App UI を読み込み中...</div>;
+  // Error state
+  if (props.manifest.error) {
+    console.error("[ManifestScreen] Manifest load failed:", props.manifest.error);
+    return (
+      <div class="p-6 text-center">
+        <h1 class="text-xl font-bold text-red-600">エラー</h1>
+        <p class="mt-2 text-muted">App Manifest の読み込みに失敗しました。</p>
+      </div>
+    );
   }
 
-  if (props.manifest.error && !matchedScreen()) {
-    console.warn("[ManifestScreenBoundary] Manifest load failed:", props.manifest.error);
-    return props.fallback;
+  // No screen found
+  if (!matchedScreen()) {
+    return (
+      <div class="p-6 text-center">
+        <h1 class="text-2xl font-bold">404 Not Found</h1>
+        <p class="mt-2 text-muted">画面が見つかりませんでした: {location.pathname}</p>
+        <a href="/" class="mt-4 inline-block text-blue-600 hover:underline">
+          ホームに戻る
+        </a>
+      </div>
+    );
   }
 
   return (
-    <Show when={matchedScreen()} fallback={props.fallback}>
-      {(screen) => (
-        <RenderScreen
-          screen={screen()}
-          context={{
-            routeParams: routeParams(),
-            location: location.pathname,
-            actions: actions(),
-          }}
-        />
-      )}
-    </Show>
+    <RenderScreen
+      screen={matchedScreen()!}
+      context={{
+        routeParams: routeParams(),
+        location: location.pathname,
+        actions: actions(),
+      }}
+    />
   );
 }
 
 function CatchAllRoute() {
-  const location = useLocation();
-  console.log("[CatchAllRoute] pathname:", location.pathname);
-
-  // Check if this is a user profile route (starts with /@)
-  if (location.pathname.startsWith("/@")) {
-    console.log("[CatchAllRoute] Rendering UserProfile");
-    return <UserProfile />;
-  }
-
-  // When USE_DYNAMIC_SCREENS is enabled, try to render from App Manifest
-  // This allows App Manifest defined screens to be rendered for unknown routes
-  if (USE_DYNAMIC_SCREENS) {
-    console.log("[CatchAllRoute] Trying DynamicScreen for:", location.pathname);
-    return <DynamicScreen />;
-  }
-
-  // Otherwise show 404
-  console.log("[CatchAllRoute] Showing 404");
   return (
     <div class="p-6 text-center">
       <h1 class="text-2xl font-bold">404 Not Found</h1>
-      <p class="mt-2">ページが見つかりませんでした。</p>
+      <p class="mt-2 text-muted">ページが見つかりませんでした。</p>
       <a href="/" class="mt-4 inline-block text-blue-600 hover:underline">
         ホームに戻る
       </a>
@@ -419,7 +392,6 @@ function RequireAuth(props: { children: any; allowIncompleteProfile?: boolean })
   };
 
   onMount(() => {
-    // Verify authentication status with server if needed
     const currentStatus = status();
     if (currentStatus === "authenticated" || currentStatus === "unknown") {
       refreshAuth().then(() => {
@@ -433,7 +405,6 @@ function RequireAuth(props: { children: any; allowIncompleteProfile?: boolean })
   createEffect(() => {
     if (status() === "unauthenticated") {
       const target = `${location.pathname}${location.search}${location.hash}`;
-      // Only add redirect parameter if not on root or login page
       if (target === "/" || target.startsWith("/login")) {
         navigate("/login", { replace: true });
       } else {
