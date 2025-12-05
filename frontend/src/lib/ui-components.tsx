@@ -13,7 +13,8 @@ import { registerUiComponent, type UiRuntimeContext } from "./ui-runtime";
 import PostCard from "../components/PostCard";
 import AllStoriesBar from "../components/AllStoriesBar";
 import Avatar from "../components/Avatar";
-import { api, getUser, markNotificationRead, uploadMedia } from "./api";
+import ProfileModal from "../components/ProfileModal";
+import { api, getUser, markNotificationRead, uploadMedia, followUser, unfollowUser, useMe } from "./api";
 
 // Shared helpers
 const toArray = (result: unknown): any[] => {
@@ -1470,6 +1471,332 @@ const PageHeader: Component<{
 };
 
 /**
+ * UserProfileView - Full user profile display with posts
+ */
+const UserProfileView: Component<{
+  handle?: string;
+  context?: UiRuntimeContext;
+}> = (props) => {
+  const me = useMe();
+  const [shareOpen, setShareOpen] = createSignal(false);
+  const [profileModalView, setProfileModalView] = createSignal<"share" | "scan">("share");
+  const [loading, setLoading] = createSignal(false);
+
+  // Parse handle from props or route params
+  const rawHandle = createMemo(() => {
+    const h = props.handle || props.context?.routeParams?.handle || "";
+    // Decode URI components
+    let current = h;
+    for (let i = 0; i < 3; i++) {
+      try {
+        const decoded = decodeURIComponent(current);
+        if (decoded === current) break;
+        current = decoded;
+      } catch {
+        break;
+      }
+    }
+    return current;
+  });
+
+  const parseHandle = (raw: string) => {
+    const trimmed = (raw || "").trim().replace(/^@+/, "");
+    if (!trimmed) return { username: "", domain: null };
+    const parts = trimmed.split("@");
+    if (parts.length >= 2) {
+      return { username: parts[0] || "", domain: parts[1] || null };
+    }
+    return { username: parts[0] || trimmed, domain: null };
+  };
+
+  const handleInfo = createMemo(() => parseHandle(rawHandle()));
+  const lookupId = createMemo(() => handleInfo().username);
+
+  // Fetch user data
+  const [user, { mutate: setUser }] = createResource(
+    () => ({ id: lookupId(), domain: handleInfo().domain }),
+    async ({ id, domain }) => {
+      if (!id) throw new Error("missing profile id");
+      try {
+        const lookup = domain ? `@${id}@${domain}` : id;
+        const result = await getUser(lookup);
+        return normalizeUserProfile(result, id, domain || undefined);
+      } catch (error) {
+        console.error("[UserProfileView] user fetch failed:", error);
+        throw error;
+      }
+    }
+  );
+
+  // Normalize user profile data
+  const normalizeUserProfile = (raw: any, fallbackHandle: string, fallbackDomain?: string) => {
+    const data = raw?.data || raw || {};
+    const actorId = typeof data.id === "string" ? data.id : undefined;
+
+    const extractDomain = (url?: string) => {
+      if (!url) return undefined;
+      try { return new URL(url).hostname; } catch { return undefined; }
+    };
+
+    const candidateDomain =
+      data.domain?.trim() ||
+      fallbackDomain?.trim() ||
+      extractDomain(data.url) ||
+      extractDomain(actorId);
+
+    const handle =
+      data.handle?.trim() ||
+      data.username?.trim() ||
+      data.preferredUsername?.trim() ||
+      fallbackHandle?.trim() ||
+      (actorId ? actorId.split("/").pop() : undefined);
+
+    const displayName =
+      data.display_name?.trim() ||
+      data.name?.trim() ||
+      data.preferredUsername?.trim() ||
+      data.username?.trim() ||
+      handle ||
+      fallbackHandle;
+
+    const avatarUrl =
+      data.avatar_url?.trim() ||
+      (Array.isArray(data.icon)
+        ? data.icon.find((icon: any) => icon?.url)?.url
+        : data.icon?.url);
+
+    return {
+      ...data,
+      handle: handle || data.handle,
+      id: data.id || handle,
+      display_name: displayName,
+      domain: candidateDomain,
+      avatar_url: avatarUrl,
+    };
+  };
+
+  // Fetch user's posts
+  const [posts, { mutate: setPosts }] = createResource(
+    () => user(),
+    async (u) => {
+      if (!u) return [];
+      try {
+        const globalPosts = await api("/posts").catch(() => []);
+        const userPosts = toArray(globalPosts).filter((p: any) => p?.author_id === u.id);
+        return userPosts.sort((a: any, b: any) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+      } catch {
+        return [];
+      }
+    }
+  );
+
+  const handlePostUpdated = (updated: any) => {
+    setPosts((prev) => {
+      if (!Array.isArray(prev)) return prev;
+      return prev.map((p: any) => p.id === updated?.id ? { ...p, ...updated } : p);
+    });
+  };
+
+  const handlePostDeleted = (id: string) => {
+    setPosts((prev) => {
+      if (!Array.isArray(prev)) return prev;
+      return prev.filter((p: any) => p.id !== id);
+    });
+  };
+
+  // Relationship status
+  const relationship = createMemo(() => (user() as any)?.relationship || {});
+  const followingStatus = createMemo(() => {
+    const rel = relationship();
+    return rel?.following ?? (user() as any)?.friend_status ?? null;
+  });
+  const isFriend = createMemo(() => {
+    const rel = relationship();
+    if (typeof rel?.is_friend === "boolean") return rel.is_friend;
+    return (user() as any)?.friend_status === "accepted";
+  });
+
+  // Follow/unfollow actions
+  const buildFollowTargetId = (u: any) => {
+    const rawId = (u?.id || u?.handle || "").toString().trim();
+    if (!rawId) return null;
+    if (rawId.includes("@")) return rawId;
+    const domain = u?.domain?.trim() || null;
+    const handle = rawId.replace(/^@+/, "");
+    return domain ? `@${handle}@${domain}` : handle;
+  };
+
+  const onFollow = async () => {
+    if (!user()) return;
+    const target = buildFollowTargetId(user());
+    if (!target) return;
+    setLoading(true);
+    try {
+      await followUser(target);
+      setUser((prev: any) => prev ? {
+        ...prev,
+        relationship: { ...prev.relationship, following: "pending", is_friend: prev.relationship?.is_friend || false },
+      } : prev);
+    } catch {}
+    setLoading(false);
+  };
+
+  const onUnfollow = async () => {
+    if (!user()) return;
+    const target = buildFollowTargetId(user());
+    if (!target) return;
+    setLoading(true);
+    try {
+      await unfollowUser(target);
+      setUser((prev: any) => prev ? {
+        ...prev,
+        relationship: { ...prev.relationship, following: null, is_friend: false },
+        friend_status: null,
+      } : prev);
+    } catch {}
+    setLoading(false);
+  };
+
+  // Share URLs
+  const profileDomain = createMemo(() => (user() as any)?.domain || "");
+  const shareUrl = createMemo(() => {
+    const handle = (user() as any)?.handle;
+    if (!handle) return "";
+    const domain = profileDomain();
+    return domain ? `https://${domain}/@${handle}` : `/@${handle}`;
+  });
+  const shareHandle = createMemo(() => {
+    const handle = (user() as any)?.handle;
+    if (!handle) return user()?.id || "";
+    const domain = profileDomain();
+    return domain ? `@${handle}@${domain}` : `@${handle}`;
+  });
+
+  return (
+    <div class="max-w-[680px] mx-auto">
+      {/* Profile Card */}
+      <div class="bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-md p-4">
+        <Show when={user.error}>
+          <div class="text-center p-6">
+            <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-2">
+              ユーザーが見つかりません
+            </h2>
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              @{lookupId()} は存在しないか、アクセスできません。
+            </p>
+            <a href="/" class="inline-block px-4 py-2 bg-blue-600 text-white rounded-full text-sm hover:bg-blue-700">
+              ホームに戻る
+            </a>
+          </div>
+        </Show>
+        <Show when={!user.error && user()} fallback={!user.error && <div class="text-muted">読み込み中…</div>}>
+          <div class="flex items-start gap-4">
+            <img
+              src={user()?.avatar_url || ""}
+              alt="アバター"
+              class="w-20 h-20 rounded-full bg-gray-200 dark:bg-neutral-700 object-cover"
+            />
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <div class="text-xl font-semibold truncate">
+                  {user()!.display_name || "ユーザー"}
+                </div>
+                <span class="text-xs text-muted break-all">
+                  ID: @{user()!.handle || user()!.id}
+                </span>
+                <Show when={isFriend()}>
+                  <span class="text-xs font-semibold text-green-700 dark:text-green-300">
+                    友達（相互フォロー）
+                  </span>
+                </Show>
+              </div>
+              <div class="mt-3 flex items-center gap-8">
+                <div>
+                  <div class="text-[15px] font-semibold text-gray-900 dark:text-white">
+                    {posts()?.length ?? 0}
+                  </div>
+                  <div class="text-[12px] text-muted">投稿</div>
+                </div>
+              </div>
+              <div class="mt-3 flex items-center">
+                <div class="ml-auto flex items-center gap-2">
+                  <Show when={me() && user() && me()!.id !== user()!.id}>
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <Show when={followingStatus() === "accepted"}>
+                        <button
+                          class="px-3 py-1.5 rounded-full border border-gray-200 dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
+                          disabled={loading()}
+                          onClick={onUnfollow}
+                        >
+                          {loading() ? "解除中…" : "フォロー中"}
+                        </button>
+                      </Show>
+                      <Show when={followingStatus() === "pending"}>
+                        <button
+                          class="px-3 py-1.5 rounded-full border border-gray-200 dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
+                          disabled={loading()}
+                          onClick={onUnfollow}
+                        >
+                          {loading() ? "キャンセル中…" : "フォロー申請中 (取消)"}
+                        </button>
+                      </Show>
+                      <Show when={!followingStatus()}>
+                        <button
+                          class="px-3 py-1.5 rounded-full bg-black text-white hover:opacity-90 text-sm"
+                          disabled={loading()}
+                          onClick={onFollow}
+                        >
+                          {loading() ? "送信中…" : "フォローする"}
+                        </button>
+                      </Show>
+                    </div>
+                  </Show>
+                  <button
+                    onClick={() => { setProfileModalView("share"); setShareOpen(true); }}
+                    class="px-3 py-1.5 border border-gray-200 dark:border-neutral-700 rounded-full text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
+                  >
+                    プロフィールを共有
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Show>
+      </div>
+
+      {/* Posts List */}
+      <div class="mt-3 bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-md overflow-hidden">
+        <div class="px-3 py-2 text-sm font-medium text-gray-900 dark:text-white">投稿</div>
+        <Show when={posts()} fallback={<div class="px-3 py-10 text-center text-muted">投稿を読み込み中…</div>}>
+          <Show when={posts()!.length > 0} fallback={<div class="px-3 py-10 text-center text-muted">まだ投稿がありません</div>}>
+            <div class="grid gap-0">
+              <For each={posts() || []}>
+                {(p: any) => (
+                  <PostCard post={p} onUpdated={handlePostUpdated} onDeleted={handlePostDeleted} />
+                )}
+              </For>
+            </div>
+          </Show>
+        </Show>
+      </div>
+
+      {/* Profile Modal */}
+      <ProfileModal
+        open={shareOpen()}
+        onClose={() => { setShareOpen(false); setProfileModalView("share"); }}
+        profileUrl={shareUrl()}
+        displayName={user()?.display_name || ""}
+        handle={shareHandle()}
+        avatarUrl={user()?.avatar_url || ""}
+        initialView={profileModalView()}
+      />
+    </div>
+  );
+};
+
+/**
  * Register all custom components
  */
 export function registerCustomComponents() {
@@ -1491,6 +1818,7 @@ export function registerCustomComponents() {
   registerUiComponent("MessageComposer", MessageComposer);
   registerUiComponent("NavLink", NavLink);
   registerUiComponent("PageHeader", PageHeader);
+  registerUiComponent("UserProfileView", UserProfileView);
 
   console.log("[UiComponents] Custom components registered");
 }

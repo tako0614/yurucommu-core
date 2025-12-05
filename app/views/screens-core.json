@@ -657,6 +657,25 @@
           }
         ]
       }
+    },
+
+    {
+      "id": "screen.user_profile",
+      "route": "/@:handle",
+      "title": "User Profile",
+      "layout": {
+        "type": "Column",
+        "props": { "id": "user-profile-root", "gap": 16, "padding": 16 },
+        "children": [
+          {
+            "type": "UserProfileView",
+            "props": {
+              "id": "user-profile",
+              "handle": "{{routeParams.handle}}"
+            }
+          }
+        ]
+      }
     }
   ]
 }
