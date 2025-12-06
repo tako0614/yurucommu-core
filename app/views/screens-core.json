@@ -662,6 +662,7 @@
     {
       "id": "screen.user_profile",
       "route": "/@:handle",
+      "auth": "public",
       "title": "User Profile",
       "layout": {
         "type": "Column",

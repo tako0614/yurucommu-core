@@ -27,9 +27,8 @@ const app = new Hono<{ Bindings: Bindings }>();
  */
 app.get("/", optionalAuth, async (c) => {
   try {
-    // 現在は、ビルド時に生成された静的マニフェストを返す実装
-    // 将来的には KV や D1 から動的にロードする実装に変更可能
-    const source = await createManifestSource(c.env);
+    // Cloudflare Workers / workerd では、ビルド時にバンドルされた静的マニフェストを使用
+    const source = createStaticSource();
 
     const result = await loadAppManifest({
       rootDir: ".",
@@ -60,53 +59,10 @@ app.get("/", optionalAuth, async (c) => {
 });
 
 /**
- * Manifest ソース作成
- *
- * Node.js 環境では fs を使用し、Workers 環境ではビルド時の静的ファイルを使用
- */
-async function createManifestSource(env: any): Promise<AppDefinitionSource> {
-  // Node.js 環境の検出
-  if (typeof process !== "undefined" && process.versions && process.versions.node) {
-    return createNodeFsSource();
-  }
-
-  // Cloudflare Workers 環境では、ビルド時にバンドルされた manifest を返す
-  return createStaticSource();
-}
-
-/**
- * Node.js fs ベースのソース
- */
-function createNodeFsSource(): AppDefinitionSource {
-  // Dynamic import for Node.js environment
-  const fs = require("fs");
-  const path = require("path");
-
-  return {
-    async readFile(filePath: string): Promise<string> {
-      return fs.promises.readFile(filePath, "utf-8");
-    },
-
-    async listFiles(dirPath: string): Promise<string[]> {
-      try {
-        const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
-        return entries
-          .filter((entry: any) => entry.isFile() && entry.name.endsWith(".json"))
-          .map((entry: any) => entry.name);
-      } catch (err: any) {
-        if (err.code === "ENOENT") {
-          return [];
-        }
-        throw err;
-      }
-    },
-  };
-}
-
-/**
  * 静的マニフェスト（ビルド時バンドル）を返すソース
  *
- * Cloudflare Workers では、ビルドプロセスで JSON ファイルをバンドル
+ * Cloudflare Workers / workerd では、ビルドプロセスで JSON ファイルをバンドル
+ * (Node.js fs 機能は platform/adapters/node.ts に分離)
  */
 function createStaticSource(): AppDefinitionSource {
   // ビルド時にインポートされた JSON ファイルをインメモリソースとして提供

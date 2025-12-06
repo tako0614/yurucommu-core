@@ -40,12 +40,8 @@ type AuthResult =
 
 function decodeBasicAuth(encoded: string): string | null {
   try {
-    if (typeof atob === "function") {
-      return atob(encoded);
-    }
-    if (typeof Buffer !== "undefined") {
-      return Buffer.from(encoded, "base64").toString("utf-8");
-    }
+    // Use Web standard atob (available in both Workers and Node.js 16+)
+    return atob(encoded);
   } catch {
     // fall through
   }

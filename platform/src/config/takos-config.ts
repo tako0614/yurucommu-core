@@ -524,13 +524,6 @@ export function parseTakosConfig(json: string): TakosConfig {
   return validation.config;
 }
 
-/**
- * Load takos-config.json from file system (Node.js only)
- * This function should only be called in Node.js environments
- */
-export async function loadTakosConfig(filePath = "takos-config.json"): Promise<TakosConfig> {
-  // Dynamic import to avoid bundler issues in browser environments
-  const fs = await import("node:fs/promises");
-  const content = await fs.readFile(filePath, "utf-8");
-  return parseTakosConfig(content);
-}
+// NOTE: loadTakosConfig has been moved to takos-config-node.ts
+// to avoid bundling Node.js modules in workerd builds.
+// Import from "@takos/platform/config/takos-config-node" when needed.

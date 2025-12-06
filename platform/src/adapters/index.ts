@@ -3,11 +3,14 @@
  *
  * Provides a unified interface for takos to run on different runtimes:
  * - Cloudflare Workers (primary)
- * - Node.js (secondary)
+ * - Node.js (secondary, via separate import)
  * - Bun/Deno (future)
  *
  * Each adapter implements the RuntimeAdapter interface to provide
  * runtime-specific implementations of storage, database, and crypto operations.
+ *
+ * NOTE: NodeAdapter is NOT exported from this file to avoid bundling Node.js
+ * modules in workerd builds. Import it directly from "./node" when needed.
  */
 
 export interface KVStore {
@@ -104,11 +107,11 @@ export function detectRuntime(): RuntimeType {
     return "deno";
   }
 
-  // Node.js detection
+  // Node.js detection (safe check for workerd compatibility)
   if (
-    typeof process !== "undefined" &&
-    process.versions &&
-    process.versions.node
+    typeof globalThis !== "undefined" &&
+    typeof (globalThis as any).process !== "undefined" &&
+    (globalThis as any).process?.versions?.node
   ) {
     return "node";
   }
@@ -117,5 +120,6 @@ export function detectRuntime(): RuntimeType {
 }
 
 export { CloudflareAdapter } from "./cloudflare";
-export { NodeAdapter } from "./node";
+// NOTE: NodeAdapter is intentionally NOT exported here.
+// Import it directly from "@takos/platform/adapters/node" when needed in Node.js environments.
 export * from "./websocket";
