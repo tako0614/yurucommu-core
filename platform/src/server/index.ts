@@ -53,5 +53,7 @@ export { default as activityPubRoutes } from "../activitypub/activitypub-routes"
 // Runtime adapters
 export * from "../adapters/index";
 export { CloudflareAdapter, createCloudflareAdapter } from "../adapters/cloudflare";
-export { NodeAdapter, createNodeAdapter } from "../adapters/node";
-export { TakosServer, createServer, startNodeServer } from "../adapters/server";
+// NOTE: NodeAdapter is NOT exported here to avoid bundling Node.js modules in workerd builds.
+// Import it directly from "@takos/platform/adapters/node" when needed in Node.js environments.
+// NOTE: TakosServer, createServer, startNodeServer are NOT exported here.
+// They require Node.js modules. Import directly from "@takos/platform/adapters/server" when needed.
