@@ -53,6 +53,8 @@ export type AppPlanLimits = {
   storage: number;
   fileSize: number;
   aiRequests: number;
+  dmMessagesPerDay: number;
+  dmMediaSize: number;
 };
 
 export type AppPlanInfo = {

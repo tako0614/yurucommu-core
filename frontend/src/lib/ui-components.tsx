@@ -318,17 +318,101 @@ const UserAvatar: Component<{
  * ThreadList - DM thread list
  */
 const ThreadList: Component<{
+  id?: string;
   emptyText?: string;
+  action?: string;
   context?: UiRuntimeContext;
 }> = (props) => {
-  const [threads] = createResource(async () => {
-    try {
-      return await api("/dm/threads");
-    } catch (err) {
-      console.error("[ThreadList] Failed to load threads:", err);
-      return [];
-    }
+  const providedThreads = createMemo(() => {
+    const data = props.context?.data;
+    if (Array.isArray((data as any)?.threads)) return (data as any).threads as any[];
+    if (Array.isArray((data as any)?.items)) return (data as any).items as any[];
+    if (Array.isArray(data as any)) return data as any[];
+    return null;
   });
+
+  const [threads, { refetch }] = createResource(
+    providedThreads,
+    async (provided) => {
+      if (provided) return provided;
+      try {
+        return await api("/dm/threads");
+      } catch (err) {
+        console.error("[ThreadList] Failed to load threads:", err);
+        return [];
+      }
+    },
+    { initialValue: providedThreads() ?? undefined },
+  );
+
+  createEffect(() => {
+    if (!props.id || !props.context?.registerRefetch) return;
+    const unregister = props.context.registerRefetch(props.id, () => refetch());
+    onCleanup(unregister);
+  });
+
+  const authIds = createMemo(() => {
+    const auth = (props.context as any)?.$auth ?? (props.context as any)?.auth;
+    const user = (auth as any)?.user || {};
+    const ids = new Set<string>();
+    ["id", "handle", "actor_uri", "actor"].forEach((key) => {
+      if (user[key]) ids.add(String(user[key]));
+    });
+    return ids;
+  });
+
+  const readMap = createMemo(() => (((props.context as any)?.state || {}) as any).dmReadAt || {});
+  const activeThreadId = createMemo(() => {
+    const stateId = ((props.context as any)?.state || {})?.activeThreadId;
+    return stateId || (props.context as any)?.routeParams?.id || "";
+  });
+
+  const latestMessage = (thread: any) =>
+    thread?.latest_message || thread?.last_message || thread?.lastMessage || null;
+
+  const latestMessageText = (thread: any) => {
+    const msg = latestMessage(thread);
+    return msg?.content || msg?.text || msg?.message || "";
+  };
+
+  const isUnread = (thread: any) => {
+    if (!thread?.id) return false;
+    const last = latestMessage(thread);
+    if (!last) return false;
+    const sender = last.sender_actor_uri || last.actor || last.sender || last.sender_id || last.author_id;
+    if (sender && authIds().has(String(sender))) return false;
+    const lastAtRaw = last.created_at || last.published || last.updated_at;
+    const lastAt = lastAtRaw ? Date.parse(String(lastAtRaw)) : NaN;
+    const readAt = readMap()[thread.id] ? Date.parse(String(readMap()[thread.id])) : -Infinity;
+    if (!Number.isFinite(lastAt)) return false;
+    return lastAt > readAt;
+  };
+
+  const recipientLabel = (thread: any) => {
+    const participant = thread?.participant || thread?.recipient || thread?.other;
+    if (participant?.display_name) return participant.display_name;
+    if (participant?.handle) return participant.handle;
+    const participants = toArray(thread?.participants || thread?.recipients || []);
+    const others = participants.filter((p) => !authIds().has(String(p)));
+    return thread?.title || participant?.id || others[0] || thread?.id || "DM";
+  };
+
+  const handleOpenThread = async (thread: any) => {
+    const handler =
+      (props.context?.actions && props.context.actions["action.open_dm_thread"]) ||
+      (props.action && props.context?.actions?.[props.action]);
+    if (handler) {
+      await handler(thread);
+      return;
+    }
+    if (props.context?.navigate && thread?.id) {
+      props.context.navigate(`/chat/dm/${thread.id}`);
+      return;
+    }
+    if (typeof window !== "undefined" && thread?.id) {
+      window.location.assign(`/chat/dm/${thread.id}`);
+    }
+  };
 
   return (
     <Suspense fallback={<div class="text-center py-8 text-muted">Loading...</div>}>
@@ -343,22 +427,31 @@ const ThreadList: Component<{
         <div class="divide-y divide-gray-200 dark:divide-neutral-700">
           <For each={threads()}>
             {(thread: any) => (
-              <a
-                href={`/dm/${thread.id}`}
-                class="block p-4 hover:bg-gray-50 dark:hover:bg-neutral-800"
+              <button
+                type="button"
+                onClick={() => handleOpenThread(thread)}
+                class="block w-full p-4 text-left hover:bg-gray-50 dark:hover:bg-neutral-800"
+                aria-current={activeThreadId() === thread?.id ? "true" : "false"}
               >
                 <div class="flex items-center gap-3">
-                  <UserAvatar src={thread.participant?.avatar_url} size="md" />
+                  <UserAvatar src={thread.participant?.avatar_url || thread?.avatar_url} size="md" />
                   <div class="flex-1 min-w-0">
-                    <div class="font-semibold text-gray-900 dark:text-white truncate">
-                      {thread.participant?.display_name || thread.participant?.handle || "Unknown"}
+                    <div class="flex items-center gap-2">
+                      <span class="font-semibold text-gray-900 dark:text-white truncate">
+                        {recipientLabel(thread)}
+                      </span>
+                      <span
+                        class="h-2 w-2 rounded-full bg-blue-500 transition-opacity"
+                        classList={{ "opacity-0": !isUnread(thread) }}
+                        aria-label={isUnread(thread) ? "未読" : "既読"}
+                      />
                     </div>
                     <div class="text-sm text-gray-500 truncate">
-                      {thread.last_message?.text || ""}
+                      {latestMessageText(thread)}
                     </div>
                   </div>
                 </div>
-              </a>
+              </button>
             )}
           </For>
         </div>
@@ -1290,10 +1383,18 @@ const MessageThread: Component<{
   const resolvedThreadId = () =>
     props.threadId || props.context?.state?.activeThreadId || props.context?.routeParams?.id || "";
 
+  const providedMessages = createMemo(() => {
+    const data = props.context?.data;
+    if (Array.isArray((data as any)?.messages)) return (data as any).messages as any[];
+    if (Array.isArray(data as any)) return data as any[];
+    return null;
+  });
+
   const [messages, { refetch }] = createResource(
     resolvedThreadId,
     async (threadId) => {
-      if (!threadId) return [];
+      if (!threadId) return providedMessages() ?? [];
+      if (providedMessages()) return providedMessages()!;
       try {
         const result = await api(`/dm/threads/${threadId}/messages`);
         return toArray(result);
@@ -1301,7 +1402,8 @@ const MessageThread: Component<{
         console.error("[MessageThread] Failed to load messages:", err);
         return [];
       }
-    }
+    },
+    { initialValue: providedMessages() ?? undefined },
   );
 
   createEffect(() => {
@@ -1310,11 +1412,57 @@ const MessageThread: Component<{
     onCleanup(unregister);
   });
 
+  createEffect(() => {
+    const threadId = resolvedThreadId();
+    const list = providedMessages() ?? messages();
+    if (props.context?.setState && threadId) {
+      const currentId = (props.context.state as any)?.activeThreadId;
+      if (!currentId) {
+        props.context.setState("activeThreadId", threadId);
+      }
+    }
+    if (!threadId || !Array.isArray(list) || list.length === 0) return;
+    const latest = list[list.length - 1];
+    const markRead = props.context?.actions?.["dm.mark_read"];
+    if (markRead) {
+      markRead({ threadId, latest_message: latest });
+      return;
+    }
+    if (props.context?.setState) {
+      const current = ((props.context.state as any)?.dmReadAt || {}) as Record<string, string>;
+      const ts = latest?.published || latest?.created_at || new Date().toISOString();
+      props.context.setState("dmReadAt", { ...current, [threadId]: ts });
+    }
+    if (props.context?.setState) {
+      const recipients = Array.from(
+        new Set(
+          list
+            .map((msg: any) => msg?.sender_actor_uri || msg?.actor || msg?.sender || msg?.sender_id)
+            .filter(Boolean)
+            .map((value) => String(value)),
+        ),
+      );
+      const auth = (props.context as any)?.$auth ?? (props.context as any)?.auth;
+      const user = (auth as any)?.user || {};
+      const selfIds = new Set<string>();
+      ["id", "handle", "actor_uri", "actor"].forEach((key) => {
+        if (user[key]) selfIds.add(String(user[key]));
+      });
+      const others = recipients.filter((id) => !selfIds.has(id));
+      const currentRecipients = ((props.context.state as any)?.activeRecipients || []) as any[];
+      if (others.length > 0 && (!Array.isArray(currentRecipients) || currentRecipients.length === 0)) {
+        props.context.setState("activeRecipients", others);
+      }
+    }
+  });
+
+  const resolvedMessages = () => providedMessages() ?? messages();
+
   return (
     <Suspense fallback={<div class="text-center py-6 text-muted">読み込み中…</div>}>
       <Show when={resolvedThreadId()}>
         <Show
-          when={messages() && messages()!.length > 0}
+          when={resolvedMessages() && resolvedMessages()!.length > 0}
           fallback={
             <div class="text-center py-6 text-muted">
               {props.emptyText || "メッセージはまだありません"}
@@ -1322,7 +1470,7 @@ const MessageThread: Component<{
           }
         >
           <div class="space-y-3 max-h-[50vh] overflow-y-auto p-2">
-            <For each={messages()}>
+            <For each={resolvedMessages()}>
               {(message: any) => (
                 <div class="rounded-lg bg-gray-100 dark:bg-neutral-800 p-3">
                   <div class="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">
@@ -1348,6 +1496,7 @@ const MessageComposer: Component<{
   threadId?: string;
   recipients?: string[];
   placeholder?: string;
+  action?: string;
   onSent?: () => void;
   context?: UiRuntimeContext;
 }> = (props) => {
@@ -1357,6 +1506,11 @@ const MessageComposer: Component<{
 
   const resolvedRecipients = () =>
     props.recipients || props.context?.state?.activeRecipients || [];
+
+  const resolvedThreadId = () =>
+    props.threadId || props.context?.state?.activeThreadId || props.context?.routeParams?.id || "";
+
+  const actionName = () => props.action || "action.send_dm";
 
   const handleSubmit = async (ev: Event) => {
     ev.preventDefault();
@@ -1369,13 +1523,23 @@ const MessageComposer: Component<{
     setSending(true);
     setError(null);
     try {
-      await api("/dm/send", {
-        method: "POST",
-        body: JSON.stringify({
-          recipients: resolvedRecipients(),
+      const actionHandler = props.context?.actions?.[actionName()];
+      if (actionHandler) {
+        await actionHandler({
           content,
-        }),
-      });
+          recipients: resolvedRecipients(),
+          threadId: resolvedThreadId(),
+        });
+      } else {
+        await api("/dm/send", {
+          method: "POST",
+          body: JSON.stringify({
+            thread_id: resolvedThreadId(),
+            recipients: resolvedRecipients(),
+            content,
+          }),
+        });
+      }
       setText("");
       if (typeof props.onSent === "function") {
         props.onSent();

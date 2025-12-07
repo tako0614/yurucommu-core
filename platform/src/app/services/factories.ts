@@ -39,7 +39,7 @@ import type {
   ListStoriesParams,
 } from "@takos/platform/app/services/story-service";
 import type { StoryService } from "./story-service";
-import type { DMService } from "./dm-service";
+import type { DMService, MarkReadInput } from "./dm-service";
 import type { CommunityService } from "./community-service";
 import type { UserService } from "./user-service";
 import type { MediaService } from "./media-service";
@@ -65,6 +65,7 @@ import type { MediaObject, MediaListResult, ListMediaParams } from "@takos/platf
 import type { AppAuthContext } from "@takos/platform/app/runtime/types";
 import { makeData } from "../../server/data-factory";
 import { releaseStore } from "../../utils/utils";
+import { HttpError } from "../../utils/response-helpers";
 import { canonicalizeParticipants, computeParticipantsHash } from "../../activitypub/chat";
 import { requireInstanceDomain } from "../../subdomain";
 import { signPushPayload } from "../../server/push-signature";
@@ -1074,108 +1075,207 @@ const createPostService = (env: any): PostService => {
 
 const createDMService = (env: any): DMService => {
   const objects = createObjectService(env);
-  const threadFromObject = (obj: APObject): { participants: string[] } => {
-    const participants = canonicalizeParticipants([
-      obj.actor,
-      ...(obj.to || []),
-      ...(obj.cc || []),
-      ...(obj.bto || []),
-      ...(obj.bcc || []),
-    ]);
-    return { participants };
+  const PUBLIC_AUDIENCE = "https://www.w3.org/ns/activitystreams#Public";
+
+  const toList = (value: unknown): string[] => {
+    if (Array.isArray(value)) return value.map((v) => v?.toString?.() ?? "").filter(Boolean);
+    if (typeof value === "string") return [value];
+    if (value === null || value === undefined) return [];
+    return [String(value)];
   };
 
-  const toDmMessage = (obj: APObject, threadId: string): DmMessage => ({
-    id: objectIdFromAp(obj),
-    thread_id: threadId,
-    sender_actor_uri: obj.actor,
-    content: obj.content ?? "",
-    created_at: obj.published ?? new Date().toISOString(),
-    media: (obj.attachment || []).map((att: any) => ({
-      id: att.url,
-      url: att.url,
-      type: att.type || "Document",
-    })),
-  });
+  const ensureAuthCtx = (ctx: AppAuthContext): string => {
+    const userId = (ctx.userId || "").toString().trim();
+    if (!userId) throw new HttpError(401, "UNAUTHORIZED", "Authentication required");
+    return userId;
+  };
 
-  const fetchThreadMessages = async (threadId: string, limit?: number, offset?: number): Promise<APObject[]> => {
-    const all = await objects.getThread({ userId: null }, threadId);
-    const start = offset ?? 0;
-    const end = limit ? start + limit : undefined;
-    return all.slice(start, end);
+  const normalizeDmParticipants = (raw: string[], sender: string): string[] => {
+    const input = canonicalizeParticipants(raw.filter(Boolean).map((p) => p.trim()));
+    const merged = canonicalizeParticipants([...input, sender].filter((p) => p !== PUBLIC_AUDIENCE));
+    if (merged.length < 2) {
+      throw new HttpError(400, "INVALID_PARTICIPANTS", "At least one other participant is required");
+    }
+    if (merged.length > 20) {
+      throw new HttpError(400, "TOO_MANY_PARTICIPANTS", "DM threads support up to 20 participants");
+    }
+    return merged;
+  };
+
+  const participantsFromObject = (obj: APObject): string[] => {
+    const declared = toList((obj as any)["takos:participants"]);
+    const all = [
+      obj.actor,
+      ...toList(obj.to),
+      ...toList(obj.cc),
+      ...toList((obj as any).bto),
+      ...toList((obj as any).bcc),
+      ...declared,
+    ]
+      .filter(Boolean)
+      .filter((p) => p !== PUBLIC_AUDIENCE);
+    return canonicalizeParticipants(all);
+  };
+
+  const threadFromObject = (obj: APObject): { participants: string[]; threadId: string } => {
+    const participants = participantsFromObject(obj);
+    const threadId = (obj.context as string | undefined) || computeParticipantsHash(participants);
+    return { participants, threadId };
+  };
+
+  const filterMessagesForUser = (objectsInThread: APObject[], userId: string): APObject[] => {
+    return objectsInThread.filter((obj) => {
+      const participants = participantsFromObject(obj);
+      if (!participants.includes(userId)) return false;
+      const draft = Boolean((obj as any)["takos:draft"] ?? (obj as any).draft);
+      if (draft && obj.actor !== userId) return false;
+      const recipients = new Set([
+        ...toList(obj.to),
+        ...toList((obj as any).bto),
+        ...toList((obj as any).bcc),
+        obj.actor,
+      ]);
+      return recipients.has(userId) || obj.actor === userId;
+    });
+  };
+
+  const toDmMessage = (obj: APObject): DmMessage => {
+    const { threadId } = threadFromObject(obj);
+    return {
+      id: objectIdFromAp(obj),
+      thread_id: threadId,
+      sender_actor_uri: obj.actor,
+      content: obj.content ?? "",
+      created_at: obj.published ?? new Date().toISOString(),
+      media: (obj.attachment || []).map((att: any) => ({
+        id: att.url,
+        url: att.url,
+        type: att.type || "Document",
+      })),
+      in_reply_to: (obj as any).inReplyTo ?? (obj as any).in_reply_to ?? null,
+      draft: Boolean((obj as any)["takos:draft"] ?? (obj as any).draft ?? false),
+    };
+  };
+
+  const resolveThreadMessages = async (
+    ctx: AppAuthContext,
+    threadId: string,
+  ): Promise<{ participants: string[]; messages: APObject[] }> => {
+    const all = await objects.getThread(ctx, threadId).catch(() => []);
+    const participants = all.length ? threadFromObject(all[0]).participants : [];
+    return { participants, messages: all };
+  };
+
+  const ensureThreadMembership = (userId: string, participants: string[]) => {
+    if (!participants.length) {
+      throw new HttpError(404, "THREAD_NOT_FOUND", "DM thread not found");
+    }
+    if (!participants.includes(userId)) {
+      throw new HttpError(403, "FORBIDDEN", "Not a participant of this thread");
+    }
   };
 
   return {
     async openThread(ctx, input: OpenThreadInput) {
-      const sender = ensureAuth(ctx);
-      const participants = canonicalizeParticipants([sender, ...(input.participants || [])]);
+      const sender = ensureAuthCtx(ctx);
+      const participants = normalizeDmParticipants(input.participants || [], sender);
       const threadId = computeParticipantsHash(participants);
       const page = await objects.getThread(ctx, threadId).catch(() => []);
-      const messages = page.map((obj) => toDmMessage(obj, threadId));
+      const visible = filterMessagesForUser(page, sender);
+      const messages = visible.map((obj) => toDmMessage(obj));
       return { threadId, messages };
     },
 
     async sendMessage(ctx, input: SendMessageInput) {
-      const sender = ensureAuth(ctx);
-      const participants = canonicalizeParticipants([
-        sender,
-        ...((input.participants as string[]) || []),
-      ]);
+      const sender = ensureAuthCtx(ctx);
+      const content = (input.content ?? "").toString();
+      if (!content.trim()) {
+        throw new HttpError(400, "INVALID_INPUT", "content is required");
+      }
+
+      let participants: string[] = [];
+      if (input.participants?.length) {
+        participants = normalizeDmParticipants(input.participants as string[], sender);
+      } else if (input.thread_id) {
+        const existing = await resolveThreadMessages(ctx, input.thread_id);
+        if (!existing.participants.length) {
+          throw new HttpError(404, "THREAD_NOT_FOUND", "DM thread not found");
+        }
+        participants = existing.participants;
+      }
+      if (!participants.length) {
+        throw new HttpError(400, "INVALID_INPUT", "participants or thread_id is required");
+      }
+
+      if (!participants.includes(sender)) {
+        participants = normalizeDmParticipants(participants, sender);
+      }
+
       const threadId = input.thread_id || computeParticipantsHash(participants);
-      const { to, cc } = visibilityToRecipients("direct", sender);
-      const targetRecipients = participants.filter((p) => p !== sender);
+      const recipients = input.draft ? [sender] : participants.filter((p) => p !== sender);
+      if (!recipients.length) {
+        throw new HttpError(400, "INVALID_PARTICIPANTS", "Cannot create DM thread with only yourself");
+      }
+
       const apObject = await objects.create(ctx, {
         type: "Note",
-        content: input.content,
+        content,
         visibility: "direct",
-        to: targetRecipients.length ? targetRecipients : to,
-        cc,
+        to: recipients,
+        cc: [],
+        bto: [],
+        bcc: [],
+        inReplyTo: input.in_reply_to ?? null,
         context: threadId,
-      });
-      return toDmMessage(apObject, threadId);
+        "takos:participants": participants,
+        "takos:draft": Boolean(input.draft),
+      } as any);
+      return toDmMessage(apObject);
     },
 
     async listThreads(ctx, params?: ListThreadsParams): Promise<DmThreadPage> {
-      const userId = ensureAuth(ctx);
+      const userId = ensureAuthCtx(ctx);
       const limit = params?.limit ?? DEFAULT_PAGE_SIZE;
       const offset = params?.offset ?? 0;
-      const threads = await withStore(env, async (store) => {
-        if (store.listDirectThreadContexts) {
-          return store.listDirectThreadContexts(userId, limit, offset);
-        }
-        const page = await objects.query(
-          { userId },
-          {
-            visibility: "direct",
-            includeDirect: true,
-            participant: userId,
-            limit: limit * 5,
-            cursor: "0",
-          },
-        );
-        const contexts = new Map<string, string>();
-        for (const item of page.items) {
-          if (!item.context || contexts.has(item.context)) continue;
-          contexts.set(item.context, item.published ?? new Date().toISOString());
-          if (contexts.size >= limit + offset) break;
-        }
-        const entries = Array.from(contexts.entries())
-          .sort((a, b) => (b[1] || "").localeCompare(a[1] || ""));
-        return entries.slice(offset, offset + limit).map(([context, latest]) => ({ context, latest }));
+      const page = await objects.query(ctx, {
+        visibility: "direct",
+        includeDirect: true,
+        participant: userId,
+        limit: limit * 5,
+        cursor: "0",
+        order: "desc",
       });
+      const contexts = new Map<string, APObject>();
+      for (const item of page.items) {
+        const { threadId } = threadFromObject(item);
+        if (!threadId) continue;
+        const draft = Boolean((item as any)["takos:draft"] ?? (item as any).draft);
+        if (draft && item.actor !== userId) continue;
+        const existing = contexts.get(threadId);
+        if (!existing || (existing.published || "").localeCompare(item.published || "") < 0) {
+          contexts.set(threadId, item);
+        }
+        if (contexts.size >= limit + offset) break;
+      }
+
+      const slice = Array.from(contexts.values())
+        .sort((a, b) => (b.published || "").localeCompare(a.published || ""))
+        .slice(offset, offset + limit);
+
       const items: DmThread[] = [];
-      for (const row of threads as any[]) {
-        const context = row.context as string;
-        const messages = await objects.getThread(ctx, context);
-        const latest = messages[messages.length - 1] ?? messages[0];
-        const participants = latest ? threadFromObject(latest).participants : [];
+      for (const obj of slice) {
+        const { threadId } = threadFromObject(obj);
+        const { participants, messages } = await resolveThreadMessages(ctx, threadId);
+        const visibleMessages = filterMessagesForUser(messages, userId);
+        const latest = visibleMessages[visibleMessages.length - 1] ?? null;
         items.push({
-          id: context,
+          id: threadId,
           participants,
-          created_at: (latest?.published as string) ?? new Date().toISOString(),
-          latest_message: latest ? toDmMessage(latest, context) : null,
+          created_at: (latest?.published as string) ?? (obj.published as string) ?? new Date().toISOString(),
+          latest_message: latest ? toDmMessage(latest) : null,
         });
       }
+
       return {
         threads: items,
         next_offset: nextOffset(items.length, limit, offset),
@@ -1184,16 +1284,42 @@ const createDMService = (env: any): DMService => {
     },
 
     async listMessages(ctx, params: ListMessagesParams): Promise<DmMessagePage> {
-      ensureAuth(ctx);
+      const userId = ensureAuthCtx(ctx);
       const limit = params.limit ?? DEFAULT_PAGE_SIZE;
       const offset = params.offset ?? 0;
-      const objectsInThread = await fetchThreadMessages(params.thread_id, limit, offset);
-      const messages = objectsInThread.map((obj) => toDmMessage(obj, params.thread_id));
+      const { participants, messages } = await resolveThreadMessages(ctx, params.thread_id);
+      ensureThreadMembership(userId, participants);
+      const filtered = filterMessagesForUser(messages, userId);
+      const sliced = filtered.slice(offset, limit ? offset + limit : undefined);
+      const mapped = sliced.map((obj) => toDmMessage(obj));
       return {
-        messages,
-        next_offset: nextOffset(messages.length, limit, offset),
+        messages: mapped,
+        next_offset: nextOffset(mapped.length, limit, offset),
         next_cursor: null,
       };
+    },
+
+    async markRead(ctx, input: MarkReadInput) {
+      const userId = ensureAuthCtx(ctx);
+      const { participants } = await resolveThreadMessages(ctx, input.thread_id);
+      ensureThreadMembership(userId, participants);
+      return { thread_id: input.thread_id, message_id: input.message_id, read_at: new Date().toISOString() };
+    },
+
+    async deleteMessage(ctx, messageId: string) {
+      const userId = ensureAuthCtx(ctx);
+      const existing = await objects.get(ctx, messageId);
+      if (!existing) {
+        throw new HttpError(404, "MESSAGE_NOT_FOUND", "Message not found");
+      }
+      if (existing.actor !== userId) {
+        throw new HttpError(403, "FORBIDDEN", "Only the sender can delete this message");
+      }
+      await objects.delete(ctx, messageId);
+    },
+
+    async saveDraft(ctx, input: SendMessageInput) {
+      return this.sendMessage(ctx, { ...input, draft: true });
     },
   };
 };

@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as chat from "./chat.js";
+import * as objectService from "../app/services/object-service.js";
 import { _test } from "./inbox-worker.js";
 
 const { processActivity } = _test;
@@ -13,6 +15,10 @@ function makeDb() {
     deleteApReactionsByActivityId: vi.fn(),
   };
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("inbox-worker Announce/Undo", () => {
   const env = { INSTANCE_DOMAIN: "example.com" };
@@ -144,5 +150,57 @@ describe("inbox-worker Announce/Undo", () => {
 
     expect(db.findPostByApObjectId).not.toHaveBeenCalled();
     expect(db.createApAnnounce).not.toHaveBeenCalled();
+  });
+});
+
+describe("inbox-worker direct messages", () => {
+  const env = { INSTANCE_DOMAIN: "example.com" };
+
+  it("routes Create activities with only bto/bcc to DM handler", async () => {
+    const db = makeDb();
+    const dmSpy = vi.spyOn(chat, "handleIncomingDm").mockResolvedValue(undefined as any);
+
+    await processActivity(
+      db as any,
+      env as any,
+      "bob",
+      {
+        type: "Create",
+        actor: "https://remote.example/users/alice",
+        object: {
+          type: "Note",
+          content: "hi",
+          bto: ["https://example.com/ap/users/bob"],
+        },
+      },
+    );
+
+    expect(dmSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("normalizes incoming DM recipients and stores as direct", async () => {
+    const receiveRemote = vi.fn().mockResolvedValue({});
+    vi.spyOn(objectService, "createObjectService").mockReturnValue({ receiveRemote } as any);
+
+    await chat.handleIncomingDm(env as any, {
+      actor: "https://remote.example/users/alice",
+      object: {
+        type: "Note",
+        id: "note-1",
+        content: "<script>bad()</script><p>ok</p>",
+        to: ["https://www.w3.org/ns/activitystreams#Public"],
+        bto: ["https://example.com/ap/users/bob"],
+        bcc: ["https://example.com/ap/users/charlie"],
+      },
+    } as any);
+
+    expect(receiveRemote).toHaveBeenCalledTimes(1);
+    const payload = receiveRemote.mock.calls[0][1];
+    expect(payload.visibility).toBe("direct");
+    expect(payload.actor).toBe("https://remote.example/users/alice");
+    expect(payload.to).toEqual([]);
+    expect(payload.bto).toEqual(["https://example.com/ap/users/bob"]);
+    expect(payload.bcc).toEqual(["https://example.com/ap/users/charlie"]);
+    expect(payload.content).toBe("<p>ok</p>");
   });
 });

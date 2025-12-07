@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings, Variables } from "@takos/platform/server";
-import { ok, fail } from "@takos/platform/server";
+import { ok, fail, HttpError } from "@takos/platform/server";
 import type { AppAuthContext } from "@takos/platform/app/runtime/types";
 import { auth } from "../middleware/auth";
 import { createDMService, createCommunityService } from "../services";
 import { getAppAuthContext } from "../lib/auth-context";
+import { ensureDmSendAllowed, isEndpointDisabled } from "../lib/dm-guard";
 
 const chat = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -18,18 +19,27 @@ const parsePagination = (url: URL, defaults = { limit: 50, offset: 0 }) => {
 };
 
 const ensureAuth = (ctx: AppAuthContext): AppAuthContext => {
-  if (!ctx.userId) throw new Error("unauthorized");
+  if (!ctx.userId) throw new HttpError(401, "UNAUTHORIZED", "Authentication required");
   return ctx;
 };
 
 const handleError = (c: any, error: unknown) => {
+  if (error instanceof HttpError) {
+    return fail(c, error.message, error.status, { code: error.code, details: error.details });
+  }
   const message = (error as Error)?.message || "unexpected error";
-  if (message === "unauthorized") return fail(c, message, 401);
   return fail(c, message, 400);
+};
+
+const dmApiDisabled = (c: any): boolean => {
+  const config = (c.get("takosConfig") as any) ?? (c.env as any).takosConfig;
+  const path = new URL(c.req.url).pathname;
+  return isEndpointDisabled(config, path);
 };
 
 chat.get("/dm/threads", auth, async (c) => {
   try {
+    if (dmApiDisabled(c)) return fail(c, "Not Found", 404);
     const dm = createDMService(c.env);
     const authCtx = ensureAuth(getAppAuthContext(c));
     const url = new URL(c.req.url);
@@ -43,6 +53,7 @@ chat.get("/dm/threads", auth, async (c) => {
 
 chat.get("/dm/threads/:threadId/messages", auth, async (c) => {
   try {
+    if (dmApiDisabled(c)) return fail(c, "Not Found", 404);
     const dm = createDMService(c.env);
     const authCtx = ensureAuth(getAppAuthContext(c));
     const url = new URL(c.req.url);
@@ -60,6 +71,7 @@ chat.get("/dm/threads/:threadId/messages", auth, async (c) => {
 
 chat.get("/dm/with/:handle", auth, async (c) => {
   try {
+    if (dmApiDisabled(c)) return fail(c, "Not Found", 404);
     const dm = createDMService(c.env);
     const authCtx = ensureAuth(getAppAuthContext(c));
     const other = c.req.param("handle");
@@ -72,9 +84,13 @@ chat.get("/dm/with/:handle", auth, async (c) => {
 
 chat.post("/dm/send", auth, async (c) => {
   try {
+    if (dmApiDisabled(c)) return fail(c, "Not Found", 404);
     const dm = createDMService(c.env);
     const authCtx = ensureAuth(getAppAuthContext(c));
     const body = (await c.req.json().catch(() => ({}))) as any;
+    const mediaIds = Array.isArray(body.media_ids) ? body.media_ids : undefined;
+    const limitCheck = await ensureDmSendAllowed(c.env, authCtx, { mediaKeys: mediaIds });
+    if (!limitCheck.ok) return fail(c, limitCheck.message, limitCheck.status);
     const participants = Array.isArray(body.recipients)
       ? body.recipients
       : body.recipient
@@ -84,9 +100,76 @@ chat.post("/dm/send", auth, async (c) => {
       thread_id: body.thread_id,
       participants,
       content: String(body.content ?? "").trim(),
-      media_ids: Array.isArray(body.media_ids) ? body.media_ids : undefined,
+      media_ids: mediaIds,
+      in_reply_to: body.in_reply_to ?? body.inReplyTo ?? undefined,
+      draft: body.draft === true,
     });
     return ok(c, message, 201);
+  } catch (error) {
+    return handleError(c, error);
+  }
+});
+
+chat.post("/dm/threads/:threadId/reply", auth, async (c) => {
+  try {
+    if (dmApiDisabled(c)) return fail(c, "Not Found", 404);
+    const dm = createDMService(c.env);
+    const authCtx = ensureAuth(getAppAuthContext(c));
+    const body = (await c.req.json().catch(() => ({}))) as any;
+    const message = await dm.sendMessage(authCtx, {
+      thread_id: c.req.param("threadId"),
+      content: String(body.content ?? "").trim(),
+      media_ids: Array.isArray(body.media_ids) ? body.media_ids : undefined,
+      in_reply_to: body.in_reply_to ?? body.inReplyTo ?? undefined,
+    });
+    return ok(c, message, 201);
+  } catch (error) {
+    return handleError(c, error);
+  }
+});
+
+chat.post("/dm/threads/:threadId/draft", auth, async (c) => {
+  try {
+    if (dmApiDisabled(c)) return fail(c, "Not Found", 404);
+    const dm = createDMService(c.env);
+    const authCtx = ensureAuth(getAppAuthContext(c));
+    const body = (await c.req.json().catch(() => ({}))) as any;
+    const message = await dm.saveDraft(authCtx, {
+      thread_id: c.req.param("threadId"),
+      content: String(body.content ?? "").trim(),
+      media_ids: Array.isArray(body.media_ids) ? body.media_ids : undefined,
+      in_reply_to: body.in_reply_to ?? body.inReplyTo ?? undefined,
+      draft: true,
+    });
+    return ok(c, message, 201);
+  } catch (error) {
+    return handleError(c, error);
+  }
+});
+
+chat.post("/dm/threads/:threadId/read", auth, async (c) => {
+  try {
+    if (dmApiDisabled(c)) return fail(c, "Not Found", 404);
+    const dm = createDMService(c.env);
+    const authCtx = ensureAuth(getAppAuthContext(c));
+    const body = (await c.req.json().catch(() => ({}))) as any;
+    const result = await dm.markRead(authCtx, {
+      thread_id: c.req.param("threadId"),
+      message_id: body.message_id ?? body.messageId ?? undefined,
+    });
+    return ok(c, result);
+  } catch (error) {
+    return handleError(c, error);
+  }
+});
+
+chat.delete("/dm/messages/:messageId", auth, async (c) => {
+  try {
+    if (dmApiDisabled(c)) return fail(c, "Not Found", 404);
+    const dm = createDMService(c.env);
+    const authCtx = ensureAuth(getAppAuthContext(c));
+    await dm.deleteMessage(authCtx, c.req.param("messageId"));
+    return ok(c, { deleted: true });
   } catch (error) {
     return handleError(c, error);
   }

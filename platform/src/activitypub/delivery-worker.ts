@@ -25,6 +25,10 @@ const resolvePolicy = (env: Env) =>
     config: (env as any)?.takosConfig?.activitypub ?? (env as any)?.activitypub ?? null,
   });
 
+const PUBLIC_AUDIENCE = "https://www.w3.org/ns/activitystreams#Public";
+const DEFAULT_MAX_RETRIES = 5;
+const DIRECT_MESSAGE_MAX_RETRIES = 2;
+
 function isActivityPubDisabled(env: Env, feature: string): boolean {
   const availability = getActivityPubAvailability(env);
   if (!availability.enabled) {
@@ -34,6 +38,41 @@ function isActivityPubDisabled(env: Env, feature: string): boolean {
     return true;
   }
   return false;
+}
+
+const toArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.filter(Boolean).map((v) => v.toString());
+  if (value === null || value === undefined) return [];
+  return [value.toString()];
+};
+
+function parseActivity(activityJson: string): any | null {
+  try {
+    return JSON.parse(activityJson);
+  } catch {
+    return null;
+  }
+}
+
+function isDirectDelivery(activity: any): boolean {
+  if (!activity) return false;
+  const object = activity.object ?? {};
+  const recipients = [
+    ...toArray(activity.to ?? object.to),
+    ...toArray(activity.cc ?? object.cc),
+    ...toArray(object.bto ?? activity.bto),
+    ...toArray(object.bcc ?? activity.bcc),
+  ].filter(Boolean);
+  if (!recipients.length) return false;
+  return !recipients.some(
+    (uri) =>
+      uri === PUBLIC_AUDIENCE || uri.endsWith("/followers") || uri.endsWith("/following"),
+  );
+}
+
+function computeMaxRetries(activityJson: string): number {
+  const activity = parseActivity(activityJson);
+  return isDirectDelivery(activity) ? DIRECT_MESSAGE_MAX_RETRIES : DEFAULT_MAX_RETRIES;
 }
 
 /**
@@ -260,7 +299,7 @@ export async function processDeliveryQueue(env: Env, batchSize = 10): Promise<vo
 
         const now = new Date();
         const retryCount = hydrated.retry_count || 0;
-        const maxRetries = 5;
+        const maxRetries = computeMaxRetries(hydrated.activity_json);
 
         if (result.success) {
           await db.updateApDeliveryQueueStatus(hydrated.id, "delivered", {
@@ -376,6 +415,7 @@ export async function deliverSingleQueuedItem(env: Env, deliveryId: string): Pro
       hydrated.local_actor_id ||
       actorHandleFromActivity(hydrated.activity_json, requireInstanceDomain(env)) ||
       "";
+    const maxRetries = computeMaxRetries(hydrated.activity_json);
 
     const result = await deliverActivity(
       db,
@@ -392,14 +432,31 @@ export async function deliverSingleQueuedItem(env: Env, deliveryId: string): Pro
         last_attempt_at: now,
       });
       console.log(`✓ Immediately delivered to ${hydrated.target_inbox_url}`);
+    } else if (result.blocked) {
+      await db.updateApDeliveryQueueStatus(hydrated.id, "failed", {
+        retry_count: maxRetries,
+        last_error: result.error || "blocked by policy",
+        last_attempt_at: now,
+        delivered_at: null,
+      });
+      console.warn(`✗ Immediate delivery blocked: ${hydrated.target_inbox_url} - ${result.error}`);
     } else {
       const newRetryCount = (hydrated.retry_count || 0) + 1;
-      await db.updateApDeliveryQueueStatus(hydrated.id, "pending", {
-        retry_count: newRetryCount,
-        last_error: result.error || "unknown error",
-        last_attempt_at: now,
-      });
-      console.warn(`⚠ Immediate delivery failed, will retry: ${hydrated.target_inbox_url} - ${result.error}`);
+      if (newRetryCount >= maxRetries) {
+        await db.updateApDeliveryQueueStatus(hydrated.id, "failed", {
+          retry_count: newRetryCount,
+          last_error: result.error || "unknown error",
+          last_attempt_at: now,
+        });
+        console.error(`✗ Immediate delivery failed permanently: ${hydrated.target_inbox_url} - ${result.error}`);
+      } else {
+        await db.updateApDeliveryQueueStatus(hydrated.id, "pending", {
+          retry_count: newRetryCount,
+          last_error: result.error || "unknown error",
+          last_attempt_at: now,
+        });
+        console.warn(`⚠ Immediate delivery failed, will retry: ${hydrated.target_inbox_url} - ${result.error}`);
+      }
     }
   } catch (error) {
     console.error(`Failed to immediately deliver ${deliveryId}:`, error);

@@ -28,6 +28,10 @@ const resolvePolicy = (env: Env) =>
     config: (env as any)?.takosConfig?.activitypub ?? (env as any)?.activitypub ?? null,
   });
 
+const PUBLIC_AUDIENCE = "https://www.w3.org/ns/activitystreams#Public";
+const DEFAULT_MAX_RETRIES = 5;
+const DIRECT_MESSAGE_MAX_RETRIES = 2;
+
 function isActivityPubDisabled(env: Env, feature: string): boolean {
   const availability = getActivityPubAvailability(env);
   if (!availability.enabled) {
@@ -37,6 +41,41 @@ function isActivityPubDisabled(env: Env, feature: string): boolean {
     return true;
   }
   return false;
+}
+
+const toArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.filter(Boolean).map((v) => v.toString());
+  if (value === null || value === undefined) return [];
+  return [value.toString()];
+};
+
+function parseActivity(activityJson: string): any | null {
+  try {
+    return JSON.parse(activityJson);
+  } catch {
+    return null;
+  }
+}
+
+function isDirectDelivery(activity: any): boolean {
+  if (!activity) return false;
+  const object = activity.object ?? {};
+  const recipients = [
+    ...toArray(activity.to ?? object.to),
+    ...toArray(activity.cc ?? object.cc),
+    ...toArray(object.bto ?? activity.bto),
+    ...toArray(object.bcc ?? activity.bcc),
+  ].filter(Boolean);
+  if (!recipients.length) return false;
+  return !recipients.some(
+    (uri) =>
+      uri === PUBLIC_AUDIENCE || uri.endsWith("/followers") || uri.endsWith("/following"),
+  );
+}
+
+function computeMaxRetries(activityJson: string): number {
+  const activity = parseActivity(activityJson);
+  return isDirectDelivery(activity) ? DIRECT_MESSAGE_MAX_RETRIES : DEFAULT_MAX_RETRIES;
 }
 
 /**
@@ -207,7 +246,7 @@ export async function processDeliveryQueue(env: Env, batchSize = 10): Promise<vo
 
         const now = new Date();
         const retryCount = delivery.retry_count || 0;
-        const maxRetries = 5;
+        const maxRetries = computeMaxRetries(delivery.activity_json);
 
         if (result.success) {
           // Mark as delivered

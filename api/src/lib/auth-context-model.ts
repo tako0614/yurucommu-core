@@ -4,6 +4,8 @@ export type PlanLimits = {
   storage: number;
   fileSize: number;
   aiRequests: number;
+  dmMessagesPerDay: number;
+  dmMediaSize: number;
 };
 
 export type PlanInfo = {
@@ -58,6 +60,8 @@ const PLAN_PRESETS: Record<PlanName, PlanInfo> = {
       storage: 1073741824, // 1GB
       fileSize: 5242880, // 5MB
       aiRequests: 0,
+      dmMessagesPerDay: 100,
+      dmMediaSize: 5242880, // 5MB
     },
     features: ["basic_sns", "activitypub", "export", "api_read", "api_write"],
   },
@@ -67,6 +71,8 @@ const PLAN_PRESETS: Record<PlanName, PlanInfo> = {
       storage: 10737418240, // 10GB
       fileSize: 26214400, // 25MB
       aiRequests: 1000,
+      dmMessagesPerDay: 1000,
+      dmMediaSize: 26214400, // 25MB
     },
     features: [
       "basic_sns",
@@ -86,6 +92,8 @@ const PLAN_PRESETS: Record<PlanName, PlanInfo> = {
       storage: 107374182400, // 100GB
       fileSize: 104857600, // 100MB
       aiRequests: 10000,
+      dmMessagesPerDay: 10000,
+      dmMediaSize: 104857600, // 100MB
     },
     features: [
       "basic_sns",
@@ -107,6 +115,8 @@ const PLAN_PRESETS: Record<PlanName, PlanInfo> = {
       storage: UNLIMITED,
       fileSize: UNLIMITED,
       aiRequests: UNLIMITED,
+      dmMessagesPerDay: UNLIMITED,
+      dmMediaSize: UNLIMITED,
     },
     features: ["*"],
   },

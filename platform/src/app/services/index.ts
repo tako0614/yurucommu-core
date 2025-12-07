@@ -74,7 +74,18 @@ export type {
   ChannelMessageParams,
   SendChannelMessageInput,
 } from "./community-service";
-export type { DMService, DmThread, DmMessage, DmThreadPage, DmMessagePage, OpenThreadInput, SendMessageInput, ListThreadsParams, ListMessagesParams } from "./dm-service";
+export type {
+  DMService,
+  DmThread,
+  DmMessage,
+  DmThreadPage,
+  DmMessagePage,
+  OpenThreadInput,
+  SendMessageInput,
+  ListThreadsParams,
+  ListMessagesParams,
+  MarkReadInput,
+} from "./dm-service";
 export type { StoryService, Story, StoryPage, StoryItem, CreateStoryInput, ListStoriesParams } from "./story-service";
 export type { MediaService, MediaObject, ListMediaParams, MediaListResult } from "./media-service";
 export type {
