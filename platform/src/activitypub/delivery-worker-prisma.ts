@@ -198,7 +198,7 @@ export async function processDeliveryQueue(env: Env, batchSize = 10): Promise<vo
           env,
           delivery.activity_json,
           delivery.target_inbox_url,
-          delivery.local_user_id,
+          (delivery as any).local_user_id || (delivery as any).local_actor_id,
         );
 
         const now = new Date();

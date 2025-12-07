@@ -3,14 +3,10 @@ import { webcrypto } from "node:crypto";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  canonicalizeParticipants,
-  computeParticipantsHash,
-  getActorUri,
-} from "@takos/platform/server";
+import { computeParticipantsHash } from "@takos/platform/server";
 
 type SeedUser = {
-  id: string;
+  handle: string;
   displayName: string;
   password: string;
   avatarUrl?: string;
@@ -18,12 +14,19 @@ type SeedUser = {
 
 type SeedPost = {
   id: string;
-  authorId: string;
+  authorHandle: string;
   text: string;
   createdAt: Date;
-  communityId?: string | null;
-  broadcastAll?: boolean;
-  visibleToFriends?: boolean;
+  communityHandle?: string | null;
+  visibility?: "public" | "community" | "followers";
+};
+
+type SeedDm = {
+  id: string;
+  fromHandle: string;
+  toHandle: string;
+  text: string;
+  createdAt: Date;
 };
 
 type CliArgs = {
@@ -34,15 +37,16 @@ type CliArgs = {
 };
 
 const encoder = new TextEncoder();
+const AS_PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
 
 function usage() {
   console.log(
     [
-      "Seed the local dev database with sample users, posts, community, and DM data.",
+      "Seed the local dev database with sample actors, objects, community, and DM data (v1.8 schema).",
       "",
       "Options:",
       "  --db <url>           Override DATABASE_URL (e.g. file:.wrangler/state/.../db.sqlite)",
-      "  --domain <domain>    Instance domain for ActivityPub actor URIs (default: INSTANCE_DOMAIN or yourdomain.com)",
+      "  --domain <domain>    Instance domain for ActivityPub actor/object URIs (default: INSTANCE_DOMAIN or yourdomain.com)",
       "  --password <text>    Password for seed users (default: SEED_PASSWORD or password123)",
       "  -h, --help           Show this help",
       "",
@@ -147,50 +151,108 @@ function resolveDatabaseUrl(cliUrl?: string): string {
   return `file:${devDb}`;
 }
 
-async function upsertUser(prisma: PrismaClient, user: SeedUser, completedAt: Date) {
-  const existing = await prisma.users.findUnique({ where: { id: user.id } });
-  if (existing) {
-    await prisma.users.update({
-      where: { id: user.id },
-      data: {
-        display_name: user.displayName,
-        avatar_url: user.avatarUrl ?? existing.avatar_url ?? "",
-        is_private: 0,
-        profile_completed_at: existing.profile_completed_at ?? completedAt,
-      },
-    });
-  } else {
-    await prisma.users.create({
-      data: {
-        id: user.id,
-        display_name: user.displayName,
-        avatar_url: user.avatarUrl ?? "",
-        created_at: completedAt,
-        is_private: 0,
-        profile_completed_at: completedAt,
-      },
-    });
-  }
+function userActorUri(handle: string, domain: string): string {
+  return `https://${domain}/ap/users/${handle}`;
+}
 
-  const hashed = await hashPassword(user.password);
-  const account = await prisma.user_accounts.findFirst({
-    where: { provider: "password", user_id: user.id },
+function groupActorUri(handle: string, domain: string): string {
+  return `https://${domain}/ap/groups/${handle}`;
+}
+
+function objectUri(id: string, domain: string): string {
+  return `https://${domain}/ap/objects/${id}`;
+}
+
+async function upsertActor(
+  prisma: PrismaClient,
+  params: {
+    handle: string;
+    displayName: string;
+    type: "Person" | "Group";
+    domain: string;
+    ownerId?: string | null;
+    metadata?: Record<string, unknown>;
+    profileCompletedAt: Date;
+    avatarUrl?: string;
+  },
+) {
+  const { handle, displayName, type, domain, ownerId, metadata, profileCompletedAt, avatarUrl } =
+    params;
+  const id = type === "Group" ? groupActorUri(handle, domain) : userActorUri(handle, domain);
+  const basePath = type === "Group" ? `/ap/groups/${handle}` : `/ap/users/${handle}`;
+  await prisma.actors.upsert({
+    where: { id },
+    update: {
+      handle,
+      type,
+      display_name: displayName,
+      avatar_url: avatarUrl ?? "",
+      owner_id: ownerId ?? null,
+      visibility: "public",
+      profile_completed_at: profileCompletedAt,
+      is_local: 1,
+      inbox: `https://${domain}${basePath}/inbox`,
+      outbox: `https://${domain}${basePath}/outbox`,
+      followers: `https://${domain}${basePath}/followers`,
+      following: `https://${domain}${basePath}/following`,
+      metadata_json: metadata ? JSON.stringify(metadata) : null,
+      updated_at: new Date(),
+    },
+    create: {
+      id,
+      local_id: handle,
+      handle,
+      type,
+      display_name: displayName,
+      avatar_url: avatarUrl ?? "",
+      owner_id: ownerId ?? null,
+      visibility: "public",
+      profile_completed_at: profileCompletedAt,
+      is_local: 1,
+      is_bot: 0,
+      manually_approves_followers: 0,
+      inbox: `https://${domain}${basePath}/inbox`,
+      outbox: `https://${domain}${basePath}/outbox`,
+      followers: `https://${domain}${basePath}/followers`,
+      following: `https://${domain}${basePath}/following`,
+      metadata_json: metadata ? JSON.stringify(metadata) : null,
+      created_at: profileCompletedAt,
+    },
   });
-  if (account) {
+  return id;
+}
+
+async function upsertOwnerPassword(prisma: PrismaClient, password: string) {
+  const hash = await hashPassword(password);
+  await prisma.owner_password.upsert({
+    where: { id: 1 },
+    update: { password_hash: hash, updated_at: new Date() },
+    create: { id: 1, password_hash: hash, updated_at: new Date() },
+  });
+}
+
+async function upsertUserAccount(prisma: PrismaClient, actorId: string, password: string) {
+  const hashed = await hashPassword(password);
+  const existing = await prisma.user_accounts.findFirst({
+    where: { provider: "password", actor_id: actorId },
+  });
+  if (existing) {
     await prisma.user_accounts.update({
-      where: { id: account.id },
+      where: { id: existing.id },
       data: {
-        provider_account_id: hashed,
+        provider_account_id: actorId,
+        password_hash: hashed,
         updated_at: new Date(),
       },
     });
   } else {
     await prisma.user_accounts.create({
       data: {
-        id: `acct-${user.id}`,
-        user_id: user.id,
+        id: `acct-${actorId}`,
+        actor_id: actorId,
         provider: "password",
-        provider_account_id: hashed,
+        provider_account_id: actorId,
+        password_hash: hashed,
         created_at: new Date(),
         updated_at: new Date(),
       },
@@ -198,241 +260,177 @@ async function upsertUser(prisma: PrismaClient, user: SeedUser, completedAt: Dat
   }
 }
 
-async function upsertFollow(
-  prisma: PrismaClient,
-  followerId: string,
-  targetId: string,
-  instanceDomain: string,
-) {
-  if (followerId === targetId) return;
-  const now = new Date();
-  const followerActor = getActorUri(followerId, instanceDomain);
-  const targetActor = getActorUri(targetId, instanceDomain);
-  const followId = `follow-${followerId}-to-${targetId}`;
-  const followActivity = `https://${instanceDomain}/ap/follows/${followId}`;
-  const followerActivity = `${followActivity}-as-follower`;
-
-  await prisma.ap_follows.upsert({
-    where: {
-      local_user_id_remote_actor_id: {
-        local_user_id: followerId,
-        remote_actor_id: targetActor,
-      },
-    },
-    update: {
-      status: "accepted",
-      activity_id: followActivity,
-      accepted_at: now,
-    },
-    create: {
-      id: followId,
-      local_user_id: followerId,
-      remote_actor_id: targetActor,
-      activity_id: followActivity,
-      status: "accepted",
-      created_at: now,
-      accepted_at: now,
-    },
-  });
-
-  await prisma.ap_followers.upsert({
-    where: {
-      local_user_id_remote_actor_id: {
-        local_user_id: targetId,
-        remote_actor_id: followerActor,
-      },
-    },
-    update: {
-      status: "accepted",
-      activity_id: followerActivity,
-      accepted_at: now,
-    },
-    create: {
-      id: `follower-${targetId}-from-${followerId}`,
-      local_user_id: targetId,
-      remote_actor_id: followerActor,
-      activity_id: followerActivity,
-      status: "accepted",
-      created_at: now,
-      accepted_at: now,
-    },
-  });
-}
-
-async function upsertCommunity(
-  prisma: PrismaClient,
-  communityId: string,
-  creatorId: string,
-  instanceDomain: string,
-  createdAt: Date,
-) {
-  const apId = `https://${instanceDomain}/ap/groups/${communityId}`;
-  await prisma.communities.upsert({
-    where: { id: communityId },
-    update: {
-      name: "Dev Community",
-      description: "Sample community for local development fixtures",
-      icon_url: "",
-      visibility: "public",
-      invite_policy: "owner_mod",
-      created_by: creatorId,
-      ap_id: apId,
-    },
-    create: {
-      id: communityId,
-      name: "Dev Community",
-      description: "Sample community for local development fixtures",
-      visibility: "public",
-      invite_policy: "owner_mod",
-      icon_url: "",
-      created_by: creatorId,
-      created_at: createdAt,
-      ap_id: apId,
-    },
-  });
-}
-
 async function upsertMembership(
   prisma: PrismaClient,
-  communityId: string,
-  userId: string,
-  role: "Owner" | "Moderator" | "Member",
+  communityActorId: string,
+  actorId: string,
+  role: "owner" | "admin" | "moderator" | "member",
   joinedAt: Date,
 ) {
   await prisma.memberships.upsert({
     where: {
-      community_id_user_id: {
-        community_id: communityId,
-        user_id: userId,
+      community_id_actor_id: {
+        community_id: communityActorId,
+        actor_id: actorId,
       },
     },
-    update: {
-      role,
-      status: "active",
-    },
+    update: { role, status: "active" },
     create: {
-      community_id: communityId,
-      user_id: userId,
+      community_id: communityActorId,
+      actor_id: actorId,
       role,
-      nickname: "",
-      joined_at: joinedAt,
       status: "active",
+      joined_at: joinedAt,
     },
   });
 }
 
 async function upsertChannel(
   prisma: PrismaClient,
-  communityId: string,
+  communityActorId: string,
   channelId: string,
   name: string,
   createdAt: Date,
 ) {
   await prisma.channels.upsert({
-    where: {
-      id_community_id: {
-        id: channelId,
-        community_id: communityId,
-      },
-    },
-    update: { name },
+    where: { id: channelId },
+    update: { name, actor_id: communityActorId },
     create: {
       id: channelId,
-      community_id: communityId,
+      actor_id: communityActorId,
       name,
+      position: 0,
       created_at: createdAt,
     },
   });
 }
 
-async function upsertPost(prisma: PrismaClient, post: SeedPost) {
-  const broadcastAll = post.broadcastAll ?? true;
-  const visibleToFriends = post.visibleToFriends ?? true;
-  await prisma.posts.upsert({
-    where: { id: post.id },
+async function upsertFollow(prisma: PrismaClient, follower: string, following: string) {
+  if (follower === following) return;
+  await prisma.follows.upsert({
+    where: { follower_id_following_id: { follower_id: follower, following_id: following } },
+    update: { status: "accepted" },
+    create: {
+      id: `follow-${follower}-to-${following}`,
+      follower_id: follower,
+      following_id: following,
+      status: "accepted",
+      created_at: new Date(),
+    },
+  });
+}
+
+async function upsertPost(
+  prisma: PrismaClient,
+  post: SeedPost,
+  instanceDomain: string,
+  actorIdMap: Record<string, string>,
+) {
+  const actorId = actorIdMap[post.authorHandle];
+  const communityActorId = post.communityHandle ? actorIdMap[post.communityHandle] : null;
+  const id = objectUri(post.id, instanceDomain);
+  const visibility = post.visibility ?? (communityActorId ? "community" : "public");
+  const to = visibility === "public" ? [AS_PUBLIC] : [];
+  const cc = communityActorId ? [communityActorId] : [];
+  await prisma.objects.upsert({
+    where: { id },
     update: {
-      text: post.text,
-      author_id: post.authorId,
-      community_id: post.communityId ?? null,
-      attributed_community_id: post.communityId ?? null,
-      content_warning: null,
-      sensitive: 0,
-      media_json: "[]",
-      broadcast_all: broadcastAll ? 1 : 0,
-      visible_to_friends: visibleToFriends ? 1 : 0,
+      actor: actorId,
+      type: "Note",
+      published: post.createdAt.toISOString(),
+      to,
+      cc,
+      context: communityActorId ?? null,
+      visibility,
+      content: {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id,
+        type: "Note",
+        actor: actorId,
+        content: post.text,
+        published: post.createdAt.toISOString(),
+        to,
+        cc,
+        context: communityActorId ?? undefined,
+      },
+      updated: new Date().toISOString(),
     },
     create: {
-      id: post.id,
-      community_id: post.communityId ?? null,
-      author_id: post.authorId,
-      type: "text",
-      text: post.text,
-      content_warning: null,
-      sensitive: 0,
-      media_json: "[]",
-      created_at: post.createdAt,
-      pinned: 0,
-      broadcast_all: broadcastAll ? 1 : 0,
-      visible_to_friends: visibleToFriends ? 1 : 0,
-      edit_count: 0,
-      attributed_community_id: post.communityId ?? null,
-      ap_object_id: null,
-      ap_activity_id: null,
+      id,
+      local_id: post.id,
+      actor: actorId,
+      type: "Note",
+      published: post.createdAt.toISOString(),
+      to,
+      cc,
+      context: communityActorId ?? null,
+      visibility,
+      is_local: 1,
+      content: {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id,
+        type: "Note",
+        actor: actorId,
+        content: post.text,
+        published: post.createdAt.toISOString(),
+        to,
+        cc,
+        context: communityActorId ?? undefined,
+      },
     },
   });
 }
 
 async function upsertDm(
   prisma: PrismaClient,
-  userA: string,
-  userB: string,
+  dm: SeedDm,
   instanceDomain: string,
-  createdAt: Date,
+  actorIdMap: Record<string, string>,
 ) {
-  const participants = canonicalizeParticipants([
-    getActorUri(userA, instanceDomain),
-    getActorUri(userB, instanceDomain),
-  ]);
-  const threadId = computeParticipantsHash(participants);
-  await prisma.chat_dm_threads.upsert({
-    where: { id: threadId },
+  const fromActor = actorIdMap[dm.fromHandle];
+  const toActor = actorIdMap[dm.toHandle];
+  const participants = [fromActor, toActor].sort();
+  const context = computeParticipantsHash(participants);
+  const id = objectUri(dm.id, instanceDomain);
+  const to = [toActor];
+  await prisma.objects.upsert({
+    where: { id },
     update: {
-      participants_hash: threadId,
-      participants_json: JSON.stringify(participants),
+      actor: fromActor,
+      type: "Note",
+      published: dm.createdAt.toISOString(),
+      to,
+      visibility: "direct",
+      context,
+      content: {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id,
+        type: "Note",
+        actor: fromActor,
+        content: dm.text,
+        to,
+        context,
+      },
     },
     create: {
-      id: threadId,
-      participants_hash: threadId,
-      participants_json: JSON.stringify(participants),
-      created_at: createdAt,
-    },
-  });
-
-  const authorActor = getActorUri(userA, instanceDomain);
-  await prisma.chat_dm_messages.upsert({
-    where: { id: `dm-${userA}-to-${userB}` },
-    update: {
-      author_id: authorActor,
-      content_html: `<p>Hey ${userB}! 👋</p>`,
-      raw_activity_json: JSON.stringify({
+      id,
+      local_id: dm.id,
+      actor: fromActor,
+      type: "Note",
+      published: dm.createdAt.toISOString(),
+      to,
+      visibility: "direct",
+      is_local: 1,
+      context,
+      content: {
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id,
         type: "Note",
-        seeded: true,
-        from: userA,
-        to: userB,
-      }),
-    },
-    create: {
-      id: `dm-${userA}-to-${userB}`,
-      thread_id: threadId,
-      author_id: authorActor,
-      content_html: `<p>Hey ${userB}! 👋</p>`,
-      raw_activity_json: JSON.stringify({
-        type: "Note",
-        seeded: true,
-        from: userA,
-        to: userB,
-      }),
-      created_at: createdAt,
+        actor: fromActor,
+        content: dm.text,
+        to,
+        context,
+      },
     },
   });
 }
@@ -458,54 +456,59 @@ async function main() {
   const profileCompletedAt = new Date();
 
   const users: SeedUser[] = [
-    { id: adminHandle, displayName: "Admin", password: adminPassword },
-    { id: "alice", displayName: "Alice Doe", password: defaultPassword },
-    { id: "bob", displayName: "Bob Roe", password: defaultPassword },
+    { handle: adminHandle, displayName: "Admin", password: adminPassword },
+    { handle: "alice", displayName: "Alice Doe", password: defaultPassword },
+    { handle: "bob", displayName: "Bob Roe", password: defaultPassword },
   ];
 
-  const communityId = "dev-community";
+  const communityHandle = "dev-community";
   const posts: SeedPost[] = [
     {
       id: "dev-welcome-admin",
-      authorId: adminHandle,
+      authorHandle: adminHandle,
       text: "Welcome to the takos dev workspace 👋",
       createdAt: minutesAgo(45),
-      broadcastAll: true,
-      visibleToFriends: true,
+      visibility: "public",
     },
     {
       id: "dev-alice-home",
-      authorId: "alice",
+      authorHandle: "alice",
       text: "Alice here—testing the timeline with seeded data.",
       createdAt: minutesAgo(35),
-      broadcastAll: true,
-      visibleToFriends: true,
+      visibility: "public",
     },
     {
       id: "dev-bob-home",
-      authorId: "bob",
+      authorHandle: "bob",
       text: "Bob dropping a note so everyone has something to read.",
       createdAt: minutesAgo(25),
-      broadcastAll: true,
-      visibleToFriends: true,
+      visibility: "public",
     },
     {
       id: "dev-community-welcome",
-      authorId: adminHandle,
+      authorHandle: adminHandle,
       text: "Dev Community is live—say hi in #general!",
       createdAt: minutesAgo(15),
-      communityId,
-      broadcastAll: false,
-      visibleToFriends: true,
+      communityHandle,
+      visibility: "community",
     },
     {
       id: "dev-community-alice",
-      authorId: "alice",
+      authorHandle: "alice",
       text: "Kicking off our first community thread.",
       createdAt: minutesAgo(10),
-      communityId,
-      broadcastAll: false,
-      visibleToFriends: true,
+      communityHandle,
+      visibility: "community",
+    },
+  ];
+
+  const dms: SeedDm[] = [
+    {
+      id: "dm-alice-to-bob",
+      fromHandle: "alice",
+      toHandle: "bob",
+      text: "Hey Bob! 👋",
+      createdAt: minutesAgo(5),
     },
   ];
 
@@ -515,35 +518,62 @@ async function main() {
 
   const prisma = new PrismaClient();
   try {
+    const actorIdMap: Record<string, string> = {};
+
     for (const user of users) {
-      await upsertUser(prisma, user, profileCompletedAt);
+      const actorId = await upsertActor(prisma, {
+        handle: user.handle,
+        displayName: user.displayName,
+        type: "Person",
+        domain: instanceDomain,
+        profileCompletedAt,
+        avatarUrl: user.avatarUrl,
+      });
+      actorIdMap[user.handle] = actorId;
+      await upsertUserAccount(prisma, actorId, user.password);
     }
 
-    await upsertCommunity(prisma, communityId, adminHandle, instanceDomain, profileCompletedAt);
-    await upsertMembership(prisma, communityId, adminHandle, "Owner", profileCompletedAt);
-    await upsertMembership(prisma, communityId, "alice", "Moderator", profileCompletedAt);
-    await upsertMembership(prisma, communityId, "bob", "Member", profileCompletedAt);
-    await upsertChannel(prisma, communityId, "general", "general", profileCompletedAt);
-    await upsertChannel(prisma, communityId, "random", "random", profileCompletedAt);
+    await upsertOwnerPassword(prisma, adminPassword);
 
+    // Community as Group Actor
+    const communityActorId = await upsertActor(prisma, {
+      handle: communityHandle,
+      displayName: "Dev Community",
+      type: "Group",
+      domain: instanceDomain,
+      ownerId: actorIdMap[adminHandle],
+      profileCompletedAt,
+      metadata: { description: "Sample community for local development fixtures" },
+    });
+    actorIdMap[communityHandle] = communityActorId;
+
+    await upsertMembership(prisma, communityActorId, actorIdMap[adminHandle], "owner", profileCompletedAt);
+    await upsertMembership(prisma, communityActorId, actorIdMap["alice"], "moderator", profileCompletedAt);
+    await upsertMembership(prisma, communityActorId, actorIdMap["bob"], "member", profileCompletedAt);
+    await upsertChannel(prisma, communityActorId, "general", "general", profileCompletedAt);
+    await upsertChannel(prisma, communityActorId, "random", "random", profileCompletedAt);
+
+    // Mutual follows (stored in follows table)
     const followPairs: Array<[string, string]> = [
-      [adminHandle, "alice"],
-      [adminHandle, "bob"],
-      ["alice", "bob"],
+      [actorIdMap[adminHandle], actorIdMap["alice"]],
+      [actorIdMap[adminHandle], actorIdMap["bob"]],
+      [actorIdMap["alice"], actorIdMap["bob"]],
     ];
     for (const [a, b] of followPairs) {
-      await upsertFollow(prisma, a, b, instanceDomain);
-      await upsertFollow(prisma, b, a, instanceDomain);
+      await upsertFollow(prisma, a, b);
+      await upsertFollow(prisma, b, a);
     }
 
     for (const post of posts) {
-      await upsertPost(prisma, post);
+      await upsertPost(prisma, post, instanceDomain, actorIdMap);
     }
 
-    await upsertDm(prisma, "alice", "bob", instanceDomain, profileCompletedAt);
+    for (const dm of dms) {
+      await upsertDm(prisma, dm, instanceDomain, actorIdMap);
+    }
 
     console.log(
-      `[seed] Complete. Users=${users.length}, posts=${posts.length}, community=${communityId}, dmThreads=1`,
+      `[seed] Complete. Actors=${Object.keys(actorIdMap).length}, posts=${posts.length}, community=${communityHandle}, dmObjects=${dms.length}`,
     );
     console.log(
       `[seed] Passwords: ${defaultPassword} (users) / ${adminPassword} (admin if AUTH_PASSWORD is set)`,

@@ -9,20 +9,9 @@ import type { Context } from "hono";
 import { authenticateUser } from "../middleware/auth";
 import { makeData } from "../data";
 import { releaseStore } from "@takos/platform/server";
-
-/**
- * AuthContext
- *
- * PLAN.md 3.1.3 で定義された認証コンテキスト
- */
-export interface AuthContext {
-  /** 現在のアクティブローカルユーザー（Actor）の ID */
-  userId: string | null;
-  /** オーナーセッション ID */
-  sessionId: string | null;
-  /** オーナーモードが開いているか */
-  isAuthenticated: boolean;
-}
+import type { AuthContext, LocalUser } from "./auth-context-model";
+import { buildAuthContext, resolvePlanFromEnv, resolveRateLimits } from "./auth-context-model";
+export type { AuthContext, LocalUser, PlanInfo, AuthRateLimits, AuthenticatedUser } from "./auth-context-model";
 
 /**
  * リクエストから AuthContext を取得
@@ -31,23 +20,12 @@ export interface AuthContext {
  * @returns AuthContext
  */
 export async function getAuthContext(c: Context): Promise<AuthContext> {
+  const plan = resolvePlanFromEnv(c.env as any);
+  const rateLimits = resolveRateLimits(plan);
   const store = makeData(c.env as any, c);
   try {
     const authResult = await authenticateUser(c, store);
-
-    if (!authResult) {
-      return {
-        userId: null,
-        sessionId: null,
-        isAuthenticated: false,
-      };
-    }
-
-    return {
-      userId: authResult.activeUserId || authResult.sessionUser?.id || null,
-      sessionId: authResult.sessionId,
-      isAuthenticated: true,
-    };
+    return buildAuthContext(authResult, plan, rateLimits);
   } finally {
     await releaseStore(store);
   }
@@ -60,12 +38,23 @@ export async function getAuthContext(c: Context): Promise<AuthContext> {
  * @returns userId (認証されていない場合は例外)
  * @throws Error 認証されていない場合
  */
-export function requireUser(ctx: AuthContext): { userId: string } {
+export function requireUser(ctx: AuthContext): { userId: string; user: LocalUser } {
   if (!ctx.isAuthenticated || !ctx.userId) {
     throw new Error("Authentication required");
   }
 
-  return { userId: ctx.userId };
+  const user =
+    ctx.user ??
+    ({
+      id: ctx.userId,
+      handle: null,
+      name: null,
+      avatar: null,
+      bio: null,
+      createdAt: null,
+    } satisfies LocalUser);
+
+  return { userId: ctx.userId, user };
 }
 
 /**
@@ -77,6 +66,11 @@ export function toAppAuthContext(ctx: AuthContext): AppAuthContext {
   return {
     userId: ctx.userId,
     roles: ctx.isAuthenticated ? ["authenticated"] : [],
+    isAuthenticated: ctx.isAuthenticated,
+    sessionId: ctx.sessionId,
+    plan: ctx.plan,
+    rateLimits: ctx.rateLimits,
+    user: ctx.user,
   };
 }
 
@@ -86,11 +80,29 @@ export function toAppAuthContext(ctx: AuthContext): AppAuthContext {
  * 既に認証ミドルウェアを通過している場合に使用
  */
 export function getAppAuthContext(c: Context): AppAuthContext {
+  const existing = c.get("authContext") as AuthContext | undefined;
+  if (existing) {
+    return toAppAuthContext(existing);
+  }
+
+  const plan = resolvePlanFromEnv(c.env as any);
+  const rateLimits = resolveRateLimits(plan);
   const user = c.get("user");
   const activeUserId = c.get("activeUserId");
 
-  return {
-    userId: activeUserId || user?.id || null,
-    roles: user ? ["authenticated"] : [],
-  };
+  const derived = user
+    ? buildAuthContext(
+        {
+          user,
+          sessionUser: user,
+          activeUserId: activeUserId || user?.id || null,
+          sessionId: null,
+          token: null,
+        },
+        plan,
+        rateLimits,
+      )
+    : buildAuthContext(null, plan, rateLimits);
+
+  return toAppAuthContext(derived);
 }

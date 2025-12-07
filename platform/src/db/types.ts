@@ -11,6 +11,163 @@ export type FriendStatus = "pending" | "accepted" | "rejected";
 
 export type NullableDate = string | Date | null | undefined;
 
+// Actor/Object schema (v1.8)
+export interface ActorRecord {
+  id: string;
+  local_id: string | null;
+  handle: string;
+  type: string;
+  display_name?: string | null;
+  summary?: string | null;
+  avatar_url?: string | null;
+  header_url?: string | null;
+  inbox?: string | null;
+  outbox?: string | null;
+  followers?: string | null;
+  following?: string | null;
+  public_key?: string | null;
+  private_key?: string | null;
+  is_local?: number;
+  is_bot?: number;
+  manually_approves_followers?: number;
+  owner_id?: string | null;
+  visibility?: string | null;
+  profile_completed_at?: NullableDate;
+  jwt_secret?: string | null;
+  metadata_json?: string | null;
+  created_at?: NullableDate;
+  updated_at?: NullableDate;
+}
+
+export interface ActorInput {
+  id?: string;
+  local_id?: string | null;
+  handle: string;
+  type?: string;
+  display_name?: string | null;
+  summary?: string | null;
+  avatar_url?: string | null;
+  header_url?: string | null;
+  inbox?: string | null;
+  outbox?: string | null;
+  followers?: string | null;
+  following?: string | null;
+  public_key?: string | null;
+  private_key?: string | null;
+  is_local?: number | boolean;
+  is_bot?: number | boolean;
+  manually_approves_followers?: number | boolean;
+  owner_id?: string | null;
+  visibility?: string | null;
+  profile_completed_at?: NullableDate;
+  jwt_secret?: string | null;
+  metadata_json?: string | null;
+  created_at?: NullableDate;
+  updated_at?: NullableDate;
+}
+
+export interface ActorUpdateFields extends Partial<ActorInput> {}
+
+export interface FollowRecord {
+  id: string;
+  follower_id: string;
+  following_id: string;
+  status?: string;
+  created_at?: NullableDate;
+}
+
+export interface ObjectRecord {
+  id: string;
+  local_id: string | null;
+  type: string;
+  actor: string;
+  published?: string | null;
+  updated?: string | null;
+  to?: any;
+  cc?: any;
+  bto?: any;
+  bcc?: any;
+  context?: string | null;
+  in_reply_to?: string | null;
+  content: any;
+  is_local?: number;
+  visibility?: string | null;
+  deleted_at?: string | null;
+  created_at?: NullableDate;
+}
+
+export interface ObjectWriteInput {
+  id: string;
+  local_id?: string | null;
+  type: string;
+  actor: string;
+  published?: string | Date | null;
+  updated?: string | Date | null;
+  to?: any;
+  cc?: any;
+  bto?: any;
+  bcc?: any;
+  context?: string | null;
+  in_reply_to?: string | null;
+  content: any;
+  is_local?: number | boolean;
+  visibility?: string | null;
+  deleted_at?: string | Date | null;
+  created_at?: string | Date;
+}
+
+export interface ObjectUpdateInput {
+  published?: string | Date | null;
+  updated?: string | Date | null;
+  to?: any;
+  cc?: any;
+  bto?: any;
+  bcc?: any;
+  context?: string | null;
+  in_reply_to?: string | null;
+  content?: any;
+  visibility?: string | null;
+  deleted_at?: string | Date | null;
+}
+
+export interface ObjectQueryParams {
+  type?: string | string[];
+  actor?: string;
+  context?: string;
+  visibility?: string | string[];
+  in_reply_to?: string;
+  is_local?: boolean;
+  include_deleted?: boolean;
+  since?: string;
+  until?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ObjectTimelineParams {
+  type?: string | string[];
+  visibility?: string | string[];
+  communityId?: string;
+  listId?: string;
+  onlyMedia?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ObjectRecipientInput {
+  object_id: string;
+  recipient: string;
+  recipient_type: string;
+}
+
+export interface BookmarkInput {
+  id?: string;
+  object_id: string;
+  actor_id?: string;
+  user_id?: string;
+  created_at?: string | Date;
+}
+
 export interface UserInput {
   id?: string;
   handle?: string | null;
@@ -39,7 +196,8 @@ export interface UserAccountInput {
 
 export interface SessionInput {
   id: string;
-  user_id: string;
+  user_id?: string;
+  actor_id?: string;
   created_at?: string | Date;
   last_seen?: string | Date;
   expires_at?: string | Date | null;
@@ -52,14 +210,16 @@ export interface SessionUpdateData {
 
 export interface NotificationInput {
   id: string;
-  user_id: string;
+  user_id?: string;
+  actor_id?: string;
   type: string;
-  actor_id: string;
   ref_type: string;
   ref_id: string;
+  object_id?: string | null;
   message?: string;
   created_at?: string | Date;
   read?: boolean | number;
+  data_json?: any;
 }
 
 export interface CommunityInput {
@@ -96,7 +256,8 @@ export interface ListInput {
 
 export interface ListMemberInput {
   list_id: string;
-  user_id: string;
+  user_id?: string;
+  actor_id?: string;
   added_at?: string | Date;
 }
 
@@ -113,8 +274,10 @@ export interface InviteInput {
 export interface MemberInviteInput {
   id: string;
   community_id: string;
-  invited_user_id: string;
-  invited_by: string;
+  invited_user_id?: string;
+  invited_actor_id?: string;
+  invited_by?: string;
+  invited_by_actor_id?: string;
   status?: string;
   created_at?: string | Date;
 }
@@ -218,7 +381,8 @@ export interface StoryInput {
 }
 
 export interface PushDeviceInput {
-  user_id: string;
+  user_id?: string;
+  actor_id?: string;
   token: string;
   platform: string;
   device_name?: string | null;
@@ -229,7 +393,8 @@ export interface PushDeviceInput {
 // ActivityPub types
 export interface ApFollowerInput {
   id?: string;
-  local_user_id: string;
+  local_user_id?: string;
+  local_actor_id?: string;
   remote_actor_id: string;
   activity_id: string;
   status: string;
@@ -239,8 +404,9 @@ export interface ApFollowerInput {
 
 export interface ApInboxActivityInput {
   id?: string;
-  local_user_id: string;
-  remote_actor_id: string;
+  local_user_id?: string;
+  local_actor_id?: string;
+  remote_actor_id?: string;
   activity_id: string;
   activity_type: string;
   activity_json: string;
@@ -250,7 +416,8 @@ export interface ApInboxActivityInput {
 
 export interface ApOutboxActivityInput {
   id?: string;
-  local_user_id: string;
+  local_user_id?: string;
+  local_actor_id?: string;
   activity_id: string;
   activity_type: string;
   activity_json: string;
@@ -324,7 +491,8 @@ export interface ClaimedDeliveryBatch {
     target_inbox_url: string;
     retry_count: number;
     activity_json: string;
-    local_user_id: string;
+    local_user_id?: string | null;
+    local_actor_id?: string | null;
   }>;
 }
 
@@ -340,7 +508,22 @@ export interface ClaimedInboxBatch {
  * Complete Database API interface with instance support
  */
 export interface DatabaseAPI {
-  // Users
+  // Actors (v1.8)
+  getActorByUri?(id: string): Promise<ActorRecord | null>;
+  getActorByHandle?(handle: string): Promise<ActorRecord | null>;
+  searchActorsByName?(query: string, limit?: number): Promise<ActorRecord[]>;
+  createActor?(actor: ActorInput): Promise<ActorRecord>;
+  updateActor?(id: string, fields: ActorUpdateFields): Promise<ActorRecord>;
+
+  // Objects (v1.8)
+  createObject?(object: ObjectWriteInput): Promise<ObjectRecord>;
+  updateObject?(id: string, data: ObjectUpdateInput): Promise<ObjectRecord>;
+  getObject?(id: string): Promise<ObjectRecord | null>;
+  getObjectByLocalId?(localId: string): Promise<ObjectRecord | null>;
+  queryObjects?(params: ObjectQueryParams): Promise<ObjectRecord[]>;
+  deleteObject?(id: string): Promise<void>;
+
+  // Users (legacy alias to actors)
   getUser(id: string): Promise<any>;
   getUserByHandle(handle: string): Promise<any>;
   searchUsersByName(query: string, limit?: number): Promise<any[]>;
@@ -486,6 +669,10 @@ export interface DatabaseAPI {
   listBookmarksByUser(user_id: string, limit?: number, offset?: number): Promise<any[]>;
   getBookmarkedPostIds(user_id: string, postIds: string[]): Promise<Set<string>>;
   isPostBookmarked(post_id: string, user_id: string): Promise<boolean>;
+  addObjectBookmark?(input: BookmarkInput): Promise<any>;
+  removeObjectBookmark?(object_id: string, actor_id: string): Promise<void>;
+  listObjectBookmarksByActor?(actor_id: string, limit?: number, offset?: number): Promise<ObjectRecord[]>;
+  getBookmarkedObjectIds?(actor_id: string, objectIds: string[]): Promise<Set<string>>;
 
   // Stories
   createStory(story: StoryInput): Promise<any>;
@@ -514,6 +701,8 @@ export interface DatabaseAPI {
   getSession(id: string): Promise<any>;
   updateSession(id: string, data: SessionUpdateData): Promise<any>;
   deleteSession(id: string): Promise<void>;
+  getOwnerPasswordHash?(): Promise<string | null>;
+  setOwnerPasswordHash?(hash: string): Promise<void>;
 
   // ActivityPub - Followers
   upsertApFollower(input: ApFollowerInput): Promise<any>;

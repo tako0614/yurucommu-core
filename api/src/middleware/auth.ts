@@ -1,34 +1,15 @@
 // Authentication middleware shared across routes
 
-import type { Next } from "hono";
-import type {
-  AppContext,
-  PublicAccountBindings as Bindings,
-} from "@takos/platform/server";
-import {
-  fail,
-  releaseStore,
-  authenticateJWT,
-} from "@takos/platform/server";
+import { authenticateJWT, fail, releaseStore } from "@takos/platform/server";
 import { authenticateSession } from "@takos/platform/server/session";
 import { getCookie } from "hono/cookie";
 import { makeData } from "../data";
+import type { AuthenticatedUser } from "../lib/auth-context-model";
+import { buildAuthContext, resolvePlanFromEnv, resolveRateLimits } from "../lib/auth-context-model";
 import { createJwtStoreAdapter } from "../lib/jwt-store";
-
-type AuthContext = AppContext<Bindings> & {
-  env: Bindings;
-};
 
 export const ACTIVE_USER_COOKIE_NAME = "activeUserId";
 export const ACTIVE_USER_HEADER_NAME = "x-active-user-id";
-
-type AuthenticatedUser = {
-  user: any;
-  sessionUser: any;
-  activeUserId: string | null;
-  sessionId: string | null;
-  token: string | null;
-};
 
 const parseActiveUserCookie = (raw: string | null | undefined) => {
   if (!raw) {
@@ -50,15 +31,18 @@ const parseActiveUserCookie = (raw: string | null | undefined) => {
 
 const extractActiveUserId = (
   c: any,
-): { requestedUserId: string | null; source: "cookie" | null } => {
-  const { userId } = parseActiveUserCookie(getCookie(c, ACTIVE_USER_COOKIE_NAME));
-  if (!userId) {
-    return { requestedUserId: null, source: null };
+): { requestedUserId: string | null; source: "header" | "cookie" | null } => {
+  const headerUserId = (c.req.header(ACTIVE_USER_HEADER_NAME) || "").trim();
+  if (headerUserId) {
+    return { requestedUserId: headerUserId, source: "header" };
   }
-  return {
-    requestedUserId: userId,
-    source: "cookie",
-  };
+  const { userId } = parseActiveUserCookie(getCookie(c, ACTIVE_USER_COOKIE_NAME));
+  return userId
+    ? {
+        requestedUserId: userId,
+        source: "cookie",
+      }
+    : { requestedUserId: null, source: null };
 };
 
 /**
@@ -139,6 +123,8 @@ export const auth = async (c: any, next: () => Promise<void>) => {
   const method = c.req.method;
   const started = performance.now();
   const store = makeData(c.env as any, c);
+  const plan = resolvePlanFromEnv(c.env as any);
+  const rateLimits = resolveRateLimits(plan);
   const storeMs = Number((performance.now() - started).toFixed(2));
   try {
     console.log("[backend] auth start", {
@@ -154,16 +140,15 @@ export const auth = async (c: any, next: () => Promise<void>) => {
       ok: !!authResult,
       ms: authMs,
     });
-    if (!authResult) return fail(c, "Unauthorized", 401);
+    if (!authResult) {
+      c.set("authContext", buildAuthContext(null, plan, rateLimits));
+      return fail(c, "Unauthorized", 401);
+    }
+    const authContext = buildAuthContext(authResult, plan, rateLimits);
     c.set("user", authResult.user);
     c.set("sessionUser", authResult.sessionUser);
-    c.set("activeUserId", authResult.activeUserId);
-    c.set("authContext", {
-      sessionId: authResult.sessionId,
-      token: authResult.token,
-      sessionUserId: authResult.sessionUser?.id ?? null,
-      activeUserId: authResult.activeUserId ?? null,
-    });
+    c.set("activeUserId", authContext.userId);
+    c.set("authContext", authContext);
     await next();
   } finally {
     const releaseStarted = performance.now();
@@ -182,6 +167,8 @@ export const optionalAuth = async (c: any, next: () => Promise<void>) => {
   const path = new URL(c.req.url).pathname;
   const started = performance.now();
   const store = makeData(c.env as any, c);
+  const plan = resolvePlanFromEnv(c.env as any);
+  const rateLimits = resolveRateLimits(plan);
   try {
     const authStarted = performance.now();
     const authResult = await authenticateUser(c, store);
@@ -192,18 +179,21 @@ export const optionalAuth = async (c: any, next: () => Promise<void>) => {
       ms: authMs,
     });
     if (authResult) {
+      const authContext = buildAuthContext(authResult, plan, rateLimits);
       c.set("user", authResult.user);
       c.set("sessionUser", authResult.sessionUser);
-      c.set("activeUserId", authResult.activeUserId);
-      c.set("authContext", {
-        sessionId: authResult.sessionId,
-        token: authResult.token,
-        sessionUserId: authResult.sessionUser?.id ?? null,
-        activeUserId: authResult.activeUserId ?? null,
-      });
+      c.set("activeUserId", authContext.userId);
+      c.set("authContext", authContext);
+    } else {
+      c.set("activeUserId", null);
+      c.set("sessionUser", null);
+      c.set("authContext", buildAuthContext(null, plan, rateLimits));
     }
   } catch {
     // ignore authentication failures and continue as guest
+    c.set("activeUserId", null);
+    c.set("sessionUser", null);
+    c.set("authContext", buildAuthContext(null, plan, rateLimits));
   } finally {
     const releaseStarted = performance.now();
     await releaseStore(store);
