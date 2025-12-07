@@ -73,13 +73,17 @@ async function deliverActivity(
   activityJson: string,
   targetInboxUrl: string,
   actorHandle: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; blocked?: boolean }> {
   const decision = applyFederationPolicy(targetInboxUrl, resolvePolicy(env));
   if (!decision.allowed) {
     console.warn(
       `[delivery] blocked delivery to ${targetInboxUrl} (${decision.hostname ?? "unknown host"})`,
     );
-    return { success: false, error: "blocked by activitypub policy" };
+    return {
+      success: false,
+      error: `blocked by activitypub policy (${decision.reason ?? "blocked"})`,
+      blocked: true,
+    };
   }
 
   try {
@@ -264,6 +268,15 @@ export async function processDeliveryQueue(env: Env, batchSize = 10): Promise<vo
             last_attempt_at: now,
           });
           console.log(`✓ Delivered to ${hydrated.target_inbox_url}`);
+          processedIds.add(hydrated.id);
+        } else if (result.blocked) {
+          await db.updateApDeliveryQueueStatus(hydrated.id, "failed", {
+            retry_count: maxRetries,
+            last_error: result.error || "blocked by policy",
+            last_attempt_at: now,
+            delivered_at: null,
+          });
+          console.warn(`✗ Skipped delivery to ${hydrated.target_inbox_url}: ${result.error}`);
           processedIds.add(hydrated.id);
         } else {
           const newRetryCount = retryCount + 1;

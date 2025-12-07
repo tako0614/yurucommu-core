@@ -1,6 +1,7 @@
 import type { PublicAccountBindings as Bindings } from "@takos/platform/server";
 import type { SendNotificationInput } from "@takos/platform/app/services/notification-service";
 import { createNotificationService } from "../services";
+import { createAppAuthContextForUser } from "./auth-context";
 
 export type NotifyOptions = {
   data?: Record<string, unknown> | null;
@@ -35,5 +36,8 @@ export async function notify(
     message,
     data: options.data ?? null,
   };
-  await service.send({ userId: actorId || null }, input);
+  const auth = createAppAuthContextForUser(env as any, actorId || null, {
+    isAuthenticated: Boolean(actorId),
+  });
+  await service.send(auth, input);
 }

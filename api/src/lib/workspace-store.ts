@@ -24,11 +24,42 @@ export type WorkspaceFileRecord = {
   path: string;
   content: Uint8Array;
   content_type: string | null;
+  size?: number;
+  content_hash?: string | null;
+  storage_key?: string | null;
+  directory_path?: string | null;
+  is_cache?: boolean;
   created_at: string;
   updated_at: string;
 };
 
 export type WorkspaceFileContent = string | ArrayBuffer | ArrayBufferView | Uint8Array;
+
+export type WorkspaceFileStat = Omit<WorkspaceFileRecord, "content">;
+
+export type WorkspaceUsage = {
+  fileCount: number;
+  totalSize: number;
+};
+
+export type WorkspaceSnapshotRecord = {
+  id: string;
+  workspace_id: string;
+  status: string;
+  storage_key: string;
+  size_bytes?: number | null;
+  file_count?: number | null;
+  created_at: string;
+};
+
+export type VfsDirectoryRecord = {
+  workspace_id: string;
+  path: string;
+  name: string;
+  parent_path: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 export type AppWorkspaceUpsert = {
   id: string;
@@ -53,9 +84,26 @@ export type WorkspaceStore = {
     path: string,
     content: WorkspaceFileContent,
     contentType?: string | null,
+    options?: { cacheControl?: string | null },
   ): Promise<WorkspaceFileRecord | null>;
   getWorkspaceFile(workspaceId: string, path: string): Promise<WorkspaceFileRecord | null>;
   listWorkspaceFiles(workspaceId: string, prefix?: string): Promise<WorkspaceFileRecord[]>;
+  deleteWorkspaceFile?(workspaceId: string, path: string): Promise<boolean>;
+  statWorkspaceFile?(workspaceId: string, path: string): Promise<WorkspaceFileStat | null>;
+  getWorkspaceUsage?(workspaceId: string): Promise<WorkspaceUsage>;
+  listDirectories?(workspaceId: string, path?: string): Promise<VfsDirectoryRecord[]>;
+  ensureDirectory?(workspaceId: string, path: string): Promise<VfsDirectoryRecord | null>;
+  saveWorkspaceSnapshot?(
+    workspaceId: string,
+    status: AppWorkspaceStatus,
+  ): Promise<WorkspaceSnapshotRecord | null>;
+  saveCompileCache?(
+    workspaceId: string,
+    hash: string,
+    content: WorkspaceFileContent,
+    options?: { contentType?: string | null; cacheControl?: string | null },
+  ): Promise<WorkspaceFileRecord | null>;
+  getCompileCache?(workspaceId: string, hash: string): Promise<WorkspaceFileRecord | null>;
 };
 
 const encoder = new TextEncoder();
@@ -140,6 +188,8 @@ export const DEFAULT_UI_CONTRACT_PATH = "takos-ui-contract.json";
 
 type WorkspaceEnv = Partial<PublicAccountBindings> & {
   DB?: D1Database;
+  VFS_BUCKET?: R2Bucket;
+  WORKSPACE_VFS?: R2Bucket;
   workspaceStore?: WorkspaceStore;
 };
 
@@ -153,6 +203,21 @@ export type WorkspaceResolution = {
   env: WorkspaceEnv;
   store: WorkspaceStore | null;
   isolation: DevDataIsolationResult | null;
+};
+
+const resolveWorkspaceBucket = (
+  env: WorkspaceEnv,
+  isolation: DevDataIsolationResult | null,
+): R2Bucket | null => {
+  const fromEnv =
+    (env as any).WORKSPACE_VFS ||
+    (env as any).VFS_BUCKET ||
+    (env as any).VFS ||
+    (env as any).MEDIA ||
+    null;
+  if (fromEnv) return fromEnv as R2Bucket;
+  if (isolation?.resolved?.media) return isolation.resolved.media as R2Bucket;
+  return null;
 };
 
 const normalizeStatus = (status?: string): AppWorkspaceStatus => {
@@ -180,7 +245,27 @@ const toTimestamp = (value?: string | Date | null): string | null => {
   return date.toISOString();
 };
 
-const normalizePath = (path: string): string => path.replace(/^\/+/, "").trim();
+const normalizePath = (path: string): string => {
+  const cleaned = (path || "").replace(/\\/g, "/").trim();
+  const stripped = cleaned.replace(/^\/+/, "").replace(/\/+/g, "/");
+  const normalized = stripped.endsWith("/") ? stripped.slice(0, -1) : stripped;
+  if (normalized.includes("..")) {
+    throw new Error("invalid workspace path");
+  }
+  return normalized;
+};
+
+const normalizeDirectoryPath = (path: string): string => {
+  const normalized = normalizePath(path);
+  return normalized || "/";
+};
+
+const parentDirectory = (path: string): string => {
+  const normalized = normalizePath(path);
+  if (!normalized) return "/";
+  const idx = normalized.lastIndexOf("/");
+  return idx <= 0 ? "/" : normalized.slice(0, idx);
+};
 
 const escapeLikePattern = (value: string): string => value.replace(/([%_\\])/g, "\\$1");
 
@@ -224,10 +309,21 @@ const mapWorkspaceFileRow = (row: any): WorkspaceFileRecord | null => {
   } else {
     content = new Uint8Array();
   }
+  const path = String(row.path ?? "");
+  const directoryPath = row.directory_path ?? parentDirectory(path);
+  const size =
+    typeof row.size === "number" && Number.isFinite(row.size) && row.size >= 0
+      ? Number(row.size)
+      : content.byteLength;
   return {
     workspace_id: String(row.workspace_id),
-    path: String(row.path),
+    path,
+    directory_path: directoryPath,
     content,
+    size,
+    content_hash: row.content_hash ?? null,
+    storage_key: row.storage_key ?? null,
+    is_cache: row.is_cache === 1 || row.is_cache === true,
     content_type: row.content_type ?? null,
     created_at: row.created_at ? String(row.created_at) : "",
     updated_at: row.updated_at ? String(row.updated_at) : "",
@@ -287,8 +383,117 @@ const runStatement = async (db: D1Database, sql: string, params: any[] = [], exp
   return [];
 };
 
-export function createWorkspaceStore(db: D1Database): WorkspaceStore {
+const emptyBytes = new Uint8Array();
+
+const safeDirName = (path: string): string => {
+  const normalized = normalizeDirectoryPath(path);
+  if (normalized === "/") return "/";
+  const parts = normalized.split("/");
+  return parts[parts.length - 1] || "/";
+};
+
+const encodeKeySegment = (value: string): string =>
+  encodeURIComponent(value).replace(/%2F/gi, "/");
+
+const buildVfsStorageKey = (workspaceId: string, path: string): string => {
+  const safeWorkspace = encodeKeySegment(workspaceId);
+  const normalized = normalizePath(path);
+  const safePath = normalized
+    ? normalized
+        .split("/")
+        .map((segment) => encodeKeySegment(segment || "root"))
+        .join("/")
+    : "root";
+  return `vfs/${safeWorkspace}/${safePath}`;
+};
+
+const buildSnapshotKey = (workspaceId: string, status: AppWorkspaceStatus): string => {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `vfs-snapshots/${encodeKeySegment(workspaceId)}/${status}/${timestamp}.json`;
+};
+
+const buildCompileCacheKey = (workspaceId: string, hash: string): string => {
+  const normalizedHash = hash.replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 128) || "default";
+  return `vfs-cache/esbuild/${encodeKeySegment(workspaceId)}/${normalizedHash}`;
+};
+
+const computeSha256 = async (data: Uint8Array): Promise<string> => {
+  try {
+    if (typeof crypto?.subtle?.digest === "function") {
+      const digest = await crypto.subtle.digest("SHA-256", data);
+      return Array.from(new Uint8Array(digest))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    }
+  } catch {
+    // fall through to node:crypto
+  }
+  try {
+    const { createHash } = await import("node:crypto");
+    return createHash("sha256").update(Buffer.from(data)).digest("hex");
+  } catch {
+    return "";
+  }
+};
+
+const toBase64 = (bytes: Uint8Array): string => {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(bytes).toString("base64");
+  }
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+};
+
+const readR2Object = async (bucket: R2Bucket | null, key: string | null | undefined) => {
+  if (!bucket || !key) return null;
+  try {
+    const obj = await bucket.get(key);
+    if (!obj) return null;
+    const buffer = await obj.arrayBuffer();
+    return new Uint8Array(buffer);
+  } catch (error) {
+    console.warn("[workspace] failed to read R2 object", error);
+    return null;
+  }
+};
+
+const writeR2Object = async (
+  bucket: R2Bucket | null,
+  key: string,
+  body: Uint8Array,
+  contentType?: string | null,
+  cacheControl?: string | null,
+) => {
+  if (!bucket) return false;
+  try {
+    await bucket.put(key, body, {
+      httpMetadata: {
+        contentType: contentType || "application/octet-stream",
+        cacheControl: cacheControl ?? undefined,
+      },
+    });
+    return true;
+  } catch (error) {
+    console.warn("[workspace] failed to write R2 object", error);
+    return false;
+  }
+};
+
+const deleteR2Object = async (bucket: R2Bucket | null, key: string | null | undefined) => {
+  if (!bucket || !key) return;
+  try {
+    await bucket.delete(key);
+  } catch (error) {
+    console.warn("[workspace] failed to delete R2 object", error);
+  }
+};
+
+export function createWorkspaceStore(db: D1Database, bucket?: R2Bucket | null): WorkspaceStore {
   if (!db) throw new Error("D1 database binding (DB) is required for workspace store");
+  const vfsBucket = bucket ?? null;
 
   const getWorkspace = async (id: string) => {
     const rows = await runStatement(
@@ -358,7 +563,98 @@ export function createWorkspaceStore(db: D1Database): WorkspaceStore {
     return getWorkspace(id);
   };
 
-  const getWorkspaceFile = async (workspaceId: string, path: string) => {
+  const ensureDirectoryChain = async (workspaceId: string, dirPath: string) => {
+    const normalizedDir = normalizeDirectoryPath(dirPath);
+    // always ensure root
+    await runStatement(
+      db,
+      `INSERT INTO vfs_directories (workspace_id, path, name, parent_path, created_at, updated_at)
+       VALUES (?, '/', '/', NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       ON CONFLICT(workspace_id, path) DO UPDATE SET updated_at = excluded.updated_at`,
+      [workspaceId],
+    );
+
+    if (normalizedDir === "/") return;
+    const segments = normalizedDir.split("/").filter(Boolean);
+    let current = "";
+    for (const segment of segments) {
+      current = current ? `${current}/${segment}` : segment;
+      const parent = parentDirectory(current);
+      await runStatement(
+        db,
+        `INSERT INTO vfs_directories (workspace_id, path, name, parent_path, created_at, updated_at)
+         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         ON CONFLICT(workspace_id, path) DO UPDATE SET updated_at = excluded.updated_at`,
+        [workspaceId, current, safeDirName(current), parent === "" ? "/" : parent],
+      );
+    }
+  };
+
+  const getVfsMeta = async (workspaceId: string, path: string) => {
+    const rows = await runStatement(
+      db,
+      `SELECT workspace_id, path, directory_path, content_type, content_hash, size, storage_key, is_cache, created_at, updated_at
+       FROM vfs_files
+       WHERE workspace_id = ? AND path = ?
+       LIMIT 1`,
+      [workspaceId, normalizePath(path)],
+      true,
+    );
+    return rows[0];
+  };
+
+  const listVfsMeta = async (workspaceId: string, prefix?: string) => {
+    const hasPrefix = typeof prefix === "string" && prefix.trim().length > 0;
+    const likePattern = hasPrefix ? `${escapeLikePattern(normalizePath(prefix))}%` : null;
+    const params = hasPrefix ? [workspaceId, likePattern] : [workspaceId];
+    const rows = await runStatement(
+      db,
+      `SELECT workspace_id, path, directory_path, content_type, content_hash, size, storage_key, is_cache, created_at, updated_at
+       FROM vfs_files
+       WHERE workspace_id = ? ${hasPrefix ? "AND path LIKE ? ESCAPE '\\'" : ""}
+       ORDER BY path`,
+      params,
+      true,
+    );
+    return rows || [];
+  };
+
+  const upsertVfsMeta = async (
+    workspaceId: string,
+    path: string,
+    directoryPath: string,
+    contentType: string | null,
+    size: number,
+    contentHash: string,
+    storageKey: string,
+    isCache: boolean,
+  ) => {
+    await runStatement(
+      db,
+      `INSERT INTO vfs_files (workspace_id, path, directory_path, content_type, content_hash, size, storage_key, is_cache, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       ON CONFLICT(workspace_id, path) DO UPDATE SET
+         directory_path = excluded.directory_path,
+         content_type = excluded.content_type,
+         content_hash = excluded.content_hash,
+         size = excluded.size,
+         storage_key = excluded.storage_key,
+         is_cache = excluded.is_cache,
+         updated_at = excluded.updated_at`,
+      [
+        workspaceId,
+        normalizePath(path),
+        normalizeDirectoryPath(directoryPath),
+        contentType ?? null,
+        contentHash || null,
+        size,
+        storageKey,
+        isCache ? 1 : 0,
+      ],
+    );
+  };
+
+  const fetchLegacyFile = async (workspaceId: string, path: string) => {
     const rows = await runStatement(
       db,
       `SELECT workspace_id, path, content, content_type, created_at, updated_at
@@ -371,7 +667,7 @@ export function createWorkspaceStore(db: D1Database): WorkspaceStore {
     return mapWorkspaceFileRow(rows[0]);
   };
 
-  const listWorkspaceFiles = async (workspaceId: string, prefix?: string) => {
+  const listLegacyFiles = async (workspaceId: string, prefix?: string) => {
     const hasPrefix = typeof prefix === "string" && prefix.trim().length > 0;
     const likePattern = hasPrefix ? `${escapeLikePattern(normalizePath(prefix))}%` : null;
     const params = hasPrefix ? [workspaceId, likePattern] : [workspaceId];
@@ -387,14 +683,12 @@ export function createWorkspaceStore(db: D1Database): WorkspaceStore {
     return rows.map(mapWorkspaceFileRow).filter(Boolean) as WorkspaceFileRecord[];
   };
 
-  const saveWorkspaceFile = async (
+  const upsertLegacyFile = async (
     workspaceId: string,
     path: string,
-    content: WorkspaceFileContent,
-    contentType?: string | null,
+    content: Uint8Array,
+    contentType: string | null,
   ) => {
-    const normalizedPath = normalizePath(path);
-    const body = toBytes(content);
     await runStatement(
       db,
       `INSERT INTO app_workspace_files (workspace_id, path, content, content_type, created_at, updated_at)
@@ -403,9 +697,335 @@ export function createWorkspaceStore(db: D1Database): WorkspaceStore {
          content = excluded.content,
          content_type = excluded.content_type,
          updated_at = excluded.updated_at`,
-      [workspaceId, normalizedPath, body, contentType ?? null],
+      [workspaceId, normalizePath(path), content, contentType ?? null],
+    );
+  };
+
+  const deleteLegacyFile = async (workspaceId: string, path: string) => {
+    await runStatement(
+      db,
+      `DELETE FROM app_workspace_files WHERE workspace_id = ? AND path = ?`,
+      [workspaceId, normalizePath(path)],
+    );
+  };
+
+  const getLegacyUsage = async (workspaceId: string, excludePaths: string[] = []) => {
+    const placeholders = excludePaths.map(() => "?").join(",");
+    const conditions =
+      excludePaths.length > 0
+        ? `AND path NOT IN (${placeholders})`
+        : "";
+    const rows = await runStatement(
+      db,
+      `SELECT COUNT(*) as file_count, COALESCE(SUM(length(content)), 0) as total_size
+       FROM app_workspace_files
+       WHERE workspace_id = ? ${conditions}`,
+      [workspaceId, ...excludePaths],
+      true,
+    );
+    const row = rows[0] || {};
+    return {
+      fileCount: Number(row.file_count || 0),
+      totalSize: Number(row.total_size || 0),
+    };
+  };
+
+  const buildFileRecord = async (
+    meta: any,
+    fallbackContent?: Uint8Array | null,
+  ): Promise<WorkspaceFileRecord | null> => {
+    if (!meta) return null;
+    const path = normalizePath(meta.path);
+    const dir = normalizeDirectoryPath(meta.directory_path ?? parentDirectory(path));
+    const fromR2 =
+      (await readR2Object(vfsBucket, meta.storage_key ?? buildVfsStorageKey(meta.workspace_id, path))) ??
+      null;
+    const content = fromR2 ?? fallbackContent ?? emptyBytes;
+    const size =
+      typeof meta.size === "number" && Number.isFinite(meta.size) && meta.size >= 0
+        ? Number(meta.size)
+        : content.byteLength;
+    return {
+      workspace_id: String(meta.workspace_id),
+      path,
+      directory_path: dir,
+      content,
+      size,
+      content_hash: meta.content_hash ?? null,
+      storage_key: meta.storage_key ?? null,
+      is_cache: meta.is_cache === 1 || meta.is_cache === true,
+      content_type: meta.content_type ?? null,
+      created_at: meta.created_at ? String(meta.created_at) : "",
+      updated_at: meta.updated_at ? String(meta.updated_at) : "",
+    };
+  };
+
+  const getWorkspaceFile = async (workspaceId: string, path: string) => {
+    const normalizedPath = normalizePath(path);
+    const legacy = await fetchLegacyFile(workspaceId, normalizedPath);
+    const meta = await getVfsMeta(workspaceId, normalizedPath);
+    if (meta) {
+      return buildFileRecord(meta, legacy?.content ?? null);
+    }
+    if (legacy) {
+      return {
+        ...legacy,
+        directory_path: parentDirectory(normalizedPath),
+        size: legacy.content?.byteLength ?? 0,
+      };
+    }
+    return null;
+  };
+
+  const listWorkspaceFiles = async (workspaceId: string, prefix?: string) => {
+    const metas = await listVfsMeta(workspaceId, prefix);
+    const legacyRows = await listLegacyFiles(workspaceId, prefix);
+    const legacyMap = new Map<string, WorkspaceFileRecord>();
+    for (const legacy of legacyRows) {
+      const key = normalizePath(legacy.path);
+      legacyMap.set(key, legacy);
+    }
+    const result: WorkspaceFileRecord[] = [];
+    for (const meta of metas) {
+      const key = normalizePath(meta.path);
+      const fallback = legacyMap.get(key);
+      const record = await buildFileRecord(meta, fallback?.content ?? null);
+      if (record) result.push(record);
+      if (fallback) {
+        legacyMap.delete(key);
+      }
+    }
+
+    for (const [legacyPath, legacy] of legacyMap.entries()) {
+      result.push({
+        ...legacy,
+        directory_path: parentDirectory(legacyPath),
+        size: legacy.content?.byteLength ?? 0,
+      });
+    }
+    return result;
+  };
+
+  const saveWorkspaceFile = async (
+    workspaceId: string,
+    path: string,
+    content: WorkspaceFileContent,
+    contentType?: string | null,
+    options?: { cacheControl?: string | null },
+  ) => {
+    const normalizedPath = normalizePath(path);
+    const directoryPath = parentDirectory(normalizedPath);
+    await ensureDirectoryChain(workspaceId, directoryPath);
+    const body = toBytes(content);
+    const size = body.byteLength;
+    const contentHash = await computeSha256(body);
+    const storageKey = buildVfsStorageKey(workspaceId, normalizedPath);
+    const wroteToR2 = await writeR2Object(
+      vfsBucket,
+      storageKey,
+      body,
+      contentType ?? "application/octet-stream",
+      options?.cacheControl ?? null,
+    );
+    if (!wroteToR2) {
+      await upsertLegacyFile(workspaceId, normalizedPath, body, contentType ?? null);
+    }
+    await upsertVfsMeta(
+      workspaceId,
+      normalizedPath,
+      directoryPath,
+      contentType ?? null,
+      size,
+      contentHash,
+      storageKey,
+      normalizedPath.startsWith("__cache/"),
     );
     return getWorkspaceFile(workspaceId, normalizedPath);
+  };
+
+  const deleteWorkspaceFile = async (workspaceId: string, path: string) => {
+    const normalizedPath = normalizePath(path);
+    const meta = await getVfsMeta(workspaceId, normalizedPath);
+    await runStatement(
+      db,
+      `DELETE FROM vfs_files WHERE workspace_id = ? AND path = ?`,
+      [workspaceId, normalizedPath],
+    );
+    await deleteLegacyFile(workspaceId, normalizedPath);
+    if (meta?.storage_key) {
+      await deleteR2Object(vfsBucket, meta.storage_key);
+    }
+    return true;
+  };
+
+  const statWorkspaceFile = async (workspaceId: string, path: string) => {
+    const normalizedPath = normalizePath(path);
+    const meta = await getVfsMeta(workspaceId, normalizedPath);
+    if (meta) {
+      return {
+        workspace_id: String(meta.workspace_id),
+        path: normalizedPath,
+        directory_path: normalizeDirectoryPath(meta.directory_path ?? parentDirectory(normalizedPath)),
+        content: emptyBytes,
+        size: Number(meta.size ?? 0),
+        content_hash: meta.content_hash ?? null,
+        storage_key: meta.storage_key ?? null,
+        is_cache: meta.is_cache === 1 || meta.is_cache === true,
+        content_type: meta.content_type ?? null,
+        created_at: meta.created_at ? String(meta.created_at) : "",
+        updated_at: meta.updated_at ? String(meta.updated_at) : "",
+      };
+    }
+    const legacy = await fetchLegacyFile(workspaceId, normalizedPath);
+    if (!legacy) return null;
+    return {
+      ...legacy,
+      directory_path: parentDirectory(normalizedPath),
+      size: legacy.content?.byteLength ?? 0,
+    };
+  };
+
+  const getWorkspaceUsage = async (workspaceId: string): Promise<WorkspaceUsage> => {
+    const vfsRows = await runStatement(
+      db,
+      `SELECT COUNT(*) as file_count, COALESCE(SUM(size), 0) as total_size
+       FROM vfs_files
+       WHERE workspace_id = ?`,
+      [workspaceId],
+      true,
+    );
+    const vfsRow = vfsRows[0] || {};
+    const vfsCount = Number(vfsRow.file_count || 0);
+    const vfsSize = Number(vfsRow.total_size || 0);
+    const pathRows = await runStatement(
+      db,
+      `SELECT path FROM vfs_files WHERE workspace_id = ?`,
+      [workspaceId],
+      true,
+    );
+    const excludePaths = (pathRows || []).map((row: any) => normalizePath(row.path));
+    const legacyUsage = await getLegacyUsage(workspaceId, excludePaths);
+    return {
+      fileCount: vfsCount + legacyUsage.fileCount,
+      totalSize: vfsSize + legacyUsage.totalSize,
+    };
+  };
+
+  const listDirectories = async (workspaceId: string, path?: string) => {
+    const normalized = normalizeDirectoryPath(path || "/");
+    await ensureDirectoryChain(workspaceId, normalized);
+    const parent = normalized === "/" ? "/" : normalized;
+    const rows = await runStatement(
+      db,
+      `SELECT workspace_id, path, name, parent_path, created_at, updated_at
+       FROM vfs_directories
+       WHERE workspace_id = ? AND parent_path = ?
+       ORDER BY path`,
+      [workspaceId, parent],
+      true,
+    );
+    return rows as VfsDirectoryRecord[];
+  };
+
+  const ensureDirectory = async (workspaceId: string, path: string) => {
+    const normalized = normalizeDirectoryPath(path);
+    await ensureDirectoryChain(workspaceId, normalized);
+    const rows = await runStatement(
+      db,
+      `SELECT workspace_id, path, name, parent_path, created_at, updated_at
+       FROM vfs_directories
+       WHERE workspace_id = ? AND path = ?
+       LIMIT 1`,
+      [workspaceId, normalized],
+      true,
+    );
+    const row = rows[0] as VfsDirectoryRecord | undefined;
+    return row ?? null;
+  };
+
+  const saveWorkspaceSnapshot = async (
+    workspaceId: string,
+    status: AppWorkspaceStatus,
+  ): Promise<WorkspaceSnapshotRecord | null> => {
+    if (!vfsBucket) return null;
+    const files = await listWorkspaceFiles(workspaceId);
+    const snapshotPayload = {
+      workspaceId,
+      status,
+      createdAt: new Date().toISOString(),
+      files: await Promise.all(
+        files.map(async (file) => ({
+          path: file.path,
+          contentType: file.content_type,
+          size: file.size ?? file.content?.byteLength ?? 0,
+          contentHash: file.content_hash ?? (await computeSha256(file.content ?? emptyBytes)),
+          content: toBase64(file.content ?? emptyBytes),
+        })),
+      ),
+    };
+    const serialized = encoder.encode(JSON.stringify(snapshotPayload));
+    const storageKey = buildSnapshotKey(workspaceId, status);
+    const wrote = await writeR2Object(
+      vfsBucket,
+      storageKey,
+      serialized,
+      "application/json",
+      "private, max-age=0, must-revalidate",
+    );
+    if (!wrote) {
+      return null;
+    }
+    const snapshotId = crypto.randomUUID();
+    await runStatement(
+      db,
+      `INSERT INTO app_workspace_snapshots (id, workspace_id, status, storage_key, size_bytes, file_count, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      [snapshotId, workspaceId, status, storageKey, serialized.byteLength, files.length],
+    );
+    return {
+      id: snapshotId,
+      workspace_id: workspaceId,
+      status,
+      storage_key: storageKey,
+      size_bytes: serialized.byteLength,
+      file_count: files.length,
+      created_at: new Date().toISOString(),
+    };
+  };
+
+  const saveCompileCache = async (
+    workspaceId: string,
+    hash: string,
+    content: WorkspaceFileContent,
+    options?: { contentType?: string | null; cacheControl?: string | null },
+  ): Promise<WorkspaceFileRecord | null> => {
+    const cacheName = hash.replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 128) || "default";
+    const key = buildCompileCacheKey(workspaceId, cacheName);
+    const pathForMeta = `__cache/esbuild/${cacheName}.js`;
+    const contentType = options?.contentType ?? "application/javascript";
+    const cacheControl = options?.cacheControl ?? "public, max-age=3600";
+    const body = toBytes(content);
+    const wrote = await writeR2Object(vfsBucket, key, body, contentType, cacheControl);
+    if (!wrote) {
+      await upsertLegacyFile(workspaceId, pathForMeta, body, contentType);
+    }
+    await upsertVfsMeta(
+      workspaceId,
+      pathForMeta,
+      parentDirectory(pathForMeta),
+      contentType,
+      body.byteLength,
+      await computeSha256(body),
+      key,
+      true,
+    );
+    return getWorkspaceFile(workspaceId, pathForMeta);
+  };
+
+  const getCompileCache = async (workspaceId: string, hash: string) => {
+    const cacheName = hash.replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 128) || "default";
+    const pathForMeta = `__cache/esbuild/${cacheName}.js`;
+    return getWorkspaceFile(workspaceId, pathForMeta);
   };
 
   return {
@@ -416,6 +1036,14 @@ export function createWorkspaceStore(db: D1Database): WorkspaceStore {
     saveWorkspaceFile,
     getWorkspaceFile,
     listWorkspaceFiles,
+    deleteWorkspaceFile,
+    statWorkspaceFile,
+    getWorkspaceUsage,
+    listDirectories,
+    ensureDirectory,
+    saveWorkspaceSnapshot,
+    saveCompileCache,
+    getCompileCache,
   };
 }
 
@@ -456,10 +1084,15 @@ export function resolveWorkspaceEnv(
     }
   }
 
+  const vfsBucket = resolveWorkspaceBucket(env, isolation);
+  if (vfsBucket && !(env as any).VFS_BUCKET) {
+    (env as any).VFS_BUCKET = vfsBucket as any;
+  }
+
   const store =
     (options?.store as WorkspaceStore | null | undefined) ??
     ((env as any).workspaceStore as WorkspaceStore | null | undefined) ??
-    (env.DB ? createWorkspaceStore(env.DB) : null);
+    (env.DB ? createWorkspaceStore(env.DB, vfsBucket) : null);
 
   return { env, store: store ?? null, isolation };
 }

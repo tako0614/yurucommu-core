@@ -260,7 +260,10 @@ model objects {
   @@index([object_ref], name: "idx_objects_object_ref")
   @@index([type, object_ref], name: "idx_objects_type_object")
   @@index([in_reply_to_ref], name: "idx_objects_reply_to")
-  @@index([visibility, published], name: "idx_objects_visibility_published")
+  @@index([visibility, published(sort: Desc)], name: "idx_objects_visibility_published")
+  @@index([visibility, published(sort: Desc)], name: "idx_objects_visibility_published_active", map: "idx_objects_visibility_published_active")
+  @@index([published(sort: Desc)], name: "idx_objects_non_direct_recent", map: "idx_objects_non_direct_recent")
+  @@index([context, published(sort: Desc)], name: "idx_objects_direct_context", map: "idx_objects_direct_context")
 
   @@map("objects")
 }
@@ -274,6 +277,8 @@ model object_recipients {
 
   @@id([object_id, recipient, recipient_type])
   @@index([recipient], name: "idx_object_recipients_recipient")
+  @@index([recipient_type], name: "idx_object_recipients_recipient_type", map: "idx_object_recipients_recipient_type")
+  @@index([object_id], name: "idx_object_recipients_object", map: "idx_object_recipients_object")
   @@map("object_recipients")
 }
 
@@ -584,6 +589,9 @@ model app_workspaces {
 
   base_revision app_revisions?    @relation("AppWorkspaceBaseRevision", fields: [base_revision_id], references: [id], onDelete: SetNull, onUpdate: Cascade)
   files         app_workspace_files[]
+  vfs_files     vfs_files[]
+  vfs_dirs      vfs_directories[]
+  snapshots     app_workspace_snapshots[]
 
   @@map("app_workspaces")
 }
@@ -602,6 +610,55 @@ model app_workspace_files {
   @@map("app_workspace_files")
 }
 
+model vfs_directories {
+  workspace_id String
+  path         String
+  name         String
+  parent_path  String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now())
+
+  workspace app_workspaces @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([workspace_id, path])
+  @@index([workspace_id, parent_path], map: "vfs_directories_parent_idx")
+  @@map("vfs_directories")
+}
+
+model vfs_files {
+  workspace_id   String
+  path           String
+  directory_path String
+  content_type   String?
+  content_hash   String?
+  size           Int      @default(0)
+  storage_key    String
+  is_cache       Int      @default(0)
+  created_at     DateTime @default(now())
+  updated_at     DateTime @default(now())
+
+  workspace app_workspaces @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([workspace_id, path])
+  @@index([workspace_id, directory_path], map: "vfs_files_dir_idx")
+  @@map("vfs_files")
+}
+
+model app_workspace_snapshots {
+  id          String   @id
+  workspace_id String
+  status      String
+  storage_key String
+  size_bytes  Int?
+  file_count  Int?
+  created_at  DateTime @default(now())
+
+  workspace app_workspaces @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([workspace_id], map: "app_workspace_snapshots_ws_idx")
+  @@map("app_workspace_snapshots")
+}
+
 model app_debug_logs {
   id           Int      @id @default(autoincrement())
   timestamp    DateTime @default(now())
@@ -617,6 +674,23 @@ model app_debug_logs {
   @@index([workspace_id], map: "app_debug_logs_workspace_idx")
   @@index([handler], map: "app_debug_logs_handler_idx")
   @@map("app_debug_logs")
+}
+
+model audit_log {
+  id             String   @id
+  timestamp      DateTime @default(now())
+  actor_type     String
+  actor_id       String?
+  action         String
+  target         String?
+  details_json   String?  @db.Text
+  checksum       String
+  prev_checksum  String?
+  created_at     DateTime @default(now())
+
+  @@index([action], map: "idx_audit_log_action")
+  @@index([timestamp(sort: Desc)], map: "idx_audit_log_timestamp")
+  @@map("audit_log")
 }
 
 model ai_config {

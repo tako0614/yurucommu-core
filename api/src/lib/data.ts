@@ -23,6 +23,13 @@ const toIso = (v: Types.NullableDate): string | null => {
   return d ? d.toISOString() : null;
 };
 
+const toArray = (value: any): string[] => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map((v) => `${v}`);
+  if (typeof value === "string") return [value];
+  return [];
+};
+
 const mapActor = (row: any): Types.ActorRecord | null => {
   if (!row) return null;
   return {
@@ -50,6 +57,22 @@ const mapActor = (row: any): Types.ActorRecord | null => {
     metadata_json: row.metadata_json ?? null,
     created_at: row.created_at ?? null,
     updated_at: row.updated_at ?? null,
+  };
+};
+
+const mapAudit = (row: any): Types.AuditLogRecord | null => {
+  if (!row) return null;
+  return {
+    id: row.id,
+    timestamp: row.timestamp ?? row.created_at ?? null,
+    actor_type: row.actor_type,
+    actor_id: row.actor_id ?? null,
+    action: row.action,
+    target: row.target ?? null,
+    details_json: row.details_json ?? null,
+    checksum: row.checksum,
+    prev_checksum: row.prev_checksum ?? null,
+    created_at: row.created_at ?? row.timestamp ?? null,
   };
 };
 
@@ -92,6 +115,24 @@ const notImplemented = async () => {
 };
 
 const asArray = (value: any) => (Array.isArray(value) ? value : value ? [value] : []);
+
+const buildRecipients = (
+  objectId: string,
+  input: { to?: any; cc?: any; bto?: any; bcc?: any },
+): Types.ObjectRecipientInput[] => {
+  const recipients: Types.ObjectRecipientInput[] = [];
+  const push = (values: any, type: string) => {
+    for (const recipient of toArray(values)) {
+      if (!recipient) continue;
+      recipients.push({ object_id: objectId, recipient, recipient_type: type });
+    }
+  };
+  push(input.to, "to");
+  push(input.cc, "cc");
+  push(input.bto, "bto");
+  push(input.bcc, "bcc");
+  return recipients;
+};
 
 function pickActorId(input: { actor_id?: string | null; user_id?: string | null; id?: string | null }): string {
   return (input.actor_id ?? input.user_id ?? input.id ?? "").trim();
@@ -253,6 +294,28 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return mapObject(row);
   };
 
+  const replaceObjectRecipients = async (objectId: string, recipients: Types.ObjectRecipientInput[]) => {
+    await (prisma as any).object_recipients.deleteMany({ where: { object_id: objectId } });
+    if (!recipients.length) return;
+    await (prisma as any).object_recipients.createMany({
+      data: recipients.map((r) => ({
+        object_id: objectId,
+        recipient: r.recipient,
+        recipient_type: r.recipient_type,
+      })),
+      skipDuplicates: true,
+    });
+  };
+
+  const listObjectRecipients = async (objectId: string) => {
+    const rows = await (prisma as any).object_recipients.findMany({ where: { object_id: objectId } });
+    return rows.map((row: any) => ({
+      object_id: row.object_id,
+      recipient: row.recipient,
+      recipient_type: row.recipient_type,
+    })) as Types.ObjectRecipientInput[];
+  };
+
   const createObject = async (input: Types.ObjectWriteInput) => {
     const data: any = {
       id: input.id,
@@ -274,10 +337,22 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       created_at: input.created_at ? toIso(input.created_at) : undefined,
     };
     const row = await (prisma as any).objects.create({ data });
+    try {
+      const recipients = buildRecipients(row.id, {
+        to: input.to,
+        cc: input.cc,
+        bto: input.bto,
+        bcc: input.bcc,
+      });
+      await replaceObjectRecipients(row.id, recipients);
+    } catch (error) {
+      console.error("failed to store object recipients", error);
+    }
     return mapObject(row)!;
   };
 
   const updateObject = async (id: string, data: Types.ObjectUpdateInput) => {
+    const current = await getObject(id);
     const row = await (prisma as any).objects.update({
       where: { id },
       data: {
@@ -294,11 +369,23 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
         deleted_at: data.deleted_at ? toIso(data.deleted_at) : undefined,
       },
     });
+    try {
+      const recipients = buildRecipients(id, {
+        to: data.to === undefined ? current?.to : data.to,
+        cc: data.cc === undefined ? current?.cc : data.cc,
+        bto: data.bto === undefined ? current?.bto : data.bto,
+        bcc: data.bcc === undefined ? current?.bcc : data.bcc,
+      });
+      await replaceObjectRecipients(id, recipients);
+    } catch (error) {
+      console.error("failed to update object recipients", error);
+    }
     return mapObject(row)!;
   };
 
   const queryObjects = async (params: Types.ObjectQueryParams) => {
     const filters: any = { };
+    const notFilters: any[] = [];
     if (params.type) {
       if (Array.isArray(params.type)) filters.type = { in: params.type };
       else filters.type = params.type;
@@ -310,12 +397,28 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       if (Array.isArray(params.visibility)) filters.visibility = { in: params.visibility };
       else filters.visibility = params.visibility;
     }
+    if (params.exclude_direct || (!params.include_direct && !params.visibility)) {
+      notFilters.push({ visibility: "direct" });
+    }
+    if (notFilters.length === 1) filters.NOT = notFilters[0];
+    if (notFilters.length > 1) filters.NOT = notFilters;
+    if (params.participant) {
+      filters.OR = [
+        { actor: params.participant },
+        { recipients: { some: { recipient: params.participant } } },
+      ];
+    }
+    if (params.since || params.until) {
+      filters.published = {};
+      if (params.since) filters.published.gte = params.since;
+      if (params.until) filters.published.lte = params.until;
+    }
     if (!params.include_deleted) {
       filters.deleted_at = null;
     }
     const rows = await (prisma as any).objects.findMany({
       where: filters,
-      orderBy: { published: "desc" },
+      orderBy: { published: params.order === "asc" ? "asc" : "desc" },
       take: params.limit ?? 50,
       skip: params.offset ?? 0,
     });
@@ -433,6 +536,44 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
     return rows.map((r: any) => r.following_id);
   };
+
+  const listFollowers = async (userId: string, limit = 20, offset = 0) => {
+    const rows = await (prisma as any).follows.findMany({
+      where: { following_id: userId, NOT: { status: "rejected" } },
+      include: { follower: true },
+      orderBy: { created_at: "desc" },
+      take: limit,
+      skip: offset,
+    });
+    return rows.map((r: any) => r.follower).filter(Boolean);
+  };
+
+  const listFollowing = async (userId: string, limit = 20, offset = 0) => {
+    const rows = await (prisma as any).follows.findMany({
+      where: { follower_id: userId, NOT: { status: "rejected" } },
+      include: { following: true },
+      orderBy: { created_at: "desc" },
+      take: limit,
+      skip: offset,
+    });
+    return rows.map((r: any) => r.following).filter(Boolean);
+  };
+
+  const createFollow = async (follower_id: string, following_id: string) =>
+    (prisma as any).follows.upsert({
+      where: { follower_id_following_id: { follower_id, following_id } },
+      update: { status: "accepted" },
+      create: {
+        id: crypto.randomUUID(),
+        follower_id,
+        following_id,
+        status: "accepted",
+        created_at: new Date(),
+      },
+    });
+
+  const deleteFollow = async (follower_id: string, following_id: string) =>
+    (prisma as any).follows.deleteMany({ where: { follower_id, following_id } });
 
   const blockUser = async (blocker_id: string, blocked_id: string) =>
     (prisma as any).blocks.upsert({
@@ -849,6 +990,30 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   const upsertDmThread = notImplemented;
   const createDmMessage = notImplemented;
   const listDmMessages = notImplemented;
+  const listDirectThreadContexts = async (actor_id: string, limit = 20, offset = 0) => {
+    const rows = await (prisma as any).objects.groupBy({
+      by: ["context"],
+      where: {
+        visibility: "direct",
+        deleted_at: null,
+        context: { not: null },
+        OR: [
+          { actor: actor_id },
+          { recipients: { some: { recipient: actor_id } } },
+        ],
+      },
+      _max: { published: true },
+      orderBy: { _max: { published: "desc" } },
+      take: limit,
+      skip: offset,
+    });
+    return (rows as any[])
+      .filter((row) => row.context)
+      .map((row) => ({
+        context: row.context as string,
+        latest: row._max?.published ?? null,
+      }));
+  };
   const createChannelMessageRecord = notImplemented;
   const listChannelMessages = notImplemented;
 
@@ -1177,6 +1342,35 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
 
   const countApRateLimits = async () => (prisma as any).ap_rate_limits.count();
 
+  const getLatestAuditLog = async () => {
+    const row = await (prisma as any).audit_log.findFirst({
+      orderBy: { timestamp: "desc" },
+    });
+    return mapAudit(row);
+  };
+
+  const appendAuditLog = async (entry: Types.AuditLogInput) => {
+    if (!entry.checksum) {
+      throw new Error("checksum is required for audit_log entry");
+    }
+    const timestamp = toIso(entry.timestamp) ?? new Date().toISOString();
+    const row = await (prisma as any).audit_log.create({
+      data: {
+        id: entry.id ?? crypto.randomUUID(),
+        timestamp,
+        actor_type: entry.actor_type,
+        actor_id: entry.actor_id ?? null,
+        action: entry.action,
+        target: entry.target ?? null,
+        details_json: entry.details ? JSON.stringify(entry.details) : null,
+        checksum: entry.checksum,
+        prev_checksum: entry.prev_checksum ?? null,
+        created_at: timestamp,
+      },
+    });
+    return mapAudit(row)!;
+  };
+
   const findPostByApObjectId = async (ap_object_id: string) => getObject(ap_object_id);
 
   const createApReaction = async (input: Types.ApReactionInput) =>
@@ -1489,7 +1683,13 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     getObject,
     getObjectByLocalId,
     queryObjects,
+    replaceObjectRecipients,
+    listObjectRecipients,
     deleteObject,
+
+    // Audit
+    appendAuditLog,
+    getLatestAuditLog,
 
     // Users (legacy)
     getUser,
@@ -1519,6 +1719,10 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     // Friends
     areFriends,
     listFriends,
+    listFollowers,
+    listFollowing,
+    createFollow,
+    deleteFollow,
 
     // Blocks & Mutes
     blockUser,
@@ -1663,6 +1867,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     upsertDmThread,
     createDmMessage,
     listDmMessages,
+    listDirectThreadContexts,
     createChannelMessageRecord,
     listChannelMessages,
     getDmThread: async () => null,

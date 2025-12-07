@@ -14,6 +14,7 @@ import {
 import { createStore } from "solid-js/store";
 import { useNavigate } from "@solidjs/router";
 import { api, getBackendUrl, getJWT } from "./api";
+import { useToast } from "../components/Toast";
 
 /**
  * UiNode Type Definitions (PLAN.md 5.4)
@@ -68,6 +69,9 @@ export interface UiRuntimeContext {
   refresh?: (target?: string | string[]) => void;
   registerRefetch?: (id: string, handler: () => void) => () => void;
   tableColumns?: TableColumnDef[];
+  auth?: { loggedIn: boolean; user?: any };
+  $auth?: { loggedIn: boolean; user?: any };
+  toast?: { showToast?: (message: string, type?: string, duration?: number) => void };
 }
 
 type FieldValidation = {
@@ -144,7 +148,30 @@ type NamedActionConfig = {
   name: string;
 };
 
-type ActionConfig = SetStateActionConfig | NavigateActionConfig | ApiActionConfig | RefreshActionConfig | SequenceActionConfig | NamedActionConfig;
+type ToastActionConfig = {
+  type: "toast";
+  message: any;
+  variant?: "success" | "error" | "warning" | "info";
+  duration?: number;
+};
+
+type ConfirmActionConfig = {
+  type: "confirm";
+  title?: string;
+  message?: string;
+  onConfirm?: ActionConfig | ActionConfig[];
+  onCancel?: ActionConfig | ActionConfig[];
+};
+
+type ActionConfig =
+  | SetStateActionConfig
+  | NavigateActionConfig
+  | ApiActionConfig
+  | RefreshActionConfig
+  | SequenceActionConfig
+  | NamedActionConfig
+  | ToastActionConfig
+  | ConfirmActionConfig;
 type ActionLike = ActionConfig | ActionConfig[] | string | ((payload?: any) => void | Promise<void>);
 
 const templatePattern = /\{\{\s*([^}]+)\s*\}\}/g;
@@ -157,11 +184,23 @@ const isStateRef = (value: any): value is { $state: string } => {
   return isPlainObject(value) && typeof value.$state === "string";
 };
 
+const isDataRef = (value: any): value is { $data: string } => {
+  return isPlainObject(value) && typeof value.$data === "string";
+};
+
+const isItemRef = (value: any): value is { $item: string } => {
+  return isPlainObject(value) && typeof value.$item === "string";
+};
+
+const isAuthRef = (value: any): value is { $auth: string } => {
+  return isPlainObject(value) && typeof value.$auth === "string";
+};
+
 const isSetStateAction = (value: any): value is SetStateActionConfig => {
   return isPlainObject(value) && value.type === "setState" && typeof value.key === "string";
 };
 
-const ACTION_TYPES = new Set(["navigate", "api", "refresh", "sequence", "action"]);
+const ACTION_TYPES = new Set(["navigate", "api", "refresh", "sequence", "action", "toast", "confirm"]);
 
 const isActionConfig = (value: any): value is ActionConfig => {
   return isPlainObject(value) && typeof value.type === "string" && ACTION_TYPES.has(value.type);
@@ -175,15 +214,28 @@ const isFormRef = (value: any): value is { $form: true } => {
   return isPlainObject(value) && value.$form === true;
 };
 
-const readContextPath = (context: UiRuntimeContext | undefined, path: string) => {
-  if (!context) return undefined;
+const readPath = (source: any, path: string) => {
+  if (!source) return undefined;
   const parts = path.split(".");
-  let current: any = { ...context };
+  let current: any = source;
   for (const part of parts) {
     if (current === undefined || current === null) return undefined;
     current = current[part];
   }
   return current;
+};
+
+const readContextPath = (context: UiRuntimeContext | undefined, path: string) => {
+  if (!context) return undefined;
+  const direct = readPath(context as any, path);
+  if (direct !== undefined) return direct;
+  if (path.startsWith("$auth") || path.startsWith("auth")) {
+    const authValue = (context as any).$auth ?? (context as any).auth;
+    const authPath = path.replace(/^\$?auth\.?/, "");
+    if (!authPath) return authValue;
+    return readPath(authValue, authPath);
+  }
+  return undefined;
 };
 
 const resolveTemplateString = (value: string, context?: UiRuntimeContext) => {
@@ -220,6 +272,25 @@ const resolveValue = (value: any, context?: UiRuntimeContext, options?: { preser
 
   if (isStateRef(value)) {
     return context?.state ? (context.state as any)[value.$state] : undefined;
+  }
+
+  if (isDataRef(value)) {
+    const direct = readPath((context as any)?.data, value.$data);
+    if (direct !== undefined) return direct;
+    return readPath((context as any)?.item, value.$data);
+  }
+
+  if (isItemRef(value)) {
+    return readPath((context as any)?.item, value.$item);
+  }
+
+  if (isAuthRef(value)) {
+    const authValue = (context as any)?.$auth ?? (context as any)?.auth;
+    if (!authValue) return undefined;
+    if (value.$auth === "loggedIn") {
+      return Boolean((authValue as any).loggedIn ?? authValue);
+    }
+    return readPath(authValue, value.$auth);
   }
 
   if (!options?.preserveActions && isSetStateAction(value)) {
@@ -457,6 +528,33 @@ async function executeAction(action: ActionConfig, context?: UiRuntimeContext, p
         window.location.reload();
       }
       return;
+    case "toast": {
+      const message = resolveValue(action.message, context, { preserveActions: true });
+      if (message === undefined || message === null) return;
+      const variant = action.variant || "info";
+      if (context?.toast?.showToast) {
+        context.toast.showToast(String(message), variant, action.duration);
+      } else {
+        console.info(`[Toast:${variant}]`, message);
+      }
+      return;
+    }
+    case "confirm": {
+      const prompt = action.message || action.title || "Are you sure?";
+      const confirmed = typeof window === "undefined" ? true : window.confirm(prompt);
+      if (confirmed && action.onConfirm) {
+        const handler = normalizeActionHandler(action.onConfirm, context);
+        if (handler) {
+          await handler();
+        }
+      } else if (!confirmed && action.onCancel) {
+        const handler = normalizeActionHandler(action.onCancel, context);
+        if (handler) {
+          await handler();
+        }
+      }
+      return;
+    }
     case "sequence": {
       const steps = action.actions || [];
       for (const step of steps) {
@@ -1738,12 +1836,18 @@ function evaluateCondition(condition: any, context?: UiRuntimeContext): boolean 
   if (isPlainObject(condition)) {
     if (Object.prototype.hasOwnProperty.call(condition, "$auth")) {
       const key = (condition as any).$auth;
-      if (key === "isLoggedIn") {
+      const authValue = (context as any)?.$auth ?? (context as any)?.auth;
+      if (key === "isLoggedIn" || key === "loggedIn") {
+        if (authValue && Object.prototype.hasOwnProperty.call(authValue, "loggedIn")) {
+          return Boolean((authValue as any).loggedIn);
+        }
         return Boolean(getJWT());
       }
-      if (key === "userId") {
-        return Boolean(getJWT());
+      if (typeof key === "string") {
+        const normalized = key.replace(/^\$?auth\.?/, "");
+        return Boolean(readPath(authValue, normalized));
       }
+      return Boolean(authValue);
     }
     if (Object.prototype.hasOwnProperty.call(condition, "$eq")) {
       const [a, b] = (condition as any).$eq || [];
@@ -1787,6 +1891,32 @@ const Conditional: Component<{
   }
 
   return <>{props.renderChildren ? props.renderChildren(undefined, elseNodes()) : null}</>;
+};
+
+const Repeat: Component<{
+  items?: any[];
+  as?: string;
+  context?: UiRuntimeContext;
+  renderChildren?: UiComponentProps["renderChildren"];
+}> = (props) => {
+  const list = createMemo(() => (Array.isArray(props.items) ? props.items : []));
+
+  if (!props.renderChildren) return null;
+
+  return (
+    <For each={list()}>
+      {(item) =>
+        props.renderChildren(
+          {
+            ...(props.context || {}),
+            item,
+            [props.as || "item"]: item,
+            list: list(),
+          }
+        )
+      }
+    </For>
+  );
 };
 
 const Header: Component<{
@@ -2388,10 +2518,15 @@ const ApiData: Component<{
   body?: any;
   query?: Record<string, any>;
   headers?: Record<string, string>;
+  as?: string;
+  loading?: UiNode;
+  error?: UiNode;
   context?: UiRuntimeContext;
   renderChildren?: UiComponentProps["renderChildren"];
   children?: JSX.Element;
 }> = (props) => {
+  const asKey = () => props.as || "data";
+  const [error, setError] = createSignal<any>(null);
   const [data, { refetch }] = createResource(
     () => ({
       path: props.source?.path || props.path || "",
@@ -2401,6 +2536,7 @@ const ApiData: Component<{
       headers: props.headers,
     }),
     async (params) => {
+      setError(null);
       if (!params.path) return null;
       try {
         const requestPath = buildPathWithQuery(params.path, params.query);
@@ -2412,6 +2548,7 @@ const ApiData: Component<{
         return await api(requestPath, init);
       } catch (err) {
         console.error("[ApiData] Fetch error:", err);
+        setError(err);
         return null;
       }
     }
@@ -2427,12 +2564,29 @@ const ApiData: Component<{
   const childContext = createMemo(() => ({
     ...(props.context || {}),
     data: data() ?? null,
+    [asKey()]: data() ?? null,
   }));
 
+  const renderLoading = () => {
+    if (props.loading && props.renderChildren) {
+      return props.renderChildren(props.context, [props.loading]);
+    }
+    return <div style={{ padding: "8px", color: "#6b7280" }}>Loading...</div>;
+  };
+
+  const renderError = () => {
+    if (props.error && props.renderChildren) {
+      return props.renderChildren({ ...(props.context || {}), error: error() }, [props.error]);
+    }
+    return <div style={{ color: "#ef4444" }}>Failed to load data</div>;
+  };
+
   return (
-    <Suspense fallback={<div style={{ padding: "8px", color: "#6b7280" }}>Loading...</div>}>
-      <Show when={data()} fallback={<div style={{ color: "#ef4444" }}>Failed to load data</div>}>
-        {props.renderChildren ? props.renderChildren(childContext()) : props.children}
+    <Suspense fallback={renderLoading()}>
+      <Show when={!error()} fallback={renderError()}>
+        <Show when={data()} fallback={renderLoading()}>
+          {props.renderChildren ? props.renderChildren(childContext()) : props.children}
+        </Show>
       </Show>
     </Suspense>
   );
@@ -2448,13 +2602,19 @@ const ApiList: Component<{
   query?: Record<string, any>;
   itemTemplate?: UiNode;
   emptyText?: string;
+  as?: string;
+  loading?: UiNode;
+  error?: UiNode;
   context?: UiRuntimeContext;
   renderChildren?: UiComponentProps["renderChildren"];
   children?: JSX.Element;
 }> = (props) => {
+  const asKey = () => props.as || "item";
+  const [error, setError] = createSignal<any>(null);
   const [items, { refetch }] = createResource(
     () => buildPathWithQuery(props.source?.path || props.path || "", props.query || props.source?.params),
     async (path) => {
+      setError(null);
       if (!path) return [];
       try {
         const data = await api(path);
@@ -2465,6 +2625,7 @@ const ApiList: Component<{
         return [];
       } catch (err) {
         console.error("[ApiList] Fetch error:", err);
+        setError(err);
         return [];
       }
     }
@@ -2477,34 +2638,45 @@ const ApiList: Component<{
     }
   });
 
-  const renderItem = (item: any) => {
-    if (props.renderChildren) {
-      const explicit = props.itemTemplate ? [props.itemTemplate] : undefined;
-      return props.renderChildren(
-        {
-          ...(props.context || {}),
-          item,
-          list: items() || [],
-        },
-        explicit
-      );
+  const renderLoading = () => {
+    if (props.loading && props.renderChildren) {
+      return props.renderChildren(props.context, [props.loading]);
     }
-    return props.children;
+    return <div style={{ padding: "8px", color: "#6b7280" }}>Loading...</div>;
+  };
+
+  const renderError = () => {
+    if (props.error && props.renderChildren) {
+      return props.renderChildren({ ...(props.context || {}), error: error() }, [props.error]);
+    }
+    return <div style={{ padding: "16px", color: "#ef4444", "text-align": "center" }}>Failed to load list</div>;
   };
 
   return (
-    <Suspense fallback={<div style={{ padding: "8px", color: "#6b7280" }}>Loading...</div>}>
-      <Show
-        when={items() && items()!.length > 0}
-        fallback={<div style={{ padding: "16px", color: "#6b7280", "text-align": "center" }}>{props.emptyText || "No items"}</div>}
-      >
-        <For each={items()}>
-          {(item) => (
-            <div data-item={JSON.stringify(item)}>
-              {renderItem(item)}
-            </div>
-          )}
-        </For>
+    <Suspense fallback={renderLoading()}>
+      <Show when={!error()} fallback={renderError()}>
+        <Show
+          when={items() && items()!.length > 0}
+          fallback={<div style={{ padding: "16px", color: "#6b7280", "text-align": "center" }}>{props.emptyText || "No items"}</div>}
+        >
+          <For each={items()}>
+            {(item) => {
+              if (props.renderChildren) {
+                const explicit = props.itemTemplate ? [props.itemTemplate] : undefined;
+                return props.renderChildren(
+                  {
+                    ...(props.context || {}),
+                    item,
+                    [asKey()]: item,
+                    list: items() || [],
+                  },
+                  explicit
+                );
+              }
+              return props.children;
+            }}
+          </For>
+        </Show>
       </Show>
     </Suspense>
   );
@@ -2540,6 +2712,7 @@ const componentRegistry: Record<string, Component<any>> = {
   Stat,
   StatGroup,
   Conditional,
+  Repeat,
   Header,
   ScrollView,
   Sticky,
@@ -2612,11 +2785,29 @@ export const RenderScreen: Component<{ screen: Screen; context?: UiRuntimeContex
     for (const [key, def] of Object.entries(props.screen.state)) {
       initialState[key] = def?.default;
     }
- }
+  }
 
   const [state, setState] = createStore(initialState);
   const navigate = useNavigate();
   const refreshers = new Map<string, () => void>();
+  const toast = (() => {
+    try {
+      return useToast();
+    } catch {
+      return null;
+    }
+  })();
+
+  const authValue = createMemo(() => {
+    const provided = (props.context as any)?.$auth ?? props.context?.auth;
+    if (provided) {
+      return {
+        loggedIn: Boolean((provided as any).loggedIn ?? (provided as any).user ?? getJWT()),
+        user: (provided as any).user,
+      };
+    }
+    return { loggedIn: Boolean(getJWT()) };
+  });
 
   const setStateByKey = (key: string, value: any) => {
     if (!(key in state)) {
@@ -2652,6 +2843,9 @@ export const RenderScreen: Component<{ screen: Screen; context?: UiRuntimeContex
     navigate,
     refresh,
     registerRefetch,
+    auth: authValue(),
+    $auth: authValue(),
+    toast: toast ? { showToast: toast.showToast } : undefined,
   }));
 
   return (

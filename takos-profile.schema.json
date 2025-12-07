@@ -136,6 +136,14 @@
         }
       }
     },
+    "disabled_api_endpoints": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
     "ui": {
       "type": "object",
       "additionalProperties": false,
@@ -183,7 +191,30 @@
           },
           "minItems": 1,
           "uniqueItems": true
+        },
+        "data_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "send_public_posts": { "type": "boolean" },
+            "send_community_posts": { "type": "boolean" },
+            "send_dm": { "type": "boolean" },
+            "send_profile": { "type": "boolean" },
+            "notes": { "type": "string" }
+          }
         }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "core_version": { "type": "string" },
+        "schema_version": { "type": "string" },
+        "manifest_schema": { "type": "string" },
+        "ui_contract": { "type": "string" },
+        "app_version_min": { "type": "string" },
+        "app_version_max": { "type": "string" }
       }
     },
     "metadata": {

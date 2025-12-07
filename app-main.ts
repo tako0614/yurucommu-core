@@ -8,6 +8,7 @@
  */
 
 import type { AppHandler, TakosContext, AppAuthContext } from "@takos/platform/app";
+import type { AppResponseHeaders } from "@takos/platform/app/runtime/types";
 import type { CoreServices } from "@takos/platform/app/services";
 
 // Helper: require authentication
@@ -29,30 +30,107 @@ function parseInput<T>(input: unknown, defaults: T): T {
   return { ...defaults, ...(input as object) } as T;
 }
 
+const buildCookieHeaders = (cookies?: string[] | null): AppResponseHeaders | undefined => {
+  if (!cookies || cookies.length === 0) return undefined;
+  return { "Set-Cookie": cookies };
+};
+
 // ============================================================================
 // Authentication Handlers
 // ============================================================================
 
 export const authLogin: AppHandler = async (ctx, input) => {
   ctx.log("info", "authLogin handler invoked", { input: !!input });
-  // Auth login is handled by Core Kernel directly - this is a pass-through
-  return ctx.error("Auth login should be handled by Core Kernel /-/auth routes", 501);
+  const services = getServices(ctx);
+  if (!services.auth) {
+    return ctx.error("auth service unavailable", 501);
+  }
+  const payload = parseInput(input, { password: "", handle: undefined as string | undefined });
+  try {
+    const result = await services.auth.loginWithPassword(payload);
+    return ctx.json(
+      {
+        user: result.user,
+        token: result.token,
+        session: result.session,
+      },
+      { headers: buildCookieHeaders(result.setCookies) },
+    );
+  } catch (error) {
+    const message = (error as Error)?.message || "login failed";
+    const status = message.toLowerCase().includes("invalid") ? 401 : 500;
+    return ctx.error(message, status);
+  }
 };
 
 export const issueSessionToken: AppHandler = async (ctx, input) => {
+  const auth = requireAuth(ctx);
   ctx.log("info", "issueSessionToken handler invoked");
-  return ctx.error("Session token issuance should be handled by Core Kernel", 501);
+  const services = getServices(ctx);
+  if (!services.auth) {
+    return ctx.error("auth service unavailable", 501);
+  }
+  try {
+    const result = await services.auth.issueSessionToken(auth);
+    return ctx.json(result);
+  } catch (error) {
+    const message = (error as Error)?.message || "failed to issue session token";
+    const status = message.toLowerCase().includes("auth") ? 401 : 500;
+    return ctx.error(message, status);
+  }
 };
 
 export const logout: AppHandler = async (ctx, input) => {
   ctx.log("info", "logout handler invoked");
-  return ctx.error("Logout should be handled by Core Kernel", 501);
+  const services = getServices(ctx);
+  if (!services.auth) {
+    return ctx.error("auth service unavailable", 501);
+  }
+  try {
+    const result = await services.auth.logout();
+    return ctx.json({ success: true }, { headers: buildCookieHeaders(result.setCookies) });
+  } catch (error) {
+    const message = (error as Error)?.message || "logout failed";
+    return ctx.error(message, 500);
+  }
 };
 
-export const ownerActors: AppHandler = async (ctx, input) => {
-  ctx.log("info", "ownerActors handler invoked");
-  return ctx.error("Owner actors management should be handled by Core Kernel", 501);
+export const actors: AppHandler = async (ctx, input) => {
+  const auth = requireAuth(ctx);
+  const services = getServices(ctx);
+  if (!services.auth) {
+    return ctx.error("auth service unavailable", 501);
+  }
+  const payload = parseInput(input, {
+    handle: "",
+    display_name: undefined as string | undefined,
+    create: true,
+    activate: true,
+    issue_token: false,
+  });
+  try {
+    const result = await services.auth.createOrActivateActor(auth, payload);
+    return ctx.json(
+      {
+        user: result.user,
+        active_user_id: result.active_user_id,
+        created: !!result.created,
+        ...(result.token ? { token: result.token } : {}),
+      },
+      { headers: buildCookieHeaders(result.setCookies) },
+    );
+  } catch (error) {
+    const message = (error as Error)?.message || "failed to manage actor";
+    let status = 500;
+    const lower = message.toLowerCase();
+    if (lower.includes("invalid")) status = 400;
+    else if (lower.includes("not found")) status = 404;
+    else if (lower.includes("auth")) status = 401;
+    return ctx.error(message, status);
+  }
 };
+
+export const ownerActors: AppHandler = actors;
 
 // ============================================================================
 // User Handlers
@@ -1137,6 +1215,7 @@ const handlers: Record<string, AppHandler> = {
   authLogin,
   issueSessionToken,
   logout,
+  actors,
   ownerActors,
 
   // Users

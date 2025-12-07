@@ -54,7 +54,9 @@ describe("App Manifest loader", () => {
     });
 
     const result = await loadAppManifest({ source });
-    expect(result.issues).toHaveLength(0);
+    const errors = result.issues.filter((issue) => issue.severity === "error");
+    expect(errors).toHaveLength(0);
+    expect(result.issues.some((issue) => issue.message.includes("minor version differs"))).toBe(true);
     expect(result.manifest?.schemaVersion).toBe("1.0");
     expect(result.manifest?.version).toBe("1.2.3");
     expect(result.manifest?.routes[0]).toMatchObject({ id: "home_timeline", auth: true });
@@ -138,5 +140,22 @@ describe("App Manifest loader", () => {
     expect(result.issues.some((issue) => issue.path === "insert[0].position")).toBe(true);
     expect(result.issues.some((issue) => issue.path === "collections.app:notes")).toBe(true);
     expect(result.issues.some((issue) => issue.path === "buckets.app:assets")).toBe(true);
+  });
+
+  it("rejects reserved routes and moved core routes", async () => {
+    const source = createInMemoryAppSource({
+      "takos-app.json": JSON.stringify({ schema_version: "1.10" }),
+      "app/views/reserved.json": JSON.stringify({
+        screens: [
+          { id: "screen.custom_login", route: "/login", layout: {} },
+          { id: "screen.home", route: "/welcome", layout: {} },
+        ],
+      }),
+    });
+
+    const result = await loadAppManifest({ source });
+    expect(result.manifest).toBeUndefined();
+    expect(result.issues.some((issue) => issue.message.includes("Reserved route"))).toBe(true);
+    expect(result.issues.some((issue) => issue.message.includes('Core screen "screen.home"'))).toBe(true);
   });
 });

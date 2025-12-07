@@ -7,7 +7,7 @@ import AppTab from "./components/Navigation/AppTab";
 import PostComposer from "./components/PostComposer";
 import NotificationPanel from "./components/NotificationPanel";
 import DefaultLogin from "./pages/Login";
-import { authStatus, refreshAuth, fetchMe } from "./lib/api";
+import { authStatus, refreshAuth, fetchMe, useMe } from "./lib/api";
 import { resolveComponent } from "./lib/plugins";
 import { ToastProvider } from "./components/Toast";
 import { ShellContextProvider, useShellContext } from "./lib/shell-context";
@@ -29,167 +29,8 @@ export default function App() {
       <Router>
         <Route path="/" component={Shell}>
           <Route path="/auth/callback" component={AuthCallback} />
-          <Route
-            path="/"
-            component={() => (
-              <RequireAuth allowIncompleteProfile>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
           <Route path="/login" component={Login} />
-          <Route
-            path="/onboarding"
-            component={() => (
-              <RequireAuth allowIncompleteProfile>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          <Route
-            path="/connections"
-            component={() => (
-              <RequireAuth>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          {/* Legacy routes redirect to connections */}
-          <Route path="/friends" component={() => <Navigate href="/connections" />} />
-          <Route
-            path="/communities"
-            component={() => (
-              <RequireAuth>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          <Route
-            path="/users"
-            component={() => (
-              <RequireAuth>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          <Route
-            path="/invitations"
-            component={() => (
-              <RequireAuth>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          <Route
-            path="/follow-requests"
-            component={() => (
-              <RequireAuth>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          <Route path="/friend-requests" component={() => <Navigate href="/follow-requests" />} />
-          <Route
-            path="/c/:id"
-            component={() => (
-              <RequireAuth>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          {/* Legacy community chat path -> unified chat */}
-          <Route
-            path="/c/:id/chat"
-            component={LegacyCommunityChatRedirect}
-          />
-          {/* Unified Chat routes */}
-          <Route
-            path="/chat/*"
-            component={() => (
-              <RequireAuth>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          {/* Legacy DM paths -> unified chat */}
-          <Route
-            path="/dm"
-            component={() => (
-              <RequireAuth>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          <Route
-            path="/dm/:id"
-            component={() => (
-              <RequireAuth>
-                <LegacyDMRedirect />
-              </RequireAuth>
-            )}
-          />
-          <Route
-            path="/compose"
-            component={() => (
-              <RequireAuth>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          <Route
-            path="/stories"
-            component={() => (
-              <RequireAuth>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          <Route
-            path="/settings"
-            component={() => (
-              <RequireAuth>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          <Route
-            path="/notifications"
-            component={() => (
-              <RequireAuth>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          <Route
-            path="/posts/:id"
-            component={() => (
-              <RequireAuth>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          <Route
-            path="/profile"
-            component={() => (
-              <RequireAuth>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          <Route
-            path="/profile/edit"
-            component={() => (
-              <RequireAuth>
-                <ManifestScreen manifest={manifest} />
-              </RequireAuth>
-            )}
-          />
-          {/* User profile route - public, no auth required */}
-          <Route
-            path="/@:handle"
-            component={() => <ManifestScreen manifest={manifest} />}
-          />
-          <Route path="*" component={CatchAllRoute} />
+          <Route path="/*" component={() => <ManifestScreen manifest={manifest} />} />
         </Route>
       </Router>
     </ToastProvider>
@@ -279,9 +120,25 @@ function MainLayout(props: { children?: any }) {
  */
 function ManifestScreen(props: { manifest: Resource<AppManifest | undefined> }) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const me = useMe();
   const shell = useShellContext();
 
+  const legacyRedirect = createMemo(() => {
+    const path = location.pathname;
+    if (path === "/friends") return "/connections";
+    if (path === "/friend-requests") return "/follow-requests";
+    if (path === "/dm") return "/chat";
+    const dmMatch = path.match(/^\/dm\/(.+)$/);
+    if (dmMatch) return `/chat/dm/${dmMatch[1]}`;
+    const communityChat = path.match(/^\/c\/([^/]+)\/chat$/);
+    if (communityChat) return `/c/${communityChat[1]}`;
+    return null;
+  });
+
   const matchedScreen = createMemo<AppManifestScreen | undefined>(() => {
+    const redirect = legacyRedirect();
+    if (redirect) return undefined;
     const m = props.manifest();
     if (!m) return undefined;
     return getScreenByRoute(m, location.pathname);
@@ -297,6 +154,15 @@ function ManifestScreen(props: { manifest: Resource<AppManifest | undefined> }) 
     ...(shell?.onOpenComposer ? { openComposer: shell.onOpenComposer } : {}),
     ...(shell?.onOpenNotifications ? { openNotifications: shell.onOpenNotifications } : {}),
   }));
+
+  const authContext = createMemo(() => ({
+    loggedIn: authStatus() === "authenticated",
+    user: me(),
+  }));
+
+  if (legacyRedirect()) {
+    return <Navigate href={legacyRedirect()!} />;
+  }
 
   // Loading state
   if (props.manifest.loading) {
@@ -320,46 +186,38 @@ function ManifestScreen(props: { manifest: Resource<AppManifest | undefined> }) 
       <div class="p-6 text-center">
         <h1 class="text-2xl font-bold">404 Not Found</h1>
         <p class="mt-2 text-muted">画面が見つかりませんでした: {location.pathname}</p>
-        <a href="/" class="mt-4 inline-block text-blue-600 hover:underline">
+        <button type="button" class="mt-4 inline-block text-blue-600 hover:underline" onClick={() => navigate("/")}>
           ホームに戻る
-        </a>
+        </button>
       </div>
     );
   }
 
-  return (
+  const screenContent = (
     <RenderScreen
       screen={matchedScreen()!}
       context={{
         routeParams: routeParams(),
         location: location.pathname,
         actions: actions(),
+        auth: authContext(),
+        $auth: authContext(),
       }}
     />
   );
-}
 
-function CatchAllRoute() {
+  const requiresAuth = matchedScreen()?.auth !== "public";
+  const allowIncompleteProfile = matchedScreen()?.id === "screen.onboarding" || matchedScreen()?.id === "screen.home";
+
+  if (!requiresAuth) {
+    return screenContent;
+  }
+
   return (
-    <div class="p-6 text-center">
-      <h1 class="text-2xl font-bold">404 Not Found</h1>
-      <p class="mt-2 text-muted">ページが見つかりませんでした。</p>
-      <a href="/" class="mt-4 inline-block text-blue-600 hover:underline">
-        ホームに戻る
-      </a>
-    </div>
+    <RequireAuth allowIncompleteProfile={allowIncompleteProfile}>
+      {screenContent}
+    </RequireAuth>
   );
-}
-
-function LegacyCommunityChatRedirect() {
-  const location = useLocation();
-  return <Navigate href={location.pathname.replace("/c/", "/chat/c/")} />;
-}
-
-function LegacyDMRedirect() {
-  const location = useLocation();
-  const id = encodeURIComponent(location.pathname.split("/").pop() || "");
-  return <Navigate href={`/chat/dm/${id}`} />;
 }
 
 function RequireAuth(props: { children: any; allowIncompleteProfile?: boolean }) {

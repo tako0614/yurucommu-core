@@ -17,7 +17,7 @@ export type AppLogEntry = {
 
 export type AppLogSink = (entry: AppLogEntry) => void | Promise<void>;
 
-export type AppResponseHeaders = Record<string, string>;
+export type AppResponseHeaders = Record<string, string | string[]>;
 
 export type AppResponseInit = {
   status?: number;
@@ -47,8 +47,47 @@ export type AppRedirectResponse = {
 
 export type AppResponse<T = unknown> = AppJsonResponse<T> | AppErrorResponse | AppRedirectResponse;
 
+export type AppPlanName = "free" | "pro" | "business" | "self-hosted" | string;
+
+export type AppPlanLimits = {
+  storage: number;
+  fileSize: number;
+  aiRequests: number;
+};
+
+export type AppPlanInfo = {
+  name: AppPlanName;
+  limits: AppPlanLimits;
+  features: string[];
+};
+
+export type AppRateLimitWindow = {
+  perMinute: number;
+  perDay: number;
+};
+
+export type AppAuthRateLimits = {
+  read: AppRateLimitWindow;
+  write: AppRateLimitWindow;
+};
+
+export type AppAuthUser = {
+  id: string;
+  handle?: string | null;
+  name?: string | null;
+  avatar?: string | null;
+  bio?: string | null;
+  createdAt?: string | null;
+};
+
 export interface AppAuthContext {
-  userId?: string | null;
+  userId: string | null;
+  sessionId: string | null;
+  isAuthenticated: boolean;
+  plan: AppPlanInfo;
+  limits: AppPlanLimits;
+  rateLimits?: AppAuthRateLimits;
+  user?: AppAuthUser | null;
   roles?: string[];
   [key: string]: unknown;
 }

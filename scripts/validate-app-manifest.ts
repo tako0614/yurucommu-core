@@ -4,7 +4,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { AppHandlerRegistry, loadAppManifest } from "@takos/platform/app";
+import {
+  AppHandlerRegistry,
+  loadAppManifest,
+  parseUiContractJson,
+  validateUiContractAgainstManifest,
+  type AppManifestValidationIssue,
+  type UiContract,
+} from "@takos/platform/app";
+import { validateAppSchemaVersion } from "@takos/platform/app/manifest";
 
 type CliOptions = {
   root: string;
@@ -27,7 +35,41 @@ async function main() {
     availableHandlers: handlerInfo.handlers,
   });
 
-  const issues = [...manifestResult.issues];
+  const issues: AppManifestValidationIssue[] = [...manifestResult.issues];
+
+  const uiContract = await loadUiContract(workspaceRoot);
+  issues.push(...uiContract.issues);
+
+  if (manifestResult.manifest) {
+    const hasSchemaIssues = issues.some((issue) => issue.path === "schema_version");
+    if (!hasSchemaIssues) {
+      const schemaCheck = validateAppSchemaVersion(manifestResult.manifest);
+      if (!schemaCheck.ok) {
+        issues.push({
+          severity: "error",
+          message: schemaCheck.error || "app manifest schema_version is not compatible",
+          file: path.join(workspaceRoot, "takos-app.json"),
+          path: "schema_version",
+        });
+      }
+      issues.push(
+        ...schemaCheck.warnings.map((message) => ({
+          severity: "warning",
+          message,
+          file: path.join(workspaceRoot, "takos-app.json"),
+          path: "schema_version",
+        })),
+      );
+    }
+
+    issues.push(
+      ...validateUiContractAgainstManifest(
+        manifestResult.manifest,
+        uiContract.contract,
+        uiContract.source,
+      ),
+    );
+  }
   const errors = issues.filter((issue) => issue.severity === "error");
   const warnings = issues.filter((issue) => issue.severity === "warning");
 
@@ -41,6 +83,7 @@ async function main() {
     appMain: handlerInfo.appMainPath,
     handlerCount: handlerInfo.handlers.size,
     handlerNotes: handlerInfo.notes,
+    uiContract: uiContract.source ?? null,
     issueCounts: { errors: errors.length, warnings: warnings.length },
     issues,
     generatedAt: new Date().toISOString(),
@@ -168,6 +211,48 @@ async function scanHandlers(filePath: string): Promise<Set<string>> {
   }
 
   return handlers;
+}
+
+async function loadUiContract(
+  root: string,
+): Promise<{ contract: UiContract | null; issues: AppManifestValidationIssue[]; source?: string }> {
+  const issues: AppManifestValidationIssue[] = [];
+  const contractPath = path.join(root, "takos-ui-contract.json");
+  const defaultPath = path.resolve(process.cwd(), "takos-ui-contract.json");
+
+  const parseFromFile = async (filePath: string, label: string): Promise<UiContract | null> => {
+    try {
+      const raw = await fs.readFile(filePath, "utf8");
+      const parsed = parseUiContractJson(raw, label);
+      issues.push(...parsed.issues);
+      return parsed.contract ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const fromWorkspace = await parseFromFile(contractPath, "takos-ui-contract.json");
+  if (fromWorkspace) {
+    return { contract: fromWorkspace, issues, source: "takos-ui-contract.json" };
+  }
+
+  const fallback = await parseFromFile(defaultPath, "takos-ui-contract.json (default)");
+  if (fallback) {
+    issues.push({
+      severity: "warning",
+      message: "takos-ui-contract.json not found in workspace; using default contract",
+      file: contractPath,
+    });
+    return { contract: fallback, issues, source: path.relative(root, defaultPath) || defaultPath };
+  }
+
+  issues.push({
+    severity: "warning",
+    message: "takos-ui-contract.json not found; skipping UI contract validation",
+    file: contractPath,
+  });
+
+  return { contract: null, issues, source: undefined };
 }
 
 main().catch((error) => {

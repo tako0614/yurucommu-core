@@ -18,8 +18,16 @@ import type {
   RunAIActionOutput,
   AgentTools,
 } from "./agent-tools.js";
-import type { AiRegistry, AiActionDefinition } from "./action-registry.js";
+import { dispatchAiAction, type AiRegistry, type AiActionDefinition } from "./action-registry.js";
 import type { ProposalQueue, ProposalMetadata } from "./proposal-queue.js";
+import { assertToolAllowedForAgent } from "./agent-policy.js";
+import {
+  buildAiProviderRegistry,
+  DEFAULT_TAKOS_AI_CONFIG,
+  mergeTakosAiConfig,
+  type AiProviderRegistry,
+} from "./provider-registry.js";
+import type { TakosAiConfig } from "../config/takos-config.js";
 
 /**
  * 設定変更の禁止リスト（PLAN.md 6.4.3）
@@ -79,6 +87,10 @@ function getValueByPath(obj: unknown, path: string): unknown {
 export interface AgentToolsFactoryOptions {
   /** AI Action Registry */
   actionRegistry: AiRegistry;
+  /** AI Provider registry (pre-built) */
+  providerRegistry?: AiProviderRegistry | null;
+  /** Build provider registry on demand */
+  buildProviderRegistry?: (config: TakosAiConfig | undefined, env?: Record<string, unknown>) => AiProviderRegistry;
   /** 提案キュー（手動承認モード用） */
   proposalQueue?: ProposalQueue;
   /** 設定変更の allowlist */
@@ -92,6 +104,8 @@ export interface AgentToolsFactoryOptions {
   configOps?: {
     saveConfig: (path: string, value: unknown) => Promise<void>;
   };
+  /** 任意の監査ロガー */
+  auditLog?: (event: { tool: string; agentType?: string | null; userId?: string | null; success: boolean; message?: string }) => Promise<void> | void;
   /** 手動承認モードかどうか（デフォルト: false） */
   requireApproval?: boolean;
 }
@@ -165,8 +179,39 @@ export function createAgentTools(options: AgentToolsFactoryOptions): AgentTools 
     configAllowlist = ["ai.enabled", "ai.default_provider", "ai.enabled_actions", "ui.theme", "ui.accent_color"],
     workspaceOps,
     configOps,
+    providerRegistry,
+    buildProviderRegistry,
+    auditLog,
     requireApproval = false,
   } = options;
+
+  const resolveProviders = (
+    aiConfig: TakosAiConfig | undefined,
+    env?: Record<string, unknown>,
+  ): AiProviderRegistry | null => {
+    if (providerRegistry) return providerRegistry;
+    if (typeof buildProviderRegistry === "function") {
+      return buildProviderRegistry(aiConfig, env);
+    }
+    try {
+      const merged = mergeTakosAiConfig(DEFAULT_TAKOS_AI_CONFIG, aiConfig ?? {});
+      return buildAiProviderRegistry(merged, (env ?? {}) as Record<string, string | undefined>);
+    } catch (error) {
+      console.warn("agent-tools: failed to resolve AI provider registry", error);
+      return null;
+    }
+  };
+
+  const ensureAiPlanAllowed = (ctx: ToolContext): void => {
+    const features = ctx.auth.plan?.features ?? ["*"];
+    if (!features.includes("*") && !features.includes("ai")) {
+      throw new Error("AI features are not available on this plan");
+    }
+    const limit = ctx.auth.plan?.limits?.aiRequests;
+    if (typeof limit === "number" && limit <= 0) {
+      throw new Error("AI request quota is not available on this plan");
+    }
+  };
 
   const describeNodeCapabilities = async (
     ctx: ToolContext,
@@ -339,6 +384,11 @@ export function createAgentTools(options: AgentToolsFactoryOptions): AgentTools 
     ctx: ToolContext,
     input: RunAIActionInput,
   ): Promise<RunAIActionOutput> => {
+    if (ctx.auth.agentType) {
+      assertToolAllowedForAgent(ctx.auth.agentType, "tool.runAIAction");
+    }
+    ensureAiPlanAllowed(ctx);
+
     // アクションが登録されているかチェック
     const action = actionRegistry.getAction(input.actionId);
     if (!action) {
@@ -360,21 +410,51 @@ export function createAgentTools(options: AgentToolsFactoryOptions): AgentTools 
     }
 
     try {
-      // アクションを実行
-      const output = await action.handler(
+      const aiConfig = mergeTakosAiConfig(
+        DEFAULT_TAKOS_AI_CONFIG,
+        (ctx.nodeConfig as any)?.ai ?? {},
+      );
+      const providers = resolveProviders(aiConfig, ctx.env);
+      if (!providers) {
+        return {
+          success: false,
+          output: null,
+          error: "AI providers are not configured for this node",
+        };
+      }
+
+      const output = await dispatchAiAction(
+        actionRegistry,
+        input.actionId,
         {
-          auth: { userId: ctx.auth.userId, roles: [] },
-          provider: null as unknown as never, // Provider は別途解決
-          nodeConfig: ctx.nodeConfig as never,
+          auth: {
+            userId: ctx.auth.userId,
+            roles: ctx.auth.isAuthenticated ? ["authenticated"] : [],
+            agentType: ctx.auth.agentType,
+          },
+          nodeConfig: { ...ctx.nodeConfig, ai: aiConfig } as any,
+          providers,
+          services: ctx.services,
         },
         input.input,
       );
 
-      return {
+      auditLog?.({
+        tool: "tool.runAIAction",
+        agentType: ctx.auth.agentType,
+        userId: ctx.auth.userId,
         success: true,
-        output,
-      };
+      });
+
+      return { success: true, output };
     } catch (error) {
+      auditLog?.({
+        tool: "tool.runAIAction",
+        agentType: ctx.auth.agentType,
+        userId: ctx.auth.userId,
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      });
       return {
         success: false,
         output: null,

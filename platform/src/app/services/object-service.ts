@@ -175,6 +175,9 @@ export interface ObjectQueryParams {
   limit?: number;
   cursor?: string;
   includeDeleted?: boolean;
+  includeDirect?: boolean;
+  participant?: string;
+  order?: "asc" | "desc";
 }
 
 /**
@@ -188,6 +191,7 @@ export interface ObjectTimelineParams {
   communityId?: string;
   listId?: string;
   onlyMedia?: boolean;
+  includeDirect?: boolean;
 }
 
 /**
@@ -320,20 +324,149 @@ type ObjectStore = {
     visibility?: string | string[];
     in_reply_to?: string;
     include_deleted?: boolean;
+    exclude_direct?: boolean;
+    include_direct?: boolean;
+    participant?: string;
+    order?: "asc" | "desc";
     limit?: number;
     offset?: number;
   }): Promise<StoredObject[]>;
   deleteObject(id: string): Promise<void>;
+  replaceObjectRecipients?(
+    objectId: string,
+    recipients: { object_id: string; recipient: string; recipient_type: string }[],
+  ): Promise<void>;
+  appendAuditLog?(entry: {
+    id?: string;
+    timestamp?: string;
+    actor_type: string;
+    actor_id?: string | null;
+    action: string;
+    target?: string | null;
+    details?: Record<string, unknown> | null;
+    checksum: string;
+    prev_checksum?: string | null;
+  }): Promise<any>;
+  getLatestAuditLog?(): Promise<{ checksum?: string | null } | null>;
   queryRaw?<T = any>(sql: string, ...params: any[]): Promise<T[]>;
   executeRaw?(sql: string, ...params: any[]): Promise<number>;
 };
 
 const STORY_TTL_MS = 24 * 60 * 60 * 1000;
+const PUBLIC_AUDIENCE = "https://www.w3.org/ns/activitystreams#Public";
 
 const toArray = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.map(String);
   if (typeof value === "string") return [value];
   return [];
+};
+
+const normalizeStringList = (value: unknown): string[] => {
+  const values = toArray(value)
+    .map((item) => (typeof item === "string" ? item : String(item)))
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const entry of values) {
+    if (seen.has(entry)) continue;
+    seen.add(entry);
+    result.push(entry);
+  }
+  return result;
+};
+
+const normalizeRecipients = (recipients: {
+  to?: unknown;
+  cc?: unknown;
+  bto?: unknown;
+  bcc?: unknown;
+}): { to: string[]; cc: string[]; bto: string[]; bcc: string[] } => {
+  const order = ["to", "cc", "bto", "bcc"] as const;
+  const seen = new Set<string>();
+  const result: Record<(typeof order)[number], string[]> = {
+    to: [],
+    cc: [],
+    bto: [],
+    bcc: [],
+  };
+  for (const key of order) {
+    const list = normalizeStringList((recipients as any)[key]);
+    result[key] = list.filter((item) => {
+      if (seen.has(item)) return false;
+      seen.add(item);
+      return true;
+    });
+  }
+  return result;
+};
+
+const normalizeTags = (tags?: unknown, stickers?: unknown): APTag[] | undefined => {
+  const result: APTag[] = [];
+  const seen = new Set<string>();
+  const addTag = (tag: APTag) => {
+    const key = `${tag.type}:${tag.name ?? tag.href ?? ""}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(tag);
+  };
+
+  if (typeof tags === "string" && tags.trim()) {
+    addTag({ type: "Hashtag", name: tags.startsWith("#") ? tags.trim() : `#${tags.trim()}` });
+  }
+
+  if (Array.isArray(tags)) {
+    for (const entry of tags) {
+      if (typeof entry === "string" && entry.trim()) {
+        addTag({ type: "Hashtag", name: entry.startsWith("#") ? entry.trim() : `#${entry.trim()}` });
+      } else if (entry && typeof entry === "object") {
+        addTag(entry as APTag);
+      }
+    }
+  }
+
+  if (Array.isArray(stickers)) {
+    for (const sticker of stickers) {
+      if (sticker && typeof sticker === "object") {
+        const href =
+          typeof (sticker as any).url === "string"
+            ? (sticker as any).url
+            : typeof (sticker as any).src === "string"
+              ? (sticker as any).src
+              : undefined;
+        if (!href) continue;
+        addTag({
+          type: "Sticker",
+          href,
+          name: typeof (sticker as any).name === "string" ? (sticker as any).name : undefined,
+        });
+      }
+    }
+  }
+
+  return result.length ? result : undefined;
+};
+
+const normalizePoll = (poll?: APPoll | null): APPoll | undefined => {
+  if (!poll) return undefined;
+  const options = Array.isArray(poll.options)
+    ? poll.options
+        .map((opt) =>
+          typeof opt === "string" ? { name: opt } : { ...opt, name: typeof opt.name === "string" ? opt.name : "" },
+        )
+        .map((opt) => ({ ...opt, name: opt.name?.trim?.() ?? "" }))
+        .filter((opt) => opt.name),
+    : [];
+  if (!options.length) return undefined;
+  const normalized: APPoll = {
+    ...poll,
+    options,
+  };
+  if (poll.expiresAt) {
+    const expires = new Date(poll.expiresAt);
+    normalized.expiresAt = Number.isNaN(expires.getTime()) ? poll.expiresAt : expires.toISOString();
+  }
+  return normalized;
 };
 
 const parseJson = <T>(value: unknown, fallback: T): T => {
@@ -349,21 +482,31 @@ const parseJson = <T>(value: unknown, fallback: T): T => {
   return fallback;
 };
 
+const encoder = new TextEncoder();
+async function sha256(input: string): Promise<string> {
+  const data = encoder.encode(input);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 function mergeStoredObject(stored: StoredObject): APObject {
   const content = parseJson<Record<string, unknown>>(stored.content, {});
-  const to = toArray(stored.to ?? (content.to as any));
-  const cc = toArray(stored.cc ?? (content.cc as any));
-  const bto = toArray(stored.bto ?? (content.bto as any));
-  const bcc = toArray(stored.bcc ?? (content.bcc as any));
+  const recipients = normalizeRecipients({
+    to: stored.to ?? (content.to as any),
+    cc: stored.cc ?? (content.cc as any),
+    bto: stored.bto ?? (content.bto as any),
+    bcc: stored.bcc ?? (content.bcc as any),
+  });
   const base: APObject = {
     "@context": content["@context"] ?? createTakosContext(),
     id: (content.id as string) ?? stored.id,
     type: (content.type as string) ?? stored.type,
     actor: (content.actor as string) ?? stored.actor,
-    to,
-    cc,
-    bto,
-    bcc,
+    to: recipients.to,
+    cc: recipients.cc,
+    bto: recipients.bto,
+    bcc: recipients.bcc,
     content: content.content as string | undefined,
     summary: content.summary as string | undefined,
     published: (content.published as string) ?? stored.published ?? undefined,
@@ -457,19 +600,17 @@ export function visibilityToRecipients(
   visibility: APVisibility,
   actorUri: string,
   followersUri?: string
-): { to: string[]; cc: string[] } {
-  const PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
-
+): { to: string[]; cc: string[]; bto?: string[]; bcc?: string[] } {
   switch (visibility) {
     case "public":
       return {
-        to: [PUBLIC],
+        to: [PUBLIC_AUDIENCE],
         cc: followersUri ? [followersUri] : [],
       };
     case "unlisted":
       return {
         to: followersUri ? [followersUri] : [],
-        cc: [PUBLIC],
+        cc: [PUBLIC_AUDIENCE],
       };
     case "followers":
       return {
@@ -489,13 +630,16 @@ export function visibilityToRecipients(
 /**
  * to/cc から Visibility を推測するヘルパー
  */
-export function recipientsToVisibility(to: string[], cc: string[]): APVisibility {
-  const PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
-
-  if (to.includes(PUBLIC)) {
+export function recipientsToVisibility(
+  to: string[],
+  cc: string[],
+  bto: string[] = [],
+  bcc: string[] = [],
+): APVisibility {
+  if (to.includes(PUBLIC_AUDIENCE) || bto.includes(PUBLIC_AUDIENCE)) {
     return "public";
   }
-  if (cc.includes(PUBLIC)) {
+  if (cc.includes(PUBLIC_AUDIENCE) || bcc.includes(PUBLIC_AUDIENCE)) {
     return "unlisted";
   }
   if (to.length > 0 && to.some((r) => r.endsWith("/followers"))) {
@@ -538,12 +682,20 @@ export function generateObjectId(baseUrl: string, localId: string): string {
   return `${baseUrl}/objects/${localId}`;
 }
 
-function pickVisibility(input: { visibility?: APVisibility; to?: string[]; cc?: string[] }): APVisibility | undefined {
+function pickVisibility(input: {
+  visibility?: APVisibility;
+  to?: string[] | null;
+  cc?: string[] | null;
+  bto?: string[] | null;
+  bcc?: string[] | null;
+}): APVisibility | undefined {
   if (input.visibility) return input.visibility;
   const to = toArray(input.to);
   const cc = toArray(input.cc);
-  if (to.length || cc.length) {
-    return recipientsToVisibility(to, cc);
+  const bto = toArray(input.bto);
+  const bcc = toArray(input.bcc);
+  if (to.length || cc.length || bto.length || bcc.length) {
+    return recipientsToVisibility(to, cc, bto, bcc);
   }
   return undefined;
 }
@@ -566,11 +718,20 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
     localId?: string | null,
     isLocal = true,
   ) => {
-    const to = toArray(object.to);
-    const cc = toArray(object.cc);
-    const bto = toArray(object.bto);
-    const bcc = toArray(object.bcc);
-    const visibilityValue = visibility ?? recipientsToVisibility(to, cc);
+    const normalizedRecipients = normalizeRecipients({
+      to: object.to,
+      cc: object.cc,
+      bto: object.bto,
+      bcc: object.bcc,
+    });
+    const visibilityValue =
+      visibility ??
+      recipientsToVisibility(
+        normalizedRecipients.to,
+        normalizedRecipients.cc,
+        normalizedRecipients.bto,
+        normalizedRecipients.bcc,
+      );
     return {
       id: object.id,
       local_id: localId ?? null,
@@ -578,10 +739,10 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
       actor,
       published: object.published ?? new Date().toISOString(),
       updated: object.updated ?? null,
-      to,
-      cc,
-      bto: bto.length ? bto : null,
-      bcc: bcc.length ? bcc : null,
+      to: normalizedRecipients.to,
+      cc: normalizedRecipients.cc,
+      bto: normalizedRecipients.bto.length ? normalizedRecipients.bto : null,
+      bcc: normalizedRecipients.bcc.length ? normalizedRecipients.bcc : null,
       context: object.context ?? null,
       in_reply_to: (object.inReplyTo as string | null | undefined) ?? null,
       content: object as Record<string, unknown>,
@@ -596,6 +757,42 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
     nextCursor: computeNextCursor(objects, limit, offset),
     hasMore: !!limit && objects.length === limit,
   });
+
+  const appendAudit = async (
+    store: ObjectStore,
+    actor: string | null,
+    action: string,
+    target: string,
+    details: Record<string, unknown>,
+  ) => {
+    if (typeof store.appendAuditLog !== "function") return;
+    const prev = (await store.getLatestAuditLog?.()) ?? null;
+    const id = crypto.randomUUID();
+    const timestamp = new Date().toISOString();
+    const prevChecksum = (prev as any)?.checksum ?? (prev as any)?.prev_checksum ?? null;
+    const checksum = await sha256(
+      [
+        id,
+        timestamp,
+        actor ?? "",
+        action,
+        target,
+        JSON.stringify(details ?? {}),
+        prevChecksum ?? "",
+      ].join(""),
+    );
+    await store.appendAuditLog({
+      id,
+      timestamp,
+      actor_type: actor ? "user" : "system",
+      actor_id: actor ?? null,
+      action,
+      target,
+      details,
+      checksum,
+      prev_checksum: prevChecksum ?? null,
+    });
+  };
 
   const ensureActor = (ctx: AppAuthContext): string => {
     const actor = (ctx.userId || "").toString().trim();
@@ -613,10 +810,13 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
         const localId = (input as any).local_id || generateLocalId();
         const objectId = (input as any).id || generateObjectId(baseUrl || "", localId);
         const now = new Date();
-        const { to, cc } =
-          input.to || input.cc
-            ? { to: input.to ?? [], cc: input.cc ?? [] }
-            : visibilityToRecipients(input.visibility ?? "public", actor, `${actor}/followers`);
+        const defaults = visibilityToRecipients(input.visibility ?? "public", actor, `${actor}/followers`);
+        const audience = normalizeRecipients({
+          to: input.to ?? defaults.to,
+          cc: input.cc ?? defaults.cc,
+          bto: input.bto ?? (defaults as any).bto,
+          bcc: input.bcc ?? (defaults as any).bcc,
+        });
         const story =
           input.story || (input as any)["takos:story"]
             ? {
@@ -627,6 +827,8 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
                   new Date(now.getTime() + STORY_TTL_MS).toISOString(),
               }
             : undefined;
+        const poll = normalizePoll(input.poll ?? (input as any)["takos:poll"]);
+        const tags = normalizeTags(input.tag, (input as any).stickers ?? (input as any).sticker);
 
         const apObject: APObject = ensureStoryExpiry(
           {
@@ -634,28 +836,45 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
             id: objectId,
             type: input.type,
             actor,
-            to,
-            cc,
-            bto: input.bto,
-            bcc: input.bcc,
+            to: audience.to,
+            cc: audience.cc,
+            bto: audience.bto,
+            bcc: audience.bcc,
             content: input.content,
             summary: input.summary,
             inReplyTo: input.inReplyTo ?? null,
             context: input.context ?? null,
             attachment: input.attachment,
-            tag: input.tag,
+            tag: tags,
             published: now.toISOString(),
             updated: now.toISOString(),
-            "takos:poll": input.poll ?? (input as any)["takos:poll"] ?? undefined,
+            "takos:poll": poll,
             "takos:story": story,
             visibility: input.visibility,
           },
           now,
         );
 
-        const stored = mapToStored(actor, apObject, pickVisibility(input), localId, true);
+        const stored = mapToStored(
+          actor,
+          apObject,
+          pickVisibility({
+            visibility: input.visibility,
+            to: audience.to,
+            cc: audience.cc,
+            bto: audience.bto,
+            bcc: audience.bcc,
+          }),
+          localId,
+          true,
+        );
         const created = await store.createObject(stored);
         await adjustMediaRefCount(store, apObject.attachment as APAttachment[] | undefined, 1);
+        await appendAudit(store, actor, "object.create", stored.id, {
+          type: stored.type,
+          visibility: stored.visibility ?? null,
+          is_local: stored.is_local,
+        });
         return mergeStoredObject(created);
       } finally {
         await releaseStore(store as any);
@@ -690,14 +909,22 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
       const store = getStore();
       const offset = params.cursor ? parseInt(params.cursor, 10) || 0 : 0;
       const limit = params.limit ?? 20;
+      const excludeDirect = !params.visibility && !params.includeDirect;
+      const visibility = params.visibility ?? (excludeDirect ? ["public", "unlisted", "followers", "community"] : undefined);
       try {
         const rows = await store.queryObjects({
           type: params.type,
           actor: params.actor,
           context: params.context,
-          visibility: params.visibility,
+          visibility,
           in_reply_to: params.inReplyTo,
           include_deleted: params.includeDeleted,
+          exclude_direct: excludeDirect,
+          include_direct: params.includeDirect,
+          participant: params.participant,
+          order: params.order,
+          since: params.since,
+          until: params.until,
           limit,
           offset,
         });
@@ -717,20 +944,34 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
         const existing = await store.getObject(id);
         if (!existing) throw new Error("Object not found");
         const current = mergeStoredObject(existing);
+        const nextTags =
+          input.tag !== undefined
+            ? normalizeTags(input.tag, (input as any).stickers ?? (input as any).sticker) ?? current.tag
+            : current.tag;
+        const nextPoll =
+          input.poll !== undefined || (input as any)["takos:poll"] !== undefined
+            ? normalizePoll(input.poll ?? (input as any)["takos:poll"]) ?? current["takos:poll"]
+            : current["takos:poll"];
         const updatedObject: APObject = {
           ...current,
           content: input.content ?? current.content,
           summary: input.summary ?? current.summary,
           attachment: input.attachment ?? current.attachment,
-          tag: input.tag ?? current.tag,
-          "takos:poll": (input.poll ?? (input as any)["takos:poll"]) ?? current["takos:poll"],
+          tag: nextTags,
+          "takos:poll": nextPoll,
           updated: new Date().toISOString(),
         };
 
         const stored = mapToStored(
           current.actor,
           updatedObject,
-          pickVisibility({ visibility: existing.visibility as APVisibility | undefined, to: current.to, cc: current.cc }),
+          pickVisibility({
+            visibility: existing.visibility as APVisibility | undefined,
+            to: current.to,
+            cc: current.cc,
+            bto: (current as any).bto,
+            bcc: (current as any).bcc,
+          }),
           existing.local_id,
           existing.is_local === 1,
         );
@@ -759,6 +1000,11 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
           );
         }
 
+        await appendAudit(store, current.actor, "object.update", id, {
+          type: stored.type,
+          visibility: stored.visibility ?? existing.visibility,
+          updated: stored.updated ?? new Date().toISOString(),
+        });
         return mergeStoredObject({ ...existing, ...stored });
       } finally {
         await releaseStore(store as any);
@@ -773,6 +1019,10 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
           const object = mergeStoredObject(existing);
           await adjustMediaRefCount(store, object.attachment as APAttachment[] | undefined, -1);
           await store.updateObject(id, { deleted_at: new Date().toISOString() });
+          await appendAudit(store, object.actor, "object.delete", id, {
+            type: existing.type,
+            visibility: existing.visibility ?? null,
+          });
         } else {
           await store.deleteObject(id).catch(() => undefined);
         }
@@ -787,7 +1037,7 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
       const limit = params.limit ?? 20;
       const visibility = params.visibility?.length
         ? params.visibility
-        : ["public", "unlisted", "followers", "direct", "community"];
+        : ["public", "unlisted", "followers", "community"];
       const types = params.type ?? ["Note", "Article", "Question", "Announce", "Like"];
       try {
         const rows = await store.queryObjects({
@@ -795,6 +1045,8 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
           context: params.communityId ?? undefined,
           visibility,
           include_deleted: false,
+          include_direct: params.includeDirect,
+          exclude_direct: !params.includeDirect && !(params.visibility || []).includes("direct"),
           limit,
           offset,
         });
@@ -812,16 +1064,13 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
     async getThread(_ctx, contextId) {
       const store = getStore();
       try {
-        let rows: StoredObject[] = [];
-        if (typeof store.queryRaw === "function") {
-          rows = await store.queryRaw<StoredObject>(
-            `SELECT * FROM objects WHERE context = ? AND deleted_at IS NULL ORDER BY published ASC`,
-            contextId,
-          );
-        } else {
-          rows = await store.queryObjects({ context: contextId, include_deleted: false, limit: 200 });
-          rows.sort((a, b) => (a.published || "").localeCompare(b.published || ""));
-        }
+        const rows = await store.queryObjects({
+          context: contextId,
+          include_deleted: false,
+          limit: 200,
+          order: "asc",
+          include_direct: true,
+        });
         const now = new Date();
         return rows
           .map(mergeStoredObject)
@@ -834,12 +1083,33 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
     async receiveRemote(_ctx, object) {
       const store = getStore();
       try {
-        const to = toArray(object.to);
-        const cc = toArray(object.cc);
+        const recipients = normalizeRecipients({
+          to: object.to,
+          cc: object.cc,
+          bto: (object as any).bto,
+          bcc: (object as any).bcc,
+        });
         const visibility =
-          pickVisibility({ visibility: (object as any).visibility as APVisibility | undefined, to, cc }) ??
-          recipientsToVisibility(to, cc);
-        const parsed = ensureStoryExpiry(object, new Date());
+          pickVisibility({
+            visibility: (object as any).visibility as APVisibility | undefined,
+            to: recipients.to,
+            cc: recipients.cc,
+            bto: recipients.bto,
+            bcc: recipients.bcc,
+          }) ??
+          recipientsToVisibility(recipients.to, recipients.cc, recipients.bto, recipients.bcc);
+        const parsed = ensureStoryExpiry(
+          {
+            ...object,
+            to: recipients.to,
+            cc: recipients.cc,
+            bto: recipients.bto,
+            bcc: recipients.bcc,
+            tag: normalizeTags(object.tag, (object as any).stickers ?? (object as any).sticker),
+            "takos:poll": normalizePoll((object as any)["takos:poll"] ?? (object as any).poll ?? null),
+          },
+          new Date(),
+        );
         const stored = mapToStored(
           object.actor,
           {
@@ -852,6 +1122,11 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
         );
         const existing = await store.getObject(parsed.id);
         const saved = existing ? await store.updateObject(parsed.id, stored as any) : await store.createObject(stored);
+        await appendAudit(store, object.actor ?? null, existing ? "object.receive.update" : "object.receive", parsed.id, {
+          type: stored.type,
+          visibility: stored.visibility ?? null,
+          is_local: stored.is_local,
+        });
         return mergeStoredObject(saved);
       } finally {
         await releaseStore(store as any);

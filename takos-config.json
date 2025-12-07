@@ -12,6 +12,9 @@
       "mode": "invite-only"
     }
   },
+  "api": {
+    "disabled_api_endpoints": []
+  },
   "ui": {
     "theme": "standard",
     "accent_color": "#0080ff",
@@ -45,6 +48,12 @@
       "send_profile": false,
       "notes": "DM forwarding remains disabled; enable cautiously after policy review."
     }
+  },
+  "gates": {
+    "core_version": "1.8.0",
+    "schema_version": "1.0",
+    "manifest_schema": "1.0",
+    "ui_contract": "1.0"
   },
   "custom": {}
 }

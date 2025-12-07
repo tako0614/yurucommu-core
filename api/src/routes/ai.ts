@@ -12,6 +12,8 @@ import {
 import { auth } from "../middleware/auth";
 import { guardAgentRequest } from "../lib/agent-guard";
 import { getDefaultProviderId, registerBuiltinAiActions } from "../ai/actions";
+import { requireAiQuota } from "../lib/plan-guard";
+import type { AuthContext } from "../lib/auth-context-model";
 
 registerBuiltinAiActions();
 
@@ -43,6 +45,10 @@ ai.post("/api/ai/actions/:id/run", auth, async (c) => {
   const agentGuard = guardAgentRequest(c.req, { toolId: "tool.runAIAction" });
   if (!agentGuard.ok) {
     return fail(c, agentGuard.error, agentGuard.status);
+  }
+  const planCheck = requireAiQuota((c.get("authContext") as AuthContext | undefined) ?? null);
+  if (!planCheck.ok) {
+    return fail(c, planCheck.message, planCheck.status);
   }
 
   const nodeConfig = resolveConfig(c);

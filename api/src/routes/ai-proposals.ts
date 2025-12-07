@@ -20,8 +20,17 @@ import {
   type ProposalType,
 } from "@takos/platform/ai/proposal-queue";
 import { executeProposal } from "../lib/proposal-executor";
+import { requireAiQuota } from "../lib/plan-guard";
+import type { AuthContext } from "../lib/auth-context-model";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const planGuardError = (c: any) => {
+  const check = requireAiQuota((c.get("authContext") as AuthContext | undefined) ?? null);
+  if (!check.ok) {
+    return fail(c, check.message, check.status);
+  }
+  return null;
+};
 
 /**
  * リクエストごとに D1 ベースの ProposalQueue を取得
@@ -36,6 +45,8 @@ function getProposalQueue(db: D1Database): ProposalQueue {
  * 提案一覧を取得
  */
 app.get("/", auth, async (c) => {
+  const planError = planGuardError(c);
+  if (planError) return planError;
   try {
     const db = c.env.DB;
     if (!db) {
@@ -73,6 +84,8 @@ app.get("/", auth, async (c) => {
  * 提案統計を取得
  */
 app.get("/stats", auth, async (c) => {
+  const planError = planGuardError(c);
+  if (planError) return planError;
   try {
     const db = c.env.DB;
     if (!db) {
@@ -93,6 +106,8 @@ app.get("/stats", auth, async (c) => {
  * 特定の提案を取得
  */
 app.get("/:id", auth, async (c) => {
+  const planError = planGuardError(c);
+  if (planError) return planError;
   try {
     const db = c.env.DB;
     if (!db) {
@@ -119,6 +134,8 @@ app.get("/:id", auth, async (c) => {
  * 提案を承認し、変更を適用
  */
 app.post("/:id/approve", auth, async (c) => {
+  const planError = planGuardError(c);
+  if (planError) return planError;
   try {
     const db = c.env.DB;
     if (!db) {
@@ -169,6 +186,8 @@ app.post("/:id/approve", auth, async (c) => {
  * 提案を拒否
  */
 app.post("/:id/reject", auth, async (c) => {
+  const planError = planGuardError(c);
+  if (planError) return planError;
   try {
     const db = c.env.DB;
     if (!db) {
@@ -200,6 +219,8 @@ app.post("/:id/reject", auth, async (c) => {
  * 期限切れの提案を処理
  */
 app.post("/expire", auth, async (c) => {
+  const planError = planGuardError(c);
+  if (planError) return planError;
   try {
     const db = c.env.DB;
     if (!db) {

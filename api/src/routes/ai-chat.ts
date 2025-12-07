@@ -30,6 +30,8 @@ import { buildRuntimeConfig } from "../lib/config-utils";
 import { guardAgentRequest } from "../lib/agent-guard";
 import { auth } from "../middleware/auth";
 import { makeData } from "../data";
+import { requireAiQuota } from "../lib/plan-guard";
+import type { AuthContext } from "../lib/auth-context-model";
 
 type ChatRole = "user" | "assistant" | "system";
 
@@ -256,6 +258,8 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
   if (!body || typeof body !== "object") {
     return fail(c, "invalid payload", 400);
   }
+  const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
+  const planCheck = requireAiQuota(authContext);
 
   const toolId = normalizeToolId(body.tool);
   if (toolId) {
@@ -292,6 +296,9 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
     }
 
     if (toolId === "tool.runAIAction") {
+      if (!planCheck.ok) {
+        return fail(c, planCheck.message, planCheck.status);
+      }
       return handleRunAIAction(c, body, agentGuard.agentType, config);
     }
 
@@ -300,6 +307,10 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
     }
 
     return fail(c, "unsupported tool", 400);
+  }
+
+  if (!planCheck.ok) {
+    return fail(c, planCheck.message, planCheck.status);
   }
 
   const messages = normalizeMessages(body.messages);
