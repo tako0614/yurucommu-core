@@ -22,6 +22,10 @@ export interface SendMessageInput {
   content: string;
   /** 添付メディアID */
   media_ids?: string[];
+  /** 返信先メッセージID */
+  in_reply_to?: string | null;
+  /** 下書き保存の場合 true */
+  draft?: boolean;
 }
 
 export interface ListThreadsParams {
@@ -59,6 +63,10 @@ export interface DmMessage {
   media?: DmMedia[];
   /** 送信者情報（エンリッチ用） */
   sender?: DmUser;
+  /** 返信先メッセージID */
+  in_reply_to?: string | null;
+  /** 下書きフラグ */
+  draft?: boolean;
   [key: string]: unknown;
 }
 
@@ -88,6 +96,11 @@ export interface DmMessagePage {
   messages: DmMessage[];
   next_offset?: number | null;
   next_cursor?: string | null;
+}
+
+export interface MarkReadInput {
+  thread_id: string;
+  message_id?: string;
 }
 
 /**
@@ -131,6 +144,30 @@ export interface DMService {
    * @returns メッセージ一覧
    */
   listMessages(ctx: AppAuthContext, params: ListMessagesParams): Promise<DmMessagePage>;
+
+  /**
+   * スレッドを既読にする
+   * @param ctx 認証コンテキスト
+   * @param input 既読対象
+   */
+  markRead(
+    ctx: AppAuthContext,
+    input: MarkReadInput,
+  ): Promise<{ thread_id: string; message_id?: string; read_at: string }>;
+
+  /**
+   * DMメッセージを削除
+   * @param ctx 認証コンテキスト
+   * @param messageId メッセージID
+   */
+  deleteMessage(ctx: AppAuthContext, messageId: string): Promise<void>;
+
+  /**
+   * 下書きとしてメッセージを保存
+   * @param ctx 認証コンテキスト
+   * @param input メッセージ内容
+   */
+  saveDraft(ctx: AppAuthContext, input: SendMessageInput): Promise<DmMessage>;
 }
 
 /**

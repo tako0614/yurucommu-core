@@ -251,6 +251,9 @@
         },
         "activeRecipients": {
           "default": []
+        },
+        "dmReadAt": {
+          "default": {}
         }
       },
       "layout": {
@@ -297,7 +300,8 @@
                         "type": "ThreadList",
                         "props": {
                           "id": "dmThreads",
-                          "emptyText": "メッセージはまだありません"
+                          "emptyText": "メッセージはまだありません",
+                          "action": "action.open_dm_thread"
                         }
                       }
                     ]
@@ -342,7 +346,8 @@
                           {
                             "type": "MessageComposer",
                             "props": {
-                              "placeholder": "メッセージを入力"
+                              "placeholder": "メッセージを入力",
+                              "action": "action.send_dm"
                             }
                           }
                         ]
@@ -368,6 +373,17 @@
       "id": "screen.dm_thread",
       "route": "/chat/dm/:id",
       "title": "Direct Message",
+      "state": {
+        "activeThreadId": {
+          "default": ""
+        },
+        "activeRecipients": {
+          "default": []
+        },
+        "dmReadAt": {
+          "default": {}
+        }
+      },
       "layout": {
         "type": "Column",
         "props": {
@@ -399,7 +415,8 @@
               {
                 "type": "MessageComposer",
                 "props": {
-                  "placeholder": "メッセージを入力"
+                  "placeholder": "メッセージを入力",
+                  "action": "action.send_dm"
                 }
               }
             ]

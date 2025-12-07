@@ -177,6 +177,35 @@ function inferVisibility(to: string[], cc: string[]): string {
   return "direct";
 }
 
+type RecipientSet = { to: string[]; cc: string[]; bto: string[]; bcc: string[] };
+
+function extractRecipients(activity: any, object: any): RecipientSet {
+  return {
+    to: toStringArray(object?.to ?? activity?.to),
+    cc: toStringArray(object?.cc ?? activity?.cc),
+    bto: toStringArray(object?.bto ?? activity?.bto),
+    bcc: toStringArray(object?.bcc ?? activity?.bcc),
+  };
+}
+
+function hasPublicAudience(recipients: RecipientSet): boolean {
+  return (
+    recipients.to.includes(PUBLIC_AUDIENCE) ||
+    recipients.cc.includes(PUBLIC_AUDIENCE) ||
+    recipients.bto.includes(PUBLIC_AUDIENCE) ||
+    recipients.bcc.includes(PUBLIC_AUDIENCE)
+  );
+}
+
+function hasAnyRecipients(recipients: RecipientSet): boolean {
+  return (
+    recipients.to.length > 0 ||
+    recipients.cc.length > 0 ||
+    recipients.bto.length > 0 ||
+    recipients.bcc.length > 0
+  );
+}
+
 async function resolveObjectById(db: DatabaseAPI, objectId: string, instanceDomain: string): Promise<any | null> {
   const normalized = normalizeLocalObjectUri(objectId, instanceDomain) || objectId;
   if (db.getObject) {
@@ -760,11 +789,9 @@ async function handleIncomingCreate(
   // Handle Note (post, comment, or chat message)
   if (objectType === "Note") {
     // Check if this is a chat message by examining context and audience
+    const recipients = extractRecipients(activity, object);
     const context = object.context;
-    const to = activity.to || [];
-    const cc = activity.cc || [];
-    const hasPublic = to.includes("https://www.w3.org/ns/activitystreams#Public") || 
-                      cc.includes("https://www.w3.org/ns/activitystreams#Public");
+    const hasPublic = hasPublicAudience(recipients);
     
     // Channel message: has context pointing to a channel
     if (context && typeof context === "string" && context.includes("/ap/channels/")) {
@@ -773,9 +800,23 @@ async function handleIncomingCreate(
       return;
     }
     
-    // Direct message: no Public audience and has explicit recipients
-    if (!hasPublic && (to.length > 0 || cc.length > 0)) {
-      await handleIncomingDm(env, activity);
+    // Direct message: no Public audience and has explicit recipients (including bto/bcc)
+    if (!hasPublic && hasAnyRecipients(recipients)) {
+      const normalized = {
+        ...activity,
+        to: recipients.to,
+        cc: recipients.cc,
+        bto: recipients.bto,
+        bcc: recipients.bcc,
+        object: {
+          ...object,
+          to: recipients.to,
+          cc: recipients.cc,
+          bto: recipients.bto,
+          bcc: recipients.bcc,
+        },
+      };
+      await handleIncomingDm(env, normalized);
       console.log(`✓ Direct message processed from ${actorUri}`);
       return;
     }

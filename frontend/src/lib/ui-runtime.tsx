@@ -61,7 +61,7 @@ export interface UiRuntimeContext {
   data?: Record<string, any>;
   item?: any;
   list?: any[];
-  actions?: Record<string, () => void>;
+  actions?: Record<string, (payload?: any) => void | Promise<void>>;
   state?: Record<string, any>;
   setState?: (key: string, value: any) => void;
   form?: { values: Record<string, any> };
@@ -565,7 +565,7 @@ async function executeAction(action: ActionConfig, context?: UiRuntimeContext, p
     case "action": {
       const fn = action.name ? context?.actions?.[action.name] : undefined;
       if (fn) {
-        return fn();
+        return fn(payload);
       }
       console.warn(`[UiRuntime] Named action '${action.name}' not found`);
       return;
@@ -2809,6 +2809,18 @@ export const RenderScreen: Component<{ screen: Screen; context?: UiRuntimeContex
     return { loggedIn: Boolean(getJWT()) };
   });
 
+  const selfIdentifiers = createMemo(() => {
+    const ids = new Set<string>();
+    const user = (authValue()?.user || {}) as any;
+    if (!user) return ids;
+    ["id", "handle", "actor_uri", "actor"].forEach((key) => {
+      if (user[key]) {
+        ids.add(String(user[key]));
+      }
+    });
+    return ids;
+  });
+
   const setStateByKey = (key: string, value: any) => {
     if (!(key in state)) {
       console.warn(`[UiRuntime] Attempted to set undeclared state key: ${key}`);
@@ -2836,6 +2848,160 @@ export const RenderScreen: Component<{ screen: Screen; context?: UiRuntimeContex
     });
   };
 
+  const markDmThreadRead = (threadId?: string, timestamp?: string | number | Date) => {
+    if (!threadId) return;
+    const current = ((state as any).dmReadAt || {}) as Record<string, string | number>;
+    const existing = current[threadId] ? Date.parse(String(current[threadId])) : -Infinity;
+    let parsed = timestamp instanceof Date ? timestamp.getTime() : typeof timestamp === "number" ? timestamp : undefined;
+    if (parsed === undefined && timestamp) {
+      const coerced = Date.parse(String(timestamp));
+      parsed = Number.isFinite(coerced) ? coerced : undefined;
+    }
+    const nextValue = Number.isFinite(parsed) ? parsed! : Date.now();
+    if (existing !== -Infinity && existing >= nextValue) return;
+    setStateByKey("dmReadAt", { ...current, [threadId]: new Date(nextValue).toISOString() });
+  };
+
+  const resolveRecipients = (payload?: any): string[] => {
+    const collected: string[] = [];
+    if (Array.isArray(payload?.recipients)) collected.push(...payload.recipients);
+    if (Array.isArray(payload?.participants)) collected.push(...payload.participants);
+    if (payload?.recipient) collected.push(payload.recipient);
+    const unique = Array.from(new Set(collected.filter(Boolean).map((v) => String(v))));
+    const selfIds = selfIdentifiers();
+    return unique.filter((recipient) => !selfIds.has(recipient));
+  };
+
+  const normalizeThreadId = (input: any): string => {
+    if (!input) return "";
+    if (typeof input === "string") return input;
+    return (
+      input.threadId ||
+      input.thread_id ||
+      input.id ||
+      input.context ||
+      (props.context as any)?.routeParams?.id ||
+      ""
+    );
+  };
+
+  const openDmThread = async (payload?: any) => {
+    const currentPath = (props.context as any)?.location || "";
+    let threadId = normalizeThreadId(payload);
+    let latestTimestamp =
+      (payload as any)?.latest_message?.published ||
+      (payload as any)?.latest_message?.created_at ||
+      (payload as any)?.latest_message?.createdAt;
+    const handle =
+      typeof payload === "string"
+        ? undefined
+        : (payload as any)?.handle || (payload as any)?.participant || (payload as any)?.targetHandle;
+
+    const recipientsFromPayload = resolveRecipients(payload);
+    if (recipientsFromPayload.length > 0) {
+      setStateByKey("activeRecipients", recipientsFromPayload);
+    }
+
+    if (!threadId && handle) {
+      try {
+        const result = await api(`/dm/with/${encodeURIComponent(handle)}`);
+        threadId = (result as any)?.threadId || (result as any)?.thread_id || (result as any)?.id || "";
+        if (Array.isArray((result as any)?.participants)) {
+          const participants = (result as any).participants
+            .map((p: any) => String(p))
+            .filter(Boolean)
+            .filter((p: string) => !selfIdentifiers().has(p));
+          if (participants.length > 0) {
+            setStateByKey("activeRecipients", participants);
+          }
+        }
+        const messages = Array.isArray((result as any)?.messages) ? (result as any).messages : [];
+        if (messages.length > 0) {
+          const last = messages[messages.length - 1];
+          latestTimestamp = last?.published || last?.created_at || latestTimestamp;
+        }
+      } catch (error) {
+        console.error("[UiRuntime] failed to open DM thread", error);
+        toast?.showToast?.("DMスレッドの取得に失敗しました", "error");
+        return;
+      }
+    }
+
+    if (threadId) {
+      setStateByKey("activeThreadId", threadId);
+      markDmThreadRead(threadId, latestTimestamp);
+      if (props.screen.id === "screen.dm_list") {
+        refresh(["dmThreadMessages", "dmMessages"]);
+      } else {
+        const targetPath = `/chat/dm/${threadId}`;
+        if (currentPath !== targetPath) {
+          navigate(targetPath);
+        }
+      }
+    }
+    return threadId;
+  };
+
+  const sendDm = async (payload?: any) => {
+    const content = String((payload as any)?.content ?? (payload as any)?.text ?? (payload as any)?.message ?? "").trim();
+    if (!content) {
+      toast?.showToast?.("メッセージを入力してください", "error");
+      return;
+    }
+    const recipients = resolveRecipients(payload);
+    const activeRecipients = (state as any).activeRecipients || [];
+    const resolvedRecipients = recipients.length > 0 ? recipients : activeRecipients;
+    let threadId = normalizeThreadId(payload) || (state as any).activeThreadId || "";
+
+    if (!threadId && resolvedRecipients.length === 0) {
+      toast?.showToast?.("送信先が選択されていません", "error");
+      return;
+    }
+
+    try {
+      const body = {
+        thread_id: threadId || undefined,
+        recipients: resolvedRecipients,
+        content,
+        media_ids: (payload as any)?.media_ids ?? (payload as any)?.mediaIds,
+      };
+      const result = await api("/dm/send", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      const responseThreadId = (result as any)?.thread_id || (result as any)?.threadId || threadId;
+      if (responseThreadId) {
+        setStateByKey("activeThreadId", responseThreadId);
+        markDmThreadRead(responseThreadId, (result as any)?.created_at ?? (result as any)?.published);
+      }
+      if (resolvedRecipients.length > 0) {
+        setStateByKey("activeRecipients", resolvedRecipients);
+      }
+      refresh();
+      return result;
+    } catch (error: any) {
+      console.error("[UiRuntime] DM send failed", error);
+      toast?.showToast?.(error?.message || "DM送信に失敗しました", "error");
+      throw error;
+    }
+  };
+
+  const actionHandlers = createMemo<Record<string, (payload?: any) => void | Promise<void>>>(() => ({
+    ...(props.context?.actions ?? {}),
+    "action.open_dm_thread": openDmThread,
+    "action.send_dm": sendDm,
+    "dm.mark_read": (input?: any) => {
+      const threadId = typeof input === "object" ? input?.threadId ?? input?.thread_id ?? input?.id : input;
+      const ts =
+        (input as any)?.latest_message?.published ||
+        (input as any)?.latest_message?.created_at ||
+        (input as any)?.latest_message?.createdAt;
+      if (threadId) {
+        markDmThreadRead(threadId, ts);
+      }
+    },
+  }));
+
   const runtimeContext = createMemo<UiRuntimeContext>(() => ({
     ...(props.context || {}),
     state,
@@ -2846,6 +3012,7 @@ export const RenderScreen: Component<{ screen: Screen; context?: UiRuntimeContex
     auth: authValue(),
     $auth: authValue(),
     toast: toast ? { showToast: toast.showToast } : undefined,
+    actions: actionHandlers(),
   }));
 
   return (
