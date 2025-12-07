@@ -1,12 +1,12 @@
 import { checkSemverCompatibility } from "../utils/semver.js";
 
-export const APP_MANIFEST_SCHEMA_VERSION = "1.0";
+export const APP_MANIFEST_SCHEMA_VERSION = "1.10";
 
 export function extractAppSchemaVersion(manifest: unknown): string | null {
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return null;
-  const value = (manifest as any).schema_version;
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
+  const rawValue = (manifest as any).schema_version ?? (manifest as any).schemaVersion;
+  if (typeof rawValue !== "string") return null;
+  const trimmed = rawValue.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 

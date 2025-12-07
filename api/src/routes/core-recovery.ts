@@ -8,6 +8,7 @@ import { auth } from "../middleware/auth";
 import takosProfile from "../../../takos-profile.json";
 import { loadAppManifest, createInMemoryAppSource } from "@takos/platform/app/manifest-loader";
 import type { AppDefinitionSource } from "@takos/platform/app";
+import { clearManifestRouterCache } from "../lib/manifest-routing";
 
 // Static manifest files bundled at build time for validation
 import takosAppJson from "../../../takos-app.json";
@@ -159,6 +160,7 @@ coreRecoveryRoutes.post("/-/core/app-revisions/:id/activate", auth, async (c) =>
     await env.DB.prepare(
       `UPDATE app_state SET active_revision_id = ?, updated_at = ?`
     ).bind(revisionId, new Date().toISOString()).run();
+    clearManifestRouterCache();
 
     return ok(c, {
       message: "Revision activated successfully",

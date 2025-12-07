@@ -65,13 +65,50 @@ export function requireUser(ctx: AuthContext): { userId: string; user: LocalUser
 export function toAppAuthContext(ctx: AuthContext): AppAuthContext {
   return {
     userId: ctx.userId,
+    sessionId: ctx.sessionId,
     roles: ctx.isAuthenticated ? ["authenticated"] : [],
     isAuthenticated: ctx.isAuthenticated,
-    sessionId: ctx.sessionId,
     plan: ctx.plan,
+    limits: ctx.plan.limits,
     rateLimits: ctx.rateLimits,
     user: ctx.user,
   };
+}
+
+export function createAnonymousAppAuthContext(env: Record<string, unknown> | undefined): AppAuthContext {
+  const plan = resolvePlanFromEnv(env);
+  const rateLimits = resolveRateLimits(plan);
+  return toAppAuthContext(buildAuthContext(null, plan, rateLimits));
+}
+
+export function createAppAuthContextForUser(
+  env: Record<string, unknown> | undefined,
+  userId: string | null,
+  options: { user?: LocalUser | null; sessionId?: string | null; roles?: string[]; isAuthenticated?: boolean } = {},
+): AppAuthContext {
+  const plan = resolvePlanFromEnv(env);
+  const rateLimits = resolveRateLimits(plan);
+  const auth = userId
+    ? buildAuthContext(
+        {
+          user: options.user ?? { id: userId, handle: userId, name: null, avatar: null, bio: null, createdAt: null },
+          sessionUser: options.user ?? { id: userId },
+          activeUserId: userId,
+          sessionId: options.sessionId ?? null,
+          token: null,
+        },
+        plan,
+        rateLimits,
+      )
+    : buildAuthContext(null, plan, rateLimits);
+  const appCtx = toAppAuthContext(auth);
+  if (options.roles?.length) {
+    appCtx.roles = options.roles;
+  }
+  if (options.isAuthenticated === false) {
+    appCtx.isAuthenticated = false;
+  }
+  return appCtx;
 }
 
 /**

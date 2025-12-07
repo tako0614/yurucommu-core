@@ -7,11 +7,11 @@ import {
 
 describe("app manifest schema version", () => {
   it("accepts compatible schema versions with patch/minor warnings", () => {
-    const patchResult = validateAppSchemaVersion({ schema_version: "1.0.1" });
+    const patchResult = validateAppSchemaVersion({ schema_version: "1.10.1" });
     expect(patchResult.ok).toBe(true);
     expect(patchResult.warnings.some((msg) => msg.includes("patch version differs"))).toBe(true);
 
-    const minorResult = validateAppSchemaVersion({ schema_version: "1.1.0" });
+    const minorResult = validateAppSchemaVersion({ schema_version: "1.11.0" });
     expect(minorResult.ok).toBe(true);
     expect(minorResult.warnings.some((msg) => msg.includes("minor version differs"))).toBe(true);
   });

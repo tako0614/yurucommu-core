@@ -26,6 +26,7 @@
       }
     ]
   },
+  "disabled_api_endpoints": ["/-/internal/*"],
   "ui": {
     "client_repo": "https://github.com/your-org/takos",
     "theme": "standard"
@@ -34,7 +35,20 @@
     "enabled": true,
     "requires_external_network": true,
     "providers": ["openai"],
-    "actions": ["ai.chat", "ai.summary", "ai.translation", "ai.tag-suggest", "ai.dm-moderator"]
+    "actions": ["ai.chat", "ai.summary", "ai.translation", "ai.tag-suggest", "ai.dm-moderator"],
+    "data_policy": {
+      "send_public_posts": true,
+      "send_community_posts": true,
+      "send_dm": false,
+      "send_profile": true,
+      "notes": "DM forwarding disabled by default for OSS distro."
+    }
+  },
+  "gates": {
+    "core_version": "1.8.0",
+    "schema_version": "1.0",
+    "manifest_schema": "1.0",
+    "ui_contract": "1.0"
   },
   "metadata": {
     "maintainer": {

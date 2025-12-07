@@ -7,6 +7,8 @@ import type { AppAuthContext } from "@takos/platform/app/runtime/types";
 import { auth } from "../middleware/auth";
 import { createMediaService } from "../services";
 import { getAppAuthContext } from "../lib/auth-context";
+import { requireFileSizeWithinPlan } from "../lib/plan-guard";
+import type { AuthContext } from "../lib/auth-context-model";
 
 const media = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -78,10 +80,13 @@ const handleUpload = async (c: any) => {
   const env = c.env;
   if (!env.MEDIA) return fail(c, "media storage not configured", 500);
   const authCtx = ensureAuth(getAppAuthContext(c));
+  const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
   const form = await c.req.formData().catch(() => null);
   if (!form) return fail(c, "invalid form data", 400);
   const file = form.get("file") as File | null;
   if (!file) return fail(c, "file required", 400);
+  const planCheck = requireFileSizeWithinPlan(authContext, (file as any).size ?? 0);
+  if (!planCheck.ok) return fail(c, planCheck.message, planCheck.status);
   const descriptionRaw = form.get("description") ?? form.get("alt");
   const description =
     typeof descriptionRaw === "string"

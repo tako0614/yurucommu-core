@@ -8,6 +8,7 @@
 import type { TakosConfig } from "../config/takos-config.js";
 import type { AiActionDefinition } from "./action-registry.js";
 import type { CoreServices } from "../app/services/index.js";
+import type { AgentType } from "./agent-policy.js";
 
 /**
  * Tool Context
@@ -18,6 +19,16 @@ export interface ToolContext {
   auth: {
     userId: string | null;
     isAuthenticated: boolean;
+    plan?: {
+      name: string;
+      limits?: Partial<{
+        storage: number;
+        fileSize: number;
+        aiRequests: number;
+      }>;
+      features?: string[];
+    };
+    agentType?: AgentType | null;
   };
   /** ノード設定 */
   nodeConfig: TakosConfig;

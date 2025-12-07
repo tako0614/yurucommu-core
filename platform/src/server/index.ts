@@ -14,6 +14,7 @@ export type {
 export * from "./context";
 export * from "./dev-data-isolation";
 export * from "../config/takos-config.js";
+export * from "../config/versions.js";
 export * from "../app/manifest";
 export * from "../app/storage";
 export * from "../app/manifest-router";

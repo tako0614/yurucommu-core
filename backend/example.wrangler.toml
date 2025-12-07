@@ -44,6 +44,10 @@ bucket_name = "your-media-bucket"  # Create with: wrangler r2 bucket create your
 # [[r2_buckets]]
 # binding = "DEV_MEDIA"
 # bucket_name = "your-media-bucket-dev"
+# Optional: dedicated VFS bucket (falls back to MEDIA if not set)
+# [[r2_buckets]]
+# binding = "WORKSPACE_VFS"
+# bucket_name = "your-vfs-bucket"
 
 [[d1_databases]]
 binding = "DB"

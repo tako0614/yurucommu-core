@@ -1,3 +1,11 @@
+import {
+  APP_MANIFEST_SCHEMA_VERSION,
+  TAKOS_CORE_VERSION,
+  TAKOS_PROFILE_SCHEMA_VERSION,
+  TAKOS_UI_CONTRACT_VERSION,
+} from "./versions.js";
+import { checkSemverCompatibility } from "../utils/semver.js";
+
 export const TAKOS_CONFIG_SCHEMA_VERSION = "1.0";
 
 export type TakosRegistrationMode = "open" | "invite-only" | "closed";
@@ -32,6 +40,21 @@ export type TakosActivityPubConfig = {
   federation_enabled?: boolean;
   blocked_instances?: string[];
   outbox_signing?: TakosActivityPubOutboxSigningConfig;
+  [key: string]: unknown;
+};
+
+export type TakosApiConfig = {
+  disabled_api_endpoints?: string[];
+  [key: string]: unknown;
+};
+
+export type TakosVersionGates = {
+  core_version?: string;
+  schema_version?: string;
+  manifest_schema?: string;
+  ui_contract?: string;
+  app_version_min?: string;
+  app_version_max?: string;
   [key: string]: unknown;
 };
 
@@ -80,9 +103,11 @@ export type TakosConfig = {
   schema_version: string;
   distro: TakosDistroReference;
   node: TakosNodeConfig;
+  api?: TakosApiConfig;
   ui?: TakosUiConfig;
   activitypub?: TakosActivityPubConfig;
   ai?: TakosAiConfig;
+  gates?: TakosVersionGates;
   custom?: Record<string, unknown>;
   [key: string]: unknown;
 };
@@ -212,6 +237,17 @@ export const takosConfigSchema: JsonSchema = {
         allow_custom_css: { type: "boolean" },
       },
     },
+    api: {
+      type: "object",
+      additionalProperties: true,
+      properties: {
+        disabled_api_endpoints: {
+          type: "array",
+          items: { type: "string", minLength: 1 },
+          uniqueItems: true,
+        },
+      },
+    },
     activitypub: {
       type: "object",
       additionalProperties: true,
@@ -275,6 +311,18 @@ export const takosConfigSchema: JsonSchema = {
         },
       },
     },
+    gates: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        core_version: { type: "string" },
+        schema_version: { type: "string" },
+        manifest_schema: { type: "string" },
+        ui_contract: { type: "string" },
+        app_version_min: { type: "string" },
+        app_version_max: { type: "string" },
+      },
+    },
     custom: {
       type: "object",
       additionalProperties: true,
@@ -298,7 +346,7 @@ function isStringArray(value: unknown): value is string[] {
 
 const REGISTRATION_MODES: TakosRegistrationMode[] = ["open", "invite-only", "closed"];
 
-const PROVIDER_TYPES: AiProviderType[] = [
+  const PROVIDER_TYPES: AiProviderType[] = [
   "openai",
   "claude",
   "gemini",
@@ -402,6 +450,17 @@ export function validateTakosConfig(config: unknown): TakosConfigValidationResul
     }
   }
 
+  if (config.api !== undefined) {
+    if (!isRecord(config.api)) {
+      errors.push("api: expected object");
+    } else if (
+      config.api.disabled_api_endpoints !== undefined &&
+      !isStringArray(config.api.disabled_api_endpoints)
+    ) {
+      errors.push("api.disabled_api_endpoints: expected string[]");
+    }
+  }
+
   if (config.ai !== undefined) {
     if (!isRecord(config.ai)) {
       errors.push("ai: expected object");
@@ -502,6 +561,27 @@ export function validateTakosConfig(config: unknown): TakosConfigValidationResul
     }
   }
 
+  if (config.gates !== undefined) {
+    if (!isRecord(config.gates)) {
+      errors.push("gates: expected object");
+    } else {
+      const gateKeys: Array<keyof typeof config.gates> = [
+        "core_version",
+        "schema_version",
+        "manifest_schema",
+        "ui_contract",
+        "app_version_min",
+        "app_version_max",
+      ];
+      for (const key of gateKeys) {
+        const value = (config.gates as Record<string, unknown>)[key as string];
+        if (value !== undefined && typeof value !== "string") {
+          errors.push(`gates.${key}: expected string`);
+        }
+      }
+    }
+  }
+
   if (config.custom !== undefined && !isRecord(config.custom)) {
     errors.push("custom: expected object");
   }
@@ -522,6 +602,61 @@ export function parseTakosConfig(json: string): TakosConfig {
   }
 
   return validation.config;
+}
+
+export type ConfigVersionGateResult = {
+  ok: boolean;
+  warnings: string[];
+  error?: string;
+};
+
+export function checkConfigVersionGates(config: TakosConfig): ConfigVersionGateResult {
+  const warnings: string[] = [];
+  const gates = config.gates;
+  if (!gates) return { ok: true, warnings };
+
+  if (gates.core_version) {
+    const compat = checkSemverCompatibility(TAKOS_CORE_VERSION, gates.core_version, {
+      context: "core_version gate",
+      action: "load",
+    });
+    if (!compat.ok) {
+      return { ok: false, warnings, error: compat.error };
+    }
+    warnings.push(...compat.warnings);
+  }
+
+  if (gates.schema_version && gates.schema_version !== TAKOS_PROFILE_SCHEMA_VERSION) {
+    warnings.push(
+      `schema_version gate ${gates.schema_version} differs from runtime ${TAKOS_PROFILE_SCHEMA_VERSION}`,
+    );
+  }
+
+  if (gates.manifest_schema && gates.manifest_schema !== APP_MANIFEST_SCHEMA_VERSION) {
+    warnings.push(
+      `manifest_schema gate ${gates.manifest_schema} differs from runtime ${APP_MANIFEST_SCHEMA_VERSION}`,
+    );
+  }
+
+  if (gates.ui_contract && gates.ui_contract !== TAKOS_UI_CONTRACT_VERSION) {
+    warnings.push(
+      `ui_contract gate ${gates.ui_contract} differs from runtime ${TAKOS_UI_CONTRACT_VERSION}`,
+    );
+  }
+
+  if (gates.app_version_min && gates.app_version_max) {
+    const compat = checkSemverCompatibility(gates.app_version_min, gates.app_version_max, {
+      context: "app version gate",
+      action: "validate",
+      allowMajorMismatch: true,
+    });
+    if (!compat.ok) {
+      return { ok: false, warnings, error: compat.error };
+    }
+    warnings.push(...compat.warnings);
+  }
+
+  return { ok: true, warnings };
 }
 
 // NOTE: loadTakosConfig has been moved to takos-config-node.ts

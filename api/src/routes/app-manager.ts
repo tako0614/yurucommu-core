@@ -27,12 +27,19 @@ import {
 import { loadWorkspaceSnapshot, validateWorkspaceForApply } from "../lib/app-workspace";
 import { ensureDefaultWorkspace, resolveWorkspaceEnv } from "../lib/workspace-store";
 import { auth } from "../middleware/auth";
+import { resolvePlanFromEnv } from "../lib/auth-context-model";
+import { requirePlanFeature } from "../lib/plan-guard";
+import {
+  ensureWithinWorkspaceLimits,
+  resolveWorkspaceLimitsFromEnv,
+} from "../lib/workspace-limits";
 import type {
   AppRevisionAuditDetails,
   AppRevisionAuditInput,
   AppWorkspaceStatus,
 } from "../lib/types";
 import defaultUiContract from "../../../takos-ui-contract.json";
+import { clearManifestRouterCache } from "../lib/manifest-routing";
 
 type AuthResult =
   | { ok: true; user: string }
@@ -71,9 +78,17 @@ function checkAuth(c: any): AuthResult {
   return { ok: true, user };
 }
 
-type WorkspaceLifecycleStatus = Extract<AppWorkspaceStatus, "draft" | "validated" | "ready">;
+type WorkspaceLifecycleStatus = Extract<
+  AppWorkspaceStatus,
+  "draft" | "validated" | "ready" | "applied"
+>;
 
-const WORKSPACE_LIFECYCLE_STATUSES: WorkspaceLifecycleStatus[] = ["draft", "validated", "ready"];
+const WORKSPACE_LIFECYCLE_STATUSES: WorkspaceLifecycleStatus[] = [
+  "draft",
+  "validated",
+  "ready",
+  "applied",
+];
 
 const normalizeWorkspaceLifecycleStatus = (value: unknown): WorkspaceLifecycleStatus | null => {
   if (typeof value !== "string") return null;
@@ -90,17 +105,20 @@ const canTransitionWorkspaceStatus = (
   if (current === next) return true;
   if (current === "draft" && next === "validated") return true;
   if (current === "validated" && next === "ready") return true;
+  if (current === "ready" && next === "applied") return true;
   return false;
 };
 
 const textDecoder = new TextDecoder();
+const textEncoder = new TextEncoder();
 const APP_MAIN_CANDIDATES = ["app-main.ts", "app-main.tsx", "app-main.js", "app-main.mjs", "app-main.cjs"];
 const UI_CONTRACT_FILENAME = "takos-ui-contract.json";
 
 const shouldValidateWorkspaceStatus = (status: WorkspaceLifecycleStatus): boolean =>
-  status === "validated" || status === "ready";
+  status === "validated" || status === "ready" || status === "applied";
 
 const normalizeWorkspaceFilePath = (path: string): string => path.replace(/^\.?\/+/, "").trim();
+const normalizeCacheHash = (value: string): string => value.replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 128);
 
 const isArrayBufferLike = (value: unknown): value is ArrayBuffer =>
   value instanceof ArrayBuffer ||
@@ -135,6 +153,25 @@ const recordRevisionAuditSafely = async (store: any, entry: AppRevisionAuditInpu
     await store.recordAppRevisionAudit(entry);
   } catch (error) {
     console.error("failed to record app revision audit", error);
+  }
+};
+
+const markWorkspaceApplied = async (workspaceId: string | null | undefined, env: any) => {
+  if (!workspaceId) return;
+  const workspaceEnv = resolveWorkspaceEnv({
+    env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return;
+  }
+  if (!workspaceEnv.store?.updateWorkspaceStatus) return;
+  try {
+    await ensureDefaultWorkspace(workspaceEnv.store);
+    await workspaceEnv.store.updateWorkspaceStatus(workspaceId, "applied");
+  } catch (error) {
+    console.warn("[app-manager] failed to update workspace status", error);
   }
 };
 
@@ -589,6 +626,19 @@ const requireAuthenticatedSession = async (c: any, next: () => Promise<void>) =>
   await next();
 };
 
+const requireWorkspacePlan = async (c: any, next: () => Promise<void>) => {
+  const plan = resolvePlanFromEnv(c.env as any);
+  const planGuard = requirePlanFeature(
+    { plan } as any,
+    "app_customization",
+    "App customization is not available on this plan",
+  );
+  if (!planGuard.ok) {
+    return fail(c as any, planGuard.message, planGuard.status);
+  }
+  await next();
+};
+
 appManagerRoutes.use("/-/app/workspaces", auth, requireAuthenticatedSession);
 appManagerRoutes.use("/-/app/workspaces/*", auth, requireAuthenticatedSession);
 appManagerRoutes.use("/api/app/*", async (c, next) => {
@@ -602,6 +652,9 @@ appManagerRoutes.use("/api/app/*", async (c, next) => {
   (c as any).set("authenticatedUser", authResult.user);
   await next();
 });
+appManagerRoutes.use("/-/app/workspaces", requireWorkspacePlan);
+appManagerRoutes.use("/-/app/workspaces/*", requireWorkspacePlan);
+appManagerRoutes.use("/api/app/*", requireWorkspacePlan);
 
 appManagerRoutes.get("/api/app/revisions", async (c) => {
   const store = makeData(c.env as any, c);
@@ -751,6 +804,10 @@ appManagerRoutes.post("/api/app/revisions/apply", async (c) => {
     }
     const revisionId = saved.id;
     await store.setActiveAppRevision(revisionId);
+    clearManifestRouterCache();
+    if (workspaceMeta?.id) {
+      await markWorkspaceApplied(workspaceMeta.id, c.env);
+    }
     const uniqueWarnings = Array.from(new Set(warnings));
     const state = await store.getActiveAppRevision();
     const schemaCheck = checkSemverCompatibility(
@@ -956,6 +1013,7 @@ appManagerRoutes.post("/api/app/revisions/:id/rollback", async (c) => {
     }
 
     await store.setActiveAppRevision(revisionId);
+    clearManifestRouterCache();
     const state = await store.getActiveAppRevision();
     const uniqueWarnings = Array.from(new Set(warnings));
     const auditTimestamp = nowISO();
@@ -1052,6 +1110,7 @@ appManagerRoutes.post("/-/app/workspaces", async (c) => {
     return fail(c as any, "workspace store is not configured", 503);
   }
   await ensureDefaultWorkspace(workspaceEnv.store);
+  const planLimits = resolveWorkspaceLimitsFromEnv(workspaceEnv.env);
 
   const store = makeData(workspaceEnv.env as any, c);
   try {
@@ -1075,6 +1134,17 @@ appManagerRoutes.post("/-/app/workspaces", async (c) => {
           : typeof (body as any).authorName === "string" && (body as any).authorName.trim().length > 0
             ? (body as any).authorName.trim()
             : user?.id ?? null;
+
+    if (
+      Number.isFinite(planLimits.maxWorkspaces) &&
+      planLimits.maxWorkspaces < Number.MAX_SAFE_INTEGER &&
+      store.listAppWorkspaces
+    ) {
+      const existing = await store.listAppWorkspaces(planLimits.maxWorkspaces + 1);
+      if (existing.length >= planLimits.maxWorkspaces) {
+        return fail(c as any, "workspace_limit_exceeded", 403);
+      }
+    }
 
     const workspace = await store.createAppWorkspace({
       id: requestedId || undefined,
@@ -1102,7 +1172,7 @@ appManagerRoutes.post("/-/app/workspaces/:id/status", async (c) => {
   const payload = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
   const nextStatus = normalizeWorkspaceLifecycleStatus(payload?.status);
   if (!nextStatus) {
-    return fail(c as any, "status must be one of draft, validated, ready", 400);
+    return fail(c as any, "status must be one of draft, validated, ready, applied", 400);
   }
 
   const workspaceEnv = resolveWorkspaceEnv({
@@ -1147,14 +1217,24 @@ appManagerRoutes.post("/-/app/workspaces/:id/status", async (c) => {
       }
     }
 
+    let snapshot: any = null;
+
     if (current.status === nextStatus) {
-      return c.json({ ok: true, workspace: current, issues: validationIssues });
+      return c.json({ ok: true, workspace: current, issues: validationIssues, snapshot });
+    }
+
+    if (typeof workspaceEnv.store.saveWorkspaceSnapshot === "function") {
+      try {
+        snapshot = await workspaceEnv.store.saveWorkspaceSnapshot(workspaceId, nextStatus);
+      } catch (error) {
+        console.warn("[workspace] failed to persist snapshot", error);
+      }
     }
     const updated = await store.updateAppWorkspaceStatus(workspaceId, nextStatus);
     if (!updated) {
       return fail(c as any, "failed to update workspace status", 500);
     }
-    return c.json({ ok: true, workspace: updated, issues: validationIssues });
+    return c.json({ ok: true, workspace: updated, issues: validationIssues, snapshot });
   } finally {
     await releaseStore(store);
   }
@@ -1192,8 +1272,11 @@ appManagerRoutes.get("/-/app/workspaces/:id/files", async (c) => {
     workspace_id: file.workspace_id,
     path: file.path,
     content_type: file.content_type,
+    content_hash: file.content_hash ?? null,
+    storage_key: file.storage_key ?? null,
+    directory_path: (file as any).directory_path ?? undefined,
     content: textDecoder.decode(file.content),
-    size: file.content?.length ?? 0,
+    size: file.size ?? file.content?.length ?? 0,
     created_at: file.created_at,
     updated_at: file.updated_at,
   }));
@@ -1219,6 +1302,7 @@ appManagerRoutes.post("/-/app/workspaces/:id/files", async (c) => {
       : payload?.content != null
         ? JSON.stringify(payload.content)
         : "";
+  const contentBytes = textEncoder.encode(content);
   const contentType =
     typeof payload?.content_type === "string" && payload.content_type.trim().length > 0
       ? payload.content_type.trim()
@@ -1246,6 +1330,18 @@ appManagerRoutes.post("/-/app/workspaces/:id/files", async (c) => {
     return fail(c as any, "workspace not found", 404);
   }
 
+  const planLimits = resolveWorkspaceLimitsFromEnv(workspaceEnv.env as any);
+  const limitCheck = await ensureWithinWorkspaceLimits(
+    store,
+    workspaceId,
+    path,
+    contentBytes.byteLength,
+    planLimits,
+  );
+  if (!limitCheck.ok) {
+    return fail(c as any, limitCheck.reason, 413);
+  }
+
   const saved = await store.saveWorkspaceFile(workspaceId, path, content, contentType);
   if (!saved) {
     return fail(c as any, "failed to save workspace file", 500);
@@ -1256,11 +1352,156 @@ appManagerRoutes.post("/-/app/workspaces/:id/files", async (c) => {
     file: {
       path: saved.path,
       content_type: saved.content_type,
-      size: saved.content?.length ?? 0,
+      content_hash: saved.content_hash ?? null,
+      storage_key: saved.storage_key ?? null,
+      size: saved.size ?? saved.content?.length ?? contentBytes.byteLength,
       created_at: saved.created_at,
       updated_at: saved.updated_at,
       content: textDecoder.decode(saved.content),
     },
+    usage: limitCheck.usage,
+  });
+});
+
+appManagerRoutes.get("/-/app/workspaces/:id/cache/esbuild/:hash", async (c) => {
+  const workspaceId = (c.req.param("id") || "").trim();
+  const rawHash = (c.req.param("hash") || "").trim();
+  const hash = normalizeCacheHash(rawHash);
+  if (!workspaceId || !hash) {
+    return fail(c as any, "workspaceId and hash are required", 400);
+  }
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return fail(
+      c as any,
+      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+      503,
+    );
+  }
+  const store = workspaceEnv.store;
+  if (!store) {
+    return fail(c as any, "workspace store is not configured", 503);
+  }
+  await ensureDefaultWorkspace(store);
+  const workspace = await store.getWorkspace(workspaceId);
+  if (!workspace) {
+    return fail(c as any, "workspace not found", 404);
+  }
+
+  const cached =
+    typeof store.getCompileCache === "function"
+      ? await store.getCompileCache(workspaceId, hash)
+      : await store.getWorkspaceFile(workspaceId, `__cache/esbuild/${hash}.js`);
+  if (!cached) {
+    return fail(c as any, "cache_not_found", 404);
+  }
+
+  return ok(c as any, {
+    workspace_id: workspaceId,
+    hash,
+    cache: {
+      path: cached.path,
+      content_type: cached.content_type,
+      content_hash: cached.content_hash ?? null,
+      storage_key: cached.storage_key ?? null,
+      size: cached.size ?? cached.content?.length ?? 0,
+      content: textDecoder.decode(cached.content),
+      updated_at: cached.updated_at,
+    },
+  });
+});
+
+appManagerRoutes.post("/-/app/workspaces/:id/cache/esbuild/:hash", async (c) => {
+  const workspaceId = (c.req.param("id") || "").trim();
+  const rawHash = (c.req.param("hash") || "").trim();
+  const hash = normalizeCacheHash(rawHash);
+  if (!workspaceId || !hash) {
+    return fail(c as any, "workspaceId and hash are required", 400);
+  }
+  const payload = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!payload || typeof payload !== "object") {
+    return fail(c as any, "invalid cache payload", 400);
+  }
+  const content =
+    typeof payload?.content === "string"
+      ? payload.content
+      : payload?.content != null
+        ? JSON.stringify(payload.content)
+        : "";
+  const contentType =
+    typeof payload?.content_type === "string" && payload.content_type.trim().length > 0
+      ? payload.content_type.trim()
+      : "application/javascript";
+  const contentBytes = textEncoder.encode(content);
+
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return fail(
+      c as any,
+      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+      503,
+    );
+  }
+  const store = workspaceEnv.store;
+  if (!store) {
+    return fail(c as any, "workspace store is not configured", 503);
+  }
+  await ensureDefaultWorkspace(store);
+  const workspace = await store.getWorkspace(workspaceId);
+  if (!workspace) {
+    return fail(c as any, "workspace not found", 404);
+  }
+
+  const limits = resolveWorkspaceLimitsFromEnv(workspaceEnv.env);
+  const cachePath = `__cache/esbuild/${hash}.js`;
+  const limitCheck = await ensureWithinWorkspaceLimits(
+    store,
+    workspaceId,
+    cachePath,
+    contentBytes.byteLength,
+    limits,
+  );
+  if (!limitCheck.ok) {
+    return fail(c as any, limitCheck.reason, 413);
+  }
+
+  const cacheControl =
+    Number.isFinite(limits.compileCacheTtlSeconds) && limits.compileCacheTtlSeconds > 0
+      ? `public, max-age=${Math.floor(limits.compileCacheTtlSeconds)}`
+      : undefined;
+
+  const saved =
+    typeof store.saveCompileCache === "function"
+      ? await store.saveCompileCache(workspaceId, hash, content, { contentType, cacheControl })
+      : await store.saveWorkspaceFile(workspaceId, cachePath, content, contentType, {
+          cacheControl,
+        });
+  if (!saved) {
+    return fail(c as any, "failed to persist cache", 500);
+  }
+
+  return ok(c as any, {
+    workspace_id: workspaceId,
+    hash,
+    cache: {
+      path: saved.path,
+      content_type: saved.content_type,
+      content_hash: saved.content_hash ?? null,
+      storage_key: saved.storage_key ?? null,
+      size: saved.size ?? saved.content?.length ?? contentBytes.byteLength,
+      updated_at: saved.updated_at,
+      content: textDecoder.decode(saved.content),
+    },
+    usage: limitCheck.usage,
+    cache_control: cacheControl,
   });
 });
 

@@ -61,6 +61,10 @@ const profileTemplate = `{
       }
     ]
   },
+  // Optional: disable specific API endpoints by pattern
+  "disabled_api_endpoints": [
+    "/-/internal/*"
+  ],
   // Optional: UI metadata (reference only)
   "ui": {
     "client_repo": "https://github.com/your-org/takos-frontend",
@@ -71,7 +75,21 @@ const profileTemplate = `{
     "enabled": true,
     "requires_external_network": true,
     "providers": ["openai"],
-    "actions": ["ai.summary"]
+    "actions": ["ai.summary"],
+    "data_policy": {
+      "send_public_posts": true,
+      "send_community_posts": false,
+      "send_dm": false,
+      "send_profile": true,
+      "notes": "Defaults inherited by node configs; tighten for sensitive distros."
+    }
+  },
+  // Optional: version gates to enforce compatibility
+  "gates": {
+    "core_version": "1.8.0",
+    "schema_version": "1.0",
+    "manifest_schema": "1.0",
+    "ui_contract": "1.0"
   },
   // Required: maintainer / license metadata
   "metadata": {
@@ -111,6 +129,12 @@ const configTemplate = `{
     "registration": {
       "mode": "invite-only"
     }
+  },
+  // Optional: API hardening
+  "api": {
+    "disabled_api_endpoints": [
+      "/-/internal/*"
+    ]
   },
   // Optional: UI look & feel
   "ui": {
@@ -153,6 +177,16 @@ const configTemplate = `{
       "send_profile": false,
       "notes": "Keep DM forwarding disabled unless explicitly approved."
     }
+  },
+  // Optional: runtime compatibility gates
+  "gates": {
+    // Optional: lock node to a specific takos-core version
+    "core_version": "1.8.0",
+    // Optional: assert config/profile schema alignment
+    "schema_version": "1.0",
+    // Optional: gate app manifest and UI contract versions
+    "manifest_schema": "1.0",
+    "ui_contract": "1.0"
   },
   // Optional: distro-specific overrides
   "custom": {}

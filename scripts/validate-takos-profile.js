@@ -17,6 +17,11 @@ const ajv = new Ajv({
 });
 addFormats(ajv);
 
+const RUNTIME_CORE_VERSION = "1.8.0";
+const PROFILE_SCHEMA_VERSION = "1.0";
+const MANIFEST_SCHEMA_VERSION = "1.0";
+const UI_CONTRACT_VERSION = "1.0";
+
 const semverPattern = new RegExp(
   "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
 );
@@ -91,6 +96,95 @@ function validateActivityPubExtensions(activitypub) {
   return errors;
 }
 
+function validateDisabledEndpoints(disabled) {
+  if (disabled === undefined) return [];
+  if (!Array.isArray(disabled)) {
+    return ["disabled_api_endpoints must be an array of strings when provided"];
+  }
+  const errors = [];
+  disabled.forEach((value, index) => {
+    if (typeof value !== "string" || !value.trim()) {
+      errors.push(`disabled_api_endpoints[${index}] must be a non-empty string`);
+    }
+  });
+  return errors;
+}
+
+function validateAiDataPolicy(ai) {
+  const policy = ai?.data_policy;
+  if (policy === undefined) return [];
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) {
+    return ["ai.data_policy must be an object when provided"];
+  }
+
+  const errors = [];
+  const keys = ["send_public_posts", "send_community_posts", "send_dm", "send_profile"];
+  keys.forEach((key) => {
+    const value = policy[key];
+    if (value !== undefined && typeof value !== "boolean") {
+      errors.push(`ai.data_policy.${key} must be a boolean when provided`);
+    }
+  });
+  if (policy.notes !== undefined && typeof policy.notes !== "string") {
+    errors.push("ai.data_policy.notes must be a string when provided");
+  }
+  return errors;
+}
+
+function validateGates(gates) {
+  if (gates === undefined) return { errors: [], warnings: [] };
+  if (!gates || typeof gates !== "object" || Array.isArray(gates)) {
+    return { errors: ["gates must be an object when provided"], warnings: [] };
+  }
+
+  const errors = [];
+  const warnings = [];
+
+  const stringKeys = [
+    "core_version",
+    "schema_version",
+    "manifest_schema",
+    "ui_contract",
+    "app_version_min",
+    "app_version_max",
+  ];
+  for (const key of stringKeys) {
+    const value = gates[key];
+    if (value !== undefined && typeof value !== "string") {
+      errors.push(`gates.${key} must be a string when provided`);
+    }
+  }
+
+  if (gates.core_version && !semver.satisfies(RUNTIME_CORE_VERSION, gates.core_version, { includePrerelease: true })) {
+    errors.push(`gates.core_version must include runtime core ${RUNTIME_CORE_VERSION}`);
+  }
+  if (gates.schema_version && gates.schema_version !== PROFILE_SCHEMA_VERSION) {
+    warnings.push(
+      `gates.schema_version (${gates.schema_version}) differs from runtime schema ${PROFILE_SCHEMA_VERSION}`,
+    );
+  }
+  if (gates.manifest_schema && gates.manifest_schema !== MANIFEST_SCHEMA_VERSION) {
+    warnings.push(
+      `gates.manifest_schema (${gates.manifest_schema}) differs from runtime manifest schema ${MANIFEST_SCHEMA_VERSION}`,
+    );
+  }
+  if (gates.ui_contract && gates.ui_contract !== UI_CONTRACT_VERSION) {
+    warnings.push(
+      `gates.ui_contract (${gates.ui_contract}) differs from runtime UI contract ${UI_CONTRACT_VERSION}`,
+    );
+  }
+
+  if (gates.app_version_min && gates.app_version_max) {
+    if (!semver.valid(gates.app_version_min) || !semver.valid(gates.app_version_max)) {
+      warnings.push("gates.app_version_min/max should be valid SemVer strings");
+    } else if (semver.gt(gates.app_version_min, gates.app_version_max)) {
+      errors.push("gates.app_version_min must be <= gates.app_version_max");
+    }
+  }
+
+  return { errors, warnings };
+}
+
 function fail(message, details = []) {
   if (details.length > 0) {
     details.forEach((detail) => {
@@ -125,6 +219,7 @@ if (!isSchemaValid) {
 }
 
 const semanticErrors = [];
+const semanticWarnings = [];
 
 if (!semverPattern.test(profile.version) || !semver.valid(profile.version)) {
   semanticErrors.push("version must be a valid SemVer string");
@@ -133,8 +228,8 @@ if (!semverPattern.test(profile.version) || !semver.valid(profile.version)) {
 const coreRange = profile.base?.core_version;
 if (!semver.validRange(coreRange)) {
   semanticErrors.push("base.core_version must be a valid SemVer range");
-} else if (!semver.satisfies("1.3.0", coreRange)) {
-  semanticErrors.push("base.core_version must include version 1.3.0 or later");
+} else if (!semver.satisfies(RUNTIME_CORE_VERSION, coreRange)) {
+  semanticErrors.push(`base.core_version must include runtime core ${RUNTIME_CORE_VERSION} or later`);
 }
 
 if (profile.runtime?.default && Array.isArray(profile.runtime.supported)) {
@@ -145,11 +240,27 @@ if (profile.runtime?.default && Array.isArray(profile.runtime.supported)) {
 
 const contextErrors = validateActivityPubContexts(profile.activitypub);
 const extensionErrors = validateActivityPubExtensions(profile.activitypub);
+const disabledEndpointErrors = validateDisabledEndpoints(profile.disabled_api_endpoints);
+const dataPolicyErrors = validateAiDataPolicy(profile.ai);
 semanticErrors.push(...contextErrors);
 semanticErrors.push(...extensionErrors);
+semanticErrors.push(...disabledEndpointErrors);
+semanticErrors.push(...dataPolicyErrors);
+
+const gateCheck = validateGates(profile.gates);
+semanticErrors.push(...(gateCheck.errors || []));
+if (gateCheck.warnings?.length) {
+  semanticWarnings.push(...gateCheck.warnings);
+}
 
 if (semanticErrors.length > 0) {
   fail("takos-profile semantic validation failed", semanticErrors);
+}
+
+if (semanticWarnings.length > 0) {
+  semanticWarnings.forEach((warning) => {
+    console.warn(`- warning: ${warning}`);
+  });
 }
 
 console.log(`✔ ${path.basename(profilePath)} is valid for takos-profile schema`);

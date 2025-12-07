@@ -16,11 +16,20 @@ import {
   aiActionRegistry,
   type AiProviderRegistry,
 } from "@takos/platform/server";
+import { requireAiQuota } from "../lib/plan-guard";
+import type { AuthContext } from "../lib/auth-context-model";
 
 // 組み込みワークフローを登録
 registerBuiltinWorkflows(workflowRegistry);
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const planGuardError = (c: any) => {
+  const check = requireAiQuota((c.get("authContext") as AuthContext | undefined) ?? null);
+  if (!check.ok) {
+    return c.json({ error: check.message, code: "PLAN_REQUIRED" }, check.status);
+  }
+  return null;
+};
 
 /**
  * ワークフロー定義一覧を取得
@@ -66,6 +75,8 @@ app.get("/:id", async (c) => {
  * POST /ai/workflows
  */
 app.post("/", auth, async (c) => {
+  const planError = planGuardError(c);
+  if (planError) return planError;
   const body = await c.req.json<WorkflowDefinition>();
 
   if (!body.id || !body.name || !body.steps || !body.entryPoint) {
@@ -105,6 +116,8 @@ app.post("/", auth, async (c) => {
  */
 app.delete("/:id", auth, async (c) => {
   const id = c.req.param("id");
+  const planError = planGuardError(c);
+  if (planError) return planError;
 
   // 組み込みワークフローは削除不可
   if (id.startsWith("workflow.")) {
@@ -132,6 +145,8 @@ app.delete("/:id", auth, async (c) => {
  */
 app.post("/:id/run", auth, async (c) => {
   const id = c.req.param("id");
+  const planError = planGuardError(c);
+  if (planError) return planError;
   const body = await c.req.json<{ input?: Record<string, unknown> }>();
 
   const definition = workflowRegistry.getDefinition(id);
@@ -201,6 +216,8 @@ app.post("/:id/run", auth, async (c) => {
  */
 app.get("/instances/:instanceId", auth, async (c) => {
   const instanceId = c.req.param("instanceId");
+  const planError = planGuardError(c);
+  if (planError) return planError;
 
   // Note: 実際の実装では、永続化されたインスタンスストアから取得
   // 現在はインメモリエンジンを使用しているため、簡易実装
@@ -217,6 +234,8 @@ app.get("/instances/:instanceId", auth, async (c) => {
  * GET /ai/workflows/instances
  */
 app.get("/instances", auth, async (c) => {
+  const planError = planGuardError(c);
+  if (planError) return planError;
   const filters: WorkflowInstanceFilters = {
     definitionId: c.req.query("definitionId") || undefined,
     status: c.req.query("status")?.split(",") as any,
@@ -238,6 +257,8 @@ app.get("/instances", auth, async (c) => {
  */
 app.post("/instances/:instanceId/approve", auth, async (c) => {
   const instanceId = c.req.param("instanceId");
+  const planError = planGuardError(c);
+  if (planError) return planError;
   const body = await c.req.json<{
     stepId: string;
     approved: boolean;
@@ -268,6 +289,8 @@ app.post("/instances/:instanceId/approve", auth, async (c) => {
  */
 app.post("/instances/:instanceId/cancel", auth, async (c) => {
   const instanceId = c.req.param("instanceId");
+  const planError = planGuardError(c);
+  if (planError) return planError;
 
   // Note: 実際の実装では、エンジンインスタンスを取得してcancelを呼び出す
   return c.json({

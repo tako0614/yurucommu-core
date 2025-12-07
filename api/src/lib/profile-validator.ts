@@ -1,4 +1,10 @@
-import { checkSemverCompatibility } from "@takos/platform/server";
+import {
+  APP_MANIFEST_SCHEMA_VERSION,
+  TAKOS_CORE_VERSION,
+  TAKOS_PROFILE_SCHEMA_VERSION,
+  TAKOS_UI_CONTRACT_VERSION,
+  checkSemverCompatibility,
+} from "@takos/platform/server";
 
 export interface TakosProfile {
     schema_version: string;
@@ -21,6 +27,28 @@ export interface TakosProfile {
             spec_url: string;
         }>;
     };
+    ai?: {
+        enabled: boolean;
+        requires_external_network: boolean;
+        providers: string[];
+        actions: string[];
+        data_policy?: {
+            send_public_posts?: boolean;
+            send_community_posts?: boolean;
+            send_dm?: boolean;
+            send_profile?: boolean;
+            notes?: string;
+        };
+    };
+    gates?: {
+        core_version?: string;
+        schema_version?: string;
+        manifest_schema?: string;
+        ui_contract?: string;
+        app_version_min?: string;
+        app_version_max?: string;
+    };
+    disabled_api_endpoints?: string[];
     metadata: {
         maintainer: {
             name: string;
@@ -72,6 +100,12 @@ export function validateTakosProfile(profile: unknown): ValidationResult {
         errors.push(`Invalid name "${p.name}". Must match /^[a-z0-9][a-z0-9\\-]*$/`);
     }
 
+    if (p.schema_version && p.schema_version !== TAKOS_PROFILE_SCHEMA_VERSION) {
+        warnings.push(
+            `schema_version ${p.schema_version} differs from runtime ${TAKOS_PROFILE_SCHEMA_VERSION}`,
+        );
+    }
+
     // Kind
     if (p.kind !== "distro") {
         errors.push(`Invalid kind "${p.kind}". Must be "distro"`);
@@ -96,6 +130,81 @@ export function validateTakosProfile(profile: unknown): ValidationResult {
         }
         if (!p.metadata.license) {
             errors.push("Missing metadata.license");
+        }
+    }
+
+    if (p.disabled_api_endpoints !== undefined) {
+        if (!Array.isArray(p.disabled_api_endpoints)) {
+            errors.push("disabled_api_endpoints must be an array when provided");
+        } else {
+            p.disabled_api_endpoints.forEach((item, index) => {
+                if (typeof item !== "string" || !item.trim()) {
+                    errors.push(`disabled_api_endpoints[${index}] must be a non-empty string`);
+                }
+            });
+        }
+    }
+
+    if (p.ai?.data_policy !== undefined) {
+        const policy = p.ai.data_policy as Record<string, unknown>;
+        const keys = ["send_public_posts", "send_community_posts", "send_dm", "send_profile"];
+        keys.forEach((key) => {
+            const value = policy[key];
+            if (value !== undefined && typeof value !== "boolean") {
+                errors.push(`ai.data_policy.${key} must be a boolean when provided`);
+            }
+        });
+        if (policy.notes !== undefined && typeof policy.notes !== "string") {
+            errors.push("ai.data_policy.notes must be a string when provided");
+        }
+    }
+
+    if (p.gates !== undefined) {
+        if (typeof p.gates !== "object" || p.gates === null || Array.isArray(p.gates)) {
+            errors.push("gates must be an object when provided");
+        } else {
+            const gateStrings = [
+                "core_version",
+                "schema_version",
+                "manifest_schema",
+                "ui_contract",
+                "app_version_min",
+                "app_version_max",
+            ] as const;
+            for (const key of gateStrings) {
+                const value = (p.gates as Record<string, unknown>)[key];
+                if (value !== undefined && typeof value !== "string") {
+                    errors.push(`gates.${key} must be a string when provided`);
+                }
+            }
+
+            const gates = p.gates as Record<string, string>;
+            if (gates.core_version) {
+                const compat = checkSemverCompatibility(TAKOS_CORE_VERSION, gates.core_version, {
+                    context: "profile.gates.core_version",
+                    action: "load",
+                });
+                if (!compat.ok) {
+                    errors.push(compat.error || "gates.core_version incompatible");
+                } else {
+                    warnings.push(...compat.warnings);
+                }
+            }
+            if (gates.schema_version && gates.schema_version !== TAKOS_PROFILE_SCHEMA_VERSION) {
+                warnings.push(
+                    `gates.schema_version ${gates.schema_version} differs from runtime ${TAKOS_PROFILE_SCHEMA_VERSION}`,
+                );
+            }
+            if (gates.manifest_schema && gates.manifest_schema !== APP_MANIFEST_SCHEMA_VERSION) {
+                warnings.push(
+                    `gates.manifest_schema ${gates.manifest_schema} differs from runtime ${APP_MANIFEST_SCHEMA_VERSION}`,
+                );
+            }
+            if (gates.ui_contract && gates.ui_contract !== TAKOS_UI_CONTRACT_VERSION) {
+                warnings.push(
+                    `gates.ui_contract ${gates.ui_contract} differs from runtime ${TAKOS_UI_CONTRACT_VERSION}`,
+                );
+            }
         }
     }
 

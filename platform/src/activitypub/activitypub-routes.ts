@@ -78,6 +78,14 @@ async function findActor(store: any, id: string): Promise<any | null> {
     const actor = await store.getActorByHandle(id).catch(() => null);
     if (actor) return actor;
   }
+  if (typeof store.getActorProfile === "function") {
+    const actor = await store.getActorProfile(id).catch(() => null);
+    if (actor) return actor;
+  }
+  if (typeof store.getActor === "function") {
+    const actor = await store.getActor(id).catch(() => null);
+    if (actor) return actor;
+  }
   if (store.getUser) {
     return store.getUser(id).catch(() => null);
   }

@@ -203,6 +203,33 @@ export function buildRuntimeConfig(env: Bindings): TakosConfig {
   const aiAgentConfigAllowlist = listEnv(
     (env as any).AI_AGENT_CONFIG_ALLOWLIST || (env as any).TAKOS_AI_AGENT_CONFIG_ALLOWLIST,
   );
+  const disabledApiEndpoints = listEnv(
+    (env as any).DISABLED_API_ENDPOINTS || (env as any).TAKOS_DISABLED_API_ENDPOINTS,
+  );
+  const gateCoreVersion =
+    (env as any).CONFIG_GATE_CORE_VERSION ||
+    (env as any).TAKOS_GATE_CORE_VERSION ||
+    undefined;
+  const gateProfileSchema =
+    (env as any).CONFIG_GATE_PROFILE_SCHEMA ||
+    (env as any).TAKOS_GATE_PROFILE_SCHEMA ||
+    undefined;
+  const gateManifestSchema =
+    (env as any).CONFIG_GATE_MANIFEST_SCHEMA ||
+    (env as any).TAKOS_GATE_MANIFEST_SCHEMA ||
+    undefined;
+  const gateUiContract =
+    (env as any).CONFIG_GATE_UI_CONTRACT ||
+    (env as any).TAKOS_GATE_UI_CONTRACT ||
+    undefined;
+  const gateAppMinVersion =
+    (env as any).CONFIG_GATE_APP_MIN_VERSION ||
+    (env as any).TAKOS_GATE_APP_MIN_VERSION ||
+    undefined;
+  const gateAppMaxVersion =
+    (env as any).CONFIG_GATE_APP_MAX_VERSION ||
+    (env as any).TAKOS_GATE_APP_MAX_VERSION ||
+    undefined;
   const customConfig = jsonEnv<Record<string, unknown>>(
     (env as any).TAKOS_CUSTOM_CONFIG || (env as any).CUSTOM_CONFIG_JSON,
   );
@@ -223,6 +250,7 @@ export function buildRuntimeConfig(env: Bindings): TakosConfig {
       default_language: (env as any).DEFAULT_LANGUAGE || undefined,
       registration: { mode: registrationMode },
     },
+    api: disabledApiEndpoints.length ? { disabled_api_endpoints: disabledApiEndpoints } : undefined,
     ui: {
       theme: (env as any).UI_THEME || undefined,
       accent_color: (env as any).UI_ACCENT_COLOR || undefined,
@@ -248,6 +276,22 @@ export function buildRuntimeConfig(env: Bindings): TakosConfig {
       data_policy: aiDataPolicy,
       agent_config_allowlist: aiAgentConfigAllowlist,
     },
+    gates:
+      gateCoreVersion ||
+      gateProfileSchema ||
+      gateManifestSchema ||
+      gateUiContract ||
+      gateAppMinVersion ||
+      gateAppMaxVersion
+        ? {
+            core_version: gateCoreVersion,
+            schema_version: gateProfileSchema,
+            manifest_schema: gateManifestSchema,
+            ui_contract: gateUiContract,
+            app_version_min: gateAppMinVersion,
+            app_version_max: gateAppMaxVersion,
+          }
+        : undefined,
     custom: customConfig,
   };
 

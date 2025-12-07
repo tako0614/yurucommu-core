@@ -14,6 +14,8 @@ import {
   HttpMethod,
   LoadAppManifestOptions,
 } from "./types";
+import { APP_MANIFEST_SCHEMA_VERSION } from "./manifest.js";
+import { checkSemverCompatibility } from "../utils/semver.js";
 
 type Sourced<T> = {
   value: T;
@@ -31,6 +33,31 @@ interface AggregatedEntries {
 }
 
 const ROUTE_METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+const RESERVED_VIEW_ROUTES = ["/login", "/-/health"];
+const RESERVED_VIEW_PREFIXES = ["/auth", "/-/core", "/-/config", "/-/app", "/.well-known"];
+const CORE_SCREEN_ROUTES: Record<string, string> = {
+  "screen.home": "/",
+  "screen.onboarding": "/onboarding",
+  "screen.profile": "/profile",
+  "screen.profile_edit": "/profile/edit",
+  "screen.settings": "/settings",
+  "screen.notifications": "/notifications",
+  "screen.user_profile": "/@:handle",
+};
+
+const normalizeRoute = (path: string): string => {
+  const trimmed = path.trim();
+  if (!trimmed) return "";
+  if (!trimmed.startsWith("/")) return `/${trimmed}`;
+  return trimmed.replace(/\/+$/, "") || "/";
+};
+
+const isReservedViewRoute = (route: string): boolean => {
+  const normalized = normalizeRoute(route);
+  if (!normalized) return false;
+  if (RESERVED_VIEW_ROUTES.includes(normalized)) return true;
+  return RESERVED_VIEW_PREFIXES.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`));
+};
 
 export async function loadAppManifest(options: LoadAppManifestOptions): Promise<AppManifestLoadResult> {
   const rootDir = options.rootDir ?? ".";
@@ -56,6 +83,30 @@ export async function loadAppManifest(options: LoadAppManifestOptions): Promise<
 
   const rootValidation = validateRootManifest(parsedRoot, rootPath);
   issues.push(...rootValidation.issues);
+
+  if (rootValidation.schemaVersion) {
+    const compatibility = checkSemverCompatibility(
+      APP_MANIFEST_SCHEMA_VERSION,
+      rootValidation.schemaVersion,
+      { context: "app manifest schema_version", action: "validate" },
+    );
+    if (!compatibility.ok) {
+      issues.push({
+        severity: "error",
+        message: compatibility.error || "App manifest schema_version is not compatible",
+        file: rootPath,
+        path: "schema_version",
+      });
+    }
+    issues.push(
+      ...compatibility.warnings.map((message) => ({
+        severity: "warning",
+        message,
+        file: rootPath,
+        path: "schema_version",
+      })),
+    );
+  }
 
   const layout = rootValidation.layout;
   const aggregated: AggregatedEntries = {
@@ -1094,6 +1145,25 @@ function validateMergedManifest(
         }
       } else {
         screenRoutes.set(entry.value.route, entry);
+      }
+
+      if (isReservedViewRoute(entry.value.route)) {
+        issues.push({
+          severity: "error",
+          message: `Reserved route "${entry.value.route}" cannot be defined in app views`,
+          file: entry.source,
+          path: entry.path ? `${entry.path}.route` : undefined,
+        });
+      }
+
+      const expectedRoute = CORE_SCREEN_ROUTES[entry.value.id];
+      if (expectedRoute && normalizeRoute(entry.value.route) !== normalizeRoute(expectedRoute)) {
+        issues.push({
+          severity: "error",
+          message: `Core screen "${entry.value.id}" must use route "${expectedRoute}"`,
+          file: entry.source,
+          path: entry.path ? `${entry.path}.route` : undefined,
+        });
       }
     }
   }

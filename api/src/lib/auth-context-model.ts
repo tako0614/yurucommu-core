@@ -45,6 +45,7 @@ export interface AuthContext {
   isAuthenticated: boolean;
   user: LocalUser | null;
   plan: PlanInfo;
+  limits: PlanLimits;
   rateLimits: AuthRateLimits;
 }
 
@@ -230,6 +231,7 @@ export const buildAuthContext = (
       userId: null,
       user: null,
       plan: planInfo,
+      limits: planInfo.limits,
       rateLimits: rateLimitInfo,
     };
   }
@@ -243,6 +245,7 @@ export const buildAuthContext = (
     userId,
     user,
     plan: planInfo,
+    limits: planInfo.limits,
     rateLimits: rateLimitInfo,
   };
 };

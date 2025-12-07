@@ -33,6 +33,7 @@ import type {
   AppWorkspaceStatus,
 } from "../lib/types";
 import defaultUiContract from "../../../takos-ui-contract.json";
+import { clearManifestRouterCache } from "../lib/manifest-routing";
 
 type AdminAuthResult =
   | { ok: true; admin: string }
@@ -75,9 +76,17 @@ function checkAdminAuth(c: any): AdminAuthResult {
   return { ok: true, admin: user };
 }
 
-type WorkspaceLifecycleStatus = Extract<AppWorkspaceStatus, "draft" | "validated" | "ready">;
+type WorkspaceLifecycleStatus = Extract<
+  AppWorkspaceStatus,
+  "draft" | "validated" | "ready" | "applied"
+>;
 
-const WORKSPACE_LIFECYCLE_STATUSES: WorkspaceLifecycleStatus[] = ["draft", "validated", "ready"];
+const WORKSPACE_LIFECYCLE_STATUSES: WorkspaceLifecycleStatus[] = [
+  "draft",
+  "validated",
+  "ready",
+  "applied",
+];
 
 const normalizeWorkspaceLifecycleStatus = (value: unknown): WorkspaceLifecycleStatus | null => {
   if (typeof value !== "string") return null;
@@ -94,6 +103,7 @@ const canTransitionWorkspaceStatus = (
   if (current === next) return true;
   if (current === "draft" && next === "validated") return true;
   if (current === "validated" && next === "ready") return true;
+  if (current === "ready" && next === "applied") return true;
   return false;
 };
 
@@ -102,7 +112,7 @@ const APP_MAIN_CANDIDATES = ["app-main.ts", "app-main.tsx", "app-main.js", "app-
 const UI_CONTRACT_FILENAME = "takos-ui-contract.json";
 
 const shouldValidateWorkspaceStatus = (status: WorkspaceLifecycleStatus): boolean =>
-  status === "validated" || status === "ready";
+  status === "validated" || status === "ready" || status === "applied";
 
 const normalizeWorkspaceFilePath = (path: string): string => path.replace(/^\.?\/+/, "").trim();
 
@@ -139,6 +149,25 @@ const recordRevisionAuditSafely = async (store: any, entry: AppRevisionAuditInpu
     await store.recordAppRevisionAudit(entry);
   } catch (error) {
     console.error("failed to record app revision audit", error);
+  }
+};
+
+const markWorkspaceApplied = async (workspaceId: string | null | undefined, env: any) => {
+  if (!workspaceId) return;
+  const workspaceEnv = resolveWorkspaceEnv({
+    env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return;
+  }
+  if (!workspaceEnv.store?.updateWorkspaceStatus) return;
+  try {
+    await ensureDefaultWorkspace(workspaceEnv.store);
+    await workspaceEnv.store.updateWorkspaceStatus(workspaceId, "applied");
+  } catch (error) {
+    console.warn("[admin-app] failed to update workspace status", error);
   }
 };
 
@@ -755,6 +784,10 @@ adminAppRoutes.post("/admin/app/revisions/apply", async (c) => {
     }
     const revisionId = saved.id;
     await store.setActiveAppRevision(revisionId);
+    clearManifestRouterCache();
+    if (workspaceMeta?.id) {
+      await markWorkspaceApplied(workspaceMeta.id, c.env);
+    }
     const uniqueWarnings = Array.from(new Set(warnings));
     const state = await store.getActiveAppRevision();
     const schemaCheck = checkSemverCompatibility(
@@ -960,6 +993,7 @@ adminAppRoutes.post("/admin/app/revisions/:id/rollback", async (c) => {
     }
 
     await store.setActiveAppRevision(revisionId);
+    clearManifestRouterCache();
     const state = await store.getActiveAppRevision();
     const uniqueWarnings = Array.from(new Set(warnings));
     const auditTimestamp = nowISO();
@@ -1106,7 +1140,7 @@ adminAppRoutes.post("/-/app/workspaces/:id/status", async (c) => {
   const payload = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
   const nextStatus = normalizeWorkspaceLifecycleStatus(payload?.status);
   if (!nextStatus) {
-    return fail(c as any, "status must be one of draft, validated, ready", 400);
+    return fail(c as any, "status must be one of draft, validated, ready, applied", 400);
   }
 
   const workspaceEnv = resolveWorkspaceEnv({

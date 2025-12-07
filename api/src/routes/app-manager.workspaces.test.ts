@@ -300,4 +300,92 @@ describe("/-/app/workspaces", () => {
     expect(listed.data?.files?.[0]?.path).toBe("takos-app.json");
     expect(listed.data?.files?.[0]?.content).toContain("hello");
   });
+
+  it("enforces plan workspace limit", async () => {
+    const listAppWorkspaces = vi.fn(async () => [baseWorkspace]);
+    const createAppWorkspace = vi.fn();
+    setBackendDataFactory(() => withStore({ listAppWorkspaces, createAppWorkspace }));
+
+    const res = await appManagerRoutes.request(
+      "/-/app/workspaces",
+      {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({}),
+      },
+      buildEnv({ PLAN: "free" }),
+    );
+
+    expect(res.status).toBe(403);
+    expect(createAppWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized workspace files for the active plan", async () => {
+    const saveWorkspaceFile = vi.fn();
+    const workspaceStore = {
+      async getWorkspace(id: string) {
+        return id === baseWorkspace.id ? baseWorkspace : null;
+      },
+      saveWorkspaceFile,
+      getWorkspaceUsage: vi.fn(async () => ({ fileCount: 0, totalSize: 0 })),
+      statWorkspaceFile: vi.fn(async () => null),
+    };
+
+    setBackendDataFactory(() => withStore({}));
+
+    const largeContent = "x".repeat(120 * 1024);
+    const res = await appManagerRoutes.request(
+      `/-/app/workspaces/${baseWorkspace.id}/files`,
+      {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ path: "takos-app.json", content: largeContent }),
+      },
+      { ...buildEnv({ PLAN: "free" }), workspaceStore },
+    );
+
+    expect(res.status).toBe(413);
+    expect(saveWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  it("stores compile cache entries with plan-aware TTL", async () => {
+    const saveCompileCache = vi.fn(async (_workspaceId: string, _hash: string, content: string) => ({
+      workspace_id: baseWorkspace.id,
+      path: "__cache/esbuild/demo.js",
+      content: encoder.encode(content),
+      content_type: "application/javascript",
+      created_at: baseWorkspace.created_at,
+      updated_at: baseWorkspace.updated_at,
+    }));
+    const workspaceStore = {
+      async getWorkspace(id: string) {
+        return id === baseWorkspace.id ? baseWorkspace : null;
+      },
+      saveCompileCache,
+      getWorkspaceUsage: vi.fn(async () => ({ fileCount: 0, totalSize: 0 })),
+      statWorkspaceFile: vi.fn(async () => null),
+    };
+
+    setBackendDataFactory(() => withStore({}));
+
+    const res = await appManagerRoutes.request(
+      `/-/app/workspaces/${baseWorkspace.id}/cache/esbuild/demo`,
+      {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ content: "compiled" }),
+      },
+      { ...buildEnv({ PLAN: "pro" }), workspaceStore },
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.cache?.path).toContain("demo");
+    expect(saveCompileCache).toHaveBeenCalledWith(
+      baseWorkspace.id,
+      "demo",
+      "compiled",
+      expect.objectContaining({ cacheControl: expect.stringContaining("max-age") }),
+    );
+  });
 });

@@ -43,6 +43,7 @@ import {
   setInstanceConfig,
   ok,
   fail,
+  HttpError,
 } from "@takos/platform/server";
 import { createJwtStoreAdapter } from "./lib/jwt-store";
 import type {
@@ -82,6 +83,7 @@ import configRoutes from "./routes/config";
 import appPreviewRoutes from "./routes/app-preview";
 import appDebugRoutes from "./routes/app-debug";
 import appManagerRoutes from "./routes/app-manager";
+import appVfsRoutes from "./routes/app-vfs";
 import cronHealthRoutes from "./routes/cron-health";
 import activityPubMetadataRoutes from "./routes/activitypub-metadata.js";
 import activityPubExtensionsRoutes from "./routes/activitypub-extensions.js";
@@ -385,6 +387,7 @@ app.route("/", activityPubConfigRoutes);
 app.route("/", configRoutes);
 app.route("/", cronHealthRoutes);
 app.route("/", appManagerRoutes);
+app.route("/", appVfsRoutes);
 app.route("/", realtimeRoutes);
 app.route("/", appPreviewRoutes);
 app.route("/", appDebugRoutes);
@@ -475,16 +478,6 @@ const requireAuthenticated = (c: any): { user: any } | null => {
   }
   return { user: sessionUser };
 };
-
-class HttpError extends Error {
-  status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = "HttpError";
-    this.status = status;
-  }
-}
 
 
 // Notification helper with instance-level feature gates
@@ -1345,10 +1338,13 @@ app.post("/communities/:id/posts", auth, async (c) => {
     return ok(c, post, 201);
   } catch (error) {
     if (error instanceof HttpError) {
-      return fail(c, error.message, error.status);
+      return fail(c, error.message, error.status, {
+        code: error.code,
+        details: error.details,
+      });
     }
     console.error("create post failed", error);
-    return fail(c, "failed to create post", 500);
+    return fail(c, "failed to create post", 500, { code: "INTERNAL_ERROR" });
   }
 });
 
@@ -1405,10 +1401,13 @@ app.post("/posts", auth, async (c) => {
     return ok(c, post, 201);
   } catch (error) {
     if (error instanceof HttpError) {
-      return fail(c, error.message, error.status);
+      return fail(c, error.message, error.status, {
+        code: error.code,
+        details: error.details,
+      });
     }
     console.error("create global post failed", error);
-    return fail(c, "failed to create post", 500);
+    return fail(c, "failed to create post", 500, { code: "INTERNAL_ERROR" });
   }
 });
 
@@ -1718,10 +1717,13 @@ app.post("/communities/:id/stories", auth, async (c) => {
     return ok(c, story, 201);
   } catch (error) {
     if (error instanceof HttpError) {
-      return fail(c, error.message, error.status);
+      return fail(c, error.message, error.status, {
+        code: error.code,
+        details: error.details,
+      });
     }
     console.error("create story failed", error);
-    return fail(c, "failed to create story", 500);
+    return fail(c, "failed to create story", 500, { code: "INTERNAL_ERROR" });
   }
 });
 
@@ -1736,10 +1738,13 @@ app.post("/stories", auth, async (c) => {
     return ok(c, story, 201);
   } catch (error) {
     if (error instanceof HttpError) {
-      return fail(c, error.message, error.status);
+      return fail(c, error.message, error.status, {
+        code: error.code,
+        details: error.details,
+      });
     }
     console.error("create story failed", error);
-    return fail(c, "failed to create story", 500);
+    return fail(c, "failed to create story", 500, { code: "INTERNAL_ERROR" });
   }
 });
 

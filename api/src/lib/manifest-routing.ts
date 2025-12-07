@@ -1,12 +1,10 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import {
   AppHandlerRegistry,
-  loadAppMainFromModule,
   mountManifestRoutes,
   type ManifestRouteHandler,
   type AppManifest,
   type AppRouteAdapterIssue,
-  type AppScriptModule,
 } from "@takos/platform/app";
 import { createTakosContext } from "@takos/platform/app/runtime/context";
 import type { AppAuthContext, AppResponse } from "@takos/platform/app/runtime/types";
@@ -14,7 +12,7 @@ import type { CoreServices } from "@takos/platform/app/services";
 import type { PublicAccountBindings as Bindings } from "@takos/platform/server";
 import { releaseStore } from "@takos/platform/server";
 import { makeData } from "../data";
-import * as bundledAppMain from "../../../app-main";
+import { getAppAuthContext } from "./auth-context";
 import {
   createPostService,
   createUserService,
@@ -26,12 +24,16 @@ import {
   createActorService,
   createStorageService,
   createNotificationService,
+  createAuthService,
 } from "../services";
+import { loadAppRegistryFromScript } from "./app-script-loader";
 
 export type ManifestRouterInstance = {
   app: Hono;
   issues: AppRouteAdapterIssue[];
   revisionId: string;
+  scriptRef?: string | null;
+  scriptSource?: string;
   matchers: RouteMatcher[];
   manifest: AppManifest;
   source: string;
@@ -41,6 +43,7 @@ type ActiveRevisionSnapshot = {
   revisionId: string;
   manifest: AppManifest;
   scriptRef?: string | null;
+  source: string;
 };
 
 type RouteMatcher = {
@@ -70,17 +73,45 @@ const buildServices = (env: Bindings): CoreServices => {
     actors,
     storage,
     notifications,
+    auth: createAuthService(env as any),
   };
 };
 
-const toAppAuthContext = (c: any): AppAuthContext => {
-  const user = c.get("user") as any;
-  const activeUserId = c.get("activeUserId") as string | null;
-  if (user?.id || activeUserId) {
-    return { userId: activeUserId || user?.id || null };
-  }
-  return { userId: null };
+const toAppAuthContext = (c: any): AppAuthContext => getAppAuthContext(c);
+
+const normalizeRouteKey = (path: string): string => {
+  const normalized = (path || "").trim();
+  if (!normalized) return "/";
+  const withSlash = normalized.startsWith("/") ? normalized : `/${normalized}`;
+  const withoutTrailing = withSlash === "/" ? "/" : withSlash.replace(/\/+$/, "");
+  return withoutTrailing || "/";
 };
+
+const isReservedRoute = (path: string): boolean => {
+  const normalized = normalizeRouteKey(path);
+  if (normalized === "/login") return true;
+  if (normalized === "/-/health") return true;
+  if (normalized === "/auth" || normalized.startsWith("/auth/")) return true;
+  if (normalized.startsWith("/-/core")) return true;
+  if (normalized.startsWith("/-/config")) return true;
+  if (normalized.startsWith("/-/app")) return true;
+  if (normalized.startsWith("/.well-known")) return true;
+  return false;
+};
+
+const CORE_ROUTES: Record<string, string> = {
+  "/": "screen.home",
+  "/onboarding": "screen.onboarding",
+  "/profile": "screen.profile",
+  "/profile/edit": "screen.profile_edit",
+  "/settings": "screen.settings",
+  "/notifications": "screen.notifications",
+  "/@:handle": "screen.user_profile",
+};
+
+const CORE_ROUTE_BY_ID: Record<string, string> = Object.fromEntries(
+  Object.entries(CORE_ROUTES).map(([path, id]) => [id, path]),
+);
 
 const normalizeInput = async (c: any): Promise<Record<string, unknown>> => {
   const url = new URL(c.req.url);
@@ -97,21 +128,42 @@ const normalizeInput = async (c: any): Promise<Record<string, unknown>> => {
 };
 
 const toResponse = (res: AppResponse): Response => {
+  const headers = new Headers();
+
+  const appendHeader = (name: string, value: string | string[] | undefined) => {
+    if (value === undefined || value === null) return;
+    if (Array.isArray(value)) {
+      value.forEach((v) => headers.append(name, v));
+    } else {
+      headers.append(name, value);
+    }
+  };
+
+  if (res.headers) {
+    for (const [key, value] of Object.entries(res.headers)) {
+      appendHeader(key, value as string | string[] | undefined);
+    }
+  }
+
   if (res.type === "json") {
+    if (!headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
     return new Response(JSON.stringify(res.body ?? null), {
       status: res.status,
-      headers: { "Content-Type": "application/json", ...(res.headers || {}) },
+      headers,
     });
   }
   if (res.type === "redirect") {
+    headers.set("Location", res.location);
     return new Response(null, {
       status: res.status,
-      headers: { Location: res.location, ...(res.headers || {}) },
+      headers,
     });
   }
   return new Response(res.message, {
     status: res.status,
-    headers: res.headers,
+    headers,
   });
 };
 
@@ -191,6 +243,8 @@ const validateAppManifest = (manifest: AppManifest): { ok: boolean; issues: Mani
   const routePaths = new Set<string>();
 
   for (const route of manifest.routes || []) {
+    const normalizedPath = normalizeRouteKey(route.path);
+
     // ID uniqueness
     if (routeIds.has(route.id)) {
       issues.push({
@@ -203,15 +257,31 @@ const validateAppManifest = (manifest: AppManifest): { ok: boolean; issues: Mani
     }
 
     // Path uniqueness (method + path)
-    const key = `${route.method.toUpperCase()}:${route.path}`;
+    const key = `${route.method.toUpperCase()}:${normalizedPath}`;
     if (routePaths.has(key)) {
       issues.push({
         severity: "error",
-        message: `Duplicate route path: ${route.method} ${route.path}`,
+        message: `Duplicate route path: ${route.method} ${normalizedPath}`,
         context: `route:${route.id}`
       });
     } else {
       routePaths.add(key);
+    }
+
+    if (isReservedRoute(normalizedPath)) {
+      issues.push({
+        severity: "error",
+        message: `Reserved route "${normalizedPath}" cannot be overridden`,
+        context: `route:${route.id}`,
+      });
+    }
+
+    if (CORE_ROUTES[normalizedPath]) {
+      issues.push({
+        severity: "error",
+        message: `Core route "${normalizedPath}" is fixed to ${CORE_ROUTES[normalizedPath]}`,
+        context: `route:${route.id}`,
+      });
     }
   }
 
@@ -231,14 +301,41 @@ const validateAppManifest = (manifest: AppManifest): { ok: boolean; issues: Mani
     }
 
     if (screen.route) {
-      if (screenRoutes.has(screen.route)) {
+      const normalizedRoute = normalizeRouteKey(screen.route);
+      if (screenRoutes.has(normalizedRoute)) {
         issues.push({
           severity: "error",
-          message: `Duplicate screen route: ${screen.route}`,
+          message: `Duplicate screen route: ${normalizedRoute}`,
           context: `screen:${screen.id}`
         });
       } else {
-        screenRoutes.add(screen.route);
+        screenRoutes.add(normalizedRoute);
+      }
+
+      if (isReservedRoute(normalizedRoute)) {
+        issues.push({
+          severity: "error",
+          message: `Reserved route "${normalizedRoute}" cannot be defined in manifest screens`,
+          context: `screen:${screen.id}`,
+        });
+      }
+
+      const expectedForPath = CORE_ROUTES[normalizedRoute];
+      if (expectedForPath && expectedForPath !== screen.id) {
+        issues.push({
+          severity: "error",
+          message: `Core route "${normalizedRoute}" is bound to ${expectedForPath} and cannot be overridden by ${screen.id}`,
+          context: `screen:${screen.id}`,
+        });
+      }
+
+      const expectedPath = CORE_ROUTE_BY_ID[screen.id];
+      if (expectedPath && normalizeRouteKey(expectedPath) !== normalizedRoute) {
+        issues.push({
+          severity: "error",
+          message: `Core screen "${screen.id}" must remain at route "${expectedPath}"`,
+          context: `screen:${screen.id}`,
+        });
       }
     }
   }
@@ -314,7 +411,7 @@ const loadActiveManifest = async (env: Bindings): Promise<ActiveRevisionSnapshot
 
     const revisionId = revision?.id ?? state?.active_revision_id ?? "active";
     const scriptRef = revision?.script_snapshot_ref ?? revision?.scriptSnapshotRef ?? null;
-    return { revisionId, manifest, scriptRef };
+    return { revisionId, manifest, scriptRef, source: "app_revisions" };
 
   } catch (error) {
     console.error("[manifest-routing] failed to load active app revision", error);
@@ -330,29 +427,6 @@ const loadActiveManifest = async (env: Bindings): Promise<ActiveRevisionSnapshot
   }
 };
 
-const loadAppRegistry = async (env: Bindings): Promise<RegistryResult | null> => {
-  const candidates: Array<{ source: string; module: AppScriptModule | undefined | null }> = [
-    { source: "env:APP_MAIN_MODULE", module: (env as any)?.APP_MAIN_MODULE },
-    { source: "global:__takosAppMain", module: (globalThis as any)?.__takosAppMain },
-    { source: "bundle:app-main", module: bundledAppMain as unknown as AppScriptModule },
-  ];
-
-  for (const candidate of candidates) {
-    if (!candidate.module) continue;
-    try {
-      const loaded = await loadAppMainFromModule(candidate.module, candidate.source);
-      return { registry: loaded.registry, source: candidate.source };
-    } catch (error) {
-      console.error(
-        `[manifest-routing] failed to load app-main from ${candidate.source}: ${(error as Error).message}`,
-      );
-    }
-  }
-
-  console.error("[manifest-routing] no App Script module available for manifest routing");
-  return null;
-};
-
 export const createManifestRouter = (options: {
   manifest: AppManifest;
   registry: AppHandlerRegistry;
@@ -360,6 +434,8 @@ export const createManifestRouter = (options: {
   basePath?: string;
   revisionId: string;
   source: string;
+  scriptRef?: string | null;
+  scriptSource?: string;
 }): ManifestRouterInstance => {
   const resolveHandler = (name: string) => {
     const appHandler = options.registry.get(name);
@@ -395,6 +471,8 @@ export const createManifestRouter = (options: {
     app: mountResult.app,
     issues: mountResult.issues,
     revisionId: options.revisionId,
+    scriptRef: options.scriptRef,
+    scriptSource: options.scriptSource ?? options.source,
     matchers,
     manifest: options.manifest,
     source: options.source,
@@ -414,14 +492,27 @@ const buildRouterFromActiveRevision = async (
   env: Bindings,
   authMiddleware: MiddlewareHandler,
 ): Promise<ManifestRouterInstance | null> => {
-  const registryResult = await loadAppRegistry(env);
-  if (!registryResult) return null;
+  let registryResult: RegistryResult | null = null;
+  try {
+    const loaded = await loadAppRegistryFromScript({
+      scriptRef: active.scriptRef,
+      env,
+    });
+    registryResult = { registry: loaded.registry, source: loaded.source };
+  } catch (error) {
+    console.error(
+      `[manifest-routing] failed to load App Script from ref "${active.scriptRef ?? ""}": ${(error as Error).message}`,
+    );
+    return null;
+  }
   const router = createManifestRouter({
     manifest: active.manifest,
     registry: registryResult.registry,
     authMiddleware,
     revisionId: active.revisionId,
     source: registryResult.source,
+    scriptRef: active.scriptRef,
+    scriptSource: registryResult.source,
   });
   if (router.issues.length) {
     console.warn(
@@ -437,12 +528,20 @@ export const resolveManifestRouter = async (
 ): Promise<ManifestRouterInstance | null> => {
   const active = await loadActiveManifest(env);
   if (!active) return null;
-  if (cachedRouter && cachedRouter.revisionId === active.revisionId) {
+  if (
+    cachedRouter &&
+    cachedRouter.revisionId === active.revisionId &&
+    cachedRouter.scriptRef === active.scriptRef
+  ) {
     return cachedRouter;
   }
   if (buildPromise) {
     const pending = await buildPromise;
-    if (pending && pending.revisionId === active.revisionId) {
+    if (
+      pending &&
+      pending.revisionId === active.revisionId &&
+      pending.scriptRef === active.scriptRef
+    ) {
       cachedRouter = pending;
       return pending;
     }
@@ -462,8 +561,10 @@ export const matchesManifestRoute = (
   pathname: string,
 ): boolean => {
   if (!router) return false;
+  const normalizedPath = normalizeRouteKey(pathname);
+  if (isReservedRoute(normalizedPath)) return false;
   const normalizedMethod = (method || "").toUpperCase();
   return router.matchers.some(
-    (matcher) => matcher.method === normalizedMethod && matcher.test(pathname),
+    (matcher) => matcher.method === normalizedMethod && matcher.test(normalizedPath),
   );
 };

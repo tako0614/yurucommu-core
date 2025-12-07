@@ -77,6 +77,20 @@ export type {
 export type { DMService, DmThread, DmMessage, DmThreadPage, DmMessagePage, OpenThreadInput, SendMessageInput, ListThreadsParams, ListMessagesParams } from "./dm-service";
 export type { StoryService, Story, StoryPage, StoryItem, CreateStoryInput, ListStoriesParams } from "./story-service";
 export type { MediaService, MediaObject, ListMediaParams, MediaListResult } from "./media-service";
+export type {
+  AuthService,
+  AuthServiceFactory,
+  AuthLoginResult,
+  ActorChangeResult,
+} from "./auth-service";
+export type {
+  AppAuthContext,
+  AppAuthRateLimits,
+  AppAuthUser,
+  AppPlanInfo,
+  AppPlanLimits,
+  AppPlanName,
+} from "../runtime/types";
 
 import type { PostService } from "./post-service";
 import type { UserService } from "./user-service";
@@ -88,6 +102,21 @@ import type { ObjectService } from "./object-service";
 import type { ActorService } from "./actor-service";
 import type { StorageService } from "./storage-service";
 import type { NotificationService } from "./notification-service";
+import type { AuthService } from "./auth-service";
+
+export {
+  createPostService,
+  createDMService,
+  createStoryService,
+  createMediaService,
+  createCommunityService,
+  createUserService,
+  createObjectService as createCoreObjectService,
+  createActorService,
+  createStorageService,
+  createNotificationService,
+  createAuthService,
+} from "./factories";
 
 /**
  * Core Kernel サービスのレジストリ
@@ -106,4 +135,6 @@ export interface CoreServices {
   notifications?: NotificationService;
   /** Objects コレクション統合サービス (PLAN.md 10.2) */
   objects?: ObjectService;
+  /** Auth / session / owner actor operations */
+  auth?: AuthService;
 }

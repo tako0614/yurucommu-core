@@ -141,10 +141,14 @@ export interface ObjectQueryParams {
   in_reply_to?: string;
   is_local?: boolean;
   include_deleted?: boolean;
+  include_direct?: boolean;
+  exclude_direct?: boolean;
+  participant?: string;
   since?: string;
   until?: string;
   limit?: number;
   offset?: number;
+  order?: "asc" | "desc";
 }
 
 export interface ObjectTimelineParams {
@@ -161,6 +165,31 @@ export interface ObjectRecipientInput {
   object_id: string;
   recipient: string;
   recipient_type: string;
+}
+
+export interface AuditLogRecord {
+  id: string;
+  timestamp: NullableDate;
+  actor_type: string;
+  actor_id?: string | null;
+  action: string;
+  target?: string | null;
+  details_json?: string | null;
+  checksum: string;
+  prev_checksum?: string | null;
+  created_at?: NullableDate;
+}
+
+export interface AuditLogInput {
+  id?: string;
+  timestamp?: NullableDate;
+  actor_type: string;
+  actor_id?: string | null;
+  action: string;
+  target?: string | null;
+  details?: Record<string, unknown> | null;
+  checksum?: string;
+  prev_checksum?: string | null;
 }
 
 export interface BookmarkInput {
@@ -714,6 +743,12 @@ export interface DatabaseAPI {
   getObjectByLocalId?(localId: string): Promise<ObjectRecord | null>;
   queryObjects?(params: ObjectQueryParams): Promise<ObjectRecord[]>;
   deleteObject?(id: string): Promise<void>;
+  replaceObjectRecipients?(object_id: string, recipients: ObjectRecipientInput[]): Promise<void>;
+  listObjectRecipients?(object_id: string): Promise<ObjectRecipientInput[]>;
+
+  // Audit chain
+  appendAuditLog?(entry: AuditLogInput): Promise<AuditLogRecord>;
+  getLatestAuditLog?(): Promise<AuditLogRecord | null>;
 
   // Users (legacy alias to actors)
   getUser(id: string): Promise<any>;
@@ -744,6 +779,8 @@ export interface DatabaseAPI {
   // Compatibility helpers for old code
   areFriends(userId1: string, userId2: string): Promise<boolean>;
   listFriends(userId: string): Promise<any[]>;
+  listFollowers?(userId: string, limit?: number, offset?: number): Promise<any[]>;
+  listFollowing?(userId: string, limit?: number, offset?: number): Promise<any[]>;
 
   // Blocks & Mutes
   blockUser(blocker_id: string, blocked_id: string): Promise<void>;
@@ -755,6 +792,8 @@ export interface DatabaseAPI {
   unmuteUser(muter_id: string, muted_id: string): Promise<void>;
   listMutedUsers(muter_id: string): Promise<any[]>;
   isMuted(muter_id: string, target_id: string): Promise<boolean>;
+  createFollow?(follower_id: string, following_id: string): Promise<void>;
+  deleteFollow?(follower_id: string, following_id: string): Promise<void>;
 
   // Notifications
   addNotification(notification: NotificationInput): Promise<any>;
@@ -905,6 +944,11 @@ export interface DatabaseAPI {
   listAllDmThreads?(): Promise<any[]>;
   createDmMessage(threadId: string, authorId: string, contentHtml: string, rawActivity: any): Promise<any>;
   listDmMessages(threadId: string, limit?: number): Promise<any[]>;
+  listDirectThreadContexts?(
+    actor_id: string,
+    limit?: number,
+    offset?: number
+  ): Promise<Array<{ context: string; latest?: string | null }>>;
 
   // Chat - Channel
   createChannelMessageRecord(communityId: string, channelId: string, authorId: string, contentHtml: string, rawActivity: any): Promise<any>;

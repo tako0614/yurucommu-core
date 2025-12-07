@@ -5,6 +5,7 @@ import type {
   Variables,
 } from "@takos/platform/server";
 import { ok, fail, validateTakosConfig } from "@takos/platform/server";
+import { checkConfigVersionGates } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
 import {
   buildRuntimeConfig,
@@ -75,6 +76,13 @@ async function loadActiveConfig(env: Bindings): Promise<ActiveConfig> {
 
   const baseConfig = stored.config ?? buildRuntimeConfig(env);
   assertConfigAiActionsAllowed(baseConfig);
+  const gateCheck = checkConfigVersionGates(baseConfig);
+  if (!gateCheck.ok && gateCheck.error) {
+    warnings.push(`config gates not compatible: ${gateCheck.error}`);
+  }
+  if (gateCheck.warnings.length) {
+    warnings.push(...gateCheck.warnings);
+  }
   const sanitized = sanitizeConfig(baseConfig);
   warnings.push(...sanitized.warnings);
 
@@ -162,6 +170,15 @@ async function handleConfigDiff(c: any) {
     return fail(c, error?.message || "invalid AI action allowlist", 400);
   }
 
+  const gateCheck = checkConfigVersionGates(validation.config);
+  if (!gateCheck.ok) {
+    return fail(
+      c,
+      gateCheck.error || "config gates incompatible with runtime",
+      409,
+    );
+  }
+
   const incoming = sanitizeConfig(validation.config);
   const diff = diffConfigs(activeConfig.config, incoming.config);
   if (agentGuard.agentType) {
@@ -178,6 +195,7 @@ async function handleConfigDiff(c: any) {
     ...activeConfig.warnings,
     ...compatibility.warnings,
     ...incoming.warnings,
+    ...gateCheck.warnings,
   ];
 
   return ok(c, {
@@ -224,6 +242,15 @@ async function handleConfigImport(c: any, actor: ConfigActor) {
     return fail(c, error?.message || "invalid AI action allowlist", 400);
   }
 
+  const gateCheck = checkConfigVersionGates(validation.config);
+  if (!gateCheck.ok) {
+    return fail(
+      c,
+      gateCheck.error || "config gates incompatible with runtime",
+      409,
+    );
+  }
+
   const incoming = sanitizeConfig(validation.config);
   const diff = diffConfigs(activeConfig.config, incoming.config);
   if (agentGuard.agentType) {
@@ -238,6 +265,7 @@ async function handleConfigImport(c: any, actor: ConfigActor) {
   }
 
   const warnings = [...compatibility.warnings, ...incoming.warnings];
+  warnings.push(...gateCheck.warnings);
 
   const applyResult = await persistConfigWithReloadGuard({
     env: c.env as Bindings,

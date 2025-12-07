@@ -76,46 +76,41 @@ const resolveActiveUser = async (
   return { user: baseUser, activeUserId: baseUser?.id ?? null };
 };
 
-// Unified auth: prefer JWT, fall back to session cookie for legacy paths.
-export const authenticateUser = async (
-  c: any,
-  store: any,
-): Promise<AuthenticatedUser | null> => {
-  const jwtStore = createJwtStoreAdapter(store);
-  const jwtResult = await authenticateJWT(c, jwtStore).catch(() => null);
-  console.log("[backend] auth jwt", {
-    path: new URL(c.req.url).pathname,
-    ok: !!jwtResult,
-  });
-  if (jwtResult?.user) {
-    const active = await resolveActiveUser(c, store, jwtResult.user);
-    return {
-      user: active.user,
-      activeUserId: active.activeUserId,
-      sessionUser: jwtResult.user,
-      sessionId: null,
-      token: jwtResult.token ?? null,
-    };
-  }
+const buildAuthResult = (
+  baseUser: any,
+  active: { user: any; activeUserId: string | null },
+  source: "session" | "jwt",
+  sessionId: string | null,
+  token: string | null,
+): AuthenticatedUser => ({
+  user: active.user,
+  activeUserId: active.activeUserId,
+  sessionUser: baseUser,
+  sessionId: source === "session" ? sessionId : null,
+  token: source === "jwt" ? token : null,
+});
 
+// Unified auth: prefer session (owner password) then fall back to JWT bearer tokens.
+export const authenticateUser = async (c: any, store: any): Promise<AuthenticatedUser | null> => {
+  const path = new URL(c.req.url).pathname;
   const sessionResult = await authenticateSession(c, store, { renewCookie: true }).catch(
     () => null,
   );
-  console.log("[backend] auth session", {
-    path: new URL(c.req.url).pathname,
-    ok: !!sessionResult,
-  });
-  if (!sessionResult?.user) {
-    return null;
+  console.log("[backend] auth session", { path, ok: !!sessionResult });
+  if (sessionResult?.user) {
+    const active = await resolveActiveUser(c, store, sessionResult.user);
+    return buildAuthResult(sessionResult.user, active, "session", sessionResult.sessionId ?? null, null);
   }
-  const active = await resolveActiveUser(c, store, sessionResult.user);
-  return {
-    user: active.user,
-    activeUserId: active.activeUserId,
-    sessionUser: sessionResult.user,
-    sessionId: sessionResult.sessionId ?? null,
-    token: null,
-  };
+
+  const jwtStore = createJwtStoreAdapter(store);
+  const jwtResult = await authenticateJWT(c, jwtStore).catch(() => null);
+  console.log("[backend] auth jwt", { path, ok: !!jwtResult });
+  if (jwtResult?.user) {
+    const active = await resolveActiveUser(c, store, jwtResult.user);
+    return buildAuthResult(jwtResult.user, active, "jwt", null, jwtResult.token ?? null);
+  }
+
+  return null;
 };
 
 export const auth = async (c: any, next: () => Promise<void>) => {
@@ -141,8 +136,9 @@ export const auth = async (c: any, next: () => Promise<void>) => {
       ms: authMs,
     });
     if (!authResult) {
-      c.set("authContext", buildAuthContext(null, plan, rateLimits));
-      return fail(c, "Unauthorized", 401);
+      const anonymous = buildAuthContext(null, plan, rateLimits);
+      c.set("authContext", anonymous);
+      return fail(c, "Authentication required", 401, { code: "UNAUTHORIZED" });
     }
     const authContext = buildAuthContext(authResult, plan, rateLimits);
     c.set("user", authResult.user);
