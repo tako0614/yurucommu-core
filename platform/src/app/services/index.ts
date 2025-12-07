@@ -48,6 +48,7 @@ export {
   createTakosContext,
   generateLocalId,
   generateObjectId,
+  createObjectService,
 } from "./object-service";
 export type {
   UserService,
@@ -56,6 +57,13 @@ export type {
   FollowRequestList,
   NotificationEntry,
 } from "./user-service";
+export type { ActorService, ActorServiceFactory, ActorProfile } from "./actor-service";
+export type { StorageService, StorageServiceFactory, StorageListParams } from "./storage-service";
+export type {
+  NotificationService,
+  NotificationServiceFactory,
+  SendNotificationInput,
+} from "./notification-service";
 export type {
   CommunityService,
   Channel,
@@ -77,6 +85,9 @@ import type { DMService } from "./dm-service";
 import type { StoryService } from "./story-service";
 import type { MediaService } from "./media-service";
 import type { ObjectService } from "./object-service";
+import type { ActorService } from "./actor-service";
+import type { StorageService } from "./storage-service";
+import type { NotificationService } from "./notification-service";
 
 /**
  * Core Kernel サービスのレジストリ
@@ -90,6 +101,9 @@ export interface CoreServices {
   dm: DMService;
   stories: StoryService;
   media?: MediaService;
+  actors?: ActorService;
+  storage?: StorageService;
+  notifications?: NotificationService;
   /** Objects コレクション統合サービス (PLAN.md 10.2) */
   objects?: ObjectService;
 }

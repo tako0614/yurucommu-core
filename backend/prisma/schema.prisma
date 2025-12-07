@@ -1,4 +1,4 @@
-// Prisma schema for Cloudflare D1 (SQLite)
+// Prisma schema for takos v1.8 (objects/actors centric)
 
 generator client {
   provider = "prisma-client-js"
@@ -6,95 +6,179 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  // Connection details are defined via prisma.config.ts for migrate tooling.
 }
 
-model users {
-  id                   String    @id // canonical handle
-  display_name         String
-  avatar_url           String    @default("")
-  created_at           DateTime
-  is_private           Int       @default(1)
-  profile_completed_at DateTime?
-  jwt_secret           String? // JWT secret for this user (instance)
+model actors {
+  id                       String    @id // ActivityPub Actor URI
+  local_id                 String?   @unique
+  handle                   String    @unique
+  type                     String
+  display_name             String?
+  summary                  String?
+  avatar_url               String?
+  header_url               String?
+  inbox                    String?
+  outbox                   String?
+  followers                String?
+  following                String?
+  public_key               String?
+  private_key              String?
+  is_local                 Int       @default(1)
+  is_bot                   Int       @default(0)
+  manually_approves_followers Int    @default(0)
+  owner_id                 String?
+  visibility               String    @default("public")
+  profile_completed_at     DateTime?
+  jwt_secret               String?
+  metadata_json            String?   @db.Text
+  created_at               DateTime  @default(now())
+  updated_at               DateTime?
 
-  // ActivityPub fields
-  summary                     String? // Bio/profile description
-  manually_approves_followers Int     @default(0) // Require approval for followers
+  owner        actors?           @relation("actor_owner", fields: [owner_id], references: [id], onDelete: SetNull)
+  owned_actors actors[]          @relation("actor_owner")
+  channels     channels[]
+  actor_roles  actor_roles[]     @relation("actor_roles_actor")
+  member_roles actor_roles[]     @relation("actor_roles_member")
+  follows_as_follower  follows[] @relation("follows_follower")
+  follows_as_following follows[] @relation("follows_following")
+  blocks_initiated blocks[]      @relation("blocks_blocker")
+  blocks_received  blocks[]      @relation("blocks_blocked")
+  mutes_initiated  mutes[]       @relation("mutes_muter")
+  mutes_received   mutes[]       @relation("mutes_muted")
+  notifications    notifications[] @relation("notification_recipient")
+  media            media[]
+  data_exports     data_export_requests[]
+  push_devices     push_devices[]
+  sessions         sessions[]
+  ap_keypair       ap_keypairs?
+  lists            lists[]       @relation("list_owner")
+  list_memberships list_members[] @relation("list_member_actor")
+  memberships      memberships[] @relation("membership_actor")
+  community_memberships memberships[] @relation("membership_community")
+  invites_created  invites[]     @relation("invite_creator")
+  member_invites_sent member_invites[] @relation("member_invite_sender")
+  member_invites_received member_invites[] @relation("member_invite_target")
+  reports_made     reports[]     @relation("reports_reporter")
+  reports_received reports[]     @relation("reports_target")
 
-  // Relations
-  accounts                user_accounts[]
-  created_communities     communities[]           @relation("community_creator")
-  memberships             memberships[]
-  invites_created         invites[]               @relation("invite_creator")
-  member_invites_sent     member_invites[]        @relation("inviter")
-  member_invites_received member_invites[]        @relation("invitee")
-  posts                   posts[]                 @relation("post_author")
-  post_reactions          post_reactions[]
-  comments                comments[]
-  stories                 stories[]               @relation("story_author")
-  dm_messages             chat_dm_messages[]
-  channel_messages        chat_channel_messages[]
-  notifications           notifications[]         @relation("notification_recipient")
-  push_devices            push_devices[]
-  sessions                sessions[]
-  ap_keypairs             ap_keypairs?
-  post_reposts            post_reposts[]
-  post_bookmarks          post_bookmarks[]
-  lists                   lists[]
-  list_memberships        list_members[]
-  post_plans              post_plans[]
-  post_edits              post_edit_history[]
-  poll_votes              post_poll_votes[]
-  mentioned_in            post_mentions[]
-  blocks_initiated        user_blocks[]           @relation("user_blocks_blocker")
-  blocks_received         user_blocks[]           @relation("user_blocks_blocked")
-  mutes_initiated         user_mutes[]            @relation("user_mutes_muter")
-  mutes_received          user_mutes[]            @relation("user_mutes_muted")
-  data_exports            data_export_requests[]
-
-  @@map("users")
+  @@index([type], name: "idx_actors_type")
+  @@index([is_local], name: "idx_actors_is_local")
 }
 
-model communities {
+model follows {
   id            String   @id
-  name          String
-  icon_url      String   @default("")
-  visibility    String   @default("private")
-  description   String   @default("")
-  invite_policy String   @default("owner_mod") // 'owner_mod' | 'members'
-  created_by    String
-  created_at    DateTime
+  follower_id   String
+  following_id  String
+  status        String   @default("pending")
+  created_at    DateTime @default(now())
 
-  // ActivityPub fields
-  ap_id String? @unique // Group Actor URI
+  follower  actors @relation("follows_follower", fields: [follower_id], references: [id], onDelete: Cascade)
+  following actors @relation("follows_following", fields: [following_id], references: [id], onDelete: Cascade)
 
-  // Relations
-  creator     users         @relation("community_creator", fields: [created_by], references: [id], onDelete: Cascade)
-  memberships memberships[]
-  invites     invites[]
-  posts       posts[]       @relation("community_posts")
-  stories     stories[]     @relation("community_stories")
-  channels    channels[]
-  post_plans  post_plans[]
+  @@unique([follower_id, following_id])
+  @@index([status])
+  @@map("follows")
+}
 
-  @@map("communities")
+model blocks {
+  blocker_id String
+  blocked_id String
+  created_at DateTime @default(now())
+
+  blocker actors @relation("blocks_blocker", fields: [blocker_id], references: [id], onDelete: Cascade)
+  blocked actors @relation("blocks_blocked", fields: [blocked_id], references: [id], onDelete: Cascade)
+
+  @@id([blocker_id, blocked_id])
+  @@map("blocks")
+}
+
+model mutes {
+  muter_id   String
+  muted_id   String
+  created_at DateTime @default(now())
+
+  muter actors @relation("mutes_muter", fields: [muter_id], references: [id], onDelete: Cascade)
+  muted actors @relation("mutes_muted", fields: [muted_id], references: [id], onDelete: Cascade)
+
+  @@id([muter_id, muted_id])
+  @@map("mutes")
+}
+
+model channels {
+  id         String   @id
+  actor_id   String
+  name       String
+  type       String   @default("text")
+  position   Int      @default(0)
+  created_at DateTime @default(now())
+
+  actor actors @relation(fields: [actor_id], references: [id], onDelete: Cascade)
+
+  @@index([actor_id])
+  @@map("channels")
+}
+
+model actor_roles {
+  id         String   @id
+  actor_id   String
+  member_id  String
+  role       String   @default("member")
+  created_at DateTime @default(now())
+
+  actor  actors @relation("actor_roles_actor", fields: [actor_id], references: [id], onDelete: Cascade)
+  member actors @relation("actor_roles_member", fields: [member_id], references: [id], onDelete: Cascade)
+
+  @@unique([actor_id, member_id])
+  @@map("actor_roles")
 }
 
 model memberships {
   community_id String
-  user_id      String
-  role         String
-  nickname     String   @default("")
-  joined_at    DateTime
+  actor_id     String
+  role         String   @default("member")
   status       String   @default("active")
+  joined_at    DateTime @default(now())
 
-  // Relations
-  community communities @relation(fields: [community_id], references: [id], onDelete: Cascade)
-  user      users       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  community actors @relation("membership_community", fields: [community_id], references: [id], onDelete: Cascade)
+  actor     actors @relation("membership_actor", fields: [actor_id], references: [id], onDelete: Cascade)
 
-  @@id([community_id, user_id])
+  @@id([community_id, actor_id])
   @@map("memberships")
+}
+
+model invites {
+  code         String   @id
+  community_id String
+  expires_at   DateTime?
+  created_by   String
+  max_uses     Int      @default(0)
+  uses         Int      @default(0)
+  active       Int      @default(1)
+  created_at   DateTime @default(now())
+
+  community actors @relation(fields: [community_id], references: [id], onDelete: Cascade)
+  creator   actors @relation("invite_creator", fields: [created_by], references: [id], onDelete: Cascade)
+
+  @@index([community_id])
+  @@index([created_by])
+  @@map("invites")
+}
+
+model member_invites {
+  id               String   @id
+  community_id     String
+  invited_actor_id String
+  invited_by       String
+  status           String   @default("pending")
+  created_at       DateTime @default(now())
+
+  community actors @relation(fields: [community_id], references: [id], onDelete: Cascade)
+  invitee   actors @relation("member_invite_target", fields: [invited_actor_id], references: [id], onDelete: Cascade)
+  inviter   actors @relation("member_invite_sender", fields: [invited_by], references: [id], onDelete: Cascade)
+
+  @@index([community_id])
+  @@index([invited_actor_id])
+  @@map("member_invites")
 }
 
 model lists {
@@ -103,435 +187,172 @@ model lists {
   name        String
   description String   @default("")
   is_public   Int      @default(0)
-  created_at  DateTime
-  updated_at  DateTime
+  created_at  DateTime @default(now())
+  updated_at  DateTime @default(now())
 
-  // Relations
-  owner   users          @relation(fields: [owner_id], references: [id], onDelete: Cascade)
+  owner   actors       @relation("list_owner", fields: [owner_id], references: [id], onDelete: Cascade)
   members list_members[]
 
+  @@index([owner_id])
   @@map("lists")
 }
 
 model list_members {
-  list_id  String
-  user_id  String
-  added_at DateTime
+  list_id   String
+  actor_id  String
+  added_at  DateTime @default(now())
 
-  // Relations
-  list lists @relation(fields: [list_id], references: [id], onDelete: Cascade)
-  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  list  lists  @relation(fields: [list_id], references: [id], onDelete: Cascade)
+  actor actors @relation("list_member_actor", fields: [actor_id], references: [id], onDelete: Cascade)
 
-  @@id([list_id, user_id])
+  @@id([list_id, actor_id])
   @@map("list_members")
 }
 
-model invites {
-  code         String    @id
-  community_id String
-  expires_at   DateTime?
-  created_by   String
-  max_uses     Int       @default(0)
-  uses         Int       @default(0)
-  active       Int       @default(1)
+model user_accounts {
+  id                  String   @id
+  actor_id            String
+  provider            String
+  provider_account_id String
+  password_hash       String?
+  created_at          DateTime @default(now())
+  updated_at          DateTime @default(now())
 
-  // Relations
-  community communities @relation(fields: [community_id], references: [id], onDelete: Cascade)
-  creator   users       @relation("invite_creator", fields: [created_by], references: [id], onDelete: Cascade)
+  actor actors @relation(fields: [actor_id], references: [id], onDelete: Cascade)
 
-  @@map("invites")
+  @@unique([provider, provider_account_id])
+  @@index([actor_id])
+  @@map("user_accounts")
 }
 
-model member_invites {
-  id              String   @id
-  community_id    String
-  invited_user_id String
-  invited_by      String
-  status          String   @default("pending") // 'pending' | 'accepted' | 'declined' | 'canceled'
-  created_at      DateTime
+model objects {
+  id              String    @id
+  local_id        String?   @unique
+  type            String
+  actor           String
+  published       String?
+  updated         String?
+  to              Json?
+  cc              Json?
+  bto             Json?
+  bcc             Json?
+  context         String?
+  in_reply_to     String?
+  content         Json
+  is_local        Int       @default(1)
+  visibility      String?
+  deleted_at      String?
+  created_at      DateTime  @default(now())
+  object_ref      String?   @default(dbgenerated("json_extract(\"content\", '$.object')")) @map("object_ref")
+  in_reply_to_ref String?   @default(dbgenerated("json_extract(\"content\", '$.inReplyTo')")) @map("in_reply_to_ref")
 
-  // Relations
-  inviter users @relation("inviter", fields: [invited_by], references: [id], onDelete: Cascade)
-  invitee users @relation("invitee", fields: [invited_user_id], references: [id], onDelete: Cascade)
+  recipients object_recipients[]
+  bookmarks  object_bookmarks[]
 
-  @@map("member_invites")
+  @@index([type], name: "idx_objects_type")
+  @@index([actor], name: "idx_objects_actor")
+  @@index([published(sort: Desc)], name: "idx_objects_published")
+  @@index([context], name: "idx_objects_context")
+  @@index([in_reply_to], name: "idx_objects_in_reply_to")
+  @@index([visibility], name: "idx_objects_visibility")
+  @@index([is_local], name: "idx_objects_is_local")
+  @@index([deleted_at], name: "idx_objects_deleted_at")
+  @@index([object_ref], name: "idx_objects_object_ref")
+  @@index([type, object_ref], name: "idx_objects_type_object")
+  @@index([in_reply_to_ref], name: "idx_objects_reply_to")
+  @@index([visibility, published], name: "idx_objects_visibility_published")
+
+  @@map("objects")
 }
 
-model channels {
-  id           String
-  community_id String
-  name         String
-  created_at   DateTime
+model object_recipients {
+  object_id      String
+  recipient      String
+  recipient_type String
 
-  // Relations
-  community communities @relation(fields: [community_id], references: [id], onDelete: Cascade)
+  object objects @relation(fields: [object_id], references: [id], onDelete: Cascade)
 
-  @@id([id, community_id])
-  @@map("channels")
+  @@id([object_id, recipient, recipient_type])
+  @@index([recipient], name: "idx_object_recipients_recipient")
+  @@map("object_recipients")
 }
 
-model posts {
-  id                      String   @id
-  community_id            String?
-  author_id               String
-  type                    String
-  text                    String   @default("")
-  content_warning         String?
-  sensitive               Int      @default(0)
-  media_json              String   @default("[]")
-  created_at              DateTime
-  pinned                  Int      @default(0)
-  broadcast_all           Int      @default(0)
-  visible_to_friends      Int      @default(0)
-  edit_count              Int      @default(0)
-  attributed_community_id String?
+model object_bookmarks {
+  id         String   @id
+  object_id  String
+  actor_id   String
+  created_at DateTime @default(now())
 
-  // ActivityPub fields
-  ap_object_id     String? @unique // ActivityPub Object URI
-  ap_attributed_to String? // Remote actor URI for federated posts
-  in_reply_to      String? // Reply target Object URI
-  ap_activity_id   String? @unique // Create Activity URI
+  object objects @relation(fields: [object_id], references: [id], onDelete: Cascade)
+  actor  actors  @relation(fields: [actor_id], references: [id], onDelete: Cascade)
 
-  // Relations
-  author        users               @relation("post_author", fields: [author_id], references: [id], onDelete: Cascade)
-  community     communities?        @relation("community_posts", fields: [community_id], references: [id], onDelete: Cascade)
-  reactions     post_reactions[]
-  comments      comments[]
-  announces     ap_announces[]
-  hashtags      post_hashtags[]
-  mentions      post_mentions[]
-  reposts       post_reposts[]
-  bookmarks_rel post_bookmarks[]
-  edit_history  post_edit_history[]
-  poll          post_polls?
-
-  @@map("posts")
+  @@unique([object_id, actor_id])
+  @@index([actor_id, created_at])
+  @@map("object_bookmarks")
 }
 
 model post_plans {
-  id                      String    @id
-  author_id               String
-  community_id            String?
-  type                    String
-  text                    String    @default("")
-  media_json              String    @default("[]")
-  status                  String    @default("draft") // draft | scheduled | published | failed | canceled
-  scheduled_at            DateTime?
-  post_id                 String?
-  broadcast_all           Int       @default(0)
-  visible_to_friends      Int       @default(0)
-  attributed_community_id String?
-  last_error              String?
-  created_at              DateTime
-  updated_at              DateTime
+  id               String   @id
+  author_id        String
+  community_id     String?
+  type             String
+  content_json     String   @default("{}")
+  status           String   @default("draft")
+  scheduled_at     DateTime?
+  object_id        String?
+  last_error       String?
+  created_at       DateTime @default(now())
+  updated_at       DateTime @default(now())
 
-  // Relations
-  author    users        @relation(fields: [author_id], references: [id], onDelete: Cascade)
-  community communities? @relation(fields: [community_id], references: [id], onDelete: Cascade)
+  author    actors @relation(fields: [author_id], references: [id], onDelete: Cascade)
+  community actors? @relation(fields: [community_id], references: [id], onDelete: Cascade)
 
   @@index([status, scheduled_at])
   @@map("post_plans")
 }
 
-model post_reactions {
-  id         String   @id
-  post_id    String
-  user_id    String
-  emoji      String
-  created_at DateTime
+model notifications {
+  id           String   @id
+  recipient_id String
+  type         String
+  actor_id     String?
+  object_id    String?
+  ref_type     String?
+  ref_id       String?
+  message      String   @default("")
+  data_json    String?
+  created_at   DateTime @default(now())
+  read         Int      @default(0)
 
-  // ActivityPub fields
-  ap_activity_id String? @unique // Like Activity URI
+  recipient actors @relation("notification_recipient", fields: [recipient_id], references: [id], onDelete: Cascade)
+  actor     actors? @relation("notification_actor", fields: [actor_id], references: [id], onDelete: SetNull)
 
-  // Relations
-  post posts @relation(fields: [post_id], references: [id], onDelete: Cascade)
-  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@map("post_reactions")
-}
-
-model post_reposts {
-  id             String   @id
-  post_id        String
-  user_id        String
-  comment        String   @default("")
-  created_at     DateTime
-  ap_activity_id String?  @unique
-
-  // Relations
-  post posts @relation(fields: [post_id], references: [id], onDelete: Cascade)
-  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@unique([post_id, user_id])
-  @@index([user_id, created_at])
-  @@index([post_id, created_at])
-  @@map("post_reposts")
-}
-
-model post_bookmarks {
-  id         String   @id
-  post_id    String
-  user_id    String
-  created_at DateTime
-
-  // Relations
-  post posts @relation(fields: [post_id], references: [id], onDelete: Cascade)
-  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@unique([post_id, user_id])
-  @@index([user_id, created_at])
-  @@map("post_bookmarks")
-}
-
-model comments {
-  id         String   @id
-  post_id    String
-  author_id  String
-  text       String
-  created_at DateTime
-
-  // ActivityPub fields
-  ap_object_id   String? @unique // ActivityPub Object URI
-  ap_activity_id String? @unique // Create Activity URI
-
-  // Relations
-  post   posts @relation(fields: [post_id], references: [id], onDelete: Cascade)
-  author users @relation(fields: [author_id], references: [id], onDelete: Cascade)
-
-  @@map("comments")
+  @@index([recipient_id])
+  @@index([actor_id])
+  @@index([object_id])
+  @@map("notifications")
 }
 
 model media {
   key          String   @id
-  user_id      String
+  actor_id     String
   url          String
   description  String   @default("")
   content_type String   @default("")
-  created_at   DateTime
-  updated_at   DateTime
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now())
 
-  @@index([user_id])
+  actor actors @relation(fields: [actor_id], references: [id], onDelete: Cascade)
+
+  @@index([actor_id])
   @@map("media")
-}
-
-model post_edit_history {
-  id                  String   @id
-  post_id             String
-  editor_id           String
-  previous_text       String   @default("")
-  previous_media_json String   @default("[]")
-  diff_json           String   @default("{}")
-  created_at          DateTime @default(now())
-
-  post   posts @relation(fields: [post_id], references: [id], onDelete: Cascade)
-  editor users @relation(fields: [editor_id], references: [id], onDelete: Cascade)
-
-  @@index([post_id, created_at])
-  @@map("post_edit_history")
-}
-
-model post_polls {
-  id              String    @id
-  post_id         String    @unique
-  question        String    @default("")
-  allows_multiple Int       @default(0)
-  anonymous       Int       @default(1)
-  expires_at      DateTime?
-  created_at      DateTime  @default(now())
-
-  post    posts               @relation(fields: [post_id], references: [id], onDelete: Cascade)
-  options post_poll_options[]
-  votes   post_poll_votes[]
-
-  @@map("post_polls")
-}
-
-model post_poll_options {
-  id          String   @id
-  poll_id     String
-  text        String
-  order_index Int      @default(0)
-  created_at  DateTime @default(now())
-
-  poll  post_polls        @relation(fields: [poll_id], references: [id], onDelete: Cascade)
-  votes post_poll_votes[]
-
-  @@index([poll_id])
-  @@map("post_poll_options")
-}
-
-model post_poll_votes {
-  id         String   @id
-  poll_id    String
-  option_id  String
-  user_id    String
-  created_at DateTime @default(now())
-
-  poll   post_polls        @relation(fields: [poll_id], references: [id], onDelete: Cascade)
-  option post_poll_options @relation(fields: [option_id], references: [id], onDelete: Cascade)
-  user   users             @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@unique([poll_id, user_id, option_id])
-  @@index([poll_id])
-  @@map("post_poll_votes")
-}
-
-model hashtags {
-  id         String   @id
-  tag        String   @unique
-  created_at DateTime @default(now())
-
-  posts post_hashtags[]
-
-  @@map("hashtags")
-}
-
-model post_hashtags {
-  post_id    String
-  hashtag_id String
-  created_at DateTime @default(now())
-
-  post    posts    @relation(fields: [post_id], references: [id], onDelete: Cascade)
-  hashtag hashtags @relation(fields: [hashtag_id], references: [id], onDelete: Cascade)
-
-  @@id([post_id, hashtag_id])
-  @@map("post_hashtags")
-}
-
-model post_mentions {
-  post_id           String
-  mentioned_user_id String
-  created_at        DateTime @default(now())
-
-  post           posts @relation(fields: [post_id], references: [id], onDelete: Cascade)
-  mentioned_user users @relation(fields: [mentioned_user_id], references: [id], onDelete: Cascade)
-
-  @@id([post_id, mentioned_user_id])
-  @@map("post_mentions")
-}
-
-model stories {
-  id                      String   @id
-  community_id            String?
-  author_id               String
-  created_at              DateTime
-  expires_at              DateTime
-  items_json              String
-  broadcast_all           Int      @default(1)
-  visible_to_friends      Int      @default(1)
-  attributed_community_id String?
-
-  // Relations
-  author    users        @relation("story_author", fields: [author_id], references: [id], onDelete: Cascade)
-  community communities? @relation("community_stories", fields: [community_id], references: [id], onDelete: Cascade)
-
-  @@map("stories")
-}
-
-model user_blocks {
-  blocker_id String
-  blocked_id String
-  created_at DateTime @default(now())
-
-  blocker users @relation("user_blocks_blocker", fields: [blocker_id], references: [id], onDelete: Cascade)
-  blocked users @relation("user_blocks_blocked", fields: [blocked_id], references: [id], onDelete: Cascade)
-
-  @@id([blocker_id, blocked_id])
-  @@map("user_blocks")
-}
-
-model user_mutes {
-  muter_id   String
-  muted_id   String
-  created_at DateTime @default(now())
-
-  muter users @relation("user_mutes_muter", fields: [muter_id], references: [id], onDelete: Cascade)
-  muted users @relation("user_mutes_muted", fields: [muted_id], references: [id], onDelete: Cascade)
-
-  @@id([muter_id, muted_id])
-  @@map("user_mutes")
-}
-
-model user_accounts {
-  id                  String   @id
-  user_id             String
-  provider            String
-  provider_account_id String
-  created_at          DateTime @default(now())
-  updated_at          DateTime @default(now())
-
-  user users @relation(fields: [user_id], references: [id])
-
-  @@unique([provider, provider_account_id])
-  @@index([user_id])
-  @@map("user_accounts")
-}
-
-model chat_dm_threads {
-  id                String   @id
-  participants_hash String   @unique
-  participants_json String
-  created_at        DateTime @default(now())
-
-  messages chat_dm_messages[]
-
-  @@map("chat_dm_threads")
-}
-
-model chat_dm_messages {
-  id                String   @id
-  thread_id         String
-  author_id         String
-  content_html      String
-  raw_activity_json String
-  created_at        DateTime @default(now())
-
-  // Relations
-  thread chat_dm_threads @relation(fields: [thread_id], references: [id], onDelete: Cascade)
-  author users           @relation(fields: [author_id], references: [id], onDelete: Cascade)
-
-  @@index([thread_id, created_at])
-  @@map("chat_dm_messages")
-}
-
-model chat_channel_messages {
-  id                String   @id
-  community_id      String
-  channel_id        String
-  author_id         String
-  content_html      String
-  raw_activity_json String
-  created_at        DateTime @default(now())
-
-  // Relations
-  author users @relation(fields: [author_id], references: [id], onDelete: Cascade)
-
-  @@index([community_id, channel_id, created_at])
-  @@map("chat_channel_messages")
-}
-
-model notifications {
-  id         String   @id
-  user_id    String // recipient
-  type       String // 'follow_request' | 'follow_accepted' | 'like' | 'comment'
-  actor_id   String
-  ref_type   String // 'post' | 'comment' | 'user'
-  ref_id     String
-  message    String   @default("")
-  created_at DateTime
-  read       Int      @default(0)
-
-  // Relations
-  recipient users @relation("notification_recipient", fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@map("notifications")
 }
 
 model data_export_requests {
   id            String    @id
-  user_id       String
+  actor_id      String
   format        String    @default("json")
-  status        String    @default("pending") // pending | processing | completed | failed
+  status        String    @default("pending")
   attempt_count Int       @default(0)
   max_attempts  Int       @default(3)
   requested_at  DateTime
@@ -540,196 +361,149 @@ model data_export_requests {
   result_json   String?
   error_message String?
 
-  // Relations
-  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  actor actors @relation(fields: [actor_id], references: [id], onDelete: Cascade)
 
   @@index([status])
-  @@index([user_id, requested_at])
+  @@index([actor_id, requested_at])
   @@map("data_export_requests")
-}
-
-// ActivityPub Announce/Boost tracking
-model ap_announces {
-  id            String   @id
-  activity_id   String   @unique // Announce Activity URI
-  actor_id      String // Who announced/boosted
-  object_id     String // Object URI (post being boosted)
-  local_post_id String? // FK to posts.id if local post
-  created_at    DateTime
-
-  // Relations
-  post posts? @relation(fields: [local_post_id], references: [id], onDelete: Cascade)
-
-  @@index([local_post_id])
-  @@index([actor_id])
-  @@map("ap_announces")
 }
 
 model push_devices {
   id          String   @id
-  user_id     String
+  actor_id    String
   token       String   @unique
   platform    String
   device_name String   @default("")
   locale      String   @default("")
-  created_at  DateTime
-  updated_at  DateTime
+  created_at  DateTime @default(now())
+  updated_at  DateTime @default(now())
 
-  // Relations
-  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  actor actors @relation(fields: [actor_id], references: [id], onDelete: Cascade)
 
-  @@index([user_id])
+  @@index([actor_id])
   @@map("push_devices")
 }
 
 model sessions {
   id         String    @id
-  user_id    String
+  actor_id   String
   created_at DateTime
   last_seen  DateTime
   expires_at DateTime?
 
-  // Relations
-  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  actor actors @relation(fields: [actor_id], references: [id], onDelete: Cascade)
 
-  @@index([user_id])
+  @@index([actor_id])
   @@map("sessions")
 }
 
-// ============================================
-// ActivityPub Tables
-// ============================================
+model owner_password {
+  id            Int      @id @default(1)
+  password_hash String
+  updated_at    DateTime @default(now())
 
-// Remote actors (federated users from other instances)
-model ap_actors {
-  id              String    @id // Full Actor URI: https://bob.example.com/ap/users/bob
-  handle          String // username part: bob
-  domain          String // instance domain: example.com
-  type            String    @default("Person") // Person, Group, Service
-  display_name    String
-  summary         String? // Bio/description
-  icon_url        String?
-  inbox_url       String
-  outbox_url      String
-  followers_url   String?
-  following_url   String?
-  public_key_pem  String // PEM format public key
-  public_key_id   String // Key identifier URI
-  created_at      DateTime
-  updated_at      DateTime
-  last_fetched_at DateTime? // Last time we fetched actor info
-
-  @@unique([handle, domain])
-  @@index([domain])
-  @@map("ap_actors")
+  @@map("owner_password")
 }
 
-// Following relationships (local user follows remote actor)
+model ap_outbox_activities {
+  id             String   @id
+  local_actor_id String
+  activity_id    String   @unique
+  activity_type  String
+  activity_json  String
+  object_id      String?
+  object_type    String?
+  created_at     DateTime @default(now())
+
+  actor actors @relation(fields: [local_actor_id], references: [id], onDelete: Cascade)
+
+  @@index([local_actor_id])
+  @@index([created_at])
+  @@map("ap_outbox_activities")
+}
+
 model ap_follows {
   id              String    @id
-  local_user_id   String // FK to users.id
-  remote_actor_id String // FK to ap_actors.id
-  activity_id     String    @unique // Follow Activity URI
-  status          String    @default("pending") // pending, accepted, rejected
+  local_actor_id  String
+  remote_actor_id String
+  activity_id     String    @unique
+  status          String    @default("pending")
   created_at      DateTime
   accepted_at     DateTime?
 
-  @@unique([local_user_id, remote_actor_id])
-  @@index([local_user_id])
+  local_actor  actors @relation("ap_follows_local_actor", fields: [local_actor_id], references: [id], onDelete: Cascade)
+  remote_actor actors @relation("ap_follows_remote_actor", fields: [remote_actor_id], references: [id], onDelete: Cascade)
+
+  @@unique([local_actor_id, remote_actor_id])
+  @@index([local_actor_id])
   @@index([remote_actor_id])
   @@map("ap_follows")
 }
 
-// Follower relationships (remote actor follows local user)
 model ap_followers {
   id              String    @id
-  local_user_id   String // FK to users.id
-  remote_actor_id String // FK to ap_actors.id
-  activity_id     String    @unique // Follow Activity URI
-  status          String    @default("pending") // pending, accepted, rejected
+  local_actor_id  String
+  remote_actor_id String
+  activity_id     String    @unique
+  status          String    @default("pending")
   created_at      DateTime
   accepted_at     DateTime?
 
-  @@unique([local_user_id, remote_actor_id])
-  @@index([local_user_id])
+  local_actor  actors @relation("ap_followers_local_actor", fields: [local_actor_id], references: [id], onDelete: Cascade)
+  remote_actor actors @relation("ap_followers_remote_actor", fields: [remote_actor_id], references: [id], onDelete: Cascade)
+
+  @@unique([local_actor_id, remote_actor_id])
+  @@index([local_actor_id])
   @@index([remote_actor_id])
   @@map("ap_followers")
 }
 
-// Inbox activities (received from remote instances)
 model ap_inbox_activities {
-  id              String    @id
-  local_user_id   String // Recipient user
-  remote_actor_id String? // Sender actor (nullable for certain activity types)
-  activity_id     String // Activity URI
-  activity_type   String // Follow, Create, Like, Announce, etc.
-  activity_json   String // Full Activity JSON
-  status          String    @default("pending") // pending, processing, processed, failed
+  id              String   @id
+  local_actor_id  String
+  remote_actor_id String?
+  activity_id     String
+  activity_type   String
+  activity_json   String
+  status          String   @default("pending")
   error_message   String?
-  created_at      DateTime
+  created_at      DateTime @default(now())
   processed_at    DateTime?
 
-  @@unique([local_user_id, activity_id])
-  @@index([local_user_id])
+  local_actor  actors @relation(fields: [local_actor_id], references: [id], onDelete: Cascade)
+  remote_actor actors? @relation(fields: [remote_actor_id], references: [id], onDelete: SetNull)
+
+  @@unique([local_actor_id, activity_id])
+  @@index([local_actor_id])
   @@index([status])
   @@index([activity_id])
   @@map("ap_inbox_activities")
 }
 
-// Outbox activities (sent to remote instances)
-model ap_outbox_activities {
-  id            String   @id
-  local_user_id String // Sender user
-  activity_id   String   @unique // Activity URI
-  activity_type String // Create, Update, Delete, Follow, Like, Announce, etc.
-  activity_json String // Full Activity JSON
-  object_id     String? // Object URI (if applicable)
-  object_type   String? // Note, Article, etc.
-  created_at    DateTime
+model ap_rate_limits {
+  id           String @id
+  key          String
+  window_start Int
+  created_at   Int
 
-  @@index([local_user_id])
-  @@index([created_at])
-  @@map("ap_outbox_activities")
+  @@index([key, window_start])
+  @@map("ap_rate_limits")
 }
 
-// Keypairs for HTTP Signatures (one per user)
-model ap_keypairs {
-  user_id         String   @id // FK to users.id
-  public_key_pem  String // PEM format
-  private_key_pem String // PEM format (consider encryption)
-  created_at      DateTime
-
-  // Relations
-  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
-
-  @@map("ap_keypairs")
-}
-
-// Remote instance metadata
-model ap_instances {
-  domain          String   @id // e.g., mastodon.social
-  software        String? // mastodon, misskey, etc.
-  version         String?
-  last_checked_at DateTime
-
-  @@map("ap_instances")
-}
-
-// Delivery queue for outgoing activities
 model ap_delivery_queue {
   id               String    @id
-  activity_id      String // FK to ap_outbox_activities.activity_id
+  activity_id      String
   target_inbox_url String
   attempts         Int       @default(0)
   max_attempts     Int       @default(3)
-  status           String    @default("pending") // pending, delivered, failed
+  status           String    @default("pending")
   last_attempt_at  DateTime?
   next_attempt_at  DateTime?
   error_message    String?
-  created_at       DateTime
-  retry_count      Int       @default(0) // For compatibility with existing code
-  delivered_at     DateTime? // For compatibility with existing code
-  last_error       String? // For compatibility with existing code
+  created_at       DateTime  @default(now())
+  retry_count      Int       @default(0)
+  delivered_at     DateTime?
+  last_error       String?
 
   @@unique([activity_id, target_inbox_url])
   @@index([status])
@@ -737,7 +511,26 @@ model ap_delivery_queue {
   @@map("ap_delivery_queue")
 }
 
-// Moderation reports
+model ap_keypairs {
+  actor_id       String   @id
+  public_key_pem String
+  private_key_pem String
+  created_at     DateTime @default(now())
+
+  actor actors @relation(fields: [actor_id], references: [id], onDelete: Cascade)
+
+  @@map("ap_keypairs")
+}
+
+model ap_instances {
+  domain          String   @id
+  software        String?
+  version         String?
+  last_checked_at DateTime
+
+  @@map("ap_instances")
+}
+
 model reports {
   id                String   @id
   reporter_actor_id String
@@ -745,16 +538,18 @@ model reports {
   target_object_id  String?
   reason            String?
   category          String   @default("other")
-  status            String   @default("pending") // pending, reviewed, resolved, dismissed
+  status            String   @default("pending")
   created_at        DateTime @default(now())
   updated_at        DateTime @default(now())
+
+  reporter actors @relation("reports_reporter", fields: [reporter_actor_id], references: [id], onDelete: Cascade)
+  target   actors @relation("reports_target", fields: [target_actor_id], references: [id], onDelete: Cascade)
 
   @@index([status])
   @@index([target_actor_id])
   @@map("reports")
 }
 
-// App revision history (prod)
 model app_revisions {
   id                  String   @id
   created_at          DateTime @default(now())
@@ -768,7 +563,6 @@ model app_revisions {
   @@map("app_revisions")
 }
 
-// Single-row table tracking the currently active revision
 model app_state {
   id                 Int      @id @default(1)
   active_revision_id String?
@@ -779,17 +573,16 @@ model app_state {
   @@map("app_state")
 }
 
-// App workspaces (dev)
 model app_workspaces {
   id               String   @id
   base_revision_id String?
-  status           String   @default("draft") // draft, validated, testing, ready, applied
+  status           String   @default("draft")
   author_type      String
   author_name      String?
   created_at       DateTime @default(now())
   updated_at       DateTime @default(now())
 
-  base_revision app_revisions? @relation("AppWorkspaceBaseRevision", fields: [base_revision_id], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  base_revision app_revisions?    @relation("AppWorkspaceBaseRevision", fields: [base_revision_id], references: [id], onDelete: SetNull, onUpdate: Cascade)
   files         app_workspace_files[]
 
   @@map("app_workspaces")
@@ -809,7 +602,6 @@ model app_workspace_files {
   @@map("app_workspace_files")
 }
 
-// App runtime logs (dev/prod preview sandbox)
 model app_debug_logs {
   id           Int      @id @default(autoincrement())
   timestamp    DateTime @default(now())
@@ -827,7 +619,6 @@ model app_debug_logs {
   @@map("app_debug_logs")
 }
 
-// AI configuration (node-level)
 model ai_config {
   id          String   @id
   config_json String
@@ -836,19 +627,18 @@ model ai_config {
   @@map("ai_config")
 }
 
-// AI proposal queue (PLAN.md 6.4.3)
 model ai_proposals {
-  id              String   @id
-  type            String // config_change, code_patch, action_enable, action_disable
-  status          String   @default("pending") // pending, approved, rejected, expired
-  content_json    String // ProposalContent serialized
-  metadata_json   String // ProposalMetadata serialized
-  created_at      DateTime @default(now())
-  updated_at      DateTime @default(now())
-  expires_at      DateTime?
-  reviewed_by     String?
-  reviewed_at     DateTime?
-  review_comment  String?
+  id             String   @id
+  type           String
+  status         String   @default("pending")
+  content_json   String
+  metadata_json  String
+  created_at     DateTime @default(now())
+  updated_at     DateTime @default(now())
+  expires_at     DateTime?
+  reviewed_by    String?
+  reviewed_at    DateTime?
+  review_comment String?
 
   @@index([status])
   @@index([type])

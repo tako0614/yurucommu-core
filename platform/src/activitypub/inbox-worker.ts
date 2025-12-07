@@ -160,6 +160,99 @@ function normalizeLocalObjectUri(objectUri: string, instanceDomain: string): str
   }
 }
 
+const PUBLIC_AUDIENCE = "https://www.w3.org/ns/activitystreams#Public";
+
+const toStringArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.filter((v) => typeof v === "string") as string[];
+  }
+  if (typeof value === "string") return [value];
+  return [];
+};
+
+function inferVisibility(to: string[], cc: string[]): string {
+  if (to.includes(PUBLIC_AUDIENCE)) return "public";
+  if (cc.includes(PUBLIC_AUDIENCE)) return "unlisted";
+  if (to.some((r) => r.endsWith("/followers"))) return "followers";
+  return "direct";
+}
+
+async function resolveObjectById(db: DatabaseAPI, objectId: string, instanceDomain: string): Promise<any | null> {
+  const normalized = normalizeLocalObjectUri(objectId, instanceDomain) || objectId;
+  if (db.getObject) {
+    const direct = await db.getObject(normalized).catch(() => null);
+    if (direct) return direct;
+  }
+  if (db.getObjectByLocalId) {
+    const local = await db.getObjectByLocalId(normalized).catch(() => null);
+    if (local) return local;
+  }
+  if (db.findPostByApObjectId) {
+    return db.findPostByApObjectId(normalized).catch(() => null);
+  }
+  return null;
+}
+
+async function saveRemoteNote(
+  db: DatabaseAPI,
+  note: any,
+  actorUri: string,
+  options: { inReplyTo?: string | null; context?: string | null } = {},
+): Promise<string | null> {
+  const to = toStringArray(note.to);
+  const cc = toStringArray(note.cc);
+  const objectId = typeof note.id === "string" ? note.id : crypto.randomUUID();
+  const payload = {
+    id: objectId,
+    local_id: null,
+    type: extractType(note) || "Note",
+    actor: actorUri,
+    published: note.published ? new Date(note.published) : new Date(),
+    updated: note.updated ?? null,
+    to: to.length ? to : null,
+    cc: cc.length ? cc : null,
+    bto: toStringArray(note.bto),
+    bcc: toStringArray(note.bcc),
+    context: typeof options.context === "string"
+      ? options.context
+      : (typeof note.context === "string" ? note.context : null),
+    in_reply_to: options.inReplyTo ?? (typeof note.inReplyTo === "string" ? note.inReplyTo : null),
+    content: note,
+    is_local: 0,
+    visibility: inferVisibility(to, cc),
+  };
+
+  if (db.createObject) {
+    try {
+      await db.createObject(payload as any);
+      return payload.id;
+    } catch (error) {
+      if (isUniqueConstraint(error)) return payload.id;
+      throw error;
+    }
+  }
+
+  if (db.createApRemotePost) {
+    await db.createApRemotePost({
+      id: payload.local_id ?? undefined,
+      community_id: payload.context ?? undefined,
+      attributed_community_id: payload.context ?? undefined,
+      author_id: actorUri,
+      text: typeof note.content === "string" ? note.content : "",
+      content_warning: typeof note.summary === "string" ? note.summary : null,
+      sensitive: (note as any).sensitive,
+      created_at: payload.published ?? new Date(),
+      ap_object_id: payload.id,
+      ap_attributed_to: actorUri,
+      ap_activity_id: typeof note.id === "string" ? note.id : null,
+      in_reply_to: payload.in_reply_to,
+    });
+    return payload.id;
+  }
+
+  return null;
+}
+
 async function markActivityStatus(
   db: DatabaseAPI,
   id: string,
@@ -583,9 +676,9 @@ async function handleIncomingLike(
   const targetObjectId = localUri || objectUri;
 
   // Check if post exists
-  const post = await db.findPostByApObjectId(targetObjectId);
-  if (!post) {
-    console.warn(`Like for non-existent post: ${targetObjectId}`);
+  const object = await resolveObjectById(db, targetObjectId, instanceDomain);
+  if (!object) {
+    console.warn(`Like for non-existent object: ${targetObjectId}`);
     return;
   }
 
@@ -607,15 +700,38 @@ async function handleIncomingLike(
   // Extract emoji from activity (Misskey compat) or use default
   const emoji = activity.content || activity._misskey_reaction || "❤️";
 
-  // Store reaction
-  await db.createApReaction({
-    post_id: post.id,
-    user_id: userId,
-    emoji,
-    ap_activity_id: activity.id ?? null,
-  });
+  const reactionId = typeof activity.id === "string" ? activity.id : crypto.randomUUID();
 
-  console.log(`✓ Like from ${actorUri} (${userId}) on post ${post.id} [${emoji}]`);
+  if (db.createObject) {
+    await db.createObject({
+      id: reactionId,
+      local_id: null,
+      type: "Like",
+      actor: actorUri,
+      content: {
+        object: object.id ?? targetObjectId,
+        emoji,
+      },
+      published: activity.published ? new Date(activity.published) : new Date(),
+      to: toStringArray(activity.to),
+      cc: toStringArray(activity.cc),
+      bto: toStringArray(activity.bto),
+      bcc: toStringArray(activity.bcc),
+      context: (activity as any).context ?? null,
+      in_reply_to: null,
+      is_local: 0,
+      visibility: inferVisibility(toStringArray(activity.to), toStringArray(activity.cc)),
+    } as any);
+  } else {
+    await db.createApReaction({
+      post_id: object.id ?? targetObjectId,
+      user_id: userId,
+      emoji,
+      ap_activity_id: reactionId,
+    });
+  }
+
+  console.log(`✓ Like from ${actorUri} (${userId}) on object ${object.id ?? targetObjectId} [${emoji}]`);
 }
 
 /**
@@ -684,69 +800,28 @@ async function handleIncomingCreate(
  */
 async function handleIncomingPost(
   db: DatabaseAPI,
-  env: Env,
+  _env: Env,
   localRecipientId: string,
   note: any,
   actorUri: string,
 ): Promise<void> {
-  const objectId = typeof note.id === "string" ? note.id : null;
-  const content = sanitizeHtml(note.content || "");
-  const published = note.published ? new Date(note.published) : new Date();
-  const contentWarning = typeof note.summary === "string" ? note.summary.slice(0, 500) : null;
-  const sensitive = typeof note.sensitive === "string"
-    ? ["1", "true", "yes", "on"].includes(note.sensitive.toLowerCase())
-    : Boolean(note.sensitive);
   const communityId = localRecipientId.startsWith("group:")
     ? localRecipientId.slice("group:".length)
     : null;
+  const sanitizedNote = {
+    ...note,
+    content: sanitizeHtml(note.content || ""),
+  };
 
-  const attachments = Array.isArray(note.attachment) ? note.attachment : [];
-  const mediaEntries = attachments
-    .map((att: any) => {
-      const url = typeof att?.url === "string" ? att.url : typeof att?.href === "string" ? att.href : "";
-      if (!url) return null;
-      const description = typeof att?.name === "string" ? att.name.slice(0, 1500) : undefined;
-      return { url, description };
-    })
-    .filter(Boolean) as Array<{ url: string; description?: string }>;
-
-  // Determine if actor is local or remote
-  const instanceDomain = requireInstanceDomain(env);
-  const actorParsed = parseActorUri(actorUri, instanceDomain);
-  let authorId: string;
-
-  if (actorParsed.isLocal && actorParsed.handle) {
-    // Local actor: use handle as author_id
-    authorId = actorParsed.handle;
-  } else {
-    // Remote actor: fetch and use @handle@domain format
-    const actor = await getOrFetchActor(actorUri, env);
-    const actorHandle = actor?.preferredUsername || "unknown";
-    const actorDomain = new URL(actorUri).hostname;
-    authorId = `@${actorHandle}@${actorDomain}`;
-  }
-
-  const postId = crypto.randomUUID();
-  const postResult = await db.createApRemotePost({
-    id: postId,
-    community_id: communityId,
-    attributed_community_id: communityId ?? undefined,
-    author_id: authorId,
-    text: content,
-    content_warning: contentWarning,
-    sensitive,
-    created_at: published,
-    type: "text",
-    media_urls: mediaEntries,
-    ap_object_id: objectId,
-    ap_attributed_to: actorUri,
-    in_reply_to: null,
+  const storedId = await saveRemoteNote(db, sanitizedNote, actorUri, {
+    context: sanitizedNote.context ?? communityId,
+    inReplyTo: null,
   });
 
-  if (postResult.inserted) {
-    console.log(`✓ Stored post ${objectId ?? "(generated)"} from ${actorUri} (${authorId})`);
+  if (storedId) {
+    console.log(`✓ Stored post ${storedId} from ${actorUri}`);
   } else {
-    console.log(`ℹ︎ Post ${objectId ?? "(generated)"} already exists, skipping`);
+    console.log(`ℹ︎ Post ${note.id ?? "(generated)"} already exists, skipping`);
   }
 }
 
@@ -767,7 +842,7 @@ async function handleIncomingComment(
   const targetObjectId = localUri || inReplyTo;
 
   // Check if post exists
-  let post = await db.findPostByApObjectId(targetObjectId);
+  let post = await resolveObjectById(db, targetObjectId, instanceDomain);
   if (!post) {
     // Thread resolution: try to fetch parent post if it's remote
     if (!localUri) {
@@ -778,7 +853,7 @@ async function handleIncomingComment(
         // Note: We pass a dummy localUserId because we just want to store it
         await handleIncomingPost(db, env, "system", remoteObject, remoteObject.attributedTo || remoteObject.actor);
         // Try to find it again
-        post = await db.findPostByApObjectId(targetObjectId);
+        post = await resolveObjectById(db, targetObjectId, instanceDomain);
       }
     }
     
@@ -788,36 +863,14 @@ async function handleIncomingComment(
     }
   }
 
-  // Determine if actor is local or remote
-  const actorParsed = parseActorUri(actorUri, instanceDomain);
-  let authorId: string;
-
-  if (actorParsed.isLocal && actorParsed.handle) {
-    // Local actor: use handle as author_id
-    authorId = actorParsed.handle;
-  } else {
-    // Remote actor: fetch and use @handle@domain format
-    const actor = await getOrFetchActor(actorUri, env);
-    const actorHandle = actor?.preferredUsername || "unknown";
-    const actorDomain = new URL(actorUri).hostname;
-    authorId = `@${actorHandle}@${actorDomain}`;
-  }
-
-  const content = sanitizeHtml(note.content || "");
-  const published = note.published ? new Date(note.published) : new Date();
-
-  const commentResult = await db.createApRemoteComment({
-    id: crypto.randomUUID(),
-    post_id: post.id,
-    author_id: authorId,
-    text: content,
-    created_at: published,
-    ap_object_id: typeof note.id === "string" ? note.id : null,
-    ap_activity_id: typeof note.id === "string" ? note.id : null,
+  const sanitizedNote = { ...note, content: sanitizeHtml(note.content || "") };
+  const storedId = await saveRemoteNote(db, sanitizedNote, actorUri, {
+    inReplyTo: post.id ?? targetObjectId,
+    context: post.context ?? null,
   });
 
-  if (commentResult.inserted) {
-    console.log(`✓ Stored comment on post ${post.id} from ${actorUri} (${authorId})`);
+  if (storedId) {
+    console.log(`✓ Stored comment on object ${post.id ?? targetObjectId} from ${actorUri}`);
   } else {
     console.log(`ℹ︎ Comment ${note.id ?? "(generated)"} already exists, skipping`);
   }
@@ -851,35 +904,52 @@ async function handleIncomingAnnounce(
   const targetObjectId = localUri || objectUri;
 
   // Check if post exists
-  const post = await db.findPostByApObjectId(targetObjectId);
-  if (!post) {
-    console.warn(`Announce for non-existent post: ${targetObjectId}`);
+  const object = await resolveObjectById(db, targetObjectId, instanceDomain);
+  if (!object) {
+    console.warn(`Announce for non-existent object: ${targetObjectId}`);
     return;
   }
 
   // Store the Announce activity
-  const announceId = typeof activity.id === "string" ? activity.id : null;
-  if (!announceId) {
-    console.error("Announce activity missing id");
-    return;
-  }
+  const announceId = typeof activity.id === "string" ? activity.id : crypto.randomUUID();
 
   // Check if already stored
-  const existing = await db.findApAnnounce(announceId);
+  const existing = db.findApAnnounce ? await db.findApAnnounce(announceId) : await resolveObjectById(db, announceId, instanceDomain);
   if (existing) {
     console.log(`Announce already recorded: ${announceId}`);
     return;
   }
 
-  // Create announce record
-  await db.createApAnnounce({
-    activity_id: announceId,
-    actor_id: actorUri,
-    object_id: targetObjectId,
-    local_post_id: post.id,
-  });
+  const to = toStringArray(activity.to);
+  const cc = toStringArray(activity.cc);
 
-  console.log(`✓ Announce from ${actorUri} for post ${post.id} stored`);
+  if (db.createObject) {
+    await db.createObject({
+      id: announceId,
+      local_id: null,
+      type: "Announce",
+      actor: actorUri,
+      content: { object: targetObjectId },
+      published: activity.published ? new Date(activity.published) : new Date(),
+      to: to.length ? to : null,
+      cc: cc.length ? cc : null,
+      bto: toStringArray(activity.bto),
+      bcc: toStringArray(activity.bcc),
+      context: null,
+      in_reply_to: null,
+      is_local: 0,
+      visibility: inferVisibility(to, cc),
+    } as any);
+  } else if (db.createApAnnounce) {
+    await db.createApAnnounce({
+      activity_id: announceId,
+      actor_id: actorUri,
+      object_id: targetObjectId,
+      local_post_id: object.id ?? undefined,
+    });
+  }
+
+  console.log(`✓ Announce from ${actorUri} for object ${object.id ?? targetObjectId} stored`);
 }
 
 /**
@@ -915,14 +985,22 @@ async function handleIncomingUndo(
     case "Like":
       // Remove reaction
       if (object.id) {
-        await db.deleteApReactionsByActivityId(object.id);
+        if (db.deleteObject) {
+          await db.deleteObject(object.id).catch(() => undefined);
+        } else if (db.deleteApReactionsByActivityId) {
+          await db.deleteApReactionsByActivityId(object.id);
+        }
       }
       console.log(`✓ Undo Like: ${object.id}`);
       break;
 
     case "Announce":
       if (object.id) {
-        await db.deleteApAnnouncesByActivityId(object.id);
+        if (db.deleteObject) {
+          await db.deleteObject(object.id).catch(() => undefined);
+        } else if (db.deleteApAnnouncesByActivityId) {
+          await db.deleteApAnnouncesByActivityId(object.id);
+        }
       }
       console.log(`✓ Undo Announce: ${object.id}`);
       break;
@@ -975,44 +1053,39 @@ async function handleIncomingUpdate(
       return;
     }
 
-    const post = normalizedObjectId
-      ? await db.findPostByApObjectId(normalizedObjectId)
+    const storedObject = normalizedObjectId
+      ? await resolveObjectById(db, normalizedObjectId, instanceDomain)
       : null;
-    if (!post) {
-      console.warn(`Update for unknown post ${normalizedObjectId ?? objectId}`);
+    if (!storedObject) {
+      console.warn(`Update for unknown object ${normalizedObjectId ?? objectId}`);
       return;
     }
 
-    if (post.ap_attributed_to && post.ap_attributed_to !== actorUri) {
-      console.warn(`Update actor mismatch for post ${post.id}: ${actorUri} !== ${post.ap_attributed_to}`);
+    const objectActor = storedObject.actor;
+    const parsedActor = parseActorUri(actorUri, instanceDomain);
+    if (objectActor && objectActor !== actorUri && parsedActor?.handle && objectActor !== parsedActor.handle) {
+      console.warn(`Update actor mismatch for object ${storedObject.id}: ${actorUri} !== ${objectActor}`);
       return;
     }
 
-    const updatedText = sanitizeHtml(noteObject.content || "");
-    const attachments = Array.isArray(noteObject.attachment) ? noteObject.attachment : [];
-    const mediaUrls = attachments
-      .map((attachment: any) => {
-        if (!attachment) return null;
-        if (typeof attachment.url === "string") return attachment.url;
-        if (attachment.href && typeof attachment.href === "string") return attachment.href;
-        if (Array.isArray(attachment.url)) {
-          const first = attachment.url.find(
-            (item: any) => typeof item === "string" || (item && typeof item.href === "string"),
-          );
-          if (typeof first === "string") return first;
-          if (first && typeof first.href === "string") return first.href;
-        }
-        return null;
-      })
-      .filter((url: string | null): url is string => Boolean(url));
+    const sanitizedContent = sanitizeHtml(noteObject.content || "");
+    const to = toStringArray(noteObject.to);
+    const cc = toStringArray(noteObject.cc);
 
-    const updateFields: Record<string, any> = { text: updatedText };
-    if (mediaUrls.length) {
-      updateFields.media_urls = mediaUrls;
+    if (db.updateObject) {
+      await db.updateObject(storedObject.id, {
+        content: { ...noteObject, content: sanitizedContent },
+        updated: new Date(),
+        to: to.length ? to : undefined,
+        cc: cc.length ? cc : undefined,
+        bto: toStringArray(noteObject.bto),
+        bcc: toStringArray(noteObject.bcc),
+        in_reply_to: typeof noteObject.inReplyTo === "string" ? noteObject.inReplyTo : undefined,
+        visibility: inferVisibility(to, cc),
+      });
     }
 
-    await db.updatePost(post.id, updateFields);
-    console.log(`✓ Updated post ${post.id} (${normalizedObjectId ?? objectId}) from ${actorUri}`);
+    console.log(`✓ Updated object ${storedObject.id} from ${actorUri}`);
   }
 }
 
@@ -1033,17 +1106,23 @@ async function handleIncomingDelete(
 
   if (!actorUri || !isRemoteActorAllowed(actorUri, env)) return;
 
-  // Try to delete post first
-  const post = await db.findPostByApObjectId(objectId);
-  if (post) {
-    // Verify ownership: post author must match activity actor
-    if (post.ap_attributed_to === actorUri) {
-      // Use executeRaw since deletePost might not be exposed in DatabaseAPI yet
-      await db.executeRaw("DELETE FROM posts WHERE id = ?", post.id);
-      console.log(`✓ Deleted post ${objectId}`);
-    } else {
+  const instanceDomain = requireInstanceDomain(env);
+  const target = await resolveObjectById(db, objectId, instanceDomain);
+  if (target) {
+    const parsedActor = parseActorUri(actorUri, instanceDomain);
+    const actorMatches = !target.actor ||
+      target.actor === actorUri ||
+      (parsedActor?.handle && target.actor === parsedActor.handle);
+    if (!actorMatches) {
       console.warn(`⚠ Unauthorized delete attempt for ${objectId} by ${actorUri}`);
+      return;
     }
+    if (db.deleteObject) {
+      await db.deleteObject(target.id);
+    } else if (db.updateObject) {
+      await db.updateObject(target.id, { deleted_at: new Date().toISOString() });
+    }
+    console.log(`✓ Deleted object ${objectId}`);
     return;
   }
 

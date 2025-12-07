@@ -21,8 +21,9 @@ export function generatePersonActor(
   user: any,
   instanceDomain: string,
   protocol: string = "https",
+  publicKeyPem?: string,
 ) {
-  const handle = user.id;
+  const handle = (user?.handle || user?.id || "").toString();
   const actorUri = getActorUri(handle, instanceDomain, protocol);
   const baseUrl = `${protocol}://${instanceDomain}`;
 
@@ -45,11 +46,13 @@ export function generatePersonActor(
         url: user.avatar_url,
       }
       : undefined,
-    publicKey: {
-      id: `${actorUri}#main-key`,
-      owner: actorUri,
-      publicKeyPem: "", // Will be filled from ap_keypairs table
-    },
+    publicKey: publicKeyPem
+      ? {
+        id: `${actorUri}#main-key`,
+        owner: actorUri,
+        publicKeyPem,
+      }
+      : undefined,
     // All accounts are private: not discoverable and require follower approval
     discoverable: false,
     manuallyApprovesFollowers: true,
@@ -134,42 +137,111 @@ export function generateNoteObject(
   instanceDomain: string,
   protocol: string = "https",
 ) {
-  const handle = author.id;
-  const objectId = post.ap_object_id ||
-    getObjectUri(handle, post.id, instanceDomain, protocol);
-  const actorUri = getActorUri(handle, instanceDomain, protocol);
   const baseUrl = `${protocol}://${instanceDomain}`;
+  const actorValue =
+    post?.actor ||
+    post?.attributedTo ||
+    post?.ap_attributed_to ||
+    post?.author_id ||
+    author?.handle ||
+    author?.id;
+  const actorHandle = typeof actorValue === "string" ? actorValue : "";
+  const actorUri = actorHandle.startsWith("http")
+    ? actorHandle
+    : getActorUri(actorHandle, instanceDomain, protocol);
 
-  // Determine audience
-  const to: string[] = [];
-  const cc: string[] = [];
+  const objectIdCandidate =
+    post?.id ||
+    post?.ap_object_id ||
+    post?.local_id ||
+    post?.object?.id ||
+    post?.ap_activity_id;
+  const objectId = typeof objectIdCandidate === "string" && objectIdCandidate.startsWith("http")
+    ? objectIdCandidate
+    : getObjectUri(
+      actorHandle || objectIdCandidate || crypto.randomUUID(),
+      (objectIdCandidate as string) || crypto.randomUUID(),
+      instanceDomain,
+      protocol,
+    );
 
-  if (post.broadcast_all) {
-    // Public post
-    to.push("https://www.w3.org/ns/activitystreams#Public");
-    if (post.visible_to_friends) {
-      // Include followers in CC
-      cc.push(`${baseUrl}/ap/users/${handle}/followers`);
+  const toArray = (value: unknown): string[] => {
+    if (Array.isArray(value)) {
+      return value.filter((v) => typeof v === "string") as string[];
     }
-  } else if (post.visible_to_friends) {
-    // Followers-only
-    to.push(`${baseUrl}/ap/users/${handle}/followers`);
-  } else if (post.community_id) {
-    // Community-only (Group members)
-    const communityFollowers = `${baseUrl}/ap/groups/${post.community_id}/followers`;
-    to.push(communityFollowers);
-    cc.push(`${baseUrl}/ap/groups/${post.community_id}`);
-  }
+    if (typeof value === "string") return [value];
+    return [];
+  };
 
-  // Parse media attachments
+  const normalizeRecipient = (recipient: string): string => {
+    if (!recipient) return recipient;
+    if (/^https?:\/\//i.test(recipient)) return recipient;
+    const trimmed = recipient.replace(/^\/+/, "");
+    if (trimmed.startsWith("ap/")) return `${baseUrl}/${trimmed}`;
+    if (trimmed.startsWith("users/") || trimmed.startsWith("groups/") || trimmed.startsWith("objects/")) {
+      return `${baseUrl}/ap/${trimmed}`;
+    }
+    return `${baseUrl}/ap/${trimmed}`;
+  };
+
+  const initialTo = toArray(post?.to).map(normalizeRecipient);
+  const initialCc = toArray(post?.cc).map(normalizeRecipient);
+
+  const deriveRecipients = () => {
+    if (initialTo.length || initialCc.length) {
+      return { to: initialTo, cc: initialCc };
+    }
+    const visibility =
+      post?.visibility ||
+      (post?.broadcast_all ? "public" : post?.visible_to_friends ? "followers" : post?.community_id ? "community" : undefined);
+    const PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
+    const followers = `${actorUri}/followers`;
+    switch (visibility) {
+      case "unlisted":
+        return { to: [followers], cc: [PUBLIC] };
+      case "followers":
+        return { to: [followers], cc: [] };
+      case "community":
+        if (post?.community_id) {
+          return {
+            to: [`${baseUrl}/ap/groups/${post.community_id}/followers`],
+            cc: [`${baseUrl}/ap/groups/${post.community_id}`],
+          };
+        }
+        return { to: [], cc: [] };
+      case "direct":
+        return { to: [], cc: [] };
+      case "public":
+      default:
+        return { to: [PUBLIC], cc: [followers] };
+    }
+  };
+
+  const recipients = deriveRecipients();
+
   const attachments: any[] = [];
-  try {
-    const mediaItems = JSON.parse(post.media_json || "[]");
-    for (const item of mediaItems) {
+  const mediaSources =
+    Array.isArray(post?.attachment)
+      ? post.attachment
+      : post?.media_urls
+        ? post.media_urls
+        : (() => {
+          if (typeof post?.media_json === "string") {
+            try {
+              return JSON.parse(post.media_json);
+            } catch {
+              return [];
+            }
+          }
+          return [];
+        })();
+
+  if (Array.isArray(mediaSources)) {
+    for (const item of mediaSources) {
       const url = typeof item === "string"
         ? item
         : (item && typeof item.url === "string" ? item.url : "");
-      if (typeof url !== "string" || !url.trim()) continue;
+      if (!url) continue;
       const description =
         item && typeof item === "object"
           ? (typeof item.description === "string"
@@ -178,7 +250,6 @@ export function generateNoteObject(
           : undefined;
       const sanitizedDescription = description ? description.slice(0, 1500) : undefined;
 
-      // Infer media type from URL
       const lowerUrl = url.toLowerCase();
       let mediaType = "application/octet-stream";
       if (lowerUrl.endsWith(".jpg") || lowerUrl.endsWith(".jpeg")) {
@@ -202,12 +273,12 @@ export function generateNoteObject(
         name: sanitizedDescription || undefined,
       });
     }
-  } catch (error) {
-    console.error("Failed to parse media_json:", error);
   }
 
   const tags: any[] = [];
-  if (Array.isArray(post.ap_tags)) {
+  if (Array.isArray(post?.tag)) {
+    tags.push(...post.tag);
+  } else if (Array.isArray(post?.ap_tags)) {
     tags.push(...post.ap_tags);
   } else if (Array.isArray((post as any).hashtags)) {
     for (const tag of (post as any).hashtags) {
@@ -221,52 +292,74 @@ export function generateNoteObject(
     }
   }
 
-  // Convert text to HTML-safe content
-  const content = escapeHtml(post.text || "");
+  const rawContent =
+    (typeof post?.content === "string" ? post.content : null) ??
+    (typeof post?.text === "string" ? post.text : "") ??
+    "";
+  const content =
+    typeof rawContent === "string" && /<[^>]+>/.test(rawContent)
+      ? rawContent
+      : escapeHtml(rawContent || "");
   const contentHtml = content
     .split("\n")
     .filter((line) => line.trim())
     .map((line) => `<p>${line}</p>`)
-    .join("");
+    .join("") || content;
 
-  // Validate inReplyTo: only include if it's a non-empty string
-  const inReplyToValue = typeof post.in_reply_to === 'string' && post.in_reply_to.trim()
-    ? post.in_reply_to.trim()
-    : null;
+  const inReplyToValue =
+    (typeof post?.inReplyTo === "string" && post.inReplyTo.trim() ? post.inReplyTo.trim() : null) ||
+    (typeof post?.in_reply_to === "string" && post.in_reply_to.trim() ? post.in_reply_to.trim() : null) ||
+    (typeof post?.in_reply_to_id === "string" ? post.in_reply_to_id : null);
 
   const note: any = {
     "@context": ACTIVITYSTREAMS_CONTEXT,
     type: "Note",
     id: objectId,
+    actor: actorUri,
     attributedTo: actorUri,
     content: contentHtml || "",
-    published: new Date(post.created_at).toISOString(),
-    to,
-    cc,
-    url: `${baseUrl}/posts/${post.id}`,
+    published: post?.published
+      ? new Date(post.published).toISOString()
+      : post?.created_at
+        ? new Date(post.created_at).toISOString()
+        : new Date().toISOString(),
+    to: recipients.to,
+    cc: recipients.cc,
+    url: post?.url || objectId,
   };
 
-  if (post.content_warning) {
-    note.summary = post.content_warning;
+  const summary = typeof post?.summary === "string" ? post.summary : post?.content_warning;
+  if (summary) {
+    note.summary = summary;
   }
 
-  if (post.sensitive !== undefined) {
+  if (post?.sensitive !== undefined) {
     note.sensitive = Boolean(post.sensitive);
-  } else if (post.content_warning) {
+  } else if ((post as any)["takos:sensitive"] !== undefined) {
+    note.sensitive = Boolean((post as any)["takos:sensitive"]);
+  } else if (summary) {
     note.sensitive = true;
+  }
+
+  if (post?.context) {
+    note.context = post.context;
   }
 
   if (tags.length) {
     note.tag = tags;
   }
 
-  // Only include optional fields if they have values
   if (attachments.length > 0) {
     note.attachment = attachments;
   }
 
   if (inReplyToValue) {
     note.inReplyTo = inReplyToValue;
+  }
+
+  if (post?.attributedTo || post?.attributed_community_id) {
+    const attributed = (post.attributedTo as string) ?? post.attributed_community_id;
+    note.attributedTo = normalizeRecipient(attributed);
   }
 
   return note;

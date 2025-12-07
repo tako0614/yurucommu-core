@@ -9,8 +9,7 @@ import { makeData } from "../server/data-factory";
 import { getActivityPubAvailability } from "../server/context";
 import { signRequest } from "../auth/http-signature";
 import { ensureUserKeyPair } from "../auth/crypto-keys";
-import { requireInstanceDomain } from "../subdomain";
-import { getOrFetchActor } from "./actor-fetch";
+import { parseActorUri, requireInstanceDomain } from "../subdomain";
 import { applyFederationPolicy, buildActivityPubPolicy } from "./federation-policy";
 
 interface Env {
@@ -69,6 +68,7 @@ function isLocalInbox(
  * Deliver a single activity to an inbox (local or remote)
  */
 async function deliverActivity(
+  db: any,
   env: Env,
   activityJson: string,
   targetInboxUrl: string,
@@ -82,40 +82,54 @@ async function deliverActivity(
     return { success: false, error: "blocked by activitypub policy" };
   }
 
-  const store = makeData(env);
   try {
     const instanceDomain = requireInstanceDomain(env);
     const localCheck = isLocalInbox(targetInboxUrl, instanceDomain);
+    let activity: any;
+    try {
+      activity = JSON.parse(activityJson);
+    } catch (error) {
+      console.error("Failed to parse activity for delivery", error);
+      return { success: false, error: "invalid activity json" };
+    }
     
     // Local delivery: insert directly into ap_inbox_activities
     if (localCheck.isLocal && localCheck.handle) {
-      const activity = JSON.parse(activityJson);
       const actorUri = activity.actor;
       const activityId = activity.id || crypto.randomUUID();
       
-      await store.query(
-        `INSERT INTO ap_inbox_activities
-         (id, local_user_id, remote_actor_id, activity_id, activity_type, activity_json, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending', datetime('now'))`,
-        [
+      if (db.createApInboxActivity) {
+        await db.createApInboxActivity({
+          id: crypto.randomUUID(),
+          local_user_id: localCheck.handle,
+          remote_actor_id: actorUri,
+          activity_id: activityId,
+          activity_type: activity.type,
+          activity_json: activityJson,
+          status: "pending",
+          created_at: new Date(),
+        });
+      } else if (typeof db.queryRaw === "function") {
+        await db.queryRaw(
+          `INSERT INTO ap_inbox_activities
+           (id, local_actor_id, remote_actor_id, activity_id, activity_type, activity_json, status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'pending', datetime('now'))`,
           crypto.randomUUID(),
           localCheck.handle,
           actorUri,
           activityId,
           activity.type,
           activityJson,
-        ]
-      );
+        );
+      }
       
       console.log(`✓ Local delivery: ${activity.type} -> ${localCheck.handle}`);
       return { success: true };
     }
     
     // Remote delivery: HTTP with signature
-    const activity = JSON.parse(activityJson);
-    
     // Get actor's private key
-    const keypair = await ensureUserKeyPair(store, env, actorHandle);
+    const keypair = await ensureUserKeyPair(db, env, actorHandle);
     const privateKeyPem = keypair.privateKeyPem;
     const keyId = `${activity.actor}#main-key`;
     
@@ -149,54 +163,42 @@ async function deliverActivity(
       success: false,
       error: error?.message || String(error),
     };
-  } finally {
-    await store.disconnect?.();
   }
 }
 
-/**
- * Resolve inbox URL for a recipient
- */
-async function resolveInbox(recipient: string, env: Env): Promise<string | null> {
-  // Skip the special Public collection
-  if (recipient === "https://www.w3.org/ns/activitystreams#Public") {
-    return null;
-  }
-
-  const decision = applyFederationPolicy(recipient, resolvePolicy(env));
-  if (!decision.allowed) {
-    console.warn(
-      `[delivery] skipping blocked recipient ${recipient} (${decision.hostname ?? "unknown host"})`,
-    );
-    return null;
-  }
-
-  // If it's already an inbox URL, use it
-  if (recipient.endsWith("/inbox")) {
-    return recipient;
-  }
-
-  // If it's a followers/following collection, skip direct delivery
-  // (these should be expanded elsewhere)
-  if (recipient.includes("/followers") || recipient.includes("/following")) {
-    return null;
-  }
-
-  // Otherwise, fetch the actor and get their inbox
+function actorHandleFromActivity(activityJson: string, instanceDomain: string): string {
   try {
-    const actor = await getOrFetchActor(recipient, env);
-    if (!actor) {
-      console.error(`Failed to resolve inbox for ${recipient}`);
-      return null;
-    }
-
-    // Prefer sharedInbox for efficiency
-    return actor.endpoints?.sharedInbox || actor.inbox;
-  } catch (error) {
-    console.error(`Error resolving inbox for ${recipient}:`, error);
-    // Fallback: assume it's an actor URI and append /inbox
-    return `${recipient}/inbox`;
+    const activity = JSON.parse(activityJson);
+    const actor = typeof activity.actor === "string"
+      ? activity.actor
+      : (activity.actor?.id as string | undefined);
+    if (!actor) return "";
+    const parsed = parseActorUri(actor, instanceDomain);
+    return parsed?.handle ?? actor;
+  } catch {
+    return "";
   }
+}
+
+async function hydrateDelivery(db: any, delivery: any): Promise<any> {
+  if (delivery.activity_json && (delivery.local_user_id || delivery.local_actor_id)) {
+    return delivery;
+  }
+  if (typeof db.queryRaw === "function") {
+    const rows = await db.queryRaw(
+      `SELECT activity_json, local_actor_id, local_user_id FROM ap_outbox_activities WHERE activity_id = ? LIMIT 1`,
+      delivery.activity_id,
+    ).catch(() => []);
+    if (rows && rows[0]) {
+      return {
+        ...delivery,
+        activity_json: rows[0].activity_json,
+        local_actor_id: rows[0].local_actor_id ?? rows[0].local_user_id,
+        local_user_id: rows[0].local_user_id ?? rows[0].local_actor_id,
+      };
+    }
+  }
+  return delivery;
 }
 
 /**
@@ -208,171 +210,120 @@ export async function processDeliveryQueue(env: Env, batchSize = 10): Promise<vo
     return;
   }
 
-  const store = makeData(env);
+  const db = makeData(env);
+  const processedIds = new Set<string>();
+  let claimedIds: string[] = [];
+
   try {
-    // Get pending deliveries
-    const pending = await store.query(
-      `SELECT dq.id, dq.activity_id, dq.target_inbox_url, dq.retry_count, dq.last_attempt_at,
-              oa.activity_json, oa.local_user_id
-       FROM ap_delivery_queue dq
-       JOIN ap_outbox_activities oa ON dq.activity_id = oa.activity_id
-       WHERE dq.status = 'pending'
-       AND (
-         (dq.next_attempt_at IS NOT NULL AND dq.next_attempt_at <= datetime('now'))
-         OR
-         (dq.next_attempt_at IS NULL AND (dq.last_attempt_at IS NULL OR datetime(dq.last_attempt_at, '+5 minutes') < datetime('now')))
-       )
-       ORDER BY dq.created_at ASC
-       LIMIT ?`,
-      [batchSize]
-    );
-    
-    if (!pending || pending.length === 0) {
+    console.log("Delivery worker started");
+    if (db.resetStaleDeliveries) {
+      await db.resetStaleDeliveries(5).catch(() => undefined);
+    }
+
+    const claim = await db.claimPendingDeliveries(batchSize);
+    claimedIds = claim?.ids ?? (claim?.deliveries?.map((d: any) => d.id) ?? []);
+    const deliveries = claim?.deliveries ?? [];
+
+    if (!deliveries.length) {
       console.log("No pending deliveries");
       return;
     }
-    
-    console.log(`Processing ${pending.length} pending deliveries`);
-    
-    for (const delivery of pending) {
+
+    console.log(`Processing ${deliveries.length} deliveries`);
+
+    for (const delivery of deliveries) {
       try {
+        const hydrated = await hydrateDelivery(db, delivery);
+        if (!hydrated.activity_json) {
+          console.warn(`Delivery ${hydrated.id} missing activity payload`);
+          processedIds.add(hydrated.id);
+          continue;
+        }
+
+        const actorHandle =
+          hydrated.local_user_id ||
+          hydrated.local_actor_id ||
+          actorHandleFromActivity(hydrated.activity_json, requireInstanceDomain(env)) ||
+          "";
+
         const result = await deliverActivity(
+          db,
           env,
-          delivery.activity_json,
-          delivery.target_inbox_url,
-          delivery.local_user_id
+          hydrated.activity_json,
+          hydrated.target_inbox_url,
+          actorHandle,
         );
-        
-        // Update delivery status (D1 does not support transactions)
+
+        const now = new Date();
+        const retryCount = hydrated.retry_count || 0;
+        const maxRetries = 5;
+
         if (result.success) {
-          // Mark as delivered
-          await store.query(
-            `UPDATE ap_delivery_queue
-             SET status = 'delivered', delivered_at = datetime('now')
-             WHERE id = ?`,
-            [delivery.id]
-          );
-          console.log(`✓ Delivered to ${delivery.target_inbox_url}`);
+          await db.updateApDeliveryQueueStatus(hydrated.id, "delivered", {
+            delivered_at: now,
+            last_attempt_at: now,
+          });
+          console.log(`✓ Delivered to ${hydrated.target_inbox_url}`);
+          processedIds.add(hydrated.id);
         } else {
-          // Increment retry count
-          const newRetryCount = (delivery.retry_count || 0) + 1;
-          const maxRetries = 5;
-          
+          const newRetryCount = retryCount + 1;
+
           if (newRetryCount >= maxRetries) {
-            // Mark as failed after max retries
-            await store.query(
-              `UPDATE ap_delivery_queue
-               SET status = 'failed', retry_count = ?, last_error = ?, last_attempt_at = datetime('now')
-               WHERE id = ?`,
-              [newRetryCount, result.error || "unknown error", delivery.id]
-            );
-            console.error(`✗ Failed permanently: ${delivery.target_inbox_url} - ${result.error}`);
+            await db.updateApDeliveryQueueStatus(hydrated.id, "failed", {
+              retry_count: newRetryCount,
+              last_error: result.error || "unknown error",
+              last_attempt_at: now,
+            });
+            console.error(`✗ Failed permanently: ${hydrated.target_inbox_url} - ${result.error}`);
+            processedIds.add(hydrated.id);
           } else {
-            // Update retry count and error with exponential backoff
-            // Base delay: 5 minutes. Multiplier: 2^retry_count
-            // Retry 1: 5m, Retry 2: 10m, Retry 3: 20m, Retry 4: 40m
-            const backoffMinutes = 5 * Math.pow(2, newRetryCount - 1);
-            
-            await store.query(
-              `UPDATE ap_delivery_queue
-               SET retry_count = ?, last_error = ?, last_attempt_at = datetime('now'),
-                   next_attempt_at = datetime('now', '+${backoffMinutes} minutes')
-               WHERE id = ?`,
-              [newRetryCount, result.error || "unknown error", delivery.id]
-            );
-            console.warn(`⚠ Retry ${newRetryCount}/${maxRetries} in ${backoffMinutes}m: ${delivery.target_inbox_url} - ${result.error}`);
+            await db.updateApDeliveryQueueStatus(hydrated.id, "pending", {
+              retry_count: newRetryCount,
+              last_error: result.error || "unknown error",
+              last_attempt_at: now,
+            });
+            console.warn(`⚠ Retry ${newRetryCount}/${maxRetries}: ${hydrated.target_inbox_url} - ${result.error}`);
+            processedIds.add(hydrated.id);
           }
         }
       } catch (error) {
         console.error(`Failed to process delivery ${delivery.id}:`, error);
-        // Continue with next delivery
+
+        // Reset to pending on error
+        try {
+          await db.updateApDeliveryQueueStatus(delivery.id, "pending", {
+            last_error: error instanceof Error ? error.message : String(error),
+            last_attempt_at: new Date(),
+          });
+          processedIds.add(delivery.id);
+        } catch (updateError) {
+          console.error(`Failed to update delivery ${delivery.id}:`, updateError);
+        }
+      }
+    }
+
+    console.log("Delivery worker completed");
+  } catch (error) {
+    console.error("Error in delivery worker:", error);
+    if (claimedIds.length) {
+      const unprocessed = claimedIds.filter((id) => !processedIds.has(id));
+      if (unprocessed.length && typeof db.executeRaw === "function") {
+        const placeholders = unprocessed.map(() => "?").join(", ");
+        try {
+          await db.executeRaw(
+            `UPDATE ap_delivery_queue
+             SET status = 'pending',
+                 last_attempt_at = NULL
+             WHERE id IN (${placeholders})`,
+            ...unprocessed,
+          );
+        } catch (resetError) {
+          console.error("Failed to reset delivery queue rows after error:", resetError);
+        }
       }
     }
   } finally {
-    await store.disconnect?.();
-  }
-}
-
-/**
- * Process outbox jobs
- * Expands activities to recipients and queues them for delivery
- */
-export async function processOutboxQueue(env: Env, batchSize = 10): Promise<void> {
-  if (isActivityPubDisabled(env, "outbox queue")) {
-    return;
-  }
-
-  const store = makeData(env);
-  try {
-    // Get pending outbox jobs
-    const jobs = await store.query(
-      `SELECT id, activity_json, created_at FROM ap_outbox_jobs ORDER BY created_at ASC LIMIT ?`,
-      [batchSize]
-    );
-
-    if (!jobs || jobs.length === 0) {
-      return;
-    }
-
-    console.log(`Processing ${jobs.length} outbox jobs`);
-
-    for (const job of jobs) {
-      try {
-        const activity = JSON.parse(job.activity_json);
-        const allRecipients = [
-          ...(activity.to || []),
-          ...(activity.cc || []),
-          ...(activity.bcc || []),
-        ];
-        const uniqueRecipients = Array.from(new Set(allRecipients)).filter(Boolean) as string[];
-        
-        // Resolve inboxes
-        const inboxes = new Set<string>();
-        for (const recipient of uniqueRecipients) {
-          const inbox = await resolveInbox(recipient, env);
-          if (inbox) {
-            inboxes.add(inbox);
-          }
-        }
-
-        // Queue delivery for each unique inbox
-        if (inboxes.size > 0) {
-          const activityId = activity.id;
-          
-          // Queue deliveries (D1 does not support transactions)
-          for (const inbox of inboxes) {
-            // Check if already queued
-            const existing = await store.query(
-              `SELECT 1 FROM ap_delivery_queue WHERE activity_id = ? AND target_inbox_url = ?`,
-              [activityId, inbox]
-            );
-            
-            if (existing.length === 0) {
-              await store.query(
-                `INSERT INTO ap_delivery_queue 
-                 (id, activity_id, target_inbox_url, status, created_at)
-                 VALUES (?, ?, ?, 'pending', datetime('now'))`,
-                [crypto.randomUUID(), activityId, inbox]
-              );
-            }
-          }
-          
-          // Delete processed job
-          await store.query(`DELETE FROM ap_outbox_jobs WHERE id = ?`, [job.id]);
-          
-          console.log(`✓ Queued activity ${activityId} to ${inboxes.size} inboxes`);
-        } else {
-          // No recipients, just delete the job
-          await store.query(`DELETE FROM ap_outbox_jobs WHERE id = ?`, [job.id]);
-          console.log(`ℹ︎ No recipients for activity ${activity.id}, job deleted`);
-        }
-      } catch (error) {
-        console.error(`Failed to process outbox job ${job.id}:`, error);
-        // Don't delete failed jobs immediately, maybe add retry count later
-      }
-    }
-  } finally {
-    await store.disconnect?.();
+    await db.disconnect?.();
   }
 }
 
@@ -385,58 +336,63 @@ export async function deliverSingleQueuedItem(env: Env, deliveryId: string): Pro
     return;
   }
 
-  const store = makeData(env);
+  const db = makeData(env);
   try {
-    // Get the delivery item with its activity
-    const items = await store.query(
-      `SELECT dq.id, dq.activity_id, dq.target_inbox_url, dq.retry_count,
-              oa.activity_json, oa.local_user_id
-       FROM ap_delivery_queue dq
-       JOIN ap_outbox_activities oa ON dq.activity_id = oa.activity_id
-       WHERE dq.id = ?
-       LIMIT 1`,
-      [deliveryId]
-    );
+    let delivery = null;
+    if (typeof db.queryRaw === "function") {
+      const rows = await db.queryRaw(
+        `SELECT id, activity_id, target_inbox_url, retry_count FROM ap_delivery_queue WHERE id = ? LIMIT 1`,
+        deliveryId,
+      );
+      delivery = rows?.[0] ?? null;
+    }
 
-    if (!items || items.length === 0) {
+    if (!delivery) {
       console.warn(`Delivery ${deliveryId} not found for immediate delivery`);
       return;
     }
 
-    const delivery = items[0];
+    const hydrated = await hydrateDelivery(db, delivery);
+    if (!hydrated.activity_json) {
+      console.warn(`Delivery ${deliveryId} missing activity payload`);
+      return;
+    }
+
+    const actorHandle =
+      hydrated.local_user_id ||
+      hydrated.local_actor_id ||
+      actorHandleFromActivity(hydrated.activity_json, requireInstanceDomain(env)) ||
+      "";
 
     const result = await deliverActivity(
+      db,
       env,
-      delivery.activity_json,
-      delivery.target_inbox_url,
-      delivery.local_user_id
+      hydrated.activity_json,
+      hydrated.target_inbox_url,
+      actorHandle,
     );
 
-    // Update delivery status (D1 does not support transactions)
+    const now = new Date();
     if (result.success) {
-      await store.query(
-        `UPDATE ap_delivery_queue
-         SET status = 'delivered', delivered_at = datetime('now')
-         WHERE id = ?`,
-        [delivery.id]
-      );
-      console.log(`✓ Immediately delivered to ${delivery.target_inbox_url}`);
+      await db.updateApDeliveryQueueStatus(hydrated.id, "delivered", {
+        delivered_at: now,
+        last_attempt_at: now,
+      });
+      console.log(`✓ Immediately delivered to ${hydrated.target_inbox_url}`);
     } else {
-      // Mark as pending with error for scheduled worker to retry
-      const newRetryCount = (delivery.retry_count || 0) + 1;
-      await store.query(
-        `UPDATE ap_delivery_queue
-         SET retry_count = ?, last_error = ?, last_attempt_at = datetime('now')
-         WHERE id = ?`,
-        [newRetryCount, result.error || "unknown error", delivery.id]
-      );
-      console.warn(`⚠ Immediate delivery failed, will retry: ${delivery.target_inbox_url} - ${result.error}`);
+      const newRetryCount = (hydrated.retry_count || 0) + 1;
+      await db.updateApDeliveryQueueStatus(hydrated.id, "pending", {
+        retry_count: newRetryCount,
+        last_error: result.error || "unknown error",
+        last_attempt_at: now,
+      });
+      console.warn(`⚠ Immediate delivery failed, will retry: ${hydrated.target_inbox_url} - ${result.error}`);
     }
   } catch (error) {
     console.error(`Failed to immediately deliver ${deliveryId}:`, error);
     throw error; // Re-throw so caller knows it failed
   } finally {
-    await store.disconnect?.();
+    await db.disconnect?.();
   }
 }
 
@@ -448,11 +404,7 @@ export async function handleScheduled(event: ScheduledEvent, env: Env): Promise<
   if (isActivityPubDisabled(env, "delivery worker (scheduled)")) {
     return;
   }
-  
-  // Process outbox jobs first (expand to delivery queue)
-  await processOutboxQueue(env, 10);
-  
-  // Then process delivery queue
+
+  // Process delivery queue
   await processDeliveryQueue(env, 20);
 }
-

@@ -73,6 +73,17 @@ function getInstanceDomain(c: ActivityPubContext): string {
   return requireInstanceDomain(c.env);
 }
 
+async function findActor(store: any, id: string): Promise<any | null> {
+  if (store.getActorByHandle) {
+    const actor = await store.getActorByHandle(id).catch(() => null);
+    if (actor) return actor;
+  }
+  if (store.getUser) {
+    return store.getUser(id).catch(() => null);
+  }
+  return null;
+}
+
 function attachTakosConfigToEnv<T extends Record<string, unknown>>(c: ActivityPubContext): T {
   const config = c.get("takosConfig");
   if (config) {
@@ -171,17 +182,18 @@ app.get("/.well-known/webfinger", webfingerRateLimitMiddleware(), async (c) => {
     }
 
     // Verify user exists
-    const user = await store.getUser(handle);
-    console.log(`[WebFinger Server] User lookup: handle="${handle}", found=${!!user}`);
+    const actor = await findActor(store, handle);
+    console.log(`[WebFinger Server] User lookup: handle="${handle}", found=${!!actor}`);
 
-    if (!user) {
+    if (!actor) {
       console.error(`[WebFinger Server] User not found: handle="${handle}"`);
       return c.json({ error: "user not found" }, 404);
     }
 
     const instanceDomain = getInstanceDomain(c);
     const protocol = getProtocol(c);
-    const webfinger = generateWebFinger(handle, instanceDomain, protocol);
+    const preferred = actor.handle || actor.id || handle;
+    const webfinger = generateWebFinger(preferred, instanceDomain, protocol);
 
     console.log(`[WebFinger Server] Returning WebFinger for handle="${handle}", domain="${instanceDomain}"`);
     console.log(`[WebFinger Server] Response:`, JSON.stringify(webfinger, null, 2));
@@ -216,11 +228,10 @@ app.get("/ap/users/:handle", async (c) => {
 
   const store = makeData(c.env as any);
   try {
-    // Get user from database
-    const user = await store.getUser(handle);
-    console.log(`[Actor Endpoint] User lookup: handle="${handle}", found=${!!user}`);
+    const actorRecord = await findActor(store, handle);
+    console.log(`[Actor Endpoint] User lookup: handle="${handle}", found=${!!actorRecord}`);
 
-    if (!user) {
+    if (!actorRecord) {
       console.error(`[Actor Endpoint] User not found: handle="${handle}"`);
       return fail(c, "user not found", 404);
     }
@@ -228,10 +239,9 @@ app.get("/ap/users/:handle", async (c) => {
     const instanceDomain = getInstanceDomain(c);
     const protocol = getProtocol(c);
 
-    // Get public key from ap_keypairs table
-    let publicKeyPem = "";
+    let publicKeyPem: string | undefined;
     try {
-      const keypair = await store.getApKeypair(handle);
+      const keypair = await store.getApKeypair(actorRecord.id ?? handle);
       if (keypair) {
         publicKeyPem = keypair.public_key_pem;
         console.log(`[Actor Endpoint] Found existing keypair for handle="${handle}"`);
@@ -240,7 +250,7 @@ app.get("/ap/users/:handle", async (c) => {
         const generated = await ensureUserKeyPair(
           store,
           c.env as any,
-          handle,
+          actorRecord.id ?? handle,
         );
         publicKeyPem = generated.publicKeyPem;
       }
@@ -249,15 +259,7 @@ app.get("/ap/users/:handle", async (c) => {
       return fail(c, "failed to load actor key", 500);
     }
 
-    const actor = generatePersonActor(user, instanceDomain, protocol);
-
-    // Set public key if available
-    if (publicKeyPem) {
-      actor.publicKey.publicKeyPem = publicKeyPem;
-    } else {
-      // Generate keypair on first request (will be implemented)
-      console.warn(`[Actor Endpoint] No keypair found for user ${handle}, returning actor without key`);
-    }
+    const actor = generatePersonActor(actorRecord, instanceDomain, protocol, publicKeyPem);
 
     console.log(`[Actor Endpoint] Returning actor: id="${actor.id}", type="${actor.type}"`);
     return activityPubResponse(c, actor);
@@ -291,7 +293,7 @@ app.get("/ap/groups/:slug", async (c) => {
       return fail(c, "community not found", 404);
     }
 
-    const ownerHandle = community.created_by || slug;
+    const ownerHandle = community.owner_id || community.created_by || community.createdBy || community.ownerId || slug;
     let groupPublicKey: string | undefined;
 
     if (ownerHandle) {
@@ -342,8 +344,24 @@ app.get("/ap/groups/:slug/outbox", async (c) => {
 
     const page = c.req.query("page");
 
+    const countObjects = async (): Promise<number> => {
+      if (typeof store.queryRaw === "function") {
+        const rows = await store
+          .queryRaw<{ count: number }>(
+            `SELECT COUNT(*) as count FROM objects WHERE context = ? AND type IN ('Note','Article','Question') AND deleted_at IS NULL`,
+            slug,
+          )
+          .catch(() => []);
+        return rows?.[0]?.count ?? 0;
+      }
+      if (store.countPostsByCommunity) {
+        return store.countPostsByCommunity(slug);
+      }
+      return 0;
+    };
+
     if (!page) {
-      const totalItems = await store.countPostsByCommunity(slug);
+      const totalItems = await countObjects();
 
       const collection = generateOrderedCollection(
         outboxUrl,
@@ -358,24 +376,39 @@ app.get("/ap/groups/:slug/outbox", async (c) => {
     const pageNum = parseInt(page) || 1;
     const offset = (pageNum - 1) * limit;
 
-    const totalItems = await store.countPostsByCommunity(slug);
-    const posts = await store.listPostsByCommunityPage(slug, limit, offset);
+    const totalItems = await countObjects();
+    let objects: any[] = [];
+    if (store.queryObjects) {
+      objects = await store.queryObjects({
+        context: slug,
+        type: ["Note", "Article", "Question"],
+        include_deleted: false,
+        limit,
+        offset,
+      });
+    } else if (typeof store.queryRaw === "function") {
+      objects = await store.queryRaw(
+        `SELECT * FROM objects WHERE context = ? AND type IN ('Note','Article','Question') AND deleted_at IS NULL ORDER BY published DESC LIMIT ? OFFSET ?`,
+        slug,
+        limit,
+        offset,
+      );
+    }
 
-    const orderedItems = (posts || []).map((post: any) => {
+    const orderedItems = (objects || []).map((obj: any) => {
       const noteObject = generateNoteObject(
-        post,
-        {
-          id: post.author_id,
-          display_name: post.display_name,
-          avatar_url: post.avatar_url,
-        },
+        obj,
+        { id: obj.actor },
         instanceDomain,
         protocol,
       );
-
-      const activityId = post.ap_activity_id ||
-        `https://${instanceDomain}/ap/activities/create-${post.id}`;
-      const actorUri = getActorUri(post.author_id, instanceDomain);
+      const localId =
+        obj.local_id ||
+        (typeof obj.id === "string" ? obj.id.split("/").pop() : obj.id) ||
+        "create";
+      const activityId = obj.ap_activity_id ||
+        `${protocol}://${instanceDomain}/ap/activities/create-${localId}`;
+      const actorUri = noteObject.actor || getActorUri(obj.actor, instanceDomain, protocol);
 
       return wrapInCreateActivity(noteObject, actorUri, activityId);
     });
@@ -1095,19 +1128,29 @@ app.post("/ap/users/:handle/outbox", accessTokenGuard, async (c) => {
 app.get("/ap/objects/:id", async (c) => {
   const store = makeData(c.env as any);
   try {
-    const objectId = c.req.param("id");
-    // Find post by ID
-    const post = await store.getPostWithAuthor(objectId);
-
-    if (!post) {
-      return fail(c, "object not found", 404);
-    }
+    const objectParam = c.req.param("id");
     const instanceDomain = getInstanceDomain(c);
     const protocol = getProtocol(c);
+    const qualifiedId = `${protocol}://${instanceDomain}/ap/objects/${objectParam}`;
+
+    let object = null;
+    if (store.getObject) {
+      object = await store.getObject(qualifiedId);
+      if (!object) {
+        object = await store.getObject(objectParam).catch(() => null);
+      }
+      if (!object && store.getObjectByLocalId) {
+        object = await store.getObjectByLocalId(objectParam).catch(() => null);
+      }
+    }
+
+    if (!object) {
+      return fail(c, "object not found", 404);
+    }
 
     const noteObject = generateNoteObject(
-      post,
-      { id: post.author_id, display_name: post.display_name, avatar_url: post.avatar_url },
+      object,
+      { id: object.actor },
       instanceDomain,
       protocol
     );
