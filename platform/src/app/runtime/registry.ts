@@ -19,7 +19,12 @@ function collectExportedHandlers(module: AppScriptModule): Array<[string, AppHan
     const name = normalizeHandlerName(key);
     if (!name) return;
     if (typeof value !== "function") return;
-    if (handlers.has(name)) {
+    const existing = handlers.get(name);
+    if (existing) {
+      if (existing === value) {
+        // Allow duplicate exports that point to the same function (named + default)
+        return;
+      }
       throw new Error(`Duplicate app handler "${name}" found in app-main exports`);
     }
     handlers.set(name, value as AppHandler);

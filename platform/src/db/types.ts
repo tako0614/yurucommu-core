@@ -311,13 +311,6 @@ export interface ReactionInput {
   ap_activity_id?: string | null;
 }
 
-export interface BookmarkInput {
-  id: string;
-  user_id: string;
-  post_id: string;
-  created_at?: string | Date;
-}
-
 export interface CommentInput {
   id: string;
   post_id: string;

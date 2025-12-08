@@ -50,10 +50,10 @@
     }
   },
   "gates": {
-    "core_version": "1.8.0",
-    "schema_version": "1.0",
-    "manifest_schema": "1.0",
-    "ui_contract": "1.0"
+    "core_version": "1.10.0",
+    "schema_version": "1.10",
+    "manifest_schema": "1.10",
+    "ui_contract": "1.10"
   },
   "custom": {}
 }

@@ -28,7 +28,7 @@ const handleError = (c: any, error: unknown) => {
   return fail(c, message, 400);
 };
 
-const buildStoryInput = (body: any, communityId?: string | null) => {
+const buildStoryInput = (body: any, communityId?: string | null): { items: any[]; community_id: string | null; audience: "community" | "all"; visible_to_friends: boolean } => {
   const items = Array.isArray(body.items) ? body.items : [];
   return {
     items,
@@ -136,5 +136,31 @@ stories.delete("/stories/:id", auth, async (c) => {
 stories.post("/internal/tasks/cleanup-stories", async (c) => {
   return fail(c, "cleanup handled by story service", 503);
 });
+
+export type CleanupResult = {
+  deleted: number;
+  checked: number;
+  skipped?: boolean;
+  reason?: string;
+};
+
+export type CleanupOptions = {
+  limit?: number;
+  force?: boolean;
+  throttleMs?: number;
+};
+
+/**
+ * Cleanup expired stories (stub implementation).
+ * The actual cleanup is handled by the story service internally.
+ */
+export async function cleanupExpiredStories(
+  _env: Bindings,
+  _options?: CleanupOptions,
+): Promise<CleanupResult> {
+  // Story cleanup is handled internally by the object service.
+  // This stub exists for cron compatibility.
+  return { deleted: 0, checked: 0, skipped: true, reason: "handled internally" };
+}
 
 export default stories;

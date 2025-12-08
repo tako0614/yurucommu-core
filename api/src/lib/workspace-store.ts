@@ -183,8 +183,8 @@ const demoWorkspace: AppWorkspaceManifest = {
     ],
   },
 };
-export const DEFAULT_MANIFEST_PATH = "takos-app.json";
-export const DEFAULT_UI_CONTRACT_PATH = "takos-ui-contract.json";
+export const DEFAULT_MANIFEST_PATH = "app/manifest.json";
+export const DEFAULT_UI_CONTRACT_PATH = "schemas/ui-contract.json";
 
 type WorkspaceEnv = Partial<PublicAccountBindings> & {
   DB?: D1Database;
@@ -787,7 +787,7 @@ export function createWorkspaceStore(db: D1Database, bucket?: R2Bucket | null): 
     }
     const result: WorkspaceFileRecord[] = [];
     for (const meta of metas) {
-      const key = normalizePath(meta.path);
+      const key = normalizePath(String((meta as any).path ?? ""));
       const fallback = legacyMap.get(key);
       const record = await buildFileRecord(meta, fallback?.content ?? null);
       if (record) result.push(record);
@@ -853,7 +853,7 @@ export function createWorkspaceStore(db: D1Database, bucket?: R2Bucket | null): 
     );
     await deleteLegacyFile(workspaceId, normalizedPath);
     if (meta?.storage_key) {
-      await deleteR2Object(vfsBucket, meta.storage_key);
+      await deleteR2Object(vfsBucket, String(meta.storage_key));
     }
     return true;
   };
@@ -865,13 +865,13 @@ export function createWorkspaceStore(db: D1Database, bucket?: R2Bucket | null): 
       return {
         workspace_id: String(meta.workspace_id),
         path: normalizedPath,
-        directory_path: normalizeDirectoryPath(meta.directory_path ?? parentDirectory(normalizedPath)),
+        directory_path: normalizeDirectoryPath(String(meta.directory_path ?? "") || parentDirectory(normalizedPath)),
         content: emptyBytes,
         size: Number(meta.size ?? 0),
-        content_hash: meta.content_hash ?? null,
-        storage_key: meta.storage_key ?? null,
+        content_hash: meta.content_hash ? String(meta.content_hash) : null,
+        storage_key: meta.storage_key ? String(meta.storage_key) : null,
         is_cache: meta.is_cache === 1 || meta.is_cache === true,
-        content_type: meta.content_type ?? null,
+        content_type: meta.content_type ? String(meta.content_type) : null,
         created_at: meta.created_at ? String(meta.created_at) : "",
         updated_at: meta.updated_at ? String(meta.updated_at) : "",
       };

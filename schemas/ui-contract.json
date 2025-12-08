@@ -1,9 +1,9 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.10",
   "screens": [
     {
       "id": "screen.home",
-      "label": "Home Timeline",
+      "label": "Home",
       "routes": ["/"],
       "steps_from_home": 0
     },
@@ -11,6 +11,12 @@
       "id": "screen.community",
       "label": "Communities",
       "routes": ["/communities"],
+      "steps_from_home": 1
+    },
+    {
+      "id": "screen.connections",
+      "label": "Connections",
+      "routes": ["/connections"],
       "steps_from_home": 1
     },
     {
@@ -27,15 +33,39 @@
     },
     {
       "id": "screen.dm_thread",
-      "label": "Direct Message Thread",
+      "label": "DM Thread",
       "routes": ["/chat/dm/:id"],
       "steps_from_home": 2
     },
     {
-      "id": "screen.story_viewer",
+      "id": "screen.dm_legacy",
+      "label": "Legacy DM Redirect",
+      "routes": ["/dm"],
+      "steps_from_home": 1
+    },
+    {
+      "id": "screen.stories",
       "label": "Stories",
+      "routes": ["/stories"],
+      "steps_from_home": 1
+    },
+    {
+      "id": "screen.story_viewer",
+      "label": "Story Viewer",
       "routes": ["/stories/:id"],
       "steps_from_home": 2
+    },
+    {
+      "id": "screen.compose",
+      "label": "Compose Post",
+      "routes": ["/compose"],
+      "steps_from_home": 1
+    },
+    {
+      "id": "screen.post_detail",
+      "label": "Post Detail",
+      "routes": ["/posts/:id"],
+      "steps_from_home": 1
     },
     {
       "id": "screen.profile",
@@ -44,9 +74,51 @@
       "steps_from_home": 1
     },
     {
+      "id": "screen.profile_edit",
+      "label": "Edit Profile",
+      "routes": ["/profile/edit"],
+      "steps_from_home": 2
+    },
+    {
+      "id": "screen.user_profile",
+      "label": "User Profile",
+      "routes": ["/@:handle"],
+      "steps_from_home": 1
+    },
+    {
       "id": "screen.settings",
       "label": "Settings",
       "routes": ["/settings"],
+      "steps_from_home": 1
+    },
+    {
+      "id": "screen.users",
+      "label": "User Directory",
+      "routes": ["/users"],
+      "steps_from_home": 1
+    },
+    {
+      "id": "screen.invitations",
+      "label": "Invitations",
+      "routes": ["/invitations"],
+      "steps_from_home": 2
+    },
+    {
+      "id": "screen.follow_requests",
+      "label": "Follow Requests",
+      "routes": ["/follow-requests"],
+      "steps_from_home": 2
+    },
+    {
+      "id": "screen.notifications",
+      "label": "Notifications",
+      "routes": ["/notifications"],
+      "steps_from_home": 2
+    },
+    {
+      "id": "screen.onboarding",
+      "label": "Onboarding",
+      "routes": ["/onboarding"],
       "steps_from_home": 1
     },
     {
@@ -65,22 +137,22 @@
   "actions": [
     {
       "id": "action.open_composer",
-      "available_on": ["screen.home"],
+      "available_on": ["screen.home", "screen.community", "screen.channel"],
       "max_steps_from_home": 1
     },
     {
       "id": "action.send_post",
-      "available_on": ["screen.home", "screen.community", "screen.channel"],
+      "available_on": ["screen.home", "screen.community", "screen.channel", "screen.compose"],
       "max_steps_from_home": 2
     },
     {
       "id": "action.open_notifications",
-      "available_on": ["screen.home"],
+      "available_on": ["screen.home", "screen.notifications"],
       "max_steps_from_home": 1
     },
     {
       "id": "action.open_dm_thread",
-      "available_on": ["screen.dm_list"],
+      "available_on": ["screen.dm_list", "screen.dm_thread"],
       "max_steps_from_home": 2
     },
     {
@@ -90,22 +162,32 @@
     },
     {
       "id": "action.reply",
-      "available_on": ["screen.home", "screen.community", "screen.channel"],
+      "available_on": ["screen.home", "screen.community", "screen.channel", "screen.post_detail", "screen.profile", "screen.user_profile"],
       "max_steps_from_home": 2
     },
     {
       "id": "action.react",
-      "available_on": ["screen.home", "screen.community", "screen.channel"],
+      "available_on": ["screen.home", "screen.community", "screen.channel", "screen.post_detail", "screen.profile", "screen.user_profile"],
       "max_steps_from_home": 2
     },
     {
       "id": "action.view_story",
-      "available_on": ["screen.home", "screen.story_viewer"],
+      "available_on": ["screen.home", "screen.stories", "screen.story_viewer"],
       "max_steps_from_home": 2
     },
     {
       "id": "action.edit_profile",
-      "available_on": ["screen.profile", "screen.settings"],
+      "available_on": ["screen.profile", "screen.profile_edit", "screen.settings"],
+      "max_steps_from_home": 2
+    },
+    {
+      "id": "action.follow",
+      "available_on": ["screen.profile", "screen.user_profile"],
+      "max_steps_from_home": 2
+    },
+    {
+      "id": "action.unfollow",
+      "available_on": ["screen.profile", "screen.user_profile"],
       "max_steps_from_home": 2
     },
     {

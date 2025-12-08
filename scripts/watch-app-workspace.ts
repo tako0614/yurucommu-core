@@ -42,7 +42,7 @@ type UiNode = {
 
 const DEFAULT_ROOT = path.resolve(process.cwd(), "dev/workspace");
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CONTRACT_FILENAME = "takos-ui-contract.json";
+const CONTRACT_FILENAME = "schemas/ui-contract.json";
 const args = parseArgs(process.argv.slice(2));
 const workspaceRoot = path.resolve(args.root ?? DEFAULT_ROOT);
 const previewDir = path.resolve(args.previewDir ?? path.join(workspaceRoot, ".preview"));
@@ -53,13 +53,13 @@ let pendingRun: NodeJS.Timeout | null = null;
 
 log(`dev workspace: ${workspaceRoot}`);
 log(`preview output: ${previewDir}`);
-log(`watching: takos-app.json, app/**/*.json, app-main.*`);
+log(`watching: app/manifest.json, app/**/*.json, app/handlers.*`);
 
 const watcher = chokidar.watch(
   [
-    path.join(workspaceRoot, "takos-app.json"),
+    path.join(workspaceRoot, "app/manifest.json"),
     path.join(workspaceRoot, "app/**/*.json"),
-    path.join(workspaceRoot, "app-main.@(js|ts|mjs|cjs|tsx)"),
+    path.join(workspaceRoot, "app/handlers.@(js|ts|mjs|cjs|tsx)"),
   ],
   {
     ignoreInitial: false,
@@ -95,9 +95,10 @@ async function runValidation(reason: string) {
   log(`change detected (${reason}) -> validating...`);
   try {
     const handlerInfo = await collectHandlers(workspaceRoot);
+    const appDir = path.join(workspaceRoot, "app");
     const manifestResult = await loadAppManifest({
       source: createFsSource(workspaceRoot),
-      rootDir: workspaceRoot,
+      rootDir: appDir,
       availableHandlers: handlerInfo.handlers,
     });
 
@@ -150,7 +151,7 @@ function createFsSource(root: string) {
 async function collectHandlers(root: string): Promise<HandlerInfo> {
   const appMainPath = await findAppMain(root);
   if (!appMainPath) {
-    return { handlers: new Set(), appMainPath: null, notes: ["app-main not found"] };
+    return { handlers: new Set(), appMainPath: null, notes: ["app/handlers not found"] };
   }
 
   const notes: string[] = [];
@@ -219,7 +220,7 @@ async function loadUiContract(
 }
 
 async function findAppMain(root: string): Promise<string | null> {
-  const candidates = ["app-main.ts", "app-main.tsx", "app-main.js", "app-main.mjs", "app-main.cjs"];
+  const candidates = ["app/handlers.ts", "app/handlers.tsx", "app/handlers.js", "app/handlers.mjs", "app/handlers.cjs"];
   for (const candidate of candidates) {
     const fullPath = path.join(root, candidate);
     try {

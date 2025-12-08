@@ -27,7 +27,7 @@ const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 const planGuardError = (c: any) => {
   const check = requireAiQuota((c.get("authContext") as AuthContext | undefined) ?? null);
   if (!check.ok) {
-    return fail(c, check.message, check.status);
+    return fail(c, check.message, check.status, { code: check.code, details: check.details });
   }
   return null;
 };

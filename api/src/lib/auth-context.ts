@@ -8,10 +8,10 @@ import type { AppAuthContext } from "@takos/platform/app/services";
 import type { Context } from "hono";
 import { authenticateUser } from "../middleware/auth";
 import { makeData } from "../data";
-import { releaseStore } from "@takos/platform/server";
+import { HttpError, releaseStore } from "@takos/platform/server";
 import type { AuthContext, LocalUser } from "./auth-context-model";
-import { buildAuthContext, resolvePlanFromEnv, resolveRateLimits } from "./auth-context-model";
-export type { AuthContext, LocalUser, PlanInfo, AuthRateLimits, AuthenticatedUser } from "./auth-context-model";
+import { buildAuthContext, resolvePlanFromEnv } from "./auth-context-model";
+export type { AuthContext, LocalUser, PlanInfo, AuthenticatedUser } from "./auth-context-model";
 
 /**
  * リクエストから AuthContext を取得
@@ -21,11 +21,10 @@ export type { AuthContext, LocalUser, PlanInfo, AuthRateLimits, AuthenticatedUse
  */
 export async function getAuthContext(c: Context): Promise<AuthContext> {
   const plan = resolvePlanFromEnv(c.env as any);
-  const rateLimits = resolveRateLimits(plan);
   const store = makeData(c.env as any, c);
   try {
     const authResult = await authenticateUser(c, store);
-    return buildAuthContext(authResult, plan, rateLimits);
+    return buildAuthContext(authResult, plan);
   } finally {
     await releaseStore(store);
   }
@@ -40,7 +39,7 @@ export async function getAuthContext(c: Context): Promise<AuthContext> {
  */
 export function requireUser(ctx: AuthContext): { userId: string; user: LocalUser } {
   if (!ctx.isAuthenticated || !ctx.userId) {
-    throw new Error("Authentication required");
+    throw new HttpError(401, "UNAUTHORIZED", "Authentication required");
   }
 
   const user =
@@ -63,22 +62,22 @@ export function requireUser(ctx: AuthContext): { userId: string; user: LocalUser
  * App Layer のサービスAPI呼び出しに使用
  */
 export function toAppAuthContext(ctx: AuthContext): AppAuthContext {
+  const limits = ctx.limits ?? ctx.plan?.limits;
   return {
     userId: ctx.userId,
     sessionId: ctx.sessionId,
     roles: ctx.isAuthenticated ? ["authenticated"] : [],
     isAuthenticated: ctx.isAuthenticated,
     plan: ctx.plan,
-    limits: ctx.plan.limits,
-    rateLimits: ctx.rateLimits,
+    limits,
+    rateLimits: limits?.apiRateLimits,
     user: ctx.user,
   };
 }
 
 export function createAnonymousAppAuthContext(env: Record<string, unknown> | undefined): AppAuthContext {
   const plan = resolvePlanFromEnv(env);
-  const rateLimits = resolveRateLimits(plan);
-  return toAppAuthContext(buildAuthContext(null, plan, rateLimits));
+  return toAppAuthContext(buildAuthContext(null, plan));
 }
 
 export function createAppAuthContextForUser(
@@ -87,7 +86,6 @@ export function createAppAuthContextForUser(
   options: { user?: LocalUser | null; sessionId?: string | null; roles?: string[]; isAuthenticated?: boolean } = {},
 ): AppAuthContext {
   const plan = resolvePlanFromEnv(env);
-  const rateLimits = resolveRateLimits(plan);
   const auth = userId
     ? buildAuthContext(
         {
@@ -98,9 +96,8 @@ export function createAppAuthContextForUser(
           token: null,
         },
         plan,
-        rateLimits,
       )
-    : buildAuthContext(null, plan, rateLimits);
+    : buildAuthContext(null, plan);
   const appCtx = toAppAuthContext(auth);
   if (options.roles?.length) {
     appCtx.roles = options.roles;
@@ -123,7 +120,6 @@ export function getAppAuthContext(c: Context): AppAuthContext {
   }
 
   const plan = resolvePlanFromEnv(c.env as any);
-  const rateLimits = resolveRateLimits(plan);
   const user = c.get("user");
   const activeUserId = c.get("activeUserId");
 
@@ -137,9 +133,8 @@ export function getAppAuthContext(c: Context): AppAuthContext {
           token: null,
         },
         plan,
-        rateLimits,
       )
-    : buildAuthContext(null, plan, rateLimits);
+    : buildAuthContext(null, plan);
 
   return toAppAuthContext(derived);
 }

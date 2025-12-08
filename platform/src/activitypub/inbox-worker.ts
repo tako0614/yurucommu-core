@@ -16,6 +16,7 @@ import { handleIncomingDm, handleIncomingChannelMessage } from "./chat";
 import { deliverSingleQueuedItem } from "./delivery-worker";
 import { applyFederationPolicy, buildActivityPubPolicy } from "./federation-policy";
 import type { TakosActivityPubConfig } from "../config/takos-config";
+import { createObjectService } from "../app/services/object-service";
 
 export interface Env {
   DB: D1Database;
@@ -35,6 +36,7 @@ function isActivityPubDisabled(env: Env, feature: string): boolean {
 }
 
 const MAX_BATCH_SIZE = 50;
+const STORY_TTL_MS = 24 * 60 * 60 * 1000;
 
 enum InboxStatus {
   Pending = "pending",
@@ -170,10 +172,34 @@ const toStringArray = (value: unknown): string[] => {
   return [];
 };
 
-function inferVisibility(to: string[], cc: string[]): string {
-  if (to.includes(PUBLIC_AUDIENCE)) return "public";
-  if (cc.includes(PUBLIC_AUDIENCE)) return "unlisted";
-  if (to.some((r) => r.endsWith("/followers"))) return "followers";
+const ensureStoryTtl = (note: any): any => {
+  const story = (note as any)["takos:story"] ?? (note as any).story;
+  if (!story) return note;
+  const expiresRaw =
+    story?.expiresAt ??
+    story?.expires_at ??
+    (note as any).expiresAt ??
+    (note as any).expires_at;
+  const published = typeof note?.published === "string" ? new Date(note.published) : new Date();
+  const parsed = expiresRaw ? new Date(expiresRaw) : null;
+  const expiresAt =
+    parsed && !Number.isNaN(parsed.getTime())
+      ? parsed
+      : new Date(published.getTime() + STORY_TTL_MS);
+  const expiresIso = expiresAt.toISOString();
+  return {
+    ...note,
+    expiresAt: (note as any).expiresAt ?? expiresIso,
+    "takos:story": { ...story, expiresAt: expiresIso },
+  };
+};
+
+function inferVisibility(to: string[], cc: string[], bto: string[] = [], bcc: string[] = []): string {
+  const combinedTo = [...to, ...bto];
+  const combinedCc = [...cc, ...bcc];
+  if (combinedTo.includes(PUBLIC_AUDIENCE)) return "public";
+  if (combinedCc.includes(PUBLIC_AUDIENCE)) return "unlisted";
+  if (combinedTo.some((r) => r.endsWith("/followers"))) return "followers";
   return "direct";
 }
 
@@ -224,39 +250,69 @@ async function resolveObjectById(db: DatabaseAPI, objectId: string, instanceDoma
 
 async function saveRemoteNote(
   db: DatabaseAPI,
+  env: Env,
   note: any,
   actorUri: string,
   options: { inReplyTo?: string | null; context?: string | null } = {},
 ): Promise<string | null> {
-  const to = toStringArray(note.to);
-  const cc = toStringArray(note.cc);
-  const objectId = typeof note.id === "string" ? note.id : crypto.randomUUID();
-  const payload = {
-    id: objectId,
-    local_id: null,
-    type: extractType(note) || "Note",
-    actor: actorUri,
-    published: note.published ? new Date(note.published) : new Date(),
-    updated: note.updated ?? null,
-    to: to.length ? to : null,
-    cc: cc.length ? cc : null,
-    bto: toStringArray(note.bto),
-    bcc: toStringArray(note.bcc),
-    context: typeof options.context === "string"
+  const hydrated = ensureStoryTtl(note);
+  const to = toStringArray(hydrated.to);
+  const cc = toStringArray(hydrated.cc);
+  const bto = toStringArray(hydrated.bto);
+  const bcc = toStringArray(hydrated.bcc);
+  const objectId = typeof hydrated.id === "string" ? hydrated.id : crypto.randomUUID();
+  const context =
+    typeof options.context === "string"
       ? options.context
-      : (typeof note.context === "string" ? note.context : null),
-    in_reply_to: options.inReplyTo ?? (typeof note.inReplyTo === "string" ? note.inReplyTo : null),
-    content: note,
-    is_local: 0,
-    visibility: inferVisibility(to, cc),
+      : (typeof hydrated.context === "string" ? hydrated.context : null);
+  const inReplyTo =
+    options.inReplyTo ?? (typeof hydrated.inReplyTo === "string" ? hydrated.inReplyTo : null);
+  const visibility = inferVisibility(to, cc, bto, bcc);
+  const payload = {
+    ...hydrated,
+    type: extractType(hydrated) || "Note",
+    id: objectId,
+    actor: actorUri,
+    to,
+    cc,
+    bto,
+    bcc,
+    context,
+    inReplyTo,
+    visibility,
   };
+
+  // Prefer ObjectService for normalization (tags/poll/story TTL/recipients)
+  try {
+    const objects = createObjectService(env as any);
+    const stored = await objects.receiveRemote({ userId: null } as any, payload);
+    return stored?.id ?? objectId;
+  } catch (error) {
+    console.warn("[ActivityPub] ObjectService receiveRemote failed, falling back to DB", error);
+  }
 
   if (db.createObject) {
     try {
-      await db.createObject(payload as any);
-      return payload.id;
+      await db.createObject({
+        id: objectId,
+        local_id: null,
+        type: extractType(hydrated) || "Note",
+        actor: actorUri,
+        published: hydrated.published ? new Date(hydrated.published) : new Date(),
+        updated: hydrated.updated ?? null,
+        to: to.length ? to : null,
+        cc: cc.length ? cc : null,
+        bto,
+        bcc,
+        context,
+        in_reply_to: inReplyTo,
+        content: payload,
+        is_local: 0,
+        visibility,
+      } as any);
+      return objectId;
     } catch (error) {
-      if (isUniqueConstraint(error)) return payload.id;
+      if (isUniqueConstraint(error)) return objectId;
       throw error;
     }
   }
@@ -730,6 +786,10 @@ async function handleIncomingLike(
   const emoji = activity.content || activity._misskey_reaction || "❤️";
 
   const reactionId = typeof activity.id === "string" ? activity.id : crypto.randomUUID();
+  const likeTo = toStringArray(activity.to);
+  const likeCc = toStringArray(activity.cc);
+  const likeBto = toStringArray(activity.bto);
+  const likeBcc = toStringArray(activity.bcc);
 
   if (db.createObject) {
     await db.createObject({
@@ -742,14 +802,14 @@ async function handleIncomingLike(
         emoji,
       },
       published: activity.published ? new Date(activity.published) : new Date(),
-      to: toStringArray(activity.to),
-      cc: toStringArray(activity.cc),
-      bto: toStringArray(activity.bto),
-      bcc: toStringArray(activity.bcc),
+      to: likeTo,
+      cc: likeCc,
+      bto: likeBto,
+      bcc: likeBcc,
       context: (activity as any).context ?? null,
       in_reply_to: null,
       is_local: 0,
-      visibility: inferVisibility(toStringArray(activity.to), toStringArray(activity.cc)),
+      visibility: inferVisibility(likeTo, likeCc, likeBto, likeBcc),
     } as any);
   } else {
     await db.createApReaction({
@@ -841,7 +901,7 @@ async function handleIncomingCreate(
  */
 async function handleIncomingPost(
   db: DatabaseAPI,
-  _env: Env,
+  env: Env,
   localRecipientId: string,
   note: any,
   actorUri: string,
@@ -854,7 +914,7 @@ async function handleIncomingPost(
     content: sanitizeHtml(note.content || ""),
   };
 
-  const storedId = await saveRemoteNote(db, sanitizedNote, actorUri, {
+  const storedId = await saveRemoteNote(db, env, sanitizedNote, actorUri, {
     context: sanitizedNote.context ?? communityId,
     inReplyTo: null,
   });
@@ -905,7 +965,7 @@ async function handleIncomingComment(
   }
 
   const sanitizedNote = { ...note, content: sanitizeHtml(note.content || "") };
-  const storedId = await saveRemoteNote(db, sanitizedNote, actorUri, {
+  const storedId = await saveRemoteNote(db, env, sanitizedNote, actorUri, {
     inReplyTo: post.id ?? targetObjectId,
     context: post.context ?? null,
   });
@@ -963,6 +1023,8 @@ async function handleIncomingAnnounce(
 
   const to = toStringArray(activity.to);
   const cc = toStringArray(activity.cc);
+  const bto = toStringArray(activity.bto);
+  const bcc = toStringArray(activity.bcc);
 
   if (db.createObject) {
     await db.createObject({
@@ -974,12 +1036,12 @@ async function handleIncomingAnnounce(
       published: activity.published ? new Date(activity.published) : new Date(),
       to: to.length ? to : null,
       cc: cc.length ? cc : null,
-      bto: toStringArray(activity.bto),
-      bcc: toStringArray(activity.bcc),
+      bto,
+      bcc,
       context: null,
       in_reply_to: null,
       is_local: 0,
-      visibility: inferVisibility(to, cc),
+      visibility: inferVisibility(to, cc, bto, bcc),
     } as any);
   } else if (db.createApAnnounce) {
     await db.createApAnnounce({
@@ -1112,21 +1174,48 @@ async function handleIncomingUpdate(
     const sanitizedContent = sanitizeHtml(noteObject.content || "");
     const to = toStringArray(noteObject.to);
     const cc = toStringArray(noteObject.cc);
+    const bto = toStringArray(noteObject.bto);
+    const bcc = toStringArray(noteObject.bcc);
+    const normalizedNote = ensureStoryTtl({
+      ...noteObject,
+      type: extractType(noteObject) || "Note",
+      content: sanitizedContent,
+      to,
+      cc,
+      bto,
+      bcc,
+    });
 
-    if (db.updateObject) {
+    let updated = false;
+    try {
+      const objects = createObjectService(env as any);
+      await objects.receiveRemote({ userId: null } as any, {
+        ...normalizedNote,
+        id: storedObject.id ?? normalizedObjectId ?? objectId,
+        actor: actorUri,
+      });
+      updated = true;
+    } catch (error) {
+      console.warn(`[ActivityPub] ObjectService update failed for ${objectId}, falling back`, error);
+    }
+
+    if (!updated && db.updateObject) {
       await db.updateObject(storedObject.id, {
         content: { ...noteObject, content: sanitizedContent },
         updated: new Date(),
         to: to.length ? to : undefined,
         cc: cc.length ? cc : undefined,
-        bto: toStringArray(noteObject.bto),
-        bcc: toStringArray(noteObject.bcc),
+        bto,
+        bcc,
         in_reply_to: typeof noteObject.inReplyTo === "string" ? noteObject.inReplyTo : undefined,
-        visibility: inferVisibility(to, cc),
+        visibility: inferVisibility(to, cc, bto, bcc),
       });
+      updated = true;
     }
 
-    console.log(`✓ Updated object ${storedObject.id} from ${actorUri}`);
+    if (updated) {
+      console.log(`✓ Updated object ${storedObject.id} from ${actorUri}`);
+    }
   }
 }
 

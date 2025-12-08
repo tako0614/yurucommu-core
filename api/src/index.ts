@@ -95,11 +95,15 @@ import {
   matchesManifestRoute,
   resolveManifestRouter,
 } from "./lib/manifest-routing";
+import { buildAuthContext, resolvePlanFromEnv, type AuthContext } from "./lib/auth-context-model";
+import { requireApDeliveryQuota } from "./lib/plan-guard";
+import { checkStorageQuota } from "./lib/storage-quota";
 import {
   ACTIVE_USER_COOKIE_NAME,
   auth,
   authenticateUser,
 } from "./middleware/auth";
+import { logEvent, mapErrorToResponse, requestObservability } from "./lib/observability";
 // Handle validation helpers
 const HANDLE_REGEX = /^[a-z0-9_]{3,32}$/;
 function normalizeHandle(input: string): string {
@@ -228,13 +232,30 @@ let devIsolationStatus: DevDataIsolationResult | null = null;
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-// Trace entry into backend router for debugging.
-app.use("*", async (c, next) => {
-  console.log("[backend] enter", {
-    path: new URL(c.req.url).pathname,
-    method: c.req.method,
+app.use("*", requestObservability);
+
+app.onError((error, c) => {
+  const requestId = (c.get("requestId") as string | undefined) ?? undefined;
+  logEvent(c, "error", "request.error", {
+    message: error instanceof Error ? error.message : String(error),
   });
-  await next();
+  return mapErrorToResponse(error, requestId);
+});
+
+app.notFound((c) => {
+  const requestId = (c.get("requestId") as string | undefined) ?? undefined;
+  const path = new URL(c.req.url).pathname;
+  logEvent(c, "warn", "request.not_found", { path });
+  const body = {
+    status: 404,
+    code: "NOT_FOUND",
+    message: "Route not found",
+    details: { path, requestId },
+  };
+  return new Response(JSON.stringify(body), {
+    status: 404,
+    headers: { "Content-Type": "application/json", "x-request-id": requestId || "" },
+  });
 });
 
 // Simplified CORS middleware that mirrors back the request Origin.
@@ -606,9 +627,14 @@ app.post("/media/upload", async (c) => {
   const env = c.env as Bindings;
   if (!env.MEDIA) return fail(c, "media storage not configured", 500);
   const store = makeData(c.env as any, c);
+  const plan = resolvePlanFromEnv(c.env as any);
   try {
     const authResult = await authenticateUser(c, store).catch(() => null);
-    const userId = (authResult as any)?.user?.id || "anon";
+    const authContext = buildAuthContext(authResult, plan);
+    if (!authContext.isAuthenticated || !authContext.userId) {
+      return fail(c, "Authentication required", 401, { code: "UNAUTHORIZED" });
+    }
+    const userId = authContext.userId;
 
     const form = await c.req.formData().catch(() => null);
     if (!form) return fail(c, "invalid form data", 400);
@@ -620,7 +646,15 @@ app.post("/media/upload", async (c) => {
       : "";
     const ext = safeFileExt((file as any).name || "", file.type);
     const id = crypto.randomUUID().replace(/-/g, "");
-    const prefix = `user-uploads/${userId}/${datePrefix()}`;
+    const basePrefix = `user-uploads/${userId}`;
+    const quota = await checkStorageQuota(env.MEDIA, basePrefix, authContext, (file as any).size ?? (file as any).length ?? 0);
+    if (!quota.ok) {
+      return fail(c, quota.guard.message, quota.guard.status, {
+        code: quota.guard.code,
+        details: quota.guard.details,
+      });
+    }
+    const prefix = `${basePrefix}/${datePrefix()}`;
     const key = `${prefix}/${id}${ext ? "." + ext : ""}`;
     await env.MEDIA.put(key, file, {
       httpMetadata: {
@@ -722,7 +756,10 @@ app.post("/storage/upload", auth, async (c) => {
   const env = c.env as Bindings;
   if (!env.MEDIA) return fail(c, "media storage not configured", 500);
   const store = makeData(c.env as any, c);
-  const user = c.get("user") as any;
+  const authContext = (c.get("authContext") as AuthContext | null) ?? null;
+  if (!authContext?.isAuthenticated || !authContext.userId) {
+    return fail(c, "Authentication required", 401, { code: "UNAUTHORIZED" });
+  }
   try {
     const form = await c.req.formData().catch(() => null);
     if (!form) return fail(c, "invalid form data", 400);
@@ -735,10 +772,18 @@ app.post("/storage/upload", auth, async (c) => {
 
     const pathInput = form.get("path");
     const basePrefix = userStoragePrefix(
-      (user as any)?.id || "anon",
+      authContext.userId,
       typeof pathInput === "string" ? pathInput : "",
     );
     const prefixWithSlash = basePrefix.endsWith("/") ? basePrefix : `${basePrefix}/`;
+
+    const quota = await checkStorageQuota(env.MEDIA, userStoragePrefix(authContext.userId), authContext, (file as any).size ?? (file as any).length ?? 0);
+    if (!quota.ok) {
+      return fail(c, quota.guard.message, quota.guard.status, {
+        code: quota.guard.code,
+        details: quota.guard.details,
+      });
+    }
 
     const id = crypto.randomUUID().replace(/-/g, "");
     const ext = safeFileExt((file as any).name || "", file.type);
@@ -755,14 +800,14 @@ app.post("/storage/upload", auth, async (c) => {
     if (store.upsertMedia) {
       await store.upsertMedia({
         key,
-        user_id: (user as any)?.id || "",
+        user_id: authContext.userId,
         url,
         description,
         content_type: file.type || "",
       });
     }
     return ok(c, {
-      key: stripUserStoragePrefix(key, (user as any)?.id || "anon"),
+      key: stripUserStoragePrefix(key, authContext.userId),
       full_key: key,
       url,
       description: description || undefined,
@@ -1131,6 +1176,43 @@ async function requireMember(
   return follower?.status === "accepted";
 }
 
+type ApDeliveryUsage = { minute: number; day: number };
+
+const readApDeliveryUsage = (c: any): ApDeliveryUsage => {
+  const usage = (c.get("apDeliveryUsage") as Partial<ApDeliveryUsage> | undefined) ?? {};
+  const minute = Number(usage.minute ?? 0);
+  const day = Number(usage.day ?? 0);
+  return {
+    minute: Number.isFinite(minute) ? minute : 0,
+    day: Number.isFinite(day) ? day : 0,
+  };
+};
+
+const bumpApDeliveryUsage = (c: any, requested: number): ApDeliveryUsage => {
+  const current = readApDeliveryUsage(c);
+  const next = {
+    minute: current.minute + requested,
+    day: current.day + requested,
+  };
+  c.set("apDeliveryUsage", next);
+  return next;
+};
+
+const enforceApDeliveryQuota = (c: any, requested: number) => {
+  const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
+  const usage = readApDeliveryUsage(c);
+  const guard = requireApDeliveryQuota(authContext, {
+    minute: usage.minute,
+    day: usage.day,
+    requested,
+  });
+  if (!guard.ok) {
+    return fail(c, guard.message, guard.status, { code: guard.code, details: guard.details });
+  }
+  bumpApDeliveryUsage(c, requested);
+  return null;
+};
+
 async function buildPostPayload(
   store: ReturnType<typeof makeData>,
   user: any,
@@ -1329,6 +1411,9 @@ app.post("/communities/:id/posts", auth, async (c) => {
       created_at: new Date(),
     });
 
+    const apQuotaError = enforceApDeliveryQuota(c, 1);
+    if (apQuotaError) return apQuotaError;
+
     // Enqueue delivery to followers (optimized)
     await enqueueDeliveriesToFollowers(store, user.id, post.ap_activity_id!, {
       env: c.env,
@@ -1391,6 +1476,9 @@ app.post("/posts", auth, async (c) => {
       object_type: "Note",
       created_at: new Date(),
     });
+
+    const apQuotaError = enforceApDeliveryQuota(c, 1);
+    if (apQuotaError) return apQuotaError;
 
     // Enqueue delivery to followers (optimized)
     await enqueueDeliveriesToFollowers(store, user.id, post.ap_activity_id!, {
@@ -1543,6 +1631,9 @@ app.post("/posts/:id/reactions", auth, async (c) => {
     created_at: new Date(),
   });
 
+  const apQuotaError = enforceApDeliveryQuota(c, 2);
+  if (apQuotaError) return apQuotaError;
+
   // Enqueue delivery to post author (for local inbox processing)
   if ((post as any).author_id !== user.id) {
     const postAuthorInbox = `https://${instanceDomain}/ap/users/${(post as any).author_id}/inbox`;
@@ -1648,6 +1739,9 @@ app.post("/posts/:id/comments", auth, async (c) => {
     object_type: "Note",
     created_at: new Date(),
   });
+
+  const apQuotaError = enforceApDeliveryQuota(c, 2);
+  if (apQuotaError) return apQuotaError;
 
   // Enqueue delivery to post author (for local inbox processing)
   if ((post as any).author_id !== user.id) {

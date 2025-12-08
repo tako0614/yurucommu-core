@@ -20,7 +20,7 @@ describe("agent config allowlist", () => {
       { path: "ai.enabled_actions[0]", change: "changed", previous: "ai.summary", next: "ai.qa" },
     ]);
     const result = enforceAgentConfigAllowlist({
-      agentType: "admin",
+      agentType: "system",
       allowlist: ["ai.enabled_actions"],
       changedPaths: diffPaths,
     });
@@ -35,7 +35,7 @@ describe("agent config allowlist", () => {
     expect(disallowed).toEqual(["activitypub.blocked_instances"]);
 
     const result = enforceAgentConfigAllowlist({
-      agentType: "admin",
+      agentType: "system",
       allowlist: ["ai.enabled_actions"],
       changedPaths: ["activitypub.blocked_instances"],
     });

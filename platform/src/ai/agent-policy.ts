@@ -1,4 +1,4 @@
-export type AgentType = "user" | "admin" | "dev";
+export type AgentType = "user" | "system" | "admin" | "dev";
 
 export type AgentToolId =
   | "tool.describeNodeCapabilities"
@@ -9,8 +9,14 @@ export type AgentToolId =
 
 const AGENT_TOOL_ALLOWLIST: Record<AgentType, ReadonlySet<AgentToolId>> = {
   user: new Set(["tool.describeNodeCapabilities", "tool.runAIAction"]),
+  system: new Set(["tool.describeNodeCapabilities", "tool.updateTakosConfig", "tool.runAIAction"]),
   admin: new Set(["tool.describeNodeCapabilities", "tool.updateTakosConfig", "tool.runAIAction"]),
-  dev: new Set(["tool.applyCodePatch", "tool.inspectService"]),
+  dev: new Set([
+    "tool.describeNodeCapabilities",
+    "tool.inspectService",
+    "tool.applyCodePatch",
+    "tool.runAIAction",
+  ]),
 };
 
 export const CONFIG_MUTATION_TOOLS: ReadonlySet<AgentToolId> = new Set([
@@ -24,8 +30,8 @@ export const CODE_MUTATION_TOOLS: ReadonlySet<AgentToolId> = new Set([
 export function normalizeAgentType(value: unknown): AgentType | null {
   if (value === undefined || value === null) return null;
   const normalized = String(value).trim().toLowerCase();
-  if (normalized === "user" || normalized === "admin" || normalized === "dev") {
-    return normalized;
+  if (normalized === "user" || normalized === "admin" || normalized === "system" || normalized === "dev") {
+    return normalized === "admin" ? "system" : normalized;
   }
   return null;
 }

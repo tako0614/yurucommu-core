@@ -7,7 +7,7 @@ import type { AppAuthContext } from "@takos/platform/app/runtime/types";
 import { auth } from "../middleware/auth";
 import { createMediaService } from "../services";
 import { getAppAuthContext } from "../lib/auth-context";
-import { requireFileSizeWithinPlan } from "../lib/plan-guard";
+import { checkStorageQuota } from "../lib/storage-quota";
 import type { AuthContext } from "../lib/auth-context-model";
 
 const media = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -81,12 +81,25 @@ const handleUpload = async (c: any) => {
   if (!env.MEDIA) return fail(c, "media storage not configured", 500);
   const authCtx = ensureAuth(getAppAuthContext(c));
   const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
+  if (!authContext?.isAuthenticated || !authContext.userId) {
+    return fail(c, "Authentication required", 401, { code: "UNAUTHORIZED" });
+  }
   const form = await c.req.formData().catch(() => null);
   if (!form) return fail(c, "invalid form data", 400);
   const file = form.get("file") as File | null;
   if (!file) return fail(c, "file required", 400);
-  const planCheck = requireFileSizeWithinPlan(authContext, (file as any).size ?? 0);
-  if (!planCheck.ok) return fail(c, planCheck.message, planCheck.status);
+  const quota = await checkStorageQuota(
+    env.MEDIA,
+    `user-uploads/${authContext.userId}`,
+    authContext,
+    (file as any).size ?? 0,
+  );
+  if (!quota.ok) {
+    return fail(c, quota.guard.message, quota.guard.status, {
+      code: quota.guard.code,
+      details: quota.guard.details,
+    });
+  }
   const descriptionRaw = form.get("description") ?? form.get("alt");
   const description =
     typeof descriptionRaw === "string"

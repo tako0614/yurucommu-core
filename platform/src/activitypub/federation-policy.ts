@@ -75,6 +75,9 @@ export function applyFederationPolicy(
 ): { allowed: boolean; hostname: string | null; reason?: "blocked" | "allowlist" } {
   const hostname = extractHostname(target);
   if (!hostname) {
+    if (policy.allow.length > 0) {
+      return { allowed: false, hostname: null, reason: "allowlist" };
+    }
     return { allowed: true, hostname: null };
   }
 

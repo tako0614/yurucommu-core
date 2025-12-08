@@ -96,13 +96,23 @@ export interface AppManifestLayout {
 }
 
 export const DEFAULT_APP_LAYOUT: AppManifestLayout = {
-  baseDir: "app",
+  baseDir: ".",
   routesDir: "routes",
   viewsDir: "views",
   apDir: "ap",
   dataDir: "data",
   storageDir: "storage",
 };
+
+// File paths within app/ directory
+export const APP_MANIFEST_FILENAME = "manifest.json";
+export const APP_HANDLERS_FILENAME = "handlers.ts";
+export const APP_HANDLERS_CANDIDATES = ["handlers.ts", "handlers.tsx", "handlers.js", "handlers.mjs", "handlers.cjs"];
+
+// Schema file paths (relative to project root)
+export const SCHEMA_DIR = "schemas";
+export const UI_CONTRACT_FILENAME = "ui-contract.json";
+export const PROFILE_SCHEMA_FILENAME = "profile.schema.json";
 
 export type AppManifestValidationIssue = {
   severity: "error" | "warning";

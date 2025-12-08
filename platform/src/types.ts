@@ -77,6 +77,8 @@ export type Variables = {
   user: any;
   activityPubUser?: any;
   takosConfig?: TakosConfig;
+  requestId?: string;
+  authContext?: any;
 };
 
 export type AppContext<TBindings extends BaseBindings = Bindings> = Context<{

@@ -1,0 +1,104 @@
+/// <reference types="@cloudflare/workers-types" />
+
+import type { Context, MiddlewareHandler } from "hono";
+import { HttpError } from "@takos/platform/server";
+import type { AuthContext } from "./auth-context-model";
+
+type LogLevel = "debug" | "info" | "warn" | "error";
+
+type LogPayload = {
+  ts: string;
+  level: LogLevel;
+  event: string;
+  requestId?: string;
+  path?: string;
+  method?: string;
+  status?: number;
+  duration_ms?: number;
+  userId?: string | null;
+  sessionId?: string | null;
+  details?: Record<string, unknown>;
+};
+
+const normalizeRequestId = (existing: string | null | undefined): string =>
+  typeof existing === "string" && existing.trim() ? existing.trim() : crypto.randomUUID();
+
+const baseLog = (c: Context | null, level: LogLevel, event: string, extra?: Record<string, unknown>): LogPayload => {
+  const auth = c?.get?.("authContext") as AuthContext | undefined;
+  const path = c ? new URL(c.req.url).pathname : undefined;
+  const method = c?.req?.method;
+  return {
+    ts: new Date().toISOString(),
+    level,
+    event,
+    requestId: c?.get?.("requestId") as string | undefined,
+    path,
+    method,
+    userId: auth?.userId ?? null,
+    sessionId: auth?.sessionId ?? null,
+    ...(extra ?? {}),
+  };
+};
+
+export const logEvent = (c: Context | null, level: LogLevel, event: string, extra?: Record<string, unknown>): void => {
+  const payload = baseLog(c, level, event, extra);
+  const logger =
+    level === "error" ? console.error : level === "warn" ? console.warn : level === "debug" ? console.debug : console.log;
+  logger(JSON.stringify(payload));
+};
+
+export const requestObservability: MiddlewareHandler = async (c, next) => {
+  const requestId = normalizeRequestId(c.req.header("x-request-id"));
+  c.set("requestId", requestId);
+  const started = performance.now();
+  logEvent(c, "info", "request.start", {
+    path: new URL(c.req.url).pathname,
+    method: c.req.method,
+  });
+
+  try {
+    await next();
+  } finally {
+    const durationMs = Number((performance.now() - started).toFixed(2));
+    c.res.headers.set("x-request-id", requestId);
+    logEvent(c, "info", "request.complete", {
+      status: c.res?.status ?? 0,
+      duration_ms: durationMs,
+    });
+  }
+};
+
+export const mapErrorToResponse = (error: unknown, requestId?: string): Response => {
+  if (error instanceof Response) {
+    return error;
+  }
+
+  let status = 500;
+  let code = "INTERNAL_ERROR";
+  let message = "An unexpected error occurred";
+  let details: Record<string, unknown> | undefined;
+
+  if (error instanceof HttpError) {
+    status = error.status ?? status;
+    code = (error.code || code).toUpperCase();
+    message = error.message || message;
+    details = error.details;
+  } else if (error instanceof Error) {
+    message = error.message || message;
+  }
+
+  const body = {
+    status,
+    code,
+    message,
+    details: requestId ? { ...(details ?? {}), requestId } : details,
+  };
+
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      "x-request-id": requestId || "",
+    },
+  });
+};

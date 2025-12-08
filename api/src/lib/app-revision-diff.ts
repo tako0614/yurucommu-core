@@ -19,6 +19,8 @@ export type AppRevisionRecord = {
   message?: string | null;
   schema_version?: string | null;
   schemaVersion?: string | null;
+  core_version?: string | null;
+  coreVersion?: string | null;
   manifest_snapshot?: string | null;
   manifestSnapshot?: string | null;
   script_snapshot_ref?: string | null;

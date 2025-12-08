@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.10",
   "name": "takos-oss",
   "display_name": "Takos OSS",
   "description": "Single-instance takos distribution for Cloudflare Workers.",
@@ -45,10 +45,10 @@
     }
   },
   "gates": {
-    "core_version": "1.8.0",
-    "schema_version": "1.0",
-    "manifest_schema": "1.0",
-    "ui_contract": "1.0"
+    "core_version": "1.10.0",
+    "schema_version": "1.10",
+    "manifest_schema": "1.10",
+    "ui_contract": "1.10"
   },
   "metadata": {
     "maintainer": {

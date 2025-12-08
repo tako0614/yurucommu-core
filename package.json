@@ -16,6 +16,10 @@
     "validate:app": "tsx scripts/validate-app-manifest.ts",
     "init:config": "node scripts/init-config.js",
     "validate:profile": "node scripts/validate-takos-profile.js",
+    "config:compat": "tsx scripts/api/config-tools.ts compat",
+    "config:export": "tsx scripts/api/config-tools.ts export",
+    "config:diff": "tsx scripts/api/config-tools.ts diff",
+    "config:import": "tsx scripts/api/config-tools.ts import",
     "ui:contract": "node frontend/scripts/validate-ui-contract.mjs",
     "ui:contract:generate": "node frontend/scripts/generate-ui-contract.mjs"
   },

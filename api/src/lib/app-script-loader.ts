@@ -37,18 +37,12 @@ const isDevEnv = (env: any): boolean => {
   return nodeEnv === "development";
 };
 
-const allowUntrustedScriptRef = (env: any): boolean =>
+const allowInlineScriptRef = (env: any): boolean =>
   isDevEnv(env) || boolFromEnv((env as any)?.ALLOW_UNSANDBOXED_APP_SCRIPTS);
 
-const isUntrustedRef = (ref: string): boolean => {
+const isInlineRef = (ref: string): boolean => {
   const normalized = ref.trim();
-  return (
-    normalized.startsWith("inline:") ||
-    normalized.startsWith("data:") ||
-    normalized.startsWith("vfs:") ||
-    normalized.startsWith("ws:") ||
-    normalized.startsWith("r2:")
-  );
+  return normalized.startsWith("inline:") || normalized.startsWith("data:");
 };
 
 const encodeBase64 = (input: string): string => {
@@ -160,7 +154,7 @@ const loadFromVfs = async (ref: string, env: any): Promise<LoadedScript | null> 
 
   const parts = ref.slice(prefix.length).split(":");
   const workspaceId = parts.shift()?.trim();
-  const path = parts.join(":").trim() || "app-main.js";
+  const path = parts.join(":").trim() || "app/handlers.js";
   if (!workspaceId) return null;
   const store = (env as any)?.workspaceStore ?? (env as any)?.WORKSPACE_STORE;
   if (!store?.getWorkspaceFile) return null;
@@ -189,16 +183,16 @@ export async function loadAppScript(options: {
   env: any;
 }): Promise<LoadedScript | null> {
   const ref = options.scriptRef?.toString?.().trim?.() ?? "";
-  const allowUntrusted = allowUntrustedScriptRef(options.env);
+  const allowInline = allowInlineScriptRef(options.env);
 
   if (customLoader) {
     const loaded = await customLoader(ref || null, options.env);
     if (loaded) return loaded;
   }
 
-  if (ref && isUntrustedRef(ref) && !allowUntrusted) {
+  if (ref && isInlineRef(ref) && !allowInline) {
     throw new Error(
-      "Untrusted app script refs (inline/r2/vfs) are disabled outside dev; set TAKOS_CONTEXT=dev or ALLOW_UNSANDBOXED_APP_SCRIPTS=1 to override.",
+      "Inline app script refs are disabled outside dev; set TAKOS_CONTEXT=dev or ALLOW_UNSANDBOXED_APP_SCRIPTS=1 to override.",
     );
   }
 

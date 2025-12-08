@@ -49,6 +49,7 @@ export interface TimelineParams {
   community_id?: string;
   list_id?: string;
   only_media?: boolean;
+  visibility?: Visibility | null;
 }
 
 // Output types

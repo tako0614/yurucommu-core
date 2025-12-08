@@ -17,10 +17,10 @@ const ajv = new Ajv({
 });
 addFormats(ajv);
 
-const RUNTIME_CORE_VERSION = "1.8.0";
-const PROFILE_SCHEMA_VERSION = "1.0";
-const MANIFEST_SCHEMA_VERSION = "1.0";
-const UI_CONTRACT_VERSION = "1.0";
+const RUNTIME_CORE_VERSION = "1.10.0";
+const PROFILE_SCHEMA_VERSION = "1.10";
+const MANIFEST_SCHEMA_VERSION = "1.10";
+const UI_CONTRACT_VERSION = "1.10";
 
 const semverPattern = new RegExp(
   "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"

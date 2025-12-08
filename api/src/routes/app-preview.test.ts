@@ -206,6 +206,20 @@ describe("/-/app/preview/screen", () => {
     expect(missingAuth.status).toBe(401);
   });
 
+  it("blocks preview when plan does not allow customization", async () => {
+    const res = await authedRequest(
+      "/-/app/preview/screen",
+      {
+        workspaceId: "ws_test",
+        screenId: "screen.home",
+        viewMode: "json",
+      },
+      { ...createWorkspaceEnv(), PLAN: "free" },
+    );
+
+    expect(res.status).toBe(402);
+  });
+
   it("loads the active prod manifest when mode is prod", async () => {
     setBackendDataFactory(
       () =>

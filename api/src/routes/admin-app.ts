@@ -8,6 +8,7 @@ import {
   nowISO,
   ok,
   releaseStore,
+  TAKOS_CORE_VERSION,
 } from "@takos/platform/server";
 import {
   createInMemoryAppSource,
@@ -32,7 +33,7 @@ import type {
   AppRevisionAuditInput,
   AppWorkspaceStatus,
 } from "../lib/types";
-import defaultUiContract from "../../../takos-ui-contract.json";
+import defaultUiContract from "../../../schemas/ui-contract.json";
 import { clearManifestRouterCache } from "../lib/manifest-routing";
 
 type AdminAuthResult =
@@ -108,8 +109,8 @@ const canTransitionWorkspaceStatus = (
 };
 
 const textDecoder = new TextDecoder();
-const APP_MAIN_CANDIDATES = ["app-main.ts", "app-main.tsx", "app-main.js", "app-main.mjs", "app-main.cjs"];
-const UI_CONTRACT_FILENAME = "takos-ui-contract.json";
+const APP_HANDLERS_CANDIDATES = ["app/handlers.ts", "app/handlers.tsx", "app/handlers.js", "app/handlers.mjs", "app/handlers.cjs"];
+const UI_CONTRACT_FILENAME = "schemas/ui-contract.json";
 
 const shouldValidateWorkspaceStatus = (status: WorkspaceLifecycleStatus): boolean =>
   status === "validated" || status === "ready" || status === "applied";
@@ -203,7 +204,7 @@ const scanWorkspaceHandlers = (source: string): Set<string> => {
 const detectWorkspaceHandlers = (
   files: Record<string, string>,
 ): { handlers: Set<string> | null; issues: AppManifestValidationIssue[] } => {
-  for (const candidate of APP_MAIN_CANDIDATES) {
+  for (const candidate of APP_HANDLERS_CANDIDATES) {
     const content = files[candidate];
     if (typeof content !== "string") continue;
     try {
@@ -409,7 +410,7 @@ const buildManifestFileMap = (manifest: Record<string, unknown>): Record<string,
   if (Object.prototype.hasOwnProperty.call(manifest, "layout")) {
     root.layout = (manifest as any).layout;
   }
-  files["takos-app.json"] = JSON.stringify(root);
+  files["app/manifest.json"] = JSON.stringify(root);
 
   if (Object.prototype.hasOwnProperty.call(manifest, "routes")) {
     files["app/routes/manifest.json"] = JSON.stringify({ routes: (manifest as any).routes });
@@ -769,6 +770,7 @@ adminAppRoutes.post("/admin/app/revisions/apply", async (c) => {
     const saved = await store.createAppRevision({
       id: requestedId || undefined,
       schema_version: normalizedSchemaVersion,
+      core_version: TAKOS_CORE_VERSION,
       manifest_snapshot: JSON.stringify(manifestForRevision),
       script_snapshot_ref: scriptRef,
       message:
@@ -783,7 +785,12 @@ adminAppRoutes.post("/admin/app/revisions/apply", async (c) => {
       return fail(c as any, "failed to persist revision", 500);
     }
     const revisionId = saved.id;
-    await store.setActiveAppRevision(revisionId);
+    try {
+      await store.setActiveAppRevision(revisionId);
+    } catch (error: any) {
+      const message = (error?.message as string | undefined) || "failed to activate revision";
+      return fail(c as any, message, /version|compatible/i.test(message) ? 400 : 500);
+    }
     clearManifestRouterCache();
     if (workspaceMeta?.id) {
       await markWorkspaceApplied(workspaceMeta.id, c.env);
@@ -992,7 +999,12 @@ adminAppRoutes.post("/admin/app/revisions/:id/rollback", async (c) => {
       );
     }
 
-    await store.setActiveAppRevision(revisionId);
+    try {
+      await store.setActiveAppRevision(revisionId);
+    } catch (error: any) {
+      const message = (error?.message as string | undefined) || "failed to activate revision";
+      return fail(c as any, message, /version|compatible/i.test(message) ? 400 : 500);
+    }
     clearManifestRouterCache();
     const state = await store.getActiveAppRevision();
     const uniqueWarnings = Array.from(new Set(warnings));

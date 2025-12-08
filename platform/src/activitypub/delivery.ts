@@ -102,12 +102,25 @@ export async function deliverActivity(env: any, activity: any) {
     return;
   }
 
+  const toList = (value: unknown): string[] => {
+    if (Array.isArray(value)) return value.filter((v) => typeof v === "string") as string[];
+    if (typeof value === "string") return [value];
+    return [];
+  };
+  const object = activity?.object ?? {};
   const allRecipients = [
-    ...(activity.to || []),
-    ...(activity.cc || []),
-    ...(activity.bcc || []),
+    ...toList(activity.to),
+    ...toList(object.to),
+    ...toList(activity.cc),
+    ...toList(object.cc),
+    ...toList(activity.bto),
+    ...toList(object.bto),
+    ...toList(activity.bcc),
+    ...toList(object.bcc),
   ];
-  const uniqueRecipients = Array.from(new Set(allRecipients)).filter(Boolean);
+  const uniqueRecipients = Array.from(
+    new Set(allRecipients.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)),
+  );
 
   for (const recipient of uniqueRecipients) {
     try {

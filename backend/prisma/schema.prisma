@@ -1,4 +1,4 @@
-// Prisma schema for takos v1.8 (objects/actors centric)
+// Prisma schema for takos v1.10 (objects/actors centric)
 
 generator client {
   provider = "prisma-client-js"
@@ -562,6 +562,7 @@ model app_revisions {
   author_name         String?
   message             String?
   schema_version      String
+  core_version        String   @default("1.10.0")
   manifest_snapshot   String
   script_snapshot_ref String
 
@@ -571,6 +572,8 @@ model app_revisions {
 model app_state {
   id                 Int      @id @default(1)
   active_revision_id String?
+  schema_version     String   @default("1.10")
+  core_version       String   @default("1.10.0")
   updated_at         DateTime @default(now())
 
   active_revision app_revisions? @relation(fields: [active_revision_id], references: [id], onDelete: SetNull, onUpdate: Cascade)

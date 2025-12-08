@@ -41,6 +41,7 @@ import type { Variables } from "../types";
 import { processSingleInboxActivity } from "./inbox-worker";
 import { deliverSingleQueuedItem } from "./delivery-worker";
 import { applyFederationPolicy, buildActivityPubPolicy } from "./federation-policy";
+import { createObjectService } from "../app/services/object-service";
 
 type Bindings = {
   DB: D1Database;
@@ -89,6 +90,101 @@ async function findActor(store: any, id: string): Promise<any | null> {
   if (store.getUser) {
     return store.getUser(id).catch(() => null);
   }
+  return null;
+}
+
+function isLocalActorUri(actorId: string | undefined, instanceDomain: string): boolean {
+  if (!actorId) return true;
+  try {
+    return new URL(actorId).hostname.toLowerCase() === instanceDomain.toLowerCase();
+  } catch {
+    return true;
+  }
+}
+
+function mapObjectActorToRecord(object: any, fallbackHandle: string, instanceDomain: string, protocol: string) {
+  const preferred =
+    (typeof object?.preferredUsername === "string" && object.preferredUsername) ||
+    (typeof object?.handle === "string" && object.handle) ||
+    fallbackHandle;
+  const avatar =
+    typeof object?.icon === "string"
+      ? object.icon
+      : typeof object?.icon?.url === "string"
+        ? object.icon.url
+        : undefined;
+
+  return {
+    id: typeof object?.id === "string" ? object.id : getActorUri(preferred, instanceDomain, protocol),
+    handle: preferred || fallbackHandle,
+    display_name: typeof object?.name === "string" ? object.name : undefined,
+    summary: typeof object?.summary === "string" ? object.summary : undefined,
+    avatar_url: avatar,
+    public_key_pem:
+      typeof (object as any)?.publicKey?.publicKeyPem === "string"
+        ? (object as any).publicKey.publicKeyPem
+        : undefined,
+  };
+}
+
+async function resolveActorProfile(
+  c: ActivityPubContext,
+  store: any,
+  handle: string,
+  envOverride?: any,
+): Promise<{ actor: any; actorUri: string; publicKeyPem?: string } | null> {
+  const instanceDomain = getInstanceDomain(c);
+  const protocol = getProtocol(c);
+  const env = envOverride ?? c.env;
+  const localActorUri = getActorUri(handle, instanceDomain, protocol);
+
+  try {
+    const objects = createObjectService(env as any);
+    const ctx = { userId: null } as any;
+    const objectActor =
+      (await objects.get(ctx, localActorUri)) ||
+      (typeof objects.getByLocalId === "function" ? await objects.getByLocalId(ctx, handle) : null);
+    if (
+      objectActor &&
+      (objectActor.type === "Person" || objectActor.type === "Group" || objectActor.type === "Service")
+    ) {
+      if (objectActor.id && !isLocalActorUri(objectActor.id, instanceDomain)) {
+        return null;
+      }
+      const mapped = mapObjectActorToRecord(objectActor, handle, instanceDomain, protocol);
+      return {
+        actor: mapped,
+        actorUri: mapped.id,
+        publicKeyPem:
+          typeof (objectActor as any)?.publicKey?.publicKeyPem === "string"
+            ? (objectActor as any).publicKey.publicKeyPem
+            : undefined,
+      };
+    }
+  } catch (error) {
+    console.warn("[ActivityPub] failed to resolve actor from objects", error);
+  }
+
+  const direct = await findActor(store, handle);
+  if (direct) {
+    const normalizedHandle = (direct as any).handle || (direct as any).id || handle;
+    const actorUri = getActorUri(normalizedHandle, instanceDomain, protocol);
+    return { actor: { ...direct, handle: normalizedHandle }, actorUri, publicKeyPem: (direct as any).public_key_pem };
+  }
+
+  if (typeof store.findApActor === "function") {
+    const cached = await store.findApActor(localActorUri).catch(() => null);
+    if (cached && isLocalActorUri(cached.id, instanceDomain)) {
+      const normalizedHandle = (cached as any).handle || handle;
+      const actorUri = (cached as any).id || localActorUri;
+      return {
+        actor: { ...cached, handle: normalizedHandle },
+        actorUri,
+        publicKeyPem: (cached as any).public_key_pem,
+      };
+    }
+  }
+
   return null;
 }
 
@@ -147,7 +243,8 @@ function guardActivityPubDisabled(
  * Must be accessible from user subdomain
  */
 app.get("/.well-known/webfinger", webfingerRateLimitMiddleware(), async (c) => {
-  const store = makeData(c.env as any);
+  const envWithConfig = attachTakosConfigToEnv(c);
+  const store = makeData(envWithConfig as any);
   try {
     const resource = c.req.query("resource");
     console.log(`[WebFinger Server] Incoming request: resource="${resource}", host="${c.req.header("host")}"`);
@@ -189,18 +286,18 @@ app.get("/.well-known/webfinger", webfingerRateLimitMiddleware(), async (c) => {
       return c.json({ error: "invalid resource format" }, 400);
     }
 
-    // Verify user exists
-    const actor = await findActor(store, handle);
-    console.log(`[WebFinger Server] User lookup: handle="${handle}", found=${!!actor}`);
+    // Verify user exists via actors/objects unified lookup
+    const resolved = await resolveActorProfile(c, store, handle, envWithConfig);
+    console.log(`[WebFinger Server] User lookup: handle="${handle}", found=${!!resolved}`);
 
-    if (!actor) {
+    if (!resolved) {
       console.error(`[WebFinger Server] User not found: handle="${handle}"`);
       return c.json({ error: "user not found" }, 404);
     }
 
     const instanceDomain = getInstanceDomain(c);
     const protocol = getProtocol(c);
-    const preferred = actor.handle || actor.id || handle;
+    const preferred = resolved.actor?.handle || resolved.actor?.id || handle;
     const webfinger = generateWebFinger(preferred, instanceDomain, protocol);
 
     console.log(`[WebFinger Server] Returning WebFinger for handle="${handle}", domain="${instanceDomain}"`);
@@ -234,12 +331,13 @@ app.get("/ap/users/:handle", async (c) => {
     return c.redirect(`/@${handle}`);
   }
 
-  const store = makeData(c.env as any);
+  const envWithConfig = attachTakosConfigToEnv(c);
+  const store = makeData(envWithConfig as any);
   try {
-    const actorRecord = await findActor(store, handle);
-    console.log(`[Actor Endpoint] User lookup: handle="${handle}", found=${!!actorRecord}`);
+    const resolved = await resolveActorProfile(c, store, handle, envWithConfig);
+    console.log(`[Actor Endpoint] User lookup: handle="${handle}", found=${!!resolved}`);
 
-    if (!actorRecord) {
+    if (!resolved) {
       console.error(`[Actor Endpoint] User not found: handle="${handle}"`);
       return fail(c, "user not found", 404);
     }
@@ -247,27 +345,34 @@ app.get("/ap/users/:handle", async (c) => {
     const instanceDomain = getInstanceDomain(c);
     const protocol = getProtocol(c);
 
-    let publicKeyPem: string | undefined;
+    let publicKeyPem: string | undefined = resolved.publicKeyPem;
     try {
-      const keypair = await store.getApKeypair(actorRecord.id ?? handle);
-      if (keypair) {
-        publicKeyPem = keypair.public_key_pem;
-        console.log(`[Actor Endpoint] Found existing keypair for handle="${handle}"`);
-      } else {
-        console.log(`[Actor Endpoint] Generating new keypair for handle="${handle}"`);
-        const generated = await ensureUserKeyPair(
-          store,
-          c.env as any,
-          actorRecord.id ?? handle,
-        );
-        publicKeyPem = generated.publicKeyPem;
+      if (!publicKeyPem) {
+        const keypair = await store.getApKeypair?.(resolved.actor?.id ?? handle);
+        if (keypair) {
+          publicKeyPem = keypair.public_key_pem;
+          console.log(`[Actor Endpoint] Found existing keypair for handle="${handle}"`);
+        } else {
+          console.log(`[Actor Endpoint] Generating new keypair for handle="${handle}"`);
+          const generated = await ensureUserKeyPair(
+            store,
+            c.env as any,
+            resolved.actor?.id ?? handle,
+          );
+          publicKeyPem = generated.publicKeyPem;
+        }
       }
     } catch (error) {
       console.error(`[Actor Endpoint] Failed to fetch keypair for handle="${handle}":`, error);
       return fail(c, "failed to load actor key", 500);
     }
 
-    const actor = generatePersonActor(actorRecord, instanceDomain, protocol, publicKeyPem);
+    const actor = generatePersonActor(
+      resolved.actor,
+      instanceDomain,
+      protocol,
+      publicKeyPem,
+    );
 
     console.log(`[Actor Endpoint] Returning actor: id="${actor.id}", type="${actor.type}"`);
     return activityPubResponse(c, actor);
@@ -354,12 +459,11 @@ app.get("/ap/groups/:slug/outbox", async (c) => {
 
     const countObjects = async (): Promise<number> => {
       if (typeof store.queryRaw === "function") {
-        const rows = await store
-          .queryRaw<{ count: number }>(
+        const rows = await (store.queryRaw as (sql: string, ...params: any[]) => Promise<{ count: number }[]>)(
             `SELECT COUNT(*) as count FROM objects WHERE context = ? AND type IN ('Note','Article','Question') AND deleted_at IS NULL`,
             slug,
           )
-          .catch(() => []);
+          .catch(() => [] as { count: number }[]);
         return rows?.[0]?.count ?? 0;
       }
       if (store.countPostsByCommunity) {
@@ -1079,13 +1183,21 @@ app.post("/ap/users/:handle/outbox", accessTokenGuard, async (c) => {
 
   const handle = c.req.param("handle");
   const body = await c.req.json();
+  const toList = (value: unknown): string[] => {
+    if (Array.isArray(value)) return value.map((v) => v?.toString?.() ?? "").filter(Boolean);
+    if (typeof value === "string") return [value];
+    return [];
+  };
   
   // 標準の Note で DM を判定（to に Public がなく、特定のユーザーのみの場合）
   if (body?.object?.type === "Note" && body?.type === "Create") {
-    const to = body.to || [];
-    const cc = body.cc || [];
-    const hasPublic = to.includes("https://www.w3.org/ns/activitystreams#Public") || 
-                      cc.includes("https://www.w3.org/ns/activitystreams#Public");
+    const to = toList(body.object?.to ?? body.to);
+    const cc = toList(body.object?.cc ?? body.cc);
+    const bto = toList(body.object?.bto ?? body.bto);
+    const bcc = toList(body.object?.bcc ?? body.bcc);
+    const hasPublic =
+      [...to, ...cc, ...bto, ...bcc].includes("https://www.w3.org/ns/activitystreams#Public");
+    const hasRecipients = to.length + cc.length + bto.length + bcc.length > 0;
     
     // context プロパティでチャンネルメッセージかDMかを判定
     const context = body.object.context;
@@ -1115,9 +1227,15 @@ app.post("/ap/users/:handle/outbox", accessTokenGuard, async (c) => {
           await releaseStore(store);
         }
       }
-    } else if (!hasPublic && to.length > 0) {
+    } else if (!hasPublic && hasRecipients) {
       // DM（Public なし、かつ to が存在）
-      await sendDirectMessage(c.env, handle, to, body.object.content || "", body.object.inReplyTo);
+      await sendDirectMessage(
+        c.env,
+        handle,
+        [...to, ...cc, ...bto, ...bcc],
+        body.object.content || "",
+        body.object.inReplyTo,
+      );
       return activityPubResponse(c, { ok: true }, 202);
     }
   }
@@ -1134,13 +1252,28 @@ app.post("/ap/users/:handle/outbox", accessTokenGuard, async (c) => {
  * GET /ap/objects/:id
  */
 app.get("/ap/objects/:id", async (c) => {
-  const store = makeData(c.env as any);
-  try {
-    const objectParam = c.req.param("id");
-    const instanceDomain = getInstanceDomain(c);
-    const protocol = getProtocol(c);
-    const qualifiedId = `${protocol}://${instanceDomain}/ap/objects/${objectParam}`;
+  const envWithConfig = attachTakosConfigToEnv(c);
+  const objects = createObjectService(envWithConfig as any);
+  const objectParam = c.req.param("id");
+  const instanceDomain = getInstanceDomain(c);
+  const protocol = getProtocol(c);
+  const qualifiedId = `${protocol}://${instanceDomain}/ap/objects/${objectParam}`;
 
+  try {
+    const ctx = { userId: null } as any;
+    const apObject =
+      (await objects.get(ctx, qualifiedId)) ||
+      (await objects.get(ctx, objectParam).catch(() => null)) ||
+      (typeof objects.getByLocalId === "function" ? await objects.getByLocalId(ctx, objectParam) : null);
+    if (apObject) {
+      return activityPubResponse(c, apObject);
+    }
+  } catch (error) {
+    console.warn("[ActivityPub] ObjectService lookup failed", error);
+  }
+
+  const store = makeData(envWithConfig as any);
+  try {
     let object = null;
     if (store.getObject) {
       object = await store.getObject(qualifiedId);
@@ -1154,6 +1287,29 @@ app.get("/ap/objects/:id", async (c) => {
 
     if (!object) {
       return fail(c, "object not found", 404);
+    }
+
+    let content = (object as any).content;
+    if (typeof content === "string") {
+      try {
+        content = JSON.parse(content);
+      } catch {
+        // ignore
+      }
+    }
+    const story = (content as any)?.["takos:story"] ?? (content as any)?.story;
+    const expiresRaw =
+      (content as any)?.expiresAt ??
+      (content as any)?.expires_at ??
+      (object as any).expiresAt ??
+      (object as any).expires_at ??
+      (story as any)?.expiresAt ??
+      (story as any)?.expires_at;
+    if (expiresRaw) {
+      const expiresAt = new Date(expiresRaw);
+      if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now()) {
+        return fail(c, "object not found", 404);
+      }
     }
 
     const noteObject = generateNoteObject(

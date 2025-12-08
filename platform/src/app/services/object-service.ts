@@ -38,7 +38,7 @@ export type APObjectType =
  * ActivityPub Object (JSON-LD format)
  */
 export interface APObject {
-  "@context"?: string | string[] | Record<string, unknown>;
+  "@context"?: string | (string | Record<string, unknown>)[] | Record<string, unknown>;
   id: string;
   type: APObjectType | string;
   actor: string;
@@ -327,6 +327,8 @@ type ObjectStore = {
     exclude_direct?: boolean;
     include_direct?: boolean;
     participant?: string;
+    since?: string;
+    until?: string;
     order?: "asc" | "desc";
     limit?: number;
     offset?: number;
@@ -336,7 +338,10 @@ type ObjectStore = {
     objectId: string,
     recipients: { object_id: string; recipient: string; recipient_type: string }[],
   ): Promise<void>;
-  appendAuditLog?(entry: {
+  listObjectRecipients?(
+    objectId: string,
+  ): Promise<{ object_id: string; recipient: string; recipient_type: string }[]>;
+  appendAuditLog(entry: {
     id?: string;
     timestamp?: string;
     actor_type: string;
@@ -347,9 +352,8 @@ type ObjectStore = {
     checksum: string;
     prev_checksum?: string | null;
   }): Promise<any>;
-  getLatestAuditLog?(): Promise<{ checksum?: string | null } | null>;
-  queryRaw?<T = any>(sql: string, ...params: any[]): Promise<T[]>;
-  executeRaw?(sql: string, ...params: any[]): Promise<number>;
+  getLatestAuditLog(): Promise<{ checksum?: string | null } | null>;
+  adjustMediaRefCounts?(urls: string[], delta: number): Promise<void>;
 };
 
 const STORY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -376,12 +380,14 @@ const normalizeStringList = (value: unknown): string[] => {
   return result;
 };
 
+type RecipientSet = { to: string[]; cc: string[]; bto: string[]; bcc: string[] };
+
 const normalizeRecipients = (recipients: {
   to?: unknown;
   cc?: unknown;
   bto?: unknown;
   bcc?: unknown;
-}): { to: string[]; cc: string[]; bto: string[]; bcc: string[] } => {
+}): RecipientSet => {
   const order = ["to", "cc", "bto", "bcc"] as const;
   const seen = new Set<string>();
   const result: Record<(typeof order)[number], string[]> = {
@@ -399,6 +405,53 @@ const normalizeRecipients = (recipients: {
     });
   }
   return result;
+};
+
+const hasRecipients = (recipients: RecipientSet): boolean =>
+  recipients.to.length > 0 || recipients.cc.length > 0 || recipients.bto.length > 0 || recipients.bcc.length > 0;
+
+const recipientRowsFromSet = (
+  objectId: string,
+  recipients: RecipientSet,
+): { object_id: string; recipient: string; recipient_type: string }[] => {
+  const rows: { object_id: string; recipient: string; recipient_type: string }[] = [];
+  const push = (list: string[], type: string) => {
+    for (const recipient of list) {
+      rows.push({ object_id: objectId, recipient, recipient_type: type });
+    }
+  };
+  push(recipients.to, "to");
+  push(recipients.cc, "cc");
+  push(recipients.bto, "bto");
+  push(recipients.bcc, "bcc");
+  return rows;
+};
+
+const recipientSetFromRows = (
+  rows: { recipient: string; recipient_type: string }[] | null | undefined,
+): RecipientSet => {
+  const bucket: RecipientSet = { to: [], cc: [], bto: [], bcc: [] };
+  if (!rows) return bucket;
+  for (const row of rows) {
+    if (!row?.recipient_type || !row?.recipient) continue;
+    switch ((row.recipient_type || "").toLowerCase()) {
+      case "to":
+        bucket.to.push(row.recipient);
+        break;
+      case "cc":
+        bucket.cc.push(row.recipient);
+        break;
+      case "bto":
+        bucket.bto.push(row.recipient);
+        break;
+      case "bcc":
+        bucket.bcc.push(row.recipient);
+        break;
+      default:
+        break;
+    }
+  }
+  return normalizeRecipients(bucket);
 };
 
 const normalizeTags = (tags?: unknown, stickers?: unknown): APTag[] | undefined => {
@@ -423,6 +476,8 @@ const normalizeTags = (tags?: unknown, stickers?: unknown): APTag[] | undefined 
         addTag(entry as APTag);
       }
     }
+  } else if (tags && typeof tags === "object") {
+    addTag(tags as APTag);
   }
 
   if (Array.isArray(stickers)) {
@@ -455,7 +510,7 @@ const normalizePoll = (poll?: APPoll | null): APPoll | undefined => {
           typeof opt === "string" ? { name: opt } : { ...opt, name: typeof opt.name === "string" ? opt.name : "" },
         )
         .map((opt) => ({ ...opt, name: opt.name?.trim?.() ?? "" }))
-        .filter((opt) => opt.name),
+        .filter((opt) => opt.name)
     : [];
   if (!options.length) return undefined;
   const normalized: APPoll = {
@@ -490,16 +545,25 @@ async function sha256(input: string): Promise<string> {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }
-function mergeStoredObject(stored: StoredObject): APObject {
+function mergeStoredObject(stored: StoredObject, recipientsOverride?: RecipientSet): APObject {
   const content = parseJson<Record<string, unknown>>(stored.content, {});
-  const recipients = normalizeRecipients({
-    to: stored.to ?? (content.to as any),
-    cc: stored.cc ?? (content.cc as any),
-    bto: stored.bto ?? (content.bto as any),
-    bcc: stored.bcc ?? (content.bcc as any),
-  });
+  const recipients =
+    recipientsOverride ??
+    normalizeRecipients({
+      to: stored.to ?? (content.to as any),
+      cc: stored.cc ?? (content.cc as any),
+      bto: stored.bto ?? (content.bto as any),
+      bcc: stored.bcc ?? (content.bcc as any),
+    });
+  const inferredVisibility = hasRecipients(recipients)
+    ? recipientsToVisibility(recipients.to, recipients.cc, recipients.bto, recipients.bcc)
+    : undefined;
+  const visibility =
+    (content.visibility as APVisibility | undefined) ??
+    (stored.visibility as APVisibility | null) ??
+    inferredVisibility;
   const base: APObject = {
-    "@context": content["@context"] ?? createTakosContext(),
+    "@context": (content["@context"] as APObject["@context"]) ?? createTakosContext(),
     id: (content.id as string) ?? stored.id,
     type: (content.type as string) ?? stored.type,
     actor: (content.actor as string) ?? stored.actor,
@@ -523,45 +587,95 @@ function mergeStoredObject(stored: StoredObject): APObject {
     ...content,
   };
   (base as any).local_id = stored.local_id ?? null;
-  if ((base as any).visibility === undefined && stored.visibility) {
-    (base as any).visibility = stored.visibility;
-  }
+  (base as any).visibility = visibility ?? null;
   return base;
 }
 
+const loadRecipientsForObject = async (store: ObjectStore, stored: StoredObject): Promise<RecipientSet | undefined> => {
+  if (typeof store.listObjectRecipients === "function") {
+    try {
+      const rows = await store.listObjectRecipients(stored.id);
+      const recipients = recipientSetFromRows(rows);
+      if (hasRecipients(recipients)) {
+        return recipients;
+      }
+    } catch {
+      // fall through to stored values
+    }
+  }
+  const existing = normalizeRecipients({
+    to: stored.to,
+    cc: stored.cc,
+    bto: stored.bto,
+    bcc: stored.bcc,
+  });
+  return hasRecipients(existing) ? existing : undefined;
+};
+
+const persistRecipients = async (store: ObjectStore, objectId: string, recipients: RecipientSet) => {
+  if (typeof store.replaceObjectRecipients !== "function") return;
+  const rows = recipientRowsFromSet(objectId, recipients);
+  await store.replaceObjectRecipients(objectId, rows);
+};
+
+const toApObject = async (store: ObjectStore, stored: StoredObject): Promise<APObject> => {
+  const recipients = await loadRecipientsForObject(store, stored);
+  return mergeStoredObject(stored, recipients);
+};
+
 const storyExpiresAt = (object: APObject): Date | null => {
-  const story = object["takos:story"];
-  if (!story) return null;
-  const expiresRaw = story.expiresAt ?? (story as any).expires_at;
+  const story = (object as any)["takos:story"] ?? (object as any).story;
+  const expiresRaw =
+    (story as any)?.expiresAt ??
+    (story as any)?.expires_at ??
+    (object as any).expiresAt ??
+    (object as any).expires_at;
   if (typeof expiresRaw === "string") {
     const d = new Date(expiresRaw);
     return Number.isNaN(d.getTime()) ? null : d;
   }
   if (expiresRaw instanceof Date) return expiresRaw;
+  if (story || object.type === "Story") {
+    const published = object.published ? new Date(object.published) : null;
+    if (published && !Number.isNaN(published.getTime())) {
+      return new Date(published.getTime() + STORY_TTL_MS);
+    }
+  }
   return null;
 };
 
 const isStoryExpired = (object: APObject, now: Date): boolean => {
   const expiresAt = storyExpiresAt(object);
-  if (!expiresAt && object["takos:story"]) {
-    const published = object.published ? new Date(object.published) : null;
-    if (published && !Number.isNaN(published.getTime())) {
-      return published.getTime() + STORY_TTL_MS <= now.getTime();
-    }
-  }
   if (!expiresAt) return false;
   return expiresAt.getTime() <= now.getTime();
 };
 
 const ensureStoryExpiry = (object: APObject, now: Date): APObject => {
-  const story = object["takos:story"];
-  if (!story) return object;
-  if (!story.expiresAt) {
-    const published = object.published ? new Date(object.published) : now;
-    const expiresAt = new Date(published.getTime() + STORY_TTL_MS);
-    return { ...object, "takos:story": { ...story, expiresAt: expiresAt.toISOString() } };
+  const story = (object as any)["takos:story"] ?? (object as any).story;
+  const hasStory =
+    Boolean(story) ||
+    object.type === "Story" ||
+    (object as any).expiresAt !== undefined ||
+    (object as any).expires_at !== undefined;
+  if (!hasStory) return object;
+  const published = object.published ? new Date(object.published) : now;
+  const expiresRaw =
+    (story as any)?.expiresAt ??
+    (story as any)?.expires_at ??
+    (object as any).expiresAt ??
+    (object as any).expires_at;
+  const parsed = expiresRaw ? new Date(expiresRaw) : null;
+  const expiresAt =
+    parsed && !Number.isNaN(parsed.getTime())
+      ? parsed
+      : new Date(published.getTime() + STORY_TTL_MS);
+  const expiresIso = expiresAt.toISOString();
+  const storyValue = story ? { ...story, expiresAt: expiresIso } : { expiresAt: expiresIso };
+  const next: any = { ...object, "takos:story": storyValue };
+  if (!(object as any).expiresAt) {
+    next.expiresAt = expiresIso;
   }
-  return object;
+  return next;
 };
 
 const attachmentUrls = (attachments?: APAttachment[] | null): string[] => {
@@ -571,21 +685,10 @@ const attachmentUrls = (attachments?: APAttachment[] | null): string[] => {
 
 async function adjustMediaRefCount(store: ObjectStore, attachments: APAttachment[] | undefined, delta: number) {
   if (!attachments || !attachments.length) return;
-  if (typeof store.queryRaw !== "function" || typeof store.executeRaw !== "function") return;
   const urls = attachmentUrls(attachments);
   if (!urls.length) return;
-  const columns = await store
-    .queryRaw<{ name: string }>(`PRAGMA table_info(media)`)
-    .catch(() => []);
-  const hasRefCount = columns?.some((c) => c.name === "ref_count");
-  if (!hasRefCount) return;
-  for (const url of urls) {
-    await store.executeRaw?.(
-      `UPDATE media SET ref_count = MAX(COALESCE(ref_count, 0) + ?, 0) WHERE url = ?`,
-      delta,
-      url,
-    );
-  }
+  if (typeof store.adjustMediaRefCounts !== "function") return;
+  await store.adjustMediaRefCounts(urls, delta);
 }
 
 function computeNextCursor(items: APObject[], limit: number | undefined, offset: number): string | null {
@@ -765,8 +868,10 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
     target: string,
     details: Record<string, unknown>,
   ) => {
-    if (typeof store.appendAuditLog !== "function") return;
-    const prev = (await store.getLatestAuditLog?.()) ?? null;
+    if (typeof store.appendAuditLog !== "function" || typeof store.getLatestAuditLog !== "function") {
+      throw new Error("audit log support is required (appendAuditLog/getLatestAuditLog missing)");
+    }
+    const prev = (await store.getLatestAuditLog()) ?? null;
     const id = crypto.randomUUID();
     const timestamp = new Date().toISOString();
     const prevChecksum = (prev as any)?.checksum ?? (prev as any)?.prev_checksum ?? null;
@@ -843,7 +948,7 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
             content: input.content,
             summary: input.summary,
             inReplyTo: input.inReplyTo ?? null,
-            context: input.context ?? null,
+            context: input.context ?? undefined,
             attachment: input.attachment,
             tag: tags,
             published: now.toISOString(),
@@ -869,13 +974,15 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
           true,
         );
         const created = await store.createObject(stored);
+        await persistRecipients(store, stored.id, audience);
         await adjustMediaRefCount(store, apObject.attachment as APAttachment[] | undefined, 1);
         await appendAudit(store, actor, "object.create", stored.id, {
           type: stored.type,
           visibility: stored.visibility ?? null,
           is_local: stored.is_local,
+          recipients: audience,
         });
-        return mergeStoredObject(created);
+        return mergeStoredObject(created, audience);
       } finally {
         await releaseStore(store as any);
       }
@@ -886,7 +993,7 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
       try {
         const row = await store.getObject(id);
         if (!row) return null;
-        const object = mergeStoredObject(row);
+        const object = await toApObject(store, row);
         return isStoryExpired(object, new Date()) ? null : object;
       } finally {
         await releaseStore(store as any);
@@ -898,7 +1005,7 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
       try {
         const row = await store.getObjectByLocalId(localId);
         if (!row) return null;
-        const object = mergeStoredObject(row);
+        const object = await toApObject(store, row);
         return isStoryExpired(object, new Date()) ? null : object;
       } finally {
         await releaseStore(store as any);
@@ -929,10 +1036,9 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
           offset,
         });
         const now = new Date();
-        const items = rows
-          .map(mergeStoredObject)
-          .filter((obj) => !isStoryExpired(obj, now));
-        return toPage(items, limit, offset);
+        const mapped = await Promise.all(rows.map((row: any) => toApObject(store, row)));
+        const visible = mapped.filter((obj) => !isStoryExpired(obj, now));
+        return toPage(visible, limit, offset);
       } finally {
         await releaseStore(store as any);
       }
@@ -943,7 +1049,7 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
       try {
         const existing = await store.getObject(id);
         if (!existing) throw new Error("Object not found");
-        const current = mergeStoredObject(existing);
+        const current = await toApObject(store, existing);
         const nextTags =
           input.tag !== undefined
             ? normalizeTags(input.tag, (input as any).stickers ?? (input as any).sticker) ?? current.tag
@@ -978,6 +1084,13 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
         const beforeAttachments = current.attachment as APAttachment[] | undefined;
         const afterAttachments = updatedObject.attachment as APAttachment[] | undefined;
         await store.updateObject(id, stored as any);
+        const normalizedRecipients = normalizeRecipients({
+          to: stored.to ?? undefined,
+          cc: stored.cc ?? undefined,
+          bto: stored.bto ?? undefined,
+          bcc: stored.bcc ?? undefined,
+        });
+        await persistRecipients(store, id, normalizedRecipients);
 
         const beforeUrls = new Set(attachmentUrls(beforeAttachments));
         const afterUrls = new Set(attachmentUrls(afterAttachments));
@@ -1004,8 +1117,9 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
           type: stored.type,
           visibility: stored.visibility ?? existing.visibility,
           updated: stored.updated ?? new Date().toISOString(),
+          recipients: normalizedRecipients,
         });
-        return mergeStoredObject({ ...existing, ...stored });
+        return mergeStoredObject({ ...existing, ...stored } as unknown as StoredObject, normalizedRecipients);
       } finally {
         await releaseStore(store as any);
       }
@@ -1016,12 +1130,18 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
       try {
         const existing = await store.getObject(id);
         if (existing) {
-          const object = mergeStoredObject(existing);
+          const object = await toApObject(store, existing);
           await adjustMediaRefCount(store, object.attachment as APAttachment[] | undefined, -1);
           await store.updateObject(id, { deleted_at: new Date().toISOString() });
           await appendAudit(store, object.actor, "object.delete", id, {
             type: existing.type,
             visibility: existing.visibility ?? null,
+            recipients: normalizeRecipients({
+              to: object.to,
+              cc: object.cc,
+              bto: (object as any).bto,
+              bcc: (object as any).bcc,
+            }),
           });
         } else {
           await store.deleteObject(id).catch(() => undefined);
@@ -1051,8 +1171,7 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
           offset,
         });
         const now = new Date();
-        const mapped = rows
-          .map(mergeStoredObject)
+        const mapped = (await Promise.all(rows.map((row: any) => toApObject(store, row))))
           .filter((obj) => !isStoryExpired(obj, now))
           .filter((obj) => !params.onlyMedia || (obj.attachment && obj.attachment.length > 0));
         return toPage(mapped, limit, offset);
@@ -1072,9 +1191,8 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
           include_direct: true,
         });
         const now = new Date();
-        return rows
-          .map(mergeStoredObject)
-          .filter((obj) => !isStoryExpired(obj, now));
+        const mapped = await Promise.all(rows.map((row: any) => toApObject(store, row)));
+        return mapped.filter((obj) => !isStoryExpired(obj, now));
       } finally {
         await releaseStore(store as any);
       }
@@ -1114,7 +1232,7 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
           object.actor,
           {
             ...parsed,
-            "@context": parsed["@context"] ?? createTakosContext(),
+            "@context": (parsed["@context"] as APObject["@context"]) ?? createTakosContext(),
           },
           visibility,
           parsed.id ? parsed.id.split("/").pop() ?? null : null,
@@ -1122,12 +1240,14 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
         );
         const existing = await store.getObject(parsed.id);
         const saved = existing ? await store.updateObject(parsed.id, stored as any) : await store.createObject(stored);
+        await persistRecipients(store, stored.id, recipients);
         await appendAudit(store, object.actor ?? null, existing ? "object.receive.update" : "object.receive", parsed.id, {
           type: stored.type,
           visibility: stored.visibility ?? null,
           is_local: stored.is_local,
+          recipients,
         });
-        return mergeStoredObject(saved);
+        return mergeStoredObject(saved, recipients);
       } finally {
         await releaseStore(store as any);
       }

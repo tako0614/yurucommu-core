@@ -17,6 +17,7 @@ import { auth } from "../middleware/auth";
 import { makeData } from "../data";
 import type { DatabaseAPI, ListAppLogsOptions } from "../lib/types";
 import { ensureDefaultWorkspace, resolveWorkspaceEnv } from "../lib/workspace-store";
+import { requireHumanSession, requireWorkspacePlan } from "../lib/workspace-guard";
 
 type DebugMode = "dev" | "prod-preview";
 
@@ -41,6 +42,7 @@ const demoAppMain: AppScriptModule = {
 };
 
 const debugApp = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+debugApp.use("/-/app/debug/*", auth, requireHumanSession, requireWorkspacePlan);
 
 function normalizeMode(value: unknown): DebugMode | null {
   if (typeof value !== "string") return "dev";
@@ -206,7 +208,7 @@ function parseLogQuery(c: any): ListAppLogsOptions {
   };
 }
 
-debugApp.post("/-/app/debug/run", auth, async (c) => {
+debugApp.post("/-/app/debug/run", async (c) => {
   const payload = (await c.req.json().catch(() => ({}))) as RunRequestBody;
   const mode = normalizeMode(payload.mode);
   if (!mode) {
@@ -308,7 +310,7 @@ debugApp.post("/-/app/debug/run", auth, async (c) => {
     const result = await sandbox.run(handlerName, payload.input, {
       runId,
       workspaceId: runtimeMode === "dev" ? workspaceId : undefined,
-      auth: isRecord(payload.auth) ? payload.auth : undefined,
+      auth: isRecord(payload.auth) ? payload.auth as any : undefined,
     });
     const durationMs = Number((performance.now() - started).toFixed(2));
 
@@ -354,7 +356,7 @@ debugApp.post("/-/app/debug/run", auth, async (c) => {
   }
 });
 
-debugApp.get("/-/app/debug/logs", auth, async (c) => {
+debugApp.get("/-/app/debug/logs", async (c) => {
   const authSession = requireAuthenticated(c);
   if (!authSession) {
     return c.json({ ok: false, error: "authentication_required" }, 403);

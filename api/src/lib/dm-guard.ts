@@ -56,7 +56,7 @@ export async function ensureDmSendAllowed(
 ): Promise<PlanGuardResult> {
   const userId = auth?.userId ?? null;
   if (!userId) {
-    return { ok: false, status: 401, message: "Authentication required" };
+    return { ok: false, status: 401, code: "UNAUTHORIZED", message: "Authentication required" };
   }
 
   const limits = auth?.plan?.limits ?? {};
@@ -64,7 +64,7 @@ export async function ensureDmSendAllowed(
   const dailyLimit = limits.dmMessagesPerDay;
   if (typeof dailyLimit === "number") {
     if (dailyLimit <= 0) {
-      return { ok: false, status: 402, message: "DM sending is not available for this plan" };
+      return { ok: false, status: 402, code: "PLAN_LIMIT", message: "DM sending is not available for this plan" };
     }
 
     if (Number.isFinite(dailyLimit) && dailyLimit < UNLIMITED && env?.DB) {
@@ -84,6 +84,7 @@ export async function ensureDmSendAllowed(
             return {
               ok: false,
               status: 429,
+              code: "RATE_LIMIT",
               message: `DM daily limit reached (${dailyLimit} per day)`,
             };
           }
@@ -103,13 +104,13 @@ export async function ensureDmSendAllowed(
 
   if (hasMedia && typeof mediaLimit === "number") {
     if (mediaLimit <= 0) {
-      return { ok: false, status: 402, message: "DM media attachments are not available for this plan" };
+      return { ok: false, status: 402, code: "PLAN_LIMIT", message: "DM media attachments are not available for this plan" };
     }
 
     if (Number.isFinite(mediaLimit) && mediaLimit < UNLIMITED && mediaKeys.length) {
       const bucket = (env as any)?.MEDIA;
       if (!bucket || (typeof bucket.head !== "function" && typeof bucket.get !== "function")) {
-        return { ok: false, status: 500, message: "media storage not configured" };
+        return { ok: false, status: 500, code: "SERVER_ERROR", message: "media storage not configured" };
       }
 
       let total = typeof options.mediaBytes === "number" ? options.mediaBytes : 0;
@@ -119,13 +120,14 @@ export async function ensureDmSendAllowed(
             ? await bucket.head(key).catch(() => null)
             : await bucket.get(key).catch(() => null);
         if (!obj) {
-          return { ok: false, status: 404, message: "media not found" };
+          return { ok: false, status: 404, code: "NOT_FOUND", message: "media not found" };
         }
         const size = (obj as any).size ?? 0;
         if (size > mediaLimit) {
           return {
             ok: false,
             status: 413,
+            code: "PLAN_LIMIT",
             message: `DM media exceeds plan limit (${formatMb(mediaLimit)}MB)`,
           };
         }
@@ -138,6 +140,7 @@ export async function ensureDmSendAllowed(
         return {
           ok: false,
           status: 413,
+          code: "PLAN_LIMIT",
           message: `DM media exceeds plan limit (${formatMb(mediaLimit)}MB total)`,
         };
       }
@@ -146,6 +149,7 @@ export async function ensureDmSendAllowed(
         return {
           ok: false,
           status: 413,
+          code: "PLAN_LIMIT",
           message: `DM media exceeds plan limit (${formatMb(mediaLimit)}MB)`,
         };
       }

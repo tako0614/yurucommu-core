@@ -6,6 +6,13 @@ export type PlanLimits = {
   aiRequests: number;
   dmMessagesPerDay: number;
   dmMediaSize: number;
+  vfsStorage: number;
+  vfsMaxFiles: number;
+  vfsMaxFileSize: number;
+  vfsMaxWorkspaces: number;
+  apDeliveryPerMinute: number;
+  apDeliveryPerDay: number;
+  apiRateLimits: AuthRateLimits;
 };
 
 export type PlanInfo = {
@@ -39,6 +46,7 @@ export type AuthenticatedUser = {
   activeUserId: string | null;
   sessionId: string | null;
   token: string | null;
+  source?: "session" | "jwt";
 };
 
 export interface AuthContext {
@@ -48,31 +56,53 @@ export interface AuthContext {
   user: LocalUser | null;
   plan: PlanInfo;
   limits: PlanLimits;
-  rateLimits: AuthRateLimits;
 }
 
 const UNLIMITED = Number.MAX_SAFE_INTEGER;
+const KB = 1024;
+const MB = 1024 * KB;
+const GB = 1024 * MB;
 
 const PLAN_PRESETS: Record<PlanName, PlanInfo> = {
   free: {
     name: "free",
     limits: {
-      storage: 1073741824, // 1GB
-      fileSize: 5242880, // 5MB
+      storage: 1 * GB, // 1GB
+      fileSize: 5 * MB, // 5MB
       aiRequests: 0,
       dmMessagesPerDay: 100,
-      dmMediaSize: 5242880, // 5MB
+      dmMediaSize: 5 * MB, // 5MB
+      vfsStorage: 10 * MB,
+      vfsMaxFiles: 100,
+      vfsMaxFileSize: 100 * KB,
+      vfsMaxWorkspaces: 1,
+      apDeliveryPerMinute: 120,
+      apDeliveryPerDay: 1000,
+      apiRateLimits: {
+        read: { perMinute: 60, perDay: 1000 },
+        write: { perMinute: 10, perDay: 100 },
+      },
     },
     features: ["basic_sns", "activitypub", "export", "api_read", "api_write"],
   },
   pro: {
     name: "pro",
     limits: {
-      storage: 10737418240, // 10GB
-      fileSize: 26214400, // 25MB
+      storage: 10 * GB, // 10GB
+      fileSize: 25 * MB, // 25MB
       aiRequests: 1000,
       dmMessagesPerDay: 1000,
-      dmMediaSize: 26214400, // 25MB
+      dmMediaSize: 25 * MB, // 25MB
+      vfsStorage: 100 * MB,
+      vfsMaxFiles: 1000,
+      vfsMaxFileSize: 1 * MB,
+      vfsMaxWorkspaces: 5,
+      apDeliveryPerMinute: 600,
+      apDeliveryPerDay: 10000,
+      apiRateLimits: {
+        read: { perMinute: 300, perDay: 10000 },
+        write: { perMinute: 60, perDay: 1000 },
+      },
     },
     features: [
       "basic_sns",
@@ -89,11 +119,21 @@ const PLAN_PRESETS: Record<PlanName, PlanInfo> = {
   business: {
     name: "business",
     limits: {
-      storage: 107374182400, // 100GB
-      fileSize: 104857600, // 100MB
+      storage: 100 * GB, // 100GB
+      fileSize: 100 * MB, // 100MB
       aiRequests: 10000,
       dmMessagesPerDay: 10000,
-      dmMediaSize: 104857600, // 100MB
+      dmMediaSize: 100 * MB, // 100MB
+      vfsStorage: 1 * GB,
+      vfsMaxFiles: 10_000,
+      vfsMaxFileSize: 10 * MB,
+      vfsMaxWorkspaces: 20,
+      apDeliveryPerMinute: 2400,
+      apDeliveryPerDay: 100000,
+      apiRateLimits: {
+        read: { perMinute: 1000, perDay: 100000 },
+        write: { perMinute: 300, perDay: 10000 },
+      },
     },
     features: [
       "basic_sns",
@@ -117,33 +157,23 @@ const PLAN_PRESETS: Record<PlanName, PlanInfo> = {
       aiRequests: UNLIMITED,
       dmMessagesPerDay: UNLIMITED,
       dmMediaSize: UNLIMITED,
+      vfsStorage: UNLIMITED,
+      vfsMaxFiles: UNLIMITED,
+      vfsMaxFileSize: UNLIMITED,
+      vfsMaxWorkspaces: UNLIMITED,
+      apDeliveryPerMinute: UNLIMITED,
+      apDeliveryPerDay: UNLIMITED,
+      apiRateLimits: {
+        read: { perMinute: UNLIMITED, perDay: UNLIMITED },
+        write: { perMinute: UNLIMITED, perDay: UNLIMITED },
+      },
     },
     features: ["*"],
   },
 };
 
-const RATE_LIMIT_PRESETS: Record<PlanName, AuthRateLimits> = {
-  free: {
-    read: { perMinute: 60, perDay: 1000 },
-    write: { perMinute: 10, perDay: 100 },
-  },
-  pro: {
-    read: { perMinute: 300, perDay: 10000 },
-    write: { perMinute: 60, perDay: 1000 },
-  },
-  business: {
-    read: { perMinute: 1000, perDay: 100000 },
-    write: { perMinute: 300, perDay: 10000 },
-  },
-  "self-hosted": {
-    read: { perMinute: UNLIMITED, perDay: UNLIMITED },
-    write: { perMinute: UNLIMITED, perDay: UNLIMITED },
-  },
-};
-
 const PLAN_ENV_KEYS = ["TAKOS_PLAN", "PLAN_TIER", "PLAN_NAME", "PLAN"];
 const DEFAULT_PLAN = PLAN_PRESETS["self-hosted"];
-const DEFAULT_RATE_LIMITS = RATE_LIMIT_PRESETS["self-hosted"];
 
 const normalizePlanName = (value: unknown): PlanName => {
   if (typeof value !== "string") return "self-hosted";
@@ -169,10 +199,6 @@ export const resolvePlanFromEnv = (env: Record<string, unknown> | undefined): Pl
   );
   const planName = normalizePlanName(rawPlan);
   return PLAN_PRESETS[planName] ?? DEFAULT_PLAN;
-};
-
-export const resolveRateLimits = (plan: PlanInfo): AuthRateLimits => {
-  return RATE_LIMIT_PRESETS[plan.name] ?? DEFAULT_RATE_LIMITS;
 };
 
 export const mapToLocalUser = (user: any): LocalUser | null => {
@@ -229,10 +255,8 @@ export const mapToLocalUser = (user: any): LocalUser | null => {
 export const buildAuthContext = (
   authResult: AuthenticatedUser | null,
   plan?: PlanInfo,
-  rateLimits?: AuthRateLimits,
 ): AuthContext => {
   const planInfo = plan ?? DEFAULT_PLAN;
-  const rateLimitInfo = rateLimits ?? resolveRateLimits(planInfo);
 
   if (!authResult) {
     return {
@@ -242,7 +266,6 @@ export const buildAuthContext = (
       user: null,
       plan: planInfo,
       limits: planInfo.limits,
-      rateLimits: rateLimitInfo,
     };
   }
 
@@ -256,6 +279,5 @@ export const buildAuthContext = (
     user,
     plan: planInfo,
     limits: planInfo.limits,
-    rateLimits: rateLimitInfo,
   };
 };
