@@ -4,7 +4,7 @@ import {
   TAKOS_PROFILE_SCHEMA_VERSION,
   TAKOS_UI_CONTRACT_VERSION,
 } from "./versions.js";
-import { checkSemverCompatibility } from "../utils/semver.js";
+import { checkSemverCompatibility, checkSemverRange } from "../utils/semver.js";
 
 export const TAKOS_CONFIG_SCHEMA_VERSION = "1.0";
 
@@ -131,6 +131,9 @@ export type JsonSchema = {
   maxItems?: number;
   minimum?: number;
   maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  uniqueItems?: boolean;
 };
 
 export const DEFAULT_TAKOS_AI_CONFIG: TakosAiConfig = {
@@ -616,7 +619,7 @@ export function checkConfigVersionGates(config: TakosConfig): ConfigVersionGateR
   if (!gates) return { ok: true, warnings };
 
   if (gates.core_version) {
-    const compat = checkSemverCompatibility(TAKOS_CORE_VERSION, gates.core_version, {
+    const compat = checkSemverRange(TAKOS_CORE_VERSION, gates.core_version, {
       context: "core_version gate",
       action: "load",
     });

@@ -5,8 +5,9 @@ import { authenticateSession } from "@takos/platform/server/session";
 import { getCookie } from "hono/cookie";
 import { makeData } from "../data";
 import type { AuthenticatedUser } from "../lib/auth-context-model";
-import { buildAuthContext, resolvePlanFromEnv, resolveRateLimits } from "../lib/auth-context-model";
+import { buildAuthContext, resolvePlanFromEnv } from "../lib/auth-context-model";
 import { createJwtStoreAdapter } from "../lib/jwt-store";
+import { logEvent } from "../lib/observability";
 
 export const ACTIVE_USER_COOKIE_NAME = "activeUserId";
 export const ACTIVE_USER_HEADER_NAME = "x-active-user-id";
@@ -88,23 +89,39 @@ const buildAuthResult = (
   sessionUser: baseUser,
   sessionId: source === "session" ? sessionId : null,
   token: source === "jwt" ? token : null,
+  source,
 });
+
+const logAuthEvent = (
+  c: any,
+  level: "debug" | "info" | "warn" | "error",
+  event: string,
+  payload: Record<string, unknown>,
+) => {
+  logEvent(c, level, `auth.${event}`, payload);
+};
+
+const elapsedMs = (started: number) => Number((performance.now() - started).toFixed(2));
 
 // Unified auth: prefer session (owner password) then fall back to JWT bearer tokens.
 export const authenticateUser = async (c: any, store: any): Promise<AuthenticatedUser | null> => {
   const path = new URL(c.req.url).pathname;
-  const sessionResult = await authenticateSession(c, store, { renewCookie: true }).catch(
-    () => null,
-  );
-  console.log("[backend] auth session", { path, ok: !!sessionResult });
+  const sessionResult = await authenticateSession(c, store, { renewCookie: true }).catch((error) => {
+    logAuthEvent(c, "warn", "session.error", { path, message: (error as Error)?.message });
+    return null;
+  });
+  logAuthEvent(c, "debug", "session.check", { path, ok: !!sessionResult });
   if (sessionResult?.user) {
     const active = await resolveActiveUser(c, store, sessionResult.user);
     return buildAuthResult(sessionResult.user, active, "session", sessionResult.sessionId ?? null, null);
   }
 
   const jwtStore = createJwtStoreAdapter(store);
-  const jwtResult = await authenticateJWT(c, jwtStore).catch(() => null);
-  console.log("[backend] auth jwt", { path, ok: !!jwtResult });
+  const jwtResult = await authenticateJWT(c, jwtStore).catch((error) => {
+    logAuthEvent(c, "warn", "jwt.error", { path, message: (error as Error)?.message });
+    return null;
+  });
+  logAuthEvent(c, "debug", "jwt.check", { path, ok: !!jwtResult });
   if (jwtResult?.user) {
     const active = await resolveActiveUser(c, store, jwtResult.user);
     return buildAuthResult(jwtResult.user, active, "jwt", null, jwtResult.token ?? null);
@@ -119,43 +136,67 @@ export const auth = async (c: any, next: () => Promise<void>) => {
   const started = performance.now();
   const store = makeData(c.env as any, c);
   const plan = resolvePlanFromEnv(c.env as any);
-  const rateLimits = resolveRateLimits(plan);
-  const storeMs = Number((performance.now() - started).toFixed(2));
+  const storeMs = elapsedMs(started);
   try {
-    console.log("[backend] auth start", {
+    logAuthEvent(c, "info", "start", {
       path,
       method,
+      plan: plan.name,
       ms_makeData: storeMs,
     });
     const authStarted = performance.now();
     const authResult = await authenticateUser(c, store);
-    const authMs = Number((performance.now() - authStarted).toFixed(2));
-    console.log("[backend] auth authenticateUser", {
+    const authMs = elapsedMs(authStarted);
+    logAuthEvent(c, "info", "resolved", {
       path,
+      method,
+      plan: plan.name,
       ok: !!authResult,
-      ms: authMs,
+      ms_authenticate: authMs,
     });
     if (!authResult) {
-      const anonymous = buildAuthContext(null, plan, rateLimits);
+      const anonymous = buildAuthContext(null, plan);
       c.set("authContext", anonymous);
-      return fail(c, "Authentication required", 401, { code: "UNAUTHORIZED" });
+      logAuthEvent(c, "warn", "unauthorized", {
+        path,
+        method,
+        plan: plan.name,
+      });
+      return fail(c, "Authentication required", 401, {
+        code: "UNAUTHORIZED",
+        details: { path, method, plan: plan.name },
+      });
     }
-    const authContext = buildAuthContext(authResult, plan, rateLimits);
+    const authContext = buildAuthContext(authResult, plan);
     c.set("user", authResult.user);
     c.set("sessionUser", authResult.sessionUser);
     c.set("activeUserId", authContext.userId);
     c.set("authContext", authContext);
+    logAuthEvent(c, "info", "granted", {
+      path,
+      method,
+      plan: plan.name,
+      userId: authContext.userId,
+      sessionPresent: !!authContext.sessionId,
+      source: authResult.source ?? "session",
+      ms_makeData: storeMs,
+      ms_authenticate: authMs,
+    });
     await next();
   } finally {
     const releaseStarted = performance.now();
-    await releaseStore(store);
-    const releaseMs = Number((performance.now() - releaseStarted).toFixed(2));
-    const totalMs = Number((performance.now() - started).toFixed(2));
-    console.log("[backend] auth end", {
-      path,
-      ms_release: releaseMs,
-      ms_total: totalMs,
-    });
+    try {
+      await releaseStore(store);
+    } finally {
+      const releaseMs = elapsedMs(releaseStarted);
+      const totalMs = elapsedMs(started);
+      logAuthEvent(c, "debug", "end", {
+        path,
+        method,
+        ms_release: releaseMs,
+        ms_total: totalMs,
+      });
+    }
   }
 };
 
@@ -164,18 +205,18 @@ export const optionalAuth = async (c: any, next: () => Promise<void>) => {
   const started = performance.now();
   const store = makeData(c.env as any, c);
   const plan = resolvePlanFromEnv(c.env as any);
-  const rateLimits = resolveRateLimits(plan);
   try {
     const authStarted = performance.now();
     const authResult = await authenticateUser(c, store);
-    const authMs = Number((performance.now() - authStarted).toFixed(2));
-    console.log("[backend] optionalAuth authenticateUser", {
+    const authMs = elapsedMs(authStarted);
+    logAuthEvent(c, "debug", "optional.resolve", {
       path,
+      plan: plan.name,
       ok: !!authResult,
-      ms: authMs,
+      ms_authenticate: authMs,
     });
     if (authResult) {
-      const authContext = buildAuthContext(authResult, plan, rateLimits);
+      const authContext = buildAuthContext(authResult, plan);
       c.set("user", authResult.user);
       c.set("sessionUser", authResult.sessionUser);
       c.set("activeUserId", authContext.userId);
@@ -183,23 +224,27 @@ export const optionalAuth = async (c: any, next: () => Promise<void>) => {
     } else {
       c.set("activeUserId", null);
       c.set("sessionUser", null);
-      c.set("authContext", buildAuthContext(null, plan, rateLimits));
+      c.set("authContext", buildAuthContext(null, plan));
     }
   } catch {
     // ignore authentication failures and continue as guest
     c.set("activeUserId", null);
     c.set("sessionUser", null);
-    c.set("authContext", buildAuthContext(null, plan, rateLimits));
+    c.set("authContext", buildAuthContext(null, plan));
   } finally {
     const releaseStarted = performance.now();
-    await releaseStore(store);
-    const releaseMs = Number((performance.now() - releaseStarted).toFixed(2));
-    const totalMs = Number((performance.now() - started).toFixed(2));
-    console.log("[backend] optionalAuth end", {
-      path,
-      ms_release: releaseMs,
-      ms_total: totalMs,
-    });
+    try {
+      await releaseStore(store);
+    } finally {
+      const releaseMs = elapsedMs(releaseStarted);
+      const totalMs = elapsedMs(started);
+      logAuthEvent(c, "debug", "optional.end", {
+        path,
+        plan: plan.name,
+        ms_release: releaseMs,
+        ms_total: totalMs,
+      });
+    }
   }
   await next();
 };

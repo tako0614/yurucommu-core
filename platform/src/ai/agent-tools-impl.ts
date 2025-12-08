@@ -423,6 +423,31 @@ export function createAgentTools(options: AgentToolsFactoryOptions): AgentTools 
         };
       }
 
+      const planLimits = ctx.auth.plan?.limits ?? {};
+      const appAuth = {
+        userId: ctx.auth.userId ?? null,
+        sessionId: null,
+        isAuthenticated: ctx.auth.isAuthenticated,
+        plan: {
+          name: ctx.auth.plan?.name ?? "self-hosted",
+          limits: {
+            storage: planLimits.storage ?? Number.MAX_SAFE_INTEGER,
+            fileSize: planLimits.fileSize ?? Number.MAX_SAFE_INTEGER,
+            aiRequests: planLimits.aiRequests ?? Number.MAX_SAFE_INTEGER,
+            dmMessagesPerDay: Number.MAX_SAFE_INTEGER,
+            dmMediaSize: Number.MAX_SAFE_INTEGER,
+          },
+          features: ctx.auth.plan?.features ?? ["*"],
+        },
+        limits: {
+          storage: planLimits.storage ?? Number.MAX_SAFE_INTEGER,
+          fileSize: planLimits.fileSize ?? Number.MAX_SAFE_INTEGER,
+          aiRequests: planLimits.aiRequests ?? Number.MAX_SAFE_INTEGER,
+          dmMessagesPerDay: Number.MAX_SAFE_INTEGER,
+          dmMediaSize: Number.MAX_SAFE_INTEGER,
+        },
+      };
+
       const output = await dispatchAiAction(
         actionRegistry,
         input.actionId,
@@ -435,6 +460,7 @@ export function createAgentTools(options: AgentToolsFactoryOptions): AgentTools 
           nodeConfig: { ...ctx.nodeConfig, ai: aiConfig } as any,
           providers,
           services: ctx.services,
+          appAuth,
         },
         input.input,
       );

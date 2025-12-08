@@ -14,6 +14,9 @@ import { guardAgentRequest } from "../lib/agent-guard";
 import { getDefaultProviderId, registerBuiltinAiActions } from "../ai/actions";
 import { requireAiQuota } from "../lib/plan-guard";
 import type { AuthContext } from "../lib/auth-context-model";
+import { buildCoreServices } from "../lib/core-services";
+import { createAiAuditLogger } from "../lib/ai-audit";
+import { getAppAuthContext } from "../lib/auth-context";
 
 registerBuiltinAiActions();
 
@@ -32,6 +35,12 @@ const mapDispatchError = (error: unknown): { status: number; message: string } =
   if (/external network access is disabled/i.test(message)) {
     return { status: 503, message };
   }
+  if (/PlanGuard/i.test(message)) {
+    return { status: 402, message };
+  }
+  if (/AgentPolicy/i.test(message)) {
+    return { status: 403, message };
+  }
   if (/DataPolicyViolation/i.test(message)) return { status: 400, message };
   return { status: 500, message: "failed to run AI action" };
 };
@@ -48,7 +57,10 @@ ai.post("/api/ai/actions/:id/run", auth, async (c) => {
   }
   const planCheck = requireAiQuota((c.get("authContext") as AuthContext | undefined) ?? null);
   if (!planCheck.ok) {
-    return fail(c, planCheck.message, planCheck.status);
+    return fail(c, planCheck.message, planCheck.status, {
+      code: planCheck.code,
+      details: planCheck.details,
+    });
   }
 
   const nodeConfig = resolveConfig(c);
@@ -70,6 +82,11 @@ ai.post("/api/ai/actions/:id/run", auth, async (c) => {
     return fail(c, "AI external network access is disabled for this node", 503);
   }
 
+  const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
+  const services = buildCoreServices(c.env as Bindings);
+  const aiAudit = createAiAuditLogger(c.env as any);
+  const appAuth = getAppAuthContext(c as any);
+
   let providers;
   try {
     providers = buildAiProviderRegistry(aiConfig, c.env as any);
@@ -86,6 +103,11 @@ ai.post("/api/ai/actions/:id/run", auth, async (c) => {
       nodeConfig: normalizedConfig,
       user: c.get("user"),
       agentType: agentGuard.agentType,
+      auth: authContext ?? undefined,
+      services,
+      appAuth,
+      env: c.env,
+      aiAudit,
       providers,
     }, input);
     return ok(c, {

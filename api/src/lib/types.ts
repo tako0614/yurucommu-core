@@ -381,12 +381,6 @@ export interface ReactionInput {
   ap_activity_id?: string | null;
 }
 
-export interface BookmarkInput {
-  id: string;
-  user_id: string;
-  post_id: string;
-  created_at?: string | Date;
-}
 
 export interface CommentInput {
   id: string;
@@ -633,6 +627,7 @@ export interface AppRevisionInput {
   schema_version: string;
   manifest_snapshot: string;
   script_snapshot_ref: string;
+  core_version?: string;
   message?: string | null;
   author_type: AppRevisionAuthorType;
   author_name?: string | null;
@@ -642,6 +637,8 @@ export interface AppRevisionInput {
 export interface AppStateRecord {
   active_revision_id: string | null;
   updated_at: string | Date;
+  schema_version?: string | null;
+  core_version?: string | null;
   revision?: any | null;
 }
 
@@ -884,6 +881,7 @@ export interface DatabaseAPI {
   getMedia?(key: string): Promise<any>;
   listMediaByUser?(user_id: string): Promise<any[]>;
   deleteMedia?(key: string): Promise<void>;
+  adjustMediaRefCounts?(urls: string[], delta: number): Promise<void>;
 
   // Reactions
   addReaction(reaction: ReactionInput): Promise<any>;

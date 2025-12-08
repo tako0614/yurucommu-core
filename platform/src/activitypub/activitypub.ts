@@ -14,6 +14,8 @@ export const SECURITY_CONTEXT = "https://w3id.org/security/v1";
 export const TAKOS_CONTEXT = "https://docs.takos.jp/ns/activitypub/v1.jsonld";
 export const LEMMY_CONTEXT = "https://join-lemmy.org/context.json";
 
+const STORY_TTL_MS = 24 * 60 * 60 * 1000;
+
 /**
  * Generate ActivityPub Person object for a user
  */
@@ -184,12 +186,31 @@ export function generateNoteObject(
     return `${baseUrl}/ap/${trimmed}`;
   };
 
+  const dedupe = (list: string[]) => {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const entry of list) {
+      if (!entry) continue;
+      if (seen.has(entry)) continue;
+      seen.add(entry);
+      result.push(entry);
+    }
+    return result;
+  };
+
   const initialTo = toArray(post?.to).map(normalizeRecipient);
   const initialCc = toArray(post?.cc).map(normalizeRecipient);
+  const initialBto = toArray((post as any)?.bto).map(normalizeRecipient);
+  const initialBcc = toArray((post as any)?.bcc).map(normalizeRecipient);
 
   const deriveRecipients = () => {
-    if (initialTo.length || initialCc.length) {
-      return { to: initialTo, cc: initialCc };
+    if (initialTo.length || initialCc.length || initialBto.length || initialBcc.length) {
+      return {
+        to: dedupe(initialTo),
+        cc: dedupe(initialCc),
+        bto: dedupe(initialBto),
+        bcc: dedupe(initialBcc),
+      };
     }
     const visibility =
       post?.visibility ||
@@ -198,22 +219,24 @@ export function generateNoteObject(
     const followers = `${actorUri}/followers`;
     switch (visibility) {
       case "unlisted":
-        return { to: [followers], cc: [PUBLIC] };
+        return { to: [followers], cc: [PUBLIC], bto: [], bcc: [] };
       case "followers":
-        return { to: [followers], cc: [] };
+        return { to: [followers], cc: [], bto: [], bcc: [] };
       case "community":
         if (post?.community_id) {
           return {
             to: [`${baseUrl}/ap/groups/${post.community_id}/followers`],
             cc: [`${baseUrl}/ap/groups/${post.community_id}`],
+            bto: [],
+            bcc: [],
           };
         }
-        return { to: [], cc: [] };
+        return { to: [], cc: [], bto: [], bcc: [] };
       case "direct":
-        return { to: [], cc: [] };
+        return { to: [], cc: [], bto: [], bcc: [] };
       case "public":
       default:
-        return { to: [PUBLIC], cc: [followers] };
+        return { to: [PUBLIC], cc: [followers], bto: [], bcc: [] };
     }
   };
 
@@ -276,19 +299,57 @@ export function generateNoteObject(
   }
 
   const tags: any[] = [];
-  if (Array.isArray(post?.tag)) {
-    tags.push(...post.tag);
-  } else if (Array.isArray(post?.ap_tags)) {
-    tags.push(...post.ap_tags);
-  } else if (Array.isArray((post as any).hashtags)) {
-    for (const tag of (post as any).hashtags) {
+  const seenTags = new Set<string>();
+  const addTag = (tag: any) => {
+    if (!tag) return;
+    const key = `${tag.type || "tag"}:${tag.name || tag.href || ""}`;
+    if (seenTags.has(key)) return;
+    seenTags.add(key);
+    tags.push(tag);
+  };
+  const stickerSources = (post as any).stickers ?? (post as any).sticker;
+
+  const fromArray = (list: any[]) => {
+    for (const tag of list) {
       if (typeof tag === "string" && tag.trim()) {
-        tags.push({
+        addTag({
           type: "Hashtag",
           href: `${baseUrl}/tags/${encodeURIComponent(tag.trim())}`,
-          name: `#${tag.trim()}`,
+          name: tag.startsWith("#") ? tag.trim() : `#${tag.trim()}`,
         });
+      } else if (tag && typeof tag === "object") {
+        addTag(tag);
       }
+    }
+  };
+
+  if (Array.isArray(post?.tag)) {
+    fromArray(post.tag);
+  } else if (Array.isArray(post?.ap_tags)) {
+    fromArray(post.ap_tags);
+  } else if (Array.isArray((post as any).hashtags)) {
+    fromArray((post as any).hashtags);
+  } else if (Array.isArray((post as any).tags)) {
+    fromArray((post as any).tags);
+  } else if (post?.tag && typeof post.tag === "object") {
+    addTag(post.tag);
+  }
+
+  if (Array.isArray(stickerSources)) {
+    for (const sticker of stickerSources) {
+      if (!sticker || typeof sticker !== "object") continue;
+      const href =
+        typeof (sticker as any).url === "string"
+          ? (sticker as any).url
+          : typeof (sticker as any).src === "string"
+            ? (sticker as any).src
+            : undefined;
+      if (!href) continue;
+      addTag({
+        type: (sticker as any).type || "Sticker",
+        href,
+        name: typeof (sticker as any).name === "string" ? (sticker as any).name : undefined,
+      });
     }
   }
 
@@ -311,20 +372,47 @@ export function generateNoteObject(
     (typeof post?.in_reply_to === "string" && post.in_reply_to.trim() ? post.in_reply_to.trim() : null) ||
     (typeof post?.in_reply_to_id === "string" ? post.in_reply_to_id : null);
 
+  const noteType = typeof post?.type === "string" ? post.type : "Note";
+  const takosPoll = (post as any)["takos:poll"] ?? (post as any).poll;
+  const takosStory = (post as any)["takos:story"] ?? (post as any).story;
+
+  const publishedAt = post?.published
+    ? new Date(post.published)
+    : post?.created_at
+      ? new Date(post.created_at)
+      : new Date();
+
+  const storyExpiresRaw =
+    takosStory?.expiresAt ??
+    takosStory?.expires_at ??
+    (post as any).expiresAt ??
+    (post as any).expires_at;
+  const storyExpiresAt = (() => {
+    if (!takosStory && !storyExpiresRaw) return null;
+    if (storyExpiresRaw) {
+      const parsed = new Date(storyExpiresRaw);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    return new Date(publishedAt.getTime() + STORY_TTL_MS);
+  })();
+
+  const hasTakosExtension = Boolean(takosPoll || takosStory || storyExpiresAt || tags.some((t) => t.type === "Sticker"));
+  const contextValue =
+    post?.["@context"] ??
+    (hasTakosExtension ? [ACTIVITYSTREAMS_CONTEXT, TAKOS_CONTEXT] : ACTIVITYSTREAMS_CONTEXT);
+
   const note: any = {
-    "@context": ACTIVITYSTREAMS_CONTEXT,
-    type: "Note",
+    "@context": contextValue,
+    type: noteType || "Note",
     id: objectId,
     actor: actorUri,
     attributedTo: actorUri,
     content: contentHtml || "",
-    published: post?.published
-      ? new Date(post.published).toISOString()
-      : post?.created_at
-        ? new Date(post.created_at).toISOString()
-        : new Date().toISOString(),
+    published: publishedAt.toISOString(),
     to: recipients.to,
     cc: recipients.cc,
+    bto: recipients.bto,
+    bcc: recipients.bcc,
     url: post?.url || objectId,
   };
 
@@ -360,6 +448,21 @@ export function generateNoteObject(
   if (post?.attributedTo || post?.attributed_community_id) {
     const attributed = (post.attributedTo as string) ?? post.attributed_community_id;
     note.attributedTo = normalizeRecipient(attributed);
+  }
+
+  if (takosPoll) {
+    note["takos:poll"] = takosPoll;
+  }
+
+  if (takosStory || storyExpiresAt) {
+    const expiresIso = storyExpiresAt ? storyExpiresAt.toISOString() : undefined;
+    if (expiresIso) {
+      note.expiresAt = note.expiresAt ?? expiresIso;
+    }
+    note["takos:story"] = {
+      ...(takosStory || {}),
+      ...(expiresIso ? { expiresAt: expiresIso } : {}),
+    };
   }
 
   return note;
@@ -508,6 +611,8 @@ export function wrapInCreateActivity(
     published: object.published || new Date().toISOString(),
     to: object.to,
     cc: object.cc,
+    bto: object.bto,
+    bcc: object.bcc,
   };
 }
 

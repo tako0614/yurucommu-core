@@ -81,3 +81,19 @@ npm exec takos-config -- import --file takos-config.json --url http://127.0.0.1:
 ```
 
 レスポンスの `warnings` には互換性警告や秘密情報の除外通知が含まれるため、適用前後に必ず確認してください。
+
+## scripts/api/config-tools.ts
+
+リポジトリ内の `scripts/api/config-tools.ts` でも同じエンドポイントへの `export` / `diff` / `import` を叩けます。追加で `compat` コマンドを持ち、`takos-profile.json` と `takos-config.json` の組み合わせが Plan 5.3 のルールに沿っているかをチェックします。
+
+```bash
+# 互換性チェック（デフォルトで takos-profile.json / takos-config.json を読む）
+tsx scripts/api/config-tools.ts compat
+
+# エクスポート（TAKOS_URL / TAKOS_TOKEN / TAKOS_COOKIE も利用可能）
+tsx scripts/api/config-tools.ts export --url http://127.0.0.1:8787 --out takos-config.json
+
+# diff / import も同様に利用可能 (--force でメジャーバージョン差異を許容)
+tsx scripts/api/config-tools.ts diff --config takos-config.json --force
+tsx scripts/api/config-tools.ts import --config takos-config.json --force
+```

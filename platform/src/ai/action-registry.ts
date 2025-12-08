@@ -1,6 +1,9 @@
 import { normalizeAiDataPolicy } from "./provider-registry.js";
 import type { EffectiveAiDataPolicy } from "./provider-registry.js";
 import type { JsonSchema, TakosAiConfig, TakosConfig } from "../config/takos-config.js";
+import type { CoreServices } from "../app/services/index.js";
+import type { AppAuthContext } from "../app/runtime/types.js";
+import type { AgentType } from "./agent-policy.js";
 
 export type AiProviderCapability = "chat" | "completion" | "embedding";
 
@@ -18,6 +21,18 @@ export interface AiActionDefinition {
 
 export interface AiActionContext {
   nodeConfig: Pick<TakosConfig, "ai"> & Partial<TakosConfig>;
+  services?: CoreServices;
+  /** Core Kernel AppAuthContext for service calls */
+  appAuth?: AppAuthContext;
+  auth?: {
+    userId: string | null;
+    roles?: string[];
+    agentType?: AgentType | null;
+    plan?: {
+      features?: string[];
+      limits?: Partial<{ aiRequests: number }>;
+    };
+  };
   [key: string]: unknown;
 }
 

@@ -30,6 +30,7 @@ import type {
   Poll,
   Reaction,
   RepostListResult,
+  Visibility,
 } from "@takos/platform/app/services/post-service";
 import type { PostService } from "./post-service";
 import type {
@@ -232,10 +233,13 @@ const mapActorProfile = (row: any): ActorProfile => ({
   updated_at: row?.updated_at ?? null,
 });
 
-const visibilityFromObject = (object: APObject): APVisibility => {
+const visibilityFromObject = (object: APObject): Visibility => {
   const to = Array.isArray(object.to) ? object.to : [];
   const cc = Array.isArray(object.cc) ? object.cc : [];
-  return ((object as any).visibility as APVisibility | undefined) ?? recipientsToVisibility(to, cc);
+  const apVis = ((object as any).visibility as APVisibility | undefined) ?? recipientsToVisibility(to, cc);
+  // Map APVisibility to Visibility
+  if (apVis === "followers" || apVis === "community") return "private";
+  return apVis as Visibility;
 };
 
 const objectIdFromAp = (object: APObject): string => {
@@ -652,10 +656,11 @@ const createAuthService = (env: any): AuthService => ({
   async createOrActivateActor(ctx, input) {
     ensureAuth(ctx);
     return withStore(env, async (store) => {
+      const inputAny = input as any;
       const rawHandle =
         (typeof input?.handle === "string" && input.handle.trim()) ||
-        (typeof input?.user_id === "string" && input.user_id.trim()) ||
-        (typeof input?.userId === "string" && input.userId.trim()) ||
+        (typeof inputAny?.user_id === "string" && inputAny.user_id.trim()) ||
+        (typeof inputAny?.userId === "string" && inputAny.userId.trim()) ||
         ctx.userId ||
         resolveDefaultHandle(env);
       const handle = normalizeHandle(rawHandle ?? "");
@@ -667,18 +672,18 @@ const createAuthService = (env: any): AuthService => ({
           ? input.display_name
           : rawHandle || handle;
       const create =
-        input?.create_if_missing !== undefined
-          ? !!input.create_if_missing
+        inputAny?.create_if_missing !== undefined
+          ? !!inputAny.create_if_missing
           : input?.create !== undefined
             ? !!input.create
             : true;
       const activate =
         input?.activate !== undefined
           ? !!input.activate
-          : input?.set_active !== undefined
-            ? !!input.set_active
+          : inputAny?.set_active !== undefined
+            ? !!inputAny.set_active
             : true;
-      const issueToken = input?.issue_token === true || input?.issueToken === true;
+      const issueToken = inputAny?.issue_token === true || input?.issueToken === true;
 
       let user = await store.getUser(handle).catch(() => null);
       let created = false;
@@ -795,9 +800,10 @@ const createPostService = (env: any): PostService => {
   const objects = createObjectService(env);
 
   const fetchObject = async (id: string): Promise<APObject | null> => {
-    const direct = await objects.get({ userId: null }, id);
+    const systemCtx = { userId: null, sessionId: null, isAuthenticated: false, plan: { id: "system", name: "system", limits: {}, features: [] }, limits: {} } as unknown as AppAuthContext;
+    const direct = await objects.get(systemCtx, id);
     if (direct) return direct;
-    return objects.getByLocalId({ userId: null }, id);
+    return objects.getByLocalId(systemCtx, id);
   };
 
   return {
@@ -816,7 +822,7 @@ const createPostService = (env: any): PostService => {
           url: id.startsWith("/media/") ? id : `/media/${id}`,
         })) ?? undefined;
       const created = await objects.create(
-        { userId: author },
+        ctx,
         {
           type: "Note",
           content: input.content,
@@ -885,7 +891,7 @@ const createPostService = (env: any): PostService => {
     async listTimeline(ctx, params) {
       const page = await objects.getTimeline(ctx, {
         type: ["Note", "Article", "Question"],
-        visibility: params.visibility as any,
+        visibility: (params as any).visibility,
         limit: params.limit ?? DEFAULT_PAGE_SIZE,
         cursor: params.offset ? String(params.offset) : undefined,
         communityId: params.community_id,
@@ -901,7 +907,8 @@ const createPostService = (env: any): PostService => {
     },
 
     async searchPosts(ctx, params) {
-      if (!params.query?.trim()) {
+      const queryText = params.query?.trim() ?? "";
+      if (!queryText) {
         return { posts: [], next_offset: null, next_cursor: null };
       }
       const page = await objects.query(ctx, {
@@ -911,7 +918,7 @@ const createPostService = (env: any): PostService => {
         includeDeleted: false,
       });
       const filtered = page.items.filter((item) =>
-        (item.content || "").toLowerCase().includes(params.query.toLowerCase()),
+        (item.content || "").toLowerCase().includes(queryText.toLowerCase()),
       );
       return {
         posts: filtered.map(toPost),
@@ -1042,33 +1049,43 @@ const createPostService = (env: any): PostService => {
       const userId = ensureAuth(ctx);
       const limit = params?.limit ?? DEFAULT_PAGE_SIZE;
       const offset = params?.offset ?? 0;
-      const objectsForUser = await withStore(env, async (store) => {
+      const objectIds = await withStore(env, async (store) => {
         if (store.listObjectBookmarksByActor) {
           const objs = await store.listObjectBookmarksByActor(userId, limit, offset);
-          return objs as any[];
+          return (objs as any[]).map((row: any) => row.object_id ?? row.id ?? null).filter(Boolean);
         }
         const rows = await store.listBookmarksByUser(userId, limit, offset);
-        if (!rows?.length || !store.getObject) return [];
-        const ids = rows.map((r: any) => r.object_id);
-        const fetched = await Promise.all(ids.map((oid: string) => store.getObject(oid)));
-        return fetched.filter(Boolean);
+        return (rows ?? []).map((r: any) => r.object_id).filter(Boolean);
       });
-      const posts = (objectsForUser as any[]).map((o) => toPost((o as any) as APObject));
-      const next = objectsForUser.length < limit ? null : offset + objectsForUser.length;
+      const posts: Post[] = [];
+      for (const objectId of objectIds as string[]) {
+        const object = await fetchObject(objectId);
+        if (object) {
+          posts.push(toPost(object));
+        }
+      }
+      const next = (objectIds as string[]).length < limit ? null : offset + (objectIds as string[]).length;
       return { items: posts, next_offset: next };
     },
 
     async listPinnedPosts(ctx, params?: { user_id?: string; limit?: number }) {
       const userId = params?.user_id ?? ensureAuth(ctx);
       const limit = params?.limit ?? DEFAULT_PAGE_SIZE;
-      const posts = await withStore(env, async (store) => {
+      const pinnedIds = await withStore(env, async (store) => {
         if (store.listPinnedPostsByUser) {
           const rows = await store.listPinnedPostsByUser(userId, limit);
-          return rows as any[];
+          return (rows as any[]).map((row) => row.object_id ?? row.id ?? null).filter(Boolean);
         }
         return [];
       });
-      return posts.map((p: any) => toPost((p as any) as APObject));
+      const posts: Post[] = [];
+      for (const objectId of pinnedIds as string[]) {
+        const object = await fetchObject(objectId);
+        if (object) {
+          posts.push(toPost(object));
+        }
+      }
+      return posts;
     },
   };
 };
@@ -1337,7 +1354,7 @@ const createStoryService = (env: any): StoryService => {
         context: input.community_id ?? null,
         "takos:story": {
           items: input.items,
-          expiresAt: input.expires_at ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          expiresAt: (input as any).expires_at ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
         },
       } as any);
       return toStory(created);
@@ -1400,7 +1417,7 @@ const createMediaService = (env: any, storage?: StorageService): MediaService =>
       const files: MediaObject[] = list.objects.map((obj) => ({
         id: obj.key,
         url: storageService.getPublicUrl(obj.key),
-        created_at: obj.uploaded?.toString?.() ?? undefined,
+        created_at: obj.lastModified?.toISOString?.() ?? undefined,
         size: obj.size,
       }));
       return { files, next_offset: list.cursor ? Number(list.cursor) : null };

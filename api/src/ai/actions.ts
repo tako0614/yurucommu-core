@@ -7,9 +7,14 @@ import type {
   AiProviderRegistry,
   JsonSchema,
   AiProviderClient,
+  EffectiveAiDataPolicy,
+  AiPayloadSlices,
+  AiCallResult,
+  AgentType,
 } from "@takos/platform/server";
 import { aiActionRegistry, chatCompletion } from "@takos/platform/server";
 import type { ChatMessage } from "@takos/platform/server";
+import type { AiAuditLogger } from "../lib/ai-audit";
 
 type ChatActionInput = {
   messages: ChatMessage[];
@@ -22,7 +27,7 @@ type ChatActionInput = {
   communityPosts?: unknown;
   dmMessages?: unknown;
   profile?: unknown;
-};
+}
 
 type ChatActionOutput = {
   provider: string | null;
@@ -157,6 +162,183 @@ type DmModeratorOutput = {
   usedAi?: boolean;
 };
 
+type PlanSnapshot = {
+  features?: string[];
+  limits?: Partial<{ aiRequests: number }>;
+};
+
+type ActionAuthContext = {
+  userId: string | null;
+  agentType: AgentType | null;
+  plan: PlanSnapshot | null;
+};
+
+const resolveAuthContext = (ctx: AiActionContext): ActionAuthContext => {
+  const auth = (ctx as any)?.auth ?? {};
+  const user = (ctx as any)?.user;
+  const appAuth = (ctx as any)?.appAuth;
+  const userId =
+    auth.userId ??
+    auth.user_id ??
+    appAuth?.userId ??
+    (user && typeof (user as any).id === "string" ? (user as any).id : null) ??
+    null;
+  const agentType = (auth.agentType ?? (ctx as any)?.agentType ?? null) as AgentType | null;
+  const plan =
+    (auth.plan as PlanSnapshot | undefined) ??
+    (appAuth?.plan
+      ? {
+          features: appAuth.plan.features ?? [],
+          limits: { aiRequests: appAuth.plan.limits?.aiRequests },
+        }
+      : null);
+  return { userId: userId ?? null, agentType, plan };
+};
+
+const getProviders = (ctx: AiActionContext): AiProviderRegistry | null => {
+  const providers = (ctx as any)?.providers as AiProviderRegistry | undefined;
+  return providers ?? null;
+};
+
+const getAuditLogger = (ctx: AiActionContext): AiAuditLogger | null => {
+  const logger = (ctx as any)?.aiAudit;
+  return typeof logger === "function" ? (logger as AiAuditLogger) : null;
+};
+
+function ensurePlanAllowsAi(ctx: AiActionContext): void {
+  const { plan } = resolveAuthContext(ctx);
+  if (!plan) return;
+  const features = Array.isArray(plan.features) ? plan.features : [];
+  if (!features.includes("*") && !features.includes("ai")) {
+    throw new Error("PlanGuard: AI features require an upgraded plan");
+  }
+  const limit = plan.limits?.aiRequests;
+  if (typeof limit === "number" && limit <= 0) {
+    throw new Error("PlanGuard: AI request quota is unavailable for this plan");
+  }
+}
+
+const AGENT_DATA_POLICY: Partial<Record<AgentType, Partial<EffectiveAiDataPolicy>>> = {
+  user: { sendPublicPosts: true, sendCommunityPosts: true, sendDm: true, sendProfile: true },
+  system: { sendPublicPosts: true, sendCommunityPosts: true, sendDm: true, sendProfile: true },
+  dev: { sendPublicPosts: true, sendCommunityPosts: true, sendDm: false, sendProfile: true },
+};
+
+const applyAgentDataPolicy = (
+  agentType: AgentType | null,
+  policy: Partial<EffectiveAiDataPolicy>,
+): Partial<EffectiveAiDataPolicy> => {
+  const agentPolicy = agentType ? AGENT_DATA_POLICY[agentType] : null;
+  if (!agentPolicy) return policy;
+  const merged: Partial<EffectiveAiDataPolicy> = { ...policy };
+  for (const key of ["sendPublicPosts", "sendCommunityPosts", "sendDm", "sendProfile"] as const) {
+    if (agentPolicy[key] === false) {
+      merged[key] = false;
+    } else if (agentPolicy[key] === true && merged[key] === undefined) {
+      merged[key] = true;
+    }
+  }
+  return merged;
+};
+
+const buildActionPolicyFromPayload = (
+  payload: AiPayloadSlices,
+  basePolicy: Partial<EffectiveAiDataPolicy> = {},
+  agentType: AgentType | null = null,
+): Partial<EffectiveAiDataPolicy> => {
+  const dynamicPolicy: Partial<EffectiveAiDataPolicy> = {
+    ...basePolicy,
+    sendPublicPosts: basePolicy.sendPublicPosts ?? hasPayloadSlice(payload.publicPosts),
+    sendCommunityPosts: basePolicy.sendCommunityPosts ?? hasPayloadSlice(payload.communityPosts),
+    sendDm: basePolicy.sendDm ?? hasPayloadSlice(payload.dmMessages),
+    sendProfile: basePolicy.sendProfile ?? hasPayloadSlice(payload.profile),
+  };
+  return applyAgentDataPolicy(agentType, dynamicPolicy);
+};
+
+async function callProviderWithPolicy<TResult>(
+  ctx: AiActionContext,
+  params: {
+    actionId: string;
+    payload: AiPayloadSlices;
+    actionPolicy: Partial<EffectiveAiDataPolicy>;
+    providerId?: string;
+    model?: string | null;
+    execute: (provider: AiProviderClient) => Promise<TResult>;
+  },
+): Promise<AiCallResult<AiPayloadSlices, TResult> | null> {
+  const providers = getProviders(ctx);
+  if (!providers) return null;
+  ensurePlanAllowsAi(ctx);
+
+  const auditLog = getAuditLogger(ctx);
+  const { userId, agentType } = resolveAuthContext(ctx);
+  const actionPolicy = buildActionPolicyFromPayload(params.payload, params.actionPolicy, agentType);
+
+  try {
+    const call = await providers.callWithPolicy(
+      {
+        payload: params.payload,
+        actionPolicy,
+        providerId: params.providerId,
+        actionId: params.actionId,
+        onViolation: (report) => {
+          auditLog?.({
+            actionId: params.actionId,
+            providerId: report.providerId ?? params.providerId ?? "(unknown)",
+            model: params.model ?? null,
+            policy: report.policy,
+            redacted: [],
+            agentType,
+            userId,
+            status: "blocked",
+            error: "DataPolicyViolation",
+          });
+        },
+      },
+      async (prepared) => {
+        await auditLog?.({
+          actionId: params.actionId,
+          providerId: prepared.provider.id,
+          model: params.model ?? prepared.provider.model ?? null,
+          policy: prepared.policy,
+          redacted: prepared.redacted,
+          agentType,
+          userId,
+          status: "attempt",
+        });
+        return params.execute(prepared.provider);
+      },
+    );
+
+    await auditLog?.({
+      actionId: params.actionId,
+      providerId: call.provider.id,
+      model: params.model ?? (call.result as any)?.model ?? call.provider.model ?? null,
+      policy: call.policy,
+      redacted: call.redacted,
+      agentType,
+      userId,
+      status: "success",
+    });
+
+    return call;
+  } catch (error: unknown) {
+    auditLog?.({
+      actionId: params.actionId,
+      providerId: params.providerId ?? "(unknown)",
+      model: params.model ?? null,
+      policy: providers.combinePolicy(actionPolicy),
+      redacted: [],
+      agentType,
+      userId,
+      status: "error",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+};
+
 const summaryInputSchema: JsonSchema = {
   type: "object",
   properties: {
@@ -166,8 +348,13 @@ const summaryInputSchema: JsonSchema = {
       description: "Maximum number of sentences to include in the summary",
     },
     language: { type: "string", description: "Optional hint for the summary language" },
+    objectIds: {
+      type: "array",
+      items: { type: "string" },
+      description: "Optional list of object IDs to summarize (falls back to text when absent)",
+    },
   },
-  required: ["text"],
+  required: [],
   additionalProperties: false,
 };
 
@@ -187,8 +374,13 @@ const tagSuggestInputSchema: JsonSchema = {
   properties: {
     text: { type: "string", description: "Draft post content" },
     maxTags: { type: "number", description: "Maximum tags to return (default 5)" },
+    objectIds: {
+      type: "array",
+      items: { type: "string" },
+      description: "Optional list of object IDs to derive tags from",
+    },
   },
-  required: ["text"],
+  required: [],
   additionalProperties: false,
 };
 
@@ -207,8 +399,13 @@ const translationInputSchema: JsonSchema = {
     text: { type: "string", description: "Text to translate" },
     targetLanguage: { type: "string", description: "Target language code (e.g., 'en', 'ja', 'es')" },
     sourceLanguage: { type: "string", description: "Optional source language code" },
+    objectIds: {
+      type: "array",
+      items: { type: "string" },
+      description: "Optional list of object IDs to translate",
+    },
   },
-  required: ["text", "targetLanguage"],
+  required: ["targetLanguage"],
   additionalProperties: false,
 };
 
@@ -282,6 +479,37 @@ const STOP_WORDS = new Set([
 ]);
 
 const DM_RED_FLAGS = ["scam", "spam", "abuse", "threat", "violence", "phish"];
+
+const CHAT_ACTION_ID = "ai.chat";
+const SUMMARY_ACTION_ID = "ai.summary";
+const TAG_SUGGEST_ACTION_ID = "ai.tag-suggest";
+const TRANSLATION_ACTION_ID = "ai.translation";
+const DM_MODERATOR_ACTION_ID = "ai.dm-moderator";
+
+const chatActionPolicy: Partial<EffectiveAiDataPolicy> = {
+  notes: "Context slices (public/community/DM/profile) are optional and checked per-call.",
+};
+const summaryActionPolicy: Partial<EffectiveAiDataPolicy> = { sendPublicPosts: true };
+const tagSuggestActionPolicy: Partial<EffectiveAiDataPolicy> = { sendPublicPosts: true };
+const translationActionPolicy: Partial<EffectiveAiDataPolicy> = { sendPublicPosts: true };
+const dmModeratorActionPolicy: Partial<EffectiveAiDataPolicy> = {
+  sendDm: true,
+  notes: "DM content is sent to AI provider for safety analysis.",
+};
+
+const ACTION_AGENT_ALLOWLIST: Partial<Record<string, AgentType[]>> = {
+  [DM_MODERATOR_ACTION_ID]: ["system", "user"],
+};
+
+const ensureAgentAllowedForAction = (ctx: AiActionContext, actionId: string): void => {
+  const allowed = ACTION_AGENT_ALLOWLIST[actionId];
+  if (!allowed) return;
+  const { agentType } = resolveAuthContext(ctx);
+  if (!agentType) return;
+  if (!allowed.includes(agentType)) {
+    throw new Error(`AgentPolicyViolation: ${agentType} cannot run ${actionId}`);
+  }
+};
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
@@ -371,22 +599,86 @@ const buildChatFallback = (messages: ChatMessage[]): ChatMessage => {
   return { role: "assistant", content: "AI provider unavailable." };
 };
 
-/**
- * Get AI provider client from context if available
- */
-function getProviderClient(ctx: AiActionContext): AiProviderClient | null {
-  const providers = ctx.providers as AiProviderRegistry | undefined;
-  if (!providers) return null;
-  try {
-    return providers.require();
-  } catch {
-    return null;
+type ObjectPayloadResult = {
+  payload: AiPayloadSlices;
+  text: string;
+  sourceIds: string[];
+};
+
+const normalizeObjectIds = (value: unknown): string[] => {
+  if (typeof value === "string") {
+    return value.trim() ? [value.trim()] : [];
   }
+  if (Array.isArray(value)) {
+    return value
+      .map((id) => (typeof id === "string" ? id.trim() : ""))
+      .filter((id) => id.length > 0);
+  }
+  return [];
+};
+
+const extractObjectText = (object: any): string => {
+  if (!object) return "";
+  if (typeof object === "string") return object;
+  if (typeof object.content === "string") return object.content;
+  if (object.content && typeof object.content === "object") {
+    const nested = (object.content as any).content ?? (object.content as any).text;
+    if (typeof nested === "string") return nested;
+  }
+  if (typeof object.summary === "string") return object.summary;
+  return "";
+};
+
+const pushObjectText = (
+  payload: AiPayloadSlices,
+  text: string,
+  visibility: string | null | undefined,
+): void => {
+  if (!text) return;
+  const normalized = visibility?.toLowerCase?.() ?? "";
+  if (normalized === "direct") {
+    if (!Array.isArray(payload.dmMessages)) payload.dmMessages = [];
+    (payload.dmMessages as string[]).push(text);
+    return;
+  }
+  if (normalized === "community" || normalized === "followers") {
+    if (!Array.isArray(payload.communityPosts)) payload.communityPosts = [];
+    (payload.communityPosts as string[]).push(text);
+    return;
+  }
+  if (!Array.isArray(payload.publicPosts)) payload.publicPosts = [];
+  (payload.publicPosts as string[]).push(text);
+};
+
+async function resolveObjectPayload(
+  ctx: AiActionContext,
+  rawIds: unknown,
+): Promise<ObjectPayloadResult | null> {
+  const ids = normalizeObjectIds(rawIds);
+  if (!ids.length) return null;
+  const objects = (ctx as any)?.services?.objects;
+  const appAuth = (ctx as any)?.appAuth;
+  if (!objects || !appAuth) return null;
+
+  const payload: AiPayloadSlices = {};
+  const texts: string[] = [];
+
+  for (const id of ids) {
+    let object = await objects.get(appAuth, id).catch(() => null);
+    if (!object && typeof objects.getByLocalId === "function") {
+      object = await objects.getByLocalId(appAuth, id).catch(() => null);
+    }
+    if (!object) continue;
+    const text = extractObjectText(object);
+    if (!text) continue;
+    pushObjectText(payload, text, (object as any).visibility ?? null);
+    texts.push(text);
+  }
+
+  if (!texts.length) return null;
+  return { payload, text: texts.join("\n\n"), sourceIds: ids };
 }
 
-/**
- * Call AI provider for chat completion
- */
 async function callAiProvider(
   client: AiProviderClient,
   messages: ChatMessage[],
@@ -430,47 +722,48 @@ const chatActionHandler: AiActionHandler<ChatActionInput, ChatActionOutput> = as
     profile: (input as any)?.profile,
   };
 
-  const providers = ctx.providers as AiProviderRegistry | undefined;
-  if (providers) {
-    try {
-      const policy = {
-        sendPublicPosts: hasPayloadSlice(payload.publicPosts),
-        sendCommunityPosts: hasPayloadSlice(payload.communityPosts),
-        sendDm: hasPayloadSlice(payload.dmMessages),
-        sendProfile: hasPayloadSlice(payload.profile),
-      };
+  const actionPolicy = {
+    sendPublicPosts: hasPayloadSlice(payload.publicPosts),
+    sendCommunityPosts: hasPayloadSlice(payload.communityPosts),
+    sendDm: hasPayloadSlice(payload.dmMessages),
+    sendProfile: hasPayloadSlice(payload.profile),
+  };
 
-      const prepared = providers.prepareCall({
-        payload,
-        providerId,
-        actionPolicy: policy,
-        actionId: "ai.chat",
-      });
+  try {
+    const call = await callProviderWithPolicy(ctx, {
+      actionId: CHAT_ACTION_ID,
+      payload,
+      actionPolicy,
+      providerId,
+      model,
+      execute: async (provider) =>
+        chatCompletion(provider, messages, {
+          model: model ?? undefined,
+          temperature,
+          maxTokens,
+        }),
+    });
 
-      const completion = await chatCompletion(prepared.provider, messages, {
-        model: model ?? undefined,
-        temperature,
-        maxTokens,
-      });
-
+    if (call) {
+      const completion = call.result;
       return {
-        provider: completion.provider || prepared.provider.id,
-        model: completion.model || model || prepared.provider.model || null,
+        provider: completion.provider || call.provider.id,
+        model: completion.model || model || call.provider.model || null,
         message: completion.choices[0]?.message ?? null,
         usage: completion.usage,
         raw: completion.raw,
-        redacted: prepared.redacted.length
-          ? prepared.redacted.map((r) => ({ field: String(r.field), reason: r.reason }))
+        redacted: call.redacted.length
+          ? call.redacted.map((r) => ({ field: String(r.field), reason: r.reason }))
           : undefined,
         usedAi: true,
       };
-    } catch (error: any) {
-      const message = error?.message || "";
-      if (/DataPolicyViolation/i.test(message)) {
-        throw error;
-      }
-      console.error("[ai-actions] ai.chat provider call failed:", error);
     }
+  } catch (error: any) {
+    const message = error?.message || "";
+    if (/DataPolicyViolation/i.test(message) || /PlanGuard/i.test(message)) {
+      throw error;
+    }
+    console.error("[ai-actions] ai.chat provider call failed:", error);
   }
 
   return {
@@ -482,71 +775,108 @@ const chatActionHandler: AiActionHandler<ChatActionInput, ChatActionOutput> = as
 };
 
 const summaryHandler: AiActionHandler<SummaryInput, SummaryOutput> = async (ctx, input) => {
+  const maxSentences = clamp(Number(input?.maxSentences) || 3, 1, 6);
+  const language = input?.language || "";
+  const objectIds = (input as any)?.objectIds ?? (input as any)?.object_ids;
+  const objectContext = await resolveObjectPayload(ctx, objectIds);
   const text = normalizeText(input?.text);
-  if (!text) {
+  const contentParts = [text, objectContext?.text].filter(Boolean);
+  const contentText = contentParts.join("\n\n");
+
+  if (!contentText) {
     return { summary: "", sentences: [], originalLength: 0, usedAi: false };
   }
 
-  const maxSentences = clamp(Number(input?.maxSentences) || 3, 1, 6);
-  const language = input?.language || "";
+  const payload: AiPayloadSlices = objectContext?.payload ? { ...objectContext.payload } : {};
+  if (text) {
+    if (!Array.isArray(payload.publicPosts)) payload.publicPosts = [];
+    (payload.publicPosts as string[]).push(text);
+  }
 
-  // Try to use AI provider if available
-  const client = getProviderClient(ctx);
-  if (client) {
-    const languageHint = language ? ` Respond in ${language}.` : "";
-    const messages: ChatMessage[] = [
-      {
-        role: "system",
-        content: `You are a helpful assistant that summarizes content concisely. Provide a summary in ${maxSentences} sentences or less.${languageHint} Return only the summary text, no additional commentary.`,
+  try {
+    const call = await callProviderWithPolicy(ctx, {
+      actionId: SUMMARY_ACTION_ID,
+      payload,
+      actionPolicy: summaryActionPolicy,
+      execute: async (provider) => {
+        const languageHint = language ? ` Respond in ${language}.` : "";
+        const messages: ChatMessage[] = [
+          {
+            role: "system",
+            content: `You are a helpful assistant that summarizes content concisely. Provide a summary in ${maxSentences} sentences or less.${languageHint} Return only the summary text, no additional commentary.`,
+          },
+          {
+            role: "user",
+            content: `Please summarize the following content:\n\n${contentText}`,
+          },
+        ];
+        return callAiProvider(provider, messages);
       },
-      {
-        role: "user",
-        content: `Please summarize the following content:\n\n${text}`,
-      },
-    ];
+    });
 
-    const aiResponse = await callAiProvider(client, messages);
+    const aiResponse = call?.result ?? null;
     if (aiResponse) {
       const sentences = splitSentences(aiResponse);
       return {
         summary: aiResponse,
         sentences: sentences.length > 0 ? sentences : [aiResponse],
-        originalLength: text.length,
+        originalLength: contentText.length,
         usedAi: true,
       };
     }
+  } catch (error: any) {
+    const message = error?.message || "";
+    if (/DataPolicyViolation/i.test(message) || /PlanGuard/i.test(message)) {
+      throw error;
+    }
+    console.error("[ai-actions] ai.summary provider call failed:", error);
   }
 
   // Fallback to simple sentence extraction
-  return buildSummaryFallback(text, maxSentences);
+  return buildSummaryFallback(contentText, maxSentences);
 };
 
 const tagSuggestHandler: AiActionHandler<TagSuggestInput, TagSuggestOutput> = async (
   ctx,
   input,
 ) => {
+  const objectIds = (input as any)?.objectIds ?? (input as any)?.object_ids;
+  const objectContext = await resolveObjectPayload(ctx, objectIds);
   const text = normalizeText(input?.text);
-  if (!text) {
+  const contentText = [text, objectContext?.text].filter(Boolean).join("\n\n");
+
+  if (!contentText) {
     return { tags: [], usedAi: false };
   }
 
   const maxTags = clamp(Number(input?.maxTags) || 5, 1, 12);
+  const payload: AiPayloadSlices = objectContext?.payload ? { ...objectContext.payload } : {};
+  if (text) {
+    if (!Array.isArray(payload.publicPosts)) payload.publicPosts = [];
+    (payload.publicPosts as string[]).push(text);
+  }
 
-  // Try to use AI provider if available
-  const client = getProviderClient(ctx);
-  if (client) {
-    const messages: ChatMessage[] = [
-      {
-        role: "system",
-        content: `You are a helpful assistant that suggests relevant hashtags for social media posts. Suggest up to ${maxTags} hashtags that are relevant, popular, and help with discoverability. Return only the hashtags, one per line, without the # symbol.`,
+  try {
+    const call = await callProviderWithPolicy(ctx, {
+      actionId: TAG_SUGGEST_ACTION_ID,
+      payload,
+      actionPolicy: tagSuggestActionPolicy,
+      execute: async (provider) => {
+        const messages: ChatMessage[] = [
+          {
+            role: "system",
+            content: `You are a helpful assistant that suggests relevant hashtags for social media posts. Suggest up to ${maxTags} hashtags that are relevant, popular, and help with discoverability. Return only the hashtags, one per line, without the # symbol.`,
+          },
+          {
+            role: "user",
+            content: `Suggest hashtags for this post:\n\n${contentText}`,
+          },
+        ];
+        return callAiProvider(provider, messages);
       },
-      {
-        role: "user",
-        content: `Suggest hashtags for this post:\n\n${text}`,
-      },
-    ];
+    });
 
-    const aiResponse = await callAiProvider(client, messages);
+    const aiResponse = call?.result ?? null;
     if (aiResponse) {
       const tags = aiResponse
         .split(/[\n,]/)
@@ -558,43 +888,66 @@ const tagSuggestHandler: AiActionHandler<TagSuggestInput, TagSuggestOutput> = as
         return { tags, usedAi: true };
       }
     }
+  } catch (error: any) {
+    const message = error?.message || "";
+    if (/DataPolicyViolation/i.test(message) || /PlanGuard/i.test(message)) {
+      throw error;
+    }
+    console.error("[ai-actions] ai.tag-suggest provider call failed:", error);
   }
 
   // Fallback to keyword extraction
-  return { tags: pickTagsFallback(text, maxTags), usedAi: false };
+  return { tags: pickTagsFallback(contentText, maxTags), usedAi: false };
 };
 
 const translationHandler: AiActionHandler<TranslationInput, TranslationOutput> = async (
   ctx,
   input,
 ) => {
-  const text = normalizeText(input?.text);
   const targetLanguage = normalizeText(input?.targetLanguage);
 
-  if (!text || !targetLanguage) {
+  if (!targetLanguage) {
+    return { translatedText: "", usedAi: false };
+  }
+
+  const objectIds = (input as any)?.objectIds ?? (input as any)?.object_ids;
+  const objectContext = await resolveObjectPayload(ctx, objectIds);
+  const text = normalizeText(input?.text);
+  const contentText = [text, objectContext?.text].filter(Boolean).join("\n\n");
+
+  if (!contentText) {
     return { translatedText: text || "", usedAi: false };
   }
 
   const sourceLanguage = input?.sourceLanguage;
+  const payload: AiPayloadSlices = objectContext?.payload ? { ...objectContext.payload } : {};
+  if (text) {
+    if (!Array.isArray(payload.publicPosts)) payload.publicPosts = [];
+    (payload.publicPosts as string[]).push(text);
+  }
 
-  // Try to use AI provider if available
-  const client = getProviderClient(ctx);
-  if (client) {
-    const sourceHint = sourceLanguage
-      ? `from ${sourceLanguage} `
-      : "";
-    const messages: ChatMessage[] = [
-      {
-        role: "system",
-        content: `You are a professional translator. Translate the following text ${sourceHint}to ${targetLanguage}. Preserve the original meaning and tone. Return only the translated text, no additional commentary.`,
+  try {
+    const call = await callProviderWithPolicy(ctx, {
+      actionId: TRANSLATION_ACTION_ID,
+      payload,
+      actionPolicy: translationActionPolicy,
+      execute: async (provider) => {
+        const sourceHint = sourceLanguage ? `from ${sourceLanguage} ` : "";
+        const messages: ChatMessage[] = [
+          {
+            role: "system",
+            content: `You are a professional translator. Translate the following text ${sourceHint}to ${targetLanguage}. Preserve the original meaning and tone. Return only the translated text, no additional commentary.`,
+          },
+          {
+            role: "user",
+            content: contentText,
+          },
+        ];
+        return callAiProvider(provider, messages);
       },
-      {
-        role: "user",
-        content: text,
-      },
-    ];
+    });
 
-    const aiResponse = await callAiProvider(client, messages);
+    const aiResponse = call?.result ?? null;
     if (aiResponse) {
       return {
         translatedText: aiResponse,
@@ -602,11 +955,17 @@ const translationHandler: AiActionHandler<TranslationInput, TranslationOutput> =
         usedAi: true,
       };
     }
+  } catch (error: any) {
+    const message = error?.message || "";
+    if (/DataPolicyViolation/i.test(message) || /PlanGuard/i.test(message)) {
+      throw error;
+    }
+    console.error("[ai-actions] ai.translation provider call failed:", error);
   }
 
   // Fallback: return original text with a note
   return {
-    translatedText: text,
+    translatedText: contentText,
     detectedLanguage: sourceLanguage || "unknown",
     usedAi: false,
   };
@@ -618,6 +977,7 @@ const dmModeratorHandler: AiActionHandler<DmModeratorInput, DmModeratorOutput> =
   input,
 ) => {
   const messages = Array.isArray(input?.messages) ? input.messages : [];
+  ensureAgentAllowedForAction(ctx, DM_MODERATOR_ACTION_ID);
   const normalized = messages
     .map((msg) => ({ from: normalizeText(msg.from), text: normalizeText(msg.text) }))
     .filter((msg) => msg.text.length > 0);
@@ -640,17 +1000,20 @@ const dmModeratorHandler: AiActionHandler<DmModeratorInput, DmModeratorOutput> =
     }
   }
 
-  // Try to use AI provider for more sophisticated analysis
-  const client = getProviderClient(ctx);
-  if (client) {
-    const conversationText = normalized
-      .map((msg) => `${msg.from || "Unknown"}: ${msg.text}`)
-      .join("\n");
+  try {
+    const call = await callProviderWithPolicy(ctx, {
+      actionId: DM_MODERATOR_ACTION_ID,
+      payload: { dmMessages: normalized },
+      actionPolicy: dmModeratorActionPolicy,
+      execute: async (provider) => {
+        const conversationText = normalized
+          .map((msg) => `${msg.from || "Unknown"}: ${msg.text}`)
+          .join("\n");
 
-    const chatMessages: ChatMessage[] = [
-      {
-        role: "system",
-        content: `You are a content moderation assistant. Analyze the following conversation for potential safety issues such as:
+        const chatMessages: ChatMessage[] = [
+          {
+            role: "system",
+            content: `You are a content moderation assistant. Analyze the following conversation for potential safety issues such as:
 - Scams or phishing attempts
 - Harassment or threats
 - Spam or unwanted solicitation
@@ -664,17 +1027,20 @@ Respond in JSON format with the following structure:
 }
 
 Be conservative - only flag content that has clear safety issues. Return valid JSON only.`,
-      },
-      {
-        role: "user",
-        content: `Analyze this conversation:\n\n${conversationText}`,
-      },
-    ];
+          },
+          {
+            role: "user",
+            content: `Analyze this conversation:\n\n${conversationText}`,
+          },
+        ];
 
-    const aiResponse = await callAiProvider(client, chatMessages);
+        return callAiProvider(provider, chatMessages);
+      },
+    });
+
+    const aiResponse = call?.result ?? null;
     if (aiResponse) {
       try {
-        // Try to parse JSON response
         const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]) as {
@@ -683,12 +1049,7 @@ Be conservative - only flag content that has clear safety issues. Return valid J
             summary?: string;
           };
 
-          const allReasons = Array.from(
-            new Set([
-              ...quickReasons,
-              ...(parsed.reasons || []),
-            ]),
-          );
+          const allReasons = Array.from(new Set([...quickReasons, ...(parsed.reasons || [])]));
 
           return {
             flagged: parsed.flagged === true || quickReasons.size > 0,
@@ -701,6 +1062,12 @@ Be conservative - only flag content that has clear safety issues. Return valid J
         // JSON parsing failed, fall through to keyword-based result
       }
     }
+  } catch (error: any) {
+    const message = error?.message || "";
+    if (/DataPolicyViolation/i.test(message) || /PlanGuard/i.test(message)) {
+      throw error;
+    }
+    console.error("[ai-actions] ai.dm-moderator provider call failed:", error);
   }
 
   // Fallback to keyword-based analysis
@@ -717,76 +1084,65 @@ Be conservative - only flag content that has clear safety issues. Return valid J
 
 const chatAction: AiAction<ChatActionInput, ChatActionOutput> = {
   definition: {
-    id: "ai.chat",
+    id: CHAT_ACTION_ID,
     label: "AI chat",
     description: "General chat completion with optional context slices and provider selection.",
     inputSchema: chatInputSchema,
     outputSchema: chatOutputSchema,
     providerCapabilities: ["chat"],
-    dataPolicy: {
-      notes: "Context slices (public/community/DM/profile) are optional and checked per-call.",
-    },
+    dataPolicy: chatActionPolicy,
   },
   handler: chatActionHandler,
 };
 
 const summaryAction: AiAction<SummaryInput, SummaryOutput> = {
   definition: {
-    id: "ai.summary",
+    id: SUMMARY_ACTION_ID,
     label: "Summarize content",
     description: "Summarize public posts or timelines into a concise digest using AI when available.",
     inputSchema: summaryInputSchema,
     outputSchema: summaryOutputSchema,
     providerCapabilities: ["chat"],
-    dataPolicy: {
-      sendPublicPosts: true,
-    },
+    dataPolicy: summaryActionPolicy,
   },
   handler: summaryHandler,
 };
 
 const tagSuggestAction: AiAction<TagSuggestInput, TagSuggestOutput> = {
   definition: {
-    id: "ai.tag-suggest",
+    id: TAG_SUGGEST_ACTION_ID,
     label: "Hashtag suggestions",
     description: "Suggest relevant hashtags for a draft post using AI when available.",
     inputSchema: tagSuggestInputSchema,
     outputSchema: tagSuggestOutputSchema,
     providerCapabilities: ["chat"],
-    dataPolicy: {
-      sendPublicPosts: true,
-    },
+    dataPolicy: tagSuggestActionPolicy,
   },
   handler: tagSuggestHandler,
 };
 
 const translationAction: AiAction<TranslationInput, TranslationOutput> = {
   definition: {
-    id: "ai.translation",
+    id: TRANSLATION_ACTION_ID,
     label: "Translate content",
     description: "Translate text content to a target language using AI.",
     inputSchema: translationInputSchema,
     outputSchema: translationOutputSchema,
     providerCapabilities: ["chat"],
-    dataPolicy: {
-      sendPublicPosts: true,
-    },
+    dataPolicy: translationActionPolicy,
   },
   handler: translationHandler,
 };
 
 const dmModeratorAction: AiAction<DmModeratorInput, DmModeratorOutput> = {
   definition: {
-    id: "ai.dm-moderator",
+    id: DM_MODERATOR_ACTION_ID,
     label: "DM safety review",
     description: "Review DM conversations for safety issues using AI-powered analysis.",
     inputSchema: dmModeratorInputSchema,
     outputSchema: dmModeratorOutputSchema,
     providerCapabilities: ["chat"],
-    dataPolicy: {
-      sendDm: true,
-      notes: "DM content is sent to AI provider for safety analysis.",
-    },
+    dataPolicy: dmModeratorActionPolicy,
   },
   handler: dmModeratorHandler,
 };

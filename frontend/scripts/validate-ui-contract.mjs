@@ -9,6 +9,29 @@ const contractPath = path.resolve(repoRoot, "takos-ui-contract.json");
 const viewsDir = path.resolve(repoRoot, "app", "views");
 const sideNavPath = path.resolve(repoRoot, "frontend", "src", "components", "Navigation", "SideNav.tsx");
 const appTabPath = path.resolve(repoRoot, "frontend", "src", "components", "Navigation", "AppTab.tsx");
+const EXPECTED_SCHEMA_VERSION = "1.10";
+const RESERVED_ROUTES = ["/login", "/auth/*", "/-/core/*", "/-/config/*", "/-/app/*", "/-/health", "/.well-known/*"];
+const REQUIRED_SCREENS = [
+  "screen.home",
+  "screen.community",
+  "screen.channel",
+  "screen.dm_list",
+  "screen.dm_thread",
+  "screen.story_viewer",
+  "screen.profile",
+  "screen.settings",
+];
+const REQUIRED_ACTIONS = [
+  "action.open_composer",
+  "action.send_post",
+  "action.open_notifications",
+  "action.open_dm_thread",
+  "action.send_dm",
+  "action.reply",
+  "action.react",
+  "action.view_story",
+  "action.edit_profile",
+];
 
 function readJson(filePath) {
   try {
@@ -68,8 +91,10 @@ function patternToRegExp(pattern) {
     if (raw === "*") return ".*";
     const optional = raw.endsWith("?");
     const core = optional ? raw.slice(0, -1) : raw;
-    const isDynamic = core.startsWith(":");
-    const token = isDynamic ? "[^/]+" : escapeRegex(core);
+    const dynamicIndex = core.indexOf(":");
+    const isDynamic = dynamicIndex >= 0;
+    const prefix = isDynamic && dynamicIndex > 0 ? escapeRegex(core.slice(0, dynamicIndex)) : "";
+    const token = isDynamic ? `${prefix}[^/]+` : escapeRegex(core);
     return optional ? `(?:/${token})?` : `/${token}`;
   });
 
@@ -90,8 +115,9 @@ function patternSamples(pattern) {
     }
     const optional = raw.endsWith("?");
     const core = optional ? raw.slice(0, -1) : raw;
-    const isDynamic = core.startsWith(":");
-    const token = isDynamic ? "x" : core;
+    const dynamicIndex = core.indexOf(":");
+    const isDynamic = dynamicIndex >= 0;
+    const token = isDynamic ? `${core.slice(0, dynamicIndex)}x` : core;
     if (!optional) {
       base.push(token);
       withOptionals.push(token);
@@ -104,6 +130,11 @@ function patternSamples(pattern) {
   samples.add(`/${base.join("/")}`);
   samples.add(`/${withOptionals.join("/")}`);
   return Array.from(samples);
+}
+
+function isReservedRoute(pattern) {
+  const normalized = normalizeRoutePattern(pattern);
+  return RESERVED_ROUTES.some((reserved) => patternToRegExp(reserved).test(normalized));
 }
 
 function patternsIntersect(a, b) {
@@ -267,8 +298,8 @@ function computeReachability(edges) {
 
 function validateContract(contract) {
   const errors = [];
-  if (contract.schema_version !== "1.0") {
-    errors.push(`schema_version must be "1.0" (got ${contract.schema_version})`);
+  if (contract.schema_version !== EXPECTED_SCHEMA_VERSION) {
+    errors.push(`schema_version must be "${EXPECTED_SCHEMA_VERSION}" (got ${contract.schema_version})`);
   }
 
   const contractScreens = new Map();
@@ -286,6 +317,11 @@ function validateContract(contract) {
       }
       if (!Array.isArray(screen.routes) || screen.routes.length === 0) {
         errors.push(`screen ${screen.id} must declare at least one route`);
+        continue;
+      }
+      const reserved = screen.routes.filter((route) => typeof route === "string" && isReservedRoute(route));
+      if (reserved.length > 0) {
+        errors.push(`screen ${screen.id} cannot use reserved route(s): ${reserved.join(", ")}`);
         continue;
       }
       if (typeof screen.steps_from_home !== "number" || screen.steps_from_home < 0) {
@@ -321,16 +357,44 @@ function validateContract(contract) {
     }
   }
 
+  REQUIRED_SCREENS.forEach((screenId) => {
+    if (!contractScreens.has(screenId)) {
+      errors.push(`required screen ${screenId} is missing from contract`);
+    }
+  });
+  REQUIRED_ACTIONS.forEach((actionId) => {
+    if (!contractActions.has(actionId)) {
+      errors.push(`required action ${actionId} is missing from contract`);
+    }
+  });
+
   return { errors, contractScreens, contractActions };
 }
 
 function validateAgainstManifest(contractScreens, contractActions, screenMap, distances) {
   const errors = [];
+  const warnings = [];
 
   if (!screenMap.has("screen.home")) {
     errors.push("screen.home must exist in manifest");
   } else if (distances.get("screen.home") !== 0) {
     errors.push("screen.home must have steps_from_home 0");
+  }
+  REQUIRED_SCREENS.forEach((screenId) => {
+    if (!screenMap.has(screenId)) {
+      errors.push(`manifest is missing required screen ${screenId}`);
+    }
+  });
+  for (const manifestScreen of screenMap.values()) {
+    if (manifestScreen?.route && isReservedRoute(manifestScreen.route)) {
+      errors.push(`manifest screen ${manifestScreen.id} uses reserved route ${manifestScreen.route}`);
+    }
+  }
+
+  for (const manifestScreen of screenMap.values()) {
+    if (manifestScreen?.id && manifestScreen.id.startsWith("screen.") && !contractScreens.has(manifestScreen.id)) {
+      errors.push(`manifest screen "${manifestScreen.id}" is not declared in takos-ui-contract.json`);
+    }
   }
 
   for (const screen of contractScreens.values()) {
@@ -339,6 +403,10 @@ function validateAgainstManifest(contractScreens, contractActions, screenMap, di
       errors.push(`UI Contract screen "${screen.id}" is not defined in manifest`);
       continue;
     }
+    const reservedMatches = Array.isArray(screen.routes)
+      ? screen.routes.filter((route) => typeof route === "string" && isReservedRoute(route))
+      : [];
+    reservedMatches.forEach((route) => errors.push(`UI Contract screen "${screen.id}" declares reserved route ${route}`));
     if (typeof manifestScreen.route !== "string" || !manifestScreen.route.startsWith("/")) {
       errors.push(`screen ${screen.id} must declare a valid route`);
     } else {
@@ -356,7 +424,12 @@ function validateAgainstManifest(contractScreens, contractActions, screenMap, di
 
     const dist = distances.get(screen.id);
     if (dist === undefined) {
-      errors.push(`screen ${screen.id} is not reachable from screen.home using navigation graph`);
+      const message = `screen ${screen.id} is not reachable from screen.home using navigation graph`;
+      if (REQUIRED_SCREENS.includes(screen.id)) {
+        errors.push(message);
+      } else {
+        warnings.push(message);
+      }
     } else if (dist > screen.steps_from_home) {
       errors.push(
         `screen ${screen.id} declares steps_from_home=${screen.steps_from_home} but minimum reachable steps is ${dist}`
@@ -378,6 +451,10 @@ function validateAgainstManifest(contractScreens, contractActions, screenMap, di
     for (const screenId of action.available_on) {
       if (!screenMap.has(screenId)) {
         errors.push(`action ${action.id} references unknown screen ${screenId}`);
+        continue;
+      }
+      if (!contractScreens.has(screenId)) {
+        errors.push(`action ${action.id} references screen ${screenId} that is missing from UI contract`);
         continue;
       }
       const dist = distances.get(screenId);
@@ -432,7 +509,7 @@ function validateAgainstManifest(contractScreens, contractActions, screenMap, di
     }
   }
 
-  return errors;
+  return { errors, warnings };
 }
 
 function main() {
@@ -448,7 +525,7 @@ function main() {
   const { errors: contractErrors, contractScreens, contractActions } = validateContract(contract);
   const edges = buildReachabilityEdges(screenMap);
   const distances = computeReachability(edges);
-  const manifestErrors = validateAgainstManifest(contractScreens, contractActions, screenMap, distances);
+  const { errors: manifestErrors, warnings } = validateAgainstManifest(contractScreens, contractActions, screenMap, distances);
 
   const allErrors = [...contractErrors, ...manifestErrors];
   if (allErrors.length > 0) {
@@ -457,6 +534,13 @@ function main() {
       console.error(`- ${err}`);
     }
     process.exit(1);
+  }
+
+  if (warnings.length > 0) {
+    console.warn("UI Contract validation warnings:");
+    for (const warn of warnings) {
+      console.warn(`- ${warn}`);
+    }
   }
 
   console.log("UI Contract validation passed.");

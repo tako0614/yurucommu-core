@@ -4,8 +4,9 @@ import { createInMemoryAppSource, loadAppManifest } from "./manifest-loader";
 describe("App Manifest loader", () => {
   it("merges manifest fragments with default layout", async () => {
     const source = createInMemoryAppSource({
-      "takos-app.json": JSON.stringify({ schema_version: "1.0", version: "1.2.3" }),
-      "app/routes/core.json": JSON.stringify({
+      "manifest.json": JSON.stringify({ schema_version: "1.0", version: "1.2.3" }),
+      "routes/core.json": JSON.stringify({
+        schema_version: "1.0",
         routes: [
           {
             id: "home_timeline",
@@ -16,7 +17,8 @@ describe("App Manifest loader", () => {
           },
         ],
       }),
-      "app/views/home.json": JSON.stringify({
+      "views/home.json": JSON.stringify({
+        schema_version: "1.0",
         screens: [
           {
             id: "screen.home",
@@ -26,7 +28,8 @@ describe("App Manifest loader", () => {
           },
         ],
       }),
-      "app/views/home-insert.json": JSON.stringify({
+      "views/home-insert.json": JSON.stringify({
+        schema_version: "1.0",
         insert: [
           {
             screen: "screen.home",
@@ -36,17 +39,17 @@ describe("App Manifest loader", () => {
           },
         ],
       }),
-      "app/ap/core.json": JSON.stringify({
+      "ap/core.json": JSON.stringify({
         handlers: [
           { id: "ap_question_to_poll", match: { type: ["Question"] }, handler: "mapQuestionToPollView" },
         ],
       }),
-      "app/data/notes.json": JSON.stringify({
+      "data/notes.json": JSON.stringify({
         collections: {
           "app:notes": { engine: "sqlite" },
         },
       }),
-      "app/storage/assets.json": JSON.stringify({
+      "storage/assets.json": JSON.stringify({
         buckets: {
           "app:assets": { base_path: "assets/" },
         },
@@ -69,7 +72,7 @@ describe("App Manifest loader", () => {
 
   it("honors layout overrides and reports structural errors", async () => {
     const source = createInMemoryAppSource({
-      "takos-app.json": JSON.stringify({
+      "manifest.json": JSON.stringify({
         schema_version: "1.0",
         layout: {
           base_dir: "custom",
@@ -81,15 +84,19 @@ describe("App Manifest loader", () => {
         },
       }),
       "custom/r/routes-a.json": JSON.stringify({
+        schema_version: "1.0",
         routes: [{ id: "dup", method: "GET", path: "/one", handler: "handlerA" }],
       }),
       "custom/r/routes-b.json": JSON.stringify({
+        schema_version: "1.0",
         routes: [{ id: "dup", method: "POST", path: "/two", handler: "handlerB" }],
       }),
       "custom/v/screens.json": JSON.stringify({
+        schema_version: "1.0",
         screens: [{ id: "screen.one", route: "/one", layout: {} }],
       }),
       "custom/v/inserts.json": JSON.stringify({
+        schema_version: "1.0",
         insert: [{ screen: "missing", position: "sidebar", node: {} }],
       }),
       "custom/ap/handlers.json": JSON.stringify({
@@ -113,21 +120,23 @@ describe("App Manifest loader", () => {
 
   it("validates schema fields for invalid entries", async () => {
     const source = createInMemoryAppSource({
-      "takos-app.json": JSON.stringify({ schema_version: "1.0" }),
-      "app/routes/invalid.json": JSON.stringify({
+      "manifest.json": JSON.stringify({ schema_version: "1.0" }),
+      "routes/invalid.json": JSON.stringify({
+        schema_version: "1.0",
         routes: [{ id: "", method: "FETCH", path: "api", handler: "" }],
       }),
-      "app/views/invalid.json": JSON.stringify({
+      "views/invalid.json": JSON.stringify({
+        schema_version: "1.0",
         screens: [{ id: "", layout: "nope" }],
         insert: [{ screen: "screen.missing", position: "", node: null }],
       }),
-      "app/ap/invalid.json": JSON.stringify({
+      "ap/invalid.json": JSON.stringify({
         handlers: [{ id: "", handler: "" }],
       }),
-      "app/data/invalid.json": JSON.stringify({
+      "data/invalid.json": JSON.stringify({
         collections: { "app:notes": "not-object" },
       }),
-      "app/storage/invalid.json": JSON.stringify({
+      "storage/invalid.json": JSON.stringify({
         buckets: { "app:assets": [] },
       }),
     });
@@ -142,10 +151,36 @@ describe("App Manifest loader", () => {
     expect(result.issues.some((issue) => issue.path === "buckets.app:assets")).toBe(true);
   });
 
+  it("requires schema_version on routes and views fragments", async () => {
+    const source = createInMemoryAppSource({
+      "manifest.json": JSON.stringify({ schema_version: "1.10" }),
+      "routes/no-version.json": JSON.stringify({
+        routes: [],
+      }),
+      "views/no-version.json": JSON.stringify({
+        screens: [{ id: "screen.missing", layout: {} }],
+      }),
+    });
+
+    const result = await loadAppManifest({ source });
+    expect(result.manifest).toBeUndefined();
+    expect(
+      result.issues.some(
+        (issue) => issue.path === "schema_version" && issue.file?.includes("routes/no-version"),
+      ),
+    ).toBe(true);
+    expect(
+      result.issues.some(
+        (issue) => issue.path === "schema_version" && issue.file?.includes("views/no-version"),
+      ),
+    ).toBe(true);
+  });
+
   it("rejects reserved routes and moved core routes", async () => {
     const source = createInMemoryAppSource({
-      "takos-app.json": JSON.stringify({ schema_version: "1.10" }),
-      "app/views/reserved.json": JSON.stringify({
+      "manifest.json": JSON.stringify({ schema_version: "1.10" }),
+      "views/reserved.json": JSON.stringify({
+        schema_version: "1.10",
         screens: [
           { id: "screen.custom_login", route: "/login", layout: {} },
           { id: "screen.home", route: "/welcome", layout: {} },

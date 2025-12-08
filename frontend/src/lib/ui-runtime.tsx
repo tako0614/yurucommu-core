@@ -29,6 +29,7 @@ export interface Screen {
   id: string;
   route: string;
   title: string;
+  auth?: "required" | "public";
   state?: Record<string, { default: any }>;
   layout: UiNode;
 }
@@ -59,6 +60,7 @@ export interface UiRuntimeContext {
   routeParams?: Record<string, string>;
   location?: string;
   data?: Record<string, any>;
+  $data?: Record<string, any>;
   item?: any;
   list?: any[];
   actions?: Record<string, (payload?: any) => void | Promise<void>>;
@@ -196,6 +198,31 @@ const isAuthRef = (value: any): value is { $auth: string } => {
   return isPlainObject(value) && typeof value.$auth === "string";
 };
 
+type ResolveOptions = {
+  preserveActions?: boolean;
+  preserveNodes?: boolean;
+};
+
+const isUiNodeDefinition = (value: any): value is UiNode => {
+  return (
+    isPlainObject(value) &&
+    typeof value.type === "string" &&
+    (isPlainObject((value as any).props) || Array.isArray((value as any).children))
+  );
+};
+
+const isUiNodeArray = (value: any): value is UiNode[] => {
+  return Array.isArray(value) && value.every((item) => isUiNodeDefinition(item));
+};
+
+const isDataSourceConfig = (value: any): value is DataSource => {
+  return (
+    isPlainObject(value) &&
+    (value.type === "api" || value.type === "static") &&
+    (typeof value.path === "string" || typeof value.route === "string" || isPlainObject(value.params))
+  );
+};
+
 const isSetStateAction = (value: any): value is SetStateActionConfig => {
   return isPlainObject(value) && value.type === "setState" && typeof value.key === "string";
 };
@@ -203,7 +230,31 @@ const isSetStateAction = (value: any): value is SetStateActionConfig => {
 const ACTION_TYPES = new Set(["navigate", "api", "refresh", "sequence", "action", "toast", "confirm"]);
 
 const isActionConfig = (value: any): value is ActionConfig => {
-  return isPlainObject(value) && typeof value.type === "string" && ACTION_TYPES.has(value.type);
+  if (!isPlainObject(value) || typeof value.type !== "string" || !ACTION_TYPES.has(value.type)) {
+    return false;
+  }
+  switch (value.type) {
+    case "navigate":
+      return Object.prototype.hasOwnProperty.call(value, "to");
+    case "api":
+      return Object.prototype.hasOwnProperty.call(value, "endpoint");
+    case "refresh":
+      return true;
+    case "sequence":
+      return Array.isArray((value as any).actions);
+    case "action":
+      return typeof (value as any).name === "string" && (value as any).name.trim().length > 0;
+    case "toast":
+      return Object.prototype.hasOwnProperty.call(value, "message");
+    case "confirm":
+      return (
+        Object.prototype.hasOwnProperty.call(value, "onConfirm") ||
+        Object.prototype.hasOwnProperty.call(value, "message") ||
+        Object.prototype.hasOwnProperty.call(value, "title")
+      );
+    default:
+      return false;
+  }
 };
 
 const isActionArray = (value: any): value is ActionConfig[] => {
@@ -225,17 +276,43 @@ const readPath = (source: any, path: string) => {
   return current;
 };
 
-const readContextPath = (context: UiRuntimeContext | undefined, path: string) => {
-  if (!context) return undefined;
+const readContextPath = (context: UiRuntimeContext | undefined, rawPath: string) => {
+  if (!context || !rawPath) return undefined;
+  const path = rawPath.trim();
   const direct = readPath(context as any, path);
   if (direct !== undefined) return direct;
-  if (path.startsWith("$auth") || path.startsWith("auth")) {
-    const authValue = (context as any).$auth ?? (context as any).auth;
-    const authPath = path.replace(/^\$?auth\.?/, "");
-    if (!authPath) return authValue;
-    return readPath(authValue, authPath);
+
+  const [head, ...rest] = path.split(".");
+  const alias = (head || "").replace(/^\$/, "");
+  const tail = rest.join(".");
+  const pick = (value: any) => {
+    if (value === undefined || value === null) return undefined;
+    return tail ? readPath(value, tail) : value;
+  };
+
+  switch (alias) {
+    case "auth": {
+      const authValue = (context as any).$auth ?? (context as any).auth;
+      return pick(authValue);
+    }
+    case "state":
+      return pick((context as any).state);
+    case "data": {
+      const dataValue = (context as any).data ?? (context as any).item;
+      return pick(dataValue);
+    }
+    case "item":
+      return pick((context as any).item);
+    case "list":
+      return pick((context as any).list);
+    case "routeParams":
+    case "params":
+      return pick((context as any).routeParams);
+    case "form":
+      return pick((context as any).form?.values);
+    default:
+      return undefined;
   }
-  return undefined;
 };
 
 const resolveTemplateString = (value: string, context?: UiRuntimeContext) => {
@@ -261,12 +338,19 @@ const extractPayloadValue = (payload: any) => {
   return payload;
 };
 
-const resolveValue = (value: any, context?: UiRuntimeContext, options?: { preserveActions?: boolean }): any => {
+const resolveValue = (value: any, context?: UiRuntimeContext, options?: ResolveOptions): any => {
+  if (options?.preserveNodes) {
+    if (isUiNodeDefinition(value) || isUiNodeArray(value)) return value;
+  }
+
   if (isActionArray(value) && !options?.preserveActions) {
     return buildActionHandler({ type: "sequence", actions: value }, context);
   }
 
   if (Array.isArray(value)) {
+    if (options?.preserveNodes && isUiNodeArray(value)) {
+      return value;
+    }
     return value.map((item) => resolveValue(item, context, options));
   }
 
@@ -275,7 +359,7 @@ const resolveValue = (value: any, context?: UiRuntimeContext, options?: { preser
   }
 
   if (isDataRef(value)) {
-    const direct = readPath((context as any)?.data, value.$data);
+    const direct = readPath((context as any)?.data ?? (context as any)?.$data, value.$data);
     if (direct !== undefined) return direct;
     return readPath((context as any)?.item, value.$data);
   }
@@ -293,6 +377,10 @@ const resolveValue = (value: any, context?: UiRuntimeContext, options?: { preser
     return readPath(authValue, value.$auth);
   }
 
+  if (isFormRef(value)) {
+    return context?.form?.values ?? {};
+  }
+
   if (!options?.preserveActions && isSetStateAction(value)) {
     return buildSetStateHandler(value, context);
   }
@@ -301,8 +389,18 @@ const resolveValue = (value: any, context?: UiRuntimeContext, options?: { preser
     return buildActionHandler(value, context);
   }
 
-  if (isFormRef(value)) {
-    return context?.form?.values ?? {};
+  if (isDataSourceConfig(value)) {
+    const next: DataSource = { ...value };
+    if (value.path !== undefined || value.route !== undefined) {
+      next.path = resolveValue(value.path ?? value.route, context, options);
+    }
+    if (value.params !== undefined) {
+      next.params = resolveValue(value.params, context, options);
+    }
+    if (value.method !== undefined) {
+      next.method = resolveValue(value.method, context, options);
+    }
+    return next;
   }
 
   if (isPlainObject(value)) {
@@ -343,9 +441,10 @@ function buildActionHandler(action: ActionConfig, context?: UiRuntimeContext) {
   }
   return async (payload?: any) => {
     try {
-      await executeAction(action, context, payload);
+      return await executeAction(action, context, payload);
     } catch (err) {
       console.error("[UiRuntime] Action execution failed:", err);
+      return undefined;
     }
   };
 }
@@ -523,7 +622,8 @@ async function executeAction(action: ActionConfig, context?: UiRuntimeContext, p
       return executeApiAction(action, context, payload);
     case "refresh":
       if (context?.refresh) {
-        context.refresh(action.target);
+        const target = resolveValue(action.target, context, { preserveActions: true, preserveNodes: true });
+        context.refresh(target as any);
       } else if (typeof window !== "undefined") {
         window.location.reload();
       }
@@ -557,10 +657,14 @@ async function executeAction(action: ActionConfig, context?: UiRuntimeContext, p
     }
     case "sequence": {
       const steps = action.actions || [];
+      let currentPayload = payload;
       for (const step of steps) {
-        await executeAction(step, context, payload);
+        const result = await executeAction(step, context, currentPayload);
+        if (result !== undefined) {
+          currentPayload = result;
+        }
       }
-      return;
+      return currentPayload;
     }
     case "action": {
       const fn = action.name ? context?.actions?.[action.name] : undefined;
@@ -1833,7 +1937,30 @@ function evaluateCondition(condition: any, context?: UiRuntimeContext): boolean 
   if (typeof condition === "boolean") return condition;
   if (condition === undefined || condition === null) return false;
 
+  if (Array.isArray(condition)) {
+    return condition.every((item) => evaluateCondition(item, context));
+  }
+
+  const resolve = (value: any) => resolveValue(value, context, { preserveActions: true });
+
   if (isPlainObject(condition)) {
+    if (Object.prototype.hasOwnProperty.call(condition, "$and")) {
+      const list = (condition as any).$and;
+      if (Array.isArray(list)) {
+        return list.every((entry) => evaluateCondition(entry, context));
+      }
+      return Boolean(resolve(list));
+    }
+    if (Object.prototype.hasOwnProperty.call(condition, "$or")) {
+      const list = (condition as any).$or;
+      if (Array.isArray(list)) {
+        return list.some((entry) => evaluateCondition(entry, context));
+      }
+      return Boolean(resolve(list));
+    }
+    if (Object.prototype.hasOwnProperty.call(condition, "$not")) {
+      return !evaluateCondition((condition as any).$not, context);
+    }
     if (Object.prototype.hasOwnProperty.call(condition, "$auth")) {
       const key = (condition as any).$auth;
       const authValue = (context as any)?.$auth ?? (context as any)?.auth;
@@ -1864,6 +1991,26 @@ function evaluateCondition(condition: any, context?: UiRuntimeContext): boolean 
     if (Object.prototype.hasOwnProperty.call(condition, "$lt")) {
       const [a, b] = (condition as any).$lt || [];
       return (resolveValue(a, context, { preserveActions: true }) as any) < (resolveValue(b, context, { preserveActions: true }) as any);
+    }
+    if (Object.prototype.hasOwnProperty.call(condition, "$includes")) {
+      const [haystackRaw, needleRaw] = (condition as any).$includes || [];
+      const haystack = resolve(haystackRaw);
+      const needle = resolve(needleRaw);
+      if (typeof haystack === "string") {
+        return needle === undefined ? false : haystack.includes(String(needle));
+      }
+      if (Array.isArray(haystack)) {
+        return haystack.some((item) => item === needle);
+      }
+      return false;
+    }
+    if (Object.prototype.hasOwnProperty.call(condition, "$isEmpty")) {
+      const value = resolve((condition as any).$isEmpty);
+      if (value === undefined || value === null) return true;
+      if (typeof value === "string") return value.trim().length === 0;
+      if (Array.isArray(value)) return value.length === 0;
+      if (isPlainObject(value)) return Object.keys(value).length === 0;
+      return false;
     }
   }
 
@@ -2527,14 +2674,19 @@ const ApiData: Component<{
 }> = (props) => {
   const asKey = () => props.as || "data";
   const [error, setError] = createSignal<any>(null);
+  const request = createMemo(() => {
+    const basePath = props.source?.path ?? (props.source as any)?.route ?? props.path ?? "";
+    const resolvedContext = props.context;
+    return {
+      path: resolveValue(basePath, resolvedContext, { preserveActions: true, preserveNodes: true }) || "",
+      method: String(resolveValue(props.source?.method ?? props.method ?? "GET", resolvedContext, { preserveActions: true, preserveNodes: true }) || "GET").toUpperCase(),
+      body: resolveValue((props.source as any)?.body ?? props.body, resolvedContext, { preserveActions: true, preserveNodes: true }),
+      query: resolveValue(props.query ?? props.source?.params, resolvedContext, { preserveActions: true, preserveNodes: true }),
+      headers: resolveValue((props.source as any)?.headers ?? props.headers, resolvedContext, { preserveActions: true, preserveNodes: true }) as Record<string, string> | undefined,
+    };
+  });
   const [data, { refetch }] = createResource(
-    () => ({
-      path: props.source?.path || props.path || "",
-      method: props.source?.method || props.method || "GET",
-      body: props.body,
-      query: props.query || props.source?.params,
-      headers: props.headers,
-    }),
+    () => request(),
     async (params) => {
       setError(null);
       if (!params.path) return null;
@@ -2564,6 +2716,7 @@ const ApiData: Component<{
   const childContext = createMemo(() => ({
     ...(props.context || {}),
     data: data() ?? null,
+    $data: data() ?? null,
     [asKey()]: data() ?? null,
   }));
 
@@ -2611,13 +2764,23 @@ const ApiList: Component<{
 }> = (props) => {
   const asKey = () => props.as || "item";
   const [error, setError] = createSignal<any>(null);
+  const request = createMemo(() => {
+    const basePath = props.source?.path ?? (props.source as any)?.route ?? props.path ?? "";
+    const resolvedContext = props.context;
+    return {
+      path: resolveValue(basePath, resolvedContext, { preserveActions: true, preserveNodes: true }) || "",
+      query: resolveValue(props.query ?? props.source?.params, resolvedContext, { preserveActions: true, preserveNodes: true }),
+      method: String(resolveValue(props.source?.method ?? "GET", resolvedContext, { preserveActions: true, preserveNodes: true }) || "GET").toUpperCase(),
+    };
+  });
   const [items, { refetch }] = createResource(
-    () => buildPathWithQuery(props.source?.path || props.path || "", props.query || props.source?.params),
-    async (path) => {
+    () => request(),
+    async (params) => {
       setError(null);
-      if (!path) return [];
+      if (!params.path) return [];
       try {
-        const data = await api(path);
+        const path = buildPathWithQuery(params.path, params.query);
+        const data = await api(path, { method: params.method || "GET" });
         const payload = (data as any)?.data ?? data;
         if (Array.isArray(payload)) return payload;
         if (Array.isArray(payload?.items)) return payload.items;
@@ -2669,6 +2832,8 @@ const ApiList: Component<{
                     item,
                     [asKey()]: item,
                     list: items() || [],
+                    data: items() || [],
+                    $data: items() || [],
                   },
                   explicit
                 );
@@ -2750,7 +2915,31 @@ export const RenderUiNode: Component<UiComponentProps> = (props) => {
     return <div style={{ color: "red" }}>Unknown component: {node.type}</div>;
   }
 
-  const resolvedProps = createMemo(() => resolveValue(node.props || {}, context));
+  const visibility = createMemo(() => {
+    const rawProps = node.props || {};
+    const hasVisibleProp = Object.prototype.hasOwnProperty.call(rawProps, "visible");
+    const hasHiddenProp = Object.prototype.hasOwnProperty.call(rawProps, "hidden");
+    const visibleProp = hasVisibleProp ? (rawProps as any).visible : undefined;
+    const hiddenProp = hasHiddenProp ? (rawProps as any).hidden : undefined;
+    const hidden = hasHiddenProp
+      ? evaluateCondition(resolveValue(hiddenProp, context, { preserveActions: true, preserveNodes: true }), context)
+      : false;
+    if (hidden) return false;
+    if (!hasVisibleProp) return true;
+    return evaluateCondition(resolveValue(visibleProp, context, { preserveActions: true, preserveNodes: true }), context);
+  });
+
+  if (!visibility()) {
+    return null;
+  }
+
+  const resolvedProps = createMemo(() => resolveValue(node.props || {}, context, { preserveNodes: true }));
+  const safeProps = createMemo(() => {
+    const propsValue = resolvedProps();
+    if (!propsValue || typeof propsValue !== "object") return {};
+    const { visible: _visible, hidden: _hidden, ...rest } = propsValue as Record<string, any>;
+    return rest;
+  });
 
   const renderChildren = (overrideContext?: Partial<UiRuntimeContext>, explicitChildren?: UiNode[]) => {
     const nextContext = overrideContext ? { ...(context || {}), ...overrideContext } : context;
@@ -2768,7 +2957,7 @@ export const RenderUiNode: Component<UiComponentProps> = (props) => {
 
   // Pass props, context, and rendered children to component
   return (
-    <ComponentImpl {...resolvedProps()} context={context} node={node} renderChildren={renderChildren}>
+    <ComponentImpl {...safeProps()} context={context} node={node} renderChildren={renderChildren}>
       {children()}
     </ComponentImpl>
   );

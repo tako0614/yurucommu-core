@@ -50,7 +50,25 @@ const clampPositive = (value: number | undefined): number => {
   return value;
 };
 
+const fromPlanLimits = (plan: PlanInfo | null | undefined): WorkspaceLimitSet | null => {
+  if (!plan?.limits) return null;
+  const ttl =
+    LIMITS_BY_PLAN[plan.name]?.compileCacheTtlSeconds ??
+    LIMITS_BY_PLAN["self-hosted"].compileCacheTtlSeconds;
+  return {
+    maxWorkspaces: clampPositive(plan.limits.vfsMaxWorkspaces),
+    maxFiles: clampPositive(plan.limits.vfsMaxFiles),
+    maxFileSize: clampPositive(plan.limits.vfsMaxFileSize),
+    totalSize: clampPositive(plan.limits.vfsStorage),
+    compileCacheTtlSeconds: ttl,
+  };
+};
+
 export const getWorkspaceLimits = (plan: PlanInfo | string | null | undefined): WorkspaceLimitSet => {
+  if (plan && typeof plan !== "string") {
+    const derived = fromPlanLimits(plan);
+    if (derived) return derived;
+  }
   const name = typeof plan === "string" ? plan : plan?.name ?? "self-hosted";
   return LIMITS_BY_PLAN[name] ?? LIMITS_BY_PLAN["self-hosted"];
 };

@@ -7,6 +7,7 @@ import type {
   TakosConfig,
   Variables,
 } from "@takos/platform/server";
+import type { CoreServices } from "@takos/platform/app/services";
 import {
   AI_ACTIONS,
   buildActionStatuses,
@@ -32,6 +33,9 @@ import { auth } from "../middleware/auth";
 import { makeData } from "../data";
 import { requireAiQuota } from "../lib/plan-guard";
 import type { AuthContext } from "../lib/auth-context-model";
+import { buildCoreServices } from "../lib/core-services";
+import { createAiAuditLogger, type AiAuditLogger } from "../lib/ai-audit";
+import { getAppAuthContext } from "../lib/auth-context";
 
 type ChatRole = "user" | "assistant" | "system";
 
@@ -116,6 +120,14 @@ function buildPolicyPayload(body: ChatRequestBody): AiPayloadSlices {
   };
 }
 
+const hasPayloadSlice = (value: unknown): boolean => {
+  if (value === undefined || value === null) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "object") return Object.keys(value as Record<string, unknown>).length > 0;
+  return true;
+};
+
 function sanitizeProvider(provider: { id: string; type: string; baseUrl: string; model?: string | null }) {
   return {
     id: provider.id,
@@ -177,6 +189,9 @@ async function handleRunAIAction(
   body: ChatRequestBody,
   agentType: AgentType,
   aiConfig: any,
+  services: CoreServices,
+  authContext: AuthContext | null,
+  aiAudit: AiAuditLogger,
 ) {
   const actionId = typeof body.service === "string" ? body.service.trim() : "";
   if (!actionId) {
@@ -228,6 +243,11 @@ async function handleRunAIAction(
       nodeConfig,
       user: c.get("user"),
       agentType,
+      auth: authContext ?? undefined,
+      services,
+      appAuth: getAppAuthContext(c),
+      env: c.env,
+      aiAudit,
       providers,
     }, input);
 
@@ -242,6 +262,12 @@ async function handleRunAIAction(
       return fail(c, "unknown action", 403);
     }
     if (/not enabled/i.test(message)) {
+      return fail(c, message, 403);
+    }
+    if (/PlanGuard/i.test(message)) {
+      return fail(c, message, 402);
+    }
+    if (/AgentPolicy/i.test(message)) {
       return fail(c, message, 403);
     }
     if (/DataPolicyViolation/i.test(message)) {
@@ -260,6 +286,8 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
   }
   const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
   const planCheck = requireAiQuota(authContext);
+  const services = buildCoreServices(c.env as Bindings);
+  const aiAudit = createAiAuditLogger(c.env as any);
 
   const toolId = normalizeToolId(body.tool);
   if (toolId) {
@@ -297,9 +325,12 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
 
     if (toolId === "tool.runAIAction") {
       if (!planCheck.ok) {
-        return fail(c, planCheck.message, planCheck.status);
+        return fail(c, planCheck.message, planCheck.status, {
+          code: planCheck.code,
+          details: planCheck.details,
+        });
       }
-      return handleRunAIAction(c, body, agentGuard.agentType, config);
+      return handleRunAIAction(c, body, agentGuard.agentType, config, services, authContext, aiAudit);
     }
 
     if (toolId === "tool.applyCodePatch") {
@@ -343,12 +374,33 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
   const providerId = typeof body.provider === "string" && body.provider.trim()
     ? body.provider.trim()
     : undefined;
+  const policyPayload = buildPolicyPayload(body);
+  const actionPolicy = {
+    sendPublicPosts: hasPayloadSlice(policyPayload.publicPosts),
+    sendCommunityPosts: hasPayloadSlice(policyPayload.communityPosts),
+    sendDm: hasPayloadSlice(policyPayload.dmMessages),
+    sendProfile: hasPayloadSlice(policyPayload.profile),
+  };
   let policyContext;
   try {
     policyContext = registry.prepareCall({
-      payload: buildPolicyPayload(body),
+      payload: policyPayload,
       providerId,
+      actionPolicy,
       actionId: AI_CHAT_ACTION_ID,
+      onViolation: (report) => {
+        aiAudit?.({
+          actionId: AI_CHAT_ACTION_ID,
+          providerId: report.providerId ?? providerId ?? "(unknown)",
+          model: body.model ?? null,
+          policy: report.policy,
+          redacted: [],
+          agentType: null,
+          userId: authContext?.userId ?? null,
+          status: "blocked",
+          error: "DataPolicyViolation",
+        });
+      },
     });
   } catch (error: any) {
     const message = error?.message || "AI provider configuration error";
@@ -377,22 +429,55 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
   };
 
   try {
+    await aiAudit?.({
+      actionId: AI_CHAT_ACTION_ID,
+      providerId: provider.id,
+      model,
+      policy: policyContext.policy,
+      redacted: policyContext.redacted,
+      agentType: null,
+      userId: authContext?.userId ?? null,
+      status: "attempt",
+    });
+
     if (stream) {
       // Use the new streaming adapter
       const streamResult = await chatCompletionStream(provider, adapterMessages, completionOptions);
+
+      await aiAudit?.({
+        actionId: AI_CHAT_ACTION_ID,
+        providerId: streamResult.provider ?? provider.id,
+        model: streamResult.model ?? model,
+        policy: policyContext.policy,
+        redacted: policyContext.redacted,
+        agentType: null,
+        userId: authContext?.userId ?? null,
+        status: "success",
+      });
 
       const headers = new Headers();
       headers.set("content-type", "text/event-stream");
       headers.set("cache-control", "no-cache");
       headers.set("connection", "keep-alive");
-      headers.set("x-ai-provider", provider.id);
-      headers.set("x-ai-model", model);
+      headers.set("x-ai-provider", streamResult.provider ?? provider.id);
+      headers.set("x-ai-model", streamResult.model ?? model);
 
       return new Response(streamResult.stream, { status: 200, headers });
     }
 
     // Use the new non-streaming adapter
     const result = await chatCompletion(provider, adapterMessages, completionOptions);
+
+    await aiAudit?.({
+      actionId: AI_CHAT_ACTION_ID,
+      providerId: result.provider ?? provider.id,
+      model: result.model ?? model,
+      policy: policyContext.policy,
+      redacted: policyContext.redacted,
+      agentType: null,
+      userId: authContext?.userId ?? null,
+      status: "success",
+    });
 
     return ok(c, {
       provider: result.provider,
@@ -402,6 +487,17 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
       raw: result.raw,
     });
   } catch (error: any) {
+    aiAudit?.({
+      actionId: AI_CHAT_ACTION_ID,
+      providerId: provider.id,
+      model,
+      policy: policyContext.policy,
+      redacted: policyContext.redacted,
+      agentType: null,
+      userId: authContext?.userId ?? null,
+      status: "error",
+      error: error instanceof Error ? error.message : String(error),
+    });
     const message = error?.message || "failed to reach AI provider";
     // Check if it's a provider-specific error with status code
     const statusMatch = message.match(/\((\d{3})\)/);

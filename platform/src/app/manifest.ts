@@ -1,6 +1,7 @@
+import { APP_MANIFEST_SCHEMA_VERSION } from "../config/versions.js";
 import { checkSemverCompatibility } from "../utils/semver.js";
 
-export const APP_MANIFEST_SCHEMA_VERSION = "1.10";
+export { APP_MANIFEST_SCHEMA_VERSION };
 
 export function extractAppSchemaVersion(manifest: unknown): string | null {
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return null;

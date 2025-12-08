@@ -1,4 +1,5 @@
 {
+  "schema_version": "1.10",
   "routes": [
     {
       "id": "media_upload",

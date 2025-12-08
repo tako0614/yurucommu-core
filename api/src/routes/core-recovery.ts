@@ -3,15 +3,16 @@ import type {
   PublicAccountBindings as Bindings,
   Variables,
 } from "@takos/platform/server";
-import { ok, fail } from "@takos/platform/server";
+import { ok, fail, releaseStore } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
 import takosProfile from "../../../takos-profile.json";
 import { loadAppManifest, createInMemoryAppSource } from "@takos/platform/app/manifest-loader";
 import type { AppDefinitionSource } from "@takos/platform/app";
 import { clearManifestRouterCache } from "../lib/manifest-routing";
+import { makeData } from "../data";
 
 // Static manifest files bundled at build time for validation
-import takosAppJson from "../../../takos-app.json";
+import takosAppJson from "../../../app/manifest.json";
 import screensCoreJson from "../../../app/views/screens-core.json";
 import insertCoreJson from "../../../app/views/insert-core.json";
 
@@ -146,20 +147,19 @@ coreRecoveryRoutes.post("/-/core/app-revisions/:id/activate", auth, async (c) =>
   const env = c.env as Bindings;
   const revisionId = c.req.param("id");
 
+  let store: any = null;
   try {
-    // Verify revision exists
-    const revision = await env.DB.prepare(
-      `SELECT id, status FROM app_revisions WHERE id = ?`
-    ).bind(revisionId).first();
+    store = makeData(env as any);
+    if (!store?.getAppRevision || !store?.setActiveAppRevision) {
+      return fail(c, "App revisions are not supported in this environment", 500);
+    }
 
+    const revision = await store.getAppRevision(revisionId);
     if (!revision) {
       return fail(c, "Revision not found", 404);
     }
 
-    // Update app_state to activate this revision
-    await env.DB.prepare(
-      `UPDATE app_state SET active_revision_id = ?, updated_at = ?`
-    ).bind(revisionId, new Date().toISOString()).run();
+    await store.setActiveAppRevision(revisionId);
     clearManifestRouterCache();
 
     return ok(c, {
@@ -168,7 +168,13 @@ coreRecoveryRoutes.post("/-/core/app-revisions/:id/activate", auth, async (c) =>
       note: "Server restart may be required for changes to take effect",
     });
   } catch (error: any) {
-    return fail(c, `Failed to activate revision: ${error.message}`, 500);
+    const message = (error?.message as string | undefined) || "unknown error";
+    const status = /version|compatible|schema/i.test(message) ? 400 : 500;
+    return fail(c, `Failed to activate revision: ${message}`, status);
+  } finally {
+    if (store) {
+      await releaseStore(store as any).catch(() => undefined);
+    }
   }
 });
 
@@ -300,7 +306,7 @@ coreRecoveryRoutes.post("/-/core/validate-manifest", auth, async (c) => {
  */
 function createStaticManifestSource(): AppDefinitionSource {
   const files: Record<string, string> = {
-    "takos-app.json": JSON.stringify(takosAppJson),
+    "app/manifest.json": JSON.stringify(takosAppJson),
     "app/views/screens-core.json": JSON.stringify(screensCoreJson),
     "app/views/insert-core.json": JSON.stringify(insertCoreJson),
   };

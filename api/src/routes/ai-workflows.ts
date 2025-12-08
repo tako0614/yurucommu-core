@@ -26,7 +26,10 @@ const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 const planGuardError = (c: any) => {
   const check = requireAiQuota((c.get("authContext") as AuthContext | undefined) ?? null);
   if (!check.ok) {
-    return c.json({ error: check.message, code: "PLAN_REQUIRED" }, check.status);
+    return c.json(
+      { error: check.message, code: check.code, details: check.details ?? undefined },
+      check.status,
+    );
   }
   return null;
 };

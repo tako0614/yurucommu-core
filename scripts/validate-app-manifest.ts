@@ -27,11 +27,12 @@ type HandlerInfo = {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const workspaceRoot = path.resolve(process.cwd(), options.root);
+  const appDir = path.join(workspaceRoot, "app");
 
   const handlerInfo = await collectHandlers(workspaceRoot);
   const manifestResult = await loadAppManifest({
     source: createFsSource(workspaceRoot),
-    rootDir: workspaceRoot,
+    rootDir: appDir,
     availableHandlers: handlerInfo.handlers,
   });
 
@@ -48,7 +49,7 @@ async function main() {
         issues.push({
           severity: "error",
           message: schemaCheck.error || "app manifest schema_version is not compatible",
-          file: path.join(workspaceRoot, "takos-app.json"),
+          file: path.join(workspaceRoot, "app/manifest.json"),
           path: "schema_version",
         });
       }
@@ -56,7 +57,7 @@ async function main() {
         ...schemaCheck.warnings.map((message) => ({
           severity: "warning",
           message,
-          file: path.join(workspaceRoot, "takos-app.json"),
+          file: path.join(workspaceRoot, "app/manifest.json"),
           path: "schema_version",
         })),
       );
@@ -134,7 +135,7 @@ async function collectHandlers(root: string): Promise<HandlerInfo> {
     return {
       handlers: new Set(),
       appMainPath: null,
-      notes: ["app-main not found; handler linking checks will fail"],
+      notes: ["app/handlers not found; handler linking checks will fail"],
     };
   }
 
@@ -149,7 +150,7 @@ async function collectHandlers(root: string): Promise<HandlerInfo> {
       notes,
     };
   } catch (error) {
-    notes.push(`app-main import failed (${(error as Error).message}); falling back to static scan`);
+    notes.push(`app/handlers import failed (${(error as Error).message}); falling back to static scan`);
     try {
       const fallback = await scanHandlers(appMainPath);
       return {
@@ -169,7 +170,7 @@ async function collectHandlers(root: string): Promise<HandlerInfo> {
 }
 
 async function findAppMain(root: string): Promise<string | null> {
-  const candidates = ["app-main.ts", "app-main.tsx", "app-main.js", "app-main.mjs", "app-main.cjs"];
+  const candidates = ["app/handlers.ts", "app/handlers.tsx", "app/handlers.js", "app/handlers.mjs", "app/handlers.cjs"];
   for (const candidate of candidates) {
     const fullPath = path.join(root, candidate);
     try {
@@ -217,8 +218,8 @@ async function loadUiContract(
   root: string,
 ): Promise<{ contract: UiContract | null; issues: AppManifestValidationIssue[]; source?: string }> {
   const issues: AppManifestValidationIssue[] = [];
-  const contractPath = path.join(root, "takos-ui-contract.json");
-  const defaultPath = path.resolve(process.cwd(), "takos-ui-contract.json");
+  const contractPath = path.join(root, "schemas/ui-contract.json");
+  const defaultPath = path.resolve(process.cwd(), "schemas/ui-contract.json");
 
   const parseFromFile = async (filePath: string, label: string): Promise<UiContract | null> => {
     try {
@@ -231,16 +232,16 @@ async function loadUiContract(
     }
   };
 
-  const fromWorkspace = await parseFromFile(contractPath, "takos-ui-contract.json");
+  const fromWorkspace = await parseFromFile(contractPath, "schemas/ui-contract.json");
   if (fromWorkspace) {
-    return { contract: fromWorkspace, issues, source: "takos-ui-contract.json" };
+    return { contract: fromWorkspace, issues, source: "schemas/ui-contract.json" };
   }
 
-  const fallback = await parseFromFile(defaultPath, "takos-ui-contract.json (default)");
+  const fallback = await parseFromFile(defaultPath, "schemas/ui-contract.json (default)");
   if (fallback) {
     issues.push({
       severity: "warning",
-      message: "takos-ui-contract.json not found in workspace; using default contract",
+      message: "schemas/ui-contract.json not found in workspace; using default contract",
       file: contractPath,
     });
     return { contract: fallback, issues, source: path.relative(root, defaultPath) || defaultPath };
@@ -248,7 +249,7 @@ async function loadUiContract(
 
   issues.push({
     severity: "warning",
-    message: "takos-ui-contract.json not found; skipping UI contract validation",
+    message: "schemas/ui-contract.json not found; skipping UI contract validation",
     file: contractPath,
   });
 

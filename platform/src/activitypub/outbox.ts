@@ -13,6 +13,12 @@ const resolvePolicy = (env: any) =>
     config: (env as any)?.takosConfig?.activitypub ?? (env as any)?.activitypub ?? null,
   });
 
+const toList = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.filter((v) => typeof v === "string") as string[];
+  if (typeof value === "string") return [value];
+  return [];
+};
+
 async function resolveRecipientInbox(recipient: string, env: any): Promise<string | null> {
   if (!recipient) return null;
   if (recipient === PUBLIC_AUDIENCE) return null;
@@ -74,11 +80,21 @@ export async function enqueueActivity(env: any, activity: any) {
       });
     }
 
-    const recipients = [
-      ...(activity.to || []),
-      ...(activity.cc || []),
-      ...(activity.bcc || []),
-    ].filter(Boolean) as string[];
+    const objectRecipients = activity?.object ?? {};
+    const recipients = Array.from(
+      new Set(
+        [
+          ...toList(activity.to),
+          ...toList(objectRecipients.to),
+          ...toList(activity.cc),
+          ...toList(objectRecipients.cc),
+          ...toList(activity.bto),
+          ...toList(objectRecipients.bto),
+          ...toList(activity.bcc),
+          ...toList(objectRecipients.bcc),
+        ].filter(Boolean),
+      ),
+    );
 
     const inboxes = new Set<string>();
     for (const recipient of recipients) {

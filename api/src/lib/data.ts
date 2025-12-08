@@ -3,7 +3,13 @@
 /// <reference types="@cloudflare/workers-types" />
 
 import type { PrismaClient } from "@prisma/client";
-import { DEFAULT_TAKOS_AI_CONFIG, mergeTakosAiConfig } from "@takos/platform/server";
+import {
+  APP_MANIFEST_SCHEMA_VERSION,
+  DEFAULT_TAKOS_AI_CONFIG,
+  TAKOS_CORE_VERSION,
+  checkSemverCompatibility,
+  mergeTakosAiConfig,
+} from "@takos/platform/server";
 import type { TakosAiConfig } from "@takos/platform/server";
 import type { DatabaseConfig } from "./prisma-factory";
 import type { DatabaseAPI } from "./types";
@@ -268,7 +274,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
 
   const ensureActorId = (id: string) => normalizeHandle(id);
 
-  const createFollow = async (follower: string, following: string, status = "pending") => {
+  const createFollow = async (follower: string, following: string, status = "pending"): Promise<void> => {
     const data = {
       id: crypto.randomUUID(),
       follower_id: follower,
@@ -281,7 +287,6 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       update: { status },
       create: data,
     });
-    return data;
   };
 
   const getObject = async (id: string) => {
@@ -558,19 +563,6 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
     return rows.map((r: any) => r.following).filter(Boolean);
   };
-
-  const createFollow = async (follower_id: string, following_id: string) =>
-    (prisma as any).follows.upsert({
-      where: { follower_id_following_id: { follower_id, following_id } },
-      update: { status: "accepted" },
-      create: {
-        id: crypto.randomUUID(),
-        follower_id,
-        following_id,
-        status: "accepted",
-        created_at: new Date(),
-      },
-    });
 
   const deleteFollow = async (follower_id: string, following_id: string) =>
     (prisma as any).follows.deleteMany({ where: { follower_id, following_id } });
@@ -861,6 +853,39 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   const listGlobalPostsForUser = async (_user_id: string) =>
     queryObjects({ type: ["Note", "Article", "Question"], visibility: ["public", "followers"], include_deleted: false, limit: 200 });
 
+  const listGlobalPostsSince = async (
+    _user_id: string,
+    since: Date | string,
+    options?: { authorIds?: string[]; friendIds?: string[]; limit?: number },
+  ) => {
+    const sinceDate = since instanceof Date ? since.toISOString() : String(since);
+    const limit = options?.limit ?? 100;
+    const authorIds = options?.authorIds ?? [];
+    if (authorIds.length > 0) {
+      const placeholders = authorIds.map(() => "?").join(",");
+      const rows = await runAll(
+        `SELECT * FROM objects WHERE type IN ('Note','Article','Question') AND deleted_at IS NULL AND published >= ? AND actor IN (${placeholders}) ORDER BY published DESC LIMIT ?`,
+        [sinceDate, ...authorIds, limit],
+      );
+      return rows.map(mapObject).filter(Boolean);
+    }
+    const rows = await runAll(
+      `SELECT * FROM objects WHERE type IN ('Note','Article','Question') AND deleted_at IS NULL AND published >= ? ORDER BY published DESC LIMIT ?`,
+      [sinceDate, limit],
+    );
+    return rows.map(mapObject).filter(Boolean);
+  };
+
+  const listPostsByAuthors = async (author_ids: string[], _includeCommunity = false) => {
+    if (!author_ids.length) return [];
+    const placeholders = author_ids.map(() => "?").join(",");
+    const rows = await runAll(
+      `SELECT * FROM objects WHERE type IN ('Note','Article','Question') AND deleted_at IS NULL AND actor IN (${placeholders}) ORDER BY published DESC`,
+      author_ids,
+    );
+    return rows.map(mapObject).filter(Boolean);
+  };
+
   const searchPublicPosts = async (query: string, limit = 20, offset = 0) => {
     const needle = `%${query}%`;
     const rows = await runAll(
@@ -939,11 +964,11 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return rows;
   };
 
-  const getBookmarkedPostIds = async (user_id: string, postIds: string[]) => {
+  const getBookmarkedPostIds = async (user_id: string, postIds: string[]): Promise<Set<string>> => {
     const rows = await (prisma as any).object_bookmarks.findMany({
       where: { actor_id: user_id, object_id: { in: postIds } },
     });
-    return new Set(rows.map((r: any) => r.object_id));
+    return new Set(rows.map((r: any) => r.object_id as string));
   };
 
   const isPostBookmarked = async (post_id: string, user_id: string) => {
@@ -1066,6 +1091,16 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   const getMedia = async (key: string) => (prisma as any).media.findUnique({ where: { key } });
   const listMediaByUser = async (user_id: string) => (prisma as any).media.findMany({ where: { actor_id: user_id } });
   const deleteMedia = async (key: string) => (prisma as any).media.delete({ where: { key } });
+  const adjustMediaRefCounts = async (urls: string[], delta: number) => {
+    const unique = Array.from(new Set((urls || []).map((u) => `${u}`.trim()).filter(Boolean)));
+    if (!unique.length) return;
+    const columns = await runAll(`PRAGMA table_info(media)`);
+    const hasRefCount = (columns as any[])?.some((c: any) => c.name === "ref_count");
+    if (!hasRefCount) return;
+    for (const url of unique) {
+      await db.prepare(`UPDATE media SET ref_count = MAX(COALESCE(ref_count, 0) + ?, 0) WHERE url = ?`).bind(delta, url).run();
+    }
+  };
 
   const createSession = async (session: Types.SessionInput) =>
     (prisma as any).sessions.create({
@@ -1534,34 +1569,97 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   };
   const setAiEnabledActions = async (actionIds: string[]) => updateAiConfig({ enabled_actions: actionIds } as any);
 
-  const createAppRevision = async (revision: Types.AppRevisionInput) =>
-    (prisma as any).app_revisions.create({
+  const createAppRevision = async (revision: Types.AppRevisionInput) => {
+    const schemaVersion =
+      typeof revision.schema_version === "string" && revision.schema_version.trim()
+        ? revision.schema_version.trim()
+        : APP_MANIFEST_SCHEMA_VERSION;
+    const coreVersion =
+      typeof revision.core_version === "string" && revision.core_version.trim()
+        ? revision.core_version.trim()
+        : TAKOS_CORE_VERSION;
+    return (prisma as any).app_revisions.create({
       data: {
         id: revision.id,
         created_at: revision.created_at ? new Date(revision.created_at) : new Date(),
         author_type: revision.author_type,
         author_name: revision.author_name ?? null,
         message: revision.message ?? null,
-        schema_version: revision.schema_version,
+        schema_version: schemaVersion,
+        core_version: coreVersion,
         manifest_snapshot: revision.manifest_snapshot,
         script_snapshot_ref: revision.script_snapshot_ref,
       },
     });
+  };
   const getAppRevision = async (id: string) => (prisma as any).app_revisions.findUnique({ where: { id } });
   const listAppRevisions = async (limit = 50) =>
     (prisma as any).app_revisions.findMany({ orderBy: { created_at: "desc" }, take: limit });
-  const setActiveAppRevision = async (revisionId: string | null) =>
-    (prisma as any).app_state.upsert({
-      where: { id: 1 },
-      update: { active_revision_id: revisionId, updated_at: new Date() },
-      create: { id: 1, active_revision_id: revisionId, updated_at: new Date() },
+  const setActiveAppRevision = async (revisionId: string | null) => {
+    const revision = revisionId ? await getAppRevision(revisionId) : null;
+    if (revisionId && !revision) {
+      throw new Error("app revision not found");
+    }
+    const schemaVersionRaw =
+      (revision as any)?.schema_version ?? (revision as any)?.schemaVersion ?? null;
+    const coreVersionRaw = (revision as any)?.core_version ?? (revision as any)?.coreVersion ?? null;
+    const schemaVersion =
+      typeof schemaVersionRaw === "string" && schemaVersionRaw.trim()
+        ? schemaVersionRaw.trim()
+        : APP_MANIFEST_SCHEMA_VERSION;
+    const coreVersion =
+      typeof coreVersionRaw === "string" && coreVersionRaw.trim()
+        ? coreVersionRaw.trim()
+        : TAKOS_CORE_VERSION;
+
+    const schemaCheck = checkSemverCompatibility(APP_MANIFEST_SCHEMA_VERSION, schemaVersion, {
+      context: "app manifest schema_version",
+      action: "activate",
     });
+    if (!schemaCheck.ok) {
+      throw new Error(schemaCheck.error || "app revision schema_version is not compatible");
+    }
+    const coreCheck = checkSemverCompatibility(TAKOS_CORE_VERSION, coreVersion, {
+      context: "core_version",
+      action: "activate",
+    });
+    if (!coreCheck.ok) {
+      throw new Error(coreCheck.error || "app revision core_version is not compatible");
+    }
+    if (schemaCheck.warnings?.length) {
+      console.warn("[app-state] schema_version warnings", schemaCheck.warnings);
+    }
+    if (coreCheck.warnings?.length) {
+      console.warn("[app-state] core_version warnings", coreCheck.warnings);
+    }
+
+    const now = new Date();
+    await (prisma as any).app_state.upsert({
+      where: { id: 1 },
+      update: {
+        active_revision_id: revisionId,
+        schema_version: schemaVersion,
+        core_version: coreVersion,
+        updated_at: now,
+      },
+      create: {
+        id: 1,
+        active_revision_id: revisionId,
+        schema_version: schemaVersion,
+        core_version: coreVersion,
+        updated_at: now,
+      },
+    });
+  };
   const getActiveAppRevision = async () => {
     const row = await (prisma as any).app_state.findUnique({ where: { id: 1 } });
     if (!row?.active_revision_id) return null;
     const rev = await getAppRevision(row.active_revision_id);
     return {
       active_revision_id: row.active_revision_id ?? null,
+      schema_version:
+        row.schema_version ?? (rev as any)?.schema_version ?? (rev as any)?.schemaVersion ?? null,
+      core_version: row.core_version ?? (rev as any)?.core_version ?? null,
       updated_at: row.updated_at ?? new Date().toISOString(),
       revision: rev ?? null,
     };
@@ -1573,12 +1671,12 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     if (!entries.length) return;
     const data = entries.map((e) => ({
       mode: e.mode ?? "dev",
-      workspace_id: e.workspace_id ?? null,
-      run_id: e.run_id,
+      workspace_id: e.workspaceId ?? null,
+      run_id: e.runId,
       handler: e.handler ?? null,
       level: e.level ?? "info",
       message: e.message,
-      data_json: e.data_json ? JSON.stringify(e.data_json) : null,
+      data_json: e.data ? JSON.stringify(e.data) : null,
     }));
     for (const row of data) {
       await (prisma as any).app_debug_logs.create({
@@ -1592,7 +1690,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
 
   const listAppLogEntries = async (options?: Types.ListAppLogsOptions) => {
     const where: any = {};
-    if (options?.workspace_id) where.workspace_id = options.workspace_id;
+    if (options?.workspaceId) where.workspace_id = options.workspaceId;
     if (options?.handler) where.handler = options.handler;
     return (prisma as any).app_debug_logs.findMany({
       where,
@@ -1626,7 +1724,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     (prisma as any).data_export_requests.create({
       data: {
         id: input.id,
-        actor_id: input.user_id ?? input.actor_id ?? "",
+        actor_id: input.user_id ?? "",
         format: input.format ?? "json",
         status: input.status ?? "pending",
         attempt_count: input.attempt_count ?? 0,
@@ -1661,7 +1759,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     await runAll(sql, params);
     return 0;
   };
-  const queryRaw = async <T = any>(sql: string, ...params: any[]): Promise<T[]> => runAll(sql, params);
+  const queryRaw = async <T = any>(sql: string, ...params: any[]): Promise<T[]> => runAll(sql, params) as Promise<T[]>;
   const query = queryRaw;
   const disconnect = async () => {
     if (prisma && typeof (prisma as any).$disconnect === "function") {
@@ -1746,7 +1844,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     createCommunity,
     getCommunity,
     updateCommunity,
-    searchCommunities: searchActorsByName,
+    searchCommunities: searchActorsByName as any,
     setMembership,
     removeMembership,
     hasMembership,
@@ -1793,6 +1891,8 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     listPinnedPostsByUser: async () => [],
     countPinnedPostsByUser: async () => 0,
     listGlobalPostsForUser,
+    listGlobalPostsSince,
+    listPostsByAuthors,
     searchPublicPosts,
     listPostsByHashtag: async () => [],
     listTrendingHashtags: async () => [],
@@ -1838,6 +1938,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     getMedia,
     listMediaByUser,
     deleteMedia,
+    adjustMediaRefCounts,
 
     // Bookmarks
     addBookmark,

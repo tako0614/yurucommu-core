@@ -20,8 +20,9 @@ import {
   type AppManifestValidationIssue,
   type UiContract,
 } from "@takos/platform/app";
-import defaultUiContract from "../../../takos-ui-contract.json";
+import defaultUiContract from "../../../schemas/ui-contract.json";
 import { auth } from "../middleware/auth";
+import { requireHumanSession, requireWorkspacePlan } from "../lib/workspace-guard";
 
 type PreviewBody = {
   mode?: string;
@@ -55,7 +56,7 @@ const loadUiContractForPreview = async (
   if (mode === "dev") {
     const result = await loadWorkspaceUiContract(workspaceId, { mode, env });
     if (result.contract) {
-      return { contract: result.contract, issues: result.issues, source: "takos-ui-contract.json" };
+      return { contract: result.contract, issues: result.issues, source: "schemas/ui-contract.json" };
     }
     return {
       contract: defaultUiContract as UiContract,
@@ -63,14 +64,14 @@ const loadUiContractForPreview = async (
         ...result.issues,
         {
           severity: "warning",
-          message: "takos-ui-contract.json not found in workspace; using default contract",
-          file: "takos-ui-contract.json",
+          message: "schemas/ui-contract.json not found in workspace; using default contract",
+          file: "schemas/ui-contract.json",
         },
       ],
-      source: "takos-ui-contract.json",
+      source: "schemas/ui-contract.json",
     };
   }
-  return { contract: defaultUiContract as UiContract, issues: [], source: "takos-ui-contract.json" };
+  return { contract: defaultUiContract as UiContract, issues: [], source: "schemas/ui-contract.json" };
 };
 
 const normalizePreviewMode = (mode: unknown, workspaceId?: string): "prod" | "dev" => {
@@ -115,7 +116,7 @@ function escapeXml(str: string | null | undefined): string {
   });
 }
 
-appPreview.use("/-/app/preview/*", auth);
+appPreview.use("/-/app/preview/*", auth, requireHumanSession, requireWorkspacePlan);
 
 appPreview.post("/-/app/preview/screen", async (c) => {
   const sessionUser = getSessionUser(c);

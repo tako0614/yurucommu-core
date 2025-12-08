@@ -1210,6 +1210,102 @@ export const mapActivityAnnounce: AppHandler = async (ctx, input) => {
 // Handler Registry Export
 // ============================================================================
 
+const REQUIRED_HANDLER_NAMES = [
+  // Auth (plan 03-core)
+  "authLogin",
+  "issueSessionToken",
+  "logout",
+  "actors",
+  "ownerActors",
+  // Users
+  "getCurrentUser",
+  "updateProfile",
+  "searchUsers",
+  "getUser",
+  "listFriends",
+  "listFollowing",
+  "listFollowers",
+  "listFollowRequests",
+  "followUser",
+  "unfollowUser",
+  "acceptFollowRequest",
+  "rejectFollowRequest",
+  "blockUser",
+  "unblockUser",
+  "muteUser",
+  "unmuteUser",
+  "listBlocks",
+  "listMutes",
+  "listNotifications",
+  "markNotificationRead",
+  "listPinnedPosts",
+  // Posts
+  "createPost",
+  "listPosts",
+  "searchPosts",
+  "getPost",
+  "updatePost",
+  "deletePost",
+  "getPostHistory",
+  "getPostPoll",
+  "voteOnPost",
+  "repost",
+  "undoRepost",
+  "listReposts",
+  "listPostReactions",
+  "addPostReaction",
+  "removePostReaction",
+  "listComments",
+  "addComment",
+  "deleteComment",
+  "addBookmark",
+  "removeBookmark",
+  "listBookmarks",
+  "createCommunityPost",
+  "listCommunityPosts",
+  // Communities (plan 12 routing coverage)
+  "listCommunities",
+  "createCommunity",
+  "getCommunity",
+  "updateCommunity",
+  "listChannels",
+  "createChannel",
+  "updateChannel",
+  "deleteChannel",
+  "leaveCommunity",
+  "sendDirectInvite",
+  "listCommunityMembers",
+  "acceptCommunityInvite",
+  "declineCommunityInvite",
+  "getCommunityReactions",
+  // Stories
+  "createStory",
+  "listStories",
+  "getStory",
+  "updateStory",
+  "deleteStory",
+  "createCommunityStory",
+  "listCommunityStories",
+  // DM/Chat
+  "listDmThreads",
+  "getDmThreadMessages",
+  "getOrCreateDmThread",
+  "sendDm",
+  "listChannelMessages",
+  "sendChannelMessage",
+  // Media/Storage
+  "uploadMedia",
+  "listStorageObjects",
+  "uploadStorageObject",
+  "deleteStorageObject",
+  // Realtime
+  "streamRealtime",
+  // ActivityPub mapping
+  "mapActivityNote",
+  "mapActivityQuestion",
+  "mapActivityAnnounce",
+] as const;
+
 const handlers: Record<string, AppHandler> = {
   // Auth
   authLogin,
@@ -1313,6 +1409,13 @@ const handlers: Record<string, AppHandler> = {
   mapActivityQuestion,
   mapActivityAnnounce,
 };
+
+const missingRequiredHandlers = REQUIRED_HANDLER_NAMES.filter((name) => !handlers[name]);
+if (missingRequiredHandlers.length > 0) {
+  throw new Error(
+    `app/handlers missing required handlers (plan 03/12): ${missingRequiredHandlers.join(", ")}`,
+  );
+}
 
 export { handlers };
 export default handlers;

@@ -150,6 +150,28 @@ describe("app debug routes", () => {
     expect(res.status).toBe(401);
   });
 
+  it("blocks debug route when plan lacks app customization", async () => {
+    const token = await createJWT("owner", secret, 3600);
+    const res = await appDebug.request(
+      "/-/app/debug/run",
+      {
+        method: "POST",
+        headers: {
+          Authorization: bearer(token),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: "dev",
+          workspaceId: "ws_demo",
+          handler: "ping",
+        }),
+      },
+      { ...authEnv, PLAN: "free" },
+    );
+
+    expect(res.status).toBe(402);
+  });
+
   it("returns stored logs with filters applied", async () => {
     sharedLogs.push(
       {

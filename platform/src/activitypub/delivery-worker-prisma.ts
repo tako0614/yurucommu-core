@@ -31,6 +31,14 @@ const resolvePolicy = (env: Env) =>
 const PUBLIC_AUDIENCE = "https://www.w3.org/ns/activitystreams#Public";
 const DEFAULT_MAX_RETRIES = 5;
 const DIRECT_MESSAGE_MAX_RETRIES = 2;
+const isHttpUrl = (value: string): boolean => {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
 
 function isActivityPubDisabled(env: Env, feature: string): boolean {
   const availability = getActivityPubAvailability(env);
@@ -117,6 +125,9 @@ async function deliverActivity(
   actorHandle: string,
 ): Promise<{ success: boolean; error?: string; blocked?: boolean }> {
   try {
+    if (!targetInboxUrl || !isHttpUrl(targetInboxUrl)) {
+      return { success: false, error: "invalid inbox url", blocked: true };
+    }
     const decision = applyFederationPolicy(targetInboxUrl, resolvePolicy(env));
     if (!decision.allowed) {
       console.warn(

@@ -6,6 +6,7 @@ import {
   type TakosConfig,
 } from "@takos/platform/server";
 import { builtinAiActions, registerBuiltinAiActions } from "./actions";
+import { createAppAuthContextForUser } from "../lib/auth-context";
 
 const originalFetch = global.fetch;
 
@@ -103,12 +104,27 @@ describe("builtin AI actions", () => {
     };
 
     const providers = {
-      prepareCall: vi.fn().mockReturnValue({
-        provider,
-        payload: {},
-        policy: {},
-        redacted: [],
+      callWithPolicy: vi.fn(async (_options, execute) => {
+        const prepared = {
+          provider,
+          payload: {},
+          policy: {
+            sendPublicPosts: true,
+            sendCommunityPosts: true,
+            sendDm: true,
+            sendProfile: true,
+          },
+          redacted: [],
+        };
+        const result = await execute(prepared as any);
+        return { ...prepared, result };
       }),
+      getDataPolicy: vi.fn(() => ({
+        sendPublicPosts: true,
+        sendCommunityPosts: true,
+        sendDm: true,
+        sendProfile: true,
+      })),
     } as any;
 
     const fetchMock = vi.fn().mockResolvedValue(
@@ -138,6 +154,133 @@ describe("builtin AI actions", () => {
     expect((result as any).message?.content).toBe("pong");
     expect((result as any).usedAi).toBe(true);
     expect(fetchMock).toHaveBeenCalled();
-    expect(providers.prepareCall).toHaveBeenCalled();
+    expect(providers.callWithPolicy).toHaveBeenCalled();
+  });
+
+  it("pulls content from objects when objectIds are provided for summary", async () => {
+    const registry = createAiActionRegistry();
+    registerBuiltinAiActions(registry);
+    const config = buildConfig(["ai.summary"]);
+
+    const provider = {
+      id: "openai-main",
+      type: "openai",
+      baseUrl: "https://example.com/v1",
+      model: "gpt-test",
+      apiKey: "sk-test",
+      headers: {},
+      requiresExternalNetwork: false,
+    };
+
+    const providers = {
+      callWithPolicy: vi.fn(async (options, execute) => {
+        const prepared = {
+          provider,
+          payload: options.payload,
+          policy: options.actionPolicy ?? {
+            sendPublicPosts: true,
+            sendCommunityPosts: true,
+            sendDm: true,
+            sendProfile: true,
+          },
+          redacted: [],
+        };
+        const result = await execute(prepared as any);
+        return { ...prepared, result };
+      }),
+      getDataPolicy: vi.fn(() => ({
+        sendPublicPosts: true,
+        sendCommunityPosts: true,
+        sendDm: true,
+        sendProfile: true,
+      })),
+    } as any;
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "chatcmpl-1",
+          object: "chat.completion",
+          created: 0,
+          model: "gpt-test",
+          choices: [{ index: 0, message: { role: "assistant", content: "object summary" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    (global as any).fetch = fetchMock as any;
+
+    const appAuth = createAppAuthContextForUser({}, "alice");
+    const objects = {
+      get: vi.fn(async () => ({ id: "obj-1", content: "hello from object", visibility: "public" })),
+      getByLocalId: vi.fn(),
+    };
+
+    const result = await dispatchAiAction(
+      registry,
+      "ai.summary",
+      {
+        nodeConfig: config,
+        providers,
+        services: { objects } as any,
+        appAuth,
+      },
+      { objectIds: ["obj-1"], maxSentences: 2 },
+    );
+
+    const callOpts = (providers.callWithPolicy as any).mock.calls[0][0];
+    expect(callOpts.payload.publicPosts?.[0]).toContain("hello from object");
+    expect((result as any).usedAi).toBe(true);
+  });
+
+  it("applies agent data policy when DM content is present", async () => {
+    const registry = createAiActionRegistry();
+    registerBuiltinAiActions(registry);
+    const config = buildConfig(["ai.dm-moderator"]);
+
+    const provider = {
+      id: "openai-main",
+      type: "openai",
+      baseUrl: "https://example.com/v1",
+      model: "gpt-test",
+      apiKey: "sk-test",
+      headers: {},
+      requiresExternalNetwork: false,
+    };
+
+    const providers = {
+      callWithPolicy: vi.fn(async (options) => {
+        if (options.payload?.dmMessages?.length && options.actionPolicy?.sendDm === false) {
+          throw new Error("DataPolicyViolation: sendDm not allowed");
+        }
+        const prepared = {
+          provider,
+          payload: options.payload,
+          policy: options.actionPolicy,
+          redacted: [],
+        };
+        return { ...prepared, result: {} };
+      }),
+      getDataPolicy: vi.fn(() => ({
+        sendPublicPosts: true,
+        sendCommunityPosts: true,
+        sendDm: true,
+        sendProfile: true,
+      })),
+    } as any;
+
+    await expect(
+      dispatchAiAction(
+        registry,
+        "ai.dm-moderator",
+        {
+          nodeConfig: config,
+          providers,
+          auth: { agentType: "dev", plan: { features: ["*"], limits: {} } },
+        },
+        { messages: [{ text: "DM content" }] },
+      ),
+    ).rejects.toThrow(/DataPolicyViolation/);
   });
 });

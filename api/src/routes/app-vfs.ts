@@ -2,24 +2,25 @@ import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings, Variables } from "@takos/platform/server";
 import { fail, ok } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
-import { guardAgentRequest } from "../lib/agent-guard";
-import { ensureDefaultWorkspace, resolveWorkspaceEnv } from "../lib/workspace-store";
-import { ensureWithinWorkspaceLimits, resolveWorkspaceLimitsFromEnv } from "../lib/workspace-limits";
+import {
+  ensureDefaultWorkspace,
+  resolveWorkspaceEnv,
+  type AppWorkspaceRecord,
+  type WorkspaceFileRecord,
+  type WorkspaceStore,
+  type WorkspaceUsage,
+} from "../lib/workspace-store";
+import { type AuthContext } from "../lib/auth-context-model";
+import { requireVfsQuota } from "../lib/plan-guard";
+import {
+  ensureWithinWorkspaceLimits,
+  resolveWorkspaceLimitsFromEnv,
+  type WorkspaceLimitSet,
+} from "../lib/workspace-limits";
+import { requireHumanSession, requireWorkspacePlan } from "../lib/workspace-guard";
 
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
-
-const requireHumanSession = async (c: any, next: () => Promise<void>) => {
-  const guard = guardAgentRequest(c.req, { forbidAgents: true });
-  if (!guard.ok) {
-    return fail(c as any, guard.error, guard.status);
-  }
-  const user = c.get("user");
-  if (!user?.id) {
-    return fail(c as any, "authentication required", 403);
-  }
-  await next();
-};
 
 const normalizeVfsPath = (path: string): string => path.replace(/^\/+/, "").trim();
 
@@ -69,15 +70,20 @@ const buildDirectoryInfo = (workspaceId: string, path: string, now: string) => {
   };
 };
 
-const appVfs = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+const normalizeWorkspaceId = (value: unknown): string =>
+  typeof value === "string" ? value.trim() : "";
 
-appVfs.use("/-/dev/vfs/*", auth, requireHumanSession);
+const normalizeCacheHash = (value: string): string =>
+  value.replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 128);
 
-appVfs.get("/-/dev/vfs/:workspaceId/files/*", async (c) => {
-  const workspaceId = (c.req.param("workspaceId") || "").trim();
-  const path = extractPathFromUrl(c, workspaceId, "files");
-  if (!workspaceId || !path || path.includes("..")) {
-    return fail(c as any, "invalid workspace file path", 400);
+type WorkspaceContext =
+  | { ok: true; value: { workspaceId: string; store: WorkspaceStore; workspace: AppWorkspaceRecord; limits: WorkspaceLimitSet } }
+  | { ok: false; response: Response };
+
+const resolveWorkspaceContext = async (c: any, workspaceIdRaw: unknown): Promise<WorkspaceContext> => {
+  const workspaceId = normalizeWorkspaceId(workspaceIdRaw);
+  if (!workspaceId) {
+    return { ok: false, response: fail(c as any, "workspaceId is required", 400) };
   }
 
   const workspaceEnv = resolveWorkspaceEnv({
@@ -86,21 +92,125 @@ appVfs.get("/-/dev/vfs/:workspaceId/files/*", async (c) => {
     requireIsolation: true,
   });
   if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
-    return fail(
-      c as any,
-      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
-      503,
-    );
+    return {
+      ok: false,
+      response: fail(
+        c as any,
+        workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+        503,
+      ),
+    };
   }
   const store = workspaceEnv.store;
   if (!store) {
-    return fail(c as any, "workspace store is not configured", 503);
+    return { ok: false, response: fail(c as any, "workspace store is not configured", 503) };
   }
   await ensureDefaultWorkspace(store);
   const workspace = await store.getWorkspace(workspaceId);
   if (!workspace) {
-    return fail(c as any, "workspace not found", 404);
+    return { ok: false, response: fail(c as any, "workspace not found", 404) };
   }
+  const limits = resolveWorkspaceLimitsFromEnv(workspaceEnv.env);
+  return { ok: true, value: { workspaceId, store, workspace, limits } };
+};
+
+const mapWorkspaceFile = (file: WorkspaceFileRecord, fallbackContent?: Uint8Array) => {
+  const contentBytes = file.content ?? fallbackContent ?? new Uint8Array();
+  return {
+    path: file.path,
+    content_type: file.content_type,
+    content_hash: file.content_hash ?? null,
+    storage_key: file.storage_key ?? null,
+    size: file.size ?? contentBytes.byteLength,
+    directory_path: (file as any).directory_path ?? undefined,
+    is_cache: (file as any).is_cache ?? undefined,
+    content: textDecoder.decode(contentBytes),
+    created_at: file.created_at,
+    updated_at: file.updated_at,
+  };
+};
+
+const computeWorkspaceUsage = async (store: WorkspaceStore, workspaceId: string): Promise<WorkspaceUsage> => {
+  if (typeof store.getWorkspaceUsage === "function") {
+    const usage = await store.getWorkspaceUsage(workspaceId);
+    if (usage) return usage;
+  }
+  if (typeof store.listWorkspaceFiles === "function") {
+    const files = await store.listWorkspaceFiles(workspaceId);
+    const totalSize = files.reduce(
+      (acc, file) => acc + (file.size ?? file.content?.length ?? 0),
+      0,
+    );
+    return { fileCount: files.length, totalSize };
+  }
+  return { fileCount: 0, totalSize: 0 };
+};
+
+const buildCacheControlFromLimits = (limits: WorkspaceLimitSet): string | undefined => {
+  if (Number.isFinite(limits.compileCacheTtlSeconds) && limits.compileCacheTtlSeconds > 0) {
+    return `public, max-age=${Math.floor(limits.compileCacheTtlSeconds)}`;
+  }
+  return undefined;
+};
+
+const appVfs = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+
+appVfs.use("/-/dev/vfs/*", auth, requireHumanSession, requireWorkspacePlan);
+
+appVfs.get("/-/dev/vfs/:workspaceId", async (c) => {
+  const ctx = await resolveWorkspaceContext(c, c.req.param("workspaceId"));
+  if (!ctx.ok) return ctx.response;
+  const { workspaceId, store, workspace, limits } = ctx.value;
+  const usage = await computeWorkspaceUsage(store, workspaceId);
+  const dirs =
+    typeof store.listDirectories === "function"
+      ? await store.listDirectories(workspaceId, "/")
+      : [];
+
+  return ok(c as any, {
+    workspace_id: workspaceId,
+    workspace: {
+      id: workspace.id,
+      status: workspace.status,
+      base_revision_id: workspace.base_revision_id,
+      created_at: workspace.created_at,
+      updated_at: workspace.updated_at,
+    },
+    usage,
+    limits,
+    dirs,
+  });
+});
+
+appVfs.get("/-/dev/vfs/:workspaceId/files", async (c) => {
+  const ctx = await resolveWorkspaceContext(c, c.req.param("workspaceId"));
+  if (!ctx.ok) return ctx.response;
+  const { workspaceId, store } = ctx.value;
+  const prefix = (c.req.query("prefix") || "").trim();
+  if (prefix.includes("..")) {
+    return fail(c as any, "invalid workspace file path", 400);
+  }
+  const files = await store.listWorkspaceFiles(workspaceId, prefix || undefined);
+  const usage = await computeWorkspaceUsage(store, workspaceId);
+
+  return ok(c as any, {
+    workspace_id: workspaceId,
+    prefix: prefix || undefined,
+    files: files.map((f) => mapWorkspaceFile(f)),
+    usage,
+  });
+});
+
+appVfs.get("/-/dev/vfs/:workspaceId/files/*", async (c) => {
+  const workspaceId = (c.req.param("workspaceId") || "").trim();
+  const path = extractPathFromUrl(c, workspaceId, "files");
+  if (!workspaceId || !path || path.includes("..")) {
+    return fail(c as any, "invalid workspace file path", 400);
+  }
+
+  const ctx = await resolveWorkspaceContext(c, workspaceId);
+  if (!ctx.ok) return ctx.response;
+  const { store } = ctx.value;
 
   const file = await store.getWorkspaceFile(workspaceId, path);
   if (!file) {
@@ -109,17 +219,7 @@ appVfs.get("/-/dev/vfs/:workspaceId/files/*", async (c) => {
 
   return ok(c as any, {
     workspace_id: workspaceId,
-    file: {
-      path: file.path,
-      content_type: file.content_type,
-      content_hash: file.content_hash ?? null,
-      storage_key: file.storage_key ?? null,
-      size: file.size ?? file.content?.length ?? 0,
-      directory_path: (file as any).directory_path ?? undefined,
-      content: textDecoder.decode(file.content),
-      created_at: file.created_at,
-      updated_at: file.updated_at,
-    },
+    file: mapWorkspaceFile(file),
   });
 });
 
@@ -134,29 +234,11 @@ appVfs.put("/-/dev/vfs/:workspaceId/files/*", async (c) => {
   const { content, contentType } = parseContentFromBody(rawBody);
   const contentBytes = textEncoder.encode(content);
 
-  const workspaceEnv = resolveWorkspaceEnv({
-    env: c.env,
-    mode: "dev",
-    requireIsolation: true,
-  });
-  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
-    return fail(
-      c as any,
-      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
-      503,
-    );
-  }
-  const store = workspaceEnv.store;
-  if (!store) {
-    return fail(c as any, "workspace store is not configured", 503);
-  }
-  await ensureDefaultWorkspace(store);
-  const workspace = await store.getWorkspace(workspaceId);
-  if (!workspace) {
-    return fail(c as any, "workspace not found", 404);
-  }
+  const ctx = await resolveWorkspaceContext(c, workspaceId);
+  if (!ctx.ok) return ctx.response;
+  const { store, limits } = ctx.value;
+  const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
 
-  const limits = resolveWorkspaceLimitsFromEnv(workspaceEnv.env);
   const limitCheck = await ensureWithinWorkspaceLimits(
     store,
     workspaceId,
@@ -165,7 +247,23 @@ appVfs.put("/-/dev/vfs/:workspaceId/files/*", async (c) => {
     limits,
   );
   if (!limitCheck.ok) {
-    return fail(c as any, limitCheck.reason, 413);
+    const quota = requireVfsQuota(authContext, {
+      fileSize: contentBytes.byteLength,
+      fileCount: limitCheck.usage.fileCount,
+      totalSize: limitCheck.usage.totalSize,
+    });
+    const fallbackCode =
+      limitCheck.reason === "workspace_file_too_large" ? "FILE_TOO_LARGE" : "STORAGE_LIMIT_EXCEEDED";
+    const fallbackStatus = limitCheck.reason === "workspace_file_too_large" ? 413 : 507;
+    const status = quota.ok ? fallbackStatus : quota.status;
+    const code = quota.ok ? fallbackCode : quota.code;
+    const message = quota.ok ? "workspace limit exceeded" : quota.message;
+    return fail(c as any, message, status, {
+      code,
+      details: quota.ok
+        ? { reason: limitCheck.reason, usage: limitCheck.usage, limits }
+        : quota.details,
+    });
   }
 
   const saved = await store.saveWorkspaceFile(workspaceId, path, content, contentType);
@@ -175,17 +273,7 @@ appVfs.put("/-/dev/vfs/:workspaceId/files/*", async (c) => {
 
   return ok(c as any, {
     workspace_id: workspaceId,
-    file: {
-      path: saved.path,
-      content_type: saved.content_type,
-      content_hash: saved.content_hash ?? null,
-      storage_key: saved.storage_key ?? null,
-      size: saved.size ?? saved.content?.length ?? contentBytes.byteLength,
-      directory_path: (saved as any).directory_path ?? undefined,
-      content: textDecoder.decode(saved.content),
-      created_at: saved.created_at,
-      updated_at: saved.updated_at,
-    },
+    file: mapWorkspaceFile(saved, contentBytes),
     usage: limitCheck.usage,
   });
 });
@@ -197,70 +285,44 @@ appVfs.delete("/-/dev/vfs/:workspaceId/files/*", async (c) => {
     return fail(c as any, "invalid workspace file path", 400);
   }
 
-  const workspaceEnv = resolveWorkspaceEnv({
-    env: c.env,
-    mode: "dev",
-    requireIsolation: true,
-  });
-  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
-    return fail(
-      c as any,
-      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
-      503,
-    );
-  }
-  const store = workspaceEnv.store;
-  if (!store) {
-    return fail(c as any, "workspace store is not configured", 503);
-  }
-  await ensureDefaultWorkspace(store);
-  const workspace = await store.getWorkspace(workspaceId);
-  if (!workspace) {
-    return fail(c as any, "workspace not found", 404);
-  }
+  const ctx = await resolveWorkspaceContext(c, workspaceId);
+  if (!ctx.ok) return ctx.response;
+  const { store } = ctx.value;
 
   if (typeof store.deleteWorkspaceFile !== "function") {
     return fail(c as any, "workspace delete is not supported", 501);
   }
   await store.deleteWorkspaceFile(workspaceId, path);
-  return ok(c as any, { deleted: true, workspace_id: workspaceId, path });
+  const usage = await computeWorkspaceUsage(store, workspaceId);
+  return ok(c as any, { deleted: true, workspace_id: workspaceId, path, usage });
 });
 
-appVfs.get("/-/dev/vfs/:workspaceId/dirs/*", async (c) => {
+const listDirectories = async (c: any, rawPath: string) => {
   const workspaceId = (c.req.param("workspaceId") || "").trim();
-  const rawPath = extractPathFromUrl(c, workspaceId, "dirs");
   const dirPath = rawPath || "/";
   if (!workspaceId || dirPath.includes("..")) {
     return fail(c as any, "invalid directory path", 400);
   }
 
-  const workspaceEnv = resolveWorkspaceEnv({
-    env: c.env,
-    mode: "dev",
-    requireIsolation: true,
-  });
-  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
-    return fail(
-      c as any,
-      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
-      503,
-    );
-  }
-  const store = workspaceEnv.store;
-  if (!store) {
-    return fail(c as any, "workspace store is not configured", 503);
-  }
-  await ensureDefaultWorkspace(store);
-  const workspace = await store.getWorkspace(workspaceId);
-  if (!workspace) {
-    return fail(c as any, "workspace not found", 404);
-  }
+  const ctx = await resolveWorkspaceContext(c, workspaceId);
+  if (!ctx.ok) return ctx.response;
+  const { store } = ctx.value;
 
   if (typeof store.listDirectories !== "function") {
     return fail(c as any, "vfs directories are not supported", 501);
   }
   const dirs = await store.listDirectories(workspaceId, dirPath);
   return ok(c as any, { workspace_id: workspaceId, path: dirPath, dirs });
+};
+
+appVfs.get("/-/dev/vfs/:workspaceId/dirs", async (c) => {
+  return listDirectories(c, "/");
+});
+
+appVfs.get("/-/dev/vfs/:workspaceId/dirs/*", async (c) => {
+  const workspaceId = (c.req.param("workspaceId") || "").trim();
+  const rawPath = extractPathFromUrl(c, workspaceId, "dirs");
+  return listDirectories(c, rawPath || "/");
 });
 
 appVfs.post("/-/dev/vfs/:workspaceId/dirs/*", async (c) => {
@@ -271,27 +333,9 @@ appVfs.post("/-/dev/vfs/:workspaceId/dirs/*", async (c) => {
     return fail(c as any, "invalid directory path", 400);
   }
 
-  const workspaceEnv = resolveWorkspaceEnv({
-    env: c.env,
-    mode: "dev",
-    requireIsolation: true,
-  });
-  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
-    return fail(
-      c as any,
-      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
-      503,
-    );
-  }
-  const store = workspaceEnv.store;
-  if (!store) {
-    return fail(c as any, "workspace store is not configured", 503);
-  }
-  await ensureDefaultWorkspace(store);
-  const workspace = await store.getWorkspace(workspaceId);
-  if (!workspace) {
-    return fail(c as any, "workspace not found", 404);
-  }
+  const ctx = await resolveWorkspaceContext(c, workspaceId);
+  if (!ctx.ok) return ctx.response;
+  const { store } = ctx.value;
 
   let directory = null;
   if (typeof store.ensureDirectory === "function") {
@@ -306,6 +350,98 @@ appVfs.post("/-/dev/vfs/:workspaceId/dirs/*", async (c) => {
   }
 
   return ok(c as any, { workspace_id: workspaceId, directory });
+});
+
+appVfs.get("/-/dev/vfs/:workspaceId/cache/esbuild/:hash", async (c) => {
+  const workspaceId = (c.req.param("workspaceId") || "").trim();
+  const rawHash = (c.req.param("hash") || "").trim();
+  const hash = normalizeCacheHash(rawHash);
+  if (!workspaceId || !hash) {
+    return fail(c as any, "workspaceId and hash are required", 400);
+  }
+
+  const ctx = await resolveWorkspaceContext(c, workspaceId);
+  if (!ctx.ok) return ctx.response;
+  const { store } = ctx.value;
+
+  const cached =
+    typeof store.getCompileCache === "function"
+      ? await store.getCompileCache(workspaceId, hash)
+      : await store.getWorkspaceFile(workspaceId, `__cache/esbuild/${hash}.js`);
+  if (!cached) {
+    return fail(c as any, "cache_not_found", 404);
+  }
+
+  return ok(c as any, {
+    workspace_id: workspaceId,
+    hash,
+    cache: mapWorkspaceFile(cached),
+  });
+});
+
+appVfs.post("/-/dev/vfs/:workspaceId/cache/esbuild/:hash", async (c) => {
+  const workspaceId = (c.req.param("workspaceId") || "").trim();
+  const rawHash = (c.req.param("hash") || "").trim();
+  const hash = normalizeCacheHash(rawHash);
+  if (!workspaceId || !hash) {
+    return fail(c as any, "workspaceId and hash are required", 400);
+  }
+
+  const rawBody = await c.req.text();
+  const { content, contentType } = parseContentFromBody(rawBody);
+  const contentBytes = textEncoder.encode(content);
+
+  const ctx = await resolveWorkspaceContext(c, workspaceId);
+  if (!ctx.ok) return ctx.response;
+  const { store, limits } = ctx.value;
+  const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
+
+  const cachePath = `__cache/esbuild/${hash}.js`;
+  const limitCheck = await ensureWithinWorkspaceLimits(
+    store,
+    workspaceId,
+    cachePath,
+    contentBytes.byteLength,
+    limits,
+  );
+  if (!limitCheck.ok) {
+    const quota = requireVfsQuota(authContext, {
+      fileSize: contentBytes.byteLength,
+      fileCount: limitCheck.usage.fileCount,
+      totalSize: limitCheck.usage.totalSize,
+    });
+    const fallbackCode =
+      limitCheck.reason === "workspace_file_too_large" ? "FILE_TOO_LARGE" : "STORAGE_LIMIT_EXCEEDED";
+    const fallbackStatus = limitCheck.reason === "workspace_file_too_large" ? 413 : 507;
+    const status = quota.ok ? fallbackStatus : quota.status;
+    const code = quota.ok ? fallbackCode : quota.code;
+    const message = quota.ok ? "workspace cache limit exceeded" : quota.message;
+    return fail(c as any, message, status, {
+      code,
+      details: quota.ok
+        ? { reason: limitCheck.reason, usage: limitCheck.usage, limits }
+        : quota.details,
+    });
+  }
+
+  const cacheControl = buildCacheControlFromLimits(limits);
+  const saved =
+    typeof store.saveCompileCache === "function"
+      ? await store.saveCompileCache(workspaceId, hash, content, { contentType, cacheControl })
+      : await store.saveWorkspaceFile(workspaceId, cachePath, content, contentType, {
+          cacheControl,
+        });
+  if (!saved) {
+    return fail(c as any, "failed to persist cache", 500);
+  }
+
+  return ok(c as any, {
+    workspace_id: workspaceId,
+    hash,
+    cache: mapWorkspaceFile(saved, contentBytes),
+    usage: limitCheck.usage,
+    cache_control: cacheControl,
+  });
 });
 
 export default appVfs;

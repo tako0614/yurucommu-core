@@ -76,7 +76,7 @@ async function loadUiContract(): Promise<UiContract | null> {
   }
 
   try {
-    const response = await fetch("/takos-ui-contract.json");
+    const response = await fetch("/schemas/ui-contract.json");
     if (!response.ok) {
       console.warn("[UiContract] UI Contract file not found, skipping validation");
       return null;

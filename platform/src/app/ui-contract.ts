@@ -1,4 +1,5 @@
 import type { AppManifest, AppManifestValidationIssue, AppViewInsertDefinition } from "./types";
+import { TAKOS_UI_CONTRACT_VERSION } from "../config/versions.js";
 
 export type UiContractScreen = {
   id: string;
@@ -24,7 +25,7 @@ type ParsedContract = {
   issues: AppManifestValidationIssue[];
 };
 
-const UI_CONTRACT_FILE = "takos-ui-contract.json";
+const UI_CONTRACT_FILE = "schemas/ui-contract.json";
 
 export function parseUiContractJson(raw: string, source?: string): ParsedContract {
   const issues: AppManifestValidationIssue[] = [];
@@ -109,10 +110,10 @@ export function validateUiContractAgainstManifest(
     return issues;
   }
 
-  if (contract.schema_version && contract.schema_version !== "1.0") {
+  if (contract.schema_version && contract.schema_version !== TAKOS_UI_CONTRACT_VERSION) {
     issues.push(
       toWarning(
-        `UI contract schema_version should be "1.0" (got ${contract.schema_version})`,
+        `UI contract schema_version should be "${TAKOS_UI_CONTRACT_VERSION}" (got ${contract.schema_version})`,
         file,
         "schema_version",
       ),

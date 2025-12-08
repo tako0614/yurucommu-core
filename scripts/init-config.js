@@ -12,8 +12,8 @@ const profilePath = path.join(cwd, "takos-profile.json");
 const configPath = path.join(cwd, "takos-config.json");
 
 const profileTemplate = `{
-  // Required: keep schema version at 1.0
-  "schema_version": "1.0",
+  // Required: keep schema version at 1.10
+  "schema_version": "1.10",
   // Required: distro id (^[a-z0-9][a-z0-9\\-]*$)
   "name": "your-distro-id",
   // Required: human readable name (1-128 chars)
@@ -22,7 +22,7 @@ const profileTemplate = `{
   "description": "Describe what this takos distro offers.",
   // Required: distro SemVer (e.g., 0.1.0)
   "version": "0.1.0",
-  // Required: always \\"distro\\" for schema 1.0
+  // Required: always \\"distro\\" for schema 1.10
   "kind": "distro",
   // Optional: classification tags
   "tags": ["oss", "custom"],
@@ -86,10 +86,10 @@ const profileTemplate = `{
   },
   // Optional: version gates to enforce compatibility
   "gates": {
-    "core_version": "1.8.0",
-    "schema_version": "1.0",
-    "manifest_schema": "1.0",
-    "ui_contract": "1.0"
+    "core_version": "1.10.0",
+    "schema_version": "1.10",
+    "manifest_schema": "1.10",
+    "ui_contract": "1.10"
   },
   // Required: maintainer / license metadata
   "metadata": {
@@ -181,12 +181,12 @@ const configTemplate = `{
   // Optional: runtime compatibility gates
   "gates": {
     // Optional: lock node to a specific takos-core version
-    "core_version": "1.8.0",
+    "core_version": "1.10.0",
     // Optional: assert config/profile schema alignment
-    "schema_version": "1.0",
+    "schema_version": "1.10",
     // Optional: gate app manifest and UI contract versions
-    "manifest_schema": "1.0",
-    "ui_contract": "1.0"
+    "manifest_schema": "1.10",
+    "ui_contract": "1.10"
   },
   // Optional: distro-specific overrides
   "custom": {}

@@ -103,8 +103,8 @@ const buildCreatePostInput = (body: any, communityId?: string | null) => {
   };
 };
 
-const buildUpdatePostInput = (id: string, body: any) => {
-  const input: Record<string, any> = { id };
+const buildUpdatePostInput = (id: string, body: any): { id: string; content?: string; sensitive?: boolean; content_warning?: string | null; media_ids?: string[] } => {
+  const input: { id: string; content?: string; sensitive?: boolean; content_warning?: string | null; media_ids?: string[] } = { id };
   if (body.text !== undefined || body.content !== undefined) {
     input.content = String(body.text ?? body.content ?? "").trim();
   }

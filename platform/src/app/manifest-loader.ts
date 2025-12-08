@@ -11,6 +11,7 @@ import {
   AppScreenDefinition,
   AppViewInsertDefinition,
   DEFAULT_APP_LAYOUT,
+  APP_MANIFEST_FILENAME,
   HttpMethod,
   LoadAppManifestOptions,
 } from "./types";
@@ -44,6 +45,9 @@ const CORE_SCREEN_ROUTES: Record<string, string> = {
   "screen.notifications": "/notifications",
   "screen.user_profile": "/@:handle",
 };
+const CORE_ROUTE_BY_PATH: Record<string, string> = Object.fromEntries(
+  Object.entries(CORE_SCREEN_ROUTES).map(([id, path]) => [normalizeRoute(path), id]),
+);
 
 const normalizeRoute = (path: string): string => {
   const trimmed = path.trim();
@@ -59,13 +63,55 @@ const isReservedViewRoute = (route: string): boolean => {
   return RESERVED_VIEW_PREFIXES.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`));
 };
 
+const validateFragmentSchemaVersion = (
+  raw: Record<string, unknown>,
+  file: string,
+  label: string,
+): AppManifestValidationIssue[] => {
+  const issues: AppManifestValidationIssue[] = [];
+  const versionRaw = (raw as any).schema_version ?? (raw as any).schemaVersion;
+  if (typeof versionRaw !== "string" || !versionRaw.trim()) {
+    issues.push({
+      severity: "error",
+      message: `Missing or invalid "schema_version" in ${label} fragment`,
+      file,
+      path: "schema_version",
+    });
+    return issues;
+  }
+
+  const compatibility = checkSemverCompatibility(
+    APP_MANIFEST_SCHEMA_VERSION,
+    versionRaw.trim(),
+    { context: `${label} fragment schema_version`, action: "validate" },
+  );
+  if (!compatibility.ok) {
+    issues.push({
+      severity: "error",
+      message: compatibility.error || `${label} fragment schema_version is not compatible`,
+      file,
+      path: "schema_version",
+    });
+  }
+  issues.push(
+    ...compatibility.warnings.map((message): AppManifestValidationIssue => ({
+      severity: "warning",
+      message,
+      file,
+      path: "schema_version",
+    })),
+  );
+
+  return issues;
+};
+
 export async function loadAppManifest(options: LoadAppManifestOptions): Promise<AppManifestLoadResult> {
   const rootDir = options.rootDir ?? ".";
   const issues: AppManifestValidationIssue[] = [];
   const source = options.source;
   const handlers = options.availableHandlers ? new Set(options.availableHandlers) : null;
 
-  const rootPath = joinPath(rootDir, "takos-app.json");
+  const rootPath = joinPath(rootDir, APP_MANIFEST_FILENAME);
   const rawRoot = await readFileSafe(source, rootPath, issues);
   if (!rawRoot) {
     return { issues };
@@ -75,7 +121,7 @@ export async function loadAppManifest(options: LoadAppManifestOptions): Promise<
   if (!isPlainObject(parsedRoot)) {
     issues.push({
       severity: "error",
-      message: "takos-app.json must be a JSON object",
+      message: `${APP_MANIFEST_FILENAME} must be a JSON object`,
       file: rootPath,
     });
     return { issues };
@@ -99,7 +145,7 @@ export async function loadAppManifest(options: LoadAppManifestOptions): Promise<
       });
     }
     issues.push(
-      ...compatibility.warnings.map((message) => ({
+      ...compatibility.warnings.map((message): AppManifestValidationIssue => ({
         severity: "warning",
         message,
         file: rootPath,
@@ -320,7 +366,7 @@ function validateRootManifest(
     if (!allowedKeys.has(key)) {
       issues.push({
         severity: "error",
-        message: `Unexpected key "${key}" in takos-app.json`,
+        message: `Unexpected key "${key}" in ${APP_MANIFEST_FILENAME}`,
         file,
       });
     }
@@ -332,7 +378,7 @@ function validateRootManifest(
   } else {
     issues.push({
       severity: "error",
-      message: 'Missing or invalid "schema_version" in takos-app.json',
+      message: `Missing or invalid "schema_version" in ${APP_MANIFEST_FILENAME}`,
       file,
       path: "schema_version",
     });
@@ -394,7 +440,7 @@ function resolveLayout(
     if (!allowedKeys.has(key)) {
       issues.push({
         severity: "error",
-        message: `Unexpected key "layout.${key}" in takos-app.json`,
+        message: `Unexpected key "layout.${key}" in ${APP_MANIFEST_FILENAME}`,
         file,
         path: `layout.${key}`,
       });
@@ -479,7 +525,9 @@ function validateRoutesFragment(
     return { issues };
   }
 
-  const allowedKeys = new Set(["routes"]);
+  issues.push(...validateFragmentSchemaVersion(raw, file, "routes"));
+
+  const allowedKeys = new Set(["schema_version", "routes"]);
   for (const key of Object.keys(raw)) {
     if (!allowedKeys.has(key)) {
       issues.push({
@@ -502,7 +550,7 @@ function validateRoutesFragment(
 
   const entries: Sourced<AppRouteDefinition>[] = [];
   raw.routes.forEach((routeRaw, index) => {
-    const { route, routeIssues } = normalizeRoute(routeRaw, file, index);
+    const { route, routeIssues } = parseRouteEntry(routeRaw, file, index);
     issues.push(...routeIssues);
     if (route) {
       entries.push({ value: route, source: file, path: `routes[${index}]` });
@@ -512,7 +560,7 @@ function validateRoutesFragment(
   return { issues, result: entries };
 }
 
-function normalizeRoute(
+function parseRouteEntry(
   raw: unknown,
   file: string,
   index: number,
@@ -615,7 +663,9 @@ function validateViewsFragment(
     return { issues };
   }
 
-  const allowedKeys = new Set(["screens", "insert"]);
+  issues.push(...validateFragmentSchemaVersion(raw, file, "views"));
+
+  const allowedKeys = new Set(["schema_version", "screens", "insert"]);
   for (const key of Object.keys(raw)) {
     if (!allowedKeys.has(key)) {
       issues.push({
@@ -1090,6 +1140,26 @@ function validateMergedManifest(
       }
     } else {
       routeKeys.set(key, entry);
+    }
+
+    if (isReservedViewRoute(entry.value.path)) {
+      issues.push({
+        severity: "error",
+        message: `Reserved route "${entry.value.path}" cannot be defined in app routes`,
+        file: entry.source,
+        path: entry.path ? `${entry.path}.path` : undefined,
+      });
+    }
+
+    const normalizedRoute = normalizeRoute(entry.value.path);
+    const coreRouteOwner = CORE_ROUTE_BY_PATH[normalizedRoute];
+    if (coreRouteOwner) {
+      issues.push({
+        severity: "error",
+        message: `Core route "${normalizedRoute}" is fixed to ${coreRouteOwner}`,
+        file: entry.source,
+        path: entry.path ? `${entry.path}.path` : undefined,
+      });
     }
 
     if (availableHandlers && !availableHandlers.has(entry.value.handler)) {
