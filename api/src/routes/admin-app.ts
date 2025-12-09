@@ -608,6 +608,140 @@ const prepareRevisionCandidate = async (
   };
 };
 
+const activateExistingRevision = async (
+  c: any,
+  revisionId: string,
+  action: "apply" | "rollback",
+  workspaceMeta?: { id?: string | null; status?: string | null; validated_at?: string | null } | null,
+) => {
+  const store = makeData(c.env as any, c);
+  try {
+    if (!store.getAppRevision || !store.setActiveAppRevision || !store.getActiveAppRevision) {
+      return fail(c as any, "app revisions are not supported", 501);
+    }
+    const revision = await store.getAppRevision(revisionId);
+    if (!revision) {
+      return fail(c as any, "revision not found", 404);
+    }
+    const targetSchemaVersion =
+      normalizeSchemaVersionString(
+        (revision as any).schema_version ?? (revision as any).schemaVersion,
+      ) ?? normalizeSchemaVersionString(revision);
+    if (!targetSchemaVersion) {
+      return fail(c as any, "revision schema_version is missing", 400);
+    }
+
+    const platformCheck = checkSemverCompatibility(
+      APP_MANIFEST_SCHEMA_VERSION,
+      targetSchemaVersion,
+      { context: "app manifest schema_version", action },
+    );
+    if (!platformCheck.ok) {
+      const compatibilityError =
+        platformCheck.error && platformCheck.error.toLowerCase().includes("not compatible")
+          ? platformCheck.error
+          : platformCheck.error
+            ? `${platformCheck.error} (not compatible)`
+            : "app manifest schema_version is not compatible";
+      return fail(c as any, compatibilityError, 400);
+    }
+    const currentState = await store.getActiveAppRevision();
+    const currentSchemaVersion = currentState?.revision
+      ? normalizeSchemaVersionString(
+          (currentState.revision as any).schema_version ??
+            (currentState.revision as any).schemaVersion,
+        )
+      : null;
+    const warnings = [...platformCheck.warnings];
+    const platformSchemaCheck = buildSchemaCheck(
+      APP_MANIFEST_SCHEMA_VERSION,
+      targetSchemaVersion,
+      platformCheck,
+    );
+    let previousActiveSchemaCheck: NonNullable<AppRevisionAuditDetails["schema_version"]>["previous_active"] =
+      null;
+
+    if (currentSchemaVersion) {
+      const compatibility = checkSemverCompatibility(
+        currentSchemaVersion,
+        targetSchemaVersion,
+        { context: "target vs current active revision", action },
+      );
+      if (!compatibility.ok) {
+        const compatibilityError =
+          compatibility.error && compatibility.error.toLowerCase().includes("not compatible")
+            ? compatibility.error
+            : compatibility.error
+              ? `${compatibility.error} (not compatible)`
+              : "target revision is not compatible with the current active revision";
+        return fail(c as any, compatibilityError, 400);
+      }
+      warnings.push(...compatibility.warnings);
+      previousActiveSchemaCheck = buildSchemaCheck(
+        currentSchemaVersion,
+        targetSchemaVersion,
+        compatibility,
+        currentSchemaVersion,
+        targetSchemaVersion,
+      );
+    }
+
+    try {
+      await store.setActiveAppRevision(revisionId);
+    } catch (error: any) {
+      const message = (error?.message as string | undefined) || "failed to activate revision";
+      return fail(c as any, message, /version|compatible/i.test(message) ? 400 : 500);
+    }
+    clearManifestRouterCache();
+    if (workspaceMeta?.id) {
+      await markWorkspaceApplied(workspaceMeta.id, c.env);
+    }
+    const state = await store.getActiveAppRevision();
+    const uniqueWarnings = Array.from(new Set(warnings));
+    const auditTimestamp = nowISO();
+    const auditDetails: AppRevisionAuditDetails = {
+      performed_by: (c as any).get("adminUser") ?? null,
+      from_revision_id: currentState?.active_revision_id ?? null,
+      to_revision_id: revisionId,
+      schema_version: {
+        platform: platformSchemaCheck,
+        previous_active: previousActiveSchemaCheck,
+      },
+      warnings: uniqueWarnings,
+      workspace: workspaceMeta?.id
+        ? {
+            id: workspaceMeta.id,
+            status: workspaceMeta.status ?? null,
+            validated_at: workspaceMeta.validated_at ?? null,
+          }
+        : null,
+    };
+    await recordRevisionAuditSafely(store, {
+      action,
+      revision_id: revisionId,
+      workspace_id: workspaceMeta?.id ?? null,
+      result: "success",
+      details: auditDetails,
+      created_at: auditTimestamp,
+    });
+    const audit = {
+      action,
+      timestamp: auditTimestamp,
+      ...auditDetails,
+    };
+    return ok(c as any, {
+      revision,
+      active_revision_id: state?.active_revision_id ?? revisionId,
+      state,
+      warnings: uniqueWarnings,
+      ...(workspaceMeta ? { workspace: workspaceMeta } : {}),
+      audit,
+    });
+  } finally {
+    await releaseStore(store);
+  }
+};
+
 const adminAppRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 /** Require authenticated user for workspace operations */
@@ -637,6 +771,73 @@ adminAppRoutes.use("/admin/app/*", async (c, next) => {
   await next();
 });
 
+adminAppRoutes.post("/admin/app/revisions", async (c) => {
+  const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
+  if (!agentGuard.ok) {
+    return fail(c as any, agentGuard.error, agentGuard.status);
+  }
+  const store = makeData(c.env as any, c);
+  try {
+    if (!store.createAppRevision || !store.getAppRevision) {
+      return fail(c as any, "app revisions are not supported", 501);
+    }
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const prepared = await prepareRevisionCandidate(c, body);
+    if (!prepared.ok) {
+      return prepared.response;
+    }
+
+    const requestedId =
+      typeof (body as any).revisionId === "string" && (body as any).revisionId.trim().length > 0
+        ? (body as any).revisionId.trim()
+        : "";
+    if (requestedId) {
+      const exists = await store.getAppRevision(requestedId);
+      if (exists) {
+        return fail(c as any, "revision already exists", 409);
+      }
+    }
+
+    const author = ((body as any).author ?? {}) as Record<string, any>;
+    if (author.type === "agent") {
+      return fail(c as any, "AI agents cannot create app revisions", 403);
+    }
+    const authorType = author.type === "agent" ? "agent" : "human";
+    const authorName =
+      typeof author.name === "string" && author.name.trim().length > 0
+        ? author.name.trim()
+        : (c as any).get("adminUser");
+
+    const saved = await store.createAppRevision({
+      id: requestedId || undefined,
+      schema_version: prepared.schemaVersion,
+      core_version: TAKOS_CORE_VERSION,
+      manifest_snapshot: JSON.stringify(prepared.manifest),
+      script_snapshot_ref: prepared.scriptRef,
+      message:
+        typeof (body as any).message === "string" && (body as any).message.trim().length > 0
+          ? (body as any).message.trim()
+          : null,
+      author_type: authorType,
+      author_name: authorName ?? null,
+      created_at: nowISO(),
+    });
+
+    if (!saved?.id) {
+      return fail(c as any, "failed to persist revision", 500);
+    }
+    const warnings = Array.from(new Set(prepared.warnings));
+    return ok(c as any, {
+      revision: saved,
+      warnings,
+      issues: prepared.issues,
+      ...(prepared.workspace ? { workspace: prepared.workspace } : {}),
+    });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
 adminAppRoutes.get("/admin/app/revisions", async (c) => {
   const store = makeData(c.env as any, c);
   try {
@@ -656,6 +857,26 @@ adminAppRoutes.get("/admin/app/revisions", async (c) => {
       state,
       revisions,
     });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+adminAppRoutes.get("/admin/app/revisions/:id", async (c) => {
+  const id = (c.req.param("id") || "").trim();
+  if (!id) {
+    return fail(c as any, "revisionId is required", 400);
+  }
+  const store = makeData(c.env as any, c);
+  try {
+    if (!store.getAppRevision) {
+      return fail(c as any, "app revisions are not supported", 501);
+    }
+    const revision = await store.getAppRevision(id);
+    if (!revision) {
+      return fail(c as any, "revision not found", 404);
+    }
+    return ok(c as any, { revision });
   } finally {
     await releaseStore(store);
   }
@@ -920,6 +1141,33 @@ adminAppRoutes.post("/admin/app/revisions/apply/diff", async (c) => {
   }
 });
 
+adminAppRoutes.post("/admin/app/revisions/:id/apply", async (c) => {
+  const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
+  if (!agentGuard.ok) {
+    return fail(c as any, agentGuard.error, agentGuard.status);
+  }
+  const revisionId = (c.req.param("id") || "").trim();
+  if (!revisionId) {
+    return fail(c as any, "revisionId is required", 400);
+  }
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const workspaceMeta =
+    typeof (body as any).workspace === "object" && (body as any).workspace
+      ? {
+          id: typeof (body as any).workspace?.id === "string" ? (body as any).workspace.id : null,
+          status:
+            typeof (body as any).workspace?.status === "string"
+              ? (body as any).workspace.status
+              : null,
+          validated_at:
+            typeof (body as any).workspace?.validated_at === "string"
+              ? (body as any).workspace.validated_at
+              : null,
+        }
+      : null;
+  return activateExistingRevision(c, revisionId, "apply", workspaceMeta);
+});
+
 adminAppRoutes.post("/admin/app/revisions/:id/rollback", async (c) => {
   const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
   if (!agentGuard.ok) {
@@ -929,119 +1177,7 @@ adminAppRoutes.post("/admin/app/revisions/:id/rollback", async (c) => {
   if (!revisionId) {
     return fail(c as any, "revisionId is required", 400);
   }
-  const store = makeData(c.env as any, c);
-  try {
-    if (!store.getAppRevision || !store.setActiveAppRevision || !store.getActiveAppRevision) {
-      return fail(c as any, "app revisions are not supported", 501);
-    }
-    const revision = await store.getAppRevision(revisionId);
-    if (!revision) {
-      return fail(c as any, "revision not found", 404);
-    }
-    const targetSchemaVersion =
-      normalizeSchemaVersionString((revision as any).schema_version ?? (revision as any).schemaVersion) ??
-      normalizeSchemaVersionString(revision);
-    if (!targetSchemaVersion) {
-      return fail(c as any, "revision schema_version is missing", 400);
-    }
-
-    const platformCheck = checkSemverCompatibility(
-      APP_MANIFEST_SCHEMA_VERSION,
-      targetSchemaVersion,
-      { context: "app manifest schema_version", action: "rollback" },
-    );
-    if (!platformCheck.ok) {
-      const compatibilityError =
-        platformCheck.error && platformCheck.error.toLowerCase().includes("not compatible")
-          ? platformCheck.error
-          : platformCheck.error
-            ? `${platformCheck.error} (not compatible)`
-            : "app manifest schema_version is not compatible";
-      return fail(c as any, compatibilityError, 400);
-    }
-    const currentState = await store.getActiveAppRevision();
-    const currentSchemaVersion = currentState?.revision
-      ? normalizeSchemaVersionString(
-          (currentState.revision as any).schema_version ?? (currentState.revision as any).schemaVersion,
-        )
-      : null;
-    const warnings = [...platformCheck.warnings];
-    const platformSchemaCheck = buildSchemaCheck(
-      APP_MANIFEST_SCHEMA_VERSION,
-      targetSchemaVersion,
-      platformCheck,
-    );
-    let previousActiveSchemaCheck: NonNullable<AppRevisionAuditDetails["schema_version"]>["previous_active"] =
-      null;
-
-    if (currentSchemaVersion) {
-      const compatibility = checkSemverCompatibility(
-        currentSchemaVersion,
-        targetSchemaVersion,
-        { context: "rollback target vs current active revision", action: "rollback" },
-      );
-      if (!compatibility.ok) {
-        const compatibilityError =
-          compatibility.error && compatibility.error.toLowerCase().includes("not compatible")
-            ? compatibility.error
-            : compatibility.error
-              ? `${compatibility.error} (not compatible)`
-              : "target revision is not compatible with the current active revision";
-        return fail(c as any, compatibilityError, 400);
-      }
-      warnings.push(...compatibility.warnings);
-      previousActiveSchemaCheck = buildSchemaCheck(
-        currentSchemaVersion,
-        targetSchemaVersion,
-        compatibility,
-        currentSchemaVersion,
-        targetSchemaVersion,
-      );
-    }
-
-    try {
-      await store.setActiveAppRevision(revisionId);
-    } catch (error: any) {
-      const message = (error?.message as string | undefined) || "failed to activate revision";
-      return fail(c as any, message, /version|compatible/i.test(message) ? 400 : 500);
-    }
-    clearManifestRouterCache();
-    const state = await store.getActiveAppRevision();
-    const uniqueWarnings = Array.from(new Set(warnings));
-    const auditTimestamp = nowISO();
-    const auditDetails: AppRevisionAuditDetails = {
-      performed_by: (c as any).get("adminUser") ?? null,
-      from_revision_id: currentState?.active_revision_id ?? null,
-      to_revision_id: revisionId,
-      schema_version: {
-        platform: platformSchemaCheck,
-        previous_active: previousActiveSchemaCheck,
-      },
-      warnings: uniqueWarnings,
-    };
-    await recordRevisionAuditSafely(store, {
-      action: "rollback",
-      revision_id: revisionId,
-      workspace_id: null,
-      result: "success",
-      details: auditDetails,
-      created_at: auditTimestamp,
-    });
-    const audit = {
-      action: "rollback",
-      timestamp: auditTimestamp,
-      ...auditDetails,
-    };
-    return ok(c as any, {
-      revision,
-      active_revision_id: state?.active_revision_id ?? revisionId,
-      state,
-      warnings: uniqueWarnings,
-      audit,
-    });
-  } finally {
-    await releaseStore(store);
-  }
+  return activateExistingRevision(c, revisionId, "rollback");
 });
 
 adminAppRoutes.get("/-/app/workspaces", async (c) => {

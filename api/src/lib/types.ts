@@ -1072,6 +1072,7 @@ export interface DatabaseAPI {
   getAppWorkspace(id: string): Promise<AppWorkspaceRecord | null>;
   listAppWorkspaces(limit?: number): Promise<AppWorkspaceRecord[]>;
   updateAppWorkspaceStatus(id: string, status: AppWorkspaceStatus): Promise<AppWorkspaceRecord | null>;
+  deleteAppWorkspace?(id: string): Promise<boolean>;
 
   // Data export
   createExportRequest?(input: DataExportRequestInput): Promise<any>;

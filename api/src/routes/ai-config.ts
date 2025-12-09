@@ -92,6 +92,16 @@ function normalizeConfig(config?: Partial<TakosAiConfig>): TakosAiConfig {
   return mergeTakosAiConfig(DEFAULT_TAKOS_AI_CONFIG, config ?? {});
 }
 
+async function loadAiConfigState(
+  store: any,
+  env: Record<string, unknown>,
+): Promise<{ config: TakosAiConfig; providers: ProviderStatus[]; actions: ActionStatus[] }> {
+  const config = normalizeConfig(await (store as any).getAiConfig());
+  const providers = buildProviderStatuses(config, env);
+  const actions = buildActionStatuses(AI_ACTIONS, config, providers);
+  return { config, providers, actions };
+}
+
 function isAuthenticated(c: any): boolean {
   const user = c.get("user");
   return !!user?.id;
@@ -221,6 +231,93 @@ aiConfigRoutes.use("/api/ai/*", auth, async (c, next) => {
     return fail(c, "forbidden", 403);
   }
   await next();
+});
+
+aiConfigRoutes.get("/api/ai/config", async (c) => {
+  const store = makeData(c.env as any, c);
+  const supportsAiConfig =
+    typeof (store as any).getAiConfig === "function" &&
+    typeof (store as any).updateAiConfig === "function";
+  if (!supportsAiConfig) {
+    await releaseStore(store);
+    return fail(c, "AI configuration is not supported by this node", 501);
+  }
+
+  try {
+    const state = await loadAiConfigState(store, c.env as any);
+    return ok(c, {
+      ai: state.config,
+      providers: state.providers,
+      actions: state.actions,
+    });
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+aiConfigRoutes.put("/api/ai/config", async (c) => {
+  const agentGuard = guardAgentRequest(c.req, { toolId: "tool.updateTakosConfig" });
+  if (!agentGuard.ok) {
+    return fail(c, agentGuard.error, agentGuard.status);
+  }
+
+  const body = (await c.req.json().catch(() => null)) as Partial<TakosAiConfig> | null;
+  if (!body || typeof body !== "object") {
+    return fail(c, "invalid AI config payload", 400);
+  }
+
+  const store = makeData(c.env as any, c);
+  const supportsAiConfig =
+    typeof (store as any).getAiConfig === "function" &&
+    typeof (store as any).updateAiConfig === "function";
+  if (!supportsAiConfig) {
+    await releaseStore(store);
+    return fail(c, "AI configuration is not supported by this node", 501);
+  }
+
+  try {
+    const current = normalizeConfig(await (store as any).getAiConfig());
+    if (agentGuard.agentType) {
+      const allowlistCheck = enforceAgentConfigAllowlist({
+        agentType: agentGuard.agentType,
+        allowlist: getAgentConfigAllowlist({ ai: current }),
+        changedPaths: Object.keys(body).map((key) => `ai.${key}`),
+      });
+      if (!allowlistCheck.ok) {
+        return fail(c, allowlistCheck.error, allowlistCheck.status);
+      }
+    }
+
+    const nextConfig = normalizeConfig(await (store as any).updateAiConfig(body));
+    const providers = buildProviderStatuses(nextConfig, c.env as any);
+    const actions = buildActionStatuses(AI_ACTIONS, nextConfig, providers);
+    const user = c.get("user") as any;
+
+    await recordConfigAudit((c.env as Bindings).DB, {
+      action: "ai_config_update",
+      actorId: user?.id ?? null,
+      actorHandle: user?.handle ?? null,
+      agentType: agentGuard.agentType ?? null,
+      details: {
+        updated_fields: Object.keys(body),
+      },
+    });
+
+    return ok(c, {
+      ai: {
+        enabled: nextConfig.enabled !== false,
+        default_provider: nextConfig.default_provider ?? null,
+        enabled_actions: nextConfig.enabled_actions ?? [],
+        requires_external_network: nextConfig.requires_external_network !== false,
+        data_policy: nextConfig.data_policy ?? DEFAULT_TAKOS_AI_CONFIG.data_policy,
+        agent_config_allowlist: nextConfig.agent_config_allowlist ?? [],
+      },
+      providers,
+      actions,
+    });
+  } finally {
+    await releaseStore(store);
+  }
 });
 
 aiConfigRoutes.get("/auth/ai", async (c) => {

@@ -114,6 +114,7 @@ const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
 const APP_HANDLERS_CANDIDATES = ["app/handlers.ts", "app/handlers.tsx", "app/handlers.js", "app/handlers.mjs", "app/handlers.cjs"];
 const UI_CONTRACT_FILENAME = "schemas/ui-contract.json";
+const RESERVED_WORKSPACE_IDS = new Set(["default", "demo", "ws_demo"]);
 
 const shouldValidateWorkspaceStatus = (status: WorkspaceLifecycleStatus): boolean =>
   status === "validated" || status === "ready" || status === "applied";
@@ -1179,6 +1180,45 @@ appManagerRoutes.post("/-/app/workspaces", async (c) => {
   }
 });
 
+appManagerRoutes.post("/-/app/workspaces/:id/validate", async (c) => {
+  const workspaceId = (c.req.param("id") || "").trim();
+  if (!workspaceId) {
+    return fail(c as any, "workspaceId is required", 400);
+  }
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return fail(
+      c as any,
+      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+      503,
+    );
+  }
+  const store = workspaceEnv.store;
+  if (!store) {
+    return fail(c as any, "workspace store is not configured", 503);
+  }
+  await ensureDefaultWorkspace(store);
+  const workspace = await store.getWorkspace(workspaceId);
+  if (!workspace) {
+    return fail(c as any, "workspace not found", 404);
+  }
+  const validation = await validateWorkspaceManifest(workspaceId, workspaceEnv.env);
+  const status = validation.ok ? 200 : validation.status;
+  return c.json(
+    {
+      ok: validation.ok,
+      workspace: { id: workspace.id, status: workspace.status },
+      issues: validation.issues,
+      status,
+    },
+    status as any,
+  );
+});
+
 appManagerRoutes.post("/-/app/workspaces/:id/status", async (c) => {
   const workspaceId = (c.req.param("id") || "").trim();
   if (!workspaceId) {
@@ -1253,6 +1293,78 @@ appManagerRoutes.post("/-/app/workspaces/:id/status", async (c) => {
   } finally {
     await releaseStore(store);
   }
+});
+
+appManagerRoutes.delete("/-/app/workspaces/:id", async (c) => {
+  const workspaceId = (c.req.param("id") || "").trim();
+  if (!workspaceId) {
+    return fail(c as any, "workspaceId is required", 400);
+  }
+  if (RESERVED_WORKSPACE_IDS.has(workspaceId)) {
+    return fail(c as any, "cannot delete reserved workspace", 400);
+  }
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return fail(
+      c as any,
+      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+      503,
+    );
+  }
+  const store = workspaceEnv.store;
+  if (!store) {
+    return fail(c as any, "workspace store is not configured", 503);
+  }
+  await ensureDefaultWorkspace(store);
+  const workspace = await store.getWorkspace(workspaceId);
+  if (!workspace) {
+    return fail(c as any, "workspace not found", 404);
+  }
+
+  let deletedFiles = 0;
+  if (typeof store.listWorkspaceFiles === "function" && typeof store.deleteWorkspaceFile === "function") {
+    try {
+      const files = await store.listWorkspaceFiles(workspaceId);
+      for (const file of files) {
+        try {
+          await store.deleteWorkspaceFile(workspaceId, file.path);
+          deletedFiles += 1;
+        } catch (error) {
+          console.warn("[workspace] failed to delete file", error);
+        }
+      }
+    } catch (error) {
+      console.warn("[workspace] failed to list workspace files for delete", error);
+    }
+  }
+
+  if (typeof (store as any).deleteWorkspace === "function") {
+    try {
+      await (store as any).deleteWorkspace(workspaceId);
+    } catch (error) {
+      console.warn("[workspace] failed to delete workspace metadata", error);
+    }
+  }
+
+  const dataStore = makeData(workspaceEnv.env as any, c);
+  try {
+    if (dataStore.deleteAppWorkspace) {
+      await dataStore.deleteAppWorkspace(workspaceId);
+    }
+  } finally {
+    await releaseStore(dataStore);
+  }
+
+  return ok(c as any, {
+    ok: true,
+    deleted: true,
+    workspace_id: workspaceId,
+    deleted_files: deletedFiles,
+  });
 });
 
 appManagerRoutes.get("/-/app/workspaces/:id/files", async (c) => {

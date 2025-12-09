@@ -93,6 +93,7 @@ export type WorkspaceStore = {
   getWorkspaceUsage?(workspaceId: string): Promise<WorkspaceUsage>;
   listDirectories?(workspaceId: string, path?: string): Promise<VfsDirectoryRecord[]>;
   ensureDirectory?(workspaceId: string, path: string): Promise<VfsDirectoryRecord | null>;
+  deleteWorkspace?(workspaceId: string): Promise<boolean>;
   saveWorkspaceSnapshot?(
     workspaceId: string,
     status: AppWorkspaceStatus,
@@ -858,6 +859,35 @@ export function createWorkspaceStore(db: D1Database, bucket?: R2Bucket | null): 
     return true;
   };
 
+  const deleteWorkspace = async (workspaceId: string) => {
+    const normalizedId = String(workspaceId).trim();
+    if (!normalizedId) return false;
+
+    try {
+      const metas = await listVfsMeta(normalizedId);
+      for (const meta of metas) {
+        if (meta?.storage_key) {
+          await deleteR2Object(vfsBucket, String(meta.storage_key));
+        }
+      }
+    } catch (error) {
+      console.warn("[workspace] failed to cleanup VFS storage objects", error);
+    }
+
+    try {
+      await runStatement(db, `DELETE FROM vfs_files WHERE workspace_id = ?`, [normalizedId]);
+      await runStatement(db, `DELETE FROM vfs_directories WHERE workspace_id = ?`, [normalizedId]);
+      await runStatement(db, `DELETE FROM app_workspace_snapshots WHERE workspace_id = ?`, [normalizedId]);
+      await runStatement(db, `DELETE FROM app_workspace_files WHERE workspace_id = ?`, [normalizedId]);
+      await runStatement(db, `DELETE FROM app_workspaces WHERE id = ?`, [normalizedId]);
+    } catch (error) {
+      console.warn("[workspace] failed to delete workspace records", error);
+      return false;
+    }
+
+    return true;
+  };
+
   const statWorkspaceFile = async (workspaceId: string, path: string) => {
     const normalizedPath = normalizePath(path);
     const meta = await getVfsMeta(workspaceId, normalizedPath);
@@ -1037,6 +1067,7 @@ export function createWorkspaceStore(db: D1Database, bucket?: R2Bucket | null): 
     getWorkspaceFile,
     listWorkspaceFiles,
     deleteWorkspaceFile,
+    deleteWorkspace,
     statWorkspaceFile,
     getWorkspaceUsage,
     listDirectories,

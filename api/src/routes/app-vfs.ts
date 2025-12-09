@@ -54,6 +54,8 @@ const parseContentFromBody = (raw: string): { content: string; contentType: stri
   return fallback;
 };
 
+const RESERVED_WORKSPACE_IDS = new Set(["default", "demo", "ws_demo"]);
+
 const buildDirectoryInfo = (workspaceId: string, path: string, now: string) => {
   const normalized = normalizeVfsPath(path) || "/";
   const parts = normalized === "/" ? ["/"] : normalized.split("/");
@@ -297,6 +299,50 @@ appVfs.delete("/-/dev/vfs/:workspaceId/files/*", async (c) => {
   return ok(c as any, { deleted: true, workspace_id: workspaceId, path, usage });
 });
 
+appVfs.delete("/-/dev/vfs/workspaces/:workspaceId", async (c) => {
+  const workspaceId = (c.req.param("workspaceId") || "").trim();
+  if (!workspaceId) {
+    return fail(c as any, "workspaceId is required", 400);
+  }
+  if (RESERVED_WORKSPACE_IDS.has(workspaceId)) {
+    return fail(c as any, "cannot delete reserved workspace", 400);
+  }
+  const ctx = await resolveWorkspaceContext(c, workspaceId);
+  if (!ctx.ok) return ctx.response;
+  const { store } = ctx.value;
+
+  let deletedFiles = 0;
+  if (typeof store.listWorkspaceFiles === "function" && typeof store.deleteWorkspaceFile === "function") {
+    try {
+      const files = await store.listWorkspaceFiles(workspaceId);
+      for (const file of files) {
+        try {
+          await store.deleteWorkspaceFile(workspaceId, file.path);
+          deletedFiles += 1;
+        } catch (error) {
+          console.warn("[vfs] failed to delete workspace file", error);
+        }
+      }
+    } catch (error) {
+      console.warn("[vfs] failed to list workspace files for delete", error);
+    }
+  }
+
+  if (typeof (store as any).deleteWorkspace === "function") {
+    try {
+      await (store as any).deleteWorkspace(workspaceId);
+    } catch (error) {
+      console.warn("[vfs] failed to delete workspace metadata", error);
+    }
+  }
+
+  return ok(c as any, {
+    workspace_id: workspaceId,
+    deleted: true,
+    deleted_files: deletedFiles,
+  });
+});
+
 const listDirectories = async (c: any, rawPath: string) => {
   const workspaceId = (c.req.param("workspaceId") || "").trim();
   const dirPath = rawPath || "/";
@@ -308,8 +354,35 @@ const listDirectories = async (c: any, rawPath: string) => {
   if (!ctx.ok) return ctx.response;
   const { store } = ctx.value;
 
+  const now = new Date().toISOString();
+  const buildFromFiles = async () => {
+    if (typeof store.listWorkspaceFiles !== "function") return [];
+    const files = await store.listWorkspaceFiles(workspaceId);
+    const prefix = dirPath === "/" ? "" : `${normalizeVfsPath(dirPath)}/`;
+    const seen = new Set<string>();
+    const dirs: any[] = [];
+    for (const file of files) {
+      const normalizedPath = normalizeVfsPath(file.path || "");
+      if (!normalizedPath.startsWith(prefix)) continue;
+      const remainder = normalizedPath.slice(prefix.length);
+      const segment = remainder.split("/")[0];
+      if (!segment) continue;
+      const full = prefix ? `${prefix}${segment}` : segment;
+      const normalizedFull = normalizeVfsPath(full);
+      if (!seen.has(normalizedFull)) {
+        seen.add(normalizedFull);
+        dirs.push(buildDirectoryInfo(workspaceId, normalizedFull, now));
+      }
+    }
+    if (dirPath === "/" && !seen.has("/")) {
+      dirs.unshift(buildDirectoryInfo(workspaceId, "/", now));
+    }
+    return dirs;
+  };
+
   if (typeof store.listDirectories !== "function") {
-    return fail(c as any, "vfs directories are not supported", 501);
+    const dirs = await buildFromFiles();
+    return ok(c as any, { workspace_id: workspaceId, path: dirPath, dirs });
   }
   const dirs = await store.listDirectories(workspaceId, dirPath);
   return ok(c as any, { workspace_id: workspaceId, path: dirPath, dirs });
@@ -346,7 +419,7 @@ appVfs.post("/-/dev/vfs/:workspaceId/dirs/*", async (c) => {
   }
 
   if (!directory) {
-    return fail(c as any, "vfs directories are not supported", 501);
+    directory = buildDirectoryInfo(workspaceId, dirPath, new Date().toISOString());
   }
 
   return ok(c as any, { workspace_id: workspaceId, directory });

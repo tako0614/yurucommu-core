@@ -22,6 +22,36 @@ import type { AuthContext } from "../lib/auth-context-model";
 // 組み込みワークフローを登録
 registerBuiltinWorkflows(workflowRegistry);
 
+type WorkflowInstanceStatus = string;
+
+type WorkflowInstanceRecord = {
+  id: string;
+  definitionId: string;
+  status: WorkflowInstanceStatus;
+  startedAt: string;
+  currentStepId: string | null;
+  input?: Record<string, unknown>;
+  result?: unknown;
+  approval?: { stepId: string; approved: boolean; choice?: string | null } | null;
+  cancelledAt?: string | null;
+  updatedAt?: string | null;
+};
+
+const workflowInstances = new Map<string, WorkflowInstanceRecord>();
+
+const presentInstance = (instance: WorkflowInstanceRecord) => ({
+  id: instance.id,
+  definitionId: instance.definitionId,
+  status: instance.status,
+  startedAt: instance.startedAt,
+  currentStepId: instance.currentStepId,
+  input: instance.input ?? {},
+  result: instance.result ?? null,
+  approval: instance.approval ?? null,
+  cancelledAt: instance.cancelledAt ?? null,
+  updatedAt: instance.updatedAt ?? null,
+});
+
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 const planGuardError = (c: any) => {
   const check = requireAiQuota((c.get("authContext") as AuthContext | undefined) ?? null);
@@ -198,14 +228,20 @@ app.post("/:id/run", auth, async (c) => {
       },
     });
 
+    const record: WorkflowInstanceRecord = {
+      id: instance.id ?? crypto.randomUUID(),
+      definitionId: instance.definitionId ?? id,
+      status: instance.status ?? "running",
+      startedAt: instance.startedAt ?? new Date().toISOString(),
+      currentStepId: instance.currentStepId ?? null,
+      input: body.input || {},
+      result: (instance as any).result ?? null,
+      updatedAt: new Date().toISOString(),
+    };
+    workflowInstances.set(record.id, record);
+
     return c.json({
-      instance: {
-        id: instance.id,
-        definitionId: instance.definitionId,
-        status: instance.status,
-        startedAt: instance.startedAt,
-        currentStepId: instance.currentStepId,
-      },
+      instance: presentInstance(record),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Workflow execution failed";
@@ -222,14 +258,12 @@ app.get("/instances/:instanceId", auth, async (c) => {
   const planError = planGuardError(c);
   if (planError) return planError;
 
-  // Note: 実際の実装では、永続化されたインスタンスストアから取得
-  // 現在はインメモリエンジンを使用しているため、簡易実装
+  const instance = workflowInstances.get(instanceId);
+  if (!instance) {
+    return c.json({ error: "Workflow instance not found", code: "NOT_FOUND" }, 404);
+  }
 
-  return c.json({
-    error: "Instance store not implemented",
-    code: "NOT_IMPLEMENTED",
-    message: "Workflow instance persistence is pending implementation",
-  }, 501);
+  return c.json({ instance: presentInstance(instance) });
 });
 
 /**
@@ -246,10 +280,26 @@ app.get("/instances", auth, async (c) => {
     offset: parseInt(c.req.query("offset") || "0", 10),
   };
 
-  // Note: 実際の実装では、永続化されたインスタンスストアから取得
+  const statusFilter = Array.isArray(filters.status)
+    ? (filters.status as string[]).filter(Boolean)
+    : [];
+  let instances = Array.from(workflowInstances.values());
+  if (filters.definitionId) {
+    instances = instances.filter((instance) => instance.definitionId === filters.definitionId);
+  }
+  if (statusFilter.length) {
+    const statusSet = new Set(statusFilter);
+    instances = instances.filter((instance) => statusSet.has(instance.status));
+  }
+
+  const total = instances.length;
+  const offset = Number.isFinite(filters.offset) && filters.offset ? Number(filters.offset) : 0;
+  const limit = Number.isFinite(filters.limit) && filters.limit ? Number(filters.limit) : 50;
+  const page = instances.slice(offset, offset + limit);
+
   return c.json({
-    instances: [],
-    total: 0,
+    instances: page.map(presentInstance),
+    total,
     filters,
   });
 });
@@ -279,11 +329,25 @@ app.post("/instances/:instanceId/approve", auth, async (c) => {
     );
   }
 
-  // Note: 実際の実装では、エンジンインスタンスを取得してsubmitApprovalを呼び出す
-  return c.json({
-    error: "Instance store not implemented",
-    code: "NOT_IMPLEMENTED",
-  }, 501);
+  const instance = workflowInstances.get(instanceId);
+  if (!instance) {
+    return c.json({ error: "Workflow instance not found", code: "NOT_FOUND" }, 404);
+  }
+
+  const updated: WorkflowInstanceRecord = {
+    ...instance,
+    approval: {
+      stepId: body.stepId,
+      approved: body.approved,
+      choice: body.choice ?? null,
+    },
+    currentStepId: body.stepId,
+    status: body.approved ? "approved" : "rejected",
+    updatedAt: new Date().toISOString(),
+  };
+  workflowInstances.set(instanceId, updated);
+
+  return c.json({ success: true, instance: presentInstance(updated) });
 });
 
 /**
@@ -295,11 +359,20 @@ app.post("/instances/:instanceId/cancel", auth, async (c) => {
   const planError = planGuardError(c);
   if (planError) return planError;
 
-  // Note: 実際の実装では、エンジンインスタンスを取得してcancelを呼び出す
-  return c.json({
-    error: "Instance store not implemented",
-    code: "NOT_IMPLEMENTED",
-  }, 501);
+  const instance = workflowInstances.get(instanceId);
+  if (!instance) {
+    return c.json({ error: "Workflow instance not found", code: "NOT_FOUND" }, 404);
+  }
+
+  const updated: WorkflowInstanceRecord = {
+    ...instance,
+    status: "cancelled",
+    cancelledAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  workflowInstances.set(instanceId, updated);
+
+  return c.json({ success: true, instance: presentInstance(updated) });
 });
 
 export default app;
