@@ -1,3 +1,4 @@
+import type React from "react";
 import {
   For,
   Show,
@@ -7,7 +8,7 @@ import {
   createSignal,
   onCleanup,
   onMount,
-} from "solid-js";
+} from "../lib/solid-compat";
 import type {
   CanvasData,
   ImageElement,
@@ -338,8 +339,8 @@ export default function StoryComposer(props: Props) {
     });
   };
 
-  const onPickImage = async (e: Event) => {
-    const input = e.target as HTMLInputElement;
+  const onPickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
     const file = input.files?.[0];
     if (!file) return;
     const url = await fileToDataUrl(file);
@@ -742,24 +743,24 @@ export default function StoryComposer(props: Props) {
     <>
       <Show when={props.open}>
         <div
-          class={`fixed inset-0 z-50 bg-black/80 flex items-center justify-center px-4 ${overlayPaddingClass()}`}
+          className={`fixed inset-0 z-50 bg-black/80 flex items-center justify-center px-4 ${overlayPaddingClass()}`}
           onPointerUp={() => onPointerUp()}
           onPointerCancel={() => onPointerUp()}
         >
           <div
-            class="relative w-full max-w-2xl"
+            className="relative w-full max-w-2xl"
             onClick={() => setBgMenuOpen(false)}
           >
-            <div class="flex flex-col gap-6">
+            <div className="flex flex-col gap-6">
               <div
-                class="relative aspect-1080/1920 w-full rounded-4xl bg-black shadow-2xl overflow-hidden mx-auto"
+                className="relative aspect-1080/1920 w-full rounded-4xl bg-black shadow-2xl overflow-hidden mx-auto"
                 style={previewStyle()}
               >
-                <div class="absolute inset-0 bg-black" />
-                <div class="absolute inset-0">
+                <div className="absolute inset-0 bg-black" />
+                <div className="absolute inset-0">
                   <div
                     id="story-canvas"
-                    class="relative w-full h-full"
+                    className="relative w-full h-full"
                     style={{
                       background:
                         bgMode() === "auto-gradient"
@@ -779,7 +780,7 @@ export default function StoryComposer(props: Props) {
                   <img
                     src={bgImageUrl()}
                     alt=""
-                    class="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                    className="absolute inset-0 w-full h-full object-cover pointer-events-none"
                     style={{
                       filter: "blur(35px) saturate(120%)",
                       transform: "scale(1.12)",
@@ -795,7 +796,7 @@ export default function StoryComposer(props: Props) {
                         : imageBox(el as ImageElement)}
                       <Show when={selectedId() === el.id}>
                         <div
-                          class="absolute"
+                          className="absolute"
                           style={{
                             left: pct((el as any).x, CANVAS_WIDTH),
                             top: pct((el as any).y, CANVAS_HEIGHT),
@@ -809,12 +810,12 @@ export default function StoryComposer(props: Props) {
                           }}
                         >
                           <div
-                            class="absolute inset-0 border border-white/80 rounded"
+                            className="absolute inset-0 border border-white/80 rounded"
                             style={{ "pointer-events": "none" }}
                           />
                           <Show when={(el as any).width && (el as any).height}>
                             <button
-                              class="absolute -right-3 -bottom-3 w-7 h-7 rounded-full bg-white text-black text-lg grid place-items-center shadow"
+                              className="absolute -right-3 -bottom-3 w-7 h-7 rounded-full bg-white text-black text-lg grid place-items-center shadow"
                               style={{ "pointer-events": "auto" }}
                               onPointerDown={(ev) =>
                                 handleResize(
@@ -828,7 +829,7 @@ export default function StoryComposer(props: Props) {
                             </button>
                             <Show when={el.kind === "text"}>
                               <button
-                                class="absolute -right-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white text-black text-lg grid place-items-center shadow"
+                                className="absolute -right-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white text-black text-lg grid place-items-center shadow"
                                 style={{ "pointer-events": "auto" }}
                                 onPointerDown={(ev) =>
                                   handleResize(
@@ -841,7 +842,7 @@ export default function StoryComposer(props: Props) {
                                 ↔
                               </button>
                               <button
-                                class="absolute left-1/2 -translate-x-1/2 -bottom-3 w-7 h-7 rounded-full bg-white text-black text-lg grid place-items-center shadow"
+                                className="absolute left-1/2 -translate-x-1/2 -bottom-3 w-7 h-7 rounded-full bg-white text-black text-lg grid place-items-center shadow"
                                 style={{ "pointer-events": "auto" }}
                                 onPointerDown={(ev) =>
                                   handleResize(
@@ -863,12 +864,12 @@ export default function StoryComposer(props: Props) {
                   </div>
                 </div>
 
-                <div class="absolute inset-x-0 top-0 h-48 bg-linear-to-b from-black/80 via-black/40 to-transparent pointer-events-none" />
-                <div class="absolute inset-x-0 bottom-0 h-56 bg-linear-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
+                <div className="absolute inset-x-0 top-0 h-48 bg-linear-to-b from-black/80 via-black/40 to-transparent pointer-events-none" />
+                <div className="absolute inset-x-0 bottom-0 h-56 bg-linear-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
 
-                <div class="absolute top-5 left-5 right-5 flex items-center justify-between text-white">
+                <div className="absolute top-5 left-5 right-5 flex items-center justify-between text-white">
               <button
-                class="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"
+                className="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"
                 onClick={() => {
                   setBgMenuOpen(false);
                   props.onClose();
@@ -878,7 +879,7 @@ export default function StoryComposer(props: Props) {
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   viewBox="0 0 24 24"
-                  class="w-5 h-5"
+                  className="w-5 h-5"
                   fill="none"
                   stroke="currentColor"
                   stroke-width="2"
@@ -889,18 +890,18 @@ export default function StoryComposer(props: Props) {
                   <path d="m6 6 12 12" />
                 </svg>
               </button>
-              <div class="flex items-center gap-2">
-                <label class="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center cursor-pointer">
+              <div className="flex items-center gap-2">
+                <label className="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center cursor-pointer">
                   <input
                     type="file"
                     accept="image/*"
-                    class="hidden"
+                    className="hidden"
                     onChange={onPickImage}
                   />
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 24 24"
-                    class="w-5 h-5"
+                    className="w-5 h-5"
                     fill="none"
                     stroke="currentColor"
                     stroke-width="2"
@@ -912,7 +913,7 @@ export default function StoryComposer(props: Props) {
                   </svg>
                 </label>
                 <button
-                  class="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"
+                  className="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"
                   onClick={(event) => {
                     event.stopPropagation();
                     setBgMenuOpen((prev) => !prev);
@@ -922,7 +923,7 @@ export default function StoryComposer(props: Props) {
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 24 24"
-                    class="w-5 h-5"
+                    className="w-5 h-5"
                     fill="none"
                     stroke="currentColor"
                     stroke-width="2"
@@ -934,14 +935,14 @@ export default function StoryComposer(props: Props) {
                   </svg>
                 </button>
                 <button
-                  class="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"
+                  className="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"
                   onClick={addText}
                   aria-label="テキストを追加"
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 24 24"
-                    class="w-5 h-5"
+                    className="w-5 h-5"
                     fill="none"
                     stroke="currentColor"
                     stroke-width="2"
@@ -955,7 +956,7 @@ export default function StoryComposer(props: Props) {
                 </button>
                 <Show when={selected()}>
                   <button
-                    class="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"
+                    className="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"
                     onClick={(event) => {
                       event.stopPropagation();
                       removeSelected();
@@ -965,7 +966,7 @@ export default function StoryComposer(props: Props) {
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       viewBox="0 0 24 24"
-                      class="w-5 h-5"
+                      className="w-5 h-5"
                       fill="none"
                       stroke="currentColor"
                       stroke-width="2"
@@ -985,12 +986,12 @@ export default function StoryComposer(props: Props) {
 
             <Show when={bgMenuOpen()}>
               <div
-                class="absolute right-5 top-20 w-48 rounded-2xl bg-black/80 backdrop-blur text-white text-sm p-3 space-y-2"
+                className="absolute right-5 top-20 w-48 rounded-2xl bg-black/80 backdrop-blur text-white text-sm p-3 space-y-2"
                 onClick={(event) => event.stopPropagation()}
               >
-                <div class="text-xs text-white/60">背景のスタイル</div>
+                <div className="text-xs text-white/60">背景のスタイル</div>
                 <button
-                  class={`w-full rounded-lg px-3 py-2 text-left ${
+                  className={`w-full rounded-lg px-3 py-2 text-left ${
                     bgMode() === "auto-gradient"
                       ? "bg-white/20"
                       : "hover:bg-white/10"
@@ -1003,7 +1004,7 @@ export default function StoryComposer(props: Props) {
                   自動グラデーション
                 </button>
                 <button
-                  class={`w-full rounded-lg px-3 py-2 text-left ${
+                  className={`w-full rounded-lg px-3 py-2 text-left ${
                     bgMode() === "auto-blur"
                       ? "bg-white/20"
                       : "hover:bg-white/10"
@@ -1016,7 +1017,7 @@ export default function StoryComposer(props: Props) {
                   自動ぼかし
                 </button>
                 <button
-                  class={`w-full rounded-lg px-3 py-2 text-left ${
+                  className={`w-full rounded-lg px-3 py-2 text-left ${
                     bgMode() === "solid"
                       ? "bg-white/20"
                       : "hover:bg-white/10"
@@ -1026,11 +1027,11 @@ export default function StoryComposer(props: Props) {
                   単色
                 </button>
                 <Show when={bgMode() === "solid"}>
-                  <div class="flex items-center justify-between">
-                    <span class="text-xs text-white/60">色を選択</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-white/60">色を選択</span>
                     <input
                       type="color"
-                      class="w-10 h-10 rounded-full overflow-hidden border border-white/10 bg-transparent"
+                      className="w-10 h-10 rounded-full overflow-hidden border border-white/10 bg-transparent"
                       value={bg()}
                       onInput={(event) =>
                         editor.setBackgroundSolid(
@@ -1044,14 +1045,14 @@ export default function StoryComposer(props: Props) {
             </Show>
 
             <Show when={selected() && (selected() as any)?.kind === "text"}>
-              <div class="absolute inset-x-0 bottom-40 px-6 pointer-events-none">
-                <div class="rounded-full bg-black/70 backdrop-blur px-4 py-3 flex items-center gap-3 text-white text-sm pointer-events-auto">
+              <div className="absolute inset-x-0 bottom-40 px-6 pointer-events-none">
+                <div className="rounded-full bg-black/70 backdrop-blur px-4 py-3 flex items-center gap-3 text-white text-sm pointer-events-auto">
                   <input
                     type="range"
                     min="16"
                     max="128"
                     value={(selected() as any)?.fontSize || 64}
-                    class="flex-1 accent-white"
+                    className="flex-1 accent-white"
                   onInput={(event) => {
                     const v = Number(
                       (event.target as HTMLInputElement).value,
@@ -1065,7 +1066,7 @@ export default function StoryComposer(props: Props) {
                 <input
                   type="color"
                   value={(selected() as any)?.color || "#000000"}
-                    class="w-9 h-9 rounded-full overflow-hidden border border-white/20 bg-transparent"
+                    className="w-9 h-9 rounded-full overflow-hidden border border-white/20 bg-transparent"
                     onInput={(event) => {
                     const v = (event.target as HTMLInputElement).value;
                     const id = selectedId();
@@ -1075,7 +1076,7 @@ export default function StoryComposer(props: Props) {
                   }}
                 />
                   <select
-                    class="bg-white/10 rounded-full px-3 py-1 text-xs"
+                    className="bg-white/10 rounded-full px-3 py-1 text-xs"
                     value={(selected() as any)?.align || "left"}
                     onChange={(event) => {
                     const v = (event.target as HTMLSelectElement).value as any;
@@ -1095,15 +1096,15 @@ export default function StoryComposer(props: Props) {
 
           </div>
           <div
-            class="mt-6 w-full max-w-md px-4 sm:px-0 mx-auto"
+            className="mt-6 w-full max-w-md px-4 sm:px-0 mx-auto"
             onClick={(event) => event.stopPropagation()}
             ref={setControlsRef}
           >
-            <div class="rounded-3xl bg-black/70 backdrop-blur px-5 py-5 text-white space-y-4 shadow-lg">
-              <div class="flex flex-row flex-wrap items-stretch gap-3">
+            <div className="rounded-3xl bg-black/70 backdrop-blur px-5 py-5 text-white space-y-4 shadow-lg">
+              <div className="flex flex-row flex-wrap items-stretch gap-3">
                 <button
                   type="button"
-                  class="flex-1 rounded-2xl border border-white/20 bg-white px-5 py-3 text-center text-sm font-semibold text-black transition hover:bg-white/90 focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-70"
+                  className="flex-1 rounded-2xl border border-white/20 bg-white px-5 py-3 text-center text-sm font-semibold text-black transition hover:bg-white/90 focus:outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-70"
                   disabled={
                     posting() ||
                     elements().length === 0
@@ -1116,11 +1117,11 @@ export default function StoryComposer(props: Props) {
                 >
                   {posting() ? '投稿中…' : 'ストーリーズ'}
                 </button>
-                <div class="flex min-w-[140px] items-center justify-center">
-                  <div class="flex overflow-hidden rounded-full border border-white/30">
+                <div className="flex min-w-[140px] items-center justify-center">
+                  <div className="flex overflow-hidden rounded-full border border-white/30">
                     <button
                       type="button"
-                      class={`px-4 py-2 text-sm transition focus:outline-none ${
+                      className={`px-4 py-2 text-sm transition focus:outline-none ${
                         audience() === 'all'
                           ? 'bg-white text-black'
                           : 'bg-transparent text-white/70 hover:bg-white/15'
@@ -1131,7 +1132,7 @@ export default function StoryComposer(props: Props) {
                     </button>
                     <button
                       type="button"
-                      class={`px-4 py-2 text-sm transition focus:outline-none ${
+                      className={`px-4 py-2 text-sm transition focus:outline-none ${
                         audience() === 'community'
                           ? 'bg-white text-black'
                           : 'bg-transparent text-white/70 hover:bg-white/15'
@@ -1155,33 +1156,30 @@ export default function StoryComposer(props: Props) {
       </Show>
       <Show when={showCommunityPicker()}>
         <div
-          class="fixed inset-0 z-50 flex items-end justify-center bg-black/70 px-4 pb-10 sm:items-center"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 px-4 pb-10 sm:items-center"
           onClick={closeCommunityPicker}
         >
           <div
-            class="w-full max-w-md rounded-3xl bg-white text-black shadow-2xl"
+            className="w-full max-w-md rounded-3xl bg-white text-black shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div class="px-6 py-6 space-y-5">
-              <div class="space-y-1">
-                <h2 class="text-lg font-semibold">コミュニティを選択</h2>
-                <p class="text-sm text-gray-500">投稿するコミュニティを選んでください。</p>
+            <div className="px-6 py-6 space-y-5">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold">コミュニティを選択</h2>
+                <p className="text-sm text-gray-500">投稿するコミュニティを選んでください。</p>
               </div>
-              <div class="space-y-2 max-h-64 overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                 <label
-                  class="flex items-center justify-between gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm hover:border-gray-400"
-                  classList={{
-                    'border-black bg-black/5': !selectedCommunityId(),
-                  }}
+                  className={`flex items-center justify-between gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm hover:border-gray-400 ${!selectedCommunityId() ? "border-black bg-black/5" : ""}`}
                 >
-                  <div class="flex flex-col">
-                    <span class="font-medium">コミュニティなし</span>
-                    <span class="text-xs text-gray-500">フォロワー全員に表示されます。</span>
+                  <div className="flex flex-col">
+                    <span className="font-medium">コミュニティなし</span>
+                    <span className="text-xs text-gray-500">フォロワー全員に表示されます。</span>
                   </div>
                   <input
                     type="radio"
                     name="story-community"
-                    class="h-4 w-4 accent-black"
+                    className="h-4 w-4 accent-black"
                     checked={!selectedCommunityId()}
                     onChange={() => setSelectedCommunityId(null)}
                   />
@@ -1189,18 +1187,15 @@ export default function StoryComposer(props: Props) {
                 <For each={communityOptions()}>
                   {(community) => (
                     <label
-                      class="flex items-center justify-between gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm hover:border-gray-400"
-                      classList={{
-                        'border-black bg-black/5': selectedCommunityId() === community.id,
-                      }}
+                      className={`flex items-center justify-between gap-3 rounded-2xl border border-gray-200 px-4 py-3 text-sm hover:border-gray-400 ${selectedCommunityId() === community.id ? "border-black bg-black/5" : ""}`}
                     >
-                      <div class="flex flex-col">
-                        <span class="font-medium">{community.name || 'コミュニティ'}</span>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{community.name || 'コミュニティ'}</span>
                       </div>
                       <input
                         type="radio"
                         name="story-community"
-                        class="h-4 w-4 accent-black"
+                        className="h-4 w-4 accent-black"
                         checked={selectedCommunityId() === community.id}
                         onChange={() => setSelectedCommunityId(community.id)}
                       />
@@ -1208,10 +1203,10 @@ export default function StoryComposer(props: Props) {
                   )}
                 </For>
               </div>
-              <div class="flex justify-end gap-3 pt-2">
+              <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
-                  class="rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
+                  className="rounded-full border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
                   onClick={closeCommunityPicker}
                   disabled={posting()}
                 >
@@ -1219,7 +1214,7 @@ export default function StoryComposer(props: Props) {
                 </button>
                 <button
                   type="button"
-                  class="rounded-full bg-black px-5 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  className="rounded-full bg-black px-5 py-2 text-sm font-semibold text-white disabled:opacity-60"
                   onClick={confirmCommunitySelection}
                   disabled={posting()}
                 >

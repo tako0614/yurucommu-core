@@ -1,4 +1,5 @@
-import { Show, createEffect, createSignal } from "solid-js";
+import type React from "react";
+import { Show, createEffect, createSignal } from "../lib/solid-compat";
 import type { Community } from "../lib/api-client";
 import { ApiError } from "../lib/api-client";
 import { createCommunity } from "../lib/api";
@@ -34,7 +35,7 @@ export default function CommunityCreateModal(props: CommunityCreateModalProps) {
     props.onClose();
   };
 
-  const handleSubmit = async (event?: Event) => {
+  const handleSubmit = async (event?: React.FormEvent) => {
     event?.preventDefault();
     if (submitting()) return;
     const trimmed = name().trim();
@@ -60,27 +61,27 @@ export default function CommunityCreateModal(props: CommunityCreateModalProps) {
 
   return (
     <Show when={props.open}>
-      <div class="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
+      <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
         <button
           type="button"
-          class="absolute inset-0 bg-black/30"
+          className="absolute inset-0 bg-black/30"
           aria-label="閉じる"
           onClick={handleClose}
         />
-        <div class="relative z-10 w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
-          <div class="space-y-1">
-            <h2 class="text-xl font-semibold">コミュニティを作成</h2>
-            <p class="text-sm text-gray-500">新しいコミュニティの名前を入力してください。</p>
+        <div className="relative z-10 w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+          <div className="space-y-1">
+            <h2 className="text-xl font-semibold">コミュニティを作成</h2>
+            <p className="text-sm text-gray-500">新しいコミュニティの名前を入力してください。</p>
           </div>
-          <form class="mt-6 space-y-4" onSubmit={(event) => void handleSubmit(event)}>
-            <div class="space-y-2">
-              <label for="community-name" class="text-sm font-medium text-gray-700">
+          <form className="mt-6 space-y-4" onSubmit={(event) => void handleSubmit(event)}>
+            <div className="space-y-2">
+              <label htmlFor="community-name" className="text-sm font-medium text-gray-700">
                 コミュニティ名
               </label>
               <input
                 id="community-name"
                 type="text"
-                class="w-full rounded-2xl border px-4 py-3 text-base outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-2xl border px-4 py-3 text-base outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="例: カフェ好きの集い"
                 value={name()}
                 onInput={(event) => {
@@ -95,12 +96,12 @@ export default function CommunityCreateModal(props: CommunityCreateModalProps) {
               />
             </div>
             <Show when={error()}>
-              {(message) => <p class="text-sm text-red-600">{message()}</p>}
+              {(message) => <p className="text-sm text-red-600">{message()}</p>}
             </Show>
-            <div class="flex items-center justify-end gap-3 pt-2">
+            <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 type="button"
-                class="rounded-full border px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                className="rounded-full border px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
                 onClick={handleClose}
                 disabled={submitting()}
               >
@@ -108,12 +109,12 @@ export default function CommunityCreateModal(props: CommunityCreateModalProps) {
               </button>
               <button
                 type="submit"
-                class="inline-flex items-center gap-2 rounded-full bg-blue-600 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 disabled={submitting()}
               >
                 {submitting() ? (
                   <>
-                    <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                     作成中...
                   </>
                 ) : (

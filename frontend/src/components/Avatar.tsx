@@ -1,9 +1,9 @@
-import type { Component } from "solid-js";
+import type React from "react";
 
 type Props = {
   src?: string;
   alt?: string;
-  class?: string;
+  className?: string;
   variant?: "user" | "community";
 };
 
@@ -29,25 +29,19 @@ const DEFAULT_USER_AVATAR = "data:image/svg+xml;utf8," +
 const DEFAULT_COMMUNITY_AVATAR = "data:image/svg+xml;utf8," +
   encodeURIComponent(communitySvg);
 
-const Avatar: Component<Props> = (props) => {
-  const variant = () => props.variant || "user";
-  const src = () =>
-    props.src ||
-    (variant() === "community"
-      ? DEFAULT_COMMUNITY_AVATAR
-      : DEFAULT_USER_AVATAR);
-  const onErr = (e: any) => {
+const Avatar: React.FC<Props> = (props) => {
+  const variant = props.variant || "user";
+  const src = props.src || (variant === "community" ? DEFAULT_COMMUNITY_AVATAR : DEFAULT_USER_AVATAR);
+  const onErr = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const target = e.currentTarget;
-    const fallback = variant() === "community"
-      ? DEFAULT_COMMUNITY_AVATAR
-      : DEFAULT_USER_AVATAR;
+    const fallback = variant === "community" ? DEFAULT_COMMUNITY_AVATAR : DEFAULT_USER_AVATAR;
     if (target.src !== fallback) target.src = fallback;
   };
   return (
     <img
-      src={src()}
+      src={src}
       alt={props.alt || "アバター"}
-      class={props.class}
+      className={props.className}
       onError={onErr}
     />
   );

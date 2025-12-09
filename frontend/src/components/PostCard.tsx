@@ -1,3 +1,4 @@
+import type React from "react";
 import {
   For,
   Show,
@@ -7,7 +8,7 @@ import {
   createSignal,
   onCleanup,
   onMount,
-} from "solid-js";
+} from "../lib/solid-compat";
 import Avatar from "./Avatar";
 import { api, getUser, useMe } from "../lib/api";
 import { useToast } from "./Toast";
@@ -58,27 +59,27 @@ function CommentItem(props: {
   );
 
   return (
-    <div class="flex gap-2 text-sm">
+    <div className="flex gap-2 text-sm">
       <Avatar
         src={author()?.avatar_url || ""}
         alt="コメントユーザー"
-        class="w-8 h-8 rounded-full bg-gray-200 dark:bg-neutral-700"
+        className="w-8 h-8 rounded-full bg-gray-200 dark:bg-neutral-700"
       />
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2">
-          <span class="font-semibold text-gray-900 dark:text-white truncate">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-gray-900 dark:text-white truncate">
             {author()?.display_name || props.comment.author_id}
           </span>
-          <span class="text-xs text-gray-500">{createdAt()}</span>
+          <span className="text-xs text-gray-500">{createdAt()}</span>
         </div>
-        <div class="text-gray-900 dark:text-gray-100 whitespace-pre-wrap leading-relaxed">
+        <div className="text-gray-900 dark:text-gray-100 whitespace-pre-wrap leading-relaxed">
           {props.comment.text}
         </div>
       </div>
       <Show when={props.canDelete}>
         <button
           type="button"
-          class="text-xs text-gray-500 hover:text-red-500"
+          className="text-xs text-gray-500 hover:text-red-500"
           onClick={() => props.onDelete(props.comment.id)}
         >
           削除
@@ -306,7 +307,7 @@ export default function PostCard(props: PostCardProps) {
     });
   };
 
-  const submitComment = async (e: Event) => {
+  const submitComment = async (e: React.FormEvent) => {
     e.preventDefault();
     const text = commentText().trim();
     if (!text || commentState().posting) return;
@@ -440,62 +441,62 @@ export default function PostCard(props: PostCardProps) {
   const commentItems = createMemo(() => commentState().items || []);
 
   return (
-    <article class="bg-white dark:bg-neutral-900 border hairline rounded-2xl shadow-sm transition-colors">
+    <article className="bg-white dark:bg-neutral-900 border hairline rounded-2xl shadow-sm transition-colors">
       <Show when={post().community_id && (post().community_name || post().community_icon_url)}>
         <a
           href={`/c/${post().community_id}`}
-          class="px-4 pt-3 flex items-center gap-2 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-100 transition-colors"
+          className="px-4 pt-3 flex items-center gap-2 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-100 transition-colors"
         >
           <Avatar
             src={post().community_icon_url || ""}
             alt="コミュニティ"
-            class="w-4 h-4 rounded"
+            className="w-4 h-4 rounded"
             variant="community"
           />
           <span>{post().community_name || "コミュニティ"}</span>
         </a>
       </Show>
       <Show when={author()}>
-        <div class="px-4 pb-4 pt-3 flex items-start gap-3">
+        <div className="px-4 pb-4 pt-3 flex items-start gap-3">
           <a
             href={`/@${encodeURIComponent((post() as any).author_handle || post().author_id)}`}
-            class="flex-shrink-0"
+            className="flex-shrink-0"
           >
             <Avatar
               src={author()?.avatar_url || ""}
               alt="アバター"
-              class="w-12 h-12 rounded-full bg-gray-200 dark:bg-neutral-700 object-cover"
+              className="w-12 h-12 rounded-full bg-gray-200 dark:bg-neutral-700 object-cover"
             />
           </a>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-start gap-2">
-              <div class="flex flex-wrap items-center gap-x-2 text-[15px] leading-tight">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start gap-2">
+              <div className="flex flex-wrap items-center gap-x-2 text-[15px] leading-tight">
                 <a
                   href={`/@${encodeURIComponent((post() as any).author_handle || post().author_id)}`}
-                  class="font-semibold text-gray-900 dark:text-white truncate hover:underline"
+                  className="font-semibold text-gray-900 dark:text-white truncate hover:underline"
                 >
                   {author()?.display_name}
                 </a>
                 <Show when={post().pinned}>
-                  <span class="text-xs px-1.5 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300" title="ピン留め投稿">
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300" title="ピン留め投稿">
                     📌 ピン留め
                   </span>
                 </Show>
                 <Show when={formattedCreatedAt()}>
                   {(createdAt) => (
                     <>
-                      <span class="text-gray-500">·</span>
-                      <span class="text-gray-500">{createdAt()}</span>
+                      <span className="text-gray-500">·</span>
+                      <span className="text-gray-500">{createdAt()}</span>
                     </>
                   )}
                 </Show>
               </div>
               <Show when={canEdit()}>
-                <div class="ml-auto flex items-center gap-2">
+                <div className="ml-auto flex items-center gap-2">
                   <Show when={!editing()}>
                     <button
                       type="button"
-                      class="text-xs px-2 py-1 rounded-full border hairline hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
+                      className="text-xs px-2 py-1 rounded-full border hairline hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
                       onClick={post().pinned ? handleUnpinPost : handlePinPost}
                       title={post().pinned ? "ピン留め解除" : "ピン留め"}
                     >
@@ -504,7 +505,7 @@ export default function PostCard(props: PostCardProps) {
                   </Show>
                   <button
                     type="button"
-                    class="text-xs px-2 py-1 rounded-full border hairline hover:bg-gray-50 dark:hover:bg-neutral-800"
+                    className="text-xs px-2 py-1 rounded-full border hairline hover:bg-gray-50 dark:hover:bg-neutral-800"
                     onClick={() => {
                       setEditing((v) => !v);
                       setEditText(post().text || "");
@@ -514,7 +515,7 @@ export default function PostCard(props: PostCardProps) {
                   </button>
                   <button
                     type="button"
-                    class="text-xs px-2 py-1 rounded-full border hairline hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400"
+                    className="text-xs px-2 py-1 rounded-full border hairline hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400"
                     onClick={handleDeletePost}
                   >
                     削除
@@ -523,31 +524,31 @@ export default function PostCard(props: PostCardProps) {
               </Show>
             </div>
             <Show when={actionError()}>
-              <div class="mt-2 text-xs text-red-500">{actionError()}</div>
+              <div className="mt-2 text-xs text-red-500">{actionError()}</div>
             </Show>
             <Show
               when={!editing()}
               fallback={
-                <div class="mt-3 space-y-2">
+                <div className="mt-3 space-y-2">
                   <textarea
-                    class="w-full rounded-lg border hairline bg-transparent px-3 py-2 text-sm text-gray-900 dark:text-white"
+                    className="w-full rounded-lg border hairline bg-transparent px-3 py-2 text-sm text-gray-900 dark:text-white"
                     rows={3}
                     value={editText()}
                     onInput={(e) =>
                       setEditText((e.target as HTMLTextAreaElement).value)
                     }
                   />
-                  <div class="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      class="px-3 py-1.5 rounded-full bg-gray-900 text-white text-sm hover:bg-gray-800 disabled:opacity-50"
+                      className="px-3 py-1.5 rounded-full bg-gray-900 text-white text-sm hover:bg-gray-800 disabled:opacity-50"
                       onClick={handleUpdatePost}
                     >
                       更新
                     </button>
                     <button
                       type="button"
-                      class="px-3 py-1.5 rounded-full border hairline text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
+                      className="px-3 py-1.5 rounded-full border hairline text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
                       onClick={() => setEditing(false)}
                     >
                       キャンセル
@@ -558,24 +559,24 @@ export default function PostCard(props: PostCardProps) {
             >
               <a
                 href={`/posts/${post().id}`}
-                class="mt-2 block text-[15px] leading-[1.5] text-gray-900 dark:text-white whitespace-pre-wrap hover:underline decoration-transparent hover:decoration-current"
+                className="mt-2 block text-[15px] leading-[1.5] text-gray-900 dark:text-white whitespace-pre-wrap hover:underline decoration-transparent hover:decoration-current"
               >
                 {post().text}
               </a>
             </Show>
             <Show when={mediaUrls().length > 0}>
-              <div class="mt-3 rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700 bg-black/5 dark:bg-white/5">
+              <div className="mt-3 rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700 bg-black/5 dark:bg-white/5">
                 <Show
                   when={mediaUrls().length === 1}
                   fallback={
-                    <div class="flex overflow-x-auto gap-2 snap-x snap-mandatory">
+                    <div className="flex overflow-x-auto gap-2 snap-x snap-mandatory">
                       <For each={mediaUrls()}>
                         {(url, idx) => (
-                          <div class="flex-shrink-0 basis-full snap-center">
+                          <div className="flex-shrink-0 basis-full snap-center">
                             <img
                               src={url}
                               alt={`投稿画像${idx() + 1}`}
-                              class="w-full h-full max-h-96 object-cover"
+                              className="w-full h-full max-h-96 object-cover"
                             />
                           </div>
                         )}
@@ -586,21 +587,21 @@ export default function PostCard(props: PostCardProps) {
                   <img
                     src={mediaUrls()[0]}
                     alt="投稿画像"
-                    class="w-full h-full max-h-96 object-cover"
+                    className="w-full h-full max-h-96 object-cover"
                   />
                 </Show>
               </div>
             </Show>
-            <div class="flex items-center justify-between max-w-md mt-4 text-sm text-gray-500">
+            <div className="flex items-center justify-between max-w-md mt-4 text-sm text-gray-500">
               <button
                 type="button"
-                class="flex items-center gap-2 rounded-full px-3 py-2 hover:text-blue-500 transition-colors group"
+                className="flex items-center gap-2 rounded-full px-3 py-2 hover:text-blue-500 transition-colors group"
                 aria-label="コメント"
                 onClick={toggleComments}
               >
-                <div class="p-2 rounded-full group-hover:bg-blue-50 dark:group-hover:bg-blue-900/20 transition-colors">
+                <div className="p-2 rounded-full group-hover:bg-blue-50 dark:group-hover:bg-blue-900/20 transition-colors">
                   <svg
-                    class="w-5 h-5"
+                    className="w-5 h-5"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -613,11 +614,11 @@ export default function PostCard(props: PostCardProps) {
                     />
                   </svg>
                 </div>
-                <span class="tabular-nums">{commentCount()}</span>
+                <span className="tabular-nums">{commentCount()}</span>
               </button>
               <button
                 type="button"
-                class={`flex items-center gap-2 rounded-full px-3 py-2 transition-colors group ${
+                className={`flex items-center gap-2 rounded-full px-3 py-2 transition-colors group ${
                   reactionState().myReactionId
                     ? "text-red-500"
                     : "hover:text-red-500"
@@ -628,12 +629,12 @@ export default function PostCard(props: PostCardProps) {
                 disabled={reactionState().loading}
               >
                 <div
-                  class={`p-2 rounded-full transition-colors group-hover:bg-red-50 dark:group-hover:bg-red-900/20 ${
+                  className={`p-2 rounded-full transition-colors group-hover:bg-red-50 dark:group-hover:bg-red-900/20 ${
                     reactionState().myReactionId ? "bg-red-50 dark:bg-red-900/20" : ""
                   }`}
                 >
                   <svg
-                    class={`w-5 h-5 ${reactionState().myReactionId ? "fill-current" : ""}`}
+                    className={`w-5 h-5 ${reactionState().myReactionId ? "fill-current" : ""}`}
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -646,17 +647,17 @@ export default function PostCard(props: PostCardProps) {
                     />
                   </svg>
                 </div>
-                <span class="tabular-nums">{reactionState().count}</span>
+                <span className="tabular-nums">{reactionState().count}</span>
               </button>
               <button
                 type="button"
-                class="flex items-center gap-2 rounded-full px-3 py-2 hover:text-blue-500 transition-colors group"
+                className="flex items-center gap-2 rounded-full px-3 py-2 hover:text-blue-500 transition-colors group"
                 onClick={handleShare}
                 aria-label="共有"
               >
-                <div class="p-2 rounded-full group-hover:bg-blue-50 dark:group-hover:bg-blue-900/20 transition-colors">
+                <div className="p-2 rounded-full group-hover:bg-blue-50 dark:group-hover:bg-blue-900/20 transition-colors">
                   <svg
-                    class="w-5 h-5"
+                    className="w-5 h-5"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -673,13 +674,13 @@ export default function PostCard(props: PostCardProps) {
               </button>
             </div>
             <Show when={commentsOpen()}>
-              <div class="mt-4 rounded-xl border hairline bg-gray-50 dark:bg-neutral-800/60 px-3 py-3 space-y-3">
+              <div className="mt-4 rounded-xl border hairline bg-gray-50 dark:bg-neutral-800/60 px-3 py-3 space-y-3">
                 <Show when={commentState().error}>
-                  <div class="text-xs text-red-500">{commentState().error}</div>
+                  <div className="text-xs text-red-500">{commentState().error}</div>
                 </Show>
-                <form class="flex gap-2 items-start" onSubmit={submitComment}>
+                <form className="flex gap-2 items-start" onSubmit={submitComment}>
                   <textarea
-                    class="flex-1 rounded-lg border hairline bg-white dark:bg-neutral-900 text-sm px-3 py-2 text-gray-900 dark:text-white"
+                    className="flex-1 rounded-lg border hairline bg-white dark:bg-neutral-900 text-sm px-3 py-2 text-gray-900 dark:text-white"
                   placeholder="コメントを書く…"
                   rows={2}
                   value={commentText()}
@@ -692,7 +693,7 @@ export default function PostCard(props: PostCardProps) {
                 />
                   <button
                     type="submit"
-                    class="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-50"
+                    className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-50"
                     disabled={commentState().posting || !commentText().trim()}
                   >
                     {commentState().posting ? "送信中…" : "送信"}
@@ -700,13 +701,13 @@ export default function PostCard(props: PostCardProps) {
                 </form>
                 <Show
                   when={!commentState().loading}
-                  fallback={<div class="text-sm text-muted">読み込み中…</div>}
+                  fallback={<div className="text-sm text-muted">読み込み中…</div>}
                 >
                   <Show
                     when={commentItems().length > 0}
-                    fallback={<div class="text-sm text-muted">コメントはまだありません</div>}
+                    fallback={<div className="text-sm text-muted">コメントはまだありません</div>}
                   >
-                    <div class="space-y-3">
+                    <div className="space-y-3">
                       <For each={commentItems()}>
                         {(comment) => (
                           <CommentItem

@@ -1,29 +1,22 @@
-/**
- * Frontend API Module (SolidJS)
- * Combines shared API client with SolidJS-specific state management
- */
-
-import { createResource, createSignal } from "solid-js";
-import type { Resource, ResourceActions } from "solid-js";
-
-// Re-export everything from the shared API client
-export * from "./api-client";
-
-// Import specific items we need
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import {
   api,
-  getBackendUrl,
-  hasJWT,
-  getJWT,
-  setJWT,
+  addOrUpdateAccount,
   clearJWT,
   exchangeSessionForJWT,
-  addOrUpdateAccount,
+  getBackendUrl,
   getHostHandle,
+  getJWT,
+  hasJWT,
+  logout as apiLogout,
+  setJWT,
   switchToAccount,
+  type StoredAccount,
+  type User,
 } from "./api-client";
-import type { User, StoredAccount } from "./api-client";
 import { isSelfHostedMode } from "./config";
+
+export * from "./api-client";
 
 function consumeAuthTokenFromUrl(): void {
   if (typeof window === "undefined") return;
@@ -55,63 +48,77 @@ function consumeAuthTokenFromUrl(): void {
 
 consumeAuthTokenFromUrl();
 
-// SolidJS-specific state management
 type AuthState = "unknown" | "authenticated" | "unauthenticated";
 
-// Initialize auth state based on JWT
 function getInitialAuthState(): AuthState {
   if (typeof window === "undefined") return "unknown";
-  // Quick check: if JWT exists, assume authenticated initially
   return hasJWT() ? "authenticated" : "unauthenticated";
 }
 
-const [authState, setAuthState] = createSignal<AuthState>(getInitialAuthState());
+let authState: AuthState = getInitialAuthState();
 let refreshPromise: Promise<boolean> | null = null;
 let lastRefreshTime = 0;
-const REFRESH_COOLDOWN_MS = 5000; // 5秒以内の再呼び出しを防ぐ
-export const authStatus = authState;
+const REFRESH_COOLDOWN_MS = 5000;
+
+const authSubscribers = new Set<() => void>();
+const meSubscribers = new Set<() => void>();
+
+function notifyAuth() {
+  authSubscribers.forEach((fn) => {
+    try {
+      fn();
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+function notifyMe() {
+  meSubscribers.forEach((fn) => {
+    try {
+      fn();
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
+function setAuthState(next: AuthState) {
+  if (authState !== next) {
+    authState = next;
+    notifyAuth();
+  }
+}
+
+export function authStatus(): AuthState {
+  return authState;
+}
+
+export function useAuthStatus(): AuthState {
+  return useSyncExternalStore(
+    (listener) => {
+      authSubscribers.add(listener);
+      return () => authSubscribers.delete(listener);
+    },
+    () => authState,
+    () => authState,
+  );
+}
 
 let cachedMe: User | undefined;
-let meResource: Resource<User | undefined> | undefined;
-let meResourceControls: ResourceActions<User | undefined> | undefined;
 let mePromise: Promise<User> | null = null;
 
-function ensureMeResource() {
-  if (!meResource) {
-    const fetcher = async () => {
-      // If no JWT, return undefined instead of throwing
-      if (!hasJWT()) {
-        return undefined;
-      }
-      try {
-        const data = await fetchMeFromApi();
-        cachedMe = data as any;
-        return data as any;
-      } catch (error) {
-        // Return undefined on error (e.g., 401 Unauthorized)
-        console.warn("Failed to fetch user info:", error);
-        return undefined;
-      }
-    };
-    const [resource, controls] = createResource(fetcher, {
-      initialValue: cachedMe,
-    } as any);
-    meResource = resource as any;
-    meResourceControls = controls as any;
-  }
+function setCachedMe(user: User | undefined) {
+  cachedMe = user;
+  notifyMe();
 }
 
 function clearMeCache() {
   cachedMe = undefined;
   mePromise = null;
-  if (meResourceControls) {
-    meResourceControls.mutate(undefined);
-  }
-  meResource = undefined;
-  meResourceControls = undefined;
+  notifyMe();
 }
 
-// Internal function that always fetches from API
 async function fetchMeFromApi(): Promise<User> {
   const backendUrl = getBackendUrl();
   if (!backendUrl) {
@@ -130,12 +137,8 @@ async function fetchMeFromApi(): Promise<User> {
 
   const json: any = await res.json().catch(() => ({}));
   const data = (json.data ?? json) as User;
-  cachedMe = data;
-  if (meResourceControls) {
-    meResourceControls.mutate(data);
-  }
+  setCachedMe(data);
 
-  // Save or update account info in stored accounts
   const jwt = getJWT();
   const hostHandle = getHostHandle();
   if (jwt && hostHandle && data.id) {
@@ -143,7 +146,7 @@ async function fetchMeFromApi(): Promise<User> {
       userId: data.id,
       handle: (data as any).handle || data.id,
       displayName: data.display_name || "User",
-      avatarUrl: data.avatar_url || "",
+      avatarUrl: (data as any).avatar_url || "",
       jwt,
       hostHandle,
     };
@@ -153,19 +156,9 @@ async function fetchMeFromApi(): Promise<User> {
   return data;
 }
 
-// Public fetchMe that returns cached value if available
 export async function fetchMe(): Promise<User> {
-  // Return cached value if available and fresh
-  if (cachedMe) {
-    return cachedMe;
-  }
-
-  // Return existing promise if already fetching
-  if (mePromise) {
-    return mePromise;
-  }
-
-  // Start new fetch
+  if (cachedMe) return cachedMe;
+  if (mePromise) return mePromise;
   mePromise = fetchMeFromApi();
   try {
     return await mePromise;
@@ -174,17 +167,33 @@ export async function fetchMe(): Promise<User> {
   }
 }
 
+export function useMe(): () => User | undefined {
+  const user = useSyncExternalStore(
+    (listener) => {
+      meSubscribers.add(listener);
+      return () => meSubscribers.delete(listener);
+    },
+    () => cachedMe,
+    () => cachedMe,
+  );
+
+  useEffect(() => {
+    if (authState === "authenticated" && !user) {
+      fetchMe().catch(() => {});
+    }
+  }, [user]);
+
+  return useCallback(() => user, [user]);
+}
+
 export async function refreshAuth(): Promise<boolean> {
-  // Return cached promise if already refreshing
   if (refreshPromise) return refreshPromise;
-  
-  // Check cooldown to prevent rapid successive calls
+
   const now = Date.now();
-  if (now - lastRefreshTime < REFRESH_COOLDOWN_MS && authState() !== "unknown") {
-    console.log("refreshAuth: cooldown active, returning cached state");
-    return authState() === "authenticated";
+  if (now - lastRefreshTime < REFRESH_COOLDOWN_MS && authState !== "unknown") {
+    return authState === "authenticated";
   }
-  
+
   lastRefreshTime = now;
   refreshPromise = (async () => {
     try {
@@ -205,18 +214,16 @@ export async function refreshAuth(): Promise<boolean> {
             isHostBackend = true;
           }
         } catch {
-          // Ignore parse errors and treat as non-host backend
+          /* ignore */
         }
       }
 
       if (isHostBackend && !isSelfHostedMode()) {
-        // Host backend does not expose account /me endpoint.
         clearMeCache();
         setAuthState("unauthenticated");
         return false;
       }
 
-      // Quick client-side check: if no JWT, try exchanging cookie-based session
       if (!hasJWT()) {
         const token = await exchangeSessionForJWT(backendUrl);
         if (!token) {
@@ -227,23 +234,20 @@ export async function refreshAuth(): Promise<boolean> {
         }
       }
 
-      // JWT exists - assume authenticated and fetch user info in background
       setAuthState("authenticated");
 
       try {
         await fetchMeFromApi();
         setAuthState("authenticated");
         return true;
-      } catch (error) {
-        const err = error as any;
-        if (err?.message?.includes("401")) {
+      } catch (error: any) {
+        if (error?.message?.includes("401")) {
           clearMeCache();
           clearJWT();
           setAuthState("unauthenticated");
           return false;
         }
         console.warn("refreshAuth: error fetching user", error);
-        // Network or other error - keep authenticated state if JWT exists
         return true;
       }
     } finally {
@@ -253,19 +257,21 @@ export async function refreshAuth(): Promise<boolean> {
   return refreshPromise;
 }
 
-// SolidJS-specific hook for accessing current user
-export function useMe() {
-  ensureMeResource();
-  return meResource!;
+export async function logout(): Promise<void> {
+  try {
+    await apiLogout();
+  } finally {
+    clearMeCache();
+    clearJWT();
+    setAuthState("unauthenticated");
+  }
 }
 
-// Account switching helper
 export function switchAccount(index: number): void {
   const success = switchToAccount(index);
   if (success) {
-    // Clear current user cache
     clearMeCache();
-    // Reload the page to refresh all state
+    setAuthState("unknown");
     if (typeof window !== "undefined") {
       window.location.reload();
     }
@@ -289,16 +295,11 @@ function joinUrl(base: string, path: string): string {
 
 function requireBackendOrigin(): string {
   const backend = getBackendUrl();
-  if (backend) {
-    return backend;
-  }
+  if (backend) return backend;
   throw new Error("BACKEND_URL not configured");
 }
 
-async function activityRequest(
-  path: string,
-  init: RequestInit = {},
-) {
+async function activityRequest(path: string, init: RequestInit = {}) {
   const backend = requireBackendOrigin();
   const url = joinUrl(backend, path);
   const headers = new Headers(init.headers ?? undefined);
@@ -307,11 +308,7 @@ async function activityRequest(
     headers.set("Authorization", `Bearer ${jwt}`);
   }
   const hasBody = init.body !== undefined && init.body !== null;
-  if (
-    hasBody &&
-    !(init.body instanceof FormData) &&
-    !headers.has("Content-Type")
-  ) {
+  if (hasBody && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   if (!headers.has("Accept")) {
@@ -368,10 +365,7 @@ export async function fetchDirectMessages(threadId: string) {
   return normalizeCollection(data);
 }
 
-export async function fetchChannelMessages(
-  communityId: string,
-  channelId: string,
-) {
+export async function fetchChannelMessages(communityId: string, channelId: string) {
   if (!communityId || !channelId) {
     return { orderedItems: [] };
   }
@@ -380,22 +374,12 @@ export async function fetchChannelMessages(
   return normalizeCollection(data);
 }
 
-export async function postDirectMessage(
-  params: {
-    recipients: string[];
-    content: string;
-    inReplyTo?: string | null;
-    context?: string | null;
-  },
-) {
-  const recipients = Array.isArray(params.recipients)
-    ? params.recipients
-    : [];
+export async function postDirectMessage(params: { recipients: string[]; content: string; inReplyTo?: string | null; context?: string | null }) {
+  const recipients = Array.isArray(params.recipients) ? params.recipients : [];
   if (!recipients.length) {
     throw new Error("recipient required");
   }
 
-  // Use the standard REST API instead of ActivityPub outbox
   const result = await api("/dm/send", {
     method: "POST",
     body: JSON.stringify({
@@ -410,20 +394,11 @@ export async function postDirectMessage(
   return { threadId: (result as any)?.threadId };
 }
 
-export async function postChannelMessage(
-  params: {
-    communityId: string;
-    channelId: string;
-    content: string;
-    recipients?: string[];
-    inReplyTo?: string | null;
-  },
-) {
+export async function postChannelMessage(params: { communityId: string; channelId: string; content: string; recipients?: string[]; inReplyTo?: string | null }) {
   if (!params.communityId || !params.channelId) {
     throw new Error("communityId and channelId required");
   }
 
-  // Use the standard REST API instead of ActivityPub outbox
   await api(`/communities/${encodeURIComponent(params.communityId)}/channels/${encodeURIComponent(params.channelId)}/messages`, {
     method: "POST",
     body: JSON.stringify({

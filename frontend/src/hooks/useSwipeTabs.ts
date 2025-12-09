@@ -1,4 +1,4 @@
-import { createSignal, type Accessor } from "solid-js";
+import { createSignal, type Accessor } from "../lib/solid-compat";
 
 type SwipeTabsOptions = {
   length: number | Accessor<number>;

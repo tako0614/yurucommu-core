@@ -1,5 +1,6 @@
-import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
-import { useLocation, useNavigate } from "@solidjs/router";
+import type React from "react";
+import { For, Show, createSignal, onCleanup, onMount } from "../lib/solid-compat";
+import { useLocation, useNavigate } from "react-router-dom";
 import Avatar from "./Avatar";
 import {
   getStoredAccounts,
@@ -44,7 +45,7 @@ export default function AccountManager() {
     switchAccount(index);
   };
 
-  const handleRemove = (event: MouseEvent, index: number) => {
+  const handleRemove = (event: React.MouseEvent, index: number) => {
     event.stopPropagation();
     removeAccount(index);
     refreshAccounts();
@@ -63,19 +64,19 @@ export default function AccountManager() {
   };
 
   return (
-    <div class="rounded-2xl border hairline bg-white dark:bg-neutral-900 px-4 py-5 shadow-sm">
-      <div class="flex items-center justify-between gap-3 mb-4">
+    <div className="rounded-2xl border hairline bg-white dark:bg-neutral-900 px-4 py-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3 mb-4">
         <div>
-          <div class="text-base font-semibold text-gray-900 dark:text-white">
+          <div className="text-base font-semibold text-gray-900 dark:text-white">
             アカウント
           </div>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             保存済みのアカウントを切り替えたり削除できます。
           </p>
         </div>
         <button
           type="button"
-          class="text-sm px-3 py-1.5 rounded-full border hairline text-gray-700 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-neutral-800"
+          className="text-sm px-3 py-1.5 rounded-full border hairline text-gray-700 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-neutral-800"
           onClick={handleAddAccount}
         >
           アカウントを追加
@@ -84,23 +85,23 @@ export default function AccountManager() {
       <Show
         when={accounts().length > 0}
         fallback={
-          <div class="text-sm text-gray-500 dark:text-gray-400">
+          <div className="text-sm text-gray-500 dark:text-gray-400">
             まだ保存されたアカウントはありません。
           </div>
         }
       >
-        <div class="space-y-2">
+        <div className="space-y-2">
           <For each={accounts()}>
             {(account, indexAccessor) => {
               const index = indexAccessor();
               const isActive = () => index === activeIndex();
               return (
                 <div
-                  class="flex items-center gap-3 rounded-2xl border border-transparent hover:border-gray-200 dark:hover:border-gray-700 px-3 py-2 transition-colors cursor-pointer"
+                  className="flex items-center gap-3 rounded-2xl border border-transparent hover:border-gray-200 dark:hover:border-gray-700 px-3 py-2 transition-colors cursor-pointer"
                   role="button"
                   tabIndex={0}
                   onClick={() => handleSwitch(index)}
-                  onKeyDown={(event) => {
+                  onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
                       handleSwitch(index);
@@ -110,17 +111,17 @@ export default function AccountManager() {
                   <Avatar
                     src={account.avatarUrl || ""}
                     alt={account.displayName || account.handle}
-                    class="w-10 h-10 rounded-full object-cover bg-gray-100 dark:bg-neutral-800"
+                    className="w-10 h-10 rounded-full object-cover bg-gray-100 dark:bg-neutral-800"
                   />
-                  <div class="flex-1 min-w-0">
-                    <div class="text-sm font-medium text-gray-900 dark:text-white truncate">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
                       {account.displayName || account.handle}
                     </div>
-                    <div class="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                       @{account.handle}
                       <Show when={account.hostHandle}>
                         {(hostLabel) => (
-                          <span class="ml-1 text-gray-400 dark:text-gray-500">
+                          <span className="ml-1 text-gray-400 dark:text-gray-500">
                             · {hostLabel()}
                           </span>
                         )}
@@ -130,18 +131,18 @@ export default function AccountManager() {
                   <Show
                     when={isActive()}
                     fallback={
-                      <span class="text-xs text-blue-600 dark:text-blue-400">
+                      <span className="text-xs text-blue-600 dark:text-blue-400">
                         切り替え
                       </span>
                     }
                   >
-                    <span class="text-xs text-green-600 dark:text-green-400">
+                    <span className="text-xs text-green-600 dark:text-green-400">
                       使用中
                     </span>
                   </Show>
                   <button
                     type="button"
-                    class="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                    className="text-xs text-gray-400 hover:text-red-500 transition-colors"
                     onClick={(event) => handleRemove(event, index)}
                     aria-label="アカウントを削除"
                   >

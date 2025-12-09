@@ -1,10 +1,7 @@
-import { Show, createSignal, onMount } from "solid-js";
-import { useLocation, useNavigate } from "@solidjs/router";
-import {
-  login,
-  refreshAuth,
-  setJWT,
-} from "../lib/api";
+import type React from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { Show, createSignal, onMount } from "../lib/solid-compat";
+import { login, refreshAuth, setJWT } from "../lib/api";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -35,7 +32,7 @@ export default function Login() {
     }
   });
 
-  const handleSubmit = async (event: Event) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
     if (!password()) {
@@ -69,57 +66,57 @@ export default function Login() {
   };
 
   return (
-    <div class="min-h-dvh bg-linear-to-br from-slate-100 via-slate-50 to-white dark:from-neutral-950 dark:via-neutral-950 dark:to-neutral-950 flex items-center justify-center px-6 py-12">
-      <div class="w-full max-w-md space-y-6">
-        <div class="text-center space-y-2">
-          <div class="text-3xl font-bold text-slate-900 dark:text-slate-100">
+    <div className="min-h-dvh bg-linear-to-br from-slate-100 via-slate-50 to-white dark:from-neutral-950 dark:via-neutral-950 dark:to-neutral-950 flex items-center justify-center px-6 py-12">
+      <div className="w-full max-w-md space-y-6">
+        <div className="text-center space-y-2">
+          <div className="text-3xl font-bold text-slate-900 dark:text-slate-100">
             YuruCommu
           </div>
-          <p class="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             ゆるいコミュニティと再会しましょう
           </p>
         </div>
 
-        <div class="rounded-3xl bg-white dark:bg-neutral-900 px-8 py-10 shadow-lg shadow-slate-900/5 dark:shadow-slate-100/5">
-          <div class="space-y-2 mb-6 text-center">
-            <h2 class="text-xl font-semibold text-slate-900 dark:text-slate-100">
+        <div className="rounded-3xl bg-white dark:bg-neutral-900 px-8 py-10 shadow-lg shadow-slate-900/5 dark:shadow-slate-100/5">
+          <div className="space-y-2 mb-6 text-center">
+            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
               {isAddAccountFlow ? "アカウントを追加" : "ログイン"}
             </h2>
             <Show when={isAddAccountFlow}>
-              <p class="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 現在のセッションは維持されます。追加後はプロフィールのアカウント一覧から切り替えできます。
               </p>
             </Show>
           </div>
 
-          <form class="space-y-4 text-left" onSubmit={handleSubmit}>
-            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300">
+          <form className="space-y-4 text-left" onSubmit={handleSubmit}>
+            <label className="block text-sm font-medium text-slate-600 dark:text-slate-300">
               パスワード
               <input
                 type="password"
-                class="mt-1 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-neutral-950 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500"
+                className="mt-1 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-neutral-950 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500"
                 value={password()}
-                onInput={(ev) => setPassword(ev.currentTarget.value)}
-                autocomplete="current-password"
+                onChange={(ev) => setPassword(ev.currentTarget.value)}
+                autoComplete="current-password"
                 placeholder="パスワードを入力"
               />
             </label>
 
             <button
               type="submit"
-              class="w-full inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 dark:bg-slate-100 px-5 py-3 text-sm font-semibold text-white dark:text-slate-900 transition hover:bg-slate-800 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 dark:bg-slate-100 px-5 py-3 text-sm font-semibold text-white dark:text-slate-900 transition hover:bg-slate-800 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={submitting()}
             >
               <Show
                 when={submitting()}
                 fallback={<span>ログイン</span>}
               >
-                <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 dark:border-slate-900/40 border-t-white dark:border-t-slate-900" />
+                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 dark:border-slate-900/40 border-t-white dark:border-t-slate-900" />
                 <span>サインイン中...</span>
               </Show>
             </button>
             <Show when={error()}>
-              <p class="text-xs text-red-500 dark:text-red-400">{error()}</p>
+              <p className="text-xs text-red-500 dark:text-red-400">{error()}</p>
             </Show>
           </form>
         </div>

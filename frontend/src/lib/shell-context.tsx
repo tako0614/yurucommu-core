@@ -1,4 +1,4 @@
-import { createContext, useContext, type ParentProps } from "solid-js";
+import { createContext, useContext, type PropsWithChildren } from "react";
 
 export type ShellContextValue = {
   onOpenComposer?: () => void;
@@ -8,7 +8,7 @@ export type ShellContextValue = {
 const ShellContext = createContext<ShellContextValue | undefined>(undefined);
 
 export function ShellContextProvider(
-  props: ParentProps<{ value: ShellContextValue }>,
+  props: PropsWithChildren<{ value: ShellContextValue }>,
 ) {
   return (
     <ShellContext.Provider value={props.value}>

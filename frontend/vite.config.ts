@@ -1,18 +1,18 @@
-import path from 'node:path';
-import { defineConfig } from 'vite';
-import solid from 'vite-plugin-solid';
-import tailwindcss from '@tailwindcss/vite';
+import path from "node:path";
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig(() => ({
-  plugins: [solid(), tailwindcss()],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      '@platform': path.resolve(__dirname, '../platform/src'),
+      "@platform": path.resolve(__dirname, "../platform/src"),
     },
   },
   server: {
     fs: {
-      allow: [path.resolve(__dirname, '..')],
+      allow: [path.resolve(__dirname, "..")],
     },
   },
 }));

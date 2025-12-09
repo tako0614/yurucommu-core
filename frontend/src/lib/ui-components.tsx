@@ -5,8 +5,9 @@
  * (PLAN.md 7: UI ランタイム完全移行)
  */
 
-import type { Component, JSX } from "solid-js";
-import { For, Show, Suspense, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
+import type React from "react";
+import type { JSX } from "react";
+import { For, Show, Suspense, createEffect, createMemo, createResource, createSignal, onCleanup, type Component } from "./solid-compat";
 import { registerUiComponent, type UiRuntimeContext } from "./ui-runtime";
 
 // Import existing components
@@ -252,16 +253,16 @@ const PostFeed: Component<{
   };
 
   return (
-    <Suspense fallback={<div class="text-center py-8 text-muted">Loading...</div>}>
+    <Suspense fallback={<div className="text-center py-8 text-muted">Loading...</div>}>
       <Show
         when={posts() && posts()!.length > 0}
         fallback={
-          <div class="text-center py-8 text-muted">
+          <div className="text-center py-8 text-muted">
             {props.emptyText || "No posts yet"}
           </div>
         }
       >
-        <div class="grid gap-2">
+        <div className="grid gap-2">
           <For each={posts()}>
             {(post) => (
               <PostCard
@@ -309,7 +310,7 @@ const UserAvatar: Component<{
     <Avatar
       src={props.src || ""}
       alt={props.alt || "User"}
-      class={`${sizeClass} rounded-full bg-gray-200 dark:bg-neutral-700`}
+      className={`${sizeClass} rounded-full bg-gray-200 dark:bg-neutral-700`}
     />
   );
 };
@@ -415,38 +416,37 @@ const ThreadList: Component<{
   };
 
   return (
-    <Suspense fallback={<div class="text-center py-8 text-muted">Loading...</div>}>
+    <Suspense fallback={<div className="text-center py-8 text-muted">Loading...</div>}>
       <Show
         when={threads() && threads()!.length > 0}
         fallback={
-          <div class="text-center py-8 text-muted">
+          <div className="text-center py-8 text-muted">
             {props.emptyText || "No messages yet"}
           </div>
         }
       >
-        <div class="divide-y divide-gray-200 dark:divide-neutral-700">
+        <div className="divide-y divide-gray-200 dark:divide-neutral-700">
           <For each={threads()}>
             {(thread: any) => (
               <button
                 type="button"
                 onClick={() => handleOpenThread(thread)}
-                class="block w-full p-4 text-left hover:bg-gray-50 dark:hover:bg-neutral-800"
+                className="block w-full p-4 text-left hover:bg-gray-50 dark:hover:bg-neutral-800"
                 aria-current={activeThreadId() === thread?.id ? "true" : "false"}
               >
-                <div class="flex items-center gap-3">
+                <div className="flex items-center gap-3">
                   <UserAvatar src={thread.participant?.avatar_url || thread?.avatar_url} size="md" />
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-2">
-                      <span class="font-semibold text-gray-900 dark:text-white truncate">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-gray-900 dark:text-white truncate">
                         {recipientLabel(thread)}
                       </span>
                       <span
-                        class="h-2 w-2 rounded-full bg-blue-500 transition-opacity"
-                        classList={{ "opacity-0": !isUnread(thread) }}
+                        className={`h-2 w-2 rounded-full bg-blue-500 transition-opacity ${!isUnread(thread) ? "opacity-0" : ""}`}
                         aria-label={isUnread(thread) ? "未読" : "既読"}
                       />
                     </div>
-                    <div class="text-sm text-gray-500 truncate">
+                    <div className="text-sm text-gray-500 truncate">
                       {latestMessageText(thread)}
                     </div>
                   </div>
@@ -480,36 +480,36 @@ const CommunityList: Component<{
   });
 
   return (
-    <Suspense fallback={<div class="text-center py-8 text-muted">Loading...</div>}>
+    <Suspense fallback={<div className="text-center py-8 text-muted">Loading...</div>}>
       <Show
         when={communities() && communities()!.length > 0}
         fallback={
-          <div class="text-center py-8 text-muted">
+          <div className="text-center py-8 text-muted">
             {props.emptyText || "No communities found"}
           </div>
         }
       >
-        <div class="grid gap-4">
+        <div className="grid gap-4">
           <For each={communities()}>
             {(community: any) => (
               <a
                 href={`/communities/${community.id}`}
-                class="block p-4 bg-white dark:bg-neutral-800 rounded-lg border border-gray-200 dark:border-neutral-700 hover:border-blue-500"
+                className="block p-4 bg-white dark:bg-neutral-800 rounded-lg border border-gray-200 dark:border-neutral-700 hover:border-blue-500"
               >
-                <div class="flex items-center gap-3">
+                <div className="flex items-center gap-3">
                   <Show when={community.icon_url}>
                     <img
                       src={community.icon_url}
                       alt=""
-                      class="w-12 h-12 rounded-lg object-cover"
+                      className="w-12 h-12 rounded-lg object-cover"
                     />
                   </Show>
-                  <div class="flex-1 min-w-0">
-                    <div class="font-semibold text-gray-900 dark:text-white">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-gray-900 dark:text-white">
                       {community.name}
                     </div>
                     <Show when={community.description}>
-                      <div class="text-sm text-gray-500 line-clamp-2">
+                      <div className="text-sm text-gray-500 line-clamp-2">
                         {community.description}
                       </div>
                     </Show>
@@ -600,29 +600,29 @@ const NotificationList: Component<{
     const link = item?.ref_type === "post" && item?.ref_id ? `/posts/${item.ref_id}` : null;
 
     return (
-      <div class="flex gap-3 px-3 py-3 hover:bg-gray-50 dark:hover:bg-neutral-800">
-        <div class="mt-1">
-          <span class="inline-flex h-9 w-9 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300">
+      <div className="flex gap-3 px-3 py-3 hover:bg-gray-50 dark:hover:bg-neutral-800">
+        <div className="mt-1">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300">
             🔔
           </span>
         </div>
-        <div class="flex-1 min-w-0">
-          <div class="text-sm font-semibold text-gray-900 dark:text-white">{title}</div>
-          <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{timestamp}</div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-gray-900 dark:text-white">{title}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{timestamp}</div>
           <Show when={link}>
-            <a href={link as string} class="text-xs text-blue-600 hover:underline dark:text-blue-400">
+            <a href={link as string} className="text-xs text-blue-600 hover:underline dark:text-blue-400">
               詳細を見る
             </a>
           </Show>
         </div>
-        <div class="flex flex-col items-end gap-2">
+        <div className="flex flex-col items-end gap-2">
           <Show when={!item?.read}>
-            <span class="h-2 w-2 rounded-full bg-blue-500" aria-label="未読" />
+            <span className="h-2 w-2 rounded-full bg-blue-500" aria-label="未読" />
           </Show>
           <Show when={!item?.read}>
             <button
               type="button"
-              class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+              className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
               onClick={() => markRead(item)}
             >
               既読にする
@@ -640,19 +640,19 @@ const NotificationList: Component<{
   };
 
   return (
-    <Suspense fallback={<div class="text-center py-6 text-muted">読み込み中…</div>}>
-      <Show when={!notifications.error} fallback={<div class="p-3 text-sm text-red-500">{errorMessage()}</div>}>
+    <Suspense fallback={<div className="text-center py-6 text-muted">読み込み中…</div>}>
+      <Show when={!notifications.error} fallback={<div className="p-3 text-sm text-red-500">{errorMessage()}</div>}>
         <Show
           when={filteredItems().length > 0}
-          fallback={<div class="text-center py-6 text-muted">{props.emptyText || "通知はありません"}</div>}
+          fallback={<div className="text-center py-6 text-muted">{props.emptyText || "通知はありません"}</div>}
         >
           {props.groupByDate !== false ? (
-            <div class="space-y-4">
+            <div className="space-y-4">
               <For each={groupedItems()}>
                 {(group) => (
-                  <div class="space-y-2">
-                    <div class="text-xs font-semibold text-gray-500 dark:text-gray-400">{group.label}</div>
-                    <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-neutral-800 divide-y divide-gray-200 dark:divide-neutral-800">
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400">{group.label}</div>
+                    <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-neutral-800 divide-y divide-gray-200 dark:divide-neutral-800">
                       <For each={group.items}>{(item) => renderNotification(item)}</For>
                     </div>
                   </div>
@@ -660,7 +660,7 @@ const NotificationList: Component<{
               </For>
             </div>
           ) : (
-            <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-neutral-800 divide-y divide-gray-200 dark:divide-neutral-800">
+            <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-neutral-800 divide-y divide-gray-200 dark:divide-neutral-800">
               <For each={filteredItems()}>{(item) => renderNotification(item)}</For>
             </div>
           )}
@@ -707,7 +707,7 @@ const PostComposer: Component<{
     setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = async (ev: Event) => {
+  const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
     const content = text().trim();
     if (!content && files().length === 0) {
@@ -762,9 +762,9 @@ const PostComposer: Component<{
   };
 
   return (
-    <form class="grid gap-3 rounded-lg border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4" onSubmit={handleSubmit}>
+    <form className="grid gap-3 rounded-lg border border-gray-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4" onSubmit={handleSubmit}>
       <textarea
-        class="w-full min-h-[120px] resize-none rounded-md border border-gray-200 dark:border-neutral-800 bg-transparent p-3 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-500 focus:outline-none"
+        className="w-full min-h-[120px] resize-none rounded-md border border-gray-200 dark:border-neutral-800 bg-transparent p-3 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-500 focus:outline-none"
         placeholder="いま何を考えていますか？"
         value={text()}
         maxLength={maxLength()}
@@ -772,14 +772,14 @@ const PostComposer: Component<{
       />
 
       <Show when={files().length > 0}>
-        <div class="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
           <For each={files()}>
             {(file, index) => (
-              <div class="flex items-center gap-2 rounded-full bg-gray-100 dark:bg-neutral-800 px-3 py-1 text-xs text-gray-800 dark:text-gray-100">
-                <span class="max-w-[180px] truncate" title={file.name}>{file.name}</span>
+              <div className="flex items-center gap-2 rounded-full bg-gray-100 dark:bg-neutral-800 px-3 py-1 text-xs text-gray-800 dark:text-gray-100">
+                <span className="max-w-[180px] truncate" title={file.name}>{file.name}</span>
                 <button
                   type="button"
-                  class="text-gray-500 hover:text-red-500"
+                  className="text-gray-500 hover:text-red-500"
                   onClick={() => removeFile(index())}
                 >
                   ×
@@ -791,18 +791,18 @@ const PostComposer: Component<{
       </Show>
 
       <Show when={error()}>
-        <div class="text-sm text-red-500">{error()}</div>
+        <div className="text-sm text-red-500">{error()}</div>
       </Show>
 
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
-          <label class="inline-flex cursor-pointer items-center gap-2 rounded-full bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-200 dark:bg-neutral-800 dark:text-gray-100 dark:hover:bg-neutral-700">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-200 dark:bg-neutral-800 dark:text-gray-100 dark:hover:bg-neutral-700">
             画像を追加
-            <input type="file" accept="image/*" multiple class="hidden" onChange={(e) => handleFiles((e.target as HTMLInputElement).files)} />
+            <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles((e.target as HTMLInputElement).files)} />
           </label>
 
           <select
-            class="rounded-full border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-gray-100"
+            className="rounded-full border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-gray-100"
             value={visibility()}
             onChange={(e) => setVisibility((e.target as HTMLSelectElement).value as any)}
           >
@@ -812,11 +812,11 @@ const PostComposer: Component<{
           </select>
         </div>
 
-        <div class="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
           <span class={isOverLimit() ? "text-red-500" : ""}>{remaining()} 文字</span>
           <button
             type="submit"
-            class="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
+            className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
             disabled={isDisabled()}
           >
             {posting() ? "投稿中…" : "投稿"}
@@ -839,23 +839,23 @@ const CommentItem: Component<{ comment: any }> = (props) => {
   const createdAt = createMemo(() => formatDateTime(props.comment?.created_at));
 
   return (
-    <div class="flex gap-3">
+    <div className="flex gap-3">
       <Avatar
         src={avatarUrl()}
         alt={displayName()}
-        class="w-10 h-10 rounded-full bg-gray-200 dark:bg-neutral-700"
+        className="w-10 h-10 rounded-full bg-gray-200 dark:bg-neutral-700"
       />
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2">
-          <span class="text-sm font-semibold text-gray-900 dark:text-white">{displayName()}</span>
-          <span class="text-xs text-gray-500 dark:text-gray-400">{createdAt()}</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-gray-900 dark:text-white">{displayName()}</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">{createdAt()}</span>
         </div>
-        <div class="mt-1 text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap leading-relaxed">
+        <div className="mt-1 text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap leading-relaxed">
           {props.comment?.text || ""}
         </div>
-        <div class="mt-2 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
-          <button type="button" class="hover:text-blue-600 dark:hover:text-blue-400">返信</button>
-          <button type="button" class="hover:text-blue-600 dark:hover:text-blue-400">いいね</button>
+        <div className="mt-2 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+          <button type="button" className="hover:text-blue-600 dark:hover:text-blue-400">返信</button>
+          <button type="button" className="hover:text-blue-600 dark:hover:text-blue-400">いいね</button>
         </div>
       </div>
     </div>
@@ -922,13 +922,13 @@ const CommentList: Component<{
   };
 
   return (
-    <Suspense fallback={<div class="text-center py-6 text-muted">読み込み中…</div>}>
-      <Show when={!comments.error} fallback={<div class="p-3 text-sm text-red-500">{errorMessage()}</div>}>
+    <Suspense fallback={<div className="text-center py-6 text-muted">読み込み中…</div>}>
+      <Show when={!comments.error} fallback={<div className="p-3 text-sm text-red-500">{errorMessage()}</div>}>
         <Show
           when={sortedComments().length > 0}
-          fallback={<div class="text-center py-6 text-muted">{props.emptyText || "コメントはまだありません"}</div>}
+          fallback={<div className="text-center py-6 text-muted">{props.emptyText || "コメントはまだありません"}</div>}
         >
-          <div class="space-y-4">
+          <div className="space-y-4">
             <For each={sortedComments()}>{(comment: any) => <CommentItem comment={comment} />}</For>
           </div>
         </Show>
@@ -957,7 +957,7 @@ const CommentForm: Component<{
     return postId ? `/posts/${postId}/comments` : "";
   };
 
-  const submit = async (ev: Event) => {
+  const submit = async (ev: React.FormEvent) => {
     ev.preventDefault();
     const content = text().trim();
     if (!content) {
@@ -991,22 +991,22 @@ const CommentForm: Component<{
   };
 
   return (
-    <form class="grid gap-2" onSubmit={submit}>
+    <form className="grid gap-2" onSubmit={submit}>
       <textarea
-        class="w-full min-h-[80px] resize-none rounded-md border border-gray-200 dark:border-neutral-800 bg-transparent p-3 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-500 focus:outline-none"
+        className="w-full min-h-[80px] resize-none rounded-md border border-gray-200 dark:border-neutral-800 bg-transparent p-3 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-500 focus:outline-none"
         placeholder={props.placeholder || "コメントを書く…"}
         value={text()}
         onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
         autofocus={props.autoFocus}
       />
       <Show when={error()}>
-        <div class="text-sm text-red-500">{error()}</div>
+        <div className="text-sm text-red-500">{error()}</div>
       </Show>
-      <div class="flex items-center justify-between gap-3">
-        <div class="text-xs text-gray-500 dark:text-gray-400">{text().length} 文字</div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs text-gray-500 dark:text-gray-400">{text().length} 文字</div>
         <button
           type="submit"
-          class="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
+          className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
           disabled={posting() || !text().trim()}
         >
           {posting() ? "送信中…" : "送信"}
@@ -1047,35 +1047,35 @@ const FriendList: Component<{
   });
 
   return (
-    <Suspense fallback={<div class="text-center py-6 text-muted">読み込み中…</div>}>
+    <Suspense fallback={<div className="text-center py-6 text-muted">読み込み中…</div>}>
       <Show
         when={friends() && friends()!.length > 0}
         fallback={
-          <div class="text-center py-6 text-muted">
+          <div className="text-center py-6 text-muted">
             {props.emptyText || "まだ友達がいません"}
           </div>
         }
       >
-        <div class="divide-y divide-gray-200 dark:divide-neutral-700">
+        <div className="divide-y divide-gray-200 dark:divide-neutral-700">
           <For each={friends()}>
             {(friend: any) => {
               const user = friend.user || friend;
               return (
                 <a
                   href={`/@${user.handle || user.id}`}
-                  class="flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-neutral-800"
+                  className="flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-neutral-800"
                 >
                   <Avatar
                     src={user.avatar_url || ""}
                     alt={user.display_name || user.handle || "User"}
-                    class="w-10 h-10 rounded-full bg-gray-200 dark:bg-neutral-700"
+                    className="w-10 h-10 rounded-full bg-gray-200 dark:bg-neutral-700"
                   />
-                  <div class="flex-1 min-w-0">
-                    <div class="font-semibold text-gray-900 dark:text-white truncate">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-gray-900 dark:text-white truncate">
                       {user.display_name || user.handle || "Unknown"}
                     </div>
                     <Show when={user.handle}>
-                      <div class="text-sm text-gray-500 truncate">@{user.handle}</div>
+                      <div className="text-sm text-gray-500 truncate">@{user.handle}</div>
                     </Show>
                   </div>
                 </a>
@@ -1120,34 +1120,34 @@ const UserSearchResults: Component<{
   });
 
   return (
-    <Suspense fallback={<div class="text-center py-6 text-muted">検索中…</div>}>
+    <Suspense fallback={<div className="text-center py-6 text-muted">検索中…</div>}>
       <Show when={resolvedQuery().trim()}>
         <Show
           when={users() && users()!.length > 0}
           fallback={
-            <div class="text-center py-6 text-muted">
+            <div className="text-center py-6 text-muted">
               {props.emptyText || "ユーザーが見つかりません"}
             </div>
           }
         >
-          <div class="divide-y divide-gray-200 dark:divide-neutral-700">
+          <div className="divide-y divide-gray-200 dark:divide-neutral-700">
             <For each={users()}>
               {(user: any) => (
                 <a
                   href={`/@${user.handle || user.id}`}
-                  class="flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-neutral-800"
+                  className="flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-neutral-800"
                 >
                   <Avatar
                     src={user.avatar_url || ""}
                     alt={user.display_name || user.handle || "User"}
-                    class="w-10 h-10 rounded-full bg-gray-200 dark:bg-neutral-700"
+                    className="w-10 h-10 rounded-full bg-gray-200 dark:bg-neutral-700"
                   />
-                  <div class="flex-1 min-w-0">
-                    <div class="font-semibold text-gray-900 dark:text-white truncate">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-gray-900 dark:text-white truncate">
                       {user.display_name || "Unknown"}
                     </div>
                     <Show when={user.handle}>
-                      <div class="text-sm text-gray-500 truncate">@{user.handle}</div>
+                      <div className="text-sm text-gray-500 truncate">@{user.handle}</div>
                     </Show>
                   </div>
                 </a>
@@ -1209,49 +1209,49 @@ const InvitationList: Component<{
   };
 
   return (
-    <Suspense fallback={<div class="text-center py-6 text-muted">読み込み中…</div>}>
+    <Suspense fallback={<div className="text-center py-6 text-muted">読み込み中…</div>}>
       <Show
         when={invitations() && invitations()!.length > 0}
         fallback={
-          <div class="text-center py-6 text-muted">
+          <div className="text-center py-6 text-muted">
             {props.emptyText || "招待はありません"}
           </div>
         }
       >
-        <div class="space-y-3">
+        <div className="space-y-3">
           <For each={invitations()}>
             {(invitation: any) => (
-              <div class="rounded-lg border border-gray-200 dark:border-neutral-700 p-4 bg-white dark:bg-neutral-800">
-                <div class="flex items-start gap-3">
+              <div className="rounded-lg border border-gray-200 dark:border-neutral-700 p-4 bg-white dark:bg-neutral-800">
+                <div className="flex items-start gap-3">
                   <Show when={invitation.community?.icon_url}>
                     <img
                       src={invitation.community.icon_url}
                       alt=""
-                      class="w-12 h-12 rounded-lg object-cover"
+                      className="w-12 h-12 rounded-lg object-cover"
                     />
                   </Show>
-                  <div class="flex-1 min-w-0">
-                    <div class="font-semibold text-gray-900 dark:text-white">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-gray-900 dark:text-white">
                       {invitation.community?.name || invitation.community_id}
                     </div>
                     <Show when={invitation.message}>
-                      <div class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                      <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                         {invitation.message}
                       </div>
                     </Show>
                   </div>
                 </div>
-                <div class="flex gap-2 mt-3">
+                <div className="flex gap-2 mt-3">
                   <button
                     type="button"
-                    class="flex-1 rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                    className="flex-1 rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                     onClick={() => handleAccept(invitation.community_id)}
                   >
                     参加する
                   </button>
                   <button
                     type="button"
-                    class="flex-1 rounded-full border border-gray-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-700"
+                    className="flex-1 rounded-full border border-gray-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-700"
                     onClick={() => handleDecline(invitation.community_id)}
                   >
                     辞退する
@@ -1315,47 +1315,47 @@ const FollowRequestList: Component<{
   };
 
   return (
-    <Suspense fallback={<div class="text-center py-6 text-muted">読み込み中…</div>}>
+    <Suspense fallback={<div className="text-center py-6 text-muted">読み込み中…</div>}>
       <Show
         when={requests() && requests()!.length > 0}
         fallback={
-          <div class="text-center py-6 text-muted">
+          <div className="text-center py-6 text-muted">
             {props.emptyText || "フォローリクエストはありません"}
           </div>
         }
       >
-        <div class="space-y-3">
+        <div className="space-y-3">
           <For each={requests()}>
             {(request: any) => {
               const requester = request.requester || {};
               return (
-                <div class="rounded-lg border border-gray-200 dark:border-neutral-700 p-4 bg-white dark:bg-neutral-800">
-                  <div class="flex items-center gap-3">
+                <div className="rounded-lg border border-gray-200 dark:border-neutral-700 p-4 bg-white dark:bg-neutral-800">
+                  <div className="flex items-center gap-3">
                     <Avatar
                       src={requester.avatar_url || ""}
                       alt={requester.display_name || "User"}
-                      class="w-12 h-12 rounded-full bg-gray-200 dark:bg-neutral-700"
+                      className="w-12 h-12 rounded-full bg-gray-200 dark:bg-neutral-700"
                     />
-                    <div class="flex-1 min-w-0">
-                      <div class="font-semibold text-gray-900 dark:text-white truncate">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-gray-900 dark:text-white truncate">
                         {requester.display_name || "Unknown"}
                       </div>
                       <Show when={requester.handle}>
-                        <div class="text-sm text-gray-500 truncate">@{requester.handle}</div>
+                        <div className="text-sm text-gray-500 truncate">@{requester.handle}</div>
                       </Show>
                     </div>
                   </div>
-                  <div class="flex gap-2 mt-3">
+                  <div className="flex gap-2 mt-3">
                     <button
                       type="button"
-                      class="flex-1 rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                      className="flex-1 rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                       onClick={() => handleAccept(request.requester_id)}
                     >
                       承認
                     </button>
                     <button
                       type="button"
-                      class="flex-1 rounded-full border border-gray-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-700"
+                      className="flex-1 rounded-full border border-gray-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-neutral-700"
                       onClick={() => handleReject(request.requester_id)}
                     >
                       拒否
@@ -1459,24 +1459,24 @@ const MessageThread: Component<{
   const resolvedMessages = () => providedMessages() ?? messages();
 
   return (
-    <Suspense fallback={<div class="text-center py-6 text-muted">読み込み中…</div>}>
+    <Suspense fallback={<div className="text-center py-6 text-muted">読み込み中…</div>}>
       <Show when={resolvedThreadId()}>
         <Show
           when={resolvedMessages() && resolvedMessages()!.length > 0}
           fallback={
-            <div class="text-center py-6 text-muted">
+            <div className="text-center py-6 text-muted">
               {props.emptyText || "メッセージはまだありません"}
             </div>
           }
         >
-          <div class="space-y-3 max-h-[50vh] overflow-y-auto p-2">
+          <div className="space-y-3 max-h-[50vh] overflow-y-auto p-2">
             <For each={resolvedMessages()}>
               {(message: any) => (
-                <div class="rounded-lg bg-gray-100 dark:bg-neutral-800 p-3">
-                  <div class="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">
+                <div className="rounded-lg bg-gray-100 dark:bg-neutral-800 p-3">
+                  <div className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">
                     {message.content || message.text || ""}
                   </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                     {formatDateTime(message.published || message.created_at)}
                   </div>
                 </div>
@@ -1512,7 +1512,7 @@ const MessageComposer: Component<{
 
   const actionName = () => props.action || "action.send_dm";
 
-  const handleSubmit = async (ev: Event) => {
+  const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
     const content = text().trim();
     if (!content) {
@@ -1554,20 +1554,20 @@ const MessageComposer: Component<{
   };
 
   return (
-    <form class="grid gap-2" onSubmit={handleSubmit}>
+    <form className="grid gap-2" onSubmit={handleSubmit}>
       <textarea
-        class="w-full min-h-[80px] resize-none rounded-md border border-gray-200 dark:border-neutral-800 bg-transparent p-3 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 focus:outline-none"
+        className="w-full min-h-[80px] resize-none rounded-md border border-gray-200 dark:border-neutral-800 bg-transparent p-3 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-500 focus:outline-none"
         placeholder={props.placeholder || "メッセージを入力"}
         value={text()}
         onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
       />
       <Show when={error()}>
-        <div class="text-sm text-red-500">{error()}</div>
+        <div className="text-sm text-red-500">{error()}</div>
       </Show>
-      <div class="flex justify-end">
+      <div className="flex justify-end">
         <button
           type="submit"
-          class="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
+          className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
           disabled={sending() || !text().trim()}
         >
           {sending() ? "送信中…" : "送信"}
@@ -1594,7 +1594,7 @@ const NavLink: Component<{
   return (
     <a
       href={props.href}
-      class={`flex items-center gap-2 px-3 py-2 rounded-lg ${
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg ${
         isActive()
           ? "bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400"
           : "hover:bg-gray-100 dark:hover:bg-neutral-800"
@@ -1617,16 +1617,16 @@ const PageHeader: Component<{
   children?: JSX.Element;
 }> = (props) => {
   return (
-    <div class="flex items-center gap-4 mb-6">
+    <div className="flex items-center gap-4 mb-6">
       <Show when={props.backHref}>
         <a
           href={props.backHref}
-          class="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-neutral-800"
+          className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-neutral-800"
         >
           ←
         </a>
       </Show>
-      <h1 class="text-xl font-bold text-gray-900 dark:text-white flex-1">
+      <h1 className="text-xl font-bold text-gray-900 dark:text-white flex-1">
         {props.title}
       </h1>
       {props.children}
@@ -1839,58 +1839,58 @@ const UserProfileView: Component<{
   });
 
   return (
-    <div class="max-w-[680px] mx-auto">
+    <div className="max-w-[680px] mx-auto">
       {/* Profile Card */}
-      <div class="bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-md p-4">
+      <div className="bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-md p-4">
         <Show when={user.error}>
-          <div class="text-center p-6">
-            <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-2">
+          <div className="text-center p-6">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
               ユーザーが見つかりません
             </h2>
-            <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
               @{lookupId()} は存在しないか、アクセスできません。
             </p>
-            <a href="/" class="inline-block px-4 py-2 bg-blue-600 text-white rounded-full text-sm hover:bg-blue-700">
+            <a href="/" className="inline-block px-4 py-2 bg-blue-600 text-white rounded-full text-sm hover:bg-blue-700">
               ホームに戻る
             </a>
           </div>
         </Show>
-        <Show when={!user.error && user()} fallback={!user.error && <div class="text-muted">読み込み中…</div>}>
-          <div class="flex items-start gap-4">
+        <Show when={!user.error && user()} fallback={!user.error && <div className="text-muted">読み込み中…</div>}>
+          <div className="flex items-start gap-4">
             <img
               src={user()?.avatar_url || ""}
               alt="アバター"
-              class="w-20 h-20 rounded-full bg-gray-200 dark:bg-neutral-700 object-cover"
+              className="w-20 h-20 rounded-full bg-gray-200 dark:bg-neutral-700 object-cover"
             />
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 flex-wrap">
-                <div class="text-xl font-semibold truncate">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="text-xl font-semibold truncate">
                   {user()!.display_name || "ユーザー"}
                 </div>
-                <span class="text-xs text-muted break-all">
+                <span className="text-xs text-muted break-all">
                   ID: @{user()!.handle || user()!.id}
                 </span>
                 <Show when={isFriend()}>
-                  <span class="text-xs font-semibold text-green-700 dark:text-green-300">
+                  <span className="text-xs font-semibold text-green-700 dark:text-green-300">
                     友達（相互フォロー）
                   </span>
                 </Show>
               </div>
-              <div class="mt-3 flex items-center gap-8">
+              <div className="mt-3 flex items-center gap-8">
                 <div>
-                  <div class="text-[15px] font-semibold text-gray-900 dark:text-white">
+                  <div className="text-[15px] font-semibold text-gray-900 dark:text-white">
                     {posts()?.length ?? 0}
                   </div>
-                  <div class="text-[12px] text-muted">投稿</div>
+                  <div className="text-[12px] text-muted">投稿</div>
                 </div>
               </div>
-              <div class="mt-3 flex items-center">
-                <div class="ml-auto flex items-center gap-2">
+              <div className="mt-3 flex items-center">
+                <div className="ml-auto flex items-center gap-2">
                   <Show when={me() && user() && me()!.id !== user()!.id}>
-                    <div class="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <Show when={followingStatus() === "accepted"}>
                         <button
-                          class="px-3 py-1.5 rounded-full border border-gray-200 dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
+                          className="px-3 py-1.5 rounded-full border border-gray-200 dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
                           disabled={loading()}
                           onClick={onUnfollow}
                         >
@@ -1899,7 +1899,7 @@ const UserProfileView: Component<{
                       </Show>
                       <Show when={followingStatus() === "pending"}>
                         <button
-                          class="px-3 py-1.5 rounded-full border border-gray-200 dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
+                          className="px-3 py-1.5 rounded-full border border-gray-200 dark:border-neutral-700 text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
                           disabled={loading()}
                           onClick={onUnfollow}
                         >
@@ -1908,7 +1908,7 @@ const UserProfileView: Component<{
                       </Show>
                       <Show when={!followingStatus()}>
                         <button
-                          class="px-3 py-1.5 rounded-full bg-black text-white hover:opacity-90 text-sm"
+                          className="px-3 py-1.5 rounded-full bg-black text-white hover:opacity-90 text-sm"
                           disabled={loading()}
                           onClick={onFollow}
                         >
@@ -1919,7 +1919,7 @@ const UserProfileView: Component<{
                   </Show>
                   <button
                     onClick={() => { setProfileModalView("share"); setShareOpen(true); }}
-                    class="px-3 py-1.5 border border-gray-200 dark:border-neutral-700 rounded-full text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
+                    className="px-3 py-1.5 border border-gray-200 dark:border-neutral-700 rounded-full text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
                   >
                     プロフィールを共有
                   </button>
@@ -1931,11 +1931,11 @@ const UserProfileView: Component<{
       </div>
 
       {/* Posts List */}
-      <div class="mt-3 bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-md overflow-hidden">
-        <div class="px-3 py-2 text-sm font-medium text-gray-900 dark:text-white">投稿</div>
-        <Show when={posts()} fallback={<div class="px-3 py-10 text-center text-muted">投稿を読み込み中…</div>}>
-          <Show when={posts()!.length > 0} fallback={<div class="px-3 py-10 text-center text-muted">まだ投稿がありません</div>}>
-            <div class="grid gap-0">
+      <div className="mt-3 bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-md overflow-hidden">
+        <div className="px-3 py-2 text-sm font-medium text-gray-900 dark:text-white">投稿</div>
+        <Show when={posts()} fallback={<div className="px-3 py-10 text-center text-muted">投稿を読み込み中…</div>}>
+          <Show when={posts()!.length > 0} fallback={<div className="px-3 py-10 text-center text-muted">まだ投稿がありません</div>}>
+            <div className="grid gap-0">
               <For each={posts() || []}>
                 {(p: any) => (
                   <PostCard post={p} onUpdated={handlePostUpdated} onDeleted={handlePostDeleted} />
