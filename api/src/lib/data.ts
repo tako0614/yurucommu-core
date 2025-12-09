@@ -1719,6 +1719,17 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       where: { id },
       data: { status, updated_at: new Date() },
     });
+  const deleteAppWorkspace = async (id: string) => {
+    const model = (prisma as any).app_workspaces;
+    if (!model?.delete) return false;
+    try {
+      await model.delete({ where: { id } });
+      return true;
+    } catch (error) {
+      console.warn("[workspace] failed to delete app workspace", error);
+      return false;
+    }
+  };
 
   const createExportRequest = async (input: Types.DataExportRequestInput) =>
     (prisma as any).data_export_requests.create({
@@ -2075,6 +2086,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     getAppWorkspace,
     listAppWorkspaces,
     updateAppWorkspaceStatus,
+    deleteAppWorkspace,
 
     // Data export
     createExportRequest,

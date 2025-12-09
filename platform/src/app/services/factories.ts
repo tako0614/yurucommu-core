@@ -44,6 +44,7 @@ import type { DMService, MarkReadInput } from "./dm-service";
 import type { CommunityService } from "./community-service";
 import type { UserService } from "./user-service";
 import type { MediaService } from "./media-service";
+import { createMediaService } from "./media-service";
 import type { ActorService, ActorProfile } from "./actor-service";
 import type { StorageService } from "./storage-service";
 import type { NotificationService } from "./notification-service";
@@ -62,7 +63,6 @@ import type {
   FollowRequestList,
   UpdateProfileInput,
 } from "@takos/platform/app/services/user-service";
-import type { MediaObject, MediaListResult, ListMediaParams } from "@takos/platform/app/services/media-service";
 import type { AppAuthContext } from "@takos/platform/app/runtime/types";
 import { makeData } from "../../server/data-factory";
 import { releaseStore } from "../../utils/utils";
@@ -1402,30 +1402,6 @@ const createStoryService = (env: any): StoryService => {
     async deleteStory(ctx, id) {
       ensureAuth(ctx);
       await objects.delete(ctx, id);
-    },
-  };
-};
-
-const createMediaService = (env: any, storage?: StorageService): MediaService => {
-  const storageService = storage ?? createStorageService(env);
-  return {
-    async listStorage(ctx, params?: ListMediaParams): Promise<MediaListResult> {
-      const list = await storageService.list(ctx, {
-        limit: params?.limit,
-        cursor: params?.offset ? String(params.offset) : undefined,
-      });
-      const files: MediaObject[] = list.objects.map((obj) => ({
-        id: obj.key,
-        url: storageService.getPublicUrl(obj.key),
-        created_at: obj.lastModified?.toISOString?.() ?? undefined,
-        size: obj.size,
-      }));
-      return { files, next_offset: list.cursor ? Number(list.cursor) : null };
-    },
-
-    async deleteStorageObject(ctx, key: string) {
-      await storageService.deleteObject(ctx, key);
-      return { deleted: true };
     },
   };
 };

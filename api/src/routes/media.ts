@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings, Variables } from "@takos/platform/server";
 import { ok, fail } from "@takos/platform/server";
 import type { AppAuthContext } from "@takos/platform/app/runtime/types";
+import type { ImageTransformOptions, UploadMediaInput } from "@takos/platform/app/services/media-service";
 import { auth } from "../middleware/auth";
 import { createMediaService } from "../services";
 import { getAppAuthContext } from "../lib/auth-context";
@@ -23,32 +24,23 @@ const parsePagination = (url: URL, defaults = { limit: 20, offset: 0 }) => {
   return { limit, offset };
 };
 
-const inferExtFromType = (t: string) => {
-  const m = (t || "").toLowerCase();
-  if (m.includes("jpeg")) return "jpg";
-  if (m.includes("png")) return "png";
-  if (m.includes("webp")) return "webp";
-  if (m.includes("gif")) return "gif";
-  if (m.includes("svg")) return "svg";
-  if (m.includes("mp4")) return "mp4";
-  if (m.includes("webm")) return "webm";
-  if (m.includes("quicktime") || m.includes("mov")) return "mov";
-  return "";
-};
-
-const safeFileExt = (name: string, type: string): string => {
-  const n = (name || "").toLowerCase();
-  const dot = n.lastIndexOf(".");
-  const extFromName = dot >= 0 ? n.slice(dot + 1).replace(/[^a-z0-9]/g, "") : "";
-  const fromType = inferExtFromType(type);
-  return (extFromName || fromType || "").slice(0, 8);
-};
-
-const datePrefix = (d = new Date()) => {
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  return `${y}/${m}/${dd}`;
+const parseTransformOptions = (url: URL): ImageTransformOptions | null => {
+  const width = parseInt(url.searchParams.get("w") || "", 10);
+  const height = parseInt(url.searchParams.get("h") || "", 10);
+  const quality = parseInt(url.searchParams.get("quality") || url.searchParams.get("q") || "", 10);
+  const blur = parseInt(url.searchParams.get("blur") || "", 10);
+  const fit = (url.searchParams.get("fit") || "").trim().toLowerCase();
+  const format = (url.searchParams.get("format") || url.searchParams.get("fm") || "").trim().toLowerCase();
+  const options: ImageTransformOptions = {};
+  if (!Number.isNaN(width) && width > 0) options.width = width;
+  if (!Number.isNaN(height) && height > 0) options.height = height;
+  if (fit && ["cover", "contain", "fill", "inside", "outside"].includes(fit)) options.fit = fit as ImageTransformOptions["fit"];
+  if (format && ["webp", "avif", "jpeg", "png", "auto"].includes(format)) {
+    options.format = format as ImageTransformOptions["format"];
+  }
+  if (!Number.isNaN(quality) && quality > 0) options.quality = quality;
+  if (!Number.isNaN(blur) && blur > 0) options.blur = blur;
+  return Object.keys(options).length ? options : null;
 };
 
 const ensureAuth = (ctx: AppAuthContext): AppAuthContext => {
@@ -59,6 +51,7 @@ const ensureAuth = (ctx: AppAuthContext): AppAuthContext => {
 const handleError = (c: any, error: unknown) => {
   const message = (error as Error)?.message || "unexpected error";
   if (message === "unauthorized") return fail(c, message, 401);
+  if (message === "forbidden") return fail(c, message, 403);
   return fail(c, message, 400);
 };
 
@@ -79,6 +72,7 @@ media.get("/storage", auth, async (c) => {
 const handleUpload = async (c: any) => {
   const env = c.env;
   if (!env.MEDIA) return fail(c, "media storage not configured", 500);
+  const service = createMediaService(env);
   const authCtx = ensureAuth(getAppAuthContext(c));
   const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
   if (!authContext?.isAuthenticated || !authContext.userId) {
@@ -86,8 +80,8 @@ const handleUpload = async (c: any) => {
   }
   const form = await c.req.formData().catch(() => null);
   if (!form) return fail(c, "invalid form data", 400);
-  const file = form.get("file") as File | null;
-  if (!file) return fail(c, "file required", 400);
+  const file = form.get("file");
+  if (!(typeof Blob !== "undefined" && file instanceof Blob)) return fail(c, "file required", 400);
   const quota = await checkStorageQuota(
     env.MEDIA,
     `user-uploads/${authContext.userId}`,
@@ -100,23 +94,21 @@ const handleUpload = async (c: any) => {
       details: quota.guard.details,
     });
   }
-  const descriptionRaw = form.get("description") ?? form.get("alt");
+  const altRaw = form.get("alt");
+  const descriptionRaw = form.get("description");
+  const alt =
+    typeof altRaw === "string"
+      ? altRaw.slice(0, MAX_ALT_LENGTH).trim()
+      : undefined;
   const description =
     typeof descriptionRaw === "string"
       ? descriptionRaw.slice(0, MAX_ALT_LENGTH).trim()
-      : "";
-  const ext = safeFileExt((file as any).name || "", file.type);
-  const id = crypto.randomUUID().replace(/-/g, "");
-  const prefix = `user-uploads/${authCtx.userId || "anon"}/${datePrefix()}`;
-  const key = `${prefix}/${id}${ext ? "." + ext : ""}`;
-  await env.MEDIA.put(key, file, {
-    httpMetadata: {
-      contentType: file.type || "application/octet-stream",
-      cacheControl: "public, max-age=31536000, immutable",
-    },
-  });
-  const url = `/media/${encodeURI(key)}`;
-  return ok(c, { key, url, description: description || undefined }, 201);
+      : undefined;
+  const overrides: Partial<Omit<UploadMediaInput, "file">> = {};
+  if (alt) overrides.alt = alt;
+  if (description) overrides.description = description;
+  const uploaded = await service.uploadFromFormData(authCtx, form, overrides);
+  return ok(c, uploaded, 201);
 };
 
 // POST /storage/upload - Authenticated upload
@@ -160,9 +152,17 @@ media.post("/upload", auth, async (c) => {
 media.get("/*", async (c) => {
   const env = c.env;
   if (!env.MEDIA) return c.text("Not Found", 404);
-  const path = new URL(c.req.url).pathname;
+  const url = new URL(c.req.url);
+  const path = url.pathname;
   const key = decodeURIComponent(path.replace(/^\/media\//, ""));
   if (!key) return c.text("Not Found", 404);
+  const transform = parseTransformOptions(url);
+  if (transform) {
+    const service = createMediaService(env);
+    const origin = `${url.protocol}//${url.host}`;
+    const target = service.getTransformedUrl(key, transform, origin);
+    return c.redirect(target, 302);
+  }
   const obj = await env.MEDIA.get(key);
   if (!obj) return c.text("Not Found", 404);
   const headers = new Headers();

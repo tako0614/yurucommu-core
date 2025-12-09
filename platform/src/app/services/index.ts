@@ -87,7 +87,16 @@ export type {
   MarkReadInput,
 } from "./dm-service";
 export type { StoryService, Story, StoryPage, StoryItem, CreateStoryInput, ListStoriesParams } from "./story-service";
-export type { MediaService, MediaObject, ListMediaParams, MediaListResult } from "./media-service";
+export type {
+  MediaService,
+  MediaObject,
+  MediaMetadata,
+  MediaStatus,
+  ListMediaParams,
+  MediaListResult,
+  UploadMediaInput,
+  ImageTransformOptions,
+} from "./media-service";
 export type {
   AuthService,
   AuthServiceFactory,
