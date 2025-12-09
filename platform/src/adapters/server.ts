@@ -79,12 +79,12 @@ export class TakosServer {
     await this.initialize();
 
     // Dynamic import to avoid circular dependencies
-    const { createTakosApp } = await import("../../../api/src/index");
+    const { createTakosRoot } = await import("../../../api/src/index");
 
     // Create bindings-like object from adapter
     const env = this.createEnvFromAdapter();
 
-    this.app = createTakosApp({ instanceDomain: this.config.instanceDomain }, this.config.instanceDomain);
+    this.app = createTakosRoot({ instanceDomain: this.config.instanceDomain }, this.config.instanceDomain);
     return this.app;
   }
 

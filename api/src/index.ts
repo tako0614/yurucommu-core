@@ -160,7 +160,7 @@ function featureEnabled(key: keyof InternalFeatureState): boolean {
   return activeFeatures[key];
 }
 
-export type CreateTakosAppConfig = {
+export type CreateTakosRootConfig = {
   makeData?: DataFactory;
   prismaFactory?: (env: PrismaEnv) => unknown;
   ensureDatabase?: EnsureDatabaseFn;
@@ -184,7 +184,7 @@ const defaultConfig: DefaultConfig = {
 
 let ensureDatabaseFn: EnsureDatabaseFn = defaultConfig.ensureDatabase;
 
-function applyConfig(config: CreateTakosAppConfig = {}): void {
+function applyConfig(config: CreateTakosRootConfig = {}): void {
   const next = {
     makeData: config.makeData ?? defaultConfig.makeData,
     prismaFactory: config.prismaFactory ?? defaultConfig.prismaFactory,
@@ -2086,8 +2086,8 @@ app.post("/communities/:id/channels/:channelId/messages", auth, async (c) => {
 
 export default app;
 
-export function createTakosApp(
-  config: CreateTakosAppConfig | string = {},
+export function createTakosRoot(
+  config: CreateTakosRootConfig | string = {},
   instanceDomain: string,
 ): Hono<{ Bindings: Bindings; Variables: Variables }> {
   const resolvedDomain =
@@ -2095,9 +2095,9 @@ export function createTakosApp(
       ? instanceDomain.trim().toLowerCase()
       : undefined;
   if (!resolvedDomain) {
-    throw new Error("createTakosApp requires an instanceDomain argument");
+    throw new Error("createTakosRoot requires an instanceDomain argument");
   }
-  const normalizedConfig: CreateTakosAppConfig =
+  const normalizedConfig: CreateTakosRootConfig =
     typeof config === "string" ? {} : { ...config };
   normalizedConfig.instanceDomain = resolvedDomain;
   applyConfig(normalizedConfig);
