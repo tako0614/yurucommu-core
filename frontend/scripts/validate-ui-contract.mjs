@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
 const contractPath = path.resolve(repoRoot, "takos-ui-contract.json");
+const schemaContractPath = path.resolve(repoRoot, "schemas", "ui-contract.json");
+const publicContractPath = path.resolve(repoRoot, "frontend", "public", "takos-ui-contract.json");
 const viewsDir = path.resolve(repoRoot, "app", "views");
 const sideNavPath = path.resolve(repoRoot, "frontend", "src", "components", "Navigation", "SideNav.tsx");
 const appTabPath = path.resolve(repoRoot, "frontend", "src", "components", "Navigation", "AppTab.tsx");
@@ -38,6 +40,20 @@ function readJson(filePath) {
     return JSON.parse(fs.readFileSync(filePath, "utf8"));
   } catch (error) {
     throw new Error(`Failed to parse JSON at ${filePath}: ${error.message}`);
+  }
+}
+
+function deepEqual(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function assertContractAligned(canonical, candidatePath) {
+  if (!fs.existsSync(candidatePath)) {
+    throw new Error(`Contract copy missing: ${candidatePath}`);
+  }
+  const candidate = readJson(candidatePath);
+  if (!deepEqual(canonical, candidate)) {
+    throw new Error(`Contract mismatch: ${candidatePath} differs from takos-ui-contract.json`);
   }
 }
 
@@ -514,6 +530,8 @@ function validateAgainstManifest(contractScreens, contractActions, screenMap, di
 
 function main() {
   const contract = readJson(contractPath);
+  assertContractAligned(contract, schemaContractPath);
+  assertContractAligned(contract, publicContractPath);
   const screens = loadScreens();
   const screenMap = new Map();
   for (const screen of screens) {

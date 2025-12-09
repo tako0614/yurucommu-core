@@ -1,15 +1,15 @@
-import type { Component } from "solid-js";
+import type { ComponentType } from "react";
 import { configureClient, getClientConfig, type ClientConfig } from "./config";
 
 export type ClientComponentKey = "Login" | "Profile" | "AuthCallback";
 
 export interface ClientPlugin {
   configure?(current: ClientConfig): Partial<ClientConfig> | void;
-  components?: Partial<Record<ClientComponentKey, Component<any>>>;
+  components?: Partial<Record<ClientComponentKey, ComponentType<any>>>;
   setup?(): void;
 }
 
-const componentOverrides = new Map<ClientComponentKey, Component<any>>();
+const componentOverrides = new Map<ClientComponentKey, ComponentType<any>>();
 
 export function registerClientPlugin(plugin: ClientPlugin): void {
   const current = getClientConfig();
@@ -33,8 +33,8 @@ export function registerClientPlugin(plugin: ClientPlugin): void {
 
 export function resolveComponent<T extends Record<string, any>>(
   key: ClientComponentKey,
-  fallback: Component<T>,
-): Component<T> {
+  fallback: ComponentType<T>,
+): ComponentType<T> {
   const override = componentOverrides.get(key);
-  return (override as Component<T> | undefined) ?? fallback;
+  return (override as ComponentType<T> | undefined) ?? fallback;
 }

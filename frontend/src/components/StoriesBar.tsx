@@ -1,12 +1,6 @@
-import {
-  createEffect,
-  createMemo,
-  createResource,
-  createSignal,
-  For,
-  Show,
-} from "solid-js";
-import { useParams } from "@solidjs/router";
+import type React from "react";
+import { createEffect, createMemo, createResource, createSignal, For, Show } from "../lib/solid-compat";
+import { useParams } from "react-router-dom";
 import {
   getStoryViewedMap,
   listStories,
@@ -98,8 +92,8 @@ export default function StoriesBar(props: Props) {
     return map;
   });
 
-  const onPick = async (e: Event) => {
-    const input = e.target as HTMLInputElement;
+  const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
     const files = input.files;
     if (!files || files.length === 0) return;
     setSelectedFiles([...files]);
@@ -108,29 +102,29 @@ export default function StoriesBar(props: Props) {
   };
 
   return (
-    <div class="border-y bg-white dark:bg-neutral-900">
-      <div class="px-3 py-2 text-sm text-gray-500 flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <label class="text-xs px-2 py-1 rounded-full bg-gray-100 hover:bg-gray-200 cursor-pointer">
+    <div className="border-y bg-white dark:bg-neutral-900">
+      <div className="px-3 py-2 text-sm text-gray-500 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <label className="text-xs px-2 py-1 rounded-full bg-gray-100 hover:bg-gray-200 cursor-pointer">
             {uploading() ? "アップロード中…" : "追加"}
             <input
               type="file"
               accept="image/*"
               multiple
-              class="hidden"
+              className="hidden"
               onChange={onPick}
             />
           </label>
           <button
-            class="text-xs px-2 py-1 rounded-full bg-gray-900 text-white"
+            className="text-xs px-2 py-1 rounded-full bg-gray-900 text-white"
             onClick={() => setOpenComposer(true)}
           >
             エディタ
           </button>
         </div>
       </div>
-      <div class="px-2 pb-4 overflow-x-auto">
-        <div class="flex gap-4">
+      <div className="px-2 pb-4 overflow-x-auto">
+        <div className="flex gap-4">
           <For each={groups()}>
             {(g) => {
               const author = () => authorMap()?.get(g.authorId);
@@ -144,7 +138,7 @@ export default function StoriesBar(props: Props) {
               };
               return (
                 <button
-                  class="flex-shrink-0 flex flex-col items-center gap-1"
+                  className="flex-shrink-0 flex flex-col items-center gap-1"
                   onClick={() => {
                     setViewerIndex(g.firstIndex);
                     const createdAt = typeof latest.created_at === 'string' ? latest.created_at : latest.created_at.toISOString();
@@ -156,13 +150,13 @@ export default function StoriesBar(props: Props) {
                       ? "bg-gradient-to-tr from-gray-300 to-gray-200"
                       : "bg-gradient-to-tr from-pink-500 via-purple-500 to-yellow-500")}
                   >
-                    <div class="w-14 h-14 md:w-16 md:h-16 rounded-full bg-white dark:bg-neutral-900 p-[3px]">
-                      <div class="w-full h-full rounded-full overflow-hidden bg-neutral-200">
+                    <div className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-white dark:bg-neutral-900 p-[3px]">
+                      <div className="w-full h-full rounded-full overflow-hidden bg-neutral-200">
                         <Show
                           when={author()?.avatar_url ||
                             (isMe() && me()?.avatar_url)}
                           fallback={
-                            <div class="w-full h-full grid place-items-center text-gray-600 text-xs">
+                            <div className="w-full h-full grid place-items-center text-gray-600 text-xs">
                               {isMe() ? "あなた" : "ユーザー"}
                             </div>
                           }
@@ -171,13 +165,13 @@ export default function StoriesBar(props: Props) {
                             src={(author()?.avatar_url ||
                               me()?.avatar_url) as string}
                             alt="アバター"
-                            class="w-full h-full object-cover"
+                            className="w-full h-full object-cover"
                           />
                         </Show>
                       </div>
                     </div>
                   </div>
-                  <div class="w-20 text-center text-[10px] leading-tight line-clamp-2">
+                  <div className="w-20 text-center text-[10px] leading-tight line-clamp-2">
                     {new Date(latest.created_at).toLocaleString()}
                   </div>
                 </button>

@@ -1,4 +1,5 @@
-import type { Accessor, Component, JSX } from "solid-js";
+import type React from "react";
+import type { JSX } from "react";
 import {
   For,
   Show,
@@ -8,11 +9,13 @@ import {
   createMemo,
   createResource,
   createSignal,
+  createStore,
   onCleanup,
   useContext,
-} from "solid-js";
-import { createStore } from "solid-js/store";
-import { useNavigate } from "@solidjs/router";
+  type Accessor,
+  type Component,
+} from "./solid-compat";
+import { useNavigate } from "react-router-dom";
 import { api, getBackendUrl, getJWT } from "./api";
 import { useToast } from "../components/Toast";
 
@@ -1007,7 +1010,7 @@ const Form: Component<{
     return ok;
   };
 
-  const handleSubmit = async (ev: Event) => {
+  const handleSubmit = async (ev: React.FormEvent) => {
     ev?.preventDefault?.();
     ev?.stopPropagation?.();
     if (!validateAll()) return;
@@ -1581,7 +1584,7 @@ const Image: Component<{ src?: string; alt?: string; width?: number | string; he
  * Link Component - clickable link with routing support
  */
 const Link: Component<{ href?: string; text?: string; action?: ActionLike; context?: UiRuntimeContext; children?: JSX.Element }> = (props) => {
-  const clickHandler = (e: MouseEvent) => {
+  const clickHandler = (e: React.MouseEvent) => {
     if (props.action) {
       e.preventDefault();
       const handler = normalizeActionHandler(props.action, props.context);
@@ -2075,7 +2078,7 @@ const Header: Component<{
   renderChildren?: UiComponentProps["renderChildren"];
   children?: JSX.Element;
 }> = (props) => {
-  const handleBack = (e: MouseEvent) => {
+  const handleBack = (e: React.MouseEvent) => {
     const handler = normalizeActionHandler(props.backAction, props.context);
     if (handler) {
       e.preventDefault();
@@ -2423,7 +2426,7 @@ const TableRow: Component<{
     return undefined;
   });
 
-  const handleClick = (e: MouseEvent) => {
+  const handleClick = (e: React.MouseEvent) => {
     if (!props.onClick) return;
     e.preventDefault();
     const handler = normalizeActionHandler(props.onClick, props.context);

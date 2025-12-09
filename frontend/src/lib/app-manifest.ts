@@ -76,13 +76,23 @@ async function loadUiContract(): Promise<UiContract | null> {
   }
 
   try {
-    const response = await fetch("/schemas/ui-contract.json");
-    if (!response.ok) {
+    const candidates = ["/takos-ui-contract.json", "/schemas/ui-contract.json"];
+    let contract: UiContract | null = null;
+    for (const path of candidates) {
+      try {
+        const response = await fetch(path);
+        if (!response.ok) continue;
+        contract = await response.json();
+        break;
+      } catch {
+        // try next
+      }
+    }
+    if (!contract) {
       console.warn("[UiContract] UI Contract file not found, skipping validation");
       return null;
     }
 
-    const contract: UiContract = await response.json();
     cachedContract = contract;
     return contract;
   } catch (error) {

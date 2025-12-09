@@ -3,9 +3,15 @@
   "screens": [
     {
       "id": "screen.home",
-      "label": "Home",
+      "label": "Home Timeline",
       "routes": ["/"],
       "steps_from_home": 0
+    },
+    {
+      "id": "screen.onboarding",
+      "label": "Onboarding",
+      "routes": ["/onboarding"],
+      "steps_from_home": 1
     },
     {
       "id": "screen.community",
@@ -14,20 +20,20 @@
       "steps_from_home": 1
     },
     {
+      "id": "screen.channel",
+      "label": "Community Hub",
+      "routes": ["/c/:id", "/c/:id/channels/:channelId"],
+      "steps_from_home": 2
+    },
+    {
       "id": "screen.connections",
       "label": "Connections",
       "routes": ["/connections"],
       "steps_from_home": 1
     },
     {
-      "id": "screen.channel",
-      "label": "Community Channel",
-      "routes": ["/c/:id"],
-      "steps_from_home": 2
-    },
-    {
       "id": "screen.dm_list",
-      "label": "Direct Messages",
+      "label": "Messages",
       "routes": ["/chat"],
       "steps_from_home": 1
     },
@@ -39,9 +45,9 @@
     },
     {
       "id": "screen.dm_legacy",
-      "label": "Legacy DM Redirect",
-      "routes": ["/dm"],
-      "steps_from_home": 1
+      "label": "Legacy DM",
+      "routes": ["/dm", "/dm/:id"],
+      "steps_from_home": 2
     },
     {
       "id": "screen.stories",
@@ -53,23 +59,11 @@
       "id": "screen.story_viewer",
       "label": "Story Viewer",
       "routes": ["/stories/:id"],
-      "steps_from_home": 2
-    },
-    {
-      "id": "screen.compose",
-      "label": "Compose Post",
-      "routes": ["/compose"],
-      "steps_from_home": 1
-    },
-    {
-      "id": "screen.post_detail",
-      "label": "Post Detail",
-      "routes": ["/posts/:id"],
       "steps_from_home": 1
     },
     {
       "id": "screen.profile",
-      "label": "Profile",
+      "label": "My Profile",
       "routes": ["/profile"],
       "steps_from_home": 1
     },
@@ -80,15 +74,21 @@
       "steps_from_home": 2
     },
     {
-      "id": "screen.user_profile",
-      "label": "User Profile",
-      "routes": ["/@:handle"],
-      "steps_from_home": 1
-    },
-    {
       "id": "screen.settings",
       "label": "Settings",
       "routes": ["/settings"],
+      "steps_from_home": 2
+    },
+    {
+      "id": "screen.notifications",
+      "label": "Notifications",
+      "routes": ["/notifications"],
+      "steps_from_home": 1
+    },
+    {
+      "id": "screen.user_profile",
+      "label": "User Profile",
+      "routes": ["/@:handle"],
       "steps_from_home": 1
     },
     {
@@ -110,26 +110,26 @@
       "steps_from_home": 2
     },
     {
-      "id": "screen.notifications",
-      "label": "Notifications",
-      "routes": ["/notifications"],
-      "steps_from_home": 2
+      "id": "screen.compose",
+      "label": "Compose",
+      "routes": ["/compose"],
+      "steps_from_home": 1
     },
     {
-      "id": "screen.onboarding",
-      "label": "Onboarding",
-      "routes": ["/onboarding"],
+      "id": "screen.post_detail",
+      "label": "Post Detail",
+      "routes": ["/posts/:id"],
       "steps_from_home": 1
     },
     {
       "id": "screen.storage",
-      "label": "Storage",
+      "label": "Cloud Storage",
       "routes": ["/storage"],
       "steps_from_home": 1
     },
     {
       "id": "screen.storage_folder",
-      "label": "Storage Folder",
+      "label": "Cloud Storage Folder",
       "routes": ["/storage/:folderId"],
       "steps_from_home": 2
     }
@@ -142,12 +142,12 @@
     },
     {
       "id": "action.send_post",
-      "available_on": ["screen.home", "screen.community", "screen.channel", "screen.compose"],
-      "max_steps_from_home": 2
+      "available_on": ["screen.compose", "screen.home"],
+      "max_steps_from_home": 1
     },
     {
       "id": "action.open_notifications",
-      "available_on": ["screen.home", "screen.notifications"],
+      "available_on": ["screen.home"],
       "max_steps_from_home": 1
     },
     {
@@ -162,38 +162,118 @@
     },
     {
       "id": "action.reply",
-      "available_on": ["screen.home", "screen.community", "screen.channel", "screen.post_detail", "screen.profile", "screen.user_profile"],
-      "max_steps_from_home": 2
+      "available_on": [
+        "screen.home",
+        "screen.post_detail",
+        "screen.community",
+        "screen.user_profile"
+      ],
+      "max_steps_from_home": 1
     },
     {
       "id": "action.react",
-      "available_on": ["screen.home", "screen.community", "screen.channel", "screen.post_detail", "screen.profile", "screen.user_profile"],
-      "max_steps_from_home": 2
+      "available_on": [
+        "screen.home",
+        "screen.post_detail",
+        "screen.community",
+        "screen.user_profile"
+      ],
+      "max_steps_from_home": 1
     },
     {
       "id": "action.view_story",
-      "available_on": ["screen.home", "screen.stories", "screen.story_viewer"],
-      "max_steps_from_home": 2
+      "available_on": ["screen.home", "screen.story_viewer", "screen.stories"],
+      "max_steps_from_home": 1
     },
     {
       "id": "action.edit_profile",
-      "available_on": ["screen.profile", "screen.profile_edit", "screen.settings"],
+      "available_on": ["screen.profile", "screen.profile_edit"],
       "max_steps_from_home": 2
     },
     {
       "id": "action.follow",
-      "available_on": ["screen.profile", "screen.user_profile"],
-      "max_steps_from_home": 2
+      "available_on": ["screen.user_profile", "screen.home", "screen.community"],
+      "max_steps_from_home": 1
     },
     {
       "id": "action.unfollow",
-      "available_on": ["screen.profile", "screen.user_profile"],
+      "available_on": ["screen.user_profile", "screen.connections"],
+      "max_steps_from_home": 2
+    },
+    {
+      "id": "action.block",
+      "available_on": ["screen.user_profile", "screen.settings"],
+      "max_steps_from_home": 2
+    },
+    {
+      "id": "action.mute",
+      "available_on": ["screen.user_profile", "screen.settings"],
+      "max_steps_from_home": 2
+    },
+    {
+      "id": "action.bookmark",
+      "available_on": [
+        "screen.home",
+        "screen.post_detail",
+        "screen.community",
+        "screen.user_profile"
+      ],
+      "max_steps_from_home": 1
+    },
+    {
+      "id": "action.repost",
+      "available_on": [
+        "screen.home",
+        "screen.post_detail",
+        "screen.community",
+        "screen.user_profile"
+      ],
+      "max_steps_from_home": 1
+    },
+    {
+      "id": "action.create_community",
+      "available_on": ["screen.community"],
+      "max_steps_from_home": 1
+    },
+    {
+      "id": "action.join_community",
+      "available_on": ["screen.community"],
+      "max_steps_from_home": 1
+    },
+    {
+      "id": "action.leave_community",
+      "available_on": ["screen.community"],
+      "max_steps_from_home": 2
+    },
+    {
+      "id": "action.create_story",
+      "available_on": ["screen.home", "screen.story_viewer", "screen.stories"],
+      "max_steps_from_home": 1
+    },
+    {
+      "id": "action.logout",
+      "available_on": ["screen.settings"],
+      "max_steps_from_home": 2
+    },
+    {
+      "id": "action.delete_post",
+      "available_on": ["screen.post_detail", "screen.home", "screen.user_profile"],
+      "max_steps_from_home": 2
+    },
+    {
+      "id": "action.report",
+      "available_on": ["screen.post_detail", "screen.user_profile", "screen.community"],
+      "max_steps_from_home": 2
+    },
+    {
+      "id": "action.send_channel_message",
+      "available_on": ["screen.channel"],
       "max_steps_from_home": 2
     },
     {
       "id": "action.upload_file",
-      "available_on": ["screen.storage", "screen.storage_folder"],
-      "max_steps_from_home": 2
+      "available_on": ["screen.storage", "screen.storage_folder", "screen.compose"],
+      "max_steps_from_home": 1
     },
     {
       "id": "action.delete_file",

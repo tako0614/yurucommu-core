@@ -1,4 +1,4 @@
-import { render } from "solid-js/web";
+import { createRoot } from "react-dom/client";
 import App from "./App";
 import { initTheme } from "./lib/theme";
 import {
@@ -24,7 +24,7 @@ export {
 
 export interface BootstrapOptions {
   /**
-   * DOM element to mount the Solid application onto.
+   * DOM element to mount the React application onto.
    * Defaults to `document.getElementById("root")`.
    */
   element?: HTMLElement | null;
@@ -47,7 +47,8 @@ export function bootstrapClient(options: BootstrapOptions = {}): void {
   if (options.withTheme !== false) {
     initTheme();
   }
-  render(() => <App />, target);
+  const root = createRoot(target);
+  root.render(<App />);
 }
 
 export default App;

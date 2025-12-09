@@ -1,5 +1,5 @@
-import { For, createSignal, onCleanup, onMount } from "solid-js";
-import type { JSX } from "solid-js/jsx-runtime";
+import { For, createSignal, onCleanup, onMount } from "../lib/solid-compat";
+import type { CSSProperties } from "react";
 
 // Canvas data types
 export type CanvasSize = { width: number; height: number };
@@ -43,7 +43,7 @@ export type CanvasData = {
 type Props = {
   data: CanvasData;
   // CSS size for display. Content scales from 1080x1920 to fit.
-  style?: JSX.CSSProperties;
+  style?: CSSProperties;
   class?: string;
 };
 

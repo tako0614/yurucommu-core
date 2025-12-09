@@ -5,7 +5,7 @@ import {
   For,
   onCleanup,
   Show,
-} from "solid-js";
+} from "../lib/solid-compat";
 
 import { deleteStory, updateStory, type Story } from "../lib/stories";
 import StoryCanvas from "./StoryCanvas";
@@ -124,17 +124,17 @@ export default function StoryViewer(props: Props) {
     const item: any = currentItem();
     if (!item) return null;
     if (item.type === "image") {
-      return <img src={item.url} class="w-full h-full object-contain" />;
+      return <img src={item.url} className="w-full h-full object-contain" />;
     }
     if (item.type === "video") {
       return (
-        <video src={item.url} class="w-full h-full" autoplay muted controls />
+        <video src={item.url} className="w-full h-full" autoplay muted controls />
       );
     }
     if (item.type === "text") {
       return (
         <div
-          class="w-full h-full flex items-center justify-center px-8"
+          className="w-full h-full flex items-center justify-center px-8"
           style={{
             color: item.color || "#fff",
             "background-color": item.backgroundColor || "#000",
@@ -143,7 +143,7 @@ export default function StoryViewer(props: Props) {
           }}
         >
           <p
-            class="text-2xl leading-snug whitespace-pre-wrap break-words w-full"
+            className="text-2xl leading-snug whitespace-pre-wrap break-words w-full"
             style={{
               color: item.color || "#fff",
               "text-align": item.align || "center",
@@ -157,13 +157,13 @@ export default function StoryViewer(props: Props) {
     if (item.type === "extension") {
       if (isCanvasExtensionSlide(item)) {
         return (
-          <div class="w-full h-full flex items-center justify-center">
-            <StoryCanvas data={item.payload.canvas} class="w-full h-full" />
+          <div className="w-full h-full flex items-center justify-center">
+            <StoryCanvas data={item.payload.canvas} className="w-full h-full" />
           </div>
         );
       }
       return (
-        <div class="w-full h-full flex items-center justify-center text-white/70 text-sm px-8 text-center">
+        <div className="w-full h-full flex items-center justify-center text-white/70 text-sm px-8 text-center">
           拡張スライド ({item.extensionType}) は未対応です。
         </div>
       );
@@ -230,7 +230,7 @@ export default function StoryViewer(props: Props) {
 
   return (
     <div
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4 py-6"
       onClick={(event) => {
         if (event.target === event.currentTarget) {
           controller.pause("visibility");
@@ -239,26 +239,26 @@ export default function StoryViewer(props: Props) {
       }}
     >
       <div
-        class="relative w-full max-w-[420px] aspect-[1080/1920] rounded-[32px] bg-black overflow-hidden shadow-2xl"
+        className="relative w-full max-w-[420px] aspect-[1080/1920] rounded-[32px] bg-black overflow-hidden shadow-2xl"
         onClick={(event) => {
           event.stopPropagation();
           setMenuOpen(false);
         }}
       >
-        <div class="absolute inset-0 flex items-center justify-center">
-          <div class="w-full h-full flex items-center justify-center">{media()}</div>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="w-full h-full flex items-center justify-center">{media()}</div>
         </div>
 
-        <div class="absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-black/85 via-black/40 to-transparent pointer-events-none" />
-        <div class="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 top-0 h-48 bg-gradient-to-b from-black/85 via-black/40 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
 
-        <div class="absolute top-4 left-4 right-4 space-y-3">
-          <div class="flex gap-1">
+        <div className="absolute top-4 left-4 right-4 space-y-3">
+          <div className="flex gap-1">
             <For each={storiesForProgress()}>
               {(_, i) => (
-                <div class="flex-1 h-1.5 rounded-full bg-white/20 overflow-hidden">
+                <div className="flex-1 h-1.5 rounded-full bg-white/20 overflow-hidden">
                   <div
-                    class="h-full bg-white"
+                    className="h-full bg-white"
                     style={{
                       width:
                         i() < index()
@@ -273,24 +273,24 @@ export default function StoryViewer(props: Props) {
             </For>
           </div>
 
-          <div class="flex items-center justify-between text-white">
-            <div class="flex items-center gap-3">
+          <div className="flex items-center justify-between text-white">
+            <div className="flex items-center gap-3">
               <Avatar
                 src={authorAvatar()}
                 alt="作者"
-                class="w-10 h-10 rounded-full shrink-0 border border-white/30"
+                className="w-10 h-10 rounded-full shrink-0 border border-white/30"
               />
-              <div class="flex flex-col text-sm leading-tight">
-                <span class="font-semibold">{authorName()}</span>
-                <span class="text-white/70 text-xs">{formattedCreatedAt()}</span>
+              <div className="flex flex-col text-sm leading-tight">
+                <span className="font-semibold">{authorName()}</span>
+                <span className="text-white/70 text-xs">{formattedCreatedAt()}</span>
               </div>
             </div>
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-white/60">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-white/60">
                 {indexDisplay()} / {totalDisplay()}
               </span>
               <Show when={isOwnStory()}>
-                <div class="relative">
+                <div className="relative">
                   <button
                     class={MENU_BUTTON}
                     onClick={(event) => {
@@ -304,7 +304,7 @@ export default function StoryViewer(props: Props) {
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       viewBox="0 0 24 24"
-                      class="w-5 h-5"
+                      className="w-5 h-5"
                       fill="none"
                       stroke="currentColor"
                       stroke-width="2"
@@ -318,10 +318,10 @@ export default function StoryViewer(props: Props) {
                   </button>
                   <Show when={menuOpen()}>
                     <div
-                      class="absolute right-0 mt-2 w-40 rounded-2xl bg-black/85 backdrop-blur border border-white/10 shadow-lg py-2"
+                      className="absolute right-0 mt-2 w-40 rounded-2xl bg-black/85 backdrop-blur border border-white/10 shadow-lg py-2"
                     >
                       <button
-                        class="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10 flex items-center gap-2 disabled:opacity-60"
+                        className="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/10 flex items-center gap-2 disabled:opacity-60"
                         onClick={(event) => {
                           event.stopPropagation();
                           void handleExtend();
@@ -331,7 +331,7 @@ export default function StoryViewer(props: Props) {
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
                           viewBox="0 0 24 24"
-                          class="w-4 h-4"
+                          className="w-4 h-4"
                           fill="none"
                           stroke="currentColor"
                           stroke-width="2"
@@ -344,7 +344,7 @@ export default function StoryViewer(props: Props) {
                         <span>{extending() ? "延長中…" : "24時間延長"}</span>
                       </button>
                       <button
-                        class="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-white/10 flex items-center gap-2"
+                        className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-white/10 flex items-center gap-2"
                         onClick={(event) => {
                           event.stopPropagation();
                           handleDelete();
@@ -354,7 +354,7 @@ export default function StoryViewer(props: Props) {
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
                           viewBox="0 0 24 24"
-                          class="w-4 h-4"
+                          className="w-4 h-4"
                           fill="none"
                           stroke="currentColor"
                           stroke-width="2"
@@ -374,7 +374,7 @@ export default function StoryViewer(props: Props) {
                 </div>
               </Show>
               <button
-                class="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"
+                className="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"
                 onClick={() => {
                   controller.pause("visibility");
                   props.onClose();
@@ -384,7 +384,7 @@ export default function StoryViewer(props: Props) {
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   viewBox="0 0 24 24"
-                  class="w-5 h-5"
+                  className="w-5 h-5"
                   fill="none"
                   stroke="currentColor"
                   stroke-width="2"
@@ -400,30 +400,30 @@ export default function StoryViewer(props: Props) {
         </div>
 
         <button
-          class="absolute top-16 bottom-32 left-0 w-1/4"
+          className="absolute top-16 bottom-32 left-0 w-1/4"
           onClick={prev}
           aria-label="前のストーリー"
         />
         <button
-          class="absolute top-16 bottom-32 right-0 w-1/4"
+          className="absolute top-16 bottom-32 right-0 w-1/4"
           onClick={next}
           aria-label="次のストーリー"
         />
 
-        <div class="absolute inset-x-4 bottom-6">
-          <div class="flex items-center gap-3 text-white/90 text-sm rounded-2xl bg-white/10 backdrop-blur px-4 py-3">
-            <div class="flex-1">
+        <div className="absolute inset-x-4 bottom-6">
+          <div className="flex items-center gap-3 text-white/90 text-sm rounded-2xl bg-white/10 backdrop-blur px-4 py-3">
+            <div className="flex-1">
               現在ストーリーへの返信・リアクションは未対応です。近日アップデート予定です。
             </div>
             <button
-              class="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"
+              className="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"
               onClick={() => props.onClose()}
               aria-label="閉じる"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 24 24"
-                class="w-5 h-5"
+                className="w-5 h-5"
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2"

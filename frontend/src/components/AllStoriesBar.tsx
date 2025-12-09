@@ -1,11 +1,5 @@
-import {
-  createEffect,
-  createMemo,
-  createResource,
-  createSignal,
-  For,
-  Show,
-} from "solid-js";
+import type React from "react";
+import { createEffect, createMemo, createResource, createSignal, For, Show } from "../lib/solid-compat";
 import { getUser, useMe, listMyCommunities } from "../lib/api";
 import {
   getStoryViewedMap,
@@ -159,9 +153,9 @@ export default function AllStoriesBar(props: Props) {
     return map;
   });
 
-  const onPick = async (e: Event) => {
+  const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     console.log("AllStoriesBar: onPick");
-    const input = e.target as HTMLInputElement;
+    const input = e.target;
     const files = input.files;
     if (!files || files.length === 0) return;
     setSelectedFiles([...files]);
@@ -181,19 +175,19 @@ export default function AllStoriesBar(props: Props) {
   };
 
   return (
-    <div class="border-b hairline bg-white dark:bg-neutral-900 mb-3 sm:mb-4">
-      <div class="px-2 sm:px-3 lg:px-5 py-3 overflow-x-auto">
-        <div class="flex gap-4">
+    <div className="border-b hairline bg-white dark:bg-neutral-900 mb-3 sm:mb-4">
+      <div className="px-2 sm:px-3 lg:px-5 py-3 overflow-x-auto">
+        <div className="flex gap-4">
           {/* 自分のアイコン（常に表示）。丸は自分のストーリー閲覧、＋は常にアップロード */}
-          <div class="shrink-0 flex flex-col items-center gap-1">
-            <div class="relative">
+          <div className="shrink-0 flex flex-col items-center gap-1">
+            <div className="relative">
               {/* hidden input with ref */}
               <input
                 ref={(el) => uploadInput = el as HTMLInputElement}
                 type="file"
                 accept="image/*"
                 multiple
-                class="hidden"
+                className="hidden"
                 onChange={onPick}
               />
 
@@ -202,16 +196,16 @@ export default function AllStoriesBar(props: Props) {
                 when={hasMyStory()}
                 fallback={
                   <button
-                    class="cursor-pointer block"
+                    className="cursor-pointer block"
                     onClick={() => uploadInput?.click()}
                   >
                     {/* No decorative ring when user has not posted a story */}
-                    <div class="w-14 h-14 md:w-16 md:h-16 rounded-full bg-white dark:bg-neutral-900 overflow-hidden">
-                      <div class="w-full h-full rounded-full overflow-hidden bg-neutral-200">
+                    <div className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-white dark:bg-neutral-900 overflow-hidden">
+                      <div className="w-full h-full rounded-full overflow-hidden bg-neutral-200">
                         <Show
                           when={me()?.avatar_url}
                           fallback={
-                              <div class="w-full h-full grid place-items-center text-gray-600 text-xs">
+                              <div className="w-full h-full grid place-items-center text-gray-600 text-xs">
                               あなた
                             </div>
                           }
@@ -219,7 +213,7 @@ export default function AllStoriesBar(props: Props) {
                           <Avatar
                             src={me()?.avatar_url ?? undefined}
                             alt="自分"
-                            class="w-full h-full object-cover"
+                            className="w-full h-full object-cover"
                           />
                         </Show>
                       </div>
@@ -228,7 +222,7 @@ export default function AllStoriesBar(props: Props) {
                 }
               >
                 <button
-                  class="cursor-pointer block"
+                  className="cursor-pointer block"
                   onClick={() => {
                     const g = myGroup();
                     if (g) {
@@ -252,12 +246,12 @@ export default function AllStoriesBar(props: Props) {
                       ? "p-[3px] rounded-full bg-linear-to-tr from-pink-500 via-purple-500 to-yellow-500"
                       : ""}
                   >
-                    <div class="w-14 h-14 md:w-16 md:h-16 rounded-full bg-white dark:bg-neutral-900 p-[3px] overflow-hidden">
-                      <div class="w-full h-full rounded-full overflow-hidden bg-neutral-200">
+                    <div className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-white dark:bg-neutral-900 p-[3px] overflow-hidden">
+                      <div className="w-full h-full rounded-full overflow-hidden bg-neutral-200">
                         <Show
                           when={me()?.avatar_url}
                           fallback={
-                            <div class="w-full h-full grid place-items-center text-gray-600 text-xs">
+                            <div className="w-full h-full grid place-items-center text-gray-600 text-xs">
                               あなた
                             </div>
                           }
@@ -265,7 +259,7 @@ export default function AllStoriesBar(props: Props) {
                           <Avatar
                             src={me()?.avatar_url ?? undefined}
                             alt="自分"
-                            class="w-full h-full object-cover"
+                            className="w-full h-full object-cover"
                           />
                         </Show>
                       </div>
@@ -275,11 +269,11 @@ export default function AllStoriesBar(props: Props) {
               </Show>
               {/* plus badge always opens upload */}
               <button
-                class="absolute -bottom-1 -right-1 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center"
+                className="absolute -bottom-1 -right-1 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center"
                 type="button"
                 onClick={() => uploadInput?.click()}
               >
-                <IconPlus size={12} class="text-white" />
+                <IconPlus size={12} className="text-white" />
               </button>
             </div>
           </div>
@@ -300,7 +294,7 @@ export default function AllStoriesBar(props: Props) {
                 };
                 return (
                   <button
-                    class="shrink-0 flex flex-col items-center gap-1 active:opacity-80"
+                    className="shrink-0 flex flex-col items-center gap-1 active:opacity-80"
                     onClick={() => {
                       setViewerStories(group);
                       setViewerAuthor(author() || null);
@@ -320,13 +314,13 @@ export default function AllStoriesBar(props: Props) {
                         ? "bg-linear-to-tr from-gray-300 to-gray-200"
                         : "bg-linear-to-tr from-pink-500 via-purple-500 to-yellow-500")}
                     >
-                      <div class="w-14 h-14 md:w-16 md:h-16 rounded-full bg-white dark:bg-neutral-900 p-[3px]">
-                        <div class="w-full h-full rounded-full overflow-hidden bg-neutral-200">
+                      <div className="w-14 h-14 md:w-16 md:h-16 rounded-full bg-white dark:bg-neutral-900 p-[3px]">
+                        <div className="w-full h-full rounded-full overflow-hidden bg-neutral-200">
                           <Show
                             when={author()?.avatar_url ||
                               (isMe() && me()?.avatar_url)}
                             fallback={
-                              <div class="w-full h-full grid place-items-center text-gray-600 text-xs">
+                              <div className="w-full h-full grid place-items-center text-gray-600 text-xs">
                                 {isMe() ? "あなた" : "ユーザー"}
                               </div>
                             }
@@ -335,13 +329,13 @@ export default function AllStoriesBar(props: Props) {
                             src={(author()?.avatar_url ||
                               me()?.avatar_url) as string}
                             alt="アバター"
-                            class="w-full h-full object-cover"
+                            className="w-full h-full object-cover"
                           />
                           </Show>
                         </div>
                       </div>
                     </div>
-                      <div class="w-24 text-center text-[10px] leading-tight line-clamp-2">
+                      <div className="w-24 text-center text-[10px] leading-tight line-clamp-2">
                       {isMe() ? 'あなた' : author()?.display_name || 'ユーザー'}
                     </div>
                   </button>

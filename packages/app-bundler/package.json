@@ -19,6 +19,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@takos/app-sdk": "workspace:*",
     "vite": "^5.0.0"
   },
   "devDependencies": {

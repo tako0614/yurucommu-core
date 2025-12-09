@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "../lib/solid-compat";
 import Avatar from "./Avatar";
 import { generateQrCode } from "@platform/lib/qrcode";
 import { IconSend, IconQr } from "./icons";
@@ -142,26 +142,26 @@ export default function ProfileModal(props: ProfileModalProps) {
 
   return (
     <Show when={props.open}>
-      <div class="fixed inset-0 z-50 flex items-start justify-center pt-3 px-0 md:items-center md:px-4">
+      <div className="fixed inset-0 z-50 flex items-start justify-center pt-3 px-0 md:items-center md:px-4">
         <button
           type="button"
-          class="absolute inset-0 bg-black"
+          className="absolute inset-0 bg-black"
           aria-label="閉じる"
           onClick={props.onClose}
         />
-        <div class="relative z-10 w-full md:max-w-md max-h-[calc(100vh-24px)] md:h-auto">
-          <div class="rounded-t-3xl md:rounded-3xl overflow-hidden bg-white/95 dark:bg-black/95 text-black dark:text-white shadow-2xl">
-            <div class="flex items-center justify-between px-5 py-4 bg-white/5">
-              <div class="text-sm font-medium tracking-wide text-gray-200">
+        <div className="relative z-10 w-full md:max-w-md max-h-[calc(100vh-24px)] md:h-auto">
+          <div className="rounded-t-3xl md:rounded-3xl overflow-hidden bg-white/95 dark:bg-black/95 text-black dark:text-white shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 bg-white/5">
+              <div className="text-sm font-medium tracking-wide text-gray-200">
                 {isScanView() ? "QRコードをスキャン" : headerTitle()}
               </div>
-              <div class="flex items-center gap-3 text-xs text-gray-300">
+              <div className="flex items-center gap-3 text-xs text-gray-300">
                 <Show when={isScanView()}>
-                  <button type="button" class="hover:text-white" onClick={leaveScanView}>
+                  <button type="button" className="hover:text-white" onClick={leaveScanView}>
                     戻る
                   </button>
                 </Show>
-                <button type="button" class="hover:text-white" onClick={props.onClose}>
+                <button type="button" className="hover:text-white" onClick={props.onClose}>
                   閉じる
                 </button>
               </div>
@@ -169,14 +169,14 @@ export default function ProfileModal(props: ProfileModalProps) {
             <Show
               when={isShareView()}
               fallback={
-                <div class="px-5 pb-6 pt-5 space-y-5 overflow-auto">
+                <div className="px-5 pb-6 pt-5 space-y-5 overflow-auto">
                   <QrScannerSection onDetected={handleScannerDetected} />
-                  <div class="text-[11px] text-gray-400 leading-relaxed">
+                  <div className="text-[11px] text-gray-400 leading-relaxed">
                     QRコードを枠内に収めると、自動的に内容を読み取ります。検出されるとここに表示されます。
                   </div>
                   <Show when={shareMessage()}>
                     {(message) => (
-                      <div class="rounded-xl bg-white/10 text-xs px-3 py-2 text-gray-200">
+                      <div className="rounded-xl bg-white/10 text-xs px-3 py-2 text-gray-200">
                         {message()}
                       </div>
                     )}
@@ -184,48 +184,48 @@ export default function ProfileModal(props: ProfileModalProps) {
                 </div>
               }
             >
-              <div class="px-5 pb-6 pt-5 space-y-6 overflow-auto">
-                <div class="flex flex-col items-center text-center gap-3">
+              <div className="px-5 pb-6 pt-5 space-y-6 overflow-auto">
+                <div className="flex flex-col items-center text-center gap-3">
                   <Avatar
                     src={props.avatarUrl || ""}
                     alt={props.displayName || "プロフィール"}
-                    class="w-20 h-20 rounded-full border border-white/20 shadow-lg object-cover"
+                    className="w-20 h-20 rounded-full border border-white/20 shadow-lg object-cover"
                   />
-                  <div class="space-y-1">
-                    <div class="text-base font-semibold text-gray-900 dark:text-white">
+                  <div className="space-y-1">
+                    <div className="text-base font-semibold text-gray-900 dark:text-white">
                       {profileName()}
                     </div>
                     <Show when={handleLabel()}>
                       {(label) => (
-                        <div class="text-sm text-gray-500 dark:text-gray-400">{label()}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">{label()}</div>
                       )}
                     </Show>
                   </div>
                   <button
                     type="button"
-                    class="px-4 py-2 rounded-full border hairline text-xs font-medium bg-white/10 hover:bg-white/20 transition-colors text-gray-100 dark:text-gray-100"
+                    className="px-4 py-2 rounded-full border hairline text-xs font-medium bg-white/10 hover:bg-white/20 transition-colors text-gray-100 dark:text-gray-100"
                     onClick={() => void handleCopyLink()}
                     disabled={!hasUrl()}
                   >
-                    <span class="break-all">{hasUrl() ? shortUrl() : "リンクがありません"}</span>
+                    <span className="break-all">{hasUrl() ? shortUrl() : "リンクがありません"}</span>
                   </button>
                 </div>
 
-                <div class="bg-white/95 dark:bg-black/95 text-black dark:text-white rounded-2xl px-5 py-5 flex flex-col items-center shadow-inner">
-                  <div class="w-full max-w-[260px] aspect-square">
+                <div className="bg-white/95 dark:bg-black/95 text-black dark:text-white rounded-2xl px-5 py-5 flex flex-col items-center shadow-inner">
+                  <div className="w-full max-w-[260px] aspect-square">
                     <Show
                       when={qrData()}
-                      fallback={<div class="w-full h-full flex items-center justify-center text-sm text-gray-500">QRコードを生成中...</div>}
+                      fallback={<div className="w-full h-full flex items-center justify-center text-sm text-gray-500">QRコードを生成中...</div>}
                     >
                       {(qr) => <QrSvg modules={qr().modules} />}
                     </Show>
                   </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-2 text-sm">
+                <div className="grid grid-cols-2 gap-2 text-sm">
                   <button
                     type="button"
-                    class="flex flex-col items-center gap-0 sm:gap-2 rounded-2xl bg-white/10 px-3 py-3 hover:bg-white/20 transition-colors"
+                    className="flex flex-col items-center gap-0 sm:gap-2 rounded-2xl bg-white/10 px-3 py-3 hover:bg-white/20 transition-colors"
                     onClick={() => void handleShare()}
                   >
                     <IconSend size={22} />
@@ -233,7 +233,7 @@ export default function ProfileModal(props: ProfileModalProps) {
                   </button>
                   <button
                     type="button"
-                    class="flex flex-col items-center gap-0 sm:gap-2 rounded-2xl bg-white/10 px-3 py-3 hover:bg-white/20 transition-colors"
+                    className="flex flex-col items-center gap-0 sm:gap-2 rounded-2xl bg-white/10 px-3 py-3 hover:bg-white/20 transition-colors"
                     onClick={enterScanView}
                   >
                     <IconQr size={22} />
@@ -243,12 +243,12 @@ export default function ProfileModal(props: ProfileModalProps) {
 
                 <Show when={shareMessage()}>
                   {(message) => (
-                    <div class="rounded-xl bg-white/10 text-xs px-3 py-2 text-gray-200">
+                    <div className="rounded-xl bg-white/10 text-xs px-3 py-2 text-gray-200">
                       {message()}
                     </div>
                   )}
                 </Show>
-                <div class="text-[11px] text-gray-400 leading-relaxed">
+                <div className="text-[11px] text-gray-400 leading-relaxed">
                   プロフィールを表示している友達にリンクを共有できます。リンク部分をタップするとコピーできます。
                 </div>
               </div>
@@ -272,7 +272,7 @@ function QrSvg(props: QrSvgProps) {
       viewBox={`0 0 ${size()} ${size()}`}
       xmlns="http://www.w3.org/2000/svg"
       shape-rendering="crispEdges"
-      class="w-full h-full"
+      className="w-full h-full"
     >
       <rect width={size()} height={size()} fill="none" />
       <For each={props.modules}>
@@ -494,42 +494,42 @@ function QrScannerSection(props: QrScannerSectionProps) {
   const hasResult = () => Boolean(detectedValue());
 
   return (
-    <div class="space-y-4">
-      <div class="w-full max-w-[240px] aspect-square mx-auto relative rounded-2xl overflow-hidden border border-current/10 bg-white/95 dark:bg-black/95">
+    <div className="space-y-4">
+      <div className="w-full max-w-[240px] aspect-square mx-auto relative rounded-2xl overflow-hidden border border-current/10 bg-white/95 dark:bg-black/95">
         <video
           ref={(el) => {
             videoRef = el;
           }}
-          class="w-full h-full object-cover"
+          className="w-full h-full object-cover"
           autoplay
           muted
           playsinline
         />
         <Show when={!scanning()}>
-          <div class="absolute inset-0 flex items-center justify-center bg-transparent text-sm text-current">
+          <div className="absolute inset-0 flex items-center justify-center bg-transparent text-sm text-current">
             カメラを準備中...
           </div>
         </Show>
       </div>
       <Show when={error()}>
         {(message) => (
-          <div class="rounded-xl bg-red-500/20 text-red-200 text-sm px-3 py-2">{message()}</div>
+          <div className="rounded-xl bg-red-500/20 text-red-200 text-sm px-3 py-2">{message()}</div>
         )}
       </Show>
       <Show when={hasResult()}>
-        <div class="space-y-3">
-          <div class="rounded-xl bg-white text-black px-4 py-3">
-            <div class="text-xs text-gray-500">検出した内容</div>
-            <div class="mt-1 text-sm break-all leading-relaxed">{detectedValue()}</div>
+        <div className="space-y-3">
+          <div className="rounded-xl bg-white text-black px-4 py-3">
+            <div className="text-xs text-gray-500">検出した内容</div>
+            <div className="mt-1 text-sm break-all leading-relaxed">{detectedValue()}</div>
           </div>
-          <div class="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2">
             <Show when={detectedUrl()}>
               {(url) => (
                 <a
                   href={url().toString()}
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="flex-1 min-w-[140px] text-center px-3 py-2 rounded-full bg-white/15 hover:bg-white/25 transition-colors"
+                  className="flex-1 min-w-[140px] text-center px-3 py-2 rounded-full bg-white/15 hover:bg-white/25 transition-colors"
                 >
                   リンクを開く
                 </a>
@@ -537,21 +537,21 @@ function QrScannerSection(props: QrScannerSectionProps) {
             </Show>
             <button
               type="button"
-              class="flex-1 min-w-[140px] px-3 py-2 rounded-full bg-white/15 hover:bg-white/25 transition-colors"
+              className="flex-1 min-w-[140px] px-3 py-2 rounded-full bg-white/15 hover:bg-white/25 transition-colors"
               onClick={() => void handleCopy()}
             >
               {copyLabel()}
             </button>
             <button
               type="button"
-              class="flex-1 min-w-[140px] px-3 py-2 rounded-full border border-white/20 hover:bg-white/10 transition-colors"
+              className="flex-1 min-w-[140px] px-3 py-2 rounded-full border border-white/20 hover:bg-white/10 transition-colors"
               onClick={restart}
             >
               もう一度スキャン
             </button>
           </div>
           <Show when={copyStatus() === "error"}>
-            <div class="text-xs text-red-200">クリップボードにコピーできませんでした。手動で選択してください。</div>
+            <div className="text-xs text-red-200">クリップボードにコピーできませんでした。手動で選択してください。</div>
           </Show>
         </div>
       </Show>
