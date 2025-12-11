@@ -1,122 +1,122 @@
 /**
- * Sample Counter App - Handlers
+ * Sample Counter App Handlers
  *
- * Minimal handler implementation to test the App SDK server-side pipeline.
- * Demonstrates:
- * - Reading/writing App State (KV storage)
- * - Authentication-required handlers
- * - Public handlers
+ * A simple counter app demonstrating the App SDK handler pattern.
  */
 
-import type { AppHandler, TakosContext, AppAuthContext } from "@takos/platform/app";
-
-// In-memory counter storage (in production, use ctx.services.storage or KV)
-const counters = new Map<string, number>();
-
-function requireAuth(ctx: TakosContext): AppAuthContext & { userId: string } {
-  if (!ctx.auth?.userId) {
-    throw { type: "error", status: 401, message: "authentication required" };
-  }
-  return ctx.auth as AppAuthContext & { userId: string };
+interface TakosContext {
+  auth: { userId: string; handle: string } | null;
+  params: Record<string, string>;
+  query: Record<string, string>;
+  json: <T>(data: T, options?: { status?: number }) => Response;
+  error: (message: string, status?: number) => Response;
+  log: (level: string, message: string, data?: Record<string, unknown>) => void;
+  services: {
+    storage: {
+      get: <T>(key: string) => Promise<T | null>;
+      set: (key: string, value: unknown) => Promise<void>;
+      delete: (key: string) => Promise<void>;
+      list: (prefix: string) => Promise<string[]>;
+    };
+  };
 }
 
-// ============================================================================
-// Counter Handlers
-// ============================================================================
+interface CounterState {
+  value: number;
+  lastUpdated: string;
+}
+
+const COUNTER_KEY = "counter";
 
 /**
- * Get the current counter value for the authenticated user
+ * Get the current counter value
  */
-export const getCounter: AppHandler = async (ctx, input) => {
-  const auth = requireAuth(ctx);
-  ctx.log("info", "getCounter", { userId: auth.userId });
+export async function getCounter(ctx: TakosContext): Promise<Response> {
+  const state = await ctx.services.storage.get<CounterState>(COUNTER_KEY);
+  const value = state?.value ?? 0;
+  const lastUpdated = state?.lastUpdated ?? null;
 
-  const value = counters.get(auth.userId) ?? 0;
-  return ctx.json({ value, userId: auth.userId });
-};
+  return ctx.json({ value, lastUpdated });
+}
 
 /**
- * Increment the counter for the authenticated user
+ * Increment the counter by 1 (or specified amount)
  */
-export const incrementCounter: AppHandler = async (ctx, input) => {
-  const auth = requireAuth(ctx);
-  ctx.log("info", "incrementCounter", { userId: auth.userId });
+export async function incrementCounter(
+  ctx: TakosContext,
+  input?: { amount?: number }
+): Promise<Response> {
+  const amount = input?.amount ?? 1;
+  const state = await ctx.services.storage.get<CounterState>(COUNTER_KEY);
+  const currentValue = state?.value ?? 0;
+  const newValue = currentValue + amount;
+  const lastUpdated = new Date().toISOString();
 
-  const current = counters.get(auth.userId) ?? 0;
-  const newValue = current + 1;
-  counters.set(auth.userId, newValue);
+  await ctx.services.storage.set(COUNTER_KEY, { value: newValue, lastUpdated });
 
-  return ctx.json({ value: newValue, userId: auth.userId });
-};
+  return ctx.json({ value: newValue, previousValue: currentValue, lastUpdated });
+}
 
 /**
- * Decrement the counter for the authenticated user
+ * Decrement the counter by 1 (or specified amount)
  */
-export const decrementCounter: AppHandler = async (ctx, input) => {
-  const auth = requireAuth(ctx);
-  ctx.log("info", "decrementCounter", { userId: auth.userId });
+export async function decrementCounter(
+  ctx: TakosContext,
+  input?: { amount?: number }
+): Promise<Response> {
+  const amount = input?.amount ?? 1;
+  const state = await ctx.services.storage.get<CounterState>(COUNTER_KEY);
+  const currentValue = state?.value ?? 0;
+  const newValue = currentValue - amount;
+  const lastUpdated = new Date().toISOString();
 
-  const current = counters.get(auth.userId) ?? 0;
-  const newValue = current - 1;
-  counters.set(auth.userId, newValue);
+  await ctx.services.storage.set(COUNTER_KEY, { value: newValue, lastUpdated });
 
-  return ctx.json({ value: newValue, userId: auth.userId });
-};
+  return ctx.json({ value: newValue, previousValue: currentValue, lastUpdated });
+}
 
 /**
- * Reset the counter to zero
+ * Reset the counter to 0
  */
-export const resetCounter: AppHandler = async (ctx, input) => {
-  const auth = requireAuth(ctx);
-  ctx.log("info", "resetCounter", { userId: auth.userId });
+export async function resetCounter(ctx: TakosContext): Promise<Response> {
+  const state = await ctx.services.storage.get<CounterState>(COUNTER_KEY);
+  const previousValue = state?.value ?? 0;
+  const lastUpdated = new Date().toISOString();
 
-  counters.set(auth.userId, 0);
+  await ctx.services.storage.set(COUNTER_KEY, { value: 0, lastUpdated });
 
-  return ctx.json({ value: 0, userId: auth.userId });
-};
+  return ctx.json({ value: 0, previousValue, lastUpdated });
+}
 
 /**
  * Set the counter to a specific value
  */
-export const setCounter: AppHandler = async (ctx, input) => {
-  const auth = requireAuth(ctx);
-  const { value } = (input as { value?: number }) ?? {};
-  ctx.log("info", "setCounter", { userId: auth.userId, value });
-
-  if (typeof value !== "number") {
-    return ctx.error("value must be a number", 400);
+export async function setCounter(
+  ctx: TakosContext,
+  input?: { value?: number }
+): Promise<Response> {
+  if (input?.value === undefined) {
+    return ctx.error("value is required", 400);
   }
 
-  counters.set(auth.userId, value);
+  const state = await ctx.services.storage.get<CounterState>(COUNTER_KEY);
+  const previousValue = state?.value ?? 0;
+  const newValue = input.value;
+  const lastUpdated = new Date().toISOString();
 
-  return ctx.json({ value, userId: auth.userId });
-};
+  await ctx.services.storage.set(COUNTER_KEY, { value: newValue, lastUpdated });
+
+  return ctx.json({ value: newValue, previousValue, lastUpdated });
+}
 
 /**
- * Get app info (public endpoint)
+ * Get app info (no auth required)
  */
-export const getAppInfo: AppHandler = async (ctx, input) => {
-  ctx.log("info", "getAppInfo");
-
+export async function getAppInfo(ctx: TakosContext): Promise<Response> {
   return ctx.json({
-    name: "sample-counter",
-    version: "0.1.0",
-    description: "A minimal sample app to test the App SDK pipeline",
+    id: "sample-counter",
+    name: "Sample Counter",
+    version: "1.0.0",
+    description: "A simple counter app demonstrating the App SDK",
   });
-};
-
-// ============================================================================
-// Handler Registry Export
-// ============================================================================
-
-const handlers: Record<string, AppHandler> = {
-  getCounter,
-  incrementCounter,
-  decrementCounter,
-  resetCounter,
-  setCounter,
-  getAppInfo,
-};
-
-export { handlers };
-export default handlers;
+}

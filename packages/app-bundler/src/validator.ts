@@ -1,393 +1,451 @@
-// === Types ===
+/**
+ * App Validator
+ *
+ * Validates App manifest and structure for correctness.
+ */
 
+import { glob } from "glob";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import type { AppManifest, RouteConfig, ViewConfig } from "./types.js";
+
+/**
+ * Validation error
+ */
+export interface ValidationError {
+  type: "error";
+  message: string;
+  file?: string;
+  path?: string;
+}
+
+/**
+ * Validation warning
+ */
+export interface ValidationWarning {
+  type: "warning";
+  message: string;
+  file?: string;
+  path?: string;
+}
+
+/**
+ * Validation result
+ */
 export interface ValidationResult {
   valid: boolean;
   errors: ValidationError[];
   warnings: ValidationWarning[];
 }
 
-export interface ValidationError {
-  code: string;
-  message: string;
-  path?: string;
-}
-
-export interface ValidationWarning {
-  code: string;
-  message: string;
-  path?: string;
-}
-
-// === Constants ===
-
-/** Routes reserved by takos Core */
-const RESERVED_ROUTES = [
-  "/login",
-  "/logout",
-  "/auth/*",
-  "/-/core/*",
-  "/-/config/*",
-  "/-/app/*",
-  "/-/apps/*",
-  "/-/api/*",
-  "/-/health",
-  "/.well-known/*",
-];
-
-/** Valid permission prefixes */
-const VALID_PERMISSION_PREFIXES = ["core:", "app:"];
-
-/** Known Core API permissions */
-const KNOWN_PERMISSIONS = [
-  "core:posts.read",
-  "core:posts.write",
-  "core:users.read",
-  "core:users.write",
-  "core:timeline.read",
-  "core:notifications.read",
-  "core:notifications.write",
-  "core:storage.read",
-  "core:storage.write",
-  "core:activitypub.read",
-  "core:activitypub.write",
-  "core:ai.read",
-  "core:ai.write",
-  "app:storage",
-];
-
-// === Helpers ===
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function patternToRegExp(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[-/\\^$+?.()|[\]{}]/g, "\\$&")
-    .replace(/\\\*/g, ".*");
-  return new RegExp(`^${escaped}$`);
-}
-
-function isReservedRoute(route: string, reserved: string[]): boolean {
-  return reserved.some((pattern) => patternToRegExp(pattern).test(route));
-}
-
-function isValidSemver(version: string): boolean {
-  return /^\d+\.\d+\.\d+(-[\w.]+)?(\+[\w.]+)?$/.test(version);
-}
-
-function isValidAppId(id: string): boolean {
-  // Allow reverse-domain notation or simple kebab-case
-  return /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)*(-[a-z0-9]+)*$/.test(id) ||
-         /^[a-z][a-z0-9-]*$/.test(id);
-}
-
-// === Main Validator ===
-
 /**
- * Validate a generated manifest object.
- *
- * Checks:
- * - Schema version is "2.0"
- * - Required fields: id, name, version, entry.client, entry.server
- * - Screen/handler IDs are unique
- * - Paths start with "/" and are not reserved
- * - Permissions use valid prefixes
- * - Handler methods are valid HTTP methods
+ * Validator options
  */
-export function validateManifest(manifest: unknown): ValidationResult {
-  const errors: ValidationError[] = [];
-  const warnings: ValidationWarning[] = [];
+export interface ValidatorOptions {
+  /**
+   * App directory to validate
+   */
+  appDir: string;
 
-  const pushError = (message: string, code = "invalid_manifest", path?: string) => {
-    errors.push({ code, message, path });
-  };
-
-  const pushWarning = (message: string, code = "manifest_warning", path?: string) => {
-    warnings.push({ code, message, path });
-  };
-
-  // Root object check
-  if (!isObject(manifest)) {
-    pushError("Manifest must be an object");
-    return { valid: false, errors, warnings };
-  }
-
-  const m = manifest as Record<string, unknown>;
-
-  // === Schema Version ===
-  if (m.schema_version !== "2.0") {
-    pushError('schema_version must be "2.0"', "invalid_schema_version");
-  }
-
-  // === Required Fields ===
-  if (typeof m.id !== "string" || !m.id) {
-    pushError("id is required", "missing_id");
-  } else if (!isValidAppId(m.id)) {
-    pushWarning(
-      `id "${m.id}" should use reverse-domain notation (e.g., com.example.myapp)`,
-      "invalid_app_id",
-      "id"
-    );
-  }
-
-  if (typeof m.name !== "string" || !m.name) {
-    pushError("name is required", "missing_name");
-  }
-
-  if (typeof m.version !== "string" || !m.version) {
-    pushError("version is required", "missing_version");
-  } else if (!isValidSemver(m.version)) {
-    pushWarning(
-      `version "${m.version}" is not valid semver`,
-      "invalid_semver",
-      "version"
-    );
-  }
-
-  // === Entry ===
-  if (!isObject(m.entry)) {
-    pushError("entry must be an object with client and server", "missing_entry");
-  } else {
-    const entry = m.entry as Record<string, unknown>;
-    if (typeof entry.client !== "string" || !entry.client) {
-      pushError("entry.client is required", "missing_entry_client", "entry.client");
-    }
-    if (typeof entry.server !== "string" || !entry.server) {
-      pushError("entry.server is required", "missing_entry_server", "entry.server");
-    }
-  }
-
-  // === Screens ===
-  const screenIds = new Set<string>();
-  const screenPaths = new Set<string>();
-
-  if (!Array.isArray(m.screens)) {
-    pushError("screens must be an array", "invalid_screens");
-  } else {
-    for (let i = 0; i < m.screens.length; i++) {
-      const screen = m.screens[i];
-      const screenPath = `screens[${i}]`;
-
-      if (!isObject(screen)) {
-        pushError(`Screen at index ${i} must be an object`, "invalid_screen", screenPath);
-        continue;
-      }
-
-      const s = screen as Record<string, unknown>;
-
-      // ID validation
-      if (typeof s.id !== "string" || !s.id) {
-        pushError(`Screen at index ${i} must have an id`, "missing_screen_id", screenPath);
-      } else {
-        if (screenIds.has(s.id)) {
-          pushError(`Duplicate screen id: ${s.id}`, "duplicate_screen_id", `${screenPath}.id`);
-        }
-        screenIds.add(s.id);
-      }
-
-      // Path validation
-      if (typeof s.path !== "string") {
-        pushError(`Screen ${s.id ?? i} must have a path`, "missing_screen_path", screenPath);
-      } else if (!s.path.startsWith("/")) {
-        pushError(
-          `Screen ${s.id ?? i} path must start with "/"`,
-          "invalid_screen_path",
-          `${screenPath}.path`
-        );
-      } else if (isReservedRoute(s.path, RESERVED_ROUTES)) {
-        pushError(
-          `Screen ${s.id} uses reserved route: ${s.path}`,
-          "reserved_route",
-          `${screenPath}.path`
-        );
-      } else {
-        if (screenPaths.has(s.path)) {
-          pushWarning(
-            `Duplicate screen path: ${s.path}`,
-            "duplicate_screen_path",
-            `${screenPath}.path`
-          );
-        }
-        screenPaths.add(s.path);
-      }
-
-      // Auth validation
-      if (s.auth !== undefined && s.auth !== "required" && s.auth !== "optional") {
-        pushError(
-          `Screen ${s.id ?? i} auth must be "required" or "optional"`,
-          "invalid_screen_auth",
-          `${screenPath}.auth`
-        );
-      }
-    }
-  }
-
-  // === Handlers ===
-  const handlerIds = new Set<string>();
-  const handlerRoutes = new Set<string>();
-
-  if (m.handlers !== undefined && !Array.isArray(m.handlers)) {
-    pushError("handlers must be an array", "invalid_handlers");
-  } else if (Array.isArray(m.handlers)) {
-    for (let i = 0; i < m.handlers.length; i++) {
-      const handler = m.handlers[i];
-      const handlerPath = `handlers[${i}]`;
-
-      if (!isObject(handler)) {
-        pushError(`Handler at index ${i} must be an object`, "invalid_handler", handlerPath);
-        continue;
-      }
-
-      const h = handler as Record<string, unknown>;
-
-      // ID validation
-      if (typeof h.id !== "string" || !h.id) {
-        pushError(`Handler at index ${i} must have an id`, "missing_handler_id", handlerPath);
-      } else {
-        if (handlerIds.has(h.id)) {
-          pushError(`Duplicate handler id: ${h.id}`, "duplicate_handler_id", `${handlerPath}.id`);
-        }
-        handlerIds.add(h.id);
-      }
-
-      // Method validation
-      const validMethods = ["GET", "POST", "PUT", "DELETE", "PATCH"];
-      if (typeof h.method !== "string" || !validMethods.includes(h.method)) {
-        pushError(
-          `Handler ${h.id ?? i} must have a valid method (${validMethods.join(", ")})`,
-          "invalid_handler_method",
-          `${handlerPath}.method`
-        );
-      }
-
-      // Path validation
-      if (typeof h.path !== "string") {
-        pushError(`Handler ${h.id ?? i} must have a path`, "missing_handler_path", handlerPath);
-      } else if (!h.path.startsWith("/")) {
-        pushError(
-          `Handler ${h.id ?? i} path must start with "/"`,
-          "invalid_handler_path",
-          `${handlerPath}.path`
-        );
-      } else {
-        const routeKey = `${h.method} ${h.path}`;
-        if (handlerRoutes.has(routeKey)) {
-          pushError(
-            `Duplicate handler route: ${routeKey}`,
-            "duplicate_handler_route",
-            handlerPath
-          );
-        }
-        handlerRoutes.add(routeKey);
-      }
-
-      // Auth validation (boolean in manifest)
-      if (h.auth !== undefined && typeof h.auth !== "boolean") {
-        pushError(
-          `Handler ${h.id ?? i} auth must be a boolean`,
-          "invalid_handler_auth",
-          `${handlerPath}.auth`
-        );
-      }
-    }
-  }
-
-  // === Permissions ===
-  if (m.permissions !== undefined && !Array.isArray(m.permissions)) {
-    pushError("permissions must be an array", "invalid_permissions");
-  } else if (Array.isArray(m.permissions)) {
-    const seenPermissions = new Set<string>();
-
-    for (let i = 0; i < m.permissions.length; i++) {
-      const perm = m.permissions[i];
-      const permPath = `permissions[${i}]`;
-
-      if (typeof perm !== "string") {
-        pushError(`Permission at index ${i} must be a string`, "invalid_permission", permPath);
-        continue;
-      }
-
-      // Check prefix
-      const hasValidPrefix = VALID_PERMISSION_PREFIXES.some((prefix) => perm.startsWith(prefix));
-      if (!hasValidPrefix) {
-        pushError(
-          `Permission "${perm}" must start with ${VALID_PERMISSION_PREFIXES.join(" or ")}`,
-          "invalid_permission_prefix",
-          permPath
-        );
-      }
-
-      // Check if known
-      if (!KNOWN_PERMISSIONS.includes(perm)) {
-        pushWarning(
-          `Unknown permission: ${perm}`,
-          "unknown_permission",
-          permPath
-        );
-      }
-
-      // Check duplicates
-      if (seenPermissions.has(perm)) {
-        pushWarning(`Duplicate permission: ${perm}`, "duplicate_permission", permPath);
-      }
-      seenPermissions.add(perm);
-    }
-  }
-
-  // === Peer Dependencies ===
-  if (m.peer_dependencies !== undefined) {
-    if (!isObject(m.peer_dependencies)) {
-      pushError("peer_dependencies must be an object", "invalid_peer_dependencies");
-    } else {
-      const deps = m.peer_dependencies as Record<string, unknown>;
-
-      // React is required
-      if (!deps.react) {
-        pushWarning("peer_dependencies should include react", "missing_peer_dep_react");
-      }
-      if (!deps["react-dom"]) {
-        pushWarning("peer_dependencies should include react-dom", "missing_peer_dep_react_dom");
-      }
-    }
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors,
-    warnings,
-  };
+  /**
+   * Enable strict mode (warnings become errors)
+   * @default false
+   */
+  strict?: boolean;
 }
 
 /**
- * Validate a manifest file from disk.
+ * App Validator class
  */
-export function validateManifestFile(filePath: string): ValidationResult {
-  const fs = require("node:fs");
-  const path = require("node:path");
+export class AppValidator {
+  private options: ValidatorOptions;
+  private errors: ValidationError[] = [];
+  private warnings: ValidationWarning[] = [];
 
-  const absolutePath = path.resolve(filePath);
-
-  if (!fs.existsSync(absolutePath)) {
-    return {
-      valid: false,
-      errors: [{ code: "file_not_found", message: `Manifest file not found: ${absolutePath}` }],
-      warnings: [],
-    };
+  constructor(options: ValidatorOptions) {
+    this.options = options;
   }
 
-  try {
-    const content = fs.readFileSync(absolutePath, "utf8");
-    const manifest = JSON.parse(content);
-    return validateManifest(manifest);
-  } catch (err) {
+  /**
+   * Run full validation
+   */
+  async validate(): Promise<ValidationResult> {
+    this.errors = [];
+    this.warnings = [];
+
+    // 1. Check manifest exists and is valid
+    const manifest = await this.validateManifest();
+    if (!manifest) {
+      return this.buildResult();
+    }
+
+    // 2. Validate routes
+    await this.validateRoutes(manifest);
+
+    // 3. Validate views
+    await this.validateViews(manifest);
+
+    // 4. Validate handlers
+    await this.validateHandlers();
+
+    // 5. Validate data schemas
+    await this.validateDataSchemas(manifest);
+
+    // 6. Validate storage config
+    await this.validateStorage(manifest);
+
+    // 7. Check for orphaned files
+    await this.checkOrphanedFiles(manifest);
+
+    return this.buildResult();
+  }
+
+  /**
+   * Validate the main manifest.json
+   */
+  private async validateManifest(): Promise<AppManifest | null> {
+    const manifestPath = path.join(this.options.appDir, "manifest.json");
+
+    // Check file exists
+    try {
+      await fs.access(manifestPath);
+    } catch {
+      this.addError("manifest.json not found", manifestPath);
+      return null;
+    }
+
+    // Parse JSON
+    let manifest: AppManifest;
+    try {
+      const content = await fs.readFile(manifestPath, "utf-8");
+      manifest = JSON.parse(content);
+    } catch (error) {
+      const message =
+        error instanceof SyntaxError
+          ? `Invalid JSON: ${error.message}`
+          : "Failed to read manifest.json";
+      this.addError(message, manifestPath);
+      return null;
+    }
+
+    // Validate required fields
+    if (!manifest.id) {
+      this.addError("Missing required field: id", manifestPath, "id");
+    } else if (!/^[a-z0-9-]+$/.test(manifest.id)) {
+      this.addError(
+        "id must contain only lowercase letters, numbers, and hyphens",
+        manifestPath,
+        "id"
+      );
+    }
+
+    if (!manifest.name) {
+      this.addError("Missing required field: name", manifestPath, "name");
+    }
+
+    if (!manifest.version) {
+      this.addError("Missing required field: version", manifestPath, "version");
+    } else if (!/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(manifest.version)) {
+      this.addWarning(
+        "version should follow semver format (e.g., 1.0.0)",
+        manifestPath,
+        "version"
+      );
+    }
+
+    return manifest;
+  }
+
+  /**
+   * Validate routes configuration
+   */
+  private async validateRoutes(manifest: AppManifest): Promise<void> {
+    // Load routes from routes/*.json
+    const routesDir = path.join(this.options.appDir, "routes");
+    const routeFiles = await this.findJsonFiles(routesDir);
+
+    const allRoutes: Record<string, RouteConfig> = { ...manifest.routes };
+
+    // Parse route files
+    for (const file of routeFiles) {
+      try {
+        const content = await fs.readFile(file, "utf-8");
+        const route = JSON.parse(content) as RouteConfig;
+        const name = path.basename(file, ".json");
+
+        // Validate route structure
+        if (!route.path) {
+          this.addError("Missing required field: path", file, "path");
+        } else if (!route.path.startsWith("/")) {
+          this.addError("path must start with /", file, "path");
+        }
+
+        if (!route.view) {
+          this.addError("Missing required field: view", file, "view");
+        }
+
+        if (route.auth && !["public", "authenticated", "owner"].includes(route.auth)) {
+          this.addError(
+            `Invalid auth value: ${route.auth}. Must be "public", "authenticated", or "owner"`,
+            file,
+            "auth"
+          );
+        }
+
+        allRoutes[name] = route;
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          this.addError(`Invalid JSON: ${error.message}`, file);
+        }
+      }
+    }
+
+    // Check for duplicate paths
+    const pathMap = new Map<string, string>();
+    for (const [name, route] of Object.entries(allRoutes)) {
+      if (route.path) {
+        const existing = pathMap.get(route.path);
+        if (existing) {
+          this.addError(
+            `Duplicate path "${route.path}" in routes "${existing}" and "${name}"`,
+            routesDir
+          );
+        } else {
+          pathMap.set(route.path, name);
+        }
+      }
+    }
+  }
+
+  /**
+   * Validate views configuration
+   */
+  private async validateViews(manifest: AppManifest): Promise<void> {
+    const viewsDir = path.join(this.options.appDir, "views");
+    const viewFiles = await this.findJsonFiles(viewsDir);
+
+    const allViews: Record<string, ViewConfig> = { ...manifest.views };
+
+    // Parse view files
+    for (const file of viewFiles) {
+      try {
+        const content = await fs.readFile(file, "utf-8");
+        const view = JSON.parse(content) as ViewConfig;
+        const name = path.basename(file, ".json");
+
+        // Validate view structure
+        if (!view.type) {
+          this.addError("Missing required field: type", file, "type");
+        } else if (!["list", "detail", "form", "custom"].includes(view.type)) {
+          this.addError(
+            `Invalid type value: ${view.type}. Must be "list", "detail", "form", or "custom"`,
+            file,
+            "type"
+          );
+        }
+
+        allViews[name] = view;
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          this.addError(`Invalid JSON: ${error.message}`, file);
+        }
+      }
+    }
+
+    // Check that all routes reference existing views
+    const routesDir = path.join(this.options.appDir, "routes");
+    const routeFiles = await this.findJsonFiles(routesDir);
+
+    for (const file of routeFiles) {
+      try {
+        const content = await fs.readFile(file, "utf-8");
+        const route = JSON.parse(content) as RouteConfig;
+
+        if (route.view && !allViews[route.view]) {
+          this.addWarning(
+            `Route references undefined view: ${route.view}`,
+            file,
+            "view"
+          );
+        }
+      } catch {
+        // Already handled in validateRoutes
+      }
+    }
+  }
+
+  /**
+   * Validate handlers.ts
+   */
+  private async validateHandlers(): Promise<void> {
+    const handlersPath = path.join(this.options.appDir, "handlers.ts");
+
+    try {
+      await fs.access(handlersPath);
+    } catch {
+      // handlers.ts is optional
+      this.addWarning("handlers.ts not found (server-side handlers disabled)", handlersPath);
+    }
+  }
+
+  /**
+   * Validate data schemas
+   */
+  private async validateDataSchemas(manifest: AppManifest): Promise<void> {
+    const dataDir = path.join(this.options.appDir, "data");
+    const dataFiles = await this.findJsonFiles(dataDir);
+
+    for (const file of dataFiles) {
+      try {
+        const content = await fs.readFile(file, "utf-8");
+        const schema = JSON.parse(content);
+
+        if (!schema.type) {
+          this.addError("Missing required field: type", file, "type");
+        } else if (!["object", "collection"].includes(schema.type)) {
+          this.addError(
+            `Invalid type value: ${schema.type}. Must be "object" or "collection"`,
+            file,
+            "type"
+          );
+        }
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          this.addError(`Invalid JSON: ${error.message}`, file);
+        }
+      }
+    }
+  }
+
+  /**
+   * Validate storage configuration
+   */
+  private async validateStorage(manifest: AppManifest): Promise<void> {
+    const storageDir = path.join(this.options.appDir, "storage");
+    const storageFiles = await this.findJsonFiles(storageDir);
+
+    for (const file of storageFiles) {
+      try {
+        const content = await fs.readFile(file, "utf-8");
+        const storage = JSON.parse(content);
+
+        // Validate KV namespaces
+        if (storage.kv && !Array.isArray(storage.kv)) {
+          this.addError("kv must be an array of namespace names", file, "kv");
+        }
+
+        // Validate R2 buckets
+        if (storage.r2 && !Array.isArray(storage.r2)) {
+          this.addError("r2 must be an array of bucket names", file, "r2");
+        }
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          this.addError(`Invalid JSON: ${error.message}`, file);
+        }
+      }
+    }
+  }
+
+  /**
+   * Check for orphaned files
+   */
+  private async checkOrphanedFiles(manifest: AppManifest): Promise<void> {
+    // Check for .tsx files in views/ that aren't referenced
+    const viewsDir = path.join(this.options.appDir, "views");
+    const tsxFiles = await glob(path.join(viewsDir, "**/*.tsx"), { nodir: true });
+
+    for (const file of tsxFiles) {
+      const relativePath = path.relative(viewsDir, file);
+      const viewName = relativePath.replace(/\.tsx$/, "").replace(/\\/g, "/");
+
+      // Check if there's a corresponding JSON config
+      const jsonPath = file.replace(/\.tsx$/, ".json");
+      try {
+        await fs.access(jsonPath);
+      } catch {
+        this.addWarning(
+          `View component "${viewName}" has no corresponding JSON config`,
+          file
+        );
+      }
+    }
+  }
+
+  /**
+   * Find JSON files in a directory
+   */
+  private async findJsonFiles(dir: string): Promise<string[]> {
+    try {
+      return await glob(path.join(dir, "*.json"), { nodir: true });
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Add an error
+   */
+  private addError(message: string, file?: string, jsonPath?: string): void {
+    this.errors.push({
+      type: "error",
+      message,
+      file,
+      path: jsonPath
+    });
+  }
+
+  /**
+   * Add a warning
+   */
+  private addWarning(message: string, file?: string, jsonPath?: string): void {
+    this.warnings.push({
+      type: "warning",
+      message,
+      file,
+      path: jsonPath
+    });
+  }
+
+  /**
+   * Build the final result
+   */
+  private buildResult(): ValidationResult {
+    // In strict mode, warnings become errors
+    if (this.options.strict) {
+      for (const warning of this.warnings) {
+        this.errors.push({
+          type: "error",
+          message: warning.message,
+          file: warning.file,
+          path: warning.path
+        });
+      }
+      return {
+        valid: this.errors.length === 0,
+        errors: this.errors,
+        warnings: []
+      };
+    }
+
     return {
-      valid: false,
-      errors: [{
-        code: "parse_error",
-        message: `Failed to parse manifest: ${err instanceof Error ? err.message : String(err)}`,
-      }],
-      warnings: [],
+      valid: this.errors.length === 0,
+      errors: this.errors,
+      warnings: this.warnings
     };
   }
+}
+
+/**
+ * Create a new AppValidator instance
+ */
+export function createValidator(options: ValidatorOptions): AppValidator {
+  return new AppValidator(options);
+}
+
+/**
+ * Validate an App with the given options
+ */
+export async function validateApp(options: ValidatorOptions): Promise<ValidationResult> {
+  const validator = createValidator(options);
+  return validator.validate();
 }

@@ -21,6 +21,7 @@ import { getOrFetchActor, fetchRemoteObject } from "@takos/platform/activitypub/
 import {
   buildAiProviderRegistry,
   chatCompletion,
+  embed,
 } from "@takos/platform/server";
 
 // Handler types from App SDK
@@ -63,7 +64,7 @@ interface HandlerContext {
     };
     ai: {
       complete: (prompt: string, options?: Record<string, unknown>) => Promise<string>;
-      embed: (text: string) => Promise<number[]>;
+      embed: (text: string, options?: Record<string, unknown>) => Promise<number[]>;
     };
   };
   storage: {
@@ -334,11 +335,36 @@ function buildHandlerContext(
             return "";
           }
         },
-        embed: async (_text: string) => {
-          // Embedding is not yet supported via the provider adapters
-          // Would need to add embedding support to provider-adapters.ts
-          console.warn("AI embedding not yet implemented via provider adapters");
-          return [];
+        embed: async (text: string, options?: Record<string, unknown>) => {
+          // Use AI provider registry for embedding
+          const takosConfig = (c.get("takosConfig") as TakosConfig | undefined) ??
+            (env as any).takosConfig;
+          const aiConfig = takosConfig?.ai;
+
+          if (!aiConfig || aiConfig.enabled === false) {
+            console.warn("AI is disabled for this node");
+            return [];
+          }
+
+          try {
+            const registry = buildAiProviderRegistry(aiConfig, env as any);
+            const provider = registry.get(options?.provider as string | undefined);
+            if (!provider) {
+              console.warn("No AI provider configured for embedding");
+              return [];
+            }
+
+            const result = await embed(provider, text, {
+              model: options?.model as string | undefined,
+              dimensions: options?.dimensions as number | undefined,
+            });
+
+            // Return the first embedding vector
+            return result.embeddings[0]?.embedding ?? [];
+          } catch (error) {
+            console.error("AI embedding error:", error);
+            return [];
+          }
         },
       },
     },

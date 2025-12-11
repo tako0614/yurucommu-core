@@ -1,51 +1,110 @@
-import type React from "react";
+import type * as React from "react";
 
-export type AuthUser = {
+export type ScreenAuth = "required" | "optional";
+
+export interface UserIdentity {
   id: string;
   handle: string;
   displayName: string;
-  avatar?: string | null;
-};
+  avatar?: string;
+}
 
-export type AuthState = {
+export interface AuthState {
   isLoggedIn: boolean;
-  user: AuthUser | null;
+  user: UserIdentity | null;
   token: string | null;
-};
+}
 
-export type CoreAPI = {
+// =============================================================================
+// Core Services - Base types shared between client and server
+// =============================================================================
+
+export interface PostsService {
+  list: (params?: Record<string, unknown>) => Promise<unknown>;
+  get: (id: string) => Promise<unknown>;
+  create: (data: Record<string, unknown>) => Promise<unknown>;
+  delete: (id: string) => Promise<void>;
+}
+
+export interface UsersService {
+  get: (id: string) => Promise<unknown>;
+  follow: (id: string) => Promise<void>;
+  unfollow: (id: string) => Promise<void>;
+}
+
+export interface TimelineService {
+  home: (params?: Record<string, unknown>) => Promise<unknown>;
+}
+
+export interface NotificationsService {
+  list: (params?: Record<string, unknown>) => Promise<unknown>;
+  markRead: (ids: string[]) => Promise<void>;
+}
+
+export interface StorageService {
+  upload: (file: File | Blob, options?: Record<string, unknown>) => Promise<unknown>;
+  get: (key: string) => Promise<Blob | null>;
+  delete: (key: string) => Promise<void>;
+}
+
+export interface ActivityPubService {
+  send: (activity: Record<string, unknown>) => Promise<void>;
+  resolve: (uri: string) => Promise<unknown>;
+}
+
+export interface AIService {
+  complete: (prompt: string, options?: Record<string, unknown>) => Promise<string>;
+  embed: (text: string) => Promise<number[]>;
+}
+
+/**
+ * CoreServices - Base interface for core services available on both client and server.
+ * Contains common functionality shared across environments.
+ */
+export interface CoreServices {
+  posts: PostsService;
+  users: UsersService;
+  storage: StorageService;
+}
+
+/**
+ * CoreAPI - Client-side API interface.
+ * Extends CoreServices with client-specific functionality.
+ */
+export interface CoreAPI extends CoreServices {
+  /** Raw fetch for custom API calls */
   fetch: (path: string, options?: RequestInit) => Promise<Response>;
-  posts: {
-    list: (params?: { limit?: number }) => Promise<Post[]>;
-    get: (id: string) => Promise<Post>;
-    create: (data: { content: string }) => Promise<Post>;
-    delete: (id: string) => Promise<void>;
-  };
-  users: {
-    get: (id: string) => Promise<User>;
-    follow: (id: string) => Promise<void>;
-    unfollow: (id: string) => Promise<void>;
-  };
-  timeline: {
-    home: (params?: { limit?: number; cursor?: string }) => Promise<TimelineResponse>;
-  };
-  notifications: {
-    list: (params?: { limit?: number }) => Promise<Notification[]>;
-    markRead: (ids: string[]) => Promise<void>;
-  };
-  storage: {
-    upload: (file: File, options?: UploadOptions) => Promise<StorageObject>;
-    get: (key: string) => Promise<Blob | null>;
-    delete: (key: string) => Promise<void>;
-  };
-};
+  /** Timeline operations (client-only convenience) */
+  timeline: TimelineService;
+  /** Notification operations */
+  notifications: NotificationsService;
+  /** ActivityPub operations (available on both client and server) */
+  activitypub: ActivityPubService;
+  /** AI operations (available on both client and server) */
+  ai: AIService;
+}
 
-export type AppAPI = {
+/**
+ * ServerCoreAPI - Server-side API interface for handlers.
+ * Extends CoreServices with server-specific functionality.
+ */
+export interface ServerCoreAPI extends CoreServices {
+  /** Timeline operations */
+  timeline: TimelineService;
+  /** Notification operations */
+  notifications: NotificationsService;
+  /** ActivityPub operations */
+  activitypub: ActivityPubService;
+  /** AI operations */
+  ai: AIService;
+}
+
+export interface AppAPI {
   fetch: (path: string, options?: RequestInit) => Promise<Response>;
-};
+}
 
-export type TakosRuntime = {
-  navigate: (path: string, options?: { replace?: boolean }) => void;
+export interface TakosRuntime {
+  navigate: (path: string) => void;
   back: () => void;
   currentPath: string;
   params: Record<string, string>;
@@ -57,7 +116,7 @@ export type TakosRuntime = {
     toast: (message: string, type?: "success" | "error" | "info") => void;
     confirm: (message: string) => Promise<boolean>;
     modal: {
-      open: (component: React.ComponentType<any>, props?: Record<string, unknown>) => void;
+      open: (component: React.ComponentType) => void;
       close: () => void;
     };
   };
@@ -66,91 +125,100 @@ export type TakosRuntime = {
     version: string;
     permissions: string[];
   };
-};
+}
 
-export type ScreenConfig = {
-  id?: string;
+export interface ScreenConfig {
+  id: string;
   path: string;
-  component: React.ComponentType<any>;
+  component: React.ComponentType;
   title?: string;
-  auth?: "required" | "optional";
+  auth?: ScreenAuth;
+}
+
+export type ScreenDefinition = ScreenConfig & {
+  __takosScreen?: true;
 };
 
-export type HandlerConfig<TInput = unknown, TOutput = unknown> = {
-  id?: string;
-  method: "GET" | "POST" | "PUT" | "DELETE";
-  path: string;
-  auth?: "required" | "optional" | "none";
-  handler: (ctx: HandlerContext, input: TInput) => Promise<TOutput>;
-};
-
-export type AppDefinition = {
+export interface AppConfig {
   id: string;
   name: string;
   version: string;
   description?: string;
-  screens: ScreenConfig[];
-  handlers?: HandlerConfig[];
+  screens: ScreenDefinition[];
+  handlers?: unknown[];
   permissions?: string[];
+}
+
+export type AppDefinition = React.ComponentType<{ runtime: TakosRuntime }> & {
+  __takosApp?: NormalizedAppConfig;
 };
 
-export type HandlerContext = {
+export type NormalizedScreen = ScreenDefinition & {
+  auth: ScreenAuth;
+};
+
+export interface NormalizedAppConfig extends Omit<AppConfig, "screens"> {
+  id: string;
+  screens: NormalizedScreen[];
+}
+
+/**
+ * App-specific storage for handler state (KV-like).
+ * Separate from core.storage which handles file/blob storage.
+ */
+export interface AppStorage {
+  get: <T>(key: string) => Promise<T | null>;
+  set: (key: string, value: unknown) => Promise<void>;
+  delete: (key: string) => Promise<void>;
+  list: (prefix: string) => Promise<string[]>;
+}
+
+/**
+ * HandlerContext - Context provided to server-side handlers.
+ * Uses ServerCoreAPI for core services with full server capabilities.
+ */
+export interface HandlerContext {
+  /** Authenticated user info */
   auth: {
     userId: string;
     handle: string;
   };
+  /** Route parameters (e.g., :id from /posts/:id) */
   params: Record<string, string>;
+  /** Query string parameters */
   query: Record<string, string>;
-  core: {
-    posts: unknown;
-    users: unknown;
-    activitypub: unknown;
-    storage: unknown;
-    ai: unknown;
-  };
-  storage: {
-    get: <T>(key: string) => Promise<T | null>;
-    set: (key: string, value: unknown) => Promise<void>;
-    delete: (key: string) => Promise<void>;
-    list: (prefix: string) => Promise<string[]>;
-  };
+  /** Core services - unified type with client */
+  core: ServerCoreAPI;
+  /** App-specific KV storage for handler state */
+  storage: AppStorage;
+  /** Helper to create JSON response */
   json: <T>(data: T, options?: { status?: number }) => Response;
+  /** Helper to create error response */
   error: (message: string, status?: number) => Response;
-};
+}
 
-export type Post = {
+export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+
+export interface HandlerConfig<TInput = unknown, TOutput = unknown> {
+  method: HttpMethod;
+  path: string;
+  auth?: boolean;
+  handler: (ctx: HandlerContext, input: TInput) => Promise<TOutput>;
+}
+
+export interface HandlerMetadata {
   id: string;
-  content: string;
-  createdAt?: string;
-};
+  method: HttpMethod;
+  path: string;
+  auth: boolean;
+}
 
-export type TimelineResponse = {
-  posts: Post[];
-  cursor?: string;
-};
+export type Handler<TInput = unknown, TOutput = unknown> = {
+  __takosHandler: true;
+  metadata: HandlerMetadata;
+  handler: (ctx: HandlerContext, input: TInput) => Promise<TOutput>;
+}
 
-export type User = {
-  id: string;
-  handle: string;
-  displayName: string;
-  avatar?: string | null;
-};
-
-export type Notification = {
-  id: string;
-  type: string;
-  createdAt?: string;
-  data?: Record<string, unknown>;
-};
-
-export type UploadOptions = {
-  contentType?: string;
-  metadata?: Record<string, string>;
-};
-
-export type StorageObject = {
-  key: string;
-  url?: string;
-  size?: number;
-  contentType?: string;
-};
+export interface AppManifest {
+  schema_version: "2.0";
+}
