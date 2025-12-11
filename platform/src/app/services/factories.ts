@@ -14,6 +14,10 @@ import {
   type APObject,
   type APVisibility,
 } from "./object-service";
+import {
+  createBlockMuteService,
+  type BlockMuteService,
+} from "./block-mute-service";
 import type {
   DmMessage,
   DmThread,
@@ -320,7 +324,55 @@ function nextOffset(itemsLength: number, limit: number | undefined, offset: numb
   return itemsLength < limit ? null : offset + itemsLength;
 }
 
-const createActorService = (env: any): ActorService => {
+/**
+ * Creates a BlockMuteService that uses KV if available, otherwise falls back to DB.
+ * Per 11-default-app.md specification.
+ */
+const createBlockMuteServiceFromEnv = (env: any): BlockMuteService => {
+  // Prefer KV storage if available
+  if (env.KV) {
+    return createBlockMuteService({ type: "kv", kv: env.KV });
+  }
+
+  // Fall back to DB-based storage
+  const dbFallback = {
+    blockUser: async (blockerId: string, blockedId: string) =>
+      withStore(env, async (store) => {
+        if (store.blockUser) return store.blockUser(blockerId, blockedId);
+        throw new Error("block not supported");
+      }),
+    unblockUser: async (blockerId: string, blockedId: string) =>
+      withStore(env, async (store) => {
+        if (store.unblockUser) return store.unblockUser(blockerId, blockedId);
+        throw new Error("unblock not supported");
+      }),
+    listBlockedUsers: async (blockerId: string) =>
+      withStore(env, async (store) => store.listBlockedUsers?.(blockerId) ?? []),
+    isBlocked: async (blockerId: string, targetId: string) =>
+      withStore(env, async (store) => store.isBlocked?.(blockerId, targetId) ?? false),
+    muteUser: async (muterId: string, mutedId: string) =>
+      withStore(env, async (store) => {
+        if (store.muteUser) return store.muteUser(muterId, mutedId);
+        throw new Error("mute not supported");
+      }),
+    unmuteUser: async (muterId: string, mutedId: string) =>
+      withStore(env, async (store) => {
+        if (store.unmuteUser) return store.unmuteUser(muterId, mutedId);
+        throw new Error("unmute not supported");
+      }),
+    listMutedUsers: async (muterId: string) =>
+      withStore(env, async (store) => store.listMutedUsers?.(muterId) ?? []),
+    isMuted: async (muterId: string, targetId: string) =>
+      withStore(env, async (store) => store.isMuted?.(muterId, targetId) ?? false),
+  };
+
+  return createBlockMuteService({ type: "db", db: dbFallback });
+};
+
+const createActorService = (env: any, blockMuteService?: BlockMuteService, objectService?: ObjectService): ActorService => {
+  const blockMute = blockMuteService ?? createBlockMuteServiceFromEnv(env);
+  const objects = objectService ?? createObjectService(env);
+
   const follow = async (follower: string, target: string): Promise<void> =>
     withStore(env, async (store) => {
       if (store.createFollow) {
@@ -392,33 +444,86 @@ const createActorService = (env: any): ActorService => {
       const follower = ensureAuth(ctx);
       await unfollow(follower, targetId);
     },
+    /**
+     * Block a user - per 11-default-app.md:
+     * 1. Store in KV for UI filtering
+     * 2. Create Block object via ObjectService for ActivityPub federation
+     * 3. Remove existing follow relationship
+     */
     async block(ctx, targetId) {
       const userId = ensureAuth(ctx);
-      await withStore(env, async (store) => {
-        if (store.blockUser) return store.blockUser(userId, targetId);
-        throw new Error("block not supported");
-      });
+
+      // 1. Store in KV (or DB fallback)
+      await blockMute.block(ctx, targetId);
+
+      // 2. Create Block object (Core Kernel will handle ActivityPub delivery)
+      try {
+        await objects.create(ctx, {
+          type: "Block",
+          content: undefined,
+          visibility: "direct",
+          to: [targetId],
+          cc: [],
+          tag: [],
+          context: null,
+          inReplyTo: null,
+          object: targetId,
+        } as any);
+      } catch (error) {
+        // Log but don't fail - KV is the source of truth for UI
+        console.warn("Failed to create Block object for ActivityPub:", error);
+      }
+
+      // 3. Remove existing follow relationship
+      try {
+        await unfollow(userId, targetId);
+      } catch {
+        // Ignore - might not be following
+      }
     },
+    /**
+     * Unblock a user - per 11-default-app.md:
+     * 1. Remove from KV
+     * 2. Delete Block object (Core Kernel will send Undo Block activity)
+     */
     async unblock(ctx, targetId) {
       const userId = ensureAuth(ctx);
-      await withStore(env, async (store) => {
-        if (store.unblockUser) return store.unblockUser(userId, targetId);
-        throw new Error("unblock not supported");
-      });
+
+      // 1. Remove from KV (or DB fallback)
+      await blockMute.unblock(ctx, targetId);
+
+      // 2. Find and delete Block object (Core Kernel will handle Undo activity)
+      try {
+        const systemCtx = { userId: null, sessionId: null, isAuthenticated: false, plan: { id: "system", name: "system", limits: {}, features: [] }, limits: {} } as unknown as AppAuthContext;
+        const blockObjects = await objects.query(ctx, {
+          type: "Block",
+          limit: 10,
+          includeDeleted: false,
+        });
+
+        for (const obj of blockObjects.items) {
+          if (obj.actor === userId && (obj as any).object === targetId) {
+            await objects.delete(ctx, obj.id);
+            break;
+          }
+        }
+      } catch (error) {
+        // Log but don't fail
+        console.warn("Failed to delete Block object:", error);
+      }
     },
+    /**
+     * Mute a user - per 11-default-app.md:
+     * Stored in KV only, no ActivityPub activity (private to user)
+     */
     async mute(ctx, targetId) {
-      const userId = ensureAuth(ctx);
-      await withStore(env, async (store) => {
-        if (store.muteUser) return store.muteUser(userId, targetId);
-        throw new Error("mute not supported");
-      });
+      await blockMute.mute(ctx, targetId);
     },
+    /**
+     * Unmute a user
+     */
     async unmute(ctx, targetId) {
-      const userId = ensureAuth(ctx);
-      await withStore(env, async (store) => {
-        if (store.unmuteUser) return store.unmuteUser(userId, targetId);
-        throw new Error("unmute not supported");
-      });
+      await blockMute.unmute(ctx, targetId);
     },
     async listFollowers(ctx, params) {
       const actorId = params?.actorId ?? ensureAuth(ctx);
@@ -1556,8 +1661,14 @@ const createCommunityService = (env: any): CommunityService => {
   };
 };
 
-const createUserService = (env: any, actorService?: ActorService, notificationService?: NotificationService): UserService => {
-  const actors = actorService ?? createActorService(env);
+const createUserService = (
+  env: any,
+  actorService?: ActorService,
+  notificationService?: NotificationService,
+  blockMuteService?: BlockMuteService,
+): UserService => {
+  const blockMute = blockMuteService ?? createBlockMuteServiceFromEnv(env);
+  const actors = actorService ?? createActorService(env, blockMute);
   const notifications = notificationService ?? createNotificationService(env);
 
   const mapUser = (profile: ActorProfile): User => ({
@@ -1621,17 +1732,59 @@ const createUserService = (env: any, actorService?: ActorService, notificationSe
     async acceptFollowRequest() {},
     async rejectFollowRequest() {},
 
+    /**
+     * List blocked users - uses BlockMuteService (KV or DB fallback)
+     */
     async listBlocks(ctx, params) {
       const userId = ensureAuth(ctx);
-      const blocks = await withStore(env, async (store) => store.listBlockedUsers?.(userId) ?? []);
-      const users = blocks.map((b: any) => mapUser(mapActorProfile({ id: b.blocked_id ?? b.id ?? b })));
+      const blockedIds = await blockMute.listBlockedIds(userId);
+
+      // Fetch user profiles for each blocked ID
+      const users: User[] = [];
+      for (const blockedId of blockedIds) {
+        const actor = await actors.get(ctx, blockedId);
+        if (actor) {
+          users.push(mapUser(actor));
+        } else {
+          // Fallback: create minimal user object if profile not found
+          users.push({
+            id: blockedId,
+            handle: blockedId,
+            display_name: undefined,
+            avatar: undefined,
+            bio: undefined,
+            created_at: undefined,
+          });
+        }
+      }
       return { users, next_offset: null, next_cursor: null };
     },
 
+    /**
+     * List muted users - uses BlockMuteService (KV or DB fallback)
+     */
     async listMutes(ctx, params) {
       const userId = ensureAuth(ctx);
-      const mutes = await withStore(env, async (store) => store.listMutedUsers?.(userId) ?? []);
-      const users = mutes.map((m: any) => mapUser(mapActorProfile({ id: m.muted_id ?? m.id ?? m })));
+      const mutedIds = await blockMute.listMutedIds(userId);
+
+      // Fetch user profiles for each muted ID
+      const users: User[] = [];
+      for (const mutedId of mutedIds) {
+        const actor = await actors.get(ctx, mutedId);
+        if (actor) {
+          users.push(mapUser(actor));
+        } else {
+          // Fallback: create minimal user object if profile not found
+          users.push({
+            id: mutedId,
+            handle: mutedId,
+            display_name: undefined,
+            avatar: undefined,
+            bio: undefined,
+            created_at: undefined,
+          });
+        }
+      }
       return { users, next_offset: null, next_cursor: null };
     },
 
@@ -1652,6 +1805,8 @@ export {
   createStorageService,
   createNotificationService,
   createAuthService,
+  createBlockMuteService,
+  createBlockMuteServiceFromEnv,
 };
 
 export type {
@@ -1666,4 +1821,5 @@ export type {
   StorageService,
   NotificationService,
   AuthService,
+  BlockMuteService,
 };

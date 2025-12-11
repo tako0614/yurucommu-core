@@ -1,117 +1,258 @@
 #!/usr/bin/env node
+/**
+ * App Bundler CLI
+ *
+ * Command-line interface for validating and bundling App code.
+ *
+ * Usage:
+ *   npx @takos/app-bundler validate [appDir]
+ *   npx @takos/app-bundler bundle [appDir] [outDir]
+ */
 
-import { validateManifestFile, type ValidationResult } from "./validator.js";
+import * as path from "node:path";
+import { bundleApp } from "./bundler.js";
+import { validateApp } from "./validator.js";
+
+// ANSI color codes
+const colors = {
+  reset: "\x1b[0m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  cyan: "\x1b[36m",
+  dim: "\x1b[2m"
+};
+
+function log(message: string): void {
+  console.log(message);
+}
+
+function logError(message: string): void {
+  console.error(`${colors.red}error${colors.reset}: ${message}`);
+}
+
+function logWarning(message: string): void {
+  console.warn(`${colors.yellow}warning${colors.reset}: ${message}`);
+}
+
+function logSuccess(message: string): void {
+  console.log(`${colors.green}success${colors.reset}: ${message}`);
+}
+
+function logInfo(message: string): void {
+  console.log(`${colors.cyan}info${colors.reset}: ${message}`);
+}
 
 function printUsage(): void {
-  console.log(`Usage: app-bundler-validate [options] <manifest-file>
+  log(`
+${colors.cyan}@takos/app-bundler${colors.reset} - App bundler and validator
 
-Options:
-  -h, --help     Show this help message
-  -j, --json     Output as JSON
-  -q, --quiet    Only output errors (no warnings)
+${colors.yellow}Usage:${colors.reset}
+  app-bundler validate [options] [appDir]
+  app-bundler bundle [options] [appDir] [outDir]
 
-Examples:
-  app-bundler-validate app/manifest.json
-  app-bundler-validate --json dist/app-manifest.json
+${colors.yellow}Commands:${colors.reset}
+  validate    Validate App manifest and structure
+  bundle      Bundle App code for deployment
+
+${colors.yellow}Options:${colors.reset}
+  --strict    Enable strict mode (warnings become errors)
+  --help      Show this help message
+  --version   Show version
+
+${colors.yellow}Examples:${colors.reset}
+  app-bundler validate ./app
+  app-bundler validate --strict ./app
+  app-bundler bundle ./app ./dist/app
 `);
 }
 
-interface CliOptions {
-  json: boolean;
-  quiet: boolean;
-  help: boolean;
-  file: string | null;
+function printVersion(): void {
+  // Read version from package.json
+  log("0.1.0");
 }
 
-function parseArgs(argv: string[]): CliOptions {
-  const options: CliOptions = {
-    json: false,
-    quiet: false,
+interface ParsedArgs {
+  command: string;
+  appDir: string;
+  outDir?: string;
+  strict: boolean;
+  help: boolean;
+  version: boolean;
+}
+
+function parseArgs(args: string[]): ParsedArgs {
+  const result: ParsedArgs = {
+    command: "",
+    appDir: "./app",
+    strict: false,
     help: false,
-    file: null,
+    version: false
   };
 
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    switch (arg) {
-      case "-h":
-      case "--help":
-        options.help = true;
-        break;
-      case "-j":
-      case "--json":
-        options.json = true;
-        break;
-      case "-q":
-      case "--quiet":
-        options.quiet = true;
-        break;
-      default:
-        if (!arg.startsWith("-")) {
-          options.file = arg;
-        }
-        break;
+  const positional: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    if (arg === "--strict") {
+      result.strict = true;
+    } else if (arg === "--help" || arg === "-h") {
+      result.help = true;
+    } else if (arg === "--version" || arg === "-v") {
+      result.version = true;
+    } else if (!arg.startsWith("-")) {
+      positional.push(arg);
     }
   }
 
-  return options;
+  // First positional is command
+  if (positional.length > 0) {
+    result.command = positional[0];
+  }
+
+  // Second positional is appDir
+  if (positional.length > 1) {
+    result.appDir = positional[1];
+  }
+
+  // Third positional is outDir (for bundle command)
+  if (positional.length > 2) {
+    result.outDir = positional[2];
+  }
+
+  return result;
 }
 
-function formatResult(result: ValidationResult, options: CliOptions): string {
-  if (options.json) {
-    return JSON.stringify(result, null, 2);
+async function runValidate(appDir: string, strict: boolean): Promise<number> {
+  const resolvedDir = path.resolve(appDir);
+  logInfo(`Validating App at ${resolvedDir}`);
+
+  const result = await validateApp({
+    appDir: resolvedDir,
+    strict
+  });
+
+  // Print errors
+  for (const error of result.errors) {
+    const location = error.file
+      ? `${colors.dim}${path.relative(process.cwd(), error.file)}${colors.reset}`
+      : "";
+    const jsonPath = error.path ? `${colors.dim} (${error.path})${colors.reset}` : "";
+    logError(`${error.message} ${location}${jsonPath}`);
   }
 
-  const lines: string[] = [];
-
-  if (result.errors.length > 0) {
-    lines.push("Errors:");
-    for (const error of result.errors) {
-      const pathInfo = error.path ? ` (${error.path})` : "";
-      lines.push(`  ✗ [${error.code}]${pathInfo}: ${error.message}`);
-    }
+  // Print warnings
+  for (const warning of result.warnings) {
+    const location = warning.file
+      ? `${colors.dim}${path.relative(process.cwd(), warning.file)}${colors.reset}`
+      : "";
+    const jsonPath = warning.path ? `${colors.dim} (${warning.path})${colors.reset}` : "";
+    logWarning(`${warning.message} ${location}${jsonPath}`);
   }
 
-  if (!options.quiet && result.warnings.length > 0) {
-    if (lines.length > 0) lines.push("");
-    lines.push("Warnings:");
-    for (const warning of result.warnings) {
-      const pathInfo = warning.path ? ` (${warning.path})` : "";
-      lines.push(`  ⚠ [${warning.code}]${pathInfo}: ${warning.message}`);
-    }
-  }
-
+  // Summary
+  log("");
   if (result.valid) {
-    lines.push("");
-    lines.push("✓ Manifest is valid");
-    if (result.warnings.length > 0 && !options.quiet) {
-      lines.push(`  (${result.warnings.length} warning(s))`);
-    }
+    logSuccess(
+      `Validation passed${result.warnings.length > 0 ? ` with ${result.warnings.length} warning(s)` : ""}`
+    );
+    return 0;
   } else {
-    lines.push("");
-    lines.push(`✗ Manifest is invalid (${result.errors.length} error(s))`);
+    logError(
+      `Validation failed with ${result.errors.length} error(s) and ${result.warnings.length} warning(s)`
+    );
+    return 1;
   }
-
-  return lines.join("\n");
 }
 
-function main(): void {
-  const options = parseArgs(process.argv.slice(2));
+async function runBundle(appDir: string, outDir: string): Promise<number> {
+  const resolvedAppDir = path.resolve(appDir);
+  const resolvedOutDir = path.resolve(outDir);
 
-  if (options.help) {
+  logInfo(`Bundling App at ${resolvedAppDir}`);
+  logInfo(`Output directory: ${resolvedOutDir}`);
+
+  // First validate
+  const validationResult = await validateApp({
+    appDir: resolvedAppDir,
+    strict: false
+  });
+
+  if (!validationResult.valid) {
+    logError("Validation failed. Fix errors before bundling.");
+    for (const error of validationResult.errors) {
+      logError(error.message);
+    }
+    return 1;
+  }
+
+  // Then bundle
+  const result = await bundleApp({
+    appDir: resolvedAppDir,
+    outDir: resolvedOutDir
+  });
+
+  if (!result.success) {
+    logError("Bundle failed");
+    for (const error of result.errors || []) {
+      logError(error.message);
+    }
+    return 1;
+  }
+
+  // Print generated files
+  log("");
+  log("Generated files:");
+  for (const file of result.files) {
+    const sizeKb = (file.size / 1024).toFixed(2);
+    log(`  ${colors.green}${file.path}${colors.reset} ${colors.dim}(${sizeKb} KB)${colors.reset}`);
+  }
+
+  log("");
+  logSuccess("Bundle completed successfully");
+  return 0;
+}
+
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+
+  if (args.help) {
     printUsage();
     process.exit(0);
   }
 
-  if (!options.file) {
-    console.error("Error: No manifest file specified\n");
+  if (args.version) {
+    printVersion();
+    process.exit(0);
+  }
+
+  if (!args.command) {
     printUsage();
     process.exit(1);
   }
 
-  const result = validateManifestFile(options.file);
-  console.log(formatResult(result, options));
-  process.exit(result.valid ? 0 : 1);
+  let exitCode: number;
+
+  switch (args.command) {
+    case "validate":
+      exitCode = await runValidate(args.appDir, args.strict);
+      break;
+
+    case "bundle":
+      exitCode = await runBundle(args.appDir, args.outDir || "./dist/app");
+      break;
+
+    default:
+      logError(`Unknown command: ${args.command}`);
+      printUsage();
+      exitCode = 1;
+  }
+
+  process.exit(exitCode);
 }
 
-main();
+main().catch((error) => {
+  logError(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});

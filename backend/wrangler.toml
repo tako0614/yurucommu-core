@@ -28,6 +28,12 @@ database_name = "takos-main"
 database_id = "06de5795-6958-44b3-a35e-c09e82b9a443"
 migrations_dir = "d1_migrations"
 
+# KV Namespace for App State (blocks, mutes, etc.)
+# Create with: wrangler kv:namespace create "APP_STATE"
+# [[kv_namespaces]]
+# binding = "KV"
+# id = "your-kv-namespace-id"
+
 [triggers]
 crons = [
   "*/5 * * * *",
