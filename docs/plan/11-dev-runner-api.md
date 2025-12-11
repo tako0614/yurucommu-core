@@ -2,36 +2,65 @@
 
 ## 概要
 
-開発支援ツール（AIエージェント等）向けのファイルシステム操作と実行管理APIを提供する。
-既存の VFS (Virtual File System) エンドポイント (`/-/dev/vfs/*`) と連携し、ワークスペース内でのコード編集・実行・テストを可能にする。
+App のソースコード編集・ビルド・テスト・デプロイを行う API を提供する。
+
+**基本方針**:
+- ソースコードのみを保存し、ビルドはサーバー側で実行
+- 開発環境（sandbox）で機能テストしてから本番にデプロイ
+- エージェントでも手動アップロードでも同じフローで利用可能
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                           開発フロー                                  │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐       │
+│  │ ソース   │ ──→ │ ビルド   │ ──→ │ テスト   │ ──→ │ デプロイ │       │
+│  │ 編集     │     │         │     │ (sandbox)│     │ (本番)   │       │
+│  └─────────┘     └─────────┘     └─────────┘     └─────────┘       │
+│       │               │               │               │              │
+│   /fs/file        /builds         /sandbox        /deploy            │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
 
 ## エンドポイント一覧
 
-### ファイルシステム操作
+### ファイルシステム操作（ソースコード）
 
 | メソッド | パス | 説明 |
 |---------|------|------|
-| `GET` | `/-/dev/fs/:workspaceId/tree` | ディレクトリ構造の一覧取得 |
-| `GET` | `/-/dev/fs/:workspaceId/file` | 単一ファイルの内容取得 |
-| `POST` | `/-/dev/fs/:workspaceId/file` | 単一ファイルの内容を上書き |
-| `POST` | `/-/dev/fs/:workspaceId/patch` | テキストパッチ適用（オプション） |
+| `GET` | `/-/dev/fs/:workspaceId/tree` | ソースファイル一覧取得 |
+| `GET` | `/-/dev/fs/:workspaceId/file` | ソースファイルの内容取得 |
+| `POST` | `/-/dev/fs/:workspaceId/file` | ソースファイルの保存 |
+| `POST` | `/-/dev/fs/:workspaceId/patch` | ソースファイルへのパッチ適用 |
 
-### 実行管理
-
-| メソッド | パス | 説明 |
-|---------|------|------|
-| `POST` | `/-/dev/runs/:workspaceId` | 実行ジョブの作成 |
-| `GET` | `/-/dev/runs/:workspaceId/:runId` | 実行ステータスの取得 |
-| `GET` | `/-/dev/runs/:workspaceId/:runId/logs` | 実行ログの取得 |
-| `DELETE` | `/-/dev/runs/:workspaceId/:runId` | 実行ジョブのキャンセル |
-
-### 開発タスク管理
+### ビルド管理
 
 | メソッド | パス | 説明 |
 |---------|------|------|
-| `POST` | `/-/dev/tasks/:workspaceId` | 開発タスクの作成 |
-| `GET` | `/-/dev/tasks/:workspaceId/:taskId` | タスクステータスの取得 |
-| `GET` | `/-/dev/tasks/:workspaceId/:taskId/result` | タスク結果の取得 |
+| `POST` | `/-/dev/builds/:workspaceId` | ビルドジョブの作成 |
+| `GET` | `/-/dev/builds/:workspaceId/:buildId` | ビルドステータスの取得 |
+| `GET` | `/-/dev/builds/:workspaceId/:buildId/logs` | ビルドログの取得 |
+| `GET` | `/-/dev/builds/:workspaceId/:buildId/output` | ビルド成果物の取得 |
+
+### 開発環境（Sandbox）
+
+| メソッド | パス | 説明 |
+|---------|------|------|
+| `POST` | `/-/dev/sandbox/:workspaceId` | Sandbox セッション作成 |
+| `GET` | `/-/dev/sandbox/:workspaceId/:sessionId` | Sandbox ステータス取得 |
+| `POST` | `/-/dev/sandbox/:workspaceId/:sessionId/call` | ハンドラー実行 |
+| `GET` | `/-/dev/sandbox/:workspaceId/:sessionId/state` | Sandbox 内のデータ状態取得 |
+| `DELETE` | `/-/dev/sandbox/:workspaceId/:sessionId` | Sandbox セッション破棄 |
+
+### デプロイ管理
+
+| メソッド | パス | 説明 |
+|---------|------|------|
+| `POST` | `/-/dev/deploy/:workspaceId` | 本番へデプロイ |
+| `GET` | `/-/dev/deploy/:workspaceId/history` | デプロイ履歴取得 |
+| `POST` | `/-/dev/deploy/:workspaceId/rollback` | 前バージョンにロールバック |
 
 ---
 
@@ -39,7 +68,7 @@
 
 ### 1.1 `GET /-/dev/fs/:workspaceId/tree`
 
-ディレクトリ構造の一覧を取得する。
+ソースファイル一覧を取得する。
 
 #### リクエスト
 
@@ -48,7 +77,6 @@
 | `workspaceId` | path | ✓ | ワークスペースID |
 | `root` | query | - | 起点ディレクトリ（デフォルト: `/`） |
 | `depth` | query | - | 探索深度（デフォルト: `-1` 無制限） |
-| `include_hidden` | query | - | 隠しファイルを含むか（デフォルト: `false`） |
 
 #### レスポンス
 
@@ -57,25 +85,15 @@
   "ok": true,
   "data": {
     "workspace_id": "ws_abc123",
-    "root": "services/user-api",
+    "root": "src",
     "entries": [
-      { "path": "services/user-api/src/index.ts", "type": "file", "size": 1234 },
-      { "path": "services/user-api/src/handlers/user.ts", "type": "file", "size": 2048 },
-      { "path": "services/user-api/package.json", "type": "file", "size": 512 },
-      { "path": "services/user-api/tests", "type": "directory" }
+      { "path": "src/App.tsx", "type": "file", "size": 1234 },
+      { "path": "src/components/Timeline.tsx", "type": "file", "size": 2048 },
+      { "path": "src/handlers/timeline.ts", "type": "file", "size": 512 },
+      { "path": "src/components", "type": "directory" }
     ],
     "total_entries": 4
   }
-}
-```
-
-#### エラーレスポンス
-
-```jsonc
-{
-  "status": 404,
-  "code": "NOT_FOUND",
-  "message": "workspace not found"
 }
 ```
 
@@ -83,7 +101,7 @@
 
 ### 1.2 `GET /-/dev/fs/:workspaceId/file`
 
-単一ファイルの内容を取得する。
+ソースファイルの内容を取得する。
 
 #### リクエスト
 
@@ -91,7 +109,6 @@
 |-----------|------|------|------|
 | `workspaceId` | path | ✓ | ワークスペースID |
 | `path` | query | ✓ | ファイルパス |
-| `encoding` | query | - | エンコーディング（デフォルト: `utf-8`） |
 
 #### レスポンス
 
@@ -100,11 +117,9 @@
   "ok": true,
   "data": {
     "workspace_id": "ws_abc123",
-    "path": "services/user-api/src/handlers/user.ts",
-    "content": "export function handler() { ... }",
-    "encoding": "utf-8",
+    "path": "src/handlers/timeline.ts",
+    "content": "export async function getTimeline(ctx) { ... }",
     "size": 2048,
-    "content_type": "text/typescript",
     "content_hash": "sha256:abc123...",
     "updated_at": "2025-01-01T00:00:00.000Z"
   }
@@ -115,16 +130,14 @@
 
 ### 1.3 `POST /-/dev/fs/:workspaceId/file`
 
-単一ファイルの内容を丸ごと上書きする。
+ソースファイルを保存する。
 
 #### リクエスト
 
 ```jsonc
 {
-  "path": "services/user-api/src/handlers/user.ts",
-  "content": "export function handler() { /* modified */ }",
-  "encoding": "utf-8",
-  "create_dirs": true  // 中間ディレクトリを自動作成（デフォルト: true）
+  "path": "src/handlers/timeline.ts",
+  "content": "export async function getTimeline(ctx) { /* updated */ }"
 }
 ```
 
@@ -135,124 +148,33 @@
   "ok": true,
   "data": {
     "workspace_id": "ws_abc123",
-    "path": "services/user-api/src/handlers/user.ts",
+    "path": "src/handlers/timeline.ts",
     "status": "updated",  // "created" | "updated"
-    "size": 2100,
     "content_hash": "sha256:def456...",
-    "updated_at": "2025-01-01T00:00:00.000Z",
-    "usage": {
-      "file_count": 15,
-      "total_size": 45000
-    }
-  }
-}
-```
-
-#### エラーレスポンス
-
-```jsonc
-{
-  "status": 413,
-  "code": "FILE_TOO_LARGE",
-  "message": "file size exceeds limit",
-  "details": {
-    "size": 5242880,
-    "limit": 1048576
-  }
-}
-```
-
----
-
-### 1.4 `POST /-/dev/fs/:workspaceId/patch`（オプション）
-
-テキストパッチを適用する。行番号ベースの差分適用。
-
-#### リクエスト
-
-```jsonc
-{
-  "path": "services/user-api/src/handlers/user.ts",
-  "patches": [
-    {
-      "op": "replace",
-      "range": { "start_line": 10, "end_line": 20 },
-      "text": "// New implementation\nexport function handler() {\n  return { ok: true };\n}"
-    },
-    {
-      "op": "insert",
-      "range": { "start_line": 5 },
-      "text": "import { logger } from './logger';\n"
-    },
-    {
-      "op": "delete",
-      "range": { "start_line": 30, "end_line": 35 }
-    }
-  ],
-  "base_hash": "sha256:abc123..."  // 競合検出用（オプション）
-}
-```
-
-#### パッチ操作
-
-| `op` | 説明 |
-|------|------|
-| `replace` | 指定範囲を新しいテキストで置換 |
-| `insert` | 指定行の前にテキストを挿入 |
-| `delete` | 指定範囲を削除 |
-
-#### レスポンス
-
-```jsonc
-{
-  "ok": true,
-  "data": {
-    "workspace_id": "ws_abc123",
-    "path": "services/user-api/src/handlers/user.ts",
-    "status": "patched",
-    "applied_patches": 3,
-    "content_hash": "sha256:ghi789...",
     "updated_at": "2025-01-01T00:00:00.000Z"
   }
 }
 ```
 
-#### 競合エラー
-
-```jsonc
-{
-  "status": 409,
-  "code": "CONFLICT",
-  "message": "file has been modified",
-  "details": {
-    "expected_hash": "sha256:abc123...",
-    "current_hash": "sha256:xyz999..."
-  }
-}
-```
-
 ---
 
-## 2. 実行管理 API
+### 1.4 `POST /-/dev/fs/:workspaceId/patch`
 
-### 2.1 `POST /-/dev/runs/:workspaceId`
-
-コマンド実行ジョブを作成する。
+ソースファイルにパッチを適用する。
 
 #### リクエスト
 
 ```jsonc
 {
-  "commands": [
-    "npm install",
-    "npm test"
+  "path": "src/handlers/timeline.ts",
+  "patches": [
+    {
+      "op": "replace",
+      "range": { "start_line": 10, "end_line": 20 },
+      "text": "// new implementation"
+    }
   ],
-  "working_dir": "services/user-api",  // ワークスペース内の作業ディレクトリ
-  "timeout_sec": 900,
-  "env": {
-    "NODE_ENV": "test"
-  },
-  "correlation_id": "task_2025-01-01_0001"  // 任意の相関ID
+  "base_hash": "sha256:abc123..."  // 競合検出用
 }
 ```
 
@@ -263,19 +185,180 @@
   "ok": true,
   "data": {
     "workspace_id": "ws_abc123",
-    "run_id": "run_2025-01-01_0001",
+    "path": "src/handlers/timeline.ts",
+    "status": "patched",
+    "applied_patches": 1,
+    "content_hash": "sha256:ghi789..."
+  }
+}
+```
+
+---
+
+## 2. ビルド管理 API
+
+### 設計方針
+
+- ソースコード（TypeScript/TSX）をサーバー側でビルド
+- React コンポーネント + ハンドラーをバンドル
+- キャッシュ活用で同一ソースの再ビルドをスキップ
+
+### 2.1 `POST /-/dev/builds/:workspaceId`
+
+ビルドジョブを作成する。
+
+#### リクエスト
+
+```jsonc
+{
+  "source_hash": "sha256:abc123...",  // オプション: 省略時は最新
+  "options": {
+    "minify": true,
+    "sourcemap": true
+  }
+}
+```
+
+#### レスポンス
+
+```jsonc
+{
+  "ok": true,
+  "data": {
+    "workspace_id": "ws_abc123",
+    "build_id": "build_001",
     "status": "queued",
-    "commands": ["npm install", "npm test"],
+    "source_hash": "sha256:abc123...",
     "created_at": "2025-01-01T00:00:00.000Z"
   }
 }
 ```
 
+#### キャッシュヒット時
+
+```jsonc
+{
+  "ok": true,
+  "data": {
+    "build_id": "build_001",
+    "status": "succeeded",
+    "cached": true,
+    "output_hash": "sha256:def456..."
+  }
+}
+```
+
 ---
 
-### 2.2 `GET /-/dev/runs/:workspaceId/:runId`
+### 2.2 `GET /-/dev/builds/:workspaceId/:buildId`
 
-実行ステータスを取得する。
+ビルドステータスを取得する。
+
+#### レスポンス（実行中）
+
+```jsonc
+{
+  "ok": true,
+  "data": {
+    "build_id": "build_001",
+    "status": "running",
+    "progress": {
+      "phase": "bundling",  // "validating" | "bundling" | "optimizing"
+      "percent": 60
+    }
+  }
+}
+```
+
+#### レスポンス（成功）
+
+```jsonc
+{
+  "ok": true,
+  "data": {
+    "build_id": "build_001",
+    "status": "succeeded",
+    "source_hash": "sha256:abc123...",
+    "output_hash": "sha256:def456...",
+    "output": {
+      "files": [
+        { "path": "app.js", "size": 12345 },
+        { "path": "app.js.map", "size": 5678 }
+      ],
+      "total_size": 18023
+    },
+    "finished_at": "2025-01-01T00:00:05.000Z"
+  }
+}
+```
+
+---
+
+### 2.3 `GET /-/dev/builds/:workspaceId/:buildId/output`
+
+ビルド成果物を取得する。
+
+#### レスポンス
+
+```jsonc
+{
+  "ok": true,
+  "data": {
+    "build_id": "build_001",
+    "output_hash": "sha256:def456...",
+    "files": [
+      {
+        "path": "app.js",
+        "content": "// bundled React app...",
+        "size": 12345
+      }
+    ]
+  }
+}
+```
+
+---
+
+## 3. 開発環境（Sandbox）API
+
+### 設計方針
+
+- ビルド成果物をメモリ上で実行
+- Core サービスをインメモリ実装でモック
+- 本番データに影響しない隔離環境
+- ハンドラーの動作確認・UI の表示確認が可能
+
+### インメモリ Core サービス
+
+```
+Sandbox 内部
+├── ObjectService  → Map<id, object>
+├── ActorService   → Map<id, actor>
+├── StorageService → Map<key, blob>
+└── etc.
+```
+
+### 3.1 `POST /-/dev/sandbox/:workspaceId`
+
+Sandbox セッションを作成する。
+
+#### リクエスト
+
+```jsonc
+{
+  "build_id": "build_001",
+  "seed_data": {
+    // オプション: 初期データを投入
+    "actors": [
+      { "id": "actor_1", "name": "Test User", "handle": "test" }
+    ],
+    "objects": [
+      { "id": "obj_1", "type": "Note", "content": "Hello" }
+    ]
+  },
+  "timeout_sec": 300  // セッション有効期限（デフォルト: 300秒）
+}
+```
 
 #### レスポンス
 
@@ -284,32 +367,82 @@
   "ok": true,
   "data": {
     "workspace_id": "ws_abc123",
-    "run_id": "run_2025-01-01_0001",
-    "status": "running",  // queued | running | succeeded | failed | timeout | cancelled | internal_error
-    "current_command_index": 1,
-    "current_command": "npm test",
-    "exit_code": null,
-    "created_at": "2025-01-01T00:00:00.000Z",
-    "started_at": "2025-01-01T00:00:05.000Z",
-    "finished_at": null,
-    "summary": "npm test is running"
+    "session_id": "sandbox_001",
+    "build_id": "build_001",
+    "status": "ready",
+    "expires_at": "2025-01-01T00:05:00.000Z"
   }
 }
 ```
 
 ---
 
-### 2.3 `GET /-/dev/runs/:workspaceId/:runId/logs`
+### 3.2 `POST /-/dev/sandbox/:workspaceId/:sessionId/call`
 
-実行ログを取得する。
+Sandbox 内でハンドラーを実行する。
+
+#### リクエスト
+
+```jsonc
+{
+  "handler": "getTimeline",
+  "args": {
+    "actor_id": "actor_1",
+    "limit": 20
+  },
+  "context": {
+    "authenticated_user": "actor_1"
+  }
+}
+```
+
+#### レスポンス（成功）
+
+```jsonc
+{
+  "ok": true,
+  "data": {
+    "session_id": "sandbox_001",
+    "handler": "getTimeline",
+    "result": {
+      "items": [
+        { "id": "obj_1", "type": "Note", "content": "Hello" }
+      ],
+      "has_more": false
+    },
+    "execution_time_ms": 12,
+    "logs": [
+      { "level": "debug", "message": "Fetching timeline for actor_1" }
+    ]
+  }
+}
+```
+
+#### レスポンス（エラー）
+
+```jsonc
+{
+  "ok": false,
+  "status": 500,
+  "code": "HANDLER_ERROR",
+  "message": "TypeError: Cannot read property 'id' of undefined",
+  "details": {
+    "stack": "at getTimeline (handlers/timeline.ts:15:20)..."
+  }
+}
+```
+
+---
+
+### 3.3 `GET /-/dev/sandbox/:workspaceId/:sessionId/state`
+
+Sandbox 内のデータ状態を取得する。
 
 #### リクエスト
 
 | パラメータ | 位置 | 必須 | 説明 |
 |-----------|------|------|------|
-| `offset` | query | - | 開始位置（デフォルト: `0`） |
-| `limit` | query | - | 取得行数（デフォルト: `1000`, 最大: `5000`） |
-| `stream` | query | - | `stdout`, `stderr`, または `all`（デフォルト: `all`） |
+| `collection` | query | - | 取得対象（`objects`, `actors`, `all`） |
 
 #### レスポンス
 
@@ -317,25 +450,31 @@
 {
   "ok": true,
   "data": {
-    "workspace_id": "ws_abc123",
-    "run_id": "run_2025-01-01_0001",
-    "logs": [
-      { "ts": "2025-01-01T00:00:05.100Z", "stream": "stdout", "line": "npm test" },
-      { "ts": "2025-01-01T00:00:05.200Z", "stream": "stdout", "line": "> user-api@1.0.0 test" },
-      { "ts": "2025-01-01T00:00:06.000Z", "stream": "stderr", "line": "Test 'user timezone' failed: ..." }
-    ],
-    "offset": 0,
-    "total": 150,
-    "end_of_stream": false
+    "session_id": "sandbox_001",
+    "state": {
+      "objects": {
+        "count": 5,
+        "items": [
+          { "id": "obj_1", "type": "Note", "content": "Hello" },
+          { "id": "obj_2", "type": "Note", "content": "Created in test" }
+        ]
+      },
+      "actors": {
+        "count": 1,
+        "items": [
+          { "id": "actor_1", "name": "Test User" }
+        ]
+      }
+    }
   }
 }
 ```
 
 ---
 
-### 2.4 `DELETE /-/dev/runs/:workspaceId/:runId`
+### 3.4 `DELETE /-/dev/sandbox/:workspaceId/:sessionId`
 
-実行中のジョブをキャンセルする。
+Sandbox セッションを破棄する。
 
 #### レスポンス
 
@@ -343,37 +482,32 @@
 {
   "ok": true,
   "data": {
-    "workspace_id": "ws_abc123",
-    "run_id": "run_2025-01-01_0001",
-    "status": "cancelled",
-    "cancelled_at": "2025-01-01T00:00:10.000Z"
+    "session_id": "sandbox_001",
+    "deleted": true
   }
 }
 ```
 
 ---
 
-## 3. 開発タスク管理 API
+## 4. デプロイ管理 API
 
-AIエージェント等による自動修正タスクを管理する。
+### 設計方針
 
-### 3.1 `POST /-/dev/tasks/:workspaceId`
+- テスト済みのビルドのみデプロイ可能
+- デプロイ履歴を保持しロールバック可能
+- 本番環境への反映は即座に行われる
 
-開発タスクを作成する。
+### 4.1 `POST /-/dev/deploy/:workspaceId`
+
+本番環境にデプロイする。
 
 #### リクエスト
 
 ```jsonc
 {
-  "title": "Fix timezone bug in user settings",
-  "description": "User timezone is not being saved correctly",
-  "mode": "apply",  // "apply" | "dry_run"
-  "test_command": "npm test",
-  "max_iterations": 5,
-  "context": {
-    "error_logs": "...",
-    "related_files": ["src/handlers/settings.ts"]
-  }
+  "build_id": "build_001",
+  "description": "Fix timeline sorting bug"  // オプション
 }
 ```
 
@@ -384,19 +518,20 @@ AIエージェント等による自動修正タスクを管理する。
   "ok": true,
   "data": {
     "workspace_id": "ws_abc123",
-    "task_id": "task_2025-01-01_0001",
-    "status": "queued",
-    "mode": "apply",
-    "created_at": "2025-01-01T00:00:00.000Z"
+    "deploy_id": "deploy_001",
+    "build_id": "build_001",
+    "status": "deployed",
+    "version": 5,  // デプロイバージョン番号
+    "deployed_at": "2025-01-01T00:10:00.000Z"
   }
 }
 ```
 
 ---
 
-### 3.2 `GET /-/dev/tasks/:workspaceId/:taskId`
+### 4.2 `GET /-/dev/deploy/:workspaceId/history`
 
-タスクステータスを取得する。
+デプロイ履歴を取得する。
 
 #### レスポンス
 
@@ -405,196 +540,186 @@ AIエージェント等による自動修正タスクを管理する。
   "ok": true,
   "data": {
     "workspace_id": "ws_abc123",
-    "task_id": "task_2025-01-01_0001",
-    "status": "running",  // queued | planning | editing | testing | succeeded | failed
-    "current_iteration": 2,
-    "max_iterations": 5,
-    "summary": "2回目のテストが失敗、再修正中",
-    "created_at": "2025-01-01T00:00:00.000Z",
-    "updated_at": "2025-01-01T00:01:00.000Z"
+    "current_version": 5,
+    "history": [
+      {
+        "deploy_id": "deploy_001",
+        "build_id": "build_001",
+        "version": 5,
+        "description": "Fix timeline sorting bug",
+        "deployed_at": "2025-01-01T00:10:00.000Z",
+        "is_current": true
+      },
+      {
+        "deploy_id": "deploy_000",
+        "build_id": "build_000",
+        "version": 4,
+        "description": "Add new feature",
+        "deployed_at": "2024-12-31T00:00:00.000Z",
+        "is_current": false
+      }
+    ]
   }
 }
 ```
 
 ---
 
-### 3.3 `GET /-/dev/tasks/:workspaceId/:taskId/result`
+### 4.3 `POST /-/dev/deploy/:workspaceId/rollback`
 
-タスク結果を取得する。
+前のバージョンにロールバックする。
 
-#### レスポンス（`mode: "apply"` の場合）
+#### リクエスト
+
+```jsonc
+{
+  "target_version": 4  // オプション: 省略時は直前のバージョン
+}
+```
+
+#### レスポンス
 
 ```jsonc
 {
   "ok": true,
   "data": {
     "workspace_id": "ws_abc123",
-    "task_id": "task_2025-01-01_0001",
-    "status": "succeeded",
-    "mode": "apply",
-    "changes": [
-      {
-        "path": "services/user-api/src/handlers/settings.ts",
-        "status": "modified",
-        "before_hash": "sha256:aaa...",
-        "after_hash": "sha256:bbb...",
-        "before_excerpt": "function saveTimezone(tz) { ... }",
-        "after_excerpt": "function saveTimezone(tz: string) { ... }"
-      }
-    ],
-    "test": {
-      "command": "npm test",
-      "exit_code": 0,
-      "passed": true,
-      "summary": "All 42 tests passed"
-    },
-    "iterations": 2,
-    "completed_at": "2025-01-01T00:02:00.000Z"
-  }
-}
-```
-
-#### レスポンス（`mode: "dry_run"` の場合）
-
-```jsonc
-{
-  "ok": true,
-  "data": {
-    "workspace_id": "ws_abc123",
-    "task_id": "task_2025-01-01_0001",
-    "status": "succeeded",
-    "mode": "dry_run",
-    "changes": [
-      {
-        "path": "services/user-api/src/handlers/settings.ts",
-        "diff": "--- a/services/user-api/src/handlers/settings.ts\n+++ b/services/user-api/src/handlers/settings.ts\n@@ -10,7 +10,7 @@\n-function saveTimezone(tz) {\n+function saveTimezone(tz: string) {",
-        "before_content": "...",
-        "after_content": "..."
-      }
-    ],
-    "estimated_test_impact": "high",
-    "completed_at": "2025-01-01T00:01:30.000Z"
+    "deploy_id": "deploy_002",
+    "rolled_back_from": 5,
+    "rolled_back_to": 4,
+    "status": "deployed",
+    "deployed_at": "2025-01-01T00:15:00.000Z"
   }
 }
 ```
 
 ---
 
-## 4. ステータスコード
+## 5. ステータスコード
 
-### 実行ステータス (`runs`)
-
-| ステータス | 説明 |
-|-----------|------|
-| `queued` | キューに追加済み、実行待ち |
-| `running` | 実行中 |
-| `succeeded` | 正常終了（exit code = 0） |
-| `failed` | 異常終了（exit code != 0） |
-| `timeout` | タイムアウト |
-| `cancelled` | ユーザーによるキャンセル |
-| `internal_error` | 内部エラー |
-
-### タスクステータス (`tasks`)
+### ビルドステータス
 
 | ステータス | 説明 |
 |-----------|------|
-| `queued` | キューに追加済み |
-| `planning` | 修正計画を策定中 |
-| `editing` | ファイルを編集中 |
-| `testing` | テスト実行中 |
-| `succeeded` | タスク完了（テスト成功） |
-| `failed` | タスク失敗（最大試行回数到達） |
+| `queued` | キュー待ち |
+| `running` | ビルド中 |
+| `succeeded` | 成功 |
+| `failed` | 失敗 |
+
+### Sandbox ステータス
+
+| ステータス | 説明 |
+|-----------|------|
+| `creating` | 初期化中 |
+| `ready` | 実行可能 |
+| `expired` | タイムアウト |
+| `error` | エラー |
+
+### デプロイステータス
+
+| ステータス | 説明 |
+|-----------|------|
+| `deploying` | デプロイ中 |
+| `deployed` | デプロイ完了 |
+| `failed` | デプロイ失敗 |
+| `rolled_back` | ロールバック済み |
 
 ---
 
-## 5. 認証・認可
-
-すべてのエンドポイントは以下のミドルウェアを通過する：
-
-1. `auth` - セッション認証
-2. `requireHumanSession` - 人間のセッションであることを確認
-3. `requireWorkspacePlan` - ワークスペース機能へのアクセス権を確認
-
----
-
-## 6. 制限事項
-
-### ワークスペース制限
-
-| 項目 | Free | Pro | Business |
-|------|------|-----|----------|
-| 最大ファイル数 | 100 | 1,000 | 10,000 |
-| 最大総容量 | 10 MB | 100 MB | 1 GB |
-| 最大ファイルサイズ | 1 MB | 10 MB | 100 MB |
-| 同時実行数 | 1 | 3 | 10 |
-| 実行タイムアウト | 60s | 300s | 900s |
-
-### レート制限
-
-- `/fs/*`: 100 req/min
-- `/runs/*`: 20 req/min
-- `/tasks/*`: 10 req/min
-
----
-
-## 7. Runner 内部仕様
-
-### ワークスペース構造
+## 6. ストレージ構造
 
 ```
-/workspace/
-├── {workspaceId}/
-│   ├── .takos/
-│   │   ├── config.json
-│   │   └── state.json
-│   ├── services/
-│   │   └── user-api/
-│   └── ...
-└── __shared/
-    └── node_modules/  (キャッシュ)
+ワークスペースストレージ
+├── src/                          # ソースコード（ユーザーが編集）
+│   ├── App.tsx                   # React エントリポイント
+│   ├── components/
+│   │   └── Timeline.tsx          # UI コンポーネント
+│   └── handlers/
+│       └── timeline.ts           # ハンドラー
+│
+├── builds/                       # ビルド成果物（サーバーが生成）
+│   ├── latest -> build_001/      # 最新ビルドへのシンボリックリンク
+│   └── build_001/
+│       ├── app.js                # バンドルされた React app
+│       ├── app.js.map            # ソースマップ
+│       └── meta.json             # ビルドメタ情報
+│
+└── deploys/                      # デプロイ履歴
+    ├── current -> v5/            # 現在のバージョン
+    ├── v5/
+    │   └── app.js
+    └── v4/
+        └── app.js
 ```
-
-### 実行環境
-
-- コンテナ化された Node.js 環境
-- ネットワークアクセスは npm registry のみ許可
-- ファイルシステムはワークスペース内に制限
-- 実行時間は `timeout_sec` で制限
 
 ---
 
-## 8. 実装優先度
+## 7. 実装優先度
 
-### Phase 1（必須）
+### Phase 1（必須）- ソース編集 + ビルド
 
-- [x] `GET /-/dev/fs/:workspaceId/tree`
-- [x] `GET /-/dev/fs/:workspaceId/file`
-- [x] `POST /-/dev/fs/:workspaceId/file`
-- [ ] `POST /-/dev/runs/:workspaceId`
-- [ ] `GET /-/dev/runs/:workspaceId/:runId`
-- [ ] `GET /-/dev/runs/:workspaceId/:runId/logs`
+- [ ] `GET /-/dev/fs/:workspaceId/tree`
+- [ ] `GET /-/dev/fs/:workspaceId/file`
+- [ ] `POST /-/dev/fs/:workspaceId/file`
+- [ ] `POST /-/dev/builds/:workspaceId`
+- [ ] `GET /-/dev/builds/:workspaceId/:buildId`
+- [ ] `GET /-/dev/builds/:workspaceId/:buildId/output`
 
-### Phase 2（推奨）
+### Phase 2（必須）- 開発環境 + デプロイ
+
+- [ ] `POST /-/dev/sandbox/:workspaceId`
+- [ ] `POST /-/dev/sandbox/:workspaceId/:sessionId/call`
+- [ ] `GET /-/dev/sandbox/:workspaceId/:sessionId/state`
+- [ ] `POST /-/dev/deploy/:workspaceId`
+- [ ] `GET /-/dev/deploy/:workspaceId/history`
+
+### Phase 3（推奨）- 詳細機能
 
 - [ ] `POST /-/dev/fs/:workspaceId/patch`
-- [ ] `DELETE /-/dev/runs/:workspaceId/:runId`
-- [ ] `POST /-/dev/tasks/:workspaceId`
-- [ ] `GET /-/dev/tasks/:workspaceId/:taskId`
-- [ ] `GET /-/dev/tasks/:workspaceId/:taskId/result`
+- [ ] `GET /-/dev/builds/:workspaceId/:buildId/logs`
+- [ ] `DELETE /-/dev/sandbox/:workspaceId/:sessionId`
+- [ ] `POST /-/dev/deploy/:workspaceId/rollback`
 
 ---
 
-## 9. 既存 VFS API との関係
+## 8. ワークフロー例
 
-この API は既存の `/-/dev/vfs/*` API を補完する：
+### 典型的な開発フロー
 
-| 既存 VFS API | 新 Dev Runner API | 用途 |
-|-------------|-------------------|------|
-| `GET /vfs/:id/files` | `GET /fs/:id/tree` | ディレクトリ一覧（tree はより構造化） |
-| `GET /vfs/:id/files/*` | `GET /fs/:id/file` | ファイル取得（file はクエリパラメータ） |
-| `PUT /vfs/:id/files/*` | `POST /fs/:id/file` | ファイル書き込み（file は JSON body） |
-| - | `POST /fs/:id/patch` | パッチ適用（新機能） |
-| - | `/runs/*` | 実行管理（新機能） |
-| - | `/tasks/*` | タスク管理（新機能） |
+```
+1. ソース編集
+   POST /fs/ws_123/file
+   { "path": "src/handlers/timeline.ts", "content": "..." }
 
-既存の VFS API はそのまま維持し、新 API は開発ツール向けに最適化された代替インターフェースとして提供する。
+2. ビルド
+   POST /builds/ws_123
+   → { "build_id": "build_001" }
+
+   GET /builds/ws_123/build_001
+   → { "status": "succeeded" }
+
+3. Sandbox でテスト
+   POST /sandbox/ws_123
+   { "build_id": "build_001" }
+   → { "session_id": "sandbox_001" }
+
+   POST /sandbox/ws_123/sandbox_001/call
+   { "handler": "getTimeline", "args": {...} }
+   → { "result": {...} }  // 動作確認
+
+   GET /sandbox/ws_123/sandbox_001/state
+   → { "objects": {...} }  // データ状態確認
+
+4. 本番デプロイ
+   POST /deploy/ws_123
+   { "build_id": "build_001" }
+   → { "version": 5, "status": "deployed" }
+```
+
+### 問題発生時のロールバック
+
+```
+POST /deploy/ws_123/rollback
+{ "target_version": 4 }
+→ { "rolled_back_to": 4 }
+```
