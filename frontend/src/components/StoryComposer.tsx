@@ -1,14 +1,5 @@
 import type React from "react";
-import {
-  For,
-  Show,
-  createEffect,
-  createMemo,
-  createResource,
-  createSignal,
-  onCleanup,
-  onMount,
-} from "../lib/solid-compat";
+import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, onMount } from "../lib/react-primitives";
 import type {
   CanvasData,
   ImageElement,
@@ -37,6 +28,8 @@ const COMPACT_HEIGHT_BREAKPOINT = 1280;
 const STACKED_LAYOUT_VERTICAL_BUFFER = 104;
 
 type Elem = ImageElement | TextElement;
+
+const css = (styles: Record<string, any>): React.CSSProperties => styles as React.CSSProperties;
 
 export default function StoryComposer(props: Props) {
   const editor = new StoryEditor({
@@ -86,7 +79,8 @@ export default function StoryComposer(props: Props) {
     typeof window === "undefined" ? 0 : window.innerHeight,
   );
   const [controlsHeight, setControlsHeight] = createSignal(0);
-  const [controlsRef, setControlsRef] = createSignal<HTMLDivElement | undefined>();
+  const [controlsRef, setControlsRef] = createSignal<HTMLDivElement | undefined>(undefined);
+  const handleControlsRef = (node: HTMLDivElement | null) => setControlsRef(node ?? undefined);
   const overlayPadding = createMemo(() => {
     const vh = viewportHeight();
     if (!vh) return DEFAULT_OVERLAY_VERTICAL_PADDING;
@@ -103,14 +97,13 @@ export default function StoryComposer(props: Props) {
     const maxWidth = Math.min(MAX_PREVIEW_WIDTH, maxWidthFromHeight);
     return { maxHeight, maxWidth };
   });
-  const previewStyle = createMemo(() => {
+  const previewStyle = createMemo<React.CSSProperties | undefined>(() => {
     const sizing = previewSizing();
-    return sizing
-      ? {
-          "max-height": `${sizing.maxHeight}px`,
-          "max-width": `${sizing.maxWidth}px`,
-        }
-      : {};
+    if (!sizing) return undefined;
+    return {
+      maxHeight: `${sizing.maxHeight}px`,
+      maxWidth: `${sizing.maxWidth}px`,
+    };
   });
   const overlayPaddingClass = createMemo(() =>
     viewportHeight() && viewportHeight() < COMPACT_HEIGHT_BREAKPOINT ? "py-0" : "py-6",
@@ -228,49 +221,52 @@ export default function StoryComposer(props: Props) {
   };
 
   // Seed with initial files as image elements
-  createEffect(async () => {
-    const files = props.initialFiles;
-    if (props.open && files && files.length > 0) {
-      const imgs: ImageElement[] = [];
-      for (const f of files) {
-        if (!f.type.startsWith("image")) continue;
-        const url = await fileToDataUrl(f);
-        try {
-          const img = await loadImage(url);
-          const rect = initialImageRect(
-            img.naturalWidth || img.width,
-            img.naturalHeight || img.height,
-          );
-          imgs.push({
-            kind: "image",
-            id: crypto.randomUUID(),
-            url,
-            x: rect.x,
-            y: rect.y,
-            width: rect.w,
-            height: rect.h,
-            objectFit: "contain",
-          });
-        } catch {
-          // fallback to a reasonable 16:9 box if we fail to read image size
-          const w = Math.floor(CANVAS_WIDTH * 0.8);
-          const h = Math.floor((w * 9) / 16);
-          imgs.push({
-            kind: "image",
-            id: crypto.randomUUID(),
-            url,
-            x: Math.floor((CANVAS_WIDTH - w) / 2),
-            y: Math.floor((CANVAS_HEIGHT - h) / 2),
-            width: w,
-            height: h,
-            objectFit: "contain",
-          });
+  createEffect(() => {
+    const run = async () => {
+      const files = props.initialFiles;
+      if (props.open && files && files.length > 0) {
+        const imgs: ImageElement[] = [];
+        for (const f of files) {
+          if (!f.type.startsWith("image")) continue;
+          const url = await fileToDataUrl(f);
+          try {
+            const img = await loadImage(url);
+            const rect = initialImageRect(
+              img.naturalWidth || img.width,
+              img.naturalHeight || img.height,
+            );
+            imgs.push({
+              kind: "image",
+              id: crypto.randomUUID(),
+              url,
+              x: rect.x,
+              y: rect.y,
+              width: rect.w,
+              height: rect.h,
+              objectFit: "contain",
+            });
+          } catch {
+            // fallback to a reasonable 16:9 box if we fail to read image size
+            const w = Math.floor(CANVAS_WIDTH * 0.8);
+            const h = Math.floor((w * 9) / 16);
+            imgs.push({
+              kind: "image",
+              id: crypto.randomUUID(),
+              url,
+              x: Math.floor((CANVAS_WIDTH - w) / 2),
+              y: Math.floor((CANVAS_HEIGHT - h) / 2),
+              width: w,
+              height: h,
+              objectFit: "contain",
+            });
+          }
+        }
+        if (imgs.length > 0) {
+          editor.replaceElements(imgs);
         }
       }
-      if (imgs.length > 0) {
-        editor.replaceElements(imgs);
-      }
-    }
+    };
+    void run();
   });
 
   // Auto background computation (from first image element)
@@ -673,12 +669,12 @@ export default function StoryComposer(props: Props) {
   const editableText = (el: TextElement) => (
     <div
       data-el-id={el.id}
-      contenteditable
+      contentEditable
       onInput={(e) => {
         const v = (e.target as HTMLDivElement).textContent || "";
         editor.updateElement(el.id, { text: v });
       }}
-      style={{
+      style={css({
         position: "absolute",
         left: pct(el.x, CANVAS_WIDTH),
         top: pct(el.y, CANVAS_HEIGHT),
@@ -700,7 +696,7 @@ export default function StoryComposer(props: Props) {
         "min-width": "20px",
         "min-height": "20px",
         "touch-action": "none",
-      }}
+      })}
       onPointerDown={(ev) =>
         onPointerDown(ev as unknown as PointerEvent, el.id)}
       onPointerMove={(ev) => onPointerMove(ev as unknown as PointerEvent)}
@@ -718,7 +714,7 @@ export default function StoryComposer(props: Props) {
       alt=""
       draggable={false}
       onDragStart={(ev) => ev.preventDefault()}
-      style={{
+      style={css({
         position: "absolute",
         left: pct(el.x, CANVAS_WIDTH),
         top: pct(el.y, CANVAS_HEIGHT),
@@ -730,7 +726,7 @@ export default function StoryComposer(props: Props) {
         "user-select": "none",
         "-webkit-user-drag": "none",
         "touch-action": "none",
-      }}
+      })}
       onPointerDown={(ev) =>
         onPointerDown(ev as unknown as PointerEvent, el.id)}
       onPointerMove={(ev) => onPointerMove(ev as unknown as PointerEvent)}
@@ -761,7 +757,7 @@ export default function StoryComposer(props: Props) {
                   <div
                     id="story-canvas"
                     className="relative w-full h-full"
-                    style={{
+                    style={css({
                       background:
                         bgMode() === "auto-gradient"
                           ? bgGradient() || "#000"
@@ -769,7 +765,7 @@ export default function StoryComposer(props: Props) {
                           ? bg()
                           : "#000",
                       "touch-action": "none",
-                    }}
+                    })}
                     onPointerMove={(ev) =>
                       onPointerMove(ev as unknown as PointerEvent)
                     }
@@ -781,11 +777,11 @@ export default function StoryComposer(props: Props) {
                     src={bgImageUrl()}
                     alt=""
                     className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                    style={{
+                    style={css({
                       filter: "blur(35px) saturate(120%)",
                       transform: "scale(1.12)",
                       opacity: "0.85",
-                    }}
+                    })}
                   />
                 </Show>
                 <For each={elements()}>
@@ -797,7 +793,7 @@ export default function StoryComposer(props: Props) {
                       <Show when={selectedId() === el.id}>
                         <div
                           className="absolute"
-                          style={{
+                          style={css({
                             left: pct((el as any).x, CANVAS_WIDTH),
                             top: pct((el as any).y, CANVAS_HEIGHT),
                             width: (el as any).width
@@ -807,16 +803,16 @@ export default function StoryComposer(props: Props) {
                               ? pct((el as any).height, CANVAS_HEIGHT)
                               : "auto",
                             "pointer-events": "none",
-                          }}
+                          })}
                         >
                           <div
                             className="absolute inset-0 border border-white/80 rounded"
-                            style={{ "pointer-events": "none" }}
+                            style={css({ "pointer-events": "none" })}
                           />
                           <Show when={(el as any).width && (el as any).height}>
                             <button
                               className="absolute -right-3 -bottom-3 w-7 h-7 rounded-full bg-white text-black text-lg grid place-items-center shadow"
-                              style={{ "pointer-events": "auto" }}
+                              style={css({ "pointer-events": "auto" })}
                               onPointerDown={(ev) =>
                                 handleResize(
                                   ev as unknown as PointerEvent,
@@ -830,7 +826,7 @@ export default function StoryComposer(props: Props) {
                             <Show when={el.kind === "text"}>
                               <button
                                 className="absolute -right-3 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white text-black text-lg grid place-items-center shadow"
-                                style={{ "pointer-events": "auto" }}
+                                style={css({ "pointer-events": "auto" })}
                                 onPointerDown={(ev) =>
                                   handleResize(
                                     ev as unknown as PointerEvent,
@@ -843,7 +839,7 @@ export default function StoryComposer(props: Props) {
                               </button>
                               <button
                                 className="absolute left-1/2 -translate-x-1/2 -bottom-3 w-7 h-7 rounded-full bg-white text-black text-lg grid place-items-center shadow"
-                                style={{ "pointer-events": "auto" }}
+                                style={css({ "pointer-events": "auto" })}
                                 onPointerDown={(ev) =>
                                   handleResize(
                                     ev as unknown as PointerEvent,
@@ -1098,7 +1094,7 @@ export default function StoryComposer(props: Props) {
           <div
             className="mt-6 w-full max-w-md px-4 sm:px-0 mx-auto"
             onClick={(event) => event.stopPropagation()}
-            ref={setControlsRef}
+            ref={handleControlsRef}
           >
             <div className="rounded-3xl bg-black/70 backdrop-blur px-5 py-5 text-white space-y-4 shadow-lg">
               <div className="flex flex-row flex-wrap items-stretch gap-3">

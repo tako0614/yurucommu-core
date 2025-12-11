@@ -15,13 +15,15 @@
     "test": "npm --workspace api run test && npm --workspace platform run test",
     "dev:watch-app": "tsx scripts/watch-app-workspace.ts",
     "validate:app": "tsx scripts/validate-app-manifest.ts",
+    "validate:bundler-manifest": "npm --workspace @takos/app-bundler run validate --",
     "init:config": "node scripts/init-config.js",
     "validate:profile": "node scripts/validate-takos-profile.js",
     "config:compat": "tsx scripts/api/config-tools.ts compat",
     "config:export": "tsx scripts/api/config-tools.ts export",
     "config:diff": "tsx scripts/api/config-tools.ts diff",
     "config:import": "tsx scripts/api/config-tools.ts import",
-    "ui:contract": "node frontend/scripts/validate-ui-contract.mjs",
+    "ui:contract": "tsx scripts/ui-contract.ts",
+    "ui:contract:legacy": "node frontend/scripts/validate-ui-contract.mjs",
     "ui:contract:generate": "node frontend/scripts/generate-ui-contract.mjs"
   },
   "dependencies": {

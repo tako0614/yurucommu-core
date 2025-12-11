@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.10",
+  "routes": [
+    {
+      "id": "counter_get",
+      "method": "GET",
+      "path": "/sample-counter/counter",
+      "handler": "getCounter",
+      "auth": true,
+      "description": "Get the current counter value for the authenticated user."
+    },
+    {
+      "id": "counter_increment",
+      "method": "POST",
+      "path": "/sample-counter/counter/increment",
+      "handler": "incrementCounter",
+      "auth": true,
+      "description": "Increment the counter by 1."
+    },
+    {
+      "id": "counter_decrement",
+      "method": "POST",
+      "path": "/sample-counter/counter/decrement",
+      "handler": "decrementCounter",
+      "auth": true,
+      "description": "Decrement the counter by 1."
+    },
+    {
+      "id": "counter_reset",
+      "method": "POST",
+      "path": "/sample-counter/counter/reset",
+      "handler": "resetCounter",
+      "auth": true,
+      "description": "Reset the counter to 0."
+    },
+    {
+      "id": "counter_set",
+      "method": "POST",
+      "path": "/sample-counter/counter/set",
+      "handler": "setCounter",
+      "auth": true,
+      "description": "Set the counter to a specific value."
+    },
+    {
+      "id": "app_info",
+      "method": "GET",
+      "path": "/sample-counter/info",
+      "handler": "getAppInfo",
+      "auth": false,
+      "description": "Get app information (public endpoint)."
+    }
+  ]
+}

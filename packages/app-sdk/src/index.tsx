@@ -336,7 +336,7 @@ export function Form(props: FormProps) {
   );
 
   return (
-    <form {...rest} onSubmit={onSubmit ? handleSubmit : rest.onSubmit}>
+    <form {...rest} onSubmit={onSubmit ? handleSubmit : undefined}>
       {children}
     </form>
   );

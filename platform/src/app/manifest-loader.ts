@@ -36,6 +36,14 @@ interface AggregatedEntries {
 const ROUTE_METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 const RESERVED_VIEW_ROUTES = ["/login", "/-/health"];
 const RESERVED_VIEW_PREFIXES = ["/auth", "/-/core", "/-/config", "/-/app", "/.well-known"];
+
+const normalizeRoute = (path: string): string => {
+  const trimmed = path.trim();
+  if (!trimmed) return "";
+  if (!trimmed.startsWith("/")) return `/${trimmed}`;
+  return trimmed.replace(/\/+$/, "") || "/";
+};
+
 const CORE_SCREEN_ROUTES: Record<string, string> = {
   "screen.home": "/",
   "screen.onboarding": "/onboarding",
@@ -48,13 +56,6 @@ const CORE_SCREEN_ROUTES: Record<string, string> = {
 const CORE_ROUTE_BY_PATH: Record<string, string> = Object.fromEntries(
   Object.entries(CORE_SCREEN_ROUTES).map(([id, path]) => [normalizeRoute(path), id]),
 );
-
-const normalizeRoute = (path: string): string => {
-  const trimmed = path.trim();
-  if (!trimmed) return "";
-  if (!trimmed.startsWith("/")) return `/${trimmed}`;
-  return trimmed.replace(/\/+$/, "") || "/";
-};
 
 const isReservedViewRoute = (route: string): boolean => {
   const normalized = normalizeRoute(route);

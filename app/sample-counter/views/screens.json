@@ -1,0 +1,266 @@
+{
+  "schema_version": "1.10",
+  "screens": [
+    {
+      "id": "screen.sample_counter.home",
+      "route": "/sample-counter",
+      "title": "Counter",
+      "layout": {
+        "type": "Column",
+        "props": {
+          "id": "counter-root",
+          "gap": 16,
+          "padding": 24,
+          "maxWidth": 480,
+          "center": true
+        },
+        "children": [
+          {
+            "type": "Header",
+            "props": {
+              "title": "Sample Counter",
+              "slot": "header"
+            }
+          },
+          {
+            "type": "Card",
+            "props": {
+              "padding": 32
+            },
+            "children": [
+              {
+                "type": "ApiData",
+                "props": {
+                  "id": "counter-data",
+                  "path": "/sample-counter/counter"
+                },
+                "children": [
+                  {
+                    "type": "Text",
+                    "props": {
+                      "text": "{{data.value}}",
+                      "variant": "display",
+                      "align": "center"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "Row",
+            "props": {
+              "gap": 16,
+              "justify": "center"
+            },
+            "children": [
+              {
+                "type": "Button",
+                "props": {
+                  "text": "-",
+                  "variant": "primary",
+                  "action": {
+                    "type": "api",
+                    "method": "POST",
+                    "endpoint": "/sample-counter/counter/decrement",
+                    "onSuccess": {
+                      "type": "refresh",
+                      "target": "counter-data"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "Button",
+                "props": {
+                  "text": "+",
+                  "variant": "primary",
+                  "action": {
+                    "type": "api",
+                    "method": "POST",
+                    "endpoint": "/sample-counter/counter/increment",
+                    "onSuccess": {
+                      "type": "refresh",
+                      "target": "counter-data"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "type": "Button",
+            "props": {
+              "text": "Reset",
+              "variant": "secondary",
+              "action": {
+                "type": "api",
+                "method": "POST",
+                "endpoint": "/sample-counter/counter/reset",
+                "confirm": "Reset counter to 0?",
+                "onSuccess": {
+                  "type": "refresh",
+                  "target": "counter-data"
+                }
+              }
+            }
+          },
+          {
+            "type": "Row",
+            "props": {
+              "gap": 16,
+              "marginTop": 24
+            },
+            "children": [
+              {
+                "type": "NavLink",
+                "props": {
+                  "href": "/sample-counter/about",
+                  "text": "About"
+                }
+              },
+              {
+                "type": "NavLink",
+                "props": {
+                  "href": "/sample-counter/set",
+                  "text": "Set Value"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.sample_counter.about",
+      "route": "/sample-counter/about",
+      "title": "About",
+      "auth": "public",
+      "layout": {
+        "type": "Column",
+        "props": {
+          "id": "about-root",
+          "gap": 16,
+          "padding": 24,
+          "maxWidth": 480,
+          "center": true
+        },
+        "children": [
+          {
+            "type": "Header",
+            "props": {
+              "title": "About",
+              "backHref": "/sample-counter",
+              "slot": "header"
+            }
+          },
+          {
+            "type": "Card",
+            "props": {
+              "padding": 16
+            },
+            "children": [
+              {
+                "type": "ApiData",
+                "props": {
+                  "id": "app-info",
+                  "path": "/sample-counter/info"
+                },
+                "children": [
+                  {
+                    "type": "Text",
+                    "props": {
+                      "text": "{{data.name}}",
+                      "variant": "subtitle"
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "props": {
+                      "text": "Version: {{data.version}}"
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "props": {
+                      "text": "{{data.description}}"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "screen.sample_counter.set",
+      "route": "/sample-counter/set",
+      "title": "Set Value",
+      "layout": {
+        "type": "Column",
+        "props": {
+          "id": "set-root",
+          "gap": 16,
+          "padding": 24,
+          "maxWidth": 480,
+          "center": true
+        },
+        "children": [
+          {
+            "type": "Header",
+            "props": {
+              "title": "Set Counter Value",
+              "backHref": "/sample-counter",
+              "slot": "header"
+            }
+          },
+          {
+            "type": "Card",
+            "props": {
+              "padding": 16
+            },
+            "children": [
+              {
+                "type": "Form",
+                "props": {
+                  "gap": 16,
+                  "onSubmit": {
+                    "type": "api",
+                    "method": "POST",
+                    "endpoint": "/sample-counter/counter/set",
+                    "body": {
+                      "value": "{{form.values.value|number}}"
+                    },
+                    "onSuccess": {
+                      "type": "navigate",
+                      "to": "/sample-counter"
+                    }
+                  }
+                },
+                "children": [
+                  {
+                    "type": "Input",
+                    "props": {
+                      "name": "value",
+                      "type": "number",
+                      "placeholder": "Enter new value",
+                      "required": true
+                    }
+                  },
+                  {
+                    "type": "Button",
+                    "props": {
+                      "text": "Set Value",
+                      "submit": true
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

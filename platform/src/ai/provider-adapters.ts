@@ -71,6 +71,31 @@ export type ChatCompletionStreamResult = {
   stream: ReadableStream<Uint8Array>;
 };
 
+// Embedding types
+
+export type EmbeddingOptions = {
+  model?: string;
+  dimensions?: number;
+};
+
+export type EmbeddingData = {
+  index: number;
+  embedding: number[];
+};
+
+export type EmbeddingUsage = {
+  promptTokens: number;
+  totalTokens: number;
+};
+
+export type EmbeddingResult = {
+  provider: string;
+  model: string;
+  embeddings: EmbeddingData[];
+  usage?: EmbeddingUsage;
+  raw?: unknown;
+};
+
 // Provider adapter interface
 
 export interface AiProviderAdapter {
@@ -87,6 +112,12 @@ export interface AiProviderAdapter {
     messages: ChatMessage[],
     options?: ChatCompletionOptions,
   ): Promise<ChatCompletionStreamResult>;
+
+  embed(
+    client: AiProviderClient,
+    input: string | string[],
+    options?: EmbeddingOptions,
+  ): Promise<EmbeddingResult>;
 }
 
 // OpenAI adapter (also works for OpenAI-compatible and OpenRouter)
@@ -127,6 +158,31 @@ type OpenAiResponse = {
   model: string;
   choices: OpenAiChoice[];
   usage?: OpenAiUsage;
+};
+
+type OpenAiEmbeddingRequest = {
+  model: string;
+  input: string | string[];
+  dimensions?: number;
+  encoding_format?: "float" | "base64";
+};
+
+type OpenAiEmbeddingData = {
+  object: "embedding";
+  index: number;
+  embedding: number[];
+};
+
+type OpenAiEmbeddingUsage = {
+  prompt_tokens: number;
+  total_tokens: number;
+};
+
+type OpenAiEmbeddingResponse = {
+  object: "list";
+  data: OpenAiEmbeddingData[];
+  model: string;
+  usage: OpenAiEmbeddingUsage;
 };
 
 export class OpenAiAdapter implements AiProviderAdapter {
@@ -256,6 +312,59 @@ export class OpenAiAdapter implements AiProviderAdapter {
       provider: client.id,
       model,
       stream: response.body,
+    };
+  }
+
+  async embed(
+    client: AiProviderClient,
+    input: string | string[],
+    options?: EmbeddingOptions,
+  ): Promise<EmbeddingResult> {
+    const model = options?.model ?? "text-embedding-3-small";
+
+    const baseUrl = client.baseUrl.replace(/\/$/, "");
+    const url = `${baseUrl}/embeddings`;
+
+    const body: OpenAiEmbeddingRequest = {
+      model,
+      input,
+      encoding_format: "float",
+    };
+
+    if (options?.dimensions !== undefined) {
+      body.dimensions = options.dimensions;
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...client.headers,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw new Error(
+        `OpenAI Embedding API error (${response.status}): ${errorText || response.statusText}`,
+      );
+    }
+
+    const data = (await response.json()) as OpenAiEmbeddingResponse;
+
+    return {
+      provider: client.id,
+      model: data.model,
+      embeddings: data.data.map((item) => ({
+        index: item.index,
+        embedding: item.embedding,
+      })),
+      usage: {
+        promptTokens: data.usage.prompt_tokens,
+        totalTokens: data.usage.total_tokens,
+      },
+      raw: data,
     };
   }
 }
@@ -467,6 +576,21 @@ export class ClaudeAdapter implements AiProviderAdapter {
       stream: transformedStream,
     };
   }
+
+  async embed(
+    _client: AiProviderClient,
+    _input: string | string[],
+    _options?: EmbeddingOptions,
+  ): Promise<EmbeddingResult> {
+    // Anthropic does not provide a native embedding API.
+    // They recommend using Voyage AI (https://www.voyageai.com/) for embeddings.
+    // To use embeddings with Anthropic, configure a separate OpenAI-compatible
+    // provider pointing to Voyage AI's API.
+    throw new Error(
+      "Claude/Anthropic does not provide a native embedding API. " +
+      "Use a separate provider configured with Voyage AI or another embedding service.",
+    );
+  }
 }
 
 /**
@@ -586,6 +710,36 @@ type GeminiResponse = {
     candidatesTokenCount: number;
     totalTokenCount: number;
   };
+};
+
+type GeminiEmbedRequest = {
+  model: string;
+  content: {
+    parts: Array<{ text: string }>;
+  };
+  outputDimensionality?: number;
+};
+
+type GeminiEmbedResponse = {
+  embedding: {
+    values: number[];
+  };
+};
+
+type GeminiBatchEmbedRequest = {
+  requests: Array<{
+    model: string;
+    content: {
+      parts: Array<{ text: string }>;
+    };
+    outputDimensionality?: number;
+  }>;
+};
+
+type GeminiBatchEmbedResponse = {
+  embeddings: Array<{
+    values: number[];
+  }>;
 };
 
 export class GeminiAdapter implements AiProviderAdapter {
@@ -772,6 +926,108 @@ export class GeminiAdapter implements AiProviderAdapter {
       stream: transformedStream,
     };
   }
+
+  async embed(
+    client: AiProviderClient,
+    input: string | string[],
+    options?: EmbeddingOptions,
+  ): Promise<EmbeddingResult> {
+    const model = options?.model ?? "text-embedding-004";
+    const baseUrl = client.baseUrl.replace(/\/$/, "");
+    const inputs = Array.isArray(input) ? input : [input];
+
+    // Use batch endpoint for multiple inputs, single endpoint for one
+    if (inputs.length === 1) {
+      const url = `${baseUrl}/models/${model}:embedContent`;
+      const urlWithKey = `${url}?key=${client.apiKey}`;
+
+      const body: GeminiEmbedRequest = {
+        model: `models/${model}`,
+        content: {
+          parts: [{ text: inputs[0] }],
+        },
+      };
+
+      if (options?.dimensions !== undefined) {
+        body.outputDimensionality = options.dimensions;
+      }
+
+      const response = await fetch(urlWithKey, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        throw new Error(
+          `Gemini Embedding API error (${response.status}): ${errorText || response.statusText}`,
+        );
+      }
+
+      const data = (await response.json()) as GeminiEmbedResponse;
+
+      return {
+        provider: client.id,
+        model,
+        embeddings: [
+          {
+            index: 0,
+            embedding: data.embedding.values,
+          },
+        ],
+        raw: data,
+      };
+    }
+
+    // Batch embedding for multiple inputs
+    const url = `${baseUrl}/models/${model}:batchEmbedContents`;
+    const urlWithKey = `${url}?key=${client.apiKey}`;
+
+    const body: GeminiBatchEmbedRequest = {
+      requests: inputs.map((text) => {
+        const req: GeminiBatchEmbedRequest["requests"][0] = {
+          model: `models/${model}`,
+          content: {
+            parts: [{ text }],
+          },
+        };
+        if (options?.dimensions !== undefined) {
+          req.outputDimensionality = options.dimensions;
+        }
+        return req;
+      }),
+    };
+
+    const response = await fetch(urlWithKey, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      throw new Error(
+        `Gemini Batch Embedding API error (${response.status}): ${errorText || response.statusText}`,
+      );
+    }
+
+    const data = (await response.json()) as GeminiBatchEmbedResponse;
+
+    return {
+      provider: client.id,
+      model,
+      embeddings: data.embeddings.map((emb, index) => ({
+        index,
+        embedding: emb.values,
+      })),
+      raw: data,
+    };
+  }
 }
 
 /**
@@ -902,4 +1158,38 @@ export async function chatCompletionStream(
 ): Promise<ChatCompletionStreamResult> {
   const adapter = getProviderAdapter(client.type);
   return adapter.chatCompletionStream(client, messages, options);
+}
+
+/**
+ * High-level function to generate embeddings with any provider
+ *
+ * @param client - The AI provider client configuration
+ * @param input - A single string or array of strings to embed
+ * @param options - Optional settings including model and dimensions
+ * @returns The embedding result containing vectors and usage info
+ *
+ * @example
+ * ```typescript
+ * // Single text embedding
+ * const result = await embed(client, "Hello world");
+ * console.log(result.embeddings[0].embedding); // number[]
+ *
+ * // Batch embedding
+ * const results = await embed(client, ["Hello", "World"]);
+ * results.embeddings.forEach(e => console.log(e.embedding));
+ *
+ * // With options
+ * const result = await embed(client, "text", {
+ *   model: "text-embedding-3-large",
+ *   dimensions: 256
+ * });
+ * ```
+ */
+export async function embed(
+  client: AiProviderClient,
+  input: string | string[],
+  options?: EmbeddingOptions,
+): Promise<EmbeddingResult> {
+  const adapter = getProviderAdapter(client.type);
+  return adapter.embed(client, input, options);
 }

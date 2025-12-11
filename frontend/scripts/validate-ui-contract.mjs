@@ -5,8 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
-const contractPath = path.resolve(repoRoot, "takos-ui-contract.json");
-const schemaContractPath = path.resolve(repoRoot, "schemas", "ui-contract.json");
+const contractPath = path.resolve(repoRoot, "schemas", "ui-contract.json");
 const publicContractPath = path.resolve(repoRoot, "frontend", "public", "takos-ui-contract.json");
 const viewsDir = path.resolve(repoRoot, "app", "views");
 const sideNavPath = path.resolve(repoRoot, "frontend", "src", "components", "Navigation", "SideNav.tsx");
@@ -275,11 +274,16 @@ function buildReachabilityEdges(screenMap) {
     }
   }
 
+  // Implicit navigation edges that are handled via callback props or built-in components:
+  // - screen.home -> screen.notifications: SideNav onOpenNotifications callback navigates to /notifications
+  // - screen.home -> screen.story_viewer: StoriesBar component navigates directly to /stories/:id
   const implicitEdges = [
     ["screen.community", "screen.channel"],
     ["screen.dm_list", "screen.dm_thread"],
     ["screen.storage", "screen.storage_folder"],
     ["screen.stories", "screen.story_viewer"],
+    ["screen.home", "screen.notifications"],
+    ["screen.home", "screen.story_viewer"],
   ];
   implicitEdges.forEach(([from, to]) => {
     if (screenMap.has(from) && screenMap.has(to)) {
@@ -529,9 +533,14 @@ function validateAgainstManifest(contractScreens, contractActions, screenMap, di
 }
 
 function main() {
+  console.log("UI Contract validation\n");
+
+  // 1. Load and validate contract structure
   const contract = readJson(contractPath);
-  assertContractAligned(contract, schemaContractPath);
   assertContractAligned(contract, publicContractPath);
+  console.log(`✓ Schema version: ${contract.schema_version}`);
+
+  // 2. Load manifest screens
   const screens = loadScreens();
   const screenMap = new Map();
   for (const screen of screens) {
@@ -540,28 +549,62 @@ function main() {
     }
   }
 
+  // 3. Validate contract structure
   const { errors: contractErrors, contractScreens, contractActions } = validateContract(contract);
+
+  // Check required screens
+  const requiredScreensPresent = REQUIRED_SCREENS.filter((id) => contractScreens.has(id));
+  console.log(`✓ Required screens present: ${requiredScreensPresent.length}/${REQUIRED_SCREENS.length}`);
+
+  // Check required actions
+  const requiredActionsPresent = REQUIRED_ACTIONS.filter((id) => contractActions.has(id));
+  console.log(`✓ Required actions present: ${requiredActionsPresent.length}/${REQUIRED_ACTIONS.length}`);
+
+  // 4. Build reachability graph and compute distances
   const edges = buildReachabilityEdges(screenMap);
   const distances = computeReachability(edges);
+
+  // 5. Validate against manifest
   const { errors: manifestErrors, warnings } = validateAgainstManifest(contractScreens, contractActions, screenMap, distances);
 
+  // 6. Output reachability summary
+  console.log("✓ Reachability check:");
+  for (const screen of contractScreens.values()) {
+    const dist = distances.get(screen.id);
+    const max = screen.steps_from_home;
+    if (dist !== undefined && dist <= max) {
+      console.log(`  ✓ ${screen.id}: ${dist} step(s) from home (max: ${max})`);
+    }
+  }
+
+  // Output action availability summary
+  console.log("✓ Action availability:");
+  for (const action of contractActions.values()) {
+    const availableScreens = action.available_on.filter((id) => screenMap.has(id));
+    console.log(`  ✓ ${action.id} available on: ${availableScreens.join(", ")}`);
+  }
+
+  // Collect all errors
   const allErrors = [...contractErrors, ...manifestErrors];
+
+  // Output warnings
+  if (warnings.length > 0) {
+    console.log("\nWarnings:");
+    for (const warn of warnings) {
+      console.warn(`  ⚠ ${warn}`);
+    }
+  }
+
+  // Output errors and exit
   if (allErrors.length > 0) {
-    console.error("UI Contract validation failed:");
+    console.error("\nUI Contract validation failed:");
     for (const err of allErrors) {
-      console.error(`- ${err}`);
+      console.error(`  ✗ ${err}`);
     }
     process.exit(1);
   }
 
-  if (warnings.length > 0) {
-    console.warn("UI Contract validation warnings:");
-    for (const warn of warnings) {
-      console.warn(`- ${warn}`);
-    }
-  }
-
-  console.log("UI Contract validation passed.");
+  console.log("\nUI Contract validation passed.");
 }
 
 main();
