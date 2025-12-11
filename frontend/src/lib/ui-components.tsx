@@ -7,7 +7,7 @@
 
 import type React from "react";
 import type { JSX } from "react";
-import { For, Show, Suspense, createEffect, createMemo, createResource, createSignal, onCleanup, type Component } from "./solid-compat";
+import { For, Show, Suspense, createEffect, createMemo, createResource, createSignal, onCleanup, type Component } from "./react-primitives";
 import { registerUiComponent, type UiRuntimeContext } from "./ui-runtime";
 
 // Import existing components
@@ -780,7 +780,7 @@ const PostComposer: Component<{
                 <button
                   type="button"
                   className="text-gray-500 hover:text-red-500"
-                  onClick={() => removeFile(index())}
+                  onClick={() => removeFile(index)}
                 >
                   ×
                 </button>
@@ -813,7 +813,7 @@ const PostComposer: Component<{
         </div>
 
         <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-          <span class={isOverLimit() ? "text-red-500" : ""}>{remaining()} 文字</span>
+          <span className={isOverLimit() ? "text-red-500" : ""}>{remaining()} 文字</span>
           <button
             type="submit"
             className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
@@ -997,7 +997,7 @@ const CommentForm: Component<{
         placeholder={props.placeholder || "コメントを書く…"}
         value={text()}
         onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
-        autofocus={props.autoFocus}
+        autoFocus={props.autoFocus}
       />
       <Show when={error()}>
         <div className="text-sm text-red-500">{error()}</div>
@@ -1757,17 +1757,15 @@ const UserProfileView: Component<{
   );
 
   const handlePostUpdated = (updated: any) => {
-    setPosts((prev) => {
-      if (!Array.isArray(prev)) return prev;
-      return prev.map((p: any) => p.id === updated?.id ? { ...p, ...updated } : p);
-    });
+    const current = posts();
+    if (!Array.isArray(current)) return;
+    setPosts(current.map((p: any) => (p.id === updated?.id ? { ...p, ...updated } : p)));
   };
 
   const handlePostDeleted = (id: string) => {
-    setPosts((prev) => {
-      if (!Array.isArray(prev)) return prev;
-      return prev.filter((p: any) => p.id !== id);
-    });
+    const current = posts();
+    if (!Array.isArray(current)) return;
+    setPosts(current.filter((p: any) => p.id !== id));
   };
 
   // Relationship status

@@ -1,5 +1,5 @@
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, Outlet, Route, BrowserRouter, Routes, useLocation, useNavigate } from "react-router-dom";
-import { Show, createEffect, createMemo, createResource, createSignal, onMount, type Resource } from "./lib/solid-compat";
 import "./App.css";
 import SideNav from "./components/Navigation/SideNav";
 import AppTab from "./components/Navigation/AppTab";
@@ -8,11 +8,13 @@ import NotificationPanel from "./components/NotificationPanel";
 import DefaultLogin from "./pages/Login";
 import { fetchMe, refreshAuth, useAuthStatus, useMe } from "./lib/api";
 import { resolveComponent } from "./lib/plugins";
-import { ToastProvider } from "./components/Toast";
+import { ToastProvider, useToast } from "./components/Toast";
 import { ShellContextProvider, useShellContext } from "./lib/shell-context";
 import { registerCustomComponents } from "./lib/ui-components";
 import { RenderScreen } from "./lib/ui-runtime";
 import { extractRouteParams, getScreenByRoute, loadAppManifest, type AppManifest, type AppManifestScreen } from "./lib/app-manifest";
+import { useAsyncResource, type AsyncResource } from "./lib/useAsyncResource";
+import { setToastHandler, setNavigateHandler, setConfirmHandler, setRouteParams } from "./lib/takos-runtime";
 
 registerCustomComponents();
 
@@ -20,7 +22,7 @@ const Login = resolveComponent("Login", DefaultLogin);
 const AuthCallback = resolveComponent("AuthCallback", DefaultAuthCallback);
 
 export default function App() {
-  const [manifest] = createResource<AppManifest | undefined>(loadAppManifest);
+  const [manifest] = useAsyncResource<AppManifest | undefined>(loadAppManifest);
 
   return (
     <ToastProvider>
@@ -37,9 +39,26 @@ export default function App() {
   );
 }
 
+function RuntimeIntegration() {
+  const navigate = useNavigate();
+  const toast = useToast();
+
+  useEffect(() => {
+    setNavigateHandler((path: string) => navigate(path));
+    setToastHandler((message: string, type?: "success" | "error" | "info") => {
+      toast.showToast(message, type || "info");
+    });
+    setConfirmHandler((message: string) => {
+      return Promise.resolve(window.confirm(message));
+    });
+  }, [navigate, toast]);
+
+  return null;
+}
+
 function Shell() {
-  const [composerOpen, setComposerOpen] = createSignal(false);
-  const [notificationsOpen, setNotificationsOpen] = createSignal(false);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   const openComposer = () => setComposerOpen(true);
   const closeComposer = () => setComposerOpen(false);
@@ -53,6 +72,7 @@ function Shell() {
         onOpenNotifications: openNotifications,
       }}
     >
+      <RuntimeIntegration />
       <div className="min-h-dvh bg-white dark:bg-black flex md:grid md:grid-cols-[72px_1fr] xl:grid-cols-[220px_1fr] overflow-x-hidden">
         <SideNav onOpenComposer={openComposer} onOpenNotifications={openNotifications} />
         <MainLayout>
@@ -60,13 +80,13 @@ function Shell() {
         </MainLayout>
         <AppTab onOpenComposer={openComposer} />
         <PostComposer
-          open={composerOpen()}
+          open={composerOpen}
           onClose={closeComposer}
           onCreated={() => {
             closeComposer();
           }}
         />
-        <NotificationPanel open={notificationsOpen()} onClose={closeNotifications} />
+        <NotificationPanel open={notificationsOpen} onClose={closeNotifications} />
       </div>
     </ShellContextProvider>
   );
@@ -74,22 +94,19 @@ function Shell() {
 
 function MainLayout(props: { children?: any }) {
   const location = useLocation();
-  let mainRef: HTMLElement | null = null;
+  const mainRef = useRef<HTMLElement | null>(null);
 
-  createEffect(() => {
-    location.pathname;
-    location.search;
-    location.hash;
-    if (!mainRef) return;
-    mainRef.scrollTop = 0;
-    mainRef.scrollLeft = 0;
+  useEffect(() => {
+    if (!mainRef.current) return;
+    mainRef.current.scrollTop = 0;
+    mainRef.current.scrollLeft = 0;
   }, [location.pathname, location.search, location.hash]);
 
   return (
     <div className="min-h-dvh flex flex-col flex-1 min-w-0">
       <main
         ref={(el) => {
-          mainRef = el;
+          mainRef.current = el;
         }}
         className="flex-1 overflow-y-auto"
       >
@@ -99,14 +116,14 @@ function MainLayout(props: { children?: any }) {
   );
 }
 
-function ManifestScreen(props: { manifest: Resource<AppManifest | undefined> }) {
+function ManifestScreen(props: { manifest: AsyncResource<AppManifest | undefined> }) {
   const location = useLocation();
   const navigate = useNavigate();
   const me = useMe();
   const shell = useShellContext();
   const authState = useAuthStatus();
 
-  const legacyRedirect = createMemo(() => {
+  const legacyRedirect = useMemo(() => {
     const path = location.pathname;
     if (path === "/friends") return "/connections";
     if (path === "/friend-requests") return "/follow-requests";
@@ -116,34 +133,43 @@ function ManifestScreen(props: { manifest: Resource<AppManifest | undefined> }) 
     const communityChat = path.match(/^\/c\/([^/]+)\/chat$/);
     if (communityChat) return `/c/${communityChat[1]}`;
     return null;
-  });
+  }, [location.pathname]);
 
-  const matchedScreen = createMemo<AppManifestScreen | undefined>(() => {
-    const redirect = legacyRedirect();
-    if (redirect) return undefined;
-    const m = props.manifest();
-    if (!m) return undefined;
-    return getScreenByRoute(m, location.pathname);
-  });
+  const matchedScreen = useMemo<AppManifestScreen | undefined>(() => {
+    if (legacyRedirect) return undefined;
+    const manifest = props.manifest.data;
+    if (!manifest) return undefined;
+    return getScreenByRoute(manifest, location.pathname);
+  }, [legacyRedirect, location.pathname, props.manifest.data]);
 
-  const routeParams = createMemo(() => {
-    const screen = matchedScreen();
-    if (!screen) return {};
-    return extractRouteParams(screen.route, location.pathname);
-  });
+  const routeParams = useMemo(() => {
+    if (!matchedScreen) return {};
+    return extractRouteParams(matchedScreen.route, location.pathname);
+  }, [matchedScreen, location.pathname]);
 
-  const actions = createMemo(() => ({
-    ...(shell?.onOpenComposer ? { openComposer: shell.onOpenComposer } : {}),
-    ...(shell?.onOpenNotifications ? { openNotifications: shell.onOpenNotifications } : {}),
-  }));
+  // Sync route params to takos-runtime for TakosRuntime.params
+  useEffect(() => {
+    setRouteParams(routeParams);
+  }, [routeParams]);
 
-  const authContext = createMemo(() => ({
-    loggedIn: authState === "authenticated",
-    user: me(),
-  }), [authState, me()]);
+  const actions = useMemo(
+    () => ({
+      ...(shell?.onOpenComposer ? { openComposer: shell.onOpenComposer } : {}),
+      ...(shell?.onOpenNotifications ? { openNotifications: shell.onOpenNotifications } : {}),
+    }),
+    [shell],
+  );
 
-  if (legacyRedirect()) {
-    return <Navigate to={legacyRedirect()!} />;
+  const authContext = useMemo(
+    () => ({
+      loggedIn: authState === "authenticated",
+      user: me(),
+    }),
+    [authState, me],
+  );
+
+  if (legacyRedirect) {
+    return <Navigate to={legacyRedirect} />;
   }
 
   if (props.manifest.loading) {
@@ -160,7 +186,7 @@ function ManifestScreen(props: { manifest: Resource<AppManifest | undefined> }) 
     );
   }
 
-  if (!matchedScreen()) {
+  if (!matchedScreen) {
     return (
       <div className="p-6 text-center">
         <h1 className="text-2xl font-bold">404 Not Found</h1>
@@ -174,19 +200,19 @@ function ManifestScreen(props: { manifest: Resource<AppManifest | undefined> }) 
 
   const screenContent = (
     <RenderScreen
-      screen={matchedScreen()!}
+      screen={matchedScreen!}
       context={{
-        routeParams: routeParams(),
+        routeParams,
         location: location.pathname,
-        actions: actions(),
-        auth: authContext(),
-        $auth: authContext(),
+        actions,
+        auth: authContext,
+        $auth: authContext,
       }}
     />
   );
 
-  const requiresAuth = matchedScreen()?.auth !== "public";
-  const allowIncompleteProfile = matchedScreen()?.id === "screen.onboarding" || matchedScreen()?.id === "screen.home";
+  const requiresAuth = matchedScreen?.auth !== "public";
+  const allowIncompleteProfile = matchedScreen?.id === "screen.onboarding" || matchedScreen?.id === "screen.home";
 
   if (!requiresAuth) {
     return screenContent;
@@ -204,11 +230,11 @@ function RequireAuth(props: { children: any; allowIncompleteProfile?: boolean })
   const location = useLocation();
   const status = useAuthStatus();
   const allowIncomplete = props.allowIncompleteProfile ?? false;
-  const [profileReady, setProfileReady] = createSignal(allowIncomplete);
-  const [profileChecked, setProfileChecked] = createSignal(false);
+  const [profileReady, setProfileReady] = useState(allowIncomplete);
+  const [profileChecked, setProfileChecked] = useState(false);
 
   const checkProfile = async () => {
-    if (allowIncomplete || profileChecked()) return;
+    if (allowIncomplete || profileChecked) return;
     setProfileChecked(true);
     try {
       const user = await fetchMe();
@@ -228,7 +254,7 @@ function RequireAuth(props: { children: any; allowIncompleteProfile?: boolean })
     }
   };
 
-  onMount(() => {
+  useEffect(() => {
     if (status === "authenticated" || status === "unknown") {
       refreshAuth().then(() => {
         if (status === "authenticated") {
@@ -236,9 +262,10 @@ function RequireAuth(props: { children: any; allowIncompleteProfile?: boolean })
         }
       });
     }
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  createEffect(() => {
+  useEffect(() => {
     if (status === "unauthenticated") {
       const target = `${location.pathname}${location.search}${location.hash}`;
       if (target === "/" || target.startsWith("/login")) {
@@ -248,18 +275,17 @@ function RequireAuth(props: { children: any; allowIncompleteProfile?: boolean })
           replace: true,
         });
       }
-    } else if (status === "authenticated" && !profileChecked()) {
+    } else if (status === "authenticated" && !profileChecked) {
       checkProfile();
     }
   }, [status, location.pathname, location.search, location.hash]);
 
   return (
-    <Show
-      when={status === "authenticated" && (allowIncomplete || profileReady())}
-      fallback={<div className="p-6 text-center">読み込み中…</div>}
-    >
-      {props.children}
-    </Show>
+    status === "authenticated" && (allowIncomplete || profileReady) ? (
+      props.children
+    ) : (
+      <div className="p-6 text-center">読み込み中…</div>
+    )
   );
 }
 
@@ -270,7 +296,7 @@ function DefaultAuthCallback() {
   const redirectParam = params.get("redirect");
   const redirectTo = redirectParam && redirectParam.startsWith("/") ? redirectParam : "/";
 
-  onMount(() => {
+  useEffect(() => {
     (async () => {
       try {
         const ok = await refreshAuth();
@@ -283,6 +309,6 @@ function DefaultAuthCallback() {
       }
       navigate(`/login?redirect=${encodeURIComponent(redirectTo)}`, { replace: true });
     })();
-  });
+  }, [navigate, redirectTo]);
   return <div className="p-6 text-center">サインイン中…</div>;
 }

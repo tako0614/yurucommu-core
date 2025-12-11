@@ -1,5 +1,5 @@
+import { useState } from "react";
 import type React from "react";
-import { createSignal, Show } from "../lib/solid-compat";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuthStatus, logout } from "../lib/api";
 import { IconMessage, IconPlus, IconSearch, IconUsers } from "./icons";
@@ -11,10 +11,10 @@ type Props = {
 export default function HeaderBar(props: Props) {
   const status = useAuthStatus();
   const navigate = useNavigate();
-  const [query, setQuery] = createSignal("");
+  const [query, setQuery] = useState("");
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
-      const v = (query() || "").trim();
+      const v = (query || "").trim();
       if (v) navigate(`/c/${encodeURIComponent(v)}`);
     }
   };
@@ -50,7 +50,7 @@ export default function HeaderBar(props: Props) {
             <input
               className="w-48 lg:w-64 border hairline rounded-full pl-9 pr-3 py-2 text-sm bg-[#fafafa] focus:bg-white focus:outline-none"
               placeholder="コミュニティIDで検索 (Enter)"
-              value={query()}
+              value={query}
               onChange={(e) => setQuery(e.currentTarget.value)}
               onKeyDown={onKeyDown}
             />
@@ -58,14 +58,14 @@ export default function HeaderBar(props: Props) {
               <IconSearch size={18} strokeWidth={1.6} />
             </span>
           </div>
-          <Show when={status === "authenticated"}>
+          {status === "authenticated" && (
             <button
               className="ml-1 text-xs text-gray-700 hover:opacity-80"
               onClick={() => logout()}
             >
               ログアウト
             </button>
-          </Show>
+          )}
         </div>
       </div>
     </header>

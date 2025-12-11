@@ -12,14 +12,18 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "app-bundler-validate": "./dist/cli.js"
+  },
   "files": ["dist"],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "validate": "node ./dist/cli.js"
   },
   "dependencies": {
-    "@takos/app-sdk": "workspace:*",
+    "@takos/app-sdk": "*",
     "vite": "^5.0.0"
   },
   "devDependencies": {

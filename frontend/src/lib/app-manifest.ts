@@ -18,6 +18,7 @@ export interface AppManifestScreen {
   route: string;
   title: string;
   layout: any; // UiNode
+  auth?: "required" | "public";
   state?: Record<string, { default: any }>;
 }
 

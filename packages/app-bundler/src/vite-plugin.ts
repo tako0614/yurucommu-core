@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Plugin } from "vite";
 import type { AppDefinition } from "@takos/app-sdk";
-import { generateManifest, type GeneratedManifest } from "./manifest-generator";
+import { generateManifest, type GeneratedManifest } from "./manifest-generator.js";
 
 export interface TakosPluginOptions {
   app: AppDefinition;

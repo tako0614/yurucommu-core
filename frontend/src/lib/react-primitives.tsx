@@ -30,7 +30,7 @@ export function createSignal<T>(initial: T): [Accessor<T>, (value: T | ((prev: T
 }
 
 export function createMemo<T>(fn: () => T, deps?: DependencyList): Accessor<T> {
-  const value = useMemo(fn, deps);
+  const value = deps === undefined ? fn() : useMemo(fn, deps);
   return useCallback(() => value, [value]);
 }
 
@@ -51,7 +51,7 @@ export function onCleanup(fn: () => void): void {
 export function createResource<T, S = unknown>(
   source: Accessor<S> | S | (() => Promise<T>),
   fetcher?: (source: S) => Promise<T>,
-  options?: { initialValue?: T }
+  options?: { initialValue?: T },
 ): [Resource<T>, ResourceActions<T>] {
   const isDirectFetcher = typeof source === "function" && !fetcher;
   const fetchFn = (isDirectFetcher ? source : fetcher) as ((input?: S) => Promise<T>) | undefined;
@@ -145,8 +145,21 @@ export const Suspense: Component<{ fallback?: ReactNode; children?: ReactNode }>
   return <React.Suspense fallback={props.fallback}>{props.children}</React.Suspense>;
 };
 
-export const Show: Component<{ when: any; fallback?: ReactNode; children?: ReactNode }> = (props) => {
-  return props.when ? <>{props.children}</> : <>{props.fallback ?? null}</>;
+export const Show: Component<{
+  when: any;
+  fallback?: ReactNode | (() => ReactNode);
+  children?: ReactNode | ((value: any) => ReactNode);
+}> = (props) => {
+  if (!props.when) {
+    if (typeof props.fallback === "function") {
+      return <>{(props.fallback as () => ReactNode)()}</>;
+    }
+    return <>{props.fallback ?? null}</>;
+  }
+  if (typeof props.children === "function") {
+    return <>{(props.children as (value: any) => ReactNode)(props.when)}</>;
+  }
+  return <>{props.children}</>;
 };
 
 export const For = <T,>(props: { each: readonly T[] | undefined | null; fallback?: ReactNode; children: (item: T, index: number) => ReactNode }) => {

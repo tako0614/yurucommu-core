@@ -1,48 +1,47 @@
-import type React from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Show, createSignal, onMount } from "../lib/solid-compat";
+import type React from "react";
 import { login, refreshAuth, setJWT } from "../lib/api";
 
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [password, setPassword] = createSignal("");
-  const [error, setError] = createSignal("");
-  const [submitting, setSubmitting] = createSignal(false);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  const searchParams = new URLSearchParams(location.search);
-  const redirectParam = searchParams.get("redirect");
-  const redirectTarget =
-    redirectParam && redirectParam.startsWith("/")
-      ? redirectParam
-      : "/connections";
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const redirectTarget = useMemo(() => {
+    const redirectParam = searchParams.get("redirect");
+    return redirectParam && redirectParam.startsWith("/") ? redirectParam : "/connections";
+  }, [searchParams]);
   const isAddAccountFlow = searchParams.get("addAccount") === "1";
 
-  onMount(async () => {
-    if (isAddAccountFlow) {
-      return;
-    }
-    try {
-      const ok = await refreshAuth();
-      if (ok) {
-        navigate(redirectTarget, { replace: true });
+  useEffect(() => {
+    if (isAddAccountFlow) return;
+    (async () => {
+      try {
+        const ok = await refreshAuth();
+        if (ok) {
+          navigate(redirectTarget, { replace: true });
+        }
+      } catch (err) {
+        console.warn("failed to refresh auth", err);
       }
-    } catch (error) {
-      console.warn("failed to refresh auth", error);
-    }
-  });
+    })();
+  }, [isAddAccountFlow, navigate, redirectTarget]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
-    if (!password()) {
+    if (!password) {
       setError("パスワードを入力してください。");
       return;
     }
     setSubmitting(true);
     try {
       const result = await login({
-        password: password(),
+        password,
       });
       const token = typeof (result as any)?.token === "string" ? (result as any).token : null;
       if (token) {
@@ -55,10 +54,7 @@ export default function Login() {
       }
       throw new Error("認証に失敗しました。");
     } catch (err: any) {
-      const message =
-        err?.data?.error ||
-        err?.message ||
-        "サインインに失敗しました。";
+      const message = err?.data?.error || err?.message || "サインインに失敗しました。";
       setError(String(message));
     } finally {
       setSubmitting(false);
@@ -82,11 +78,11 @@ export default function Login() {
             <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
               {isAddAccountFlow ? "アカウントを追加" : "ログイン"}
             </h2>
-            <Show when={isAddAccountFlow}>
+            {isAddAccountFlow && (
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 現在のセッションは維持されます。追加後はプロフィールのアカウント一覧から切り替えできます。
               </p>
-            </Show>
+            )}
           </div>
 
           <form className="space-y-4 text-left" onSubmit={handleSubmit}>
@@ -95,7 +91,7 @@ export default function Login() {
               <input
                 type="password"
                 className="mt-1 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-neutral-950 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-500"
-                value={password()}
+                value={password}
                 onChange={(ev) => setPassword(ev.currentTarget.value)}
                 autoComplete="current-password"
                 placeholder="パスワードを入力"
@@ -105,19 +101,20 @@ export default function Login() {
             <button
               type="submit"
               className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 dark:bg-slate-100 px-5 py-3 text-sm font-semibold text-white dark:text-slate-900 transition hover:bg-slate-800 dark:hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={submitting()}
+              disabled={submitting}
             >
-              <Show
-                when={submitting()}
-                fallback={<span>ログイン</span>}
-              >
-                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 dark:border-slate-900/40 border-t-white dark:border-t-slate-900" />
-                <span>サインイン中...</span>
-              </Show>
+              {submitting ? (
+                <>
+                  <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 dark:border-slate-900/40 border-t-white dark:border-t-slate-900" />
+                  <span>サインイン中...</span>
+                </>
+              ) : (
+                <span>ログイン</span>
+              )}
             </button>
-            <Show when={error()}>
-              <p className="text-xs text-red-500 dark:text-red-400">{error()}</p>
-            </Show>
+            {error && (
+              <p className="text-xs text-red-500 dark:text-red-400">{error}</p>
+            )}
           </form>
         </div>
       </div>

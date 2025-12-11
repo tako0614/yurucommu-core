@@ -1,5 +1,5 @@
 import type React from "react";
-import type { JSX } from "react";
+import type { CSSProperties, JSX } from "react";
 import {
   For,
   Show,
@@ -14,10 +14,11 @@ import {
   useContext,
   type Accessor,
   type Component,
-} from "./solid-compat";
+} from "./react-primitives";
 import { useNavigate } from "react-router-dom";
 import { api, getBackendUrl, getJWT } from "./api";
 import { useToast } from "../components/Toast";
+import type { ToastType } from "../components/Toast";
 
 /**
  * UiNode Type Definitions (PLAN.md 5.4)
@@ -66,7 +67,7 @@ export interface UiRuntimeContext {
   $data?: Record<string, any>;
   item?: any;
   list?: any[];
-  actions?: Record<string, (payload?: any) => void | Promise<void>>;
+  actions?: Record<string, (payload?: any) => void | Promise<any>>;
   state?: Record<string, any>;
   setState?: (key: string, value: any) => void;
   form?: { values: Record<string, any> };
@@ -76,7 +77,8 @@ export interface UiRuntimeContext {
   tableColumns?: TableColumnDef[];
   auth?: { loggedIn: boolean; user?: any };
   $auth?: { loggedIn: boolean; user?: any };
-  toast?: { showToast?: (message: string, type?: string, duration?: number) => void };
+  toast?: { showToast?: (message: string, type?: ToastType, duration?: number) => void };
+  error?: any;
 }
 
 type FieldValidation = {
@@ -99,7 +101,7 @@ type FormContextValue = {
   validateField: (name: string, validation?: FieldValidation) => boolean;
 };
 
-const FormContext = createContext<FormContextValue>();
+const FormContext = createContext<FormContextValue | undefined>(undefined);
 
 function useFormContext(): FormContextValue | undefined {
  return useContext(FormContext);
@@ -180,6 +182,8 @@ type ActionConfig =
 type ActionLike = ActionConfig | ActionConfig[] | string | ((payload?: any) => void | Promise<void>);
 
 const templatePattern = /\{\{\s*([^}]+)\s*\}\}/g;
+
+const css = (styles: Record<string, any>): CSSProperties => styles as CSSProperties;
 
 const isPlainObject = (value: any): value is Record<string, any> => {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -746,12 +750,12 @@ const Column: Component<{ id?: string; gap?: number; flex?: number; slot?: strin
     <div
       id={props.id}
       data-slot={props.slot}
-      style={{
+      style={css({
         display: "flex",
         "flex-direction": "column",
         gap: props.gap ? `${props.gap}px` : undefined,
         flex: props.flex ? `${props.flex}` : undefined,
-      }}
+      })}
     >
       {props.children}
     </div>
@@ -763,12 +767,12 @@ const Row: Component<{ id?: string; gap?: number; align?: string; slot?: string;
     <div
       id={props.id}
       data-slot={props.slot}
-      style={{
+      style={css({
         display: "flex",
         "flex-direction": "row",
         gap: props.gap ? `${props.gap}px` : undefined,
         "align-items": props.align === "center" ? "center" : undefined,
-      }}
+      })}
     >
       {props.children}
     </div>
@@ -776,29 +780,29 @@ const Row: Component<{ id?: string; gap?: number; align?: string; slot?: string;
 };
 
 const Text: Component<{ text?: string; variant?: string }> = (props) => {
-  const variantStyles: Record<string, JSX.CSSProperties> = {
-    title: { "font-size": "1.5rem", "font-weight": "bold" },
-    subtitle: { "font-size": "1.2rem", "font-weight": "600" },
-    body: { "font-size": "1rem" },
+  const variantStyles: Record<string, CSSProperties> = {
+    title: { fontSize: "1.5rem", fontWeight: "bold" },
+    subtitle: { fontSize: "1.2rem", fontWeight: "600" },
+    body: { fontSize: "1rem" },
   };
 
   return <span style={variantStyles[props.variant || "body"]}>{props.text}</span>;
 };
 
 const Spacer: Component<{ flex?: number }> = (props) => {
-  return <div style={{ flex: props.flex || 1 }} />;
+  return <div style={css({ flex: props.flex || 1 })} />;
 };
 
 const Placeholder: Component<{ text?: string }> = (props) => {
   return (
     <div
-      style={{
+      style={css({
         padding: "16px",
         border: "2px dashed #ccc",
         "border-radius": "8px",
         "text-align": "center",
         color: "#666",
-      }}
+      })}
     >
       {props.text || "Placeholder"}
     </div>
@@ -828,13 +832,13 @@ const Button: Component<ButtonProps> = (props) => {
     return props.text || "Button";
   };
 
-  const variantStyles: Record<string, JSX.CSSProperties> = {
+  const variantStyles: Record<string, CSSProperties> = {
     primary: {
       background: "#007bff",
       color: "white",
       border: "none",
       padding: "8px 16px",
-      "border-radius": "4px",
+      borderRadius: "4px",
       cursor: "pointer",
     },
     secondary: {
@@ -842,7 +846,7 @@ const Button: Component<ButtonProps> = (props) => {
       color: "white",
       border: "none",
       padding: "8px 16px",
-      "border-radius": "4px",
+      borderRadius: "4px",
       cursor: "pointer",
     },
   };
@@ -857,11 +861,11 @@ const Button: Component<ButtonProps> = (props) => {
     <button
       type={props.submit ? "submit" : "button"}
       disabled={props.disabled || isSubmitting() || props.loading}
-      style={{
+      style={css({
         ...variantStyles[props.variant || "primary"],
         opacity: props.disabled || isSubmitting() || props.loading ? 0.7 : 1,
         width: props.fullWidth ? "100%" : undefined,
-      }}
+      })}
       onClick={clickHandler}
     >
       {label()}
@@ -930,15 +934,15 @@ const Input: Component<{
         value={resolvedValue() ?? ""}
         disabled={props.disabled || form?.submitting?.()}
         onInput={(e) => handleChange(e.currentTarget.value)}
-        style={{
+        style={css({
           padding: "8px",
           border: `1px solid ${errorMessage() ? "#ef4444" : "#ccc"}`,
           "border-radius": "4px",
           width: "100%",
-        }}
+        })}
       />
       <Show when={errorMessage()}>
-        <div style={{ color: "#ef4444", "font-size": "0.875rem", "margin-top": "4px" }}>{errorMessage()}</div>
+        <div style={css({ color: "#ef4444", "font-size": "0.875rem", "margin-top": "4px" })}>{errorMessage()}</div>
       </Show>
     </div>
   );
@@ -1048,7 +1052,7 @@ const Form: Component<{
       <form
         id={props.id}
         onSubmit={handleSubmit}
-        style={{ display: "grid", gap: props.gap ? `${props.gap}px` : "12px" }}
+        style={css({ display: "grid", gap: props.gap ? `${props.gap}px` : "12px" })}
       >
         {renderBody()}
       </form>
@@ -1113,16 +1117,16 @@ const TextArea: Component<{
         rows={props.rows ?? 3}
         value={resolvedValue() ?? ""}
         onInput={(e) => handleChange(e.currentTarget.value)}
-        style={{
+        style={css({
           width: "100%",
           padding: "8px",
           border: `1px solid ${errorMessage() ? "#ef4444" : "#ccc"}`,
           "border-radius": "4px",
           "min-height": "80px",
-        }}
+        })}
       />
       <Show when={errorMessage()}>
-        <div style={{ color: "#ef4444", "font-size": "0.875rem", "margin-top": "4px" }}>{errorMessage()}</div>
+        <div style={css({ color: "#ef4444", "font-size": "0.875rem", "margin-top": "4px" })}>{errorMessage()}</div>
       </Show>
     </div>
   );
@@ -1179,13 +1183,13 @@ const Select: Component<{
         value={resolvedValue() ?? ""}
         disabled={props.disabled || form?.submitting?.()}
         onChange={(e) => handleChange(e.currentTarget.value)}
-        style={{
+        style={css({
           width: "100%",
           padding: "8px",
           border: `1px solid ${errorMessage() ? "#ef4444" : "#ccc"}`,
           "border-radius": "4px",
           background: "white",
-        }}
+        })}
       >
         <Show when={props.placeholder}>
           <option value="">{props.placeholder}</option>
@@ -1195,7 +1199,7 @@ const Select: Component<{
         </For>
       </select>
       <Show when={errorMessage()}>
-        <div style={{ color: "#ef4444", "font-size": "0.875rem", "margin-top": "4px" }}>{errorMessage()}</div>
+        <div style={css({ color: "#ef4444", "font-size": "0.875rem", "margin-top": "4px" })}>{errorMessage()}</div>
       </Show>
     </div>
   );
@@ -1243,8 +1247,8 @@ const Checkbox: Component<{
   const errorMessage = () => (form && props.name ? form.errors()[props.name] : undefined);
 
   return (
-    <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
-      <label style={{ display: "flex", "align-items": "center", gap: "8px", cursor: props.disabled ? "not-allowed" : "pointer" }}>
+    <div style={css({ display: "flex", "align-items": "center", gap: "8px" })}>
+      <label style={css({ display: "flex", "align-items": "center", gap: "8px", cursor: props.disabled ? "not-allowed" : "pointer" })}>
         <input
           type="checkbox"
           checked={resolvedChecked()}
@@ -1254,7 +1258,7 @@ const Checkbox: Component<{
         <span>{props.label}</span>
       </label>
       <Show when={errorMessage()}>
-        <span style={{ color: "#ef4444", "font-size": "0.875rem" }}>{errorMessage()}</span>
+        <span style={css({ color: "#ef4444", "font-size": "0.875rem" })}>{errorMessage()}</span>
       </Show>
     </div>
   );
@@ -1303,12 +1307,12 @@ const Switch: Component<{
   const errorMessage = () => (form && props.name ? form.errors()[props.name] : undefined);
 
   return (
-    <div style={{ display: "flex", "align-items": "center", gap: "12px" }}>
+    <div style={css({ display: "flex", "align-items": "center", gap: "12px" })}>
       <button
         type="button"
         onClick={toggle}
         disabled={props.disabled}
-        style={{
+        style={css({
           width: "44px",
           height: "24px",
           background: resolvedChecked() ? "#22c55e" : "#e5e7eb",
@@ -1317,10 +1321,10 @@ const Switch: Component<{
           position: "relative",
           cursor: "pointer",
           padding: 0,
-        }}
+        })}
       >
         <span
-          style={{
+          style={css({
             position: "absolute",
             top: "2px",
             left: resolvedChecked() ? "22px" : "2px",
@@ -1330,12 +1334,12 @@ const Switch: Component<{
             "border-radius": "9999px",
             transition: "left 0.15s ease",
             border: "1px solid #d1d5db",
-          }}
+          })}
         />
       </button>
       <span>{props.label}</span>
       <Show when={errorMessage()}>
-        <span style={{ color: "#ef4444", "font-size": "0.875rem" }}>{errorMessage()}</span>
+        <span style={css({ color: "#ef4444", "font-size": "0.875rem" })}>{errorMessage()}</span>
       </Show>
     </div>
   );
@@ -1389,22 +1393,22 @@ const FileUpload: Component<{
   };
 
   return (
-    <div style={{ border: "1px dashed #d1d5db", padding: "12px", "border-radius": "8px", background: "#fafafa" }}>
-      <label style={{ display: "block", cursor: "pointer" }}>
-        <div style={{ "margin-bottom": "8px", color: "#4b5563" }}>{props.label || "Choose file"}</div>
+    <div style={css({ border: "1px dashed #d1d5db", padding: "12px", "border-radius": "8px", background: "#fafafa" })}>
+      <label style={css({ display: "block", cursor: "pointer" })}>
+        <div style={css({ "margin-bottom": "8px", color: "#4b5563" })}>{props.label || "Choose file"}</div>
         <input
           type="file"
           accept={props.accept}
           multiple={props.multiple}
           onChange={(e) => handleFiles(e.currentTarget.files)}
-          style={{ display: "block" }}
+          style={css({ display: "block" })}
         />
       </label>
       <Show when={fileLabels().length > 0}>
-        <div style={{ "margin-top": "8px", color: "#374151", "font-size": "0.875rem" }}>{fileLabels().join(", ")}</div>
+        <div style={css({ "margin-top": "8px", color: "#374151", "font-size": "0.875rem" })}>{fileLabels().join(", ")}</div>
       </Show>
       <Show when={errorMessage()}>
-        <div style={{ color: "#ef4444", "font-size": "0.875rem", "margin-top": "4px" }}>{errorMessage()}</div>
+        <div style={css({ color: "#ef4444", "font-size": "0.875rem", "margin-top": "4px" })}>{errorMessage()}</div>
       </Show>
     </div>
   );
@@ -1472,28 +1476,28 @@ const ImagePicker: Component<{
   };
 
   return (
-    <div style={{ display: "grid", gap: "8px" }}>
+    <div style={css({ display: "grid", gap: "8px" })}>
       <Show when={previewUrl()}>
         <img
           src={previewUrl()}
           alt="Preview"
-          style={{ width: "100%", "max-height": "220px", "object-fit": "cover", "border-radius": "8px" }}
+          style={css({ width: "100%", "max-height": "220px", "object-fit": "cover", "border-radius": "8px" })}
         />
       </Show>
-      <div style={{ border: "1px dashed #d1d5db", padding: "12px", "border-radius": "8px", background: "#fafafa" }}>
-        <label style={{ display: "block", cursor: "pointer" }}>
-          <div style={{ "margin-bottom": "8px", color: "#4b5563" }}>{props.label || "Select image"}</div>
+      <div style={css({ border: "1px dashed #d1d5db", padding: "12px", "border-radius": "8px", background: "#fafafa" })}>
+        <label style={css({ display: "block", cursor: "pointer" })}>
+          <div style={css({ "margin-bottom": "8px", color: "#4b5563" })}>{props.label || "Select image"}</div>
           <input
             type="file"
             accept={props.accept || "image/*"}
             multiple={props.multiple}
             onChange={(e) => handleFiles(e.currentTarget.files)}
-            style={{ display: "block" }}
+            style={css({ display: "block" })}
           />
         </label>
       </div>
       <Show when={errorMessage()}>
-        <div style={{ color: "#ef4444", "font-size": "0.875rem" }}>{errorMessage()}</div>
+        <div style={css({ color: "#ef4444", "font-size": "0.875rem" })}>{errorMessage()}</div>
       </Show>
     </div>
   );
@@ -1514,7 +1518,7 @@ const TabBar: Component<{
   };
 
   return (
-    <div style={{ display: "flex", gap: "8px", "margin-bottom": "8px" }}>
+    <div style={css({ display: "flex", gap: "8px", "margin-bottom": "8px" })}>
       <For each={items()}>
         {(item) => {
           const value = item.value;
@@ -1524,14 +1528,14 @@ const TabBar: Component<{
             <button
               type="button"
               onClick={() => handleSelect(value)}
-              style={{
+              style={css({
                 padding: "6px 12px",
                 "border-radius": "9999px",
                 border: active() ? "1px solid #2563eb" : "1px solid #e5e7eb",
                 background: active() ? "#eff6ff" : "#fff",
                 color: active() ? "#1d4ed8" : "#374151",
                 cursor: "pointer",
-              }}
+              })}
             >
               {label}
             </button>
@@ -1549,13 +1553,13 @@ const Card: Component<{ id?: string; padding?: number; shadow?: boolean; childre
   return (
     <div
       id={props.id}
-      style={{
+      style={css({
         padding: props.padding ? `${props.padding}px` : "16px",
         background: "white",
         "border-radius": "8px",
         "box-shadow": props.shadow !== false ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
         border: "1px solid #e5e7eb",
-      }}
+      })}
     >
       {props.children}
     </div>
@@ -1570,12 +1574,12 @@ const Image: Component<{ src?: string; alt?: string; width?: number | string; he
     <img
       src={props.src}
       alt={props.alt || ""}
-      style={{
+      style={css({
         width: typeof props.width === "number" ? `${props.width}px` : props.width,
         height: typeof props.height === "number" ? `${props.height}px` : props.height,
         "border-radius": props.rounded ? "50%" : undefined,
         "object-fit": "cover",
-      }}
+      })}
     />
   );
 };
@@ -1596,10 +1600,10 @@ const Link: Component<{ href?: string; text?: string; action?: ActionLike; conte
     <a
       href={props.href}
       onClick={clickHandler}
-      style={{
+      style={css({
         color: "#3b82f6",
         "text-decoration": "none",
-      }}
+      })}
     >
       {props.children || props.text}
     </a>
@@ -1613,11 +1617,11 @@ const Divider: Component<{ margin?: number }> = (props) => {
   const m = props.margin ?? 16;
   return (
     <hr
-      style={{
+      style={css({
         border: "none",
         "border-top": "1px solid #e5e7eb",
         margin: `${m}px 0`,
-      }}
+      })}
     />
   );
 };
@@ -1636,13 +1640,13 @@ const Badge: Component<{ text?: string; variant?: "default" | "primary" | "succe
   const c = colors[props.variant || "default"];
   return (
     <span
-      style={{
+      style={css({
         padding: "2px 8px",
         "border-radius": "9999px",
         "font-size": "0.75rem",
         background: c.bg,
         color: c.text,
-      }}
+      })}
     >
       {props.text}
     </span>
@@ -1667,7 +1671,7 @@ const Icon: Component<{ name?: string; size?: number }> = (props) => {
     arrow_left: "←",
   };
   return (
-    <span style={{ "font-size": props.size ? `${props.size}px` : "1rem" }}>
+    <span style={css({ "font-size": props.size ? `${props.size}px` : "1rem" })}>
       {icons[props.name || ""] || props.name}
     </span>
   );
@@ -1697,15 +1701,15 @@ const Spinner: Component<{ size?: SpinnerSize; variant?: "default" | "primary" |
       role="status"
       aria-label={label()}
       aria-live="polite"
-      style={{
+      style={css({
         display: props.inline ? "inline-flex" : "flex",
         "align-items": "center",
         "justify-content": props.inline ? "flex-start" : "center",
         gap: props.inline ? "6px" : "8px",
         "vertical-align": props.inline ? "middle" : undefined,
-      }}
+      })}
     >
-      <svg width={`${pixelSize()}px`} height={`${pixelSize()}px`} viewBox="0 0 50 50" style={{ display: "block" }}>
+      <svg width={`${pixelSize()}px`} height={`${pixelSize()}px`} viewBox="0 0 50 50" style={css({ display: "block" })}>
         <circle cx="25" cy="25" r="20" fill="none" stroke={palette().track} stroke-width={strokeWidth()} opacity="0.4" />
         <circle
           cx="25"
@@ -1721,7 +1725,7 @@ const Spinner: Component<{ size?: SpinnerSize; variant?: "default" | "primary" |
         </circle>
       </svg>
       <Show when={!props.inline && props.label}>
-        <span style={{ color: "#4b5563", "font-size": "0.95rem" }}>{props.label}</span>
+        <span style={css({ color: "#4b5563", "font-size": "0.95rem" })}>{props.label}</span>
       </Show>
     </span>
   );
@@ -1742,27 +1746,27 @@ const EmptyState: Component<{
     handler?.();
   };
 
-  const actionAreaStyle: JSX.CSSProperties = {
+  const actionAreaStyle: CSSProperties = {
     display: "flex",
-    "justify-content": "center",
+    justifyContent: "center",
     gap: "8px",
-    "flex-wrap": "wrap",
-    "margin-top": "4px",
+    flexWrap: "wrap",
+    marginTop: "4px",
   };
 
-  const buttonStyle = (variant: "primary" | "secondary"): JSX.CSSProperties => ({
+  const buttonStyle = (variant: "primary" | "secondary"): CSSProperties => ({
     padding: "10px 16px",
-    "border-radius": "10px",
+    borderRadius: "10px",
     border: variant === "primary" ? "1px solid #2563eb" : "1px solid #d1d5db",
     background: variant === "primary" ? "#2563eb" : "white",
     color: variant === "primary" ? "white" : "#111827",
     cursor: "pointer",
-    "font-weight": 600,
+    fontWeight: 600,
   });
 
   return (
     <div
-      style={{
+      style={css({
         display: "grid",
         gap: "10px",
         padding: "24px",
@@ -1771,11 +1775,11 @@ const EmptyState: Component<{
         background: "#f8fafc",
         "text-align": "center",
         "justify-items": "center",
-      }}
+      })}
     >
       <Show when={props.icon}>
         <div
-          style={{
+          style={css({
             width: "56px",
             height: "56px",
             "border-radius": "14px",
@@ -1783,16 +1787,16 @@ const EmptyState: Component<{
             display: "grid",
             "place-items": "center",
             color: "#374151",
-          }}
+          })}
         >
           <Icon name={props.icon} size={26} />
         </div>
       </Show>
       <Show when={props.title}>
-        <div style={{ "font-size": "1.15rem", "font-weight": 700, color: "#111827" }}>{props.title}</div>
+        <div style={css({ "font-size": "1.15rem", "font-weight": 700, color: "#111827" })}>{props.title}</div>
       </Show>
       <Show when={props.description}>
-        <div style={{ color: "#4b5563", "max-width": "520px", "line-height": 1.5 }}>{props.description}</div>
+        <div style={css({ color: "#4b5563", "max-width": "520px", "line-height": 1.5 })}>{props.description}</div>
       </Show>
       {props.renderChildren ? props.renderChildren() : props.children}
       <Show when={props.primaryAction || props.secondaryAction}>
@@ -1859,7 +1863,7 @@ const Stat: Component<{
 
   return (
     <div
-      style={{
+      style={css({
         display: "grid",
         gap: "6px",
         padding: "14px",
@@ -1867,38 +1871,38 @@ const Stat: Component<{
         border: "1px solid #e5e7eb",
         background: "white",
         "box-shadow": "0 1px 2px rgba(0,0,0,0.03)",
-      }}
+      })}
     >
-      <div style={{ display: "flex", "align-items": "center", "justify-content": "space-between" }}>
-        <div style={{ color: "#6b7280", "font-size": "0.95rem", "font-weight": 600 }}>{props.label}</div>
+      <div style={css({ display: "flex", "align-items": "center", "justify-content": "space-between" })}>
+        <div style={css({ color: "#6b7280", "font-size": "0.95rem", "font-weight": 600 })}>{props.label}</div>
         <Show when={props.icon}>
           <div
-            style={{
+            style={css({
               width: "32px",
               height: "32px",
               "border-radius": "10px",
               background: "#f3f4f6",
               display: "grid",
               "place-items": "center",
-            }}
+            })}
           >
             <Icon name={props.icon} size={18} />
           </div>
         </Show>
       </div>
-      <div style={{ display: "flex", "align-items": "baseline", gap: "6px" }}>
-        <div style={{ "font-size": "1.8rem", "font-weight": 700, color: "#111827" }}>{formattedValue()}</div>
+      <div style={css({ display: "flex", "align-items": "baseline", gap: "6px" })}>
+        <div style={css({ "font-size": "1.8rem", "font-weight": 700, color: "#111827" })}>{formattedValue()}</div>
       </div>
       <Show when={hasDelta()}>
-        <div style={{ display: "flex", "align-items": "center", gap: "8px" }}>
+        <div style={css({ display: "flex", "align-items": "center", gap: "8px" })}>
           <Show when={props.delta !== undefined}>
-            <span style={{ color: palette[direction()].color, display: "inline-flex", "align-items": "center", gap: "4px", "font-weight": 600 }}>
+            <span style={css({ color: palette[direction()].color, display: "inline-flex", "align-items": "center", gap: "4px", "font-weight": 600 })}>
               <span>{palette[direction()].symbol}</span>
               <span>{typeof props.delta === "number" ? props.delta.toLocaleString() : props.delta}</span>
             </span>
           </Show>
           <Show when={props.deltaLabel}>
-            <span style={{ color: "#6b7280", "font-size": "0.95rem" }}>{props.deltaLabel}</span>
+            <span style={css({ color: "#6b7280", "font-size": "0.95rem" })}>{props.deltaLabel}</span>
           </Show>
         </div>
       </Show>
@@ -1918,19 +1922,19 @@ const StatGroup: Component<{
   const gap = props.gap !== undefined ? `${props.gap}px` : "12px";
   const columns = Math.max(1, props.columns || 3);
 
-  const style: JSX.CSSProperties =
+  const style: CSSProperties =
     layout === "grid"
       ? {
           display: "grid",
-          "grid-template-columns": `repeat(${columns}, minmax(0, 1fr))`,
+          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
           gap,
           width: "100%",
         }
       : {
           display: "flex",
           gap,
-          "flex-wrap": "wrap",
-          "align-items": "stretch",
+          flexWrap: "wrap",
+          alignItems: "stretch",
         };
 
   return <div style={style}>{props.renderChildren ? props.renderChildren() : props.children}</div>;
@@ -2051,12 +2055,13 @@ const Repeat: Component<{
 }> = (props) => {
   const list = createMemo(() => (Array.isArray(props.items) ? props.items : []));
 
-  if (!props.renderChildren) return null;
+  const renderChildren = props.renderChildren;
+  if (!renderChildren) return null;
 
   return (
     <For each={list()}>
       {(item) =>
-        props.renderChildren(
+        renderChildren(
           {
             ...(props.context || {}),
             item,
@@ -2087,7 +2092,7 @@ const Header: Component<{
   };
 
   return (
-    <div style={{ display: "flex", "align-items": "center", gap: "12px", "margin-bottom": "12px" }}>
+    <div style={css({ display: "flex", "align-items": "center", gap: "12px", "margin-bottom": "12px" })}>
       <Show when={props.backHref || props.backAction}>
         <a
           href={props.backHref || "#"}
@@ -2098,15 +2103,15 @@ const Header: Component<{
             }
             if (!props.backHref) e.preventDefault();
           }}
-          style={{ color: "#4b5563", "text-decoration": "none" }}
+          style={css({ color: "#4b5563", "text-decoration": "none" })}
         >
           ←
         </a>
       </Show>
-      <div style={{ flex: 1 }}>
-        <div style={{ "font-size": "1.1rem", "font-weight": "700" }}>{props.title}</div>
+      <div style={css({ flex: 1 })}>
+        <div style={css({ "font-size": "1.1rem", "font-weight": "700" })}>{props.title}</div>
         <Show when={props.subtitle}>
-          <div style={{ color: "#6b7280", "font-size": "0.9rem" }}>{props.subtitle}</div>
+          <div style={css({ color: "#6b7280", "font-size": "0.9rem" })}>{props.subtitle}</div>
         </Show>
       </div>
       {props.renderChildren ? props.renderChildren() : props.children}
@@ -2120,7 +2125,7 @@ const ScrollView: Component<{ height?: number | string; maxHeight?: number | str
     return typeof value === "number" ? `${value}px` : value;
   };
   return (
-    <div style={{ overflow: "auto", height: toSize(props.height), "max-height": toSize(props.maxHeight) }}>
+    <div style={css({ overflow: "auto", height: toSize(props.height), "max-height": toSize(props.maxHeight) })}>
       {props.children}
     </div>
   );
@@ -2128,7 +2133,7 @@ const ScrollView: Component<{ height?: number | string; maxHeight?: number | str
 
 const Sticky: Component<{ top?: number; children?: JSX.Element }> = (props) => {
   return (
-    <div style={{ position: "sticky", top: props.top !== undefined ? `${props.top}px` : "0px", "z-index": 5 }}>
+    <div style={css({ position: "sticky", top: props.top !== undefined ? `${props.top}px` : "0px", "z-index": 5 })}>
       {props.children}
     </div>
   );
@@ -2146,12 +2151,12 @@ const Grid: Component<{ columns?: number; gap?: number; minColumnWidth?: number 
 
   return (
     <div
-      style={{
+      style={css({
         display: "grid",
         "grid-template-columns": template(),
         gap: props.gap ? `${props.gap}px` : "12px",
         width: "100%",
-      }}
+      })}
     >
       {props.children}
     </div>
@@ -2304,44 +2309,44 @@ const Table: Component<TableProps> = (props) => {
 
   const colSpan = () => Math.max(columns().length, 1);
 
-  const pagerButtonStyle: JSX.CSSProperties = {
+  const pagerButtonStyle: CSSProperties = {
     padding: "6px 10px",
     border: "1px solid #d1d5db",
     background: "#f9fafb",
     color: "#111827",
-    "border-radius": "6px",
+    borderRadius: "6px",
     cursor: "pointer",
   };
 
   return (
-    <div style={{ display: "grid", gap: "8px" }}>
-      <div style={{ border: "1px solid #e5e7eb", "border-radius": "8px", overflow: "hidden", background: "white" }}>
-        <div style={{ overflow: "auto" }}>
-          <table style={{ width: "100%", "border-collapse": "collapse", "min-width": "100%" }}>
+    <div style={css({ display: "grid", gap: "8px" })}>
+      <div style={css({ border: "1px solid #e5e7eb", "border-radius": "8px", overflow: "hidden", background: "white" })}>
+        <div style={css({ overflow: "auto" })}>
+          <table style={css({ width: "100%", "border-collapse": "collapse", "min-width": "100%" })}>
             <thead>
               <tr>
                 <For each={columns()}>
                   {(col) => {
                     const active = createMemo(() => sortState().column === col.key);
                     const direction = createMemo(() => sortState().direction);
-                    const headerStyle: JSX.CSSProperties = {
+                    const headerStyle: CSSProperties = {
                       background: "#f8fafc",
-                      "text-align": col.align || "left",
+                      textAlign: col.align || "left",
                       padding: "10px 12px",
-                      "border-bottom": "1px solid #e5e7eb",
+                      borderBottom: "1px solid #e5e7eb",
                       width: col.width !== undefined ? (typeof col.width === "number" ? `${col.width}px` : col.width) : undefined,
                       cursor: col.sortable ? "pointer" : "default",
-                      "user-select": col.sortable ? "none" : undefined,
+                      userSelect: col.sortable ? "none" : undefined,
                       position: props.stickyHeader ? "sticky" : undefined,
                       top: props.stickyHeader ? "0px" : undefined,
-                      "z-index": props.stickyHeader ? 1 : undefined,
+                      zIndex: props.stickyHeader ? 1 : undefined,
                     };
                     return (
                       <th style={headerStyle} onClick={() => handleSort(col)}>
-                        <span style={{ display: "flex", "align-items": "center", gap: "6px", "white-space": "nowrap" }}>
-                          <span style={{ "font-weight": 600, color: "#111827" }}>{col.label}</span>
+                        <span style={css({ display: "flex", "align-items": "center", gap: "6px", "white-space": "nowrap" })}>
+                          <span style={css({ "font-weight": 600, color: "#111827" })}>{col.label}</span>
                           <Show when={col.sortable}>
-                            <span style={{ color: active() ? "#1d4ed8" : "#9ca3af", "font-size": "0.8rem" }}>
+                            <span style={css({ color: active() ? "#1d4ed8" : "#9ca3af", "font-size": "0.8rem" })}>
                               {active() ? (direction() === "desc" ? "▼" : "▲") : "↕"}
                             </span>
                           </Show>
@@ -2357,7 +2362,7 @@ const Table: Component<TableProps> = (props) => {
                 when={paginatedRows().length > 0}
                 fallback={
                   <tr>
-                    <td colSpan={colSpan()} style={{ padding: "14px", "text-align": "center", color: "#6b7280" }}>
+                    <td colSpan={colSpan()} style={css({ padding: "14px", "text-align": "center", color: "#6b7280" })}>
                       {props.emptyText || "No data"}
                     </td>
                   </tr>
@@ -2372,7 +2377,7 @@ const Table: Component<TableProps> = (props) => {
         </div>
       </div>
       <Show when={pageSize()}>
-        <div style={{ display: "flex", "align-items": "center", "justify-content": "space-between", color: "#4b5563", "font-size": "0.9rem" }}>
+        <div style={css({ display: "flex", "align-items": "center", "justify-content": "space-between", color: "#4b5563", "font-size": "0.9rem" })}>
           <div>
             <Show when={startIndex() > 0}>
               <span>
@@ -2383,12 +2388,12 @@ const Table: Component<TableProps> = (props) => {
               <span>Showing 0 of {totalCount()}</span>
             </Show>
           </div>
-          <div style={{ display: "flex", gap: "8px" }}>
+          <div style={css({ display: "flex", gap: "8px" })}>
             <button
               type="button"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page() <= 1}
-              style={{ ...pagerButtonStyle, opacity: page() <= 1 ? 0.6 : 1 }}
+              style={css({ ...pagerButtonStyle, opacity: page() <= 1 ? 0.6 : 1 })}
             >
               Prev
             </button>
@@ -2396,7 +2401,7 @@ const Table: Component<TableProps> = (props) => {
               type="button"
               onClick={() => setPage((p) => Math.min(pageCount(), p + 1))}
               disabled={page() >= pageCount()}
-              style={{ ...pagerButtonStyle, opacity: page() >= pageCount() ? 0.6 : 1 }}
+              style={css({ ...pagerButtonStyle, opacity: page() >= pageCount() ? 0.6 : 1 })}
             >
               Next
             </button>
@@ -2439,11 +2444,11 @@ const TableRow: Component<{
       onClick={clickable() ? handleClick : undefined}
       onMouseEnter={hoverable() ? () => setHovered(true) : undefined}
       onMouseLeave={hoverable() ? () => setHovered(false) : undefined}
-      style={{
+      style={css({
         background: background(),
         cursor: clickable() ? "pointer" : undefined,
         "transition": "background 0.12s ease",
-      }}
+      })}
     >
       {props.renderChildren ? props.renderChildren() : props.children}
     </tr>
@@ -2470,14 +2475,14 @@ const TableCell: Component<{
 
   return (
     <td
-      style={{
+      style={css({
         padding: "10px 12px",
         "border-bottom": "1px solid #e5e7eb",
         "text-align": alignment(),
         width: width(),
         color: "#111827",
         "vertical-align": "middle",
-      }}
+      })}
     >
       <Show when={hasContent()} fallback={props.renderChildren ? props.renderChildren() : props.children}>
         {props.content}
@@ -2514,7 +2519,7 @@ const Tabs: Component<{
   const activeContent = createMemo(() => tabs().find((tab) => tab.value === currentValue()));
 
   return (
-    <div style={{ display: "grid", gap: "8px" }}>
+    <div style={css({ display: "grid", gap: "8px" })}>
       <TabBar value={currentValue()} tabs={tabs()} onChange={handleChange} />
       <div>
         <Show when={activeContent()}>
@@ -2545,7 +2550,7 @@ const Modal: Component<{
   return (
     <Show when={props.open}>
       <div
-        style={{
+        style={css({
           position: "fixed",
           inset: 0,
           background: "rgba(0,0,0,0.4)",
@@ -2554,25 +2559,25 @@ const Modal: Component<{
           "justify-content": "center",
           "z-index": 50,
           padding: "12px",
-        }}
+        })}
         onClick={close}
       >
         <div
-          style={{
+          style={css({
             background: "white",
             padding: "16px",
             "border-radius": "12px",
             width: "min(520px, 90vw)",
             "box-shadow": "0 10px 30px rgba(0,0,0,0.2)",
-          }}
+          })}
           onClick={(e) => e.stopPropagation()}
         >
-          <div style={{ display: "flex", "align-items": "center", "justify-content": "space-between", "margin-bottom": "8px" }}>
-            <span style={{ "font-weight": "700" }}>{props.title}</span>
+          <div style={css({ display: "flex", "align-items": "center", "justify-content": "space-between", "margin-bottom": "8px" })}>
+            <span style={css({ "font-weight": "700" })}>{props.title}</span>
             <button
               type="button"
               onClick={close}
-              style={{ background: "transparent", border: "none", cursor: "pointer", "font-size": "1rem" }}
+              style={css({ background: "transparent", border: "none", cursor: "pointer", "font-size": "1rem" })}
             >
               ✕
             </button>
@@ -2600,7 +2605,7 @@ const BottomSheet: Component<{
   return (
     <Show when={props.open}>
       <div
-        style={{
+        style={css({
           position: "fixed",
           inset: 0,
           background: "rgba(0,0,0,0.35)",
@@ -2608,26 +2613,26 @@ const BottomSheet: Component<{
           "align-items": "flex-end",
           "justify-content": "center",
           "z-index": 50,
-        }}
+        })}
         onClick={close}
       >
         <div
-          style={{
+          style={css({
             background: "white",
             width: "100%",
             "max-width": "640px",
             padding: "16px",
             "border-radius": "16px 16px 0 0",
             "box-shadow": "0 -4px 20px rgba(0,0,0,0.15)",
-          }}
+          })}
           onClick={(e) => e.stopPropagation()}
         >
-          <div style={{ display: "flex", "align-items": "center", "justify-content": "space-between", "margin-bottom": "8px" }}>
-            <span style={{ "font-weight": "700" }}>{props.title}</span>
+          <div style={css({ display: "flex", "align-items": "center", "justify-content": "space-between", "margin-bottom": "8px" })}>
+            <span style={css({ "font-weight": "700" })}>{props.title}</span>
             <button
               type="button"
               onClick={close}
-              style={{ background: "transparent", border: "none", cursor: "pointer", "font-size": "1rem" }}
+              style={css({ background: "transparent", border: "none", cursor: "pointer", "font-size": "1rem" })}
             >
               ✕
             </button>
@@ -2727,14 +2732,14 @@ const ApiData: Component<{
     if (props.loading && props.renderChildren) {
       return props.renderChildren(props.context, [props.loading]);
     }
-    return <div style={{ padding: "8px", color: "#6b7280" }}>Loading...</div>;
+    return <div style={css({ padding: "8px", color: "#6b7280" })}>Loading...</div>;
   };
 
   const renderError = () => {
     if (props.error && props.renderChildren) {
       return props.renderChildren({ ...(props.context || {}), error: error() }, [props.error]);
     }
-    return <div style={{ color: "#ef4444" }}>Failed to load data</div>;
+    return <div style={css({ color: "#ef4444" })}>Failed to load data</div>;
   };
 
   return (
@@ -2808,14 +2813,14 @@ const ApiList: Component<{
     if (props.loading && props.renderChildren) {
       return props.renderChildren(props.context, [props.loading]);
     }
-    return <div style={{ padding: "8px", color: "#6b7280" }}>Loading...</div>;
+    return <div style={css({ padding: "8px", color: "#6b7280" })}>Loading...</div>;
   };
 
   const renderError = () => {
     if (props.error && props.renderChildren) {
       return props.renderChildren({ ...(props.context || {}), error: error() }, [props.error]);
     }
-    return <div style={{ padding: "16px", color: "#ef4444", "text-align": "center" }}>Failed to load list</div>;
+    return <div style={css({ padding: "16px", color: "#ef4444", "text-align": "center" })}>Failed to load list</div>;
   };
 
   return (
@@ -2823,7 +2828,7 @@ const ApiList: Component<{
       <Show when={!error()} fallback={renderError()}>
         <Show
           when={items() && items()!.length > 0}
-          fallback={<div style={{ padding: "16px", color: "#6b7280", "text-align": "center" }}>{props.emptyText || "No items"}</div>}
+          fallback={<div style={css({ padding: "16px", color: "#6b7280", "text-align": "center" })}>{props.emptyText || "No items"}</div>}
         >
           <For each={items()}>
             {(item) => {
@@ -2915,7 +2920,7 @@ export const RenderUiNode: Component<UiComponentProps> = (props) => {
 
   if (!ComponentImpl) {
     console.warn(`[UiRuntime] Unknown UiNode type: ${node.type}`);
-    return <div style={{ color: "red" }}>Unknown component: {node.type}</div>;
+    return <div style={css({ color: "red" })}>Unknown component: {node.type}</div>;
   }
 
   const visibility = createMemo(() => {
@@ -3178,7 +3183,7 @@ export const RenderScreen: Component<{ screen: Screen; context?: UiRuntimeContex
     }
   };
 
-  const actionHandlers = createMemo<Record<string, (payload?: any) => void | Promise<void>>>(() => ({
+  const actionHandlers = createMemo<Record<string, (payload?: any) => void | Promise<any>>>(() => ({
     ...(props.context?.actions ?? {}),
     "action.open_dm_thread": openDmThread,
     "action.send_dm": sendDm,

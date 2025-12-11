@@ -19,9 +19,7 @@ export function registerClientPlugin(plugin: ClientPlugin): void {
   }
 
   if (plugin.components) {
-    for (const [key, component] of Object.entries(plugin.components) as Array<
-      [ClientComponentKey, Component<any>]
-    >) {
+    for (const [key, component] of Object.entries(plugin.components) as Array<[ClientComponentKey, ComponentType<any>]>) {
       if (component) {
         componentOverrides.set(key, component);
       }

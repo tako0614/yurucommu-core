@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.10",
+  "version": "0.1.0",
+  "name": "sample-counter",
+  "display_name": "Sample Counter App",
+  "description": "A minimal sample app to test the App SDK pipeline",
+  "layout": {
+    "base_dir": ".",
+    "routes_dir": "routes",
+    "views_dir": "views"
+  },
+  "permissions": [
+    "storage:read",
+    "storage:write"
+  ]
+}

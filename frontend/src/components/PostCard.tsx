@@ -1,17 +1,9 @@
+import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
-import {
-  For,
-  Show,
-  createEffect,
-  createMemo,
-  createResource,
-  createSignal,
-  onCleanup,
-  onMount,
-} from "../lib/solid-compat";
 import Avatar from "./Avatar";
 import { api, getUser, useMe } from "../lib/api";
 import { useToast } from "./Toast";
+import { useAsyncResource } from "../lib/useAsyncResource";
 
 type PostCardProps = {
   post: any;
@@ -42,49 +34,31 @@ function formatTimestamp(value?: string) {
   }
 }
 
-function CommentItem(props: {
-  comment: any;
-  canDelete: boolean;
-  onDelete: (id: string) => void;
-}) {
-  const [author] = createResource(
+function CommentItem(props: { comment: any; canDelete: boolean; onDelete: (id: string) => void }) {
+  const [author] = useAsyncResource(
     () => props.comment.author_id,
     async (id) => {
       if (!id) return null;
       return getUser(id).catch(() => null);
     },
   );
-  const createdAt = createMemo(() =>
-    formatTimestamp(props.comment.created_at),
-  );
+  const createdAt = useMemo(() => formatTimestamp(props.comment.created_at), [props.comment.created_at]);
 
   return (
     <div className="flex gap-2 text-sm">
-      <Avatar
-        src={author()?.avatar_url || ""}
-        alt="コメントユーザー"
-        className="w-8 h-8 rounded-full bg-gray-200 dark:bg-neutral-700"
-      />
+      <Avatar src={author.data?.avatar_url || ""} alt="コメントユーザー" className="w-8 h-8 rounded-full bg-gray-200 dark:bg-neutral-700" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-gray-900 dark:text-white truncate">
-            {author()?.display_name || props.comment.author_id}
-          </span>
-          <span className="text-xs text-gray-500">{createdAt()}</span>
+          <span className="font-semibold text-gray-900 dark:text-white truncate">{author.data?.display_name || props.comment.author_id}</span>
+          <span className="text-xs text-gray-500">{createdAt}</span>
         </div>
-        <div className="text-gray-900 dark:text-gray-100 whitespace-pre-wrap leading-relaxed">
-          {props.comment.text}
-        </div>
+        <div className="text-gray-900 dark:text-gray-100 whitespace-pre-wrap leading-relaxed">{props.comment.text}</div>
       </div>
-      <Show when={props.canDelete}>
-        <button
-          type="button"
-          className="text-xs text-gray-500 hover:text-red-500"
-          onClick={() => props.onDelete(props.comment.id)}
-        >
+      {props.canDelete && (
+        <button type="button" className="text-xs text-gray-500 hover:text-red-500" onClick={() => props.onDelete(props.comment.id)}>
           削除
         </button>
-      </Show>
+      )}
     </div>
   );
 }
@@ -92,44 +66,41 @@ function CommentItem(props: {
 export default function PostCard(props: PostCardProps) {
   const me = useMe();
   const toast = useToast();
-  const [post, setPost] = createSignal(props.post);
-  const [reactionState, setReactionState] = createSignal<ReactionState>({
-    count:
-      Number(props.post?.reaction_count ?? props.post?.like_count ?? 0) || 0,
+  const [post, setPost] = useState(props.post);
+  const [reactionState, setReactionState] = useState<ReactionState>({
+    count: Number(props.post?.reaction_count ?? props.post?.like_count ?? 0) || 0,
     myReactionId: props.post?.my_reaction_id ?? null,
     loading: false,
   });
-  const [commentCount, setCommentCount] = createSignal(
-    Number(props.post?.comment_count ?? 0) || 0,
-  );
-  const [commentState, setCommentState] = createSignal<CommentState>({
+  const [commentCount, setCommentCount] = useState<number>(Number(props.post?.comment_count ?? 0) || 0);
+  const [commentState, setCommentState] = useState<CommentState>({
     items: props.defaultShowComments ? [] : null,
     loading: false,
     posting: false,
     error: undefined,
   });
-  const [commentsOpen, setCommentsOpen] = createSignal(
-    props.defaultShowComments ?? false,
-  );
-  const [commentText, setCommentText] = createSignal("");
-  const [editing, setEditing] = createSignal(false);
-  const [editText, setEditText] = createSignal(props.post?.text || "");
-  const [actionError, setActionError] = createSignal("");
-  const [shareCopied, setShareCopied] = createSignal(false);
-  let shareResetTimer: ReturnType<typeof setTimeout> | undefined;
-  let lastPostId = props.post?.id;
-  let commentInputRef: HTMLTextAreaElement | undefined;
+  const [commentsOpen, setCommentsOpen] = useState(props.defaultShowComments ?? false);
+  const [commentText, setCommentText] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(props.post?.text || "");
+  const [actionError, setActionError] = useState("");
+  const [shareCopied, setShareCopied] = useState(false);
+  const shareResetTimer = useRef<ReturnType<typeof setTimeout>>();
+  const lastPostIdRef = useRef(props.post?.id);
+  const commentInputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  onCleanup(() => {
-    if (shareResetTimer) clearTimeout(shareResetTimer);
-  });
+  useEffect(() => {
+    return () => {
+      if (shareResetTimer.current) clearTimeout(shareResetTimer.current);
+    };
+  }, []);
 
-  createEffect(() => {
+  useEffect(() => {
     const p = props.post;
     if (!p) return;
     setPost(p);
-    if (p.id !== lastPostId) {
-      lastPostId = p.id;
+    if (p.id !== lastPostIdRef.current) {
+      lastPostIdRef.current = p.id;
       setReactionState({
         count: Number(p.reaction_count ?? p.like_count ?? 0) || 0,
         myReactionId: p.my_reaction_id ?? null,
@@ -145,47 +116,39 @@ export default function PostCard(props: PostCardProps) {
       setCommentsOpen(props.defaultShowComments ?? false);
       setEditText(p.text || "");
     }
-  });
+  }, [props.defaultShowComments, props.post]);
 
-  const [author] = createResource(
-    () => post().author_id,
+  const [author] = useAsyncResource(
+    () => post?.author_id,
     async (id) => {
       if (!id) return null;
       return getUser(id).catch(() => null);
     },
   );
 
-  const mediaUrls = createMemo(() =>
-    Array.isArray(post().media_urls)
-      ? (post().media_urls as string[]).filter(
-          (url) => typeof url === "string" && url.length > 0,
-        )
-      : [],
-  );
+  const mediaUrls = useMemo(() => {
+    if (!post) return [];
+    return Array.isArray(post.media_urls)
+      ? (post.media_urls as string[]).filter((url) => typeof url === "string" && url.length > 0)
+      : [];
+  }, [post]);
 
-  const formattedCreatedAt = createMemo(() =>
-    formatTimestamp(post().created_at),
-  );
-  const shareLabel = createMemo(() =>
-    shareCopied() ? "コピーしました" : "共有",
-  );
-  const postUrl = createMemo(() => {
+  const formattedCreatedAt = useMemo(() => formatTimestamp(post?.created_at), [post?.created_at]);
+  const shareLabel = shareCopied ? "コピーしました" : "共有";
+  const postUrl = useMemo(() => {
     try {
-      if (typeof window === "undefined") return `/posts/${post().id}`;
-      return new URL(`/posts/${post().id}`, window.location.origin).toString();
+      if (typeof window === "undefined") return `/posts/${post?.id}`;
+      return new URL(`/posts/${post?.id}`, window.location.origin).toString();
     } catch {
-      return `/posts/${post().id}`;
+      return `/posts/${post?.id}`;
     }
-  });
-  const canEdit = createMemo(
-    () => !!me() && post()?.author_id && me()!.id === post().author_id,
-  );
+  }, [post?.id]);
+  const canEdit = useMemo(() => !!me() && post?.author_id && me()!.id === post.author_id, [me, post]);
 
   const loadReactions = async () => {
-    const current = reactionState();
-    setReactionState({ ...current, loading: true });
+    setReactionState((current) => ({ ...current, loading: true }));
     try {
-      const list: any[] = await api(`/posts/${post().id}/reactions`);
+      const list: any[] = await api(`/posts/${post.id}/reactions`);
       const mine = me() ? list.find((r) => r.user_id === me()!.id) : null;
       setReactionState({
         count: Array.isArray(list) ? list.length : 0,
@@ -193,14 +156,14 @@ export default function PostCard(props: PostCardProps) {
         loading: false,
       });
     } catch {
-      setReactionState({ ...current, loading: false });
+      setReactionState((current) => ({ ...current, loading: false }));
     }
   };
 
   const loadComments = async () => {
     setCommentState((prev) => ({ ...prev, loading: true, error: undefined }));
     try {
-      const list: any[] = await api(`/posts/${post().id}/comments`);
+      const list: any[] = await api(`/posts/${post.id}/comments`);
       setCommentState((prev) => ({ ...prev, items: list, loading: false }));
       setCommentCount(Array.isArray(list) ? list.length : 0);
     } catch (err: any) {
@@ -212,26 +175,26 @@ export default function PostCard(props: PostCardProps) {
     }
   };
 
-  onMount(() => {
+  useEffect(() => {
     void loadReactions();
-    if (commentsOpen()) {
+    if (commentsOpen) {
       void loadComments();
     }
-  });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  createEffect(() => {
-    if (commentsOpen() && commentState().items === null) {
+  useEffect(() => {
+    if (commentsOpen && commentState.items === null) {
       void loadComments();
     }
-  });
+  }, [commentsOpen, commentState.items]);
 
   const toggleLike = async () => {
-    const state = reactionState();
+    const state = reactionState;
     if (state.loading) return;
     setReactionState({ ...state, loading: true });
     try {
       if (state.myReactionId) {
-        await api(`/posts/${post().id}/reactions/${state.myReactionId}`, {
+        await api(`/posts/${post.id}/reactions/${state.myReactionId}`, {
           method: "DELETE",
         });
         const nextCount = Math.max(0, state.count - 1);
@@ -240,16 +203,14 @@ export default function PostCard(props: PostCardProps) {
           myReactionId: null,
           loading: false,
         });
-        setPost((prev) =>
-          prev ? { ...prev, reaction_count: nextCount, like_count: nextCount } : prev,
-        );
+        setPost((prev: any) => (prev ? { ...prev, reaction_count: nextCount, like_count: nextCount } : prev));
         props.onUpdated?.({
-          ...post(),
+          ...post,
           reaction_count: nextCount,
           like_count: nextCount,
         });
       } else {
-        const res = await api(`/posts/${post().id}/reactions`, {
+        const res = await api(`/posts/${post.id}/reactions`, {
           method: "POST",
           body: JSON.stringify({ emoji: "👍" }),
         });
@@ -260,471 +221,237 @@ export default function PostCard(props: PostCardProps) {
           myReactionId: reactionId,
           loading: false,
         });
-        setPost((prev) =>
-          prev ? { ...prev, reaction_count: nextCount, like_count: nextCount } : prev,
-        );
+        setPost((prev: any) => (prev ? { ...prev, reaction_count: nextCount, like_count: nextCount } : prev));
         props.onUpdated?.({
-          ...post(),
+          ...post,
           reaction_count: nextCount,
           like_count: nextCount,
+          my_reaction_id: reactionId,
         });
       }
-    } catch (err: any) {
+    } catch (error: any) {
+      toast?.showToast?.(error?.message || "リアクションに失敗しました", "error");
       setReactionState({ ...state, loading: false });
-      toast.showError(err?.message || "リアクションに失敗しました");
     }
   };
 
-  const handleShare = async () => {
-    if (typeof window === "undefined") return;
-    try {
-      if (typeof navigator !== "undefined" && navigator.share) {
-        await navigator.share({ url: postUrl() });
-        return;
-      }
-      if (
-        typeof navigator !== "undefined" &&
-        navigator.clipboard &&
-        typeof navigator.clipboard.writeText === "function"
-      ) {
-        await navigator.clipboard.writeText(postUrl());
-      }
-    } catch {
-      // Ignore share errors
-    }
-    setShareCopied(true);
-    if (shareResetTimer) clearTimeout(shareResetTimer);
-    shareResetTimer = setTimeout(() => setShareCopied(false), 2000);
-  };
-
-  const toggleComments = () => {
-    setCommentsOpen((v) => {
-      const next = !v;
-      if (!v) {
-        queueMicrotask(() => commentInputRef?.focus());
-      }
-      return next;
-    });
-  };
-
-  const submitComment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const text = commentText().trim();
-    if (!text || commentState().posting) return;
+  const submitComment = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!commentText.trim()) return;
     setCommentState((prev) => ({ ...prev, posting: true, error: undefined }));
     try {
-      const created = await api(`/posts/${post().id}/comments`, {
+      const res = await api(`/posts/${post.id}/comments`, {
         method: "POST",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text: commentText }),
       });
       setCommentText("");
-      const nextCount = commentCount() + 1;
       setCommentState((prev) => ({
         ...prev,
-        items: [created, ...(prev.items || [])],
+        items: Array.isArray(prev.items) ? [...prev.items, res] : [res],
         posting: false,
-        error: undefined,
       }));
-      setCommentCount(nextCount);
-      setPost((prev) => (prev ? { ...prev, comment_count: nextCount } : prev));
-      props.onUpdated?.({ ...post(), comment_count: nextCount });
+      setCommentCount((prev) => prev + 1);
+      if (commentInputRef.current) {
+        commentInputRef.current.value = "";
+      }
     } catch (err: any) {
-      const message = err?.message || "コメントを追加できませんでした";
       setCommentState((prev) => ({
         ...prev,
         posting: false,
-        error: message,
+        error: err?.message || "コメントの投稿に失敗しました",
       }));
-      toast.showError(message);
     }
   };
 
-  const handleDeleteComment = async (commentId: string) => {
+  const deleteComment = async (id: string) => {
+    if (!window.confirm("コメントを削除しますか？")) return;
     try {
-      await api(`/posts/${post().id}/comments/${commentId}`, {
-        method: "DELETE",
-      });
-      setCommentState((prev) => {
-        const nextItems = (prev.items || []).filter(
-          (c: any) => c.id !== commentId,
-        );
-        return { ...prev, items: nextItems };
-      });
-      const nextCount = Math.max(0, commentCount() - 1);
-      setCommentCount(nextCount);
-      setPost((prev) => (prev ? { ...prev, comment_count: nextCount } : prev));
-      props.onUpdated?.({ ...post(), comment_count: nextCount });
-    } catch (err: any) {
-      const message = err?.message || "コメントを削除できませんでした";
+      await api(`/posts/${post.id}/comments/${id}`, { method: "DELETE" });
       setCommentState((prev) => ({
         ...prev,
-        error: message,
+        items: (prev.items || []).filter((c) => c.id !== id),
       }));
-      toast.showError(message);
-    }
-  };
-
-  const handleDeletePost = async () => {
-    if (!confirm("この投稿を削除しますか？")) return;
-    setActionError("");
-    try {
-      await api(`/posts/${post().id}`, { method: "DELETE" });
-      toast.showSuccess("投稿を削除しました");
-      props.onDeleted?.(post().id);
+      setCommentCount((prev) => Math.max(0, prev - 1));
     } catch (err: any) {
-      const message = err?.message || "投稿を削除できませんでした";
-      setActionError(message);
-      toast.showError(message);
+      toast?.showToast?.(err?.message || "コメント削除に失敗しました", "error");
     }
   };
 
-  const handleUpdatePost = async () => {
-    const text = editText().trim();
+  const saveEdit = async () => {
+    if (!canEdit) return;
+    const text = editText.trim();
     if (!text) {
-      const message = "本文を入力してください";
-      setActionError(message);
-      toast.showWarning(message);
+      setActionError("本文を入力してください");
       return;
     }
     setActionError("");
     try {
-      const updated = await api(`/posts/${post().id}`, {
+      const res = await api(`/posts/${post.id}`, {
         method: "PATCH",
-        body: JSON.stringify({
-          text,
-          media: mediaUrls(),
-        }),
+        body: JSON.stringify({ text }),
       });
-      setPost((prev) => ({ ...prev, ...updated, text }));
       setEditing(false);
-      toast.showSuccess("投稿を更新しました");
-      props.onUpdated?.({ ...post(), ...updated, text });
+      setPost((prev: any) => (prev ? { ...prev, text } : prev));
+      props.onUpdated?.({ ...(post as any), text, ...res });
     } catch (err: any) {
-      const message = err?.message || "投稿を更新できませんでした";
-      setActionError(message);
-      toast.showError(message);
+      setActionError(err?.message || "更新に失敗しました");
     }
   };
 
-  const handlePinPost = async () => {
-    setActionError("");
+  const deletePost = async () => {
+    if (!window.confirm("この投稿を削除しますか？")) return;
     try {
-      const updated = await api(`/posts/${post().id}/pin`, {
-        method: "POST",
-      });
-      setPost((prev) => ({ ...prev, ...updated, pinned: true }));
-      toast.showSuccess("投稿をピン留めしました");
-      props.onUpdated?.({ ...post(), ...updated, pinned: true });
+      await api(`/posts/${post.id}`, { method: "DELETE" });
+      props.onDeleted?.(post.id);
     } catch (err: any) {
-      const message = err?.message || "ピン留めできませんでした";
-      setActionError(message);
-      toast.showError(message);
+      toast?.showToast?.(err?.message || "削除に失敗しました", "error");
     }
   };
 
-  const handleUnpinPost = async () => {
-    setActionError("");
+  const copyShare = async () => {
     try {
-      const updated = await api(`/posts/${post().id}/unpin`, {
-        method: "POST",
-      });
-      setPost((prev) => ({ ...prev, ...updated, pinned: false }));
-      toast.showSuccess("ピン留めを解除しました");
-      props.onUpdated?.({ ...post(), ...updated, pinned: false });
-    } catch (err: any) {
-      const message = err?.message || "ピン留め解除できませんでした";
-      setActionError(message);
-      toast.showError(message);
+      await navigator.clipboard.writeText(postUrl);
+      setShareCopied(true);
+      if (shareResetTimer.current) clearTimeout(shareResetTimer.current);
+      shareResetTimer.current = setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      toast?.showToast?.("クリップボードにコピーできませんでした", "error");
     }
   };
-
-  const commentItems = createMemo(() => commentState().items || []);
 
   return (
-    <article className="bg-white dark:bg-neutral-900 border hairline rounded-2xl shadow-sm transition-colors">
-      <Show when={post().community_id && (post().community_name || post().community_icon_url)}>
-        <a
-          href={`/c/${post().community_id}`}
-          className="px-4 pt-3 flex items-center gap-2 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-100 transition-colors"
-        >
-          <Avatar
-            src={post().community_icon_url || ""}
-            alt="コミュニティ"
-            className="w-4 h-4 rounded"
-            variant="community"
-          />
-          <span>{post().community_name || "コミュニティ"}</span>
-        </a>
-      </Show>
-      <Show when={author()}>
-        <div className="px-4 pb-4 pt-3 flex items-start gap-3">
-          <a
-            href={`/@${encodeURIComponent((post() as any).author_handle || post().author_id)}`}
-            className="flex-shrink-0"
-          >
-            <Avatar
-              src={author()?.avatar_url || ""}
-              alt="アバター"
-              className="w-12 h-12 rounded-full bg-gray-200 dark:bg-neutral-700 object-cover"
-            />
-          </a>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-start gap-2">
-              <div className="flex flex-wrap items-center gap-x-2 text-[15px] leading-tight">
-                <a
-                  href={`/@${encodeURIComponent((post() as any).author_handle || post().author_id)}`}
-                  className="font-semibold text-gray-900 dark:text-white truncate hover:underline"
-                >
-                  {author()?.display_name}
-                </a>
-                <Show when={post().pinned}>
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300" title="ピン留め投稿">
-                    📌 ピン留め
-                  </span>
-                </Show>
-                <Show when={formattedCreatedAt()}>
-                  {(createdAt) => (
-                    <>
-                      <span className="text-gray-500">·</span>
-                      <span className="text-gray-500">{createdAt()}</span>
-                    </>
-                  )}
-                </Show>
-              </div>
-              <Show when={canEdit()}>
-                <div className="ml-auto flex items-center gap-2">
-                  <Show when={!editing()}>
-                    <button
-                      type="button"
-                      className="text-xs px-2 py-1 rounded-full border hairline hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
-                      onClick={post().pinned ? handleUnpinPost : handlePinPost}
-                      title={post().pinned ? "ピン留め解除" : "ピン留め"}
-                    >
-                      {post().pinned ? "📌 解除" : "📌"}
-                    </button>
-                  </Show>
-                  <button
-                    type="button"
-                    className="text-xs px-2 py-1 rounded-full border hairline hover:bg-gray-50 dark:hover:bg-neutral-800"
-                    onClick={() => {
-                      setEditing((v) => !v);
-                      setEditText(post().text || "");
-                    }}
-                  >
-                    {editing() ? "キャンセル" : "編集"}
-                  </button>
-                  <button
-                    type="button"
-                    className="text-xs px-2 py-1 rounded-full border hairline hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400"
-                    onClick={handleDeletePost}
-                  >
-                    削除
-                  </button>
-                </div>
-              </Show>
-            </div>
-            <Show when={actionError()}>
-              <div className="mt-2 text-xs text-red-500">{actionError()}</div>
-            </Show>
-            <Show
-              when={!editing()}
-              fallback={
-                <div className="mt-3 space-y-2">
-                  <textarea
-                    className="w-full rounded-lg border hairline bg-transparent px-3 py-2 text-sm text-gray-900 dark:text-white"
-                    rows={3}
-                    value={editText()}
-                    onInput={(e) =>
-                      setEditText((e.target as HTMLTextAreaElement).value)
-                    }
-                  />
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="px-3 py-1.5 rounded-full bg-gray-900 text-white text-sm hover:bg-gray-800 disabled:opacity-50"
-                      onClick={handleUpdatePost}
-                    >
-                      更新
-                    </button>
-                    <button
-                      type="button"
-                      className="px-3 py-1.5 rounded-full border hairline text-sm hover:bg-gray-50 dark:hover:bg-neutral-800"
-                      onClick={() => setEditing(false)}
-                    >
-                      キャンセル
-                    </button>
-                  </div>
-                </div>
-              }
-            >
-              <a
-                href={`/posts/${post().id}`}
-                className="mt-2 block text-[15px] leading-[1.5] text-gray-900 dark:text-white whitespace-pre-wrap hover:underline decoration-transparent hover:decoration-current"
-              >
-                {post().text}
-              </a>
-            </Show>
-            <Show when={mediaUrls().length > 0}>
-              <div className="mt-3 rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700 bg-black/5 dark:bg-white/5">
-                <Show
-                  when={mediaUrls().length === 1}
-                  fallback={
-                    <div className="flex overflow-x-auto gap-2 snap-x snap-mandatory">
-                      <For each={mediaUrls()}>
-                        {(url, idx) => (
-                          <div className="flex-shrink-0 basis-full snap-center">
-                            <img
-                              src={url}
-                              alt={`投稿画像${idx() + 1}`}
-                              className="w-full h-full max-h-96 object-cover"
-                            />
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  }
-                >
-                  <img
-                    src={mediaUrls()[0]}
-                    alt="投稿画像"
-                    className="w-full h-full max-h-96 object-cover"
-                  />
-                </Show>
-              </div>
-            </Show>
-            <div className="flex items-center justify-between max-w-md mt-4 text-sm text-gray-500">
-              <button
-                type="button"
-                className="flex items-center gap-2 rounded-full px-3 py-2 hover:text-blue-500 transition-colors group"
-                aria-label="コメント"
-                onClick={toggleComments}
-              >
-                <div className="p-2 rounded-full group-hover:bg-blue-50 dark:group-hover:bg-blue-900/20 transition-colors">
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
-                    />
-                  </svg>
-                </div>
-                <span className="tabular-nums">{commentCount()}</span>
-              </button>
-              <button
-                type="button"
-                className={`flex items-center gap-2 rounded-full px-3 py-2 transition-colors group ${
-                  reactionState().myReactionId
-                    ? "text-red-500"
-                    : "hover:text-red-500"
-                }`}
-                onClick={toggleLike}
-                aria-label="いいね"
-                aria-pressed={reactionState().myReactionId ? "true" : "false"}
-                disabled={reactionState().loading}
-              >
-                <div
-                  className={`p-2 rounded-full transition-colors group-hover:bg-red-50 dark:group-hover:bg-red-900/20 ${
-                    reactionState().myReactionId ? "bg-red-50 dark:bg-red-900/20" : ""
-                  }`}
-                >
-                  <svg
-                    className={`w-5 h-5 ${reactionState().myReactionId ? "fill-current" : ""}`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-                    />
-                  </svg>
-                </div>
-                <span className="tabular-nums">{reactionState().count}</span>
-              </button>
-              <button
-                type="button"
-                className="flex items-center gap-2 rounded-full px-3 py-2 hover:text-blue-500 transition-colors group"
-                onClick={handleShare}
-                aria-label="共有"
-              >
-                <div className="p-2 rounded-full group-hover:bg-blue-50 dark:group-hover:bg-blue-900/20 transition-colors">
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z"
-                    />
-                  </svg>
-                </div>
-                <span aria-live="polite">{shareLabel()}</span>
-              </button>
-            </div>
-            <Show when={commentsOpen()}>
-              <div className="mt-4 rounded-xl border hairline bg-gray-50 dark:bg-neutral-800/60 px-3 py-3 space-y-3">
-                <Show when={commentState().error}>
-                  <div className="text-xs text-red-500">{commentState().error}</div>
-                </Show>
-                <form className="flex gap-2 items-start" onSubmit={submitComment}>
-                  <textarea
-                    className="flex-1 rounded-lg border hairline bg-white dark:bg-neutral-900 text-sm px-3 py-2 text-gray-900 dark:text-white"
-                  placeholder="コメントを書く…"
-                  rows={2}
-                  value={commentText()}
-                  ref={(el) => {
-                    commentInputRef = el ?? undefined;
-                  }}
-                  onInput={(e) =>
-                    setCommentText((e.target as HTMLTextAreaElement).value)
-                  }
-                />
-                  <button
-                    type="submit"
-                    className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-50"
-                    disabled={commentState().posting || !commentText().trim()}
-                  >
-                    {commentState().posting ? "送信中…" : "送信"}
-                  </button>
-                </form>
-                <Show
-                  when={!commentState().loading}
-                  fallback={<div className="text-sm text-muted">読み込み中…</div>}
-                >
-                  <Show
-                    when={commentItems().length > 0}
-                    fallback={<div className="text-sm text-muted">コメントはまだありません</div>}
-                  >
-                    <div className="space-y-3">
-                      <For each={commentItems()}>
-                        {(comment) => (
-                          <CommentItem
-                            comment={comment}
-                            canDelete={!!me() && me()!.id === comment.author_id}
-                            onDelete={handleDeleteComment}
-                          />
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                </Show>
-              </div>
-            </Show>
+    <article className="bg-white dark:bg-neutral-900 rounded-2xl border hairline shadow-sm overflow-hidden">
+      <header className="p-4 flex items-center gap-3">
+        <Avatar
+          src={author.data?.avatar_url || ""}
+          alt={author.data?.display_name || "ユーザー"}
+          className="w-10 h-10 rounded-full object-cover bg-gray-100 dark:bg-neutral-800"
+        />
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-gray-900 dark:text-white truncate">
+            {author.data?.display_name || post?.author_id || "ユーザー"}
           </div>
+          <div className="text-xs text-gray-500">{formattedCreatedAt}</div>
         </div>
-      </Show>
+        {canEdit && (
+          <div className="flex items-center gap-2 text-xs">
+            {!editing ? (
+              <>
+                <button className="text-blue-600 hover:underline" onClick={() => setEditing(true)}>
+                  編集
+                </button>
+                <button className="text-red-500 hover:underline" onClick={() => deletePost()}>
+                  削除
+                </button>
+              </>
+            ) : (
+              <>
+                <button className="text-blue-600 hover:underline" onClick={() => saveEdit()}>
+                  保存
+                </button>
+                <button className="text-gray-500 hover:underline" onClick={() => setEditing(false)}>
+                  キャンセル
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </header>
+
+      <div className="px-4 pb-4 space-y-3">
+        {!editing ? (
+          <p className="text-gray-900 dark:text-gray-100 whitespace-pre-wrap leading-relaxed">{post?.text}</p>
+        ) : (
+          <div className="space-y-2">
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              className="w-full rounded-lg border hairline bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
+              rows={4}
+            />
+            {actionError && <div className="text-xs text-red-500">{actionError}</div>}
+          </div>
+        )}
+
+        {mediaUrls.length > 0 && (
+          <div className="grid grid-cols-2 gap-2 rounded-xl overflow-hidden">
+            {mediaUrls.map((url) => (
+              <img key={url} src={url} alt="投稿画像" className="w-full h-40 object-cover bg-gray-100 dark:bg-neutral-800" />
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
+          <button
+            type="button"
+            className="flex items-center gap-1 hover:text-blue-600 disabled:opacity-50"
+            onClick={() => toggleLike()}
+            disabled={reactionState.loading}
+          >
+            <span role="img" aria-label="like">
+              👍
+            </span>
+            <span>{reactionState.count}</span>
+          </button>
+          <button type="button" className="flex items-center gap-1 hover:text-blue-600" onClick={() => setCommentsOpen((open) => !open)}>
+            <span role="img" aria-label="comments">
+              💬
+            </span>
+            <span>{commentCount}</span>
+          </button>
+          <button type="button" className="flex items-center gap-1 hover:text-blue-600" onClick={() => void copyShare()}>
+            <span>{shareLabel}</span>
+          </button>
+        </div>
+      </div>
+
+      {commentsOpen && (
+        <div className="border-t hairline px-4 py-3 space-y-3">
+          <form className="flex items-start gap-2" onSubmit={submitComment}>
+            <Avatar
+              src={(me() as any)?.avatar_url || ""}
+              alt="あなた"
+              className="w-8 h-8 rounded-full object-cover bg-gray-100 dark:bg-neutral-800"
+            />
+            <div className="flex-1 space-y-2">
+              <textarea
+                ref={commentInputRef}
+                className="w-full rounded-lg border hairline bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
+                placeholder="コメントを追加..."
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+              />
+              <div className="flex items-center gap-3 text-xs text-gray-500">
+                {commentState.error && <span className="text-red-500">{commentState.error}</span>}
+                <button
+                  type="submit"
+                  className="ml-auto px-3 py-1.5 rounded-full bg-blue-600 text-white disabled:opacity-50"
+                  disabled={commentState.posting}
+                >
+                  {commentState.posting ? "投稿中..." : "投稿"}
+                </button>
+              </div>
+            </div>
+          </form>
+
+          {commentState.loading ? (
+            <div className="text-sm text-gray-500">読み込み中...</div>
+          ) : commentState.items && commentState.items.length > 0 ? (
+            <div className="space-y-3">
+              {commentState.items.map((comment: any) => (
+                <CommentItem
+                  key={comment.id}
+                  comment={comment}
+                  canDelete={!!me() && comment.author_id === me()!.id}
+                  onDelete={(id) => deleteComment(id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500">コメントはまだありません。</div>
+          )}
+        </div>
+      )}
     </article>
   );
 }
