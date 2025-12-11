@@ -1,510 +1,295 @@
-import { describe, it, expect, vi } from "vitest";
-import {
-  defineHandler,
-  isHandler,
-  extractHandlers,
-  createHandlerRegistry,
-  findHandler,
-  extractHandlerMetadata,
-  createStubHandlerContext,
-} from "./index";
-import type { Handler, HandlerContext } from "../types";
+import { describe, it, expect } from "vitest";
+import { json, error, parseBody, parseQuery, matchPath } from "./index";
+import type { TakosApp, AppEnv } from "../types";
 
 // =============================================================================
-// defineHandler Tests
+// Helper Functions Tests
 // =============================================================================
 
-describe("defineHandler", () => {
-  it("should create a handler with metadata", () => {
-    const handler = defineHandler({
-      method: "GET",
-      path: "/stats",
-      handler: async (ctx) => ctx.json({ count: 0 }),
-    });
-
-    expect(handler.__takosHandler).toBe(true);
-    expect(handler.metadata.id).toBe("GET:/stats");
-    expect(handler.metadata.method).toBe("GET");
-    expect(handler.metadata.path).toBe("/stats");
-    expect(handler.metadata.auth).toBe(true); // default auth
-  });
-
-  it("should normalize path with leading slash", () => {
-    const handler = defineHandler({
-      method: "POST",
-      path: "items",
-      handler: async (ctx) => ctx.json({}),
-    });
-
-    expect(handler.metadata.path).toBe("/items");
-    expect(handler.metadata.id).toBe("POST:/items");
-  });
-
-  it("should remove trailing slash from path", () => {
-    const handler = defineHandler({
-      method: "GET",
-      path: "/users/",
-      handler: async (ctx) => ctx.json({}),
-    });
-
-    expect(handler.metadata.path).toBe("/users");
-  });
-
-  it("should keep root path as /", () => {
-    const handler = defineHandler({
-      method: "GET",
-      path: "/",
-      handler: async (ctx) => ctx.json({}),
-    });
-
-    expect(handler.metadata.path).toBe("/");
-    expect(handler.metadata.id).toBe("GET:/");
-  });
-
-  it("should allow auth: false", () => {
-    const handler = defineHandler({
-      method: "GET",
-      path: "/public",
-      auth: false,
-      handler: async (ctx) => ctx.json({}),
-    });
-
-    expect(handler.metadata.auth).toBe(false);
-  });
-
-  it("should execute handler function", async () => {
-    const mockFn = vi.fn().mockResolvedValue({ success: true });
-    const handler = defineHandler({
-      method: "POST",
-      path: "/action",
-      handler: mockFn,
-    });
-
-    const ctx = createStubHandlerContext();
-    const input = { value: "test" };
-    await handler.handler(ctx, input);
-
-    expect(mockFn).toHaveBeenCalledWith(ctx, input);
-  });
-
-  it("should support typed input and output", async () => {
-    type CreateItemInput = { name: string; price: number };
-    type CreateItemOutput = { id: string; name: string };
-
-    const handler = defineHandler<CreateItemInput, CreateItemOutput>({
-      method: "POST",
-      path: "/items",
-      handler: async (ctx, input) => {
-        return { id: "123", name: input.name };
-      },
-    });
-
-    const ctx = createStubHandlerContext();
-    const result = await handler.handler(ctx, { name: "Test", price: 100 });
-
-    expect(result).toEqual({ id: "123", name: "Test" });
-  });
-});
-
-// =============================================================================
-// isHandler Tests
-// =============================================================================
-
-describe("isHandler", () => {
-  it("should return true for valid handler", () => {
-    const handler = defineHandler({
-      method: "GET",
-      path: "/test",
-      handler: async () => ({}),
-    });
-
-    expect(isHandler(handler)).toBe(true);
-  });
-
-  it("should return false for non-handler objects", () => {
-    expect(isHandler({})).toBe(false);
-    expect(isHandler(null)).toBe(false);
-    expect(isHandler(undefined)).toBe(false);
-    expect(isHandler("string")).toBe(false);
-    expect(isHandler(123)).toBe(false);
-    expect(isHandler({ __takosHandler: false })).toBe(false);
-  });
-
-  it("should return false for handler-like objects without marker", () => {
-    const fakeHandler = {
-      metadata: { id: "GET:/fake", method: "GET", path: "/fake", auth: true },
-      handler: async () => ({}),
-    };
-
-    expect(isHandler(fakeHandler)).toBe(false);
-  });
-});
-
-// =============================================================================
-// extractHandlers Tests
-// =============================================================================
-
-describe("extractHandlers", () => {
-  it("should extract handlers from module exports", () => {
-    const getStats = defineHandler({
-      method: "GET",
-      path: "/stats",
-      handler: async () => ({}),
-    });
-
-    const createItem = defineHandler({
-      method: "POST",
-      path: "/items",
-      handler: async () => ({}),
-    });
-
-    const moduleExports = {
-      getStats,
-      createItem,
-      notAHandler: { foo: "bar" },
-      alsoNotHandler: "string",
-      CONSTANT: 42,
-    };
-
-    const handlers = extractHandlers(moduleExports);
-
-    expect(handlers).toHaveLength(2);
-    expect(handlers).toContain(getStats);
-    expect(handlers).toContain(createItem);
-  });
-
-  it("should return empty array for module with no handlers", () => {
-    const moduleExports = {
-      config: { name: "app" },
-      util: () => {},
-    };
-
-    const handlers = extractHandlers(moduleExports);
-    expect(handlers).toHaveLength(0);
-  });
-});
-
-// =============================================================================
-// createHandlerRegistry Tests
-// =============================================================================
-
-describe("createHandlerRegistry", () => {
-  it("should create registry map from handlers", () => {
-    const handler1 = defineHandler({
-      method: "GET",
-      path: "/a",
-      handler: async () => ({}),
-    });
-
-    const handler2 = defineHandler({
-      method: "POST",
-      path: "/b",
-      handler: async () => ({}),
-    });
-
-    const registry = createHandlerRegistry([handler1, handler2]);
-
-    expect(registry.size).toBe(2);
-    expect(registry.get("GET:/a")).toBe(handler1);
-    expect(registry.get("POST:/b")).toBe(handler2);
-  });
-
-  it("should handle duplicate handler IDs with warning", () => {
-    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    const handler1 = defineHandler({
-      method: "GET",
-      path: "/duplicate",
-      handler: async () => ({ first: true }),
-    });
-
-    const handler2 = defineHandler({
-      method: "GET",
-      path: "/duplicate",
-      handler: async () => ({ second: true }),
-    });
-
-    const registry = createHandlerRegistry([handler1, handler2]);
-
-    expect(consoleWarn).toHaveBeenCalledWith(
-      expect.stringContaining("Duplicate handler ID")
-    );
-    expect(registry.get("GET:/duplicate")).toBe(handler2);
-
-    consoleWarn.mockRestore();
-  });
-
-  it("should create empty registry from empty array", () => {
-    const registry = createHandlerRegistry([]);
-    expect(registry.size).toBe(0);
-  });
-});
-
-// =============================================================================
-// findHandler Tests
-// =============================================================================
-
-describe("findHandler", () => {
-  it("should find handler by method and path", () => {
-    const getStats = defineHandler({
-      method: "GET",
-      path: "/stats",
-      handler: async () => ({}),
-    });
-
-    const registry = createHandlerRegistry([getStats]);
-
-    const found = findHandler(registry, "GET", "/stats");
-    expect(found).toBe(getStats);
-  });
-
-  it("should normalize path when finding", () => {
-    const handler = defineHandler({
-      method: "GET",
-      path: "/users",
-      handler: async () => ({}),
-    });
-
-    const registry = createHandlerRegistry([handler]);
-
-    // Without leading slash
-    expect(findHandler(registry, "GET", "users")).toBe(handler);
-    // With trailing slash
-    expect(findHandler(registry, "GET", "/users/")).toBe(handler);
-  });
-
-  it("should return undefined for non-existent handler", () => {
-    const registry = createHandlerRegistry([]);
-
-    expect(findHandler(registry, "GET", "/nonexistent")).toBeUndefined();
-  });
-
-  it("should differentiate by method", () => {
-    const getItems = defineHandler({
-      method: "GET",
-      path: "/items",
-      handler: async () => ({ action: "list" }),
-    });
-
-    const postItems = defineHandler({
-      method: "POST",
-      path: "/items",
-      handler: async () => ({ action: "create" }),
-    });
-
-    const registry = createHandlerRegistry([getItems, postItems]);
-
-    expect(findHandler(registry, "GET", "/items")).toBe(getItems);
-    expect(findHandler(registry, "POST", "/items")).toBe(postItems);
-    expect(findHandler(registry, "DELETE", "/items")).toBeUndefined();
-  });
-});
-
-// =============================================================================
-// extractHandlerMetadata Tests
-// =============================================================================
-
-describe("extractHandlerMetadata", () => {
-  it("should extract metadata from handlers", () => {
-    const handlers = [
-      defineHandler({
-        method: "GET",
-        path: "/a",
-        auth: false,
-        handler: async () => ({}),
-      }),
-      defineHandler({
-        method: "POST",
-        path: "/b",
-        handler: async () => ({}),
-      }),
-    ];
-
-    const metadata = extractHandlerMetadata(handlers);
-
-    expect(metadata).toHaveLength(2);
-    expect(metadata[0]).toEqual({
-      id: "GET:/a",
-      method: "GET",
-      path: "/a",
-      auth: false,
-    });
-    expect(metadata[1]).toEqual({
-      id: "POST:/b",
-      method: "POST",
-      path: "/b",
-      auth: true,
-    });
-  });
-
-  it("should return empty array for no handlers", () => {
-    expect(extractHandlerMetadata([])).toEqual([]);
-  });
-});
-
-// =============================================================================
-// createStubHandlerContext Tests
-// =============================================================================
-
-describe("createStubHandlerContext", () => {
-  it("should create context with default values", () => {
-    const ctx = createStubHandlerContext();
-
-    expect(ctx.auth.userId).toBe("test-user");
-    expect(ctx.auth.handle).toBe("test@example.com");
-    expect(ctx.params).toEqual({});
-    expect(ctx.query).toEqual({});
-  });
-
-  it("should have working core services stubs", async () => {
-    const ctx = createStubHandlerContext();
-
-    expect(await ctx.core.posts.list()).toEqual([]);
-    expect(await ctx.core.posts.get("1")).toEqual({});
-    expect(await ctx.core.posts.create({})).toEqual({});
-    await expect(ctx.core.posts.delete("1")).resolves.toBeUndefined();
-
-    expect(await ctx.core.users.get("1")).toEqual({});
-    await expect(ctx.core.users.follow("1")).resolves.toBeUndefined();
-    await expect(ctx.core.users.unfollow("1")).resolves.toBeUndefined();
-
-    expect(await ctx.core.storage.get("key")).toBeNull();
-    await expect(ctx.core.storage.delete("key")).resolves.toBeUndefined();
-
-    expect(await ctx.core.ai.complete("prompt")).toBe("");
-    expect(await ctx.core.ai.embed("text")).toEqual([]);
-  });
-
-  it("should have working app storage stubs", async () => {
-    const ctx = createStubHandlerContext();
-
-    expect(await ctx.storage.get("key")).toBeNull();
-    await expect(ctx.storage.set("key", "value")).resolves.toBeUndefined();
-    await expect(ctx.storage.delete("key")).resolves.toBeUndefined();
-    expect(await ctx.storage.list("prefix")).toEqual([]);
-  });
-
-  it("should create JSON response", () => {
-    const ctx = createStubHandlerContext();
-
-    const response = ctx.json({ message: "ok" });
+describe("json", () => {
+  it("should create a JSON response with data", async () => {
+    const response = json({ message: "ok", count: 42 });
 
     expect(response).toBeInstanceOf(Response);
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("application/json");
+
+    const body = await response.json();
+    expect(body).toEqual({ message: "ok", count: 42 });
   });
 
-  it("should create JSON response with custom status", () => {
-    const ctx = createStubHandlerContext();
-
-    const response = ctx.json({ data: [] }, { status: 201 });
+  it("should accept custom status", async () => {
+    const response = json({ id: "123" }, { status: 201 });
 
     expect(response.status).toBe(201);
   });
 
-  it("should create error response", () => {
-    const ctx = createStubHandlerContext();
+  it("should accept custom headers", async () => {
+    const response = json({ data: [] }, {
+      headers: { "X-Custom": "value" },
+    });
 
-    const response = ctx.error("Not found", 404);
-
-    expect(response).toBeInstanceOf(Response);
-    expect(response.status).toBe(404);
+    expect(response.headers.get("X-Custom")).toBe("value");
     expect(response.headers.get("Content-Type")).toBe("application/json");
   });
 
-  it("should allow overriding default values", () => {
-    const ctx = createStubHandlerContext({
-      auth: { userId: "custom-user", handle: "custom@test.com" },
-      params: { id: "123" },
-      query: { filter: "active" },
-    });
+  it("should handle arrays", async () => {
+    const response = json([1, 2, 3]);
 
-    expect(ctx.auth.userId).toBe("custom-user");
-    expect(ctx.auth.handle).toBe("custom@test.com");
-    expect(ctx.params.id).toBe("123");
-    expect(ctx.query.filter).toBe("active");
+    const body = await response.json();
+    expect(body).toEqual([1, 2, 3]);
   });
 
-  it("should allow partial overrides", () => {
-    const ctx = createStubHandlerContext({
-      params: { postId: "456" },
+  it("should handle null and undefined", async () => {
+    const nullResponse = json(null);
+    const nullBody = await nullResponse.json();
+    expect(nullBody).toBeNull();
+  });
+});
+
+describe("error", () => {
+  it("should create an error response", async () => {
+    const response = error("Something went wrong");
+
+    expect(response).toBeInstanceOf(Response);
+    expect(response.status).toBe(400);
+    expect(response.headers.get("Content-Type")).toBe("application/json");
+
+    const body = await response.json();
+    expect(body).toEqual({ error: "Something went wrong" });
+  });
+
+  it("should accept custom status", async () => {
+    const response = error("Not found", 404);
+
+    expect(response.status).toBe(404);
+  });
+
+  it("should handle different error types", async () => {
+    const unauthorized = error("Unauthorized", 401);
+    const forbidden = error("Forbidden", 403);
+    const serverError = error("Internal server error", 500);
+
+    expect(unauthorized.status).toBe(401);
+    expect(forbidden.status).toBe(403);
+    expect(serverError.status).toBe(500);
+  });
+});
+
+describe("parseBody", () => {
+  it("should parse JSON body from request", async () => {
+    const request = new Request("http://test.com/api", {
+      method: "POST",
+      body: JSON.stringify({ name: "Test", value: 123 }),
+      headers: { "Content-Type": "application/json" },
     });
 
-    // Overridden
-    expect(ctx.params.postId).toBe("456");
-    // Defaults preserved
-    expect(ctx.auth.userId).toBe("test-user");
-    expect(ctx.query).toEqual({});
+    const body = await parseBody<{ name: string; value: number }>(request);
+
+    expect(body).toEqual({ name: "Test", value: 123 });
+  });
+
+  it("should work with typed generic", async () => {
+    interface CreateInput {
+      title: string;
+      items: string[];
+    }
+
+    const request = new Request("http://test.com/api", {
+      method: "POST",
+      body: JSON.stringify({ title: "My List", items: ["a", "b", "c"] }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const body = await parseBody<CreateInput>(request);
+
+    expect(body.title).toBe("My List");
+    expect(body.items).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("parseQuery", () => {
+  it("should parse query parameters from request", () => {
+    const request = new Request("http://test.com/api?foo=bar&baz=123");
+
+    const query = parseQuery(request);
+
+    expect(query).toEqual({ foo: "bar", baz: "123" });
+  });
+
+  it("should return empty object for no query params", () => {
+    const request = new Request("http://test.com/api");
+
+    const query = parseQuery(request);
+
+    expect(query).toEqual({});
+  });
+
+  it("should handle multiple values (takes last)", () => {
+    const request = new Request("http://test.com/api?key=first&key=second");
+
+    const query = parseQuery(request);
+
+    // URLSearchParams.forEach takes the last value for duplicate keys
+    expect(query.key).toBe("second");
+  });
+
+  it("should decode URL-encoded values", () => {
+    const request = new Request("http://test.com/api?name=Hello%20World&tag=%23test");
+
+    const query = parseQuery(request);
+
+    expect(query.name).toBe("Hello World");
+    expect(query.tag).toBe("#test");
+  });
+});
+
+describe("matchPath", () => {
+  it("should match exact paths", () => {
+    const params = matchPath("/users", "/users");
+
+    expect(params).toEqual({});
+  });
+
+  it("should match paths with single param", () => {
+    const params = matchPath("/users/:id", "/users/123");
+
+    expect(params).toEqual({ id: "123" });
+  });
+
+  it("should match paths with multiple params", () => {
+    const params = matchPath("/users/:userId/posts/:postId", "/users/abc/posts/xyz");
+
+    expect(params).toEqual({ userId: "abc", postId: "xyz" });
+  });
+
+  it("should return null for non-matching paths", () => {
+    expect(matchPath("/users", "/posts")).toBeNull();
+    expect(matchPath("/users/:id", "/users")).toBeNull();
+    expect(matchPath("/users/:id", "/users/123/extra")).toBeNull();
+  });
+
+  it("should decode URL-encoded param values", () => {
+    const params = matchPath("/tags/:name", "/tags/hello%20world");
+
+    expect(params).toEqual({ name: "hello world" });
+  });
+
+  it("should handle root path", () => {
+    const params = matchPath("/", "/");
+
+    expect(params).toEqual({});
+  });
+
+  it("should match nested paths", () => {
+    const params = matchPath("/api/v1/users/:id", "/api/v1/users/456");
+
+    expect(params).toEqual({ id: "456" });
   });
 });
 
 // =============================================================================
-// Integration Tests
+// Type Tests
 // =============================================================================
 
-describe("Handler Integration", () => {
-  it("should work end-to-end: define, register, find, execute", async () => {
-    // Define handlers
-    const getUser = defineHandler({
-      method: "GET",
-      path: "/users/:id",
-      handler: async (ctx) => {
-        const user = await ctx.core.users.get(ctx.params.id);
-        return ctx.json(user);
+describe("TakosApp type", () => {
+  it("should allow creating a valid TakosApp", () => {
+    const app: TakosApp = {
+      async fetch(request: Request, env: AppEnv): Promise<Response> {
+        return new Response("OK");
       },
-    });
+    };
 
-    const createPost = defineHandler({
-      method: "POST",
-      path: "/posts",
-      handler: async (ctx, input: { content: string }) => {
-        const post = await ctx.core.posts.create({ text: input.content });
-        return ctx.json(post, { status: 201 });
+    expect(app.fetch).toBeTypeOf("function");
+  });
+
+  it("should work with synchronous fetch", () => {
+    const app: TakosApp = {
+      fetch(request: Request, env: AppEnv): Response {
+        return new Response("Sync OK");
       },
-    });
+    };
 
-    // Create registry
-    const registry = createHandlerRegistry([getUser, createPost]);
+    expect(app.fetch).toBeTypeOf("function");
+  });
+});
 
-    // Find and execute GET handler
-    const foundGet = findHandler(registry, "GET", "/users/:id");
-    expect(foundGet).toBeDefined();
+// =============================================================================
+// Integration Example
+// =============================================================================
 
-    const getCtx = createStubHandlerContext({
-      params: { id: "user-123" },
-      core: {
-        ...createStubHandlerContext().core,
-        users: {
-          get: vi.fn().mockResolvedValue({ id: "user-123", name: "Alice" }),
-          follow: vi.fn(),
-          unfollow: vi.fn(),
-        },
+describe("Integration: Sample TakosApp", () => {
+  it("should handle routes correctly", async () => {
+    // Create a simple app
+    const app: TakosApp = {
+      async fetch(request: Request, env: AppEnv): Promise<Response> {
+        const url = new URL(request.url);
+        const path = url.pathname;
+
+        // GET /counter
+        if (path === "/counter" && request.method === "GET") {
+          const count = await env.storage.get<number>("count") ?? 0;
+          return json({ count });
+        }
+
+        // POST /counter/increment
+        if (path === "/counter/increment" && request.method === "POST") {
+          if (!env.auth) {
+            return error("Unauthorized", 401);
+          }
+          const count = (await env.storage.get<number>("count") ?? 0) + 1;
+          await env.storage.set("count", count);
+          return json({ count });
+        }
+
+        return error("Not found", 404);
       },
-    });
+    };
 
-    const getResult = await foundGet!.handler(getCtx, {});
-    expect(getResult).toBeInstanceOf(Response);
-    expect(getCtx.core.users.get).toHaveBeenCalledWith("user-123");
-
-    // Find and execute POST handler
-    const foundPost = findHandler(registry, "POST", "/posts");
-    expect(foundPost).toBeDefined();
-
-    const postCtx = createStubHandlerContext({
-      core: {
-        ...createStubHandlerContext().core,
-        posts: {
-          list: vi.fn(),
-          get: vi.fn(),
-          create: vi.fn().mockResolvedValue({ id: "post-1", text: "Hello" }),
-          delete: vi.fn(),
-        },
+    // Create mock env
+    let storedCount = 5;
+    const mockEnv: AppEnv = {
+      storage: {
+        get: async () => storedCount as any,
+        set: async (key, value) => { storedCount = value as number; },
+        delete: async () => {},
+        list: async () => [],
       },
-    });
+      fetch: async () => new Response("{}"),
+      activitypub: {
+        send: async () => {},
+        resolve: async () => ({}),
+      },
+      ai: {
+        complete: async () => "",
+        embed: async () => [],
+      },
+      auth: { userId: "user-1", handle: "testuser" },
+      app: { id: "test-app", version: "1.0.0" },
+    };
 
-    const postResult = await foundPost!.handler(postCtx, { content: "Hello" });
-    expect(postResult).toBeInstanceOf(Response);
-    expect(postResult.status).toBe(201);
-    expect(postCtx.core.posts.create).toHaveBeenCalledWith({ text: "Hello" });
+    // Test GET /counter
+    const getRequest = new Request("http://test.com/counter");
+    const getResponse = await app.fetch(getRequest, mockEnv);
+    const getData = await getResponse.json();
+    expect(getData).toEqual({ count: 5 });
+
+    // Test POST /counter/increment
+    const postRequest = new Request("http://test.com/counter/increment", { method: "POST" });
+    const postResponse = await app.fetch(postRequest, mockEnv);
+    const postData = await postResponse.json();
+    expect(postData).toEqual({ count: 6 });
+    expect(storedCount).toBe(6);
+
+    // Test unauthorized
+    const unauthEnv = { ...mockEnv, auth: null };
+    const unauthRequest = new Request("http://test.com/counter/increment", { method: "POST" });
+    const unauthResponse = await app.fetch(unauthRequest, unauthEnv);
+    expect(unauthResponse.status).toBe(401);
+
+    // Test 404
+    const notFoundRequest = new Request("http://test.com/unknown");
+    const notFoundResponse = await app.fetch(notFoundRequest, mockEnv);
+    expect(notFoundResponse.status).toBe(404);
   });
 });

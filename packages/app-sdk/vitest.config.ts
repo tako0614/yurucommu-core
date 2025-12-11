@@ -2,9 +2,14 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    environment: "jsdom",
     globals: true,
     include: ["src/**/*.test.{ts,tsx}"],
-    setupFiles: ["./src/__tests__/setup.ts"],
+    environmentMatchGlobs: [
+      // Use jsdom for client/index tests
+      ["src/index.test.tsx", "jsdom"],
+      ["src/client/**/*.test.tsx", "jsdom"],
+      // Use node for server tests (default)
+      ["src/server/**/*.test.ts", "node"],
+    ],
   },
 });

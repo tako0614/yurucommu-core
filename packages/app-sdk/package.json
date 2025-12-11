@@ -1,6 +1,6 @@
 {
   "name": "@takos/app-sdk",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "type": "module",
   "exports": {
     ".": {
@@ -12,6 +12,11 @@
       "types": "./dist/server/index.d.ts",
       "import": "./dist/server/index.js",
       "require": "./dist/server/index.cjs"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.js",
+      "require": "./dist/client/index.cjs"
     }
   },
   "main": "./dist/index.cjs",
