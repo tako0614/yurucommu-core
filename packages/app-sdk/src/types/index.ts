@@ -1,170 +1,46 @@
-import type * as React from "react";
-
-export type ScreenAuth = "required" | "optional";
-
-export interface UserIdentity {
-  id: string;
-  handle: string;
-  displayName: string;
-  avatar?: string;
-}
-
-export interface AuthState {
-  isLoggedIn: boolean;
-  user: UserIdentity | null;
-  token: string | null;
-}
+// ============================================================================
+// App SDK Types v2.0
+// Workers-compatible App SDK type definitions
+// ============================================================================
 
 // =============================================================================
-// Core Services - Base types shared between client and server
+// Server Types (@takos/app-sdk/server)
 // =============================================================================
 
-export interface PostsService {
-  list: (params?: Record<string, unknown>) => Promise<unknown>;
-  get: (id: string) => Promise<unknown>;
-  create: (data: Record<string, unknown>) => Promise<unknown>;
-  delete: (id: string) => Promise<void>;
-}
-
-export interface UsersService {
-  get: (id: string) => Promise<unknown>;
-  follow: (id: string) => Promise<void>;
-  unfollow: (id: string) => Promise<void>;
-}
-
-export interface TimelineService {
-  home: (params?: Record<string, unknown>) => Promise<unknown>;
-}
-
-export interface NotificationsService {
-  list: (params?: Record<string, unknown>) => Promise<unknown>;
-  markRead: (ids: string[]) => Promise<void>;
-}
-
-export interface StorageService {
-  upload: (file: File | Blob, options?: Record<string, unknown>) => Promise<unknown>;
-  get: (key: string) => Promise<Blob | null>;
-  delete: (key: string) => Promise<void>;
-}
-
-export interface ActivityPubService {
-  send: (activity: Record<string, unknown>) => Promise<void>;
-  resolve: (uri: string) => Promise<unknown>;
-}
-
-export interface AIService {
-  complete: (prompt: string, options?: Record<string, unknown>) => Promise<string>;
-  embed: (text: string) => Promise<number[]>;
-}
-
 /**
- * CoreServices - Base interface for core services available on both client and server.
- * Contains common functionality shared across environments.
+ * Activity type for ActivityPub operations.
  */
-export interface CoreServices {
-  posts: PostsService;
-  users: UsersService;
-  storage: StorageService;
+export interface Activity {
+  type: string;
+  actor?: string;
+  object?: unknown;
+  target?: string;
+  to?: string[];
+  cc?: string[];
+  [key: string]: unknown;
 }
 
 /**
- * CoreAPI - Client-side API interface.
- * Extends CoreServices with client-specific functionality.
+ * Options for AI completion requests.
  */
-export interface CoreAPI extends CoreServices {
-  /** Raw fetch for custom API calls */
-  fetch: (path: string, options?: RequestInit) => Promise<Response>;
-  /** Timeline operations (client-only convenience) */
-  timeline: TimelineService;
-  /** Notification operations */
-  notifications: NotificationsService;
-  /** ActivityPub operations (available on both client and server) */
-  activitypub: ActivityPubService;
-  /** AI operations (available on both client and server) */
-  ai: AIService;
+export interface AiCompleteOptions {
+  provider?: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
 }
 
 /**
- * ServerCoreAPI - Server-side API interface for handlers.
- * Extends CoreServices with server-specific functionality.
+ * Options for AI embedding requests.
  */
-export interface ServerCoreAPI extends CoreServices {
-  /** Timeline operations */
-  timeline: TimelineService;
-  /** Notification operations */
-  notifications: NotificationsService;
-  /** ActivityPub operations */
-  activitypub: ActivityPubService;
-  /** AI operations */
-  ai: AIService;
-}
-
-export interface AppAPI {
-  fetch: (path: string, options?: RequestInit) => Promise<Response>;
-}
-
-export interface TakosRuntime {
-  navigate: (path: string) => void;
-  back: () => void;
-  currentPath: string;
-  params: Record<string, string>;
-  query: Record<string, string>;
-  auth: AuthState;
-  core: CoreAPI;
-  app: AppAPI;
-  ui: {
-    toast: (message: string, type?: "success" | "error" | "info") => void;
-    confirm: (message: string) => Promise<boolean>;
-    modal: {
-      open: (component: React.ComponentType) => void;
-      close: () => void;
-    };
-  };
-  appInfo: {
-    id: string;
-    version: string;
-    permissions: string[];
-  };
-}
-
-export interface ScreenConfig {
-  id: string;
-  path: string;
-  component: React.ComponentType;
-  title?: string;
-  auth?: ScreenAuth;
-}
-
-export type ScreenDefinition = ScreenConfig & {
-  __takosScreen?: true;
-};
-
-export interface AppConfig {
-  id: string;
-  name: string;
-  version: string;
-  description?: string;
-  screens: ScreenDefinition[];
-  handlers?: unknown[];
-  permissions?: string[];
-}
-
-export type AppDefinition = React.ComponentType<{ runtime: TakosRuntime }> & {
-  __takosApp?: NormalizedAppConfig;
-};
-
-export type NormalizedScreen = ScreenDefinition & {
-  auth: ScreenAuth;
-};
-
-export interface NormalizedAppConfig extends Omit<AppConfig, "screens"> {
-  id: string;
-  screens: NormalizedScreen[];
+export interface AiEmbedOptions {
+  provider?: string;
+  model?: string;
+  dimensions?: number;
 }
 
 /**
- * App-specific storage for handler state (KV-like).
- * Separate from core.storage which handles file/blob storage.
+ * App-specific KV storage interface (per-user isolated).
  */
 export interface AppStorage {
   get: <T>(key: string) => Promise<T | null>;
@@ -174,51 +50,136 @@ export interface AppStorage {
 }
 
 /**
- * HandlerContext - Context provided to server-side handlers.
- * Uses ServerCoreAPI for core services with full server capabilities.
+ * ActivityPub operations interface.
  */
-export interface HandlerContext {
-  /** Authenticated user info */
-  auth: {
-    userId: string;
-    handle: string;
-  };
-  /** Route parameters (e.g., :id from /posts/:id) */
-  params: Record<string, string>;
-  /** Query string parameters */
-  query: Record<string, string>;
-  /** Core services - unified type with client */
-  core: ServerCoreAPI;
-  /** App-specific KV storage for handler state */
-  storage: AppStorage;
-  /** Helper to create JSON response */
-  json: <T>(data: T, options?: { status?: number }) => Response;
-  /** Helper to create error response */
-  error: (message: string, status?: number) => Response;
+export interface ActivityPubAPI {
+  /** Deliver an activity to remote servers */
+  send: (activity: Activity) => Promise<void>;
+  /** Resolve a remote object/actor by URI */
+  resolve: (uri: string) => Promise<unknown>;
 }
 
-export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
-
-export interface HandlerConfig<TInput = unknown, TOutput = unknown> {
-  method: HttpMethod;
-  path: string;
-  auth?: boolean;
-  handler: (ctx: HandlerContext, input: TInput) => Promise<TOutput>;
+/**
+ * AI operations interface.
+ */
+export interface AiAPI {
+  /** Generate text completion */
+  complete: (prompt: string, options?: AiCompleteOptions) => Promise<string>;
+  /** Generate embedding vector */
+  embed: (text: string, options?: AiEmbedOptions) => Promise<number[]>;
 }
 
-export interface HandlerMetadata {
+/**
+ * Authentication information (read-only).
+ * null if the request is not authenticated.
+ */
+export interface AuthInfo {
+  userId: string;
+  handle: string;
+}
+
+/**
+ * App metadata.
+ */
+export interface AppInfo {
   id: string;
-  method: HttpMethod;
-  path: string;
-  auth: boolean;
+  version: string;
 }
 
-export type Handler<TInput = unknown, TOutput = unknown> = {
-  __takosHandler: true;
-  metadata: HandlerMetadata;
-  handler: (ctx: HandlerContext, input: TInput) => Promise<TOutput>;
+/**
+ * Environment object injected by Core into the App.
+ * Provides access to Core services and utilities.
+ */
+export interface AppEnv {
+  /** App-specific KV storage (isolated per user) */
+  storage: AppStorage;
+
+  /** Authenticated fetch to Core API */
+  fetch: (path: string, init?: RequestInit) => Promise<Response>;
+
+  /** ActivityPub operations */
+  activitypub: ActivityPubAPI;
+
+  /** AI operations */
+  ai: AiAPI;
+
+  /** Authentication info (null if not authenticated) */
+  auth: AuthInfo | null;
+
+  /** App metadata */
+  app: AppInfo;
 }
 
+/**
+ * TakosApp interface - Workers-compatible App definition.
+ * Apps implement this interface to handle HTTP requests.
+ */
+export interface TakosApp {
+  /**
+   * Handle an HTTP request.
+   * @param request - The incoming HTTP request
+   * @param env - Environment object with Core services
+   * @returns A Response or Promise<Response>
+   */
+  fetch(request: Request, env: AppEnv): Response | Promise<Response>;
+}
+
+// =============================================================================
+// Client Types (@takos/app-sdk/client)
+// =============================================================================
+
+/**
+ * User identity for client-side auth state.
+ */
+export interface UserIdentity {
+  id: string;
+  handle: string;
+  displayName: string;
+  avatar?: string;
+}
+
+/**
+ * Authentication state for client-side.
+ */
+export interface ClientAuthState {
+  user: UserIdentity | null;
+  isLoggedIn: boolean;
+}
+
+/**
+ * App info for client-side.
+ */
+export interface ClientAppInfo {
+  appId: string;
+  version: string;
+}
+
+// =============================================================================
+// Manifest Types
+// =============================================================================
+
+/**
+ * App entry points.
+ */
+export interface AppEntry {
+  server: string;
+  client?: string;
+  styles?: string;
+}
+
+/**
+ * App manifest schema v2.0.
+ */
 export interface AppManifest {
   schema_version: "2.0";
+  id: string;
+  name: string;
+  version: string;
+  description?: string;
+  /** The official app version this app is based on */
+  basedOn?: string;
+  /** Whether this app has been modified from the base */
+  modified?: boolean;
+  /** Entry points */
+  entry: AppEntry;
 }
