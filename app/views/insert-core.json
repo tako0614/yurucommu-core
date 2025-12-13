@@ -27,7 +27,153 @@
             "type": "Link",
             "props": { "href": "/users" },
             "children": []
+          },
+          {
+            "type": "Link",
+            "props": { "href": "/onboarding" },
+            "children": []
+          },
+          {
+            "type": "Link",
+            "props": { "href": "/communities" },
+            "children": []
+          },
+          {
+            "type": "Link",
+            "props": { "href": "/compose" },
+            "children": []
+          },
+          {
+            "type": "Link",
+            "props": { "href": "/posts/1" },
+            "children": []
+          },
+          {
+            "type": "Link",
+            "props": { "href": "/@alice" },
+            "children": []
           }
+        ]
+      }
+    },
+    {
+      "screen": "screen.home",
+      "position": "actions",
+      "order": 10,
+      "node": {
+        "type": "ActionGroup",
+        "children": [
+          { "type": "Button", "props": { "action": "action.reply" }, "children": [] },
+          { "type": "Button", "props": { "action": "action.react" }, "children": [] },
+          { "type": "Button", "props": { "action": "action.view_story" }, "children": [] },
+          { "type": "Button", "props": { "action": "action.bookmark" }, "children": [] },
+          { "type": "Button", "props": { "action": "action.repost" }, "children": [] }
+        ]
+      }
+    },
+    {
+      "screen": "screen.compose",
+      "position": "primary",
+      "order": 0,
+      "node": { "type": "Button", "props": { "action": "action.send_post" }, "children": [] }
+    },
+    {
+      "screen": "screen.dm_list",
+      "position": "primary",
+      "order": 0,
+      "node": { "type": "Button", "props": { "action": "action.open_dm_thread" }, "children": [] }
+    },
+    {
+      "screen": "screen.dm_thread",
+      "position": "primary",
+      "order": 0,
+      "node": { "type": "Button", "props": { "action": "action.send_dm" }, "children": [] }
+    },
+    {
+      "screen": "screen.profile",
+      "position": "primary",
+      "order": 0,
+      "node": { "type": "Button", "props": { "action": "action.edit_profile" }, "children": [] }
+    },
+    {
+      "screen": "screen.user_profile",
+      "position": "actions",
+      "order": 0,
+      "node": {
+        "type": "ActionGroup",
+        "children": [
+          { "type": "Button", "props": { "action": "action.follow" }, "children": [] },
+          { "type": "Button", "props": { "action": "action.unfollow" }, "children": [] }
+        ]
+      }
+    },
+    {
+      "screen": "screen.connections",
+      "position": "actions",
+      "order": 0,
+      "node": { "type": "Button", "props": { "action": "action.unfollow" }, "children": [] }
+    },
+    {
+      "screen": "screen.settings",
+      "position": "actions",
+      "order": 0,
+      "node": {
+        "type": "ActionGroup",
+        "children": [
+          { "type": "Button", "props": { "action": "action.block" }, "children": [] },
+          { "type": "Button", "props": { "action": "action.mute" }, "children": [] },
+          { "type": "Button", "props": { "action": "action.logout" }, "children": [] }
+        ]
+      }
+    },
+    {
+      "screen": "screen.community",
+      "position": "actions",
+      "order": 0,
+      "node": {
+        "type": "ActionGroup",
+        "children": [
+          { "type": "Button", "props": { "action": "action.create_community" }, "children": [] },
+          { "type": "Button", "props": { "action": "action.join_community" }, "children": [] },
+          { "type": "Button", "props": { "action": "action.leave_community" }, "children": [] }
+        ]
+      }
+    },
+    {
+      "screen": "screen.channel",
+      "position": "primary",
+      "order": 0,
+      "node": { "type": "Button", "props": { "action": "action.send_channel_message" }, "children": [] }
+    },
+    {
+      "screen": "screen.stories",
+      "position": "primary",
+      "order": 0,
+      "node": { "type": "Button", "props": { "action": "action.create_story" }, "children": [] }
+    },
+    {
+      "screen": "screen.post_detail",
+      "position": "actions",
+      "order": 0,
+      "node": {
+        "type": "ActionGroup",
+        "children": [
+          { "type": "Button", "props": { "action": "action.delete_post" }, "children": [] },
+          { "type": "Button", "props": { "action": "action.report" }, "children": [] }
+        ]
+      }
+    },
+    {
+      "screen": "screen.storage",
+      "position": "actions",
+      "order": 0,
+      "node": {
+        "type": "ActionGroup",
+        "children": [
+          { "type": "Button", "props": { "action": "action.upload_file" }, "children": [] },
+          { "type": "Button", "props": { "action": "action.delete_file" }, "children": [] },
+          { "type": "Button", "props": { "action": "action.create_folder" }, "children": [] },
+          { "type": "Button", "props": { "action": "action.move_file" }, "children": [] }
         ]
       }
     }
