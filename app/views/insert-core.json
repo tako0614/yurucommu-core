@@ -45,12 +45,17 @@
           },
           {
             "type": "Link",
-            "props": { "href": "/posts/1" },
+            "props": { "href": "/posts/:id" },
             "children": []
           },
           {
             "type": "Link",
-            "props": { "href": "/@alice" },
+            "props": { "href": "/@:handle" },
+            "children": []
+          },
+          {
+            "type": "Link",
+            "props": { "href": "/dm" },
             "children": []
           }
         ]
