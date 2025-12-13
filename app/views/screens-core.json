@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.10",
+  "screens": [
+    { "id": "screen.home", "route": "/", "layout": {} },
+    { "id": "screen.onboarding", "route": "/onboarding", "layout": {} },
+    { "id": "screen.community", "route": "/communities", "layout": {} },
+    { "id": "screen.channel", "route": "/c/:id", "layout": {} },
+    { "id": "screen.connections", "route": "/connections", "layout": {} },
+    { "id": "screen.dm_list", "route": "/chat", "layout": {} },
+    { "id": "screen.dm_thread", "route": "/chat/dm/:id", "layout": {} },
+    { "id": "screen.dm_legacy", "route": "/dm", "layout": {} },
+    { "id": "screen.stories", "route": "/stories", "layout": {} },
+    { "id": "screen.story_viewer", "route": "/stories/:id", "layout": {} },
+    { "id": "screen.profile", "route": "/profile", "layout": {} },
+    { "id": "screen.profile_edit", "route": "/profile/edit", "layout": {} },
+    { "id": "screen.settings", "route": "/settings", "layout": {} },
+    { "id": "screen.notifications", "route": "/notifications", "layout": {} },
+    { "id": "screen.user_profile", "route": "/@:handle", "layout": {} },
+    { "id": "screen.users", "route": "/users", "layout": {} },
+    { "id": "screen.invitations", "route": "/invitations", "layout": {} },
+    { "id": "screen.follow_requests", "route": "/follow-requests", "layout": {} },
+    { "id": "screen.compose", "route": "/compose", "layout": {} },
+    { "id": "screen.post_detail", "route": "/posts/:id", "layout": {} },
+    { "id": "screen.storage", "route": "/storage", "layout": {} },
+    { "id": "screen.storage_folder", "route": "/storage/:folderId", "layout": {} }
+  ]
+}

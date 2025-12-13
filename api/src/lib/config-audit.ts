@@ -2,7 +2,7 @@
 
 import type { AgentType } from "@takos/platform/server";
 
-export type ConfigAuditAction = "config_import" | "ai_action_toggle";
+export type ConfigAuditAction = "config_import" | "ai_action_toggle" | "ai_config_update";
 
 export type ConfigAuditDetails = Record<string, unknown> | null;
 
