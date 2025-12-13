@@ -3,6 +3,7 @@ import * as dataFactory from "../server/data-factory.js";
 import { enqueueDeliveriesToFollowers } from "../utils/utils.js";
 import * as deliveryWorker from "./delivery-worker.js";
 import { deliverActivity } from "./delivery.js";
+import { enqueueActivity } from "./outbox.js";
 
 const originalFetch = globalThis.fetch;
 const devEnv = { TAKOS_CONTEXT: "dev" };
@@ -17,14 +18,24 @@ describe("ActivityPub delivery suppression in dev context", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const makeDataSpy = vi.spyOn(dataFactory, "makeData");
 
-    await deliveryWorker.processOutboxQueue(devEnv as any);
+    await enqueueActivity(devEnv as any, {
+      id: "activity-1",
+      type: "Create",
+      actor: "https://example.com/ap/users/alice",
+      to: ["https://remote.example/ap/users/bob"],
+      object: {
+        id: "note-1",
+        type: "Note",
+        content: "hello",
+      },
+    });
     await deliveryWorker.processDeliveryQueue(devEnv as any);
     await deliveryWorker.deliverSingleQueuedItem(devEnv as any, "delivery-1");
 
     expect(makeDataSpy).not.toHaveBeenCalled();
 
     const warnings = warnSpy.mock.calls.flat().filter((arg) => typeof arg === "string");
-    expect(warnings.some((msg) => msg.includes("outbox queue skipped in dev context"))).toBe(true);
+    expect(warnings.some((msg) => msg.includes("outbox enqueue skipped in dev context"))).toBe(true);
     expect(warnings.some((msg) => msg.includes("delivery queue skipped in dev context"))).toBe(
       true,
     );
