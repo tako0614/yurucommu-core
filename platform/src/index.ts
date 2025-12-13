@@ -24,4 +24,5 @@ export type {
   Post,
   Story,
   MediaAttachment,
+  Visibility,
 } from "./types";

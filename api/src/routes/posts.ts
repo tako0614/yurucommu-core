@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings, Variables } from "@takos/platform/server";
 import { ok, fail } from "@takos/platform/server";
-import type { Visibility } from "@takos/platform/app/services/post-service";
+import type { Visibility } from "@takos/platform";
 import type { AppAuthContext } from "@takos/platform/app/runtime/types";
 import { auth } from "../middleware/auth";
 import { getAppAuthContext } from "../lib/auth-context";

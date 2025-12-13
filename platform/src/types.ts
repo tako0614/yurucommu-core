@@ -120,6 +120,8 @@ export type Community = {
   ap_id?: string | null;
 };
 
+export type Visibility = "public" | "unlisted" | "private" | "direct";
+
 export type Post = {
   id: string;
   community_id: string | null;
