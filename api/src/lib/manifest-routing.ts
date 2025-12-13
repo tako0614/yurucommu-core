@@ -1069,7 +1069,13 @@ export const createManifestRouter = (options: {
   const resolveHandler = (name: string) => {
     if (!options.registry.get(name)) return undefined;
     const honoHandler: ManifestRouteHandler = async (c: any) => {
-      const services = buildCoreServices(c.env as Bindings);
+      let services: CoreServices;
+      try {
+        services = buildCoreServices(c.env as Bindings);
+      } catch (error) {
+        console.warn("[manifest-routing] failed to build core services", error);
+        services = {} as unknown as CoreServices;
+      }
       const auth = toAppAuthContext(c);
       const input = await normalizeInput(c);
       const result = await sandbox.run(name, input, {

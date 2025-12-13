@@ -103,7 +103,7 @@ describe("manifest routing", () => {
       ],
     };
     const registry = AppHandlerRegistry.fromModule({
-      secure: (c: any) => c.json({ authed: !!c.get("user") }),
+      secure: (ctx: any) => ctx.json({ authed: !!ctx.auth?.userId }),
     });
 
     let authCalls = 0;

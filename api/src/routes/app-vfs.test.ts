@@ -116,10 +116,10 @@ describe("/-/dev/vfs", () => {
 
     expect(res.status).toBe(200);
     const json: any = await res.json();
-    expect(json.files).toHaveLength(1);
-    expect(json.files[0].path).toBe("takos-app.json");
-    expect(json.files[0].content).toContain("demo");
-    expect(json.usage?.fileCount).toBe(1);
+    expect(json.data?.files).toHaveLength(1);
+    expect(json.data?.files[0].path).toBe("takos-app.json");
+    expect(json.data?.files[0].content).toContain("demo");
+    expect(json.data?.usage?.fileCount).toBe(1);
   });
 
   it("stores esbuild compile cache with plan-aware cache-control", async () => {
@@ -155,8 +155,8 @@ describe("/-/dev/vfs", () => {
 
     expect(res.status).toBe(200);
     const json: any = await res.json();
-    expect(json.cache?.path).toContain("demo");
-    expect(json.cache_control).toContain("max-age");
+    expect(json.data?.cache?.path).toContain("demo");
+    expect(json.data?.cache_control).toContain("max-age");
     expect(saveCompileCache).toHaveBeenCalledWith(
       baseWorkspace.id,
       "demo",
