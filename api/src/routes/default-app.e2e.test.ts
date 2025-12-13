@@ -123,5 +123,54 @@ describe("default app E2E smoke", () => {
     expect(json.items).toHaveLength(2);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
-});
 
+  it("serves /dm/threads via app-api router and uses core objects endpoints", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = new URL(typeof input === "string" ? input : input.url);
+      const headers = new Headers(init?.headers);
+      expect(headers.get("authorization")).toBe("Bearer valid-token");
+
+      if (url.pathname === "/objects") {
+        expect(url.searchParams.get("visibility")).toBe("direct");
+        expect(url.searchParams.get("include_direct")).toBe("true");
+        expect(url.searchParams.get("participant")).toBe("test-user");
+        return Response.json({
+          items: [
+            {
+              id: "obj-1",
+              type: "Note",
+              actor: "test-user",
+              content: "hi",
+              published: "2025-01-01T00:00:00.000Z",
+              context: "thread-1",
+              to: ["other-user"],
+              cc: [],
+              bto: [],
+              bcc: [],
+              "takos:participants": ["test-user", "other-user"],
+            },
+          ],
+          next_cursor: null,
+        });
+      }
+
+      if (url.pathname === "/objects/thread/thread-1") {
+        return Response.json([]);
+      }
+
+      return new Response("not found", { status: 404 });
+    });
+
+    const res = await app.request(
+      "/-/apps/default/api/dm/threads?limit=1",
+      { method: "GET", headers: { Authorization: "Bearer valid-token" } },
+      bindings,
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json<any>();
+    expect(Array.isArray(json.threads)).toBe(true);
+    expect(json.threads).toHaveLength(1);
+    expect(fetchSpy).toHaveBeenCalled();
+  });
+});

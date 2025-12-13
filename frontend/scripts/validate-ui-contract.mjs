@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
 const contractPath = path.resolve(repoRoot, "schemas", "ui-contract.json");
+const manualContractPath = path.resolve(repoRoot, "takos-ui-contract.json");
 const publicContractPath = path.resolve(repoRoot, "frontend", "public", "takos-ui-contract.json");
 const viewsDir = path.resolve(repoRoot, "app", "views");
 const sideNavPath = path.resolve(repoRoot, "frontend", "src", "components", "Navigation", "SideNav.tsx");
@@ -52,11 +53,14 @@ function assertContractAligned(canonical, candidatePath) {
   }
   const candidate = readJson(candidatePath);
   if (!deepEqual(canonical, candidate)) {
-    throw new Error(`Contract mismatch: ${candidatePath} differs from takos-ui-contract.json`);
+    throw new Error(`Contract mismatch: ${candidatePath} differs from schemas/ui-contract.json`);
   }
 }
 
 function walkJsonFiles(dir) {
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
   const results = [];
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
@@ -537,8 +541,28 @@ function main() {
 
   // 1. Load and validate contract structure
   const contract = readJson(contractPath);
+  assertContractAligned(contract, manualContractPath);
   assertContractAligned(contract, publicContractPath);
   console.log(`✓ Schema version: ${contract.schema_version}`);
+
+  const hasViews = fs.existsSync(viewsDir);
+  if (!hasViews) {
+    console.warn(`⚠ ${viewsDir} not found; skipping legacy manifest reachability validation`);
+    const { errors: contractErrors, contractScreens, contractActions } = validateContract(contract);
+    const requiredScreensPresent = REQUIRED_SCREENS.filter((id) => contractScreens.has(id));
+    console.log(`✓ Required screens present: ${requiredScreensPresent.length}/${REQUIRED_SCREENS.length}`);
+    const requiredActionsPresent = REQUIRED_ACTIONS.filter((id) => contractActions.has(id));
+    console.log(`✓ Required actions present: ${requiredActionsPresent.length}/${REQUIRED_ACTIONS.length}`);
+    if (contractErrors.length > 0) {
+      console.error("\nUI Contract validation failed:");
+      for (const err of contractErrors) {
+        console.error(`  ✗ ${err}`);
+      }
+      process.exit(1);
+    }
+    console.log("\nUI Contract validation passed.");
+    return;
+  }
 
   // 2. Load manifest screens
   const screens = loadScreens();
