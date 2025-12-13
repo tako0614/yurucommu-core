@@ -11,7 +11,7 @@
 import type { AppAuthContext } from "../runtime/types";
 
 // Input types
-export type Visibility = "public" | "unlisted" | "private" | "direct";
+export type { Visibility } from "../../types";
 
 export interface CreatePostInput {
   content: string;
