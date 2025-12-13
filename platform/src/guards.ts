@@ -1,9 +1,10 @@
 import type { Context } from "hono";
 import { makeData } from "./server/data-factory";
 import { authenticateJWT, type JWTStore } from "./server/jwt";
+import { fail } from "./utils/response-helpers";
 
 function unauthorized(c: Context) {
-  return c.json({ ok: false, error: "Unauthorized" }, 401 as any);
+  return fail(c, "Unauthorized", 401, { code: "UNAUTHORIZED" });
 }
 
 type JwtCapableStore = {

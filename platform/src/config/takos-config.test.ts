@@ -6,12 +6,12 @@ import { describe, expect, it } from "vitest";
 import type { TakosConfig } from "./takos-config.js";
 import {
   TAKOS_CONFIG_SCHEMA_VERSION,
-  loadTakosConfig,
   parseTakosConfig,
   validateTakosConfig,
   DEFAULT_TAKOS_AI_CONFIG,
   mergeTakosAiConfig,
 } from "./takos-config.js";
+import { loadTakosConfig } from "./takos-config-node.js";
 
 function createValidConfig(): TakosConfig {
   return {
