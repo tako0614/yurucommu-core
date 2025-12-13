@@ -10,6 +10,7 @@ import { createMediaService } from "../services";
 import { getAppAuthContext } from "../lib/auth-context";
 import { checkStorageQuota } from "../lib/storage-quota";
 import type { AuthContext } from "../lib/auth-context-model";
+import { ErrorCodes } from "../lib/error-codes";
 
 const media = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -44,15 +45,13 @@ const parseTransformOptions = (url: URL): ImageTransformOptions | null => {
 };
 
 const ensureAuth = (ctx: AppAuthContext): AppAuthContext => {
-  if (!ctx.userId) throw new Error("unauthorized");
+  if (!ctx.userId) throw new HttpError(401, ErrorCodes.UNAUTHORIZED, "Authentication required");
   return ctx;
 };
 
-const handleError = (c: any, error: unknown) => {
-  const message = (error as Error)?.message || "unexpected error";
-  if (message === "unauthorized") return fail(c, message, 401);
-  if (message === "forbidden") return fail(c, message, 403);
-  return fail(c, message, 400);
+const handleError = (_c: any, error: unknown): never => {
+  if (error instanceof HttpError) throw error;
+  throw error;
 };
 
 // GET /storage - List authenticated user's storage files
@@ -71,12 +70,12 @@ media.get("/storage", auth, async (c) => {
 
 const handleUpload = async (c: any) => {
   const env = c.env;
-  if (!env.MEDIA) return fail(c, "media storage not configured", 500);
+  if (!env.MEDIA) return fail(c, "Media storage not configured", 500, { code: ErrorCodes.CONFIGURATION_ERROR });
   const service = createMediaService(env);
   const authCtx = ensureAuth(getAppAuthContext(c));
   const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
   if (!authContext?.isAuthenticated || !authContext.userId) {
-    return fail(c, "Authentication required", 401, { code: "UNAUTHORIZED" });
+    return fail(c, "Authentication required", 401, { code: ErrorCodes.UNAUTHORIZED });
   }
   const form = await c.req.formData().catch(() => null);
   if (!form) return fail(c, "invalid form data", 400);

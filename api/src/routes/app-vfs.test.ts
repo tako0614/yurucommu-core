@@ -122,6 +122,56 @@ describe("/-/dev/vfs", () => {
     expect(json.data?.usage?.fileCount).toBe(1);
   });
 
+  it("lists directory entries with files and directories", async () => {
+    const listWorkspaceFiles = vi.fn(async () => {
+      const files: WorkspaceFileRecord[] = [
+        {
+          workspace_id: baseWorkspace.id,
+          path: "src/index.ts",
+          content: encoder.encode("export const value = 1;"),
+          content_type: "application/typescript",
+          created_at: baseWorkspace.created_at,
+          updated_at: baseWorkspace.updated_at,
+        },
+        {
+          workspace_id: baseWorkspace.id,
+          path: "readme.md",
+          content: encoder.encode("# hello"),
+          content_type: "text/markdown",
+          created_at: baseWorkspace.created_at,
+          updated_at: baseWorkspace.updated_at,
+        },
+      ];
+      return files;
+    });
+
+    const workspaceStore = {
+      async getWorkspace(id: string) {
+        return id === baseWorkspace.id ? baseWorkspace : null;
+      },
+      listWorkspaceFiles,
+    };
+
+    setBackendDataFactory(() => withStore({}));
+
+    const res = await appVfs.request(
+      `/-/dev/vfs/${baseWorkspace.id}/dirs`,
+      {
+        method: "GET",
+        headers: await authHeaders(),
+      },
+      buildEnv({ PLAN: "pro", workspaceStore }),
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.data?.path).toBe("/");
+    expect(json.data?.dirs?.some((dir: any) => dir.path === "src")).toBe(true);
+    expect(json.data?.files?.some((file: any) => file.path === "readme.md")).toBe(true);
+    expect(json.data?.entries?.some((entry: any) => entry.type === "dir" && entry.path === "src")).toBe(true);
+    expect(json.data?.entries?.some((entry: any) => entry.type === "file" && entry.path === "readme.md")).toBe(true);
+  });
+
   it("stores esbuild compile cache with plan-aware cache-control", async () => {
     const saveCompileCache = vi.fn(async () => ({
       workspace_id: baseWorkspace.id,

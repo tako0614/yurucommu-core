@@ -113,6 +113,55 @@ const canTransitionWorkspaceStatus = (
 
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
+const normalizeVfsPath = (path: string): string => path.replace(/^\/+/, "").replace(/\\/g, "/").trim();
+
+const extractWorkspaceFilePathFromUrl = (c: any, workspaceId: string): string => {
+  const pathname = decodeURIComponent(new URL(c.req.url).pathname);
+  const prefix = `/-/app/workspaces/${workspaceId}/files/`;
+  const raw = pathname.startsWith(prefix) ? pathname.slice(prefix.length) : "";
+  return normalizeVfsPath(raw);
+};
+
+const parseContentFromBody = (raw: string): { content: string; contentType: string } => {
+  const fallback = { content: raw, contentType: "text/plain" };
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && parsed.content !== undefined) {
+      const contentType =
+        typeof (parsed as any).content_type === "string" && (parsed as any).content_type.trim()
+          ? (parsed as any).content_type.trim()
+          : "application/json";
+      const content =
+        typeof (parsed as any).content === "string"
+          ? (parsed as any).content
+          : (parsed as any).content != null
+            ? JSON.stringify((parsed as any).content)
+            : "";
+      return { content, contentType };
+    }
+  } catch {
+    // fall back to raw text
+  }
+  return fallback;
+};
+
+const computeWorkspaceUsage = async (store: any, workspaceId: string) => {
+  if (store && typeof store.getWorkspaceUsage === "function") {
+    const usage = await store.getWorkspaceUsage(workspaceId);
+    if (usage) return usage;
+  }
+  if (store && typeof store.listWorkspaceFiles === "function") {
+    const files = await store.listWorkspaceFiles(workspaceId);
+    const totalSize = files.reduce(
+      (acc: number, file: any) => acc + (file.size ?? file.content?.length ?? 0),
+      0,
+    );
+    return { fileCount: files.length, totalSize };
+  }
+  return { fileCount: 0, totalSize: 0 };
+};
+
 const APP_HANDLERS_CANDIDATES = ["app/handlers.ts", "app/handlers.tsx", "app/handlers.js", "app/handlers.mjs", "app/handlers.cjs"];
 const UI_CONTRACT_FILENAME = "schemas/ui-contract.json";
 const RESERVED_WORKSPACE_IDS = new Set(["default", "demo", "ws_demo"]);
@@ -1189,6 +1238,100 @@ appManagerRoutes.post("/-/app/workspaces", async (c) => {
   }
 });
 
+appManagerRoutes.get("/-/app/workspaces/:id", async (c) => {
+  const workspaceId = (c.req.param("id") || "").trim();
+  if (!workspaceId) {
+    return fail(c as any, "workspaceId is required", 400);
+  }
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return fail(
+      c as any,
+      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+      503,
+    );
+  }
+  const store = workspaceEnv.store;
+  if (!store) {
+    return fail(c as any, "workspace store is not configured", 503);
+  }
+  await ensureDefaultWorkspace(store);
+  const workspace = await store.getWorkspace(workspaceId);
+  if (!workspace) {
+    return fail(c as any, "workspace not found", 404);
+  }
+  const usage = await computeWorkspaceUsage(store as any, workspaceId);
+  const limits = resolveWorkspaceLimitsFromEnv(workspaceEnv.env as any);
+  return c.json({ ok: true, workspace, usage, limits });
+});
+
+appManagerRoutes.put("/-/app/workspaces/:id", async (c) => {
+  const workspaceId = (c.req.param("id") || "").trim();
+  if (!workspaceId) {
+    return fail(c as any, "workspaceId is required", 400);
+  }
+  const payload = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!payload || typeof payload !== "object") {
+    return fail(c as any, "invalid workspace payload", 400);
+  }
+
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return fail(
+      c as any,
+      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+      503,
+    );
+  }
+  const store = workspaceEnv.store;
+  if (!store) {
+    return fail(c as any, "workspace store is not configured", 503);
+  }
+  await ensureDefaultWorkspace(store);
+
+  if (typeof store.upsertWorkspace !== "function") {
+    return fail(c as any, "workspace updates are not supported", 501);
+  }
+
+  const current = await store.getWorkspace(workspaceId);
+  if (!current) {
+    return fail(c as any, "workspace not found", 404);
+  }
+
+  const baseRevisionId =
+    typeof (payload as any).baseRevisionId === "string" && (payload as any).baseRevisionId.trim().length > 0
+      ? (payload as any).baseRevisionId.trim()
+      : undefined;
+  const authorName =
+    typeof (payload as any).authorName === "string" && (payload as any).authorName.trim().length > 0
+      ? (payload as any).authorName.trim()
+      : undefined;
+
+  const updated = await store.upsertWorkspace({
+    id: workspaceId,
+    base_revision_id: baseRevisionId ?? current.base_revision_id,
+    status: current.status,
+    author_type: current.author_type,
+    author_name: authorName ?? current.author_name,
+    created_at: current.created_at,
+    updated_at: new Date().toISOString(),
+  });
+
+  if (!updated) {
+    return fail(c as any, "failed to update workspace", 500);
+  }
+
+  return c.json({ ok: true, workspace: updated });
+});
+
 appManagerRoutes.post("/-/app/workspaces/:id/validate", async (c) => {
   const workspaceId = (c.req.param("id") || "").trim();
   if (!workspaceId) {
@@ -1417,6 +1560,159 @@ appManagerRoutes.get("/-/app/workspaces/:id/files", async (c) => {
     updated_at: file.updated_at,
   }));
   return ok(c as any, { workspace_id: workspaceId, files: mapped });
+});
+
+appManagerRoutes.get("/-/app/workspaces/:id/files/*", async (c) => {
+  const workspaceId = (c.req.param("id") || "").trim();
+  const path = extractWorkspaceFilePathFromUrl(c, workspaceId);
+  if (!workspaceId || !path || path.includes("..")) {
+    return fail(c as any, "invalid workspace file path", 400);
+  }
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return fail(
+      c as any,
+      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+      503,
+    );
+  }
+  const store = workspaceEnv.store;
+  if (!store) {
+    return fail(c as any, "workspace store is not configured", 503);
+  }
+  await ensureDefaultWorkspace(store);
+  const workspace = await store.getWorkspace(workspaceId);
+  if (!workspace) {
+    return fail(c as any, "workspace not found", 404);
+  }
+  const file = await store.getWorkspaceFile(workspaceId, path);
+  if (!file) {
+    return fail(c as any, "file not found", 404);
+  }
+  return ok(c as any, {
+    workspace_id: workspaceId,
+    file: {
+      workspace_id: file.workspace_id,
+      path: file.path,
+      content_type: file.content_type,
+      content_hash: file.content_hash ?? null,
+      storage_key: file.storage_key ?? null,
+      directory_path: (file as any).directory_path ?? undefined,
+      content: textDecoder.decode(file.content ?? new Uint8Array()),
+      size: file.size ?? file.content?.length ?? 0,
+      created_at: file.created_at,
+      updated_at: file.updated_at,
+    },
+  });
+});
+
+appManagerRoutes.put("/-/app/workspaces/:id/files/*", async (c) => {
+  const workspaceId = (c.req.param("id") || "").trim();
+  const path = extractWorkspaceFilePathFromUrl(c, workspaceId);
+  if (!workspaceId || !path || path.includes("..")) {
+    return fail(c as any, "invalid workspace file path", 400);
+  }
+  const raw = await c.req.text();
+  const parsed = parseContentFromBody(raw);
+  const contentBytes = textEncoder.encode(parsed.content);
+
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return fail(
+      c as any,
+      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+      503,
+    );
+  }
+  const store = workspaceEnv.store;
+  if (!store) {
+    return fail(c as any, "workspace store is not configured", 503);
+  }
+  await ensureDefaultWorkspace(store);
+  const workspace = await store.getWorkspace(workspaceId);
+  if (!workspace) {
+    return fail(c as any, "workspace not found", 404);
+  }
+
+  const planLimits = resolveWorkspaceLimitsFromEnv(workspaceEnv.env as any);
+  const limitCheck = await ensureWithinWorkspaceLimits(
+    store as any,
+    workspaceId,
+    path,
+    contentBytes.byteLength,
+    planLimits,
+  );
+  if (!limitCheck.ok) {
+    return fail(c as any, limitCheck.reason, 413);
+  }
+
+  const saved = await store.saveWorkspaceFile(workspaceId, path, parsed.content, parsed.contentType);
+  if (!saved) {
+    return fail(c as any, "failed to save workspace file", 500);
+  }
+
+  return ok(c as any, {
+    workspace_id: workspaceId,
+    file: {
+      path: saved.path,
+      content_type: saved.content_type,
+      content_hash: saved.content_hash ?? null,
+      storage_key: saved.storage_key ?? null,
+      size: saved.size ?? saved.content?.length ?? contentBytes.byteLength,
+      created_at: saved.created_at,
+      updated_at: saved.updated_at,
+      content: textDecoder.decode(saved.content ?? new Uint8Array()),
+    },
+    usage: limitCheck.usage,
+  });
+});
+
+appManagerRoutes.delete("/-/app/workspaces/:id/files/*", async (c) => {
+  const workspaceId = (c.req.param("id") || "").trim();
+  const path = extractWorkspaceFilePathFromUrl(c, workspaceId);
+  if (!workspaceId || !path || path.includes("..")) {
+    return fail(c as any, "invalid workspace file path", 400);
+  }
+
+  const workspaceEnv = resolveWorkspaceEnv({
+    env: c.env,
+    mode: "dev",
+    requireIsolation: true,
+  });
+  if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
+    return fail(
+      c as any,
+      workspaceEnv.isolation.errors[0] || "dev data isolation failed",
+      503,
+    );
+  }
+  const store = workspaceEnv.store;
+  if (!store) {
+    return fail(c as any, "workspace store is not configured", 503);
+  }
+  await ensureDefaultWorkspace(store);
+  const workspace = await store.getWorkspace(workspaceId);
+  if (!workspace) {
+    return fail(c as any, "workspace not found", 404);
+  }
+  if (typeof store.deleteWorkspaceFile !== "function") {
+    return fail(c as any, "workspace file deletion is not supported", 501);
+  }
+  const existed = await store.getWorkspaceFile(workspaceId, path);
+  if (!existed) {
+    return fail(c as any, "file not found", 404);
+  }
+  await store.deleteWorkspaceFile(workspaceId, path);
+  const usage = await computeWorkspaceUsage(store as any, workspaceId);
+  return ok(c as any, { workspace_id: workspaceId, path, deleted: true, usage });
 });
 
 appManagerRoutes.post("/-/app/workspaces/:id/files", async (c) => {

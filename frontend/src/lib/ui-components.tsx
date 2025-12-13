@@ -384,7 +384,8 @@ const ThreadList: Component<{
     if (sender && authIds().has(String(sender))) return false;
     const lastAtRaw = last.created_at || last.published || last.updated_at;
     const lastAt = lastAtRaw ? Date.parse(String(lastAtRaw)) : NaN;
-    const readAt = readMap()[thread.id] ? Date.parse(String(readMap()[thread.id])) : -Infinity;
+    const readAtRaw = readMap()[thread.id] ?? thread.read_at ?? thread.readAt;
+    const readAt = readAtRaw ? Date.parse(String(readAtRaw)) : -Infinity;
     if (!Number.isFinite(lastAt)) return false;
     return lastAt > readAt;
   };

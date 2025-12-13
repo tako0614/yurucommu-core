@@ -3,6 +3,7 @@ import type { PublicAccountBindings as Bindings, Variables } from "@takos/platfo
 import {
   ok,
   fail,
+  HttpError,
   nowISO,
   uuid,
   requireInstanceDomain,
@@ -16,6 +17,7 @@ import {
 } from "@takos/platform/server";
 import { makeData } from "../data";
 import { auth } from "../middleware/auth";
+import { ErrorCodes } from "../lib/error-codes";
 
 const postPlans = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -26,7 +28,9 @@ function parsePlanInput(body: any, defaults: { communityId?: string | null }) {
   const text = String(body.text || "").trim();
   const media_urls = Array.isArray(body.media) ? body.media : Array.isArray(body.media_urls) ? body.media_urls : [];
   if (!text && media_urls.length === 0) {
-    throw new Error("text or media is required");
+    throw new HttpError(400, ErrorCodes.MISSING_REQUIRED_FIELD, "Text or media is required", {
+      fields: ["text", "media"],
+    });
   }
   const community_id = defaults.communityId ?? (body.community_id ? String(body.community_id) : null);
   const broadcast_all = body.broadcast_all === undefined ? true : !!body.broadcast_all;
@@ -52,13 +56,16 @@ async function publishPlan(
 ) {
   const user = await store.getUser(plan.author_id);
   if (!user) {
-    throw new Error("author not found");
+    throw new HttpError(404, ErrorCodes.USER_NOT_FOUND, "User not found", { userId: plan.author_id });
   }
   if (plan.community_id) {
     const community = await store.getCommunity(plan.community_id);
-    if (!community) throw new Error("community not found");
+    if (!community) throw new HttpError(404, ErrorCodes.COMMUNITY_NOT_FOUND, "Community not found", { communityId: plan.community_id });
     const isMember = await store.hasMembership(plan.community_id, plan.author_id);
-    if (!isMember) throw new Error("not a community member");
+    if (!isMember) throw new HttpError(403, ErrorCodes.INSUFFICIENT_PERMISSIONS, "Insufficient permissions", {
+      communityId: plan.community_id,
+      userId: plan.author_id,
+    });
   }
 
   const id = uuid();
@@ -186,9 +193,9 @@ postPlans.post("/post-plans", auth, async (c) => {
           : "draft";
     if (parsed.community_id) {
       const community = await store.getCommunity(parsed.community_id);
-      if (!community) return fail(c, "community not found", 404);
+      if (!community) return fail(c, "Community not found", 404, { code: ErrorCodes.COMMUNITY_NOT_FOUND, details: { communityId: parsed.community_id } });
       if (!(await store.hasMembership(parsed.community_id, user.id))) {
-        return fail(c, "forbidden", 403);
+        return fail(c, "Insufficient permissions", 403, { code: ErrorCodes.INSUFFICIENT_PERMISSIONS, details: { communityId: parsed.community_id } });
       }
     }
     const plan = await store.createPostPlan({
@@ -208,7 +215,10 @@ postPlans.post("/post-plans", auth, async (c) => {
     });
     return ok(c, plan, 201);
   } catch (error: any) {
-    return fail(c, error?.message || "failed to create plan", 400);
+    if (error instanceof HttpError) {
+      return fail(c, error.message, error.status, { code: error.code, details: error.details, headers: error.headers });
+    }
+    throw error;
   } finally {
     await releaseStore(store);
   }
@@ -241,9 +251,10 @@ postPlans.get("/post-plans/:id", auth, async (c) => {
       return fail(c, "post plans not supported", 501);
     }
     const user = c.get("user") as any;
-    const plan = await store.getPostPlan(c.req.param("id"));
-    if (!plan) return fail(c, "plan not found", 404);
-    if (plan.author_id !== user.id) return fail(c, "forbidden", 403);
+    const planId = c.req.param("id");
+    const plan = await store.getPostPlan(planId);
+    if (!plan) return fail(c, "Not found", 404, { code: ErrorCodes.NOT_FOUND, details: { planId } });
+    if (plan.author_id !== user.id) return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN, details: { planId } });
     return ok(c, plan);
   } finally {
     await releaseStore(store);
@@ -260,8 +271,8 @@ postPlans.patch("/post-plans/:id", auth, async (c) => {
     const user = c.get("user") as any;
     const planId = c.req.param("id");
     const plan = await store.getPostPlan(planId);
-    if (!plan) return fail(c, "plan not found", 404);
-    if (plan.author_id !== user.id) return fail(c, "forbidden", 403);
+    if (!plan) return fail(c, "Not found", 404, { code: ErrorCodes.NOT_FOUND, details: { planId } });
+    if (plan.author_id !== user.id) return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN, details: { planId } });
     const body = (await c.req.json().catch(() => ({}))) as any;
     const fields: any = {};
     if (body.text !== undefined) fields.text = String(body.text || "");
@@ -294,9 +305,10 @@ postPlans.delete("/post-plans/:id", auth, async (c) => {
       return fail(c, "post plans not supported", 501);
     }
     const user = c.get("user") as any;
-    const plan = await store.getPostPlan(c.req.param("id"));
-    if (!plan) return fail(c, "plan not found", 404);
-    if (plan.author_id !== user.id) return fail(c, "forbidden", 403);
+    const planId = c.req.param("id");
+    const plan = await store.getPostPlan(planId);
+    if (!plan) return fail(c, "Not found", 404, { code: ErrorCodes.NOT_FOUND, details: { planId } });
+    if (plan.author_id !== user.id) return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN, details: { planId } });
     await store.deletePostPlan(plan.id);
     return ok(c, { deleted: true });
   } finally {
@@ -314,8 +326,8 @@ postPlans.post("/post-plans/:id/publish", auth, async (c) => {
     const user = c.get("user") as any;
     const planId = c.req.param("id");
     const plan = await store.getPostPlan(planId);
-    if (!plan) return fail(c, "plan not found", 404);
-    if (plan.author_id !== user.id) return fail(c, "forbidden", 403);
+    if (!plan) return fail(c, "Not found", 404, { code: ErrorCodes.NOT_FOUND, details: { planId } });
+    if (plan.author_id !== user.id) return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN, details: { planId } });
     const post = await publishPlan(store, c.env as Bindings, plan);
     await store.updatePostPlan(planId, {
       status: "published",
@@ -324,7 +336,10 @@ postPlans.post("/post-plans/:id/publish", auth, async (c) => {
     });
     return ok(c, post);
   } catch (error: any) {
-    return fail(c, error?.message || "publish failed", 400);
+    if (error instanceof HttpError) {
+      return fail(c, error.message, error.status, { code: error.code, details: error.details, headers: error.headers });
+    }
+    throw error;
   } finally {
     await releaseStore(store);
   }
@@ -335,7 +350,7 @@ postPlans.post("/internal/tasks/process-post-plans", async (c) => {
   const secret = c.env.CRON_SECRET;
   const headerSecret = c.req.header("Cron-Secret");
   if (secret && secret !== headerSecret) {
-    return fail(c as any, "unauthorized", 401);
+    return fail(c as any, "Unauthorized", 401, { code: ErrorCodes.UNAUTHORIZED });
   }
   const result = await processPostPlanQueue(c.env as Bindings, { limit: 10 });
   if (!result.supported) {

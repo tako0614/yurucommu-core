@@ -130,6 +130,33 @@ describe("/-/app/workspaces", () => {
     expect(listAppWorkspaces).toHaveBeenCalledWith(100);
   });
 
+  it("gets a workspace by id with usage and limits", async () => {
+    const workspaceStore = {
+      async getWorkspace(id: string) {
+        return id === baseWorkspace.id ? baseWorkspace : null;
+      },
+      getWorkspaceUsage: vi.fn(async () => ({ fileCount: 2, totalSize: 42 })),
+    };
+
+    setBackendDataFactory(() => withStore({}));
+
+    const res = await appManagerRoutes.request(
+      `/-/app/workspaces/${baseWorkspace.id}`,
+      {
+        method: "GET",
+        headers: await authHeaders(),
+      },
+      { ...buildEnv(), workspaceStore },
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.ok).toBe(true);
+    expect(json.workspace?.id).toBe(baseWorkspace.id);
+    expect(json.usage?.fileCount).toBe(2);
+    expect(json.limits).toBeDefined();
+  });
+
   it("updates status from draft to validated", async () => {
     const getAppWorkspace = vi.fn(async () => baseWorkspace);
     const updateAppWorkspaceStatus = vi.fn(async (_id: string, status: string) => ({
@@ -304,6 +331,93 @@ describe("/-/app/workspaces", () => {
     const listed: any = await listRes.json();
     expect(listed.data?.files?.[0]?.path).toBe("takos-app.json");
     expect(listed.data?.files?.[0]?.content).toContain("hello");
+  });
+
+  it("supports file CRUD via /files/* endpoints", async () => {
+    const files: Record<string, any> = {};
+    const workspaceStore = {
+      async getWorkspace(id: string) {
+        return id === baseWorkspace.id ? baseWorkspace : null;
+      },
+      async getWorkspaceFile(_workspaceId: string, path: string) {
+        return files[path] ?? null;
+      },
+      async saveWorkspaceFile(workspaceId: string, path: string, content: string, content_type?: string) {
+        files[path] = {
+          workspace_id: workspaceId,
+          path,
+          content: encoder.encode(content),
+          content_type: content_type ?? null,
+          created_at: baseWorkspace.created_at,
+          updated_at: baseWorkspace.updated_at,
+          size: content.length,
+        };
+        return files[path];
+      },
+      async deleteWorkspaceFile(_workspaceId: string, path: string) {
+        delete files[path];
+        return true;
+      },
+      async getWorkspaceUsage() {
+        const list = Object.values(files);
+        const totalSize = list.reduce((acc, file) => acc + (file.size ?? file.content?.length ?? 0), 0);
+        return { fileCount: list.length, totalSize };
+      },
+      async statWorkspaceFile(_workspaceId: string, path: string) {
+        const file = files[path];
+        if (!file) return null;
+        return {
+          workspace_id: file.workspace_id,
+          path: file.path,
+          content_type: file.content_type,
+          size: file.size ?? file.content?.length ?? 0,
+          created_at: file.created_at,
+          updated_at: file.updated_at,
+        };
+      },
+      async listWorkspaceFiles() {
+        return Object.values(files);
+      },
+    };
+
+    setBackendDataFactory(() => withStore({}));
+
+    const writeRes = await appManagerRoutes.request(
+      `/-/app/workspaces/${baseWorkspace.id}/files/readme.md`,
+      {
+        method: "PUT",
+        headers: await authHeaders(),
+        body: JSON.stringify({ content: "# hello", content_type: "text/markdown" }),
+      },
+      { ...buildEnv({ PLAN: "pro" }), workspaceStore },
+    );
+    expect(writeRes.status).toBe(200);
+    const writeJson: any = await writeRes.json();
+    expect(writeJson.data?.file?.path).toBe("readme.md");
+
+    const readRes = await appManagerRoutes.request(
+      `/-/app/workspaces/${baseWorkspace.id}/files/readme.md`,
+      {
+        method: "GET",
+        headers: await authHeaders(),
+      },
+      { ...buildEnv({ PLAN: "pro" }), workspaceStore },
+    );
+    expect(readRes.status).toBe(200);
+    const readJson: any = await readRes.json();
+    expect(readJson.data?.file?.content).toContain("hello");
+
+    const deleteRes = await appManagerRoutes.request(
+      `/-/app/workspaces/${baseWorkspace.id}/files/readme.md`,
+      {
+        method: "DELETE",
+        headers: await authHeaders(),
+      },
+      { ...buildEnv({ PLAN: "pro" }), workspaceStore },
+    );
+    expect(deleteRes.status).toBe(200);
+    const deleteJson: any = await deleteRes.json();
+    expect(deleteJson.data?.deleted).toBe(true);
   });
 
   it("enforces plan workspace limit", async () => {

@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings, Variables } from "@takos/platform/server";
-import { ok, fail } from "@takos/platform/server";
+import { ok, fail, HttpError } from "@takos/platform/server";
 import type { AppAuthContext } from "@takos/platform/app/runtime/types";
 import { auth } from "../middleware/auth";
 import { getAppAuthContext } from "../lib/auth-context";
 import { buildTakosAppEnv, loadStoredAppManifest, loadTakosApp } from "../lib/app-sdk-loader";
+import { ErrorCodes } from "../lib/error-codes";
 
 const stories = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -18,14 +19,13 @@ const parsePagination = (url: URL, defaults = { limit: 20, offset: 0 }) => {
 };
 
 const ensureAuth = (ctx: AppAuthContext): AppAuthContext => {
-  if (!ctx.userId) throw new Error("unauthorized");
+  if (!ctx.userId) throw new HttpError(401, ErrorCodes.UNAUTHORIZED, "Authentication required");
   return ctx;
 };
 
-const handleError = (c: any, error: unknown) => {
-  const message = (error as Error)?.message || "unexpected error";
-  if (message === "unauthorized") return fail(c, message, 401);
-  return fail(c, message, 400);
+const handleError = (_c: any, error: unknown): never => {
+  if (error instanceof HttpError) throw error;
+  throw error;
 };
 
 const readJson = async (res: Response): Promise<any> => {
@@ -56,9 +56,15 @@ const proxyToDefaultApp = async (
 stories.post("/communities/:id/stories", auth, async (c) => {
   try {
     ensureAuth(getAppAuthContext(c));
-    const res = await proxyToDefaultApp(c, `/communities/${encodeURIComponent(c.req.param("id"))}/stories`);
+    const communityId = c.req.param("id");
+    const res = await proxyToDefaultApp(c, `/communities/${encodeURIComponent(communityId)}/stories`);
     const json = await readJson(res);
-    if (!res.ok) return fail(c, json?.error ?? "Failed to create story", res.status);
+    if (!res.ok) {
+      if (res.status === 404) {
+        return fail(c, "Community not found", 404, { code: ErrorCodes.COMMUNITY_NOT_FOUND, details: { communityId } });
+      }
+      return fail(c, json?.error ?? "Failed to create story", res.status);
+    }
     return ok(c, json, 201);
   } catch (error) {
     return handleError(c, error);
@@ -108,7 +114,15 @@ stories.get("/communities/:id/stories", auth, async (c) => {
       proxyUrl.search,
     );
     const json = await readJson(res);
-    if (!res.ok) return fail(c, json?.error ?? "Failed to list stories", res.status);
+    if (!res.ok) {
+      if (res.status === 404) {
+        return fail(c, "Community not found", 404, {
+          code: ErrorCodes.COMMUNITY_NOT_FOUND,
+          details: { communityId: c.req.param("id") },
+        });
+      }
+      return fail(c, json?.error ?? "Failed to list stories", res.status);
+    }
     return ok(c, json?.stories ?? []);
   } catch (error) {
     return handleError(c, error);
@@ -118,9 +132,15 @@ stories.get("/communities/:id/stories", auth, async (c) => {
 stories.get("/stories/:id", auth, async (c) => {
   try {
     ensureAuth(getAppAuthContext(c));
-    const res = await proxyToDefaultApp(c, `/stories/${encodeURIComponent(c.req.param("id"))}`);
+    const storyId = c.req.param("id");
+    const res = await proxyToDefaultApp(c, `/stories/${encodeURIComponent(storyId)}`);
     const json = await readJson(res);
-    if (!res.ok) return fail(c, json?.error ?? "story not found", res.status);
+    if (!res.ok) {
+      if (res.status === 404) {
+        return fail(c, "Story not found", 404, { code: ErrorCodes.NOT_FOUND, details: { storyId } });
+      }
+      return fail(c, json?.error ?? "Failed to fetch story", res.status);
+    }
     return ok(c, json);
   } catch (error) {
     return handleError(c, error);
@@ -152,7 +172,13 @@ stories.delete("/stories/:id", auth, async (c) => {
 });
 
 stories.post("/internal/tasks/cleanup-stories", async (c) => {
-  return ok(c, { deleted: 0, checked: 0, skipped: true, reason: "not implemented (story TTL enforced by app reads)" });
+  try {
+    const result = await cleanupExpiredStories(c.env);
+    return ok(c, result);
+  } catch (error) {
+    console.error("Story cleanup failed:", error);
+    return fail(c, "Story cleanup failed", 500);
+  }
 });
 
 export type CleanupResult = {
@@ -160,6 +186,7 @@ export type CleanupResult = {
   checked: number;
   skipped?: boolean;
   reason?: string;
+  errors?: string[];
 };
 
 export type CleanupOptions = {
@@ -169,14 +196,81 @@ export type CleanupOptions = {
 };
 
 /**
- * Cleanup expired stories (stub implementation).
- * Story TTL is currently enforced by app reads; GC can be added later.
+ * Cleanup expired stories.
+ *
+ * ストーリーは 24 時間の TTL を持ち、`takos:story.expiresAt` で有効期限が設定される。
+ * この関数は期限切れのストーリーを検索し、ObjectService を通じて削除する。
+ *
+ * Cron: every 5 minutes (星/5 星 星 星 星)
  */
 export async function cleanupExpiredStories(
-  _env: Bindings,
-  _options?: CleanupOptions,
+  env: Bindings,
+  options?: CleanupOptions,
 ): Promise<CleanupResult> {
-  return { deleted: 0, checked: 0, skipped: true, reason: "not implemented (story TTL enforced by app reads)" };
+  const limit = options?.limit ?? 100;
+  const now = new Date().toISOString();
+  const errors: string[] = [];
+  let deleted = 0;
+  let checked = 0;
+
+  try {
+    // ObjectService を使用してストーリーを取得
+    const { createObjectService } = await import("@takos/platform/app/services/object-service");
+    const objects = createObjectService(env as any);
+
+    // システムコンテキストで実行（cron タスクのため認証不要）
+    const systemCtx = {
+      userId: null,
+      sessionId: null,
+      isAuthenticated: false,
+      plan: { name: "system", limits: {}, features: [] },
+      limits: {},
+    } as any;
+
+    // ストーリーを検索（Note タイプで takos:story 拡張を持つもの）
+    // ObjectService.query は直接 takos:story でフィルタできないため、
+    // 全 Note を取得して手動でフィルタする（改善余地あり）
+    const page = await objects.query(systemCtx, {
+      type: "Note",
+      limit,
+      includeDeleted: false,
+    });
+
+    for (const obj of page.items) {
+      const story = obj["takos:story"] as { expiresAt?: string } | undefined;
+      if (!story?.expiresAt) continue;
+
+      checked++;
+
+      // 期限切れかチェック
+      if (story.expiresAt < now) {
+        try {
+          await objects.delete(systemCtx, obj.id);
+          deleted++;
+          console.log(`Deleted expired story: ${obj.id} (expired: ${story.expiresAt})`);
+        } catch (deleteError) {
+          const errorMsg = `Failed to delete story ${obj.id}: ${deleteError}`;
+          console.error(errorMsg);
+          errors.push(errorMsg);
+        }
+      }
+    }
+
+    return {
+      deleted,
+      checked,
+      ...(errors.length > 0 ? { errors } : {}),
+    };
+  } catch (error) {
+    console.error("Story cleanup error:", error);
+    return {
+      deleted,
+      checked,
+      skipped: true,
+      reason: `Error: ${error}`,
+      ...(errors.length > 0 ? { errors } : {}),
+    };
+  }
 }
 
 export default stories;

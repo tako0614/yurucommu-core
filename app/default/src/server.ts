@@ -25,8 +25,8 @@ const readCoreData = async <T,>(res: Response): Promise<T> => {
   return payload as T;
 };
 
-const BLOCK_LIST_KEY = "block:list";
-const MUTE_LIST_KEY = "mute:list";
+const blockListKey = (userId: string) => `block:${userId}:list`;
+const muteListKey = (userId: string) => `mute:${userId}:list`;
 
 const normalizeStringList = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
@@ -50,11 +50,263 @@ const saveAppList = async (env: AppEnv, key: string, ids: string[]): Promise<voi
   await env.storage.set(key, unique);
 };
 
+type CommunitySettings = {
+  id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  icon?: string;
+  visibility: "public" | "private";
+  owner_id: string;
+  created_at: string;
+  members_count: number;
+};
+
+type CommunityMember = {
+  user_id: string;
+  role: "owner" | "moderator" | "member";
+  joined_at: string;
+  status?: "active" | "pending";
+  nickname?: string;
+};
+
+type CommunityChannel = {
+  id: string;
+  name: string;
+  description?: string;
+  isDefault: boolean;
+  order: number;
+  created_at: string;
+};
+
+type CommunityChannels = { channels: CommunityChannel[] };
+
+type CommunityRoles = {
+  roles: Array<{
+    id: string;
+    name: string;
+    permissions: string[];
+    color?: string;
+  }>;
+};
+
+const COMMUNITY_INDEX_KEY = "community:index";
+
+const communitySettingsKey = (communityId: string) => `community:${communityId}:settings`;
+const communityChannelsKey = (communityId: string) => `community:${communityId}:channels`;
+const communityRolesKey = (communityId: string) => `community:${communityId}:roles`;
+const communityMemberKey = (communityId: string, userId: string) => `community:${communityId}:members:${userId}`;
+const communityMembershipIndexKey = (userId: string) => `community:user:${userId}:memberships`;
+const communityChannelMessagesKey = (communityId: string, channelId: string) =>
+  `community:${communityId}:channels:${channelId}:messages`;
+
+const loadCommunityIndex = async (env: AppEnv): Promise<string[]> => {
+  const value = await env.storage.get<unknown>(COMMUNITY_INDEX_KEY);
+  const ids = normalizeStringList(value);
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      unique.push(id);
+    }
+  }
+  return unique;
+};
+
+const saveCommunityIndex = async (env: AppEnv, ids: string[]): Promise<void> => {
+  await env.storage.set(COMMUNITY_INDEX_KEY, ids);
+};
+
+const slugify = (input: string): string => {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/['"]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+};
+
+const ensureAuthUserId = (env: AppEnv): string => {
+  if (!env.auth?.userId) throw new Error("Unauthorized");
+  return env.auth.userId;
+};
+
+const loadCommunitySettings = async (env: AppEnv, communityId: string): Promise<CommunitySettings | null> => {
+  const settings = await env.storage.get<CommunitySettings>(communitySettingsKey(communityId));
+  return settings ?? null;
+};
+
+const loadCommunityChannels = async (env: AppEnv, communityId: string): Promise<CommunityChannels> => {
+  const stored = await env.storage.get<CommunityChannels>(communityChannelsKey(communityId));
+  if (stored && Array.isArray((stored as any).channels)) return stored;
+  return { channels: [] };
+};
+
+const saveCommunityChannels = async (env: AppEnv, communityId: string, channels: CommunityChannels): Promise<void> => {
+  await env.storage.set(communityChannelsKey(communityId), channels);
+};
+
+const loadCommunityMember = async (
+  env: AppEnv,
+  communityId: string,
+  userId: string,
+): Promise<CommunityMember | null> => {
+  const member = await env.storage.get<CommunityMember>(communityMemberKey(communityId, userId));
+  return member ?? null;
+};
+
+const requireCommunityRole = async (
+  env: AppEnv,
+  communityId: string,
+  allowed: Array<CommunityMember["role"]>,
+): Promise<CommunityMember> => {
+  const userId = ensureAuthUserId(env);
+  const member = await loadCommunityMember(env, communityId, userId);
+  if (!member) throw new Error("Forbidden");
+  if (!allowed.includes(member.role)) throw new Error("Forbidden");
+  return member;
+};
+
+const addMembershipIndex = async (env: AppEnv, userId: string, communityId: string): Promise<void> => {
+  const existing = await env.storage.get<unknown>(communityMembershipIndexKey(userId));
+  const ids = normalizeStringList(existing);
+  if (!ids.includes(communityId)) {
+    ids.push(communityId);
+    await env.storage.set(communityMembershipIndexKey(userId), ids);
+  }
+};
+
+const removeMembershipIndex = async (env: AppEnv, userId: string, communityId: string): Promise<void> => {
+  const existing = await env.storage.get<unknown>(communityMembershipIndexKey(userId));
+  const ids = normalizeStringList(existing).filter((id) => id !== communityId);
+  await env.storage.set(communityMembershipIndexKey(userId), ids);
+};
+
 const toList = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.map((v) => v?.toString?.() ?? "").filter(Boolean);
   if (typeof value === "string") return [value];
   if (value === null || value === undefined) return [];
   return [String(value)];
+};
+
+type DmThread = {
+  id: string;
+  participants: string[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  lastMessageId?: string;
+};
+
+type DmThreadRef = { threadId: string; updatedAt: string };
+
+type DmReadState = { messageId?: string; readAt: string };
+
+const dmThreadKey = (threadId: string) => `dm:thread:${threadId}`;
+const dmUserThreadsKey = (userId: string) => `dm:user:${userId}:threads`;
+const dmReadKey = (threadId: string) => `dm:read:${threadId}`;
+
+const getThreadContextId = (threadId: string) => `dm:${threadId}`;
+
+const normalizeThreadIdFromContext = (context: unknown): string => {
+  if (typeof context !== "string") return "";
+  return context.startsWith("dm:") ? context.slice(3) : context;
+};
+
+const parseMaybeJson = <T,>(value: unknown): T | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return null;
+    }
+  }
+  return value as T;
+};
+
+const loadDmThreadRefs = async (env: AppEnv, userId: string): Promise<DmThreadRef[]> => {
+  const raw = await env.storage.get<unknown>(dmUserThreadsKey(userId));
+  const parsed = parseMaybeJson<any>(raw);
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((entry: any) => ({
+      threadId: String(entry?.threadId ?? entry?.thread_id ?? ""),
+      updatedAt: String(entry?.updatedAt ?? entry?.updated_at ?? ""),
+    }))
+    .filter((entry) => entry.threadId && entry.updatedAt);
+};
+
+const saveDmThreadRefs = async (env: AppEnv, userId: string, refs: DmThreadRef[]) => {
+  await env.storage.set(dmUserThreadsKey(userId), refs);
+};
+
+const bumpDmThreadRef = async (env: AppEnv, userId: string, threadId: string, updatedAt: string) => {
+  const existing = await loadDmThreadRefs(env, userId);
+  const filtered = existing.filter((t) => t.threadId !== threadId);
+  filtered.unshift({ threadId, updatedAt });
+  await saveDmThreadRefs(env, userId, filtered);
+};
+
+const loadDmThread = async (env: AppEnv, threadId: string): Promise<DmThread | null> => {
+  const raw = await env.storage.get<unknown>(dmThreadKey(threadId));
+  const parsed = parseMaybeJson<any>(raw);
+  if (!parsed || typeof parsed !== "object") return null;
+  const participants = Array.isArray(parsed.participants) ? parsed.participants.map(String).filter(Boolean) : [];
+  if (participants.length < 2) return null;
+  const createdAt = String(parsed.createdAt ?? parsed.created_at ?? "");
+  const updatedAt = String(parsed.updatedAt ?? parsed.updated_at ?? "");
+  const createdBy = String(parsed.createdBy ?? parsed.created_by ?? "");
+  if (!createdAt || !updatedAt || !createdBy) return null;
+  return {
+    id: String(parsed.id ?? threadId),
+    participants: canonicalizeParticipants(participants),
+    createdBy,
+    createdAt,
+    updatedAt,
+    lastMessageId: parsed.lastMessageId ? String(parsed.lastMessageId) : undefined,
+  };
+};
+
+const saveDmThread = async (env: AppEnv, thread: DmThread): Promise<void> => {
+  await env.storage.set(dmThreadKey(thread.id), thread);
+};
+
+const fetchThreadObjects = async (env: AppEnv, threadId: string): Promise<any[]> => {
+  const [primary, fallback] = await Promise.all([
+    env.fetch(`/objects/thread/${encodeURIComponent(getThreadContextId(threadId))}`),
+    env.fetch(`/objects/thread/${encodeURIComponent(threadId)}`),
+  ]);
+
+  const primaryItems = primary.ok ? await readCoreData<any[]>(primary) : [];
+  const fallbackItems = fallback.ok ? await readCoreData<any[]>(fallback) : [];
+
+  if (!primaryItems.length) return fallbackItems;
+  if (!fallbackItems.length) return primaryItems;
+
+  const seen = new Set<string>();
+  const combined: any[] = [];
+  for (const item of [...fallbackItems, ...primaryItems]) {
+    const id = String(item?.local_id ?? item?.id ?? "");
+    const key = id || JSON.stringify(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    combined.push(item);
+  }
+  combined.sort((a, b) => String(a?.published ?? "").localeCompare(String(b?.published ?? "")));
+  return combined;
+};
+
+const resolveParticipantId = async (env: AppEnv, identifier: string): Promise<string> => {
+  const trimmed = identifier.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("https://") || trimmed.startsWith("http://")) return trimmed;
+  const res = await env.fetch(`/users/${encodeURIComponent(trimmed)}`);
+  if (!res.ok) return trimmed;
+  const user = await readCoreData<any>(res);
+  return String(user?.id ?? trimmed);
 };
 
 const participantsFromObject = (obj: any): string[] => {
@@ -72,7 +324,7 @@ const participantsFromObject = (obj: any): string[] => {
 
 const threadFromObject = (obj: any): { participants: string[]; threadId: string } => {
   const participants = participantsFromObject(obj);
-  const threadId = (obj.context as string | undefined) || computeParticipantsHash(participants);
+  const threadId = normalizeThreadIdFromContext(obj.context) || computeParticipantsHash(participants);
   return { participants, threadId };
 };
 
@@ -127,8 +379,8 @@ router.get("/timeline/home", async (c) => {
     if (id) actorIds.add(id);
   }
 
-  const blockedIds = await loadAppList(c.env, BLOCK_LIST_KEY);
-  const mutedIds = await loadAppList(c.env, MUTE_LIST_KEY);
+  const blockedIds = await loadAppList(c.env, blockListKey(c.env.auth.userId));
+  const mutedIds = await loadAppList(c.env, muteListKey(c.env.auth.userId));
   const excluded = new Set([...blockedIds, ...mutedIds]);
   excluded.delete(c.env.auth.userId);
   for (const id of excluded) {
@@ -149,7 +401,7 @@ router.get("/timeline/home", async (c) => {
 
 router.get("/blocks", async (c) => {
   if (!c.env.auth) return error("Unauthorized", 401);
-  const ids = await loadAppList(c.env, BLOCK_LIST_KEY);
+  const ids = await loadAppList(c.env, blockListKey(c.env.auth.userId));
   return json({ ids });
 });
 
@@ -159,10 +411,10 @@ router.post("/blocks", async (c) => {
   const targetId = String(body.targetId ?? body.target_id ?? "").trim();
   if (!targetId) return error("targetId is required", 400);
   if (targetId === c.env.auth.userId) return error("Cannot block yourself", 400);
-  const ids = await loadAppList(c.env, BLOCK_LIST_KEY);
+  const ids = await loadAppList(c.env, blockListKey(c.env.auth.userId));
   if (!ids.includes(targetId)) {
     ids.push(targetId);
-    await saveAppList(c.env, BLOCK_LIST_KEY, ids);
+    await saveAppList(c.env, blockListKey(c.env.auth.userId), ids);
   }
   return json({ ids });
 });
@@ -170,15 +422,15 @@ router.post("/blocks", async (c) => {
 router.delete("/blocks/:targetId", async (c) => {
   if (!c.env.auth) return error("Unauthorized", 401);
   const targetId = c.req.param("targetId");
-  const ids = await loadAppList(c.env, BLOCK_LIST_KEY);
+  const ids = await loadAppList(c.env, blockListKey(c.env.auth.userId));
   const next = ids.filter((id) => id !== targetId);
-  await saveAppList(c.env, BLOCK_LIST_KEY, next);
+  await saveAppList(c.env, blockListKey(c.env.auth.userId), next);
   return json({ ids: next });
 });
 
 router.get("/mutes", async (c) => {
   if (!c.env.auth) return error("Unauthorized", 401);
-  const ids = await loadAppList(c.env, MUTE_LIST_KEY);
+  const ids = await loadAppList(c.env, muteListKey(c.env.auth.userId));
   return json({ ids });
 });
 
@@ -188,10 +440,10 @@ router.post("/mutes", async (c) => {
   const targetId = String(body.targetId ?? body.target_id ?? "").trim();
   if (!targetId) return error("targetId is required", 400);
   if (targetId === c.env.auth.userId) return error("Cannot mute yourself", 400);
-  const ids = await loadAppList(c.env, MUTE_LIST_KEY);
+  const ids = await loadAppList(c.env, muteListKey(c.env.auth.userId));
   if (!ids.includes(targetId)) {
     ids.push(targetId);
-    await saveAppList(c.env, MUTE_LIST_KEY, ids);
+    await saveAppList(c.env, muteListKey(c.env.auth.userId), ids);
   }
   return json({ ids });
 });
@@ -199,68 +451,566 @@ router.post("/mutes", async (c) => {
 router.delete("/mutes/:targetId", async (c) => {
   if (!c.env.auth) return error("Unauthorized", 401);
   const targetId = c.req.param("targetId");
-  const ids = await loadAppList(c.env, MUTE_LIST_KEY);
+  const ids = await loadAppList(c.env, muteListKey(c.env.auth.userId));
   const next = ids.filter((id) => id !== targetId);
-  await saveAppList(c.env, MUTE_LIST_KEY, next);
+  await saveAppList(c.env, muteListKey(c.env.auth.userId), next);
   return json({ ids: next });
 });
 
-// DM APIs implemented in App layer using /objects endpoints.
-router.get("/dm/threads", async (c) => {
+router.get("/communities", async (c) => {
   if (!c.env.auth) return error("Unauthorized", 401);
   const query = parseQuery(c.req.raw);
   const { limit, offset } = parsePagination(query, { limit: 20, offset: 0 });
-  const url = new URL("/objects", c.req.url);
+  const q = String(query.q ?? "").trim().toLowerCase();
+  const ids = await loadCommunityIndex(c.env);
+  const settingsList: CommunitySettings[] = [];
+  for (const id of ids) {
+    const settings = await loadCommunitySettings(c.env, id);
+    if (!settings) continue;
+    if (q) {
+      const hay = `${settings.name} ${settings.display_name} ${settings.description ?? ""}`.toLowerCase();
+      if (!hay.includes(q)) continue;
+    }
+    settingsList.push(settings);
+  }
+  const slice = settingsList.slice(offset, offset + limit);
+  const communities = await Promise.all(
+    slice.map(async (settings) => {
+      const member = await loadCommunityMember(c.env, settings.id, c.env.auth!.userId).catch(() => null);
+      return {
+        id: settings.id,
+        name: settings.name,
+        display_name: settings.display_name,
+        description: settings.description ?? "",
+        icon: settings.icon,
+        visibility: settings.visibility,
+        owner_id: settings.owner_id,
+        created_at: settings.created_at,
+        members_count: settings.members_count,
+        is_member: !!member,
+        role: member?.role ?? null,
+      };
+    }),
+  );
+  return json({ communities, next_offset: communities.length < limit ? null : offset + communities.length });
+});
+
+router.post("/communities", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const body = await parseBody<any>(c.req.raw).catch(() => ({}));
+  const rawName = String(body.name ?? body.id ?? "").trim();
+  if (!rawName) return error("name is required", 400);
+  const displayName = String(body.display_name ?? body.displayName ?? rawName).trim();
+  const description = typeof body.description === "string" ? body.description : undefined;
+  const icon = typeof body.icon_url === "string" ? body.icon_url : typeof body.icon === "string" ? body.icon : undefined;
+  const visibility: "public" | "private" = body.visibility === "public" ? "public" : "private";
+
+  const baseId = slugify(rawName) || crypto.randomUUID();
+  let communityId = baseId;
+  for (let i = 0; i < 5; i++) {
+    const existing = await c.env.storage.get<unknown>(communitySettingsKey(communityId));
+    if (!existing) break;
+    communityId = `${baseId}-${crypto.randomUUID().slice(0, 6)}`;
+  }
+  const now = new Date().toISOString();
+  const settings: CommunitySettings = {
+    id: communityId,
+    name: rawName,
+    display_name: displayName,
+    description,
+    icon,
+    visibility,
+    owner_id: c.env.auth.userId,
+    created_at: now,
+    members_count: 1,
+  };
+  await c.env.storage.set(communitySettingsKey(communityId), settings);
+
+  const defaultChannels: CommunityChannels = {
+    channels: [
+      {
+        id: crypto.randomUUID(),
+        name: "general",
+        description: "General",
+        isDefault: true,
+        order: 0,
+        created_at: now,
+      },
+    ],
+  };
+  await c.env.storage.set(communityChannelsKey(communityId), defaultChannels);
+
+  const roles: CommunityRoles = {
+    roles: [
+      { id: "owner", name: "Owner", permissions: ["community.update", "channel.manage", "member.manage"] },
+      { id: "moderator", name: "Moderator", permissions: ["channel.manage", "member.manage"] },
+      { id: "member", name: "Member", permissions: [] },
+    ],
+  };
+  await c.env.storage.set(communityRolesKey(communityId), roles);
+
+  const member: CommunityMember = { user_id: c.env.auth.userId, role: "owner", joined_at: now, status: "active" };
+  await c.env.storage.set(communityMemberKey(communityId, c.env.auth.userId), member);
+  await addMembershipIndex(c.env, c.env.auth.userId, communityId);
+
+  const ids = await loadCommunityIndex(c.env);
+  if (!ids.includes(communityId)) {
+    ids.unshift(communityId);
+    await saveCommunityIndex(c.env, ids);
+  }
+
+  return json(
+    {
+      id: settings.id,
+      name: settings.name,
+      display_name: settings.display_name,
+      description: settings.description ?? "",
+      icon: settings.icon,
+      visibility: settings.visibility,
+      owner_id: settings.owner_id,
+      created_at: settings.created_at,
+      members_count: settings.members_count,
+      is_member: true,
+      role: "owner",
+    },
+    { status: 201 },
+  );
+});
+
+router.get("/communities/:id", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const id = c.req.param("id");
+  const settings = await loadCommunitySettings(c.env, id);
+  if (!settings) return error("community not found", 404);
+  const member = await loadCommunityMember(c.env, id, c.env.auth.userId).catch(() => null);
+  const membersKeys = await c.env.storage.list(`community:${id}:members:`);
+  const members = await Promise.all(
+    membersKeys.map(async (keySuffix) => {
+      const userId = keySuffix.split(":").pop() ?? "";
+      const m = await c.env.storage.get<CommunityMember>(communityMemberKey(id, userId));
+      if (!m) return null;
+      const userRes = await c.env.fetch(`/users/${encodeURIComponent(userId)}`).catch(() => null);
+      const user = userRes && userRes.ok ? await readCoreData<any>(userRes) : null;
+      return {
+        user_id: m.user_id,
+        role: m.role,
+        joined_at: m.joined_at,
+        status: m.status ?? "active",
+        nickname: m.nickname ?? null,
+        user: user
+          ? {
+              id: user.id,
+              display_name: user.display_name ?? user.name ?? "",
+              avatar_url: user.avatar_url ?? user.avatar ?? undefined,
+              handle: user.handle ?? user.id,
+            }
+          : { id: m.user_id },
+      };
+    }),
+  );
+  return json({
+    id: settings.id,
+    name: settings.name,
+    display_name: settings.display_name,
+    description: settings.description ?? "",
+    icon: settings.icon,
+    visibility: settings.visibility,
+    owner_id: settings.owner_id,
+    created_at: settings.created_at,
+    members_count: settings.members_count,
+    is_member: !!member,
+    role: member?.role ?? null,
+    members: members.filter(Boolean),
+  });
+});
+
+router.patch("/communities/:id", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const id = c.req.param("id");
+  await requireCommunityRole(c.env, id, ["owner"]);
+  const settings = await loadCommunitySettings(c.env, id);
+  if (!settings) return error("community not found", 404);
+  const body = await parseBody<any>(c.req.raw).catch(() => ({}));
+  const next: CommunitySettings = {
+    ...settings,
+    display_name: typeof body.display_name === "string" ? body.display_name : settings.display_name,
+    description: typeof body.description === "string" ? body.description : settings.description,
+    icon:
+      typeof body.icon_url === "string"
+        ? body.icon_url
+        : typeof body.icon === "string"
+          ? body.icon
+          : settings.icon,
+    visibility:
+      body.visibility === "public" ? "public" : body.visibility === "private" ? "private" : settings.visibility,
+  };
+  await c.env.storage.set(communitySettingsKey(id), next);
+  const member = await loadCommunityMember(c.env, id, c.env.auth.userId).catch(() => null);
+  return json({
+    id: next.id,
+    name: next.name,
+    display_name: next.display_name,
+    description: next.description ?? "",
+    icon: next.icon,
+    visibility: next.visibility,
+    owner_id: next.owner_id,
+    created_at: next.created_at,
+    members_count: next.members_count,
+    is_member: !!member,
+    role: member?.role ?? null,
+  });
+});
+
+router.get("/communities/:id/channels", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const id = c.req.param("id");
+  const settings = await loadCommunitySettings(c.env, id);
+  if (!settings) return error("community not found", 404);
+  const channels = await loadCommunityChannels(c.env, id);
+  return json(
+    channels.channels.map((ch) => ({
+      id: ch.id,
+      name: ch.name,
+      description: ch.description ?? "",
+      created_at: ch.created_at,
+      is_default: ch.isDefault,
+      order: ch.order,
+    })),
+  );
+});
+
+router.post("/communities/:id/channels", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const id = c.req.param("id");
+  const settings = await loadCommunitySettings(c.env, id);
+  if (!settings) return error("community not found", 404);
+  await requireCommunityRole(c.env, id, ["owner", "moderator"]);
+  const body = await parseBody<any>(c.req.raw).catch(() => ({}));
+  const name = String(body.name ?? "").trim();
+  if (!name) return error("name is required", 400);
+  const description = typeof body.description === "string" ? body.description : undefined;
+  const channels = await loadCommunityChannels(c.env, id);
+  const now = new Date().toISOString();
+  const channel: CommunityChannel = {
+    id: crypto.randomUUID(),
+    name,
+    description,
+    isDefault: false,
+    order: channels.channels.length ? Math.max(...channels.channels.map((c) => c.order)) + 1 : 1,
+    created_at: now,
+  };
+  channels.channels.push(channel);
+  await saveCommunityChannels(c.env, id, channels);
+  return json(
+    {
+      id: channel.id,
+      name: channel.name,
+      description: channel.description ?? "",
+      created_at: channel.created_at,
+    },
+    { status: 201 },
+  );
+});
+
+router.patch("/communities/:id/channels/:channelId", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const id = c.req.param("id");
+  await requireCommunityRole(c.env, id, ["owner", "moderator"]);
+  const channels = await loadCommunityChannels(c.env, id);
+  const channelId = c.req.param("channelId");
+  const body = await parseBody<any>(c.req.raw).catch(() => ({}));
+  const idx = channels.channels.findIndex((ch) => ch.id === channelId);
+  if (idx < 0) return error("channel not found", 404);
+  const existing = channels.channels[idx];
+  const next: CommunityChannel = {
+    ...existing,
+    name: typeof body.name === "string" && body.name.trim() ? body.name.trim() : existing.name,
+    description: typeof body.description === "string" ? body.description : existing.description,
+  };
+  channels.channels[idx] = next;
+  await saveCommunityChannels(c.env, id, channels);
+  return json({ id: next.id, name: next.name, description: next.description ?? "", created_at: next.created_at });
+});
+
+router.delete("/communities/:id/channels/:channelId", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const id = c.req.param("id");
+  await requireCommunityRole(c.env, id, ["owner", "moderator"]);
+  const channels = await loadCommunityChannels(c.env, id);
+  const channelId = c.req.param("channelId");
+  const target = channels.channels.find((ch) => ch.id === channelId);
+  if (!target) return error("channel not found", 404);
+  if (target.isDefault) return error("default channel cannot be deleted", 400);
+  channels.channels = channels.channels.filter((ch) => ch.id !== channelId);
+  await saveCommunityChannels(c.env, id, channels);
+  return json({ deleted: true });
+});
+
+router.post("/communities/:id/join", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const id = c.req.param("id");
+  const settings = await loadCommunitySettings(c.env, id);
+  if (!settings) return error("community not found", 404);
+  const now = new Date().toISOString();
+  const existing = await loadCommunityMember(c.env, id, c.env.auth.userId);
+  if (!existing) {
+    const member: CommunityMember = { user_id: c.env.auth.userId, role: "member", joined_at: now, status: "active" };
+    await c.env.storage.set(communityMemberKey(id, c.env.auth.userId), member);
+    await addMembershipIndex(c.env, c.env.auth.userId, id);
+    await c.env.storage.set(communitySettingsKey(id), { ...settings, members_count: settings.members_count + 1 });
+  }
+  return json({ community_id: id, joined: true });
+});
+
+router.post("/communities/:id/leave", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const id = c.req.param("id");
+  const settings = await loadCommunitySettings(c.env, id);
+  if (!settings) return error("community not found", 404);
+  const existing = await loadCommunityMember(c.env, id, c.env.auth.userId);
+  if (existing?.role === "owner") return error("owner cannot leave community", 400);
+  if (existing) {
+    await c.env.storage.delete(communityMemberKey(id, c.env.auth.userId));
+    await removeMembershipIndex(c.env, c.env.auth.userId, id);
+    const nextCount = Math.max(0, settings.members_count - 1);
+    await c.env.storage.set(communitySettingsKey(id), { ...settings, members_count: nextCount });
+  }
+  return json({ community_id: id, left: true });
+});
+
+router.get("/communities/:id/members", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const id = c.req.param("id");
+  const settings = await loadCommunitySettings(c.env, id);
+  if (!settings) return error("community not found", 404);
+  const keys = await c.env.storage.list(`community:${id}:members:`);
+  const members = await Promise.all(
+    keys.map(async (suffix) => {
+      const userId = suffix.split(":").pop() ?? "";
+      const m = await loadCommunityMember(c.env, id, userId);
+      if (!m) return null;
+      const userRes = await c.env.fetch(`/users/${encodeURIComponent(userId)}`).catch(() => null);
+      const user = userRes && userRes.ok ? await readCoreData<any>(userRes) : null;
+      return {
+        user_id: m.user_id,
+        role: m.role,
+        joined_at: m.joined_at,
+        status: m.status ?? "active",
+        nickname: m.nickname ?? null,
+        user: user
+          ? {
+              id: user.id,
+              display_name: user.display_name ?? user.name ?? "",
+              avatar_url: user.avatar_url ?? user.avatar ?? undefined,
+              handle: user.handle ?? user.id,
+            }
+          : { id: m.user_id },
+      };
+    }),
+  );
+  return json(members.filter(Boolean));
+});
+
+router.post("/communities/:id/direct-invites", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const id = c.req.param("id");
+  await requireCommunityRole(c.env, id, ["owner", "moderator"]);
+  const body = await parseBody<any>(c.req.raw).catch(() => ({}));
+  const ids: string[] = Array.isArray(body.user_ids)
+    ? body.user_ids
+    : body.user_id
+      ? [String(body.user_id)]
+      : [];
+  return json(ids.map((userId) => ({ id: userId, status: "sent" })), { status: 201 });
+});
+
+router.get("/me/communities", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const ids = await c.env.storage.get<unknown>(communityMembershipIndexKey(c.env.auth.userId));
+  const memberships = normalizeStringList(ids);
+  const communities = await Promise.all(
+    memberships.map(async (communityId) => {
+      const settings = await loadCommunitySettings(c.env, communityId);
+      if (!settings) return null;
+      const member = await loadCommunityMember(c.env, communityId, c.env.auth!.userId).catch(() => null);
+      return {
+        id: settings.id,
+        name: settings.name,
+        display_name: settings.display_name,
+        description: settings.description ?? "",
+        icon: settings.icon,
+        visibility: settings.visibility,
+        owner_id: settings.owner_id,
+        created_at: settings.created_at,
+        members_count: settings.members_count,
+        is_member: !!member,
+        role: member?.role ?? null,
+      };
+    }),
+  );
+  return json({ communities: communities.filter(Boolean) });
+});
+
+router.get("/communities/:id/channels/:channelId/messages", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const id = c.req.param("id");
+  const channelId = c.req.param("channelId");
+  const query = parseQuery(c.req.raw);
+  const { limit } = parsePagination(query, { limit: 50, offset: 0 });
+  const stored = await c.env.storage.get<any>(communityChannelMessagesKey(id, channelId));
+  const messages = Array.isArray(stored) ? stored : [];
+  return json(messages.slice(-limit));
+});
+
+router.post("/communities/:id/channels/:channelId/messages", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const id = c.req.param("id");
+  const channelId = c.req.param("channelId");
+  const body = await parseBody<any>(c.req.raw).catch(() => ({}));
+  const content = String(body.content ?? "").trim();
+  if (!content) return error("content is required", 400);
+  const existing = await c.env.storage.get<any>(communityChannelMessagesKey(id, channelId));
+  const messages = Array.isArray(existing) ? existing : [];
+  const createdAt = new Date().toISOString();
+  const message = {
+    id: crypto.randomUUID(),
+    community_id: id,
+    channel_id: channelId,
+    content,
+    author_id: c.env.auth.userId,
+    created_at: createdAt,
+    in_reply_to: body.in_reply_to ?? body.inReplyTo ?? null,
+  };
+  messages.push(message);
+  const next = messages.slice(-200);
+  await c.env.storage.set(communityChannelMessagesKey(id, channelId), next);
+  return json({ activity: message }, { status: 201 });
+});
+
+const migrateThreadsFromObjects = async (env: AppEnv, userId: string, limit: number) => {
+  const url = new URL("/objects", "https://local.invalid");
   url.searchParams.set("visibility", "direct");
   url.searchParams.set("include_direct", "true");
-  url.searchParams.set("participant", c.env.auth.userId);
-  url.searchParams.set("limit", String(limit * 5));
+  url.searchParams.set("participant", userId);
+  url.searchParams.set("limit", String(limit));
   url.searchParams.set("cursor", "0");
   url.searchParams.set("order", "desc");
-  const res = await c.env.fetch(url.pathname + url.search);
-  if (!res.ok) return error("Failed to list threads", res.status);
+  const res = await env.fetch(url.pathname + url.search);
+  if (!res.ok) return;
+
   const page = await readCoreData<any>(res);
   const contexts = new Map<string, any>();
   for (const item of page.items || []) {
-    const { threadId } = threadFromObject(item);
-    if (!threadId) continue;
+    const { threadId, participants } = threadFromObject(item);
+    if (!threadId || participants.length < 2) continue;
     const draft = Boolean(item["takos:draft"] ?? item.draft);
-    if (draft && item.actor !== c.env.auth.userId) continue;
+    if (draft && item.actor !== userId) continue;
     const existing = contexts.get(threadId);
     if (!existing || (existing.published || "").localeCompare(item.published || "") < 0) {
       contexts.set(threadId, item);
     }
-    if (contexts.size >= limit + offset) break;
   }
-  const slice = Array.from(contexts.values())
-    .sort((a, b) => (b.published || "").localeCompare(a.published || ""))
-    .slice(offset, offset + limit);
+
+  const now = new Date().toISOString();
+  const refs: DmThreadRef[] = [];
+  for (const [threadId, obj] of contexts.entries()) {
+    const { participants } = threadFromObject(obj);
+    const existing = await loadDmThread(env, threadId);
+    const createdAt = existing?.createdAt ?? now;
+    const createdBy = existing?.createdBy ?? userId;
+    const updatedAt = String(obj.published ?? now);
+    const thread: DmThread = {
+      id: threadId,
+      participants,
+      createdAt,
+      createdBy,
+      updatedAt,
+      lastMessageId: obj.local_id ?? obj.id ?? undefined,
+    };
+    await saveDmThread(env, thread);
+    refs.push({ threadId, updatedAt });
+  }
+
+  if (refs.length) {
+    refs.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    await saveDmThreadRefs(env, userId, refs);
+  }
+};
+
+// DM APIs implemented in App layer using /objects endpoints + App State (KV).
+router.get("/dm/threads", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const userId = ensureAuthUserId(c.env);
+  const query = parseQuery(c.req.raw);
+  const { limit, offset } = parsePagination(query, { limit: 20, offset: 0 });
+
+  let refs = await loadDmThreadRefs(c.env, userId);
+  if (!refs.length) {
+    await migrateThreadsFromObjects(c.env, userId, Math.max(1, (limit + offset) * 25));
+    refs = await loadDmThreadRefs(c.env, userId);
+  }
+
+  refs.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const slice = refs.slice(offset, offset + limit);
+
   const threads = [];
-  for (const obj of slice) {
-    const { threadId, participants } = threadFromObject(obj);
-    const threadRes = await c.env.fetch(`/objects/thread/${encodeURIComponent(threadId)}`);
-    const messages = threadRes.ok ? await readCoreData<any[]>(threadRes) : [];
-    const visible = filterMessagesForUser(messages, c.env.auth.userId);
+  for (const ref of slice) {
+    const threadId = ref.threadId;
+    const thread = await loadDmThread(c.env, threadId);
+    const objects = await fetchThreadObjects(c.env, threadId);
+    const visible = filterMessagesForUser(objects, userId);
     const latest = visible[visible.length - 1] ?? null;
+    const readStateRaw = await c.env.storage.get<unknown>(dmReadKey(threadId));
+    const readState = parseMaybeJson<DmReadState>(readStateRaw);
+    const participants =
+      thread?.participants?.length
+        ? thread.participants
+        : objects.length
+          ? threadFromObject(objects[0]).participants
+          : [];
+
+    if (!thread && participants.length >= 2) {
+      const now = new Date().toISOString();
+      await saveDmThread(c.env, {
+        id: threadId,
+        participants,
+        createdBy: userId,
+        createdAt: now,
+        updatedAt: ref.updatedAt || now,
+        lastMessageId: latest ? String(latest.local_id ?? latest.id ?? "") || undefined : undefined,
+      });
+    }
+
     threads.push({
       id: threadId,
       participants,
-      created_at: (latest?.published as string) ?? obj.published ?? new Date().toISOString(),
+      created_at: ref.updatedAt,
       latest_message: latest ? toDmMessage(latest) : null,
+      read_at: readState?.readAt ?? null,
+      read_message_id: readState?.messageId ?? null,
     });
   }
+
   return json({ threads, next_offset: threads.length < limit ? null : offset + threads.length });
 });
 
 router.get("/dm/threads/:threadId/messages", async (c) => {
   if (!c.env.auth) return error("Unauthorized", 401);
+  const userId = ensureAuthUserId(c.env);
   const query = parseQuery(c.req.raw);
   const { limit, offset } = parsePagination(query, { limit: 50, offset: 0 });
   const threadId = c.req.param("threadId");
-  const res = await c.env.fetch(`/objects/thread/${encodeURIComponent(threadId)}`);
-  if (!res.ok) return error("Thread not found", res.status);
-  const messages = await readCoreData<any[]>(res);
-  const filtered = filterMessagesForUser(messages, c.env.auth.userId);
+  const thread = await loadDmThread(c.env, threadId);
+  if (thread && !thread.participants.includes(userId)) return error("Forbidden", 403);
+
+  const messages = await fetchThreadObjects(c.env, threadId);
+  if (!thread && messages.length) {
+    const inferred = participantsFromObject(messages[0]);
+    if (inferred.length && !inferred.includes(userId)) return error("Forbidden", 403);
+  }
+  if (!messages.length && !thread) return error("Thread not found", 404);
+
+  const filtered = filterMessagesForUser(messages, userId);
   const sliced = filtered.slice(offset, offset + limit);
   return json({
     messages: sliced.map(toDmMessage),
@@ -270,21 +1020,36 @@ router.get("/dm/threads/:threadId/messages", async (c) => {
 
 router.get("/dm/with/:handle", async (c) => {
   if (!c.env.auth) return error("Unauthorized", 401);
-  const other = c.req.param("handle");
-  const participants = canonicalizeParticipants([other, c.env.auth.userId].filter(Boolean));
+  const userId = ensureAuthUserId(c.env);
+  const otherRaw = c.req.param("handle");
+  const other = await resolveParticipantId(c.env, otherRaw);
+  const participants = canonicalizeParticipants([other, userId].filter(Boolean));
   const threadId = computeParticipantsHash(participants);
-  const res = await c.env.fetch(`/objects/thread/${encodeURIComponent(threadId)}`);
-  const messages = res.ok ? await readCoreData<any[]>(res) : [];
-  const visible = filterMessagesForUser(messages, c.env.auth.userId);
-  return json({ threadId, messages: visible.map(toDmMessage) });
+  const now = new Date().toISOString();
+  const existing = await loadDmThread(c.env, threadId);
+  if (!existing) {
+    await saveDmThread(c.env, {
+      id: threadId,
+      participants,
+      createdBy: userId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await bumpDmThreadRef(c.env, userId, threadId, now);
+  }
+
+  const messages = await fetchThreadObjects(c.env, threadId);
+  const visible = filterMessagesForUser(messages, userId);
+  return json({ threadId, participants, messages: visible.map(toDmMessage) });
 });
 
 router.post("/dm/send", async (c) => {
   if (!c.env.auth) return error("Unauthorized", 401);
-  const auth = c.env.auth;
+  const userId = ensureAuthUserId(c.env);
   const body = await parseBody<any>(c.req.raw).catch(() => ({}));
   const content = String(body.content ?? "").trim();
   if (!content) return error("content is required", 400);
+  const threadIdParam = String(body.thread_id ?? body.threadId ?? "").trim() || undefined;
   const participantsRaw = Array.isArray(body.recipients)
     ? body.recipients
     : body.recipient
@@ -292,10 +1057,27 @@ router.post("/dm/send", async (c) => {
       : Array.isArray(body.participants)
         ? body.participants
         : [];
-  const participants = canonicalizeParticipants([...participantsRaw, auth.userId].filter(Boolean));
+
+  const resolvedParticipants = await Promise.all(
+    participantsRaw.map((p: any) => resolveParticipantId(c.env, String(p ?? ""))),
+  );
+  const participants = canonicalizeParticipants([...resolvedParticipants, userId].filter(Boolean));
   if (participants.length < 2) return error("At least one other participant is required", 400);
-  const threadId = body.thread_id || computeParticipantsHash(participants);
-  const recipients = body.draft ? [auth.userId] : participants.filter((p) => p !== auth.userId);
+
+  const threadId = threadIdParam || computeParticipantsHash(participants);
+  const now = new Date().toISOString();
+
+  const existingThread = await loadDmThread(c.env, threadId);
+  const thread: DmThread = existingThread ?? {
+    id: threadId,
+    participants,
+    createdBy: userId,
+    createdAt: now,
+    updatedAt: now,
+  };
+  if (!thread.participants.includes(userId)) return error("Forbidden", 403);
+
+  const recipients = body.draft ? [userId] : thread.participants.filter((p) => p !== userId);
   const apObject = {
     type: "Note",
     content,
@@ -305,8 +1087,8 @@ router.post("/dm/send", async (c) => {
     bto: [],
     bcc: [],
     inReplyTo: body.in_reply_to ?? body.inReplyTo ?? null,
-    context: threadId,
-    "takos:participants": participants,
+    context: getThreadContextId(threadId),
+    "takos:participants": thread.participants,
     "takos:draft": Boolean(body.draft),
     attachment: Array.isArray(body.media_ids)
       ? body.media_ids.map((url: string) => ({ type: "Document", url }))
@@ -319,14 +1101,32 @@ router.post("/dm/send", async (c) => {
   });
   if (!res.ok) return error("Failed to send message", res.status);
   const created = await readCoreData<any>(res);
+  const updatedAt = String(created?.published ?? now);
+  thread.updatedAt = updatedAt;
+  thread.lastMessageId = created.local_id ?? created.id ?? undefined;
+  await saveDmThread(c.env, thread);
+  await bumpDmThreadRef(c.env, userId, threadId, updatedAt);
   return json(toDmMessage(created), { status: 201 });
 });
 
 router.post("/dm/threads/:threadId/read", async (c) => {
   if (!c.env.auth) return error("Unauthorized", 401);
+  const userId = ensureAuthUserId(c.env);
   const threadId = c.req.param("threadId");
   const body = await parseBody<any>(c.req.raw).catch(() => ({}));
-  return json({ thread_id: threadId, message_id: body.message_id ?? body.messageId, read_at: new Date().toISOString() });
+  const thread = await loadDmThread(c.env, threadId);
+  if (thread && !thread.participants.includes(userId)) return error("Forbidden", 403);
+  if (!thread) {
+    const messages = await fetchThreadObjects(c.env, threadId);
+    if (!messages.length) return error("Thread not found", 404);
+    const inferred = participantsFromObject(messages[0]);
+    if (inferred.length && !inferred.includes(userId)) return error("Forbidden", 403);
+  }
+  const readAt = new Date().toISOString();
+  const messageIdRaw = body.message_id ?? body.messageId ?? null;
+  const state: DmReadState = { messageId: messageIdRaw ? String(messageIdRaw) : undefined, readAt };
+  await c.env.storage.set(dmReadKey(threadId), state);
+  return json({ thread_id: threadId, message_id: state.messageId ?? null, read_at: readAt });
 });
 
 router.delete("/dm/messages/:messageId", async (c) => {

@@ -4,6 +4,7 @@ import {
   ACTIVITYSTREAMS_CONTEXT,
   SECURITY_CONTEXT,
   fail,
+  HttpError,
   generateNoteObject,
   generatePersonActor,
   getActivityUri,
@@ -18,6 +19,7 @@ import {
 } from "@takos/platform/server";
 import { makeData } from "../data";
 import { auth } from "../middleware/auth";
+import { ErrorCodes } from "../lib/error-codes";
 
 type ExportOptions = {
   format: "json" | "activitypub";
@@ -264,7 +266,7 @@ async function loadBaseUserData(
 ): Promise<BaseUserData> {
   const profile = await store.getUser(userId);
   if (!profile) {
-    throw new Error("user not found");
+    throw new HttpError(404, ErrorCodes.USER_NOT_FOUND, "User not found", { userId });
   }
   const posts = await store.listPostsByAuthors([userId], true);
   const friends = await store.listFriends(userId);
@@ -599,7 +601,7 @@ async function putJsonArtifact(
   payload: any,
 ): Promise<ArtifactRef> {
   if (!env.MEDIA) {
-    throw new Error("media storage not configured for exports");
+    throw new HttpError(500, ErrorCodes.CONFIGURATION_ERROR, "Media storage not configured");
   }
   const body = JSON.stringify(payload, null, 2);
   await env.MEDIA.put(key, body, {
@@ -666,7 +668,7 @@ exportsRoute.get("/exports/:id", auth, async (c) => {
     const user = c.get("user") as any;
     const request = await store.getExportRequest(c.req.param("id"));
     if (!request) return fail(c, "export not found", 404);
-    if (request.user_id !== user.id) return fail(c, "forbidden", 403);
+    if (request.user_id !== user.id) return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN });
     return ok(c, request);
   } finally {
     await releaseStore(store);
@@ -682,7 +684,7 @@ exportsRoute.post("/admin/exports/:id/retry", auth, async (c) => {
     }
     const user = c.get("user") as any;
     if (!isAdminUser(user, c.env as Bindings)) {
-      return fail(c, "forbidden", 403);
+      return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN });
     }
     const requestId = c.req.param("id");
     const current = await store.getExportRequest(requestId);
@@ -980,7 +982,7 @@ exportsRoute.get("/exports/:id/artifacts", auth, async (c) => {
     const user = c.get("user") as any;
     const request = await store.getExportRequest(c.req.param("id"));
     if (!request) return fail(c, "export not found", 404);
-    if (request.user_id !== user.id) return fail(c, "forbidden", 403);
+    if (request.user_id !== user.id) return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN });
     if (request.status !== "completed") {
       return fail(c, "export not completed", 400);
     }
@@ -1073,7 +1075,7 @@ exportsRoute.get("/exports/:id/media-urls", auth, async (c) => {
     const user = c.get("user") as any;
     const request = await store.getExportRequest(c.req.param("id"));
     if (!request) return fail(c, "export not found", 404);
-    if (request.user_id !== user.id) return fail(c, "forbidden", 403);
+    if (request.user_id !== user.id) return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN });
     if (request.status !== "completed") {
       return fail(c, "export not completed", 400);
     }
@@ -1123,7 +1125,7 @@ exportsRoute.get("/exports/:id/dm-threads", auth, async (c) => {
     const user = c.get("user") as any;
     const request = await store.getExportRequest(c.req.param("id"));
     if (!request) return fail(c, "export not found", 404);
-    if (request.user_id !== user.id) return fail(c, "forbidden", 403);
+    if (request.user_id !== user.id) return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN });
     if (request.status !== "completed") {
       return fail(c, "export not completed", 400);
     }

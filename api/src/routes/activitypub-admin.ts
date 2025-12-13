@@ -15,6 +15,7 @@ import { buildRuntimeConfig, loadStoredConfig } from "../lib/config-utils";
 import { guardAgentRequest } from "../lib/agent-guard";
 import { persistConfigWithReloadGuard } from "../lib/config-reload";
 import { enforceAgentConfigAllowlist, getAgentConfigAllowlist } from "../lib/agent-config-allowlist";
+import { ErrorCodes } from "../lib/error-codes";
 
 type ConfigSource = "stored" | "runtime";
 
@@ -141,7 +142,7 @@ const activityPubAdminRoutes = new Hono<{ Bindings: Bindings; Variables: Variabl
 activityPubAdminRoutes.use("/admin/activitypub/*", auth, async (c, next) => {
   const user = c.get("user") as any;
   if (!isAdminUser(user, c.env as Bindings)) {
-    return fail(c, "forbidden", 403);
+    return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN });
   }
   await next();
 });

@@ -24,6 +24,13 @@ const textEncoder = new TextEncoder();
 
 const normalizeVfsPath = (path: string): string => path.replace(/^\/+/, "").trim();
 
+const parentDirectory = (path: string): string => {
+  const normalized = normalizeVfsPath(path);
+  if (!normalized) return "/";
+  const idx = normalized.lastIndexOf("/");
+  return idx <= 0 ? "/" : normalized.slice(0, idx);
+};
+
 const extractPathFromUrl = (c: any, workspaceId: string, type: "files" | "dirs"): string => {
   const pathname = decodeURIComponent(new URL(c.req.url).pathname);
   const prefix = `/-/dev/vfs/${workspaceId}/${type}/`;
@@ -183,6 +190,29 @@ const buildCacheControlFromLimits = (limits: WorkspaceLimitSet): string | undefi
   }
   return undefined;
 };
+
+const mapWorkspaceFileEntry = (file: WorkspaceFileRecord) => ({
+  type: "file" as const,
+  path: file.path,
+  content_type: file.content_type,
+  content_hash: file.content_hash ?? null,
+  storage_key: file.storage_key ?? null,
+  size: file.size ?? file.content?.byteLength ?? 0,
+  directory_path: (file as any).directory_path ?? undefined,
+  is_cache: (file as any).is_cache ?? undefined,
+  created_at: file.created_at,
+  updated_at: file.updated_at,
+});
+
+const mapDirectoryEntry = (dir: any) => ({
+  type: "dir" as const,
+  workspace_id: dir.workspace_id,
+  path: dir.path,
+  name: dir.name,
+  parent_path: dir.parent_path,
+  created_at: dir.created_at,
+  updated_at: dir.updated_at,
+});
 
 const appVfs = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -496,38 +526,54 @@ const listDirectories = async (c: any, rawPath: string) => {
   if (!ctx.ok) return ctx.response;
   const { store } = ctx.value;
 
-  const now = new Date().toISOString();
-  const buildFromFiles = async () => {
-    if (typeof store.listWorkspaceFiles !== "function") return [];
-    const files = await store.listWorkspaceFiles(workspaceId);
-    const prefix = dirPath === "/" ? "" : `${normalizeVfsPath(dirPath)}/`;
+  const usage = await computeWorkspaceUsage(store, workspaceId);
+  const normalizedDir = normalizeVfsPath(dirPath) || "/";
+  const filePrefix = normalizedDir === "/" ? "" : `${normalizedDir}/`;
+
+  const files =
+    typeof store.listWorkspaceFiles === "function"
+      ? await store.listWorkspaceFiles(workspaceId, filePrefix)
+      : [];
+  const childFiles = files.filter((file) => {
+    const directoryPath = (file as any).directory_path ?? parentDirectory(file.path);
+    return (normalizeVfsPath(directoryPath) || "/") === normalizedDir;
+  });
+
+  const buildDirsFromFiles = (source: WorkspaceFileRecord[]) => {
+    const now = new Date().toISOString();
     const seen = new Set<string>();
     const dirs: any[] = [];
-    for (const file of files) {
+    for (const file of source) {
       const normalizedPath = normalizeVfsPath(file.path || "");
-      if (!normalizedPath.startsWith(prefix)) continue;
-      const remainder = normalizedPath.slice(prefix.length);
+      if (!normalizedPath.startsWith(filePrefix)) continue;
+      const remainder = normalizedPath.slice(filePrefix.length);
+      if (!remainder.includes("/")) continue;
       const segment = remainder.split("/")[0];
       if (!segment) continue;
-      const full = prefix ? `${prefix}${segment}` : segment;
+      const full = filePrefix ? `${filePrefix}${segment}` : segment;
       const normalizedFull = normalizeVfsPath(full);
-      if (!seen.has(normalizedFull)) {
-        seen.add(normalizedFull);
-        dirs.push(buildDirectoryInfo(workspaceId, normalizedFull, now));
-      }
-    }
-    if (dirPath === "/" && !seen.has("/")) {
-      dirs.unshift(buildDirectoryInfo(workspaceId, "/", now));
+      if (seen.has(normalizedFull)) continue;
+      seen.add(normalizedFull);
+      dirs.push(buildDirectoryInfo(workspaceId, normalizedFull, now));
     }
     return dirs;
   };
 
-  if (typeof store.listDirectories !== "function") {
-    const dirs = await buildFromFiles();
-    return ok(c as any, { workspace_id: workspaceId, path: dirPath, dirs });
-  }
-  const dirs = await store.listDirectories(workspaceId, dirPath);
-  return ok(c as any, { workspace_id: workspaceId, path: dirPath, dirs });
+  const dirs =
+    typeof store.listDirectories === "function"
+      ? await store.listDirectories(workspaceId, normalizedDir)
+      : buildDirsFromFiles(await store.listWorkspaceFiles(workspaceId));
+
+  const entries = [...dirs.map(mapDirectoryEntry), ...childFiles.map(mapWorkspaceFileEntry)];
+
+  return ok(c as any, {
+    workspace_id: workspaceId,
+    path: normalizedDir,
+    dirs,
+    files: childFiles.map(mapWorkspaceFileEntry),
+    entries,
+    usage,
+  });
 };
 
 appVfs.get("/-/dev/vfs/:workspaceId/dirs", async (c) => {

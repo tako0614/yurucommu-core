@@ -8,6 +8,7 @@ import type { AuthenticatedUser } from "../lib/auth-context-model";
 import { buildAuthContext, resolvePlanFromEnv } from "../lib/auth-context-model";
 import { createJwtStoreAdapter } from "../lib/jwt-store";
 import { logEvent } from "../lib/observability";
+import { ErrorCodes } from "../lib/error-codes";
 
 export const ACTIVE_USER_COOKIE_NAME = "activeUserId";
 export const ACTIVE_USER_HEADER_NAME = "x-active-user-id";
@@ -145,6 +146,44 @@ const logAuthEvent = (
 
 const elapsedMs = (started: number) => Number((performance.now() - started).toFixed(2));
 
+const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const encoded = parts[1] || "";
+  const normalized = encoded.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
+  try {
+    const json =
+      typeof atob === "function"
+        ? atob(padded)
+        : typeof Buffer !== "undefined"
+          ? Buffer.from(padded, "base64").toString("utf-8")
+          : "";
+    if (!json) return null;
+    const payload = JSON.parse(json) as Record<string, unknown>;
+    return payload && typeof payload === "object" ? payload : null;
+  } catch {
+    return null;
+  }
+};
+
+const classifyBearerTokenFailure = (c: any): { code: string; details?: Record<string, unknown> } | null => {
+  const header = c.req.header("authorization") || c.req.header("Authorization") || "";
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  const token = match?.[1]?.trim();
+  if (!token) return null;
+
+  const payload = decodeJwtPayload(token);
+  const exp = typeof payload?.exp === "number" ? payload.exp : typeof payload?.exp === "string" ? Number(payload.exp) : null;
+  if (typeof exp === "number" && Number.isFinite(exp)) {
+    const now = Math.floor(Date.now() / 1000);
+    if (exp < now) {
+      return { code: ErrorCodes.TOKEN_EXPIRED, details: { exp, now } };
+    }
+  }
+  return { code: ErrorCodes.INVALID_TOKEN };
+};
+
 // Unified auth: prefer session (owner password) then fall back to JWT bearer tokens.
 export const authenticateUser = async (c: any, store: any): Promise<AuthenticatedUser | null> => {
   const path = new URL(c.req.url).pathname;
@@ -215,9 +254,10 @@ export const auth = async (c: any, next: () => Promise<void>) => {
         method,
         plan: plan.name,
       });
+      const bearerFailure = classifyBearerTokenFailure(c);
       return fail(c, "Authentication required", 401, {
-        code: "UNAUTHORIZED",
-        details: { path, method, plan: plan.name },
+        code: bearerFailure?.code ?? ErrorCodes.UNAUTHORIZED,
+        details: { path, method, plan: plan.name, ...(bearerFailure?.details ?? {}) },
       });
     }
     const authContext = buildAuthContext(authResult, plan);

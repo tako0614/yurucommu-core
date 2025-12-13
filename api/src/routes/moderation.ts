@@ -15,6 +15,7 @@ import {
 } from "@takos/platform/server";
 import { makeData } from "../data";
 import { auth } from "../middleware/auth";
+import { ErrorCodes } from "../lib/error-codes";
 
 const moderation = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -110,7 +111,7 @@ moderation.get("/admin/reports", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
     const user = c.get("user") as any;
-    if (!isAdminUser(user, c.env as Bindings)) return fail(c, "forbidden", 403);
+    if (!isAdminUser(user, c.env as Bindings)) return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN });
     if (!store.listReports) return fail(c, "reports not available", 500);
     const status = c.req.query("status") || undefined;
     if (status && !REPORT_STATUSES.has(status)) {
@@ -129,7 +130,7 @@ moderation.patch("/admin/reports/:id", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
     const user = c.get("user") as any;
-    if (!isAdminUser(user, c.env as Bindings)) return fail(c, "forbidden", 403);
+    if (!isAdminUser(user, c.env as Bindings)) return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN });
     if (!store.updateReportStatus) return fail(c, "reports not available", 500);
     const reportId = c.req.param("id");
     const body = (await c.req.json().catch(() => ({}))) as any;

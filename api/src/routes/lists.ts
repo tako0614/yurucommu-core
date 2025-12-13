@@ -13,6 +13,7 @@ import {
 } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
 import { makeData } from "../data";
+import { ErrorCodes } from "../lib/error-codes";
 
 const lists = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -24,10 +25,20 @@ async function assertListAccess(
 ) {
   const list = await store.getList(listId);
   if (!list) {
-    return { status: 404, message: "list not found" } as const;
+    return {
+      status: 404,
+      code: ErrorCodes.NOT_FOUND,
+      message: "List not found",
+      details: { listId },
+    } as const;
   }
   if (!list.is_public && list.owner_id !== viewerId) {
-    return { status: 403, message: "forbidden" } as const;
+    return {
+      status: 403,
+      code: ErrorCodes.FORBIDDEN,
+      message: "Forbidden",
+      details: { listId },
+    } as const;
   }
   return { list };
 }
@@ -115,12 +126,12 @@ lists.get("/lists/:id", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
     const user = c.get("user") as any;
-    const { list, status, message } = await assertListAccess(
+    const { list, status, code, message, details } = await assertListAccess(
       store,
       c.req.param("id"),
       user.id,
     );
-    if (!list) return fail(c, message ?? "forbidden", status ?? 403);
+    if (!list) return fail(c, message ?? "Forbidden", status ?? 403, { code, details });
     const members = await store.listMembersByList(list.id);
     return ok(c, { ...list, members });
   } finally {
@@ -135,8 +146,8 @@ lists.patch("/lists/:id", auth, async (c) => {
     const user = c.get("user") as any;
     const listId = c.req.param("id");
     const list = await store.getList(listId);
-    if (!list) return fail(c, "list not found", 404);
-    if (list.owner_id !== user.id) return fail(c, "forbidden", 403);
+    if (!list) return fail(c, "List not found", 404, { code: ErrorCodes.NOT_FOUND, details: { listId } });
+    if (list.owner_id !== user.id) return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN, details: { listId } });
     const body = (await c.req.json().catch(() => ({}))) as any;
     const fields: any = {};
     if (body.name !== undefined) fields.name = String(body.name || "");
@@ -158,14 +169,14 @@ lists.post("/lists/:id/members", auth, async (c) => {
     const user = c.get("user") as any;
     const listId = c.req.param("id");
     const list = await store.getList(listId);
-    if (!list) return fail(c, "list not found", 404);
-    if (list.owner_id !== user.id) return fail(c, "forbidden", 403);
+    if (!list) return fail(c, "List not found", 404, { code: ErrorCodes.NOT_FOUND, details: { listId } });
+    if (list.owner_id !== user.id) return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN, details: { listId } });
     const body = (await c.req.json().catch(() => ({}))) as any;
     const targetUserId = String(body.user_id || "").trim();
     if (!targetUserId) return fail(c, "user_id is required", 400);
 
     const resolved = await resolveUserIdToActor(store, c.env, targetUserId);
-    if (!resolved) return fail(c, "user not found", 404);
+    if (!resolved) return fail(c, "User not found", 404, { code: ErrorCodes.USER_NOT_FOUND, details: { userId: targetUserId } });
 
     await store.addListMember({
       list_id: listId,
@@ -186,8 +197,8 @@ lists.delete("/lists/:id/members/:userId", auth, async (c) => {
     const user = c.get("user") as any;
     const listId = c.req.param("id");
     const list = await store.getList(listId);
-    if (!list) return fail(c, "list not found", 404);
-    if (list.owner_id !== user.id) return fail(c, "forbidden", 403);
+    if (!list) return fail(c, "List not found", 404, { code: ErrorCodes.NOT_FOUND, details: { listId } });
+    if (list.owner_id !== user.id) return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN, details: { listId } });
     const targetUserId = c.req.param("userId");
     await store.removeListMember(listId, targetUserId);
     const members = await store.listMembersByList(listId);
@@ -202,12 +213,12 @@ lists.get("/lists/:id/timeline", auth, async (c) => {
   const store = makeData(c.env as any, c);
   try {
     const user = c.get("user") as any;
-    const { list, status, message } = await assertListAccess(
+    const { list, status, code, message, details } = await assertListAccess(
       store,
       c.req.param("id"),
       user.id,
     );
-    if (!list) return fail(c, message ?? "forbidden", status ?? 403);
+    if (!list) return fail(c, message ?? "Forbidden", status ?? 403, { code, details });
     const members = await store.listMembersByList(list.id);
     const authorIds = Array.from(
       new Set<string>([list.owner_id, ...members.map((m: any) => m.user_id)]),
