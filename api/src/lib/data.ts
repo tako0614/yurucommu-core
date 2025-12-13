@@ -526,20 +526,29 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   };
 
   const areFriends = async (userId1: string, userId2: string) => {
-    const follow1 = await (prisma as any).follows.findUnique({
-      where: { follower_id_following_id: { follower_id: userId1, following_id: userId2 } },
-    });
-    const follow2 = await (prisma as any).follows.findUnique({
-      where: { follower_id_following_id: { follower_id: userId2, following_id: userId1 } },
-    });
-    return !!(follow1 && follow2 && follow1.status === "accepted" && follow2.status === "accepted");
+    const [follow1, follow2] = await Promise.all([
+      (prisma as any).ap_follows.findFirst?.({
+        where: { local_user_id: userId1, remote_actor_id: userId2, status: "accepted" },
+      }),
+      (prisma as any).ap_follows.findFirst?.({
+        where: { local_user_id: userId2, remote_actor_id: userId1, status: "accepted" },
+      }),
+    ]);
+    return !!(follow1 && follow2);
   };
 
   const listFriends = async (userId: string) => {
-    const rows = await (prisma as any).follows.findMany({
-      where: { follower_id: userId, status: "accepted" },
-    });
-    return rows.map((r: any) => r.following_id);
+    const outgoing = (await (prisma as any).ap_follows.findMany?.({
+      where: { local_user_id: userId, status: "accepted" },
+    })) as any[] | undefined;
+    const outgoingIds = (outgoing ?? []).map((r) => r.remote_actor_id).filter(Boolean);
+    if (!outgoingIds.length) return [];
+
+    const incoming = (await (prisma as any).ap_follows.findMany?.({
+      where: { local_user_id: { in: outgoingIds }, remote_actor_id: userId, status: "accepted" },
+    })) as any[] | undefined;
+    const incomingSet = new Set((incoming ?? []).map((r) => r.local_user_id).filter(Boolean));
+    return outgoingIds.filter((id) => incomingSet.has(id));
   };
 
   const listFollowers = async (userId: string, limit = 20, offset = 0) => {
@@ -1134,11 +1143,87 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       create: { id: 1, password_hash: hash, updated_at: new Date() },
     });
 
+  const getPostPlanQueueHealth = async (): Promise<Types.PostPlanQueueHealth> => {
+    const now = new Date();
+    const [scheduled, due, failed, oldestDue, lastFailed] = await Promise.all([
+      (prisma as any).post_plans.count?.({ where: { status: "scheduled" } }) ?? 0,
+      (prisma as any).post_plans.count?.({
+        where: {
+          status: "scheduled",
+          post_id: null,
+          scheduled_at: { lte: now },
+        },
+      }) ?? 0,
+      (prisma as any).post_plans.count?.({ where: { status: "failed" } }) ?? 0,
+      (prisma as any).post_plans.findFirst?.({
+        where: { status: "scheduled", post_id: null, scheduled_at: { lte: now } },
+        orderBy: { scheduled_at: "asc" },
+        select: { scheduled_at: true },
+      }),
+      (prisma as any).post_plans.findFirst?.({
+        where: { status: "failed" },
+        orderBy: { updated_at: "desc" },
+        select: { updated_at: true, last_error: true },
+      }),
+    ]);
+
+    const oldestDueAt = oldestDue?.scheduled_at instanceof Date ? oldestDue.scheduled_at : null;
+    const maxDelayMs = oldestDueAt ? Math.max(0, now.getTime() - oldestDueAt.getTime()) : 0;
+    const lastFailedAt = lastFailed?.updated_at instanceof Date ? lastFailed.updated_at : null;
+    const lastError = typeof lastFailed?.last_error === "string" ? lastFailed.last_error : null;
+
+    return {
+      scheduled: Number(scheduled) || 0,
+      due: Number(due) || 0,
+      failed: Number(failed) || 0,
+      oldest_due_at: oldestDueAt ? oldestDueAt.toISOString() : null,
+      max_delay_ms: maxDelayMs,
+      last_failed_at: lastFailedAt ? lastFailedAt.toISOString() : null,
+      last_error: lastError,
+    };
+  };
+
+  const getApDeliveryQueueHealth = async (): Promise<Types.ApDeliveryQueueHealth> => {
+    const now = new Date();
+    const [pending, processing, failed, delivered, oldestPending, lastFailed] = await Promise.all([
+      (prisma as any).ap_delivery_queue.count?.({ where: { status: "pending" } }) ?? 0,
+      (prisma as any).ap_delivery_queue.count?.({ where: { status: "processing" } }) ?? 0,
+      (prisma as any).ap_delivery_queue.count?.({ where: { status: "failed" } }) ?? 0,
+      (prisma as any).ap_delivery_queue.count?.({ where: { status: "delivered" } }) ?? 0,
+      (prisma as any).ap_delivery_queue.findFirst?.({
+        where: { status: { in: ["pending", "processing"] } },
+        orderBy: { created_at: "asc" },
+        select: { created_at: true },
+      }),
+      (prisma as any).ap_delivery_queue.findFirst?.({
+        where: { status: "failed" },
+        orderBy: { last_attempt_at: "desc" },
+        select: { last_attempt_at: true, last_error: true },
+      }),
+    ]);
+
+    const oldestPendingAt = oldestPending?.created_at instanceof Date ? oldestPending.created_at : null;
+    const maxDelayMs = oldestPendingAt ? Math.max(0, now.getTime() - oldestPendingAt.getTime()) : 0;
+    const lastFailedAt = lastFailed?.last_attempt_at instanceof Date ? lastFailed.last_attempt_at : null;
+    const lastError = typeof lastFailed?.last_error === "string" ? lastFailed.last_error : null;
+
+    return {
+      pending: Number(pending) || 0,
+      processing: Number(processing) || 0,
+      failed: Number(failed) || 0,
+      delivered: Number(delivered) || 0,
+      oldest_pending_at: oldestPendingAt ? oldestPendingAt.toISOString() : null,
+      max_delay_ms: maxDelayMs,
+      last_failed_at: lastFailedAt ? lastFailedAt.toISOString() : null,
+      last_error: lastError,
+    };
+  };
+
   const upsertApFollower = async (input: Types.ApFollowerInput) =>
     (prisma as any).ap_followers.upsert({
       where: {
-        local_actor_id_remote_actor_id: {
-          local_actor_id: input.local_actor_id ?? input.local_user_id,
+        local_user_id_remote_actor_id: {
+          local_user_id: input.local_user_id ?? input.local_actor_id,
           remote_actor_id: input.remote_actor_id,
         },
       },
@@ -1149,7 +1234,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       },
       create: {
         id: input.id ?? crypto.randomUUID(),
-        local_actor_id: input.local_actor_id ?? input.local_user_id,
+        local_user_id: input.local_user_id ?? input.local_actor_id,
         remote_actor_id: input.remote_actor_id,
         activity_id: input.activity_id,
         status: input.status,
@@ -1159,21 +1244,21 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
 
   const deleteApFollowers = async (local_user_id: string, remote_actor_id: string) =>
-    (prisma as any).ap_followers.deleteMany({ where: { local_actor_id: local_user_id, remote_actor_id } });
+    (prisma as any).ap_followers.deleteMany({ where: { local_user_id, remote_actor_id } });
 
   const findApFollower = async (local_user_id: string, remote_actor_id: string) =>
     (prisma as any).ap_followers.findUnique({
-      where: { local_actor_id_remote_actor_id: { local_actor_id: local_user_id, remote_actor_id } },
+      where: { local_user_id_remote_actor_id: { local_user_id, remote_actor_id } },
     });
 
   const countApFollowers = async (local_user_id: string, status?: string) =>
     (prisma as any).ap_followers.count({
-      where: { local_actor_id: local_user_id, status: status ?? undefined },
+      where: { local_user_id, status: status ?? undefined },
     });
 
   const listApFollowers = async (local_user_id: string, status?: string | null, limit = 50, offset = 0) =>
     (prisma as any).ap_followers.findMany({
-      where: { local_actor_id: local_user_id, status: status ?? undefined },
+      where: { local_user_id, status: status ?? undefined },
       take: limit,
       skip: offset,
     });
@@ -1181,8 +1266,8 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   const upsertApFollow = async (input: Types.ApFollowerInput) =>
     (prisma as any).ap_follows.upsert({
       where: {
-        local_actor_id_remote_actor_id: {
-          local_actor_id: input.local_actor_id ?? input.local_user_id,
+        local_user_id_remote_actor_id: {
+          local_user_id: input.local_user_id ?? input.local_actor_id,
           remote_actor_id: input.remote_actor_id,
         },
       },
@@ -1193,7 +1278,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       },
       create: {
         id: input.id ?? crypto.randomUUID(),
-        local_actor_id: input.local_actor_id ?? input.local_user_id,
+        local_user_id: input.local_user_id ?? input.local_actor_id,
         remote_actor_id: input.remote_actor_id,
         activity_id: input.activity_id,
         status: input.status,
@@ -1203,22 +1288,22 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     });
 
   const deleteApFollows = async (local_user_id: string, remote_actor_id: string) =>
-    (prisma as any).ap_follows.deleteMany({ where: { local_actor_id: local_user_id, remote_actor_id } });
+    (prisma as any).ap_follows.deleteMany({ where: { local_user_id, remote_actor_id } });
 
   const findApFollow = async (local_user_id: string, remote_actor_id: string) =>
     (prisma as any).ap_follows.findUnique({
-      where: { local_actor_id_remote_actor_id: { local_actor_id: local_user_id, remote_actor_id } },
+      where: { local_user_id_remote_actor_id: { local_user_id, remote_actor_id } },
     });
 
   const updateApFollowersStatus = async (local_user_id: string, remote_actor_id: string, status: string, accepted_at?: Date) =>
     (prisma as any).ap_followers.update({
-      where: { local_actor_id_remote_actor_id: { local_actor_id: local_user_id, remote_actor_id } },
+      where: { local_user_id_remote_actor_id: { local_user_id, remote_actor_id } },
       data: { status, accepted_at },
     });
 
   const updateApFollowsStatus = async (local_user_id: string, remote_actor_id: string, status: string, accepted_at?: Date) =>
     (prisma as any).ap_follows.update({
-      where: { local_actor_id_remote_actor_id: { local_actor_id: local_user_id, remote_actor_id } },
+      where: { local_user_id_remote_actor_id: { local_user_id, remote_actor_id } },
       data: { status, accepted_at },
     });
 
@@ -1357,7 +1442,6 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return { pending, delivered, failed };
   };
 
-  const getApDeliveryQueueHealth = async () => getApDeliveryQueueStats() as any;
   const getApInboxQueueHealth = async () => getApInboxStats() as any;
 
   const deleteOldRateLimits = async (key: string, windowStart: number) =>
@@ -1915,6 +1999,9 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     createPostEditHistory: async () => null,
     listPostEditHistory: async () => [],
     deletePost,
+
+    // Post plans
+    getPostPlanQueueHealth,
 
     // Polls
     createPoll: notImplemented,

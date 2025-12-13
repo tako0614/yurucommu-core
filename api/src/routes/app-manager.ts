@@ -34,6 +34,7 @@ import {
   ensureWithinWorkspaceLimits,
   resolveWorkspaceLimitsFromEnv,
 } from "../lib/workspace-limits";
+import adminAppRoutes from "./admin-app";
 import type {
   AppRevisionAuditDetails,
   AppRevisionAuditInput,
@@ -298,6 +299,10 @@ const validateWorkspaceManifest = async (
     fileMap[path] = normalizeWorkspaceFileContent(file?.content);
   }
 
+  if (!fileMap["manifest.json"] && fileMap["takos-app.json"]) {
+    fileMap["manifest.json"] = fileMap["takos-app.json"];
+  }
+
   const handlerInfo = detectWorkspaceHandlers(fileMap);
   issues.push(...handlerInfo.issues);
 
@@ -405,6 +410,8 @@ const extractHandlerNames = (payload: Record<string, unknown>): string[] => {
 const buildManifestFileMap = (manifest: Record<string, unknown>): Record<string, string> => {
   const files: Record<string, string> = {};
   const schemaVersion = normalizeSchemaVersionValue(manifest);
+  const withSchema = (payload: Record<string, unknown>): Record<string, unknown> =>
+    schemaVersion ? { schema_version: schemaVersion, ...payload } : payload;
   const root: Record<string, unknown> = {};
   if (schemaVersion !== undefined) {
     root.schema_version = schemaVersion;
@@ -414,16 +421,18 @@ const buildManifestFileMap = (manifest: Record<string, unknown>): Record<string,
   }
   if (Object.prototype.hasOwnProperty.call(manifest, "layout")) {
     root.layout = (manifest as any).layout;
+  } else {
+    root.layout = { base_dir: "app" };
   }
-  files["app/manifest.json"] = JSON.stringify(root);
+  files["manifest.json"] = JSON.stringify(root);
 
   if (Object.prototype.hasOwnProperty.call(manifest, "routes")) {
-    files["app/routes/manifest.json"] = JSON.stringify({ schema_version: schemaVersion, routes: (manifest as any).routes });
+    files["app/routes/manifest.json"] = JSON.stringify(withSchema({ routes: (manifest as any).routes }));
   }
 
   if (Object.prototype.hasOwnProperty.call(manifest, "views")) {
     const views = (manifest as any).views ?? {};
-    const viewFragment: Record<string, unknown> = {};
+    const viewFragment: Record<string, unknown> = withSchema({});
     if (Object.prototype.hasOwnProperty.call(views, "screens")) {
       viewFragment.screens = (views as any).screens;
     }
@@ -1798,5 +1807,7 @@ appManagerRoutes.post("/-/app/workspaces/:id/apply-patch", auth, requireAuthenti
     results,
   });
 });
+
+appManagerRoutes.route("/", adminAppRoutes);
 
 export default appManagerRoutes;

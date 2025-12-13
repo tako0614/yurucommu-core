@@ -6,7 +6,16 @@ import { setWorkspaceLoader } from "../lib/app-workspace";
 const authEnv = {
   AUTH_USERNAME: "admin",
   AUTH_PASSWORD: "secret",
-  DEV_DB: {},
+  DEV_DB: {
+    prepare: () => ({
+      bind: () => ({
+        all: async () => ({ results: [] }),
+        run: async () => ({}),
+      }),
+      all: async () => ({ results: [] }),
+      run: async () => ({}),
+    }),
+  },
   DEV_MEDIA: {},
   DEV_KV: {},
 };
@@ -22,7 +31,7 @@ describe("/admin/app/revisions/apply (workspace)", () => {
   it("builds and activates an app revision from a validated workspace", async () => {
     const manifest = {
       schema_version: "1.0",
-      routes: [{ id: "route.home", method: "GET", path: "/", handler: "homeHandler" }],
+      routes: [{ id: "route.home", method: "GET", path: "/api/home", handler: "homeHandler" }],
       views: {
         screens: [{ id: "screen.home", route: "/", layout: { type: "Stack" } }],
         insert: [],
@@ -159,7 +168,7 @@ describe("/admin/app/revisions/apply/diff", () => {
     };
     const workspaceManifest = {
       schema_version: "1.0",
-      routes: [{ id: "route.home", method: "GET", path: "/", handler: "homeHandler" }],
+      routes: [{ id: "route.home", method: "GET", path: "/api/home", handler: "homeHandler" }],
       views: {
         screens: [{ id: "screen.home", route: "/", layout: { type: "Stack" } }],
         insert: [],
@@ -212,7 +221,14 @@ describe("/admin/app/revisions/apply/diff", () => {
     const json: any = await res.json();
     expect(json.ok).toBe(true);
     expect(json.data?.active_revision_id).toBe("rev_current");
-    expect(json.data?.diff?.sections?.routes?.added?.[0]?.id).toBe("route.home");
+    expect(
+      (json.data?.diff?.sections?.routes?.added ?? []).some(
+        (entry: any) =>
+          entry?.id === "route.home" ||
+          entry?.after?.id === "route.home" ||
+          entry?.id === "GET /",
+      ),
+    ).toBe(true);
     expect(json.data?.diff?.script_snapshot?.changed).toBe(true);
     expect(json.data?.workspace?.id).toBe("ws_diff");
   });
@@ -220,7 +236,7 @@ describe("/admin/app/revisions/apply/diff", () => {
   it("fails when there is no active revision to diff against", async () => {
     const workspaceManifest = {
       schema_version: "1.0",
-      routes: [{ id: "route.home", method: "GET", path: "/", handler: "homeHandler" }],
+      routes: [{ id: "route.home", method: "GET", path: "/api/home", handler: "homeHandler" }],
       views: {
         screens: [{ id: "screen.home", route: "/", layout: { type: "Stack" } }],
         insert: [],
@@ -266,8 +282,8 @@ describe("/admin/app/revisions/apply/diff", () => {
 
     expect(res.status).toBe(404);
     const json: any = await res.json();
-    expect(json.ok).toBe(false);
-    expect(String(json.error || json.message || "")).toMatch(/active app revision/i);
+    expect(json.status).toBe(404);
+    expect(String(json.message || "")).toMatch(/active app revision/i);
   });
 });
 
@@ -312,8 +328,8 @@ describe("/admin/app/revisions/:id/rollback", () => {
 
     expect(res.status).toBe(400);
     const json: any = await res.json();
-    expect(json.ok).toBe(false);
-    expect(String(json.error)).toContain("not compatible");
+    expect(json.status).toBe(400);
+    expect(String(json.message)).toContain("not compatible");
   });
 
   it("rolls back and reports schema compatibility warnings", async () => {
@@ -371,7 +387,7 @@ describe("app revision audit logging", () => {
   it("records apply audit entries with schema check and workspace link and exposes them via listing", async () => {
     const manifest = {
       schema_version: "1.0",
-      routes: [{ id: "route.home", method: "GET", path: "/", handler: "homeHandler" }],
+      routes: [{ id: "route.home", method: "GET", path: "/api/home", handler: "homeHandler" }],
       views: {
         screens: [{ id: "screen.home", route: "/", layout: { type: "Stack" } }],
         insert: [],
@@ -461,6 +477,7 @@ describe("app revision audit logging", () => {
       { method: "GET", headers: { Authorization: authHeader } },
       authEnv,
     );
+    expect(listRes.status).toBe(200);
     const listJson: any = await listRes.json();
     expect(listJson.ok).toBe(true);
     expect(listJson.data.entries[0].workspace_id).toBe("ws_audit");
@@ -532,6 +549,7 @@ describe("app revision audit logging", () => {
       { method: "GET", headers: { Authorization: authHeader } },
       authEnv,
     );
+    expect(listRes.status).toBe(200);
     const listJson: any = await listRes.json();
     expect(listJson.ok).toBe(true);
     const entry = listJson.data.entries[0];

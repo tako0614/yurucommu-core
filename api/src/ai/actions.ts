@@ -498,7 +498,7 @@ const dmModeratorActionPolicy: Partial<EffectiveAiDataPolicy> = {
 };
 
 const ACTION_AGENT_ALLOWLIST: Partial<Record<string, AgentType[]>> = {
-  [DM_MODERATOR_ACTION_ID]: ["system", "user"],
+  [DM_MODERATOR_ACTION_ID]: ["system", "user", "dev"],
 };
 
 const ensureAgentAllowedForAction = (ctx: AiActionContext, actionId: string): void => {

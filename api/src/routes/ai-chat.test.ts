@@ -107,8 +107,8 @@ describe("/api/ai/chat", () => {
 
     expect(res.status).toBe(503);
     const json: any = await res.json();
-    expect(json.ok).toBe(false);
-    expect(String(json.error)).toMatch(/disabled/i);
+    expect(json.status).toBe(503);
+    expect(String(json.message)).toMatch(/disabled/i);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -131,8 +131,8 @@ describe("/api/ai/chat", () => {
 
     expect(res.status).toBe(503);
     const json: any = await res.json();
-    expect(json.ok).toBe(false);
-    expect(String(json.error)).toMatch(/network/i);
+    expect(json.status).toBe(503);
+    expect(String(json.message)).toMatch(/network/i);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -155,8 +155,8 @@ describe("/api/ai/chat", () => {
 
     expect(res.status).toBe(403);
     const json: any = await res.json();
-    expect(json.ok).toBe(false);
-    expect(String(json.error)).toMatch(/ai\.chat/i);
+    expect(json.status).toBe(403);
+    expect(String(json.message)).toMatch(/ai\.chat/i);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -180,8 +180,8 @@ describe("/api/ai/chat", () => {
 
     expect(res.status).toBe(403);
     const json: any = await res.json();
-    expect(json.ok).toBe(false);
-    expect(typeof json.error).toBe("string");
+    expect(json.status).toBe(403);
+    expect(typeof json.message).toBe("string");
   });
 
   it("blocks DM and profile payloads when AI data policy forbids them", async () => {
@@ -207,8 +207,8 @@ describe("/api/ai/chat", () => {
 
     expect(res.status).toBe(400);
     const json: any = await res.json();
-    expect(json.ok).toBe(false);
-    expect(String(json.error)).toMatch(/DataPolicyViolation/i);
+    expect(json.status).toBe(400);
+    expect(String(json.message)).toMatch(/DataPolicyViolation/i);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

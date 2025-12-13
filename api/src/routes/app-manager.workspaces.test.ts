@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import appManagerRoutes from "./app-manager";
-import { createJWT } from "@takos/platform/server";
+import { APP_MANIFEST_SCHEMA_VERSION, createJWT } from "@takos/platform/server";
 import { getDefaultDataFactory, setBackendDataFactory } from "../data";
 import type { AppWorkspaceRecord } from "../lib/types";
 
@@ -146,7 +146,12 @@ describe("/-/app/workspaces", () => {
 
     const workspaceStore = {
       async listWorkspaceFiles() {
-        return [buildWorkspaceFile("takos-app.json", JSON.stringify({ schema_version: "1.0.0" }))];
+        return [
+          buildWorkspaceFile(
+            "takos-app.json",
+            JSON.stringify({ schema_version: APP_MANIFEST_SCHEMA_VERSION }),
+          ),
+        ];
       },
     };
 
@@ -302,7 +307,7 @@ describe("/-/app/workspaces", () => {
   });
 
   it("enforces plan workspace limit", async () => {
-    const listAppWorkspaces = vi.fn(async () => [baseWorkspace]);
+    const listAppWorkspaces = vi.fn(async () => Array.from({ length: 5 }, () => baseWorkspace));
     const createAppWorkspace = vi.fn();
     setBackendDataFactory(() => withStore({ listAppWorkspaces, createAppWorkspace }));
 
@@ -313,7 +318,7 @@ describe("/-/app/workspaces", () => {
         headers: await authHeaders(),
         body: JSON.stringify({}),
       },
-      buildEnv({ PLAN: "free" }),
+      buildEnv({ PLAN: "pro" }),
     );
 
     expect(res.status).toBe(403);
@@ -333,7 +338,7 @@ describe("/-/app/workspaces", () => {
 
     setBackendDataFactory(() => withStore({}));
 
-    const largeContent = "x".repeat(120 * 1024);
+    const largeContent = "x".repeat(1_500_000);
     const res = await appManagerRoutes.request(
       `/-/app/workspaces/${baseWorkspace.id}/files`,
       {
@@ -341,7 +346,7 @@ describe("/-/app/workspaces", () => {
         headers: await authHeaders(),
         body: JSON.stringify({ path: "takos-app.json", content: largeContent }),
       },
-      { ...buildEnv({ PLAN: "free" }), workspaceStore },
+      { ...buildEnv({ PLAN: "pro" }), workspaceStore },
     );
 
     expect(res.status).toBe(413);
@@ -380,7 +385,7 @@ describe("/-/app/workspaces", () => {
 
     expect(res.status).toBe(200);
     const json: any = await res.json();
-    expect(json.cache?.path).toContain("demo");
+    expect(json.data?.cache?.path).toContain("demo");
     expect(saveCompileCache).toHaveBeenCalledWith(
       baseWorkspace.id,
       "demo",

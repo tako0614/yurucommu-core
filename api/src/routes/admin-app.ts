@@ -400,6 +400,8 @@ const extractHandlerNames = (payload: Record<string, unknown>): string[] => {
 const buildManifestFileMap = (manifest: Record<string, unknown>): Record<string, string> => {
   const files: Record<string, string> = {};
   const schemaVersion = normalizeSchemaVersionValue(manifest);
+  const withSchema = (payload: Record<string, unknown>): Record<string, unknown> =>
+    schemaVersion ? { schema_version: schemaVersion, ...payload } : payload;
   const root: Record<string, unknown> = {};
   if (schemaVersion !== undefined) {
     root.schema_version = schemaVersion;
@@ -409,16 +411,18 @@ const buildManifestFileMap = (manifest: Record<string, unknown>): Record<string,
   }
   if (Object.prototype.hasOwnProperty.call(manifest, "layout")) {
     root.layout = (manifest as any).layout;
+  } else {
+    root.layout = { base_dir: "app" };
   }
-  files["app/manifest.json"] = JSON.stringify(root);
+  files["manifest.json"] = JSON.stringify(root);
 
   if (Object.prototype.hasOwnProperty.call(manifest, "routes")) {
-    files["app/routes/manifest.json"] = JSON.stringify({ routes: (manifest as any).routes });
+    files["app/routes/manifest.json"] = JSON.stringify(withSchema({ routes: (manifest as any).routes }));
   }
 
   if (Object.prototype.hasOwnProperty.call(manifest, "views")) {
     const views = (manifest as any).views ?? {};
-    const viewFragment: Record<string, unknown> = {};
+    const viewFragment: Record<string, unknown> = withSchema({});
     if (Object.prototype.hasOwnProperty.call(views, "screens")) {
       viewFragment.screens = (views as any).screens;
     }
@@ -862,26 +866,6 @@ adminAppRoutes.get("/admin/app/revisions", async (c) => {
   }
 });
 
-adminAppRoutes.get("/admin/app/revisions/:id", async (c) => {
-  const id = (c.req.param("id") || "").trim();
-  if (!id) {
-    return fail(c as any, "revisionId is required", 400);
-  }
-  const store = makeData(c.env as any, c);
-  try {
-    if (!store.getAppRevision) {
-      return fail(c as any, "app revisions are not supported", 501);
-    }
-    const revision = await store.getAppRevision(id);
-    if (!revision) {
-      return fail(c as any, "revision not found", 404);
-    }
-    return ok(c as any, { revision });
-  } finally {
-    await releaseStore(store);
-  }
-});
-
 adminAppRoutes.get("/admin/app/revisions/audit", async (c) => {
   const store = makeData(c.env as any, c);
   try {
@@ -935,6 +919,26 @@ adminAppRoutes.get("/admin/app/revisions/diff", async (c) => {
   } catch (error) {
     console.error("failed to compute app revision diff", error);
     return fail(c as any, "failed to compute app revision diff", 500);
+  } finally {
+    await releaseStore(store);
+  }
+});
+
+adminAppRoutes.get("/admin/app/revisions/:id", async (c) => {
+  const id = (c.req.param("id") || "").trim();
+  if (!id) {
+    return fail(c as any, "revisionId is required", 400);
+  }
+  const store = makeData(c.env as any, c);
+  try {
+    if (!store.getAppRevision) {
+      return fail(c as any, "app revisions are not supported", 501);
+    }
+    const revision = await store.getAppRevision(id);
+    if (!revision) {
+      return fail(c as any, "revision not found", 404);
+    }
+    return ok(c as any, { revision });
   } finally {
     await releaseStore(store);
   }
