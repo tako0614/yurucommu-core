@@ -36,6 +36,13 @@ const parseTypes = (raw: string | null): string | string[] | undefined => {
   return parts.length === 1 ? parts[0] : parts;
 };
 
+const parseActors = (raw: string | null): string | string[] | undefined => {
+  if (!raw) return undefined;
+  const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
+  if (!parts.length) return undefined;
+  return parts.length === 1 ? parts[0] : parts;
+};
+
 const parseVisibilityList = (raw: string | null): string[] | undefined => {
   if (!raw) return undefined;
   const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
@@ -54,11 +61,12 @@ const parseLimitCursor = (url: URL, defaults = { limit: 20 }): { limit: number; 
 const buildQueryParams = (url: URL): ObjectQueryParams => {
   const { limit, cursor } = parseLimitCursor(url);
   const type = parseTypes(url.searchParams.get("type") || url.searchParams.get("types"));
+  const actor = parseActors(url.searchParams.get("actor") || url.searchParams.get("actors"));
   const visibilityRaw = url.searchParams.get("visibility");
   const visibility = visibilityRaw ? (visibilityRaw as any) : undefined;
   const params: ObjectQueryParams = {
     type,
-    actor: url.searchParams.get("actor") || undefined,
+    actor,
     context: url.searchParams.get("context") || undefined,
     visibility,
     inReplyTo: url.searchParams.get("in_reply_to") || url.searchParams.get("inReplyTo") || undefined,
@@ -79,11 +87,13 @@ const buildTimelineParams = (url: URL): ObjectTimelineParams => {
   const { limit, cursor } = parseLimitCursor(url);
   const type = parseTypes(url.searchParams.get("type") || url.searchParams.get("types"));
   const visibility = parseVisibilityList(url.searchParams.get("visibility")) as any;
+  const actor = parseActors(url.searchParams.get("actor") || url.searchParams.get("actors"));
   return {
     type,
     visibility,
     limit,
     cursor,
+    actor,
     communityId: url.searchParams.get("community_id") || url.searchParams.get("communityId") || undefined,
     listId: url.searchParams.get("list_id") || url.searchParams.get("listId") || undefined,
     onlyMedia: parseBool(url.searchParams.get("only_media")) ?? undefined,
@@ -138,7 +148,12 @@ const registerRoutes = (basePath: "" | "/-/api") => {
       const service = createObjectService(c.env);
       const authCtx = ensureAuth(getAppAuthContext(c));
       const obj = await service.get(authCtx, c.req.param("id"));
-      if (!obj) return fail(c, "object not found", 404);
+      if (!obj) {
+        return fail(c, "object not found", 404, {
+          code: "OBJECT_NOT_FOUND",
+          details: { id: c.req.param("id") },
+        });
+      }
       return ok(c, obj);
     } catch (error) {
       return handleError(c, error);

@@ -160,7 +160,7 @@ describe("/api/ai/chat", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("enforces agent tool allowlist for inspectService", async () => {
+  it("allows inspectService for user agents", async () => {
     setBackendDataFactory(() => buildStore());
 
     const res = await aiChatRoutes.request(
@@ -178,10 +178,34 @@ describe("/api/ai/chat", () => {
       buildEnv(),
     );
 
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.ok).toBe(true);
+    expect(json.data.tool).toBe("tool.inspectService");
+  });
+
+  it("blocks write tools for guest agents", async () => {
+    setBackendDataFactory(() => buildStore());
+
+    const res = await aiChatRoutes.request(
+      "/api/ai/chat",
+      {
+        method: "POST",
+        headers: {
+          ...(await authHeaders()),
+          "x-takos-agent-type": "guest",
+        },
+        body: JSON.stringify({
+          tool: "tool.createPost",
+          input: { content: "hello" },
+        }),
+      },
+      buildEnv(),
+    );
+
     expect(res.status).toBe(403);
     const json: any = await res.json();
     expect(json.status).toBe(403);
-    expect(typeof json.message).toBe("string");
   });
 
   it("blocks DM and profile payloads when AI data policy forbids them", async () => {

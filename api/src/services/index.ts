@@ -1,7 +1,6 @@
 export {
   createPostService,
   createDMService,
-  createStoryService,
   createMediaService,
   createCommunityService,
   createUserService,
@@ -15,7 +14,6 @@ export {
 export type {
   PostService,
   DMService,
-  StoryService,
   CommunityService,
   UserService,
   MediaService,

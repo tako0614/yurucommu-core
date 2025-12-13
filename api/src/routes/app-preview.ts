@@ -2,6 +2,7 @@
 
 import { Hono } from "hono";
 import type { PublicAccountBindings, Variables } from "@takos/platform/server";
+import { HttpError } from "@takos/platform/server";
 import {
   AppPreviewError,
   applyJsonPatches,
@@ -9,6 +10,7 @@ import {
   normalizeJsonPatchOperations,
   resolveScreenPreview,
 } from "../lib/app-preview";
+import { mapErrorToResponse } from "../lib/observability";
 import {
   ensureDefaultWorkspace,
   loadWorkspaceManifest,
@@ -40,6 +42,12 @@ type PatchPreviewBody = PreviewBody & {
 type PreviewBindings = PublicAccountBindings & { workspaceStore?: any };
 
 const appPreview = new Hono<{ Bindings: PreviewBindings; Variables: Variables }>();
+appPreview.onError((error, c) =>
+  mapErrorToResponse(error, {
+    requestId: (c.get("requestId") as string | undefined) ?? undefined,
+    env: c.env,
+  }),
+);
 
 const getSessionUser = (c: any) => c.get("sessionUser") ?? c.get("user") ?? null;
 
@@ -121,12 +129,12 @@ appPreview.use("/-/app/preview/*", auth, requireHumanSession, requireWorkspacePl
 appPreview.post("/-/app/preview/screen", async (c) => {
   const sessionUser = getSessionUser(c);
   if (!sessionUser?.id) {
-    return c.json({ ok: false, error: "authentication_required" }, 403);
+    throw new HttpError(401, "UNAUTHORIZED", "Authentication required");
   }
 
   const body = await parseBody(c);
   if (!body) {
-    return c.json({ ok: false, error: "invalid_json" }, 400);
+    throw new HttpError(400, "INVALID_INPUT", "Invalid JSON body");
   }
 
   const requestedWorkspaceId = typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
@@ -136,10 +144,10 @@ appPreview.post("/-/app/preview/screen", async (c) => {
   const viewMode = body.viewMode === "image" ? "image" : "json";
 
   if (mode === "dev" && !workspaceId) {
-    return c.json({ ok: false, error: "workspace_required" }, 400);
+    throw new HttpError(400, "MISSING_REQUIRED_FIELD", "workspaceId is required", { field: "workspaceId" });
   }
   if (!screenId) {
-    return c.json({ ok: false, error: "screen_required" }, 400);
+    throw new HttpError(400, "MISSING_REQUIRED_FIELD", "screenId is required", { field: "screenId" });
   }
   // image view is handled below after manifest is resolved so we can include preview data
 
@@ -149,17 +157,12 @@ appPreview.post("/-/app/preview/screen", async (c) => {
     requireIsolation: mode === "dev",
   });
   if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
-    return c.json(
-      {
-        ok: false,
-        error: "dev_data_isolation_failed",
-        details: workspaceEnv.isolation.errors,
-      },
-      503,
-    );
+    throw new HttpError(503, "SERVICE_UNAVAILABLE", "Dev data isolation failed", {
+      errors: workspaceEnv.isolation.errors,
+    });
   }
   if (mode === "dev" && !workspaceEnv.store) {
-    return c.json({ ok: false, error: "workspace_store_unavailable" }, 503);
+    throw new HttpError(503, "SERVICE_UNAVAILABLE", "Workspace store unavailable");
   }
 
   try {
@@ -224,22 +227,23 @@ appPreview.post("/-/app/preview/screen", async (c) => {
     if (err instanceof AppPreviewError) {
       const status =
         err.code === "workspace_not_found" || err.code === "screen_not_found" ? 404 : 400;
-      return c.json({ ok: false, error: err.code, message: err.message }, status);
+      const code = status === 404 ? "NOT_FOUND" : "INVALID_INPUT";
+      throw new HttpError(status, code, err.message, { reason: err.code });
     }
     console.error("app preview error", err);
-    return c.json({ ok: false, error: "unexpected_error" }, 500);
+    throw new HttpError(500, "INTERNAL_ERROR", "App preview failed");
   }
 });
 
 appPreview.post("/-/app/preview/screen-with-patch", async (c) => {
   const sessionUser = getSessionUser(c);
   if (!sessionUser?.id) {
-    return c.json({ ok: false, error: "authentication_required" }, 403);
+    throw new HttpError(401, "UNAUTHORIZED", "Authentication required");
   }
 
   const body = (await parseBody(c)) as PatchPreviewBody | null;
   if (!body) {
-    return c.json({ ok: false, error: "invalid_json" }, 400);
+    throw new HttpError(400, "INVALID_INPUT", "Invalid JSON body");
   }
 
   const requestedWorkspaceId = typeof body.workspaceId === "string" ? body.workspaceId.trim() : "";
@@ -249,10 +253,10 @@ appPreview.post("/-/app/preview/screen-with-patch", async (c) => {
   const viewMode = body.viewMode === "image" ? "image" : "json";
 
   if (mode === "dev" && !workspaceId) {
-    return c.json({ ok: false, error: "workspace_required" }, 400);
+    throw new HttpError(400, "MISSING_REQUIRED_FIELD", "workspaceId is required", { field: "workspaceId" });
   }
   if (!screenId) {
-    return c.json({ ok: false, error: "screen_required" }, 400);
+    throw new HttpError(400, "MISSING_REQUIRED_FIELD", "screenId is required", { field: "screenId" });
   }
   if (viewMode === "image") {
     // Minimal image preview implementation for patched manifests
@@ -265,7 +269,7 @@ appPreview.post("/-/app/preview/screen-with-patch", async (c) => {
     return new Response(svg, { status: 200, headers });
   }
   if (body.patches === undefined) {
-    return c.json({ ok: false, error: "patches_required" }, 400);
+    throw new HttpError(400, "MISSING_REQUIRED_FIELD", "patches is required", { field: "patches" });
   }
 
   let patches: JsonPatchOperation[];
@@ -273,10 +277,10 @@ appPreview.post("/-/app/preview/screen-with-patch", async (c) => {
     patches = normalizeJsonPatchOperations(body.patches);
   } catch (err) {
     if (err instanceof AppPreviewError) {
-      return c.json({ ok: false, error: err.code, message: err.message }, 400);
+      throw new HttpError(400, "INVALID_INPUT", err.message, { reason: err.code });
     }
     console.error("failed to normalize patches", err);
-    return c.json({ ok: false, error: "invalid_request" }, 400);
+    throw new HttpError(400, "INVALID_INPUT", "Invalid patches payload");
   }
 
   const workspaceEnv = resolveWorkspaceEnv({
@@ -285,17 +289,12 @@ appPreview.post("/-/app/preview/screen-with-patch", async (c) => {
     requireIsolation: mode === "dev",
   });
   if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
-    return c.json(
-      {
-        ok: false,
-        error: "dev_data_isolation_failed",
-        details: workspaceEnv.isolation.errors,
-      },
-      503,
-    );
+    throw new HttpError(503, "SERVICE_UNAVAILABLE", "Dev data isolation failed", {
+      errors: workspaceEnv.isolation.errors,
+    });
   }
   if (mode === "dev" && !workspaceEnv.store) {
-    return c.json({ ok: false, error: "workspace_store_unavailable" }, 503);
+    throw new HttpError(503, "SERVICE_UNAVAILABLE", "Workspace store unavailable");
   }
 
   try {
@@ -341,10 +340,11 @@ appPreview.post("/-/app/preview/screen-with-patch", async (c) => {
     if (err instanceof AppPreviewError) {
       const status =
         err.code === "workspace_not_found" || err.code === "screen_not_found" ? 404 : 400;
-      return c.json({ ok: false, error: err.code, message: err.message }, status);
+      const code = status === 404 ? "NOT_FOUND" : "INVALID_INPUT";
+      throw new HttpError(status, code, err.message, { reason: err.code });
     }
     console.error("app preview patch error", err);
-    return c.json({ ok: false, error: "unexpected_error" }, 500);
+    throw new HttpError(500, "INTERNAL_ERROR", "App preview failed");
   }
 });
 

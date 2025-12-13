@@ -13,8 +13,41 @@ const parsePagination = (query: Record<string, string>, defaults = { limit: 20, 
     Math.max(1, parseInt(query.limit || `${defaults.limit}`, 10)),
   );
   const offset = Math.max(0, parseInt(query.offset || `${defaults.offset}`, 10));
-  const cursor = query.cursor || undefined;
+  const cursor = query.cursor || (offset ? String(offset) : undefined);
   return { limit, offset, cursor };
+};
+
+const readCoreData = async <T,>(res: Response): Promise<T> => {
+  const payload = await res.json<any>().catch(() => null);
+  if (payload && typeof payload === "object" && payload.ok === true && "data" in payload) {
+    return payload.data as T;
+  }
+  return payload as T;
+};
+
+const BLOCK_LIST_KEY = "block:list";
+const MUTE_LIST_KEY = "mute:list";
+
+const normalizeStringList = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => (typeof item === "string" ? item.trim() : String(item).trim())).filter(Boolean);
+};
+
+const loadAppList = async (env: AppEnv, key: string): Promise<string[]> => {
+  const value = await env.storage.get<unknown>(key);
+  return normalizeStringList(value);
+};
+
+const saveAppList = async (env: AppEnv, key: string, ids: string[]): Promise<void> => {
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of ids) {
+    const normalized = (entry || "").toString().trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    unique.push(normalized);
+  }
+  await env.storage.set(key, unique);
 };
 
 const toList = (value: unknown): string[] => {
@@ -78,17 +111,98 @@ const toDmMessage = (obj: any) => {
 };
 
 router.get("/timeline/home", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
   const query = parseQuery(c.req.raw);
   const { limit, cursor } = parsePagination(query, { limit: 50, offset: 0 });
+
+  const followingUrl = new URL("/users/me/following", c.req.url);
+  followingUrl.searchParams.set("limit", "1000");
+  followingUrl.searchParams.set("offset", "0");
+  const followingRes = await c.env.fetch(followingUrl.pathname + followingUrl.search);
+  if (!followingRes.ok) return error("Failed to load following list", followingRes.status);
+  const following = await readCoreData<any[]>(followingRes);
+  const actorIds = new Set<string>([c.env.auth.userId]);
+  for (const entry of following || []) {
+    const id = (entry?.id ?? entry?.user_id ?? entry?.actor_id ?? "").toString().trim();
+    if (id) actorIds.add(id);
+  }
+
+  const blockedIds = await loadAppList(c.env, BLOCK_LIST_KEY);
+  const mutedIds = await loadAppList(c.env, MUTE_LIST_KEY);
+  const excluded = new Set([...blockedIds, ...mutedIds]);
+  excluded.delete(c.env.auth.userId);
+  for (const id of excluded) {
+    actorIds.delete(id);
+  }
+
   const url = new URL("/objects/timeline", c.req.url);
   url.searchParams.set("types", "Note,Article,Question");
   url.searchParams.set("visibility", "public,unlisted,followers,community");
+  url.searchParams.set("actors", Array.from(actorIds).join(","));
   url.searchParams.set("limit", String(limit));
   if (cursor) url.searchParams.set("cursor", cursor);
   const res = await c.env.fetch(url.pathname + url.search);
   if (!res.ok) return error("Failed to load timeline", res.status);
-  const page = await res.json<any>();
+  const page = await readCoreData<any>(res);
   return json(page);
+});
+
+router.get("/blocks", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const ids = await loadAppList(c.env, BLOCK_LIST_KEY);
+  return json({ ids });
+});
+
+router.post("/blocks", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const body = await parseBody<any>(c.req.raw).catch(() => ({}));
+  const targetId = String(body.targetId ?? body.target_id ?? "").trim();
+  if (!targetId) return error("targetId is required", 400);
+  if (targetId === c.env.auth.userId) return error("Cannot block yourself", 400);
+  const ids = await loadAppList(c.env, BLOCK_LIST_KEY);
+  if (!ids.includes(targetId)) {
+    ids.push(targetId);
+    await saveAppList(c.env, BLOCK_LIST_KEY, ids);
+  }
+  return json({ ids });
+});
+
+router.delete("/blocks/:targetId", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const targetId = c.req.param("targetId");
+  const ids = await loadAppList(c.env, BLOCK_LIST_KEY);
+  const next = ids.filter((id) => id !== targetId);
+  await saveAppList(c.env, BLOCK_LIST_KEY, next);
+  return json({ ids: next });
+});
+
+router.get("/mutes", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const ids = await loadAppList(c.env, MUTE_LIST_KEY);
+  return json({ ids });
+});
+
+router.post("/mutes", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const body = await parseBody<any>(c.req.raw).catch(() => ({}));
+  const targetId = String(body.targetId ?? body.target_id ?? "").trim();
+  if (!targetId) return error("targetId is required", 400);
+  if (targetId === c.env.auth.userId) return error("Cannot mute yourself", 400);
+  const ids = await loadAppList(c.env, MUTE_LIST_KEY);
+  if (!ids.includes(targetId)) {
+    ids.push(targetId);
+    await saveAppList(c.env, MUTE_LIST_KEY, ids);
+  }
+  return json({ ids });
+});
+
+router.delete("/mutes/:targetId", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const targetId = c.req.param("targetId");
+  const ids = await loadAppList(c.env, MUTE_LIST_KEY);
+  const next = ids.filter((id) => id !== targetId);
+  await saveAppList(c.env, MUTE_LIST_KEY, next);
+  return json({ ids: next });
 });
 
 // DM APIs implemented in App layer using /objects endpoints.
@@ -105,7 +219,7 @@ router.get("/dm/threads", async (c) => {
   url.searchParams.set("order", "desc");
   const res = await c.env.fetch(url.pathname + url.search);
   if (!res.ok) return error("Failed to list threads", res.status);
-  const page = await res.json<any>();
+  const page = await readCoreData<any>(res);
   const contexts = new Map<string, any>();
   for (const item of page.items || []) {
     const { threadId } = threadFromObject(item);
@@ -125,7 +239,7 @@ router.get("/dm/threads", async (c) => {
   for (const obj of slice) {
     const { threadId, participants } = threadFromObject(obj);
     const threadRes = await c.env.fetch(`/objects/thread/${encodeURIComponent(threadId)}`);
-    const messages = threadRes.ok ? await threadRes.json<any[]>() : [];
+    const messages = threadRes.ok ? await readCoreData<any[]>(threadRes) : [];
     const visible = filterMessagesForUser(messages, c.env.auth.userId);
     const latest = visible[visible.length - 1] ?? null;
     threads.push({
@@ -145,7 +259,7 @@ router.get("/dm/threads/:threadId/messages", async (c) => {
   const threadId = c.req.param("threadId");
   const res = await c.env.fetch(`/objects/thread/${encodeURIComponent(threadId)}`);
   if (!res.ok) return error("Thread not found", res.status);
-  const messages = await res.json<any[]>();
+  const messages = await readCoreData<any[]>(res);
   const filtered = filterMessagesForUser(messages, c.env.auth.userId);
   const sliced = filtered.slice(offset, offset + limit);
   return json({
@@ -160,13 +274,14 @@ router.get("/dm/with/:handle", async (c) => {
   const participants = canonicalizeParticipants([other, c.env.auth.userId].filter(Boolean));
   const threadId = computeParticipantsHash(participants);
   const res = await c.env.fetch(`/objects/thread/${encodeURIComponent(threadId)}`);
-  const messages = res.ok ? await res.json<any[]>() : [];
+  const messages = res.ok ? await readCoreData<any[]>(res) : [];
   const visible = filterMessagesForUser(messages, c.env.auth.userId);
   return json({ threadId, messages: visible.map(toDmMessage) });
 });
 
 router.post("/dm/send", async (c) => {
   if (!c.env.auth) return error("Unauthorized", 401);
+  const auth = c.env.auth;
   const body = await parseBody<any>(c.req.raw).catch(() => ({}));
   const content = String(body.content ?? "").trim();
   if (!content) return error("content is required", 400);
@@ -177,10 +292,10 @@ router.post("/dm/send", async (c) => {
       : Array.isArray(body.participants)
         ? body.participants
         : [];
-  const participants = canonicalizeParticipants([...participantsRaw, c.env.auth.userId].filter(Boolean));
+  const participants = canonicalizeParticipants([...participantsRaw, auth.userId].filter(Boolean));
   if (participants.length < 2) return error("At least one other participant is required", 400);
   const threadId = body.thread_id || computeParticipantsHash(participants);
-  const recipients = body.draft ? [c.env.auth.userId] : participants.filter((p) => p !== c.env.auth.userId);
+  const recipients = body.draft ? [auth.userId] : participants.filter((p) => p !== auth.userId);
   const apObject = {
     type: "Note",
     content,
@@ -203,7 +318,7 @@ router.post("/dm/send", async (c) => {
     body: JSON.stringify(apObject),
   });
   if (!res.ok) return error("Failed to send message", res.status);
-  const created = await res.json<any>();
+  const created = await readCoreData<any>(res);
   return json(toDmMessage(created), { status: 201 });
 });
 
@@ -219,7 +334,7 @@ router.delete("/dm/messages/:messageId", async (c) => {
   const messageId = c.req.param("messageId");
   const existingRes = await c.env.fetch(`/objects/${encodeURIComponent(messageId)}`);
   if (!existingRes.ok) return error("Message not found", 404);
-  const existing = await existingRes.json<any>();
+  const existing = await readCoreData<any>(existingRes);
   if (existing.actor !== c.env.auth.userId) return error("Only the sender can delete this message", 403);
   const res = await c.env.fetch(`/objects/${encodeURIComponent(messageId)}`, { method: "DELETE" });
   if (!res.ok) return error("Failed to delete message", res.status);
@@ -248,15 +363,32 @@ router.post("/stories", async (c) => {
     body: JSON.stringify(apObject),
   });
   if (!res.ok) return error("Failed to create story", res.status);
-  const created = await res.json<any>();
+  const created = await readCoreData<any>(res);
   return json(created, { status: 201 });
 });
 
 router.post("/communities/:id/stories", async (c) => {
   if (!c.env.auth) return error("Unauthorized", 401);
   const body = await parseBody<any>(c.req.raw).catch(() => ({}));
-  body.community_id = c.req.param("id");
-  return router.fetch(new Request(new URL("/api/stories", c.req.url).toString(), { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json" } }), c.env);
+  const items = Array.isArray(body.items) ? body.items : [];
+  const apObject = {
+    type: "Note",
+    content: "",
+    visibility: "community",
+    context: c.req.param("id"),
+    "takos:story": {
+      items,
+      expiresAt: body.expires_at ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    },
+  };
+  const res = await c.env.fetch("/objects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(apObject),
+  });
+  if (!res.ok) return error("Failed to create story", res.status);
+  const created = await readCoreData<any>(res);
+  return json(created, { status: 201 });
 });
 
 router.get("/stories", async (c) => {
@@ -271,12 +403,13 @@ router.get("/stories", async (c) => {
   if (query.community_id) url.searchParams.set("community_id", query.community_id);
   const res = await c.env.fetch(url.pathname + url.search);
   if (!res.ok) return error("Failed to list stories", res.status);
-  const page = await res.json<any>();
+  const page = await readCoreData<any>(res);
   const stories = (page.items || []).filter((o: any) => !!o["takos:story"]);
   return json({ stories, next_cursor: page.nextCursor ?? null });
 });
 
 router.get("/communities/:id/stories", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
   const url = new URL(c.req.url);
   url.searchParams.set("community_id", c.req.param("id"));
   return router.fetch(new Request(url.toString(), { method: "GET" }), c.env);
@@ -287,9 +420,69 @@ router.get("/stories/:id", async (c) => {
   const id = c.req.param("id");
   const res = await c.env.fetch(`/objects/${encodeURIComponent(id)}`);
   if (!res.ok) return error("story not found", 404);
-  const obj = await res.json<any>();
+  const obj = await readCoreData<any>(res);
   if (!obj["takos:story"]) return error("story not found", 404);
   return json(obj);
+});
+
+router.patch("/stories/:id", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const id = c.req.param("id");
+  const body = await parseBody<any>(c.req.raw).catch(() => ({}));
+  const items = Array.isArray(body.items) ? body.items : undefined;
+  const audience: "all" | "community" | undefined =
+    body.audience === "community" ? "community" : body.audience === "all" ? "all" : undefined;
+  const visibleToFriends: boolean | undefined =
+    body.visible_to_friends === undefined ? undefined : !!body.visible_to_friends;
+
+  const existingRes = await c.env.fetch(`/objects/${encodeURIComponent(id)}`);
+  if (!existingRes.ok) return error("story not found", 404);
+  const existing = await readCoreData<any>(existingRes);
+  if (!existing?.["takos:story"]) return error("story not found", 404);
+  if (existing.actor !== c.env.auth.userId) return error("Only the author can update this story", 403);
+
+  const nextVisibility =
+    audience === "community"
+      ? "community"
+      : audience === "all"
+        ? visibleToFriends === false
+          ? "public"
+          : "followers"
+        : undefined;
+  const nextContext = audience === "all" ? null : undefined;
+
+  const story = existing["takos:story"] ?? {};
+  const update: Record<string, unknown> = {
+    ...(nextVisibility ? { visibility: nextVisibility } : {}),
+    ...(nextContext !== undefined ? { context: nextContext } : {}),
+    "takos:story": {
+      ...story,
+      ...(items ? { items } : {}),
+    },
+  };
+
+  const res = await c.env.fetch(`/objects/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(update),
+  });
+  if (!res.ok) return error("Failed to update story", res.status);
+  const updated = await readCoreData<any>(res);
+  if (!updated?.["takos:story"]) return error("Failed to update story", 500);
+  return json(updated);
+});
+
+router.delete("/stories/:id", async (c) => {
+  if (!c.env.auth) return error("Unauthorized", 401);
+  const id = c.req.param("id");
+  const existingRes = await c.env.fetch(`/objects/${encodeURIComponent(id)}`);
+  if (!existingRes.ok) return error("story not found", 404);
+  const existing = await existingRes.json<any>();
+  if (!existing?.["takos:story"]) return error("story not found", 404);
+  if (existing.actor !== c.env.auth.userId) return error("Only the author can delete this story", 403);
+  const res = await c.env.fetch(`/objects/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) return error("Failed to delete story", res.status);
+  return json({ deleted: true });
 });
 
 const app: TakosApp = {

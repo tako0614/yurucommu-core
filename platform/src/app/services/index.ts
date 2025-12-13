@@ -86,7 +86,6 @@ export type {
   ListMessagesParams,
   MarkReadInput,
 } from "./dm-service";
-export type { StoryService, Story, StoryPage, StoryItem, CreateStoryInput, ListStoriesParams } from "./story-service";
 export type {
   MediaService,
   MediaObject,
@@ -116,7 +115,6 @@ import type { PostService } from "./post-service";
 import type { UserService } from "./user-service";
 import type { CommunityService } from "./community-service";
 import type { DMService } from "./dm-service";
-import type { StoryService } from "./story-service";
 import type { MediaService } from "./media-service";
 import type { ObjectService } from "./object-service";
 import type { ActorService } from "./actor-service";
@@ -127,7 +125,6 @@ import type { AuthService } from "./auth-service";
 export {
   createPostService,
   createDMService,
-  createStoryService,
   createMediaService,
   createCommunityService,
   createUserService,
@@ -148,7 +145,6 @@ export interface CoreServices {
   users: UserService;
   communities: CommunityService;
   dm: DMService;
-  stories: StoryService;
   media?: MediaService;
   actors?: ActorService;
   storage?: StorageService;

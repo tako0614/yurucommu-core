@@ -8,7 +8,6 @@ import {
   createObjectService,
   createPostService,
   createStorageService,
-  createStoryService,
   createUserService,
   createAuthService,
 } from "../services";
@@ -30,7 +29,6 @@ export const buildCoreServices = (env: Bindings): CoreServices => {
     users: createUserService(env as any, actors, notifications),
     communities: createCommunityService(env as any),
     dm: createDMService(env as any),
-    stories: createStoryService(env as any),
     media: createMediaService(env as any, storage),
     objects,
     actors,

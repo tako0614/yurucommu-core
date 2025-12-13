@@ -204,6 +204,225 @@ export type RunAIActionTool = (
 ) => Promise<RunAIActionOutput>;
 
 /**
+ * 6. tool.getTimeline
+ *
+ * タイムライン取得（home/local/federated）
+ * - PLAN.md 07 の例では `posts` フィールドを前提としているため、`items` の別名として返す
+ */
+export interface GetTimelineInput {
+  type: "home" | "local" | "federated";
+  limit?: number;
+  cursor?: string;
+  only_media?: boolean;
+  include_direct?: boolean;
+  visibility?: Array<"public" | "unlisted" | "followers" | "community" | "direct">;
+}
+
+export interface GetTimelineOutput {
+  type: GetTimelineInput["type"];
+  items: unknown[];
+  posts: unknown[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export type GetTimelineTool = (
+  ctx: ToolContext,
+  input: GetTimelineInput,
+) => Promise<GetTimelineOutput>;
+
+/**
+ * 7. tool.getPost
+ */
+export interface GetPostInput {
+  id: string;
+  includeThread?: boolean;
+}
+
+export interface GetPostOutput {
+  post: unknown | null;
+  thread?: unknown[] | null;
+}
+
+export type GetPostTool = (
+  ctx: ToolContext,
+  input: GetPostInput,
+) => Promise<GetPostOutput>;
+
+/**
+ * 8. tool.getUser
+ */
+export interface GetUserInput {
+  id: string;
+}
+
+export interface GetUserOutput {
+  user: unknown | null;
+}
+
+export type GetUserTool = (
+  ctx: ToolContext,
+  input: GetUserInput,
+) => Promise<GetUserOutput>;
+
+/**
+ * 9. tool.searchPosts
+ */
+export interface SearchPostsInput {
+  query: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface SearchPostsOutput {
+  posts: unknown[];
+  next_offset: number | null;
+  next_cursor: string | null;
+}
+
+export type SearchPostsTool = (
+  ctx: ToolContext,
+  input: SearchPostsInput,
+) => Promise<SearchPostsOutput>;
+
+/**
+ * 10. tool.searchUsers
+ */
+export interface SearchUsersInput {
+  query: string;
+  limit?: number;
+  offset?: number;
+  local_only?: boolean;
+}
+
+export interface SearchUsersOutput {
+  users: unknown[];
+  next_offset: number | null;
+  next_cursor: string | null;
+}
+
+export type SearchUsersTool = (
+  ctx: ToolContext,
+  input: SearchUsersInput,
+) => Promise<SearchUsersOutput>;
+
+/**
+ * 11. tool.getNotifications
+ */
+export interface GetNotificationsInput {
+  since?: string;
+}
+
+export interface GetNotificationsOutput {
+  notifications: unknown[];
+}
+
+export type GetNotificationsTool = (
+  ctx: ToolContext,
+  input: GetNotificationsInput,
+) => Promise<GetNotificationsOutput>;
+
+/**
+ * 12. tool.getDmThreads
+ */
+export interface GetDmThreadsInput {
+  limit?: number;
+  offset?: number;
+}
+
+export interface GetDmThreadsOutput {
+  threads: unknown[];
+  next_offset?: number | null;
+  next_cursor?: string | null;
+}
+
+export type GetDmThreadsTool = (
+  ctx: ToolContext,
+  input: GetDmThreadsInput,
+) => Promise<GetDmThreadsOutput>;
+
+/**
+ * 13. tool.getDmMessages
+ */
+export interface GetDmMessagesInput {
+  thread_id: string;
+  limit?: number;
+  offset?: number;
+  since_id?: string;
+  max_id?: string;
+}
+
+export interface GetDmMessagesOutput {
+  messages: unknown[];
+  next_offset?: number | null;
+  next_cursor?: string | null;
+}
+
+export type GetDmMessagesTool = (
+  ctx: ToolContext,
+  input: GetDmMessagesInput,
+) => Promise<GetDmMessagesOutput>;
+
+/**
+ * 14. tool.createPost
+ */
+export interface CreatePostToolInput {
+  content: string;
+  visibility?: "public" | "unlisted" | "followers" | "direct" | "community";
+  community_id?: string | null;
+  reply_to?: string | null;
+  media_ids?: string[];
+  sensitive?: boolean;
+  spoiler_text?: string | null;
+  poll?: {
+    options: string[];
+    multiple?: boolean;
+    expires_in?: number;
+  } | null;
+}
+
+export interface CreatePostToolOutput {
+  post: unknown;
+}
+
+export type CreatePostTool = (
+  ctx: ToolContext,
+  input: CreatePostToolInput,
+) => Promise<CreatePostToolOutput>;
+
+/**
+ * 15. tool.follow / tool.unfollow
+ */
+export interface FollowInput {
+  targetUserId: string;
+}
+
+export interface FollowOutput {
+  success: boolean;
+}
+
+export type FollowTool = (ctx: ToolContext, input: FollowInput) => Promise<FollowOutput>;
+export type UnfollowTool = (ctx: ToolContext, input: FollowInput) => Promise<FollowOutput>;
+
+/**
+ * 16. tool.getBookmarks
+ */
+export interface GetBookmarksInput {
+  limit?: number;
+  offset?: number;
+}
+
+export interface GetBookmarksOutput {
+  items: unknown[];
+  next_offset: number | null;
+}
+
+export type GetBookmarksTool = (
+  ctx: ToolContext,
+  input: GetBookmarksInput,
+) => Promise<GetBookmarksOutput>;
+
+/**
  * Agent Tools レジストリ
  */
 export interface AgentTools {
@@ -212,6 +431,18 @@ export interface AgentTools {
   updateTakosConfig: UpdateTakosConfigTool;
   applyCodePatch: ApplyCodePatchTool;
   runAIAction: RunAIActionTool;
+  getTimeline: GetTimelineTool;
+  getPost: GetPostTool;
+  getUser: GetUserTool;
+  searchPosts: SearchPostsTool;
+  searchUsers: SearchUsersTool;
+  getNotifications: GetNotificationsTool;
+  getDmThreads: GetDmThreadsTool;
+  getDmMessages: GetDmMessagesTool;
+  createPost: CreatePostTool;
+  follow: FollowTool;
+  unfollow: UnfollowTool;
+  getBookmarks: GetBookmarksTool;
 }
 
 /**

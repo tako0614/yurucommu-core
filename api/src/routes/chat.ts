@@ -90,7 +90,12 @@ chat.post("/dm/send", auth, async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as any;
     const mediaIds = Array.isArray(body.media_ids) ? body.media_ids : undefined;
     const limitCheck = await ensureDmSendAllowed(c.env, authCtx, { mediaKeys: mediaIds });
-    if (!limitCheck.ok) return fail(c, limitCheck.message, limitCheck.status);
+    if (!limitCheck.ok) {
+      return fail(c, limitCheck.message, limitCheck.status, {
+        code: limitCheck.code,
+        details: limitCheck.details,
+      });
+    }
     const participants = Array.isArray(body.recipients)
       ? body.recipients
       : body.recipient

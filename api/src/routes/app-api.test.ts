@@ -52,6 +52,13 @@ const sampleCounterApp: TakosApp = {
       );
     }
 
+    if (request.method === "GET" && path === "/auth-info") {
+      return new Response(JSON.stringify({ auth: env.auth }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     if (path.startsWith("/counter")) {
       const authError = requireAuth();
       if (authError) return authError;
@@ -328,6 +335,25 @@ describe("App API Router", () => {
       const json = await res.json();
       expect(json.id).toBe("sample-counter");
       expect(json.name).toBe("Sample Counter");
+    });
+
+    it("should populate env.auth with plan info when authenticated", async () => {
+      const res = await app.request(
+        "/-/apps/sample-counter/api/auth-info",
+        {
+          method: "GET",
+          headers: { Authorization: "Bearer valid-token" },
+        },
+        mockBindings
+      );
+
+      expect(res.status).toBe(200);
+      const json = await res.json<any>();
+      expect(json.auth).toBeTruthy();
+      expect(json.auth.userId).toBe("test-user");
+      expect(json.auth.handle).toBe("testuser");
+      expect(json.auth.plan?.name).toBe("self-hosted");
+      expect(json.auth.isAuthenticated).toBe(true);
     });
 
     it("should return 404 for unknown handler path", async () => {

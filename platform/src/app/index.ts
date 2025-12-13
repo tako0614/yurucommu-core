@@ -1,5 +1,6 @@
 export * from "./types";
 export { createInMemoryAppSource, loadAppManifest } from "./manifest-loader";
+export { isReservedHttpPath } from "./reserved-routes";
 export * from "./data-store";
 export * from "./storage";
 export * from "./runtime/index";

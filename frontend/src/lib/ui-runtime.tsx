@@ -33,7 +33,7 @@ export interface Screen {
   id: string;
   route: string;
   title: string;
-  auth?: "required" | "public";
+  auth?: "required" | "optional" | "public";
   state?: Record<string, { default: any }>;
   layout: UiNode;
 }

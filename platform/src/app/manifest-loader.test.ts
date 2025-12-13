@@ -127,7 +127,7 @@ describe("App Manifest loader", () => {
       }),
       "views/invalid.json": JSON.stringify({
         schema_version: "1.0",
-        screens: [{ id: "", layout: "nope" }],
+        screens: [{ id: "", auth: "nope", layout: "nope" }],
         insert: [{ screen: "screen.missing", position: "", node: null }],
       }),
       "ap/invalid.json": JSON.stringify({
@@ -145,6 +145,7 @@ describe("App Manifest loader", () => {
     expect(result.manifest).toBeUndefined();
     expect(result.issues.some((issue) => issue.path === "routes[0].path")).toBe(true);
     expect(result.issues.some((issue) => issue.path === "routes[0].handler")).toBe(true);
+    expect(result.issues.some((issue) => issue.path === "screens[0].auth")).toBe(true);
     expect(result.issues.some((issue) => issue.path === "screens[0].layout")).toBe(true);
     expect(result.issues.some((issue) => issue.path === "insert[0].position")).toBe(true);
     expect(result.issues.some((issue) => issue.path === "collections.app:notes")).toBe(true);

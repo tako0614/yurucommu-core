@@ -135,7 +135,7 @@ export interface ObjectUpdateInput {
 
 export interface ObjectQueryParams {
   type?: string | string[];
-  actor?: string;
+  actor?: string | string[];
   context?: string;
   visibility?: string | string[];
   in_reply_to?: string;

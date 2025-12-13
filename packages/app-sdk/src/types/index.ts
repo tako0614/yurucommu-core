@@ -73,9 +73,35 @@ export interface AiAPI {
  * Authentication information (read-only).
  * null if the request is not authenticated.
  */
+export type PlanName = "free" | "pro" | "business" | "self-hosted" | string;
+
+export type PlanLimits = {
+  storage: number;
+  fileSize: number;
+  aiRequests: number;
+  dmMessagesPerDay: number;
+  dmMediaSize: number;
+  vfsStorage?: number;
+  vfsMaxFiles?: number;
+  vfsMaxFileSize?: number;
+  vfsMaxWorkspaces?: number;
+  apDeliveryPerMinute?: number;
+  apDeliveryPerDay?: number;
+};
+
+export type PlanInfo = {
+  name: PlanName;
+  limits: PlanLimits;
+  features: string[];
+};
+
 export interface AuthInfo {
   userId: string;
   handle: string;
+  sessionId?: string | null;
+  plan?: PlanInfo;
+  limits?: PlanLimits;
+  isAuthenticated?: boolean;
 }
 
 /**

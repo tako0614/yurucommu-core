@@ -15,6 +15,8 @@ import {
 } from "./ai-config";
 import {
   DEFAULT_TAKOS_AI_CONFIG,
+  BUILTIN_AGENT_TOOL_IDS,
+  createAgentTools,
   buildAiProviderRegistry,
   fail,
   isToolAllowedForAgent,
@@ -52,6 +54,7 @@ type ChatRequestBody = {
   temperature?: number;
   max_tokens?: number;
   tool?: AgentToolId | { id?: AgentToolId };
+  input?: unknown;
   service?: string;
   dm_messages?: unknown;
   profile?: unknown;
@@ -59,13 +62,7 @@ type ChatRequestBody = {
   community_posts?: unknown;
 };
 
-const ALL_TOOLS: AgentToolId[] = [
-  "tool.describeNodeCapabilities",
-  "tool.inspectService",
-  "tool.updateTakosConfig",
-  "tool.applyCodePatch",
-  "tool.runAIAction",
-];
+const ALL_TOOLS: AgentToolId[] = [...BUILTIN_AGENT_TOOL_IDS];
 
 const AI_CHAT_ACTION_ID = "ai.chat";
 
@@ -300,7 +297,7 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
     }
 
     const user = c.get("user");
-    if ((toolId === "tool.inspectService" || toolId === "tool.applyCodePatch" || toolId === "tool.updateTakosConfig") && !isAuthenticated(user)) {
+    if ((toolId === "tool.applyCodePatch" || toolId === "tool.updateTakosConfig") && !isAuthenticated(user)) {
       return fail(c, "authentication required", 403);
     }
 
@@ -308,6 +305,27 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
       DEFAULT_TAKOS_AI_CONFIG,
       resolveConfig(c).ai ?? {},
     );
+
+    const toolInput = (body.input && typeof body.input === "object" && body.input !== null) ? body.input : {};
+    const toolCtx = {
+      auth: {
+        userId: authContext?.userId ?? null,
+        isAuthenticated: isAuthenticated(user),
+        plan: authContext ? {
+          name: authContext.plan?.name ?? "self-hosted",
+          limits: {
+            storage: authContext.limits?.storage,
+            fileSize: authContext.limits?.fileSize,
+            aiRequests: authContext.limits?.aiRequests,
+          },
+          features: authContext.plan?.features ?? ["*"],
+        } : undefined,
+        agentType: agentGuard.agentType,
+      },
+      nodeConfig: resolveConfig(c),
+      services,
+      env: c.env as any,
+    } as const;
 
     if (toolId === "tool.describeNodeCapabilities") {
       return handleDescribeNode(
@@ -337,7 +355,129 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
       return fail(c, "tool.applyCodePatch must be called via /-/app/workspaces/:id/apply-patch endpoint", 400);
     }
 
-    return fail(c, "unsupported tool", 400);
+    const tools = createAgentTools({
+      actionRegistry: aiActionRegistry,
+    });
+
+    try {
+      if (toolId === "tool.getTimeline") {
+        const input = toolInput as any;
+        const result = await tools.getTimeline(toolCtx as any, {
+          type: input.type ?? "home",
+          limit: input.limit,
+          cursor: input.cursor,
+          only_media: input.only_media,
+          include_direct: input.include_direct,
+          visibility: input.visibility,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.getPost") {
+        const input = toolInput as any;
+        const result = await tools.getPost(toolCtx as any, {
+          id: String(input.id ?? ""),
+          includeThread: input.includeThread ?? input.include_thread ?? false,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.getUser") {
+        const input = toolInput as any;
+        const result = await tools.getUser(toolCtx as any, { id: String(input.id ?? "") });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.searchPosts") {
+        const input = toolInput as any;
+        const result = await tools.searchPosts(toolCtx as any, {
+          query: String(input.query ?? ""),
+          limit: input.limit,
+          offset: input.offset,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.searchUsers") {
+        const input = toolInput as any;
+        const result = await tools.searchUsers(toolCtx as any, {
+          query: String(input.query ?? ""),
+          limit: input.limit,
+          offset: input.offset,
+          local_only: input.local_only,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.getNotifications") {
+        const input = toolInput as any;
+        const result = await tools.getNotifications(toolCtx as any, { since: input.since });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.getDmThreads") {
+        const input = toolInput as any;
+        const result = await tools.getDmThreads(toolCtx as any, { limit: input.limit, offset: input.offset });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.getDmMessages") {
+        const input = toolInput as any;
+        const result = await tools.getDmMessages(toolCtx as any, {
+          thread_id: String(input.thread_id ?? input.threadId ?? ""),
+          limit: input.limit,
+          offset: input.offset,
+          since_id: input.since_id,
+          max_id: input.max_id,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.createPost") {
+        const input = toolInput as any;
+        const result = await tools.createPost(toolCtx as any, {
+          content: String(input.content ?? ""),
+          visibility: input.visibility,
+          community_id: input.community_id ?? null,
+          reply_to: input.reply_to ?? null,
+          media_ids: input.media_ids,
+          sensitive: input.sensitive,
+          spoiler_text: input.spoiler_text ?? null,
+          poll: input.poll ?? null,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.follow") {
+        const input = toolInput as any;
+        const result = await tools.follow(toolCtx as any, {
+          targetUserId: String(input.targetUserId ?? input.target_user_id ?? input.target_id ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.unfollow") {
+        const input = toolInput as any;
+        const result = await tools.unfollow(toolCtx as any, {
+          targetUserId: String(input.targetUserId ?? input.target_user_id ?? input.target_id ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.getBookmarks") {
+        const input = toolInput as any;
+        const result = await tools.getBookmarks(toolCtx as any, { limit: input.limit, offset: input.offset });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      return fail(c, "unsupported tool", 400);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/not allowed/i.test(message)) return fail(c, message, 403);
+      if (/Authentication required/i.test(message)) return fail(c, message, 403);
+      if (/Core services are not available/i.test(message)) return fail(c, message, 503);
+      return fail(c, message || "tool failed", 400);
+    }
   }
 
   if (!planCheck.ok) {

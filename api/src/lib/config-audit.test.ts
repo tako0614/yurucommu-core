@@ -74,7 +74,7 @@ describe("config audit logging", () => {
       action: "config_import",
       actorId: "admin",
       actorHandle: "root",
-      agentType: "admin",
+      agentType: "system",
       details: { schema_version: "1.0" },
       timestamp: "2024-01-01T00:00:00.000Z",
     });

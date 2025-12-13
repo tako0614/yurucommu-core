@@ -395,7 +395,10 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       if (Array.isArray(params.type)) filters.type = { in: params.type };
       else filters.type = params.type;
     }
-    if (params.actor) filters.actor = params.actor;
+    if (params.actor) {
+      if (Array.isArray(params.actor)) filters.actor = { in: params.actor };
+      else filters.actor = params.actor;
+    }
     if (params.context) filters.context = params.context;
     if (params.in_reply_to) filters.in_reply_to = params.in_reply_to;
     if (params.visibility) {
