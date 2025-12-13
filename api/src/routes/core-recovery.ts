@@ -15,6 +15,7 @@ import { makeData } from "../data";
 import takosAppJson from "../../../app/manifest.json";
 import screensCoreJson from "../../../app/views/screens-core.json";
 import insertCoreJson from "../../../app/views/insert-core.json";
+import apCoreJson from "../../../app/ap/core.json";
 
 const coreRecoveryRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -309,6 +310,7 @@ function createStaticManifestSource(): AppDefinitionSource {
     "app/manifest.json": JSON.stringify(takosAppJson),
     "app/views/screens-core.json": JSON.stringify(screensCoreJson),
     "app/views/insert-core.json": JSON.stringify(insertCoreJson),
+    "app/ap/core.json": JSON.stringify(apCoreJson),
   };
 
   return createInMemoryAppSource(files);
