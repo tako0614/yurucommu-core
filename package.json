@@ -20,6 +20,7 @@
     "validate:all": "npm run validate:app && npm run validate:profile && npm run ui:contract",
     "init:config": "node scripts/init-config.js",
     "validate:profile": "node scripts/validate-takos-profile.js",
+    "audit:core-app-boundary": "node --import tsx scripts/audit-core-app-boundary.ts",
     "config:compat": "node --import tsx scripts/api/config-tools.ts compat",
     "config:export": "node --import tsx scripts/api/config-tools.ts export",
     "config:diff": "node --import tsx scripts/api/config-tools.ts diff",
