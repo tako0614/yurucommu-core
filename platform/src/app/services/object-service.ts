@@ -165,7 +165,7 @@ export interface UpdateObjectInput {
  */
 export interface ObjectQueryParams {
   type?: string | string[];
-  actor?: string;
+  actor?: string | string[];
   context?: string;
   visibility?: APVisibility;
   inReplyTo?: string;
@@ -192,6 +192,7 @@ export interface ObjectTimelineParams {
   listId?: string;
   onlyMedia?: boolean;
   includeDirect?: boolean;
+  actor?: string | string[];
 }
 
 /**
@@ -319,7 +320,7 @@ type ObjectStore = {
   getObjectByLocalId(localId: string): Promise<StoredObject | null>;
   queryObjects(params: {
     type?: string | string[];
-    actor?: string;
+    actor?: string | string[];
     context?: string;
     visibility?: string | string[];
     in_reply_to?: string;
@@ -1050,19 +1051,30 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
         const existing = await store.getObject(id);
         if (!existing) throw new Error("Object not found");
         const current = await toApObject(store, existing);
+        const {
+          content: nextContent,
+          summary: nextSummary,
+          attachment: nextAttachment,
+          tag: nextTag,
+          poll: nextPollInput,
+          ...rest
+        } = (input as Record<string, unknown>) ?? {};
         const nextTags =
-          input.tag !== undefined
-            ? normalizeTags(input.tag, (input as any).stickers ?? (input as any).sticker) ?? current.tag
+          nextTag !== undefined
+            ? normalizeTags(nextTag as any, (input as any).stickers ?? (input as any).sticker) ?? current.tag
             : current.tag;
         const nextPoll =
-          input.poll !== undefined || (input as any)["takos:poll"] !== undefined
-            ? normalizePoll(input.poll ?? (input as any)["takos:poll"]) ?? current["takos:poll"]
+          nextPollInput !== undefined || (input as any)["takos:poll"] !== undefined
+            ? normalizePoll((nextPollInput as any) ?? (input as any)["takos:poll"]) ?? current["takos:poll"]
             : current["takos:poll"];
         const updatedObject: APObject = {
           ...current,
-          content: input.content ?? current.content,
-          summary: input.summary ?? current.summary,
-          attachment: input.attachment ?? current.attachment,
+          ...rest,
+          id: current.id,
+          actor: current.actor,
+          content: (nextContent as any) ?? current.content,
+          summary: (nextSummary as any) ?? current.summary,
+          attachment: (nextAttachment as any) ?? current.attachment,
           tag: nextTags,
           "takos:poll": nextPoll,
           updated: new Date().toISOString(),
@@ -1072,11 +1084,11 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
           current.actor,
           updatedObject,
           pickVisibility({
-            visibility: existing.visibility as APVisibility | undefined,
-            to: current.to,
-            cc: current.cc,
-            bto: (current as any).bto,
-            bcc: (current as any).bcc,
+            visibility: ((updatedObject as any).visibility as APVisibility | undefined) ?? (existing.visibility as APVisibility | undefined),
+            to: updatedObject.to,
+            cc: updatedObject.cc,
+            bto: (updatedObject as any).bto,
+            bcc: (updatedObject as any).bcc,
           }),
           existing.local_id,
           existing.is_local === 1,
@@ -1162,6 +1174,7 @@ export const createObjectService: ObjectServiceFactory = (env: unknown): ObjectS
       try {
         const rows = await store.queryObjects({
           type: types,
+          actor: params.actor,
           context: params.communityId ?? undefined,
           visibility,
           include_deleted: false,

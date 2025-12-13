@@ -2,6 +2,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import {
   AppHandlerRegistry,
   mountManifestRoutes,
+  isReservedHttpPath,
   type ManifestRouteHandler,
   type AppManifest,
   loadAppManifest,
@@ -18,6 +19,7 @@ import {
   APP_MANIFEST_SCHEMA_VERSION,
   TAKOS_CORE_VERSION,
   checkSemverCompatibility,
+  HttpError,
   releaseStore,
 } from "@takos/platform/server";
 import { makeData } from "../data";
@@ -324,16 +326,7 @@ const normalizeRouteKey = (path: string): string => {
 };
 
 const isReservedRoute = (path: string): boolean => {
-  const normalized = normalizeRouteKey(path);
-  if (normalized === "/login") return true;
-  if (normalized === "/-/health") return true;
-  if (normalized === "/-" || normalized.startsWith("/-/")) return true;
-  if (normalized === "/auth" || normalized.startsWith("/auth/")) return true;
-  if (normalized.startsWith("/-/core")) return true;
-  if (normalized.startsWith("/-/config")) return true;
-  if (normalized.startsWith("/-/app")) return true;
-  if (normalized.startsWith("/.well-known")) return true;
-  return false;
+  return isReservedHttpPath(normalizeRouteKey(path));
 };
 
 const CORE_ROUTES: Record<string, string> = {
@@ -1085,7 +1078,7 @@ export const createManifestRouter = (options: {
       });
       if (!result.ok) {
         const message = (result.error as Error)?.message ?? "App handler failed";
-        return new Response(message, { status: 500 });
+        throw new HttpError(500, "HANDLER_EXECUTION_ERROR", message, { handler: name });
       }
       return toResponse(result.response as AppResponse);
     };

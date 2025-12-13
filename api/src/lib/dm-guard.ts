@@ -64,7 +64,13 @@ export async function ensureDmSendAllowed(
   const dailyLimit = limits.dmMessagesPerDay;
   if (typeof dailyLimit === "number") {
     if (dailyLimit <= 0) {
-      return { ok: false, status: 402, code: "PLAN_LIMIT", message: "DM sending is not available for this plan" };
+      return {
+        ok: false,
+        status: 402,
+        code: "FEATURE_UNAVAILABLE",
+        message: "DM sending is not available for this plan",
+        details: { limit: dailyLimit },
+      };
     }
 
     if (Number.isFinite(dailyLimit) && dailyLimit < UNLIMITED && env?.DB) {
@@ -84,8 +90,9 @@ export async function ensureDmSendAllowed(
             return {
               ok: false,
               status: 429,
-              code: "RATE_LIMIT",
+              code: "RATE_LIMIT_DAY",
               message: `DM daily limit reached (${dailyLimit} per day)`,
+              details: { limit: dailyLimit, window: "day" },
             };
           }
           await createFn(crypto.randomUUID(), key, windowStart, Date.now());
@@ -104,13 +111,19 @@ export async function ensureDmSendAllowed(
 
   if (hasMedia && typeof mediaLimit === "number") {
     if (mediaLimit <= 0) {
-      return { ok: false, status: 402, code: "PLAN_LIMIT", message: "DM media attachments are not available for this plan" };
+      return {
+        ok: false,
+        status: 402,
+        code: "FEATURE_UNAVAILABLE",
+        message: "DM media attachments are not available for this plan",
+        details: { limit: mediaLimit },
+      };
     }
 
     if (Number.isFinite(mediaLimit) && mediaLimit < UNLIMITED && mediaKeys.length) {
       const bucket = (env as any)?.MEDIA;
       if (!bucket || (typeof bucket.head !== "function" && typeof bucket.get !== "function")) {
-        return { ok: false, status: 500, code: "SERVER_ERROR", message: "media storage not configured" };
+        return { ok: false, status: 500, code: "CONFIGURATION_ERROR", message: "Media storage not configured" };
       }
 
       let total = typeof options.mediaBytes === "number" ? options.mediaBytes : 0;
@@ -120,15 +133,16 @@ export async function ensureDmSendAllowed(
             ? await bucket.head(key).catch(() => null)
             : await bucket.get(key).catch(() => null);
         if (!obj) {
-          return { ok: false, status: 404, code: "NOT_FOUND", message: "media not found" };
+          return { ok: false, status: 404, code: "MEDIA_NOT_FOUND", message: "Media not found", details: { key } };
         }
         const size = (obj as any).size ?? 0;
         if (size > mediaLimit) {
           return {
             ok: false,
             status: 413,
-            code: "PLAN_LIMIT",
+            code: "FILE_TOO_LARGE",
             message: `DM media exceeds plan limit (${formatMb(mediaLimit)}MB)`,
+            details: { size, limit: mediaLimit },
           };
         }
         if (typeof options.mediaBytes !== "number") {
@@ -140,8 +154,9 @@ export async function ensureDmSendAllowed(
         return {
           ok: false,
           status: 413,
-          code: "PLAN_LIMIT",
+          code: "FILE_TOO_LARGE",
           message: `DM media exceeds plan limit (${formatMb(mediaLimit)}MB total)`,
+          details: { total, limit: mediaLimit },
         };
       }
     } else if (Number.isFinite(mediaLimit) && mediaLimit < UNLIMITED && typeof options.mediaBytes === "number") {
@@ -149,8 +164,9 @@ export async function ensureDmSendAllowed(
         return {
           ok: false,
           status: 413,
-          code: "PLAN_LIMIT",
+          code: "FILE_TOO_LARGE",
           message: `DM media exceeds plan limit (${formatMb(mediaLimit)}MB)`,
+          details: { size: options.mediaBytes, limit: mediaLimit },
         };
       }
     }

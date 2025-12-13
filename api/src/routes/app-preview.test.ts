@@ -160,7 +160,8 @@ describe("/-/app/preview/screen", () => {
 
     expect(res.status).toBe(503);
     const json: any = await res.json();
-    expect(json.error).toBe("dev_data_isolation_failed");
+    expect(json.status).toBe(503);
+    expect(json.code).toBe("SERVICE_UNAVAILABLE");
   });
 
   it("returns a resolved tree for a workspace manifest", async () => {
@@ -363,7 +364,8 @@ describe("/-/app/preview/screen-with-patch", () => {
 
     expect(res.status).toBe(400);
     const json: any = await res.json();
-    expect(json.ok).toBe(false);
+    expect(json.status).toBe(400);
+    expect(json.code).toBe("INVALID_INPUT");
   });
 
   it("requires authentication", async () => {

@@ -195,4 +195,186 @@ describe("/-/dev/vfs", () => {
     expect(json.message).toMatch(/plan/i);
     expect(saveCompileCache).not.toHaveBeenCalled();
   });
+
+  it("copies files via /files/copy", async () => {
+    const copyWorkspaceFile = vi.fn(async (_workspaceId: string, _from: string, _to: string) => ({
+      workspace_id: baseWorkspace.id,
+      path: "app/copied.ts",
+      content: encoder.encode("export {}"),
+      content_type: "application/typescript",
+      size: 9,
+      created_at: baseWorkspace.created_at,
+      updated_at: baseWorkspace.updated_at,
+    }));
+    const workspaceStore = {
+      async getWorkspace(id: string) {
+        return id === baseWorkspace.id ? baseWorkspace : null;
+      },
+      getWorkspaceFile: vi.fn(async () => ({
+        workspace_id: baseWorkspace.id,
+        path: "app/source.ts",
+        content: encoder.encode("export const x = 1;"),
+        content_type: "application/typescript",
+        size: 19,
+        created_at: baseWorkspace.created_at,
+        updated_at: baseWorkspace.updated_at,
+      })),
+      copyWorkspaceFile,
+      getWorkspaceUsage: vi.fn(async () => ({ fileCount: 1, totalSize: 10 })),
+      statWorkspaceFile: vi.fn(async () => null),
+    };
+
+    setBackendDataFactory(() => withStore({}));
+
+    const res = await appVfs.request(
+      `/-/dev/vfs/${baseWorkspace.id}/files/copy`,
+      {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ from: "app/source.ts", to: "app/copied.ts" }),
+      },
+      buildEnv({ PLAN: "pro", workspaceStore }),
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.data?.file?.path).toBe("app/copied.ts");
+    expect(copyWorkspaceFile).toHaveBeenCalledWith(baseWorkspace.id, "app/source.ts", "app/copied.ts");
+  });
+
+  it("moves files via /files/move", async () => {
+    const moveWorkspaceFile = vi.fn(async (_workspaceId: string, _from: string, _to: string) => ({
+      workspace_id: baseWorkspace.id,
+      path: "app/moved.ts",
+      content: encoder.encode("export {}"),
+      content_type: "application/typescript",
+      size: 9,
+      created_at: baseWorkspace.created_at,
+      updated_at: baseWorkspace.updated_at,
+    }));
+    const workspaceStore = {
+      async getWorkspace(id: string) {
+        return id === baseWorkspace.id ? baseWorkspace : null;
+      },
+      getWorkspaceFile: vi.fn(async () => ({
+        workspace_id: baseWorkspace.id,
+        path: "app/source.ts",
+        content: encoder.encode("export const x = 1;"),
+        content_type: "application/typescript",
+        size: 19,
+        created_at: baseWorkspace.created_at,
+        updated_at: baseWorkspace.updated_at,
+      })),
+      moveWorkspaceFile,
+      getWorkspaceUsage: vi.fn(async () => ({ fileCount: 2, totalSize: 20 })),
+    };
+
+    setBackendDataFactory(() => withStore({}));
+
+    const res = await appVfs.request(
+      `/-/dev/vfs/${baseWorkspace.id}/files/move`,
+      {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ from: "app/source.ts", to: "app/moved.ts" }),
+      },
+      buildEnv({ PLAN: "pro", workspaceStore }),
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.data?.file?.path).toBe("app/moved.ts");
+    expect(moveWorkspaceFile).toHaveBeenCalledWith(baseWorkspace.id, "app/source.ts", "app/moved.ts");
+  });
+
+  it("matches files via /glob", async () => {
+    const workspaceStore = {
+      async getWorkspace(id: string) {
+        return id === baseWorkspace.id ? baseWorkspace : null;
+      },
+      listWorkspaceFiles: vi.fn(async () => [
+        {
+          workspace_id: baseWorkspace.id,
+          path: "app/a.ts",
+          content: encoder.encode("a"),
+          content_type: "application/typescript",
+          created_at: baseWorkspace.created_at,
+          updated_at: baseWorkspace.updated_at,
+        },
+        {
+          workspace_id: baseWorkspace.id,
+          path: "app/b.json",
+          content: encoder.encode("{}"),
+          content_type: "application/json",
+          created_at: baseWorkspace.created_at,
+          updated_at: baseWorkspace.updated_at,
+        },
+      ]),
+      getWorkspaceUsage: vi.fn(async () => ({ fileCount: 2, totalSize: 2 })),
+    };
+
+    setBackendDataFactory(() => withStore({}));
+
+    const res = await appVfs.request(
+      `/-/dev/vfs/${baseWorkspace.id}/glob?pattern=app/*.ts`,
+      { method: "GET", headers: await authHeaders() },
+      buildEnv({ PLAN: "pro", workspaceStore }),
+    );
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.data?.files?.map((f: any) => f.path)).toEqual(["app/a.ts"]);
+  });
+
+  it("searches file contents via /search", async () => {
+    const workspaceStore = {
+      async getWorkspace(id: string) {
+        return id === baseWorkspace.id ? baseWorkspace : null;
+      },
+      listWorkspaceFiles: vi.fn(async () => [
+        {
+          workspace_id: baseWorkspace.id,
+          path: "app/a.ts",
+          content: encoder.encode("hello world"),
+          content_type: "application/typescript",
+          created_at: baseWorkspace.created_at,
+          updated_at: baseWorkspace.updated_at,
+        },
+      ]),
+      getWorkspaceUsage: vi.fn(async () => ({ fileCount: 1, totalSize: 11 })),
+    };
+
+    setBackendDataFactory(() => withStore({}));
+
+    const res = await appVfs.request(
+      `/-/dev/vfs/${baseWorkspace.id}/search?query=hello`,
+      { method: "GET", headers: await authHeaders() },
+      buildEnv({ PLAN: "pro", workspaceStore }),
+    );
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.data?.results?.[0]?.path).toBe("app/a.ts");
+  });
+
+  it("deletes directories via /dirs/{path}", async () => {
+    const deleteDirectory = vi.fn(async () => ({ deletedFiles: 1, deletedDirectories: 2 }));
+    const workspaceStore = {
+      async getWorkspace(id: string) {
+        return id === baseWorkspace.id ? baseWorkspace : null;
+      },
+      deleteDirectory,
+      getWorkspaceUsage: vi.fn(async () => ({ fileCount: 0, totalSize: 0 })),
+    };
+
+    setBackendDataFactory(() => withStore({}));
+
+    const res = await appVfs.request(
+      `/-/dev/vfs/${baseWorkspace.id}/dirs/app?recursive=true`,
+      { method: "DELETE", headers: await authHeaders() },
+      buildEnv({ PLAN: "pro", workspaceStore }),
+    );
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.data?.deleted).toBe(true);
+    expect(deleteDirectory).toHaveBeenCalledWith(baseWorkspace.id, "app", { recursive: true });
+  });
 });

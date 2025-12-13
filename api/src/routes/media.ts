@@ -2,7 +2,7 @@
 
 import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings, Variables } from "@takos/platform/server";
-import { ok, fail } from "@takos/platform/server";
+import { HttpError, ok, fail } from "@takos/platform/server";
 import type { AppAuthContext } from "@takos/platform/app/runtime/types";
 import type { ImageTransformOptions, UploadMediaInput } from "@takos/platform/app/services/media-service";
 import { auth } from "../middleware/auth";
@@ -151,11 +151,23 @@ media.post("/upload", auth, async (c) => {
 // Publicly serve media from R2 via Worker
 media.get("/*", async (c) => {
   const env = c.env;
-  if (!env.MEDIA) return c.text("Not Found", 404);
+  if (!env.MEDIA) {
+    throw new HttpError(500, "CONFIGURATION_ERROR", "Media storage not configured");
+  }
   const url = new URL(c.req.url);
   const path = url.pathname;
-  const key = decodeURIComponent(path.replace(/^\/media\//, ""));
-  if (!key) return c.text("Not Found", 404);
+  let key = "";
+  try {
+    key = decodeURIComponent(path.replace(/^\/media\//, ""));
+  } catch (error) {
+    throw new HttpError(400, "INVALID_INPUT", "Invalid media path encoding", {
+      path,
+      error: String((error as Error)?.message ?? error),
+    });
+  }
+  if (!key) {
+    throw new HttpError(404, "MEDIA_NOT_FOUND", "Media not found", { path });
+  }
   const transform = parseTransformOptions(url);
   if (transform) {
     const service = createMediaService(env);
@@ -164,7 +176,9 @@ media.get("/*", async (c) => {
     return c.redirect(target, 302);
   }
   const obj = await env.MEDIA.get(key);
-  if (!obj) return c.text("Not Found", 404);
+  if (!obj) {
+    throw new HttpError(404, "MEDIA_NOT_FOUND", "Media not found", { key });
+  }
   const headers = new Headers();
   const ct = obj.httpMetadata?.contentType || "application/octet-stream";
   headers.set("Content-Type", ct);

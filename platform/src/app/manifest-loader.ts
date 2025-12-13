@@ -17,6 +17,7 @@ import {
 } from "./types";
 import { APP_MANIFEST_SCHEMA_VERSION } from "./manifest.js";
 import { checkSemverCompatibility } from "../utils/semver.js";
+import { isReservedHttpPath } from "./reserved-routes";
 
 type Sourced<T> = {
   value: T;
@@ -34,8 +35,6 @@ interface AggregatedEntries {
 }
 
 const ROUTE_METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
-const RESERVED_VIEW_ROUTES = ["/login", "/-/health"];
-const RESERVED_VIEW_PREFIXES = ["/-", "/auth", "/-/core", "/-/config", "/-/app", "/.well-known"];
 
 const normalizeRoute = (path: string): string => {
   const trimmed = path.trim();
@@ -101,8 +100,7 @@ const findCoreRouteOwner = (route: string): { screenId: string; path: string } |
 const isReservedViewRoute = (route: string): boolean => {
   const normalized = normalizeRoute(route);
   if (!normalized) return false;
-  if (RESERVED_VIEW_ROUTES.includes(normalized)) return true;
-  return RESERVED_VIEW_PREFIXES.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`));
+  return isReservedHttpPath(normalized);
 };
 
 const validateFragmentSchemaVersion = (
@@ -816,6 +814,29 @@ function normalizeScreen(
     });
   }
 
+  const auth = raw.auth;
+  let normalizedAuth: "required" | "optional" | undefined;
+  if (auth !== undefined) {
+    if (auth === "public") {
+      screenIssues.push({
+        severity: "warning",
+        message: 'Screen auth "public" is deprecated; use "optional" instead',
+        file,
+        path: `screens[${index}].auth`,
+      });
+      normalizedAuth = "optional";
+    } else if (auth === "required" || auth === "optional") {
+      normalizedAuth = auth;
+    } else {
+      screenIssues.push({
+        severity: "error",
+        message: '"auth" must be "required" or "optional" when provided',
+        file,
+        path: `screens[${index}].auth`,
+      });
+    }
+  }
+
   if (!isPlainObject(raw.layout)) {
     screenIssues.push({
       severity: "error",
@@ -841,6 +862,9 @@ function normalizeScreen(
   }
   if (title !== undefined) {
     screen.title = title as string;
+  }
+  if (normalizedAuth !== undefined) {
+    screen.auth = normalizedAuth;
   }
   return { screen, screenIssues };
 }

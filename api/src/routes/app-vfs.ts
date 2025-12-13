@@ -78,6 +78,35 @@ const normalizeWorkspaceId = (value: unknown): string =>
 const normalizeCacheHash = (value: string): string =>
   value.replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 128);
 
+const globToRegExp = (pattern: string): RegExp => {
+  const normalized = pattern.replace(/\\/g, "/");
+  let source = "^";
+  for (let i = 0; i < normalized.length; i++) {
+    const ch = normalized[i];
+    const next = normalized[i + 1];
+    if (ch === "*" && next === "*") {
+      source += ".*";
+      i += 1;
+      continue;
+    }
+    if (ch === "*") {
+      source += "[^/]*";
+      continue;
+    }
+    if (ch === "?") {
+      source += "[^/]";
+      continue;
+    }
+    if ("+.^$|()[]{}".includes(ch)) {
+      source += `\\${ch}`;
+      continue;
+    }
+    source += ch;
+  }
+  source += "$";
+  return new RegExp(source);
+};
+
 type WorkspaceContext =
   | { ok: true; value: { workspaceId: string; store: WorkspaceStore; workspace: AppWorkspaceRecord; limits: WorkspaceLimitSet } }
   | { ok: false; response: Response };
@@ -299,6 +328,119 @@ appVfs.delete("/-/dev/vfs/:workspaceId/files/*", async (c) => {
   return ok(c as any, { deleted: true, workspace_id: workspaceId, path, usage });
 });
 
+appVfs.post("/-/dev/vfs/:workspaceId/files/move", async (c) => {
+  const workspaceId = (c.req.param("workspaceId") || "").trim();
+  const payload = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  const from = typeof payload?.from === "string" ? payload.from : "";
+  const to = typeof payload?.to === "string" ? payload.to : "";
+  const fromPath = normalizeVfsPath(from);
+  const toPath = normalizeVfsPath(to);
+  if (!workspaceId || !fromPath || !toPath || fromPath.includes("..") || toPath.includes("..")) {
+    return fail(c as any, "invalid move payload", 400);
+  }
+
+  const ctx = await resolveWorkspaceContext(c, workspaceId);
+  if (!ctx.ok) return ctx.response;
+  const { store, limits } = ctx.value;
+
+  const source = await store.getWorkspaceFile(workspaceId, fromPath);
+  if (!source) {
+    return fail(c as any, "file not found", 404);
+  }
+  const size = source.size ?? source.content?.byteLength ?? 0;
+  if (Number.isFinite(limits.maxFileSize) && size > limits.maxFileSize) {
+    return fail(c as any, "workspace_file_too_large", 413, { code: "FILE_TOO_LARGE" });
+  }
+
+  const moved =
+    typeof store.moveWorkspaceFile === "function"
+      ? await store.moveWorkspaceFile(workspaceId, fromPath, toPath)
+      : await (async () => {
+          const copied = await store.saveWorkspaceFile(
+            workspaceId,
+            toPath,
+            source.content,
+            source.content_type ?? undefined,
+          );
+          if (!copied) return null;
+          if (typeof store.deleteWorkspaceFile === "function") {
+            await store.deleteWorkspaceFile(workspaceId, fromPath);
+          }
+          return copied;
+        })();
+
+  if (!moved) {
+    return fail(c as any, "failed to move file", 500);
+  }
+
+  const usage = await computeWorkspaceUsage(store, workspaceId);
+  return ok(c as any, { workspace_id: workspaceId, file: mapWorkspaceFile(moved), usage });
+});
+
+appVfs.post("/-/dev/vfs/:workspaceId/files/copy", async (c) => {
+  const workspaceId = (c.req.param("workspaceId") || "").trim();
+  const payload = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+  const from = typeof payload?.from === "string" ? payload.from : "";
+  const to = typeof payload?.to === "string" ? payload.to : "";
+  const fromPath = normalizeVfsPath(from);
+  const toPath = normalizeVfsPath(to);
+  if (!workspaceId || !fromPath || !toPath || fromPath.includes("..") || toPath.includes("..")) {
+    return fail(c as any, "invalid copy payload", 400);
+  }
+
+  const ctx = await resolveWorkspaceContext(c, workspaceId);
+  if (!ctx.ok) return ctx.response;
+  const { store, limits } = ctx.value;
+  const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
+
+  const source = await store.getWorkspaceFile(workspaceId, fromPath);
+  if (!source) {
+    return fail(c as any, "file not found", 404);
+  }
+  const size = source.size ?? source.content?.byteLength ?? 0;
+  const limitCheck = await ensureWithinWorkspaceLimits(
+    store,
+    workspaceId,
+    toPath,
+    size,
+    limits,
+  );
+  if (!limitCheck.ok) {
+    const quota = requireVfsQuota(authContext, {
+      fileSize: size,
+      fileCount: limitCheck.usage.fileCount,
+      totalSize: limitCheck.usage.totalSize,
+    });
+    const fallbackCode =
+      limitCheck.reason === "workspace_file_too_large" ? "FILE_TOO_LARGE" : "STORAGE_LIMIT_EXCEEDED";
+    const fallbackStatus = limitCheck.reason === "workspace_file_too_large" ? 413 : 507;
+    const status = quota.ok ? fallbackStatus : quota.status;
+    const code = quota.ok ? fallbackCode : quota.code;
+    const message = quota.ok ? "workspace limit exceeded" : quota.message;
+    return fail(c as any, message, status, {
+      code,
+      details: quota.ok
+        ? { reason: limitCheck.reason, usage: limitCheck.usage, limits }
+        : quota.details,
+    });
+  }
+
+  const copied =
+    typeof store.copyWorkspaceFile === "function"
+      ? await store.copyWorkspaceFile(workspaceId, fromPath, toPath)
+      : await store.saveWorkspaceFile(
+          workspaceId,
+          toPath,
+          source.content,
+          source.content_type ?? undefined,
+        );
+
+  if (!copied) {
+    return fail(c as any, "failed to copy file", 500);
+  }
+  return ok(c as any, { workspace_id: workspaceId, file: mapWorkspaceFile(copied), usage: limitCheck.usage });
+});
+
 appVfs.delete("/-/dev/vfs/workspaces/:workspaceId", async (c) => {
   const workspaceId = (c.req.param("workspaceId") || "").trim();
   if (!workspaceId) {
@@ -423,6 +565,105 @@ appVfs.post("/-/dev/vfs/:workspaceId/dirs/*", async (c) => {
   }
 
   return ok(c as any, { workspace_id: workspaceId, directory });
+});
+
+appVfs.delete("/-/dev/vfs/:workspaceId/dirs/*", async (c) => {
+  const workspaceId = (c.req.param("workspaceId") || "").trim();
+  const rawPath = extractPathFromUrl(c, workspaceId, "dirs");
+  const dirPath = rawPath || "/";
+  const recursive = (c.req.query("recursive") || "").toLowerCase() === "true";
+  if (!workspaceId || !dirPath || dirPath.includes("..")) {
+    return fail(c as any, "invalid directory path", 400);
+  }
+
+  const ctx = await resolveWorkspaceContext(c, workspaceId);
+  if (!ctx.ok) return ctx.response;
+  const { store } = ctx.value;
+
+  if (typeof store.deleteDirectory === "function") {
+    try {
+      const result = await store.deleteDirectory(workspaceId, dirPath, { recursive });
+      const usage = await computeWorkspaceUsage(store, workspaceId);
+      return ok(c as any, { workspace_id: workspaceId, path: dirPath, deleted: true, recursive, ...result, usage });
+    } catch (error) {
+      const message = (error as Error).message;
+      if (message === "directory_not_empty") {
+        return fail(c as any, "directory not empty", 409);
+      }
+      if (message === "cannot delete root directory") {
+        return fail(c as any, "cannot delete root directory", 400);
+      }
+      return fail(c as any, "failed to delete directory", 500);
+    }
+  }
+
+  return fail(c as any, "directory delete is not supported", 501);
+});
+
+appVfs.get("/-/dev/vfs/:workspaceId/glob", async (c) => {
+  const workspaceId = (c.req.param("workspaceId") || "").trim();
+  const pattern = (c.req.query("pattern") || "").trim();
+  if (!workspaceId || !pattern) {
+    return fail(c as any, "workspaceId and pattern are required", 400);
+  }
+
+  const ctx = await resolveWorkspaceContext(c, workspaceId);
+  if (!ctx.ok) return ctx.response;
+  const { store } = ctx.value;
+
+  const regex = globToRegExp(pattern.replace(/^\/+/, ""));
+  const files = await store.listWorkspaceFiles(workspaceId);
+  const matched = files.filter((file) => regex.test(file.path));
+
+  return ok(c as any, { workspace_id: workspaceId, pattern, files: matched.map((f) => mapWorkspaceFile(f)) });
+});
+
+appVfs.get("/-/dev/vfs/:workspaceId/search", async (c) => {
+  const workspaceId = (c.req.param("workspaceId") || "").trim();
+  const query = (c.req.query("query") || c.req.query("q") || "").trim();
+  const prefix = (c.req.query("prefix") || "").trim();
+  const caseSensitive = (c.req.query("caseSensitive") || "").toLowerCase() === "true";
+  const regexMode = (c.req.query("regex") || "").toLowerCase() === "true";
+  if (!workspaceId || !query) {
+    return fail(c as any, "workspaceId and query are required", 400);
+  }
+
+  const ctx = await resolveWorkspaceContext(c, workspaceId);
+  if (!ctx.ok) return ctx.response;
+  const { store } = ctx.value;
+
+  const files = await store.listWorkspaceFiles(workspaceId, prefix || undefined);
+  const matcher = (() => {
+    if (regexMode) {
+      try {
+        return new RegExp(query, caseSensitive ? "" : "i");
+      } catch {
+        return null;
+      }
+    }
+    const needle = caseSensitive ? query : query.toLowerCase();
+    return {
+      test: (text: string) => {
+        const haystack = caseSensitive ? text : text.toLowerCase();
+        return haystack.includes(needle);
+      },
+    } as Pick<RegExp, "test">;
+  })();
+  if (!matcher) {
+    return fail(c as any, "invalid regex query", 400);
+  }
+
+  const results: Array<{ path: string; matches: number }> = [];
+  for (const file of files) {
+    const text = textDecoder.decode(file.content ?? new Uint8Array());
+    if (!text) continue;
+    if (matcher.test(text)) {
+      results.push({ path: file.path, matches: 1 });
+    }
+    if (results.length >= 200) break;
+  }
+
+  return ok(c as any, { workspace_id: workspaceId, query, prefix: prefix || undefined, results });
 });
 
 appVfs.get("/-/dev/vfs/:workspaceId/cache/esbuild/:hash", async (c) => {

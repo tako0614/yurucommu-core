@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * App Bundler CLI
  *
@@ -135,20 +134,30 @@ async function runValidate(appDir: string, strict: boolean): Promise<number> {
 
   // Print errors
   for (const error of result.errors) {
-    const location = error.file
-      ? `${colors.dim}${path.relative(process.cwd(), error.file)}${colors.reset}`
+    const file = error.location?.file ?? error.file;
+    const line = error.location?.line ?? undefined;
+    const column = error.location?.column ?? undefined;
+    const locSuffix = file
+      ? `${colors.dim}${path.relative(process.cwd(), file)}${line ? `:${line}${column ? `:${column}` : ""}` : ""}${colors.reset}`
       : "";
     const jsonPath = error.path ? `${colors.dim} (${error.path})${colors.reset}` : "";
-    logError(`${error.message} ${location}${jsonPath}`);
+    const code = (error as any).code ? `${colors.dim}[${(error as any).code}]${colors.reset} ` : "";
+    const suggestion = (error as any).suggestion ? `${colors.dim} ${(error as any).suggestion}${colors.reset}` : "";
+    logError(`${code}${error.message} ${locSuffix}${jsonPath}${suggestion}`);
   }
 
   // Print warnings
   for (const warning of result.warnings) {
-    const location = warning.file
-      ? `${colors.dim}${path.relative(process.cwd(), warning.file)}${colors.reset}`
+    const file = warning.location?.file ?? warning.file;
+    const line = warning.location?.line ?? undefined;
+    const column = warning.location?.column ?? undefined;
+    const locSuffix = file
+      ? `${colors.dim}${path.relative(process.cwd(), file)}${line ? `:${line}${column ? `:${column}` : ""}` : ""}${colors.reset}`
       : "";
     const jsonPath = warning.path ? `${colors.dim} (${warning.path})${colors.reset}` : "";
-    logWarning(`${warning.message} ${location}${jsonPath}`);
+    const code = (warning as any).code ? `${colors.dim}[${(warning as any).code}]${colors.reset} ` : "";
+    const suggestion = (warning as any).suggestion ? `${colors.dim} ${(warning as any).suggestion}${colors.reset}` : "";
+    logWarning(`${code}${warning.message} ${locSuffix}${jsonPath}${suggestion}`);
   }
 
   // Summary

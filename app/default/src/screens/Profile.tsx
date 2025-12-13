@@ -173,9 +173,11 @@ export function ProfileScreen() {
           </Link>
         </div>
 
-        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-          Joined {new Date(profile.createdAt).toLocaleDateString(undefined, { month: "long", year: "numeric" })}
-        </p>
+        {profile.createdAt ? (
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            Joined {new Date(profile.createdAt).toLocaleDateString(undefined, { month: "long", year: "numeric" })}
+          </p>
+        ) : null}
       </div>
 
       {/* Posts */}

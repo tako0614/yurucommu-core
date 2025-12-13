@@ -83,6 +83,8 @@ import appPreviewRoutes from "./routes/app-preview";
 import appDebugRoutes from "./routes/app-debug";
 import appManagerRoutes from "./routes/app-manager";
 import appVfsRoutes from "./routes/app-vfs";
+import appCompileRoutes from "./routes/app-compile";
+import appIdeRoutes from "./routes/app-ide";
 import { appApiRouter } from "./routes/app-api";
 import cronHealthRoutes from "./routes/cron-health";
 import activityPubMetadataRoutes from "./routes/activitypub-metadata.js";
@@ -105,6 +107,7 @@ import {
   auth,
   authenticateUser,
 } from "./middleware/auth";
+import { legacyRedirectMiddleware } from "./middleware/legacy-redirect";
 import { logEvent, mapErrorToResponse, requestObservability } from "./lib/observability";
 // Handle validation helpers
 const HANDLE_REGEX = /^[a-z0-9_]{3,32}$/;
@@ -244,22 +247,6 @@ app.onError((error, c) => {
   return mapErrorToResponse(error, { requestId, env: c.env });
 });
 
-app.notFound((c) => {
-  const requestId = (c.get("requestId") as string | undefined) ?? undefined;
-  const path = new URL(c.req.url).pathname;
-  logEvent(c, "warn", "request.not_found", { path });
-  const body = {
-    status: 404,
-    code: "NOT_FOUND",
-    message: "Route not found",
-    details: { path, requestId },
-  };
-  return new Response(JSON.stringify(body), {
-    status: 404,
-    headers: { "Content-Type": "application/json", "x-request-id": requestId || "" },
-  });
-});
-
 // Simplified CORS middleware that mirrors back the request Origin.
 app.use("*", async (c, next) => {
   const requestOrigin = c.req.header("Origin") || "";
@@ -295,6 +282,9 @@ app.use("*", async (c, next) => {
   responseHeaders.append("Vary", "Access-Control-Request-Headers");
 });
 
+// Keep backward compatibility for renamed UI routes (docs/plan/12-routing.md).
+app.use("*", legacyRedirectMiddleware);
+
 // Validate cron configuration once per worker start
 app.use("*", async (c, next) => {
   await ensureCronValidation(c.env as Bindings);
@@ -310,10 +300,9 @@ app.use("*", async (c, next) => {
       console.error("[dev-data] refusing to start with prod data bindings", {
         errors: status.errors,
       });
-      return c.json(
-        { ok: false, error: "dev data isolation failed", details: status.errors },
-        503,
-      );
+      throw new HttpError(503, "SERVICE_UNAVAILABLE", "Dev data isolation failed", {
+        errors: status.errors,
+      });
     }
     const env = c.env as any;
     if (status.resolved.db) {
@@ -411,6 +400,8 @@ app.route("/", configRoutes);
 app.route("/", cronHealthRoutes);
 app.route("/", appManagerRoutes);
 app.route("/", appVfsRoutes);
+app.route("/", appCompileRoutes);
+app.route("/", appIdeRoutes);
 app.route("/-/apps", appApiRouter);
 app.route("/", realtimeRoutes);
 app.route("/", appPreviewRoutes);
@@ -422,7 +413,7 @@ app.get("/", (c) => c.text("Hello World!"));
 app.get("/.well-known/takos-push.json", (c) => {
   const wellKnown = buildPushWellKnownPayload(c.env as Bindings);
   if (!wellKnown) {
-    return c.json({ ok: false, error: "push not configured" }, 503);
+    throw new HttpError(503, "SERVICE_UNAVAILABLE", "Push not configured");
   }
   const response = c.json(wellKnown);
   response.headers.set("Cache-Control", "public, max-age=300, immutable");
@@ -685,12 +676,26 @@ app.post("/media/upload", async (c) => {
 // Publicly serve media from R2 via Worker
 app.get("/media/*", async (c) => {
   const env = c.env as Bindings;
-  if (!env.MEDIA) return c.text("Not Found", 404);
   const path = new URL(c.req.url).pathname;
-  const key = decodeURIComponent(path.replace(/^\/media\//, ""));
-  if (!key) return c.text("Not Found", 404);
+  if (!env.MEDIA) {
+    throw new HttpError(500, "CONFIGURATION_ERROR", "Media storage not configured");
+  }
+  let key = "";
+  try {
+    key = decodeURIComponent(path.replace(/^\/media\//, ""));
+  } catch (error) {
+    throw new HttpError(400, "INVALID_INPUT", "Invalid media path encoding", {
+      path,
+      error: String((error as Error)?.message ?? error),
+    });
+  }
+  if (!key) {
+    throw new HttpError(404, "MEDIA_NOT_FOUND", "Media not found", { path });
+  }
   const obj = await env.MEDIA.get(key);
-  if (!obj) return c.text("Not Found", 404);
+  if (!obj) {
+    throw new HttpError(404, "MEDIA_NOT_FOUND", "Media not found", { key });
+  }
   const headers = new Headers();
   const ct = obj.httpMetadata?.contentType || "application/octet-stream";
   headers.set("Content-Type", ct);
@@ -1993,20 +1998,33 @@ app.notFound((c) => {
     method: c.req.method,
     accept: c.req.header("accept"),
   });
+  const requestId = (c.get("requestId") as string | undefined) ?? undefined;
+  const path = new URL(c.req.url).pathname;
   if (!c.env.ASSETS) {
-    return c.text("Not Found", 404);
+    logEvent(c, "warn", "request.not_found", { path });
+    return mapErrorToResponse(new HttpError(404, "NOT_FOUND", "Route not found", { path }), {
+      requestId,
+      env: c.env,
+    });
   }
 
   const method = (c.req.method || "GET").toUpperCase();
   if (method !== "GET" && method !== "HEAD") {
-    return c.json({ ok: false, error: "Not Found" }, 404);
+    logEvent(c, "warn", "request.not_found", { path, method });
+    return mapErrorToResponse(new HttpError(404, "NOT_FOUND", "Route not found", { path, method }), {
+      requestId,
+      env: c.env,
+    });
   }
 
   try {
     return c.env.ASSETS.fetch(c.req.raw);
   } catch (error) {
     console.error("asset fallback failed", error);
-    return c.text("Not Found", 404);
+    return mapErrorToResponse(new HttpError(500, "INTERNAL_ERROR", "Asset fallback failed", { path }), {
+      requestId,
+      env: c.env,
+    });
   }
 });
 

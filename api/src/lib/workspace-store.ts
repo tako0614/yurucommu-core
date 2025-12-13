@@ -105,6 +105,13 @@ export type WorkspaceStore = {
     options?: { contentType?: string | null; cacheControl?: string | null },
   ): Promise<WorkspaceFileRecord | null>;
   getCompileCache?(workspaceId: string, hash: string): Promise<WorkspaceFileRecord | null>;
+  copyWorkspaceFile?(workspaceId: string, from: string, to: string): Promise<WorkspaceFileRecord | null>;
+  moveWorkspaceFile?(workspaceId: string, from: string, to: string): Promise<WorkspaceFileRecord | null>;
+  deleteDirectory?(
+    workspaceId: string,
+    path: string,
+    options?: { recursive?: boolean },
+  ): Promise<{ deletedFiles: number; deletedDirectories: number }>;
 };
 
 const encoder = new TextEncoder();
@@ -269,6 +276,35 @@ const parentDirectory = (path: string): string => {
 };
 
 const escapeLikePattern = (value: string): string => value.replace(/([%_\\])/g, "\\$1");
+
+const globToRegExp = (pattern: string): RegExp => {
+  const normalized = pattern.replace(/\\/g, "/");
+  let source = "^";
+  for (let i = 0; i < normalized.length; i++) {
+    const ch = normalized[i];
+    const next = normalized[i + 1];
+    if (ch === "*" && next === "*") {
+      source += ".*";
+      i += 1;
+      continue;
+    }
+    if (ch === "*") {
+      source += "[^/]*";
+      continue;
+    }
+    if (ch === "?") {
+      source += "[^/]";
+      continue;
+    }
+    if ("+.^$|()[]{}".includes(ch)) {
+      source += `\\${ch}`;
+      continue;
+    }
+    source += ch;
+  }
+  source += "$";
+  return new RegExp(source);
+};
 
 const toBytes = (input: WorkspaceFileContent): Uint8Array => {
   if (typeof input === "string") {
@@ -859,6 +895,124 @@ export function createWorkspaceStore(db: D1Database, bucket?: R2Bucket | null): 
     return true;
   };
 
+  const copyWorkspaceFile = async (workspaceId: string, from: string, to: string) => {
+    const fromPath = normalizePath(from);
+    const toPath = normalizePath(to);
+    if (!fromPath || !toPath) {
+      throw new Error("from/to path is required");
+    }
+    const source = await getWorkspaceFile(workspaceId, fromPath);
+    if (!source) return null;
+    return saveWorkspaceFile(
+      workspaceId,
+      toPath,
+      source.content ?? emptyBytes,
+      source.content_type ?? "application/octet-stream",
+    );
+  };
+
+  const moveWorkspaceFile = async (workspaceId: string, from: string, to: string) => {
+    const fromPath = normalizePath(from);
+    const toPath = normalizePath(to);
+    if (!fromPath || !toPath) {
+      throw new Error("from/to path is required");
+    }
+    const copied = await copyWorkspaceFile(workspaceId, fromPath, toPath);
+    if (!copied) return null;
+    await deleteWorkspaceFile(workspaceId, fromPath);
+    return copied;
+  };
+
+  const deleteDirectory = async (
+    workspaceId: string,
+    path: string,
+    options?: { recursive?: boolean },
+  ) => {
+    const normalizedDir = normalizeDirectoryPath(path);
+    if (normalizedDir === "/") {
+      throw new Error("cannot delete root directory");
+    }
+    const normalizedPrefix = normalizePath(normalizedDir);
+    const prefix = normalizedPrefix ? `${normalizedPrefix}/` : "";
+    const recursive = Boolean(options?.recursive);
+
+    if (!recursive) {
+      const childDirs = await runStatement(
+        db,
+        `SELECT path FROM vfs_directories WHERE workspace_id = ? AND parent_path = ? LIMIT 1`,
+        [workspaceId, normalizedDir],
+        true,
+      );
+      const childFiles = await runStatement(
+        db,
+        `SELECT path FROM vfs_files WHERE workspace_id = ? AND directory_path = ? LIMIT 1`,
+        [workspaceId, normalizedDir],
+        true,
+      );
+      const legacyFiles = await runStatement(
+        db,
+        `SELECT path FROM app_workspace_files WHERE workspace_id = ? AND path LIKE ? ESCAPE '\\' LIMIT 1`,
+        [workspaceId, `${escapeLikePattern(prefix)}%`],
+        true,
+      );
+      if (childDirs.length || childFiles.length || legacyFiles.length) {
+        throw new Error("directory_not_empty");
+      }
+    }
+
+    let deletedFiles = 0;
+    if (recursive) {
+      const vfsRows = await runStatement(
+        db,
+        `SELECT path FROM vfs_files WHERE workspace_id = ? AND path LIKE ? ESCAPE '\\'`,
+        [workspaceId, `${escapeLikePattern(prefix)}%`],
+        true,
+      );
+      for (const row of vfsRows) {
+        if (row?.path) {
+          await deleteWorkspaceFile(workspaceId, String(row.path));
+          deletedFiles += 1;
+        }
+      }
+      const legacyRows = await runStatement(
+        db,
+        `SELECT path FROM app_workspace_files WHERE workspace_id = ? AND path LIKE ? ESCAPE '\\'`,
+        [workspaceId, `${escapeLikePattern(prefix)}%`],
+        true,
+      );
+      for (const row of legacyRows) {
+        if (row?.path) {
+          await deleteLegacyFile(workspaceId, String(row.path));
+          deletedFiles += 1;
+        }
+      }
+    }
+
+    const dirCountRows = await runStatement(
+      db,
+      recursive
+        ? `SELECT COUNT(*) as count FROM vfs_directories WHERE workspace_id = ? AND (path = ? OR path LIKE ? ESCAPE '\\')`
+        : `SELECT COUNT(*) as count FROM vfs_directories WHERE workspace_id = ? AND path = ?`,
+      recursive
+        ? [workspaceId, normalizedDir, `${escapeLikePattern(prefix)}%`]
+        : [workspaceId, normalizedDir],
+      true,
+    );
+    const deletedDirectories = Number((dirCountRows[0] as any)?.count ?? 0);
+
+    await runStatement(
+      db,
+      recursive
+        ? `DELETE FROM vfs_directories WHERE workspace_id = ? AND (path = ? OR path LIKE ? ESCAPE '\\')`
+        : `DELETE FROM vfs_directories WHERE workspace_id = ? AND path = ?`,
+      recursive
+        ? [workspaceId, normalizedDir, `${escapeLikePattern(prefix)}%`]
+        : [workspaceId, normalizedDir],
+    );
+
+    return { deletedFiles, deletedDirectories };
+  };
+
   const deleteWorkspace = async (workspaceId: string) => {
     const normalizedId = String(workspaceId).trim();
     if (!normalizedId) return false;
@@ -1068,6 +1222,9 @@ export function createWorkspaceStore(db: D1Database, bucket?: R2Bucket | null): 
     listWorkspaceFiles,
     deleteWorkspaceFile,
     deleteWorkspace,
+    copyWorkspaceFile,
+    moveWorkspaceFile,
+    deleteDirectory,
     statWorkspaceFile,
     getWorkspaceUsage,
     listDirectories,

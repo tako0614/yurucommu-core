@@ -32,6 +32,7 @@ export * from "../ai/agent-policy";
 export * from "../ai/action-registry.js";
 export * from "../ai/provider-registry";
 export * from "../ai/agent-tools";
+export * from "../ai/agent-tools-impl";
 export * from "../ai/provider-adapters";
 export * from "../ai/workflow/index";
 export * from "../activitypub/activitypub";

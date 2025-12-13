@@ -7,14 +7,13 @@
 
 import * as React from "react";
 import * as ReactDOM from "react-dom/client";
-import type { TakosRuntime, AppManifest } from "@takos/app-sdk";
-import { createTakosRuntime, setAppMetadata, syncRouteParamsFromPath } from "./takos-runtime";
+import type { AppManifest } from "@takos/app-sdk";
 import { getBackendUrl } from "./api-client";
 import { TakosClientRuntimeProvider } from "./takos-client";
 
 interface LoadedApp {
   id: string;
-  module: { default: React.ComponentType<{ runtime: TakosRuntime }> };
+  module: { default: React.ComponentType };
   manifest: AppManifest;
   root: ReactDOM.Root | null;
 }
@@ -55,13 +54,6 @@ export async function loadApp(appId: string): Promise<LoadedApp> {
         throw new Error(`App ${appId} does not export a valid React component`);
       }
 
-      // Store app metadata for runtime
-      setAppMetadata(
-        appId,
-        manifest.version || "1.0.0",
-        manifest.permissions || []
-      );
-
       const app: LoadedApp = {
         id: appId,
         module,
@@ -85,8 +77,7 @@ export async function loadApp(appId: string): Promise<LoadedApp> {
  */
 export function mountApp(
   app: LoadedApp,
-  container: HTMLElement,
-  runtime: TakosRuntime
+  container: HTMLElement
 ): void {
   // Unmount existing root if present
   if (app.root) {
@@ -103,7 +94,7 @@ export function mountApp(
         appId: app.id,
         version: app.manifest.version || "1.0.0",
       },
-      React.createElement(AppComponent, { runtime })
+      React.createElement(AppComponent, null)
     )
   );
 
@@ -160,8 +151,7 @@ export async function loadAndMountApp(
   container: HTMLElement
 ): Promise<LoadedApp> {
   const app = await loadApp(appId);
-  const runtime = createTakosRuntime(appId);
-  mountApp(app, container, runtime);
+  mountApp(app, container);
   return app;
 }
 
@@ -228,27 +218,12 @@ export const AppRenderer: React.FC<{
     }
   }, [error, onError]);
 
-  // Sync route params on route change
-  React.useEffect(() => {
-    // Initial sync
-    syncRouteParamsFromPath();
-
-    // Listen for route changes (popstate for browser back/forward)
-    const handlePopState = () => syncRouteParamsFromPath();
-    window.addEventListener("popstate", handlePopState);
-
-    return () => {
-      window.removeEventListener("popstate", handlePopState);
-    };
-  }, []);
-
   React.useEffect(() => {
     if (!app || !containerRef.current || mountedRef.current) {
       return;
     }
 
-    const runtime = createTakosRuntime(appId);
-    mountApp(app, containerRef.current, runtime);
+    mountApp(app, containerRef.current);
     mountedRef.current = true;
 
     return () => {

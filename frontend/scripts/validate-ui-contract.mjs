@@ -12,7 +12,7 @@ const viewsDir = path.resolve(repoRoot, "app", "views");
 const sideNavPath = path.resolve(repoRoot, "frontend", "src", "components", "Navigation", "SideNav.tsx");
 const appTabPath = path.resolve(repoRoot, "frontend", "src", "components", "Navigation", "AppTab.tsx");
 const EXPECTED_SCHEMA_VERSION = "1.10";
-const RESERVED_ROUTES = ["/login", "/auth/*", "/-/core/*", "/-/config/*", "/-/app/*", "/-/health", "/.well-known/*"];
+const RESERVED_ROUTES = ["/login", "/logout", "/auth", "/auth/*", "/-", "/-/*", "/.well-known", "/.well-known/*"];
 const REQUIRED_SCREENS = [
   "screen.home",
   "screen.community",
@@ -84,6 +84,18 @@ function loadScreens() {
     }
   }
   return screens;
+}
+
+function loadInserts() {
+  const files = walkJsonFiles(viewsDir);
+  const inserts = [];
+  for (const file of files) {
+    const data = readJson(file);
+    if (Array.isArray(data.insert)) {
+      inserts.push(...data.insert);
+    }
+  }
+  return inserts;
 }
 
 function normalizeRoutePattern(pattern) {
@@ -253,7 +265,7 @@ function extractNavigationTargetsFromScreen(screen) {
   return targets;
 }
 
-function buildReachabilityEdges(screenMap) {
+function buildReachabilityEdges(screenMap, insertMap) {
   const edges = new Map();
   const addEdge = (from, to) => {
     if (!from || !to) return;
@@ -272,6 +284,10 @@ function buildReachabilityEdges(screenMap) {
 
   for (const screen of screenMap.values()) {
     const navTargets = extractNavigationTargetsFromScreen(screen);
+    const inserts = insertMap?.get(screen.id) || [];
+    for (const insertNode of inserts) {
+      collectLayoutTargets(insertNode, navTargets);
+    }
     for (const target of navTargets) {
       const matches = findScreensForPattern(target, screenMap);
       matches.forEach((matched) => addEdge(screen.id, matched.id));
@@ -573,6 +589,14 @@ function main() {
     }
   }
 
+  const insertMap = new Map();
+  const inserts = loadInserts();
+  for (const insert of inserts) {
+    if (!insert?.screen || !insert?.node) continue;
+    if (!insertMap.has(insert.screen)) insertMap.set(insert.screen, []);
+    insertMap.get(insert.screen).push(insert.node);
+  }
+
   // 3. Validate contract structure
   const { errors: contractErrors, contractScreens, contractActions } = validateContract(contract);
 
@@ -585,7 +609,7 @@ function main() {
   console.log(`✓ Required actions present: ${requiredActionsPresent.length}/${REQUIRED_ACTIONS.length}`);
 
   // 4. Build reachability graph and compute distances
-  const edges = buildReachabilityEdges(screenMap);
+  const edges = buildReachabilityEdges(screenMap, insertMap);
   const distances = computeReachability(edges);
 
   // 5. Validate against manifest

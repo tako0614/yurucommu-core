@@ -96,8 +96,14 @@ export function createCoreApi(fetchFn: FetchFn) {
 
   return {
     listTimeline: async (limit = 50): Promise<Post[]> => {
-      const posts = await getJson<any[]>(`/posts?limit=${limit}`);
-      return normalizePosts(posts);
+      const res = await fetchFn(`/-/apps/default/api/timeline/home?limit=${limit}`);
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(body || `Request failed: ${res.status}`);
+      }
+      const page = await readJson<any>(res);
+      const items = Array.isArray(page?.items) ? page.items : [];
+      return normalizePosts(items);
     },
 
     listUserPosts: async (handleOrId: string, limit = 50): Promise<Post[]> => {
@@ -156,4 +162,3 @@ export function createCoreApi(fetchFn: FetchFn) {
     },
   };
 }
-

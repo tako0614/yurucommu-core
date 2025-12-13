@@ -9,7 +9,12 @@ const semver = require("semver");
 
 const [, , inputPath] = process.argv;
 const profilePath = path.resolve(process.cwd(), inputPath || "takos-profile.json");
-const schemaPath = path.resolve(__dirname, "..", "takos-profile.schema.json");
+const workspaceRoot = path.resolve(__dirname, "..");
+const schemaCandidates = [
+  path.resolve(workspaceRoot, "schemas", "profile.schema.json"),
+  path.resolve(workspaceRoot, "takos-profile.schema.json"),
+];
+const schemaPath = schemaCandidates.find((candidate) => fs.existsSync(candidate));
 
 const ajv = new Ajv({
   allErrors: true,
@@ -202,6 +207,10 @@ function readJson(filePath, label) {
   } catch (error) {
     fail(`Failed to read ${label} at ${filePath}: ${error.message}`);
   }
+}
+
+if (!schemaPath) {
+  fail(`Failed to locate takos-profile schema (tried: ${schemaCandidates.join(", ")})`);
 }
 
 const schema = readJson(schemaPath, "schema");

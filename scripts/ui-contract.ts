@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import {
   AppHandlerRegistry,
+  isReservedHttpPath,
   loadAppManifest,
   parseUiContractJson,
   validateUiContractAgainstManifest,
@@ -16,16 +17,6 @@ import {
 const EXPECTED_SCHEMA_VERSION = "1.10";
 const SCREEN_ID_FORMAT = /^screen\.[a-z_]+$/;
 const ACTION_ID_FORMAT = /^action\.[a-z_]+$/;
-
-const RESERVED_ROUTES = [
-  "/login",
-  "/auth/*",
-  "/-/core/*",
-  "/-/config/*",
-  "/-/app/*",
-  "/-/health",
-  "/.well-known/*",
-];
 
 const REQUIRED_SCREENS = [
   "screen.home",
@@ -306,7 +297,7 @@ function patternSamples(pattern: string): string[] {
 
 function isReservedRoute(pattern: string): boolean {
   const normalized = normalizeRoutePattern(pattern);
-  return RESERVED_ROUTES.some((reserved) => patternToRegExp(reserved).test(normalized));
+  return isReservedHttpPath(normalized);
 }
 
 function patternsIntersect(a: string, b: string): boolean {

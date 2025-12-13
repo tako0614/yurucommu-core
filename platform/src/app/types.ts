@@ -15,6 +15,7 @@ export interface AppScreenDefinition {
   id: string;
   route?: string;
   title?: string;
+  auth?: "required" | "optional";
   layout: Record<string, unknown>;
   [key: string]: unknown;
 }

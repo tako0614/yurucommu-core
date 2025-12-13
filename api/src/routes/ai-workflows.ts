@@ -15,6 +15,7 @@ import {
   type WorkflowInstanceFilters,
   aiActionRegistry,
   type AiProviderRegistry,
+  fail,
 } from "@takos/platform/server";
 import { requireAiQuota } from "../lib/plan-guard";
 import type { AuthContext } from "../lib/auth-context-model";
@@ -56,10 +57,7 @@ const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 const planGuardError = (c: any) => {
   const check = requireAiQuota((c.get("authContext") as AuthContext | undefined) ?? null);
   if (!check.ok) {
-    return c.json(
-      { error: check.message, code: check.code, details: check.details ?? undefined },
-      check.status,
-    );
+    return fail(c, check.message, check.status, { code: check.code, details: check.details ?? undefined });
   }
   return null;
 };
@@ -95,7 +93,7 @@ app.get("/:id", async (c) => {
   const definition = workflowRegistry.getDefinition(id);
 
   if (!definition) {
-    return c.json({ error: "Workflow not found", code: "NOT_FOUND" }, 404);
+    return fail(c, "Workflow not found", 404, { code: "NOT_FOUND", details: { id } });
   }
 
   return c.json({
@@ -113,25 +111,15 @@ app.post("/", auth, async (c) => {
   const body = await c.req.json<WorkflowDefinition>();
 
   if (!body.id || !body.name || !body.steps || !body.entryPoint) {
-    return c.json(
-      {
-        error: "Invalid workflow definition",
-        code: "INVALID_INPUT",
-        required: ["id", "name", "steps", "entryPoint"],
-      },
-      400,
-    );
+    return fail(c, "Invalid workflow definition", 400, {
+      code: "INVALID_INPUT",
+      details: { required: ["id", "name", "steps", "entryPoint"] },
+    });
   }
 
   // カスタムワークフローIDの接頭辞チェック
   if (!body.id.startsWith("custom.")) {
-    return c.json(
-      {
-        error: "Custom workflow ID must start with 'custom.'",
-        code: "INVALID_ID",
-      },
-      400,
-    );
+    return fail(c, "Custom workflow ID must start with 'custom.'", 400, { code: "INVALID_ID", details: { id: body.id } });
   }
 
   try {
@@ -139,7 +127,7 @@ app.post("/", auth, async (c) => {
     return c.json({ success: true, id: body.id }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Registration failed";
-    return c.json({ error: message, code: "REGISTRATION_FAILED" }, 400);
+    return fail(c, message, 400, { code: "REGISTRATION_FAILED", details: { id: body.id } });
   }
 });
 
@@ -154,19 +142,13 @@ app.delete("/:id", auth, async (c) => {
 
   // 組み込みワークフローは削除不可
   if (id.startsWith("workflow.")) {
-    return c.json(
-      {
-        error: "Cannot delete built-in workflows",
-        code: "FORBIDDEN",
-      },
-      403,
-    );
+    return fail(c, "Cannot delete built-in workflows", 403, { code: "FORBIDDEN", details: { id } });
   }
 
   const deleted = workflowRegistry.unregister(id);
 
   if (!deleted) {
-    return c.json({ error: "Workflow not found", code: "NOT_FOUND" }, 404);
+    return fail(c, "Workflow not found", 404, { code: "NOT_FOUND", details: { id } });
   }
 
   return c.json({ success: true, id });
@@ -184,7 +166,7 @@ app.post("/:id/run", auth, async (c) => {
 
   const definition = workflowRegistry.getDefinition(id);
   if (!definition) {
-    return c.json({ error: "Workflow not found", code: "NOT_FOUND" }, 404);
+    return fail(c, "Workflow not found", 404, { code: "NOT_FOUND", details: { id } });
   }
 
   // AI設定を取得
@@ -192,13 +174,7 @@ app.post("/:id/run", auth, async (c) => {
   const providers = (env as any).AI_PROVIDERS as AiProviderRegistry | undefined;
 
   if (!providers) {
-    return c.json(
-      {
-        error: "AI providers not configured",
-        code: "AI_NOT_CONFIGURED",
-      },
-      503,
-    );
+    return fail(c, "AI providers not configured", 503, { code: "AI_NOT_CONFIGURED" });
   }
 
   // ワークフローエンジンを作成
@@ -245,7 +221,7 @@ app.post("/:id/run", auth, async (c) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Workflow execution failed";
-    return c.json({ error: message, code: "EXECUTION_FAILED" }, 500);
+    return fail(c, message, 500, { code: "EXECUTION_FAILED", details: { id } });
   }
 });
 
@@ -260,7 +236,7 @@ app.get("/instances/:instanceId", auth, async (c) => {
 
   const instance = workflowInstances.get(instanceId);
   if (!instance) {
-    return c.json({ error: "Workflow instance not found", code: "NOT_FOUND" }, 404);
+    return fail(c, "Workflow instance not found", 404, { code: "NOT_FOUND", details: { instanceId } });
   }
 
   return c.json({ instance: presentInstance(instance) });
@@ -319,19 +295,15 @@ app.post("/instances/:instanceId/approve", auth, async (c) => {
   }>();
 
   if (!body.stepId || typeof body.approved !== "boolean") {
-    return c.json(
-      {
-        error: "Invalid approval request",
-        code: "INVALID_INPUT",
-        required: ["stepId", "approved"],
-      },
-      400,
-    );
+    return fail(c, "Invalid approval request", 400, {
+      code: "INVALID_INPUT",
+      details: { required: ["stepId", "approved"] },
+    });
   }
 
   const instance = workflowInstances.get(instanceId);
   if (!instance) {
-    return c.json({ error: "Workflow instance not found", code: "NOT_FOUND" }, 404);
+    return fail(c, "Workflow instance not found", 404, { code: "NOT_FOUND", details: { instanceId } });
   }
 
   const updated: WorkflowInstanceRecord = {
@@ -361,7 +333,7 @@ app.post("/instances/:instanceId/cancel", auth, async (c) => {
 
   const instance = workflowInstances.get(instanceId);
   if (!instance) {
-    return c.json({ error: "Workflow instance not found", code: "NOT_FOUND" }, 404);
+    return fail(c, "Workflow instance not found", 404, { code: "NOT_FOUND", details: { instanceId } });
   }
 
   const updated: WorkflowInstanceRecord = {

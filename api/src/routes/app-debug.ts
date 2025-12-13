@@ -12,12 +12,13 @@ import type {
   PublicAccountBindings as Bindings,
   Variables,
 } from "@takos/platform/server";
-import { getActivityPubAvailability, ok, releaseStore } from "@takos/platform/server";
+import { getActivityPubAvailability, HttpError, ok, releaseStore } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
 import { makeData } from "../data";
 import type { DatabaseAPI, ListAppLogsOptions } from "../lib/types";
 import { ensureDefaultWorkspace, resolveWorkspaceEnv } from "../lib/workspace-store";
 import { requireHumanSession, requireWorkspacePlan } from "../lib/workspace-guard";
+import { mapErrorToResponse } from "../lib/observability";
 
 type DebugMode = "dev" | "prod-preview";
 
@@ -42,6 +43,12 @@ const demoAppMain: AppScriptModule = {
 };
 
 const debugApp = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+debugApp.onError((error, c) =>
+  mapErrorToResponse(error, {
+    requestId: (c.get("requestId") as string | undefined) ?? undefined,
+    env: c.env,
+  }),
+);
 debugApp.use("/-/app/debug/*", auth, requireHumanSession, requireWorkspacePlan);
 
 function normalizeMode(value: unknown): DebugMode | null {
@@ -212,22 +219,22 @@ debugApp.post("/-/app/debug/run", async (c) => {
   const payload = (await c.req.json().catch(() => ({}))) as RunRequestBody;
   const mode = normalizeMode(payload.mode);
   if (!mode) {
-    return c.json({ ok: false, error: "invalid_mode" }, 400);
+    throw new HttpError(400, "INVALID_OPTION", "Invalid mode", { mode: payload.mode ?? null });
   }
   const runtimeMode = resolveRuntimeMode(mode);
   const workspaceId = normalizeWorkspaceId(payload.workspaceId);
   if (runtimeMode === "dev" && !workspaceId) {
-    return c.json({ ok: false, error: "workspaceId_required" }, 400);
+    throw new HttpError(400, "MISSING_REQUIRED_FIELD", "workspaceId is required", { field: "workspaceId" });
   }
 
   const handlerName = normalizeHandlerName(payload.handler);
   if (!handlerName) {
-    return c.json({ ok: false, error: "handler_required" }, 400);
+    throw new HttpError(400, "MISSING_REQUIRED_FIELD", "handler is required", { field: "handler" });
   }
 
   const authSession = requireAuthenticated(c);
   if (!authSession) {
-    return c.json({ ok: false, error: "authentication_required" }, 403);
+    throw new HttpError(401, "UNAUTHORIZED", "Authentication required");
   }
 
   const logs: AppLogEntry[] = [];
@@ -249,13 +256,12 @@ debugApp.post("/-/app/debug/run", async (c) => {
     requireIsolation: runtimeMode === "dev",
   });
   if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
-    return c.json(
-      { ok: false, error: "dev_data_isolation_failed", details: workspaceEnv.isolation.errors },
-      503,
-    );
+    throw new HttpError(503, "SERVICE_UNAVAILABLE", "Dev data isolation failed", {
+      errors: workspaceEnv.isolation.errors,
+    });
   }
   if (runtimeMode === "dev" && !workspaceEnv.store) {
-    return c.json({ ok: false, error: "workspace_store_unavailable" }, 503);
+    throw new HttpError(503, "SERVICE_UNAVAILABLE", "Workspace store unavailable");
   }
 
   const runEnv: Bindings = {
@@ -285,7 +291,7 @@ debugApp.post("/-/app/debug/run", async (c) => {
 
     const handler = registry.get(handlerName);
     if (!handler) {
-      return c.json({ ok: false, error: `handler_not_found:${handlerName}` }, 404);
+      throw new HttpError(404, "NOT_FOUND", "Handler not found", { handler: handlerName });
     }
 
     if (runtimeMode === "dev") {
@@ -317,15 +323,11 @@ debugApp.post("/-/app/debug/run", async (c) => {
     await persistLogs(store, logs);
 
     if (!result.ok) {
-      return c.json(
-        {
-          ok: false,
-          error: result.error?.message ?? "handler_failed",
-          runId,
-          logs,
-        },
-        500,
-      );
+      throw new HttpError(500, "HANDLER_EXECUTION_ERROR", "App handler execution failed", {
+        runId,
+        logs,
+        error: result.error?.message ?? null,
+      });
     }
 
     return ok(c, {
@@ -347,7 +349,10 @@ debugApp.post("/-/app/debug/run", async (c) => {
       data: error instanceof Error && error.stack ? { stack: error.stack } : undefined,
     });
     await persistLogs(store, logs);
-    return c.json({ ok: false, error: message, runId, logs }, 500);
+    if (error instanceof HttpError) {
+      throw error;
+    }
+    throw new HttpError(500, "HANDLER_EXECUTION_ERROR", message, { runId, logs });
   } finally {
     restoreConsole();
     if (store) {
@@ -359,7 +364,7 @@ debugApp.post("/-/app/debug/run", async (c) => {
 debugApp.get("/-/app/debug/logs", async (c) => {
   const authSession = requireAuthenticated(c);
   if (!authSession) {
-    return c.json({ ok: false, error: "authentication_required" }, 403);
+    throw new HttpError(401, "UNAUTHORIZED", "Authentication required");
   }
   const options = parseLogQuery(c);
   const targetMode: AppRuntimeMode = options.mode ?? "dev";
@@ -369,10 +374,9 @@ debugApp.get("/-/app/debug/logs", async (c) => {
     requireIsolation: targetMode === "dev",
   });
   if (workspaceEnv.isolation?.required && !workspaceEnv.isolation.ok) {
-    return c.json(
-      { ok: false, error: "dev_data_isolation_failed", details: workspaceEnv.isolation.errors },
-      503,
-    );
+    throw new HttpError(503, "SERVICE_UNAVAILABLE", "Dev data isolation failed", {
+      errors: workspaceEnv.isolation.errors,
+    });
   }
   const envForLogs: Bindings = {
     ...(workspaceEnv.env as any),
@@ -389,7 +393,7 @@ debugApp.get("/-/app/debug/logs", async (c) => {
   const store = makeData(envForLogs as any, c);
   try {
     if (!store.listAppLogEntries) {
-      return c.json({ ok: false, error: "log_store_unavailable" }, 501);
+      throw new HttpError(503, "SERVICE_UNAVAILABLE", "Log store unavailable");
     }
     const logs = await store.listAppLogEntries(options);
     return ok(c, { logs, filters: options });

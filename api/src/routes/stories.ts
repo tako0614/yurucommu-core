@@ -3,8 +3,8 @@ import type { PublicAccountBindings as Bindings, Variables } from "@takos/platfo
 import { ok, fail } from "@takos/platform/server";
 import type { AppAuthContext } from "@takos/platform/app/runtime/types";
 import { auth } from "../middleware/auth";
-import { createStoryService } from "../services";
 import { getAppAuthContext } from "../lib/auth-context";
+import { buildTakosAppEnv, loadStoredAppManifest, loadTakosApp } from "../lib/app-sdk-loader";
 
 const stories = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -28,23 +28,38 @@ const handleError = (c: any, error: unknown) => {
   return fail(c, message, 400);
 };
 
-const buildStoryInput = (body: any, communityId?: string | null): { items: any[]; community_id: string | null; audience: "community" | "all"; visible_to_friends: boolean } => {
-  const items = Array.isArray(body.items) ? body.items : [];
-  return {
-    items,
-    community_id: communityId ?? body.community_id ?? null,
-    audience: body.audience === "community" ? "community" : "all",
-    visible_to_friends: body.visible_to_friends === undefined ? true : !!body.visible_to_friends,
-  };
+const readJson = async (res: Response): Promise<any> => {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+};
+
+const proxyToDefaultApp = async (
+  c: any,
+  pathname: string,
+  search: string = "",
+): Promise<Response> => {
+  const appId = "default";
+  const app = await loadTakosApp(appId, c.env);
+  const manifest = await loadStoredAppManifest(c.env, appId);
+  const appEnv = buildTakosAppEnv(c, appId, manifest);
+
+  const url = new URL(c.req.url);
+  url.pathname = pathname;
+  url.search = search;
+  const req = new Request(url.toString(), c.req.raw);
+  return await app.fetch(req, appEnv);
 };
 
 stories.post("/communities/:id/stories", auth, async (c) => {
   try {
-    const service = createStoryService(c.env);
-    const authCtx = ensureAuth(getAppAuthContext(c));
-    const body = (await c.req.json().catch(() => ({}))) as any;
-    const created = await service.createStory(authCtx, buildStoryInput(body, c.req.param("id")));
-    return ok(c, created, 201);
+    ensureAuth(getAppAuthContext(c));
+    const res = await proxyToDefaultApp(c, `/communities/${encodeURIComponent(c.req.param("id"))}/stories`);
+    const json = await readJson(res);
+    if (!res.ok) return fail(c, json?.error ?? "Failed to create story", res.status);
+    return ok(c, json, 201);
   } catch (error) {
     return handleError(c, error);
   }
@@ -52,11 +67,11 @@ stories.post("/communities/:id/stories", auth, async (c) => {
 
 stories.post("/stories", auth, async (c) => {
   try {
-    const service = createStoryService(c.env);
-    const authCtx = ensureAuth(getAppAuthContext(c));
-    const body = (await c.req.json().catch(() => ({}))) as any;
-    const created = await service.createStory(authCtx, buildStoryInput(body, body.community_id ?? null));
-    return ok(c, created, 201);
+    ensureAuth(getAppAuthContext(c));
+    const res = await proxyToDefaultApp(c, "/stories");
+    const json = await readJson(res);
+    if (!res.ok) return fail(c, json?.error ?? "Failed to create story", res.status);
+    return ok(c, json, 201);
   } catch (error) {
     return handleError(c, error);
   }
@@ -64,12 +79,16 @@ stories.post("/stories", auth, async (c) => {
 
 stories.get("/stories", auth, async (c) => {
   try {
-    const service = createStoryService(c.env);
-    const authCtx = ensureAuth(getAppAuthContext(c));
     const url = new URL(c.req.url);
     const { limit, offset } = parsePagination(url);
-    const page = await service.listStories(authCtx, { limit, offset });
-    return ok(c, page.stories);
+    ensureAuth(getAppAuthContext(c));
+    const proxyUrl = new URL(url.toString());
+    proxyUrl.searchParams.set("limit", String(limit));
+    proxyUrl.searchParams.set("offset", String(offset));
+    const res = await proxyToDefaultApp(c, "/stories", proxyUrl.search);
+    const json = await readJson(res);
+    if (!res.ok) return fail(c, json?.error ?? "Failed to list stories", res.status);
+    return ok(c, json?.stories ?? []);
   } catch (error) {
     return handleError(c, error);
   }
@@ -77,16 +96,20 @@ stories.get("/stories", auth, async (c) => {
 
 stories.get("/communities/:id/stories", auth, async (c) => {
   try {
-    const service = createStoryService(c.env);
-    const authCtx = ensureAuth(getAppAuthContext(c));
     const url = new URL(c.req.url);
     const { limit, offset } = parsePagination(url);
-    const page = await service.listStories(authCtx, {
-      community_id: c.req.param("id"),
-      limit,
-      offset,
-    });
-    return ok(c, page.stories);
+    ensureAuth(getAppAuthContext(c));
+    const proxyUrl = new URL(url.toString());
+    proxyUrl.searchParams.set("limit", String(limit));
+    proxyUrl.searchParams.set("offset", String(offset));
+    const res = await proxyToDefaultApp(
+      c,
+      `/communities/${encodeURIComponent(c.req.param("id"))}/stories`,
+      proxyUrl.search,
+    );
+    const json = await readJson(res);
+    if (!res.ok) return fail(c, json?.error ?? "Failed to list stories", res.status);
+    return ok(c, json?.stories ?? []);
   } catch (error) {
     return handleError(c, error);
   }
@@ -94,11 +117,11 @@ stories.get("/communities/:id/stories", auth, async (c) => {
 
 stories.get("/stories/:id", auth, async (c) => {
   try {
-    const service = createStoryService(c.env);
-    const authCtx = ensureAuth(getAppAuthContext(c));
-    const story = await service.getStory(authCtx, c.req.param("id"));
-    if (!story) return fail(c, "story not found", 404);
-    return ok(c, story);
+    ensureAuth(getAppAuthContext(c));
+    const res = await proxyToDefaultApp(c, `/stories/${encodeURIComponent(c.req.param("id"))}`);
+    const json = await readJson(res);
+    if (!res.ok) return fail(c, json?.error ?? "story not found", res.status);
+    return ok(c, json);
   } catch (error) {
     return handleError(c, error);
   }
@@ -106,17 +129,11 @@ stories.get("/stories/:id", auth, async (c) => {
 
 stories.patch("/stories/:id", auth, async (c) => {
   try {
-    const service = createStoryService(c.env);
-    const authCtx = ensureAuth(getAppAuthContext(c));
-    const body = (await c.req.json().catch(() => ({}))) as any;
-    const updated = await service.updateStory(authCtx, {
-      id: c.req.param("id"),
-      items: Array.isArray(body.items) ? body.items : undefined,
-      audience: body.audience === "community" ? "community" : body.audience === "all" ? "all" : undefined,
-      visible_to_friends:
-        body.visible_to_friends === undefined ? undefined : !!body.visible_to_friends,
-    });
-    return ok(c, updated);
+    ensureAuth(getAppAuthContext(c));
+    const res = await proxyToDefaultApp(c, `/stories/${encodeURIComponent(c.req.param("id"))}`);
+    const json = await readJson(res);
+    if (!res.ok) return fail(c, json?.error ?? "Failed to update story", res.status);
+    return ok(c, json);
   } catch (error) {
     return handleError(c, error);
   }
@@ -124,17 +141,18 @@ stories.patch("/stories/:id", auth, async (c) => {
 
 stories.delete("/stories/:id", auth, async (c) => {
   try {
-    const service = createStoryService(c.env);
-    const authCtx = ensureAuth(getAppAuthContext(c));
-    await service.deleteStory(authCtx, c.req.param("id"));
-    return ok(c, { deleted: true });
+    ensureAuth(getAppAuthContext(c));
+    const res = await proxyToDefaultApp(c, `/stories/${encodeURIComponent(c.req.param("id"))}`);
+    const json = await readJson(res);
+    if (!res.ok) return fail(c, json?.error ?? "Failed to delete story", res.status);
+    return ok(c, json ?? { deleted: true });
   } catch (error) {
     return handleError(c, error);
   }
 });
 
 stories.post("/internal/tasks/cleanup-stories", async (c) => {
-  return fail(c, "cleanup handled by story service", 503);
+  return ok(c, { deleted: 0, checked: 0, skipped: true, reason: "not implemented (story TTL enforced by app reads)" });
 });
 
 export type CleanupResult = {
@@ -152,15 +170,13 @@ export type CleanupOptions = {
 
 /**
  * Cleanup expired stories (stub implementation).
- * The actual cleanup is handled by the story service internally.
+ * Story TTL is currently enforced by app reads; GC can be added later.
  */
 export async function cleanupExpiredStories(
   _env: Bindings,
   _options?: CleanupOptions,
 ): Promise<CleanupResult> {
-  // Story cleanup is handled internally by the object service.
-  // This stub exists for cron compatibility.
-  return { deleted: 0, checked: 0, skipped: true, reason: "handled internally" };
+  return { deleted: 0, checked: 0, skipped: true, reason: "not implemented (story TTL enforced by app reads)" };
 }
 
 export default stories;

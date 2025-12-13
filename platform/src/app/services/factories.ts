@@ -37,13 +37,6 @@ import type {
   Visibility,
 } from "@takos/platform/app/services/post-service";
 import type { PostService } from "./post-service";
-import type {
-  CreateStoryInput,
-  Story,
-  StoryPage,
-  ListStoriesParams,
-} from "@takos/platform/app/services/story-service";
-import type { StoryService } from "./story-service";
 import type { DMService, MarkReadInput } from "./dm-service";
 import type { CommunityService } from "./community-service";
 import type { UserService } from "./user-service";
@@ -301,21 +294,6 @@ const toPost = (object: APObject): Post => {
     bookmarked: (object as any).bookmarked ?? false,
     reposted: (object as any).reposted ?? false,
     author: undefined,
-  };
-};
-
-const toStory = (object: APObject): Story => {
-  const story = object["takos:story"] || {};
-  const published = object.published ?? new Date().toISOString();
-  return {
-    id: objectIdFromAp(object),
-    author_id: object.actor,
-    community_id: object.context ?? null,
-    created_at: published,
-    expires_at: (story as any).expiresAt ?? (story as any).expires_at ?? null,
-    items: (story as any).items ?? [],
-    broadcast_all: visibilityFromObject(object) === "public" || visibilityFromObject(object) === "unlisted",
-    visible_to_friends: visibilityFromObject(object) !== "direct",
   };
 };
 
@@ -1446,71 +1424,6 @@ const createDMService = (env: any): DMService => {
   };
 };
 
-const createStoryService = (env: any): StoryService => {
-  const objects = createObjectService(env);
-  return {
-    async createStory(ctx, input: CreateStoryInput) {
-      const author = ensureAuth(ctx);
-      const visibility: APVisibility = input.visible_to_friends ? "followers" : "public";
-      const created = await objects.create(ctx, {
-        type: "Note",
-        content: "",
-        visibility,
-        context: input.community_id ?? null,
-        "takos:story": {
-          items: input.items,
-          expiresAt: (input as any).expires_at ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        },
-      } as any);
-      return toStory(created);
-    },
-
-    async listStories(ctx, params?: ListStoriesParams) {
-      const limit = params?.limit ?? DEFAULT_PAGE_SIZE;
-      const offset = params?.offset ?? 0;
-      const page = await objects.getTimeline(ctx, {
-        type: "Note",
-        visibility: ["public", "followers", "community"],
-        limit,
-        cursor: offset ? String(offset) : undefined,
-        communityId: params?.community_id,
-      });
-      const stories = page.items
-        .filter((o) => !!o["takos:story"])
-        .map(toStory);
-      return { stories, next_offset: page.hasMore ? offset + stories.length : null };
-    },
-
-    async getStory(ctx, id: string) {
-      const object = await objects.get(ctx, id);
-      if (!object || !object["takos:story"]) return null;
-      return toStory(object);
-    },
-
-    async updateStory(ctx, input: { id: string; items?: any; audience?: "all" | "community"; visible_to_friends?: boolean }) {
-      const existing = await objects.get(ctx, input.id);
-      if (!existing) throw new Error("story not found");
-      const story = existing["takos:story"] || {};
-      const updated = await objects.update(ctx, existing.id, {
-        content: existing.content,
-        attachment: existing.attachment as any,
-        summary: existing.summary,
-        tag: existing.tag,
-        "takos:story": {
-          ...story,
-          items: input.items ?? (story as any).items,
-        },
-      } as any);
-      return toStory(updated);
-    },
-
-    async deleteStory(ctx, id) {
-      ensureAuth(ctx);
-      await objects.delete(ctx, id);
-    },
-  };
-};
-
 const createCommunityService = (env: any): CommunityService => {
   const mapCommunity = (row: any): Community => ({
     id: row.id,
@@ -1796,7 +1709,6 @@ const createUserService = (
 export {
   createPostService,
   createDMService,
-  createStoryService,
   createMediaService,
   createCommunityService,
   createUserService,
@@ -1812,7 +1724,6 @@ export {
 export type {
   PostService,
   DMService,
-  StoryService,
   CommunityService,
   UserService,
   MediaService,

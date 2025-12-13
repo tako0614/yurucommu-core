@@ -5,6 +5,8 @@
  * (PLAN.md 5.4.2: takos-app.json + app/ directory JSON files merge)
  */
 
+import { isReservedHttpPath } from "@takos/platform/app/reserved-routes";
+
 export interface AppManifestRoute {
   id: string;
   method: string;
@@ -18,7 +20,7 @@ export interface AppManifestScreen {
   route: string;
   title: string;
   layout: any; // UiNode
-  auth?: "required" | "public";
+  auth?: "required" | "optional" | "public";
   state?: Record<string, { default: any }>;
 }
 
@@ -47,6 +49,15 @@ export interface AppManifest {
     buckets: Record<string, any>;
   };
 }
+
+type ScreenAuthMode = NonNullable<AppManifestScreen["auth"]>;
+
+const normalizeScreenAuth = (screen: AppManifestScreen): ScreenAuthMode => {
+  const raw = screen.auth;
+  if (raw === "public") return "optional";
+  if (raw === "optional" || raw === "required") return raw;
+  return "required";
+};
 
 /**
  * Validation Issues
@@ -126,7 +137,13 @@ export async function loadAppManifest(): Promise<AppManifest> {
       schema_version: manifest.schema_version || (manifest as any).schemaVersion || "1.0",
       version: manifest.version || "0.0.0",
       routes: manifest.routes || [],
-      views: manifest.views || { screens: [], insert: [] },
+      views: {
+        screens: (manifest.views?.screens || []).map((screen: AppManifestScreen) => ({
+          ...screen,
+          auth: normalizeScreenAuth(screen),
+        })),
+        insert: manifest.views?.insert || [],
+      },
       ap: manifest.ap,
       data: manifest.data,
       storage: manifest.storage,
@@ -238,19 +255,6 @@ export interface UiContract {
 }
 
 /**
- * Reserved routes that cannot be overridden by App Manifest
- */
-const RESERVED_ROUTES = [
-  "/login",
-  "/auth/*",
-  "/-/core/*",
-  "/-/config/*",
-  "/-/app/*",
-  "/-/health",
-  "/.well-known/*",
-];
-
-/**
  * Core routes that must exist and cannot be removed
  */
 const CORE_SCREEN_IDS = [
@@ -304,17 +308,21 @@ export function validateManifest(manifest: AppManifest): ManifestValidationResul
     }
     screenRoutes.add(screen.route);
 
+    if (screen.auth === "public") {
+      issues.push({
+        level: "warning",
+        message: `Screen auth "public" is deprecated; use "optional" instead (screen: ${screen.id})`,
+        location: `views.screens[${screen.id}].auth`,
+      });
+    }
+
     // Check for reserved route conflicts
-    for (const reserved of RESERVED_ROUTES) {
-      const reservedPattern = reserved.replace("*", ".*");
-      const regex = new RegExp(`^${reservedPattern}$`);
-      if (regex.test(screen.route)) {
-        issues.push({
-          level: "error",
-          message: `Reserved route "${reserved}" cannot be defined in manifest (screen: ${screen.id}, route: ${screen.route})`,
-          location: `views.screens[${screen.id}]`,
-        });
-      }
+    if (isReservedHttpPath(screen.route)) {
+      issues.push({
+        level: "error",
+        message: `Reserved route "${screen.route}" cannot be defined in manifest (screen: ${screen.id})`,
+        location: `views.screens[${screen.id}]`,
+      });
     }
   }
 
@@ -401,8 +409,19 @@ export function validateUiContract(
         });
       }
 
-      // TODO: Deep scan screen.layout to verify action actually exists in UI
-      // This requires traversing the UiNode tree and checking for action references
+      const insertNodes = (manifest.views?.insert || [])
+        .filter((insert) => insert?.screen === screenId)
+        .map((insert) => insert.node);
+      const hasAction =
+        containsNamedAction(screen.layout, contractAction.id) ||
+        insertNodes.some((node) => containsNamedAction(node, contractAction.id));
+      if (!hasAction) {
+        issues.push({
+          level: "error",
+          message: `Action "${contractAction.id}" is required on screen "${screenId}" but was not found in the UI layout`,
+          location: `views.screens[${screenId}].layout`,
+        });
+      }
     }
   }
 
@@ -410,6 +429,41 @@ export function validateUiContract(
     valid: issues.filter((i) => i.level === "error").length === 0,
     issues,
   };
+}
+
+function containsNamedAction(node: any, actionId: string): boolean {
+  if (!node) return false;
+  return collectNamedActionsFromValue(node).has(actionId);
+}
+
+function collectNamedActionsFromValue(value: any): Set<string> {
+  const actions = new Set<string>();
+  const visit = (next: any) => {
+    if (!next) return;
+    if (typeof next === "string") {
+      if (next.startsWith("action.")) {
+        actions.add(next);
+      }
+      return;
+    }
+    if (Array.isArray(next)) {
+      next.forEach(visit);
+      return;
+    }
+    if (typeof next !== "object") return;
+
+    const typed = next as any;
+    if (typed.type === "action" && typeof typed.name === "string" && typed.name.trim()) {
+      actions.add(typed.name);
+    }
+
+    for (const v of Object.values(typed)) {
+      visit(v);
+    }
+  };
+
+  visit(value);
+  return actions;
 }
 
 /**

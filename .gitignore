@@ -29,3 +29,5 @@ yarn-debug.log*
 yarn-error.log*
 
 .tmp/
+.npm-ceche
+.npm_cache

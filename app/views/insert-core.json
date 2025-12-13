@@ -30,6 +30,11 @@
           },
           {
             "type": "Link",
+            "props": { "href": "/storage" },
+            "children": []
+          },
+          {
+            "type": "Link",
             "props": { "href": "/onboarding" },
             "children": []
           },

@@ -15,7 +15,6 @@ import {
   type User,
 } from "./api-client";
 import { isSelfHostedMode } from "./config";
-import { setRuntimeUser, setRuntimeLoggedIn } from "./takos-runtime";
 
 export * from "./api-client";
 
@@ -87,7 +86,6 @@ function notifyMe() {
 function setAuthState(next: AuthState) {
   if (authState !== next) {
     authState = next;
-    setRuntimeLoggedIn(next === "authenticated");
     notifyAuth();
   }
 }
@@ -112,7 +110,6 @@ let mePromise: Promise<User> | null = null;
 
 function setCachedMe(user: User | undefined) {
   cachedMe = user;
-  setRuntimeUser(user ?? null);
   notifyMe();
 }
 

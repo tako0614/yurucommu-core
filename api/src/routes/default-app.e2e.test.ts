@@ -97,18 +97,30 @@ describe("default app E2E smoke", () => {
   it("serves /api/timeline/home via app-api router", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = new URL(typeof input === "string" ? input : input.url);
+      if (url.pathname === "/users/me/following") {
+        const headers = new Headers(init?.headers);
+        expect(headers.get("authorization")).toBe("Bearer valid-token");
+        return Response.json({ ok: true, data: [{ id: "followed-user" }] });
+      }
+
       if (url.pathname !== "/objects/timeline") {
         return new Response("not found", { status: 404 });
       }
       const headers = new Headers(init?.headers);
       expect(headers.get("authorization")).toBe("Bearer valid-token");
       expect(url.searchParams.get("limit")).toBe("2");
+      expect(url.searchParams.get("actors")).toContain("test-user");
+      expect(url.searchParams.get("actors")).toContain("followed-user");
       return Response.json({
-        items: [
-          { id: "obj-1", type: "Note", content: "hello", actor: "test-user" },
-          { id: "obj-2", type: "Note", content: "world", actor: "test-user" },
-        ],
-        next_cursor: null,
+        ok: true,
+        data: {
+          items: [
+            { id: "obj-1", type: "Note", content: "hello", actor: "test-user" },
+            { id: "obj-2", type: "Note", content: "world", actor: "followed-user" },
+          ],
+          nextCursor: null,
+          hasMore: false,
+        },
       });
     });
 
@@ -121,7 +133,39 @@ describe("default app E2E smoke", () => {
     expect(res.status).toBe(200);
     const json = await res.json<any>();
     expect(json.items).toHaveLength(2);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("excludes blocked users from /api/timeline/home", async () => {
+    bindings = createMockBindings();
+    (bindings.APP_STATE.get as any).mockImplementation(async (key: string) => {
+      if (key === "app:default:user:test-user:block:list") return ["followed-user"];
+      return null;
+    });
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = new URL(typeof input === "string" ? input : input.url);
+      if (url.pathname === "/users/me/following") {
+        return Response.json({ ok: true, data: [{ id: "followed-user" }] });
+      }
+      if (url.pathname === "/objects/timeline") {
+        expect(url.searchParams.get("actors")).toContain("test-user");
+        expect(url.searchParams.get("actors")).not.toContain("followed-user");
+        return Response.json({ ok: true, data: { items: [], nextCursor: null, hasMore: false } });
+      }
+      return new Response("not found", { status: 404 });
+    });
+
+    const res = await app.request(
+      "/-/apps/default/api/timeline/home?limit=2",
+      { method: "GET", headers: { Authorization: "Bearer valid-token" } },
+      bindings,
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json<any>();
+    expect(Array.isArray(json.items)).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it("serves /dm/threads via app-api router and uses core objects endpoints", async () => {
@@ -135,27 +179,31 @@ describe("default app E2E smoke", () => {
         expect(url.searchParams.get("include_direct")).toBe("true");
         expect(url.searchParams.get("participant")).toBe("test-user");
         return Response.json({
-          items: [
-            {
-              id: "obj-1",
-              type: "Note",
-              actor: "test-user",
-              content: "hi",
-              published: "2025-01-01T00:00:00.000Z",
-              context: "thread-1",
-              to: ["other-user"],
-              cc: [],
-              bto: [],
-              bcc: [],
-              "takos:participants": ["test-user", "other-user"],
-            },
-          ],
-          next_cursor: null,
+          ok: true,
+          data: {
+            items: [
+              {
+                id: "obj-1",
+                type: "Note",
+                actor: "test-user",
+                content: "hi",
+                published: "2025-01-01T00:00:00.000Z",
+                context: "thread-1",
+                to: ["other-user"],
+                cc: [],
+                bto: [],
+                bcc: [],
+                "takos:participants": ["test-user", "other-user"],
+              },
+            ],
+            nextCursor: null,
+            hasMore: false,
+          },
         });
       }
 
       if (url.pathname === "/objects/thread/thread-1") {
-        return Response.json([]);
+        return Response.json({ ok: true, data: [] });
       }
 
       return new Response("not found", { status: 404 });

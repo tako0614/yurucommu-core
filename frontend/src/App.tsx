@@ -8,13 +8,12 @@ import NotificationPanel from "./components/NotificationPanel";
 import DefaultLogin from "./pages/Login";
 import { fetchMe, refreshAuth, useAuthStatus, useMe } from "./lib/api";
 import { resolveComponent } from "./lib/plugins";
-import { ToastProvider, useToast } from "./components/Toast";
+import { ToastProvider } from "./components/Toast";
 import { ShellContextProvider, useShellContext } from "./lib/shell-context";
 import { registerCustomComponents } from "./lib/ui-components";
 import { RenderScreen } from "./lib/ui-runtime";
 import { extractRouteParams, getScreenByRoute, loadAppManifest, type AppManifest, type AppManifestScreen } from "./lib/app-manifest";
 import { useAsyncResource, type AsyncResource } from "./lib/useAsyncResource";
-import { setToastHandler, setNavigateHandler, setConfirmHandler, setRouteParams } from "./lib/takos-runtime";
 
 registerCustomComponents();
 
@@ -39,23 +38,6 @@ export default function App() {
   );
 }
 
-function RuntimeIntegration() {
-  const navigate = useNavigate();
-  const toast = useToast();
-
-  useEffect(() => {
-    setNavigateHandler((path: string) => navigate(path));
-    setToastHandler((message: string, type?: "success" | "error" | "info") => {
-      toast.showToast(message, type || "info");
-    });
-    setConfirmHandler((message: string) => {
-      return Promise.resolve(window.confirm(message));
-    });
-  }, [navigate, toast]);
-
-  return null;
-}
-
 function Shell() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -72,7 +54,6 @@ function Shell() {
         onOpenNotifications: openNotifications,
       }}
     >
-      <RuntimeIntegration />
       <div className="min-h-dvh bg-white dark:bg-black flex md:grid md:grid-cols-[72px_1fr] xl:grid-cols-[220px_1fr] overflow-x-hidden">
         <SideNav onOpenComposer={openComposer} onOpenNotifications={openNotifications} />
         <MainLayout>
@@ -131,7 +112,7 @@ function ManifestScreen(props: { manifest: AsyncResource<AppManifest | undefined
     const dmMatch = path.match(/^\/dm\/(.+)$/);
     if (dmMatch) return `/chat/dm/${dmMatch[1]}`;
     const communityChat = path.match(/^\/c\/([^/]+)\/chat$/);
-    if (communityChat) return `/c/${communityChat[1]}`;
+    if (communityChat) return `/chat/community/${communityChat[1]}`;
     return null;
   }, [location.pathname]);
 
@@ -146,11 +127,6 @@ function ManifestScreen(props: { manifest: AsyncResource<AppManifest | undefined
     if (!matchedScreen) return {};
     return extractRouteParams(matchedScreen.route, location.pathname);
   }, [matchedScreen, location.pathname]);
-
-  // Sync route params to takos-runtime for TakosRuntime.params
-  useEffect(() => {
-    setRouteParams(routeParams);
-  }, [routeParams]);
 
   const actions = useMemo(
     () => ({
@@ -211,7 +187,7 @@ function ManifestScreen(props: { manifest: AsyncResource<AppManifest | undefined
     />
   );
 
-  const requiresAuth = matchedScreen?.auth !== "public";
+  const requiresAuth = matchedScreen?.auth !== "optional" && matchedScreen?.auth !== "public";
   const allowIncompleteProfile = matchedScreen?.id === "screen.onboarding" || matchedScreen?.id === "screen.home";
 
   if (!requiresAuth) {

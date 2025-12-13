@@ -51,9 +51,7 @@ export function createAuthenticatedFetch(): typeof fetch {
 
     const resolved = resolveUrl(input, backendUrl);
     const headers = new Headers(
-      init?.headers ??
-        (input instanceof Request ? input.headers : undefined) ??
-        undefined
+      init?.headers ?? (input instanceof Request ? input.headers : undefined) ?? undefined,
     );
 
     const jwt = getJWT();
@@ -78,7 +76,7 @@ export function createAuthenticatedFetch(): typeof fetch {
 }
 
 export interface TakosClientRuntimeProviderProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   appId: string;
   version?: string;
 }
@@ -115,7 +113,7 @@ export function TakosClientRuntimeProvider({
       isLoggedIn,
       user: userIdentity,
     }),
-    [isLoggedIn, userIdentity]
+    [isLoggedIn, userIdentity],
   );
 
   const authenticatedFetch = React.useMemo(() => createAuthenticatedFetch(), []);
@@ -125,7 +123,7 @@ export function TakosClientRuntimeProvider({
       appId,
       version,
     }),
-    [appId, version]
+    [appId, version],
   );
 
   return (
@@ -134,4 +132,3 @@ export function TakosClientRuntimeProvider({
     </TakosClientProvider>
   );
 }
-
