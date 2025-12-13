@@ -1,4 +1,5 @@
 // User-related routes backed by UserService / NotificationService
+// Block/Mute operations are delegated to Default App (App layer)
 
 import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings, Variables } from "@takos/platform/server";
@@ -13,6 +14,22 @@ import {
   createUserService,
 } from "../services";
 import { buildTakosAppEnv, loadStoredAppManifest, loadTakosApp } from "../lib/app-sdk-loader";
+
+// Helper to proxy requests to Default App for Block/Mute operations
+const proxyToDefaultApp = async (c: any, pathname: string, options?: RequestInit): Promise<Response> => {
+  const appId = "default";
+  const app = await loadTakosApp(appId, c.env);
+  const manifest = await loadStoredAppManifest(c.env, appId);
+  const appEnv = buildTakosAppEnv(c, appId, manifest);
+  const url = new URL(c.req.url);
+  url.pathname = pathname;
+  const req = new Request(url.toString(), {
+    method: options?.method ?? c.req.method,
+    headers: options?.headers ?? c.req.raw.headers,
+    body: options?.body,
+  });
+  return await app.fetch(req, appEnv);
+};
 
 const users = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -323,48 +340,76 @@ users.post("/users/:id/follow/reject", auth, async (c) => {
   }
 });
 
-// Block a user
+// Block a user - delegated to Default App (App layer)
 users.post("/users/:id/block", auth, async (c) => {
   try {
-    const authCtx = ensureAuth(getAppAuthContext(c));
-    const service = createUserService(c.env);
-    await service.block(authCtx, c.req.param("id"));
+    ensureAuth(getAppAuthContext(c));
+    const targetId = c.req.param("id");
+    const res = await proxyToDefaultApp(c, "/blocks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetId }),
+    });
+    if (!res.ok) {
+      const data = await res.json<any>().catch(() => ({}));
+      return fail(c, data?.error ?? "Failed to block user", res.status);
+    }
     return ok(c, { blocked: true });
   } catch (error) {
     return handleError(c, error);
   }
 });
 
-// Unblock a user
+// Unblock a user - delegated to Default App (App layer)
 users.delete("/users/:id/block", auth, async (c) => {
   try {
-    const authCtx = ensureAuth(getAppAuthContext(c));
-    const service = createUserService(c.env);
-    await service.unblock(authCtx, c.req.param("id"));
+    ensureAuth(getAppAuthContext(c));
+    const targetId = c.req.param("id");
+    const res = await proxyToDefaultApp(c, `/blocks/${encodeURIComponent(targetId)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const data = await res.json<any>().catch(() => ({}));
+      return fail(c, data?.error ?? "Failed to unblock user", res.status);
+    }
     return ok(c, { blocked: false });
   } catch (error) {
     return handleError(c, error);
   }
 });
 
-// Mute a user
+// Mute a user - delegated to Default App (App layer)
 users.post("/users/:id/mute", auth, async (c) => {
   try {
-    const authCtx = ensureAuth(getAppAuthContext(c));
-    const service = createUserService(c.env);
-    await service.mute(authCtx, c.req.param("id"));
+    ensureAuth(getAppAuthContext(c));
+    const targetId = c.req.param("id");
+    const res = await proxyToDefaultApp(c, "/mutes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetId }),
+    });
+    if (!res.ok) {
+      const data = await res.json<any>().catch(() => ({}));
+      return fail(c, data?.error ?? "Failed to mute user", res.status);
+    }
     return ok(c, { muted: true });
   } catch (error) {
     return handleError(c, error);
   }
 });
 
-// Unmute a user
+// Unmute a user - delegated to Default App (App layer)
 users.delete("/users/:id/mute", auth, async (c) => {
   try {
-    const authCtx = ensureAuth(getAppAuthContext(c));
-    const service = createUserService(c.env);
-    await service.unmute(authCtx, c.req.param("id"));
+    ensureAuth(getAppAuthContext(c));
+    const targetId = c.req.param("id");
+    const res = await proxyToDefaultApp(c, `/mutes/${encodeURIComponent(targetId)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const data = await res.json<any>().catch(() => ({}));
+      return fail(c, data?.error ?? "Failed to unmute user", res.status);
+    }
     return ok(c, { muted: false });
   } catch (error) {
     return handleError(c, error);

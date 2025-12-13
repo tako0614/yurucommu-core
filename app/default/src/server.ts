@@ -411,11 +411,31 @@ router.post("/blocks", async (c) => {
   const targetId = String(body.targetId ?? body.target_id ?? "").trim();
   if (!targetId) return error("targetId is required", 400);
   if (targetId === c.env.auth.userId) return error("Cannot block yourself", 400);
+
   const ids = await loadAppList(c.env, blockListKey(c.env.auth.userId));
   if (!ids.includes(targetId)) {
     ids.push(targetId);
     await saveAppList(c.env, blockListKey(c.env.auth.userId), ids);
   }
+
+  // Create Block object via Core ObjectService for ActivityPub federation
+  // Core will handle delivering Block activity to remote instance
+  try {
+    await c.env.fetch("/-/api/objects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "Block",
+        object: targetId,
+        visibility: "direct",
+        to: [targetId],
+      }),
+    });
+  } catch (err) {
+    // Log but don't fail - KV is the source of truth for UI filtering
+    console.warn("Failed to create Block object for ActivityPub:", err);
+  }
+
   return json({ ids });
 });
 
@@ -425,6 +445,28 @@ router.delete("/blocks/:targetId", async (c) => {
   const ids = await loadAppList(c.env, blockListKey(c.env.auth.userId));
   const next = ids.filter((id) => id !== targetId);
   await saveAppList(c.env, blockListKey(c.env.auth.userId), next);
+
+  // Find and delete Block object (Core will send Undo Block activity)
+  try {
+    // Query for Block objects targeting this user
+    const res = await c.env.fetch(`/-/api/objects?type=Block&limit=50`);
+    if (res.ok) {
+      const data = await res.json<any>();
+      const objects = data?.data?.items ?? data?.items ?? [];
+      for (const obj of objects) {
+        if (obj.object === targetId || obj["takos:object"] === targetId) {
+          // Delete the Block object - Core handles Undo activity
+          await c.env.fetch(`/-/api/objects/${encodeURIComponent(obj.id)}`, {
+            method: "DELETE",
+          });
+          break;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to delete Block object:", err);
+  }
+
   return json({ ids: next });
 });
 

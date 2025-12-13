@@ -3,9 +3,12 @@
  *
  * PLAN.md 3.11 に基づくサービスAPIのエクスポート
  * App Script から統一インターフェースでコア機能を利用可能にする
+ *
+ * NOTE: Community と DM 機能は App 層（Default App）に完全移行済み
+ * 実装: app/default/src/server.ts
  */
 
-// 型の重複を避けるため、必要な型のみを個別エクスポート
+// PostService types
 export type {
   PostService,
   CreatePostInput,
@@ -50,6 +53,8 @@ export {
   generateObjectId,
   createObjectService,
 } from "./object-service";
+
+// UserService types
 export type {
   UserService,
   UpdateProfileInput,
@@ -57,35 +62,21 @@ export type {
   FollowRequestList,
   NotificationEntry,
 } from "./user-service";
+
+// ActorService types
 export type { ActorService, ActorServiceFactory, ActorProfile } from "./actor-service";
+
+// StorageService types
 export type { StorageService, StorageServiceFactory, StorageListParams } from "./storage-service";
+
+// NotificationService types
 export type {
   NotificationService,
   NotificationServiceFactory,
   SendNotificationInput,
 } from "./notification-service";
-export type {
-  CommunityService,
-  Channel,
-  CommunityMember,
-  CreateChannelInput,
-  UpdateChannelInput,
-  ChannelMessage,
-  ChannelMessageParams,
-  SendChannelMessageInput,
-} from "./community-service";
-export type {
-  DMService,
-  DmThread,
-  DmMessage,
-  DmThreadPage,
-  DmMessagePage,
-  OpenThreadInput,
-  SendMessageInput,
-  ListThreadsParams,
-  ListMessagesParams,
-  MarkReadInput,
-} from "./dm-service";
+
+// MediaService types
 export type {
   MediaService,
   MediaObject,
@@ -96,12 +87,19 @@ export type {
   UploadMediaInput,
   ImageTransformOptions,
 } from "./media-service";
+
+// AuthService types
 export type {
   AuthService,
   AuthServiceFactory,
   AuthLoginResult,
   ActorChangeResult,
 } from "./auth-service";
+
+// NOTE: BlockMuteService は App 層（Default App）に完全移行済み
+// 実装: app/default/src/server.ts の /blocks, /mutes エンドポイント
+
+// Runtime types
 export type {
   AppAuthContext,
   AppAuthRateLimits,
@@ -113,8 +111,6 @@ export type {
 
 import type { PostService } from "./post-service";
 import type { UserService } from "./user-service";
-import type { CommunityService } from "./community-service";
-import type { DMService } from "./dm-service";
 import type { MediaService } from "./media-service";
 import type { ObjectService } from "./object-service";
 import type { ActorService } from "./actor-service";
@@ -133,26 +129,17 @@ export {
   createAuthService,
 } from "./factories";
 
-// NOTE: createCommunityService と createDMService は App 層に移行済み
-// - 型定義のみ維持（後方互換性）
-// - 実装は app/default/src/server.ts を参照
-
 /**
  * Core Kernel サービスのレジストリ
  *
  * TakosContext.services として公開される
  *
- * NOTE: communities と dm は App 層に移行済み (11-default-app.md)
- * - Default App が KV ベースで実装
- * - 型定義のみ維持（後方互換性）
+ * NOTE: Community と DM は App 層に完全移行済み (11-default-app.md)
+ * Default App が KV ベースで実装しており、Core API ルートは Default App にプロキシ
  */
 export interface CoreServices {
   posts: PostService;
   users: UserService;
-  /** @deprecated App層に移行済み - Default Appを使用してください */
-  communities?: CommunityService;
-  /** @deprecated App層に移行済み - Default Appを使用してください */
-  dm?: DMService;
   media?: MediaService;
   actors?: ActorService;
   storage?: StorageService;
