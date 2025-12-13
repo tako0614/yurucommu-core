@@ -24,6 +24,7 @@ import { getBuiltinActionDefinitions } from "../ai/actions";
 import { buildRuntimeConfig, loadStoredConfig } from "../lib/config-utils";
 import { persistConfigWithReloadGuard } from "../lib/config-reload";
 import { assertConfigAiActionsAllowed } from "../lib/ai-action-allowlist";
+import { ErrorCodes } from "../lib/error-codes";
 
 type AiCapability = "chat" | "completion" | "embedding";
 
@@ -228,7 +229,7 @@ const aiConfigRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 aiConfigRoutes.use("/api/ai/*", auth, async (c, next) => {
   if (!isAuthenticated(c)) {
-    return fail(c, "forbidden", 403);
+    return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN });
   }
   await next();
 });

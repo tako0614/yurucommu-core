@@ -698,30 +698,20 @@ export function createAgentTools(options: AgentToolsFactoryOptions): AgentTools 
         return { notifications };
       }),
 
-    getDmThreads: async (ctx: ToolContext, input: GetDmThreadsInput): Promise<GetDmThreadsOutput> =>
+    // NOTE: DM サービスは App 層に移行済み (11-default-app.md)
+    // AI ツールからの DM アクセスは /api/dm/* エンドポイント経由で行う
+    getDmThreads: async (ctx: ToolContext, _input: GetDmThreadsInput): Promise<GetDmThreadsOutput> =>
       withAudit(ctx, "tool.getDmThreads", async () => {
         ensureAgentToolAllowed(ctx, "tool.getDmThreads");
-        if (!ctx.services) throw new Error("Core services are not available");
-        const auth = toAppAuthContext(ctx);
-        if (!auth.isAuthenticated) throw new Error("Authentication required");
-        const page = await ctx.services.dm.listThreads(auth, { limit: input.limit, offset: input.offset });
-        return page as any;
+        // DM サービスは App 層に移行済み - REST API を使用してください
+        throw new Error("DM service has been moved to App layer. Use REST API /api/dm/threads instead.");
       }),
 
-    getDmMessages: async (ctx: ToolContext, input: GetDmMessagesInput): Promise<GetDmMessagesOutput> =>
+    getDmMessages: async (ctx: ToolContext, _input: GetDmMessagesInput): Promise<GetDmMessagesOutput> =>
       withAudit(ctx, "tool.getDmMessages", async () => {
         ensureAgentToolAllowed(ctx, "tool.getDmMessages");
-        if (!ctx.services) throw new Error("Core services are not available");
-        const auth = toAppAuthContext(ctx);
-        if (!auth.isAuthenticated) throw new Error("Authentication required");
-        const page = await ctx.services.dm.listMessages(auth, {
-          thread_id: input.thread_id,
-          limit: input.limit,
-          offset: input.offset,
-          since_id: input.since_id,
-          max_id: input.max_id,
-        });
-        return page as any;
+        // DM サービスは App 層に移行済み - REST API を使用してください
+        throw new Error("DM service has been moved to App layer. Use REST API /api/dm/threads/:threadId/messages instead.");
       }),
 
     createPost: async (ctx: ToolContext, input: CreatePostToolInput): Promise<CreatePostToolOutput> =>

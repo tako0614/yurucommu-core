@@ -17,6 +17,7 @@ import type { AuthContext } from "../lib/auth-context-model";
 import { buildCoreServices } from "../lib/core-services";
 import { createAiAuditLogger } from "../lib/ai-audit";
 import { getAppAuthContext } from "../lib/auth-context";
+import { createUsageTrackerFromEnv } from "../lib/usage-tracker";
 
 registerBuiltinAiActions();
 
@@ -55,7 +56,13 @@ ai.post("/api/ai/actions/:id/run", auth, async (c) => {
   if (!agentGuard.ok) {
     return fail(c, agentGuard.error, agentGuard.status);
   }
-  const planCheck = requireAiQuota((c.get("authContext") as AuthContext | undefined) ?? null);
+  // AI 使用量を追跡し、プラン制限をチェック
+  const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
+  const usageTracker = createUsageTrackerFromEnv(c.env as any);
+  const userId = authContext?.userId ?? "anonymous";
+  const currentUsage = await usageTracker.getAiUsage(userId);
+
+  const planCheck = requireAiQuota(authContext, { used: currentUsage, requested: 1 });
   if (!planCheck.ok) {
     return fail(c, planCheck.message, planCheck.status, {
       code: planCheck.code,
@@ -82,7 +89,6 @@ ai.post("/api/ai/actions/:id/run", auth, async (c) => {
     return fail(c, "AI external network access is disabled for this node", 503);
   }
 
-  const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
   const services = buildCoreServices(c.env as Bindings);
   const aiAudit = createAiAuditLogger(c.env as any);
   const appAuth = getAppAuthContext(c as any);
@@ -110,6 +116,10 @@ ai.post("/api/ai/actions/:id/run", auth, async (c) => {
       aiAudit,
       providers,
     }, input);
+
+    // 成功時に使用量を記録
+    await usageTracker.recordAiRequest(userId);
+
     return ok(c, {
       action_id: actionId,
       provider: getDefaultProviderId(providers) ?? null,

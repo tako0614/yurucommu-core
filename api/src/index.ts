@@ -125,6 +125,7 @@ import {
 import type { CronTaskDefinition, CronValidationResult } from "./lib/cron-tasks";
 import takosProfile from "../../takos-profile.json";
 import { validateTakosProfile } from "./lib/profile-validator";
+import { ErrorCodes } from "./lib/error-codes";
 
 // Validate takos-profile.json on startup
 const profileValidation = validateTakosProfile(takosProfile);
@@ -1255,9 +1256,9 @@ async function buildPostPayload(
 
   if (targetCommunityId) {
     const community = await store.getCommunity(targetCommunityId);
-    if (!community) throw new HttpError(404, "community not found");
+    if (!community) throw new HttpError(404, ErrorCodes.COMMUNITY_NOT_FOUND, "Community not found", { communityId: targetCommunityId });
     if (!(await requireMember(store, targetCommunityId, user.id, options.env))) {
-      throw new HttpError(403, "forbidden");
+      throw new HttpError(403, ErrorCodes.INSUFFICIENT_PERMISSIONS, "Insufficient permissions", { communityId: targetCommunityId });
     }
   }
 
@@ -1319,7 +1320,7 @@ const defaultStoryDuration = (item: StoryItem) => {
 const sanitizeStoryItems = (rawItems: unknown): StoryItem[] => {
   const normalized = normalizeStoryItems(rawItems);
   if (!normalized.length) {
-    throw new HttpError(400, "items required");
+    throw new HttpError(400, ErrorCodes.MISSING_REQUIRED_FIELD, "items is required", { field: "items" });
   }
   return normalized.map((item, index) => ({
     ...item,
@@ -1351,10 +1352,10 @@ async function buildStoryPayload(
   if (targetCommunityId) {
     const community = await store.getCommunity(targetCommunityId);
     if (!community) {
-      throw new HttpError(404, "community not found");
+      throw new HttpError(404, ErrorCodes.COMMUNITY_NOT_FOUND, "Community not found", { communityId: targetCommunityId });
     }
     if (!(await requireMember(store, targetCommunityId, user.id, options.env))) {
-      throw new HttpError(403, "forbidden");
+      throw new HttpError(403, ErrorCodes.INSUFFICIENT_PERMISSIONS, "Insufficient permissions", { communityId: targetCommunityId });
     }
   }
 
@@ -1524,10 +1525,10 @@ app.get("/communities/:id/posts", auth, async (c) => {
   const user = c.get("user") as any;
   const community_id = c.req.param("id");
   if (!(await store.getCommunity(community_id))) {
-    return fail(c, "community not found", 404);
+    return fail(c, "Community not found", 404, { code: ErrorCodes.COMMUNITY_NOT_FOUND, details: { communityId: community_id } });
   }
   if (!(await requireMember(store, community_id, user.id, c.env))) {
-    return fail(c, "forbidden", 403);
+    return fail(c, "Insufficient permissions", 403, { code: ErrorCodes.INSUFFICIENT_PERMISSIONS, details: { communityId: community_id } });
   }
   const list: any[] = await store.listPostsByCommunity(community_id);
   list.sort((a, b) =>
@@ -1542,9 +1543,9 @@ app.get("/posts/:id/reactions", auth, async (c) => {
   const user = c.get("user") as any;
   const post_id = c.req.param("id");
   const post = await store.getPost(post_id);
-  if (!post) return fail(c, "post not found", 404);
+  if (!post) return fail(c, "Post not found", 404, { code: ErrorCodes.OBJECT_NOT_FOUND, details: { postId: post_id } });
   if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) {
-    return fail(c, "forbidden", 403);
+    return fail(c, "Insufficient permissions", 403, { code: ErrorCodes.INSUFFICIENT_PERMISSIONS, details: { postId: post_id } });
   }
   const list = await store.listReactionsByPost(post_id);
   return ok(c, list);
@@ -1555,9 +1556,9 @@ app.get("/posts/:id/comments", auth, async (c) => {
   const user = c.get("user") as any;
   const post_id = c.req.param("id");
   const post = await store.getPost(post_id);
-  if (!post) return fail(c, "post not found", 404);
+  if (!post) return fail(c, "Post not found", 404, { code: ErrorCodes.OBJECT_NOT_FOUND, details: { postId: post_id } });
   if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) {
-    return fail(c, "forbidden", 403);
+    return fail(c, "Insufficient permissions", 403, { code: ErrorCodes.INSUFFICIENT_PERMISSIONS, details: { postId: post_id } });
   }
   const list: any[] = await store.listCommentsByPost(post_id);
   list.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
@@ -1577,10 +1578,10 @@ app.get("/communities/:id/reactions-summary", auth, async (c) => {
   const user = c.get("user") as any;
   const community_id = c.req.param("id");
   if (!(await store.getCommunity(community_id))) {
-    return fail(c, "community not found", 404);
+    return fail(c, "Community not found", 404, { code: ErrorCodes.COMMUNITY_NOT_FOUND, details: { communityId: community_id } });
   }
   if (!(await requireMember(store, community_id, user.id, c.env))) {
-    return fail(c, "forbidden", 403);
+    return fail(c, "Insufficient permissions", 403, { code: ErrorCodes.INSUFFICIENT_PERMISSIONS, details: { communityId: community_id } });
   }
   const summary: Record<string, Record<string, number>> = {};
   const posts = await store.listPostsByCommunity(community_id);
@@ -1601,9 +1602,9 @@ app.post("/posts/:id/reactions", auth, async (c) => {
   const user = c.get("user") as any;
   const post_id = c.req.param("id");
   const post = await store.getPost(post_id);
-  if (!post) return fail(c, "post not found", 404);
+  if (!post) return fail(c, "Post not found", 404, { code: ErrorCodes.OBJECT_NOT_FOUND, details: { postId: post_id } });
   if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) {
-    return fail(c, "forbidden", 403);
+    return fail(c, "Insufficient permissions", 403, { code: ErrorCodes.INSUFFICIENT_PERMISSIONS, details: { postId: post_id } });
   }
   const body = await c.req.json().catch(() => ({})) as any;
   const emoji = body.emoji || "👍";
@@ -1693,13 +1694,13 @@ app.post("/posts/:id/comments", auth, async (c) => {
   const user = c.get("user") as any;
   const post_id = c.req.param("id");
   const post = await store.getPost(post_id);
-  if (!post) return fail(c, "post not found", 404);
+  if (!post) return fail(c, "Post not found", 404, { code: ErrorCodes.OBJECT_NOT_FOUND, details: { postId: post_id } });
   if (!(await requireMember(store, (post as any).community_id, user.id, c.env))) {
-    return fail(c, "forbidden", 403);
+    return fail(c, "Insufficient permissions", 403, { code: ErrorCodes.INSUFFICIENT_PERMISSIONS, details: { postId: post_id } });
   }
   const body = await c.req.json().catch(() => ({})) as any;
   const text = (body.text || "").trim();
-  if (!text) return fail(c, "text is required");
+  if (!text) return fail(c, "text is required", 400, { code: ErrorCodes.MISSING_REQUIRED_FIELD, details: { field: "text" } });
 
   // Generate ActivityPub URIs
   const instanceDomain = requireInstanceDomain(c.env);
@@ -1837,7 +1838,7 @@ app.post("/communities/:id/stories", auth, async (c) => {
       });
     }
     console.error("create story failed", error);
-    return fail(c, "failed to create story", 500, { code: "INTERNAL_ERROR" });
+    return fail(c, "Failed to create story", 500, { code: ErrorCodes.INTERNAL_ERROR });
   }
 });
 
@@ -1858,7 +1859,7 @@ app.post("/stories", auth, async (c) => {
       });
     }
     console.error("create story failed", error);
-    return fail(c, "failed to create story", 500, { code: "INTERNAL_ERROR" });
+    return fail(c, "Failed to create story", 500, { code: ErrorCodes.INTERNAL_ERROR });
   }
 });
 
@@ -1878,9 +1879,9 @@ app.get("/communities/:id/stories", auth, async (c) => {
   const user = c.get("user") as any;
   const community_id = c.req.param("id");
   const community = await store.getCommunity(community_id);
-  if (!community) return fail(c, "community not found", 404);
+  if (!community) return fail(c, "Community not found", 404, { code: ErrorCodes.COMMUNITY_NOT_FOUND, details: { communityId: community_id } });
   if (!(await requireMember(store, community_id, user.id, c.env))) {
-    return fail(c, "forbidden", 403);
+    return fail(c, "Insufficient permissions", 403, { code: ErrorCodes.INSUFFICIENT_PERMISSIONS, details: { communityId: community_id } });
   }
   localStoryFilterCleanup();
   let list: any[] = await store.listStoriesByCommunity(community_id);
@@ -1895,28 +1896,28 @@ app.get("/stories/:id", auth, async (c) => {
   const user = c.get("user") as any;
   const id = c.req.param("id");
   const story = (await store.getStory(id)) as Story | null;
-  if (!story) return fail(c, "story not found", 404);
+  if (!story) return fail(c, "Story not found", 404, { code: ErrorCodes.NOT_FOUND, details: { storyId: id } });
   if (story.community_id) {
     if (!(await requireMember(store, story.community_id, user.id, c.env))) {
-      return fail(c, "forbidden", 403);
+      return fail(c, "Insufficient permissions", 403, { code: ErrorCodes.INSUFFICIENT_PERMISSIONS, details: { storyId: id } });
     }
   } else if (story.author_id !== user.id) {
     const visibleToFriends = (story as any).visible_to_friends ?? true;
     if (!visibleToFriends) {
-      return fail(c, "forbidden", 403);
+      return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN, details: { storyId: id } });
     }
     const areFriends = await store
       .areFriends(user.id, story.author_id)
       .catch(() => false);
     if (!areFriends) {
-      return fail(c, "forbidden", 403);
+      return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN, details: { storyId: id } });
     }
   }
   const expiry = story.expires_at instanceof Date
     ? story.expires_at
     : new Date(story.expires_at);
   if (expiry.getTime() <= Date.now()) {
-    return fail(c, "expired", 404);
+    return fail(c, "Story not found", 404, { code: ErrorCodes.NOT_FOUND, details: { storyId: id, reason: "expired" } });
   }
   return ok(c, story);
 });
@@ -1926,7 +1927,7 @@ app.patch("/stories/:id", auth, async (c) => {
   const user = c.get("user") as any;
   const id = c.req.param("id");
   const story = (await store.getStory(id)) as Story | null;
-  if (!story) return fail(c, "story not found", 404);
+  if (!story) return fail(c, "Story not found", 404, { code: ErrorCodes.NOT_FOUND, details: { storyId: id } });
   const privileged =
     story.author_id === user.id ||
     (story.community_id
@@ -1935,7 +1936,7 @@ app.patch("/stories/:id", auth, async (c) => {
         "Moderator",
       ], c.env)
       : false);
-  if (!privileged) return fail(c, "forbidden", 403);
+  if (!privileged) return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN, details: { storyId: id } });
   const body = await c.req.json().catch(() => ({})) as any;
   let newItems: StoryItem[] | null = null;
   if (Array.isArray(body.items)) {
@@ -1975,7 +1976,7 @@ app.delete("/stories/:id", auth, async (c) => {
   const user = c.get("user") as any;
   const id = c.req.param("id");
   const story = (await store.getStory(id)) as Story | null;
-  if (!story) return fail(c, "story not found", 404);
+  if (!story) return fail(c, "Story not found", 404, { code: ErrorCodes.NOT_FOUND, details: { storyId: id } });
   const privileged =
     story.author_id === user.id ||
     (story.community_id
@@ -1984,7 +1985,7 @@ app.delete("/stories/:id", auth, async (c) => {
         "Moderator",
       ], c.env)
       : false);
-  if (!privileged) return fail(c, "forbidden", 403);
+  if (!privileged) return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN, details: { storyId: id } });
   await store.deleteStory(id);
   await publishStoryDelete(c.env, story);
   return ok(c, { id, deleted: true });
@@ -2040,25 +2041,25 @@ app.get("/communities/:id/channels/:channelId/messages", auth, async (c) => {
     // Verify community exists
     const community = await store.getCommunity(communityId);
     if (!community) {
-      return fail(c, "community not found", 404);
+      return fail(c, "Community not found", 404, { code: ErrorCodes.COMMUNITY_NOT_FOUND, details: { communityId } });
     }
 
     // Verify user is member
     if (!(await requireMember(store, communityId, user.id, c.env))) {
-      return fail(c, "forbidden", 403);
+      return fail(c, "Insufficient permissions", 403, { code: ErrorCodes.INSUFFICIENT_PERMISSIONS, details: { communityId } });
     }
 
     // Verify channel exists
     const channel = await store.getChannel?.(communityId, channelId);
     if (!channel) {
-      return fail(c, "channel not found", 404);
+      return fail(c, "Not found", 404, { code: ErrorCodes.NOT_FOUND, details: { communityId, channelId } });
     }
 
     const messages = await getChannelMessages(c.env, communityId, channelId, limit);
     return ok(c, messages);
   } catch (error: unknown) {
     console.error("get channel messages failed", error);
-    return fail(c, "failed to get messages", 500);
+    return fail(c, "Failed to get messages", 500, { code: ErrorCodes.INTERNAL_ERROR });
   } finally {
     await releaseStore(store);
   }
@@ -2076,23 +2077,23 @@ app.post("/communities/:id/channels/:channelId/messages", auth, async (c) => {
     // Verify community exists
     const community = await store.getCommunity(communityId);
     if (!community) {
-      return fail(c, "community not found", 404);
+      return fail(c, "Community not found", 404, { code: ErrorCodes.COMMUNITY_NOT_FOUND, details: { communityId } });
     }
 
     // Verify user is member
     if (!(await requireMember(store, communityId, user.id, c.env))) {
-      return fail(c, "forbidden", 403);
+      return fail(c, "Insufficient permissions", 403, { code: ErrorCodes.INSUFFICIENT_PERMISSIONS, details: { communityId } });
     }
 
     // Verify channel exists
     const channel = await store.getChannel?.(communityId, channelId);
     if (!channel) {
-      return fail(c, "channel not found", 404);
+      return fail(c, "Not found", 404, { code: ErrorCodes.NOT_FOUND, details: { communityId, channelId } });
     }
 
     const content = String(body.content || "").trim();
     if (!content) {
-      return fail(c, "content required", 400);
+      return fail(c, "content is required", 400, { code: ErrorCodes.MISSING_REQUIRED_FIELD, details: { field: "content" } });
     }
 
     const recipients = Array.isArray(body.recipients) ? body.recipients : [];

@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings, Variables } from "@takos/platform/server";
-import { ok, fail } from "@takos/platform/server";
+import { ok, fail, HttpError } from "@takos/platform/server";
 import type { Visibility } from "@takos/platform";
 import type { AppAuthContext } from "@takos/platform/app/runtime/types";
 import { auth } from "../middleware/auth";
 import { getAppAuthContext } from "../lib/auth-context";
+import { ErrorCodes } from "../lib/error-codes";
 import { createPostService } from "../services";
 
 const posts = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -76,7 +77,7 @@ const mapPosts = (list: any[]): any[] => list.map(toLegacyPost);
 
 const ensureAuth = (ctx: AppAuthContext): AppAuthContext => {
   if (!ctx.userId) {
-    throw new Error("unauthorized");
+    throw new HttpError(401, ErrorCodes.UNAUTHORIZED, "Authentication required");
   }
   return ctx;
 };
@@ -121,12 +122,9 @@ const buildUpdatePostInput = (id: string, body: any): { id: string; content?: st
   return input;
 };
 
-const handleError = (c: any, error: unknown) => {
-  const message = (error as Error)?.message || "unexpected error";
-  if (message === "unauthorized") {
-    return fail(c, message, 401);
-  }
-  return fail(c, message, 400);
+const handleError = (_c: any, error: unknown): never => {
+  if (error instanceof HttpError) throw error;
+  throw error;
 };
 
 posts.post("/communities/:id/posts", auth, async (c) => {
@@ -214,8 +212,9 @@ posts.get("/posts/:id", auth, async (c) => {
   try {
     const service = createPostService(c.env);
     const authCtx = ensureAuth(getAppAuthContext(c));
-    const post = await service.getPost(authCtx, c.req.param("id"));
-    if (!post) return fail(c, "post not found", 404);
+    const postId = c.req.param("id");
+    const post = await service.getPost(authCtx, postId);
+    if (!post) return fail(c, "Post not found", 404, { code: ErrorCodes.OBJECT_NOT_FOUND, details: { postId } });
     return ok(c, toLegacyPost(post));
   } catch (error) {
     return handleError(c, error);
@@ -237,8 +236,9 @@ posts.get("/posts/:id/poll", auth, async (c) => {
   try {
     const service = createPostService(c.env);
     const authCtx = ensureAuth(getAppAuthContext(c));
-    const poll = await service.getPoll(authCtx, c.req.param("id"));
-    if (!poll) return fail(c, "poll not found", 404);
+    const postId = c.req.param("id");
+    const poll = await service.getPoll(authCtx, postId);
+    if (!poll) return fail(c, "Poll not found", 404, { code: ErrorCodes.POLL_NOT_FOUND, details: { postId } });
     return ok(c, poll);
   } catch (error) {
     return handleError(c, error);

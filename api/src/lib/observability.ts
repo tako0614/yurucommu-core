@@ -3,6 +3,7 @@
 import type { Context, MiddlewareHandler } from "hono";
 import { HttpError } from "@takos/platform/server";
 import type { AuthContext } from "./auth-context-model";
+import { ErrorCodes } from "./error-codes";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -96,13 +97,20 @@ export const mapErrorToResponse = (error: unknown, requestIdOrOptions?: string |
   }
 
   let status = 500;
-  let code = "INTERNAL_ERROR";
+  let code: string = ErrorCodes.INTERNAL_ERROR;
   let message = "An unexpected error occurred";
   let details: Record<string, unknown> | undefined;
 
+  const normalizeCode = (raw: string): string =>
+    raw
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+
   if (error instanceof HttpError) {
     status = error.status ?? status;
-    code = (error.code || code).toUpperCase();
+    code = normalizeCode(error.code || code);
     message = error.message || message;
     details = error.details;
   } else {

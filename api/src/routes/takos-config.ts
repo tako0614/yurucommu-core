@@ -9,6 +9,7 @@ import type { PublicAccountBindings as Bindings } from "@takos/platform/server";
 import { fail } from "@takos/platform/server";
 import { auth } from "../middleware/auth";
 import takosProfile from "../../../takos-profile.json";
+import { ErrorCodes } from "../lib/error-codes";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -110,26 +111,18 @@ app.post("/import", auth, async (c) => {
 
     // スキーマバージョン確認
     if (body.schema_version !== "1.0") {
-      return c.json(
-        {
-          error: "Unsupported schema_version",
-          current: "1.0",
-          provided: body.schema_version,
-        },
-        400,
-      );
+      return fail(c, "Unsupported schema_version", 400, {
+        code: ErrorCodes.INVALID_INPUT,
+        details: { current: "1.0", provided: body.schema_version ?? null },
+      });
     }
 
     // distro 互換性チェック
     if (body.distro?.name && body.distro.name !== takosProfile.name) {
-      return c.json(
-        {
-          error: "Distro name mismatch",
-          current: takosProfile.name,
-          provided: body.distro.name,
-        },
-        400,
-      );
+      return fail(c, "Distro name mismatch", 400, {
+        code: ErrorCodes.INVALID_INPUT,
+        details: { current: takosProfile.name ?? null, provided: body.distro.name ?? null },
+      });
     }
 
     // TODO: 実際の構成適用ロジック

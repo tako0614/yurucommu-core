@@ -124,9 +124,7 @@ import type { AuthService } from "./auth-service";
 
 export {
   createPostService,
-  createDMService,
   createMediaService,
-  createCommunityService,
   createUserService,
   createObjectService as createCoreObjectService,
   createActorService,
@@ -135,16 +133,26 @@ export {
   createAuthService,
 } from "./factories";
 
+// NOTE: createCommunityService と createDMService は App 層に移行済み
+// - 型定義のみ維持（後方互換性）
+// - 実装は app/default/src/server.ts を参照
+
 /**
  * Core Kernel サービスのレジストリ
  *
  * TakosContext.services として公開される
+ *
+ * NOTE: communities と dm は App 層に移行済み (11-default-app.md)
+ * - Default App が KV ベースで実装
+ * - 型定義のみ維持（後方互換性）
  */
 export interface CoreServices {
   posts: PostService;
   users: UserService;
-  communities: CommunityService;
-  dm: DMService;
+  /** @deprecated App層に移行済み - Default Appを使用してください */
+  communities?: CommunityService;
+  /** @deprecated App層に移行済み - Default Appを使用してください */
+  dm?: DMService;
   media?: MediaService;
   actors?: ActorService;
   storage?: StorageService;

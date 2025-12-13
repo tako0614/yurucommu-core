@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings, Variables } from "@takos/platform/server";
-import { ok, fail } from "@takos/platform/server";
+import { ok, fail, HttpError } from "@takos/platform/server";
 import type { AppAuthContext } from "@takos/platform/app/runtime/types";
 import type {
   CreateObjectInput,
@@ -10,13 +10,14 @@ import type {
 } from "@takos/platform/app/services/object-service";
 import { auth } from "../middleware/auth";
 import { getAppAuthContext } from "../lib/auth-context";
+import { ErrorCodes } from "../lib/error-codes";
 import { createObjectService } from "../services";
 
 const objects = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 const ensureAuth = (ctx: AppAuthContext): AppAuthContext => {
   if (!ctx.userId) {
-    throw new Error("unauthorized");
+    throw new HttpError(401, ErrorCodes.UNAUTHORIZED, "Authentication required");
   }
   return ctx;
 };
@@ -101,10 +102,9 @@ const buildTimelineParams = (url: URL): ObjectTimelineParams => {
   };
 };
 
-const handleError = (c: any, error: unknown) => {
-  const message = (error as Error)?.message || "unexpected error";
-  if (message === "unauthorized") return fail(c, message, 401);
-  return fail(c, message, 400);
+const handleError = (_c: any, error: unknown): never => {
+  if (error instanceof HttpError) throw error;
+  throw error;
 };
 
 const registerRoutes = (basePath: "" | "/-/api") => {
@@ -150,7 +150,7 @@ const registerRoutes = (basePath: "" | "/-/api") => {
       const obj = await service.get(authCtx, c.req.param("id"));
       if (!obj) {
         return fail(c, "object not found", 404, {
-          code: "OBJECT_NOT_FOUND",
+          code: ErrorCodes.OBJECT_NOT_FOUND,
           details: { id: c.req.param("id") },
         });
       }

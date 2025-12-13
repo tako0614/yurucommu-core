@@ -2,16 +2,17 @@
 
 import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings, Variables } from "@takos/platform/server";
-import { ok, fail } from "@takos/platform/server";
+import { ok, fail, HttpError } from "@takos/platform/server";
 import type { AppAuthContext } from "@takos/platform/app/runtime/types";
 import { auth, optionalAuth } from "../middleware/auth";
 import { getAppAuthContext } from "../lib/auth-context";
+import { ErrorCodes } from "../lib/error-codes";
 import {
-  createCommunityService,
   createNotificationService,
   createPostService,
   createUserService,
 } from "../services";
+import { buildTakosAppEnv, loadStoredAppManifest, loadTakosApp } from "../lib/app-sdk-loader";
 
 const users = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -25,14 +26,38 @@ const parsePagination = (url: URL, defaults = { limit: 20, offset: 0 }) => {
 };
 
 const ensureAuth = (ctx: AppAuthContext): AppAuthContext => {
-  if (!ctx.userId) throw new Error("unauthorized");
+  if (!ctx.userId) throw new HttpError(401, ErrorCodes.UNAUTHORIZED, "Authentication required");
   return ctx;
 };
 
-const handleError = (c: any, error: unknown) => {
-  const message = (error as Error)?.message || "unexpected error";
-  if (message === "unauthorized") return fail(c, message, 401);
-  return fail(c, message, 400);
+const handleError = (_c: any, error: unknown): never => {
+  if (error instanceof HttpError) throw error;
+  throw error;
+};
+
+const readJson = async (res: Response): Promise<any> => {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+};
+
+const proxyToDefaultApp = async (
+  c: any,
+  pathname: string,
+  search: string = "",
+): Promise<Response> => {
+  const appId = "default";
+  const app = await loadTakosApp(appId, c.env);
+  const manifest = await loadStoredAppManifest(c.env, appId);
+  const appEnv = buildTakosAppEnv(c, appId, manifest);
+
+  const url = new URL(c.req.url);
+  url.pathname = pathname;
+  url.search = search;
+  const req = new Request(url.toString(), c.req.raw);
+  return await app.fetch(req, appEnv);
 };
 
 export function parseActorToUserId(actorUri: string, instanceDomain: string): string {
@@ -92,10 +117,11 @@ users.post("/notifications/:id/read", auth, async (c) => {
 // Get my communities
 users.get("/me/communities", auth, async (c) => {
   try {
-    const authCtx = ensureAuth(getAppAuthContext(c));
-    const service = createCommunityService(c.env);
-    const page = await service.listCommunities(authCtx, { limit: 50, offset: 0 });
-    return ok(c, page.communities);
+    ensureAuth(getAppAuthContext(c));
+    const res = await proxyToDefaultApp(c, "/me/communities");
+    const json = await readJson(res);
+    if (!res.ok) return fail(c, json?.error ?? "Failed to list communities", res.status);
+    return ok(c, json?.communities ?? []);
   } catch (error) {
     return handleError(c, error);
   }
@@ -210,7 +236,9 @@ users.get("/users/:id", optionalAuth, async (c) => {
     const postService = createPostService(c.env);
     const userId = c.req.param("id");
     const user = await service.getUser(authCtx, userId);
-    if (!user) return fail(c, "user not found", 404);
+    if (!user) {
+      return fail(c, "User not found", 404, { code: ErrorCodes.USER_NOT_FOUND, details: { userId } });
+    }
     const pinned_posts = await postService
       .listPinnedPosts(authCtx, { user_id: userId, limit: 5 })
       .catch(() => []);

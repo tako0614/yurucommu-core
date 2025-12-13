@@ -18,16 +18,8 @@ import {
   createBlockMuteService,
   type BlockMuteService,
 } from "./block-mute-service";
-import type {
-  DmMessage,
-  DmThread,
-  DmThreadPage,
-  DmMessagePage,
-  OpenThreadInput,
-  SendMessageInput,
-  ListThreadsParams,
-  ListMessagesParams,
-} from "@takos/platform/app/services/dm-service";
+// DM 型は型エクスポートのみ使用（実装は App 層に移行済み）
+import type { DMService } from "./dm-service";
 import type {
   Post,
   PostHistoryEntry,
@@ -37,7 +29,7 @@ import type {
   Visibility,
 } from "@takos/platform/app/services/post-service";
 import type { PostService } from "./post-service";
-import type { DMService, MarkReadInput } from "./dm-service";
+// CommunityService と DMService の型は型エクスポートのみ（実装は App 層）
 import type { CommunityService } from "./community-service";
 import type { UserService } from "./user-service";
 import type { MediaService } from "./media-service";
@@ -45,16 +37,6 @@ import { createMediaService } from "./media-service";
 import type { ActorService, ActorProfile } from "./actor-service";
 import type { StorageService } from "./storage-service";
 import type { NotificationService } from "./notification-service";
-import type {
-  CreateCommunityInput,
-  UpdateCommunityInput,
-  Community,
-  CommunityPage,
-  Channel,
-  CommunityMember,
-  ChannelMessageParams,
-  SendChannelMessageInput,
-} from "@takos/platform/app/services/community-service";
 import type {
   User,
   FollowRequestList,
@@ -64,7 +46,6 @@ import type { AppAuthContext } from "@takos/platform/app/runtime/types";
 import { makeData } from "../../server/data-factory";
 import { releaseStore } from "../../utils/utils";
 import { HttpError } from "../../utils/response-helpers";
-import { canonicalizeParticipants, computeParticipantsHash } from "../../activitypub/chat";
 import { requireInstanceDomain } from "../../subdomain";
 import { signPushPayload } from "../../server/push-signature";
 import { createUserSession, getSessionCookieName, getSessionTtlSeconds } from "../../server/session";
@@ -1173,406 +1154,8 @@ const createPostService = (env: any): PostService => {
   };
 };
 
-const createDMService = (env: any): DMService => {
-  const objects = createObjectService(env);
-  const PUBLIC_AUDIENCE = "https://www.w3.org/ns/activitystreams#Public";
-
-  const toList = (value: unknown): string[] => {
-    if (Array.isArray(value)) return value.map((v) => v?.toString?.() ?? "").filter(Boolean);
-    if (typeof value === "string") return [value];
-    if (value === null || value === undefined) return [];
-    return [String(value)];
-  };
-
-  const ensureAuthCtx = (ctx: AppAuthContext): string => {
-    const userId = (ctx.userId || "").toString().trim();
-    if (!userId) throw new HttpError(401, "UNAUTHORIZED", "Authentication required");
-    return userId;
-  };
-
-  const normalizeDmParticipants = (raw: string[], sender: string): string[] => {
-    const input = canonicalizeParticipants(raw.filter(Boolean).map((p) => p.trim()));
-    const merged = canonicalizeParticipants([...input, sender].filter((p) => p !== PUBLIC_AUDIENCE));
-    if (merged.length < 2) {
-      throw new HttpError(400, "INVALID_PARTICIPANTS", "At least one other participant is required");
-    }
-    if (merged.length > 20) {
-      throw new HttpError(400, "TOO_MANY_PARTICIPANTS", "DM threads support up to 20 participants");
-    }
-    return merged;
-  };
-
-  const participantsFromObject = (obj: APObject): string[] => {
-    const declared = toList((obj as any)["takos:participants"]);
-    const all = [
-      obj.actor,
-      ...toList(obj.to),
-      ...toList(obj.cc),
-      ...toList((obj as any).bto),
-      ...toList((obj as any).bcc),
-      ...declared,
-    ]
-      .filter(Boolean)
-      .filter((p) => p !== PUBLIC_AUDIENCE);
-    return canonicalizeParticipants(all);
-  };
-
-  const threadFromObject = (obj: APObject): { participants: string[]; threadId: string } => {
-    const participants = participantsFromObject(obj);
-    const threadId = (obj.context as string | undefined) || computeParticipantsHash(participants);
-    return { participants, threadId };
-  };
-
-  const filterMessagesForUser = (objectsInThread: APObject[], userId: string): APObject[] => {
-    return objectsInThread.filter((obj) => {
-      const participants = participantsFromObject(obj);
-      if (!participants.includes(userId)) return false;
-      const draft = Boolean((obj as any)["takos:draft"] ?? (obj as any).draft);
-      if (draft && obj.actor !== userId) return false;
-      const recipients = new Set([
-        ...toList(obj.to),
-        ...toList((obj as any).bto),
-        ...toList((obj as any).bcc),
-        obj.actor,
-      ]);
-      return recipients.has(userId) || obj.actor === userId;
-    });
-  };
-
-  const toDmMessage = (obj: APObject): DmMessage => {
-    const { threadId } = threadFromObject(obj);
-    return {
-      id: objectIdFromAp(obj),
-      thread_id: threadId,
-      sender_actor_uri: obj.actor,
-      content: obj.content ?? "",
-      created_at: obj.published ?? new Date().toISOString(),
-      media: (obj.attachment || []).map((att: any) => ({
-        id: att.url,
-        url: att.url,
-        type: att.type || "Document",
-      })),
-      in_reply_to: (obj as any).inReplyTo ?? (obj as any).in_reply_to ?? null,
-      draft: Boolean((obj as any)["takos:draft"] ?? (obj as any).draft ?? false),
-    };
-  };
-
-  const resolveThreadMessages = async (
-    ctx: AppAuthContext,
-    threadId: string,
-  ): Promise<{ participants: string[]; messages: APObject[] }> => {
-    const all = await objects.getThread(ctx, threadId).catch(() => []);
-    const participants = all.length ? threadFromObject(all[0]).participants : [];
-    return { participants, messages: all };
-  };
-
-  const ensureThreadMembership = (userId: string, participants: string[]) => {
-    if (!participants.length) {
-      throw new HttpError(404, "THREAD_NOT_FOUND", "DM thread not found");
-    }
-    if (!participants.includes(userId)) {
-      throw new HttpError(403, "FORBIDDEN", "Not a participant of this thread");
-    }
-  };
-
-  return {
-    async openThread(ctx, input: OpenThreadInput) {
-      const sender = ensureAuthCtx(ctx);
-      const participants = normalizeDmParticipants(input.participants || [], sender);
-      const threadId = computeParticipantsHash(participants);
-      const page = await objects.getThread(ctx, threadId).catch(() => []);
-      const visible = filterMessagesForUser(page, sender);
-      const messages = visible.map((obj) => toDmMessage(obj));
-      return { threadId, messages };
-    },
-
-    async sendMessage(ctx, input: SendMessageInput) {
-      const sender = ensureAuthCtx(ctx);
-      const content = (input.content ?? "").toString();
-      if (!content.trim()) {
-        throw new HttpError(400, "INVALID_INPUT", "content is required");
-      }
-
-      let participants: string[] = [];
-      if (input.participants?.length) {
-        participants = normalizeDmParticipants(input.participants as string[], sender);
-      } else if (input.thread_id) {
-        const existing = await resolveThreadMessages(ctx, input.thread_id);
-        if (!existing.participants.length) {
-          throw new HttpError(404, "THREAD_NOT_FOUND", "DM thread not found");
-        }
-        participants = existing.participants;
-      }
-      if (!participants.length) {
-        throw new HttpError(400, "INVALID_INPUT", "participants or thread_id is required");
-      }
-
-      if (!participants.includes(sender)) {
-        participants = normalizeDmParticipants(participants, sender);
-      }
-
-      const threadId = input.thread_id || computeParticipantsHash(participants);
-      const recipients = input.draft ? [sender] : participants.filter((p) => p !== sender);
-      if (!recipients.length) {
-        throw new HttpError(400, "INVALID_PARTICIPANTS", "Cannot create DM thread with only yourself");
-      }
-
-      const apObject = await objects.create(ctx, {
-        type: "Note",
-        content,
-        visibility: "direct",
-        to: recipients,
-        cc: [],
-        bto: [],
-        bcc: [],
-        inReplyTo: input.in_reply_to ?? null,
-        context: threadId,
-        "takos:participants": participants,
-        "takos:draft": Boolean(input.draft),
-      } as any);
-      return toDmMessage(apObject);
-    },
-
-    async listThreads(ctx, params?: ListThreadsParams): Promise<DmThreadPage> {
-      const userId = ensureAuthCtx(ctx);
-      const limit = params?.limit ?? DEFAULT_PAGE_SIZE;
-      const offset = params?.offset ?? 0;
-      const page = await objects.query(ctx, {
-        visibility: "direct",
-        includeDirect: true,
-        participant: userId,
-        limit: limit * 5,
-        cursor: "0",
-        order: "desc",
-      });
-      const contexts = new Map<string, APObject>();
-      for (const item of page.items) {
-        const { threadId } = threadFromObject(item);
-        if (!threadId) continue;
-        const draft = Boolean((item as any)["takos:draft"] ?? (item as any).draft);
-        if (draft && item.actor !== userId) continue;
-        const existing = contexts.get(threadId);
-        if (!existing || (existing.published || "").localeCompare(item.published || "") < 0) {
-          contexts.set(threadId, item);
-        }
-        if (contexts.size >= limit + offset) break;
-      }
-
-      const slice = Array.from(contexts.values())
-        .sort((a, b) => (b.published || "").localeCompare(a.published || ""))
-        .slice(offset, offset + limit);
-
-      const items: DmThread[] = [];
-      for (const obj of slice) {
-        const { threadId } = threadFromObject(obj);
-        const { participants, messages } = await resolveThreadMessages(ctx, threadId);
-        const visibleMessages = filterMessagesForUser(messages, userId);
-        const latest = visibleMessages[visibleMessages.length - 1] ?? null;
-        items.push({
-          id: threadId,
-          participants,
-          created_at: (latest?.published as string) ?? (obj.published as string) ?? new Date().toISOString(),
-          latest_message: latest ? toDmMessage(latest) : null,
-        });
-      }
-
-      return {
-        threads: items,
-        next_offset: nextOffset(items.length, limit, offset),
-        next_cursor: null,
-      };
-    },
-
-    async listMessages(ctx, params: ListMessagesParams): Promise<DmMessagePage> {
-      const userId = ensureAuthCtx(ctx);
-      const limit = params.limit ?? DEFAULT_PAGE_SIZE;
-      const offset = params.offset ?? 0;
-      const { participants, messages } = await resolveThreadMessages(ctx, params.thread_id);
-      ensureThreadMembership(userId, participants);
-      const filtered = filterMessagesForUser(messages, userId);
-      const sliced = filtered.slice(offset, limit ? offset + limit : undefined);
-      const mapped = sliced.map((obj) => toDmMessage(obj));
-      return {
-        messages: mapped,
-        next_offset: nextOffset(mapped.length, limit, offset),
-        next_cursor: null,
-      };
-    },
-
-    async markRead(ctx, input: MarkReadInput) {
-      const userId = ensureAuthCtx(ctx);
-      const { participants } = await resolveThreadMessages(ctx, input.thread_id);
-      ensureThreadMembership(userId, participants);
-      return { thread_id: input.thread_id, message_id: input.message_id, read_at: new Date().toISOString() };
-    },
-
-    async deleteMessage(ctx, messageId: string) {
-      const userId = ensureAuthCtx(ctx);
-      const existing = await objects.get(ctx, messageId);
-      if (!existing) {
-        throw new HttpError(404, "MESSAGE_NOT_FOUND", "Message not found");
-      }
-      if (existing.actor !== userId) {
-        throw new HttpError(403, "FORBIDDEN", "Only the sender can delete this message");
-      }
-      await objects.delete(ctx, messageId);
-    },
-
-    async saveDraft(ctx, input: SendMessageInput) {
-      return this.sendMessage(ctx, { ...input, draft: true });
-    },
-  };
-};
-
-const createCommunityService = (env: any): CommunityService => {
-  const mapCommunity = (row: any): Community => ({
-    id: row.id,
-    name: row.handle ?? row.name ?? row.id,
-    display_name: row.display_name ?? row.name ?? row.handle ?? row.id,
-    description: row.summary ?? row.description ?? "",
-    icon: (row.metadata_json && JSON.parse(row.metadata_json || "{}").icon_url) || row.icon || undefined,
-    visibility: row.visibility ?? "public",
-    owner_id: row.owner_id ?? "",
-    members_count: row.members_count ?? undefined,
-    posts_count: row.posts_count ?? undefined,
-    created_at: row.created_at ?? new Date().toISOString(),
-    is_member: row.is_member ?? undefined,
-    role: row.role ?? null,
-  });
-
-  return {
-    async createCommunity(ctx, input: CreateCommunityInput) {
-      const owner = ensureAuth(ctx);
-      const created = await withStore(env, async (store) => {
-        if (!store.createCommunity) throw new Error("community not supported");
-        return store.createCommunity({
-          id: input.name,
-          name: input.display_name,
-          description: input.description ?? "",
-          icon_url: input.icon ?? "",
-          visibility: input.visibility ?? "public",
-          created_by: owner,
-        });
-      });
-      return mapCommunity(created);
-    },
-
-    async updateCommunity(ctx, input: UpdateCommunityInput) {
-      ensureAuth(ctx);
-      const updated = await withStore(env, async (store) => {
-        if (!store.updateCommunity) throw new Error("community not supported");
-        return store.updateCommunity(input.id, {
-          display_name: input.display_name,
-          description: input.description,
-          icon: input.icon,
-          visibility: input.visibility,
-        });
-      });
-      return mapCommunity(updated);
-    },
-
-    async joinCommunity(ctx, communityId: string) {
-      const userId = ensureAuth(ctx);
-      await withStore(env, async (store) => store.setMembership?.(communityId, userId, { role: "member", status: "active" }));
-    },
-
-    async leaveCommunity(ctx, communityId: string) {
-      const userId = ensureAuth(ctx);
-      await withStore(env, async (store) => store.removeMembership?.(communityId, userId));
-    },
-
-    async listCommunities(ctx, params) {
-      const limit = params.limit ?? DEFAULT_PAGE_SIZE;
-      const offset = params.offset ?? 0;
-      const communities = await withStore(env, async (store) => {
-        if (store.searchCommunities) {
-          const rows = await store.searchCommunities(params.query ?? "", (ctx.userId as any) ?? undefined);
-          return (rows as any[]).slice(offset, offset + limit);
-        }
-        return [];
-      });
-      return {
-        communities: communities.map(mapCommunity),
-        next_offset: nextOffset(communities.length, limit, offset),
-        next_cursor: null,
-      } as CommunityPage;
-    },
-
-    async getCommunity(_ctx, communityId: string) {
-      const community = await withStore(env, async (store) => store.getCommunity?.(communityId));
-      return community ? mapCommunity(community) : null;
-    },
-
-    async listChannels(ctx, communityId: string) {
-      const channels = await withStore(env, async (store) => store.listChannelsByCommunity?.(communityId) ?? []);
-      return channels as Channel[];
-    },
-
-    async createChannel(ctx, input: any) {
-      ensureAuth(ctx);
-      const channel = await withStore(env, async (store) => store.createChannel?.(input.community_id, input));
-      return channel as Channel;
-    },
-
-    async updateChannel(ctx, input: any) {
-      ensureAuth(ctx);
-      const channel = await withStore(env, async (store) =>
-        store.updateChannel?.(input.community_id, input.channel_id, { name: input.name, description: input.description }),
-      );
-      return channel as Channel;
-    },
-
-    async deleteChannel(ctx, communityId, channelId) {
-      ensureAuth(ctx);
-      await withStore(env, async (store) => store.deleteChannel?.(communityId, channelId));
-    },
-
-    async listMembers(ctx, communityId) {
-      const members = await withStore(env, async (store) => store.listCommunityMembersWithUsers?.(communityId) ?? []);
-      return (members as any[]).map((m) => ({
-        user_id: m.id ?? m.user_id ?? "",
-        role: m.role ?? "member",
-        nickname: m.display_name ?? m.name ?? null,
-        joined_at: m.joined_at ?? m.created_at ?? null,
-        user: {
-          id: m.id ?? "",
-          display_name: m.display_name ?? m.name ?? "",
-          avatar_url: m.avatar_url ?? undefined,
-          handle: m.handle ?? m.local_id ?? "",
-        },
-      })) as CommunityMember[];
-    },
-
-    async sendDirectInvite(_ctx, input: { community_id: string; user_ids: string[] }) {
-      return input.user_ids.map((id) => ({ id, status: "sent" }));
-    },
-
-    async getReactionSummary() {
-      return {};
-    },
-
-    async listChannelMessages(ctx, params: ChannelMessageParams) {
-      return withStore(env, async (store) => store.listChannelMessages?.(params.community_id, params.channel_id, params.limit ?? DEFAULT_PAGE_SIZE) ?? []);
-    },
-
-    async sendChannelMessage(ctx, input: SendChannelMessageInput) {
-      const userId = ensureAuth(ctx);
-      const activity = await withStore(env, async (store) => {
-        if (store.createChannelMessageRecord) {
-          return store.createChannelMessageRecord(
-            input.community_id,
-            input.channel_id,
-            userId,
-            input.content,
-            { content: input.content },
-          );
-        }
-        return null;
-      });
-      return { activity };
-    },
-  };
-};
+// NOTE: createDMService は App 層に移行済み (app/default/src/server.ts)
+// NOTE: createCommunityService は App 層に移行済み (app/default/src/server.ts)
 
 const createUserService = (
   env: any,
@@ -1708,9 +1291,7 @@ const createUserService = (
 
 export {
   createPostService,
-  createDMService,
   createMediaService,
-  createCommunityService,
   createUserService,
   createObjectService,
   createActorService,
@@ -1720,6 +1301,9 @@ export {
   createBlockMuteService,
   createBlockMuteServiceFromEnv,
 };
+
+// NOTE: createCommunityService と createDMService は App 層に移行済み
+// 実装は app/default/src/server.ts を参照
 
 export type {
   PostService,

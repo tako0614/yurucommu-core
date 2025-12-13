@@ -25,11 +25,35 @@ function createMockR2() {
 }
 
 function createMockKV() {
+  const store = new Map<string, any>();
   return {
-    get: vi.fn(async () => null),
-    put: vi.fn(async () => undefined),
-    delete: vi.fn(async () => undefined),
-    list: vi.fn(async () => ({ keys: [] })),
+    get: vi.fn(async (key: string, type?: string) => {
+      if (!store.has(key)) return null;
+      const value = store.get(key);
+      if (type === "json") {
+        if (typeof value === "string") {
+          try {
+            return JSON.parse(value);
+          } catch {
+            return null;
+          }
+        }
+        return value ?? null;
+      }
+      return value ?? null;
+    }),
+    put: vi.fn(async (key: string, value: any) => {
+      store.set(key, value);
+    }),
+    delete: vi.fn(async (key: string) => {
+      store.delete(key);
+    }),
+    list: vi.fn(async ({ prefix }: { prefix: string }) => {
+      const keys = Array.from(store.keys())
+        .filter((name) => name.startsWith(prefix))
+        .map((name) => ({ name }));
+      return { keys };
+    }),
   };
 }
 
@@ -139,7 +163,7 @@ describe("default app E2E smoke", () => {
   it("excludes blocked users from /api/timeline/home", async () => {
     bindings = createMockBindings();
     (bindings.APP_STATE.get as any).mockImplementation(async (key: string) => {
-      if (key === "app:default:user:test-user:block:list") return ["followed-user"];
+      if (key === "app:default:block:test-user:list") return ["followed-user"];
       return null;
     });
 
@@ -202,8 +226,25 @@ describe("default app E2E smoke", () => {
         });
       }
 
-      if (url.pathname === "/objects/thread/thread-1") {
-        return Response.json({ ok: true, data: [] });
+      if (url.pathname.startsWith("/objects/thread/")) {
+        return Response.json({
+          ok: true,
+          data: [
+            {
+              id: "obj-1",
+              type: "Note",
+              actor: "test-user",
+              content: "hi",
+              published: "2025-01-01T00:00:00.000Z",
+              context: "thread-1",
+              to: ["other-user"],
+              cc: [],
+              bto: [],
+              bcc: [],
+              "takos:participants": ["test-user", "other-user"],
+            },
+          ],
+        });
       }
 
       return new Response("not found", { status: 404 });

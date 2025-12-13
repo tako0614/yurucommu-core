@@ -120,11 +120,8 @@ function createAuthenticatedFetch(c: any): AppEnv["fetch"] {
   };
 }
 
-function createAppStorage(env: Bindings, appId: string, userId: string | null) {
-  const buildKey = (key: string): string => {
-    const userPart = userId || "_anonymous";
-    return `app:${appId}:user:${userPart}:${key}`;
-  };
+function createAppStorage(env: Bindings, appId: string) {
+  const buildKey = (key: string): string => `app:${appId}:${key}`;
 
   const kv = (env as any).APP_STATE || env.KV;
 
@@ -261,7 +258,7 @@ export function buildTakosAppEnv(c: any, appId: string, manifest: AppManifest | 
     "";
 
   return {
-    storage: createAppStorage(c.env, appId, userId),
+    storage: createAppStorage(c.env, appId),
     fetch: createAuthenticatedFetch(c),
     activitypub: createActivityPubAPI(c.env),
     ai: createAiAPI(c, c.env),

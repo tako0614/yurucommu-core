@@ -9,9 +9,10 @@
  */
 
 import type { AppAuthContext } from "../runtime/types";
+import type { Visibility } from "../../types";
 
 // Input types
-export type { Visibility } from "../../types";
+export type { Visibility };
 
 export interface CreatePostInput {
   content: string;

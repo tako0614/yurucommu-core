@@ -624,9 +624,8 @@ describe("App API Router", () => {
       const lastCall = putCalls[putCalls.length - 1];
       const key = lastCall[0];
 
-      // Key should contain app:sample-counter:user:test-user:
-      expect(key).toContain("app:sample-counter:");
-      expect(key).toContain("user:test-user:");
+      // Key should be namespaced by app (user scoping is handled in the key itself when needed).
+      expect(key).toBe("app:sample-counter:counter");
     });
 
     it("should use _anonymous for unauthenticated storage", async () => {
@@ -646,8 +645,7 @@ describe("App API Router", () => {
       expect(res.status).toBe(200);
       expect(mockBindings.APP_STATE.put).toHaveBeenCalled();
       const [key] = mockBindings.APP_STATE.put.mock.calls.at(-1) ?? [];
-      expect(key).toContain("app:anon-storage-app:");
-      expect(key).toContain("user:_anonymous:");
+      expect(key).toBe("app:anon-storage-app:k");
     });
   });
 

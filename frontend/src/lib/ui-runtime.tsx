@@ -3089,6 +3089,10 @@ export const RenderScreen: Component<{ screen: Screen; context?: UiRuntimeContex
       (payload as any)?.latest_message?.published ||
       (payload as any)?.latest_message?.created_at ||
       (payload as any)?.latest_message?.createdAt;
+    let latestMessageId =
+      (payload as any)?.latest_message?.id ||
+      (payload as any)?.latest_message?.message_id ||
+      (payload as any)?.latest_message?.messageId;
     const handle =
       typeof payload === "string"
         ? undefined
@@ -3116,6 +3120,7 @@ export const RenderScreen: Component<{ screen: Screen; context?: UiRuntimeContex
         if (messages.length > 0) {
           const last = messages[messages.length - 1];
           latestTimestamp = last?.published || last?.created_at || latestTimestamp;
+          latestMessageId = last?.id || last?.message_id || last?.messageId || latestMessageId;
         }
       } catch (error) {
         console.error("[UiRuntime] failed to open DM thread", error);
@@ -3127,6 +3132,16 @@ export const RenderScreen: Component<{ screen: Screen; context?: UiRuntimeContex
     if (threadId) {
       setStateByKey("activeThreadId", threadId);
       markDmThreadRead(threadId, latestTimestamp);
+      try {
+        const result = await api(`/dm/threads/${encodeURIComponent(threadId)}/read`, {
+          method: "POST",
+          body: JSON.stringify({ message_id: latestMessageId || undefined }),
+        });
+        const readAt = (result as any)?.read_at ?? (result as any)?.readAt;
+        if (readAt) markDmThreadRead(threadId, readAt);
+      } catch (error) {
+        console.warn("[UiRuntime] failed to persist DM read state", error);
+      }
       if (props.screen.id === "screen.dm_list") {
         refresh(["dmThreadMessages", "dmMessages"]);
       } else {
@@ -3170,6 +3185,16 @@ export const RenderScreen: Component<{ screen: Screen; context?: UiRuntimeContex
       if (responseThreadId) {
         setStateByKey("activeThreadId", responseThreadId);
         markDmThreadRead(responseThreadId, (result as any)?.created_at ?? (result as any)?.published);
+        try {
+          const readResult = await api(`/dm/threads/${encodeURIComponent(responseThreadId)}/read`, {
+            method: "POST",
+            body: JSON.stringify({ message_id: (result as any)?.id || undefined }),
+          });
+          const readAt = (readResult as any)?.read_at ?? (readResult as any)?.readAt;
+          if (readAt) markDmThreadRead(responseThreadId, readAt);
+        } catch (error) {
+          console.warn("[UiRuntime] failed to persist DM read state", error);
+        }
       }
       if (resolvedRecipients.length > 0) {
         setStateByKey("activeRecipients", resolvedRecipients);

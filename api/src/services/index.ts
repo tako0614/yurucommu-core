@@ -1,8 +1,6 @@
 export {
   createPostService,
-  createDMService,
   createMediaService,
-  createCommunityService,
   createUserService,
   createObjectService,
   createActorService,
@@ -13,6 +11,7 @@ export {
 
 export type {
   PostService,
+  // DMService と CommunityService は App 層に移行済み - 型のみエクスポート
   DMService,
   CommunityService,
   UserService,

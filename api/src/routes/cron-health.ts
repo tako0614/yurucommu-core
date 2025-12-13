@@ -6,6 +6,7 @@ import type {
 import { fail, ok, releaseStore } from "@takos/platform/server";
 import { makeData } from "../data";
 import { auth } from "../middleware/auth";
+import { ErrorCodes } from "../lib/error-codes";
 import type {
   ApDeliveryQueueHealth,
   ApInboxQueueHealth,
@@ -72,7 +73,7 @@ const withSupport = <T>(
 cronHealthRoutes.get("/api/cron/health", auth, async (c) => {
   const user = c.get("user") as any;
   if (!isAuthenticated(user, c.env as Bindings)) {
-    return fail(c, "forbidden", 403);
+    return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN });
   }
   const store = makeData(c.env as any, c);
   try {
