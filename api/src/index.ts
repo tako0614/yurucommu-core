@@ -89,6 +89,7 @@ import activityPubMetadataRoutes from "./routes/activitypub-metadata.js";
 import activityPubExtensionsRoutes from "./routes/activitypub-extensions.js";
 import coreRecoveryRoutes from "./routes/core-recovery";
 import appManifestRoutes from "./routes/app-manifest";
+import objectsRoutes from "./routes/objects";
 // takos-config.ts is deprecated; config routes are now unified in config.ts per PLAN.md 5.3
 import { getTakosConfig } from "./lib/runtime-config";
 import {
@@ -240,7 +241,7 @@ app.onError((error, c) => {
   logEvent(c, "error", "request.error", {
     message: error instanceof Error ? error.message : String(error),
   });
-  return mapErrorToResponse(error, requestId);
+  return mapErrorToResponse(error, { requestId, env: c.env });
 });
 
 app.notFound((c) => {
@@ -394,6 +395,7 @@ app.route("/", communitiesRoutes);
 app.route("/", postsRoutes);
 app.route("/", storiesRoutes);
 app.route("/", chatRoutes);
+app.route("/", objectsRoutes);
 app.route("/", moderationRoutes);
 app.route("/", listsRoutes);
 app.route("/", postPlansRoutes);
@@ -874,12 +876,12 @@ async function passwordLogin(c: any) {
   const masterPassword =
     typeof c.env.AUTH_PASSWORD === "string" ? c.env.AUTH_PASSWORD.trim() : "";
   if (!password || !masterPassword) {
-    return fail(c, "invalid credentials", 401);
+    return fail(c, "Invalid credentials", 401, { code: "UNAUTHORIZED" });
   }
 
   const verified = await verifyMasterPassword(password, masterPassword);
   if (!verified) {
-    return fail(c, "invalid credentials", 401);
+    return fail(c, "Invalid credentials", 401, { code: "UNAUTHORIZED" });
   }
 
   const store = makeData(c.env as any, c);
@@ -930,11 +932,11 @@ app.post("/auth/session/token", async (c) => {
   try {
     const authResult = await authenticateUser(c, store);
     if (!authResult) {
-      return fail(c, "Unauthorized", 401);
+      return fail(c, "Unauthorized", 401, { code: "UNAUTHORIZED" });
     }
     const userId = (authResult.user as any)?.id;
     if (!userId) {
-      return fail(c, "invalid session", 400);
+      return fail(c, "Invalid session", 400, { code: "INVALID_INPUT" });
     }
     const { token } = await createUserJWT(c, store, userId);
     // Remove sensitive/internal fields before returning
@@ -965,16 +967,22 @@ app.post("/auth/active-user", auth, async (c) => {
             : "";
     const normalizedHandle = normalizeHandle(requestedId);
     if (!normalizedHandle) {
-      return fail(c, "user_id required", 400);
+      return fail(c, "user_id is required", 400, {
+        code: "MISSING_REQUIRED_FIELD",
+        details: { field: "user_id" },
+      });
     }
 
     if (!isValidHandle(normalizedHandle)) {
-      return fail(c, "invalid handle", 400);
+      return fail(c, "invalid handle", 400, { code: "INVALID_FORMAT" });
     }
 
     const user = await store.getUser(normalizedHandle).catch(() => null);
     if (!user) {
-      return fail(c, "user not found", 404);
+      return fail(c, "user not found", 404, {
+        code: "USER_NOT_FOUND",
+        details: { userId: normalizedHandle },
+      });
     }
 
     setActiveUserCookie(c, user.id);
@@ -1006,7 +1014,7 @@ app.post("/auth/actors", auth, async (c) => {
             : "";
     const handle = normalizeHandle(handleRaw);
     if (!handle || !isValidHandle(handle)) {
-      return fail(c, "invalid handle", 400);
+      return fail(c, "invalid handle", 400, { code: "INVALID_FORMAT" });
     }
     const displayName =
       typeof body.display_name === "string" && body.display_name.trim()
@@ -1026,7 +1034,10 @@ app.post("/auth/actors", auth, async (c) => {
     let created = false;
     if (!user) {
       if (!create) {
-        return fail(c, "user not found", 404);
+        return fail(c, "user not found", 404, {
+          code: "USER_NOT_FOUND",
+          details: { userId: handle },
+        });
       }
       user = await store.createUser({
         id: handle,
@@ -1124,19 +1135,22 @@ app.delete("/auth/actors/:actorId", auth, async (c) => {
     const normalizedActorId = normalizeHandle(actorId);
 
     if (!normalizedActorId) {
-      return fail(c, "invalid actor_id", 400);
+      return fail(c, "invalid actor_id", 400, { code: "INVALID_FORMAT" });
     }
 
     // Cannot delete the session user's actor
     const sessionUserId = normalizeHandle(authSession.user?.id ?? "");
     if (normalizedActorId === sessionUserId) {
-      return fail(c, "cannot delete current session actor", 403);
+      return fail(c, "cannot delete current session actor", 400, { code: "SELF_ACTION_FORBIDDEN" });
     }
 
     // Check if actor exists
     const actor = await store.getUser(normalizedActorId).catch(() => null);
     if (!actor) {
-      return fail(c, "actor not found", 404);
+      return fail(c, "actor not found", 404, {
+        code: "ACTOR_NOT_FOUND",
+        details: { actorId: normalizedActorId },
+      });
     }
 
     // TODO: Implement user deletion in DatabaseAPI

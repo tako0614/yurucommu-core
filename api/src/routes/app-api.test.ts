@@ -7,7 +7,118 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
-import { appApiRouter, registerAppHandlers } from "./app-api";
+import type { TakosApp, AppEnv } from "@takos/app-sdk/server";
+import { mapErrorToResponse } from "../lib/observability";
+import { appApiRouter } from "./app-api";
+
+const COUNTER_KEY = "counter";
+
+const sampleCounterApp: TakosApp = {
+  async fetch(request: Request, env: AppEnv): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname.replace(/\/$/, "") || "/";
+
+    const requireAuth = (): Response | null => {
+      if (!env.auth) {
+        return new Response(JSON.stringify({ error: "Authentication required" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return null;
+    };
+
+    const readBody = async (): Promise<Record<string, any>> => {
+      const contentType = request.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        return request.json().catch(() => ({}));
+      }
+      if (contentType.includes("application/x-www-form-urlencoded")) {
+        const text = await request.text();
+        return Object.fromEntries(new URLSearchParams(text));
+      }
+      return {};
+    };
+
+    if (request.method === "GET" && path === "/info") {
+      return new Response(
+        JSON.stringify({
+          id: "sample-counter",
+          name: "Sample Counter",
+          version: "1.0.0",
+          description: "A simple counter app demonstrating the App SDK",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    if (path.startsWith("/counter")) {
+      const authError = requireAuth();
+      if (authError) return authError;
+
+      if (request.method === "GET" && path === "/counter") {
+        const state = await env.storage.get<{ value: number; lastUpdated: string }>(COUNTER_KEY);
+        return new Response(
+          JSON.stringify({ value: state?.value ?? 0, lastUpdated: state?.lastUpdated ?? null }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      const input = await readBody();
+      const state = await env.storage.get<{ value: number; lastUpdated: string }>(COUNTER_KEY);
+      const currentValue = state?.value ?? 0;
+      const lastUpdated = new Date().toISOString();
+
+      if (request.method === "POST" && path === "/counter/increment") {
+        const amount = Number(input.amount ?? 1);
+        const newValue = currentValue + amount;
+        await env.storage.set(COUNTER_KEY, { value: newValue, lastUpdated });
+        return new Response(
+          JSON.stringify({ value: newValue, previousValue: currentValue, lastUpdated }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      if (request.method === "POST" && path === "/counter/decrement") {
+        const amount = Number(input.amount ?? 1);
+        const newValue = currentValue - amount;
+        await env.storage.set(COUNTER_KEY, { value: newValue, lastUpdated });
+        return new Response(
+          JSON.stringify({ value: newValue, previousValue: currentValue, lastUpdated }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      if (request.method === "POST" && path === "/counter/reset") {
+        await env.storage.set(COUNTER_KEY, { value: 0, lastUpdated });
+        return new Response(
+          JSON.stringify({ value: 0, previousValue: currentValue, lastUpdated }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      if (request.method === "POST" && path === "/counter/set") {
+        if (input.value === undefined) {
+          return new Response(JSON.stringify({ error: "value is required" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        const newValue = Number(input.value);
+        await env.storage.set(COUNTER_KEY, { value: newValue, lastUpdated });
+        return new Response(
+          JSON.stringify({ value: newValue, previousValue: currentValue, lastUpdated }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    return new Response(JSON.stringify({ error: "Handler not found" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    });
+  },
+};
 
 // Mock KV storage for tests
 function createMockKV() {
@@ -72,6 +183,9 @@ function createMockBindings() {
     APP_STATE: mockKV,
     MEDIA: mockR2,
     APP_MANIFESTS: mockR2,
+    APP_MODULES: {
+      "sample-counter": sampleCounterApp,
+    },
     INSTANCE_DOMAIN: "test.example.com",
   };
 }
@@ -79,6 +193,10 @@ function createMockBindings() {
 // Create a test Hono app with the app-api router mounted
 function createTestApp() {
   const app = new Hono();
+
+  app.onError((error, c) => {
+    return mapErrorToResponse(error, { env: c.env });
+  });
 
   // Simple middleware to set user context
   app.use("*", async (c, next) => {
@@ -120,13 +238,13 @@ describe("App API Router", () => {
 
       expect(res.status).toBe(200);
       const json = await res.json();
+      expect(json.schema_version).toBe("2.0");
       expect(json.id).toBe("sample-counter");
       expect(json.name).toBe("sample-counter");
-      expect(json.handlers).toBeDefined();
-      expect(Array.isArray(json.handlers)).toBe(true);
+      expect(json.entry).toBeDefined();
     });
 
-    it("should return manifest for unknown app with empty handlers", async () => {
+    it("should return placeholder manifest for unknown app", async () => {
       const res = await app.request(
         "/-/apps/unknown-app/manifest.json",
         { method: "GET" },
@@ -135,17 +253,21 @@ describe("App API Router", () => {
 
       expect(res.status).toBe(200);
       const json = await res.json();
+      expect(json.schema_version).toBe("2.0");
       expect(json.id).toBe("unknown-app");
-      expect(json.handlers).toEqual([]);
+      expect(json.entry).toBeDefined();
     });
 
     it("should load manifest from R2 storage if available", async () => {
       const customManifest = {
+        schema_version: "2.0",
         id: "custom-app",
         name: "Custom App",
         version: "2.0.0",
         description: "Custom app from storage",
-        handlers: [],
+        basedOn: "default@1.0.0",
+        modified: true,
+        entry: { server: "dist/server.js" },
       };
       mockBindings.APP_MANIFESTS._files.set(
         "apps/custom-app/manifest.json",
@@ -166,42 +288,6 @@ describe("App API Router", () => {
       expect(json.id).toBe("custom-app");
       expect(json.name).toBe("Custom App");
       expect(json.version).toBe("2.0.0");
-    });
-  });
-
-  describe("GET /:appId/handlers", () => {
-    it("should list available handlers for an app", async () => {
-      const res = await app.request(
-        "/-/apps/sample-counter/handlers",
-        { method: "GET" },
-        mockBindings
-      );
-
-      expect(res.status).toBe(200);
-      const json = await res.json();
-      expect(json.appId).toBe("sample-counter");
-      expect(Array.isArray(json.handlers)).toBe(true);
-      expect(json.handlers.length).toBeGreaterThan(0);
-
-      // Verify handler metadata structure
-      const counterHandler = json.handlers.find(
-        (h: any) => h.path === "/counter" && h.method === "GET"
-      );
-      expect(counterHandler).toBeDefined();
-      expect(counterHandler.auth).toBe(true);
-    });
-
-    it("should return empty handlers for unknown app", async () => {
-      const res = await app.request(
-        "/-/apps/unknown-app/handlers",
-        { method: "GET" },
-        mockBindings
-      );
-
-      expect(res.status).toBe(200);
-      const json = await res.json();
-      expect(json.appId).toBe("unknown-app");
-      expect(json.handlers).toEqual([]);
     });
   });
 
@@ -257,6 +343,79 @@ describe("App API Router", () => {
       expect(res.status).toBe(404);
       const json = await res.json();
       expect(json.error).toBe("Handler not found");
+    });
+  });
+
+  describe("Workers-style TakosApp.fetch Invocation", () => {
+    it("should call TakosApp.fetch with rewritten path and built env", async () => {
+      const fetchSpy = vi.fn(async (request: Request, env: AppEnv) => {
+        const url = new URL(request.url);
+        return new Response(
+          JSON.stringify({
+            path: url.pathname,
+            queryX: url.searchParams.get("x"),
+            auth: env.auth,
+            app: env.app,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      });
+
+      mockBindings.APP_MODULES["spy-app"] = { fetch: fetchSpy };
+      mockBindings.APP_MANIFESTS._files.set("apps/spy-app/manifest.json", {
+        text: async () =>
+          JSON.stringify({
+            schema_version: "2.0",
+            id: "spy-app",
+            name: "Spy App",
+            version: "1.2.3",
+            entry: { server: "dist/server.js" },
+          }),
+        body: null,
+      });
+
+      const res = await app.request(
+        "/-/apps/spy-app/api/hello/world?x=1",
+        {
+          method: "GET",
+          headers: { Authorization: "Bearer valid-token" },
+        },
+        mockBindings
+      );
+
+      expect(res.status).toBe(200);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+      const [calledRequest, calledEnv] = fetchSpy.mock.calls[0];
+      expect(new URL(calledRequest.url).pathname).toBe("/hello/world");
+      expect(calledEnv.app.id).toBe("spy-app");
+      expect(calledEnv.app.version).toBe("1.2.3");
+      expect(calledEnv.auth?.userId).toBe("test-user");
+
+      const json = await res.json();
+      expect(json.path).toBe("/hello/world");
+      expect(json.queryX).toBe("1");
+      expect(json.app.version).toBe("1.2.3");
+      expect(json.auth.userId).toBe("test-user");
+    });
+
+    it("should rewrite /api (no wildcard) to /", async () => {
+      const fetchSpy = vi.fn(async (request: Request) => {
+        const url = new URL(request.url);
+        return new Response(url.pathname, { status: 200 });
+      });
+
+      mockBindings.APP_MODULES["root-path-app"] = { fetch: fetchSpy };
+
+      const res = await app.request(
+        "/-/apps/root-path-app/api",
+        { method: "GET" },
+        mockBindings
+      );
+
+      expect(res.status).toBe(200);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(await res.text()).toBe("/");
     });
   });
 
@@ -443,6 +602,27 @@ describe("App API Router", () => {
       expect(key).toContain("app:sample-counter:");
       expect(key).toContain("user:test-user:");
     });
+
+    it("should use _anonymous for unauthenticated storage", async () => {
+      mockBindings.APP_MODULES["anon-storage-app"] = {
+        fetch: async (_request: Request, env: AppEnv) => {
+          await env.storage.set("k", { v: 1 });
+          return new Response("ok", { status: 200 });
+        },
+      };
+
+      const res = await app.request(
+        "/-/apps/anon-storage-app/api/write",
+        { method: "POST" },
+        mockBindings
+      );
+
+      expect(res.status).toBe(200);
+      expect(mockBindings.APP_STATE.put).toHaveBeenCalled();
+      const [key] = mockBindings.APP_STATE.put.mock.calls.at(-1) ?? [];
+      expect(key).toContain("app:anon-storage-app:");
+      expect(key).toContain("user:_anonymous:");
+    });
   });
 
   describe("GET /:appId/dist/*", () => {
@@ -455,7 +635,8 @@ describe("App API Router", () => {
 
       expect(res.status).toBe(400);
       const json = await res.json();
-      expect(json.error).toBe("File path required");
+      expect(json.code).toBe("INVALID_INPUT");
+      expect(json.message).toBe("File path required");
     });
 
     it("should return 404 for non-existent dist file", async () => {
@@ -497,30 +678,8 @@ describe("App API Router", () => {
     });
   });
 
-  describe("Handler Registration", () => {
-    it("should allow registering new app handlers", () => {
-      const testHandlers = [
-        {
-          __takosHandler: true as const,
-          metadata: {
-            id: "GET:/test",
-            method: "GET" as const,
-            path: "/test",
-            auth: false,
-          },
-          handler: async () => ({ message: "test" }),
-        },
-      ];
-
-      registerAppHandlers("test-app", testHandlers);
-
-      // Handlers should be available through the API
-      // (tested indirectly via the handlers endpoint)
-    });
-  });
-
   describe("Error Handling", () => {
-    it("should return 404 for unknown app handler", async () => {
+    it("should return 404 for unknown app", async () => {
       const res = await app.request(
         "/-/apps/unknown-app/api/something",
         {
@@ -532,7 +691,8 @@ describe("App API Router", () => {
 
       expect(res.status).toBe(404);
       const json = await res.json();
-      expect(json.error).toBe("Handler not found");
+      expect(json.code).toBe("NOT_FOUND");
+      expect(json.message).toContain("App module not found");
     });
 
     it("should handle method mismatch", async () => {
@@ -602,6 +762,96 @@ describe("App API Router", () => {
       );
 
       expect(res.status).toBe(200);
+    });
+  });
+
+  describe("AppEnv.fetch Injection", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("should inject Authorization header into env.fetch", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+        const url = typeof input === "string" ? input : input.url;
+        const headers = new Headers(init?.headers);
+        return new Response(
+          JSON.stringify({
+            url,
+            authorization: headers.get("authorization"),
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      });
+
+      mockBindings.APP_MODULES["fetch-app"] = {
+        fetch: async (_request: Request, env: AppEnv) => {
+          return await env.fetch("/echo", { headers: { "X-Test": "1" } });
+        },
+      };
+
+      const res = await app.request(
+        "/-/apps/fetch-app/api/run",
+        {
+          method: "GET",
+          headers: { Authorization: "Bearer valid-token" },
+        },
+        mockBindings
+      );
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(new URL(json.url).pathname).toBe("/echo");
+      expect(json.authorization).toBe("Bearer valid-token");
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("should not override authorization header provided by app", async () => {
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+        const headers = new Headers(init?.headers);
+        return new Response(headers.get("authorization") ?? "", { status: 200 });
+      });
+
+      mockBindings.APP_MODULES["fetch-auth-override-app"] = {
+        fetch: async (_request: Request, env: AppEnv) => {
+          return await env.fetch("/echo", {
+            headers: { authorization: "Bearer app-token" },
+          });
+        },
+      };
+
+      const res = await app.request(
+        "/-/apps/fetch-auth-override-app/api/run",
+        {
+          method: "GET",
+          headers: { Authorization: "Bearer valid-token" },
+        },
+        mockBindings
+      );
+
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("Bearer app-token");
+    });
+
+    it("should omit Authorization header when request is unauthenticated", async () => {
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+        const headers = new Headers(init?.headers);
+        return new Response(headers.get("authorization") ?? "none", { status: 200 });
+      });
+
+      mockBindings.APP_MODULES["fetch-no-auth-app"] = {
+        fetch: async (_request: Request, env: AppEnv) => {
+          return await env.fetch("/echo");
+        },
+      };
+
+      const res = await app.request(
+        "/-/apps/fetch-no-auth-app/api/run",
+        { method: "GET" },
+        mockBindings
+      );
+
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe("none");
     });
   });
 });

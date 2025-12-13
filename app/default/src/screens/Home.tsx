@@ -1,19 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
-import { defineScreen, useCore, useAuth, useTakos, Link } from "@takos/app-sdk";
-import { PostCard, type Post } from "../components/PostCard";
+import { Link } from "react-router-dom";
+import { useAuth, useFetch } from "@takos/app-sdk";
+import { PostCard, type Post } from "../components/PostCard.js";
+import { createCoreApi } from "../lib/core-api.js";
+import { toast, confirm } from "../lib/ui.js";
 
-export const HomeScreen = defineScreen({
-  id: "screen.home",
-  path: "/",
-  title: "Home",
-  auth: "required",
-  component: Home
-});
-
-function Home() {
-  const core = useCore();
+export function HomeScreen() {
+  const fetch = useFetch();
+  const core = createCoreApi(fetch);
   const { user } = useAuth();
-  const { ui } = useTakos();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -21,16 +16,16 @@ function Home() {
   const loadTimeline = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
     try {
-      const data = await core.timeline.home({ limit: 50 });
-      setPosts(data as Post[]);
+      const data = await core.listTimeline(50);
+      setPosts(data);
     } catch (error) {
       console.error("Failed to load timeline:", error);
-      ui.toast("Failed to load timeline", "error");
+      toast("Failed to load timeline", "error");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [core, ui]);
+  }, [core]);
 
   useEffect(() => {
     loadTimeline();
@@ -42,16 +37,16 @@ function Home() {
   };
 
   const handleDelete = async (postId: string) => {
-    const confirmed = await ui.confirm("Delete this post?");
-    if (!confirmed) return;
+    const ok = await confirm("Delete this post?");
+    if (!ok) return;
 
     try {
-      await core.posts.delete(postId);
+      await core.deletePost(postId);
       setPosts(prev => prev.filter(p => p.id !== postId));
-      ui.toast("Post deleted", "success");
+      toast("Post deleted", "success");
     } catch (error) {
       console.error("Failed to delete post:", error);
-      ui.toast("Failed to delete post", "error");
+      toast("Failed to delete post", "error");
     }
   };
 

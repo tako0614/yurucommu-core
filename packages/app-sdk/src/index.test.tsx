@@ -1,5 +1,5 @@
-import "@testing-library/jest-dom/vitest";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import "@testing-library/jest-dom";
+import { describe, it, expect, vi } from "vitest";
 import * as React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import {

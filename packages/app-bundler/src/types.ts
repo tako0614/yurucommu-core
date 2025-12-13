@@ -37,9 +37,35 @@ export interface AppBundlerConfig {
 }
 
 /**
+ * App entry points (v2.0)
+ */
+export interface AppEntry {
+  /**
+   * Server-side entry point (e.g., "src/server.ts", "index.ts")
+   */
+  server: string;
+
+  /**
+   * Client-side entry point (e.g., "src/client.tsx")
+   */
+  client?: string;
+
+  /**
+   * Styles entry point (e.g., "src/styles.css")
+   */
+  styles?: string;
+}
+
+/**
  * App Manifest structure
+ * Supports both v1.0 (legacy) and v2.0 formats
  */
 export interface AppManifest {
+  /**
+   * Schema version ("2.0" for new format)
+   */
+  schema_version?: "2.0";
+
   /**
    * Unique identifier for the App
    */
@@ -59,6 +85,21 @@ export interface AppManifest {
    * App description
    */
   description?: string;
+
+  /**
+   * Base app this is derived from (v2.0)
+   */
+  basedOn?: string;
+
+  /**
+   * Whether this app has been modified from the base (v2.0)
+   */
+  modified?: boolean;
+
+  /**
+   * Entry points (v2.0)
+   */
+  entry?: AppEntry;
 
   /**
    * Routes configuration

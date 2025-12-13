@@ -1,37 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
-import { defineScreen, useCore, useAuth, useParams, useTakos, Link } from "@takos/app-sdk";
-import { PostCard, type Post } from "../components/PostCard";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useAuth, useFetch } from "@takos/app-sdk";
+import { PostCard, type Post } from "../components/PostCard.js";
+import { createCoreApi, type NormalizedUser } from "../lib/core-api.js";
+import { toast, confirm } from "../lib/ui.js";
 
-export const ProfileScreen = defineScreen({
-  id: "screen.profile",
-  path: "/@:handle",
-  title: "Profile",
-  auth: "optional",
-  component: Profile
-});
-
-interface UserProfile {
-  id: string;
-  handle: string;
-  displayName: string;
-  bio?: string;
-  avatar?: string;
-  banner?: string;
-  followersCount: number;
-  followingCount: number;
-  postsCount: number;
-  isFollowing?: boolean;
-  createdAt: string;
-}
-
-function Profile() {
-  const core = useCore();
+export function ProfileScreen() {
+  const fetch = useFetch();
+  const core = createCoreApi(fetch);
   const { user: currentUser } = useAuth();
-  const { ui, navigate } = useTakos();
-  const params = useParams();
-  const handle = params.handle || "";
+  const navigate = useNavigate();
+  const { handle = "" } = useParams<{ handle: string }>();
 
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profile, setProfile] = useState<NormalizedUser | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [followLoading, setFollowLoading] = useState(false);
@@ -41,18 +22,18 @@ function Profile() {
   const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
-      const userData = await core.users.get(handle);
-      setProfile(userData as UserProfile);
+      const userData = await core.getUser(handle);
+      setProfile(userData);
 
-      const userPosts = await core.posts.list({ author: handle, limit: 50 });
-      setPosts(userPosts as Post[]);
+      const userPosts = await core.listUserPosts(handle, 50);
+      setPosts(userPosts);
     } catch (error) {
       console.error("Failed to load profile:", error);
-      ui.toast("Failed to load profile", "error");
+      toast("Failed to load profile", "error");
     } finally {
       setLoading(false);
     }
-  }, [core, handle, ui]);
+  }, [core, handle]);
 
   useEffect(() => {
     if (handle) {
@@ -65,31 +46,31 @@ function Profile() {
     setFollowLoading(true);
     try {
       if (profile.isFollowing) {
-        await core.users.unfollow(profile.id);
-        setProfile(prev => prev ? { ...prev, isFollowing: false, followersCount: prev.followersCount - 1 } : null);
+        await core.unfollowUser(profile.id);
+        setProfile(prev => prev ? { ...prev, isFollowing: false, followersCount: (prev.followersCount ?? 0) - 1 } : null);
       } else {
-        await core.users.follow(profile.id);
-        setProfile(prev => prev ? { ...prev, isFollowing: true, followersCount: prev.followersCount + 1 } : null);
+        await core.followUser(profile.id);
+        setProfile(prev => prev ? { ...prev, isFollowing: true, followersCount: (prev.followersCount ?? 0) + 1 } : null);
       }
     } catch (error) {
       console.error("Failed to follow/unfollow:", error);
-      ui.toast("Failed to update follow status", "error");
+      toast("Failed to update follow status", "error");
     } finally {
       setFollowLoading(false);
     }
   };
 
   const handleDeletePost = async (postId: string) => {
-    const confirmed = await ui.confirm("Delete this post?");
-    if (!confirmed) return;
+    const ok = await confirm("Delete this post?");
+    if (!ok) return;
 
     try {
-      await core.posts.delete(postId);
+      await core.deletePost(postId);
       setPosts(prev => prev.filter(p => p.id !== postId));
-      ui.toast("Post deleted", "success");
+      toast("Post deleted", "success");
     } catch (error) {
       console.error("Failed to delete post:", error);
-      ui.toast("Failed to delete post", "error");
+      toast("Failed to delete post", "error");
     }
   };
 

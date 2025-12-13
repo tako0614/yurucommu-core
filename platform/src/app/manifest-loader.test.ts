@@ -193,4 +193,26 @@ describe("App Manifest loader", () => {
     expect(result.issues.some((issue) => issue.message.includes("Reserved route"))).toBe(true);
     expect(result.issues.some((issue) => issue.message.includes('Core screen "screen.home"'))).toBe(true);
   });
+
+  it("rejects reserved /-/ paths and core route overlaps", async () => {
+    const source = createInMemoryAppSource({
+      "manifest.json": JSON.stringify({ schema_version: "1.10" }),
+      "routes/bad.json": JSON.stringify({
+        schema_version: "1.10",
+        routes: [{ id: "actor_override", method: "GET", path: "/@alice", handler: "noop" }],
+      }),
+      "views/bad.json": JSON.stringify({
+        schema_version: "1.10",
+        screens: [
+          { id: "screen.bad_user", route: "/@alice", layout: {} },
+          { id: "screen.bad_reserved", route: "/-/anything", layout: {} },
+        ],
+      }),
+    });
+
+    const result = await loadAppManifest({ source });
+    expect(result.manifest).toBeUndefined();
+    expect(result.issues.some((issue) => issue.message.includes('Core route "/@:handle"'))).toBe(true);
+    expect(result.issues.some((issue) => issue.message.includes('Reserved route "/-/anything"'))).toBe(true);
+  });
 });

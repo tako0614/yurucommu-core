@@ -13,10 +13,11 @@
     "dev": "npm --workspace backend run dev",
     "deploy": "npm --workspace backend run deploy",
     "lint": "npm --workspaces run lint || true",
-    "test": "npm --workspace api run test && npm --workspace platform run test",
+    "test": "npm --workspace @takos/app-sdk run test && npm --workspace api run test && npm --workspace platform run test",
     "dev:watch-app": "tsx scripts/watch-app-workspace.ts",
     "validate:app": "tsx scripts/validate-app-manifest.ts",
     "validate:bundler-manifest": "npm --workspace @takos/app-bundler run validate --",
+    "validate:all": "npm run validate:app && npm run validate:profile && npm run ui:contract",
     "init:config": "node scripts/init-config.js",
     "validate:profile": "node scripts/validate-takos-profile.js",
     "config:compat": "tsx scripts/api/config-tools.ts compat",
@@ -31,6 +32,7 @@
     "ky": "^1.14.0"
   },
   "devDependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.53.3",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "chokidar": "^3.6.0",

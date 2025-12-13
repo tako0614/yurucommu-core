@@ -60,17 +60,64 @@ export class HttpError extends Error {
 
   constructor(
     status: number,
-    codeOrMessage: string,
-    message?: string,
+    code: string,
+    message: string,
     details?: Record<string, unknown>,
     headers?: Record<string, string>,
+  );
+  constructor(
+    status: number,
+    message: string,
+    details?: Record<string, unknown>,
+    headers?: Record<string, string>,
+  );
+  constructor(
+    status: number,
+    codeOrMessage: string,
+    messageOrDetails?: string | Record<string, unknown>,
+    detailsOrHeaders?: Record<string, unknown> | Record<string, string>,
+    maybeHeaders?: Record<string, string>,
   ) {
+    const hasExplicitMessage = typeof messageOrDetails === "string";
+    const message = hasExplicitMessage ? messageOrDetails : codeOrMessage;
+    const details = (hasExplicitMessage ? detailsOrHeaders : messageOrDetails) as
+      | Record<string, unknown>
+      | undefined;
+    const headers = (hasExplicitMessage ? maybeHeaders : detailsOrHeaders) as Record<string, string> | undefined;
+
     super(message ?? codeOrMessage);
     this.name = "HttpError";
     this.status = status;
-    this.code = message ? codeOrMessage : defaultErrorCode(status);
+    this.code = hasExplicitMessage ? codeOrMessage : defaultErrorCode(status);
     this.details = details;
     this.headers = headers;
+  }
+
+  toResponse(options: { requestId?: string } = {}): Response {
+    const body: ErrorResponse = {
+      status: this.status,
+      code: (this.code || defaultErrorCode(this.status)).toUpperCase(),
+      message: this.message,
+      details: this.details,
+    };
+
+    const headers = new Headers();
+    headers.set("Content-Type", "application/json");
+    if (options.requestId) {
+      body.details = { ...(body.details ?? {}), requestId: options.requestId };
+      headers.set("x-request-id", options.requestId);
+    }
+
+    if (this.headers) {
+      for (const [key, value] of Object.entries(this.headers)) {
+        headers.set(key, value);
+      }
+    }
+
+    return new Response(JSON.stringify(body), {
+      status: this.status,
+      headers,
+    });
   }
 }
 

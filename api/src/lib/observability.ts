@@ -68,7 +68,29 @@ export const requestObservability: MiddlewareHandler = async (c, next) => {
   }
 };
 
-export const mapErrorToResponse = (error: unknown, requestId?: string): Response => {
+const isDevEnvironment = (env: unknown): boolean => {
+  const raw =
+    typeof (env as any)?.ENVIRONMENT === "string"
+      ? (env as any).ENVIRONMENT
+      : typeof (env as any)?.NODE_ENV === "string"
+        ? (env as any).NODE_ENV
+        : "";
+  return raw.trim().toLowerCase() === "development";
+};
+
+type MapErrorOptions = {
+  requestId?: string;
+  env?: unknown;
+};
+
+export const mapErrorToResponse = (error: unknown, requestIdOrOptions?: string | MapErrorOptions): Response => {
+  const options: MapErrorOptions =
+    typeof requestIdOrOptions === "string"
+      ? { requestId: requestIdOrOptions }
+      : (requestIdOrOptions ?? {});
+  const requestId = options.requestId;
+  const isDev = isDevEnvironment(options.env);
+
   if (error instanceof Response) {
     return error;
   }
@@ -83,8 +105,11 @@ export const mapErrorToResponse = (error: unknown, requestId?: string): Response
     code = (error.code || code).toUpperCase();
     message = error.message || message;
     details = error.details;
-  } else if (error instanceof Error) {
-    message = error.message || message;
+  } else {
+    console.error("Unhandled error:", error);
+    if (isDev) {
+      message = String(error);
+    }
   }
 
   const body = {
@@ -94,11 +119,15 @@ export const mapErrorToResponse = (error: unknown, requestId?: string): Response
     details: requestId ? { ...(details ?? {}), requestId } : details,
   };
 
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      "x-request-id": requestId || "",
-    },
-  });
+  const headers = new Headers();
+  headers.set("Content-Type", "application/json");
+  if (requestId) headers.set("x-request-id", requestId);
+
+  if (error instanceof HttpError && error.headers) {
+    for (const [key, value] of Object.entries(error.headers)) {
+      headers.set(key, value);
+    }
+  }
+
+  return new Response(JSON.stringify(body), { status, headers });
 };

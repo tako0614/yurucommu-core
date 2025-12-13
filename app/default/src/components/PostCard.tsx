@@ -1,4 +1,4 @@
-import { Link } from "@takos/app-sdk";
+import { Link } from "react-router-dom";
 
 export interface Post {
   id: string;

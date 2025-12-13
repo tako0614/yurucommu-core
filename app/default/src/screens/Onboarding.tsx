@@ -1,17 +1,14 @@
-import { useState, useRef } from "react";
-import { defineScreen, useCore, useTakos } from "@takos/app-sdk";
+import { useState, useRef, type ChangeEvent } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useFetch } from "@takos/app-sdk";
+import { createCoreApi } from "../lib/core-api.js";
+import { toast } from "../lib/ui.js";
 
-export const OnboardingScreen = defineScreen({
-  id: "screen.onboarding",
-  path: "/onboarding",
-  title: "Welcome",
-  auth: "required",
-  component: Onboarding
-});
-
-function Onboarding() {
-  const core = useCore();
-  const { ui, navigate, query } = useTakos();
+export function OnboardingScreen() {
+  const fetch = useFetch();
+  const core = createCoreApi(fetch);
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [step, setStep] = useState(1);
   const [displayName, setDisplayName] = useState("");
@@ -21,9 +18,9 @@ function Onboarding() {
   const [saving, setSaving] = useState(false);
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
-  const redirectTo = query.redirect || "/";
+  const redirectTo = searchParams.get("redirect") || "/";
 
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setAvatarFile(file);
@@ -33,7 +30,7 @@ function Onboarding() {
 
   const handleNext = () => {
     if (step === 1 && !displayName.trim()) {
-      ui.toast("Please enter a display name", "error");
+      toast("Please enter a display name", "error");
       return;
     }
     setStep(step + 1);
@@ -45,7 +42,7 @@ function Onboarding() {
 
   const handleComplete = async () => {
     if (!displayName.trim()) {
-      ui.toast("Please enter a display name", "error");
+      toast("Please enter a display name", "error");
       return;
     }
 
@@ -54,24 +51,21 @@ function Onboarding() {
       let avatarUrl: string | undefined;
 
       if (avatarFile) {
-        const result = await core.storage.upload(avatarFile, { type: "avatar" }) as any;
+        const result = await core.uploadFile(avatarFile);
         avatarUrl = result.url;
       }
 
-      await core.fetch("/me/complete-profile", {
-        method: "POST",
-        body: JSON.stringify({
-          displayName: displayName.trim(),
-          bio: bio.trim() || undefined,
-          avatar: avatarUrl
-        })
+      await core.updateProfile({
+        display_name: displayName.trim(),
+        bio: bio.trim() || undefined,
+        avatar_url: avatarUrl || undefined,
       });
 
-      ui.toast("Profile setup complete!", "success");
+      toast("Profile setup complete!", "success");
       navigate(redirectTo);
     } catch (error) {
       console.error("Failed to complete profile:", error);
-      ui.toast("Failed to complete profile setup", "error");
+      toast("Failed to complete profile setup", "error");
     } finally {
       setSaving(false);
     }

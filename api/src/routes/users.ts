@@ -35,6 +35,20 @@ const handleError = (c: any, error: unknown) => {
   return fail(c, message, 400);
 };
 
+export function parseActorToUserId(actorUri: string, instanceDomain: string): string {
+  const url = new URL(actorUri);
+  const hostname = url.hostname;
+  const host = url.host;
+  const localDomain = instanceDomain.split(":")[0] || instanceDomain;
+  const isLocal = host === instanceDomain || hostname === localDomain;
+
+  const match = url.pathname.match(/\/ap\/users\/([^/]+)(?:\/|$)/);
+  const handle = match?.[1] || url.pathname.split("/").filter(Boolean).pop() || "unknown";
+
+  if (isLocal) return handle;
+  return `@${handle}@${hostname}`;
+}
+
 // Get my profile
 users.get("/me", auth, async (c) => {
   try {

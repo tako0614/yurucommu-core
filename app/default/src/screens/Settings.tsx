@@ -1,27 +1,22 @@
-import { defineScreen, useAuth, useTakos, Link } from "@takos/app-sdk";
+import { Link, useNavigate } from "react-router-dom";
+import type { ReactNode } from "react";
+import { useAuth } from "@takos/app-sdk";
+import { toast, confirm } from "../lib/ui.js";
 
-export const SettingsScreen = defineScreen({
-  id: "screen.settings",
-  path: "/settings",
-  title: "Settings",
-  auth: "required",
-  component: Settings
-});
-
-function Settings() {
+export function SettingsScreen() {
   const { user } = useAuth();
-  const { ui, navigate } = useTakos();
+  const navigate = useNavigate();
 
   const handleLogout = async () => {
-    const confirmed = await ui.confirm("Are you sure you want to log out?");
-    if (!confirmed) return;
+    const ok = await confirm("Are you sure you want to log out?");
+    if (!ok) return;
 
     try {
       await fetch("/auth/logout", { method: "POST", credentials: "include" });
       navigate("/login");
     } catch (error) {
       console.error("Failed to logout:", error);
-      ui.toast("Failed to log out", "error");
+      toast("Failed to log out", "error");
     }
   };
 
@@ -145,7 +140,7 @@ function Settings() {
 
 interface SettingsLinkProps {
   to: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   title: string;
   description: string;
 }

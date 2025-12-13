@@ -12,6 +12,48 @@ import { logEvent } from "../lib/observability";
 export const ACTIVE_USER_COOKIE_NAME = "activeUserId";
 export const ACTIVE_USER_HEADER_NAME = "x-active-user-id";
 
+const decodeBasicAuth = (header: string): { username: string; password: string } | null => {
+  if (!header.toLowerCase().startsWith("basic ")) return null;
+  const payload = header.slice(6).trim();
+  if (!payload) return null;
+  let decoded = "";
+  try {
+    decoded = Buffer.from(payload, "base64").toString("utf8");
+  } catch {
+    return null;
+  }
+  const idx = decoded.indexOf(":");
+  if (idx === -1) return null;
+  return {
+    username: decoded.slice(0, idx),
+    password: decoded.slice(idx + 1),
+  };
+};
+
+const authenticateBasicAuth = (c: any): AuthenticatedUser | null => {
+  const header = c.req.header("authorization") || c.req.header("Authorization") || "";
+  const creds = decodeBasicAuth(header);
+  if (!creds) return null;
+
+  const env = c.env as any;
+  const expectedUsername = (env.AUTH_USERNAME as string | undefined) ?? "";
+  const expectedPassword = (env.AUTH_PASSWORD as string | undefined) ?? "";
+  if (!expectedUsername || !expectedPassword) return null;
+
+  if (creds.username !== expectedUsername || creds.password !== expectedPassword) {
+    return null;
+  }
+
+  return {
+    user: { id: expectedUsername, handle: expectedUsername },
+    activeUserId: expectedUsername,
+    sessionUser: { id: expectedUsername, handle: expectedUsername },
+    sessionId: null,
+    token: null,
+    source: "session",
+  };
+};
+
 const parseActiveUserCookie = (raw: string | null | undefined) => {
   if (!raw) {
     return { userId: null };
@@ -134,8 +176,19 @@ export const auth = async (c: any, next: () => Promise<void>) => {
   const path = new URL(c.req.url).pathname;
   const method = c.req.method;
   const started = performance.now();
-  const store = makeData(c.env as any, c);
   const plan = resolvePlanFromEnv(c.env as any);
+  const basicResult = authenticateBasicAuth(c);
+  if (basicResult) {
+    const authContext = buildAuthContext(basicResult, plan);
+    c.set("user", basicResult.user);
+    c.set("sessionUser", basicResult.sessionUser);
+    c.set("activeUserId", authContext.userId);
+    c.set("authContext", authContext);
+    await next();
+    return;
+  }
+
+  const store = makeData(c.env as any, c);
   const storeMs = elapsedMs(started);
   try {
     logAuthEvent(c, "info", "start", {
@@ -203,8 +256,20 @@ export const auth = async (c: any, next: () => Promise<void>) => {
 export const optionalAuth = async (c: any, next: () => Promise<void>) => {
   const path = new URL(c.req.url).pathname;
   const started = performance.now();
-  const store = makeData(c.env as any, c);
   const plan = resolvePlanFromEnv(c.env as any);
+
+  const basicResult = authenticateBasicAuth(c);
+  if (basicResult) {
+    const authContext = buildAuthContext(basicResult, plan);
+    c.set("user", basicResult.user);
+    c.set("sessionUser", basicResult.sessionUser);
+    c.set("activeUserId", authContext.userId);
+    c.set("authContext", authContext);
+    await next();
+    return;
+  }
+
+  const store = makeData(c.env as any, c);
   try {
     const authStarted = performance.now();
     const authResult = await authenticateUser(c, store);
