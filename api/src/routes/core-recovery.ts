@@ -247,7 +247,7 @@ coreRecoveryRoutes.post("/-/core/validate-manifest", auth, async (c) => {
 
     // Load and validate the manifest
     const result = await loadAppManifest({
-      rootDir: ".",
+      rootDir: "app",
       source,
     });
 

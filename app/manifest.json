@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.10",
+  "version": "0.1.0",
+  "layout": {
+    "base_dir": ".",
+    "routes_dir": "routes",
+    "views_dir": "views",
+    "ap_dir": "ap",
+    "data_dir": "data",
+    "storage_dir": "storage"
+  }
+}
