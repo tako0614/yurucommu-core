@@ -26,6 +26,8 @@ type ParsedContract = {
 };
 
 const UI_CONTRACT_FILE = "schemas/ui-contract.json";
+const SCREEN_ID_FORMAT = /^screen\.[a-z_]+$/;
+const ACTION_ID_FORMAT = /^action\.[a-z_]+$/;
 
 export function parseUiContractJson(raw: string, source?: string): ParsedContract {
   const issues: AppManifestValidationIssue[] = [];
@@ -125,12 +127,19 @@ export function validateUiContractAgainstManifest(
 
   const screenSteps = new Map<string, number>();
   const contractScreenIds = new Set<string>();
+  const duplicateScreenIds = new Set<string>();
 
   contractScreens.forEach((screen, index) => {
     const id = typeof screen?.id === "string" ? screen.id.trim() : "";
     if (!id) {
       issues.push(toWarning("Screen id must be a non-empty string", file, `screens[${index}].id`));
       return;
+    }
+    if (!SCREEN_ID_FORMAT.test(id)) {
+      issues.push(toWarning(`Screen id "${id}" must match ${String(SCREEN_ID_FORMAT)}`, file, `screens[${index}].id`));
+    }
+    if (contractScreenIds.has(id)) {
+      duplicateScreenIds.add(id);
     }
     contractScreenIds.add(id);
 
@@ -150,8 +159,16 @@ export function validateUiContractAgainstManifest(
       );
       return;
     }
+    if (!Array.isArray(screen.routes) || screen.routes.length === 0) {
+      issues.push(
+        toWarning(`Screen ${id} must declare at least one route`, file, `screens[${index}].routes`),
+      );
+    }
     screenSteps.set(id, screen.steps_from_home);
   });
+  for (const id of duplicateScreenIds) {
+    issues.push(toWarning(`Duplicate screen id "${id}" in UI contract`, file, "screens"));
+  }
 
   const requiredScreens = [
     "screen.home",
@@ -162,6 +179,9 @@ export function validateUiContractAgainstManifest(
     "screen.story_viewer",
     "screen.profile",
     "screen.settings",
+    "screen.notifications",
+    "screen.storage",
+    "screen.storage_folder",
   ];
   for (const id of requiredScreens) {
     if (!contractScreenIds.has(id)) {
@@ -169,8 +189,8 @@ export function validateUiContractAgainstManifest(
     }
   }
 
-  if (screenSteps.has("screen.home") && screenSteps.get("screen.home")! > 1) {
-    issues.push(toWarning("screen.home must be reachable within 1 step from login", file, "screens"));
+  if (screenSteps.has("screen.home") && screenSteps.get("screen.home") !== 0) {
+    issues.push(toWarning("screen.home must declare steps_from_home = 0", file, "screens"));
   }
 
   const profileSteps = screenSteps.get("screen.profile");
@@ -193,12 +213,19 @@ export function validateUiContractAgainstManifest(
 
   const actionsByScreen = collectActionsByScreen(manifest);
   const actionIds = new Set<string>();
+  const duplicateActionIds = new Set<string>();
 
   contractActions.forEach((action, index) => {
     const id = typeof action?.id === "string" ? action.id.trim() : "";
     if (!id) {
       issues.push(toWarning("Action id must be a non-empty string", file, `actions[${index}].id`));
       return;
+    }
+    if (!ACTION_ID_FORMAT.test(id)) {
+      issues.push(toWarning(`Action id "${id}" must match ${String(ACTION_ID_FORMAT)}`, file, `actions[${index}].id`));
+    }
+    if (actionIds.has(id)) {
+      duplicateActionIds.add(id);
     }
     actionIds.add(id);
 
@@ -336,6 +363,9 @@ export function validateUiContractAgainstManifest(
       }
     }
   });
+  for (const id of duplicateActionIds) {
+    issues.push(toWarning(`Duplicate action id "${id}" in UI contract`, file, "actions"));
+  }
 
   const requiredActions = [
     "action.open_composer",
@@ -347,6 +377,10 @@ export function validateUiContractAgainstManifest(
     "action.react",
     "action.view_story",
     "action.edit_profile",
+    "action.upload_file",
+    "action.delete_file",
+    "action.create_folder",
+    "action.move_file",
   ];
   for (const id of requiredActions) {
     if (!actionIds.has(id)) {

@@ -1,13 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { defineScreen, useCore, useTakos, Link } from "@takos/app-sdk";
-
-export const NotificationsScreen = defineScreen({
-  id: "screen.notifications",
-  path: "/notifications",
-  title: "Notifications",
-  auth: "required",
-  component: Notifications
-});
+import { Link } from "react-router-dom";
+import { useFetch } from "@takos/app-sdk";
+import { createCoreApi } from "../lib/core-api.js";
+import { toast } from "../lib/ui.js";
 
 interface Notification {
   id: string;
@@ -26,23 +21,23 @@ interface Notification {
   createdAt: string;
 }
 
-function Notifications() {
-  const core = useCore();
-  const { ui } = useTakos();
+export function NotificationsScreen() {
+  const fetch = useFetch();
+  const core = createCoreApi(fetch);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadNotifications = useCallback(async () => {
     try {
-      const data = await core.notifications.list({ limit: 50 });
-      setNotifications(data as Notification[]);
+      const data = await core.listNotifications(50);
+      setNotifications((data as any)?.items ?? (data as any) ?? []);
     } catch (error) {
       console.error("Failed to load notifications:", error);
-      ui.toast("Failed to load notifications", "error");
+      toast("Failed to load notifications", "error");
     } finally {
       setLoading(false);
     }
-  }, [core, ui]);
+  }, [core]);
 
   useEffect(() => {
     loadNotifications();
@@ -53,12 +48,12 @@ function Notifications() {
     if (unreadIds.length === 0) return;
 
     try {
-      await core.notifications.markRead(unreadIds);
+      await Promise.all(unreadIds.map((id) => core.markNotificationRead(id)));
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-      ui.toast("All notifications marked as read", "success");
+      toast("All notifications marked as read", "success");
     } catch (error) {
       console.error("Failed to mark notifications as read:", error);
-      ui.toast("Failed to mark as read", "error");
+      toast("Failed to mark as read", "error");
     }
   };
 

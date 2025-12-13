@@ -22,6 +22,7 @@ const pushRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // Require authentication for all push configuration endpoints
 pushRoutes.use("/api/push/*", auth);
+pushRoutes.use("/admin/push/*", auth);
 
 const buildTestPayload = (instance: string, userId: string, message?: string) => ({
   instance,
@@ -34,7 +35,7 @@ const buildTestPayload = (instance: string, userId: string, message?: string) =>
   },
 });
 
-pushRoutes.post("/api/push/verify", async (c) => {
+const verifyHandler = async (c: any) => {
   const env = c.env as Bindings;
   let instance: string;
   try {
@@ -165,6 +166,9 @@ pushRoutes.post("/api/push/verify", async (c) => {
     testSend,
     guidance,
   });
-});
+};
+
+pushRoutes.post("/api/push/verify", verifyHandler);
+pushRoutes.post("/admin/push/verify", verifyHandler);
 
 export default pushRoutes;

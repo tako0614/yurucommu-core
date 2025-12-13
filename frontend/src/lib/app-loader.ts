@@ -10,6 +10,7 @@ import * as ReactDOM from "react-dom/client";
 import type { TakosRuntime, AppManifest } from "@takos/app-sdk";
 import { createTakosRuntime, setAppMetadata, syncRouteParamsFromPath } from "./takos-runtime";
 import { getBackendUrl } from "./api-client";
+import { TakosClientRuntimeProvider } from "./takos-client";
 
 interface LoadedApp {
   id: string;
@@ -95,7 +96,16 @@ export function mountApp(
   const root = ReactDOM.createRoot(container);
   const AppComponent = app.module.default;
 
-  root.render(React.createElement(AppComponent, { runtime }));
+  root.render(
+    React.createElement(
+      TakosClientRuntimeProvider,
+      {
+        appId: app.id,
+        version: app.manifest.version || "1.0.0",
+      },
+      React.createElement(AppComponent, { runtime })
+    )
+  );
 
   app.root = root;
 }

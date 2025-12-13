@@ -327,6 +327,7 @@ const isReservedRoute = (path: string): boolean => {
   const normalized = normalizeRouteKey(path);
   if (normalized === "/login") return true;
   if (normalized === "/-/health") return true;
+  if (normalized === "/-" || normalized.startsWith("/-/")) return true;
   if (normalized === "/auth" || normalized.startsWith("/auth/")) return true;
   if (normalized.startsWith("/-/core")) return true;
   if (normalized.startsWith("/-/config")) return true;
@@ -435,11 +436,27 @@ const buildPathMatcher = (method: string, path: string): RouteMatcher => {
     return { method, path: "/", test: (pathname) => pathname === "/" };
   }
   const segments = normalized.split("/").filter(Boolean);
+  const segmentToRegex = (segment: string): string => {
+    if (segment === "*") return ".*";
+    let out = "";
+    for (let i = 0; i < segment.length; i += 1) {
+      const ch = segment[i];
+      if (ch === ":") {
+        let j = i + 1;
+        while (j < segment.length && /[A-Za-z0-9_]/.test(segment[j])) j += 1;
+        if (j > i + 1) {
+          out += "[^/]+";
+          i = j - 1;
+          continue;
+        }
+      }
+      out += escapeRegex(ch);
+    }
+    return out;
+  };
   const pattern = segments
     .map((segment) => {
-      if (segment === "*") return ".*";
-      if (segment.startsWith(":")) return "[^/]+";
-      return escapeRegex(segment);
+      return segmentToRegex(segment);
     })
     .join("/");
   const regex = new RegExp(`^/${pattern}/?$`);
@@ -448,6 +465,20 @@ const buildPathMatcher = (method: string, path: string): RouteMatcher => {
     path: normalized,
     test: (pathname: string) => regex.test(pathname),
   };
+};
+
+const CORE_ROUTE_MATCHERS = Object.entries(CORE_ROUTES).map(([path, screenId]) => ({
+  path,
+  screenId,
+  matcher: buildPathMatcher("ANY", path),
+}));
+
+const findCoreRouteMatch = (pathname: string): { path: string; screenId: string } | null => {
+  const normalized = normalizeRouteKey(pathname);
+  for (const entry of CORE_ROUTE_MATCHERS) {
+    if (entry.matcher.test(normalized)) return { path: entry.path, screenId: entry.screenId };
+  }
+  return null;
 };
 
 const parseManifestSnapshot = (snapshot: unknown): AppManifest | null => {
@@ -590,10 +621,11 @@ const validateAppManifest = (manifest: AppManifest): { ok: boolean; issues: AppM
       });
     }
 
-    if (CORE_ROUTES[normalizedPath]) {
+    const coreMatch = findCoreRouteMatch(normalizedPath);
+    if (coreMatch) {
       issues.push({
         severity: "error",
-        message: `Core route "${normalizedPath}" is fixed to ${CORE_ROUTES[normalizedPath]}`,
+        message: `Core route "${coreMatch.path}" is fixed to ${coreMatch.screenId}`,
         path: `route:${route.id}`,
       });
     }
@@ -634,11 +666,11 @@ const validateAppManifest = (manifest: AppManifest): { ok: boolean; issues: AppM
         });
       }
 
-      const expectedForPath = CORE_ROUTES[normalizedRoute];
-      if (expectedForPath && expectedForPath !== screen.id) {
+      const matchedCore = findCoreRouteMatch(normalizedRoute);
+      if (matchedCore && matchedCore.screenId !== screen.id) {
         issues.push({
           severity: "error",
-          message: `Core route "${normalizedRoute}" is bound to ${expectedForPath} and cannot be overridden by ${screen.id}`,
+          message: `Core route "${matchedCore.path}" is bound to ${matchedCore.screenId} and cannot be overridden by ${screen.id}`,
           path: `screen:${screen.id}`,
         });
       }
@@ -1165,6 +1197,7 @@ export const matchesManifestRoute = (
   if (!router) return false;
   const normalizedPath = normalizeRouteKey(pathname);
   if (isReservedRoute(normalizedPath)) return false;
+  if (findCoreRouteMatch(normalizedPath)) return false;
   const normalizedMethod = (method || "").toUpperCase();
   return router.matchers.some(
     (matcher) => matcher.method === normalizedMethod && matcher.test(normalizedPath),

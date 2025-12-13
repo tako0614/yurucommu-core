@@ -106,6 +106,16 @@ describe("parseBody", () => {
     expect(body.title).toBe("My List");
     expect(body.items).toEqual(["a", "b", "c"]);
   });
+
+  it("should reject invalid JSON", async () => {
+    const request = new Request("http://test.com/api", {
+      method: "POST",
+      body: "invalid json {",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    await expect(parseBody(request)).rejects.toThrow();
+  });
 });
 
 describe("parseQuery", () => {
@@ -185,6 +195,16 @@ describe("matchPath", () => {
     const params = matchPath("/api/v1/users/:id", "/api/v1/users/456");
 
     expect(params).toEqual({ id: "456" });
+  });
+
+  it("should treat trailing slashes as equivalent", () => {
+    expect(matchPath("/users", "/users/")).toEqual({});
+    expect(matchPath("/users/", "/users")).toEqual({});
+    expect(matchPath("/users/:id", "/users/123/")).toEqual({ id: "123" });
+  });
+
+  it("should ignore repeated slashes", () => {
+    expect(matchPath("/users/:id", "/users//123")).toEqual({ id: "123" });
   });
 });
 

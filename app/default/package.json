@@ -3,12 +3,16 @@
   "version": "0.1.0",
   "type": "module",
   "private": true,
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
     }
   },
   "files": ["dist"],
@@ -18,17 +22,20 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@takos/app-sdk": "*"
+    "@takos/app-sdk": "*",
+    "hono": "*"
   },
   "peerDependencies": {
     "react": "^18.0.0",
-    "react-dom": "^18.0.0"
+    "react-dom": "^18.0.0",
+    "react-router-dom": "^6.0.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-router-dom": "^6.0.0",
     "tsup": "^8.0.0",
     "typescript": "^5.0.0"
   }

@@ -1,18 +1,15 @@
-import { useState, useEffect, useRef } from "react";
-import { defineScreen, useCore, useAuth, useTakos } from "@takos/app-sdk";
+import { useState, useEffect, useRef, type ChangeEvent } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth, useFetch } from "@takos/app-sdk";
+import { createCoreApi } from "../lib/core-api.js";
+import { toast } from "../lib/ui.js";
 
-export const ProfileEditScreen = defineScreen({
-  id: "screen.profile_edit",
-  path: "/settings/profile",
-  title: "Edit Profile",
-  auth: "required",
-  component: ProfileEdit
-});
-
-function ProfileEdit() {
-  const core = useCore();
+export function ProfileEditScreen() {
+  const fetch = useFetch();
+  const core = createCoreApi(fetch);
   const { user } = useAuth();
-  const { ui, navigate, back } = useTakos();
+  const navigate = useNavigate();
+  const back = () => navigate(-1);
 
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
@@ -30,7 +27,7 @@ function ProfileEdit() {
     const loadProfile = async () => {
       if (!user) return;
       try {
-        const profile = await core.users.get(user.handle) as any;
+        const profile = await core.getUser(user.handle);
         setDisplayName(profile.displayName || "");
         setBio(profile.bio || "");
         setAvatarPreview(profile.avatar || null);
@@ -44,7 +41,7 @@ function ProfileEdit() {
     loadProfile();
   }, [core, user]);
 
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setAvatarFile(file);
@@ -52,7 +49,7 @@ function ProfileEdit() {
     }
   };
 
-  const handleBannerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBannerChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setBannerFile(file);
@@ -67,30 +64,27 @@ function ProfileEdit() {
       let bannerUrl = bannerPreview;
 
       if (avatarFile) {
-        const result = await core.storage.upload(avatarFile, { type: "avatar" }) as any;
+        const result = await core.uploadFile(avatarFile);
         avatarUrl = result.url;
       }
 
       if (bannerFile) {
-        const result = await core.storage.upload(bannerFile, { type: "banner" }) as any;
+        const result = await core.uploadFile(bannerFile);
         bannerUrl = result.url;
       }
 
-      await core.fetch("/me", {
-        method: "PATCH",
-        body: JSON.stringify({
-          displayName,
-          bio,
-          avatar: avatarUrl,
-          banner: bannerUrl
-        })
+      await core.updateProfile({
+        display_name: displayName.trim(),
+        bio: bio.trim() || undefined,
+        avatar_url: avatarUrl || undefined,
+        banner_url: bannerUrl || undefined,
       });
 
-      ui.toast("Profile updated", "success");
+      toast("Profile updated", "success");
       navigate(`/@${user?.handle}`);
     } catch (error) {
       console.error("Failed to save profile:", error);
-      ui.toast("Failed to save profile", "error");
+      toast("Failed to save profile", "error");
     } finally {
       setSaving(false);
     }

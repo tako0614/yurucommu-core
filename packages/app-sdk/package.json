@@ -27,8 +27,8 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "node ../../node_modules/vitest/vitest.mjs run",
+    "test:watch": "node ../../node_modules/vitest/vitest.mjs"
   },
   "peerDependencies": {
     "react": "^18.0.0",

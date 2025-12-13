@@ -32,6 +32,7 @@
     "wrangler": "^4.35.0"
   },
   "dependencies": {
+    "@takos/app-sdk": "*",
     "@takos/platform": "*",
     "hono": "^4.9.6"
   }

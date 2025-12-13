@@ -55,13 +55,13 @@ export class AppBundler {
       await fs.mkdir(this.config.outDir, { recursive: true });
 
       // 3. Build client bundle
-      const clientResult = await this.buildClientBundle();
+      const clientResult = await this.buildClientBundle(manifest);
       if (clientResult) {
         files.push(clientResult);
       }
 
       // 4. Build server bundle
-      const serverResult = await this.buildServerBundle();
+      const serverResult = await this.buildServerBundle(manifest);
       if (serverResult) {
         files.push(serverResult);
       }
@@ -107,7 +107,16 @@ export class AppBundler {
    * - React is marked as external (provided by host runtime)
    * - Output format: ESM
    */
-  private async buildClientBundle(): Promise<BundleFile | null> {
+  private async buildClientBundle(manifest?: AppManifest | null): Promise<BundleFile | null> {
+    // Try v2.0 single entry point first
+    const singleEntryPoint = await this.findClientEntryPoint(manifest);
+
+    if (singleEntryPoint) {
+      // Build single-entry client bundle
+      return this.buildSingleClientBundle(singleEntryPoint);
+    }
+
+    // Fall back to legacy auto-discovery
     const clientEntryPoints = await this.findClientEntryPoints();
     if (clientEntryPoints.length === 0) {
       return null;
@@ -199,6 +208,62 @@ export class AppBundler {
   }
 
   /**
+   * Build single-entry client bundle (v2.0)
+   */
+  private async buildSingleClientBundle(entryPath: string): Promise<BundleFile | null> {
+    await viteBuild({
+      configFile: false,
+      root: this.config.appDir,
+      build: {
+        outDir: this.config.outDir,
+        emptyOutDir: false,
+        lib: {
+          entry: entryPath,
+          formats: ["es"],
+          fileName: () => "client.bundle.js"
+        },
+        rollupOptions: {
+          external: [
+            // React is provided by the host runtime
+            "react",
+            "react-dom",
+            "react/jsx-runtime",
+            "react/jsx-dev-runtime",
+            // React Router (common client-side router)
+            "react-router-dom",
+            "react-router",
+            // App SDK is provided by the host runtime
+            "@takos/app-sdk",
+            /^@takos\/app-sdk\/.*/
+          ],
+          output: {
+            preserveModules: false,
+            format: "es",
+            interop: "auto",
+            inlineDynamicImports: true
+          }
+        },
+        sourcemap: this.config.sourcemap,
+        minify: this.config.minify ? "esbuild" : false
+      },
+      esbuild: {
+        jsx: "automatic",
+        jsxImportSource: "react"
+      },
+      logLevel: "warn"
+    });
+
+    const outputPath = path.join(this.config.outDir, "client.bundle.js");
+    const stats = await fs.stat(outputPath);
+
+    return {
+      path: "client.bundle.js",
+      type: "client",
+      size: stats.size
+    };
+  }
+
+  /**
    * Generate export name from file path
    */
   private getExportName(relativePath: string): string {
@@ -221,28 +286,14 @@ export class AppBundler {
    * - Platform services (@takos/platform/*) are external
    * - Node.js built-ins are marked external
    */
-  private async buildServerBundle(): Promise<BundleFile | null> {
-    // Check for handlers entry point (support both .ts and .js)
-    let handlersPath = path.join(this.config.appDir, "handlers.ts");
-    let handlersExist = false;
+  private async buildServerBundle(manifest?: AppManifest | null): Promise<BundleFile | null> {
+    const entryPath = await this.findServerEntryPoint(manifest);
 
-    try {
-      await fs.access(handlersPath);
-      handlersExist = true;
-    } catch {
-      // Try .js extension
-      handlersPath = path.join(this.config.appDir, "handlers.js");
-      try {
-        await fs.access(handlersPath);
-        handlersExist = true;
-      } catch {
-        // No handlers file
-      }
-    }
-
-    if (!handlersExist) {
+    if (!entryPath) {
       return null;
     }
+
+    const handlersPath = entryPath;
 
     // Build with Vite/Rollup for Cloudflare Workers
     await viteBuild({
@@ -331,6 +382,110 @@ export class AppBundler {
       type: "manifest",
       size: stats.size
     };
+  }
+
+  /**
+   * Find server entry point for v2.0 Apps
+   *
+   * Search order:
+   * 1. manifest.entry.server (if specified)
+   * 2. index.ts / index.js
+   * 3. src/server.ts / src/server.js
+   * 4. server.ts / server.js
+   * 5. handlers.ts / handlers.js (legacy)
+   */
+  private async findServerEntryPoint(manifest?: AppManifest | null): Promise<string | null> {
+    // Check manifest.entry.server first (v2.0)
+    if (manifest?.entry?.server) {
+      const entryPath = path.join(this.config.appDir, manifest.entry.server);
+      // If entry.server is dist path, look for source
+      const sourcePath = entryPath
+        .replace(/dist[/\\]/, "src/")
+        .replace(/\.js$/, ".ts");
+
+      for (const p of [sourcePath, entryPath]) {
+        try {
+          await fs.access(p);
+          return p;
+        } catch {
+          // Continue
+        }
+      }
+    }
+
+    // Search in order of preference
+    const candidates = [
+      "index.ts",
+      "index.js",
+      "src/server.ts",
+      "src/server.js",
+      "server.ts",
+      "server.js",
+      "handlers.ts", // legacy
+      "handlers.js", // legacy
+    ];
+
+    for (const candidate of candidates) {
+      const candidatePath = path.join(this.config.appDir, candidate);
+      try {
+        await fs.access(candidatePath);
+        return candidatePath;
+      } catch {
+        // Continue to next candidate
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Find client entry point for v2.0 Apps
+   *
+   * Search order:
+   * 1. manifest.entry.client (if specified)
+   * 2. src/client.tsx / src/client.ts
+   * 3. client.tsx / client.ts
+   * 4. views/ directory (legacy auto-discovery)
+   */
+  private async findClientEntryPoint(manifest?: AppManifest | null): Promise<string | null> {
+    // Check manifest.entry.client first (v2.0)
+    if (manifest?.entry?.client) {
+      const entryPath = path.join(this.config.appDir, manifest.entry.client);
+      // If entry.client is dist path, look for source
+      const sourcePath = entryPath
+        .replace(/dist[/\\]/, "src/")
+        .replace(/\.js$/, ".tsx");
+
+      for (const p of [sourcePath, entryPath]) {
+        try {
+          await fs.access(p);
+          return p;
+        } catch {
+          // Continue
+        }
+      }
+    }
+
+    // Search in order of preference
+    const candidates = [
+      "src/client.tsx",
+      "src/client.ts",
+      "client.tsx",
+      "client.ts",
+    ];
+
+    for (const candidate of candidates) {
+      const candidatePath = path.join(this.config.appDir, candidate);
+      try {
+        await fs.access(candidatePath);
+        return candidatePath;
+      } catch {
+        // Continue to next candidate
+      }
+    }
+
+    // Fall back to legacy auto-discovery
+    return null;
   }
 
   /**

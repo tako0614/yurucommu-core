@@ -35,7 +35,7 @@ interface AggregatedEntries {
 
 const ROUTE_METHODS: HttpMethod[] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 const RESERVED_VIEW_ROUTES = ["/login", "/-/health"];
-const RESERVED_VIEW_PREFIXES = ["/auth", "/-/core", "/-/config", "/-/app", "/.well-known"];
+const RESERVED_VIEW_PREFIXES = ["/-", "/auth", "/-/core", "/-/config", "/-/app", "/.well-known"];
 
 const normalizeRoute = (path: string): string => {
   const trimmed = path.trim();
@@ -53,9 +53,50 @@ const CORE_SCREEN_ROUTES: Record<string, string> = {
   "screen.notifications": "/notifications",
   "screen.user_profile": "/@:handle",
 };
-const CORE_ROUTE_BY_PATH: Record<string, string> = Object.fromEntries(
-  Object.entries(CORE_SCREEN_ROUTES).map(([id, path]) => [normalizeRoute(path), id]),
-);
+
+const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const segmentToRegex = (segment: string): string => {
+  if (segment === "*") return ".*";
+  let out = "";
+  for (let i = 0; i < segment.length; i += 1) {
+    const ch = segment[i];
+    if (ch === ":") {
+      let j = i + 1;
+      while (j < segment.length && /[A-Za-z0-9_]/.test(segment[j])) j += 1;
+      if (j > i + 1) {
+        out += "[^/]+";
+        i = j - 1;
+        continue;
+      }
+    }
+    out += escapeRegex(ch);
+  }
+  return out;
+};
+
+const patternToRegExp = (pattern: string): RegExp => {
+  const normalized = normalizeRoute(pattern);
+  if (!normalized) return /^$/;
+  if (normalized === "/") return /^\/$/;
+  const segments = normalized.split("/").filter(Boolean);
+  const regexBody = segments.map(segmentToRegex).join("/");
+  return new RegExp(`^/${regexBody}/?$`);
+};
+
+const CORE_ROUTE_MATCHERS = Object.entries(CORE_SCREEN_ROUTES).map(([screenId, path]) => {
+  const normalized = normalizeRoute(path);
+  return { screenId, path: normalized, matcher: patternToRegExp(normalized) };
+});
+
+const findCoreRouteOwner = (route: string): { screenId: string; path: string } | null => {
+  const normalized = normalizeRoute(route);
+  if (!normalized) return null;
+  for (const entry of CORE_ROUTE_MATCHERS) {
+    if (entry.matcher.test(normalized)) return { screenId: entry.screenId, path: entry.path };
+  }
+  return null;
+};
 
 const isReservedViewRoute = (route: string): boolean => {
   const normalized = normalizeRoute(route);
@@ -1152,12 +1193,11 @@ function validateMergedManifest(
       });
     }
 
-    const normalizedRoute = normalizeRoute(entry.value.path);
-    const coreRouteOwner = CORE_ROUTE_BY_PATH[normalizedRoute];
+    const coreRouteOwner = findCoreRouteOwner(entry.value.path);
     if (coreRouteOwner) {
       issues.push({
         severity: "error",
-        message: `Core route "${normalizedRoute}" is fixed to ${coreRouteOwner}`,
+        message: `Core route "${coreRouteOwner.path}" is fixed to ${coreRouteOwner.screenId}`,
         file: entry.source,
         path: entry.path ? `${entry.path}.path` : undefined,
       });
@@ -1222,6 +1262,16 @@ function validateMergedManifest(
         issues.push({
           severity: "error",
           message: `Reserved route "${entry.value.route}" cannot be defined in app views`,
+          file: entry.source,
+          path: entry.path ? `${entry.path}.route` : undefined,
+        });
+      }
+
+      const coreRouteOwner = findCoreRouteOwner(entry.value.route);
+      if (coreRouteOwner && coreRouteOwner.screenId !== entry.value.id) {
+        issues.push({
+          severity: "error",
+          message: `Core route "${coreRouteOwner.path}" is fixed to ${coreRouteOwner.screenId}`,
           file: entry.source,
           path: entry.path ? `${entry.path}.route` : undefined,
         });

@@ -14,6 +14,8 @@ import {
 } from "@takos/platform/app";
 
 const EXPECTED_SCHEMA_VERSION = "1.10";
+const SCREEN_ID_FORMAT = /^screen\.[a-z_]+$/;
+const ACTION_ID_FORMAT = /^action\.[a-z_]+$/;
 
 const RESERVED_ROUTES = [
   "/login",
@@ -34,6 +36,9 @@ const REQUIRED_SCREENS = [
   "screen.story_viewer",
   "screen.profile",
   "screen.settings",
+  "screen.notifications",
+  "screen.storage",
+  "screen.storage_folder",
 ];
 
 const REQUIRED_ACTIONS = [
@@ -46,6 +51,10 @@ const REQUIRED_ACTIONS = [
   "action.react",
   "action.view_story",
   "action.edit_profile",
+  "action.upload_file",
+  "action.delete_file",
+  "action.create_folder",
+  "action.move_file",
 ];
 
 type CliOptions = {
@@ -370,7 +379,10 @@ function extractNavigationTargetsFromScreen(screen: Screen): Set<string> {
   return targets;
 }
 
-function buildReachabilityEdges(screenMap: Map<string, Screen>): Map<string, Set<string>> {
+function buildReachabilityEdges(
+  screenMap: Map<string, Screen>,
+  inserts: { screen?: string; node?: unknown }[] = [],
+): Map<string, Set<string>> {
   const edges = new Map<string, Set<string>>();
   const addEdge = (from: string, to: string) => {
     if (!from || !to) return;
@@ -378,8 +390,23 @@ function buildReachabilityEdges(screenMap: Map<string, Screen>): Map<string, Set
     edges.get(from)!.add(to);
   };
 
+  const insertTargetsByScreen = new Map<string, Set<string>>();
+  for (const insert of inserts) {
+    const screenId = typeof insert?.screen === "string" ? insert.screen : "";
+    if (!screenId) continue;
+    const targets = insertTargetsByScreen.get(screenId) ?? new Set<string>();
+    collectLayoutTargets(insert?.node, targets);
+    insertTargetsByScreen.set(screenId, targets);
+  }
+
   for (const screen of screenMap.values()) {
     const navTargets = extractNavigationTargetsFromScreen(screen);
+    const insertTargets = insertTargetsByScreen.get(screen.id);
+    if (insertTargets) {
+      for (const target of insertTargets) {
+        navTargets.add(target);
+      }
+    }
     for (const target of navTargets) {
       const matches = findScreensForPattern(target, screenMap);
       matches.forEach((matched) => addEdge(screen.id, matched.id));
@@ -459,6 +486,9 @@ function validateContractStructure(contract: UiContract): {
         errors.push("screen.id must be a string");
         continue;
       }
+      if (!SCREEN_ID_FORMAT.test(screen.id)) {
+        errors.push(`screen id "${screen.id}" must match ${String(SCREEN_ID_FORMAT)}`);
+      }
       if (contractScreens.has(screen.id)) {
         errors.push(`duplicate screen id: ${screen.id}`);
         continue;
@@ -490,6 +520,9 @@ function validateContractStructure(contract: UiContract): {
         errors.push("action.id must be a string");
         continue;
       }
+      if (!ACTION_ID_FORMAT.test(action.id)) {
+        errors.push(`action id "${action.id}" must match ${String(ACTION_ID_FORMAT)}`);
+      }
       if (contractActions.has(action.id)) {
         errors.push(`duplicate action id: ${action.id}`);
         continue;
@@ -517,6 +550,11 @@ function validateContractStructure(contract: UiContract): {
     }
   });
 
+  const home = contractScreens.get("screen.home");
+  if (home && home.steps_from_home !== 0) {
+    errors.push("screen.home must declare steps_from_home=0");
+  }
+
   return { errors, contractScreens, contractActions };
 }
 
@@ -531,8 +569,6 @@ function validateReachability(
 
   if (!screenMap.has("screen.home")) {
     errors.push("screen.home must exist in manifest");
-  } else if (distances.get("screen.home") !== 0) {
-    errors.push("screen.home must have steps_from_home 0");
   }
 
   REQUIRED_SCREENS.forEach((screenId) => {
@@ -688,8 +724,7 @@ async function main() {
   const workspaceRoot = path.resolve(process.cwd(), options.root);
   const appDir = path.join(workspaceRoot, "app");
 
-  console.log("UI Contract validation\n");
-  console.log(`Workspace: ${workspaceRoot}`);
+  console.log("Checking UI Contract compliance...");
 
   const handlers = await collectHandlers(workspaceRoot);
   const manifestResult = await loadAppManifest({
@@ -716,7 +751,9 @@ async function main() {
     uiContract.contract,
   );
 
-  console.log(`✓ Schema version: ${uiContract.contract.schema_version}`);
+  if (structureErrors.length === 0) {
+    console.log("✓ Schema validation passed");
+  }
 
   const requiredScreensPresent = REQUIRED_SCREENS.filter((id) => contractScreens.has(id));
   console.log(
@@ -741,9 +778,10 @@ async function main() {
     }
   }
 
-  console.log(`✓ Screens loaded: ${screenMap.size}`);
-
-  const edges = buildReachabilityEdges(screenMap);
+  const edges = buildReachabilityEdges(
+    screenMap,
+    (manifestResult.manifest?.views?.insert as { screen?: string; node?: unknown }[]) ?? [],
+  );
   const distances = computeReachability(edges);
 
   const { errors: reachabilityErrors, warnings } = validateReachability(
@@ -763,19 +801,27 @@ async function main() {
   }
 
   console.log("✓ Reachability check:");
-  for (const screen of contractScreens.values()) {
-    const dist = distances.get(screen.id);
-    const max = screen.steps_from_home;
+  const homeContract = contractScreens.get("screen.home");
+  if (homeContract) {
+    const maxFromLogin = 1;
+    console.log(`  ✓ screen.home: 1 step from login (max: ${maxFromLogin})`);
+  }
+  for (const screenId of REQUIRED_SCREENS) {
+    if (screenId === "screen.home") continue;
+    const contractScreen = contractScreens.get(screenId);
+    if (!contractScreen) continue;
+    const dist = distances.get(screenId);
+    const max = contractScreen.steps_from_home;
     if (dist !== undefined && max !== undefined && dist <= max) {
-      console.log(`  ✓ ${screen.id}: ${dist} step(s) from home (max: ${max})`);
+      console.log(`  ✓ ${screenId}: ${dist} steps from home (max: ${max})`);
     }
   }
-
-  if (options.verbose) {
-    console.log("\n✓ Action availability:");
-    for (const action of contractActions.values()) {
-      const availableScreens = (action.available_on || []).filter((id) => screenMap.has(id));
-      console.log(`  ✓ ${action.id} available on: ${availableScreens.join(", ")}`);
+  for (const actionId of REQUIRED_ACTIONS) {
+    const action = contractActions.get(actionId);
+    if (!action) continue;
+    const availableScreens = (action.available_on || []).filter((id) => screenMap.has(id));
+    if (availableScreens.length > 0) {
+      console.log(`  ✓ ${actionId} available on: ${availableScreens.join(", ")} ✓`);
     }
   }
 

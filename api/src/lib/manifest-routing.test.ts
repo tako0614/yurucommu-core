@@ -54,6 +54,46 @@ describe("manifest routing", () => {
     expect(matchesManifestRoute(router, "POST", "/hello")).toBe(false);
   });
 
+  it("matches embedded path params when checking manifest routing", async () => {
+    clearManifestRouterCache();
+    const manifest: AppManifest = {
+      ...baseManifest,
+      routes: [{ id: "tag", method: "GET", path: "/tag/@:name", handler: "tag" }],
+    };
+    const registry = AppHandlerRegistry.fromModule({
+      tag: (c: any) => c.json({ ok: true }),
+    });
+
+    const router = createManifestRouter({
+      manifest,
+      registry,
+      revisionId: "rev_embed_param",
+      source: "test",
+    });
+
+    expect(matchesManifestRoute(router, "GET", "/tag/@alice")).toBe(true);
+  });
+
+  it("never routes manifest handlers for core paths", async () => {
+    clearManifestRouterCache();
+    const manifest: AppManifest = {
+      ...baseManifest,
+      routes: [{ id: "actor_override", method: "GET", path: "/@alice", handler: "noop" }],
+    };
+    const registry = AppHandlerRegistry.fromModule({
+      noop: (c: any) => c.json({ ok: true }),
+    });
+
+    const router = createManifestRouter({
+      manifest,
+      registry,
+      revisionId: "rev_core_block",
+      source: "test",
+    });
+
+    expect(matchesManifestRoute(router, "GET", "/@alice")).toBe(false);
+  });
+
   it("invokes auth middleware for protected routes", async () => {
     clearManifestRouterCache();
     const manifest: AppManifest = {
