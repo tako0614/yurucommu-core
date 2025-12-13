@@ -14,12 +14,8 @@ import {
   type APObject,
   type APVisibility,
 } from "./object-service";
-import {
-  createBlockMuteService,
-  type BlockMuteService,
-} from "./block-mute-service";
-// DM 型は型エクスポートのみ使用（実装は App 層に移行済み）
-import type { DMService } from "./dm-service";
+// NOTE: BlockMuteService は App 層（Default App）に完全移行済み
+// NOTE: DMService は App 層に完全移行済み (app/default/src/server.ts)
 import type {
   Post,
   PostHistoryEntry,
@@ -29,8 +25,7 @@ import type {
   Visibility,
 } from "@takos/platform/app/services/post-service";
 import type { PostService } from "./post-service";
-// CommunityService と DMService の型は型エクスポートのみ（実装は App 層）
-import type { CommunityService } from "./community-service";
+// NOTE: CommunityService は App 層に完全移行済み (app/default/src/server.ts)
 import type { UserService } from "./user-service";
 import type { MediaService } from "./media-service";
 import { createMediaService } from "./media-service";
@@ -283,55 +278,9 @@ function nextOffset(itemsLength: number, limit: number | undefined, offset: numb
   return itemsLength < limit ? null : offset + itemsLength;
 }
 
-/**
- * Creates a BlockMuteService that uses KV if available, otherwise falls back to DB.
- * Per 11-default-app.md specification.
- */
-const createBlockMuteServiceFromEnv = (env: any): BlockMuteService => {
-  // Prefer KV storage if available
-  if (env.KV) {
-    return createBlockMuteService({ type: "kv", kv: env.KV });
-  }
-
-  // Fall back to DB-based storage
-  const dbFallback = {
-    blockUser: async (blockerId: string, blockedId: string) =>
-      withStore(env, async (store) => {
-        if (store.blockUser) return store.blockUser(blockerId, blockedId);
-        throw new Error("block not supported");
-      }),
-    unblockUser: async (blockerId: string, blockedId: string) =>
-      withStore(env, async (store) => {
-        if (store.unblockUser) return store.unblockUser(blockerId, blockedId);
-        throw new Error("unblock not supported");
-      }),
-    listBlockedUsers: async (blockerId: string) =>
-      withStore(env, async (store) => store.listBlockedUsers?.(blockerId) ?? []),
-    isBlocked: async (blockerId: string, targetId: string) =>
-      withStore(env, async (store) => store.isBlocked?.(blockerId, targetId) ?? false),
-    muteUser: async (muterId: string, mutedId: string) =>
-      withStore(env, async (store) => {
-        if (store.muteUser) return store.muteUser(muterId, mutedId);
-        throw new Error("mute not supported");
-      }),
-    unmuteUser: async (muterId: string, mutedId: string) =>
-      withStore(env, async (store) => {
-        if (store.unmuteUser) return store.unmuteUser(muterId, mutedId);
-        throw new Error("unmute not supported");
-      }),
-    listMutedUsers: async (muterId: string) =>
-      withStore(env, async (store) => store.listMutedUsers?.(muterId) ?? []),
-    isMuted: async (muterId: string, targetId: string) =>
-      withStore(env, async (store) => store.isMuted?.(muterId, targetId) ?? false),
-  };
-
-  return createBlockMuteService({ type: "db", db: dbFallback });
-};
-
-const createActorService = (env: any, blockMuteService?: BlockMuteService, objectService?: ObjectService): ActorService => {
-  const blockMute = blockMuteService ?? createBlockMuteServiceFromEnv(env);
-  const objects = objectService ?? createObjectService(env);
-
+// NOTE: BlockMuteService / createBlockMuteServiceFromEnv は App 層（Default App）に完全移行済み
+// 実装: app/default/src/server.ts の /blocks, /mutes エンドポイント
+const createActorService = (env: any): ActorService => {
   const follow = async (follower: string, target: string): Promise<void> =>
     withStore(env, async (store) => {
       if (store.createFollow) {
@@ -403,87 +352,7 @@ const createActorService = (env: any, blockMuteService?: BlockMuteService, objec
       const follower = ensureAuth(ctx);
       await unfollow(follower, targetId);
     },
-    /**
-     * Block a user - per 11-default-app.md:
-     * 1. Store in KV for UI filtering
-     * 2. Create Block object via ObjectService for ActivityPub federation
-     * 3. Remove existing follow relationship
-     */
-    async block(ctx, targetId) {
-      const userId = ensureAuth(ctx);
-
-      // 1. Store in KV (or DB fallback)
-      await blockMute.block(ctx, targetId);
-
-      // 2. Create Block object (Core Kernel will handle ActivityPub delivery)
-      try {
-        await objects.create(ctx, {
-          type: "Block",
-          content: undefined,
-          visibility: "direct",
-          to: [targetId],
-          cc: [],
-          tag: [],
-          context: null,
-          inReplyTo: null,
-          object: targetId,
-        } as any);
-      } catch (error) {
-        // Log but don't fail - KV is the source of truth for UI
-        console.warn("Failed to create Block object for ActivityPub:", error);
-      }
-
-      // 3. Remove existing follow relationship
-      try {
-        await unfollow(userId, targetId);
-      } catch {
-        // Ignore - might not be following
-      }
-    },
-    /**
-     * Unblock a user - per 11-default-app.md:
-     * 1. Remove from KV
-     * 2. Delete Block object (Core Kernel will send Undo Block activity)
-     */
-    async unblock(ctx, targetId) {
-      const userId = ensureAuth(ctx);
-
-      // 1. Remove from KV (or DB fallback)
-      await blockMute.unblock(ctx, targetId);
-
-      // 2. Find and delete Block object (Core Kernel will handle Undo activity)
-      try {
-        const systemCtx = { userId: null, sessionId: null, isAuthenticated: false, plan: { id: "system", name: "system", limits: {}, features: [] }, limits: {} } as unknown as AppAuthContext;
-        const blockObjects = await objects.query(ctx, {
-          type: "Block",
-          limit: 10,
-          includeDeleted: false,
-        });
-
-        for (const obj of blockObjects.items) {
-          if (obj.actor === userId && (obj as any).object === targetId) {
-            await objects.delete(ctx, obj.id);
-            break;
-          }
-        }
-      } catch (error) {
-        // Log but don't fail
-        console.warn("Failed to delete Block object:", error);
-      }
-    },
-    /**
-     * Mute a user - per 11-default-app.md:
-     * Stored in KV only, no ActivityPub activity (private to user)
-     */
-    async mute(ctx, targetId) {
-      await blockMute.mute(ctx, targetId);
-    },
-    /**
-     * Unmute a user
-     */
-    async unmute(ctx, targetId) {
-      await blockMute.unmute(ctx, targetId);
-    },
+    // NOTE: block/unblock/mute/unmute は App 層に移行済み (Default App /blocks, /mutes)
     async listFollowers(ctx, params) {
       const actorId = params?.actorId ?? ensureAuth(ctx);
       const actors = await listFollow("following_id", actorId, params);
@@ -1157,14 +1026,14 @@ const createPostService = (env: any): PostService => {
 // NOTE: createDMService は App 層に移行済み (app/default/src/server.ts)
 // NOTE: createCommunityService は App 層に移行済み (app/default/src/server.ts)
 
+// NOTE: Block/Mute 操作は App 層（Default App）に完全移行済み
+// 実装: app/default/src/server.ts の /blocks, /mutes エンドポイント
 const createUserService = (
   env: any,
   actorService?: ActorService,
   notificationService?: NotificationService,
-  blockMuteService?: BlockMuteService,
 ): UserService => {
-  const blockMute = blockMuteService ?? createBlockMuteServiceFromEnv(env);
-  const actors = actorService ?? createActorService(env, blockMute);
+  const actors = actorService ?? createActorService(env);
   const notifications = notificationService ?? createNotificationService(env);
 
   const mapUser = (profile: ActorProfile): User => ({
@@ -1206,10 +1075,7 @@ const createUserService = (
 
     follow: (ctx, targetUserId) => actors.follow(ctx, targetUserId),
     unfollow: (ctx, targetUserId) => actors.unfollow(ctx, targetUserId),
-    block: (ctx, targetUserId) => actors.block(ctx, targetUserId),
-    mute: (ctx, targetUserId) => actors.mute(ctx, targetUserId),
-    unblock: (ctx, targetUserId) => actors.unblock(ctx, targetUserId),
-    unmute: (ctx, targetUserId) => actors.unmute(ctx, targetUserId),
+    // NOTE: block/mute/unblock/unmute は App 層に移行済み (Default App /blocks, /mutes)
 
     async listFollowers(ctx, params) {
       const list = await actors.listFollowers(ctx, params);
@@ -1227,62 +1093,7 @@ const createUserService = (
 
     async acceptFollowRequest() {},
     async rejectFollowRequest() {},
-
-    /**
-     * List blocked users - uses BlockMuteService (KV or DB fallback)
-     */
-    async listBlocks(ctx, params) {
-      const userId = ensureAuth(ctx);
-      const blockedIds = await blockMute.listBlockedIds(userId);
-
-      // Fetch user profiles for each blocked ID
-      const users: User[] = [];
-      for (const blockedId of blockedIds) {
-        const actor = await actors.get(ctx, blockedId);
-        if (actor) {
-          users.push(mapUser(actor));
-        } else {
-          // Fallback: create minimal user object if profile not found
-          users.push({
-            id: blockedId,
-            handle: blockedId,
-            display_name: undefined,
-            avatar: undefined,
-            bio: undefined,
-            created_at: undefined,
-          });
-        }
-      }
-      return { users, next_offset: null, next_cursor: null };
-    },
-
-    /**
-     * List muted users - uses BlockMuteService (KV or DB fallback)
-     */
-    async listMutes(ctx, params) {
-      const userId = ensureAuth(ctx);
-      const mutedIds = await blockMute.listMutedIds(userId);
-
-      // Fetch user profiles for each muted ID
-      const users: User[] = [];
-      for (const mutedId of mutedIds) {
-        const actor = await actors.get(ctx, mutedId);
-        if (actor) {
-          users.push(mapUser(actor));
-        } else {
-          // Fallback: create minimal user object if profile not found
-          users.push({
-            id: mutedId,
-            handle: mutedId,
-            display_name: undefined,
-            avatar: undefined,
-            bio: undefined,
-            created_at: undefined,
-          });
-        }
-      }
-      return { users, next_offset: null, next_cursor: null };
-    },
+    // NOTE: listBlocks, listMutes は App 層に移行済み (Default App GET /blocks, GET /mutes)
 
     listNotifications: (ctx, params) => notifications.list(ctx, params),
     markNotificationRead: (ctx, id) => notifications.markRead(ctx, id),
@@ -1298,17 +1109,13 @@ export {
   createStorageService,
   createNotificationService,
   createAuthService,
-  createBlockMuteService,
-  createBlockMuteServiceFromEnv,
 };
 
-// NOTE: createCommunityService と createDMService は App 層に移行済み
-// 実装は app/default/src/server.ts を参照
+// NOTE: CommunityService, DMService, BlockMuteService は App 層に完全移行済み
+// 実装: app/default/src/server.ts
 
 export type {
   PostService,
-  DMService,
-  CommunityService,
   UserService,
   MediaService,
   ObjectService,
@@ -1316,5 +1123,4 @@ export type {
   StorageService,
   NotificationService,
   AuthService,
-  BlockMuteService,
 };

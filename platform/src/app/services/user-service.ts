@@ -2,6 +2,10 @@
  * Core Kernel UserService API
  *
  * PLAN.md 3.11.5 に基づくユーザー操作の統一インターフェース
+ *
+ * NOTE: Block/Mute 操作は App 層（Default App）に完全移行済み
+ * 実装: app/default/src/server.ts の /blocks, /mutes エンドポイント
+ * API routes は Default App にプロキシ (api/src/routes/users.ts)
  */
 
 import type { AppAuthContext } from "../runtime/types";
@@ -109,19 +113,9 @@ export interface UserService {
    */
   unfollow(ctx: AppAuthContext, targetUserId: string): Promise<void>;
 
-  /**
-   * ユーザーをブロック
-   * @param ctx 認証コンテキスト
-   * @param targetUserId ブロック対象のユーザーID
-   */
-  block(ctx: AppAuthContext, targetUserId: string): Promise<void>;
-
-  /**
-   * ユーザーをミュート
-   * @param ctx 認証コンテキスト
-   * @param targetUserId ミュート対象のユーザーID
-   */
-  mute(ctx: AppAuthContext, targetUserId: string): Promise<void>;
+  // NOTE: block() と mute() は App 層に移行済み
+  // API: POST /users/:id/block, POST /users/:id/mute
+  // 実装: Default App /blocks, /mutes エンドポイント
 
   /**
    * 自分のフォロワー一覧を取得
@@ -157,25 +151,9 @@ export interface UserService {
    */
   rejectFollowRequest(ctx: AppAuthContext, requesterId: string): Promise<void>;
 
-  /**
-   * ユーザーのブロックを解除
-   */
-  unblock(ctx: AppAuthContext, targetUserId: string): Promise<void>;
-
-  /**
-   * ミュートを解除
-   */
-  unmute(ctx: AppAuthContext, targetUserId: string): Promise<void>;
-
-  /**
-   * ブロック一覧
-   */
-  listBlocks(ctx: AppAuthContext, params?: { limit?: number; offset?: number }): Promise<UserPage>;
-
-  /**
-   * ミュート一覧
-   */
-  listMutes(ctx: AppAuthContext, params?: { limit?: number; offset?: number }): Promise<UserPage>;
+  // NOTE: unblock(), unmute(), listBlocks(), listMutes() は App 層に移行済み
+  // API: DELETE /users/:id/block, DELETE /users/:id/mute, GET /blocks, GET /mutes
+  // 実装: Default App /blocks, /mutes エンドポイント
 
   /**
    * 通知一覧

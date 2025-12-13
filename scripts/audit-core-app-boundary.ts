@@ -15,11 +15,12 @@ type ServiceReport = {
   hits: Hit[];
 };
 
+// NOTE: 以下の Service は App 層に完全移行済み (app/default/src/server.ts)
+// - CommunityService
+// - DMService
+// - StoryService
+// - BlockMuteService
 const SERVICE_MODULE_MARKERS = [
-  { name: "CommunityService", marker: "community-service" },
-  { name: "DMService", marker: "dm-service" },
-  { name: "StoryService", marker: "story-service" },
-  { name: "BlockMuteService", marker: "block-mute-service" },
   { name: "PostService.timeline", marker: "post-service" },
 ];
 

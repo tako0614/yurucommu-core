@@ -3,6 +3,9 @@
  *
  * Actors は Person/Group など ActivityPub 上の主体を表す
  * UserService などの上位サービスが利用する低レイヤーのラッパー
+ *
+ * NOTE: Block/Mute 操作は App 層（Default App）に完全移行済み
+ * 実装: app/default/src/server.ts の /blocks, /mutes エンドポイント
  */
 
 import type { AppAuthContext } from "../runtime/types";
@@ -62,25 +65,8 @@ export interface ActorService {
    */
   unfollow(ctx: AppAuthContext, targetId: string): Promise<void>;
 
-  /**
-   * ブロック
-   */
-  block(ctx: AppAuthContext, targetId: string): Promise<void>;
-
-  /**
-   * ブロック解除
-   */
-  unblock(ctx: AppAuthContext, targetId: string): Promise<void>;
-
-  /**
-   * ミュート
-   */
-  mute(ctx: AppAuthContext, targetId: string): Promise<void>;
-
-  /**
-   * ミュート解除
-   */
-  unmute(ctx: AppAuthContext, targetId: string): Promise<void>;
+  // NOTE: block/unblock/mute/unmute は App 層に移行済み
+  // 実装: Default App /blocks, /mutes エンドポイント
 
   /**
    * フォロワー一覧
