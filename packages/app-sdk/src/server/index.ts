@@ -5,6 +5,12 @@ export type {
   // Core types
   TakosApp,
   AppEnv,
+  CoreServices,
+  Collection,
+  CollectionQuery,
+  CollectionWhereClause,
+  CollectionOrderBy,
+  CollectionUpdateData,
   AppStorage,
   ActivityPubAPI,
   AiAPI,

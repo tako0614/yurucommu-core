@@ -9,41 +9,9 @@ export type WorkspaceLimitSet = {
   compileCacheTtlSeconds: number;
 };
 
-const KB = 1024;
-const MB = 1024 * KB;
-const GB = 1024 * MB;
 const UNLIMITED = Number.MAX_SAFE_INTEGER;
 
-const LIMITS_BY_PLAN: Record<string, WorkspaceLimitSet> = {
-  free: {
-    maxWorkspaces: 1,
-    maxFiles: 100,
-    maxFileSize: 100 * KB,
-    totalSize: 10 * MB,
-    compileCacheTtlSeconds: 60 * 60, // 1h
-  },
-  pro: {
-    maxWorkspaces: 5,
-    maxFiles: 1_000,
-    maxFileSize: 1 * MB,
-    totalSize: 100 * MB,
-    compileCacheTtlSeconds: 24 * 60 * 60, // 24h
-  },
-  business: {
-    maxWorkspaces: 20,
-    maxFiles: 10_000,
-    maxFileSize: 10 * MB,
-    totalSize: 1 * GB,
-    compileCacheTtlSeconds: 7 * 24 * 60 * 60, // 7d
-  },
-  "self-hosted": {
-    maxWorkspaces: UNLIMITED,
-    maxFiles: UNLIMITED,
-    maxFileSize: UNLIMITED,
-    totalSize: UNLIMITED,
-    compileCacheTtlSeconds: 7 * 24 * 60 * 60,
-  },
-};
+const DEFAULT_COMPILE_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60; // 7d
 
 const clampPositive = (value: number | undefined): number => {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return UNLIMITED;
@@ -52,15 +20,12 @@ const clampPositive = (value: number | undefined): number => {
 
 const fromPlanLimits = (plan: PlanInfo | null | undefined): WorkspaceLimitSet | null => {
   if (!plan?.limits) return null;
-  const ttl =
-    LIMITS_BY_PLAN[plan.name]?.compileCacheTtlSeconds ??
-    LIMITS_BY_PLAN["self-hosted"].compileCacheTtlSeconds;
   return {
     maxWorkspaces: clampPositive(plan.limits.vfsMaxWorkspaces),
     maxFiles: clampPositive(plan.limits.vfsMaxFiles),
     maxFileSize: clampPositive(plan.limits.vfsMaxFileSize),
     totalSize: clampPositive(plan.limits.vfsStorage),
-    compileCacheTtlSeconds: ttl,
+    compileCacheTtlSeconds: DEFAULT_COMPILE_CACHE_TTL_SECONDS,
   };
 };
 
@@ -69,13 +34,29 @@ export const getWorkspaceLimits = (plan: PlanInfo | string | null | undefined): 
     const derived = fromPlanLimits(plan);
     if (derived) return derived;
   }
-  const name = typeof plan === "string" ? plan : plan?.name ?? "self-hosted";
-  return LIMITS_BY_PLAN[name] ?? LIMITS_BY_PLAN["self-hosted"];
+  return {
+    maxWorkspaces: UNLIMITED,
+    maxFiles: UNLIMITED,
+    maxFileSize: UNLIMITED,
+    totalSize: UNLIMITED,
+    compileCacheTtlSeconds: DEFAULT_COMPILE_CACHE_TTL_SECONDS,
+  };
 };
 
 export const resolveWorkspaceLimitsFromEnv = (env: any): WorkspaceLimitSet => {
   const plan = resolvePlanFromEnv(env);
-  return getWorkspaceLimits(plan);
+  const limits = getWorkspaceLimits(plan);
+  const ttlRaw = env?.TAKOS_VFS_COMPILE_CACHE_TTL_SECONDS ?? env?.VFS_COMPILE_CACHE_TTL_SECONDS;
+  const ttl =
+    typeof ttlRaw === "number"
+      ? ttlRaw
+      : typeof ttlRaw === "string" && ttlRaw.trim()
+        ? Number(ttlRaw.trim())
+        : null;
+  if (typeof ttl === "number" && Number.isFinite(ttl) && ttl > 0) {
+    return { ...limits, compileCacheTtlSeconds: Math.trunc(ttl) };
+  }
+  return limits;
 };
 
 export type WorkspaceLimitCheck =

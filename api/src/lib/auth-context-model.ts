@@ -1,4 +1,4 @@
-export type PlanName = "free" | "pro" | "business" | "self-hosted";
+export type PlanName = string;
 
 export type PlanLimits = {
   storage: number;
@@ -59,146 +59,123 @@ export interface AuthContext {
 }
 
 const UNLIMITED = Number.MAX_SAFE_INTEGER;
-const KB = 1024;
-const MB = 1024 * KB;
-const GB = 1024 * MB;
 
-const PLAN_PRESETS: Record<PlanName, PlanInfo> = {
-  free: {
-    name: "free",
-    limits: {
-      storage: 1 * GB, // 1GB
-      fileSize: 5 * MB, // 5MB
-      aiRequests: 0,
-      dmMessagesPerDay: 100,
-      dmMediaSize: 5 * MB, // 5MB
-      vfsStorage: 10 * MB,
-      vfsMaxFiles: 100,
-      vfsMaxFileSize: 100 * KB,
-      vfsMaxWorkspaces: 1,
-      apDeliveryPerMinute: 120,
-      apDeliveryPerDay: 1000,
-      apiRateLimits: {
-        read: { perMinute: 60, perDay: 1000 },
-        write: { perMinute: 10, perDay: 100 },
-      },
-    },
-    features: ["basic_sns", "activitypub", "export", "api_read", "api_write"],
-  },
-  pro: {
-    name: "pro",
-    limits: {
-      storage: 10 * GB, // 10GB
-      fileSize: 25 * MB, // 25MB
-      aiRequests: 1000,
-      dmMessagesPerDay: 1000,
-      dmMediaSize: 25 * MB, // 25MB
-      vfsStorage: 100 * MB,
-      vfsMaxFiles: 1000,
-      vfsMaxFileSize: 1 * MB,
-      vfsMaxWorkspaces: 5,
-      apDeliveryPerMinute: 600,
-      apDeliveryPerDay: 10000,
-      apiRateLimits: {
-        read: { perMinute: 300, perDay: 10000 },
-        write: { perMinute: 60, perDay: 1000 },
-      },
-    },
-    features: [
-      "basic_sns",
-      "activitypub",
-      "export",
-      "api_read",
-      "api_write",
-      "app_customization",
-      "ui_customization",
-      "ai",
-      "custom_domain",
-    ],
-  },
-  business: {
-    name: "business",
-    limits: {
-      storage: 100 * GB, // 100GB
-      fileSize: 100 * MB, // 100MB
-      aiRequests: 10000,
-      dmMessagesPerDay: 10000,
-      dmMediaSize: 100 * MB, // 100MB
-      vfsStorage: 1 * GB,
-      vfsMaxFiles: 10_000,
-      vfsMaxFileSize: 10 * MB,
-      vfsMaxWorkspaces: 20,
-      apDeliveryPerMinute: 2400,
-      apDeliveryPerDay: 100000,
-      apiRateLimits: {
-        read: { perMinute: 1000, perDay: 100000 },
-        write: { perMinute: 300, perDay: 10000 },
-      },
-    },
-    features: [
-      "basic_sns",
-      "activitypub",
-      "export",
-      "api_read",
-      "api_write",
-      "app_customization",
-      "ui_customization",
-      "ai",
-      "custom_domain",
-      "priority_support",
-      "analytics",
-    ],
-  },
-  "self-hosted": {
-    name: "self-hosted",
-    limits: {
-      storage: UNLIMITED,
-      fileSize: UNLIMITED,
-      aiRequests: UNLIMITED,
-      dmMessagesPerDay: UNLIMITED,
-      dmMediaSize: UNLIMITED,
-      vfsStorage: UNLIMITED,
-      vfsMaxFiles: UNLIMITED,
-      vfsMaxFileSize: UNLIMITED,
-      vfsMaxWorkspaces: UNLIMITED,
-      apDeliveryPerMinute: UNLIMITED,
-      apDeliveryPerDay: UNLIMITED,
-      apiRateLimits: {
-        read: { perMinute: UNLIMITED, perDay: UNLIMITED },
-        write: { perMinute: UNLIMITED, perDay: UNLIMITED },
-      },
-    },
-    features: ["*"],
+const DEFAULT_LIMITS: PlanLimits = {
+  storage: UNLIMITED,
+  fileSize: UNLIMITED,
+  aiRequests: UNLIMITED,
+  dmMessagesPerDay: UNLIMITED,
+  dmMediaSize: UNLIMITED,
+  vfsStorage: UNLIMITED,
+  vfsMaxFiles: UNLIMITED,
+  vfsMaxFileSize: UNLIMITED,
+  vfsMaxWorkspaces: UNLIMITED,
+  apDeliveryPerMinute: UNLIMITED,
+  apDeliveryPerDay: UNLIMITED,
+  apiRateLimits: {
+    read: { perMinute: UNLIMITED, perDay: UNLIMITED },
+    write: { perMinute: UNLIMITED, perDay: UNLIMITED },
   },
 };
 
 const PLAN_ENV_KEYS = ["TAKOS_PLAN", "PLAN_TIER", "PLAN_NAME", "PLAN"];
-const DEFAULT_PLAN = PLAN_PRESETS["self-hosted"];
+const DEFAULT_PLAN_NAME = "self-hosted";
+const DEFAULT_PLAN: PlanInfo = {
+  name: DEFAULT_PLAN_NAME,
+  limits: DEFAULT_LIMITS,
+  features: ["*"],
+};
+
+const PLAN_INFO_ENV_KEYS = ["TAKOS_PLAN_INFO", "TAKOS_PLAN_INFO_JSON"];
+const PLAN_LIMITS_ENV_KEYS = ["TAKOS_PLAN_LIMITS", "TAKOS_PLAN_LIMITS_JSON"];
+const PLAN_FEATURES_ENV_KEYS = ["TAKOS_PLAN_FEATURES", "TAKOS_FEATURES"];
 
 const normalizePlanName = (value: unknown): PlanName => {
-  if (typeof value !== "string") return "self-hosted";
+  if (typeof value !== "string") return DEFAULT_PLAN_NAME;
   const normalized = value.trim().toLowerCase();
-  if (normalized === "free") return "free";
-  if (normalized === "pro" || normalized === "paid") return "pro";
-  if (normalized === "business" || normalized === "enterprise" || normalized === "biz") return "business";
-  if (
-    normalized === "self-hosted" ||
-    normalized === "self_hosted" ||
-    normalized === "selfhosted" ||
-    normalized === "oss"
-  ) {
-    return "self-hosted";
+  return normalized || DEFAULT_PLAN_NAME;
+};
+
+const parseJsonEnv = (value: unknown): unknown => {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return null;
   }
-  return "self-hosted";
+};
+
+const pickEnvValue = (env: Record<string, unknown>, keys: string[]): unknown =>
+  keys.map((key) => env[key]).find((value) => value !== undefined && value !== null);
+
+const toFeatureList = (value: unknown): string[] | null => {
+  if (Array.isArray(value)) {
+    const out = value
+      .map((v) => (typeof v === "string" ? v.trim() : ""))
+      .filter((v) => v.length > 0);
+    return out.length ? out : null;
+  }
+  if (typeof value !== "string") return null;
+  const parts = value
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+  return parts.length ? parts : null;
+};
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === "object" && !Array.isArray(value);
+
+const mergeLimits = (base: PlanLimits, overrides: unknown): PlanLimits => {
+  if (!isObject(overrides)) return base;
+  const next: any = { ...base };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (key === "apiRateLimits" && isObject(value)) {
+      next.apiRateLimits = {
+        read: { ...base.apiRateLimits.read, ...(isObject((value as any).read) ? (value as any).read : {}) },
+        write: { ...base.apiRateLimits.write, ...(isObject((value as any).write) ? (value as any).write : {}) },
+      };
+      continue;
+    }
+    next[key] = value;
+  }
+  return next as PlanLimits;
 };
 
 export const resolvePlanFromEnv = (env: Record<string, unknown> | undefined): PlanInfo => {
   if (!env) return DEFAULT_PLAN;
+
   const rawPlan = PLAN_ENV_KEYS.map((key) => env[key]).find(
     (value) => typeof value === "string" && value.trim().length > 0,
   );
   const planName = normalizePlanName(rawPlan);
-  return PLAN_PRESETS[planName] ?? DEFAULT_PLAN;
+
+  const infoCandidate = parseJsonEnv(pickEnvValue(env, PLAN_INFO_ENV_KEYS));
+  if (isObject(infoCandidate)) {
+    const limits = mergeLimits(DEFAULT_LIMITS, (infoCandidate as any).limits);
+    const features =
+      toFeatureList((infoCandidate as any).features) ??
+      toFeatureList(pickEnvValue(env, PLAN_FEATURES_ENV_KEYS)) ??
+      DEFAULT_PLAN.features;
+    const name = normalizePlanName((infoCandidate as any).name ?? planName);
+    return { name, limits, features };
+  }
+
+  const limitsCandidate = parseJsonEnv(pickEnvValue(env, PLAN_LIMITS_ENV_KEYS));
+  const limits = mergeLimits(DEFAULT_LIMITS, limitsCandidate);
+  const features =
+    toFeatureList(pickEnvValue(env, PLAN_FEATURES_ENV_KEYS)) ??
+    DEFAULT_PLAN.features;
+
+  return {
+    name: planName,
+    limits,
+    features,
+  };
 };
 
 export const mapToLocalUser = (user: any): LocalUser | null => {

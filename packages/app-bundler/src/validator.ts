@@ -44,6 +44,7 @@ const isReservedHttpPath = (raw: string): boolean => {
   if (normalized === "/-" || normalized.startsWith("/-/")) return true;
   if (normalized === "/auth" || normalized.startsWith("/auth/")) return true;
   if (normalized === "/.well-known" || normalized.startsWith("/.well-known/")) return true;
+  if (normalized === "/nodeinfo" || normalized.startsWith("/nodeinfo/")) return true;
   return false;
 };
 

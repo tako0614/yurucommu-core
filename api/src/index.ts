@@ -119,6 +119,12 @@ function isValidHandle(handle: string): boolean {
 }
 import { buildPushWellKnownPayload } from "./lib/push-check";
 import {
+  buildTakosAppEnv,
+  buildTakosScheduledAppEnv,
+  loadStoredAppManifest,
+  loadTakosApp,
+} from "./lib/app-sdk-loader";
+import {
   getCronTasksForSchedule,
   validateCronConfig,
 } from "./lib/cron-tasks";
@@ -361,6 +367,70 @@ app.use("*", async (c, next) => {
 
   const response = await router.app.fetch(c.req.raw, c.env, c.executionCtx);
   return response;
+});
+
+// Migrate ActivityPub endpoints to Default App incrementally.
+// When WEBFINGER_FROM_APP is enabled, proxy WebFinger to Default App.
+app.get("/.well-known/webfinger", async (c, next) => {
+  const enabledRaw = (c.env as any)?.WEBFINGER_FROM_APP ?? (c.env as any)?.ACTIVITYPUB_WEBFINGER_FROM_APP;
+  const enabled =
+    enabledRaw === true ||
+    (typeof enabledRaw === "string" &&
+      ["1", "true", "yes", "on"].includes(enabledRaw.trim().toLowerCase()));
+  if (!enabled) return next();
+
+  try {
+    const appId = "default";
+    const appModule = await loadTakosApp(appId, c.env as any);
+    const manifest = await loadStoredAppManifest(c.env as any, appId);
+    const appEnv = buildTakosAppEnv(c, appId, manifest);
+    return await appModule.fetch(c.req.raw, appEnv);
+  } catch (error) {
+    console.warn("[webfinger] failed to proxy to default app, falling back to core handler", error);
+    return next();
+  }
+});
+
+// When ACTOR_FROM_APP is enabled, proxy ActivityPub actor endpoint to Default App.
+app.get("/ap/users/:handle", async (c, next) => {
+  const enabledRaw = (c.env as any)?.ACTOR_FROM_APP ?? (c.env as any)?.ACTIVITYPUB_ACTOR_FROM_APP;
+  const enabled =
+    enabledRaw === true ||
+    (typeof enabledRaw === "string" &&
+      ["1", "true", "yes", "on"].includes(enabledRaw.trim().toLowerCase()));
+  if (!enabled) return next();
+
+  try {
+    const appId = "default";
+    const appModule = await loadTakosApp(appId, c.env as any);
+    const manifest = await loadStoredAppManifest(c.env as any, appId);
+    const appEnv = buildTakosAppEnv(c, appId, manifest);
+    return await appModule.fetch(c.req.raw, appEnv);
+  } catch (error) {
+    console.warn("[actor] failed to proxy to default app, falling back to core handler", error);
+    return next();
+  }
+});
+
+// When OUTBOX_FROM_APP is enabled, proxy ActivityPub outbox endpoint to Default App.
+app.get("/ap/users/:handle/outbox", async (c, next) => {
+  const enabledRaw = (c.env as any)?.OUTBOX_FROM_APP ?? (c.env as any)?.ACTIVITYPUB_OUTBOX_FROM_APP;
+  const enabled =
+    enabledRaw === true ||
+    (typeof enabledRaw === "string" &&
+      ["1", "true", "yes", "on"].includes(enabledRaw.trim().toLowerCase()));
+  if (!enabled) return next();
+
+  try {
+    const appId = "default";
+    const appModule = await loadTakosApp(appId, c.env as any);
+    const manifest = await loadStoredAppManifest(c.env as any, appId);
+    const appEnv = buildTakosAppEnv(c, appId, manifest);
+    return await appModule.fetch(c.req.raw, appEnv);
+  } catch (error) {
+    console.warn("[outbox] failed to proxy to default app, falling back to core handler", error);
+    return next();
+  }
 });
 
 // Mount ActivityPub routes (WebFinger, Actor, Inbox, Outbox)
@@ -2206,6 +2276,29 @@ async function runScheduledTasksForCron(event: ScheduledEvent, env: any): Promis
   }
 }
 
+async function runDefaultAppScheduled(event: ScheduledEvent, env: any): Promise<void> {
+  const enabledRaw = env?.DEFAULT_APP_SCHEDULED ?? env?.APP_SCHEDULED_FROM_DEFAULT_APP;
+  const enabled =
+    enabledRaw === true ||
+    (typeof enabledRaw === "string" &&
+      ["1", "true", "yes", "on"].includes(enabledRaw.trim().toLowerCase()));
+  if (!enabled) return;
+
+  try {
+    const appId = "default";
+    const appModule = await loadTakosApp(appId, env);
+    const scheduled = (appModule as any)?.scheduled;
+    if (typeof scheduled !== "function") return;
+
+    const manifest = await loadStoredAppManifest(env, appId);
+    const appEnv = buildTakosScheduledAppEnv(env, appId, manifest);
+    const ctx = { waitUntil: async (p: Promise<any>) => p } as any;
+    await scheduled(event, appEnv, ctx);
+  } catch (error) {
+    console.error("[cron] default app scheduled failed", error);
+  }
+}
+
 export async function handleScheduled(event: ScheduledEvent, env: any): Promise<void> {
   console.log("Scheduled event triggered:", event.cron);
   let envWithConfig: any = env;
@@ -2218,4 +2311,5 @@ export async function handleScheduled(event: ScheduledEvent, env: any): Promise<
 
   await ensureCronValidation(envWithConfig as Bindings);
   await runScheduledTasksForCron(event, envWithConfig);
+  await runDefaultAppScheduled(event, envWithConfig);
 }

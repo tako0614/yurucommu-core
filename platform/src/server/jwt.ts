@@ -51,6 +51,11 @@ function base64urlDecode(str: string): Uint8Array {
   return bytes;
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  // Always return an ArrayBuffer (not a SharedArrayBuffer) for WebCrypto BufferSource typing.
+  return new Uint8Array(bytes).buffer;
+}
+
 // Create JWT
 export async function createJWT(
   userId: string,
@@ -112,12 +117,12 @@ export async function verifyJWT(
       ['verify']
     );
 
-    const signature = base64urlDecode(encodedSignature);
+    const signature = toArrayBuffer(base64urlDecode(encodedSignature));
     const valid = await crypto.subtle.verify(
       'HMAC',
       key,
       signature,
-      new TextEncoder().encode(data)
+      toArrayBuffer(new TextEncoder().encode(data))
     );
 
     if (!valid) return null;

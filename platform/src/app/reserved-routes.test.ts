@@ -11,6 +11,7 @@ describe("reserved routes", () => {
     expect(isReservedHttpPath("/auth/login")).toBe(true);
     expect(isReservedHttpPath("/auth/logout")).toBe(true);
     expect(isReservedHttpPath("/.well-known/webfinger")).toBe(true);
+    expect(isReservedHttpPath("/nodeinfo/2.0")).toBe(true);
   });
 
   it("does not reserve unrelated paths", () => {

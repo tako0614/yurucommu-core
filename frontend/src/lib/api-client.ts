@@ -433,6 +433,26 @@ function maybeJson(body: BodyInit | Record<string, unknown> | null | undefined) 
   return JSON.stringify(body);
 }
 
+function extractErrorMessage(payload: unknown, status: number): string {
+  if (payload && typeof payload === "object") {
+    const record = payload as Record<string, unknown>;
+    if (typeof record.message === "string" && record.message.trim()) {
+      return record.message;
+    }
+    if (typeof record.error === "string" && record.error.trim()) {
+      return record.error;
+    }
+    if (typeof record.code === "string" && record.code.trim()) {
+      return record.code;
+    }
+  }
+  return `HTTP ${status}`;
+}
+
+function isLegacyOkFalse(payload: unknown): boolean {
+  return !!(payload && typeof payload === "object" && (payload as any).ok === false);
+}
+
 // Base API fetch function
 async function apiFetch<T = unknown>(path: string, init: ApiRequestInit = {}): Promise<T> {
   const backendUrl = getBackendUrl();
@@ -460,8 +480,8 @@ async function apiFetch<T = unknown>(path: string, init: ApiRequestInit = {}): P
   });
 
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || json?.ok === false) {
-    throw new ApiError(json.error || `HTTP ${res.status}`, res.status, json);
+  if (!res.ok || isLegacyOkFalse(json)) {
+    throw new ApiError(extractErrorMessage(json, res.status), res.status, json);
   }
   return (json.data ?? json) as T;
 }
@@ -582,8 +602,8 @@ export async function uploadMedia(file: File): Promise<string> {
     body: fd,
   });
   const json: any = await res.json().catch(() => ({}));
-  if (!res.ok || json?.ok === false) {
-    throw new Error(json.error || `HTTP ${res.status}`);
+  if (!res.ok || isLegacyOkFalse(json)) {
+    throw new Error(extractErrorMessage(json, res.status));
   }
   const url = json.data?.url || json.url || "";
   if (typeof url === "string" && url.startsWith("/")) {
@@ -769,8 +789,8 @@ export async function uploadStorage(file: File): Promise<string> {
     body: fd,
   });
   const json: any = await res.json().catch(() => ({}));
-  if (!res.ok || json?.ok === false) {
-    throw new Error(json.error || `HTTP ${res.status}`);
+  if (!res.ok || isLegacyOkFalse(json)) {
+    throw new Error(extractErrorMessage(json, res.status));
   }
   const url = json.data?.url || json.url || "";
   if (typeof url === "string" && url.startsWith("/")) {

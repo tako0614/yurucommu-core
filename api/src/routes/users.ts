@@ -15,14 +15,23 @@ import {
 } from "../services";
 import { buildTakosAppEnv, loadStoredAppManifest, loadTakosApp } from "../lib/app-sdk-loader";
 
+type ProxyToDefaultAppOptions = RequestInit & { search?: string };
+
 // Helper to proxy requests to Default App for Block/Mute operations
-const proxyToDefaultApp = async (c: any, pathname: string, options?: RequestInit): Promise<Response> => {
+const proxyToDefaultApp = async (
+  c: any,
+  pathname: string,
+  options?: ProxyToDefaultAppOptions,
+): Promise<Response> => {
   const appId = "default";
   const app = await loadTakosApp(appId, c.env);
   const manifest = await loadStoredAppManifest(c.env, appId);
   const appEnv = buildTakosAppEnv(c, appId, manifest);
   const url = new URL(c.req.url);
   url.pathname = pathname;
+  if (typeof options?.search === "string") {
+    url.search = options.search;
+  }
   const req = new Request(url.toString(), {
     method: options?.method ?? c.req.method,
     headers: options?.headers ?? c.req.raw.headers,
@@ -58,23 +67,6 @@ const readJson = async (res: Response): Promise<any> => {
   } catch {
     return null;
   }
-};
-
-const proxyToDefaultApp = async (
-  c: any,
-  pathname: string,
-  search: string = "",
-): Promise<Response> => {
-  const appId = "default";
-  const app = await loadTakosApp(appId, c.env);
-  const manifest = await loadStoredAppManifest(c.env, appId);
-  const appEnv = buildTakosAppEnv(c, appId, manifest);
-
-  const url = new URL(c.req.url);
-  url.pathname = pathname;
-  url.search = search;
-  const req = new Request(url.toString(), c.req.raw);
-  return await app.fetch(req, appEnv);
 };
 
 export function parseActorToUserId(actorUri: string, instanceDomain: string): string {

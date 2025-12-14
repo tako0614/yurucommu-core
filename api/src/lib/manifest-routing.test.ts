@@ -11,6 +11,64 @@ import {
 import { setBackendDataFactory, getDefaultDataFactory } from "../data";
 import { setAppScriptLoader } from "./app-script-loader";
 
+const createMockD1 = () => {
+  const tables = new Map<string, Map<string, any>>();
+
+  const getTable = (sql: string): string | null => {
+    const match =
+      sql.match(/FROM\s+"([^"]+)"/i) ??
+      sql.match(/INTO\s+"([^"]+)"/i) ??
+      sql.match(/UPDATE\s+"([^"]+)"/i) ??
+      sql.match(/TABLE IF NOT EXISTS\s+"([^"]+)"/i);
+    return match?.[1] ?? null;
+  };
+
+  const db: any = {
+    prepare(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim().toUpperCase();
+      const table = getTable(sql);
+      let bound: any[] = [];
+      const stmt: any = {
+        bind: (...args: any[]) => {
+          bound = args;
+          return stmt;
+        },
+        run: async () => {
+          if (normalized.startsWith("CREATE TABLE IF NOT EXISTS")) {
+            if (table && !tables.has(table)) tables.set(table, new Map());
+            return { success: true };
+          }
+          if (normalized.startsWith("INSERT INTO")) {
+            if (!table) throw new Error("missing table");
+            if (!tables.has(table)) tables.set(table, new Map());
+            const [id, data, createdAt, updatedAt] = bound;
+            tables.get(table)!.set(String(id), {
+              id: String(id),
+              data,
+              created_at: createdAt,
+              updated_at: updatedAt,
+            });
+            return { meta: { changes: 1 } };
+          }
+          throw new Error(`Unsupported SQL for run(): ${sql}`);
+        },
+        all: async () => {
+          if (!table) throw new Error("missing table");
+          const store = tables.get(table) ?? new Map();
+          if (normalized.startsWith("SELECT \"ID\", \"DATA\"")) {
+            return { results: Array.from(store.values()) };
+          }
+          throw new Error(`Unsupported SQL for all(): ${sql}`);
+        },
+        first: async () => null,
+      };
+      return stmt;
+    },
+  };
+
+  return db;
+};
+
 const baseManifest: Omit<AppManifest, "routes"> = {
   schemaVersion: "1.0",
   version: "1.0.0",
@@ -126,6 +184,36 @@ describe("manifest routing", () => {
     expect(await response.json()).toEqual({ authed: true });
     expect(authCalls).toBe(1);
     expect(matchesManifestRoute(router, "GET", "/secure")).toBe(true);
+  });
+
+  it("provides ctx.db(app:*) for manifest handlers (Collection API)", async () => {
+    clearManifestRouterCache();
+    const manifest: AppManifest = {
+      ...baseManifest,
+      routes: [{ id: "db", method: "GET", path: "/db", handler: "db" }],
+    };
+    const registry = AppHandlerRegistry.fromModule({
+      db: async (ctx: any) => {
+        const notes = ctx.db("app:notes");
+        const created = await notes.create({ title: "hello" });
+        return ctx.json({ id: created.id, title: created.title });
+      },
+    });
+
+    const router = createManifestRouter({
+      manifest,
+      registry,
+      revisionId: "rev_db",
+      source: "test",
+    });
+
+    const env: any = { DB: createMockD1() };
+    const execCtx: any = { waitUntil: () => {}, passThroughOnException: () => {} };
+    const res = await router.app.fetch(new Request("https://example.test/db"), env, execCtx);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ title: "hello" });
+    expect(typeof body.id).toBe("string");
   });
 
   it("honors the opt-in flag from environment variables", () => {

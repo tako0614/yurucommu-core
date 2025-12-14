@@ -3,6 +3,8 @@ import {
   AppHandlerRegistry,
   mountManifestRoutes,
   isReservedHttpPath,
+  CORE_SCREEN_ROUTES,
+  findCoreRouteOwner,
   type ManifestRouteHandler,
   type AppManifest,
   loadAppManifest,
@@ -27,6 +29,7 @@ import { getAppAuthContext } from "./auth-context";
 import { loadAppRegistryFromScript } from "./app-script-loader";
 import uiContractJson from "../../../schemas/ui-contract.json";
 import { buildCoreServices } from "./core-services";
+import { createAppCollectionFactory } from "./app-collections";
 
 export type ManifestRouterInstance = {
   app: Hono;
@@ -329,19 +332,7 @@ const isReservedRoute = (path: string): boolean => {
   return isReservedHttpPath(normalizeRouteKey(path));
 };
 
-const CORE_ROUTES: Record<string, string> = {
-  "/": "screen.home",
-  "/onboarding": "screen.onboarding",
-  "/profile": "screen.profile",
-  "/profile/edit": "screen.profile_edit",
-  "/settings": "screen.settings",
-  "/notifications": "screen.notifications",
-  "/@:handle": "screen.user_profile",
-};
-
-const CORE_ROUTE_BY_ID: Record<string, string> = Object.fromEntries(
-  Object.entries(CORE_ROUTES).map(([path, id]) => [id, path]),
-);
+const CORE_ROUTE_BY_ID: Record<string, string> = CORE_SCREEN_ROUTES;
 
 const normalizeInput = async (c: any): Promise<Record<string, unknown>> => {
   const url = new URL(c.req.url);
@@ -460,18 +451,11 @@ const buildPathMatcher = (method: string, path: string): RouteMatcher => {
   };
 };
 
-const CORE_ROUTE_MATCHERS = Object.entries(CORE_ROUTES).map(([path, screenId]) => ({
-  path,
-  screenId,
-  matcher: buildPathMatcher("ANY", path),
-}));
-
 const findCoreRouteMatch = (pathname: string): { path: string; screenId: string } | null => {
   const normalized = normalizeRouteKey(pathname);
-  for (const entry of CORE_ROUTE_MATCHERS) {
-    if (entry.matcher.test(normalized)) return { path: entry.path, screenId: entry.screenId };
-  }
-  return null;
+  const owner = findCoreRouteOwner(normalized);
+  if (!owner) return null;
+  return { path: owner.path, screenId: owner.screenId };
 };
 
 const parseManifestSnapshot = (snapshot: unknown): AppManifest | null => {
@@ -1053,15 +1037,19 @@ export const createManifestRouter = (options: {
   scriptSource?: string;
   validationIssues?: AppManifestValidationIssue[];
 }): ManifestRouterInstance => {
-  const sandbox = createAppSandbox({
-    registry: options.registry,
-    mode: "prod",
-    logSink: (entry) => console.log("[app]", entry),
-  });
-
   const resolveHandler = (name: string) => {
     if (!options.registry.get(name)) return undefined;
     const honoHandler: ManifestRouteHandler = async (c: any) => {
+      const sandbox = createAppSandbox({
+        registry: options.registry,
+        mode: "prod",
+        resolveDb: (collectionName, info) => {
+          const factory = createAppCollectionFactory(c.env as Bindings, "active", info.workspaceId ?? null);
+          return factory(collectionName);
+        },
+        logSink: (entry) => console.log("[app]", entry),
+      });
+
       let services: CoreServices;
       try {
         services = buildCoreServices(c.env as Bindings);

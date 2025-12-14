@@ -2,10 +2,217 @@ import { Hono } from "hono";
 import type { TakosApp, AppEnv } from "@takos/app-sdk/server";
 import { json, error, parseBody, parseQuery } from "@takos/app-sdk/server";
 import { canonicalizeParticipants, computeParticipantsHash } from "@takos/platform/activitypub/chat";
+import {
+  generateOrderedCollection,
+  generateOrderedCollectionPage,
+  generatePersonActor,
+  generateWebFinger,
+} from "@takos/platform/activitypub/activitypub";
+import { processDeliveryQueue } from "@takos/platform/activitypub/delivery-worker-prisma";
+import { handleCleanupScheduled } from "@takos/platform/activitypub/cleanup-worker";
+import { ensureUserKeyPair } from "@takos/platform/auth/crypto-keys";
+import { makeData } from "@takos/platform/server/data-factory";
+import { authenticateJWT } from "@takos/platform/server/jwt";
 
 const router = new Hono<{ Bindings: AppEnv }>();
 
 router.get("/health", (c) => c.text("ok"));
+
+const createSystemCtx = () =>
+  ({
+    userId: null,
+    sessionId: null,
+    isAuthenticated: false,
+    plan: { name: "system", limits: {}, features: [] },
+    limits: {},
+  }) as any;
+
+const cleanupExpiredStories = async (env: AppEnv): Promise<{ deleted: number; checked: number }> => {
+  const objects = (env as any)?.core?.objects;
+  if (!objects?.query || !objects?.delete) {
+    console.warn("[default-app] core.objects is not available; skipping story cleanup");
+    return { deleted: 0, checked: 0 };
+  }
+
+  const systemCtx = createSystemCtx();
+  const limit = 100;
+  const now = new Date().toISOString();
+  let deleted = 0;
+  let checked = 0;
+
+  const page = await objects.query(systemCtx, { type: "Note", limit, includeDeleted: false });
+  for (const obj of page?.items ?? []) {
+    const story = obj?.["takos:story"] as { expiresAt?: string } | undefined;
+    if (!story?.expiresAt) continue;
+    checked += 1;
+    if (story.expiresAt < now) {
+      try {
+        await objects.delete(systemCtx, obj.id);
+        deleted += 1;
+      } catch (error) {
+        console.error("[default-app] failed to delete expired story", obj?.id, error);
+      }
+    }
+  }
+  return { deleted, checked };
+};
+
+router.get("/.well-known/webfinger", async (c) => {
+  const url = new URL(c.req.url);
+  const resource = url.searchParams.get("resource")?.trim() ?? "";
+  if (!resource) return error("Missing resource", 400);
+
+  const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
+  const protocol = url.protocol.replace(":", "") || "https";
+
+  const parseAcct = (acct: string): { handle: string; domain: string } | null => {
+    const normalized = acct.startsWith("acct:") ? acct.slice("acct:".length) : acct;
+    const parts = normalized.split("@").filter(Boolean);
+    if (parts.length !== 2) return null;
+    const handle = parts[0].replace(/^@+/, "").trim();
+    const acctDomain = parts[1].trim();
+    if (!handle || !acctDomain) return null;
+    return { handle, domain: acctDomain };
+  };
+
+  let handle: string | null = null;
+  const acct = resource.startsWith("acct:") ? parseAcct(resource) : null;
+  if (acct) {
+    if (acct.domain !== domain) return error("Not found", 404);
+    handle = acct.handle;
+  } else if (resource.startsWith("http://") || resource.startsWith("https://")) {
+    try {
+      const asUrl = new URL(resource);
+      const match = asUrl.pathname.match(/^\/ap\/users\/([^/]+)(?:\/|$)/);
+      if (match?.[1]) handle = match[1];
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!handle) return error("Not found", 404);
+
+  const actors = (c.env as any)?.core?.actors;
+  if (!actors?.getByHandle) return error("Core services unavailable", 503);
+  const actor = await actors.getByHandle(createSystemCtx(), handle);
+  if (!actor) return error("Not found", 404);
+
+  const webfinger = generateWebFinger(handle, domain, protocol);
+  const res = json(webfinger);
+  res.headers.set("Content-Type", "application/jrd+json");
+  res.headers.set("Cache-Control", "public, max-age=300, immutable");
+  return res;
+});
+
+router.get("/ap/users/:handle", async (c) => {
+  const handle = c.req.param("handle");
+  const accept = c.req.header("accept") || c.req.header("Accept") || "";
+  const isActivityPub = accept.includes("application/activity+json") || accept.includes("application/ld+json");
+  if (!isActivityPub) {
+    return c.redirect(`/@${handle}`);
+  }
+
+  const url = new URL(c.req.url);
+  const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
+  const protocol = url.protocol.replace(":", "") || "https";
+
+  const actors = (c.env as any)?.core?.actors;
+  if (!actors?.getByHandle) return error("Core services unavailable", 503);
+  const actorProfile = await actors.getByHandle(createSystemCtx(), handle);
+  if (!actorProfile) return error("Not found", 404);
+
+  let publicKeyPem: string | undefined;
+  const dbLike = (c.env as any)?.DB;
+  if (dbLike && typeof dbLike.prepare === "function") {
+    let store: any | null = null;
+    try {
+      store = makeData(c.env as any);
+      const existing = await store.getApKeypair?.(actorProfile?.id ?? handle);
+      if (existing?.public_key_pem) {
+        publicKeyPem = existing.public_key_pem;
+      } else {
+        const generated = await ensureUserKeyPair(store, c.env as any, actorProfile?.id ?? handle);
+        publicKeyPem = generated.publicKeyPem;
+      }
+    } catch (error) {
+      console.warn("[default-app] failed to load/generate actor keypair", error);
+    } finally {
+      if (store) {
+        await store.disconnect?.();
+      }
+    }
+  }
+
+  const actor = generatePersonActor(actorProfile, domain, protocol, publicKeyPem);
+  const res = json(actor);
+  res.headers.set("Content-Type", "application/activity+json; charset=utf-8");
+  return res;
+});
+
+router.get("/ap/users/:handle/outbox", async (c) => {
+  const store = makeData(c.env as any);
+  try {
+    const jwtResult = await authenticateJWT(c as any, {
+      getUser: (id: string) => store.getUser(id),
+      getUserJwtSecret: (userId: string) => store.getUserJwtSecret(userId),
+      setUserJwtSecret: (userId: string, secret: string) =>
+        store.setUserJwtSecret ? store.setUserJwtSecret(userId, secret) : Promise.resolve(),
+    } as any);
+
+    const handle = c.req.param("handle");
+    const viewer = (jwtResult as any)?.user ?? null;
+    if (!viewer || viewer.id !== handle) {
+      return error("Unauthorized", 401);
+    }
+
+    const url = new URL(c.req.url);
+    const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
+    const protocol = url.protocol.replace(":", "") || "https";
+    const outboxUrl = `${protocol}://${domain}/ap/users/${handle}/outbox`;
+
+    const query = parseQuery(c.req.raw);
+    const pageRaw = query.page;
+
+    if (!pageRaw) {
+      const totalItems = await store.countApOutboxActivities(handle);
+      const collection = generateOrderedCollection(outboxUrl, totalItems, `${outboxUrl}?page=1`);
+      const res = json(collection);
+      res.headers.set("Content-Type", "application/activity+json; charset=utf-8");
+      return res;
+    }
+
+    const limit = 20;
+    const pageNum = Math.max(1, parseInt(pageRaw, 10) || 1);
+    const offset = (pageNum - 1) * limit;
+    const totalItems = await store.countApOutboxActivities(handle);
+    const activities = await store.listApOutboxActivitiesPage(handle, limit, offset);
+    const orderedItems = (activities || [])
+      .map((row: any) => {
+        try {
+          return JSON.parse(row.activity_json);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+
+    const collectionPage = generateOrderedCollectionPage(
+      `${outboxUrl}?page=${pageNum}`,
+      outboxUrl,
+      orderedItems,
+      totalItems,
+      offset,
+      orderedItems.length === limit ? `${outboxUrl}?page=${pageNum + 1}` : undefined,
+      pageNum > 1 ? `${outboxUrl}?page=${pageNum - 1}` : undefined,
+    );
+
+    const res = json(collectionPage);
+    res.headers.set("Content-Type", "application/activity+json; charset=utf-8");
+    return res;
+  } finally {
+    await store.disconnect?.();
+  }
+});
 
 const parsePagination = (query: Record<string, string>, defaults = { limit: 20, offset: 0 }) => {
   const limit = Math.min(
@@ -18,7 +225,7 @@ const parsePagination = (query: Record<string, string>, defaults = { limit: 20, 
 };
 
 const readCoreData = async <T,>(res: Response): Promise<T> => {
-  const payload = await res.json<any>().catch(() => null);
+  const payload = (await res.json().catch(() => null)) as any;
   if (payload && typeof payload === "object" && payload.ok === true && "data" in payload) {
     return payload.data as T;
   }
@@ -451,7 +658,7 @@ router.delete("/blocks/:targetId", async (c) => {
     // Query for Block objects targeting this user
     const res = await c.env.fetch(`/-/api/objects?type=Block&limit=50`);
     if (res.ok) {
-      const data = await res.json<any>();
+      const data = (await res.json().catch(() => null)) as any;
       const objects = data?.data?.items ?? data?.items ?? [];
       for (const obj of objects) {
         if (obj.object === targetId || obj["takos:object"] === targetId) {
@@ -1319,7 +1526,7 @@ router.delete("/stories/:id", async (c) => {
   const id = c.req.param("id");
   const existingRes = await c.env.fetch(`/objects/${encodeURIComponent(id)}`);
   if (!existingRes.ok) return error("story not found", 404);
-  const existing = await existingRes.json<any>();
+  const existing = (await existingRes.json().catch(() => null)) as any;
   if (!existing?.["takos:story"]) return error("story not found", 404);
   if (existing.actor !== c.env.auth.userId) return error("Only the author can delete this story", 403);
   const res = await c.env.fetch(`/objects/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -1329,6 +1536,31 @@ router.delete("/stories/:id", async (c) => {
 
 const app: TakosApp = {
   fetch: router.fetch,
+  scheduled: async (event: ScheduledEvent, env: AppEnv, _ctx: ExecutionContext) => {
+    if (!event?.cron) return;
+
+    // Every 5 minutes: delivery + story cleanup
+    if (event.cron === "*/5 * * * *") {
+      if ((env as any)?.DB) {
+        await processDeliveryQueue(env as any, 20).catch((error) => {
+          console.error("[default-app] delivery queue processing failed", error);
+        });
+      }
+      await cleanupExpiredStories(env).catch((error) => {
+        console.error("[default-app] story cleanup failed", error);
+      });
+      return;
+    }
+
+    // Weekly cleanup (example cron in PLAN)
+    if (event.cron === "0 4 * * 0") {
+      if ((env as any)?.DB) {
+        await handleCleanupScheduled(event as any, env as any).catch((error) => {
+          console.error("[default-app] cleanup worker failed", error);
+        });
+      }
+    }
+  },
 };
 
 export default app;

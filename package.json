@@ -26,7 +26,7 @@
     "config:diff": "node --import tsx scripts/api/config-tools.ts diff",
     "config:import": "node --import tsx scripts/api/config-tools.ts import",
     "ui:contract": "node --import tsx scripts/ui-contract.ts",
-    "ui:contract:legacy": "node frontend/scripts/validate-ui-contract.mjs",
+    "ui:contract:legacy": "node --import tsx frontend/scripts/validate-ui-contract.mjs",
     "ui:contract:generate": "node frontend/scripts/generate-ui-contract.mjs"
   },
   "dependencies": {

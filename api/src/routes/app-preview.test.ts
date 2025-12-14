@@ -215,7 +215,7 @@ describe("/-/app/preview/screen", () => {
         screenId: "screen.home",
         viewMode: "json",
       },
-      { ...createWorkspaceEnv(), PLAN: "free" },
+      { ...createWorkspaceEnv(), TAKOS_PLAN: "test", TAKOS_PLAN_FEATURES: "basic_sns", TAKOS_PLAN_LIMITS: {} },
     );
 
     expect(res.status).toBe(402);

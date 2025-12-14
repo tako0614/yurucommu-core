@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { isReservedHttpPath } from "@takos/platform/app/reserved-routes";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
@@ -12,7 +13,6 @@ const viewsDir = path.resolve(repoRoot, "app", "views");
 const sideNavPath = path.resolve(repoRoot, "frontend", "src", "components", "Navigation", "SideNav.tsx");
 const appTabPath = path.resolve(repoRoot, "frontend", "src", "components", "Navigation", "AppTab.tsx");
 const EXPECTED_SCHEMA_VERSION = "1.10";
-const RESERVED_ROUTES = ["/login", "/logout", "/auth", "/auth/*", "/-", "/-/*", "/.well-known", "/.well-known/*"];
 const REQUIRED_SCREENS = [
   "screen.home",
   "screen.community",
@@ -165,7 +165,7 @@ function patternSamples(pattern) {
 
 function isReservedRoute(pattern) {
   const normalized = normalizeRoutePattern(pattern);
-  return RESERVED_ROUTES.some((reserved) => patternToRegExp(reserved).test(normalized));
+  return isReservedHttpPath(normalized);
 }
 
 function patternsIntersect(a, b) {

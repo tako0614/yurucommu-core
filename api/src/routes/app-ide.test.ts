@@ -45,7 +45,7 @@ describe("/-/dev/ide", () => {
     const res = await appIde.request(
       "/-/dev/ide/types",
       { method: "GET", headers: await authHeaders() },
-      buildEnv({ PLAN: "pro" }),
+      buildEnv({ TAKOS_PLAN: "test", TAKOS_PLAN_FEATURES: "app_customization", TAKOS_PLAN_LIMITS: {} }),
     );
 
     expect(res.status).toBe(200);
@@ -54,4 +54,3 @@ describe("/-/dev/ide", () => {
     expect(json.data?.files?.[0]?.content).toContain("declare module");
   });
 });
-

@@ -577,7 +577,7 @@ async function executeApiAction(action: ApiActionConfig, context?: UiRuntimeCont
     const response = await fetch(url, requestInit);
     const json = await response.json().catch(() => ({}));
     if (!response.ok || json?.ok === false) {
-      throw new Error(json?.error || `HTTP ${response.status}`);
+      throw new Error(json?.message || json?.error || json?.code || `HTTP ${response.status}`);
     }
     const result = json?.data ?? json;
     if (action.onSuccess) {
