@@ -18,6 +18,9 @@ import { buildCoreServices } from "../lib/core-services";
 import { createAiAuditLogger } from "../lib/ai-audit";
 import { getAppAuthContext } from "../lib/auth-context";
 import { createUsageTrackerFromEnv } from "../lib/usage-tracker";
+import { ensureAiCallAllowed } from "../lib/ai-rate-limit";
+import { makeData } from "../data";
+import { releaseStore } from "@takos/platform/server";
 
 registerBuiltinAiActions();
 
@@ -75,6 +78,16 @@ ai.post("/api/ai/actions/:id/run", auth, async (c) => {
     return fail(c, "takos-config is not available for this node", 500);
   }
 
+  if (agentGuard.agentType) {
+    const allowlist = nodeConfig.ai?.agent_tool_allowlist;
+    const normalized = Array.isArray(allowlist)
+      ? allowlist.map((v) => String(v ?? "").trim()).filter(Boolean)
+      : [];
+    if (normalized.length > 0 && !normalized.includes("*") && !normalized.includes("tool.runAIAction")) {
+      return fail(c, "agent is not allowed to call tool.runAIAction on this node", 403);
+    }
+  }
+
   const aiConfig = mergeTakosAiConfig(DEFAULT_TAKOS_AI_CONFIG, nodeConfig.ai ?? {});
   const normalizedConfig: TakosConfig = { ...nodeConfig, ai: aiConfig };
 
@@ -87,6 +100,11 @@ ai.post("/api/ai/actions/:id/run", auth, async (c) => {
 
   if (aiConfig.requires_external_network === false) {
     return fail(c, "AI external network access is disabled for this node", 503);
+  }
+
+  const rateLimit = await ensureAiCallAllowed(c.env as any, authContext, { agentType: agentGuard.agentType });
+  if (!rateLimit.ok) {
+    return fail(c, rateLimit.message, rateLimit.status, { code: rateLimit.code, details: rateLimit.details });
   }
 
   const services = buildCoreServices(c.env as Bindings);
@@ -128,6 +146,30 @@ ai.post("/api/ai/actions/:id/run", auth, async (c) => {
   } catch (error: unknown) {
     const mapped = mapDispatchError(error);
     return fail(c, mapped.message, mapped.status);
+  }
+});
+
+ai.get("/api/ai/audit", auth, async (c) => {
+  const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
+  if (!authContext?.isAuthenticated) {
+    return fail(c, "Forbidden", 403);
+  }
+
+  const agentGuard = guardAgentRequest(c.req, { forbidAgents: true });
+  if (!agentGuard.ok) {
+    return fail(c, agentGuard.error, agentGuard.status);
+  }
+
+  const limit = Math.max(1, Math.min(500, parseInt(c.req.query("limit") ?? "100", 10) || 100));
+  const store = makeData(c.env as any);
+  try {
+    if (typeof (store as any).listAuditLogs !== "function") {
+      return fail(c, "audit log listing is not supported by this node", 501);
+    }
+    const entries = await (store as any).listAuditLogs(limit, { actionPrefix: "ai." });
+    return ok(c, { entries });
+  } finally {
+    await releaseStore(store as any);
   }
 });
 

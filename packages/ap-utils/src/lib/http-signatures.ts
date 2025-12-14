@@ -82,7 +82,7 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return copy.buffer;
 }
 
-export async function signRequest(request: Request, privateKeyPem: string, keyId: string): Promise<Request> {
+export async function signRequest(request: Request, keyId: string, privateKeyPem: string): Promise<Request> {
   const url = request.url;
   const method = request.method;
   const headers = new Headers(request.headers);

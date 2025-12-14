@@ -90,6 +90,7 @@ export type TakosAiConfig = {
   providers?: Record<string, TakosAiProviderConfig>;
   data_policy?: TakosAiDataPolicy;
   agent_config_allowlist?: string[];
+  agent_tool_allowlist?: string[];
   [key: string]: unknown;
 };
 
@@ -144,6 +145,7 @@ export const DEFAULT_TAKOS_AI_CONFIG: TakosAiConfig = {
   providers: {},
   data_policy: { send_public_posts: true, send_dm: false },
   agent_config_allowlist: [],
+  agent_tool_allowlist: [],
 };
 
 const normalizeAllowlist = (allowlist?: unknown): string[] => {
@@ -184,6 +186,7 @@ export function mergeTakosAiConfig(
   };
 
   const agent_config_allowlist = normalizeAllowlist(working.agent_config_allowlist);
+  const agent_tool_allowlist = normalizeAllowlist(working.agent_tool_allowlist);
 
   return {
     ...DEFAULT_TAKOS_AI_CONFIG,
@@ -192,6 +195,7 @@ export function mergeTakosAiConfig(
     providers: working.providers ?? DEFAULT_TAKOS_AI_CONFIG.providers,
     data_policy,
     agent_config_allowlist,
+    agent_tool_allowlist,
   };
 }
 
@@ -559,6 +563,14 @@ export function validateTakosConfig(config: unknown): TakosConfigValidationResul
           errors.push("ai.agent_config_allowlist: expected string[]");
         } else if (config.ai.agent_config_allowlist.some((item) => item.trim().length === 0)) {
           errors.push("ai.agent_config_allowlist: entries must be non-empty strings");
+        }
+      }
+
+      if (config.ai.agent_tool_allowlist !== undefined) {
+        if (!isStringArray(config.ai.agent_tool_allowlist)) {
+          errors.push("ai.agent_tool_allowlist: expected string[]");
+        } else if (config.ai.agent_tool_allowlist.some((item) => item.trim().length === 0)) {
+          errors.push("ai.agent_tool_allowlist: entries must be non-empty strings");
         }
       }
     }

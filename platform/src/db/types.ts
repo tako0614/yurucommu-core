@@ -34,6 +34,7 @@ export interface ActorRecord {
   visibility?: string | null;
   profile_completed_at?: NullableDate;
   jwt_secret?: string | null;
+  password_hash?: string | null;
   metadata_json?: string | null;
   created_at?: NullableDate;
   updated_at?: NullableDate;
@@ -61,6 +62,7 @@ export interface ActorInput {
   visibility?: string | null;
   profile_completed_at?: NullableDate;
   jwt_secret?: string | null;
+  password_hash?: string | null;
   metadata_json?: string | null;
   created_at?: NullableDate;
   updated_at?: NullableDate;

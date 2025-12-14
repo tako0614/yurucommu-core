@@ -35,7 +35,6 @@ import {
   queueImmediateDelivery,
   createUserJWT,
   authenticateJWT,
-  activityPubRoutes,
   resolveDevDataIsolation,
   setDataFactory,
   setPrismaFactory,
@@ -87,8 +86,6 @@ import appCompileRoutes from "./routes/app-compile";
 import appIdeRoutes from "./routes/app-ide";
 import { appApiRouter } from "./routes/app-api";
 import cronHealthRoutes from "./routes/cron-health";
-import activityPubMetadataRoutes from "./routes/activitypub-metadata.js";
-import activityPubExtensionsRoutes from "./routes/activitypub-extensions.js";
 import coreRecoveryRoutes from "./routes/core-recovery";
 import appManifestRoutes from "./routes/app-manifest";
 import objectsRoutes from "./routes/objects";
@@ -383,7 +380,6 @@ const proxyDefaultAppStrict = async (c: any, label: string) => {
 };
 
 // ActivityPub endpoints are handled by the Default App.
-// Core implementation is kept as a fallback behind explicit routing (see activityPubRoutes mount below).
 app.get("/.well-known/webfinger", async (c) => proxyDefaultAppStrict(c, "webfinger"));
 app.get("/.well-known/nodeinfo", async (c) => proxyDefaultAppStrict(c, "nodeinfo"));
 app.get("/nodeinfo/2.0", async (c) => proxyDefaultAppStrict(c, "nodeinfo"));
@@ -397,12 +393,6 @@ app.get("/ap/users/:handle/followers", async (c) => proxyDefaultAppStrict(c, "fo
 app.get("/ap/users/:handle/following", async (c) => proxyDefaultAppStrict(c, "following"));
 app.get("/ap/groups/:id", async (c) => proxyDefaultAppStrict(c, "group"));
 
-// Mount ActivityPub routes (WebFinger, Actor, Inbox, Outbox)
-// ActivityPub routes define their own full paths (/ap/..., /.well-known/..., /nodeinfo/...)
-// so we mount at root.
-app.route("/", activityPubRoutes);
-app.route("/", activityPubMetadataRoutes);
-app.route("/", activityPubExtensionsRoutes);
 app.route("/", coreRecoveryRoutes);
 
 // Mount App Manifest endpoint
@@ -2173,17 +2163,11 @@ export function createTakosRoot(
   return app;
 }
 
-// Scheduled handlers for delivery, inbox, and cleanup workers
-import { handleDeliveryScheduled, processInboxQueue, handleCleanupScheduled } from "@takos/platform/server";
-
 type ScheduledTaskRunner = (event: ScheduledEvent, env: any) => Promise<void>;
 
 const scheduledTaskHandlers: Record<string, ScheduledTaskRunner> = {
   "activitypub-workers": async (event, env) => {
-    await Promise.all([
-      handleDeliveryScheduled(event, env),
-      processInboxQueue(env, 10),
-    ]);
+    await runDefaultAppScheduled(event, env);
   },
   "scheduled-posts": async (_event, env) => {
     const result = await processPostPlanQueue(env as Bindings, { limit: 25 });
@@ -2216,7 +2200,7 @@ const scheduledTaskHandlers: Record<string, ScheduledTaskRunner> = {
     );
   },
   "activitypub-cleanup": async (event, env) => {
-    await handleCleanupScheduled(event, env);
+    await runDefaultAppScheduled(event, env);
   },
 };
 
@@ -2241,13 +2225,6 @@ async function runScheduledTasksForCron(event: ScheduledEvent, env: any): Promis
 }
 
 async function runDefaultAppScheduled(event: ScheduledEvent, env: any): Promise<void> {
-  const enabledRaw = env?.DEFAULT_APP_SCHEDULED ?? env?.APP_SCHEDULED_FROM_DEFAULT_APP;
-  const enabled =
-    enabledRaw === true ||
-    (typeof enabledRaw === "string" &&
-      ["1", "true", "yes", "on"].includes(enabledRaw.trim().toLowerCase()));
-  if (!enabled) return;
-
   try {
     const appId = "default";
     const appModule = await loadTakosApp(appId, env);
@@ -2275,5 +2252,4 @@ export async function handleScheduled(event: ScheduledEvent, env: any): Promise<
 
   await ensureCronValidation(envWithConfig as Bindings);
   await runScheduledTasksForCron(event, envWithConfig);
-  await runDefaultAppScheduled(event, envWithConfig);
 }

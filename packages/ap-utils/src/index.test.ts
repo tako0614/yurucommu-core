@@ -70,7 +70,7 @@ describe("@takos/ap-utils", () => {
       body: JSON.stringify({ hello: "world" })
     });
 
-    const signed = await signRequest(request, privateKeyPem, "https://example.com/ap/users/alice#main-key");
+    const signed = await signRequest(request, "https://example.com/ap/users/alice#main-key", privateKeyPem);
     const ok = await verifySignature(signed, async () => publicKeyPem);
     expect(ok).toBe(true);
 

@@ -91,7 +91,7 @@ const ensureAuth = (ctx: AppAuthContext): string => {
 
 const sanitizeUser = (user: any) => {
   if (!user) return null;
-  const { jwt_secret, tenant_id, ...publicProfile } = user;
+  const { jwt_secret, password_hash, tenant_id, ...publicProfile } = user;
   return publicProfile;
 };
 
@@ -157,6 +157,12 @@ async function verifyPasswordValue(password: string, stored: string | null) {
   const [salt, expected] = parts;
   const computed = await sha256Hex(`${salt}:${password}`);
   return subtleTimingSafeEqual(computed, expected);
+}
+
+async function hashPasswordValue(password: string): Promise<string> {
+  const salt = crypto.randomUUID().replace(/-/g, "");
+  const computed = await sha256Hex(`${salt}:${password}`);
+  return `${salt}$${computed}`;
 }
 
 async function verifyMasterPassword(input: string, expected: string): Promise<boolean> {
@@ -545,12 +551,7 @@ const createAuthService = (env: any): AuthService => ({
   async loginWithPassword(input) {
     const password = typeof input?.password === "string" ? input.password : "";
     const masterPassword = typeof env.AUTH_PASSWORD === "string" ? env.AUTH_PASSWORD.trim() : "";
-    if (!password || !masterPassword) {
-      throw new Error("invalid credentials");
-    }
-
-    const verified = await verifyMasterPassword(password, masterPassword);
-    if (!verified) {
+    if (!password) {
       throw new Error("invalid credentials");
     }
 
@@ -561,6 +562,26 @@ const createAuthService = (env: any): AuthService => ({
           : resolveDefaultHandle(env);
       const handle = normalizeHandle(handleInput);
       const user = await ensureDefaultUser(store, handle || resolveDefaultHandle(env));
+
+      const storedHash = typeof (user as any)?.password_hash === "string" ? (user as any).password_hash : null;
+      if (storedHash) {
+        const ok = await verifyPasswordValue(password, storedHash);
+        if (!ok) throw new Error("invalid credentials");
+      } else {
+        if (!masterPassword) {
+          throw new Error("invalid credentials");
+        }
+        const ok = await verifyMasterPassword(password, masterPassword);
+        if (!ok) throw new Error("invalid credentials");
+
+        if (typeof store.updateActor === "function") {
+          await store.updateActor((user as any).id, {
+            password_hash: await hashPasswordValue(password),
+            updated_at: new Date(),
+          });
+        }
+      }
+
       const { id: sessionId, expiresAt } = await createUserSession(store as any, env as any, user.id);
       const sessionCookie = formatSessionCookie(env, sessionId);
       const { token } = await createUserJWT({ env } as any, store as any, user.id);

@@ -36,8 +36,10 @@ import { makeData } from "../data";
 import { requireAiQuota } from "../lib/plan-guard";
 import type { AuthContext } from "../lib/auth-context-model";
 import { buildCoreServices } from "../lib/core-services";
-import { createAiAuditLogger, type AiAuditLogger } from "../lib/ai-audit";
+import { createAiAuditLogger, createAgentToolAuditLogger, type AiAuditLogger } from "../lib/ai-audit";
 import { getAppAuthContext } from "../lib/auth-context";
+import { ensureAiCallAllowed } from "../lib/ai-rate-limit";
+import { createUsageTrackerFromEnv } from "../lib/usage-tracker";
 
 type ChatRole = "user" | "assistant" | "system";
 
@@ -132,6 +134,38 @@ function sanitizeProvider(provider: { id: string; type: string; baseUrl: string;
     base_url: provider.baseUrl,
     model: provider.model ?? null,
   };
+}
+
+function getRequestId(c: any): string | null {
+  const candidates = [
+    c.req.header("x-request-id"),
+    c.req.header("cf-ray"),
+  ];
+  for (const value of candidates) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function getClientIp(c: any): string | null {
+  const candidates = [
+    c.req.header("cf-connecting-ip"),
+    c.req.header("x-forwarded-for"),
+  ];
+  for (const value of candidates) {
+    if (typeof value !== "string") continue;
+    const first = value.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return null;
+}
+
+function isToolAllowedByConfig(aiConfig: any, toolId: AgentToolId): boolean {
+  const raw = aiConfig?.agent_tool_allowlist;
+  const allowlist = Array.isArray(raw) ? raw.map((v) => String(v ?? "").trim()).filter(Boolean) : [];
+  if (!allowlist.length) return true;
+  if (allowlist.includes("*")) return true;
+  return allowlist.includes(toolId);
 }
 
 async function handleDescribeNode(
@@ -282,9 +316,11 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
     return fail(c, "invalid payload", 400);
   }
   const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
-  const planCheck = requireAiQuota(authContext);
   const services = buildCoreServices(c.env as Bindings);
   const aiAudit = createAiAuditLogger(c.env as any);
+  const toolAudit = createAgentToolAuditLogger(c.env as any);
+  const usageTracker = createUsageTrackerFromEnv(c.env as any);
+  const usageUserId = authContext?.userId ?? "anonymous";
 
   const toolId = normalizeToolId(body.tool);
   if (toolId) {
@@ -305,6 +341,10 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
       DEFAULT_TAKOS_AI_CONFIG,
       resolveConfig(c).ai ?? {},
     );
+
+    if (!isToolAllowedByConfig(config, toolId)) {
+      return fail(c, `agent is not allowed to call ${toolId} on this node`, 403);
+    }
 
     const toolInput = (body.input && typeof body.input === "object" && body.input !== null) ? body.input : {};
     const toolCtx = {
@@ -328,27 +368,127 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
     } as const;
 
     if (toolId === "tool.describeNodeCapabilities") {
-      return handleDescribeNode(
-        c,
-        agentGuard.agentType,
-        config,
-        c.env as Record<string, string | undefined>,
-      );
+      const started = Date.now();
+      try {
+        const res = await handleDescribeNode(
+          c,
+          agentGuard.agentType,
+          config,
+          c.env as Record<string, string | undefined>,
+        );
+        await toolAudit({
+          toolId,
+          status: "success",
+          agentType: agentGuard.agentType,
+          userId: authContext?.userId ?? null,
+          durationMs: Date.now() - started,
+          requestId: getRequestId(c),
+          ip: getClientIp(c),
+        });
+        return res;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        await toolAudit({
+          toolId,
+          status: "error",
+          agentType: agentGuard.agentType,
+          userId: authContext?.userId ?? null,
+          message,
+          durationMs: Date.now() - started,
+          requestId: getRequestId(c),
+          ip: getClientIp(c),
+        });
+        throw error;
+      }
     }
 
     if (toolId === "tool.inspectService") {
       const service = typeof body.service === "string" ? body.service.trim() : "database";
-      return handleInspectService(c, service || "database", c.env as Bindings);
+      const started = Date.now();
+      try {
+        const res = await handleInspectService(c, service || "database", c.env as Bindings);
+        await toolAudit({
+          toolId,
+          status: "success",
+          agentType: agentGuard.agentType,
+          userId: authContext?.userId ?? null,
+          durationMs: Date.now() - started,
+          requestId: getRequestId(c),
+          ip: getClientIp(c),
+        });
+        return res;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        await toolAudit({
+          toolId,
+          status: "error",
+          agentType: agentGuard.agentType,
+          userId: authContext?.userId ?? null,
+          message,
+          durationMs: Date.now() - started,
+          requestId: getRequestId(c),
+          ip: getClientIp(c),
+        });
+        throw error;
+      }
     }
 
     if (toolId === "tool.runAIAction") {
+      const currentUsage = await usageTracker.getAiUsage(usageUserId);
+      const planCheck = requireAiQuota(authContext, { used: currentUsage, requested: 1 });
       if (!planCheck.ok) {
         return fail(c, planCheck.message, planCheck.status, {
           code: planCheck.code,
           details: planCheck.details,
         });
       }
-      return handleRunAIAction(c, body, agentGuard.agentType, config, services, authContext, aiAudit);
+
+      const rateLimit = await ensureAiCallAllowed(c.env as any, authContext, { agentType: agentGuard.agentType });
+      if (!rateLimit.ok) {
+        return fail(c, rateLimit.message, rateLimit.status, { code: rateLimit.code, details: rateLimit.details });
+      }
+
+      const started = Date.now();
+      try {
+        const res = await handleRunAIAction(c, body, agentGuard.agentType, config, services, authContext, aiAudit);
+        if ((res as any)?.status && (res as any).status < 400) {
+          await usageTracker.recordAiRequest(usageUserId);
+          await toolAudit({
+            toolId,
+            status: "success",
+            agentType: agentGuard.agentType,
+            userId: authContext?.userId ?? null,
+            durationMs: Date.now() - started,
+            requestId: getRequestId(c),
+            ip: getClientIp(c),
+          });
+        } else {
+          await toolAudit({
+            toolId,
+            status: "error",
+            agentType: agentGuard.agentType,
+            userId: authContext?.userId ?? null,
+            message: `tool returned status ${(res as any)?.status ?? "(unknown)"}`,
+            durationMs: Date.now() - started,
+            requestId: getRequestId(c),
+            ip: getClientIp(c),
+          });
+        }
+        return res;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        await toolAudit({
+          toolId,
+          status: "error",
+          agentType: agentGuard.agentType,
+          userId: authContext?.userId ?? null,
+          message,
+          durationMs: Date.now() - started,
+          requestId: getRequestId(c),
+          ip: getClientIp(c),
+        });
+        throw error;
+      }
     }
 
     if (toolId === "tool.applyCodePatch") {
@@ -357,6 +497,17 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
 
     const tools = createAgentTools({
       actionRegistry: aiActionRegistry,
+      auditLog: async (event) => {
+        await toolAudit({
+          toolId: event.tool,
+          status: event.success ? "success" : "error",
+          agentType: event.agentType ?? null,
+          userId: event.userId ?? null,
+          message: event.message ?? null,
+          requestId: getRequestId(c),
+          ip: getClientIp(c),
+        });
+      },
     });
 
     try {
@@ -480,8 +631,15 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
     }
   }
 
+  const currentUsage = await usageTracker.getAiUsage(usageUserId);
+  const planCheck = requireAiQuota(authContext, { used: currentUsage, requested: 1 });
   if (!planCheck.ok) {
     return fail(c, planCheck.message, planCheck.status);
+  }
+
+  const rateLimit = await ensureAiCallAllowed(c.env as any, authContext, { agentType: null });
+  if (!rateLimit.ok) {
+    return fail(c, rateLimit.message, rateLimit.status, { code: rateLimit.code, details: rateLimit.details });
   }
 
   const messages = normalizeMessages(body.messages);
@@ -602,6 +760,7 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
       headers.set("x-ai-provider", streamResult.provider ?? provider.id);
       headers.set("x-ai-model", streamResult.model ?? model);
 
+      await usageTracker.recordAiRequest(usageUserId);
       return new Response(streamResult.stream, { status: 200, headers });
     }
 
@@ -619,6 +778,7 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
       status: "success",
     });
 
+    await usageTracker.recordAiRequest(usageUserId);
     return ok(c, {
       provider: result.provider,
       model: result.model,
