@@ -166,7 +166,7 @@ describe("app debug routes", () => {
           handler: "ping",
         }),
       },
-      { ...authEnv, PLAN: "free" },
+      { ...authEnv, TAKOS_PLAN: "test", TAKOS_PLAN_FEATURES: "basic_sns", TAKOS_PLAN_LIMITS: {} },
     );
 
     expect(res.status).toBe(402);

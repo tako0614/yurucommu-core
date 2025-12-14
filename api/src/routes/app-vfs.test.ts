@@ -21,6 +21,18 @@ const createDevDb = () =>
     }),
   }) as any;
 
+const MB = 1024 * 1024;
+
+const withPlan = (
+  overrides: Record<string, unknown>,
+  options: { features?: string[]; limits?: Record<string, unknown> },
+) => ({
+  ...overrides,
+  TAKOS_PLAN: "test",
+  TAKOS_PLAN_FEATURES: options.features?.join(",") ?? "",
+  TAKOS_PLAN_LIMITS: options.limits ?? {},
+});
+
 const buildEnv = (overrides?: Record<string, unknown>) => ({
   TAKOS_CONTEXT: "dev",
   DEV_DB: createDevDb(),
@@ -76,7 +88,7 @@ describe("/-/dev/vfs", () => {
         method: "GET",
         headers: await authHeaders(),
       },
-      buildEnv({ PLAN: "free" }),
+      buildEnv(withPlan({}, { features: ["basic_sns"], limits: { vfsMaxWorkspaces: 1 } })),
     );
 
     expect(res.status).toBe(402);
@@ -111,7 +123,7 @@ describe("/-/dev/vfs", () => {
         method: "GET",
         headers: await authHeaders(),
       },
-      buildEnv({ PLAN: "pro", workspaceStore }),
+      buildEnv(withPlan({ workspaceStore }, { features: ["app_customization"], limits: { vfsMaxWorkspaces: 5 } })),
     );
 
     expect(res.status).toBe(200);
@@ -160,7 +172,7 @@ describe("/-/dev/vfs", () => {
         method: "GET",
         headers: await authHeaders(),
       },
-      buildEnv({ PLAN: "pro", workspaceStore }),
+      buildEnv(withPlan({ workspaceStore }, { features: ["app_customization"], limits: { vfsMaxWorkspaces: 5 } })),
     );
 
     expect(res.status).toBe(200);
@@ -200,7 +212,7 @@ describe("/-/dev/vfs", () => {
         headers: await authHeaders(),
         body: JSON.stringify({ content: "compiled" }),
       },
-      buildEnv({ PLAN: "pro", workspaceStore }),
+      buildEnv(withPlan({ workspaceStore }, { features: ["app_customization"], limits: { vfsMaxFileSize: 1 * MB } })),
     );
 
     expect(res.status).toBe(200);
@@ -236,7 +248,7 @@ describe("/-/dev/vfs", () => {
         headers: await authHeaders(),
         body: JSON.stringify({ content: oversized }),
       },
-      buildEnv({ PLAN: "pro", workspaceStore }),
+      buildEnv(withPlan({ workspaceStore }, { features: ["app_customization"], limits: { vfsMaxFileSize: 1 * MB } })),
     );
 
     expect(res.status).toBe(413);
@@ -283,7 +295,7 @@ describe("/-/dev/vfs", () => {
         headers: await authHeaders(),
         body: JSON.stringify({ from: "app/source.ts", to: "app/copied.ts" }),
       },
-      buildEnv({ PLAN: "pro", workspaceStore }),
+      buildEnv(withPlan({ workspaceStore }, { features: ["app_customization"], limits: { vfsMaxWorkspaces: 5 } })),
     );
 
     expect(res.status).toBe(200);
@@ -328,7 +340,7 @@ describe("/-/dev/vfs", () => {
         headers: await authHeaders(),
         body: JSON.stringify({ from: "app/source.ts", to: "app/moved.ts" }),
       },
-      buildEnv({ PLAN: "pro", workspaceStore }),
+      buildEnv(withPlan({ workspaceStore }, { features: ["app_customization"], limits: { vfsMaxWorkspaces: 5 } })),
     );
 
     expect(res.status).toBe(200);
@@ -368,7 +380,7 @@ describe("/-/dev/vfs", () => {
     const res = await appVfs.request(
       `/-/dev/vfs/${baseWorkspace.id}/glob?pattern=app/*.ts`,
       { method: "GET", headers: await authHeaders() },
-      buildEnv({ PLAN: "pro", workspaceStore }),
+      buildEnv(withPlan({ workspaceStore }, { features: ["app_customization"], limits: { vfsMaxWorkspaces: 5 } })),
     );
     expect(res.status).toBe(200);
     const json: any = await res.json();
@@ -398,7 +410,7 @@ describe("/-/dev/vfs", () => {
     const res = await appVfs.request(
       `/-/dev/vfs/${baseWorkspace.id}/search?query=hello`,
       { method: "GET", headers: await authHeaders() },
-      buildEnv({ PLAN: "pro", workspaceStore }),
+      buildEnv(withPlan({ workspaceStore }, { features: ["app_customization"], limits: { vfsMaxWorkspaces: 5 } })),
     );
     expect(res.status).toBe(200);
     const json: any = await res.json();
@@ -420,7 +432,7 @@ describe("/-/dev/vfs", () => {
     const res = await appVfs.request(
       `/-/dev/vfs/${baseWorkspace.id}/dirs/app?recursive=true`,
       { method: "DELETE", headers: await authHeaders() },
-      buildEnv({ PLAN: "pro", workspaceStore }),
+      buildEnv(withPlan({ workspaceStore }, { features: ["app_customization"], limits: { vfsMaxWorkspaces: 5 } })),
     );
     expect(res.status).toBe(200);
     const json: any = await res.json();

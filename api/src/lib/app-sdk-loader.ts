@@ -12,6 +12,8 @@ import type {
   TakosApp,
 } from "@takos/app-sdk/server";
 import type { AuthContext } from "./auth-context-model";
+import { buildCoreServices } from "./core-services";
+import { createAppCollectionFactory } from "./app-collections";
 
 const appCache = new Map<string, TakosApp>();
 const manifestCache = new Map<string, AppManifest>();
@@ -117,6 +119,19 @@ function createAuthenticatedFetch(c: any): AppEnv["fetch"] {
     }
 
     return fetch(url, { ...init, headers });
+  };
+}
+
+function createUnauthenticatedFetchFromEnv(env: Bindings): AppEnv["fetch"] {
+  const domain = (env as any)?.INSTANCE_DOMAIN;
+  const origin =
+    typeof domain === "string" && domain.trim() ? `https://${domain.trim()}` : "http://localhost";
+
+  return async (path: string, init: RequestInit = {}) => {
+    const url = path.startsWith("http")
+      ? path
+      : new URL(path.startsWith("/") ? path : `/${path}`, origin).toString();
+    return fetch(url, init);
   };
 }
 
@@ -257,7 +272,29 @@ export function buildTakosAppEnv(c: any, appId: string, manifest: AppManifest | 
     (typeof userId === "string" ? userId : "") ||
     "";
 
+  let core: AppEnv["core"] | undefined;
+  const workspaceId =
+    (c.get?.("workspaceId") as string | undefined) ??
+    (c.env as any)?.APP_WORKSPACE_ID ??
+    (c.env as any)?.WORKSPACE_ID ??
+    null;
+  try {
+    core = buildCoreServices(c.env as Bindings);
+    (core as any).db = createAppCollectionFactory(c.env as Bindings, appId, workspaceId);
+  } catch (error) {
+    core = undefined;
+    console.warn("[app-sdk-loader] Failed to build core services for AppEnv:", error);
+  }
+
   return {
+    core,
+    DB: (c.env as any)?.DB,
+    KV: (c.env as any)?.KV,
+    STORAGE: (c.env as any)?.STORAGE ?? (c.env as any)?.MEDIA,
+    INSTANCE_DOMAIN: (c.env as any)?.INSTANCE_DOMAIN,
+    JWT_SECRET: (c.env as any)?.JWT_SECRET,
+    takosConfig: (c.get("takosConfig") as any) ?? (c.env as any)?.takosConfig,
+    workspaceId: workspaceId ?? undefined,
     storage: createAppStorage(c.env, appId),
     fetch: createAuthenticatedFetch(c),
     activitypub: createActivityPubAPI(c.env),
@@ -272,6 +309,42 @@ export function buildTakosAppEnv(c: any, appId: string, manifest: AppManifest | 
           isAuthenticated: authContext?.isAuthenticated ?? true,
         }
       : null,
+    app: {
+      id: appId,
+      version: manifest?.version ?? "0.0.0",
+    },
+  };
+}
+
+export function buildTakosScheduledAppEnv(
+  env: Bindings,
+  appId: string,
+  manifest: AppManifest | null,
+): AppEnv {
+  let core: AppEnv["core"] | undefined;
+  const workspaceId = (env as any)?.APP_WORKSPACE_ID ?? (env as any)?.WORKSPACE_ID ?? null;
+  try {
+    core = buildCoreServices(env as Bindings);
+    (core as any).db = createAppCollectionFactory(env as Bindings, appId, workspaceId);
+  } catch (error) {
+    core = undefined;
+    console.warn("[app-sdk-loader] Failed to build core services for scheduled AppEnv:", error);
+  }
+
+  return {
+    core,
+    DB: (env as any)?.DB,
+    KV: (env as any)?.KV,
+    STORAGE: (env as any)?.STORAGE ?? (env as any)?.MEDIA,
+    INSTANCE_DOMAIN: (env as any)?.INSTANCE_DOMAIN,
+    JWT_SECRET: (env as any)?.JWT_SECRET,
+    takosConfig: (env as any)?.takosConfig,
+    workspaceId: workspaceId ?? undefined,
+    storage: createAppStorage(env, appId),
+    fetch: createUnauthenticatedFetchFromEnv(env),
+    activitypub: createActivityPubAPI(env),
+    ai: createAiAPI({ get: () => null } as any, env),
+    auth: null,
     app: {
       id: appId,
       version: manifest?.version ?? "0.0.0",

@@ -100,4 +100,36 @@ describe("mountManifestRoutes", () => {
     const res = await result.app.request("/broken", { method: "GET" });
     expect(res.status).toBe(404);
   });
+
+  it("rejects reserved routes at runtime", async () => {
+    const manifest = makeManifest([
+      { id: "login", method: "GET", path: "/login", handler: "loginHandler" },
+    ]);
+    const handlers = {
+      loginHandler: (c: any) => c.text("nope"),
+    };
+
+    const result = mountManifestRoutes({ manifest, handlers });
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].type).toBe("reserved_route");
+
+    const res = await result.app.request("/login", { method: "GET" });
+    expect(res.status).toBe(404);
+  });
+
+  it("rejects core route overlaps at runtime", async () => {
+    const manifest = makeManifest([
+      { id: "user_profile", method: "GET", path: "/@alice", handler: "userHandler" },
+    ]);
+    const handlers = {
+      userHandler: (c: any) => c.text("nope"),
+    };
+
+    const result = mountManifestRoutes({ manifest, handlers });
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].type).toBe("core_route");
+
+    const res = await result.app.request("/@alice", { method: "GET" });
+    expect(res.status).toBe(404);
+  });
 });

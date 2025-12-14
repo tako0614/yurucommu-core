@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import type { Env, Handler, MiddlewareHandler, Next } from "hono";
 import type { AppManifest, AppRouteDefinition, HttpMethod } from "./types";
+import { isReservedHttpPath } from "./reserved-routes";
+import { findCoreRouteOwner } from "./core-routes";
 
 export type ManifestRouteHandler<THonoEnv extends Env = Env> = Handler<THonoEnv>;
 
@@ -17,7 +19,9 @@ export type AppRouteAdapterIssueType =
   | "handler_not_found"
   | "handler_not_function"
   | "auth_middleware_missing"
-  | "invalid_method";
+  | "invalid_method"
+  | "reserved_route"
+  | "core_route";
 
 export type AppRouteAdapterIssue = {
   type: AppRouteAdapterIssueType;
@@ -55,6 +59,14 @@ function normalizeRoutePath(basePath: string | undefined, routePath: string): st
   const cleanedPrefix = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
   const combined = `${cleanedPrefix}${normalizedRoute}`;
   return combined.replace(/\/{2,}/g, "/") || "/";
+}
+
+function normalizeRouteKey(path: string): string {
+  const normalized = (path || "").trim();
+  if (!normalized) return "/";
+  const withSlash = normalized.startsWith("/") ? normalized : `/${normalized}`;
+  const withoutTrailing = withSlash === "/" ? "/" : withSlash.replace(/\/+$/, "");
+  return withoutTrailing || "/";
 }
 
 function resolveHandler<THonoEnv extends Env>(
@@ -101,6 +113,30 @@ export function mountManifestRoutes<THonoEnv extends Env = Env>(
           "invalid_method",
           route,
           `Unsupported method "${route.method}" for route ${route.path}`,
+        ),
+      );
+      continue;
+    }
+
+    const normalizedPath = normalizeRouteKey(route.path);
+    if (isReservedHttpPath(normalizedPath)) {
+      issues.push(
+        buildIssue(
+          "reserved_route",
+          route,
+          `Reserved route "${normalizedPath}" cannot be defined in manifest`,
+        ),
+      );
+      continue;
+    }
+
+    const coreOwner = findCoreRouteOwner(normalizedPath);
+    if (coreOwner) {
+      issues.push(
+        buildIssue(
+          "core_route",
+          route,
+          `Core route "${coreOwner.path}" is fixed to ${coreOwner.screenId}`,
         ),
       );
       continue;

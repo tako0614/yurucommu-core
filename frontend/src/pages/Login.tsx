@@ -54,7 +54,7 @@ export default function Login() {
       }
       throw new Error("認証に失敗しました。");
     } catch (err: any) {
-      const message = err?.data?.error || err?.message || "サインインに失敗しました。";
+      const message = err?.data?.message || err?.data?.error || err?.message || "サインインに失敗しました。";
       setError(String(message));
     } finally {
       setSubmitting(false);

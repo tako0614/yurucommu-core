@@ -47,7 +47,7 @@ export type AppRedirectResponse = {
 
 export type AppResponse<T = unknown> = AppJsonResponse<T> | AppErrorResponse | AppRedirectResponse;
 
-export type AppPlanName = "free" | "pro" | "business" | "self-hosted" | string;
+export type AppPlanName = string;
 
 export type AppPlanLimits = {
   storage: number;

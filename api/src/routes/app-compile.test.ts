@@ -110,7 +110,12 @@ describe("/-/dev/compile", () => {
         headers: await authHeaders(),
         body: JSON.stringify({ workspaceId: baseWorkspace.id, entryPath: "app/main.ts", sourcemap: false }),
       },
-      buildEnv({ PLAN: "pro", workspaceStore }),
+      buildEnv({
+        TAKOS_PLAN: "test",
+        TAKOS_PLAN_FEATURES: "app_customization",
+        TAKOS_PLAN_LIMITS: {},
+        workspaceStore,
+      }),
     );
 
     expect(res.status).toBe(200);

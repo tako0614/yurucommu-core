@@ -573,6 +573,7 @@ These paths are reserved by Core Kernel and cannot be defined in App Manifest:
 | `/-/health` | Health check |
 | `/auth/login`, `/auth/logout` | Authentication |
 | `/.well-known/*` | ActivityPub/WebFinger |
+| `/nodeinfo/*` | NodeInfo |
 
 ## Core Safe UI
 

@@ -389,7 +389,14 @@ describe("/-/app/workspaces", () => {
         headers: await authHeaders(),
         body: JSON.stringify({ content: "# hello", content_type: "text/markdown" }),
       },
-      { ...buildEnv({ PLAN: "pro" }), workspaceStore },
+      {
+        ...buildEnv({
+          TAKOS_PLAN: "test",
+          TAKOS_PLAN_FEATURES: "app_customization",
+          TAKOS_PLAN_LIMITS: { vfsMaxWorkspaces: 5, vfsMaxFileSize: 1024 * 1024 },
+        }),
+        workspaceStore,
+      },
     );
     expect(writeRes.status).toBe(200);
     const writeJson: any = await writeRes.json();
@@ -401,7 +408,14 @@ describe("/-/app/workspaces", () => {
         method: "GET",
         headers: await authHeaders(),
       },
-      { ...buildEnv({ PLAN: "pro" }), workspaceStore },
+      {
+        ...buildEnv({
+          TAKOS_PLAN: "test",
+          TAKOS_PLAN_FEATURES: "app_customization",
+          TAKOS_PLAN_LIMITS: { vfsMaxWorkspaces: 5, vfsMaxFileSize: 1024 * 1024 },
+        }),
+        workspaceStore,
+      },
     );
     expect(readRes.status).toBe(200);
     const readJson: any = await readRes.json();
@@ -413,7 +427,14 @@ describe("/-/app/workspaces", () => {
         method: "DELETE",
         headers: await authHeaders(),
       },
-      { ...buildEnv({ PLAN: "pro" }), workspaceStore },
+      {
+        ...buildEnv({
+          TAKOS_PLAN: "test",
+          TAKOS_PLAN_FEATURES: "app_customization",
+          TAKOS_PLAN_LIMITS: { vfsMaxWorkspaces: 5, vfsMaxFileSize: 1024 * 1024 },
+        }),
+        workspaceStore,
+      },
     );
     expect(deleteRes.status).toBe(200);
     const deleteJson: any = await deleteRes.json();
@@ -432,7 +453,11 @@ describe("/-/app/workspaces", () => {
         headers: await authHeaders(),
         body: JSON.stringify({}),
       },
-      buildEnv({ PLAN: "pro" }),
+      buildEnv({
+        TAKOS_PLAN: "test",
+        TAKOS_PLAN_FEATURES: "app_customization",
+        TAKOS_PLAN_LIMITS: { vfsMaxWorkspaces: 5 },
+      }),
     );
 
     expect(res.status).toBe(403);
@@ -460,7 +485,14 @@ describe("/-/app/workspaces", () => {
         headers: await authHeaders(),
         body: JSON.stringify({ path: "takos-app.json", content: largeContent }),
       },
-      { ...buildEnv({ PLAN: "pro" }), workspaceStore },
+      {
+        ...buildEnv({
+          TAKOS_PLAN: "test",
+          TAKOS_PLAN_FEATURES: "app_customization",
+          TAKOS_PLAN_LIMITS: { vfsMaxWorkspaces: 5, vfsMaxFileSize: 1024 * 1024 },
+        }),
+        workspaceStore,
+      },
     );
 
     expect(res.status).toBe(413);
@@ -494,7 +526,14 @@ describe("/-/app/workspaces", () => {
         headers: await authHeaders(),
         body: JSON.stringify({ content: "compiled" }),
       },
-      { ...buildEnv({ PLAN: "pro" }), workspaceStore },
+      {
+        ...buildEnv({
+          TAKOS_PLAN: "test",
+          TAKOS_PLAN_FEATURES: "app_customization",
+          TAKOS_PLAN_LIMITS: { vfsMaxWorkspaces: 5, vfsMaxFileSize: 1024 * 1024 },
+        }),
+        workspaceStore,
+      },
     );
 
     expect(res.status).toBe(200);

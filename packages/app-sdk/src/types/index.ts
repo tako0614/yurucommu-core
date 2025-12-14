@@ -2,6 +2,7 @@
 // App SDK Types v2.0
 // Workers-compatible App SDK type definitions
 // ============================================================================
+/// <reference types="@cloudflare/workers-types" />
 
 // =============================================================================
 // Server Types (@takos/app-sdk/server)
@@ -73,7 +74,7 @@ export interface AiAPI {
  * Authentication information (read-only).
  * null if the request is not authenticated.
  */
-export type PlanName = "free" | "pro" | "business" | "self-hosted" | string;
+export type PlanName = string;
 
 export type PlanLimits = {
   storage: number;
@@ -113,10 +114,71 @@ export interface AppInfo {
 }
 
 /**
+ * Core Kernel service surface injected by takos runtime.
+ * This is intentionally loose-typed to keep `@takos/app-sdk` decoupled from Core implementation packages.
+ */
+export type CoreServices = {
+  objects: unknown;
+  actors: unknown;
+  auth: unknown;
+  storage: unknown;
+  notifications: unknown;
+  db?: (name: string) => Collection;
+  [key: string]: unknown;
+};
+
+export type CollectionWhereClause = Record<string, unknown>;
+export type CollectionOrderBy = { column: string; direction: "asc" | "desc" };
+export type CollectionUpdateData = Record<string, unknown>;
+
+export interface CollectionQuery<T = Record<string, unknown>> {
+  all(): Promise<T[]>;
+  first(): Promise<T | null>;
+  where(where: CollectionWhereClause): CollectionQuery<T>;
+  orderBy(column: string, direction?: "asc" | "desc"): CollectionQuery<T>;
+  limit(limit: number): CollectionQuery<T>;
+  offset(offset: number): CollectionQuery<T>;
+  count(): Promise<number>;
+}
+
+export interface Collection<T = Record<string, unknown>> {
+  find(where?: CollectionWhereClause): CollectionQuery<T>;
+  findById(id: string | number): Promise<T | null>;
+  create(data: Partial<T>): Promise<T>;
+  update(where: CollectionWhereClause, data: CollectionUpdateData): Promise<number>;
+  updateById(id: string | number, data: CollectionUpdateData): Promise<T | null>;
+  delete(where: CollectionWhereClause): Promise<number>;
+  deleteById(id: string | number): Promise<boolean>;
+  transaction<R>(callback: (tx: Collection<T>) => Promise<R>): Promise<R>;
+}
+
+/**
  * Environment object injected by Core into the App.
  * Provides access to Core services and utilities.
  */
 export interface AppEnv {
+  /**
+   * Core Kernel services (defense-in-depth / migration aid).
+   * Prefer higher-level APIs (`fetch`, `activitypub`, `ai`) unless you need direct service access.
+   */
+  core?: CoreServices;
+
+  /**
+   * Cloudflare bindings (direct access; optional).
+   * Availability depends on the takos host configuration.
+   */
+  DB?: unknown;
+  KV?: unknown;
+  STORAGE?: unknown;
+
+  /**
+   * Environment variables (optional).
+   */
+  INSTANCE_DOMAIN?: string;
+  JWT_SECRET?: string;
+  takosConfig?: unknown;
+  workspaceId?: string;
+
   /** App-specific KV storage (isolated per user) */
   storage: AppStorage;
 
@@ -148,6 +210,11 @@ export interface TakosApp {
    * @returns A Response or Promise<Response>
    */
   fetch(request: Request, env: AppEnv): Response | Promise<Response>;
+
+  /**
+   * Handle a scheduled event (Cloudflare Workers Cron Triggers).
+   */
+  scheduled?: (event: ScheduledEvent, env: AppEnv, ctx: ExecutionContext) => void | Promise<void>;
 }
 
 // =============================================================================
