@@ -175,6 +175,9 @@ export interface AppEnv {
    * Environment variables (optional).
    */
   INSTANCE_DOMAIN?: string;
+  INSTANCE_NAME?: string;
+  INSTANCE_DESCRIPTION?: string;
+  INSTANCE_OPEN_REGISTRATIONS?: string | boolean;
   JWT_SECRET?: string;
   takosConfig?: unknown;
   workspaceId?: string;

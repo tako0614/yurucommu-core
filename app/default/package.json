@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@takos/app-sdk": "*",
+    "@takos/ap-utils": "*",
     "hono": "*"
   },
   "peerDependencies": {

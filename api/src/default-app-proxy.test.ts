@@ -44,7 +44,7 @@ describe("Default App proxy routes (ActivityPub migration)", () => {
     mocks.loadTakosApp.mockReset();
   });
 
-  it("proxies WebFinger when WEBFINGER_FROM_APP is enabled", async () => {
+  it("proxies WebFinger", async () => {
     const appModuleFetch = vi.fn(async () => new Response("proxied-webfinger", { status: 200 }));
     mocks.loadTakosApp.mockResolvedValue({ fetch: appModuleFetch });
     mocks.loadStoredAppManifest.mockResolvedValue({} as any);
@@ -53,7 +53,7 @@ describe("Default App proxy routes (ActivityPub migration)", () => {
     const app = createTakosRoot({ ensureDatabase: async () => {} }, "example.test");
     const res = await app.fetch(
       new Request("https://example.test/.well-known/webfinger?resource=acct:alice@example.test"),
-      makeEnv({ WEBFINGER_FROM_APP: "1" }),
+      makeEnv(),
       makeExecutionContext(),
     );
 
@@ -62,7 +62,7 @@ describe("Default App proxy routes (ActivityPub migration)", () => {
     expect(await res.text()).toBe("proxied-webfinger");
   });
 
-  it("proxies Actor endpoint when ACTOR_FROM_APP is enabled", async () => {
+  it("proxies Actor endpoint", async () => {
     const appModuleFetch = vi.fn(async () => new Response("proxied-actor", { status: 200 }));
     mocks.loadTakosApp.mockResolvedValue({ fetch: appModuleFetch });
     mocks.loadStoredAppManifest.mockResolvedValue({} as any);
@@ -71,7 +71,7 @@ describe("Default App proxy routes (ActivityPub migration)", () => {
     const app = createTakosRoot({ ensureDatabase: async () => {} }, "example.test");
     const res = await app.fetch(
       new Request("https://example.test/ap/users/alice"),
-      makeEnv({ ACTOR_FROM_APP: "1" }),
+      makeEnv(),
       makeExecutionContext(),
     );
 
@@ -80,7 +80,7 @@ describe("Default App proxy routes (ActivityPub migration)", () => {
     expect(await res.text()).toBe("proxied-actor");
   });
 
-  it("proxies Outbox endpoint when OUTBOX_FROM_APP is enabled", async () => {
+  it("proxies Outbox endpoint", async () => {
     const appModuleFetch = vi.fn(async () => new Response("proxied-outbox", { status: 200 }));
     mocks.loadTakosApp.mockResolvedValue({ fetch: appModuleFetch });
     mocks.loadStoredAppManifest.mockResolvedValue({} as any);
@@ -89,12 +89,156 @@ describe("Default App proxy routes (ActivityPub migration)", () => {
     const app = createTakosRoot({ ensureDatabase: async () => {} }, "example.test");
     const res = await app.fetch(
       new Request("https://example.test/ap/users/alice/outbox"),
-      makeEnv({ OUTBOX_FROM_APP: "1" }),
+      makeEnv(),
       makeExecutionContext(),
     );
 
     expect(mocks.loadTakosApp).toHaveBeenCalledWith("default", expect.anything());
     expect(appModuleFetch).toHaveBeenCalledTimes(1);
     expect(await res.text()).toBe("proxied-outbox");
+  });
+
+  it("proxies NodeInfo discovery", async () => {
+    const appModuleFetch = vi.fn(async () => new Response("proxied-nodeinfo", { status: 200 }));
+    mocks.loadTakosApp.mockResolvedValue({ fetch: appModuleFetch });
+    mocks.loadStoredAppManifest.mockResolvedValue({} as any);
+    mocks.buildTakosAppEnv.mockReturnValue({} as any);
+
+    const app = createTakosRoot({ ensureDatabase: async () => {} }, "example.test");
+    const res = await app.fetch(
+      new Request("https://example.test/.well-known/nodeinfo"),
+      makeEnv(),
+      makeExecutionContext(),
+    );
+
+    expect(mocks.loadTakosApp).toHaveBeenCalledWith("default", expect.anything());
+    expect(appModuleFetch).toHaveBeenCalledTimes(1);
+    expect(await res.text()).toBe("proxied-nodeinfo");
+  });
+
+  it("proxies NodeInfo 2.0 endpoint", async () => {
+    const appModuleFetch = vi.fn(async () => new Response("proxied-nodeinfo-2.0", { status: 200 }));
+    mocks.loadTakosApp.mockResolvedValue({ fetch: appModuleFetch });
+    mocks.loadStoredAppManifest.mockResolvedValue({} as any);
+    mocks.buildTakosAppEnv.mockReturnValue({} as any);
+
+    const app = createTakosRoot({ ensureDatabase: async () => {} }, "example.test");
+    const res = await app.fetch(
+      new Request("https://example.test/nodeinfo/2.0"),
+      makeEnv(),
+      makeExecutionContext(),
+    );
+
+    expect(mocks.loadTakosApp).toHaveBeenCalledWith("default", expect.anything());
+    expect(appModuleFetch).toHaveBeenCalledTimes(1);
+    expect(await res.text()).toBe("proxied-nodeinfo-2.0");
+  });
+
+  it("proxies Shared Inbox endpoint", async () => {
+    const appModuleFetch = vi.fn(async () => new Response("proxied-shared-inbox", { status: 202 }));
+    mocks.loadTakosApp.mockResolvedValue({ fetch: appModuleFetch });
+    mocks.loadStoredAppManifest.mockResolvedValue({} as any);
+    mocks.buildTakosAppEnv.mockReturnValue({} as any);
+
+    const app = createTakosRoot({ ensureDatabase: async () => {} }, "example.test");
+    const res = await app.fetch(
+      new Request("https://example.test/ap/inbox", { method: "POST", body: "{}" }),
+      makeEnv(),
+      makeExecutionContext(),
+    );
+
+    expect(mocks.loadTakosApp).toHaveBeenCalledWith("default", expect.anything());
+    expect(appModuleFetch).toHaveBeenCalledTimes(1);
+    expect(await res.text()).toBe("proxied-shared-inbox");
+  });
+
+  it("proxies Personal Inbox endpoint", async () => {
+    const appModuleFetch = vi.fn(async () => new Response("proxied-user-inbox", { status: 202 }));
+    mocks.loadTakosApp.mockResolvedValue({ fetch: appModuleFetch });
+    mocks.loadStoredAppManifest.mockResolvedValue({} as any);
+    mocks.buildTakosAppEnv.mockReturnValue({} as any);
+
+    const app = createTakosRoot({ ensureDatabase: async () => {} }, "example.test");
+    const res = await app.fetch(
+      new Request("https://example.test/ap/users/alice/inbox", { method: "POST", body: "{}" }),
+      makeEnv(),
+      makeExecutionContext(),
+    );
+
+    expect(mocks.loadTakosApp).toHaveBeenCalledWith("default", expect.anything());
+    expect(appModuleFetch).toHaveBeenCalledTimes(1);
+    expect(await res.text()).toBe("proxied-user-inbox");
+  });
+
+  it("proxies Object endpoint", async () => {
+    const appModuleFetch = vi.fn(async () => new Response("proxied-object", { status: 200 }));
+    mocks.loadTakosApp.mockResolvedValue({ fetch: appModuleFetch });
+    mocks.loadStoredAppManifest.mockResolvedValue({} as any);
+    mocks.buildTakosAppEnv.mockReturnValue({} as any);
+
+    const app = createTakosRoot({ ensureDatabase: async () => {} }, "example.test");
+    const res = await app.fetch(
+      new Request("https://example.test/ap/objects/obj-1"),
+      makeEnv(),
+      makeExecutionContext(),
+    );
+
+    expect(mocks.loadTakosApp).toHaveBeenCalledWith("default", expect.anything());
+    expect(appModuleFetch).toHaveBeenCalledTimes(1);
+    expect(await res.text()).toBe("proxied-object");
+  });
+
+  it("proxies Followers endpoint", async () => {
+    const appModuleFetch = vi.fn(async () => new Response("proxied-followers", { status: 200 }));
+    mocks.loadTakosApp.mockResolvedValue({ fetch: appModuleFetch });
+    mocks.loadStoredAppManifest.mockResolvedValue({} as any);
+    mocks.buildTakosAppEnv.mockReturnValue({} as any);
+
+    const app = createTakosRoot({ ensureDatabase: async () => {} }, "example.test");
+    const res = await app.fetch(
+      new Request("https://example.test/ap/users/alice/followers"),
+      makeEnv(),
+      makeExecutionContext(),
+    );
+
+    expect(mocks.loadTakosApp).toHaveBeenCalledWith("default", expect.anything());
+    expect(appModuleFetch).toHaveBeenCalledTimes(1);
+    expect(await res.text()).toBe("proxied-followers");
+  });
+
+  it("proxies Following endpoint", async () => {
+    const appModuleFetch = vi.fn(async () => new Response("proxied-following", { status: 200 }));
+    mocks.loadTakosApp.mockResolvedValue({ fetch: appModuleFetch });
+    mocks.loadStoredAppManifest.mockResolvedValue({} as any);
+    mocks.buildTakosAppEnv.mockReturnValue({} as any);
+
+    const app = createTakosRoot({ ensureDatabase: async () => {} }, "example.test");
+    const res = await app.fetch(
+      new Request("https://example.test/ap/users/alice/following"),
+      makeEnv(),
+      makeExecutionContext(),
+    );
+
+    expect(mocks.loadTakosApp).toHaveBeenCalledWith("default", expect.anything());
+    expect(appModuleFetch).toHaveBeenCalledTimes(1);
+    expect(await res.text()).toBe("proxied-following");
+  });
+
+  it("proxies Group Actor endpoint", async () => {
+    const appModuleFetch = vi.fn(async () => new Response("proxied-group", { status: 200 }));
+    mocks.loadTakosApp.mockResolvedValue({ fetch: appModuleFetch });
+    mocks.loadStoredAppManifest.mockResolvedValue({} as any);
+    mocks.buildTakosAppEnv.mockReturnValue({} as any);
+
+    const app = createTakosRoot({ ensureDatabase: async () => {} }, "example.test");
+    const res = await app.fetch(
+      new Request("https://example.test/ap/groups/community-1"),
+      makeEnv(),
+      makeExecutionContext(),
+    );
+
+    expect(mocks.loadTakosApp).toHaveBeenCalledWith("default", expect.anything());
+    expect(appModuleFetch).toHaveBeenCalledTimes(1);
+    expect(await res.text()).toBe("proxied-group");
   });
 });
