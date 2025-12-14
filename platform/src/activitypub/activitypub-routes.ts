@@ -1404,7 +1404,9 @@ app.get("/nodeinfo/2.0", async (c) => {
     let userCount = 0;
     try {
       // Assuming we can count users. If not, default to 1 (admin)
-      const users = await store.queryRaw("SELECT COUNT(*) as count FROM users");
+      const users = await store.queryRaw(
+        "SELECT COUNT(*) as count FROM actors WHERE type = 'Person' AND is_local = 1",
+      );
       userCount = (users[0] as any).count || 0;
     } catch (e) {
       console.warn("Failed to count users for NodeInfo", e);

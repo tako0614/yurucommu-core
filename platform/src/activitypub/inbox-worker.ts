@@ -84,6 +84,92 @@ function extractActorUri(actor: any): string | null {
 }
 
 /**
+ * Check if an IPv4 address is in a private/reserved range
+ */
+function isPrivateIPv4(ip: string): boolean {
+  const parts = ip.split('.').map(Number);
+  if (parts.length !== 4 || parts.some((p) => Number.isNaN(p) || p < 0 || p > 255)) {
+    return false; // Not a valid IPv4, let other checks handle it
+  }
+
+  const [a, b, c, d] = parts;
+
+  // Loopback: 127.0.0.0/8
+  if (a === 127) return true;
+
+  // Private ranges (RFC 1918):
+  // 10.0.0.0/8
+  if (a === 10) return true;
+  // 172.16.0.0/12 (172.16.0.0 - 172.31.255.255)
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  // 192.168.0.0/16
+  if (a === 192 && b === 168) return true;
+
+  // Link-local: 169.254.0.0/16
+  if (a === 169 && b === 254) return true;
+
+  // AWS/Cloud metadata service: 169.254.169.254
+  if (a === 169 && b === 254 && c === 169 && d === 254) return true;
+
+  // Carrier-grade NAT: 100.64.0.0/10 (100.64.0.0 - 100.127.255.255)
+  if (a === 100 && b >= 64 && b <= 127) return true;
+
+  // Broadcast: 255.255.255.255
+  if (a === 255 && b === 255 && c === 255 && d === 255) return true;
+
+  // Current network: 0.0.0.0/8
+  if (a === 0) return true;
+
+  return false;
+}
+
+/**
+ * Check if an IPv6 address is in a private/reserved range
+ */
+function isPrivateIPv6(ip: string): boolean {
+  // Remove brackets if present (e.g., [::1])
+  const cleanIp = ip.replace(/^\[|\]$/g, '').toLowerCase();
+
+  // Loopback: ::1
+  if (cleanIp === '::1') return true;
+
+  // Unspecified: ::
+  if (cleanIp === '::') return true;
+
+  // Link-local: fe80::/10
+  if (cleanIp.startsWith('fe8') || cleanIp.startsWith('fe9') ||
+      cleanIp.startsWith('fea') || cleanIp.startsWith('feb')) return true;
+
+  // Unique local addresses (ULA): fc00::/7 (fc00:: - fdff::)
+  if (cleanIp.startsWith('fc') || cleanIp.startsWith('fd')) return true;
+
+  // IPv4-mapped IPv6: ::ffff:x.x.x.x
+  const v4MappedMatch = cleanIp.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (v4MappedMatch) {
+    return isPrivateIPv4(v4MappedMatch[1]);
+  }
+
+  // IPv4-compatible IPv6: ::x.x.x.x (deprecated but check anyway)
+  const v4CompatMatch = cleanIp.match(/^::(\d+\.\d+\.\d+\.\d+)$/);
+  if (v4CompatMatch) {
+    return isPrivateIPv4(v4CompatMatch[1]);
+  }
+
+  return false;
+}
+
+/**
+ * Check if hostname looks like an IP address
+ */
+function looksLikeIP(hostname: string): boolean {
+  // IPv4: digits and dots
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return true;
+  // IPv6: starts with [ or contains :
+  if (hostname.startsWith('[') || hostname.includes(':')) return true;
+  return false;
+}
+
+/**
  * Validate actor URI to prevent SSRF attacks
  */
 function validateActorUri(uri: string): boolean {
@@ -96,33 +182,46 @@ function validateActorUri(uri: string): boolean {
       return false;
     }
 
-    // Reject localhost and internal IPs
     const hostname = url.hostname.toLowerCase();
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') {
+
+    // Reject localhost variants
+    if (hostname === 'localhost' || hostname === 'localhost.localdomain') {
       console.error(`Actor URI points to localhost: ${hostname}`);
       return false;
     }
 
-    // Reject private IP ranges (RFC 1918)
-    if (hostname.startsWith('10.') ||
-        hostname.startsWith('172.16.') || hostname.startsWith('172.17.') ||
-        hostname.startsWith('172.18.') || hostname.startsWith('172.19.') ||
-        hostname.startsWith('172.2') || hostname.startsWith('172.3') ||
-        hostname.startsWith('192.168.')) {
-      console.error(`Actor URI uses private IP range: ${hostname}`);
-      return false;
+    // Check if it's an IP address
+    if (looksLikeIP(hostname)) {
+      // Check IPv4 private ranges
+      if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) {
+        if (isPrivateIPv4(hostname)) {
+          console.error(`Actor URI uses private/reserved IPv4: ${hostname}`);
+          return false;
+        }
+      }
+
+      // Check IPv6 private ranges
+      const ipv6 = hostname.startsWith('[') ? hostname : hostname;
+      if (isPrivateIPv6(ipv6)) {
+        console.error(`Actor URI uses private/reserved IPv6: ${hostname}`);
+        return false;
+      }
     }
 
-    // Reject link-local addresses
-    if (hostname.startsWith('169.254.')) {
-      console.error(`Actor URI uses link-local address: ${hostname}`);
-      return false;
-    }
+    // Additional hostname checks for non-IP hostnames
+    if (!looksLikeIP(hostname)) {
+      // Require at least one dot in hostname (basic TLD check)
+      if (!hostname.includes('.')) {
+        console.error(`Actor URI hostname missing TLD: ${hostname}`);
+        return false;
+      }
 
-    // Require at least one dot in hostname (basic TLD check)
-    if (!hostname.includes('.')) {
-      console.error(`Actor URI hostname missing TLD: ${hostname}`);
-      return false;
+      // Block .local, .internal, .localhost TLDs
+      if (hostname.endsWith('.local') || hostname.endsWith('.internal') ||
+          hostname.endsWith('.localhost') || hostname.endsWith('.localdomain')) {
+        console.error(`Actor URI uses reserved TLD: ${hostname}`);
+        return false;
+      }
     }
 
     return true;

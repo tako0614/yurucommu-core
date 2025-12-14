@@ -231,33 +231,12 @@ async function upsertOwnerPassword(prisma: PrismaClient, password: string) {
   });
 }
 
-async function upsertUserAccount(prisma: PrismaClient, actorId: string, password: string) {
+async function upsertActorPassword(prisma: PrismaClient, actorId: string, password: string) {
   const hashed = await hashPassword(password);
-  const existing = await prisma.user_accounts.findFirst({
-    where: { provider: "password", actor_id: actorId },
+  await prisma.actors.update({
+    where: { id: actorId },
+    data: { password_hash: hashed, updated_at: new Date() },
   });
-  if (existing) {
-    await prisma.user_accounts.update({
-      where: { id: existing.id },
-      data: {
-        provider_account_id: actorId,
-        password_hash: hashed,
-        updated_at: new Date(),
-      },
-    });
-  } else {
-    await prisma.user_accounts.create({
-      data: {
-        id: `acct-${actorId}`,
-        actor_id: actorId,
-        provider: "password",
-        provider_account_id: actorId,
-        password_hash: hashed,
-        created_at: new Date(),
-        updated_at: new Date(),
-      },
-    });
-  }
 }
 
 async function upsertMembership(
@@ -530,7 +509,7 @@ async function main() {
         avatarUrl: user.avatarUrl,
       });
       actorIdMap[user.handle] = actorId;
-      await upsertUserAccount(prisma, actorId, user.password);
+      await upsertActorPassword(prisma, actorId, user.password);
     }
 
     await upsertOwnerPassword(prisma, adminPassword);

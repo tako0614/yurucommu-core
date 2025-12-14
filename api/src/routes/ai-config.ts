@@ -202,6 +202,14 @@ const normalizeAllowlistInput = (value: unknown): string[] => {
   return [];
 };
 
+const isToolAllowedByAiConfig = (config: TakosAiConfig | null | undefined, toolId: string): boolean => {
+  const raw = (config as any)?.agent_tool_allowlist;
+  const allowlist = Array.isArray(raw) ? raw.map((v) => String(v ?? "").trim()).filter(Boolean) : [];
+  if (!allowlist.length) return true;
+  if (allowlist.includes("*")) return true;
+  return allowlist.includes(toolId);
+};
+
 const sameAllowlist = (a: string[], b: string[]): boolean => {
   if (a.length !== b.length) return false;
   const setB = new Set(b);
@@ -278,6 +286,9 @@ aiConfigRoutes.put("/api/ai/config", async (c) => {
 
   try {
     const current = normalizeConfig(await (store as any).getAiConfig());
+    if (agentGuard.agentType && !isToolAllowedByAiConfig(current, "tool.updateTakosConfig")) {
+      return fail(c, "agent is not allowed to update AI config on this node", 403);
+    }
     if (agentGuard.agentType) {
       const allowlistCheck = enforceAgentConfigAllowlist({
         agentType: agentGuard.agentType,
@@ -312,6 +323,7 @@ aiConfigRoutes.put("/api/ai/config", async (c) => {
         requires_external_network: nextConfig.requires_external_network !== false,
         data_policy: nextConfig.data_policy ?? DEFAULT_TAKOS_AI_CONFIG.data_policy,
         agent_config_allowlist: nextConfig.agent_config_allowlist ?? [],
+        agent_tool_allowlist: (nextConfig as any).agent_tool_allowlist ?? [],
       },
       providers,
       actions,
@@ -375,6 +387,9 @@ aiConfigRoutes.post("/api/ai/agent-config-allowlist", async (c) => {
   const resolved = await resolveConfigAllowlist(c.env as Bindings);
 
   if (agentGuard.agentType) {
+    if (!isToolAllowedByAiConfig(resolved.config.ai ?? null, "tool.updateTakosConfig")) {
+      return fail(c, "agent is not allowed to update AI config on this node", 403);
+    }
     const allowlistCheck = enforceAgentConfigAllowlist({
       agentType: agentGuard.agentType,
       allowlist: resolved.allowlist,
@@ -451,6 +466,9 @@ aiConfigRoutes.post("/api/ai/actions/:id/toggle", async (c) => {
   try {
     const config = normalizeConfig(await (store as any).getAiConfig());
     if (agentGuard.agentType) {
+      if (!isToolAllowedByAiConfig(config, "tool.updateTakosConfig")) {
+        return fail(c, "agent is not allowed to update AI config on this node", 403);
+      }
       const allowlistCheck = enforceAgentConfigAllowlist({
         agentType: agentGuard.agentType,
         allowlist: getAgentConfigAllowlist({ ai: config }),

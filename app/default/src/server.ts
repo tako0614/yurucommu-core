@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import type { TakosApp, AppEnv } from "@takos/app-sdk/server";
 import { json, error, parseBody, parseQuery } from "@takos/app-sdk/server";
-import { computeDigest, verifySignature } from "@takos/ap-utils";
 import { canonicalizeParticipants, computeParticipantsHash } from "@takos/platform/activitypub/chat";
 import {
   generateOrderedCollection,
@@ -13,66 +12,32 @@ import {
 } from "@takos/platform/activitypub/activitypub";
 import { handleDeliveryScheduled } from "@takos/platform/activitypub/delivery-worker-prisma";
 import { handleCleanupScheduled } from "@takos/platform/activitypub/cleanup-worker";
-import { getOrFetchActor, verifyActorOwnsKey } from "@takos/platform/activitypub/actor-fetch";
-import { applyFederationPolicy, buildActivityPubPolicy } from "@takos/platform/activitypub/federation-policy";
-import { processSingleInboxActivity } from "@takos/platform/activitypub/inbox-worker";
+import { applyFederationPolicy } from "@takos/platform/activitypub/federation-policy";
+import { processInboxQueue, processSingleInboxActivity } from "@takos/platform/activitypub/inbox-worker";
 import { createObjectService } from "@takos/platform/app/services/object-service";
 import { ensureUserKeyPair } from "@takos/platform/auth/crypto-keys";
 import { makeData } from "@takos/platform/server/data-factory";
 import { authenticateJWT } from "@takos/platform/server/jwt";
 
+// Import helpers from utils
+import {
+  parseBooleanEnv,
+  createSystemCtx,
+  activityPubJson,
+  activityPubError,
+  isPublicOrUnlisted,
+  verifyInboxDigest,
+  verifyInboxDateHeader,
+  resolveFederationPolicy,
+  RATE_LIMIT_MAX_REQUESTS,
+  checkInboxRateLimit,
+  isActivityDuplicate,
+  verifyInboxSignature,
+} from "./utils";
+
 const router = new Hono<{ Bindings: AppEnv }>();
 
 router.get("/health", (c) => c.text("ok"));
-
-const parseBooleanEnv = (value: unknown, fallback: boolean): boolean => {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (["1", "true", "yes", "on"].includes(normalized)) return true;
-    if (["0", "false", "no", "off"].includes(normalized)) return false;
-  }
-  return fallback;
-};
-
-const createSystemCtx = () =>
-  ({
-    userId: null,
-    sessionId: null,
-    isAuthenticated: false,
-    plan: { name: "system", limits: {}, features: [] },
-    limits: {},
-  }) as any;
-
-const cleanupExpiredStories = async (env: AppEnv): Promise<{ deleted: number; checked: number }> => {
-  const objects = (env as any)?.core?.objects;
-  if (!objects?.query || !objects?.delete) {
-    console.warn("[default-app] core.objects is not available; skipping story cleanup");
-    return { deleted: 0, checked: 0 };
-  }
-
-  const systemCtx = createSystemCtx();
-  const limit = 100;
-  const now = new Date().toISOString();
-  let deleted = 0;
-  let checked = 0;
-
-  const page = await objects.query(systemCtx, { type: "Note", limit, includeDeleted: false });
-  for (const obj of page?.items ?? []) {
-    const story = obj?.["takos:story"] as { expiresAt?: string } | undefined;
-    if (!story?.expiresAt) continue;
-    checked += 1;
-    if (story.expiresAt < now) {
-      try {
-        await objects.delete(systemCtx, obj.id);
-        deleted += 1;
-      } catch (error) {
-        console.error("[default-app] failed to delete expired story", obj?.id, error);
-      }
-    }
-  }
-  return { deleted, checked };
-};
 
 router.get("/.well-known/webfinger", async (c) => {
   const url = new URL(c.req.url);
@@ -145,7 +110,9 @@ router.get("/nodeinfo/2.0", async (c) => {
   try {
     let userCount = 0;
     try {
-      const rows = await store?.queryRaw?.("SELECT COUNT(*) as count FROM users");
+      const rows = await store?.queryRaw?.(
+        "SELECT COUNT(*) as count FROM actors WHERE type = 'Person' AND is_local = 1",
+      );
       const first = Array.isArray(rows) ? rows[0] : null;
       userCount = (first as any)?.count ? Number((first as any).count) : 0;
       if (!Number.isFinite(userCount)) userCount = 0;
@@ -237,18 +204,22 @@ router.get("/ap/users/:handle", async (c) => {
 router.get("/ap/users/:handle/outbox", async (c) => {
   const store = makeData(c.env as any);
   try {
-    const jwtResult = await authenticateJWT(c as any, {
-      getUser: (id: string) => store.getUser(id),
-      getUserJwtSecret: (userId: string) => store.getUserJwtSecret(userId),
-      setUserJwtSecret: (userId: string, secret: string) =>
-        store.setUserJwtSecret ? store.setUserJwtSecret(userId, secret) : Promise.resolve(),
-    } as any);
+    // Try to authenticate, but don't require it
+    let viewer: { id: string } | null = null;
+    try {
+      const jwtResult = await authenticateJWT(c as any, {
+        getUser: (id: string) => store.getUser(id),
+        getUserJwtSecret: (userId: string) => store.getUserJwtSecret(userId),
+        setUserJwtSecret: (userId: string, secret: string) =>
+          store.setUserJwtSecret ? store.setUserJwtSecret(userId, secret) : Promise.resolve(),
+      } as any);
+      viewer = (jwtResult as any)?.user ?? null;
+    } catch {
+      // Authentication failed, proceed as unauthenticated
+    }
 
     const handle = c.req.param("handle");
-    const viewer = (jwtResult as any)?.user ?? null;
-    if (!viewer || viewer.id !== handle) {
-      return error("Unauthorized", 401);
-    }
+    const isOwner = viewer?.id === handle;
 
     const url = new URL(c.req.url);
     const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
@@ -267,10 +238,13 @@ router.get("/ap/users/:handle/outbox", async (c) => {
     }
 
     const limit = 20;
-    const pageNum = Math.max(1, parseInt(pageRaw, 10) || 1);
+    const maxPage = 1000; // Prevent DoS via huge page numbers
+    const pageNum = Math.max(1, Math.min(maxPage, parseInt(pageRaw, 10) || 1));
     const offset = (pageNum - 1) * limit;
     const totalItems = await store.countApOutboxActivities(handle);
     const activities = await store.listApOutboxActivitiesPage(handle, limit, offset);
+
+    // Parse activities and apply privacy filtering
     const orderedItems = (activities || [])
       .map((row: any) => {
         try {
@@ -279,7 +253,13 @@ router.get("/ap/users/:handle/outbox", async (c) => {
           return null;
         }
       })
-      .filter(Boolean);
+      .filter((activity: any) => {
+        if (!activity) return false;
+        // Owner can see all their activities
+        if (isOwner) return true;
+        // Non-owners can only see public/unlisted activities
+        return isPublicOrUnlisted(activity);
+      });
 
     const collectionPage = generateOrderedCollectionPage(
       `${outboxUrl}?page=${pageNum}`,
@@ -299,66 +279,6 @@ router.get("/ap/users/:handle/outbox", async (c) => {
   }
 });
 
-const activityPubJson = <T,>(data: T, status = 200): Response =>
-  json(data, {
-    status,
-    headers: {
-      "Content-Type": "application/activity+json; charset=utf-8",
-    },
-  });
-
-const activityPubError = (message: string, status = 400): Response =>
-  activityPubJson({ ok: false, error: message }, status);
-
-const digestHeaderValue = (digestHeader: string | null): string | null => {
-  if (!digestHeader) return null;
-  for (const part of digestHeader.split(",")) {
-    const trimmed = part.trim();
-    const match = trimmed.match(/^sha-256=(.+)$/i);
-    if (match?.[1]) return match[1].trim();
-  }
-  return null;
-};
-
-const verifyInboxDigest = async (bodyText: string, digestHeader: string | null): Promise<boolean> => {
-  const expectedRaw = digestHeaderValue(digestHeader);
-  if (!expectedRaw) return false;
-  const computed = await computeDigest(bodyText);
-  const computedRaw = digestHeaderValue(computed);
-  return Boolean(computedRaw && expectedRaw && computedRaw === expectedRaw);
-};
-
-const verifyInboxDateHeader = (dateHeader: string | null): boolean => {
-  if (!dateHeader) return false;
-  const requestTime = new Date(dateHeader).getTime();
-  if (Number.isNaN(requestTime)) return false;
-  const now = Date.now();
-  const maxAge = 5 * 60 * 1000;
-  return Math.abs(now - requestTime) <= maxAge;
-};
-
-const resolveFederationPolicy = (env: AppEnv) =>
-  buildActivityPubPolicy({
-    env: env as any,
-    config: (env as any)?.takosConfig?.activitypub ?? (env as any)?.activitypub ?? null,
-  });
-
-const verifyInboxSignature = async (env: AppEnv, request: Request, actorId: string): Promise<boolean> => {
-  try {
-    const ok = await verifySignature(request, async (keyId: string) => {
-      const ownsKey = await verifyActorOwnsKey(actorId, keyId, env as any, fetch);
-      if (!ownsKey) throw new Error("key ownership verification failed");
-      const actor = await getOrFetchActor(actorId, env as any, false, fetch);
-      const publicKeyPem = actor?.publicKey?.publicKeyPem;
-      if (!publicKeyPem) throw new Error("missing public key");
-      return publicKeyPem;
-    });
-    return ok;
-  } catch {
-    return false;
-  }
-};
-
 router.post("/ap/inbox", async (c) => {
   const store = makeData(c.env as any);
   try {
@@ -373,6 +293,24 @@ router.post("/ap/inbox", async (c) => {
     const actorId = typeof activity?.actor === "string" ? activity.actor : activity?.actor?.id;
     if (!actorId) return activityPubError("missing actor", 400);
 
+    // Check for duplicate activity (replay attack prevention)
+    if (isActivityDuplicate(activity.id)) {
+      // Return 202 to not leak information about whether we've seen this before
+      return activityPubJson({}, 202);
+    }
+
+    // Rate limiting per actor
+    const rateLimit = checkInboxRateLimit(actorId);
+    if (!rateLimit.allowed) {
+      const retryAfter = Math.ceil((rateLimit.resetAt - Date.now()) / 1000);
+      const res = activityPubError("rate limit exceeded", 429);
+      res.headers.set("Retry-After", String(retryAfter));
+      res.headers.set("X-RateLimit-Limit", String(RATE_LIMIT_MAX_REQUESTS));
+      res.headers.set("X-RateLimit-Remaining", "0");
+      res.headers.set("X-RateLimit-Reset", String(Math.floor(rateLimit.resetAt / 1000)));
+      return res;
+    }
+
     const federationDecision = applyFederationPolicy(actorId, resolveFederationPolicy(c.env));
     if (!federationDecision.allowed) return activityPubError("federation blocked", 403);
 
@@ -383,7 +321,13 @@ router.post("/ap/inbox", async (c) => {
     const digestOk = await verifyInboxDigest(bodyText, c.req.header("digest") ?? c.req.header("Digest") ?? null);
     if (!digestOk) return activityPubError("digest verification failed", 403);
 
-    const signatureOk = await verifyInboxSignature(c.env, c.req.raw, actorId);
+    // Reconstruct request with body for signature verification (body was already consumed)
+    const requestForSignature = new Request(c.req.raw.url, {
+      method: c.req.raw.method,
+      headers: c.req.raw.headers,
+      body: bodyText,
+    });
+    const signatureOk = await verifyInboxSignature(c.env, requestForSignature, actorId);
     if (!signatureOk) return activityPubError("signature verification failed", 403);
 
     const url = new URL(c.req.url);
@@ -477,6 +421,24 @@ router.post("/ap/users/:handle/inbox", async (c) => {
     const actorId = typeof activity?.actor === "string" ? activity.actor : activity?.actor?.id;
     if (!actorId) return activityPubError("missing actor", 400);
 
+    // Check for duplicate activity (replay attack prevention)
+    if (isActivityDuplicate(activity.id)) {
+      // Return 202 to not leak information about whether we've seen this before
+      return activityPubJson({}, 202);
+    }
+
+    // Rate limiting per actor
+    const rateLimit = checkInboxRateLimit(actorId);
+    if (!rateLimit.allowed) {
+      const retryAfter = Math.ceil((rateLimit.resetAt - Date.now()) / 1000);
+      const res = activityPubError("rate limit exceeded", 429);
+      res.headers.set("Retry-After", String(retryAfter));
+      res.headers.set("X-RateLimit-Limit", String(RATE_LIMIT_MAX_REQUESTS));
+      res.headers.set("X-RateLimit-Remaining", "0");
+      res.headers.set("X-RateLimit-Reset", String(Math.floor(rateLimit.resetAt / 1000)));
+      return res;
+    }
+
     const federationDecision = applyFederationPolicy(actorId, resolveFederationPolicy(c.env));
     if (!federationDecision.allowed) return activityPubError("federation blocked", 403);
 
@@ -487,7 +449,13 @@ router.post("/ap/users/:handle/inbox", async (c) => {
     const digestOk = await verifyInboxDigest(bodyText, c.req.header("digest") ?? c.req.header("Digest") ?? null);
     if (!digestOk) return activityPubError("digest verification failed", 403);
 
-    const signatureOk = await verifyInboxSignature(c.env, c.req.raw, actorId);
+    // Reconstruct request with body for signature verification (body was already consumed)
+    const requestForSignature = new Request(c.req.raw.url, {
+      method: c.req.raw.method,
+      headers: c.req.raw.headers,
+      body: bodyText,
+    });
+    const signatureOk = await verifyInboxSignature(c.env, requestForSignature, actorId);
     if (!signatureOk) return activityPubError("signature verification failed", 403);
 
     const activityId = activity.id || crypto.randomUUID();
@@ -2040,21 +2008,21 @@ const app: TakosApp = {
   scheduled: async (event: ScheduledEvent, env: AppEnv, _ctx: ExecutionContext) => {
     if (!event?.cron) return;
 
-    // Every 5 minutes: delivery + story cleanup
+    // Every 5 minutes: delivery + inbox queue processing
     if (event.cron === "*/5 * * * *") {
       if ((env as any)?.DB) {
         await handleDeliveryScheduled(event as any, env as any).catch((error) => {
           console.error("[default-app] delivery queue processing failed", error);
         });
+        await processInboxQueue(env as any, 10).catch((error) => {
+          console.error("[default-app] inbox queue processing failed", error);
+        });
       }
-      await cleanupExpiredStories(env).catch((error) => {
-        console.error("[default-app] story cleanup failed", error);
-      });
       return;
     }
 
-    // Weekly cleanup (example cron in PLAN)
-    if (event.cron === "0 4 * * 0") {
+    // Daily cleanup (prune inbox/delivery/rate-limit/actor cache tables)
+    if (event.cron === "0 2 * * *" || event.cron === "0 4 * * 0") {
       if ((env as any)?.DB) {
         await handleCleanupScheduled(event as any, env as any).catch((error) => {
           console.error("[default-app] cleanup worker failed", error);

@@ -51,8 +51,8 @@ const mapActor = (row: any): Types.ActorRecord | null => {
     outbox: row.outbox ?? null,
     followers: row.followers ?? null,
     following: row.following ?? null,
-    public_key: row.public_key ?? null,
-    private_key: row.private_key ?? null,
+    public_key: row.public_key_pem ?? row.public_key ?? null,
+    private_key: row.private_key_pem ?? row.private_key ?? null,
     is_local: row.is_local,
     is_bot: row.is_bot,
     manually_approves_followers: row.manually_approves_followers,
@@ -60,6 +60,7 @@ const mapActor = (row: any): Types.ActorRecord | null => {
     visibility: row.visibility ?? null,
     profile_completed_at: row.profile_completed_at ?? null,
     jwt_secret: row.jwt_secret ?? null,
+    password_hash: row.password_hash ?? null,
     metadata_json: row.metadata_json ?? null,
     created_at: row.created_at ?? null,
     updated_at: row.updated_at ?? null,
@@ -148,6 +149,76 @@ function normalizeHandle(id: string): string {
   return (id || "").replace(/^@+/, "").trim();
 }
 
+function toActorCreateData(actor: Types.ActorInput): any {
+  const handle = normalizeHandle(actor.handle);
+  return {
+    id: actor.id ?? handle,
+    local_id: actor.local_id ?? handle,
+    handle,
+    type: actor.type ?? "Person",
+    display_name: actor.display_name ?? "",
+    summary: actor.summary ?? null,
+    avatar_url: actor.avatar_url ?? null,
+    header_url: actor.header_url ?? null,
+    inbox: actor.inbox ?? null,
+    outbox: actor.outbox ?? null,
+    followers: actor.followers ?? null,
+    following: actor.following ?? null,
+    public_key_pem: actor.public_key ?? null,
+    private_key_pem: actor.private_key ?? null,
+    is_local: actor.is_local === undefined ? 1 : Number(actor.is_local ? 1 : 0),
+    is_bot: actor.is_bot === undefined ? 0 : Number(actor.is_bot ? 1 : 0),
+    manually_approves_followers:
+      actor.manually_approves_followers === undefined ? 0 : Number(actor.manually_approves_followers ? 1 : 0),
+    owner_id: actor.owner_id ?? null,
+    visibility: actor.visibility ?? "public",
+    profile_completed_at: actor.profile_completed_at ? new Date(actor.profile_completed_at as any) : null,
+    jwt_secret: actor.jwt_secret ?? null,
+    password_hash: actor.password_hash ?? null,
+    metadata_json: actor.metadata_json ?? null,
+    created_at: actor.created_at ? new Date(actor.created_at) : undefined,
+    updated_at: actor.updated_at ? new Date(actor.updated_at) : undefined,
+  };
+}
+
+function toActorUpdateData(input: Types.ActorUpdateFields): any {
+  const data: any = {};
+
+  if (input.handle !== undefined) data.handle = normalizeHandle(input.handle);
+  if (input.local_id !== undefined) data.local_id = input.local_id;
+  if (input.type !== undefined) data.type = input.type;
+  if (input.display_name !== undefined) data.display_name = input.display_name ?? "";
+  if (input.summary !== undefined) data.summary = input.summary ?? null;
+  if (input.avatar_url !== undefined) data.avatar_url = input.avatar_url ?? null;
+  if (input.header_url !== undefined) data.header_url = input.header_url ?? null;
+  if (input.inbox !== undefined) data.inbox = input.inbox ?? null;
+  if (input.outbox !== undefined) data.outbox = input.outbox ?? null;
+  if (input.followers !== undefined) data.followers = input.followers ?? null;
+  if (input.following !== undefined) data.following = input.following ?? null;
+
+  if (input.public_key !== undefined) data.public_key_pem = input.public_key ?? null;
+  if (input.private_key !== undefined) data.private_key_pem = input.private_key ?? null;
+
+  if (input.is_local !== undefined) data.is_local = Number(input.is_local ? 1 : 0);
+  if (input.is_bot !== undefined) data.is_bot = Number(input.is_bot ? 1 : 0);
+  if (input.manually_approves_followers !== undefined) {
+    data.manually_approves_followers = Number(input.manually_approves_followers ? 1 : 0);
+  }
+
+  if (input.owner_id !== undefined) data.owner_id = input.owner_id ?? null;
+  if (input.visibility !== undefined) data.visibility = input.visibility ?? null;
+  if (input.profile_completed_at !== undefined) {
+    data.profile_completed_at = input.profile_completed_at ? new Date(input.profile_completed_at as any) : null;
+  }
+  if (input.jwt_secret !== undefined) data.jwt_secret = input.jwt_secret ?? null;
+  if (input.password_hash !== undefined) data.password_hash = input.password_hash ?? null;
+  if (input.metadata_json !== undefined) data.metadata_json = input.metadata_json ?? null;
+  if (input.created_at !== undefined) data.created_at = input.created_at ? new Date(input.created_at as any) : null;
+  if (input.updated_at !== undefined) data.updated_at = input.updated_at ? new Date(input.updated_at as any) : null;
+
+  return data;
+}
+
 function buildNoteObject(input: Types.PostInput, instanceDomain?: string): Types.ObjectWriteInput {
   const actor = normalizeHandle(input.author_id);
   const objectId = input.ap_object_id ?? input.id;
@@ -232,34 +303,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   };
 
   const createActor = async (actor: Types.ActorInput) => {
-    const handle = normalizeHandle(actor.handle);
-    const data: any = {
-      id: actor.id ?? handle,
-      local_id: actor.local_id ?? handle,
-      handle,
-      type: actor.type ?? "Person",
-      display_name: actor.display_name ?? "",
-      summary: actor.summary ?? null,
-      avatar_url: actor.avatar_url ?? null,
-      header_url: actor.header_url ?? null,
-      inbox: actor.inbox ?? null,
-      outbox: actor.outbox ?? null,
-      followers: actor.followers ?? null,
-      following: actor.following ?? null,
-      public_key: actor.public_key ?? null,
-      private_key: actor.private_key ?? null,
-      is_local: actor.is_local === undefined ? 1 : Number(actor.is_local ? 1 : 0),
-      is_bot: actor.is_bot === undefined ? 0 : Number(actor.is_bot ? 1 : 0),
-      manually_approves_followers:
-        actor.manually_approves_followers === undefined ? 0 : Number(actor.manually_approves_followers ? 1 : 0),
-      owner_id: actor.owner_id ?? null,
-      visibility: actor.visibility ?? "public",
-      profile_completed_at: actor.profile_completed_at ? new Date(actor.profile_completed_at as any) : null,
-      jwt_secret: actor.jwt_secret ?? null,
-      metadata_json: actor.metadata_json ?? null,
-      created_at: actor.created_at ? new Date(actor.created_at) : undefined,
-      updated_at: actor.updated_at ? new Date(actor.updated_at) : undefined,
-    };
+    const data = toActorCreateData(actor);
     const row = await (prisma as any).actors.create({ data });
     return mapActor(row)!;
   };
@@ -267,7 +311,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
   const updateActor = async (id: string, data: Types.ActorUpdateFields) => {
     const row = await (prisma as any).actors.update({
       where: { id },
-      data,
+      data: toActorUpdateData(data),
     });
     return mapActor(row)!;
   };
@@ -1493,6 +1537,22 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     return mapAudit(row)!;
   };
 
+  const listAuditLogs = async (
+    limit = 100,
+    options: { actionPrefix?: string } = {},
+  ): Promise<Types.AuditLogRecord[]> => {
+    const take = Math.max(1, Math.min(500, Math.floor(limit)));
+    const prefix = typeof options.actionPrefix === "string" && options.actionPrefix.trim()
+      ? options.actionPrefix.trim()
+      : null;
+    const rows = await (prisma as any).audit_log.findMany({
+      where: prefix ? { action: { startsWith: prefix } } : undefined,
+      orderBy: { timestamp: "desc" },
+      take,
+    });
+    return (rows ?? []).map(mapAudit).filter(Boolean) as Types.AuditLogRecord[];
+  };
+
   const findPostByApObjectId = async (ap_object_id: string) => getObject(ap_object_id);
 
   const createApReaction = async (input: Types.ApReactionInput) =>
@@ -1886,6 +1946,7 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
     // Audit
     appendAuditLog,
     getLatestAuditLog,
+    listAuditLogs,
 
     // Users (legacy)
     getUser,

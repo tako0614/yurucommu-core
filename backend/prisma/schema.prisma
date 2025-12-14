@@ -15,6 +15,8 @@ datasource db {
 
 model actors {
   id                          String    @id // ActivityPub Actor URI (local: https://domain/ap/actors/{handle})
+  // Local short id / handle for lookup (legacy user id)
+  local_id                    String?   @unique
   handle                      String    @unique
   type                        String    @default("Person") // Person, Group, Service, Application
   display_name                String?
@@ -31,6 +33,12 @@ model actors {
   is_bot                      Int       @default(0)
   manually_approves_followers Int       @default(0)
   discoverable                Int       @default(1)
+  // Auth / ownership (v1.8 compat)
+  owner_id                    String?
+  visibility                  String?
+  profile_completed_at        DateTime?
+  jwt_secret                  String?
+  password_hash               String?
   metadata_json               String?   // Additional AP properties as JSON
   created_at                  DateTime  @default(now())
   updated_at                  DateTime?
@@ -44,6 +52,79 @@ model actors {
 
   @@index([type])
   @@index([is_local])
+  @@index([owner_id])
+}
+
+// ============================================
+// Core: User Accounts (optional auth providers)
+// ============================================
+
+model user_accounts {
+  id                  String   @id
+  actor_id            String
+  provider            String
+  provider_account_id String
+  password_hash       String?
+  created_at          DateTime @default(now())
+  updated_at          DateTime @default(now())
+
+  @@unique([provider, provider_account_id])
+  @@index([actor_id])
+}
+
+// ============================================
+// Core: Media metadata (used when R2 not available)
+// ============================================
+
+model media {
+  key          String   @id
+  actor_id     String
+  url          String
+  description  String   @default("")
+  content_type String   @default("")
+  ref_count    Int      @default(0)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now())
+
+  @@index([actor_id])
+  @@index([url])
+}
+
+// ============================================
+// Core: Object recipients (for direct / followers)
+// ============================================
+
+model object_recipients {
+  id             String @id @default(uuid())
+  object_id       String
+  recipient       String
+  recipient_type  String
+
+  @@unique([object_id, recipient, recipient_type])
+  @@index([object_id])
+  @@index([recipient])
+}
+
+// ============================================
+// Core: Blocks / Mutes (legacy compat; App may override)
+// ============================================
+
+model blocks {
+  blocker_id String
+  blocked_id String
+
+  @@id([blocker_id, blocked_id])
+  @@index([blocker_id])
+  @@index([blocked_id])
+}
+
+model mutes {
+  muter_id String
+  muted_id String
+
+  @@id([muter_id, muted_id])
+  @@index([muter_id])
+  @@index([muted_id])
 }
 
 // ============================================
@@ -115,6 +196,9 @@ model notifications {
   type         String   // follow_request, follow_accepted, mention, reply, like, announce, etc.
   actor_id     String?  // Who triggered the notification
   object_id    String?  // Related object URI
+  ref_type     String?
+  ref_id       String?
+  message      String   @default("")
   data_json    String?  // Additional data as JSON
   read         Int      @default(0)
   created_at   DateTime @default(now())
@@ -214,4 +298,26 @@ model ap_rate_limits {
   created_at   Int
 
   @@index([key, window_start])
+}
+
+// ============================================
+// Core: Tamper-evident Audit Log Chain
+// ============================================
+
+model audit_log {
+  id           String   @id @default(uuid())
+  timestamp    DateTime
+  actor_type   String
+  actor_id     String?
+  action       String
+  target       String?
+  details_json String?
+  checksum     String
+  prev_checksum String?
+  created_at   DateTime
+
+  @@index([timestamp(sort: Desc)])
+  @@index([action])
+  @@index([actor_type])
+  @@index([actor_id])
 }

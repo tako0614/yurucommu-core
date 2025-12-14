@@ -37,6 +37,7 @@ export interface ActorRecord {
   visibility?: string | null;
   profile_completed_at?: NullableDate;
   jwt_secret?: string | null;
+  password_hash?: string | null;
   metadata_json?: string | null;
   created_at?: NullableDate;
   updated_at?: NullableDate;
@@ -64,6 +65,7 @@ export interface ActorInput {
   visibility?: string | null;
   profile_completed_at?: NullableDate;
   jwt_secret?: string | null;
+  password_hash?: string | null;
   metadata_json?: string | null;
   created_at?: NullableDate;
   updated_at?: NullableDate;
@@ -746,6 +748,7 @@ export interface DatabaseAPI {
   // Audit chain
   appendAuditLog?(entry: AuditLogInput): Promise<AuditLogRecord>;
   getLatestAuditLog?(): Promise<AuditLogRecord | null>;
+  listAuditLogs?(limit: number, options?: { actionPrefix?: string }): Promise<AuditLogRecord[]>;
 
   // Users (legacy alias to actors)
   getUser(id: string): Promise<any>;
