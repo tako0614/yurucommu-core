@@ -1,15 +1,22 @@
 import { Hono } from "hono";
 import type { TakosApp, AppEnv } from "@takos/app-sdk/server";
 import { json, error, parseBody, parseQuery } from "@takos/app-sdk/server";
+import { computeDigest, verifySignature } from "@takos/ap-utils";
 import { canonicalizeParticipants, computeParticipantsHash } from "@takos/platform/activitypub/chat";
 import {
   generateOrderedCollection,
   generateOrderedCollectionPage,
+  generateGroupActor,
+  generateNoteObject,
   generatePersonActor,
   generateWebFinger,
 } from "@takos/platform/activitypub/activitypub";
-import { processDeliveryQueue } from "@takos/platform/activitypub/delivery-worker-prisma";
+import { handleDeliveryScheduled } from "@takos/platform/activitypub/delivery-worker-prisma";
 import { handleCleanupScheduled } from "@takos/platform/activitypub/cleanup-worker";
+import { getOrFetchActor, verifyActorOwnsKey } from "@takos/platform/activitypub/actor-fetch";
+import { applyFederationPolicy, buildActivityPubPolicy } from "@takos/platform/activitypub/federation-policy";
+import { processSingleInboxActivity } from "@takos/platform/activitypub/inbox-worker";
+import { createObjectService } from "@takos/platform/app/services/object-service";
 import { ensureUserKeyPair } from "@takos/platform/auth/crypto-keys";
 import { makeData } from "@takos/platform/server/data-factory";
 import { authenticateJWT } from "@takos/platform/server/jwt";
@@ -17,6 +24,16 @@ import { authenticateJWT } from "@takos/platform/server/jwt";
 const router = new Hono<{ Bindings: AppEnv }>();
 
 router.get("/health", (c) => c.text("ok"));
+
+const parseBooleanEnv = (value: unknown, fallback: boolean): boolean => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+  }
+  return fallback;
+};
 
 const createSystemCtx = () =>
   ({
@@ -102,6 +119,74 @@ router.get("/.well-known/webfinger", async (c) => {
   res.headers.set("Content-Type", "application/jrd+json");
   res.headers.set("Cache-Control", "public, max-age=300, immutable");
   return res;
+});
+
+router.get("/.well-known/nodeinfo", (c) => {
+  const url = new URL(c.req.url);
+  const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
+  const protocol = url.protocol.replace(":", "") || "https";
+  const baseUrl = `${protocol}://${domain}`;
+
+  const res = json({
+    links: [
+      {
+        rel: "http://nodeinfo.diaspora.software/ns/schema/2.0",
+        href: `${baseUrl}/nodeinfo/2.0`,
+      },
+    ],
+  });
+  res.headers.set("Content-Type", "application/json; charset=utf-8");
+  res.headers.set("Cache-Control", "max-age=3600");
+  return res;
+});
+
+router.get("/nodeinfo/2.0", async (c) => {
+  const store = (c.env as any)?.DB ? makeData(c.env as any) : null;
+  try {
+    let userCount = 0;
+    try {
+      const rows = await store?.queryRaw?.("SELECT COUNT(*) as count FROM users");
+      const first = Array.isArray(rows) ? rows[0] : null;
+      userCount = (first as any)?.count ? Number((first as any).count) : 0;
+      if (!Number.isFinite(userCount)) userCount = 0;
+    } catch (error) {
+      console.warn("[default-app] failed to count users for NodeInfo", error);
+    }
+
+    const openRegistrations = parseBooleanEnv((c.env as any).INSTANCE_OPEN_REGISTRATIONS, false);
+    const nodeName =
+      (c.env.INSTANCE_NAME || "Takos Instance").toString().trim() || "Takos Instance";
+    const nodeDescription =
+      (c.env.INSTANCE_DESCRIPTION || "A Takos instance").toString().trim() || "A Takos instance";
+
+    const res = json({
+      version: "2.0",
+      software: {
+        name: "takos",
+        version: "0.1.0",
+      },
+      protocols: ["activitypub"],
+      services: {
+        inbound: [],
+        outbound: [],
+      },
+      openRegistrations,
+      usage: {
+        users: {
+          total: userCount,
+        },
+      },
+      metadata: {
+        nodeName,
+        nodeDescription,
+      },
+    });
+    res.headers.set("Content-Type", "application/json; charset=utf-8");
+    res.headers.set("Cache-Control", "max-age=3600");
+    return res;
+  } finally {
+    await store?.disconnect?.();
+  }
 });
 
 router.get("/ap/users/:handle", async (c) => {
@@ -209,6 +294,422 @@ router.get("/ap/users/:handle/outbox", async (c) => {
     const res = json(collectionPage);
     res.headers.set("Content-Type", "application/activity+json; charset=utf-8");
     return res;
+  } finally {
+    await store.disconnect?.();
+  }
+});
+
+const activityPubJson = <T,>(data: T, status = 200): Response =>
+  json(data, {
+    status,
+    headers: {
+      "Content-Type": "application/activity+json; charset=utf-8",
+    },
+  });
+
+const activityPubError = (message: string, status = 400): Response =>
+  activityPubJson({ ok: false, error: message }, status);
+
+const digestHeaderValue = (digestHeader: string | null): string | null => {
+  if (!digestHeader) return null;
+  for (const part of digestHeader.split(",")) {
+    const trimmed = part.trim();
+    const match = trimmed.match(/^sha-256=(.+)$/i);
+    if (match?.[1]) return match[1].trim();
+  }
+  return null;
+};
+
+const verifyInboxDigest = async (bodyText: string, digestHeader: string | null): Promise<boolean> => {
+  const expectedRaw = digestHeaderValue(digestHeader);
+  if (!expectedRaw) return false;
+  const computed = await computeDigest(bodyText);
+  const computedRaw = digestHeaderValue(computed);
+  return Boolean(computedRaw && expectedRaw && computedRaw === expectedRaw);
+};
+
+const verifyInboxDateHeader = (dateHeader: string | null): boolean => {
+  if (!dateHeader) return false;
+  const requestTime = new Date(dateHeader).getTime();
+  if (Number.isNaN(requestTime)) return false;
+  const now = Date.now();
+  const maxAge = 5 * 60 * 1000;
+  return Math.abs(now - requestTime) <= maxAge;
+};
+
+const resolveFederationPolicy = (env: AppEnv) =>
+  buildActivityPubPolicy({
+    env: env as any,
+    config: (env as any)?.takosConfig?.activitypub ?? (env as any)?.activitypub ?? null,
+  });
+
+const verifyInboxSignature = async (env: AppEnv, request: Request, actorId: string): Promise<boolean> => {
+  try {
+    const ok = await verifySignature(request, async (keyId: string) => {
+      const ownsKey = await verifyActorOwnsKey(actorId, keyId, env as any, fetch);
+      if (!ownsKey) throw new Error("key ownership verification failed");
+      const actor = await getOrFetchActor(actorId, env as any, false, fetch);
+      const publicKeyPem = actor?.publicKey?.publicKeyPem;
+      if (!publicKeyPem) throw new Error("missing public key");
+      return publicKeyPem;
+    });
+    return ok;
+  } catch {
+    return false;
+  }
+};
+
+router.post("/ap/inbox", async (c) => {
+  const store = makeData(c.env as any);
+  try {
+    const bodyText = await c.req.text();
+    let activity: any;
+    try {
+      activity = JSON.parse(bodyText);
+    } catch {
+      return activityPubError("invalid JSON", 400);
+    }
+
+    const actorId = typeof activity?.actor === "string" ? activity.actor : activity?.actor?.id;
+    if (!actorId) return activityPubError("missing actor", 400);
+
+    const federationDecision = applyFederationPolicy(actorId, resolveFederationPolicy(c.env));
+    if (!federationDecision.allowed) return activityPubError("federation blocked", 403);
+
+    if (!verifyInboxDateHeader(c.req.header("date") ?? c.req.header("Date") ?? null)) {
+      return activityPubError("invalid or missing Date header", 401);
+    }
+
+    const digestOk = await verifyInboxDigest(bodyText, c.req.header("digest") ?? c.req.header("Digest") ?? null);
+    if (!digestOk) return activityPubError("digest verification failed", 403);
+
+    const signatureOk = await verifyInboxSignature(c.env, c.req.raw, actorId);
+    if (!signatureOk) return activityPubError("signature verification failed", 403);
+
+    const url = new URL(c.req.url);
+    const instanceDomain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
+    const recipients = new Set<string>();
+
+    const addToRecipients = (field: any) => {
+      if (!field) return;
+      const targets = Array.isArray(field) ? field : [field];
+      for (const target of targets) {
+        if (typeof target !== "string") continue;
+        try {
+          const parsed = new URL(target);
+          if (parsed.hostname !== instanceDomain) continue;
+          const match = parsed.pathname.match(/^\/ap\/users\/([a-z0-9_]{3,32})$/);
+          if (match?.[1]) recipients.add(match[1]);
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    addToRecipients(activity.to);
+    addToRecipients(activity.cc);
+    addToRecipients(activity.audience);
+
+    const activityId = activity.id || crypto.randomUUID();
+
+    if (recipients.size === 0) {
+      const type = Array.isArray(activity.type) ? activity.type[0] : activity.type;
+      const objectType = Array.isArray(activity.object?.type) ? activity.object.type[0] : activity.object?.type;
+      const isPublic = (field: any) => {
+        const list = Array.isArray(field) ? field : [field];
+        return list.includes("https://www.w3.org/ns/activitystreams#Public");
+      };
+
+      if (type === "Create" && objectType === "Note" && (isPublic(activity.to) || isPublic(activity.cc) || isPublic(activity.audience))) {
+        await store
+          .createApInboxActivity({
+            local_user_id: "__public__",
+            remote_actor_id: actorId,
+            activity_id: activityId,
+            activity_type: activity.type,
+            activity_json: JSON.stringify(activity),
+            status: "pending",
+            created_at: new Date(),
+          })
+          .catch(() => {});
+      }
+
+      return activityPubJson({}, 202);
+    }
+
+    await Promise.all(
+      Array.from(recipients).map(async (handle) => {
+        await store
+          .createApInboxActivity({
+            local_user_id: handle,
+            remote_actor_id: actorId,
+            activity_id: activityId,
+            activity_type: activity.type,
+            activity_json: JSON.stringify(activity),
+            status: "pending",
+            created_at: new Date(),
+          })
+          .catch(() => {});
+      }),
+    );
+
+    return activityPubJson({}, 202);
+  } finally {
+    await store.disconnect?.();
+  }
+});
+
+router.post("/ap/users/:handle/inbox", async (c) => {
+  const store = makeData(c.env as any);
+  try {
+    const handle = c.req.param("handle");
+    const user = await store.getUser(handle);
+    if (!user) return activityPubError("user not found", 404);
+
+    const bodyText = await c.req.text();
+    let activity: any;
+    try {
+      activity = JSON.parse(bodyText);
+    } catch {
+      return activityPubError("invalid JSON", 400);
+    }
+
+    const actorId = typeof activity?.actor === "string" ? activity.actor : activity?.actor?.id;
+    if (!actorId) return activityPubError("missing actor", 400);
+
+    const federationDecision = applyFederationPolicy(actorId, resolveFederationPolicy(c.env));
+    if (!federationDecision.allowed) return activityPubError("federation blocked", 403);
+
+    if (!verifyInboxDateHeader(c.req.header("date") ?? c.req.header("Date") ?? null)) {
+      return activityPubError("invalid or missing Date header", 401);
+    }
+
+    const digestOk = await verifyInboxDigest(bodyText, c.req.header("digest") ?? c.req.header("Digest") ?? null);
+    if (!digestOk) return activityPubError("digest verification failed", 403);
+
+    const signatureOk = await verifyInboxSignature(c.env, c.req.raw, actorId);
+    if (!signatureOk) return activityPubError("signature verification failed", 403);
+
+    const activityId = activity.id || crypto.randomUUID();
+    const result = await store
+      .createApInboxActivity({
+        local_user_id: handle,
+        remote_actor_id: actorId,
+        activity_id: activityId,
+        activity_type: activity.type,
+        activity_json: JSON.stringify(activity),
+        status: "pending",
+        created_at: new Date(),
+      })
+      .catch(() => null);
+
+    if (result?.id) {
+      await processSingleInboxActivity(store as any, c.env as any, result.id).catch((error) => {
+        console.error("[default-app] inbox worker failed", error);
+      });
+    }
+
+    return activityPubJson({}, 202);
+  } finally {
+    await store.disconnect?.();
+  }
+});
+
+router.get("/ap/objects/:id", async (c) => {
+  const objectParam = c.req.param("id");
+  const url = new URL(c.req.url);
+  const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
+  const protocol = url.protocol.replace(":", "") || "https";
+  const qualifiedId = `${protocol}://${domain}/ap/objects/${objectParam}`;
+
+  try {
+    const objects = createObjectService(c.env as any);
+    const ctx = createSystemCtx();
+    const apObject =
+      (await objects.get(ctx, qualifiedId).catch(() => null)) ||
+      (await objects.get(ctx, objectParam).catch(() => null)) ||
+      (typeof (objects as any).getByLocalId === "function"
+        ? await (objects as any).getByLocalId(ctx, objectParam).catch(() => null)
+        : null);
+    if (apObject) return activityPubJson(apObject);
+  } catch (error) {
+    console.warn("[default-app] object-service lookup failed", error);
+  }
+
+  const store = makeData(c.env as any);
+  try {
+    let object: any | null = null;
+    if (store.getObject) {
+      object = await store.getObject(qualifiedId).catch(() => null);
+      if (!object) object = await store.getObject(objectParam).catch(() => null);
+      if (!object && store.getObjectByLocalId) {
+        object = await store.getObjectByLocalId(objectParam).catch(() => null);
+      }
+    }
+    if (!object) return activityPubError("object not found", 404);
+
+    let content = object.content;
+    if (typeof content === "string") {
+      try {
+        content = JSON.parse(content);
+      } catch {
+        // ignore
+      }
+    }
+
+    const story = content?.["takos:story"] ?? content?.story;
+    const expiresRaw =
+      content?.expiresAt ??
+      content?.expires_at ??
+      object.expiresAt ??
+      object.expires_at ??
+      story?.expiresAt ??
+      story?.expires_at;
+    if (expiresRaw) {
+      const expiresAt = new Date(expiresRaw);
+      if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now()) {
+        return activityPubError("object not found", 404);
+      }
+    }
+
+    const noteObject =
+      content && typeof content === "object" && (content as any).type
+        ? content
+        : generateNoteObject(object, { id: object.actor }, domain, protocol);
+    return activityPubJson(noteObject);
+  } finally {
+    await store.disconnect?.();
+  }
+});
+
+router.get("/ap/users/:handle/followers", async (c) => {
+  const store = makeData(c.env as any);
+  try {
+    const jwtResult = await authenticateJWT(c as any, {
+      getUser: (id: string) => store.getUser(id),
+      getUserJwtSecret: (userId: string) => store.getUserJwtSecret(userId),
+      setUserJwtSecret: (userId: string, secret: string) =>
+        store.setUserJwtSecret ? store.setUserJwtSecret(userId, secret) : Promise.resolve(),
+    } as any);
+
+    const handle = c.req.param("handle");
+    const viewer = (jwtResult as any)?.user ?? null;
+    if (!viewer || viewer.id !== handle) return activityPubError("Unauthorized", 401);
+
+    const url = new URL(c.req.url);
+    const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
+    const protocol = url.protocol.replace(":", "") || "https";
+    const followersUrl = `${protocol}://${domain}/ap/users/${handle}/followers`;
+
+    const pageRaw = c.req.query("page");
+    if (!pageRaw) {
+      const totalItems = await store.countApFollowers(handle, "accepted");
+      return activityPubJson(generateOrderedCollection(followersUrl, totalItems, `${followersUrl}?page=1`));
+    }
+
+    const limit = 100;
+    const pageNum = Math.max(1, parseInt(pageRaw, 10) || 1);
+    const offset = (pageNum - 1) * limit;
+    const totalItems = await store.countApFollowers(handle, "accepted");
+    const followers = await store.listApFollowers(handle, "accepted", limit, offset);
+    const orderedItems = followers.map((f: { remote_actor_id: string }) => f.remote_actor_id);
+    return activityPubJson(
+      generateOrderedCollectionPage(
+        `${followersUrl}?page=${pageNum}`,
+        followersUrl,
+        orderedItems,
+        totalItems,
+        offset,
+        orderedItems.length === limit ? `${followersUrl}?page=${pageNum + 1}` : undefined,
+        pageNum > 1 ? `${followersUrl}?page=${pageNum - 1}` : undefined,
+      ),
+    );
+  } finally {
+    await store.disconnect?.();
+  }
+});
+
+router.get("/ap/users/:handle/following", async (c) => {
+  const store = makeData(c.env as any);
+  try {
+    const jwtResult = await authenticateJWT(c as any, {
+      getUser: (id: string) => store.getUser(id),
+      getUserJwtSecret: (userId: string) => store.getUserJwtSecret(userId),
+      setUserJwtSecret: (userId: string, secret: string) =>
+        store.setUserJwtSecret ? store.setUserJwtSecret(userId, secret) : Promise.resolve(),
+    } as any);
+
+    const handle = c.req.param("handle");
+    const viewer = (jwtResult as any)?.user ?? null;
+    if (!viewer || viewer.id !== handle) return activityPubError("Unauthorized", 401);
+
+    const url = new URL(c.req.url);
+    const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
+    const protocol = url.protocol.replace(":", "") || "https";
+    const followingUrl = `${protocol}://${domain}/ap/users/${handle}/following`;
+
+    const pageRaw = c.req.query("page");
+    if (!pageRaw) {
+      const totalItems = await store.countApFollows(handle, "accepted");
+      return activityPubJson(generateOrderedCollection(followingUrl, totalItems, `${followingUrl}?page=1`));
+    }
+
+    const limit = 100;
+    const pageNum = Math.max(1, parseInt(pageRaw, 10) || 1);
+    const offset = (pageNum - 1) * limit;
+    const totalItems = await store.countApFollows(handle, "accepted");
+    const following = await store.listApFollows(handle, "accepted", limit, offset);
+    const orderedItems = following.map((f: { remote_actor_id: string }) => f.remote_actor_id);
+    return activityPubJson(
+      generateOrderedCollectionPage(
+        `${followingUrl}?page=${pageNum}`,
+        followingUrl,
+        orderedItems,
+        totalItems,
+        offset,
+        orderedItems.length === limit ? `${followingUrl}?page=${pageNum + 1}` : undefined,
+        pageNum > 1 ? `${followingUrl}?page=${pageNum - 1}` : undefined,
+      ),
+    );
+  } finally {
+    await store.disconnect?.();
+  }
+});
+
+router.get("/ap/groups/:id", async (c) => {
+  const accept = c.req.header("accept") || c.req.header("Accept") || "";
+  const isActivityPub = accept.includes("application/activity+json") || accept.includes("application/ld+json");
+  if (!isActivityPub) return c.redirect(`/communities/${c.req.param("id")}`);
+
+  const store = makeData(c.env as any);
+  try {
+    const id = c.req.param("id");
+    const url = new URL(c.req.url);
+    const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
+    const protocol = url.protocol.replace(":", "") || "https";
+
+    const community = await store.getCommunity(id);
+    if (!community) return activityPubError("community not found", 404);
+
+    const ownerHandle =
+      community.owner_id ||
+      community.created_by ||
+      (community as any).createdBy ||
+      (community as any).ownerId ||
+      id;
+
+    let groupPublicKey: string | undefined;
+    if (ownerHandle) {
+      try {
+        const keypair = await ensureUserKeyPair(store as any, c.env as any, ownerHandle);
+        groupPublicKey = keypair.publicKeyPem;
+      } catch (error) {
+        console.warn("[default-app] failed to ensure keypair for group", id, error);
+      }
+    }
+
+    const groupActor = generateGroupActor(community, ownerHandle, domain, protocol, groupPublicKey);
+    return activityPubJson(groupActor);
   } finally {
     await store.disconnect?.();
   }
@@ -1542,7 +2043,7 @@ const app: TakosApp = {
     // Every 5 minutes: delivery + story cleanup
     if (event.cron === "*/5 * * * *") {
       if ((env as any)?.DB) {
-        await processDeliveryQueue(env as any, 20).catch((error) => {
+        await handleDeliveryScheduled(event as any, env as any).catch((error) => {
           console.error("[default-app] delivery queue processing failed", error);
         });
       }

@@ -369,16 +369,7 @@ app.use("*", async (c, next) => {
   return response;
 });
 
-// Migrate ActivityPub endpoints to Default App incrementally.
-// When WEBFINGER_FROM_APP is enabled, proxy WebFinger to Default App.
-app.get("/.well-known/webfinger", async (c, next) => {
-  const enabledRaw = (c.env as any)?.WEBFINGER_FROM_APP ?? (c.env as any)?.ACTIVITYPUB_WEBFINGER_FROM_APP;
-  const enabled =
-    enabledRaw === true ||
-    (typeof enabledRaw === "string" &&
-      ["1", "true", "yes", "on"].includes(enabledRaw.trim().toLowerCase()));
-  if (!enabled) return next();
-
+const proxyDefaultAppStrict = async (c: any, label: string) => {
   try {
     const appId = "default";
     const appModule = await loadTakosApp(appId, c.env as any);
@@ -386,52 +377,25 @@ app.get("/.well-known/webfinger", async (c, next) => {
     const appEnv = buildTakosAppEnv(c, appId, manifest);
     return await appModule.fetch(c.req.raw, appEnv);
   } catch (error) {
-    console.warn("[webfinger] failed to proxy to default app, falling back to core handler", error);
-    return next();
+    console.error(`[${label}] failed to proxy to default app`, error);
+    return fail(c, "Default App unavailable", 503);
   }
-});
+};
 
-// When ACTOR_FROM_APP is enabled, proxy ActivityPub actor endpoint to Default App.
-app.get("/ap/users/:handle", async (c, next) => {
-  const enabledRaw = (c.env as any)?.ACTOR_FROM_APP ?? (c.env as any)?.ACTIVITYPUB_ACTOR_FROM_APP;
-  const enabled =
-    enabledRaw === true ||
-    (typeof enabledRaw === "string" &&
-      ["1", "true", "yes", "on"].includes(enabledRaw.trim().toLowerCase()));
-  if (!enabled) return next();
+// ActivityPub endpoints are handled by the Default App.
+// Core implementation is kept as a fallback behind explicit routing (see activityPubRoutes mount below).
+app.get("/.well-known/webfinger", async (c) => proxyDefaultAppStrict(c, "webfinger"));
+app.get("/.well-known/nodeinfo", async (c) => proxyDefaultAppStrict(c, "nodeinfo"));
+app.get("/nodeinfo/2.0", async (c) => proxyDefaultAppStrict(c, "nodeinfo"));
+app.get("/ap/users/:handle", async (c) => proxyDefaultAppStrict(c, "actor"));
+app.get("/ap/users/:handle/outbox", async (c) => proxyDefaultAppStrict(c, "outbox"));
 
-  try {
-    const appId = "default";
-    const appModule = await loadTakosApp(appId, c.env as any);
-    const manifest = await loadStoredAppManifest(c.env as any, appId);
-    const appEnv = buildTakosAppEnv(c, appId, manifest);
-    return await appModule.fetch(c.req.raw, appEnv);
-  } catch (error) {
-    console.warn("[actor] failed to proxy to default app, falling back to core handler", error);
-    return next();
-  }
-});
-
-// When OUTBOX_FROM_APP is enabled, proxy ActivityPub outbox endpoint to Default App.
-app.get("/ap/users/:handle/outbox", async (c, next) => {
-  const enabledRaw = (c.env as any)?.OUTBOX_FROM_APP ?? (c.env as any)?.ACTIVITYPUB_OUTBOX_FROM_APP;
-  const enabled =
-    enabledRaw === true ||
-    (typeof enabledRaw === "string" &&
-      ["1", "true", "yes", "on"].includes(enabledRaw.trim().toLowerCase()));
-  if (!enabled) return next();
-
-  try {
-    const appId = "default";
-    const appModule = await loadTakosApp(appId, c.env as any);
-    const manifest = await loadStoredAppManifest(c.env as any, appId);
-    const appEnv = buildTakosAppEnv(c, appId, manifest);
-    return await appModule.fetch(c.req.raw, appEnv);
-  } catch (error) {
-    console.warn("[outbox] failed to proxy to default app, falling back to core handler", error);
-    return next();
-  }
-});
+app.post("/ap/inbox", async (c) => proxyDefaultAppStrict(c, "shared-inbox"));
+app.post("/ap/users/:handle/inbox", async (c) => proxyDefaultAppStrict(c, "user-inbox"));
+app.get("/ap/objects/:id", async (c) => proxyDefaultAppStrict(c, "object"));
+app.get("/ap/users/:handle/followers", async (c) => proxyDefaultAppStrict(c, "followers"));
+app.get("/ap/users/:handle/following", async (c) => proxyDefaultAppStrict(c, "following"));
+app.get("/ap/groups/:id", async (c) => proxyDefaultAppStrict(c, "group"));
 
 // Mount ActivityPub routes (WebFinger, Actor, Inbox, Outbox)
 // ActivityPub routes define their own full paths (/ap/..., /.well-known/..., /nodeinfo/...)

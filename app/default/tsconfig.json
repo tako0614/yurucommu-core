@@ -3,6 +3,10 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@takos/ap-utils": ["../../packages/ap-utils/dist/index.d.ts"]
+    },
     "types": ["@cloudflare/workers-types"],
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
