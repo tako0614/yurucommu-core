@@ -85,12 +85,14 @@ import appVfsRoutes from "./routes/app-vfs";
 import appCompileRoutes from "./routes/app-compile";
 import appIdeRoutes from "./routes/app-ide";
 import appValidateRoutes from "./routes/app-validate";
+import appVersionsRoutes from "./routes/app-versions";
 import { appApiRouter } from "./routes/app-api";
 import cronHealthRoutes from "./routes/cron-health";
 import coreRecoveryRoutes from "./routes/core-recovery";
 import appManifestRoutes from "./routes/app-manifest";
 import objectsRoutes from "./routes/objects";
 import appRpcRoutes from "./routes/app-rpc";
+import internalMeteringRoutes from "./routes/internal-metering";
 // takos-config.ts is deprecated; config routes are now unified in config.ts per PLAN.md 5.3
 import { getTakosConfig } from "./lib/runtime-config";
 import {
@@ -128,6 +130,7 @@ import {
   validateCronConfig,
 } from "./lib/cron-tasks";
 import type { CronTaskDefinition, CronValidationResult } from "./lib/cron-tasks";
+import { expireAiProposals } from "./lib/ai-proposals-cron";
 import takosProfile from "../../takos-profile.json";
 import { validateTakosProfile } from "./lib/profile-validator";
 import { ErrorCodes } from "./lib/error-codes";
@@ -350,6 +353,7 @@ app.use("*", async (c, next) => {
 
 // Route API requests through manifest-defined handlers when enabled.
 app.route("/", appRpcRoutes);
+app.route("/", internalMeteringRoutes);
 
 app.use("*", async (c, next) => {
   if (!isManifestRoutingEnabled(c.env as any)) {
@@ -432,6 +436,7 @@ app.route("/", appVfsRoutes);
 app.route("/", appCompileRoutes);
 app.route("/", appIdeRoutes);
 app.route("/", appValidateRoutes);
+app.route("/", appVersionsRoutes);
 app.route("/-/apps", appApiRouter);
 app.route("/", realtimeRoutes);
 app.route("/", appPreviewRoutes);
@@ -2206,6 +2211,10 @@ const scheduledTaskHandlers: Record<string, ScheduledTaskRunner> = {
   },
   "activitypub-cleanup": async (event, env) => {
     await runDefaultAppScheduled(event, env);
+  },
+  "ai-proposals-expire": async (_event, env) => {
+    const result = await expireAiProposals(env as any);
+    console.log(`[cron] proposal expiration expired ${result.expired} proposal(s)`);
   },
 };
 

@@ -98,6 +98,14 @@ export type WorkspaceStore = {
     workspaceId: string,
     status: AppWorkspaceStatus,
   ): Promise<WorkspaceSnapshotRecord | null>;
+  listWorkspaceSnapshots?(
+    workspaceId: string,
+    options?: { limit?: number },
+  ): Promise<WorkspaceSnapshotRecord[]>;
+  getWorkspaceSnapshotRecord?(snapshotId: string): Promise<WorkspaceSnapshotRecord | null>;
+  readWorkspaceSnapshotPayload?(
+    snapshotId: string,
+  ): Promise<Record<string, unknown> | null>;
   saveCompileCache?(
     workspaceId: string,
     hash: string,
@@ -1177,6 +1185,52 @@ export function createWorkspaceStore(db: D1Database, bucket?: R2Bucket | null): 
     };
   };
 
+  const listWorkspaceSnapshots = async (
+    workspaceId: string,
+    options?: { limit?: number },
+  ): Promise<WorkspaceSnapshotRecord[]> => {
+    const limit = typeof options?.limit === "number" && options.limit > 0 ? Math.min(options.limit, 200) : 50;
+    const rows = await runStatement(
+      db,
+      `SELECT id, workspace_id, status, storage_key, size_bytes, file_count, created_at
+       FROM app_workspace_snapshots
+       WHERE workspace_id = ?
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      [workspaceId, limit],
+      true,
+    );
+    return rows as WorkspaceSnapshotRecord[];
+  };
+
+  const getWorkspaceSnapshotRecord = async (snapshotId: string): Promise<WorkspaceSnapshotRecord | null> => {
+    const rows = await runStatement(
+      db,
+      `SELECT id, workspace_id, status, storage_key, size_bytes, file_count, created_at
+       FROM app_workspace_snapshots
+       WHERE id = ?
+       LIMIT 1`,
+      [snapshotId],
+      true,
+    );
+    const row = rows[0] as WorkspaceSnapshotRecord | undefined;
+    return row ?? null;
+  };
+
+  const readWorkspaceSnapshotPayload = async (snapshotId: string): Promise<Record<string, unknown> | null> => {
+    const record = await getWorkspaceSnapshotRecord(snapshotId);
+    if (!record) return null;
+    const raw = await readR2Object(vfsBucket, record.storage_key);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(decoder.decode(raw)) as unknown;
+      return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+    } catch (error) {
+      console.warn("[workspace] failed to parse workspace snapshot payload", error);
+      return null;
+    }
+  };
+
   const saveCompileCache = async (
     workspaceId: string,
     hash: string,
@@ -1230,6 +1284,9 @@ export function createWorkspaceStore(db: D1Database, bucket?: R2Bucket | null): 
     listDirectories,
     ensureDirectory,
     saveWorkspaceSnapshot,
+    listWorkspaceSnapshots,
+    getWorkspaceSnapshotRecord,
+    readWorkspaceSnapshotPayload,
     saveCompileCache,
     getCompileCache,
   };

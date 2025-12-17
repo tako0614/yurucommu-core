@@ -30,4 +30,9 @@ describe("cron task registry", () => {
     expect(tasks.length).toBeGreaterThan(1);
     expect(tasks.every((task) => task.schedule === "*/5 * * * *")).toBe(true);
   });
+
+  it("includes proposal expiration task", () => {
+    const tasks = getCronTasksForSchedule("0 * * * *");
+    expect(tasks.some((task) => task.id === "ai-proposals-expire")).toBe(true);
+  });
 });

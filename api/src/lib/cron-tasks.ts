@@ -93,6 +93,13 @@ export const CRON_TASKS: CronTaskDefinition[] = [
     schedule: "0 2 * * *",
     required: true,
   },
+  {
+    id: "ai-proposals-expire",
+    title: "AI proposal expiration",
+    description: "Expire stale AI proposals (manual approval queue).",
+    schedule: "0 * * * *",
+    required: false,
+  },
 ];
 
 export type CronValidationResult = {

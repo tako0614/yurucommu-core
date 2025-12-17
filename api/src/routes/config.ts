@@ -24,6 +24,13 @@ import {
   getAgentConfigAllowlist,
 } from "../lib/agent-config-allowlist";
 import { ErrorCodes } from "../lib/error-codes";
+import {
+  createProposalQueue,
+  D1ProposalQueueStorage,
+  type ProposalQueue,
+  type ProposalStatus,
+} from "@takos/platform/ai/proposal-queue";
+import { executeProposal } from "../lib/proposal-executor";
 
 const configRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -45,6 +52,11 @@ const requireOwnerMode = (c: any): ConfigActor | null => {
     return null;
   }
   return actor;
+};
+
+const getProposalQueue = (db: D1Database): ProposalQueue => {
+  const storage = new D1ProposalQueueStorage(db);
+  return createProposalQueue(storage);
 };
 
 /** Require any authenticated user */
@@ -352,6 +364,172 @@ configRoutes.post("/-/config/import", auth, async (c) => {
     return fail(c, "owner mode required", 403, { code: ErrorCodes.OWNER_REQUIRED });
   }
   return handleConfigImport(c, actor);
+});
+
+type PendingDecisionBody = {
+  decision?: "approve" | "reject";
+  comment?: string;
+  changeIds?: string[];
+  ids?: string[];
+};
+
+const listPendingConfigChanges = async (c: any) => {
+  const db = (c.env as Bindings).DB;
+  if (!db) return fail(c, "Database not available", 500);
+
+  const proposalQueue = getProposalQueue(db);
+  const proposals = await proposalQueue.list({
+    status: "pending" satisfies ProposalStatus,
+    type: "config_change",
+    limit: Math.min(200, Math.max(1, Number.parseInt(c.req.query("limit") ?? "50", 10) || 50)),
+    offset: Math.max(0, Number.parseInt(c.req.query("offset") ?? "0", 10) || 0),
+    orderBy: "createdAt",
+    desc: true,
+  });
+  const stats = await proposalQueue.getStats();
+  return ok(c, { proposals, stats });
+};
+
+configRoutes.get("/admin/config/pending", auth, async (c) => {
+  const actor = requireOwnerMode(c);
+  if (!actor) return fail(c, "owner mode required", 403, { code: ErrorCodes.OWNER_REQUIRED });
+  return listPendingConfigChanges(c);
+});
+
+configRoutes.get("/-/config/pending", auth, async (c) => {
+  const actor = requireOwnerMode(c);
+  if (!actor) return fail(c, "owner mode required", 403, { code: ErrorCodes.OWNER_REQUIRED });
+  return listPendingConfigChanges(c);
+});
+
+configRoutes.post("/admin/config/pending/:id/decide", auth, async (c) => {
+  const actor = requireOwnerMode(c);
+  if (!actor) return fail(c, "owner mode required", 403, { code: ErrorCodes.OWNER_REQUIRED });
+  const db = (c.env as Bindings).DB;
+  if (!db) return fail(c, "Database not available", 500);
+
+  const id = (c.req.param("id") || "").trim();
+  if (!id) return fail(c, "changeId is required", 400);
+  const body = (await c.req.json().catch(() => null)) as PendingDecisionBody | null;
+  const decision = body?.decision;
+  if (decision !== "approve" && decision !== "reject") {
+    return fail(c, 'decision must be "approve" or "reject"', 400);
+  }
+
+  const proposalQueue = getProposalQueue(db);
+  const reviewerId = actor.user?.id ?? "owner";
+  const comment = typeof body?.comment === "string" ? body.comment : undefined;
+
+  if (decision === "reject") {
+    const proposal = await proposalQueue.reject(id, reviewerId, comment);
+    return ok(c, { proposal, applied: false });
+  }
+
+  const proposal = await proposalQueue.approve(id, reviewerId, comment);
+  const execution = await executeProposal(db, proposal);
+  return ok(c, { proposal, applied: execution.success, execution });
+});
+
+configRoutes.post("/-/config/pending/:id/decide", auth, async (c) => {
+  const actor = requireOwnerMode(c);
+  if (!actor) return fail(c, "owner mode required", 403, { code: ErrorCodes.OWNER_REQUIRED });
+  const db = (c.env as Bindings).DB;
+  if (!db) return fail(c, "Database not available", 500);
+
+  const id = (c.req.param("id") || "").trim();
+  if (!id) return fail(c, "changeId is required", 400);
+  const body = (await c.req.json().catch(() => null)) as PendingDecisionBody | null;
+  const decision = body?.decision;
+  if (decision !== "approve" && decision !== "reject") {
+    return fail(c, 'decision must be "approve" or "reject"', 400);
+  }
+
+  const proposalQueue = getProposalQueue(db);
+  const reviewerId = actor.user?.id ?? "owner";
+  const comment = typeof body?.comment === "string" ? body.comment : undefined;
+
+  if (decision === "reject") {
+    const proposal = await proposalQueue.reject(id, reviewerId, comment);
+    return ok(c, { proposal, applied: false });
+  }
+
+  const proposal = await proposalQueue.approve(id, reviewerId, comment);
+  const execution = await executeProposal(db, proposal);
+  return ok(c, { proposal, applied: execution.success, execution });
+});
+
+configRoutes.post("/admin/config/pending/bulk-decide", auth, async (c) => {
+  const actor = requireOwnerMode(c);
+  if (!actor) return fail(c, "owner mode required", 403, { code: ErrorCodes.OWNER_REQUIRED });
+  const db = (c.env as Bindings).DB;
+  if (!db) return fail(c, "Database not available", 500);
+
+  const body = (await c.req.json().catch(() => null)) as PendingDecisionBody | null;
+  const decision = body?.decision;
+  if (decision !== "approve" && decision !== "reject") {
+    return fail(c, 'decision must be "approve" or "reject"', 400);
+  }
+  const rawIds = Array.isArray(body?.changeIds) ? body?.changeIds : Array.isArray(body?.ids) ? body?.ids : [];
+  const ids = rawIds.map((v) => (typeof v === "string" ? v.trim() : "")).filter(Boolean);
+  if (ids.length === 0) return fail(c, "changeIds is required", 400);
+
+  const proposalQueue = getProposalQueue(db);
+  const reviewerId = actor.user?.id ?? "owner";
+  const comment = typeof body?.comment === "string" ? body.comment : undefined;
+
+  const results: Array<{ id: string; ok: boolean; proposal?: unknown; applied?: boolean; execution?: unknown; error?: string }> = [];
+  for (const id of ids.slice(0, 200)) {
+    try {
+      if (decision === "reject") {
+        const proposal = await proposalQueue.reject(id, reviewerId, comment);
+        results.push({ id, ok: true, proposal, applied: false });
+        continue;
+      }
+      const proposal = await proposalQueue.approve(id, reviewerId, comment);
+      const execution = await executeProposal(db, proposal as any);
+      results.push({ id, ok: true, proposal, applied: (execution as any).success, execution });
+    } catch (error: any) {
+      results.push({ id, ok: false, error: error?.message || String(error) });
+    }
+  }
+  return ok(c, { decision, results });
+});
+
+configRoutes.post("/-/config/pending/bulk-decide", auth, async (c) => {
+  const actor = requireOwnerMode(c);
+  if (!actor) return fail(c, "owner mode required", 403, { code: ErrorCodes.OWNER_REQUIRED });
+  const db = (c.env as Bindings).DB;
+  if (!db) return fail(c, "Database not available", 500);
+
+  const body = (await c.req.json().catch(() => null)) as PendingDecisionBody | null;
+  const decision = body?.decision;
+  if (decision !== "approve" && decision !== "reject") {
+    return fail(c, 'decision must be "approve" or "reject"', 400);
+  }
+  const rawIds = Array.isArray(body?.changeIds) ? body?.changeIds : Array.isArray(body?.ids) ? body?.ids : [];
+  const ids = rawIds.map((v) => (typeof v === "string" ? v.trim() : "")).filter(Boolean);
+  if (ids.length === 0) return fail(c, "changeIds is required", 400);
+
+  const proposalQueue = getProposalQueue(db);
+  const reviewerId = actor.user?.id ?? "owner";
+  const comment = typeof body?.comment === "string" ? body.comment : undefined;
+
+  const results: Array<{ id: string; ok: boolean; proposal?: unknown; applied?: boolean; execution?: unknown; error?: string }> = [];
+  for (const id of ids.slice(0, 200)) {
+    try {
+      if (decision === "reject") {
+        const proposal = await proposalQueue.reject(id, reviewerId, comment);
+        results.push({ id, ok: true, proposal, applied: false });
+        continue;
+      }
+      const proposal = await proposalQueue.approve(id, reviewerId, comment);
+      const execution = await executeProposal(db, proposal as any);
+      results.push({ id, ok: true, proposal, applied: (execution as any).success, execution });
+    } catch (error: any) {
+      results.push({ id, ok: false, error: error?.message || String(error) });
+    }
+  }
+  return ok(c, { decision, results });
 });
 
 export default configRoutes;

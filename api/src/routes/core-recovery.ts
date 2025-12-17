@@ -576,6 +576,10 @@ function getRecoveryPageHtml(): string {
       font-family: 'Courier New', monospace;
       font-size: 13px;
     }
+    .small {
+      font-size: 13px;
+      color: #718096;
+    }
   </style>
 </head>
 <body>
@@ -629,12 +633,23 @@ function getRecoveryPageHtml(): string {
     </div>
 
     <div class="card">
+      <h2>Pending Config Changes</h2>
+      <p class="small" style="margin-bottom: 16px;">
+        Review and approve/reject pending config changes (owner mode required).
+      </p>
+      <div id="pending-config-container" class="loading">Loading...</div>
+      <button class="btn btn-secondary" onclick="loadPendingConfigChanges()" style="margin-top: 16px;">
+        Refresh
+      </button>
+    </div>
+
+    <div class="card">
       <h2>Actions</h2>
       <button class="btn btn-secondary" onclick="window.location.href='/-/app/workspaces'">
         Go to App Workspaces
       </button>
       <button class="btn btn-secondary" onclick="window.location.href='/ai/proposals'" style="margin-left: 8px;">
-        AI Proposals
+        Proposal Queue (JSON)
       </button>
       <button class="btn btn-danger" onclick="logout()" style="margin-left: 8px;">
         Logout
@@ -643,10 +658,17 @@ function getRecoveryPageHtml(): string {
   </div>
 
   <script>
+    async function unwrapOkJson(response) {
+      const json = await response.json().catch(() => null);
+      if (!json || typeof json !== 'object') return { ok: false, error: 'invalid response', json: null };
+      if (!json.ok) return { ok: false, error: json.message || json.error || 'request failed', json };
+      return { ok: true, data: json.data, json };
+    }
+
     async function loadStatus() {
       try {
         const response = await fetch('/-/core/status');
-        const data = await response.json();
+        const data = await unwrapOkJson(response);
 
         if (!data.ok) {
           document.getElementById('status-container').innerHTML =
@@ -654,25 +676,26 @@ function getRecoveryPageHtml(): string {
           return;
         }
 
+        const result = data.data;
         const statusHtml = \`
           <div class="status-item">
             <span class="status-label">Distro</span>
-            <span class="status-value">\${data.result.node.distro_name} v\${data.result.node.distro_version}</span>
+            <span class="status-value">\${result.node.distro_name} v\${result.node.distro_version}</span>
           </div>
           <div class="status-item">
             <span class="status-label">Core Version</span>
-            <span class="status-value">\${data.result.node.core_version}</span>
+            <span class="status-value">\${result.node.core_version}</span>
           </div>
           <div class="status-item">
             <span class="status-label">Database</span>
-            <span class="status-value \${data.result.status.database === 'ok' ? 'status-ok' : 'status-error'}">
-              \${data.result.status.database}
+            <span class="status-value \${result.status.database === 'ok' ? 'status-ok' : 'status-error'}">
+              \${result.status.database}
             </span>
           </div>
           <div class="status-item">
             <span class="status-label">Storage</span>
-            <span class="status-value \${data.result.status.storage === 'configured' ? 'status-ok' : 'status-error'}">
-              \${data.result.status.storage}
+            <span class="status-value \${result.status.storage === 'configured' ? 'status-ok' : 'status-error'}">
+              \${result.status.storage}
             </span>
           </div>
         \`;
@@ -687,7 +710,7 @@ function getRecoveryPageHtml(): string {
     async function loadRevisions() {
       try {
         const response = await fetch('/-/core/app-revisions');
-        const data = await response.json();
+        const data = await unwrapOkJson(response);
 
         if (!data.ok) {
           document.getElementById('revisions-container').innerHTML =
@@ -695,8 +718,8 @@ function getRecoveryPageHtml(): string {
           return;
         }
 
-        const revisions = data.result.revisions;
-        const activeId = data.result.active_revision_id;
+        const revisions = data.data.revisions;
+        const activeId = data.data.active_revision_id;
 
         if (revisions.length === 0) {
           document.getElementById('revisions-container').innerHTML =
@@ -740,7 +763,7 @@ function getRecoveryPageHtml(): string {
         const response = await fetch(\`/-/core/app-revisions/\${revisionId}/activate\`, {
           method: 'POST',
         });
-        const data = await response.json();
+        const data = await unwrapOkJson(response);
 
         if (data.ok) {
           alert('Revision activated successfully! Please refresh the page.');
@@ -765,7 +788,7 @@ function getRecoveryPageHtml(): string {
     async function loadManifestValidation() {
       try {
         const response = await fetch('/-/core/app-manifest/validation');
-        const data = await response.json();
+        const data = await unwrapOkJson(response);
 
         if (!data.ok) {
           document.getElementById('manifest-container').innerHTML =
@@ -773,7 +796,7 @@ function getRecoveryPageHtml(): string {
           return;
         }
 
-        const result = data.result;
+        const result = data.data;
         const statusClass = result.status === 'valid' ? 'status-ok' :
                            result.status === 'error' ? 'status-error' : '';
 
@@ -818,10 +841,10 @@ function getRecoveryPageHtml(): string {
     async function validateManifest() {
       try {
         const response = await fetch('/-/core/validate-manifest', { method: 'POST' });
-        const data = await response.json();
+        const data = await unwrapOkJson(response);
 
         if (data.ok) {
-          alert('Validation completed: ' + data.result.status);
+          alert('Validation completed: ' + data.data.status);
           loadManifestValidation();
         } else {
           alert('Validation failed: ' + (data.error || 'Unknown error'));
@@ -834,7 +857,7 @@ function getRecoveryPageHtml(): string {
     async function loadConfig() {
       try {
         const response = await fetch('/-/core/config');
-        const data = await response.json();
+        const data = await unwrapOkJson(response);
 
         if (!data.ok) {
           document.getElementById('config-container').innerHTML =
@@ -842,7 +865,7 @@ function getRecoveryPageHtml(): string {
           return;
         }
 
-        const config = data.result;
+        const config = data.data;
         const html = \`
           <div class="status-item">
             <span class="status-label">Distro</span>
@@ -880,14 +903,14 @@ function getRecoveryPageHtml(): string {
     async function downloadConfig() {
       try {
         const response = await fetch('/-/config/export');
-        const data = await response.json();
+        const data = await unwrapOkJson(response);
 
         if (!data.ok) {
-          alert('Failed to export configuration');
+          alert('Failed to export configuration (owner mode required)');
           return;
         }
 
-        const blob = new Blob([JSON.stringify(data.result.config, null, 2)], { type: 'application/json' });
+        const blob = new Blob([JSON.stringify(data.data.config, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -918,7 +941,7 @@ function getRecoveryPageHtml(): string {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(config),
         });
-        const data = await response.json();
+        const data = await unwrapOkJson(response);
 
         if (data.ok) {
           alert('Configuration imported successfully!');
@@ -934,11 +957,85 @@ function getRecoveryPageHtml(): string {
       event.target.value = '';
     }
 
+    async function loadPendingConfigChanges() {
+      try {
+        const response = await fetch('/-/config/pending?limit=50');
+        const data = await unwrapOkJson(response);
+
+        if (!data.ok) {
+          document.getElementById('pending-config-container').innerHTML =
+            '<div style="color: #e53e3e;">Failed to load pending changes (owner mode required)</div>';
+          return;
+        }
+
+        const proposals = (data.data && data.data.proposals) || [];
+        const stats = (data.data && data.data.stats) || null;
+
+        if (!proposals.length) {
+          const summary = stats ? \`<div class="small">pending: \${stats.pending}</div>\` : '';
+          document.getElementById('pending-config-container').innerHTML =
+            summary + '<p style="color: #718096;">No pending changes.</p>';
+          return;
+        }
+
+        const html = '<ul class="revision-list">' +
+          proposals.map(p => {
+            const content = (p && p.content) || {};
+            const path = content.path || '(unknown path)';
+            const currentValue = JSON.stringify(content.currentValue ?? null);
+            const proposedValue = JSON.stringify(content.proposedValue ?? null);
+            return \`
+              <li class="revision-item">
+                <div class="revision-info">
+                  <div class="revision-id">\${p.id}</div>
+                  <div class="revision-date">\${p.createdAt ? new Date(p.createdAt).toLocaleString() : ''}</div>
+                  <div><code>\${path}</code></div>
+                  <div class="small">current: <code>\${currentValue}</code></div>
+                  <div class="small">proposed: <code>\${proposedValue}</code></div>
+                </div>
+                <div>
+                  <button class="btn btn-secondary" onclick="decidePendingChange('\${p.id}', 'reject')">Reject</button>
+                  <button class="btn" onclick="decidePendingChange('\${p.id}', 'approve')" style="margin-left: 8px;">Approve</button>
+                </div>
+              </li>
+            \`;
+          }).join('') +
+        '</ul>';
+
+        document.getElementById('pending-config-container').innerHTML = html;
+      } catch (error) {
+        document.getElementById('pending-config-container').innerHTML =
+          '<div style="color: #e53e3e;">Error: ' + error.message + '</div>';
+      }
+    }
+
+    async function decidePendingChange(id, decision) {
+      const label = decision === 'approve' ? 'approve' : 'reject';
+      if (!confirm('Are you sure you want to ' + label + ' this change?')) return;
+      try {
+        const response = await fetch('/-/config/pending/' + encodeURIComponent(id) + '/decide', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ decision }),
+        });
+        const data = await unwrapOkJson(response);
+        if (!data.ok) {
+          alert('Decision failed: ' + (data.error || 'Unknown error'));
+          return;
+        }
+        alert('Decision recorded: ' + label);
+        loadPendingConfigChanges();
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
     // Load data on page load
     loadStatus();
     loadRevisions();
     loadManifestValidation();
     loadConfig();
+    loadPendingConfigChanges();
   </script>
 </body>
 </html>`;
