@@ -474,6 +474,18 @@ function createSimplifiedObjectService(coreObjects: any, authContext: AuthContex
 function createSimplifiedActorService(coreActors: any, authContext: AuthContext | null) {
   const ctx = buildAppAuthCtx(authContext);
 
+  const normalizeCursorOffset = (cursor: unknown): number => {
+    if (typeof cursor !== "string") return 0;
+    const n = Number.parseInt(cursor, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  };
+
+  const buildCursor = (value: unknown): string | null => {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" && Number.isFinite(value)) return String(Math.trunc(value));
+    return null;
+  };
+
   return {
     /**
      * Get actor by ID
@@ -491,7 +503,11 @@ function createSimplifiedActorService(coreActors: any, authContext: AuthContext 
      * Search actors
      */
     search: async (query: string, options?: { limit?: number; offset?: number }) => {
-      return coreActors.search(ctx, query, options);
+      const res = await coreActors.search(ctx, query, options);
+      return {
+        items: res?.actors ?? [],
+        nextCursor: buildCursor(res?.next_cursor ?? res?.next_offset),
+      };
     },
     /**
      * Follow an actor
@@ -506,16 +522,37 @@ function createSimplifiedActorService(coreActors: any, authContext: AuthContext 
       return coreActors.unfollow(ctx, targetId);
     },
     /**
-     * List followers
+     * Get followers list
      */
-    listFollowers: async (options?: { limit?: number; offset?: number; actorId?: string }) => {
-      return coreActors.listFollowers(ctx, options);
+    getFollowers: async (actorId: string, options?: { limit?: number; cursor?: string }) => {
+      const offset = normalizeCursorOffset(options?.cursor);
+      const res = await coreActors.listFollowers(ctx, { actorId, limit: options?.limit, offset });
+      return {
+        items: res?.actors ?? [],
+        nextCursor: buildCursor(res?.next_cursor ?? res?.next_offset),
+      };
     },
     /**
-     * List following
+     * Get following list
      */
+    getFollowing: async (actorId: string, options?: { limit?: number; cursor?: string }) => {
+      const offset = normalizeCursorOffset(options?.cursor);
+      const res = await coreActors.listFollowing(ctx, { actorId, limit: options?.limit, offset });
+      return {
+        items: res?.actors ?? [],
+        nextCursor: buildCursor(res?.next_cursor ?? res?.next_offset),
+      };
+    },
+    // Backward-compatible aliases (legacy SDK drafts)
+    listFollowers: async (options?: { limit?: number; offset?: number; actorId?: string }) => {
+      const actorId = options?.actorId ?? ctx.userId ?? "";
+      const offset = typeof options?.offset === "number" && options.offset > 0 ? Math.trunc(options.offset) : 0;
+      return coreActors.listFollowers(ctx, { actorId, limit: options?.limit, offset });
+    },
     listFollowing: async (options?: { limit?: number; offset?: number; actorId?: string }) => {
-      return coreActors.listFollowing(ctx, options);
+      const actorId = options?.actorId ?? ctx.userId ?? "";
+      const offset = typeof options?.offset === "number" && options.offset > 0 ? Math.trunc(options.offset) : 0;
+      return coreActors.listFollowing(ctx, { actorId, limit: options?.limit, offset });
     },
     // Expose raw service for advanced use
     _raw: coreActors,
@@ -534,14 +571,22 @@ function createSimplifiedNotificationService(coreNotifications: any, authContext
     /**
      * List notifications
      */
-    list: async (options?: { since?: string }) => {
-      return coreNotifications.list(ctx, options);
+    list: async (options?: { limit?: number; since?: string }) => {
+      const res = await coreNotifications.list(ctx, { since: options?.since });
+      if (typeof options?.limit === "number" && options.limit > 0) {
+        return res.slice(0, Math.trunc(options.limit));
+      }
+      return res;
     },
     /**
      * Mark notification as read
      */
-    markRead: async (id: string) => {
-      return coreNotifications.markRead(ctx, id);
+    markAsRead: async (id: string) => {
+      await coreNotifications.markRead(ctx, id);
+    },
+    markAllAsRead: async () => {
+      const list = await coreNotifications.list(ctx, {});
+      await Promise.all(list.map((entry: any) => coreNotifications.markRead(ctx, entry.id)));
     },
     /**
      * Send notification (if available)
@@ -559,6 +604,10 @@ function createSimplifiedNotificationService(coreNotifications: any, authContext
           return coreNotifications.send(ctx, input);
         }
       : undefined,
+    // Backward-compatible alias (legacy SDK drafts)
+    markRead: async (id: string) => {
+      return coreNotifications.markRead(ctx, id);
+    },
     // Expose raw service for advanced use
     _raw: coreNotifications,
     _ctx: ctx,
