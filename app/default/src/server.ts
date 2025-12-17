@@ -82,7 +82,7 @@ router.get("/.well-known/webfinger", async (c) => {
 
   const actors = (c.env as any)?.core?.actors;
   if (!actors?.getByHandle) return error("Core services unavailable", 503);
-  const actor = await actors.getByHandle(createSystemCtx(), handle);
+  const actor = await actors.getByHandle(handle);
   if (!actor) return error("Not found", 404);
 
   const webfinger = generateWebFinger(handle, domain, protocol);
@@ -176,7 +176,7 @@ router.get("/ap/users/:handle", async (c) => {
 
   const actors = (c.env as any)?.core?.actors;
   if (!actors?.getByHandle) return error("Core services unavailable", 503);
-  const actorProfile = await actors.getByHandle(createSystemCtx(), handle);
+  const actorProfile = await actors.getByHandle(handle);
   if (!actorProfile) return error("Not found", 404);
 
   let publicKeyPem: string | undefined;
