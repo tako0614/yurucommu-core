@@ -95,6 +95,8 @@ describe("agent tools implementation", () => {
     const fetchAppApi = vi.fn(async (path: string) => {
       expect(path).toContain("/communities");
       expect(path).toContain("q=test");
+      expect(path).toContain("limit=10");
+      expect(path).toContain("offset=0");
       return new Response(JSON.stringify({ communities: [{ id: "c1" }], next_offset: null }), { status: 200 });
     });
 
@@ -134,11 +136,20 @@ describe("agent tools implementation", () => {
         nodeConfig: {} as any,
         services: { posts: {} as any, users: {} as any, media: { listStorage } as any, storage: {} as any },
       },
-      { limit: 10, offset: 0 },
+      { limit: 10, offset: 0, prefix: "user-uploads/u1/", status: "attached", bucket: "media", includeDeleted: true },
     );
 
     expect(result.files).toHaveLength(1);
     expect(listStorage).toHaveBeenCalledOnce();
+    const [, input] = listStorage.mock.calls[0];
+    expect(input).toMatchObject({
+      limit: 10,
+      offset: 0,
+      prefix: "user-uploads/u1/",
+      status: "attached",
+      bucket: "media",
+      includeDeleted: true,
+    });
   });
 
   it("returns followers via UserService.listFollowers", async () => {
