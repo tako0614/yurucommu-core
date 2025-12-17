@@ -19,14 +19,20 @@ const defaultErrorCode = (status: number): string => {
       return "FORBIDDEN";
     case 404:
       return "NOT_FOUND";
+    case 408:
+      return "SANDBOX_TIMEOUT";
     case 409:
       return "ALREADY_EXISTS";
     case 413:
       return "FILE_TOO_LARGE";
     case 429:
       return "RATE_LIMIT_EXCEEDED";
+    case 502:
+      return "AI_PROVIDER_ERROR";
     case 503:
       return "SERVICE_UNAVAILABLE";
+    case 507:
+      return "STORAGE_LIMIT_EXCEEDED";
     case 500:
     default:
       return status >= 500 ? "INTERNAL_ERROR" : "INVALID_INPUT";

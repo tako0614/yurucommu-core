@@ -13,9 +13,7 @@ import {
   validateUiContractAgainstManifest,
   parseUiContractJson,
 } from "@takos/platform/app";
-import { createAppSandbox } from "@takos/platform/app/runtime/sandbox";
 import type { AppAuthContext, AppResponse } from "@takos/platform/app/runtime/types";
-import type { CoreServices } from "@takos/platform/app/services";
 import type { PublicAccountBindings as Bindings } from "@takos/platform/server";
 import {
   APP_MANIFEST_SCHEMA_VERSION,
@@ -27,9 +25,26 @@ import {
 import { makeData } from "../data";
 import { getAppAuthContext } from "./auth-context";
 import { loadAppRegistryFromScript } from "./app-script-loader";
+import { createIsolatedAppRunner } from "./app-worker-loader";
 import uiContractJson from "../../../schemas/ui-contract.json";
-import { buildCoreServices } from "./core-services";
-import { createAppCollectionFactory } from "./app-collections";
+import { ErrorCodes } from "./error-codes";
+import { inspectAppScriptCode } from "./app-code-inspection";
+
+const boolFromEnv = (value: unknown): boolean => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+  }
+  return false;
+};
+
+const isDevEnv = (env: any): boolean => {
+  const context = typeof env?.TAKOS_CONTEXT === "string" ? env.TAKOS_CONTEXT.trim().toLowerCase() : "";
+  if (context === "dev") return true;
+  const nodeEnv = typeof env?.NODE_ENV === "string" ? env.NODE_ENV.trim().toLowerCase() : "";
+  return nodeEnv === "development";
+};
 
 export type ManifestRouterInstance = {
   app: Hono;
@@ -50,6 +65,7 @@ type ActiveRevisionSnapshot = {
   source: string;
   schemaVersion?: string | null;
   scriptSource?: string;
+  scriptCode?: string;
 };
 
 type RouteMatcher = {
@@ -386,15 +402,6 @@ const toResponse = (res: AppResponse): Response => {
     status: res.status,
     headers,
   });
-};
-
-const boolFromEnv = (value: unknown): boolean => {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
-  }
-  return false;
 };
 
 export const isManifestRoutingEnabled = (env: any): boolean =>
@@ -762,7 +769,12 @@ const validateHandlerPresence = (
 const loadRegistryFromScriptRef = async (
   scriptRef: string | null | undefined,
   env: Bindings,
-): Promise<{ registry: AppHandlerRegistry | null; source?: string; issues: AppManifestValidationIssue[] }> => {
+): Promise<{
+  registry: AppHandlerRegistry | null;
+  source?: string;
+  code?: string;
+  issues: AppManifestValidationIssue[];
+}> => {
   const issues: AppManifestValidationIssue[] = [];
   if (!scriptRef || typeof scriptRef !== "string" || !scriptRef.trim()) {
     issues.push({
@@ -777,7 +789,26 @@ const loadRegistryFromScriptRef = async (
       scriptRef,
       env,
     });
-    return { registry: loaded.registry, source: loaded.source, issues };
+    if (loaded.code) {
+      const allowedImportsRaw =
+        typeof (env as any)?.TAKOS_APP_ALLOWED_IMPORTS === "string" ? (env as any).TAKOS_APP_ALLOWED_IMPORTS : "";
+      const allowedImports = (allowedImportsRaw || "@takos/platform/app")
+        .split(/[,\s]+/g)
+        .map((v: string) => v.trim())
+        .filter(Boolean);
+      const inspection = inspectAppScriptCode(loaded.code, { allowedImports });
+      const allowDangerous = isDevEnv(env as any) && boolFromEnv((env as any)?.ALLOW_DANGEROUS_APP_PATTERNS);
+      if (!allowDangerous) {
+        for (const issue of inspection) {
+          issues.push({
+            severity: "error",
+            message: issue.message,
+            path: "script_ref",
+          });
+        }
+      }
+    }
+    return { registry: loaded.registry, source: loaded.source, code: loaded.code, issues };
   } catch (error) {
     console.error(
       `[manifest-routing] failed to load App Script from ref "${scriptRef}": ${(error as Error).message}`,
@@ -1004,6 +1035,37 @@ export const loadActiveAppManifest = async (
     if (registryResult.source) {
       snapshot.scriptSource = registryResult.source;
     }
+    if (registryResult.code) {
+      snapshot.scriptCode = registryResult.code;
+    }
+    if (!snapshot.scriptCode) {
+      issues.push({
+        severity: "error",
+        message: "script snapshot must be loadable as source code when using Worker Loader execution",
+        path: "script_ref",
+      });
+    }
+    if (!(env as any)?.LOADER) {
+      issues.push({
+        severity: "error",
+        message: "Worker Loader (LOADER) binding is not configured",
+        path: "env.LOADER",
+      });
+    }
+    if (!(env as any)?.TAKOS_CORE) {
+      issues.push({
+        severity: "error",
+        message: "TAKOS_CORE service binding is not configured",
+        path: "env.TAKOS_CORE",
+      });
+    }
+    if (!(env as any)?.TAKOS_APP_RPC_TOKEN) {
+      issues.push({
+        severity: "error",
+        message: "TAKOS_APP_RPC_TOKEN is not configured",
+        path: "env.TAKOS_APP_RPC_TOKEN",
+      });
+    }
   } else if (!snapshot.scriptRef) {
     issues.push({
       severity: "error",
@@ -1035,40 +1097,44 @@ export const createManifestRouter = (options: {
   source: string;
   scriptRef?: string | null;
   scriptSource?: string;
+  scriptCode?: string;
   validationIssues?: AppManifestValidationIssue[];
 }): ManifestRouterInstance => {
+  if (!options.scriptCode || typeof options.scriptCode !== "string" || !options.scriptCode.trim()) {
+    throw new Error("createManifestRouter requires scriptCode when using Worker Loader execution");
+  }
   const resolveHandler = (name: string) => {
     if (!options.registry.get(name)) return undefined;
     const honoHandler: ManifestRouteHandler = async (c: any) => {
-      const sandbox = createAppSandbox({
-        registry: options.registry,
-        mode: "prod",
-        resolveDb: (collectionName, info) => {
-          const factory = createAppCollectionFactory(c.env as Bindings, "active", info.workspaceId ?? null);
-          return factory(collectionName);
-        },
-        logSink: (entry) => console.log("[app]", entry),
-      });
-
-      let services: CoreServices;
-      try {
-        services = buildCoreServices(c.env as Bindings);
-      } catch (error) {
-        console.warn("[manifest-routing] failed to build core services", error);
-        services = {} as unknown as CoreServices;
-      }
-      const auth = toAppAuthContext(c);
       const input = await normalizeInput(c);
-      const result = await sandbox.run(name, input, {
-        mode: "prod",
-        auth,
-        services: services as unknown as Record<string, unknown>,
-      });
-      if (!result.ok) {
-        const message = (result.error as Error)?.message ?? "App handler failed";
-        throw new HttpError(500, "HANDLER_EXECUTION_ERROR", message, { handler: name });
+      const auth = toAppAuthContext(c);
+
+      if (!(c.env as any)?.LOADER) {
+        throw new HttpError(503, ErrorCodes.SERVICE_UNAVAILABLE, "Worker Loader (LOADER) is not configured");
       }
-      return toResponse(result.response as AppResponse);
+      if (!(c.env as any)?.TAKOS_CORE) {
+        throw new HttpError(503, ErrorCodes.SERVICE_UNAVAILABLE, "TAKOS_CORE service binding is not configured");
+      }
+      if (!(c.env as any)?.TAKOS_APP_RPC_TOKEN) {
+        throw new HttpError(503, ErrorCodes.SERVICE_UNAVAILABLE, "TAKOS_APP_RPC_TOKEN is not configured");
+      }
+
+      const runner = await createIsolatedAppRunner({
+        env: c.env as any,
+        scriptCode: options.scriptCode as string,
+      });
+      const invoked = await runner.invoke(name, input, { mode: "prod", auth, runId: undefined });
+      for (const entry of invoked.logs ?? []) {
+        console.log("[app]", entry);
+      }
+      if (!invoked.ok) {
+        const message = invoked.error?.message ?? "App handler failed";
+        if (invoked.error?.code === ErrorCodes.SANDBOX_TIMEOUT || invoked.error?.code === "SANDBOX_TIMEOUT") {
+          throw new HttpError(408, ErrorCodes.SANDBOX_TIMEOUT, message, { handler: name });
+        }
+        throw new HttpError(500, ErrorCodes.HANDLER_EXECUTION_ERROR, message, { handler: name });
+      }
+      return toResponse(invoked.response as AppResponse);
     };
     return honoHandler;
   };
@@ -1159,6 +1225,7 @@ export const resolveManifestRouter = async (
       source: active.source,
       scriptRef: active.scriptRef,
       scriptSource: active.scriptSource,
+      scriptCode: active.scriptCode,
       validationIssues: loaded.issues,
     }),
   );

@@ -1,5 +1,5 @@
 // ============================================================================
-// App SDK Types v2.0
+// App SDK Types v3.0
 // Workers-compatible App SDK type definitions
 // ============================================================================
 /// <reference types="@cloudflare/workers-types" />
@@ -9,35 +9,11 @@
 // =============================================================================
 
 /**
- * Activity type for ActivityPub operations.
+ * Storage set options.
  */
-export interface Activity {
-  type: string;
-  actor?: string;
-  object?: unknown;
-  target?: string;
-  to?: string[];
-  cc?: string[];
-  [key: string]: unknown;
-}
-
-/**
- * Options for AI completion requests.
- */
-export interface AiCompleteOptions {
-  provider?: string;
-  model?: string;
-  temperature?: number;
-  maxTokens?: number;
-}
-
-/**
- * Options for AI embedding requests.
- */
-export interface AiEmbedOptions {
-  provider?: string;
-  model?: string;
-  dimensions?: number;
+export interface AppStorageSetOptions {
+  /** TTL in seconds */
+  expirationTtl?: number;
 }
 
 /**
@@ -45,29 +21,44 @@ export interface AiEmbedOptions {
  */
 export interface AppStorage {
   get: <T>(key: string) => Promise<T | null>;
-  set: (key: string, value: unknown) => Promise<void>;
+  set: (key: string, value: unknown, options?: AppStorageSetOptions) => Promise<void>;
   delete: (key: string) => Promise<void>;
   list: (prefix: string) => Promise<string[]>;
 }
 
 /**
- * ActivityPub operations interface.
+ * OpenAI SDK compatible AI interface.
+ * Can be passed directly to LangChain or used with OpenAI SDK.
  */
-export interface ActivityPubAPI {
-  /** Deliver an activity to remote servers */
-  send: (activity: Activity) => Promise<void>;
-  /** Resolve a remote object/actor by URI */
-  resolve: (uri: string) => Promise<unknown>;
-}
-
-/**
- * AI operations interface.
- */
-export interface AiAPI {
-  /** Generate text completion */
-  complete: (prompt: string, options?: AiCompleteOptions) => Promise<string>;
-  /** Generate embedding vector */
-  embed: (text: string, options?: AiEmbedOptions) => Promise<number[]>;
+export interface OpenAICompatibleClient {
+  chat: {
+    completions: {
+      create: (params: {
+        model: string;
+        messages: Array<{ role: string; content: string }>;
+        temperature?: number;
+        max_tokens?: number;
+        stream?: boolean;
+        [key: string]: unknown;
+      }) => Promise<{
+        id: string;
+        choices: Array<{
+          message: { role: string; content: string };
+          finish_reason: string;
+        }>;
+        usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+      }>;
+    };
+  };
+  embeddings: {
+    create: (params: {
+      model: string;
+      input: string | string[];
+    }) => Promise<{
+      data: Array<{ embedding: number[]; index: number }>;
+      usage?: { prompt_tokens: number; total_tokens: number };
+    }>;
+  };
 }
 
 /**
@@ -113,92 +104,136 @@ export interface AppInfo {
   version: string;
 }
 
+// =============================================================================
+// Core Services (高レベル API)
+// =============================================================================
+
 /**
- * Core Kernel service surface injected by takos runtime.
- * This is intentionally loose-typed to keep `@takos/app-sdk` decoupled from Core implementation packages.
+ * Object (Note, Article, etc.) for ObjectService.
  */
-export type CoreServices = {
-  objects: unknown;
-  actors: unknown;
-  auth: unknown;
-  storage: unknown;
-  notifications: unknown;
-  db?: (name: string) => Collection;
+export interface TakosObject {
+  id: string;
+  type: string;
+  content?: string;
+  actor_id?: string;
+  visibility?: "public" | "unlisted" | "followers" | "direct" | "community";
+  in_reply_to?: string | null;
+  sensitive?: boolean;
+  spoiler_text?: string | null;
+  created_at: string;
+  updated_at?: string;
   [key: string]: unknown;
-};
-
-export type CollectionWhereClause = Record<string, unknown>;
-export type CollectionOrderBy = { column: string; direction: "asc" | "desc" };
-export type CollectionUpdateData = Record<string, unknown>;
-
-export interface CollectionQuery<T = Record<string, unknown>> {
-  all(): Promise<T[]>;
-  first(): Promise<T | null>;
-  where(where: CollectionWhereClause): CollectionQuery<T>;
-  orderBy(column: string, direction?: "asc" | "desc"): CollectionQuery<T>;
-  limit(limit: number): CollectionQuery<T>;
-  offset(offset: number): CollectionQuery<T>;
-  count(): Promise<number>;
 }
 
-export interface Collection<T = Record<string, unknown>> {
-  find(where?: CollectionWhereClause): CollectionQuery<T>;
-  findById(id: string | number): Promise<T | null>;
-  create(data: Partial<T>): Promise<T>;
-  update(where: CollectionWhereClause, data: CollectionUpdateData): Promise<number>;
-  updateById(id: string | number, data: CollectionUpdateData): Promise<T | null>;
-  delete(where: CollectionWhereClause): Promise<number>;
-  deleteById(id: string | number): Promise<boolean>;
-  transaction<R>(callback: (tx: Collection<T>) => Promise<R>): Promise<R>;
+/**
+ * Actor (User, Group, etc.) for ActorService.
+ */
+export interface TakosActor {
+  id: string;
+  handle: string;
+  display_name?: string;
+  avatar_url?: string;
+  bio?: string;
+  is_local: boolean;
+  created_at: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Notification for NotificationService.
+ */
+export interface TakosNotification {
+  id: string;
+  type: string;
+  actor_id?: string;
+  object_id?: string;
+  read: boolean;
+  created_at: string;
+  [key: string]: unknown;
+}
+
+/**
+ * ObjectService - CRUD operations for objects (posts, notes, etc.).
+ */
+export interface ObjectService {
+  get(id: string): Promise<TakosObject | null>;
+  create(data: Partial<TakosObject>): Promise<TakosObject>;
+  update(id: string, data: Partial<TakosObject>): Promise<TakosObject | null>;
+  delete(id: string): Promise<boolean>;
+  list(options?: { actor_id?: string; type?: string; limit?: number; cursor?: string }): Promise<{
+    items: TakosObject[];
+    nextCursor?: string | null;
+  }>;
+}
+
+/**
+ * ActorService - Operations for actors (users, groups).
+ */
+export interface ActorService {
+  get(id: string): Promise<TakosActor | null>;
+  getByHandle(handle: string): Promise<TakosActor | null>;
+  follow(targetId: string): Promise<void>;
+  unfollow(targetId: string): Promise<void>;
+  getFollowers(actorId: string, options?: { limit?: number; cursor?: string }): Promise<{
+    items: TakosActor[];
+    nextCursor?: string | null;
+  }>;
+  getFollowing(actorId: string, options?: { limit?: number; cursor?: string }): Promise<{
+    items: TakosActor[];
+    nextCursor?: string | null;
+  }>;
+}
+
+/**
+ * NotificationService - Notification operations.
+ */
+export interface NotificationService {
+  list(options?: { limit?: number; since?: string }): Promise<TakosNotification[]>;
+  markAsRead(id: string): Promise<void>;
+  markAllAsRead(): Promise<void>;
+}
+
+/**
+ * Core Services - All services provided by Core Kernel.
+ */
+export interface CoreServices {
+  /** AI - OpenAI SDK compatible */
+  ai: OpenAICompatibleClient;
+  /** KV Storage (per-user isolated) */
+  storage: AppStorage;
+  /** Object operations (posts, notes, etc.) */
+  objects: ObjectService;
+  /** Actor operations (users, groups) */
+  actors: ActorService;
+  /** Notification operations */
+  notifications: NotificationService;
 }
 
 /**
  * Environment object injected by Core into the App.
  * Provides access to Core services and utilities.
+ *
+ * Note: Raw Cloudflare bindings (DB, KV, STORAGE) are NOT exposed.
+ * Use the takos-provided APIs instead:
+ * - `core.objects` for data operations
+ * - `storage` for per-user KV storage
+ * - `fetch` for internal API calls
  */
 export interface AppEnv {
-  /**
-   * Core Kernel services (defense-in-depth / migration aid).
-   * Prefer higher-level APIs (`fetch`, `activitypub`, `ai`) unless you need direct service access.
-   */
+  /** Core Kernel services */
   core?: CoreServices;
-
-  /**
-   * Cloudflare bindings (direct access; optional).
-   * Availability depends on the takos host configuration.
-   */
-  DB?: unknown;
-  KV?: unknown;
-  STORAGE?: unknown;
-
-  /**
-   * Environment variables (optional).
-   */
-  INSTANCE_DOMAIN?: string;
-  INSTANCE_NAME?: string;
-  INSTANCE_DESCRIPTION?: string;
-  INSTANCE_OPEN_REGISTRATIONS?: string | boolean;
-  JWT_SECRET?: string;
-  takosConfig?: unknown;
-  workspaceId?: string;
-
-  /** App-specific KV storage (isolated per user) */
-  storage: AppStorage;
-
-  /** Authenticated fetch to Core API */
-  fetch: (path: string, init?: RequestInit) => Promise<Response>;
-
-  /** ActivityPub operations */
-  activitypub: ActivityPubAPI;
-
-  /** AI operations */
-  ai: AiAPI;
 
   /** Authentication info (null if not authenticated) */
   auth: AuthInfo | null;
 
   /** App metadata */
   app: AppInfo;
+
+  /** Per-user KV storage */
+  storage: AppStorage;
+
+  /** Authenticated fetch helper for calling Core APIs */
+  fetch: (path: string, init?: RequestInit) => Promise<Response>;
 }
 
 /**

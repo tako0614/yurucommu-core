@@ -48,7 +48,7 @@ describe("json", () => {
 });
 
 describe("error", () => {
-  it("should create an error response", async () => {
+  it("should create an error response with standard format", async () => {
     const response = error("Something went wrong");
 
     expect(response).toBeInstanceOf(Response);
@@ -56,23 +56,71 @@ describe("error", () => {
     expect(response.headers.get("Content-Type")).toBe("application/json");
 
     const body = await response.json();
-    expect(body).toEqual({ error: "Something went wrong" });
+    expect(body).toEqual({
+      status: 400,
+      code: "VALIDATION_ERROR",
+      message: "Something went wrong",
+    });
   });
 
-  it("should accept custom status", async () => {
+  it("should accept custom status and derive error code", async () => {
     const response = error("Not found", 404);
 
     expect(response.status).toBe(404);
+    const body = await response.json();
+    expect(body).toEqual({
+      status: 404,
+      code: "NOT_FOUND",
+      message: "Not found",
+    });
   });
 
-  it("should handle different error types", async () => {
+  it("should accept custom error code", async () => {
+    const response = error("User not found", 404, "USER_NOT_FOUND");
+
+    const body = await response.json();
+    expect(body).toEqual({
+      status: 404,
+      code: "USER_NOT_FOUND",
+      message: "User not found",
+    });
+  });
+
+  it("should accept details object", async () => {
+    const response = error("Validation failed", 400, "VALIDATION_ERROR", {
+      field: "email",
+      reason: "invalid format",
+    });
+
+    const body = await response.json();
+    expect(body).toEqual({
+      status: 400,
+      code: "VALIDATION_ERROR",
+      message: "Validation failed",
+      details: { field: "email", reason: "invalid format" },
+    });
+  });
+
+  it("should handle different error types with default codes", async () => {
     const unauthorized = error("Unauthorized", 401);
     const forbidden = error("Forbidden", 403);
     const serverError = error("Internal server error", 500);
 
     expect(unauthorized.status).toBe(401);
+    expect((await unauthorized.json()).code).toBe("UNAUTHORIZED");
+
     expect(forbidden.status).toBe(403);
+    expect((await forbidden.json()).code).toBe("FORBIDDEN");
+
     expect(serverError.status).toBe(500);
+    expect((await serverError.json()).code).toBe("INTERNAL_ERROR");
+  });
+
+  it("should use generic ERROR code for unknown status", async () => {
+    const response = error("Custom error", 418);
+
+    const body = await response.json();
+    expect(body.code).toBe("ERROR");
   });
 });
 
@@ -240,7 +288,7 @@ describe("TakosApp type", () => {
 
 describe("Integration: Sample TakosApp", () => {
   it("should handle routes correctly", async () => {
-    // Create a simple app
+    // Create a simple app using new AppEnv structure (v3.0)
     const app: TakosApp = {
       async fetch(request: Request, env: AppEnv): Promise<Response> {
         const url = new URL(request.url);
@@ -248,7 +296,7 @@ describe("Integration: Sample TakosApp", () => {
 
         // GET /counter
         if (path === "/counter" && request.method === "GET") {
-          const count = await env.storage.get<number>("count") ?? 0;
+          const count = await env.core.storage.get<number>("count") ?? 0;
           return json({ count });
         }
 
@@ -257,8 +305,8 @@ describe("Integration: Sample TakosApp", () => {
           if (!env.auth) {
             return error("Unauthorized", 401);
           }
-          const count = (await env.storage.get<number>("count") ?? 0) + 1;
-          await env.storage.set("count", count);
+          const count = (await env.core.storage.get<number>("count") ?? 0) + 1;
+          await env.core.storage.set("count", count);
           return json({ count });
         }
 
@@ -266,23 +314,51 @@ describe("Integration: Sample TakosApp", () => {
       },
     };
 
-    // Create mock env
+    // Create mock env with v3.0 structure
     let storedCount = 5;
     const mockEnv: AppEnv = {
-      storage: {
-        get: async () => storedCount as any,
-        set: async (key, value) => { storedCount = value as number; },
-        delete: async () => {},
-        list: async () => [],
-      },
-      fetch: async () => new Response("{}"),
-      activitypub: {
-        send: async () => {},
-        resolve: async () => ({}),
-      },
-      ai: {
-        complete: async () => "",
-        embed: async () => [],
+      core: {
+        storage: {
+          get: async () => storedCount as any,
+          set: async (key, value) => { storedCount = value as number; },
+          delete: async () => {},
+          list: async () => [],
+        },
+        ai: {
+          chat: {
+            completions: {
+              create: async () => ({
+                id: "test-completion",
+                choices: [{ message: { role: "assistant", content: "Hello" }, finish_reason: "stop" }],
+              }),
+            },
+          },
+          embeddings: {
+            create: async () => ({
+              data: [{ embedding: [0.1, 0.2, 0.3], index: 0 }],
+            }),
+          },
+        },
+        objects: {
+          get: async () => null,
+          create: async (data) => ({ id: "obj-1", type: "Note", created_at: new Date().toISOString(), ...data }),
+          update: async () => null,
+          delete: async () => false,
+          list: async () => ({ items: [] }),
+        },
+        actors: {
+          get: async () => null,
+          getByHandle: async () => null,
+          follow: async () => {},
+          unfollow: async () => {},
+          getFollowers: async () => ({ items: [] }),
+          getFollowing: async () => ({ items: [] }),
+        },
+        notifications: {
+          list: async () => [],
+          markAsRead: async () => {},
+          markAllAsRead: async () => {},
+        },
       },
       auth: { userId: "user-1", handle: "testuser" },
       app: { id: "test-app", version: "1.0.0" },
@@ -311,5 +387,148 @@ describe("Integration: Sample TakosApp", () => {
     const notFoundRequest = new Request("http://test.com/unknown");
     const notFoundResponse = await app.fetch(notFoundRequest, mockEnv);
     expect(notFoundResponse.status).toBe(404);
+  });
+
+  it("should use core.ai for AI operations", async () => {
+    const app: TakosApp = {
+      async fetch(request: Request, env: AppEnv): Promise<Response> {
+        // Use OpenAI-compatible AI API
+        const completion = await env.core.ai.chat.completions.create({
+          model: "gpt-4",
+          messages: [{ role: "user", content: "Hello" }],
+        });
+        return json({ response: completion.choices[0].message.content });
+      },
+    };
+
+    const mockEnv: AppEnv = {
+      core: {
+        storage: {
+          get: async () => null,
+          set: async () => {},
+          delete: async () => {},
+          list: async () => [],
+        },
+        ai: {
+          chat: {
+            completions: {
+              create: async () => ({
+                id: "test-completion",
+                choices: [{ message: { role: "assistant", content: "Hi there!" }, finish_reason: "stop" }],
+              }),
+            },
+          },
+          embeddings: {
+            create: async () => ({
+              data: [{ embedding: [0.1, 0.2, 0.3], index: 0 }],
+            }),
+          },
+        },
+        objects: {
+          get: async () => null,
+          create: async (data) => ({ id: "obj-1", type: "Note", created_at: new Date().toISOString(), ...data }),
+          update: async () => null,
+          delete: async () => false,
+          list: async () => ({ items: [] }),
+        },
+        actors: {
+          get: async () => null,
+          getByHandle: async () => null,
+          follow: async () => {},
+          unfollow: async () => {},
+          getFollowers: async () => ({ items: [] }),
+          getFollowing: async () => ({ items: [] }),
+        },
+        notifications: {
+          list: async () => [],
+          markAsRead: async () => {},
+          markAllAsRead: async () => {},
+        },
+      },
+      auth: { userId: "user-1", handle: "testuser" },
+      app: { id: "test-app", version: "1.0.0" },
+    };
+
+    const request = new Request("http://test.com/chat");
+    const response = await app.fetch(request, mockEnv);
+    const data = await response.json();
+    expect(data).toEqual({ response: "Hi there!" });
+  });
+
+  it("should use core.objects for object operations", async () => {
+    const createdObjects: any[] = [];
+
+    const app: TakosApp = {
+      async fetch(request: Request, env: AppEnv): Promise<Response> {
+        // Create a new post using ObjectService
+        const post = await env.core.objects.create({
+          type: "Note",
+          content: "Hello, world!",
+          visibility: "public",
+        });
+        return json({ post });
+      },
+    };
+
+    const mockEnv: AppEnv = {
+      core: {
+        storage: {
+          get: async () => null,
+          set: async () => {},
+          delete: async () => {},
+          list: async () => [],
+        },
+        ai: {
+          chat: {
+            completions: {
+              create: async () => ({
+                id: "test-completion",
+                choices: [{ message: { role: "assistant", content: "Hello" }, finish_reason: "stop" }],
+              }),
+            },
+          },
+          embeddings: {
+            create: async () => ({
+              data: [{ embedding: [0.1, 0.2, 0.3], index: 0 }],
+            }),
+          },
+        },
+        objects: {
+          get: async () => null,
+          create: async (data) => {
+            const obj = { id: "post-123", type: "Note", created_at: new Date().toISOString(), ...data };
+            createdObjects.push(obj);
+            return obj;
+          },
+          update: async () => null,
+          delete: async () => false,
+          list: async () => ({ items: [] }),
+        },
+        actors: {
+          get: async () => null,
+          getByHandle: async () => null,
+          follow: async () => {},
+          unfollow: async () => {},
+          getFollowers: async () => ({ items: [] }),
+          getFollowing: async () => ({ items: [] }),
+        },
+        notifications: {
+          list: async () => [],
+          markAsRead: async () => {},
+          markAllAsRead: async () => {},
+        },
+      },
+      auth: { userId: "user-1", handle: "testuser" },
+      app: { id: "test-app", version: "1.0.0" },
+    };
+
+    const request = new Request("http://test.com/posts", { method: "POST" });
+    const response = await app.fetch(request, mockEnv);
+    const data = await response.json();
+
+    expect(data.post.id).toBe("post-123");
+    expect(data.post.type).toBe("Note");
+    expect(data.post.content).toBe("Hello, world!");
+    expect(createdObjects.length).toBe(1);
   });
 });

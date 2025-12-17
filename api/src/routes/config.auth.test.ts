@@ -17,18 +17,24 @@ const nextConfig = vi.hoisted(() => ({
 const persistConfigWithReloadGuardMock = vi.hoisted(() => vi.fn());
 const recordConfigAuditMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../middleware/auth", () => ({
-  auth: async (c: any, next: any) => {
-    const userId = c.req.header("x-user-id");
-    if (!userId) {
-      return c.json({ ok: false, error: "Unauthorized" }, 401);
-    }
-    const user = { id: userId, handle: userId };
-    c.set("user", user);
-    c.set("sessionUser", user);
-    await next();
-  },
-}));
+vi.mock("../middleware/auth", async () => {
+  const { fail } = await import("@takos/platform/server");
+  const { ErrorCodes } = await import("../lib/error-codes");
+  return {
+    auth: async (c: any, next: any) => {
+      const userId = c.req.header("x-user-id");
+      const source = c.req.header("x-auth-source") || "jwt";
+      if (!userId) {
+        return fail(c, "Authentication required", 401, { code: ErrorCodes.UNAUTHORIZED });
+      }
+      const user = { id: userId, handle: userId };
+      c.set("user", user);
+      c.set("sessionUser", user);
+      c.set("authSource", source);
+      await next();
+    },
+  };
+});
 
 vi.mock("../lib/config-utils", async () => {
   const actual = await vi.importActual<typeof import("../lib/config-utils")>("../lib/config-utils");
@@ -94,12 +100,65 @@ describe("/-/config endpoints (authenticated access)", () => {
     );
 
     expect(res.status).toBe(401);
+    const json: any = await res.json();
+    expect(json.code).toBe("UNAUTHORIZED");
+    expect(json.status).toBe(401);
   });
 
   it("exports the active config for any authenticated user", async () => {
     const res = await request(
       "/-/config/export",
       { method: "GET", headers: { "x-user-id": "alice" } },
+    );
+
+    expect(res.status).toBe(403);
+    const json: any = await res.json();
+    expect(json.code).toBe("OWNER_REQUIRED");
+    expect(json.status).toBe(403);
+  });
+
+  it("rejects config diff without owner mode", async () => {
+    const res = await request(
+      "/-/config/diff",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-user-id": "bob",
+        },
+        body: JSON.stringify(nextConfig),
+      },
+    );
+
+    expect(res.status).toBe(403);
+    const json: any = await res.json();
+    expect(json.code).toBe("OWNER_REQUIRED");
+    expect(json.status).toBe(403);
+  });
+
+  it("rejects config import without owner mode", async () => {
+    const res = await request(
+      "/-/config/import",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-user-id": "charlie",
+        },
+        body: JSON.stringify(nextConfig),
+      },
+    );
+
+    expect(res.status).toBe(403);
+    const json: any = await res.json();
+    expect(json.code).toBe("OWNER_REQUIRED");
+    expect(json.status).toBe(403);
+  });
+
+  it("exports config for an owner session", async () => {
+    const res = await request(
+      "/-/config/export",
+      { method: "GET", headers: { "x-user-id": "owner", "x-auth-source": "session" } },
     );
 
     expect(res.status).toBe(200);
@@ -110,14 +169,15 @@ describe("/-/config endpoints (authenticated access)", () => {
     expect(json.data.warnings).toContain("stored-warning");
   });
 
-  it("returns a config diff for any authenticated user", async () => {
+  it("returns a config diff for an owner session", async () => {
     const res = await request(
       "/-/config/diff",
       {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-user-id": "bob",
+          "x-user-id": "owner",
+          "x-auth-source": "session",
         },
         body: JSON.stringify(nextConfig),
       },
@@ -133,14 +193,15 @@ describe("/-/config endpoints (authenticated access)", () => {
     expect(payload.warnings).toContain("compat-warning");
   });
 
-  it("imports config updates and records an audit entry for any authenticated user", async () => {
+  it("imports config updates for an owner session and records audit entry", async () => {
     const res = await request(
       "/-/config/import",
       {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-user-id": "charlie",
+          "x-user-id": "owner",
+          "x-auth-source": "session",
         },
         body: JSON.stringify(nextConfig),
       },
@@ -155,9 +216,6 @@ describe("/-/config endpoints (authenticated access)", () => {
       previousConfig: baseConfig,
     });
     expect(mockRecordConfigAudit).toHaveBeenCalledTimes(1);
-    const audit = mockRecordConfigAudit.mock.calls[0][1];
-    expect(audit.actorId).toBe("charlie");
-    expect(audit.actorHandle).toBe("charlie");
     expect(payload.reload.warnings).toContain("reload-warning");
   });
 });

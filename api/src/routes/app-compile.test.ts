@@ -123,4 +123,154 @@ describe("/-/dev/compile", () => {
     expect(json.data?.compiled?.code).toContain("export");
     expect(saveCompileCache).toHaveBeenCalled();
   });
+
+  it("rejects dangerous patterns by default", async () => {
+    const workspaceStore = {
+      async getWorkspace(id: string) {
+        return id === baseWorkspace.id ? baseWorkspace : null;
+      },
+      getWorkspaceFile: vi.fn(async (_id: string, path: string) => {
+        if (path.startsWith("__cache/esbuild/")) return null;
+        return {
+          workspace_id: baseWorkspace.id,
+          path,
+          content: encoder.encode('export const x = () => eval("1");'),
+          content_type: "application/typescript",
+          content_hash: "hash",
+          created_at: baseWorkspace.created_at,
+          updated_at: baseWorkspace.updated_at,
+        };
+      }),
+      saveCompileCache: vi.fn(),
+      saveWorkspaceFile: vi.fn(),
+      listWorkspaceFiles: vi.fn(async () => []),
+      getWorkspaceUsage: vi.fn(async () => ({ fileCount: 0, totalSize: 0 })),
+      upsertWorkspace: vi.fn(),
+    };
+
+    setBackendDataFactory(() => buildStore());
+
+    const res = await appCompile.request(
+      "/-/dev/compile",
+      {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ workspaceId: baseWorkspace.id, entryPath: "app/main.ts" }),
+      },
+      buildEnv({
+        TAKOS_PLAN: "test",
+        TAKOS_PLAN_FEATURES: "app_customization",
+        TAKOS_PLAN_LIMITS: {},
+        workspaceStore,
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const json: any = await res.json();
+    expect(String(json.message ?? "")).toMatch(/inspection/i);
+  });
+
+  it("allows dangerous patterns when explicitly enabled", async () => {
+    const saveCompileCache = vi.fn(async () => ({
+      workspace_id: baseWorkspace.id,
+      path: "__cache/esbuild/demo.js",
+      content: encoder.encode("compiled"),
+      content_type: "application/javascript",
+      size: 8,
+      created_at: baseWorkspace.created_at,
+      updated_at: baseWorkspace.updated_at,
+    }));
+
+    const workspaceStore = {
+      async getWorkspace(id: string) {
+        return id === baseWorkspace.id ? baseWorkspace : null;
+      },
+      getWorkspaceFile: vi.fn(async (_id: string, path: string) => {
+        if (path.startsWith("__cache/esbuild/")) return null;
+        return {
+          workspace_id: baseWorkspace.id,
+          path,
+          content: encoder.encode('export const x = () => eval("1");'),
+          content_type: "application/typescript",
+          content_hash: "hash",
+          created_at: baseWorkspace.created_at,
+          updated_at: baseWorkspace.updated_at,
+        };
+      }),
+      saveCompileCache,
+      saveWorkspaceFile: vi.fn(),
+      listWorkspaceFiles: vi.fn(async () => []),
+      getWorkspaceUsage: vi.fn(async () => ({ fileCount: 0, totalSize: 0 })),
+      upsertWorkspace: vi.fn(),
+    };
+
+    setBackendDataFactory(() => buildStore());
+
+    const res = await appCompile.request(
+      "/-/dev/compile",
+      {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ workspaceId: baseWorkspace.id, entryPath: "app/main.ts" }),
+      },
+      buildEnv({
+        TAKOS_PLAN: "test",
+        TAKOS_PLAN_FEATURES: "app_customization",
+        TAKOS_PLAN_LIMITS: {},
+        ALLOW_DANGEROUS_APP_PATTERNS: "true",
+        workspaceStore,
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.ok).toBe(true);
+    expect(saveCompileCache).toHaveBeenCalled();
+  });
+
+  it("rejects imports outside the allowed list", async () => {
+    const workspaceStore = {
+      async getWorkspace(id: string) {
+        return id === baseWorkspace.id ? baseWorkspace : null;
+      },
+      getWorkspaceFile: vi.fn(async (_id: string, path: string) => {
+        if (path.startsWith("__cache/esbuild/")) return null;
+        return {
+          workspace_id: baseWorkspace.id,
+          path,
+          content: encoder.encode('import "fs"; export const x = 1;'),
+          content_type: "application/typescript",
+          content_hash: "hash",
+          created_at: baseWorkspace.created_at,
+          updated_at: baseWorkspace.updated_at,
+        };
+      }),
+      saveCompileCache: vi.fn(),
+      saveWorkspaceFile: vi.fn(),
+      listWorkspaceFiles: vi.fn(async () => []),
+      getWorkspaceUsage: vi.fn(async () => ({ fileCount: 0, totalSize: 0 })),
+      upsertWorkspace: vi.fn(),
+    };
+
+    setBackendDataFactory(() => buildStore());
+
+    const res = await appCompile.request(
+      "/-/dev/compile",
+      {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ workspaceId: baseWorkspace.id, entryPath: "app/main.ts" }),
+      },
+      buildEnv({
+        TAKOS_PLAN: "test",
+        TAKOS_PLAN_FEATURES: "app_customization",
+        TAKOS_PLAN_LIMITS: {},
+        workspaceStore,
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const json: any = await res.json();
+    expect(String(json.message ?? "")).toMatch(/inspection/i);
+  });
 });

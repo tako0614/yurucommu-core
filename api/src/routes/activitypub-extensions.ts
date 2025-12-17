@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings } from "@takos/platform/server";
 import { HttpError, requireInstanceDomain } from "@takos/platform/server";
 import takosProfile from "../../../takos-profile.json";
+import { ErrorCodes } from "../lib/error-codes";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -51,7 +52,7 @@ app.get("/.well-known/takos-activitypub", (c) => {
     return response;
   } catch (error) {
     console.error("[takos-activitypub] failed to build extensions metadata", error);
-    throw new HttpError(500, "CONFIGURATION_ERROR", "ActivityPub extensions metadata unavailable", {
+    throw new HttpError(500, ErrorCodes.CONFIGURATION_ERROR, "ActivityPub extensions metadata unavailable", {
       error: String((error as Error)?.message ?? error),
     });
   }

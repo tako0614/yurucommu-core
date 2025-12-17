@@ -218,6 +218,7 @@ export const auth = async (c: any, next: () => Promise<void>) => {
   const plan = resolvePlanFromEnv(c.env as any);
   const basicResult = authenticateBasicAuth(c);
   if (basicResult) {
+    c.set("authSource", "basic");
     const authContext = buildAuthContext(basicResult, plan);
     c.set("user", basicResult.user);
     c.set("sessionUser", basicResult.sessionUser);
@@ -265,6 +266,7 @@ export const auth = async (c: any, next: () => Promise<void>) => {
     c.set("sessionUser", authResult.sessionUser);
     c.set("activeUserId", authContext.userId);
     c.set("authContext", authContext);
+    c.set("authSource", authResult.source ?? null);
     logAuthEvent(c, "info", "granted", {
       path,
       method,

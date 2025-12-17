@@ -7,6 +7,7 @@
 import type { Context } from "hono";
 import type { D1Database } from "@cloudflare/workers-types";
 import { makeData } from "../server/data-factory";
+import { fail } from "./response-helpers";
 
 export interface RateLimitConfig {
   // Maximum requests per window
@@ -23,6 +24,23 @@ export interface RateLimitResult {
   remaining: number;
   reset: number; // Unix timestamp
 }
+
+export const buildRateLimitExceededResponse = (
+  c: Context,
+  message: string,
+  details: Record<string, unknown>,
+  resetUnix: number,
+): Response => {
+  const nowUnix = Math.floor(Date.now() / 1000);
+  const retryAfter = Math.max(0, resetUnix - nowUnix);
+  return fail(c, message, 429, {
+    code: "RATE_LIMIT_EXCEEDED",
+    details,
+    headers: {
+      ...(retryAfter > 0 ? { "Retry-After": String(retryAfter) } : {}),
+    },
+  });
+};
 
 /**
  * Default rate limit configurations
@@ -154,13 +172,17 @@ export function inboxRateLimitMiddleware() {
 
       if (!instanceLimit.allowed) {
         console.warn(`Rate limit exceeded for instance: ${instanceDomain}`);
-        return c.json(
+        return buildRateLimitExceededResponse(
+          c,
+          "Rate limit exceeded",
           {
-            error: "Rate limit exceeded",
+            namespace: RATE_LIMITS.INBOX_PER_INSTANCE.namespace,
+            key: instanceDomain,
             limit: instanceLimit.limit,
+            remaining: instanceLimit.remaining,
             reset: instanceLimit.reset,
           },
-          429
+          instanceLimit.reset,
         );
       }
     }
@@ -168,16 +190,23 @@ export function inboxRateLimitMiddleware() {
     // Check per-actor limit
     if (actorId) {
       const actorLimit = await checkRateLimit(env, actorId, RATE_LIMITS.INBOX_PER_ACTOR);
+      c.header("X-RateLimit-Limit", actorLimit.limit.toString());
+      c.header("X-RateLimit-Remaining", actorLimit.remaining.toString());
+      c.header("X-RateLimit-Reset", actorLimit.reset.toString());
 
       if (!actorLimit.allowed) {
         console.warn(`Rate limit exceeded for actor: ${actorId}`);
-        return c.json(
+        return buildRateLimitExceededResponse(
+          c,
+          "Rate limit exceeded",
           {
-            error: "Rate limit exceeded for actor",
+            namespace: RATE_LIMITS.INBOX_PER_ACTOR.namespace,
+            key: actorId,
             limit: actorLimit.limit,
+            remaining: actorLimit.remaining,
             reset: actorLimit.reset,
           },
-          429
+          actorLimit.reset,
         );
       }
     }
@@ -209,13 +238,17 @@ export function rateLimitMiddleware(config: RateLimitConfig, keyExtractor: (c: C
 
     if (!result.allowed) {
       console.warn(`Rate limit exceeded for ${config.namespace}:${key}`);
-      return c.json(
+      return buildRateLimitExceededResponse(
+        c,
+        "Rate limit exceeded",
         {
-          error: "Rate limit exceeded",
+          namespace: config.namespace,
+          key,
           limit: result.limit,
+          remaining: result.remaining,
           reset: result.reset,
         },
-        429
+        result.reset,
       );
     }
 

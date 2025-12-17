@@ -3,6 +3,7 @@ import { createJWT } from "@takos/platform/server";
 import appDebug from "./app-debug";
 import { getDefaultDataFactory, setBackendDataFactory } from "../data";
 import type { AppLogEntry } from "@takos/platform/app";
+import appRpcRoutes from "./app-rpc";
 
 const bearer = (token: string) => `Bearer ${token}`;
 
@@ -57,6 +58,74 @@ const createMockWorkspaceStore = () => {
   };
 };
 
+const encodeDataUrl = (code: string): string =>
+  `data:application/javascript;base64,${Buffer.from(code, "utf8").toString("base64")}`;
+
+const encodeInlineRef = (code: string): string =>
+  `inline:${Buffer.from(code, "utf8").toString("base64")}`;
+
+const collectExportedHandlers = (module: Record<string, unknown>): Map<string, any> => {
+  const handlers = new Map<string, any>();
+  for (const [key, value] of Object.entries(module)) {
+    if (key === "default" || key === "__esModule") continue;
+    if (typeof value === "function") handlers.set(key, value);
+  }
+  const defaultExport = (module as any).default;
+  if (defaultExport && typeof defaultExport === "object" && !Array.isArray(defaultExport)) {
+    for (const [key, value] of Object.entries(defaultExport as Record<string, unknown>)) {
+      if (typeof value === "function") handlers.set(key, value);
+    }
+  }
+  return handlers;
+};
+
+const createMockWorkerLoader = () =>
+  ({
+    get: (_id: string, getCode: () => Promise<any>) => {
+      let cached: { handlers: Map<string, any> } | null = null;
+      return {
+        getEntrypoint: () => ({
+          fetch: async (request: Request) => {
+            if (!cached) {
+              const code = await getCode();
+              const appMain = code?.modules?.["app-main.js"]?.js ?? code?.modules?.["app-main.js"];
+              const mod = (await import(encodeDataUrl(String(appMain)))) as any;
+              cached = { handlers: collectExportedHandlers(mod) };
+            }
+            const payload = (await request.json().catch(() => null)) as any;
+            if (payload?.action === "invoke") {
+              const fn = cached.handlers.get(payload.handler);
+              if (!fn) {
+                return new Response(JSON.stringify({ ok: false, runId: payload.context?.runId ?? "run", error: { message: "Unknown app handler" }, logs: [] }), {
+                  status: 404,
+                  headers: { "content-type": "application/json" },
+                });
+              }
+              const ctx: any = {
+                mode: payload.context?.mode ?? "dev",
+                workspaceId: payload.context?.workspaceId,
+                runId: payload.context?.runId ?? "run",
+                auth: payload.context?.auth ?? null,
+                log: () => {},
+                json: (body: any) => ({ type: "json", status: 200, body }),
+              };
+              const out = await fn(ctx, payload.input);
+              const response = out && typeof out === "object" && typeof out.type === "string" ? out : ctx.json(out);
+              return new Response(JSON.stringify({ ok: true, runId: ctx.runId, response, logs: [] }), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+            }
+            return new Response(JSON.stringify({ ok: false, error: { message: "unknown action" } }), {
+              status: 400,
+              headers: { "content-type": "application/json" },
+            });
+          },
+        }),
+      };
+    },
+  }) as any;
+
 describe("app debug routes", () => {
   const defaultFactory = getDefaultDataFactory();
   const sharedLogs: AppLogEntry[] = [];
@@ -87,7 +156,10 @@ describe("app debug routes", () => {
       DEV_MEDIA: {},
       DEV_KV: {},
       workspaceStore: createMockWorkspaceStore(),
+      LOADER: createMockWorkerLoader(),
+      TAKOS_APP_RPC_TOKEN: "test-token",
     };
+    authEnv.TAKOS_CORE = { fetch: (req: Request) => appRpcRoutes.fetch(req, authEnv as any, {} as any) };
     setBackendDataFactory(() => dataFactory());
   });
 
@@ -148,6 +220,82 @@ describe("app debug routes", () => {
     );
 
     expect(res.status).toBe(401);
+  });
+
+  it("rejects debug run when scriptRef fails code inspection", async () => {
+    const token = await createJWT("owner", secret, 3600);
+    const res = await appDebug.request(
+      "/-/app/debug/run",
+      {
+        method: "POST",
+        headers: {
+          Authorization: bearer(token),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: "dev",
+          workspaceId: "ws_demo",
+          handler: "ping",
+          scriptRef: encodeInlineRef('export const ping = (ctx) => { eval(\"1\"); return ctx.json({ ok: true }); };'),
+        }),
+      },
+      { ...authEnv, TAKOS_CONTEXT: "dev" },
+    );
+
+    expect(res.status).toBe(400);
+    const json: any = await res.json();
+    expect(String(json.code ?? "")).toBe("INVALID_OPTION");
+    expect(String(json.message ?? "")).toMatch(/inspection/i);
+  });
+
+  it("allows dangerous patterns in dev when explicitly enabled", async () => {
+    const token = await createJWT("owner", secret, 3600);
+    const res = await appDebug.request(
+      "/-/app/debug/run",
+      {
+        method: "POST",
+        headers: {
+          Authorization: bearer(token),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: "dev",
+          workspaceId: "ws_demo",
+          handler: "ping",
+          scriptRef: encodeInlineRef('export const ping = (ctx) => { eval(\"1\"); return ctx.json({ ok: true }); };'),
+        }),
+      },
+      { ...authEnv, TAKOS_CONTEXT: "dev", ALLOW_DANGEROUS_APP_PATTERNS: "1" },
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.ok).toBe(true);
+  });
+
+  it("does not allow inspection override in prod-preview mode", async () => {
+    const token = await createJWT("owner", secret, 3600);
+    const res = await appDebug.request(
+      "/-/app/debug/run",
+      {
+        method: "POST",
+        headers: {
+          Authorization: bearer(token),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: "prod-preview",
+          handler: "ping",
+          scriptRef: encodeInlineRef('export const ping = (ctx) => { eval(\"1\"); return ctx.json({ ok: true }); };'),
+        }),
+      },
+      { ...authEnv, TAKOS_CONTEXT: "dev", ALLOW_DANGEROUS_APP_PATTERNS: "1" },
+    );
+
+    expect(res.status).toBe(400);
+    const json: any = await res.json();
+    expect(String(json.code ?? "")).toBe("INVALID_OPTION");
+    expect(String(json.message ?? "")).toMatch(/inspection/i);
   });
 
   it("blocks debug route when plan lacks app customization", async () => {

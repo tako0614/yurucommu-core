@@ -364,6 +364,252 @@ export type GetDmMessagesTool = (
 ) => Promise<GetDmMessagesOutput>;
 
 /**
+ * 13b. tool.getCommunities
+ *
+ * NOTE: Community list is provided by App layer (Default App /communities).
+ */
+export interface GetCommunitiesInput {
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface GetCommunitiesOutput {
+  communities: unknown[];
+  next_offset: number | null;
+}
+
+export type GetCommunitiesTool = (
+  ctx: ToolContext,
+  input: GetCommunitiesInput,
+) => Promise<GetCommunitiesOutput>;
+
+/**
+ * 13c. tool.getCommunityPosts
+ *
+ * NOTE: Community posts are served by Core Objects timeline (communityId filter).
+ */
+export interface GetCommunityPostsInput {
+  communityId: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface GetCommunityPostsOutput {
+  communityId: string;
+  items: unknown[];
+  posts: unknown[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export type GetCommunityPostsTool = (
+  ctx: ToolContext,
+  input: GetCommunityPostsInput,
+) => Promise<GetCommunityPostsOutput>;
+
+/**
+ * 14a. tool.listMedia
+ */
+export interface ListMediaInput {
+  limit?: number;
+  offset?: number;
+  prefix?: string;
+  status?: "temp" | "attached" | "orphaned" | "deleted" | Array<"temp" | "attached" | "orphaned" | "deleted">;
+  bucket?: string;
+  includeDeleted?: boolean;
+}
+
+export interface ListMediaOutput {
+  files: unknown[];
+  next_offset: number | null;
+}
+
+export type ListMediaTool = (ctx: ToolContext, input: ListMediaInput) => Promise<ListMediaOutput>;
+
+/**
+ * 14b. tool.getMedia
+ */
+export interface GetMediaInput {
+  idOrKey: string;
+}
+
+export interface GetMediaOutput {
+  media: unknown | null;
+}
+
+export type GetMediaTool = (ctx: ToolContext, input: GetMediaInput) => Promise<GetMediaOutput>;
+
+/**
+ * 14c. tool.deleteMedia
+ */
+export interface DeleteMediaInput {
+  key: string;
+}
+
+export interface DeleteMediaOutput {
+  deleted: boolean;
+}
+
+export type DeleteMediaTool = (ctx: ToolContext, input: DeleteMediaInput) => Promise<DeleteMediaOutput>;
+
+/**
+ * 14c2. tool.uploadFile / tool.uploadMedia / tool.updateMedia / tool.moveMedia / tool.listFolders / tool.createFolder
+ */
+export interface UploadFileInput {
+  /** Base64 encoded payload (raw base64, no data: prefix). */
+  base64: string;
+  filename?: string;
+  contentType?: string;
+  folder?: string;
+  bucket?: string;
+  alt?: string;
+  description?: string;
+  status?: "temp" | "attached" | "orphaned" | "deleted";
+}
+
+export interface UploadFileOutput {
+  media: unknown;
+}
+
+export type UploadFileTool = (ctx: ToolContext, input: UploadFileInput) => Promise<UploadFileOutput>;
+
+export type UploadMediaTool = UploadFileTool;
+
+export interface UpdateMediaInput {
+  idOrKey: string;
+  alt?: string | null;
+  description?: string | null;
+}
+
+export interface UpdateMediaOutput {
+  media: unknown;
+}
+
+export type UpdateMediaTool = (ctx: ToolContext, input: UpdateMediaInput) => Promise<UpdateMediaOutput>;
+
+export interface MoveMediaInput {
+  idOrKey: string;
+  folder: string;
+}
+
+export interface MoveMediaOutput {
+  media: unknown;
+}
+
+export type MoveMediaTool = (ctx: ToolContext, input: MoveMediaInput) => Promise<MoveMediaOutput>;
+
+export interface ListFoldersInput {
+  /** Extra prefix under the user's root (optional). */
+  prefix?: string;
+  limit?: number;
+}
+
+export interface ListFoldersOutput {
+  folders: string[];
+}
+
+export type ListFoldersTool = (ctx: ToolContext, input: ListFoldersInput) => Promise<ListFoldersOutput>;
+
+export interface CreateFolderInput {
+  folder: string;
+}
+
+export interface CreateFolderOutput {
+  created: boolean;
+  folder: string;
+}
+
+export type CreateFolderTool = (ctx: ToolContext, input: CreateFolderInput) => Promise<CreateFolderOutput>;
+
+/**
+ * 14d. tool.getStorageUsage
+ */
+export interface GetStorageUsageInput {
+  prefix?: string;
+}
+
+export interface GetStorageUsageOutput {
+  usageBytes: number;
+  prefix: string;
+}
+
+export type GetStorageUsageTool = (
+  ctx: ToolContext,
+  input: GetStorageUsageInput,
+) => Promise<GetStorageUsageOutput>;
+
+/**
+ * 14e. tool.generateImageUrl
+ */
+export interface GenerateImageUrlInput {
+  key: string;
+  options?: Partial<{
+    width: number;
+    height: number;
+    fit: "cover" | "contain" | "fill" | "inside" | "outside";
+    format: "webp" | "avif" | "jpeg" | "png" | "auto";
+    quality: number;
+    blur: number;
+  }>;
+}
+
+export interface GenerateImageUrlOutput {
+  url: string;
+}
+
+export type GenerateImageUrlTool = (
+  ctx: ToolContext,
+  input: GenerateImageUrlInput,
+) => Promise<GenerateImageUrlOutput>;
+
+/**
+ * 14f. tool.getFollowers / tool.getFollowing
+ */
+export interface GetFollowersInput {
+  limit?: number;
+  offset?: number;
+}
+
+export interface GetFollowersOutput {
+  users: unknown[];
+  next_offset: number | null;
+  next_cursor: string | null;
+}
+
+export type GetFollowersTool = (ctx: ToolContext, input: GetFollowersInput) => Promise<GetFollowersOutput>;
+
+export interface GetFollowingInput {
+  limit?: number;
+  offset?: number;
+}
+
+export interface GetFollowingOutput {
+  users: unknown[];
+  next_offset: number | null;
+  next_cursor: string | null;
+}
+
+export type GetFollowingTool = (ctx: ToolContext, input: GetFollowingInput) => Promise<GetFollowingOutput>;
+
+/**
+ * 14g. tool.getStories
+ *
+ * NOTE: Stories are implemented in App layer (Default App /stories).
+ */
+export interface GetStoriesInput {
+  limit?: number;
+  offset?: number;
+}
+
+export interface GetStoriesOutput {
+  stories: unknown[];
+  next_offset: number | null;
+}
+
+export type GetStoriesTool = (ctx: ToolContext, input: GetStoriesInput) => Promise<GetStoriesOutput>;
+
+/**
  * 14. tool.createPost
  */
 export interface CreatePostToolInput {
@@ -391,6 +637,93 @@ export type CreatePostTool = (
 ) => Promise<CreatePostToolOutput>;
 
 /**
+ * 14a2. tool.createPoll
+ *
+ * NOTE: Implemented via PostService.createPost with poll payload.
+ */
+export interface CreatePollToolInput {
+  content?: string;
+  visibility?: "public" | "unlisted" | "followers" | "community";
+  community_id?: string | null;
+  options: string[];
+  multiple?: boolean;
+  expires_in?: number;
+}
+
+export interface CreatePollToolOutput {
+  post: unknown;
+}
+
+export type CreatePollTool = (
+  ctx: ToolContext,
+  input: CreatePollToolInput,
+) => Promise<CreatePollToolOutput>;
+
+/**
+ * 14b. tool.editPost / tool.deletePost
+ */
+export interface EditPostToolInput {
+  id: string;
+  content?: string;
+  media_ids?: string[];
+  sensitive?: boolean;
+  spoiler_text?: string | null;
+}
+
+export interface EditPostToolOutput {
+  post: unknown;
+}
+
+export type EditPostTool = (ctx: ToolContext, input: EditPostToolInput) => Promise<EditPostToolOutput>;
+
+export interface DeletePostToolInput {
+  id: string;
+}
+
+export interface DeletePostToolOutput {
+  success: boolean;
+}
+
+export type DeletePostTool = (
+  ctx: ToolContext,
+  input: DeletePostToolInput,
+) => Promise<DeletePostToolOutput>;
+
+/**
+ * 14c. tool.createStory / tool.deleteStory
+ *
+ * NOTE: Stories are implemented in App layer (Default App /stories).
+ */
+export interface CreateStoryToolInput {
+  items: unknown[];
+  visible_to_friends?: boolean;
+  expires_at?: string;
+  community_id?: string | null;
+}
+
+export interface CreateStoryToolOutput {
+  story: unknown;
+}
+
+export type CreateStoryTool = (
+  ctx: ToolContext,
+  input: CreateStoryToolInput,
+) => Promise<CreateStoryToolOutput>;
+
+export interface DeleteStoryToolInput {
+  id: string;
+}
+
+export interface DeleteStoryToolOutput {
+  deleted: boolean;
+}
+
+export type DeleteStoryTool = (
+  ctx: ToolContext,
+  input: DeleteStoryToolInput,
+) => Promise<DeleteStoryToolOutput>;
+
+/**
  * 15. tool.follow / tool.unfollow
  */
 export interface FollowInput {
@@ -403,6 +736,92 @@ export interface FollowOutput {
 
 export type FollowTool = (ctx: ToolContext, input: FollowInput) => Promise<FollowOutput>;
 export type UnfollowTool = (ctx: ToolContext, input: FollowInput) => Promise<FollowOutput>;
+
+/**
+ * 15b. tool.block / tool.unblock / tool.mute / tool.unmute
+ *
+ * NOTE: Block/Mute is implemented in App layer (Default App /blocks, /mutes).
+ * Agent tools call into the App layer via the API integration.
+ */
+export interface BlockMuteInput {
+  targetUserId: string;
+}
+
+export interface BlockMuteOutput {
+  success: boolean;
+  ids: string[];
+}
+
+export type BlockTool = (ctx: ToolContext, input: BlockMuteInput) => Promise<BlockMuteOutput>;
+export type UnblockTool = (ctx: ToolContext, input: BlockMuteInput) => Promise<BlockMuteOutput>;
+export type MuteTool = (ctx: ToolContext, input: BlockMuteInput) => Promise<BlockMuteOutput>;
+export type UnmuteTool = (ctx: ToolContext, input: BlockMuteInput) => Promise<BlockMuteOutput>;
+
+/**
+ * 15c. tool.react / tool.unreact
+ */
+export interface ReactToolInput {
+  post_id: string;
+  emoji: string;
+}
+
+export interface ReactToolOutput {
+  success: boolean;
+}
+
+export type ReactTool = (ctx: ToolContext, input: ReactToolInput) => Promise<ReactToolOutput>;
+
+export interface UnreactToolInput {
+  reactionId?: string;
+  post_id?: string;
+  emoji?: string;
+}
+
+export interface UnreactToolOutput {
+  removed: boolean;
+}
+
+export type UnreactTool = (ctx: ToolContext, input: UnreactToolInput) => Promise<UnreactToolOutput>;
+
+/**
+ * 15d. tool.repost / tool.unrepost
+ */
+export interface RepostToolInput {
+  post_id: string;
+  comment?: string | null;
+}
+
+export interface RepostToolOutput {
+  reposted: boolean;
+  repostId?: string;
+}
+
+export type RepostTool = (ctx: ToolContext, input: RepostToolInput) => Promise<RepostToolOutput>;
+
+export interface UnrepostToolInput {
+  repostId?: string;
+  post_id?: string;
+}
+
+export interface UnrepostToolOutput {
+  removed: boolean;
+}
+
+export type UnrepostTool = (ctx: ToolContext, input: UnrepostToolInput) => Promise<UnrepostToolOutput>;
+
+/**
+ * 15e. tool.bookmark / tool.unbookmark
+ */
+export interface BookmarkToolInput {
+  post_id: string;
+}
+
+export interface BookmarkToolOutput {
+  success: boolean;
+}
+
+export type BookmarkTool = (ctx: ToolContext, input: BookmarkToolInput) => Promise<BookmarkToolOutput>;
+export type UnbookmarkTool = (ctx: ToolContext, input: BookmarkToolInput) => Promise<BookmarkToolOutput>;
 
 /**
  * 16. tool.getBookmarks
@@ -423,6 +842,150 @@ export type GetBookmarksTool = (
 ) => Promise<GetBookmarksOutput>;
 
 /**
+ * 17. tool.createDmThread / tool.sendDm
+ */
+export interface CreateDmThreadInput {
+  handle: string;
+}
+
+export interface CreateDmThreadOutput {
+  threadId: string;
+  participants: unknown[];
+}
+
+export type CreateDmThreadTool = (
+  ctx: ToolContext,
+  input: CreateDmThreadInput,
+) => Promise<CreateDmThreadOutput>;
+
+export interface SendDmInput {
+  thread_id?: string;
+  recipients?: string[];
+  content: string;
+  media_ids?: string[];
+  in_reply_to?: string | null;
+  draft?: boolean;
+}
+
+export interface SendDmOutput {
+  message: unknown;
+}
+
+export type SendDmTool = (ctx: ToolContext, input: SendDmInput) => Promise<SendDmOutput>;
+
+/**
+ * 18. Community operations (user+/power+)
+ */
+export interface JoinCommunityInput {
+  communityId: string;
+}
+
+export interface JoinCommunityOutput {
+  community_id: string;
+  joined: boolean;
+}
+
+export type JoinCommunityTool = (ctx: ToolContext, input: JoinCommunityInput) => Promise<JoinCommunityOutput>;
+
+export interface LeaveCommunityInput {
+  communityId: string;
+}
+
+export interface LeaveCommunityOutput {
+  community_id: string;
+  left: boolean;
+}
+
+export type LeaveCommunityTool = (ctx: ToolContext, input: LeaveCommunityInput) => Promise<LeaveCommunityOutput>;
+
+export interface PostToCommunityInput {
+  communityId: string;
+  content: string;
+  media_ids?: string[];
+  sensitive?: boolean;
+  spoiler_text?: string | null;
+  poll?: {
+    options: string[];
+    multiple?: boolean;
+    expires_in?: number;
+  } | null;
+}
+
+export interface PostToCommunityOutput {
+  post: unknown;
+}
+
+export type PostToCommunityTool = (
+  ctx: ToolContext,
+  input: PostToCommunityInput,
+) => Promise<PostToCommunityOutput>;
+
+export interface CreateCommunityInput {
+  name: string;
+  display_name?: string;
+  description?: string;
+  icon_url?: string;
+  visibility?: "public" | "private";
+}
+
+export interface CreateCommunityOutput {
+  community: unknown;
+}
+
+export type CreateCommunityTool = (ctx: ToolContext, input: CreateCommunityInput) => Promise<CreateCommunityOutput>;
+
+export interface UpdateCommunityInput {
+  communityId: string;
+  name?: string;
+  display_name?: string;
+  description?: string;
+  icon_url?: string | null;
+  visibility?: "public" | "private";
+}
+
+export interface UpdateCommunityOutput {
+  community: unknown;
+}
+
+export type UpdateCommunityTool = (ctx: ToolContext, input: UpdateCommunityInput) => Promise<UpdateCommunityOutput>;
+
+export interface CreateChannelInput {
+  communityId: string;
+  name: string;
+  description?: string;
+}
+
+export interface CreateChannelOutput {
+  channel: unknown;
+}
+
+export type CreateChannelTool = (ctx: ToolContext, input: CreateChannelInput) => Promise<CreateChannelOutput>;
+
+export interface DeleteChannelInput {
+  communityId: string;
+  channelId: string;
+}
+
+export interface DeleteChannelOutput {
+  deleted: boolean;
+}
+
+export type DeleteChannelTool = (ctx: ToolContext, input: DeleteChannelInput) => Promise<DeleteChannelOutput>;
+
+export interface UpdateChannelInput {
+  communityId: string;
+  channelId: string;
+  name?: string;
+  description?: string;
+}
+
+export interface UpdateChannelOutput {
+  channel: unknown;
+}
+
+export type UpdateChannelTool = (ctx: ToolContext, input: UpdateChannelInput) => Promise<UpdateChannelOutput>;
+
+/**
  * Agent Tools レジストリ
  */
 export interface AgentTools {
@@ -439,10 +1002,51 @@ export interface AgentTools {
   getNotifications: GetNotificationsTool;
   getDmThreads: GetDmThreadsTool;
   getDmMessages: GetDmMessagesTool;
+  getCommunities: GetCommunitiesTool;
+  getCommunityPosts: GetCommunityPostsTool;
+  listMedia: ListMediaTool;
+  getMedia: GetMediaTool;
+  deleteMedia: DeleteMediaTool;
+  uploadFile: UploadFileTool;
+  uploadMedia: UploadMediaTool;
+  updateMedia: UpdateMediaTool;
+  moveMedia: MoveMediaTool;
+  listFolders: ListFoldersTool;
+  createFolder: CreateFolderTool;
+  getStorageUsage: GetStorageUsageTool;
+  generateImageUrl: GenerateImageUrlTool;
+  getFollowers: GetFollowersTool;
+  getFollowing: GetFollowingTool;
+  getStories: GetStoriesTool;
   createPost: CreatePostTool;
+  createPoll: CreatePollTool;
+  editPost: EditPostTool;
+  deletePost: DeletePostTool;
+  createStory: CreateStoryTool;
+  deleteStory: DeleteStoryTool;
   follow: FollowTool;
   unfollow: UnfollowTool;
+  block: BlockTool;
+  unblock: UnblockTool;
+  mute: MuteTool;
+  unmute: UnmuteTool;
+  react: ReactTool;
+  unreact: UnreactTool;
+  repost: RepostTool;
+  unrepost: UnrepostTool;
+  bookmark: BookmarkTool;
+  unbookmark: UnbookmarkTool;
   getBookmarks: GetBookmarksTool;
+  createDmThread: CreateDmThreadTool;
+  sendDm: SendDmTool;
+  joinCommunity: JoinCommunityTool;
+  leaveCommunity: LeaveCommunityTool;
+  postToCommunity: PostToCommunityTool;
+  createCommunity: CreateCommunityTool;
+  updateCommunity: UpdateCommunityTool;
+  createChannel: CreateChannelTool;
+  deleteChannel: DeleteChannelTool;
+  updateChannel: UpdateChannelTool;
 }
 
 /**

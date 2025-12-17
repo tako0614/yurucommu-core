@@ -40,6 +40,7 @@ import { createAiAuditLogger, createAgentToolAuditLogger, type AiAuditLogger } f
 import { getAppAuthContext } from "../lib/auth-context";
 import { ensureAiCallAllowed } from "../lib/ai-rate-limit";
 import { createUsageTrackerFromEnv } from "../lib/usage-tracker";
+import { buildTakosAppEnv, loadStoredAppManifest, loadTakosApp } from "../lib/app-sdk-loader";
 
 type ChatRole = "user" | "assistant" | "system";
 
@@ -495,8 +496,37 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
       return fail(c, "tool.applyCodePatch must be called via /-/app/workspaces/:id/apply-patch endpoint", 400);
     }
 
+    const defaultAppId = "default";
+    let defaultAppPromise: Promise<unknown> | null = null;
+    let defaultManifestPromise: Promise<unknown> | null = null;
+    let defaultAppEnv: unknown | null = null;
+
     const tools = createAgentTools({
       actionRegistry: aiActionRegistry,
+      fetchAppApi: async (path, init) => {
+        const app = (await (defaultAppPromise ??= loadTakosApp(defaultAppId, c.env))) as any;
+        const manifest = (await (defaultManifestPromise ??= loadStoredAppManifest(c.env, defaultAppId))) as any;
+        if (!defaultAppEnv) defaultAppEnv = buildTakosAppEnv(c, defaultAppId, manifest);
+
+        const baseUrl = new URL(c.req.url);
+        const relative = new URL(path, "https://app.invalid");
+        baseUrl.pathname = relative.pathname;
+        baseUrl.search = relative.search;
+
+        const headers = new Headers(c.req.raw.headers);
+        if (init?.headers) {
+          const extra = new Headers(init.headers as any);
+          extra.forEach((value, key) => headers.set(key, value));
+        }
+
+        const req = new Request(baseUrl.toString(), {
+          method: init?.method ?? "GET",
+          headers,
+          body: init?.body,
+        });
+
+        return app.fetch(req, defaultAppEnv as any);
+      },
       auditLog: async (event) => {
         await toolAudit({
           toolId: event.tool,
@@ -584,6 +614,163 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
         return ok(c, { tool: toolId, data: result });
       }
 
+      if (toolId === "tool.getCommunities") {
+        const input = toolInput as any;
+        const result = await tools.getCommunities(toolCtx as any, {
+          q: input.q ?? input.query,
+          limit: input.limit,
+          offset: input.offset,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.getCommunityPosts") {
+        const input = toolInput as any;
+        const result = await tools.getCommunityPosts(toolCtx as any, {
+          communityId: String(input.communityId ?? input.community_id ?? input.id ?? ""),
+          limit: input.limit,
+          cursor: input.cursor,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.listMedia") {
+        const input = toolInput as any;
+        const result = await tools.listMedia(toolCtx as any, {
+          limit: input.limit,
+          offset: input.offset,
+          prefix: input.prefix,
+          status: input.status,
+          bucket: input.bucket,
+          includeDeleted: input.includeDeleted ?? input.include_deleted,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.getMedia") {
+        const input = toolInput as any;
+        const result = await tools.getMedia(toolCtx as any, {
+          idOrKey: String(input.idOrKey ?? input.id ?? input.key ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.deleteMedia") {
+        const input = toolInput as any;
+        const result = await tools.deleteMedia(toolCtx as any, {
+          key: String(input.key ?? input.id ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.uploadFile") {
+        const input = toolInput as any;
+        const result = await tools.uploadFile(toolCtx as any, {
+          base64: String(input.base64 ?? ""),
+          filename: input.filename,
+          contentType: input.contentType ?? input.content_type,
+          folder: input.folder,
+          bucket: input.bucket,
+          alt: input.alt,
+          description: input.description,
+          status: input.status,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.uploadMedia") {
+        const input = toolInput as any;
+        const result = await tools.uploadMedia(toolCtx as any, {
+          base64: String(input.base64 ?? ""),
+          filename: input.filename,
+          contentType: input.contentType ?? input.content_type,
+          folder: input.folder,
+          bucket: input.bucket,
+          alt: input.alt,
+          description: input.description,
+          status: input.status,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.updateMedia") {
+        const input = toolInput as any;
+        const result = await tools.updateMedia(toolCtx as any, {
+          idOrKey: String(input.idOrKey ?? input.id ?? input.key ?? ""),
+          alt: input.alt === undefined ? undefined : input.alt,
+          description: input.description === undefined ? undefined : input.description,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.moveMedia") {
+        const input = toolInput as any;
+        const result = await tools.moveMedia(toolCtx as any, {
+          idOrKey: String(input.idOrKey ?? input.id ?? input.key ?? ""),
+          folder: String(input.folder ?? input.path ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.listFolders") {
+        const input = toolInput as any;
+        const result = await tools.listFolders(toolCtx as any, {
+          prefix: input.prefix,
+          limit: input.limit,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.createFolder") {
+        const input = toolInput as any;
+        const result = await tools.createFolder(toolCtx as any, { folder: String(input.folder ?? input.path ?? "") });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.getStorageUsage") {
+        const input = toolInput as any;
+        const result = await tools.getStorageUsage(toolCtx as any, {
+          prefix: input.prefix,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.generateImageUrl") {
+        const input = toolInput as any;
+        const result = await tools.generateImageUrl(toolCtx as any, {
+          key: String(input.key ?? input.id ?? ""),
+          options: input.options,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.getFollowers") {
+        const input = toolInput as any;
+        const result = await tools.getFollowers(toolCtx as any, {
+          limit: input.limit,
+          offset: input.offset,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.getFollowing") {
+        const input = toolInput as any;
+        const result = await tools.getFollowing(toolCtx as any, {
+          limit: input.limit,
+          offset: input.offset,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.getStories") {
+        const input = toolInput as any;
+        const result = await tools.getStories(toolCtx as any, {
+          limit: input.limit,
+          offset: input.offset,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
       if (toolId === "tool.createPost") {
         const input = toolInput as any;
         const result = await tools.createPost(toolCtx as any, {
@@ -595,6 +782,58 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
           sensitive: input.sensitive,
           spoiler_text: input.spoiler_text ?? null,
           poll: input.poll ?? null,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.createPoll") {
+        const input = toolInput as any;
+        const result = await tools.createPoll(toolCtx as any, {
+          content: input.content === undefined ? undefined : String(input.content),
+          visibility: input.visibility,
+          community_id: input.community_id ?? null,
+          options: Array.isArray(input.options) ? input.options : [],
+          multiple: input.multiple,
+          expires_in: input.expires_in,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.editPost") {
+        const input = toolInput as any;
+        const result = await tools.editPost(toolCtx as any, {
+          id: String(input.id ?? input.post_id ?? ""),
+          content: input.content === undefined ? undefined : String(input.content),
+          media_ids: input.media_ids,
+          sensitive: input.sensitive,
+          spoiler_text: input.spoiler_text === undefined ? undefined : input.spoiler_text,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.deletePost") {
+        const input = toolInput as any;
+        const result = await tools.deletePost(toolCtx as any, {
+          id: String(input.id ?? input.post_id ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.createStory") {
+        const input = toolInput as any;
+        const result = await tools.createStory(toolCtx as any, {
+          items: Array.isArray(input.items) ? input.items : [],
+          visible_to_friends: input.visible_to_friends ?? input.visibleToFriends ?? undefined,
+          expires_at: input.expires_at ?? input.expiresAt ?? undefined,
+          community_id: input.community_id ?? input.communityId ?? null,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.deleteStory") {
+        const input = toolInput as any;
+        const result = await tools.deleteStory(toolCtx as any, {
+          id: String(input.id ?? input.story_id ?? input.storyId ?? ""),
         });
         return ok(c, { tool: toolId, data: result });
       }
@@ -615,9 +854,199 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
         return ok(c, { tool: toolId, data: result });
       }
 
+      if (toolId === "tool.block") {
+        const input = toolInput as any;
+        const result = await tools.block(toolCtx as any, {
+          targetUserId: String(input.targetUserId ?? input.target_user_id ?? input.target_id ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.unblock") {
+        const input = toolInput as any;
+        const result = await tools.unblock(toolCtx as any, {
+          targetUserId: String(input.targetUserId ?? input.target_user_id ?? input.target_id ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.mute") {
+        const input = toolInput as any;
+        const result = await tools.mute(toolCtx as any, {
+          targetUserId: String(input.targetUserId ?? input.target_user_id ?? input.target_id ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.unmute") {
+        const input = toolInput as any;
+        const result = await tools.unmute(toolCtx as any, {
+          targetUserId: String(input.targetUserId ?? input.target_user_id ?? input.target_id ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
       if (toolId === "tool.getBookmarks") {
         const input = toolInput as any;
         const result = await tools.getBookmarks(toolCtx as any, { limit: input.limit, offset: input.offset });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.react") {
+        const input = toolInput as any;
+        const result = await tools.react(toolCtx as any, {
+          post_id: String(input.post_id ?? input.postId ?? input.id ?? ""),
+          emoji: String(input.emoji ?? "👍"),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.unreact") {
+        const input = toolInput as any;
+        const result = await tools.unreact(toolCtx as any, {
+          reactionId: input.reactionId ?? input.reaction_id ?? undefined,
+          post_id: input.post_id ?? input.postId ?? input.id ?? undefined,
+          emoji: input.emoji ?? undefined,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.repost") {
+        const input = toolInput as any;
+        const result = await tools.repost(toolCtx as any, {
+          post_id: String(input.post_id ?? input.postId ?? input.id ?? ""),
+          comment: input.comment ?? null,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.unrepost") {
+        const input = toolInput as any;
+        const result = await tools.unrepost(toolCtx as any, {
+          repostId: input.repostId ?? input.repost_id ?? undefined,
+          post_id: input.post_id ?? input.postId ?? input.id ?? undefined,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.bookmark") {
+        const input = toolInput as any;
+        const result = await tools.bookmark(toolCtx as any, {
+          post_id: String(input.post_id ?? input.postId ?? input.id ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.unbookmark") {
+        const input = toolInput as any;
+        const result = await tools.unbookmark(toolCtx as any, {
+          post_id: String(input.post_id ?? input.postId ?? input.id ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.createDmThread") {
+        const input = toolInput as any;
+        const result = await tools.createDmThread(toolCtx as any, {
+          handle: String(input.handle ?? input.user ?? input.target ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.sendDm") {
+        const input = toolInput as any;
+        const result = await tools.sendDm(toolCtx as any, {
+          thread_id: input.thread_id ?? input.threadId ?? undefined,
+          recipients: Array.isArray(input.recipients) ? input.recipients : undefined,
+          content: String(input.content ?? input.text ?? ""),
+          media_ids: Array.isArray(input.media_ids) ? input.media_ids : undefined,
+          in_reply_to: input.in_reply_to ?? input.inReplyTo ?? null,
+          draft: input.draft,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.joinCommunity") {
+        const input = toolInput as any;
+        const result = await tools.joinCommunity(toolCtx as any, {
+          communityId: String(input.communityId ?? input.community_id ?? input.id ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.leaveCommunity") {
+        const input = toolInput as any;
+        const result = await tools.leaveCommunity(toolCtx as any, {
+          communityId: String(input.communityId ?? input.community_id ?? input.id ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.postToCommunity") {
+        const input = toolInput as any;
+        const result = await tools.postToCommunity(toolCtx as any, {
+          communityId: String(input.communityId ?? input.community_id ?? input.id ?? ""),
+          content: String(input.content ?? input.text ?? ""),
+          media_ids: Array.isArray(input.media_ids) ? input.media_ids : undefined,
+          sensitive: input.sensitive,
+          spoiler_text: input.spoiler_text ?? null,
+          poll: input.poll ?? null,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.createCommunity") {
+        const input = toolInput as any;
+        const result = await tools.createCommunity(toolCtx as any, {
+          name: String(input.name ?? input.id ?? ""),
+          display_name: input.display_name ?? input.displayName,
+          description: input.description,
+          icon_url: input.icon_url ?? input.iconUrl ?? input.icon,
+          visibility: input.visibility,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.updateCommunity") {
+        const input = toolInput as any;
+        const result = await tools.updateCommunity(toolCtx as any, {
+          communityId: String(input.communityId ?? input.community_id ?? input.id ?? ""),
+          name: input.name === undefined ? undefined : String(input.name),
+          display_name: input.display_name ?? input.displayName,
+          description: input.description,
+          icon_url: input.icon_url ?? input.iconUrl ?? input.icon,
+          visibility: input.visibility,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.createChannel") {
+        const input = toolInput as any;
+        const result = await tools.createChannel(toolCtx as any, {
+          communityId: String(input.communityId ?? input.community_id ?? input.id ?? ""),
+          name: String(input.name ?? ""),
+          description: input.description,
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.deleteChannel") {
+        const input = toolInput as any;
+        const result = await tools.deleteChannel(toolCtx as any, {
+          communityId: String(input.communityId ?? input.community_id ?? input.id ?? ""),
+          channelId: String(input.channelId ?? input.channel_id ?? input.id2 ?? ""),
+        });
+        return ok(c, { tool: toolId, data: result });
+      }
+
+      if (toolId === "tool.updateChannel") {
+        const input = toolInput as any;
+        const result = await tools.updateChannel(toolCtx as any, {
+          communityId: String(input.communityId ?? input.community_id ?? input.id ?? ""),
+          channelId: String(input.channelId ?? input.channel_id ?? input.id2 ?? ""),
+          name: input.name === undefined ? undefined : String(input.name),
+          description: input.description === undefined ? undefined : String(input.description),
+        });
         return ok(c, { tool: toolId, data: result });
       }
 

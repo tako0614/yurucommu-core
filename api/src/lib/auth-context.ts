@@ -11,6 +11,7 @@ import { makeData } from "../data";
 import { HttpError, releaseStore } from "@takos/platform/server";
 import type { AuthContext, LocalUser } from "./auth-context-model";
 import { buildAuthContext, resolvePlanFromEnv } from "./auth-context-model";
+import { ErrorCodes } from "./error-codes";
 export type { AuthContext, LocalUser, PlanInfo, AuthenticatedUser } from "./auth-context-model";
 
 /**
@@ -39,7 +40,7 @@ export async function getAuthContext(c: Context): Promise<AuthContext> {
  */
 export function requireUser(ctx: AuthContext): { userId: string; user: LocalUser } {
   if (!ctx.isAuthenticated || !ctx.userId) {
-    throw new HttpError(401, "UNAUTHORIZED", "Authentication required");
+    throw new HttpError(401, ErrorCodes.UNAUTHORIZED, "Authentication required");
   }
 
   const user =
