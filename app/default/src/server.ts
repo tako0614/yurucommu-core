@@ -35,9 +35,15 @@ import {
   verifyInboxSignature,
 } from "./utils";
 
+// Import AI routes (App layer AI actions)
+import aiRouter from "./ai/routes.js";
+
 const router = new Hono<{ Bindings: AppEnv }>();
 
 router.get("/health", (c) => c.text("ok"));
+
+// Mount AI routes (App layer AI actions)
+router.route("/", aiRouter);
 
 router.get("/.well-known/webfinger", async (c) => {
   const url = new URL(c.req.url);

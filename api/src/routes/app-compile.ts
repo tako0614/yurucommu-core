@@ -7,6 +7,8 @@ import { auth } from "../middleware/auth";
 import { ensureDefaultWorkspace, resolveWorkspaceEnv, type WorkspaceStore } from "../lib/workspace-store";
 import { resolveWorkspaceLimitsFromEnv } from "../lib/workspace-limits";
 import { requireHumanSession, requireWorkspacePlan } from "../lib/workspace-guard";
+import { inspectAppScriptCode } from "../lib/app-code-inspection";
+import { boolFromEnv, normalizeVfsPath, resolveCompiler } from "../lib/dev-compiler";
 
 type CompileRequest = {
   workspaceId?: string;
@@ -26,8 +28,6 @@ type CachedCompile = {
 
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
-
-const normalizeVfsPath = (path: string): string => path.replace(/^\/+/, "").replace(/\\/g, "/").trim();
 
 const stableStringify = (value: unknown): string => {
   const seen = new WeakSet();
@@ -57,35 +57,6 @@ const sha256Hex = async (data: Uint8Array): Promise<string> => {
 
 const hashObject = async (value: unknown): Promise<string> =>
   sha256Hex(textEncoder.encode(stableStringify(value)));
-
-const resolveCompiler = async (env: any) => {
-  const wasmUrl =
-    typeof env?.TAKOS_ESBUILD_WASM_URL === "string" && env.TAKOS_ESBUILD_WASM_URL.trim().length > 0
-      ? env.TAKOS_ESBUILD_WASM_URL.trim()
-      : typeof env?.ESBUILD_WASM_URL === "string" && env.ESBUILD_WASM_URL.trim().length > 0
-        ? env.ESBUILD_WASM_URL.trim()
-        : null;
-
-  try {
-    const esbuild = (await import("esbuild-wasm")) as any;
-    if (wasmUrl) {
-      if (!(globalThis as any).__takosEsbuildInitialized) {
-        await esbuild.initialize({ wasmURL: wasmUrl, worker: false });
-        (globalThis as any).__takosEsbuildInitialized = true;
-      }
-      return { kind: "esbuild-wasm" as const, esbuild, wasmUrl };
-    }
-  } catch {
-    // ignore - fall back to TS transpile.
-  }
-
-  try {
-    const ts = await import("typescript");
-    return { kind: "typescript" as const, ts };
-  } catch {
-    return { kind: "none" as const };
-  }
-};
 
 const resolveWorkspaceHash = async (db: D1Database | undefined, workspaceId: string): Promise<string> => {
   if (!db) return "";
@@ -253,6 +224,23 @@ appCompile.post("/-/dev/compile", async (c) => {
   }
 
   const entryCode = textDecoder.decode(entryFile.content ?? new Uint8Array());
+  const allowDangerous = boolFromEnv((workspaceEnv.env as any)?.ALLOW_DANGEROUS_APP_PATTERNS);
+  const allowedImportsRaw =
+    typeof (workspaceEnv.env as any)?.TAKOS_APP_ALLOWED_IMPORTS === "string"
+      ? (workspaceEnv.env as any).TAKOS_APP_ALLOWED_IMPORTS
+      : "@takos/platform/app";
+  const allowedImports = String(allowedImportsRaw)
+    .split(/[,\s]+/g)
+    .map((v) => v.trim())
+    .filter(Boolean);
+  const inspection = inspectAppScriptCode(entryCode, { allowedImports });
+  if (inspection.length > 0 && !allowDangerous) {
+    return fail(
+      c as any,
+      `App code inspection failed: ${inspection.map((i) => i.pattern).join(", ")}`,
+      400,
+    );
+  }
   const compiledAt = new Date().toISOString();
 
   let code = "";

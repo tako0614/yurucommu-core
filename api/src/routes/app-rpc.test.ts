@@ -1,0 +1,151 @@
+import { describe, expect, it } from "vitest";
+import appRpcRoutes from "./app-rpc";
+
+function createMockKv() {
+  const store = new Map<string, string>();
+  return {
+    async get(key: string, type?: "text") {
+      const value = store.get(key) ?? null;
+      if (!value) return null;
+      if (type === "text") return value;
+      return value;
+    },
+    async put(key: string, value: string) {
+      store.set(key, value);
+    },
+    async delete(key: string) {
+      store.delete(key);
+    },
+    async list({ prefix }: { prefix: string; cursor?: string }) {
+      const keys = Array.from(store.keys())
+        .filter((name) => name.startsWith(prefix))
+        .map((name) => ({ name }));
+      return { keys };
+    },
+  };
+}
+
+const postRpc = async (env: any, payload: unknown) => {
+  return appRpcRoutes.fetch(
+    new Request("http://takos.internal/-/internal/app-rpc", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-takos-app-rpc-token": env.TAKOS_APP_RPC_TOKEN,
+      },
+      body: JSON.stringify(payload),
+    }),
+    env,
+    {} as any,
+  );
+};
+
+describe("/-/internal/app-rpc", () => {
+  it("rejects db collections outside app:* namespace", async () => {
+    const env: any = { TAKOS_APP_RPC_TOKEN: "test-token" };
+    const res = await postRpc(env, { kind: "db", collection: "core:notes", method: "get", args: [] });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false });
+    expect(body.error.message).toMatch(/app:/);
+  });
+
+  it("rejects dangerous db method names", async () => {
+    const env: any = { TAKOS_APP_RPC_TOKEN: "test-token" };
+    const res = await postRpc(env, { kind: "db", collection: "app:notes", method: "__proto__", args: [] });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false });
+  });
+
+  it("rejects dangerous services path segments", async () => {
+    const env: any = { TAKOS_APP_RPC_TOKEN: "test-token" };
+    const res = await postRpc(env, { kind: "services", path: ["__proto__", "x"], args: [] });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false });
+  });
+
+  it("supports storage put/getText for app:* buckets", async () => {
+    const env: any = { TAKOS_APP_RPC_TOKEN: "test-token", APP_STATE: createMockKv() };
+    const putRes = await postRpc(env, {
+      kind: "storage",
+      bucket: "app:assets",
+      method: "put",
+      args: ["hello.txt", { encoding: "utf8", data: "hello" }, { contentType: "text/plain" }],
+    });
+    expect(putRes.status).toBe(200);
+    const getRes = await postRpc(env, {
+      kind: "storage",
+      bucket: "app:assets",
+      method: "getText",
+      args: ["hello.txt"],
+    });
+    expect(getRes.status).toBe(200);
+    const body = await getRes.json();
+    expect(body).toMatchObject({ ok: true, result: "hello" });
+  });
+
+  it("accepts any token from TAKOS_APP_RPC_TOKEN list (rotation)", async () => {
+    const env: any = { TAKOS_APP_RPC_TOKEN: "old-token, new-token", APP_STATE: createMockKv() };
+    const res = await appRpcRoutes.fetch(
+      new Request("http://takos.internal/-/internal/app-rpc", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-takos-app-rpc-token": "new-token",
+        },
+        body: JSON.stringify({ kind: "storage", bucket: "app:assets", method: "list", args: [{ prefix: "" }] }),
+      }),
+      env,
+      {} as any,
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: true });
+  });
+
+  it("rejects workspaceId unless mode is dev", async () => {
+    const env: any = { TAKOS_APP_RPC_TOKEN: "test-token", APP_STATE: createMockKv() };
+    const res = await postRpc(env, {
+      kind: "storage",
+      bucket: "app:assets",
+      method: "list",
+      args: [{ prefix: "" }],
+      workspaceId: "ws_prod",
+      mode: "prod",
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false });
+    expect(body.error.message).toMatch(/workspaceId/);
+  });
+
+  it("redacts stack traces outside development", async () => {
+    const env: any = { TAKOS_APP_RPC_TOKEN: "test-token", ENVIRONMENT: "production" };
+    const res = await postRpc(env, {
+      kind: "storage",
+      bucket: "app:assets",
+      method: "list",
+      args: [{ prefix: "" }],
+    });
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false });
+    expect(body.error.stack).toBeUndefined();
+  });
+
+  it("includes stack traces in development", async () => {
+    const env: any = { TAKOS_APP_RPC_TOKEN: "test-token", ENVIRONMENT: "development" };
+    const res = await postRpc(env, {
+      kind: "storage",
+      bucket: "app:assets",
+      method: "list",
+      args: [{ prefix: "" }],
+    });
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false });
+    expect(typeof body.error.stack).toBe("string");
+  });
+});

@@ -17,10 +17,38 @@ import type {
   ApplyCodePatchOutput,
   RunAIActionInput,
   RunAIActionOutput,
+  GetTimelineInput,
+  GetTimelineOutput,
+  GetPostInput,
+  GetPostOutput,
+  GetUserInput,
+  GetUserOutput,
+  SearchPostsInput,
+  SearchPostsOutput,
+  SearchUsersInput,
+  SearchUsersOutput,
+  GetNotificationsInput,
+  GetNotificationsOutput,
+  GetDmThreadsInput,
+  GetDmThreadsOutput,
+  GetDmMessagesInput,
+  GetDmMessagesOutput,
+  CreatePostToolInput,
+  CreatePostToolOutput,
+  FollowInput,
+  FollowOutput,
+  GetBookmarksInput,
+  GetBookmarksOutput,
 } from "@takos/platform/ai/agent-tools";
 import { requireAuthenticated, checkDataPolicy } from "@takos/platform/ai/agent-tools";
 import type { AiRegistry } from "@takos/platform/ai/action-registry";
 import type { TakosConfig } from "@takos/platform/config/takos-config";
+
+/**
+ * App Layer fetch function type
+ * App Layer REST API を呼び出すための関数
+ */
+export type AppFetchFn = (path: string, init?: RequestInit) => Promise<Response>;
 
 /**
  * Agent Tools の実装を作成
@@ -29,8 +57,32 @@ export function createAgentTools(options: {
   aiRegistry: AiRegistry;
   getConfig: () => TakosConfig;
   updateConfig: (path: string, value: unknown) => Promise<void>;
+  /** App Layer REST API を呼び出す関数 */
+  fetchApp?: AppFetchFn;
 }): AgentTools {
-  const { aiRegistry, getConfig, updateConfig } = options;
+  const { aiRegistry, getConfig, updateConfig, fetchApp } = options;
+
+  /**
+   * App Layer API を呼び出すヘルパー
+   */
+  const callAppApi = async <T>(
+    ctx: ToolContext,
+    path: string,
+    init?: RequestInit,
+  ): Promise<T> => {
+    // fetchApp が提供されていればそれを使用
+    if (fetchApp) {
+      const res = await fetchApp(path, init);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`App API error (${res.status}): ${text}`);
+      }
+      return res.json() as Promise<T>;
+    }
+
+    // services 経由で fetch する（将来の拡張用）
+    throw new Error("App API access not configured. Provide fetchApp option.");
+  };
 
   return {
     /**
@@ -47,9 +99,9 @@ export function createAgentTools(options: {
       const enabledActions = config.ai?.enabled_actions || [];
 
       const output: DescribeNodeCapabilitiesOutput = {
-        coreVersion: config.profile?.core_version || "unknown",
-        distroName: config.profile?.name || "takos",
-        distroVersion: config.profile?.version || "unknown",
+        coreVersion: (config.gates?.core_version as string) || "unknown",
+        distroName: config.distro?.name || "takos",
+        distroVersion: config.distro?.version || "unknown",
         availableActions: level === "full" ? availableActions : [],
         enabledActions,
         features: {
@@ -62,10 +114,10 @@ export function createAgentTools(options: {
 
       if (level === "full" && config.ai?.data_policy) {
         output.dataPolicy = {
-          sendPublicPosts: config.ai.data_policy.sendPublicPosts ?? false,
-          sendCommunityPosts: config.ai.data_policy.sendCommunityPosts ?? false,
-          sendDm: config.ai.data_policy.sendDm ?? false,
-          sendProfile: config.ai.data_policy.sendProfile ?? false,
+          sendPublicPosts: config.ai.data_policy.send_public_posts ?? false,
+          sendCommunityPosts: config.ai.data_policy.send_community_posts ?? false,
+          sendDm: config.ai.data_policy.send_dm ?? false,
+          sendProfile: config.ai.data_policy.send_profile ?? false,
         };
       }
 
@@ -371,6 +423,275 @@ export function createAgentTools(options: {
           error: error instanceof Error ? error.message : String(error),
         };
       }
+    },
+
+    /**
+     * 6. getTimeline
+     */
+    async getTimeline(
+      ctx: ToolContext,
+      input: GetTimelineInput,
+    ): Promise<GetTimelineOutput> {
+      requireAuthenticated(ctx);
+
+      const params = new URLSearchParams();
+      if (input.limit) params.set("limit", String(input.limit));
+      if (input.cursor) params.set("cursor", input.cursor);
+      if (input.only_media) params.set("only_media", "true");
+      if (input.include_direct) params.set("include_direct", "true");
+      if (input.visibility?.length) params.set("visibility", input.visibility.join(","));
+
+      const path = `/timeline/${input.type}?${params.toString()}`;
+      const data = await callAppApi<{ items?: unknown[]; posts?: unknown[]; nextCursor?: string | null }>(ctx, path);
+
+      const items = data.items ?? data.posts ?? [];
+      return {
+        type: input.type,
+        items,
+        posts: items,
+        nextCursor: data.nextCursor ?? null,
+        hasMore: !!data.nextCursor,
+      };
+    },
+
+    /**
+     * 7. getPost
+     */
+    async getPost(
+      ctx: ToolContext,
+      input: GetPostInput,
+    ): Promise<GetPostOutput> {
+      const path = `/objects/${encodeURIComponent(input.id)}${input.includeThread ? "?include_thread=true" : ""}`;
+      try {
+        const data = await callAppApi<{ post?: unknown; thread?: unknown[] }>(ctx, path);
+        return {
+          post: data.post ?? data,
+          thread: data.thread ?? null,
+        };
+      } catch {
+        return { post: null };
+      }
+    },
+
+    /**
+     * 8. getUser
+     */
+    async getUser(
+      ctx: ToolContext,
+      input: GetUserInput,
+    ): Promise<GetUserOutput> {
+      const path = `/users/${encodeURIComponent(input.id)}`;
+      try {
+        const user = await callAppApi<unknown>(ctx, path);
+        return { user };
+      } catch {
+        return { user: null };
+      }
+    },
+
+    /**
+     * 9. searchPosts
+     */
+    async searchPosts(
+      ctx: ToolContext,
+      input: SearchPostsInput,
+    ): Promise<SearchPostsOutput> {
+      const params = new URLSearchParams();
+      params.set("q", input.query);
+      if (input.limit) params.set("limit", String(input.limit));
+      if (input.offset) params.set("offset", String(input.offset));
+
+      const path = `/search/posts?${params.toString()}`;
+      const data = await callAppApi<{ posts?: unknown[]; items?: unknown[]; next_offset?: number | null; nextCursor?: string | null }>(ctx, path);
+
+      return {
+        posts: data.posts ?? data.items ?? [],
+        next_offset: data.next_offset ?? null,
+        next_cursor: data.nextCursor ?? null,
+      };
+    },
+
+    /**
+     * 10. searchUsers
+     */
+    async searchUsers(
+      ctx: ToolContext,
+      input: SearchUsersInput,
+    ): Promise<SearchUsersOutput> {
+      const params = new URLSearchParams();
+      params.set("q", input.query);
+      if (input.limit) params.set("limit", String(input.limit));
+      if (input.offset) params.set("offset", String(input.offset));
+      if (input.local_only) params.set("local_only", "true");
+
+      const path = `/search/users?${params.toString()}`;
+      const data = await callAppApi<{ users?: unknown[]; items?: unknown[]; next_offset?: number | null; nextCursor?: string | null }>(ctx, path);
+
+      return {
+        users: data.users ?? data.items ?? [],
+        next_offset: data.next_offset ?? null,
+        next_cursor: data.nextCursor ?? null,
+      };
+    },
+
+    /**
+     * 11. getNotifications
+     */
+    async getNotifications(
+      ctx: ToolContext,
+      input: GetNotificationsInput,
+    ): Promise<GetNotificationsOutput> {
+      requireAuthenticated(ctx);
+
+      const params = new URLSearchParams();
+      if (input.since) params.set("since", input.since);
+
+      const path = `/notifications?${params.toString()}`;
+      const data = await callAppApi<{ notifications?: unknown[]; items?: unknown[] }>(ctx, path);
+
+      return {
+        notifications: data.notifications ?? data.items ?? [],
+      };
+    },
+
+    /**
+     * 12. getDmThreads
+     */
+    async getDmThreads(
+      ctx: ToolContext,
+      input: GetDmThreadsInput,
+    ): Promise<GetDmThreadsOutput> {
+      requireAuthenticated(ctx);
+      checkDataPolicy(ctx, { sendDm: true });
+
+      const params = new URLSearchParams();
+      if (input.limit) params.set("limit", String(input.limit));
+      if (input.offset) params.set("offset", String(input.offset));
+
+      const path = `/dm/threads?${params.toString()}`;
+      const data = await callAppApi<{ threads?: unknown[]; next_offset?: number | null }>(ctx, path);
+
+      return {
+        threads: data.threads ?? [],
+        next_offset: data.next_offset ?? null,
+      };
+    },
+
+    /**
+     * 13. getDmMessages
+     */
+    async getDmMessages(
+      ctx: ToolContext,
+      input: GetDmMessagesInput,
+    ): Promise<GetDmMessagesOutput> {
+      requireAuthenticated(ctx);
+      checkDataPolicy(ctx, { sendDm: true });
+
+      const params = new URLSearchParams();
+      if (input.limit) params.set("limit", String(input.limit));
+      if (input.offset) params.set("offset", String(input.offset));
+      if (input.since_id) params.set("since_id", input.since_id);
+      if (input.max_id) params.set("max_id", input.max_id);
+
+      const path = `/dm/threads/${encodeURIComponent(input.thread_id)}/messages?${params.toString()}`;
+      const data = await callAppApi<{ messages?: unknown[]; next_offset?: number | null }>(ctx, path);
+
+      return {
+        messages: data.messages ?? [],
+        next_offset: data.next_offset ?? null,
+      };
+    },
+
+    /**
+     * 14. createPost
+     */
+    async createPost(
+      ctx: ToolContext,
+      input: CreatePostToolInput,
+    ): Promise<CreatePostToolOutput> {
+      requireAuthenticated(ctx);
+
+      // Data policy check based on visibility
+      if (input.visibility === "direct") {
+        checkDataPolicy(ctx, { sendDm: true });
+      } else if (input.visibility === "community") {
+        checkDataPolicy(ctx, { sendCommunityPosts: true });
+      } else {
+        checkDataPolicy(ctx, { sendPublicPosts: true });
+      }
+
+      const body = {
+        content: input.content,
+        visibility: input.visibility ?? "public",
+        community_id: input.community_id,
+        in_reply_to: input.reply_to,
+        media_ids: input.media_ids,
+        sensitive: input.sensitive,
+        spoiler_text: input.spoiler_text,
+        poll: input.poll,
+      };
+
+      const post = await callAppApi<unknown>(ctx, "/objects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      return { post };
+    },
+
+    /**
+     * 15. follow
+     */
+    async follow(
+      ctx: ToolContext,
+      input: FollowInput,
+    ): Promise<FollowOutput> {
+      requireAuthenticated(ctx);
+
+      await callAppApi<unknown>(ctx, `/users/${encodeURIComponent(input.targetUserId)}/follow`, {
+        method: "POST",
+      });
+
+      return { success: true };
+    },
+
+    /**
+     * 15. unfollow
+     */
+    async unfollow(
+      ctx: ToolContext,
+      input: FollowInput,
+    ): Promise<FollowOutput> {
+      requireAuthenticated(ctx);
+
+      await callAppApi<unknown>(ctx, `/users/${encodeURIComponent(input.targetUserId)}/unfollow`, {
+        method: "POST",
+      });
+
+      return { success: true };
+    },
+
+    /**
+     * 16. getBookmarks
+     */
+    async getBookmarks(
+      ctx: ToolContext,
+      input: GetBookmarksInput,
+    ): Promise<GetBookmarksOutput> {
+      requireAuthenticated(ctx);
+
+      const params = new URLSearchParams();
+      if (input.limit) params.set("limit", String(input.limit));
+      if (input.offset) params.set("offset", String(input.offset));
+
+      const path = `/bookmarks?${params.toString()}`;
+      const data = await callAppApi<{ items?: unknown[]; bookmarks?: unknown[]; next_offset?: number | null }>(ctx, path);
+
+      return {
+        items: data.items ?? data.bookmarks ?? [],
+        next_offset: data.next_offset ?? null,
+      };
     },
   };
 }

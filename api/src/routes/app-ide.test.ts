@@ -53,4 +53,44 @@ describe("/-/dev/ide", () => {
     expect(json.data?.files?.length).toBeGreaterThan(0);
     expect(json.data?.files?.[0]?.content).toContain("declare module");
   });
+
+  it("returns diagnostics for invalid code", async () => {
+    setBackendDataFactory(() => buildStore());
+
+    const res = await appIde.request(
+      "/-/dev/ide/diagnostics",
+      {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ path: "app-main.ts", content: "export const x = ;" }),
+      },
+      buildEnv({ TAKOS_PLAN: "test", TAKOS_PLAN_FEATURES: "app_customization", TAKOS_PLAN_LIMITS: {} }),
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(Array.isArray(json.data?.diagnostics)).toBe(true);
+    expect(json.data?.diagnostics?.length).toBeGreaterThan(0);
+    expect(json.data?.diagnostics?.[0]?.severity).toBe("error");
+  });
+
+  it("returns completions for local symbols", async () => {
+    setBackendDataFactory(() => buildStore());
+
+    const code = "export const alpha = 1;\nal";
+    const res = await appIde.request(
+      "/-/dev/ide/completions",
+      {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({ path: "app-main.ts", content: code, position: { offset: code.length } }),
+      },
+      buildEnv({ TAKOS_PLAN: "test", TAKOS_PLAN_FEATURES: "app_customization", TAKOS_PLAN_LIMITS: {} }),
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(Array.isArray(json.data?.items)).toBe(true);
+    expect(json.data?.items?.some((item: any) => item?.label === "alpha")).toBe(true);
+  });
 });

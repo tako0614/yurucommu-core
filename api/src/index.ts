@@ -84,11 +84,13 @@ import appManagerRoutes from "./routes/app-manager";
 import appVfsRoutes from "./routes/app-vfs";
 import appCompileRoutes from "./routes/app-compile";
 import appIdeRoutes from "./routes/app-ide";
+import appValidateRoutes from "./routes/app-validate";
 import { appApiRouter } from "./routes/app-api";
 import cronHealthRoutes from "./routes/cron-health";
 import coreRecoveryRoutes from "./routes/core-recovery";
 import appManifestRoutes from "./routes/app-manifest";
 import objectsRoutes from "./routes/objects";
+import appRpcRoutes from "./routes/app-rpc";
 // takos-config.ts is deprecated; config routes are now unified in config.ts per PLAN.md 5.3
 import { getTakosConfig } from "./lib/runtime-config";
 import {
@@ -304,7 +306,7 @@ app.use("*", async (c, next) => {
       console.error("[dev-data] refusing to start with prod data bindings", {
         errors: status.errors,
       });
-      throw new HttpError(503, "SERVICE_UNAVAILABLE", "Dev data isolation failed", {
+      throw new HttpError(503, ErrorCodes.SERVICE_UNAVAILABLE, "Dev data isolation failed", {
         errors: status.errors,
       });
     }
@@ -347,6 +349,8 @@ app.use("*", async (c, next) => {
 });
 
 // Route API requests through manifest-defined handlers when enabled.
+app.route("/", appRpcRoutes);
+
 app.use("*", async (c, next) => {
   if (!isManifestRoutingEnabled(c.env as any)) {
     return next();
@@ -427,6 +431,7 @@ app.route("/", appManagerRoutes);
 app.route("/", appVfsRoutes);
 app.route("/", appCompileRoutes);
 app.route("/", appIdeRoutes);
+app.route("/", appValidateRoutes);
 app.route("/-/apps", appApiRouter);
 app.route("/", realtimeRoutes);
 app.route("/", appPreviewRoutes);
@@ -438,7 +443,7 @@ app.get("/", (c) => c.text("Hello World!"));
 app.get("/.well-known/takos-push.json", (c) => {
   const wellKnown = buildPushWellKnownPayload(c.env as Bindings);
   if (!wellKnown) {
-    throw new HttpError(503, "SERVICE_UNAVAILABLE", "Push not configured");
+    throw new HttpError(503, ErrorCodes.SERVICE_UNAVAILABLE, "Push not configured");
   }
   const response = c.json(wellKnown);
   response.headers.set("Cache-Control", "public, max-age=300, immutable");
@@ -703,23 +708,23 @@ app.get("/media/*", async (c) => {
   const env = c.env as Bindings;
   const path = new URL(c.req.url).pathname;
   if (!env.MEDIA) {
-    throw new HttpError(500, "CONFIGURATION_ERROR", "Media storage not configured");
+    throw new HttpError(500, ErrorCodes.CONFIGURATION_ERROR, "Media storage not configured");
   }
   let key = "";
   try {
     key = decodeURIComponent(path.replace(/^\/media\//, ""));
   } catch (error) {
-    throw new HttpError(400, "INVALID_INPUT", "Invalid media path encoding", {
+    throw new HttpError(400, ErrorCodes.INVALID_INPUT, "Invalid media path encoding", {
       path,
       error: String((error as Error)?.message ?? error),
     });
   }
   if (!key) {
-    throw new HttpError(404, "MEDIA_NOT_FOUND", "Media not found", { path });
+    throw new HttpError(404, ErrorCodes.MEDIA_NOT_FOUND, "Media not found", { path });
   }
   const obj = await env.MEDIA.get(key);
   if (!obj) {
-    throw new HttpError(404, "MEDIA_NOT_FOUND", "Media not found", { key });
+    throw new HttpError(404, ErrorCodes.MEDIA_NOT_FOUND, "Media not found", { key });
   }
   const headers = new Headers();
   const ct = obj.httpMetadata?.contentType || "application/octet-stream";
@@ -2027,7 +2032,7 @@ app.notFound((c) => {
   const path = new URL(c.req.url).pathname;
   if (!c.env.ASSETS) {
     logEvent(c, "warn", "request.not_found", { path });
-    return mapErrorToResponse(new HttpError(404, "NOT_FOUND", "Route not found", { path }), {
+    return mapErrorToResponse(new HttpError(404, ErrorCodes.NOT_FOUND, "Route not found", { path }), {
       requestId,
       env: c.env,
     });
@@ -2036,7 +2041,7 @@ app.notFound((c) => {
   const method = (c.req.method || "GET").toUpperCase();
   if (method !== "GET" && method !== "HEAD") {
     logEvent(c, "warn", "request.not_found", { path, method });
-    return mapErrorToResponse(new HttpError(404, "NOT_FOUND", "Route not found", { path, method }), {
+    return mapErrorToResponse(new HttpError(404, ErrorCodes.NOT_FOUND, "Route not found", { path, method }), {
       requestId,
       env: c.env,
     });
@@ -2046,7 +2051,7 @@ app.notFound((c) => {
     return c.env.ASSETS.fetch(c.req.raw);
   } catch (error) {
     console.error("asset fallback failed", error);
-    return mapErrorToResponse(new HttpError(500, "INTERNAL_ERROR", "Asset fallback failed", { path }), {
+    return mapErrorToResponse(new HttpError(500, ErrorCodes.INTERNAL_ERROR, "Asset fallback failed", { path }), {
       requestId,
       env: c.env,
     });

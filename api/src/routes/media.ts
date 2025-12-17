@@ -151,7 +151,7 @@ media.post("/upload", auth, async (c) => {
 media.get("/*", async (c) => {
   const env = c.env;
   if (!env.MEDIA) {
-    throw new HttpError(500, "CONFIGURATION_ERROR", "Media storage not configured");
+    throw new HttpError(500, ErrorCodes.CONFIGURATION_ERROR, "Media storage not configured");
   }
   const url = new URL(c.req.url);
   const path = url.pathname;
@@ -159,13 +159,13 @@ media.get("/*", async (c) => {
   try {
     key = decodeURIComponent(path.replace(/^\/media\//, ""));
   } catch (error) {
-    throw new HttpError(400, "INVALID_INPUT", "Invalid media path encoding", {
+    throw new HttpError(400, ErrorCodes.INVALID_INPUT, "Invalid media path encoding", {
       path,
       error: String((error as Error)?.message ?? error),
     });
   }
   if (!key) {
-    throw new HttpError(404, "MEDIA_NOT_FOUND", "Media not found", { path });
+    throw new HttpError(404, ErrorCodes.MEDIA_NOT_FOUND, "Media not found", { path });
   }
   const transform = parseTransformOptions(url);
   if (transform) {
@@ -176,7 +176,7 @@ media.get("/*", async (c) => {
   }
   const obj = await env.MEDIA.get(key);
   if (!obj) {
-    throw new HttpError(404, "MEDIA_NOT_FOUND", "Media not found", { key });
+    throw new HttpError(404, ErrorCodes.MEDIA_NOT_FOUND, "Media not found", { key });
   }
   const headers = new Headers();
   const ct = obj.httpMetadata?.contentType || "application/octet-stream";

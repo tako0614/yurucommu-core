@@ -7,6 +7,7 @@ import {
 type LoadedScript = {
   module: AppScriptModule;
   source: string;
+  code?: string;
 };
 
 export type AppScriptLoader = (
@@ -45,6 +46,13 @@ const isInlineRef = (ref: string): boolean => {
   return normalized.startsWith("inline:") || normalized.startsWith("data:");
 };
 
+const isModuleRef = (ref: string): boolean => ref.trim().startsWith("module:");
+
+const isWorkspaceRef = (ref: string): boolean => {
+  const normalized = ref.trim();
+  return normalized.startsWith("vfs:") || normalized.startsWith("ws:");
+};
+
 const encodeBase64 = (input: string): string => {
   if (typeof btoa === "function") {
     return btoa(input);
@@ -73,14 +81,23 @@ const importFromCode = async (code: string, source: string): Promise<LoadedScrip
   const base64 = encodeBase64(code);
   const specifier = `data:application/javascript;base64,${base64}`;
   const module = (await import(specifier)) as AppScriptModule;
-  return { module, source };
+  return { module, source, code };
 };
 
 const loadInlineScript = async (ref: string): Promise<LoadedScript | null> => {
   const trimmed = ref.trim();
   if (trimmed.startsWith("data:")) {
     const module = (await import(trimmed)) as AppScriptModule;
-    return { module, source: "data-url" };
+    let code: string | undefined;
+    try {
+      const res = await fetch(trimmed);
+      if (res.ok) {
+        code = await res.text();
+      }
+    } catch {
+      code = undefined;
+    }
+    return { module, source: "data-url", code };
   }
 
   if (!trimmed.startsWith("inline:")) return null;
@@ -196,6 +213,18 @@ export async function loadAppScript(options: {
     );
   }
 
+  if (ref && isModuleRef(ref) && !allowInline) {
+    throw new Error(
+      "Module app script refs are disabled outside dev; set TAKOS_CONTEXT=dev or ALLOW_UNSANDBOXED_APP_SCRIPTS=1 to override.",
+    );
+  }
+
+  if (ref && isWorkspaceRef(ref) && !allowInline) {
+    throw new Error(
+      "Workspace app script refs are disabled outside dev; set TAKOS_CONTEXT=dev or ALLOW_UNSANDBOXED_APP_SCRIPTS=1 to override.",
+    );
+  }
+
   if (ref) {
     const inline = await loadInlineScript(ref);
     if (inline) return inline;
@@ -210,27 +239,17 @@ export async function loadAppScript(options: {
     if (moduleBinding) return moduleBinding;
   }
 
-  const envModule = (options.env as any)?.APP_MAIN_MODULE;
-  if (envModule && typeof envModule === "object") {
-    return { module: envModule as AppScriptModule, source: "env:APP_MAIN_MODULE" };
-  }
-
-  const globalModule = (globalThis as any).__takosAppMain;
-  if (globalModule) {
-    return { module: globalModule as AppScriptModule, source: "global:__takosAppMain" };
-  }
-
   return null;
 }
 
 export async function loadAppRegistryFromScript(options: {
   scriptRef?: string | null;
   env: any;
-}): Promise<{ registry: AppHandlerRegistry; source: string }> {
+}): Promise<{ registry: AppHandlerRegistry; source: string; code?: string }> {
   const loaded = await loadAppScript({ scriptRef: options.scriptRef, env: options.env });
   if (!loaded) {
     throw new Error("App Script module is not available for manifest routing");
   }
   const result = await loadAppMainFromModule(loaded.module, loaded.source);
-  return { registry: result.registry, source: loaded.source ?? "app-script" };
+  return { registry: result.registry, source: loaded.source ?? "app-script", code: loaded.code };
 }

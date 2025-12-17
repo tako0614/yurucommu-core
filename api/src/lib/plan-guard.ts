@@ -1,8 +1,9 @@
 import type { AuthContext, PlanInfo } from "./auth-context-model";
+import { ErrorCodes, type ErrorCode } from "./error-codes";
 
 export type PlanGuardResult =
   | { ok: true }
-  | { ok: false; status: number; code: string; message: string; details?: Record<string, unknown> };
+  | { ok: false; status: number; code: ErrorCode; message: string; details?: Record<string, unknown> };
 
 const hasFeature = (plan: PlanInfo | null | undefined, feature: string): boolean => {
   if (!plan) return false;
@@ -12,7 +13,7 @@ const hasFeature = (plan: PlanInfo | null | undefined, feature: string): boolean
 
 const buildError = (
   status: number,
-  code: string,
+  code: ErrorCode,
   message: string,
   details?: Record<string, unknown>,
 ): PlanGuardResult => ({
@@ -33,7 +34,7 @@ export const requirePlanFeature = (
   if (hasFeature(auth?.plan, feature)) return { ok: true };
   return buildError(
     402,
-    "FEATURE_UNAVAILABLE",
+    ErrorCodes.FEATURE_UNAVAILABLE,
     message || `This operation requires plan feature "${feature}"`,
     { feature, plan: auth?.plan?.name ?? "unknown" },
   );
@@ -45,7 +46,7 @@ export const requireAiQuota = (
 ): PlanGuardResult => {
   const plan = auth?.plan;
   if (!hasFeature(plan, "ai")) {
-    return buildError(402, "AI_UNAVAILABLE", "AI features require an upgraded plan", {
+    return buildError(402, ErrorCodes.AI_UNAVAILABLE, "AI features require an upgraded plan", {
       plan: plan?.name ?? "unknown",
     });
   }
@@ -53,7 +54,7 @@ export const requireAiQuota = (
   const limits = resolvePlanLimits(auth);
   const limit = limits?.aiRequests;
   if (typeof limit === "number" && limit <= 0) {
-    return buildError(402, "AI_UNAVAILABLE", "AI request quota is unavailable for this plan", {
+    return buildError(402, ErrorCodes.AI_UNAVAILABLE, "AI request quota is unavailable for this plan", {
       plan: plan?.name ?? "unknown",
     });
   }
@@ -62,7 +63,7 @@ export const requireAiQuota = (
   const requested = usage?.requested ?? 1;
   if (typeof limit === "number" && Number.isFinite(limit) && limit !== Number.MAX_SAFE_INTEGER) {
     if (current + requested > limit) {
-      return buildError(429, "AI_LIMIT_EXCEEDED", "Monthly AI request limit reached", {
+      return buildError(429, ErrorCodes.AI_LIMIT_EXCEEDED, "Monthly AI request limit reached", {
         used: current,
         requested,
         limit,
@@ -81,7 +82,7 @@ export const requireFileSizeWithinPlan = (
   if (typeof limit === "number" && Number.isFinite(limit) && limit !== Number.MAX_SAFE_INTEGER && size > limit) {
     return buildError(
       413,
-      "FILE_TOO_LARGE",
+      ErrorCodes.FILE_TOO_LARGE,
       `File size exceeds plan limit (${Math.floor(limit / 1024 / 1024)}MB)`,
       { size, limit },
     );
@@ -101,7 +102,7 @@ export const requireStorageWithinPlan = (
     limit !== Number.MAX_SAFE_INTEGER &&
     usageBytes + incomingBytes > limit
   ) {
-    return buildError(507, "STORAGE_LIMIT_EXCEEDED", "Storage limit reached for current plan", {
+    return buildError(507, ErrorCodes.STORAGE_LIMIT_EXCEEDED, "Storage limit reached for current plan", {
       used: usageBytes,
       incoming: incomingBytes,
       limit,
@@ -126,7 +127,7 @@ export const requireVfsQuota = (
   ) {
     return buildError(
       429,
-      "RATE_LIMIT_EXCEEDED",
+      ErrorCodes.RATE_LIMIT_EXCEEDED,
       "VFS workspace limit exceeded for current plan",
       { count: usage.workspaces, limit: limits.vfsMaxWorkspaces },
     );
@@ -141,7 +142,7 @@ export const requireVfsQuota = (
   ) {
     return buildError(
       413,
-      "FILE_TOO_LARGE",
+      ErrorCodes.FILE_TOO_LARGE,
       "VFS file size exceeds plan limit",
       { size: usage.fileSize, limit: limits.vfsMaxFileSize },
     );
@@ -156,7 +157,7 @@ export const requireVfsQuota = (
   ) {
     return buildError(
       429,
-      "RATE_LIMIT_EXCEEDED",
+      ErrorCodes.RATE_LIMIT_EXCEEDED,
       "VFS file count exceeds plan allowance",
       { count: usage.fileCount, limit: limits.vfsMaxFiles },
     );
@@ -171,7 +172,7 @@ export const requireVfsQuota = (
   ) {
     return buildError(
       507,
-      "STORAGE_LIMIT_EXCEEDED",
+      ErrorCodes.STORAGE_LIMIT_EXCEEDED,
       "VFS storage limit reached",
       { used: usage.totalSize, limit: limits.vfsStorage },
     );
@@ -197,7 +198,7 @@ export const requireApDeliveryQuota = (
   ) {
     return buildError(
       429,
-      "RATE_LIMIT_MINUTE",
+      ErrorCodes.RATE_LIMIT_MINUTE,
       "ActivityPub delivery per-minute limit exceeded",
       { used: usage.minute, requested, limit: limits.apDeliveryPerMinute },
     );
@@ -212,7 +213,7 @@ export const requireApDeliveryQuota = (
   ) {
     return buildError(
       429,
-      "RATE_LIMIT_DAY",
+      ErrorCodes.RATE_LIMIT_DAY,
       "ActivityPub daily delivery limit exceeded",
       { used: usage.day, requested, limit: limits.apDeliveryPerDay },
     );

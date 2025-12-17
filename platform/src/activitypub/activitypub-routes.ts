@@ -42,6 +42,7 @@ import { processSingleInboxActivity } from "./inbox-worker";
 import { deliverSingleQueuedItem } from "./delivery-worker";
 import { applyFederationPolicy, buildActivityPubPolicy } from "./federation-policy";
 import { createObjectService } from "../app/services/object-service";
+import { fail as failResponse } from "../utils/response-helpers";
 
 type Bindings = {
   DB: D1Database;
@@ -55,8 +56,30 @@ type ActivityPubContext = Context<{ Bindings: Bindings; Variables: Variables }>;
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-const fail = (c: ActivityPubContext, message: string, status = 400) =>
-  c.json({ ok: false, error: message }, status as any);
+const ACTIVITYPUB_ERROR_HEADERS = {
+  "Content-Type": "application/activity+json; charset=utf-8",
+};
+
+const fail = (
+  c: ActivityPubContext,
+  message: string,
+  status = 400,
+  options?: { code?: string; details?: Record<string, unknown>; headers?: Record<string, string> },
+) => failResponse(c as any, message, status, options as any);
+
+const failAp = (
+  c: ActivityPubContext,
+  message: string,
+  status = 400,
+  options?: { code?: string; details?: Record<string, unknown>; headers?: Record<string, string> },
+) =>
+  fail(c, message, status, {
+    ...(options ?? {}),
+    headers: {
+      ...(options?.headers ?? {}),
+      ...ACTIVITYPUB_ERROR_HEADERS,
+    },
+  });
 
 /**
  * Get protocol - always HTTPS in production
@@ -223,11 +246,15 @@ function guardActivityPubDisabled(
     console.warn(
       `[ActivityPub] Blocked ${feature} in ${availability.context} context: ${availability.reason}`,
     );
-    return activityPubResponse(
-      c,
-      { ok: false, error: availability.reason || "ActivityPub federation disabled" },
-      503,
-    );
+    return fail(c, availability.reason || "ActivityPub federation disabled", 503, {
+      code: "FEDERATION_DISABLED",
+      details: {
+        feature,
+        context: availability.context,
+        reason: availability.reason || "ActivityPub federation disabled",
+      },
+      headers: { "Content-Type": "application/activity+json; charset=utf-8" },
+    });
   }
   return null;
 }
@@ -251,7 +278,10 @@ app.get("/.well-known/webfinger", webfingerRateLimitMiddleware(), async (c) => {
 
     if (!resource) {
       console.error(`[WebFinger Server] Missing resource parameter`);
-      return c.json({ error: "resource parameter required" }, 400);
+      return fail(c, "resource parameter required", 400, {
+        code: "MISSING_REQUIRED_FIELD",
+        details: { field: "resource" },
+      });
     }
 
     // Parse resource: acct:alice@example.com or https://alice.example.com/ap/users/alice
@@ -283,7 +313,10 @@ app.get("/.well-known/webfinger", webfingerRateLimitMiddleware(), async (c) => {
 
     if (!handle) {
       console.error(`[WebFinger Server] Failed to extract handle from resource="${resource}"`);
-      return c.json({ error: "invalid resource format" }, 400);
+      return fail(c, "invalid resource format", 400, {
+        code: "INVALID_FORMAT",
+        details: { resource },
+      });
     }
 
     // Verify user exists via actors/objects unified lookup
@@ -292,7 +325,10 @@ app.get("/.well-known/webfinger", webfingerRateLimitMiddleware(), async (c) => {
 
     if (!resolved) {
       console.error(`[WebFinger Server] User not found: handle="${handle}"`);
-      return c.json({ error: "user not found" }, 404);
+      return fail(c, "user not found", 404, {
+        code: "ACTOR_NOT_FOUND",
+        details: { handle },
+      });
     }
 
     const instanceDomain = getInstanceDomain(c);
@@ -339,7 +375,10 @@ app.get("/ap/users/:handle", async (c) => {
 
     if (!resolved) {
       console.error(`[Actor Endpoint] User not found: handle="${handle}"`);
-      return fail(c, "user not found", 404);
+      return failAp(c, "user not found", 404, {
+        code: "ACTOR_NOT_FOUND",
+        details: { handle },
+      });
     }
 
     const instanceDomain = getInstanceDomain(c);
@@ -364,7 +403,10 @@ app.get("/ap/users/:handle", async (c) => {
       }
     } catch (error) {
       console.error(`[Actor Endpoint] Failed to fetch keypair for handle="${handle}":`, error);
-      return fail(c, "failed to load actor key", 500);
+      return failAp(c, "failed to load actor key", 500, {
+        code: "INTERNAL_ERROR",
+        details: { handle },
+      });
     }
 
     const actor = generatePersonActor(
@@ -403,7 +445,10 @@ app.get("/ap/groups/:slug", async (c) => {
 
     const community = await store.getCommunity(slug);
     if (!community) {
-      return fail(c, "community not found", 404);
+      return failAp(c, "community not found", 404, {
+        code: "COMMUNITY_NOT_FOUND",
+        details: { communityId: slug },
+      });
     }
 
     const ownerHandle = community.owner_id || community.created_by || community.createdBy || community.ownerId || slug;
@@ -452,7 +497,10 @@ app.get("/ap/groups/:slug/outbox", async (c) => {
 
     const community = await store.getCommunity(slug);
     if (!community) {
-      return fail(c, "community not found", 404);
+      return failAp(c, "community not found", 404, {
+        code: "COMMUNITY_NOT_FOUND",
+        details: { communityId: slug },
+      });
     }
 
     const page = c.req.query("page");
@@ -555,12 +603,15 @@ app.get("/ap/groups/:slug/followers", accessTokenGuard, async (c) => {
     const viewer = c.get("activityPubUser");
 
     if (!viewer) {
-      return fail(c, "unauthorized", 401);
+      return failAp(c, "unauthorized", 401, { code: "UNAUTHORIZED" });
     }
 
     const community = await store.getCommunity(slug);
     if (!community) {
-      return fail(c, "community not found", 404);
+      return failAp(c, "community not found", 404, {
+        code: "COMMUNITY_NOT_FOUND",
+        details: { communityId: slug },
+      });
     }
 
     const instanceDomain = getInstanceDomain(c);
@@ -573,7 +624,10 @@ app.get("/ap/groups/:slug/followers", accessTokenGuard, async (c) => {
     const isMember = await store.findApFollower(localGroupId, getActorUri(viewer.id, instanceDomain, protocol));
 
     if (!isOwner && (!isMember || isMember.status !== "accepted")) {
-      return fail(c, "forbidden - only members can view followers", 403);
+      return failAp(c, "forbidden - only members can view followers", 403, {
+        code: "FORBIDDEN",
+        details: { communityId: slug, viewerId: viewer?.id ?? null },
+      });
     }
 
     const page = c.req.query("page");
@@ -633,7 +687,10 @@ app.post("/ap/groups/:slug/inbox", inboxRateLimitMiddleware(), async (c) => {
     const slug = c.req.param("slug");
     const community = await store.getCommunity(slug);
     if (!community) {
-      return fail(c, "community not found", 404);
+      return failAp(c, "community not found", 404, {
+        code: "COMMUNITY_NOT_FOUND",
+        details: { communityId: slug },
+      });
     }
 
     const bodyText = await c.req.text();
@@ -642,16 +699,22 @@ app.post("/ap/groups/:slug/inbox", inboxRateLimitMiddleware(), async (c) => {
       activity = JSON.parse(bodyText);
     } catch (error) {
       console.error("Failed to parse group inbox activity JSON:", error);
-      return fail(c, "invalid JSON", 400);
+      return failAp(c, "invalid JSON", 400, {
+        code: "INVALID_FORMAT",
+        details: { format: "json" },
+      });
     }
 
     if (!activity || !activity.type) {
-      return fail(c, "invalid activity", 400);
+      return failAp(c, "invalid activity", 400, { code: "INVALID_INPUT" });
     }
 
     const actorId = typeof activity.actor === "string" ? activity.actor : activity.actor?.id;
     if (!actorId) {
-      return fail(c, "missing actor", 400);
+      return failAp(c, "missing actor", 400, {
+        code: "MISSING_REQUIRED_FIELD",
+        details: { field: "actor" },
+      });
     }
 
     const federationDecision = applyFederationPolicy(actorId, getFederationPolicy(c));
@@ -659,19 +722,28 @@ app.post("/ap/groups/:slug/inbox", inboxRateLimitMiddleware(), async (c) => {
       console.warn(
         `[federation] blocked group inbox request from ${actorId} (${federationDecision.hostname ?? "unknown host"})`,
       );
-      return fail(c, "federation blocked", 403);
+      return failAp(c, "federation blocked", 403, {
+        code: "INSTANCE_BLOCKED",
+        details: { actorId, hostname: federationDecision.hostname ?? null },
+      });
     }
 
     const signatureHeader = c.req.header("signature");
     if (!signatureHeader) {
       console.warn(`Group inbox request without signature from ${actorId}`);
-      return fail(c, "missing signature", 401);
+      return failAp(c, "missing signature", 401, {
+        code: "MISSING_SIGNATURE",
+        details: { actorId },
+      });
     }
 
     const keyIdMatch = signatureHeader.match(/keyId="([^"]+)"/);
     if (!keyIdMatch) {
       console.error("Failed to extract keyId from signature");
-      return fail(c, "invalid signature format", 401);
+      return failAp(c, "invalid signature format", 401, {
+        code: "SIGNATURE_INVALID",
+        details: { actorId },
+      });
     }
     const keyId = keyIdMatch[1];
 
@@ -679,32 +751,47 @@ app.post("/ap/groups/:slug/inbox", inboxRateLimitMiddleware(), async (c) => {
     const ownsKey = await verifyActorOwnsKey(actorId, keyId, c.env as any, fetcher);
     if (!ownsKey) {
       console.error(`Actor ${actorId} does not own key ${keyId}`);
-      return fail(c, "key ownership verification failed", 403);
+      return failAp(c, "key ownership verification failed", 403, {
+        code: "KEY_MISMATCH",
+        details: { actorId, keyId },
+      });
     }
 
     const actor = await getOrFetchActor(actorId, c.env as any, false, fetcher);
     if (!actor || !actor.publicKey) {
       console.error(`Failed to fetch actor or public key: ${actorId}`);
-      return fail(c, "could not verify signature", 403);
+      return failAp(c, "could not verify signature", 403, {
+        code: "SIGNATURE_INVALID",
+        details: { actorId, keyId },
+      });
     }
 
     // Digest header is REQUIRED for POST requests per ActivityPub spec
     const digestHeader = c.req.header("digest");
     if (!digestHeader) {
       console.error("Missing required Digest header for POST");
-      return fail(c, "digest header required for POST requests", 400);
+      return failAp(c, "digest header required for POST requests", 400, {
+        code: "MISSING_REQUIRED_HEADER",
+        details: { header: "digest" },
+      });
     }
 
     const digestValid = await verifyDigest(c, bodyText);
     if (!digestValid) {
       console.error("Digest verification failed");
-      return fail(c, "digest verification failed", 403);
+      return failAp(c, "digest verification failed", 403, {
+        code: "DIGEST_MISMATCH",
+        details: { actorId },
+      });
     }
 
     const signatureValid = await verifySignature(c, actor.publicKey.publicKeyPem);
     if (!signatureValid) {
       console.error("HTTP signature verification failed");
-      return fail(c, "signature verification failed", 403);
+      return failAp(c, "signature verification failed", 403, {
+        code: "SIGNATURE_INVALID",
+        details: { actorId, keyId },
+      });
     }
 
     console.log(`✓ Group ${slug} inbox verified ${activity.type} from ${actorId}`);
@@ -726,12 +813,18 @@ app.post("/ap/groups/:slug/inbox", inboxRateLimitMiddleware(), async (c) => {
 
       if (!ownerHandle) {
         console.error(`Community ${slug} missing owner; cannot accept follow`);
-        return fail(c, "community misconfigured", 500);
+        return failAp(c, "community misconfigured", 500, {
+          code: "CONFIGURATION_ERROR",
+          details: { communityId: slug },
+        });
       }
 
       if (followObject !== groupUri) {
         console.warn(`Follow activity target mismatch for group ${slug}: ${followObject}`);
-        return fail(c, "invalid follow target", 400);
+        return failAp(c, "invalid follow target", 400, {
+          code: "INVALID_INPUT",
+          details: { communityId: slug, object: followObject },
+        });
       }
 
       // Invite-only: reject follow requests and instruct caller to use Invite
@@ -764,15 +857,19 @@ app.post("/ap/groups/:slug/inbox", inboxRateLimitMiddleware(), async (c) => {
       }
 
       console.warn(`Group ${slug} is invite-only; rejected Follow from ${followerActor}`);
-      return fail(c, "invite-only community; use direct invite", 403);
-
-      return c.json({}, 403);
+      return failAp(c, "invite-only community; use direct invite", 403, {
+        code: "FORBIDDEN",
+        details: { communityId: slug },
+      });
     }
 
     const follower = await store.findApFollower(localGroupId, actorId);
     if (!follower || follower.status !== "accepted") {
       console.warn(`Rejecting group activity from non-member ${actorId} to ${slug}`);
-      return fail(c, "forbidden", 403);
+      return failAp(c, "forbidden", 403, {
+        code: "FORBIDDEN",
+        details: { communityId: slug, actorId },
+      });
     }
 
     const activityId = typeof activity.id === "string" ? activity.id : crypto.randomUUID();
@@ -815,12 +912,18 @@ app.get("/ap/users/:handle/outbox", accessTokenGuard, async (c) => {
     const handle = c.req.param("handle");
     const viewer = c.get("activityPubUser");
     if (!viewer || viewer.id !== handle) {
-      return fail(c, "handle mismatch", 404);
+      return failAp(c, "handle mismatch", 404, {
+        code: "NOT_FOUND",
+        details: { handle },
+      });
     }
 
     const user = await store.getUser(handle);
     if (!user) {
-      return fail(c, "user not found", 404);
+      return failAp(c, "user not found", 404, {
+        code: "ACTOR_NOT_FOUND",
+        details: { handle },
+      });
     }
 
     const instanceDomain = getInstanceDomain(c);
@@ -889,16 +992,22 @@ app.get("/ap/users/:handle/followers", accessTokenGuard, async (c) => {
     const handle = c.req.param("handle");
     const viewer = c.get("activityPubUser");
     if (!viewer) {
-      return fail(c, "unauthorized", 401);
+      return failAp(c, "unauthorized", 401, { code: "UNAUTHORIZED" });
     }
 
     const user = await store.getUser(handle);
     if (!user) {
-      return fail(c, "user not found", 404);
+      return failAp(c, "user not found", 404, {
+        code: "ACTOR_NOT_FOUND",
+        details: { handle },
+      });
     }
 
     if (viewer.id !== handle) {
-      return fail(c, "forbidden", 403);
+      return failAp(c, "forbidden", 403, {
+        code: "FORBIDDEN",
+        details: { handle, viewerId: viewer.id ?? null },
+      });
     }
 
     const instanceDomain = getInstanceDomain(c);
@@ -962,16 +1071,22 @@ app.get("/ap/users/:handle/following", accessTokenGuard, async (c) => {
     const handle = c.req.param("handle");
     const viewer = c.get("activityPubUser");
     if (!viewer) {
-      return fail(c, "unauthorized", 401);
+      return failAp(c, "unauthorized", 401, { code: "UNAUTHORIZED" });
     }
 
     const user = await store.getUser(handle);
     if (!user) {
-      return fail(c, "user not found", 404);
+      return failAp(c, "user not found", 404, {
+        code: "ACTOR_NOT_FOUND",
+        details: { handle },
+      });
     }
 
     if (viewer.id !== handle) {
-      return fail(c, "forbidden", 403);
+      return failAp(c, "forbidden", 403, {
+        code: "FORBIDDEN",
+        details: { handle, viewerId: viewer.id ?? null },
+      });
     }
 
     const instanceDomain = getInstanceDomain(c);
@@ -1041,7 +1156,10 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
 
     const user = await store.getUser(handle);
     if (!user) {
-      return fail(c, "user not found", 404);
+      return failAp(c, "user not found", 404, {
+        code: "ACTOR_NOT_FOUND",
+        details: { handle },
+      });
     }
 
     // Parse activity
@@ -1051,17 +1169,23 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
       activity = JSON.parse(bodyText);
     } catch (error) {
       console.error("Failed to parse activity JSON:", error);
-      return fail(c, "invalid JSON", 400);
+      return failAp(c, "invalid JSON", 400, {
+        code: "INVALID_FORMAT",
+        details: { format: "json" },
+      });
     }
 
     if (!activity || !activity.type) {
-      return fail(c, "invalid activity", 400);
+      return failAp(c, "invalid activity", 400, { code: "INVALID_INPUT" });
     }
 
     // Extract actor URI
     const actorId = typeof activity.actor === "string" ? activity.actor : activity.actor?.id;
     if (!actorId) {
-      return fail(c, "missing actor", 400);
+      return failAp(c, "missing actor", 400, {
+        code: "MISSING_REQUIRED_FIELD",
+        details: { field: "actor" },
+      });
     }
 
     const federationDecision = applyFederationPolicy(actorId, getFederationPolicy(c));
@@ -1069,21 +1193,30 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
       console.warn(
         `[federation] blocked inbox request from ${actorId} (${federationDecision.hostname ?? "unknown host"})`,
       );
-      return fail(c, "federation blocked", 403);
+      return failAp(c, "federation blocked", 403, {
+        code: "INSTANCE_BLOCKED",
+        details: { actorId, hostname: federationDecision.hostname ?? null },
+      });
     }
 
     // Verify HTTP Signature
     const signatureHeader = c.req.header("signature");
     if (!signatureHeader) {
       console.warn(`Inbox request without signature from ${actorId}`);
-      return fail(c, "missing signature", 401);
+      return failAp(c, "missing signature", 401, {
+        code: "MISSING_SIGNATURE",
+        details: { actorId },
+      });
     }
 
     // Extract keyId from signature
     const keyIdMatch = signatureHeader.match(/keyId="([^"]+)"/);
     if (!keyIdMatch) {
       console.error("Failed to extract keyId from signature");
-      return fail(c, "invalid signature format", 401);
+      return failAp(c, "invalid signature format", 401, {
+        code: "SIGNATURE_INVALID",
+        details: { actorId },
+      });
     }
     const keyId = keyIdMatch[1];
 
@@ -1092,14 +1225,20 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
     const ownsKey = await verifyActorOwnsKey(actorId, keyId, c.env as any, fetcher);
     if (!ownsKey) {
       console.error(`Actor ${actorId} does not own key ${keyId}`);
-      return fail(c, "key ownership verification failed", 403);
+      return failAp(c, "key ownership verification failed", 403, {
+        code: "KEY_MISMATCH",
+        details: { actorId, keyId },
+      });
     }
 
     // Fetch actor and get public key
     const actor = await getOrFetchActor(actorId, c.env as any, false, fetcher);
     if (!actor || !actor.publicKey) {
       console.error(`Failed to fetch actor or public key: ${actorId}`);
-      return fail(c, "could not verify signature", 403);
+      return failAp(c, "could not verify signature", 403, {
+        code: "SIGNATURE_INVALID",
+        details: { actorId, keyId },
+      });
     }
 
     // Verify digest if present
@@ -1107,20 +1246,29 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
     const digestHeader = c.req.header("digest");
     if (!digestHeader) {
       console.error("Missing required Digest header for POST");
-      return fail(c, "digest header required for POST requests", 400);
+      return failAp(c, "digest header required for POST requests", 400, {
+        code: "MISSING_REQUIRED_HEADER",
+        details: { header: "digest" },
+      });
     }
 
     const digestValid = await verifyDigest(c, bodyText);
     if (!digestValid) {
       console.error("Digest verification failed");
-      return fail(c, "digest verification failed", 403);
+      return failAp(c, "digest verification failed", 403, {
+        code: "DIGEST_MISMATCH",
+        details: { actorId },
+      });
     }
 
     // Verify HTTP signature
     const signatureValid = await verifySignature(c, actor.publicKey.publicKeyPem);
     if (!signatureValid) {
       console.error("HTTP signature verification failed");
-      return fail(c, "signature verification failed", 403);
+      return failAp(c, "signature verification failed", 403, {
+        code: "SIGNATURE_INVALID",
+        details: { actorId, keyId },
+      });
     }
 
     console.log(`✓ Verified signature from ${actorId} for activity ${activity.type}`);
@@ -1134,7 +1282,10 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
       // Only accept activities from accepted followers
       if (!follower || follower.status !== "accepted") {
         console.warn(`Rejecting activity from non-friend actor ${actorId} to account ${handle}`);
-        return fail(c, "forbidden", 403);
+        return failAp(c, "forbidden", 403, {
+          code: "FORBIDDEN",
+          details: { handle, actorId },
+        });
       }
     }
 
@@ -1171,7 +1322,7 @@ app.post("/ap/users/:handle/inbox", inboxRateLimitMiddleware(), async (c) => {
     return c.json({}, 202);
   } catch (error) {
     console.error("Inbox processing error:", error);
-    return fail(c, "internal server error", 500);
+    return failAp(c, "internal server error", 500, { code: "INTERNAL_ERROR" });
   } finally {
     await releaseStore(store);
   }
@@ -1219,7 +1370,10 @@ app.post("/ap/users/:handle/outbox", accessTokenGuard, async (c) => {
           }
 
           if (!channel) {
-            return activityPubResponse(c, { ok: false, error: "channel not found" }, 404);
+            return failAp(c, "channel not found", 404, {
+              code: "NOT_FOUND",
+              details: { communityId, channelName },
+            });
           }
           await sendChannelMessage(c.env, handle, communityId, channel.id, cc, body.object.content || "", body.object.inReplyTo);
           return activityPubResponse(c, { ok: true }, 202);
@@ -1240,7 +1394,7 @@ app.post("/ap/users/:handle/outbox", accessTokenGuard, async (c) => {
     }
   }
   
-  return activityPubResponse(c, { ok: false, error: "unsupported activity" }, 400);
+  return failAp(c, "unsupported activity", 400, { code: "INVALID_INPUT" });
 });
 
 // ============================================
@@ -1286,7 +1440,10 @@ app.get("/ap/objects/:id", async (c) => {
     }
 
     if (!object) {
-      return fail(c, "object not found", 404);
+      return failAp(c, "object not found", 404, {
+        code: "OBJECT_NOT_FOUND",
+        details: { objectId: objectParam },
+      });
     }
 
     let content = (object as any).content;
@@ -1308,7 +1465,10 @@ app.get("/ap/objects/:id", async (c) => {
     if (expiresRaw) {
       const expiresAt = new Date(expiresRaw);
       if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now()) {
-        return fail(c, "object not found", 404);
+        return failAp(c, "object not found", 404, {
+          code: "OBJECT_NOT_FOUND",
+          details: { objectId: objectParam },
+        });
       }
     }
 
@@ -1330,11 +1490,21 @@ app.get("/ap/stories/:id", accessTokenGuard, async (c) => {
   try {
     const storyId = c.req.param("id");
     const story = await store.getStory(storyId);
-    if (!story) return fail(c, "story not found", 404);
+    if (!story) {
+      return failAp(c, "story not found", 404, {
+        code: "OBJECT_NOT_FOUND",
+        details: { storyId },
+      });
+    }
     const instanceDomain = getInstanceDomain(c);
     const protocol = getProtocol(c);
     const actor = await store.getUser(story.author_id);
-    if (!actor) return fail(c, "author not found", 404);
+    if (!actor) {
+      return failAp(c, "author not found", 404, {
+        code: "ACTOR_NOT_FOUND",
+        details: { handle: story.author_id },
+      });
+    }
     const storyObject = toStoryObject(story, story.author_id, instanceDomain, { protocol });
     return activityPubResponse(c, storyObject);
   } finally {
@@ -1475,17 +1645,23 @@ app.post("/ap/inbox", inboxRateLimitMiddleware(), async (c) => {
       activity = JSON.parse(bodyText);
     } catch (error) {
       console.error("Failed to parse activity JSON:", error);
-      return fail(c, "invalid JSON", 400);
+      return failAp(c, "invalid JSON", 400, {
+        code: "INVALID_FORMAT",
+        details: { format: "json" },
+      });
     }
 
     if (!activity || !activity.type) {
-      return fail(c, "invalid activity", 400);
+      return failAp(c, "invalid activity", 400, { code: "INVALID_INPUT" });
     }
 
     // Extract actor URI
     const actorId = typeof activity.actor === "string" ? activity.actor : activity.actor?.id;
     if (!actorId) {
-      return fail(c, "missing actor", 400);
+      return failAp(c, "missing actor", 400, {
+        code: "MISSING_REQUIRED_FIELD",
+        details: { field: "actor" },
+      });
     }
 
     const federationDecision = applyFederationPolicy(actorId, getFederationPolicy(c));
@@ -1493,19 +1669,28 @@ app.post("/ap/inbox", inboxRateLimitMiddleware(), async (c) => {
       console.warn(
         `[federation] blocked shared inbox request from ${actorId} (${federationDecision.hostname ?? "unknown host"})`,
       );
-      return fail(c, "federation blocked", 403);
+      return failAp(c, "federation blocked", 403, {
+        code: "INSTANCE_BLOCKED",
+        details: { actorId, hostname: federationDecision.hostname ?? null },
+      });
     }
 
     // Verify HTTP Signature
     const signatureHeader = c.req.header("signature");
     if (!signatureHeader) {
       console.warn(`Shared inbox request without signature from ${actorId}`);
-      return fail(c, "missing signature", 401);
+      return failAp(c, "missing signature", 401, {
+        code: "MISSING_SIGNATURE",
+        details: { actorId },
+      });
     }
 
     const keyIdMatch = signatureHeader.match(/keyId="([^"]+)"/);
     if (!keyIdMatch) {
-      return fail(c, "invalid signature format", 401);
+      return failAp(c, "invalid signature format", 401, {
+        code: "SIGNATURE_INVALID",
+        details: { actorId },
+      });
     }
     const keyId = keyIdMatch[1];
 
@@ -1513,30 +1698,45 @@ app.post("/ap/inbox", inboxRateLimitMiddleware(), async (c) => {
     const fetcher = fetch;
     const ownsKey = await verifyActorOwnsKey(actorId, keyId, c.env as any, fetcher);
     if (!ownsKey) {
-      return fail(c, "key ownership verification failed", 403);
+      return failAp(c, "key ownership verification failed", 403, {
+        code: "KEY_MISMATCH",
+        details: { actorId, keyId },
+      });
     }
 
     // Fetch actor and get public key
     const actor = await getOrFetchActor(actorId, c.env as any, false, fetcher);
     if (!actor || !actor.publicKey) {
-      return fail(c, "could not verify signature", 403);
+      return failAp(c, "could not verify signature", 403, {
+        code: "SIGNATURE_INVALID",
+        details: { actorId, keyId },
+      });
     }
 
     // Verify digest
     const digestHeader = c.req.header("digest");
     if (!digestHeader) {
-      return fail(c, "digest header required for POST requests", 400);
+      return failAp(c, "digest header required for POST requests", 400, {
+        code: "MISSING_REQUIRED_HEADER",
+        details: { header: "digest" },
+      });
     }
 
     const digestValid = await verifyDigest(c, bodyText);
     if (!digestValid) {
-      return fail(c, "digest verification failed", 403);
+      return failAp(c, "digest verification failed", 403, {
+        code: "DIGEST_MISMATCH",
+        details: { actorId },
+      });
     }
 
     // Verify HTTP signature
     const signatureValid = await verifySignature(c, actor.publicKey.publicKeyPem);
     if (!signatureValid) {
-      return fail(c, "signature verification failed", 403);
+      return failAp(c, "signature verification failed", 403, {
+        code: "SIGNATURE_INVALID",
+        details: { actorId, keyId },
+      });
     }
 
     console.log(`✓ Verified shared inbox signature from ${actorId}`);
@@ -1646,7 +1846,7 @@ app.post("/ap/inbox", inboxRateLimitMiddleware(), async (c) => {
     return c.json({}, 202);
   } catch (error) {
     console.error("Shared inbox processing error:", error);
-    return fail(c, "internal server error", 500);
+    return failAp(c, "internal server error", 500, { code: "INTERNAL_ERROR" });
   } finally {
     await releaseStore(store);
   }

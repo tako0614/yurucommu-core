@@ -15,6 +15,7 @@ import { buildAuthContext, resolvePlanFromEnv } from "../lib/auth-context-model"
 import { makeData } from "../data";
 import { authenticateUser } from "../middleware/auth";
 import { buildTakosAppEnv, loadStoredAppManifest, loadTakosApp, resolveAppBucket } from "../lib/app-sdk-loader";
+import { ErrorCodes } from "../lib/error-codes";
 
 type AppApiBindings = { Bindings: Bindings; Variables: Variables };
 const appApiRouter = new Hono<AppApiBindings>();
@@ -116,14 +117,14 @@ appApiRouter.get("/:appId/dist/*", async (c) => {
   const distPath = distPathMatch?.[1]?.slice(1) || ""; // Remove leading slash
 
   if (!distPath) {
-    throw new HttpError(400, "INVALID_INPUT", "File path required", { appId });
+    throw new HttpError(400, ErrorCodes.INVALID_INPUT, "File path required", { appId });
   }
 
   // Try to load from R2/VFS storage
   const bucket = resolveAppBucket(env);
 
   if (!bucket) {
-    throw new HttpError(500, "CONFIGURATION_ERROR", "App storage not configured", { appId });
+    throw new HttpError(500, ErrorCodes.CONFIGURATION_ERROR, "App storage not configured", { appId });
   }
 
   const fileKey = `apps/${appId}/dist/${distPath}`;
@@ -135,11 +136,11 @@ appApiRouter.get("/:appId/dist/*", async (c) => {
     console.error(`[app-api] Failed to serve dist file for ${appId}/${distPath}:`, error);
     if (error instanceof Response) throw error;
     if (error instanceof HttpError) throw error;
-    throw new HttpError(500, "INTERNAL_ERROR", "Failed to load file", { appId, path: distPath });
+    throw new HttpError(500, ErrorCodes.INTERNAL_ERROR, "Failed to load file", { appId, path: distPath });
   }
 
   if (!obj) {
-    throw new HttpError(404, "NOT_FOUND", "File not found", { appId, path: distPath });
+    throw new HttpError(404, ErrorCodes.NOT_FOUND, "File not found", { appId, path: distPath });
   }
 
   // Determine content type based on file extension
@@ -186,7 +187,7 @@ appApiRouter.all("/:appId/api/*", async (c) => {
     console.error(`[app-api] App fetch error for ${appId}:`, error);
     if (error instanceof Response) throw error;
     if (error instanceof HttpError) throw error;
-    throw new HttpError(500, "HANDLER_EXECUTION_ERROR", "App handler execution failed", { appId });
+    throw new HttpError(500, ErrorCodes.HANDLER_EXECUTION_ERROR, "App handler execution failed", { appId });
   }
 });
 

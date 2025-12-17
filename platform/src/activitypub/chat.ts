@@ -211,12 +211,12 @@ export async function sendDirectMessage(
 
   const participants = canonicalizeParticipants([actorUri, ...allowedRecipients]);
   if (participants.length < 2) {
-    throw new HttpError(400, "INVALID_PARTICIPANTS", "At least one recipient is required");
+    throw new HttpError(400, "INVALID_INPUT", "At least one recipient is required");
   }
   const threadId = computeParticipantsHash(participants);
   const targetRecipients = participants.filter((p) => p !== actorUri);
   if (!targetRecipients.length) {
-    throw new HttpError(400, "INVALID_PARTICIPANTS", "Cannot create DM with only yourself");
+    throw new HttpError(400, "INVALID_INPUT", "Cannot create DM with only yourself");
   }
 
   const objects = createObjectService(env);

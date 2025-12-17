@@ -90,6 +90,12 @@ export interface MediaService {
   get(ctx: AppAuthContext, idOrKey: string): Promise<MediaMetadata | null>;
   listStorage(ctx: AppAuthContext, params?: ListMediaParams): Promise<MediaListResult>;
   deleteStorageObject(ctx: AppAuthContext, key: string): Promise<{ deleted: boolean }>;
+  updateMetadata(
+    ctx: AppAuthContext,
+    idOrKey: string,
+    patch: Partial<Pick<MediaMetadata, "alt" | "description" | "attached_to" | "attached_type" | "status" | "metadata">>,
+  ): Promise<MediaMetadata | null>;
+  moveObject(ctx: AppAuthContext, idOrKey: string, folder: string): Promise<MediaMetadata | null>;
   markAttached(
     ctx: AppAuthContext,
     key: string,
@@ -487,6 +493,10 @@ export const createMediaService: MediaServiceFactory = (env: any, storage?: Stor
     await kv.delete(kvKey(userId, id));
   };
 
+  const ensureKv = () => {
+    if (!kv) throw new Error("metadata store not configured");
+  };
+
   const withTransformedUrl = (meta: MediaMetadata): MediaMetadata => {
     if (!meta.url) {
       return { ...meta, url: buildPublicUrl(meta.key, env, storage) };
@@ -614,6 +624,80 @@ export const createMediaService: MediaServiceFactory = (env: any, storage?: Stor
       await bucket.delete(key);
       await deleteMetadata(userId, key);
       return { deleted: true };
+    },
+
+    async updateMetadata(ctx, idOrKey, patch) {
+      const userId = ensureAuth(ctx);
+      ensureKv();
+      const meta = await readMetadata(userId, idOrKey);
+      if (!meta) return null;
+      if (meta.user_id && meta.user_id !== userId) throw new Error("forbidden");
+      const now = new Date().toISOString();
+      const updated: MediaMetadata = {
+        ...meta,
+        alt: patch.alt === undefined ? meta.alt : patch.alt ?? undefined,
+        description: patch.description === undefined ? meta.description : patch.description ?? undefined,
+        attached_to: patch.attached_to === undefined ? meta.attached_to ?? null : patch.attached_to ?? null,
+        attached_type: patch.attached_type === undefined ? meta.attached_type ?? null : patch.attached_type ?? null,
+        status: patch.status === undefined ? meta.status : (patch.status as MediaStatus),
+        metadata: patch.metadata === undefined ? meta.metadata : patch.metadata,
+        updated_at: now,
+      };
+      await writeMetadata(userId, updated);
+      return withTransformedUrl(updated);
+    },
+
+    async moveObject(ctx, idOrKey, folder) {
+      const userId = ensureAuth(ctx);
+      ensureKv();
+      const meta = await readMetadata(userId, idOrKey);
+      if (!meta) return null;
+      if (meta.user_id && meta.user_id !== userId) throw new Error("forbidden");
+
+      const oldKey = meta.key || meta.id;
+      const expectedPrefix = resolvePrefix(userId, meta.bucket);
+      if (!oldKey.startsWith(expectedPrefix)) throw new Error("forbidden");
+
+      const cleanedFolder = sanitizeFolder(folder);
+      const basename = oldKey.split("/").pop() || oldKey;
+      const nextParts = [expectedPrefix];
+      if (cleanedFolder) nextParts.push(cleanedFolder);
+      nextParts.push(basename);
+      const newKey = nextParts.filter(Boolean).join("/");
+
+      if (newKey === oldKey) return withTransformedUrl(meta);
+
+      const bucket = resolveBucket(env);
+      const existing = await bucket.get(oldKey);
+      if (!existing) return null;
+      const contentType = meta.content_type || "application/octet-stream";
+      const status = meta.status || "attached";
+      const customMetadata: Record<string, string> = {
+        user_id: userId,
+        status,
+        attached_to: meta.attached_to ?? "",
+        attached_type: meta.attached_type ?? "",
+      };
+      if (meta.alt) customMetadata.alt = meta.alt;
+      if (meta.description) customMetadata.description = meta.description;
+
+      await bucket.put(newKey, existing.body as any, {
+        httpMetadata: { contentType, cacheControl: DEFAULT_CACHE_CONTROL },
+        customMetadata,
+      });
+      await bucket.delete(oldKey);
+
+      const now = new Date().toISOString();
+      const updated: MediaMetadata = {
+        ...meta,
+        id: newKey,
+        key: newKey,
+        url: buildPublicUrl(newKey, env, storage),
+        updated_at: now,
+      };
+      await deleteMetadata(userId, meta.id || oldKey);
+      await writeMetadata(userId, updated);
+      return withTransformedUrl(updated);
     },
 
     async markAttached(ctx, key, options) {

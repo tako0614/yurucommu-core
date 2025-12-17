@@ -23,6 +23,7 @@ import {
   enforceAgentConfigAllowlist,
   getAgentConfigAllowlist,
 } from "../lib/agent-config-allowlist";
+import { ErrorCodes } from "../lib/error-codes";
 
 const configRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -35,6 +36,16 @@ const getSessionUser = (c: any) =>
 
 const resolveActorHandle = (actor: ConfigActor | null) =>
   actor?.user?.handle ?? actor?.user?.id ?? null;
+
+const requireOwnerMode = (c: any): ConfigActor | null => {
+  const actor = requireAuthenticatedUser(c);
+  if (!actor) return null;
+  const source = c.get("authSource") as string | null | undefined;
+  if (source !== "session" && source !== "basic") {
+    return null;
+  }
+  return actor;
+};
 
 /** Require any authenticated user */
 const requireAuthenticatedUser = (c: any): ConfigActor | null => {
@@ -107,17 +118,17 @@ async function handleConfigExport(c: any) {
 }
 
 configRoutes.get("/admin/config/export", auth, async (c) => {
-  const actor = requireAuthenticatedUser(c);
+  const actor = requireOwnerMode(c);
   if (!actor) {
-    return fail(c, "authentication required", 403);
+    return fail(c, "owner mode required", 403, { code: ErrorCodes.OWNER_REQUIRED });
   }
   return handleConfigExport(c);
 });
 
 configRoutes.get("/-/config/export", auth, async (c) => {
-  const actor = requireAuthenticatedUser(c);
+  const actor = requireOwnerMode(c);
   if (!actor) {
-    return fail(c, "authentication required", 403);
+    return fail(c, "owner mode required", 403, { code: ErrorCodes.OWNER_REQUIRED });
   }
   return handleConfigExport(c);
 });
@@ -312,33 +323,33 @@ async function handleConfigImport(c: any, actor: ConfigActor) {
 }
 
 configRoutes.post("/admin/config/diff", auth, async (c) => {
-  const actor = requireAuthenticatedUser(c);
+  const actor = requireOwnerMode(c);
   if (!actor) {
-    return fail(c, "authentication required", 403);
+    return fail(c, "owner mode required", 403, { code: ErrorCodes.OWNER_REQUIRED });
   }
   return handleConfigDiff(c);
 });
 
 configRoutes.post("/-/config/diff", auth, async (c) => {
-  const actor = requireAuthenticatedUser(c);
+  const actor = requireOwnerMode(c);
   if (!actor) {
-    return fail(c, "authentication required", 403);
+    return fail(c, "owner mode required", 403, { code: ErrorCodes.OWNER_REQUIRED });
   }
   return handleConfigDiff(c);
 });
 
 configRoutes.post("/admin/config/import", auth, async (c) => {
-  const actor = requireAuthenticatedUser(c);
+  const actor = requireOwnerMode(c);
   if (!actor) {
-    return fail(c, "authentication required", 403);
+    return fail(c, "owner mode required", 403, { code: ErrorCodes.OWNER_REQUIRED });
   }
   return handleConfigImport(c, actor);
 });
 
 configRoutes.post("/-/config/import", auth, async (c) => {
-  const actor = requireAuthenticatedUser(c);
+  const actor = requireOwnerMode(c);
   if (!actor) {
-    return fail(c, "authentication required", 403);
+    return fail(c, "owner mode required", 403, { code: ErrorCodes.OWNER_REQUIRED });
   }
   return handleConfigImport(c, actor);
 });

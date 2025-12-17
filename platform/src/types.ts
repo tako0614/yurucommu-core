@@ -9,6 +9,9 @@ export type BaseBindings = {
   ASSETS: any;
   MEDIA?: any; // R2Bucket from @cloudflare/workers-types
   KV?: any; // KVNamespace from @cloudflare/workers-types
+  LOADER?: any; // Worker Loader binding (Dynamic Isolates)
+  TAKOS_CORE?: any; // Service binding to core worker (loopback)
+  TAKOS_APP_RPC_TOKEN?: string;
   DEV_DB?: any;
   DEV_MEDIA?: any;
   DEV_KV?: any;

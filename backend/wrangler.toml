@@ -11,12 +11,20 @@ SESSION_REFRESH_INTERVAL_SECONDS = "2592000"
 INSTANCE_DOMAIN = "yourdomain.com"
 ACTIVITYPUB_ENABLED = "true"
 CRON_TRIGGERS = "*/5 * * * *,0 2 * * *"
+TAKOS_APP_RPC_TOKEN = "dev-change-me"
 # Authentication credentials (change these!)
 AUTH_USERNAME = "admin"
 AUTH_PASSWORD = "changeme"
 
 [observability]
 enabled = true
+
+[[worker_loaders]]
+binding = "LOADER"
+
+[[services]]
+binding = "TAKOS_CORE"
+service = "your-app-account"
 
 [[r2_buckets]]
 binding = "MEDIA"
