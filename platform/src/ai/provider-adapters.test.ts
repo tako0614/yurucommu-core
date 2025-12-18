@@ -87,6 +87,37 @@ describe("provider-adapters OpenAiAdapter", () => {
     expect((result.choices[0]?.message as any)?.tool_calls).toBeTruthy();
     vi.unstubAllGlobals();
   });
+
+  it("passes tool role messages with tool_call_id through to request body", async () => {
+    const adapter = new OpenAiAdapter();
+    const fetchMock = vi.fn(async (_url: string, init: any) => {
+      const parsed = JSON.parse(init.body);
+      expect(parsed.messages).toMatchObject([
+        { role: "assistant", content: "", tool_calls: [{ id: "call_1" }] },
+        { role: "tool", content: "{\"ok\":true}", tool_call_id: "call_1" },
+      ]);
+      return new Response(
+        JSON.stringify({
+          id: "chatcmpl_3",
+          object: "chat.completion",
+          created: 1,
+          model: "gpt-test",
+          choices: [{ index: 0, message: { role: "assistant", content: "done" }, finish_reason: "stop" }],
+        }),
+        { status: 200 },
+      );
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await adapter.chatCompletion(makeClient(), [
+      { role: "assistant", content: "", tool_calls: [{ id: "call_1" }] } as any,
+      { role: "tool", content: "{\"ok\":true}", tool_call_id: "call_1" } as any,
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
 });
 
 describe("provider-adapters ClaudeAdapter", () => {

@@ -17,7 +17,7 @@ import type { AiProviderType } from "../config/takos-config.js";
 
 // Common types for AI interactions
 
-export type ChatRole = "system" | "user" | "assistant";
+export type ChatRole = "system" | "user" | "assistant" | "tool";
 
 export type ChatMessage = {
   role: ChatRole;
@@ -128,7 +128,7 @@ export interface AiProviderAdapter {
 // OpenAI adapter (also works for OpenAI-compatible and OpenRouter)
 
 type OpenAiMessage = {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
   tool_calls?: unknown;
   tool_call_id?: string;
@@ -503,6 +503,11 @@ export class ClaudeAdapter implements AiProviderAdapter {
     for (const msg of messages) {
       if (msg.role === "system") {
         systemPrompt = msg.content;
+        continue;
+      }
+      if (msg.role === "tool") {
+        // Not supported yet: tool result unification for Claude.
+        continue;
       } else {
         claudeMessages.push({
           role: msg.role as "user" | "assistant",
@@ -603,6 +608,11 @@ export class ClaudeAdapter implements AiProviderAdapter {
     for (const msg of messages) {
       if (msg.role === "system") {
         systemPrompt = msg.content;
+        continue;
+      }
+      if (msg.role === "tool") {
+        // Not supported yet: tool result unification for Claude.
+        continue;
       } else {
         claudeMessages.push({
           role: msg.role as "user" | "assistant",
@@ -907,6 +917,11 @@ export class GeminiAdapter implements AiProviderAdapter {
     for (const msg of messages) {
       if (msg.role === "system") {
         systemInstruction = { parts: [{ text: msg.content }] };
+        continue;
+      }
+      if (msg.role === "tool") {
+        // Not supported yet: tool result unification for Gemini.
+        continue;
       } else {
         geminiContents.push({
           role: msg.role === "assistant" ? "model" : "user",
@@ -1034,6 +1049,11 @@ export class GeminiAdapter implements AiProviderAdapter {
     for (const msg of messages) {
       if (msg.role === "system") {
         systemInstruction = { parts: [{ text: msg.content }] };
+        continue;
+      }
+      if (msg.role === "tool") {
+        // Not supported yet: tool result unification for Gemini.
+        continue;
       } else {
         geminiContents.push({
           role: msg.role === "assistant" ? "model" : "user",
