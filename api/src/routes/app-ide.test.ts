@@ -51,7 +51,11 @@ describe("/-/dev/ide", () => {
     expect(res.status).toBe(200);
     const json: any = await res.json();
     expect(json.data?.files?.length).toBeGreaterThan(0);
-    expect(json.data?.files?.[0]?.content).toContain("declare module");
+    const files = json.data?.files ?? [];
+    const handler = files.find((f: any) => f?.path === "takos/handler.d.ts");
+    expect(handler?.content).toContain('declare module "takos/handler"');
+    expect(handler?.content).toContain("OpenAICompatibleClient");
+    expect(handler?.content).not.toContain("ActivityPubAPI");
   });
 
   it("returns diagnostics for invalid code", async () => {
