@@ -35,6 +35,7 @@ describe("App Script runtime", () => {
 
   it("creates TakosContext with helpers and logging metadata", () => {
     const logs: AppLogEntry[] = [];
+    const outbound = { fetch: async () => ({ url: "https://x", status: 200, headers: {}, body: null }) };
     const ctx = createTakosContext({
       mode: "dev",
       workspaceId: "ws_dev",
@@ -44,12 +45,14 @@ describe("App Script runtime", () => {
       services: { posts: { list: () => [] } },
       resolveDb: (name, info) => ({ name, info }),
       resolveStorage: (name, info) => ({ bucket: name, info }),
+      outbound: outbound as any,
       logSink: (entry) => {
         logs.push(entry);
       },
     });
 
     expect((ctx.ai as any).openai).toBeTruthy();
+    expect(ctx.outbound).toBeTruthy();
 
     const dbHandle = ctx.db("app:notes") as any;
     expect(dbHandle.name).toBe("app:notes");
