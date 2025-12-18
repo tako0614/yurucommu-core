@@ -251,6 +251,9 @@ export interface AppEnv {
   /** Per-user KV storage */
   storage: AppStorage;
 
+  /** Global KV storage (shared across users) */
+  storageGlobal: AppStorage;
+
   /** Authenticated fetch helper for calling Core APIs */
   fetch: (path: string, init?: RequestInit) => Promise<Response>;
 }

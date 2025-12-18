@@ -29,6 +29,7 @@ describe("buildTakosAppEnv", () => {
     expect((env as any).INSTANCE_DOMAIN).toBeUndefined();
     expect((env as any).JWT_SECRET).toBeUndefined();
     expect(env.instance.domain).toBe("example.test");
+    expect(env.storageGlobal).toBeTruthy();
   });
 
   it("provides auth info when user is authenticated", () => {
@@ -138,9 +139,9 @@ describe("per-user storage", () => {
     // Set a value
     await env.storage.set("mykey", { foo: "bar" });
 
-    // Verify key structure
+    // Verify key structure includes user scope
     expect(fakeKv.put).toHaveBeenCalledWith(
-      "app:test-app:mykey",
+      "app:test-app:user:user123:mykey",
       JSON.stringify({ foo: "bar" }),
       {},
     );
@@ -150,7 +151,7 @@ describe("per-user storage", () => {
     expect(value).toEqual({ foo: "bar" });
   });
 
-  it("uses app-scoped key structure when unauthenticated", async () => {
+  it("uses global key structure when unauthenticated", async () => {
     const fakeKv = {
       get: vi.fn(async () => null),
       put: vi.fn(async () => {}),
@@ -174,7 +175,7 @@ describe("per-user storage", () => {
     await env.storage.set("globalkey", "value");
 
     expect(fakeKv.put).toHaveBeenCalledWith(
-      "app:test-app:globalkey",
+      "app:test-app:global:globalkey",
       JSON.stringify("value"),
       {},
     );
@@ -211,9 +212,56 @@ describe("per-user storage", () => {
     await env.storage.set("tempkey", "tempvalue", { expirationTtl: 3600 });
 
     expect(fakeKv.put).toHaveBeenCalledWith(
-      "app:test-app:tempkey",
+      "app:test-app:user:user123:tempkey",
       JSON.stringify("tempvalue"),
       { expirationTtl: 3600 },
+    );
+  });
+
+  it("provides storageGlobal without user scope", async () => {
+    const kvStore: Record<string, string> = {};
+    const fakeKv = {
+      get: vi.fn(async (key: string) => {
+        const value = kvStore[key];
+        return value ? JSON.parse(value) : null;
+      }),
+      put: vi.fn(async (key: string, value: string) => {
+        kvStore[key] = value;
+      }),
+      delete: vi.fn(async (key: string) => {
+        delete kvStore[key];
+      }),
+      list: vi.fn(async ({ prefix }: { prefix: string }) => ({
+        keys: Object.keys(kvStore)
+          .filter((k) => k.startsWith(prefix))
+          .map((name) => ({ name })),
+      })),
+    };
+
+    const authContext = {
+      userId: "user123",
+      sessionId: "sess",
+      isAuthenticated: true,
+    };
+
+    const c: any = {
+      env: {
+        DB: {},
+        KV: fakeKv,
+        APP_STATE: fakeKv,
+        INSTANCE_DOMAIN: "example.test",
+      },
+      req: { url: "http://localhost/", header: () => null },
+      get: (key: string) => (key === "authContext" ? authContext : null),
+    };
+
+    const env = buildTakosAppEnv(c, "test-app", { version: "1.0.0" } as any);
+    await env.storageGlobal.set("shared", { ok: true });
+
+    expect(fakeKv.put).toHaveBeenCalledWith(
+      "app:test-app:global:shared",
+      JSON.stringify({ ok: true }),
+      {},
     );
   });
 });
@@ -250,7 +298,7 @@ describe("buildTakosScheduledAppEnv", () => {
     await appEnv.storage.set("task-state", { completed: true });
 
     expect(fakeKv.put).toHaveBeenCalledWith(
-      "app:scheduled-app:task-state",
+      "app:scheduled-app:global:task-state",
       JSON.stringify({ completed: true }),
       {},
     );
