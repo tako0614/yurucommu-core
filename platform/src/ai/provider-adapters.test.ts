@@ -172,4 +172,49 @@ describe("provider-adapters GeminiAdapter", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
   });
+
+  it("normalizes Gemini functionCall parts into OpenAI-style tool_calls", async () => {
+    const adapter = new GeminiAdapter();
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                role: "model",
+                parts: [
+                  { functionCall: { name: "tool.echo", args: { x: 1 } } },
+                ],
+              },
+              finishReason: "STOP",
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await adapter.chatCompletion(
+      {
+        ...makeClient(),
+        type: "gemini",
+        baseUrl: "https://example.ai/v1beta",
+        model: "gemini-1.5-flash",
+        apiKey: "k",
+      },
+      [{ role: "user", content: "hi" }],
+      {
+        tools: [{ type: "function", function: { name: "tool.echo", parameters: { type: "object" } } }],
+        toolChoice: "auto",
+      },
+    );
+
+    expect((result.choices[0]?.message as any)?.tool_calls).toMatchObject([
+      { type: "function", function: { name: "tool.echo", arguments: "{\"x\":1}" } },
+    ]);
+    expect(result.choices[0]?.finishReason).toBe("tool_calls");
+    vi.unstubAllGlobals();
+  });
 });
