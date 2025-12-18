@@ -411,9 +411,27 @@ export class OpenAiAdapter implements AiProviderAdapter {
 
 // Claude (Anthropic) adapter
 
+type ClaudeRequestContentBlock =
+  | {
+      type: "text";
+      text: string;
+    }
+  | {
+      type: "tool_use";
+      id: string;
+      name: string;
+      input?: unknown;
+    }
+  | {
+      type: "tool_result";
+      tool_use_id: string;
+      content: string;
+      is_error?: boolean;
+    };
+
 type ClaudeMessage = {
   role: "user" | "assistant";
-  content: string;
+  content: ClaudeRequestContentBlock[];
 };
 
 type ClaudeRequest = {
@@ -455,6 +473,15 @@ type ClaudeResponse = {
 
 export class ClaudeAdapter implements AiProviderAdapter {
   readonly type: AiProviderType = "claude";
+
+  private parseToolArgs(raw: unknown): unknown {
+    if (typeof raw !== "string" || raw.trim() === "") return {};
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
 
   private normalizeTools(options?: ChatCompletionOptions): { tools?: unknown; tool_choice?: unknown } {
     const rawTools = options?.tools;
@@ -513,14 +540,52 @@ export class ClaudeAdapter implements AiProviderAdapter {
         continue;
       }
       if (msg.role === "tool") {
-        // Not supported yet: tool result unification for Claude.
-        continue;
-      } else {
+        const toolUseId = typeof (msg as any)?.tool_call_id === "string"
+          ? (msg as any).tool_call_id
+          : null;
+        if (!toolUseId) continue;
         claudeMessages.push({
-          role: msg.role as "user" | "assistant",
-          content: msg.content,
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: toolUseId,
+              content: msg.content,
+            },
+          ],
         });
+        continue;
       }
+
+      if (msg.role === "assistant") {
+        const blocks: ClaudeRequestContentBlock[] = [];
+        if (msg.content) {
+          blocks.push({ type: "text", text: msg.content });
+        }
+        const toolCalls = (msg as any)?.tool_calls;
+        if (Array.isArray(toolCalls)) {
+          for (const call of toolCalls) {
+            const id = typeof call?.id === "string" && call.id.trim()
+              ? call.id
+              : `toolu_${Date.now()}`;
+            const name = typeof call?.function?.name === "string" ? call.function.name : "";
+            if (!name) continue;
+            blocks.push({
+              type: "tool_use",
+              id,
+              name,
+              input: this.parseToolArgs(call?.function?.arguments),
+            });
+          }
+        }
+        if (blocks.length === 0) continue;
+        claudeMessages.push({ role: "assistant", content: blocks });
+        continue;
+      }
+
+      // user
+      if (!msg.content) continue;
+      claudeMessages.push({ role: "user", content: [{ type: "text", text: msg.content }] });
     }
 
     const body: ClaudeRequest = {
@@ -629,14 +694,52 @@ export class ClaudeAdapter implements AiProviderAdapter {
         continue;
       }
       if (msg.role === "tool") {
-        // Not supported yet: tool result unification for Claude.
-        continue;
-      } else {
+        const toolUseId = typeof (msg as any)?.tool_call_id === "string"
+          ? (msg as any).tool_call_id
+          : null;
+        if (!toolUseId) continue;
         claudeMessages.push({
-          role: msg.role as "user" | "assistant",
-          content: msg.content,
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: toolUseId,
+              content: msg.content,
+            },
+          ],
         });
+        continue;
       }
+
+      if (msg.role === "assistant") {
+        const blocks: ClaudeRequestContentBlock[] = [];
+        if (msg.content) {
+          blocks.push({ type: "text", text: msg.content });
+        }
+        const toolCalls = (msg as any)?.tool_calls;
+        if (Array.isArray(toolCalls)) {
+          for (const call of toolCalls) {
+            const id = typeof call?.id === "string" && call.id.trim()
+              ? call.id
+              : `toolu_${Date.now()}`;
+            const name = typeof call?.function?.name === "string" ? call.function.name : "";
+            if (!name) continue;
+            blocks.push({
+              type: "tool_use",
+              id,
+              name,
+              input: this.parseToolArgs(call?.function?.arguments),
+            });
+          }
+        }
+        if (blocks.length === 0) continue;
+        claudeMessages.push({ role: "assistant", content: blocks });
+        continue;
+      }
+
+      // user
+      if (!msg.content) continue;
+      claudeMessages.push({ role: "user", content: [{ type: "text", text: msg.content }] });
     }
 
     const body: ClaudeRequest = {

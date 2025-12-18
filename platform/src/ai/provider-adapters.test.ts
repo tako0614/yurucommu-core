@@ -206,6 +206,66 @@ describe("provider-adapters ClaudeAdapter", () => {
     expect(result.choices[0]?.finishReason).toBe("tool_calls");
     vi.unstubAllGlobals();
   });
+
+  it("maps OpenAI tool_calls + tool result messages into Claude tool_use/tool_result blocks", async () => {
+    const adapter = new ClaudeAdapter();
+    const fetchMock = vi.fn(async (_url: string, init: any) => {
+      const parsed = JSON.parse(init.body);
+      expect(parsed.messages).toMatchObject([
+        {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "toolu_1", name: "tool.echo", input: { x: 1 } }],
+        },
+        {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "{\"ok\":true}" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "continue" }],
+        },
+      ]);
+      return new Response(
+        JSON.stringify({
+          id: "msg_3",
+          type: "message",
+          role: "assistant",
+          model: "claude-test",
+          stop_reason: "stop",
+          content: [{ type: "text", text: "done" }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+        { status: 200 },
+      );
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await adapter.chatCompletion(
+      {
+        ...makeClient(),
+        type: "claude",
+        baseUrl: "https://example.ai",
+        model: "claude-test",
+      },
+      [
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [{ id: "toolu_1", type: "function", function: { name: "tool.echo", arguments: "{\"x\":1}" } }],
+        } as any,
+        { role: "tool", content: "{\"ok\":true}", tool_call_id: "toolu_1" } as any,
+        { role: "user", content: "continue" } as any,
+      ],
+      {
+        tools: [{ type: "function", function: { name: "tool.echo", parameters: { type: "object" } } }],
+        toolChoice: "auto",
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
 });
 
 describe("provider-adapters GeminiAdapter", () => {
