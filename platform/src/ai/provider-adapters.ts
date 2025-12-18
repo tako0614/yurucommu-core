@@ -424,6 +424,8 @@ type ClaudeRequest = {
   temperature?: number;
   top_p?: number;
   stream?: boolean;
+  tools?: unknown;
+  tool_choice?: unknown;
 };
 
 type ClaudeContentBlock = {
@@ -446,6 +448,40 @@ type ClaudeResponse = {
 
 export class ClaudeAdapter implements AiProviderAdapter {
   readonly type: AiProviderType = "claude";
+
+  private normalizeTools(options?: ChatCompletionOptions): { tools?: unknown; tool_choice?: unknown } {
+    const rawTools = options?.tools;
+    if (!Array.isArray(rawTools) || rawTools.length === 0) return {};
+
+    const converted: Array<{ name: string; description?: string; input_schema?: unknown }> = [];
+    for (const item of rawTools as any[]) {
+      const maybeFunction = item?.type === "function" ? item?.function : null;
+      const name = typeof maybeFunction?.name === "string" ? maybeFunction.name.trim() : "";
+      if (!name) continue;
+      const description = typeof maybeFunction?.description === "string" ? maybeFunction.description : undefined;
+      const inputSchema = maybeFunction?.parameters ?? {};
+      converted.push({ name, description, input_schema: inputSchema });
+    }
+
+    if (converted.length === 0) {
+      // If tools are not OpenAI-style, pass through as-is (advanced usage).
+      return { tools: rawTools };
+    }
+
+    const toolChoice = options?.toolChoice;
+    if (toolChoice === "none") {
+      return {};
+    }
+    if (toolChoice && typeof toolChoice === "object") {
+      const forced = (toolChoice as any)?.function?.name ?? (toolChoice as any)?.name;
+      const forcedName = typeof forced === "string" ? forced.trim() : "";
+      if (forcedName) {
+        return { tools: converted, tool_choice: { type: "tool", name: forcedName } };
+      }
+    }
+    // default/auto
+    return { tools: converted, tool_choice: { type: "auto" } };
+  }
 
   async chatCompletion(
     client: AiProviderClient,
@@ -490,6 +526,13 @@ export class ClaudeAdapter implements AiProviderAdapter {
     }
     if (options?.topP !== undefined) {
       body.top_p = options.topP;
+    }
+    const toolPayload = this.normalizeTools(options);
+    if (toolPayload.tools !== undefined) {
+      body.tools = toolPayload.tools;
+    }
+    if (toolPayload.tool_choice !== undefined) {
+      body.tool_choice = toolPayload.tool_choice;
     }
 
     const response = await fetch(url, {
@@ -583,6 +626,13 @@ export class ClaudeAdapter implements AiProviderAdapter {
     }
     if (options?.topP !== undefined) {
       body.top_p = options.topP;
+    }
+    const toolPayload = this.normalizeTools(options);
+    if (toolPayload.tools !== undefined) {
+      body.tools = toolPayload.tools;
+    }
+    if (toolPayload.tool_choice !== undefined) {
+      body.tool_choice = toolPayload.tool_choice;
     }
 
     const response = await fetch(url, {
