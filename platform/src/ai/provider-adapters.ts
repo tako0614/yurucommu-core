@@ -778,6 +778,8 @@ type GeminiContent = {
 type GeminiRequest = {
   contents: GeminiContent[];
   systemInstruction?: { parts: Array<{ text: string }> };
+  tools?: unknown;
+  toolConfig?: unknown;
   generationConfig?: {
     temperature?: number;
     maxOutputTokens?: number;
@@ -835,6 +837,47 @@ type GeminiBatchEmbedResponse = {
 export class GeminiAdapter implements AiProviderAdapter {
   readonly type: AiProviderType = "gemini";
 
+  private normalizeTools(options?: ChatCompletionOptions): { tools?: unknown; toolConfig?: unknown } {
+    const rawTools = options?.tools;
+    if (!Array.isArray(rawTools) || rawTools.length === 0) return {};
+
+    const declarations: Array<{ name: string; description?: string; parameters?: unknown }> = [];
+    for (const item of rawTools as any[]) {
+      const maybeFunction = item?.type === "function" ? item?.function : null;
+      const name = typeof maybeFunction?.name === "string" ? maybeFunction.name.trim() : "";
+      if (!name) continue;
+      const description = typeof maybeFunction?.description === "string" ? maybeFunction.description : undefined;
+      const parameters = maybeFunction?.parameters ?? {};
+      declarations.push({ name, description, parameters });
+    }
+
+    const toolChoice = options?.toolChoice;
+    if (toolChoice === "none") {
+      return {};
+    }
+
+    // Gemini format: tools[].functionDeclarations + toolConfig.functionCallingConfig
+    const tools = declarations.length > 0
+      ? [{ functionDeclarations: declarations }]
+      : rawTools;
+
+    let toolConfig: any = { functionCallingConfig: { mode: "AUTO" } };
+    if (toolChoice && typeof toolChoice === "object") {
+      const forced = (toolChoice as any)?.function?.name ?? (toolChoice as any)?.name;
+      const forcedName = typeof forced === "string" ? forced.trim() : "";
+      if (forcedName) {
+        toolConfig = {
+          functionCallingConfig: {
+            mode: "ANY",
+            allowedFunctionNames: [forcedName],
+          },
+        };
+      }
+    }
+
+    return { tools, toolConfig };
+  }
+
   async chatCompletion(
     client: AiProviderClient,
     messages: ChatMessage[],
@@ -869,6 +912,13 @@ export class GeminiAdapter implements AiProviderAdapter {
 
     if (systemInstruction) {
       body.systemInstruction = systemInstruction;
+    }
+    const toolPayload = this.normalizeTools(options);
+    if (toolPayload.tools !== undefined) {
+      body.tools = toolPayload.tools;
+    }
+    if (toolPayload.toolConfig !== undefined) {
+      body.toolConfig = toolPayload.toolConfig;
     }
 
     const generationConfig: GeminiRequest["generationConfig"] = {};
@@ -968,6 +1018,13 @@ export class GeminiAdapter implements AiProviderAdapter {
 
     if (systemInstruction) {
       body.systemInstruction = systemInstruction;
+    }
+    const toolPayload = this.normalizeTools(options);
+    if (toolPayload.tools !== undefined) {
+      body.tools = toolPayload.tools;
+    }
+    if (toolPayload.toolConfig !== undefined) {
+      body.toolConfig = toolPayload.toolConfig;
     }
 
     const generationConfig: GeminiRequest["generationConfig"] = {};

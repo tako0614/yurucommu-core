@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ClaudeAdapter, OpenAiAdapter } from "./provider-adapters";
+import { GeminiAdapter } from "./provider-adapters";
 
 const makeClient = () =>
   ({
@@ -121,6 +122,45 @@ describe("provider-adapters ClaudeAdapter", () => {
         type: "claude",
         baseUrl: "https://example.ai",
         model: "claude-test",
+      },
+      [{ role: "user", content: "hi" }],
+      {
+        tools: [{ type: "function", function: { name: "tool.echo", parameters: { type: "object" } } }],
+        toolChoice: "auto",
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("provider-adapters GeminiAdapter", () => {
+  it("maps OpenAI function tools into Gemini tools/toolConfig payload", async () => {
+    const adapter = new GeminiAdapter();
+    const fetchMock = vi.fn(async (_url: string, init: any) => {
+      const parsed = JSON.parse(init.body);
+      expect(Array.isArray(parsed.tools)).toBe(true);
+      const decls = parsed.tools[0]?.functionDeclarations ?? [];
+      expect(decls[0]).toMatchObject({ name: "tool.echo" });
+      expect(parsed.toolConfig?.functionCallingConfig?.mode).toBe("AUTO");
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: "ok" }], role: "model" }, finishReason: "stop" }],
+        }),
+        { status: 200 },
+      );
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await adapter.chatCompletion(
+      {
+        ...makeClient(),
+        type: "gemini",
+        baseUrl: "https://example.ai/v1beta",
+        model: "gemini-1.5-flash",
+        apiKey: "k",
       },
       [{ role: "user", content: "hi" }],
       {
