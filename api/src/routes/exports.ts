@@ -1,28 +1,20 @@
 import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings, Variables } from "@takos/platform/server";
 import {
-  ACTIVITYSTREAMS_CONTEXT,
-  SECURITY_CONTEXT,
   fail,
   HttpError,
-  generateNoteObject,
-  generatePersonActor,
-  getActivityUri,
-  getActorUri,
-  parseActorUri,
   nowISO,
   ok,
   releaseStore,
   requireInstanceDomain,
   uuid,
-  wrapInCreateActivity,
 } from "@takos/platform/server";
 import { makeData } from "../data";
 import { auth } from "../middleware/auth";
 import { ErrorCodes } from "../lib/error-codes";
 
 type ExportOptions = {
-  format: "json" | "activitypub";
+  format: "json";
   includeDm: boolean;
   includeMedia: boolean;
 };
@@ -53,13 +45,11 @@ type CorePayload = {
 
 type DmBundleResult = {
   json: any | null;
-  activitypub: any | null;
   counts: { dmThreads: number; dmMessages: number };
 };
 
 type MediaBundleResult = {
   json: any | null;
-  activitypub: any | null;
   counts: { media: number };
 };
 
@@ -71,10 +61,6 @@ const EXPORT_BATCH_SIZE = 5;
 
 const exportsRoute = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-const isUrl = (value: string) =>
-  typeof value === "string" &&
-  (value.startsWith("http://") || value.startsWith("https://"));
-
 const dedupeStrings = (values: Array<string | null | undefined>): string[] => {
   const set = new Set(
     values
@@ -85,121 +71,8 @@ const dedupeStrings = (values: Array<string | null | undefined>): string[] => {
   return Array.from(set);
 };
 
-function parseActorHandle(value: string): { handle: string; domain?: string } | null {
-  const trimmed = (value || "").trim();
-  if (!trimmed) return null;
-
-  const withoutPrefix = trimmed.replace(/^@+/, "");
-  const parts = withoutPrefix.split("@");
-  if (parts.length >= 2) {
-    const handle = (parts.shift() || "").trim();
-    const domain = parts.join("@").trim();
-    if (handle && domain) {
-      return { handle: handle.toLowerCase(), domain: domain.toLowerCase() };
-    }
-  }
-
-  try {
-    const url = new URL(trimmed);
-    const match = url.pathname.match(/\/ap\/users\/([a-z0-9_]{3,20})\/?$/i);
-    if (match) {
-      return { handle: match[1].toLowerCase(), domain: url.hostname.toLowerCase() };
-    }
-  } catch {
-    // ignore parse errors
-  }
-
-  if (/^[a-z0-9_]{3,}$/i.test(trimmed)) {
-    return { handle: trimmed.toLowerCase() };
-  }
-
-  return null;
-}
-
-function resolveActorRef(
-  input: any,
-  instanceDomain: string,
-  aliases: string[] = [],
-): { id: string; aliases: string[] } | null {
-  const candidates: string[] = [];
-
-  if (typeof input === "string") {
-    candidates.push(input);
-  } else if (input) {
-    for (const key of ["actor", "actor_id", "user_id", "handle", "id", "addressee_id"]) {
-      const value = (input as any)[key];
-      if (typeof value === "string") {
-        candidates.push(value);
-      }
-    }
-  }
-
-  for (const alias of aliases) {
-    if (typeof alias === "string") {
-      candidates.push(alias);
-    }
-  }
-
-  const normalized = candidates.map((v) => v.trim()).filter(Boolean);
-  if (!normalized.length) return null;
-
-  const aliasSet = new Set(normalized);
-
-  const urlCandidate = normalized.find((v) => isUrl(v));
-  if (urlCandidate) {
-    aliasSet.add(urlCandidate);
-    return { id: urlCandidate, aliases: Array.from(aliasSet) };
-  }
-
-  for (const candidate of normalized) {
-    const parsed = parseActorHandle(candidate);
-    if (parsed?.handle && parsed.domain) {
-      const id = `https://${parsed.domain}/ap/users/${parsed.handle}`;
-      aliasSet.add(id);
-      return { id, aliases: Array.from(aliasSet) };
-    }
-  }
-
-  for (const candidate of normalized) {
-    const parsed = parseActorHandle(candidate);
-    if (parsed?.handle) {
-      const domain = parsed.domain || instanceDomain;
-      const id = getActorUri(parsed.handle, domain);
-      aliasSet.add(id);
-      return { id, aliases: Array.from(aliasSet) };
-    }
-  }
-
-  return null;
-}
-
-function resolveObjectRef(input: any, instanceDomain: string): string | null {
-  const raw = typeof input === "string" ? input.trim() : "";
-  if (!raw) return null;
-  if (isUrl(raw)) return raw;
-  const normalized = raw.startsWith("/") ? raw.slice(1) : raw;
-  const path = normalized.startsWith("ap/objects/") ? normalized : `ap/objects/${normalized}`;
-  return `https://${instanceDomain}/${path}`;
-}
-
-function buildActivityUriForActor(actorId: string, activityId: string, instanceDomain: string): string {
-  const parsed = parseActorUri(actorId, instanceDomain);
-  if (parsed?.domain) {
-    return `https://${parsed.domain}/ap/activities/${activityId}`;
-  }
-  try {
-    const url = new URL(actorId);
-    if (url.hostname) {
-      return `https://${url.hostname}/ap/activities/${activityId}`;
-    }
-  } catch {
-    // ignore parse errors and fall back to instance domain
-  }
-  return `https://${instanceDomain}/ap/activities/${activityId}`;
-}
-
 function parseExportOptions(body: any): ExportOptions {
-  const format = body?.format === "activitypub" ? "activitypub" : "json";
+  const format: ExportOptions["format"] = "json";
   const includeDm = Boolean(
     body?.include_dm ?? body?.includeDm ?? body?.dm ?? false,
   );
@@ -298,115 +171,6 @@ function buildCoreJsonPayload(data: BaseUserData): CorePayload {
   };
 }
 
-function buildCoreActivityPubPayload(
-  data: BaseUserData,
-  instanceDomain: string,
-): CorePayload {
-  const actor = generatePersonActor(data.profile, instanceDomain);
-  const activities = (data.posts || []).map((post: any) => {
-    const note = generateNoteObject(post, data.profile, instanceDomain);
-    const activityId = post.ap_activity_id ||
-      getActivityUri(data.profile.id, post.id, instanceDomain);
-    return wrapInCreateActivity(note, actor.id, activityId);
-  });
-  const friendActors = dedupeStrings(
-    (data.friends || []).map((friend: any) =>
-      resolveActorRef(
-        friend?.addressee_id ?? friend?.id ?? friend?.handle,
-        instanceDomain,
-        Array.isArray(friend?.addressee_aliases) ? friend.addressee_aliases : [],
-      )?.id
-    ),
-  );
-
-  const reactions = (data.reactions || []).map((reaction: any) => {
-    const actorRef = resolveActorRef(reaction?.user_id ?? actor.id, instanceDomain);
-    const reactionActor = actorRef?.id ?? actor.id;
-    const activityId = reaction?.ap_activity_id ||
-      buildActivityUriForActor(reactionActor, reaction?.id || uuid(), instanceDomain);
-    const object = resolveObjectRef(
-      (reaction as any)?.ap_object_id ||
-        (reaction as any)?.post_ap_object_id ||
-        reaction?.post_id,
-      instanceDomain,
-    ) || reaction?.post_id;
-    return {
-      "@context": ACTIVITYSTREAMS_CONTEXT,
-      type: "Like",
-      id: activityId,
-      actor: reactionActor,
-      object,
-      name: reaction?.emoji || undefined,
-      published: reaction?.created_at || undefined,
-    };
-  });
-
-  const bookmarks = (data.bookmarks || []).map((bookmark: any) => {
-    const object = resolveObjectRef(
-      (bookmark as any)?.ap_object_id ||
-        (bookmark as any)?.post_ap_object_id ||
-        bookmark?.post_id,
-      instanceDomain,
-    ) || bookmark?.post_id;
-    const activityId = buildActivityUriForActor(
-      actor.id,
-      bookmark?.id || uuid(),
-      instanceDomain,
-    );
-    return {
-      "@context": ACTIVITYSTREAMS_CONTEXT,
-      type: "Bookmark",
-      id: activityId,
-      actor: actor.id,
-      object,
-      published: bookmark?.created_at || undefined,
-    };
-  });
-
-  const objectRefs = dedupeStrings([
-    ...activities.map((activity: any) =>
-      activity?.object && typeof activity.object === "object"
-        ? (activity.object as any).id
-        : null
-    ),
-    ...reactions.map((reaction: any) =>
-      typeof reaction.object === "string" ? reaction.object : null
-    ),
-    ...bookmarks.map((bookmark: any) =>
-      typeof bookmark.object === "string" ? bookmark.object : null
-    ),
-  ]);
-
-  const actorRefs = dedupeStrings([
-    actor.id,
-    ...friendActors,
-    ...reactions.map((reaction: any) => reaction.actor as string),
-    ...bookmarks.map((bookmark: any) => bookmark.actor as string),
-  ]);
-
-  return {
-    payload: {
-      "@context": [ACTIVITYSTREAMS_CONTEXT, SECURITY_CONTEXT],
-      generated_at: nowISO(),
-      actor,
-      outbox: activities,
-      friends: friendActors,
-      reactions,
-      bookmarks,
-      references: {
-        actors: actorRefs,
-        objects: objectRefs,
-      },
-    },
-    counts: {
-      posts: data.posts.length,
-      friends: data.friends.length,
-      reactions: reactions.length,
-      bookmarks: bookmarks.length,
-    },
-  };
-}
-
 function parseParticipants(input: any): string[] {
   if (Array.isArray(input)) {
     return input.map((p) => String(p || "").trim()).filter(Boolean);
@@ -422,83 +186,30 @@ function parseParticipants(input: any): string[] {
   return [];
 }
 
-const buildThreadUri = (instanceDomain: string, threadId: string) =>
-  `https://${instanceDomain}/ap/dm/${threadId}`;
-
-function buildDmActivity(
-  message: any,
-  participants: string[],
-  threadUri: string,
-  instanceDomain: string,
-) {
-  if (message?.raw_activity_json) {
-    try {
-      return JSON.parse(message.raw_activity_json);
-    } catch {
-      // ignore and fall back to synthetic activity
-    }
-  }
-  const actorRef = resolveActorRef(message?.author_id, instanceDomain);
-  const actor = actorRef?.id || message?.author_id || participants[0] || threadUri;
-  const published = message?.created_at || nowISO();
-  const activityId = message?.ap_activity_id ||
-    `${threadUri}/activities/${message?.id || uuid()}`;
-  const objectId = message?.id
-    ? `${threadUri}/messages/${message.id}`
-    : `${threadUri}/messages/${uuid()}`;
-  return {
-    "@context": ACTIVITYSTREAMS_CONTEXT,
-    id: activityId,
-    type: "Create",
-    actor,
-    to: participants,
-    cc: participants,
-    published,
-    object: {
-      type: "Note",
-      id: objectId,
-      attributedTo: actor,
-      content: message?.content_html || "",
-      context: threadUri,
-      published,
-      to: participants,
-      cc: participants,
-    },
-  };
-}
-
 async function collectDmBundles(
   store: ReturnType<typeof makeData>,
   userId: string,
   instanceDomain: string,
 ): Promise<DmBundleResult> {
   if (!store.listAllDmThreads || !store.listDmMessages) {
-    return { json: null, activitypub: null, counts: { dmThreads: 0, dmMessages: 0 } };
+    return { json: null, counts: { dmThreads: 0, dmMessages: 0 } };
   }
-  const actorUri = getActorUri(userId, instanceDomain);
   const aliases = new Set<string>([
     userId,
-    actorUri,
     `@${userId}@${instanceDomain}`,
   ]);
   const threads = await store.listAllDmThreads();
   const relevantThreads = (threads || []).filter((thread: any) => {
     const participants = parseParticipants(thread?.participants_json);
-    const resolved = dedupeStrings(
-      participants.map((p) => resolveActorRef(p, instanceDomain)?.id ?? p),
-    );
-    return resolved.some((p) => aliases.has(p) || p.endsWith(`/${userId}`));
+    return participants.some((p) => aliases.has(p) || p.endsWith(`/${userId}`));
   });
 
   const jsonThreads: any[] = [];
-  const apThreads: any[] = [];
   let messageCount = 0;
 
   for (const thread of relevantThreads) {
     const rawParticipants = parseParticipants(thread?.participants_json);
-    const participants = dedupeStrings(
-      rawParticipants.map((p) => resolveActorRef(p, instanceDomain)?.id ?? p),
-    );
+    const participants = dedupeStrings(rawParticipants);
     const rawMessages = await store.listDmMessages(thread.id, 0);
     const messages = [...(rawMessages || [])].sort(
       (a: any, b: any) =>
@@ -515,21 +226,11 @@ async function collectDmBundles(
       messages: messages.map((msg: any) => ({
         id: msg.id,
         author_id: msg.author_id,
-        actor: resolveActorRef(msg.author_id, instanceDomain)?.id ?? msg.author_id,
+        actor: msg.author_id,
         content_html: msg.content_html,
         created_at: msg.created_at,
         raw_activity_json: msg.raw_activity_json || null,
       })),
-    });
-
-    const threadUri = buildThreadUri(instanceDomain, thread.id);
-    apThreads.push({
-      id: thread.id,
-      thread: threadUri,
-      participants,
-      activities: messages.map((msg: any) =>
-        buildDmActivity(msg, participants, threadUri, instanceDomain)
-      ),
     });
   }
 
@@ -537,11 +238,6 @@ async function collectDmBundles(
     json: {
       generated_at: nowISO(),
       threads: jsonThreads,
-    },
-    activitypub: {
-      "@context": ACTIVITYSTREAMS_CONTEXT,
-      generated_at: nowISO(),
-      threads: apThreads,
     },
     counts: { dmThreads: relevantThreads.length, dmMessages: messageCount },
   };
@@ -554,42 +250,19 @@ const absoluteMediaUrl = (url: string, instanceDomain: string) => {
   return `https://${instanceDomain}${normalized}`;
 };
 
-function buildMediaActivity(item: any, instanceDomain: string) {
-  const url = absoluteMediaUrl(item?.url || "", instanceDomain);
-  const contentType = item?.content_type || "application/octet-stream";
-  const lower = contentType.toLowerCase();
-  const isImage = lower.startsWith("image/");
-  const isVideo = lower.startsWith("video/");
-  return {
-    type: isImage ? "Image" : isVideo ? "Video" : "Document",
-    mediaType: contentType,
-    url,
-    name: item?.description || undefined,
-    updated: item?.updated_at || undefined,
-  };
-}
-
 async function collectMediaBundles(
   store: ReturnType<typeof makeData>,
   userId: string,
   instanceDomain: string,
 ): Promise<MediaBundleResult> {
   if (!store.listMediaByUser) {
-    return { json: null, activitypub: null, counts: { media: 0 } };
+    return { json: null, counts: { media: 0 } };
   }
   const media = await store.listMediaByUser(userId);
   return {
     json: {
       generated_at: nowISO(),
       files: media,
-    },
-    activitypub: {
-      "@context": ACTIVITYSTREAMS_CONTEXT,
-      type: "OrderedCollection",
-      totalItems: media.length,
-      orderedItems: (media || []).map((item: any) =>
-        buildMediaActivity(item, instanceDomain)
-      ),
     },
     counts: { media: media.length },
   };
@@ -758,7 +431,7 @@ export async function processExportQueue(
     for (const request of pending) {
       const storedOptions = parseStoredOptions(request);
       const resolvedOptions: ExportOptions = {
-        format: request.format === "activitypub" ? "activitypub" : "json",
+        format: "json",
         includeDm: storedOptions.includeDm,
         includeMedia: storedOptions.includeMedia,
       };
@@ -809,7 +482,7 @@ export async function processExportQueue(
         continue;
       }
 
-      const attemptNumber = attempts + 1;
+        const attemptNumber = attempts + 1;
 
       try {
         await store.updateExportRequest!(request.id, {
@@ -820,30 +493,25 @@ export async function processExportQueue(
         });
 
         const baseData = await loadBaseUserData(store, request.user_id);
-        const core =
-          resolvedOptions.format === "activitypub"
-            ? buildCoreActivityPubPayload(baseData, instanceDomain)
-            : buildCoreJsonPayload(baseData);
+        const core = buildCoreJsonPayload(baseData);
 
         const dmBundles = resolvedOptions.includeDm
           ? await collectDmBundles(store, request.user_id, instanceDomain)
-          : { json: null, activitypub: null, counts: { dmThreads: 0, dmMessages: 0 } };
+          : { json: null, counts: { dmThreads: 0, dmMessages: 0 } };
         const mediaBundles = resolvedOptions.includeMedia
           ? await collectMediaBundles(store, request.user_id, instanceDomain)
-          : { json: null, activitypub: null, counts: { media: 0 } };
+          : { json: null, counts: { media: 0 } };
 
         const baseKey = `exports/${request.user_id}/${request.id}`;
         const artifacts: {
           core?: ArtifactRef;
           dmJson?: ArtifactRef;
-          dmActivityPub?: ArtifactRef;
           mediaJson?: ArtifactRef;
-          mediaActivityPub?: ArtifactRef;
         } = {};
 
         artifacts.core = await putJsonArtifact(
           env as any,
-          `${baseKey}/core.${resolvedOptions.format}.json`,
+          `${baseKey}/core.json`,
           core.payload,
         );
 
@@ -854,13 +522,6 @@ export async function processExportQueue(
             dmBundles.json,
           );
         }
-        if (dmBundles.activitypub) {
-          artifacts.dmActivityPub = await putJsonArtifact(
-            env as any,
-            `${baseKey}/dm.activitypub.json`,
-            dmBundles.activitypub,
-          );
-        }
         if (mediaBundles.json) {
           artifacts.mediaJson = await putJsonArtifact(
             env as any,
@@ -868,20 +529,11 @@ export async function processExportQueue(
             mediaBundles.json,
           );
         }
-        if (mediaBundles.activitypub) {
-          artifacts.mediaActivityPub = await putJsonArtifact(
-            env as any,
-            `${baseKey}/media.activitypub.json`,
-            mediaBundles.activitypub,
-          );
-        }
 
         const summary = {
           generated_at: nowISO(),
           format: resolvedOptions.format,
-          format_description: resolvedOptions.format === "activitypub"
-            ? "ActivityPub JSON-LD export with resolved actor/object references"
-            : "Application JSON export with raw identifiers",
+          format_description: "Application JSON export with raw identifiers",
           attempts: attemptNumber,
           max_attempts: maxAttempts,
           options: {
@@ -901,16 +553,14 @@ export async function processExportQueue(
             core: artifacts.core,
             dm: resolvedOptions.includeDm
               ? {
-                status: dmBundles.json || dmBundles.activitypub ? "completed" : "skipped",
+                status: dmBundles.json ? "completed" : "skipped",
                 json: artifacts.dmJson,
-                activitypub: artifacts.dmActivityPub,
               }
               : { status: "skipped" },
             media: resolvedOptions.includeMedia
               ? {
-                status: mediaBundles.json || mediaBundles.activitypub ? "completed" : "skipped",
+                status: mediaBundles.json ? "completed" : "skipped",
                 json: artifacts.mediaJson,
-                activitypub: artifacts.mediaActivityPub,
               }
               : { status: "skipped" },
           },
@@ -1026,15 +676,6 @@ exportsRoute.get("/exports/:id/artifacts", auth, async (c) => {
           description: "Direct messages in JSON format",
         });
       }
-      if (artifacts.dm.activitypub) {
-        response.artifacts.push({
-          key: "dm-activitypub",
-          type: "dm",
-          url: artifacts.dm.activitypub.url,
-          contentType: artifacts.dm.activitypub.contentType,
-          description: "Direct messages in ActivityPub format",
-        });
-      }
     }
 
     // Media artifacts
@@ -1046,15 +687,6 @@ exportsRoute.get("/exports/:id/artifacts", auth, async (c) => {
           url: artifacts.media.json.url,
           contentType: artifacts.media.json.contentType,
           description: "Media file metadata in JSON format",
-        });
-      }
-      if (artifacts.media.activitypub) {
-        response.artifacts.push({
-          key: "media-activitypub",
-          type: "media-metadata",
-          url: artifacts.media.activitypub.url,
-          contentType: artifacts.media.activitypub.contentType,
-          description: "Media file metadata in ActivityPub format",
         });
       }
     }
@@ -1143,27 +775,20 @@ exportsRoute.get("/exports/:id/dm-threads", auth, async (c) => {
     }
 
     const instanceDomain = requireInstanceDomain(c.env as any);
-    const actorUri = getActorUri(user.id, instanceDomain);
     const aliases = new Set<string>([
       user.id,
-      actorUri,
       `@${user.id}@${instanceDomain}`,
     ]);
 
     const threads = await store.listAllDmThreads();
     const relevantThreads = (threads || []).filter((thread: any) => {
       const participants = parseParticipants(thread?.participants_json);
-      const resolved = dedupeStrings(
-        participants.map((p) => resolveActorRef(p, instanceDomain)?.id ?? p),
-      );
-      return resolved.some((p) => aliases.has(p) || p.endsWith(`/${user.id}`));
+      return participants.some((p) => aliases.has(p) || p.endsWith(`/${user.id}`));
     });
 
     const threadSummaries = relevantThreads.map((thread: any) => {
       const rawParticipants = parseParticipants(thread?.participants_json);
-      const participants = dedupeStrings(
-        rawParticipants.map((p) => resolveActorRef(p, instanceDomain)?.id ?? p),
-      );
+      const participants = dedupeStrings(rawParticipants);
       return {
         id: thread.id,
         participants,
@@ -1199,7 +824,6 @@ exportsRoute.post("/internal/tasks/process-exports", async (c) => {
 });
 
 export {
-  buildCoreActivityPubPayload,
   buildCoreJsonPayload,
   collectDmBundles,
   collectMediaBundles,

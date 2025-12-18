@@ -316,14 +316,17 @@ describe("Integration: Sample TakosApp", () => {
 
     // Create mock env with v3.0 structure
     let storedCount = 5;
+    const mockStorage = {
+      get: async () => storedCount as any,
+      set: async (_key: string, value: unknown) => {
+        storedCount = value as number;
+      },
+      delete: async () => {},
+      list: async () => [],
+    };
     const mockEnv: AppEnv = {
       core: {
-        storage: {
-          get: async () => storedCount as any,
-          set: async (key, value) => { storedCount = value as number; },
-          delete: async () => {},
-          list: async () => [],
-        },
+        storage: mockStorage,
         ai: {
           chat: {
             completions: {
@@ -362,6 +365,14 @@ describe("Integration: Sample TakosApp", () => {
       },
       auth: { userId: "user-1", handle: "testuser" },
       app: { id: "test-app", version: "1.0.0" },
+      instance: {
+        domain: "test.com",
+        name: "Test Instance",
+        description: "Test instance",
+        openRegistrations: false,
+      },
+      storage: mockStorage,
+      fetch: async () => new Response("not implemented", { status: 501 }),
     };
 
     // Test GET /counter
@@ -401,14 +412,15 @@ describe("Integration: Sample TakosApp", () => {
       },
     };
 
+    const mockStorage = {
+      get: async () => null,
+      set: async () => {},
+      delete: async () => {},
+      list: async () => [],
+    };
     const mockEnv: AppEnv = {
       core: {
-        storage: {
-          get: async () => null,
-          set: async () => {},
-          delete: async () => {},
-          list: async () => [],
-        },
+        storage: mockStorage,
         ai: {
           chat: {
             completions: {
@@ -447,6 +459,14 @@ describe("Integration: Sample TakosApp", () => {
       },
       auth: { userId: "user-1", handle: "testuser" },
       app: { id: "test-app", version: "1.0.0" },
+      instance: {
+        domain: "test.com",
+        name: "Test Instance",
+        description: "Test instance",
+        openRegistrations: false,
+      },
+      storage: mockStorage,
+      fetch: async () => new Response("not implemented", { status: 501 }),
     };
 
     const request = new Request("http://test.com/chat");
@@ -470,14 +490,15 @@ describe("Integration: Sample TakosApp", () => {
       },
     };
 
+    const mockStorage = {
+      get: async () => null,
+      set: async () => {},
+      delete: async () => {},
+      list: async () => [],
+    };
     const mockEnv: AppEnv = {
       core: {
-        storage: {
-          get: async () => null,
-          set: async () => {},
-          delete: async () => {},
-          list: async () => [],
-        },
+        storage: mockStorage,
         ai: {
           chat: {
             completions: {
@@ -520,6 +541,14 @@ describe("Integration: Sample TakosApp", () => {
       },
       auth: { userId: "user-1", handle: "testuser" },
       app: { id: "test-app", version: "1.0.0" },
+      instance: {
+        domain: "test.com",
+        name: "Test Instance",
+        description: "Test instance",
+        openRegistrations: false,
+      },
+      storage: mockStorage,
+      fetch: async () => new Response("not implemented", { status: 501 }),
     };
 
     const request = new Request("http://test.com/posts", { method: "POST" });

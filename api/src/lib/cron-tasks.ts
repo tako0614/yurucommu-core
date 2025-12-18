@@ -44,9 +44,9 @@ const parseCronList = (raw: string | undefined): string[] => {
 
 export const CRON_TASKS: CronTaskDefinition[] = [
   {
-    id: "activitypub-workers",
-    title: "ActivityPub delivery + inbox",
-    description: "Process delivery and inbox queues (outbox -> delivery queue, inbox processing).",
+    id: "app-workers",
+    title: "App workers",
+    description: "Run scheduled app workers (e.g. delivery, inbox, cleanup) owned by the active app.",
     schedule: "*/5 * * * *",
     required: true,
   },
@@ -87,9 +87,9 @@ export const CRON_TASKS: CronTaskDefinition[] = [
     },
   },
   {
-    id: "activitypub-cleanup",
-    title: "ActivityPub cleanup",
-    description: "Prune inbox/delivery/rate-limit/actor cache tables.",
+    id: "app-cleanup",
+    title: "App cleanup",
+    description: "Run daily app maintenance tasks owned by the active app.",
     schedule: "0 2 * * *",
     required: true,
   },

@@ -10,18 +10,10 @@ import {
   generatePersonActor,
   generateWebFinger,
 } from "@takos/platform/activitypub/activitypub";
-import { handleDeliveryScheduled } from "@takos/platform/activitypub/delivery-worker-prisma";
-import { handleCleanupScheduled } from "@takos/platform/activitypub/cleanup-worker";
 import { applyFederationPolicy } from "@takos/platform/activitypub/federation-policy";
-import { processInboxQueue, processSingleInboxActivity } from "@takos/platform/activitypub/inbox-worker";
-import { createObjectService } from "@takos/platform/app/services/object-service";
-import { ensureUserKeyPair } from "@takos/platform/auth/crypto-keys";
-import { makeData } from "@takos/platform/server/data-factory";
-import { authenticateJWT } from "@takos/platform/server/jwt";
 
 // Import helpers from utils
 import {
-  parseBooleanEnv,
   createSystemCtx,
   activityPubJson,
   activityPubError,
@@ -42,6 +34,14 @@ const router = new Hono<{ Bindings: AppEnv }>();
 
 router.get("/health", (c) => c.text("ok"));
 
+const readCoreData = async <T,>(res: Response): Promise<T> => {
+  const payload = (await res.json().catch(() => null)) as any;
+  if (payload && typeof payload === "object" && payload.ok === true && "data" in payload) {
+    return payload.data as T;
+  }
+  return payload as T;
+};
+
 // Mount AI routes (App layer AI actions)
 router.route("/", aiRouter);
 
@@ -50,7 +50,7 @@ router.get("/.well-known/webfinger", async (c) => {
   const resource = url.searchParams.get("resource")?.trim() ?? "";
   if (!resource) return error("Missing resource", 400);
 
-  const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
+  const domain = (c.env.instance.domain || url.host || "").toString().trim();
   const protocol = url.protocol.replace(":", "") || "https";
 
   const parseAcct = (acct: string): { handle: string; domain: string } | null => {
@@ -78,11 +78,11 @@ router.get("/.well-known/webfinger", async (c) => {
     }
   }
 
-  if (!handle) return error("Not found", 404);
-
-  const actors = (c.env as any)?.core?.actors;
-  if (!actors?.getByHandle) return error("Core services unavailable", 503);
-  const actor = await actors.getByHandle(handle);
+  if (!handle) return error("Invalid resource format", 400);
+  if (typeof c.env.fetch !== "function") return error("Core fetch unavailable", 503);
+  const userRes = await c.env.fetch(`/users/${encodeURIComponent(handle)}`);
+  if (!userRes.ok) return error("Not found", userRes.status === 404 ? 404 : 503);
+  const actor = await readCoreData<any>(userRes);
   if (!actor) return error("Not found", 404);
 
   const webfinger = generateWebFinger(handle, domain, protocol);
@@ -94,7 +94,7 @@ router.get("/.well-known/webfinger", async (c) => {
 
 router.get("/.well-known/nodeinfo", (c) => {
   const url = new URL(c.req.url);
-  const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
+  const domain = (c.env.instance.domain || url.host || "").toString().trim();
   const protocol = url.protocol.replace(":", "") || "https";
   const baseUrl = `${protocol}://${domain}`;
 
@@ -112,25 +112,31 @@ router.get("/.well-known/nodeinfo", (c) => {
 });
 
 router.get("/nodeinfo/2.0", async (c) => {
-  const store = (c.env as any)?.DB ? makeData(c.env as any) : null;
+  let userCount = 0;
+  let localPosts = 0;
   try {
-    let userCount = 0;
     try {
-      const rows = await store?.queryRaw?.(
-        "SELECT COUNT(*) as count FROM actors WHERE type = 'Person' AND is_local = 1",
-      );
-      const first = Array.isArray(rows) ? rows[0] : null;
-      userCount = (first as any)?.count ? Number((first as any).count) : 0;
-      if (!Number.isFinite(userCount)) userCount = 0;
-    } catch (error) {
-      console.warn("[default-app] failed to count users for NodeInfo", error);
+      if (typeof c.env.fetch === "function") {
+        const usersRes = await c.env.fetch("/users");
+        if (usersRes.ok) {
+          const data = await readCoreData<any>(usersRes);
+          userCount = Number(data?.total ?? 0);
+        }
+        const objectsRes = await c.env.fetch("/objects");
+        if (objectsRes.ok) {
+          const data = await readCoreData<any>(objectsRes);
+          localPosts = Number(data?.total ?? 0);
+        }
+      }
+    } catch {
+      // ignore
     }
+    if (!Number.isFinite(userCount)) userCount = 0;
+    if (!Number.isFinite(localPosts)) localPosts = 0;
 
-    const openRegistrations = parseBooleanEnv((c.env as any).INSTANCE_OPEN_REGISTRATIONS, false);
-    const nodeName =
-      (c.env.INSTANCE_NAME || "Takos Instance").toString().trim() || "Takos Instance";
-    const nodeDescription =
-      (c.env.INSTANCE_DESCRIPTION || "A Takos instance").toString().trim() || "A Takos instance";
+    const openRegistrations = c.env.instance.openRegistrations;
+    const nodeName = c.env.instance.name;
+    const nodeDescription = c.env.instance.description;
 
     const res = json({
       version: "2.0",
@@ -148,6 +154,7 @@ router.get("/nodeinfo/2.0", async (c) => {
         users: {
           total: userCount,
         },
+        localPosts,
       },
       metadata: {
         nodeName,
@@ -157,8 +164,9 @@ router.get("/nodeinfo/2.0", async (c) => {
     res.headers.set("Content-Type", "application/json; charset=utf-8");
     res.headers.set("Cache-Control", "max-age=3600");
     return res;
-  } finally {
-    await store?.disconnect?.();
+  } catch (error) {
+    console.warn("[default-app] nodeinfo generation failed", error);
+    return error("Failed to generate nodeinfo", 500);
   }
 });
 
@@ -171,36 +179,16 @@ router.get("/ap/users/:handle", async (c) => {
   }
 
   const url = new URL(c.req.url);
-  const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
+  const domain = (c.env.instance.domain || url.host || "").toString().trim();
   const protocol = url.protocol.replace(":", "") || "https";
 
-  const actors = (c.env as any)?.core?.actors;
-  if (!actors?.getByHandle) return error("Core services unavailable", 503);
-  const actorProfile = await actors.getByHandle(handle);
+  if (typeof c.env.fetch !== "function") return error("Core fetch unavailable", 503);
+  const userRes = await c.env.fetch(`/users/${encodeURIComponent(handle)}`);
+  if (!userRes.ok) return error("Not found", userRes.status === 404 ? 404 : 503);
+  const actorProfile = await readCoreData<any>(userRes);
   if (!actorProfile) return error("Not found", 404);
 
-  let publicKeyPem: string | undefined;
-  const dbLike = (c.env as any)?.DB;
-  if (dbLike && typeof dbLike.prepare === "function") {
-    let store: any | null = null;
-    try {
-      store = makeData(c.env as any);
-      const existing = await store.getApKeypair?.(actorProfile?.id ?? handle);
-      if (existing?.public_key_pem) {
-        publicKeyPem = existing.public_key_pem;
-      } else {
-        const generated = await ensureUserKeyPair(store, c.env as any, actorProfile?.id ?? handle);
-        publicKeyPem = generated.publicKeyPem;
-      }
-    } catch (error) {
-      console.warn("[default-app] failed to load/generate actor keypair", error);
-    } finally {
-      if (store) {
-        await store.disconnect?.();
-      }
-    }
-  }
-
+  const publicKeyPem: string | undefined = undefined;
   const actor = generatePersonActor(actorProfile, domain, protocol, publicKeyPem);
   const res = json(actor);
   res.headers.set("Content-Type", "application/activity+json; charset=utf-8");
@@ -208,446 +196,312 @@ router.get("/ap/users/:handle", async (c) => {
 });
 
 router.get("/ap/users/:handle/outbox", async (c) => {
-  const store = makeData(c.env as any);
-  try {
-    // Try to authenticate, but don't require it
-    let viewer: { id: string } | null = null;
-    try {
-      const jwtResult = await authenticateJWT(c as any, {
-        getUser: (id: string) => store.getUser(id),
-        getUserJwtSecret: (userId: string) => store.getUserJwtSecret(userId),
-        setUserJwtSecret: (userId: string, secret: string) =>
-          store.setUserJwtSecret ? store.setUserJwtSecret(userId, secret) : Promise.resolve(),
-      } as any);
-      viewer = (jwtResult as any)?.user ?? null;
-    } catch {
-      // Authentication failed, proceed as unauthenticated
-    }
+  const handle = c.req.param("handle");
+  const url = new URL(c.req.url);
+  const domain = (c.env.instance.domain || url.host || "").toString().trim();
+  const protocol = url.protocol.replace(":", "") || "https";
+  const outboxUrl = `${protocol}://${domain}/ap/users/${handle}/outbox`;
+  const query = parseQuery(c.req.raw);
+  const pageRaw = query.page;
 
-    const handle = c.req.param("handle");
-    const isOwner = viewer?.id === handle;
+  if (typeof c.env.fetch !== "function") return activityPubError("Core fetch unavailable", 503);
+  const userRes = await c.env.fetch(`/users/${encodeURIComponent(handle)}`);
+  if (!userRes.ok) return activityPubError("Not found", 404);
+  const actor = await readCoreData<any>(userRes);
+  const actorId = actor?.id ?? handle;
 
-    const url = new URL(c.req.url);
-    const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
-    const protocol = url.protocol.replace(":", "") || "https";
-    const outboxUrl = `${protocol}://${domain}/ap/users/${handle}/outbox`;
+  const limit = 20;
+  const maxPage = 1000;
+  const pageNum = pageRaw ? Math.max(1, Math.min(maxPage, parseInt(pageRaw, 10) || 1)) : 0;
+  const offset = pageNum > 0 ? (pageNum - 1) * limit : 0;
+  const visibility = "public,unlisted";
 
-    const query = parseQuery(c.req.raw);
-    const pageRaw = query.page;
+  const objectsUrl = new URL("/objects", `${protocol}://${domain}`);
+  objectsUrl.searchParams.set("actor", String(actorId));
+  objectsUrl.searchParams.set("visibility", visibility);
+  objectsUrl.searchParams.set("limit", String(pageNum > 0 ? limit : 1));
+  objectsUrl.searchParams.set("offset", String(offset));
 
-    if (!pageRaw) {
-      const totalItems = await store.countApOutboxActivities(handle);
-      const collection = generateOrderedCollection(outboxUrl, totalItems, `${outboxUrl}?page=1`);
-      const res = json(collection);
-      res.headers.set("Content-Type", "application/activity+json; charset=utf-8");
-      return res;
-    }
+  const objectsRes = await c.env.fetch(objectsUrl.pathname + objectsUrl.search);
+  if (!objectsRes.ok) return activityPubError("Failed to load outbox", 500);
+  const objectsPayload = await readCoreData<any>(objectsRes);
+  const items = Array.isArray(objectsPayload?.items) ? objectsPayload.items : [];
+  const totalItems = Number(objectsPayload?.total ?? items.length) || 0;
 
-    const limit = 20;
-    const maxPage = 1000; // Prevent DoS via huge page numbers
-    const pageNum = Math.max(1, Math.min(maxPage, parseInt(pageRaw, 10) || 1));
-    const offset = (pageNum - 1) * limit;
-    const totalItems = await store.countApOutboxActivities(handle);
-    const activities = await store.listApOutboxActivitiesPage(handle, limit, offset);
-
-    // Parse activities and apply privacy filtering
-    const orderedItems = (activities || [])
-      .map((row: any) => {
-        try {
-          return JSON.parse(row.activity_json);
-        } catch {
-          return null;
-        }
-      })
-      .filter((activity: any) => {
-        if (!activity) return false;
-        // Owner can see all their activities
-        if (isOwner) return true;
-        // Non-owners can only see public/unlisted activities
-        return isPublicOrUnlisted(activity);
-      });
-
-    const collectionPage = generateOrderedCollectionPage(
-      `${outboxUrl}?page=${pageNum}`,
-      outboxUrl,
-      orderedItems,
-      totalItems,
-      offset,
-      orderedItems.length === limit ? `${outboxUrl}?page=${pageNum + 1}` : undefined,
-      pageNum > 1 ? `${outboxUrl}?page=${pageNum - 1}` : undefined,
-    );
-
-    const res = json(collectionPage);
+  if (!pageRaw) {
+    const collection = generateOrderedCollection(outboxUrl, totalItems, `${outboxUrl}?page=1`);
+    const res = json(collection);
     res.headers.set("Content-Type", "application/activity+json; charset=utf-8");
     return res;
-  } finally {
-    await store.disconnect?.();
   }
+
+  const orderedItems = items
+    .filter((obj: any) => isPublicOrUnlisted(obj))
+    .map((obj: any) => generateNoteObject(obj, { id: actorId }, domain, protocol));
+
+  const collectionPage = generateOrderedCollectionPage(
+    `${outboxUrl}?page=${pageNum}`,
+    outboxUrl,
+    orderedItems,
+    totalItems,
+    offset,
+    orderedItems.length === limit ? `${outboxUrl}?page=${pageNum + 1}` : undefined,
+    pageNum > 1 ? `${outboxUrl}?page=${pageNum - 1}` : undefined,
+  );
+  const res = json(collectionPage);
+  res.headers.set("Content-Type", "application/activity+json; charset=utf-8");
+  return res;
 });
 
 router.post("/ap/inbox", async (c) => {
-  const store = makeData(c.env as any);
+  const bodyText = await c.req.text();
+  let activity: any;
   try {
-    const bodyText = await c.req.text();
-    let activity: any;
-    try {
-      activity = JSON.parse(bodyText);
-    } catch {
-      return activityPubError("invalid JSON", 400);
-    }
-
-    const actorId = typeof activity?.actor === "string" ? activity.actor : activity?.actor?.id;
-    if (!actorId) return activityPubError("missing actor", 400);
-
-    // Check for duplicate activity (replay attack prevention)
-    if (isActivityDuplicate(activity.id)) {
-      // Return 202 to not leak information about whether we've seen this before
-      return activityPubJson({}, 202);
-    }
-
-    // Rate limiting per actor
-    const rateLimit = checkInboxRateLimit(actorId);
-    if (!rateLimit.allowed) {
-      const retryAfter = Math.ceil((rateLimit.resetAt - Date.now()) / 1000);
-      const res = activityPubError("rate limit exceeded", 429);
-      res.headers.set("Retry-After", String(retryAfter));
-      res.headers.set("X-RateLimit-Limit", String(RATE_LIMIT_MAX_REQUESTS));
-      res.headers.set("X-RateLimit-Remaining", "0");
-      res.headers.set("X-RateLimit-Reset", String(Math.floor(rateLimit.resetAt / 1000)));
-      return res;
-    }
-
-    const federationDecision = applyFederationPolicy(actorId, resolveFederationPolicy(c.env));
-    if (!federationDecision.allowed) return activityPubError("federation blocked", 403);
-
-    if (!verifyInboxDateHeader(c.req.header("date") ?? c.req.header("Date") ?? null)) {
-      return activityPubError("invalid or missing Date header", 401);
-    }
-
-    const digestOk = await verifyInboxDigest(bodyText, c.req.header("digest") ?? c.req.header("Digest") ?? null);
-    if (!digestOk) return activityPubError("digest verification failed", 403);
-
-    // Reconstruct request with body for signature verification (body was already consumed)
-    const requestForSignature = new Request(c.req.raw.url, {
-      method: c.req.raw.method,
-      headers: c.req.raw.headers,
-      body: bodyText,
-    });
-    const signatureOk = await verifyInboxSignature(c.env, requestForSignature, actorId);
-    if (!signatureOk) return activityPubError("signature verification failed", 403);
-
-    const url = new URL(c.req.url);
-    const instanceDomain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
-    const recipients = new Set<string>();
-
-    const addToRecipients = (field: any) => {
-      if (!field) return;
-      const targets = Array.isArray(field) ? field : [field];
-      for (const target of targets) {
-        if (typeof target !== "string") continue;
-        try {
-          const parsed = new URL(target);
-          if (parsed.hostname !== instanceDomain) continue;
-          const match = parsed.pathname.match(/^\/ap\/users\/([a-z0-9_]{3,32})$/);
-          if (match?.[1]) recipients.add(match[1]);
-        } catch {
-          // ignore
-        }
-      }
-    };
-
-    addToRecipients(activity.to);
-    addToRecipients(activity.cc);
-    addToRecipients(activity.audience);
-
-    const activityId = activity.id || crypto.randomUUID();
-
-    if (recipients.size === 0) {
-      const type = Array.isArray(activity.type) ? activity.type[0] : activity.type;
-      const objectType = Array.isArray(activity.object?.type) ? activity.object.type[0] : activity.object?.type;
-      const isPublic = (field: any) => {
-        const list = Array.isArray(field) ? field : [field];
-        return list.includes("https://www.w3.org/ns/activitystreams#Public");
-      };
-
-      if (type === "Create" && objectType === "Note" && (isPublic(activity.to) || isPublic(activity.cc) || isPublic(activity.audience))) {
-        await store
-          .createApInboxActivity({
-            local_user_id: "__public__",
-            remote_actor_id: actorId,
-            activity_id: activityId,
-            activity_type: activity.type,
-            activity_json: JSON.stringify(activity),
-            status: "pending",
-            created_at: new Date(),
-          })
-          .catch(() => {});
-      }
-
-      return activityPubJson({}, 202);
-    }
-
-    await Promise.all(
-      Array.from(recipients).map(async (handle) => {
-        await store
-          .createApInboxActivity({
-            local_user_id: handle,
-            remote_actor_id: actorId,
-            activity_id: activityId,
-            activity_type: activity.type,
-            activity_json: JSON.stringify(activity),
-            status: "pending",
-            created_at: new Date(),
-          })
-          .catch(() => {});
-      }),
-    );
-
-    return activityPubJson({}, 202);
-  } finally {
-    await store.disconnect?.();
+    activity = JSON.parse(bodyText);
+  } catch {
+    return activityPubError("invalid JSON", 400);
   }
-});
 
-router.post("/ap/users/:handle/inbox", async (c) => {
-  const store = makeData(c.env as any);
-  try {
-    const handle = c.req.param("handle");
-    const user = await store.getUser(handle);
-    if (!user) return activityPubError("user not found", 404);
+  const actorId = typeof activity?.actor === "string" ? activity.actor : activity?.actor?.id;
+  if (!actorId) return activityPubError("missing actor", 400);
 
-    const bodyText = await c.req.text();
-    let activity: any;
-    try {
-      activity = JSON.parse(bodyText);
-    } catch {
-      return activityPubError("invalid JSON", 400);
+  if (isActivityDuplicate(activity.id)) {
+    return activityPubJson({}, 202);
+  }
+
+  const rateLimit = checkInboxRateLimit(actorId);
+  if (!rateLimit.allowed) {
+    const retryAfter = Math.ceil((rateLimit.resetAt - Date.now()) / 1000);
+    const res = activityPubError("rate limit exceeded", 429);
+    res.headers.set("Retry-After", String(retryAfter));
+    res.headers.set("X-RateLimit-Limit", String(RATE_LIMIT_MAX_REQUESTS));
+    res.headers.set("X-RateLimit-Remaining", "0");
+    res.headers.set("X-RateLimit-Reset", String(Math.floor(rateLimit.resetAt / 1000)));
+    return res;
+  }
+
+  const federationDecision = applyFederationPolicy(actorId, resolveFederationPolicy(c.env));
+  if (!federationDecision.allowed) return activityPubError("federation blocked", 403);
+
+  if (!verifyInboxDateHeader(c.req.header("date") ?? c.req.header("Date") ?? null)) {
+    return activityPubError("invalid or missing Date header", 401);
+  }
+
+  const digestOk = await verifyInboxDigest(bodyText, c.req.header("digest") ?? c.req.header("Digest") ?? null);
+  if (!digestOk) return activityPubError("digest verification failed", 403);
+
+  const requestForSignature = new Request(c.req.raw.url, {
+    method: c.req.raw.method,
+    headers: c.req.raw.headers,
+    body: bodyText,
+  });
+  const signatureOk = await verifyInboxSignature(c.env, requestForSignature, actorId);
+  if (!signatureOk) return activityPubError("signature verification failed", 403);
+
+  const url = new URL(c.req.url);
+  const instanceDomain = (c.env.instance.domain || url.host || "").toString().trim();
+  const recipients = new Set<string>();
+
+  const addToRecipients = (field: any) => {
+    if (!field) return;
+    const targets = Array.isArray(field) ? field : [field];
+    for (const target of targets) {
+      if (typeof target !== "string") continue;
+      try {
+        const parsed = new URL(target);
+        if (parsed.hostname !== instanceDomain) continue;
+        const match = parsed.pathname.match(/^\/ap\/users\/([a-z0-9_]{3,32})$/);
+        if (match?.[1]) recipients.add(match[1]);
+      } catch {
+        // ignore
+      }
     }
+  };
 
-    const actorId = typeof activity?.actor === "string" ? activity.actor : activity?.actor?.id;
-    if (!actorId) return activityPubError("missing actor", 400);
+  addToRecipients(activity.to);
+  addToRecipients(activity.cc);
+  addToRecipients(activity.audience);
 
-    // Check for duplicate activity (replay attack prevention)
-    if (isActivityDuplicate(activity.id)) {
-      // Return 202 to not leak information about whether we've seen this before
-      return activityPubJson({}, 202);
-    }
+  const activityId = activity.id || crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const ttlSeconds = 7 * 24 * 60 * 60;
 
-    // Rate limiting per actor
-    const rateLimit = checkInboxRateLimit(actorId);
-    if (!rateLimit.allowed) {
-      const retryAfter = Math.ceil((rateLimit.resetAt - Date.now()) / 1000);
-      const res = activityPubError("rate limit exceeded", 429);
-      res.headers.set("Retry-After", String(retryAfter));
-      res.headers.set("X-RateLimit-Limit", String(RATE_LIMIT_MAX_REQUESTS));
-      res.headers.set("X-RateLimit-Remaining", "0");
-      res.headers.set("X-RateLimit-Reset", String(Math.floor(rateLimit.resetAt / 1000)));
-      return res;
-    }
-
-    const federationDecision = applyFederationPolicy(actorId, resolveFederationPolicy(c.env));
-    if (!federationDecision.allowed) return activityPubError("federation blocked", 403);
-
-    if (!verifyInboxDateHeader(c.req.header("date") ?? c.req.header("Date") ?? null)) {
-      return activityPubError("invalid or missing Date header", 401);
-    }
-
-    const digestOk = await verifyInboxDigest(bodyText, c.req.header("digest") ?? c.req.header("Digest") ?? null);
-    if (!digestOk) return activityPubError("digest verification failed", 403);
-
-    // Reconstruct request with body for signature verification (body was already consumed)
-    const requestForSignature = new Request(c.req.raw.url, {
-      method: c.req.raw.method,
-      headers: c.req.raw.headers,
-      body: bodyText,
-    });
-    const signatureOk = await verifyInboxSignature(c.env, requestForSignature, actorId);
-    if (!signatureOk) return activityPubError("signature verification failed", 403);
-
-    const activityId = activity.id || crypto.randomUUID();
-    const result = await store
-      .createApInboxActivity({
-        local_user_id: handle,
+  const enqueue = async (handle: string) => {
+    const queueId = crypto.randomUUID();
+    await c.env.storage.set(
+      `ap:inbox:${handle}:${queueId}`,
+      {
+        queue_id: queueId,
+        local_handle: handle,
         remote_actor_id: actorId,
         activity_id: activityId,
         activity_type: activity.type,
-        activity_json: JSON.stringify(activity),
+        activity_json: activity,
+        created_at: createdAt,
         status: "pending",
-        created_at: new Date(),
-      })
-      .catch(() => null);
+      },
+      { expirationTtl: ttlSeconds },
+    );
+  };
 
-    if (result?.id) {
-      await processSingleInboxActivity(store as any, c.env as any, result.id).catch((error) => {
-        console.error("[default-app] inbox worker failed", error);
-      });
+  if (recipients.size === 0) {
+    const type = Array.isArray(activity.type) ? activity.type[0] : activity.type;
+    const objectType = Array.isArray(activity.object?.type) ? activity.object.type[0] : activity.object?.type;
+    const isPublic = (field: any) => {
+      const list = Array.isArray(field) ? field : [field];
+      return list.includes("https://www.w3.org/ns/activitystreams#Public");
+    };
+
+    if (type === "Create" && objectType === "Note" && (isPublic(activity.to) || isPublic(activity.cc) || isPublic(activity.audience))) {
+      await enqueue("__public__").catch(() => {});
     }
 
     return activityPubJson({}, 202);
-  } finally {
-    await store.disconnect?.();
   }
+
+  await Promise.all(Array.from(recipients).map((handle) => enqueue(handle).catch(() => {})));
+  return activityPubJson({}, 202);
+});
+
+router.post("/ap/users/:handle/inbox", async (c) => {
+  const handle = c.req.param("handle");
+  if (typeof c.env.fetch !== "function") return activityPubError("Core fetch unavailable", 503);
+  const userRes = await c.env.fetch(`/users/${encodeURIComponent(handle)}`);
+  if (!userRes.ok) return activityPubError("user not found", 404);
+
+  const bodyText = await c.req.text();
+  let activity: any;
+  try {
+    activity = JSON.parse(bodyText);
+  } catch {
+    return activityPubError("invalid JSON", 400);
+  }
+
+  const actorId = typeof activity?.actor === "string" ? activity.actor : activity?.actor?.id;
+  if (!actorId) return activityPubError("missing actor", 400);
+
+  if (isActivityDuplicate(activity.id)) {
+    return activityPubJson({}, 202);
+  }
+
+  const rateLimit = checkInboxRateLimit(actorId);
+  if (!rateLimit.allowed) {
+    const retryAfter = Math.ceil((rateLimit.resetAt - Date.now()) / 1000);
+    const res = activityPubError("rate limit exceeded", 429);
+    res.headers.set("Retry-After", String(retryAfter));
+    res.headers.set("X-RateLimit-Limit", String(RATE_LIMIT_MAX_REQUESTS));
+    res.headers.set("X-RateLimit-Remaining", "0");
+    res.headers.set("X-RateLimit-Reset", String(Math.floor(rateLimit.resetAt / 1000)));
+    return res;
+  }
+
+  const federationDecision = applyFederationPolicy(actorId, resolveFederationPolicy(c.env));
+  if (!federationDecision.allowed) return activityPubError("federation blocked", 403);
+
+  if (!verifyInboxDateHeader(c.req.header("date") ?? c.req.header("Date") ?? null)) {
+    return activityPubError("invalid or missing Date header", 401);
+  }
+
+  const digestOk = await verifyInboxDigest(bodyText, c.req.header("digest") ?? c.req.header("Digest") ?? null);
+  if (!digestOk) return activityPubError("digest verification failed", 403);
+
+  const requestForSignature = new Request(c.req.raw.url, {
+    method: c.req.raw.method,
+    headers: c.req.raw.headers,
+    body: bodyText,
+  });
+  const signatureOk = await verifyInboxSignature(c.env, requestForSignature, actorId);
+  if (!signatureOk) return activityPubError("signature verification failed", 403);
+
+  const activityId = activity.id || crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const ttlSeconds = 7 * 24 * 60 * 60;
+  const queueId = crypto.randomUUID();
+
+  await c.env.storage.set(
+    `ap:inbox:${handle}:${queueId}`,
+    {
+      queue_id: queueId,
+      local_handle: handle,
+      remote_actor_id: actorId,
+      activity_id: activityId,
+      activity_type: activity.type,
+      activity_json: activity,
+      created_at: createdAt,
+      status: "pending",
+    },
+    { expirationTtl: ttlSeconds },
+  );
+
+  return activityPubJson({}, 202);
 });
 
 router.get("/ap/objects/:id", async (c) => {
   const objectParam = c.req.param("id");
   const url = new URL(c.req.url);
-  const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
+  const domain = (c.env.instance.domain || url.host || "").toString().trim();
   const protocol = url.protocol.replace(":", "") || "https";
-  const qualifiedId = `${protocol}://${domain}/ap/objects/${objectParam}`;
+  if (typeof c.env.fetch !== "function") return activityPubError("Core fetch unavailable", 503);
+  const objRes = await c.env.fetch(`/objects/${encodeURIComponent(objectParam)}`);
+  if (!objRes.ok) return activityPubError("object not found", 404);
+  const obj = await readCoreData<any>(objRes);
+  if (!obj) return activityPubError("object not found", 404);
 
-  try {
-    const objects = createObjectService(c.env as any);
-    const ctx = createSystemCtx();
-    const apObject =
-      (await objects.get(ctx, qualifiedId).catch(() => null)) ||
-      (await objects.get(ctx, objectParam).catch(() => null)) ||
-      (typeof (objects as any).getByLocalId === "function"
-        ? await (objects as any).getByLocalId(ctx, objectParam).catch(() => null)
-        : null);
-    if (apObject) return activityPubJson(apObject);
-  } catch (error) {
-    console.warn("[default-app] object-service lookup failed", error);
+  const visibility = String(obj.visibility || "").toLowerCase();
+  const authHeader = c.req.header("authorization") ?? c.req.header("Authorization") ?? "";
+  if ((visibility === "direct" || visibility === "private") && !authHeader) {
+    return activityPubError("Forbidden", 403);
   }
 
-  const store = makeData(c.env as any);
-  try {
-    let object: any | null = null;
-    if (store.getObject) {
-      object = await store.getObject(qualifiedId).catch(() => null);
-      if (!object) object = await store.getObject(objectParam).catch(() => null);
-      if (!object && store.getObjectByLocalId) {
-        object = await store.getObjectByLocalId(objectParam).catch(() => null);
-      }
-    }
-    if (!object) return activityPubError("object not found", 404);
-
-    let content = object.content;
-    if (typeof content === "string") {
-      try {
-        content = JSON.parse(content);
-      } catch {
-        // ignore
-      }
-    }
-
-    const story = content?.["takos:story"] ?? content?.story;
-    const expiresRaw =
-      content?.expiresAt ??
-      content?.expires_at ??
-      object.expiresAt ??
-      object.expires_at ??
-      story?.expiresAt ??
-      story?.expires_at;
-    if (expiresRaw) {
-      const expiresAt = new Date(expiresRaw);
-      if (!Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() <= Date.now()) {
-        return activityPubError("object not found", 404);
-      }
-    }
-
-    const noteObject =
-      content && typeof content === "object" && (content as any).type
-        ? content
-        : generateNoteObject(object, { id: object.actor }, domain, protocol);
-    return activityPubJson(noteObject);
-  } finally {
-    await store.disconnect?.();
-  }
+  const content =
+    typeof obj.content === "string"
+      ? obj.content
+      : typeof obj.text === "string"
+        ? obj.text
+        : "";
+  const note = {
+    "@context": "https://www.w3.org/ns/activitystreams",
+    type: obj.type || "Note",
+    id: `${protocol}://${domain}/ap/objects/${objectParam}`,
+    attributedTo: obj.actor,
+    content,
+    published: obj.published ?? obj.created_at ?? undefined,
+  };
+  return activityPubJson(note);
 });
 
 router.get("/ap/users/:handle/followers", async (c) => {
-  const store = makeData(c.env as any);
-  try {
-    const jwtResult = await authenticateJWT(c as any, {
-      getUser: (id: string) => store.getUser(id),
-      getUserJwtSecret: (userId: string) => store.getUserJwtSecret(userId),
-      setUserJwtSecret: (userId: string, secret: string) =>
-        store.setUserJwtSecret ? store.setUserJwtSecret(userId, secret) : Promise.resolve(),
-    } as any);
+  const handle = c.req.param("handle");
+  const url = new URL(c.req.url);
+  const domain = (c.env.instance.domain || url.host || "").toString().trim();
+  const protocol = url.protocol.replace(":", "") || "https";
+  const followersUrl = `${protocol}://${domain}/ap/users/${handle}/followers`;
+  if (typeof c.env.fetch !== "function") return activityPubError("Core fetch unavailable", 503);
 
-    const handle = c.req.param("handle");
-    const viewer = (jwtResult as any)?.user ?? null;
-    if (!viewer || viewer.id !== handle) return activityPubError("Unauthorized", 401);
-
-    const url = new URL(c.req.url);
-    const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
-    const protocol = url.protocol.replace(":", "") || "https";
-    const followersUrl = `${protocol}://${domain}/ap/users/${handle}/followers`;
-
-    const pageRaw = c.req.query("page");
-    if (!pageRaw) {
-      const totalItems = await store.countApFollowers(handle, "accepted");
-      return activityPubJson(generateOrderedCollection(followersUrl, totalItems, `${followersUrl}?page=1`));
-    }
-
-    const limit = 100;
-    const pageNum = Math.max(1, parseInt(pageRaw, 10) || 1);
-    const offset = (pageNum - 1) * limit;
-    const totalItems = await store.countApFollowers(handle, "accepted");
-    const followers = await store.listApFollowers(handle, "accepted", limit, offset);
-    const orderedItems = followers.map((f: { remote_actor_id: string }) => f.remote_actor_id);
-    return activityPubJson(
-      generateOrderedCollectionPage(
-        `${followersUrl}?page=${pageNum}`,
-        followersUrl,
-        orderedItems,
-        totalItems,
-        offset,
-        orderedItems.length === limit ? `${followersUrl}?page=${pageNum + 1}` : undefined,
-        pageNum > 1 ? `${followersUrl}?page=${pageNum - 1}` : undefined,
-      ),
-    );
-  } finally {
-    await store.disconnect?.();
-  }
+  const followersRes = await c.env.fetch(`/users/${encodeURIComponent(handle)}/followers`);
+  if (!followersRes.ok) return activityPubError("Not found", 404);
+  const followers = await readCoreData<any[]>(followersRes);
+  const orderedItems = (followers || []).map((actor: any) =>
+    actor?.handle ? `${protocol}://${domain}/ap/users/${actor.handle}` : actor?.id ?? null,
+  ).filter(Boolean);
+  return activityPubJson(generateOrderedCollection(followersUrl, orderedItems.length, `${followersUrl}?page=1`));
 });
 
 router.get("/ap/users/:handle/following", async (c) => {
-  const store = makeData(c.env as any);
-  try {
-    const jwtResult = await authenticateJWT(c as any, {
-      getUser: (id: string) => store.getUser(id),
-      getUserJwtSecret: (userId: string) => store.getUserJwtSecret(userId),
-      setUserJwtSecret: (userId: string, secret: string) =>
-        store.setUserJwtSecret ? store.setUserJwtSecret(userId, secret) : Promise.resolve(),
-    } as any);
+  const handle = c.req.param("handle");
+  const url = new URL(c.req.url);
+  const domain = (c.env.instance.domain || url.host || "").toString().trim();
+  const protocol = url.protocol.replace(":", "") || "https";
+  const followingUrl = `${protocol}://${domain}/ap/users/${handle}/following`;
+  if (typeof c.env.fetch !== "function") return activityPubError("Core fetch unavailable", 503);
 
-    const handle = c.req.param("handle");
-    const viewer = (jwtResult as any)?.user ?? null;
-    if (!viewer || viewer.id !== handle) return activityPubError("Unauthorized", 401);
-
-    const url = new URL(c.req.url);
-    const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
-    const protocol = url.protocol.replace(":", "") || "https";
-    const followingUrl = `${protocol}://${domain}/ap/users/${handle}/following`;
-
-    const pageRaw = c.req.query("page");
-    if (!pageRaw) {
-      const totalItems = await store.countApFollows(handle, "accepted");
-      return activityPubJson(generateOrderedCollection(followingUrl, totalItems, `${followingUrl}?page=1`));
-    }
-
-    const limit = 100;
-    const pageNum = Math.max(1, parseInt(pageRaw, 10) || 1);
-    const offset = (pageNum - 1) * limit;
-    const totalItems = await store.countApFollows(handle, "accepted");
-    const following = await store.listApFollows(handle, "accepted", limit, offset);
-    const orderedItems = following.map((f: { remote_actor_id: string }) => f.remote_actor_id);
-    return activityPubJson(
-      generateOrderedCollectionPage(
-        `${followingUrl}?page=${pageNum}`,
-        followingUrl,
-        orderedItems,
-        totalItems,
-        offset,
-        orderedItems.length === limit ? `${followingUrl}?page=${pageNum + 1}` : undefined,
-        pageNum > 1 ? `${followingUrl}?page=${pageNum - 1}` : undefined,
-      ),
-    );
-  } finally {
-    await store.disconnect?.();
-  }
+  const followingRes = await c.env.fetch(`/users/${encodeURIComponent(handle)}/following`);
+  if (!followingRes.ok) return activityPubError("Not found", 404);
+  const following = await readCoreData<any[]>(followingRes);
+  const orderedItems = (following || []).map((actor: any) =>
+    actor?.handle ? `${protocol}://${domain}/ap/users/${actor.handle}` : actor?.id ?? null,
+  ).filter(Boolean);
+  return activityPubJson(generateOrderedCollection(followingUrl, orderedItems.length, `${followingUrl}?page=1`));
 });
 
 router.get("/ap/groups/:id", async (c) => {
@@ -655,38 +509,26 @@ router.get("/ap/groups/:id", async (c) => {
   const isActivityPub = accept.includes("application/activity+json") || accept.includes("application/ld+json");
   if (!isActivityPub) return c.redirect(`/communities/${c.req.param("id")}`);
 
-  const store = makeData(c.env as any);
-  try {
-    const id = c.req.param("id");
-    const url = new URL(c.req.url);
-    const domain = (c.env.INSTANCE_DOMAIN || url.host || "").toString().trim();
-    const protocol = url.protocol.replace(":", "") || "https";
+  const id = c.req.param("id");
+  const url = new URL(c.req.url);
+  const domain = (c.env.instance.domain || url.host || "").toString().trim();
+  const protocol = url.protocol.replace(":", "") || "https";
+  if (typeof c.env.fetch !== "function") return activityPubError("Core fetch unavailable", 503);
 
-    const community = await store.getCommunity(id);
-    if (!community) return activityPubError("community not found", 404);
+  const communityRes = await c.env.fetch(`/communities/${encodeURIComponent(id)}`);
+  if (!communityRes.ok) return activityPubError("community not found", 404);
+  const community = await readCoreData<any>(communityRes);
+  if (!community) return activityPubError("community not found", 404);
 
-    const ownerHandle =
-      community.owner_id ||
-      community.created_by ||
-      (community as any).createdBy ||
-      (community as any).ownerId ||
-      id;
+  const ownerHandle =
+    community.owner_id ||
+    community.created_by ||
+    (community as any).createdBy ||
+    (community as any).ownerId ||
+    id;
 
-    let groupPublicKey: string | undefined;
-    if (ownerHandle) {
-      try {
-        const keypair = await ensureUserKeyPair(store as any, c.env as any, ownerHandle);
-        groupPublicKey = keypair.publicKeyPem;
-      } catch (error) {
-        console.warn("[default-app] failed to ensure keypair for group", id, error);
-      }
-    }
-
-    const groupActor = generateGroupActor(community, ownerHandle, domain, protocol, groupPublicKey);
-    return activityPubJson(groupActor);
-  } finally {
-    await store.disconnect?.();
-  }
+  const groupActor = generateGroupActor(community, ownerHandle, domain, protocol);
+  return activityPubJson(groupActor);
 });
 
 const parsePagination = (query: Record<string, string>, defaults = { limit: 20, offset: 0 }) => {
@@ -697,14 +539,6 @@ const parsePagination = (query: Record<string, string>, defaults = { limit: 20, 
   const offset = Math.max(0, parseInt(query.offset || `${defaults.offset}`, 10));
   const cursor = query.cursor || (offset ? String(offset) : undefined);
   return { limit, offset, cursor };
-};
-
-const readCoreData = async <T,>(res: Response): Promise<T> => {
-  const payload = (await res.json().catch(() => null)) as any;
-  if (payload && typeof payload === "object" && payload.ok === true && "data" in payload) {
-    return payload.data as T;
-  }
-  return payload as T;
 };
 
 const blockListKey = (userId: string) => `block:${userId}:list`;
@@ -2016,24 +1850,13 @@ const app: TakosApp = {
 
     // Every 5 minutes: delivery + inbox queue processing
     if (event.cron === "*/5 * * * *") {
-      if ((env as any)?.DB) {
-        await handleDeliveryScheduled(event as any, env as any).catch((error) => {
-          console.error("[default-app] delivery queue processing failed", error);
-        });
-        await processInboxQueue(env as any, 10).catch((error) => {
-          console.error("[default-app] inbox queue processing failed", error);
-        });
-      }
+      console.warn("[default-app] scheduled workers are not enabled in this runtime");
       return;
     }
 
     // Daily cleanup (prune inbox/delivery/rate-limit/actor cache tables)
     if (event.cron === "0 2 * * *" || event.cron === "0 4 * * 0") {
-      if ((env as any)?.DB) {
-        await handleCleanupScheduled(event as any, env as any).catch((error) => {
-          console.error("[default-app] cleanup worker failed", error);
-        });
-      }
+      console.warn("[default-app] scheduled workers are not enabled in this runtime");
     }
   },
 };

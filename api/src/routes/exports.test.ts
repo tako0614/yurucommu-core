@@ -19,7 +19,6 @@ vi.mock("../data", () => ({
 }));
 
 import exportsRoute, {
-  buildCoreActivityPubPayload,
   collectDmBundles,
   collectMediaBundles,
   computeRetryDelayMs,
@@ -44,67 +43,15 @@ describe("parseExportOptions", () => {
     expect(options.includeMedia).toBe(false);
   });
 
-  it("parses activitypub format and opt-in flags", () => {
+  it("ignores unsupported format and parses opt-in flags", () => {
     const options = parseExportOptions({
       format: "activitypub",
       include_dm: true,
       media: true,
     });
-    expect(options.format).toBe("activitypub");
+    expect(options.format).toBe("json");
     expect(options.includeDm).toBe(true);
     expect(options.includeMedia).toBe(true);
-  });
-});
-
-describe("buildCoreActivityPubPayload", () => {
-  it("resolves activitypub references and contexts", () => {
-    const payload = buildCoreActivityPubPayload(
-      {
-        profile: { id: "alice", display_name: "Alice" },
-        posts: [
-          {
-            id: "post-1",
-            text: "hello world",
-            created_at: "2024-01-01T00:00:00.000Z",
-            broadcast_all: true,
-            visible_to_friends: false,
-            media_json: "[]",
-          },
-        ],
-        friends: [
-          {
-            addressee_id: "@bob@remote.example",
-            addressee_aliases: ["https://remote.example/ap/users/bob"],
-          },
-        ],
-        reactions: [
-          {
-            id: "react-1",
-            post_id: "object-1",
-            user_id: "@carol@elsewhere.example",
-            emoji: "👍",
-            created_at: "2024-01-02T00:00:00.000Z",
-          },
-        ],
-        bookmarks: [
-          {
-            id: "bm-1",
-            post_id: "post-2",
-            created_at: "2024-01-02T01:00:00.000Z",
-          },
-        ],
-      } as any,
-      "example.com",
-    );
-
-    const core: any = payload.payload;
-    expect(Array.isArray(core["@context"])).toBe(true);
-    expect(core.friends[0]).toBe("https://remote.example/ap/users/bob");
-    expect(core.reactions[0].actor).toBe("https://elsewhere.example/ap/users/carol");
-    expect(core.reactions[0].object).toBe("https://example.com/ap/objects/object-1");
-    expect(core.bookmarks[0].object).toBe("https://example.com/ap/objects/post-2");
-    expect(core.references.actors).toContain("https://elsewhere.example/ap/users/carol");
-    expect(core.references.objects).toContain("https://example.com/ap/objects/object-1");
   });
 });
 
@@ -149,15 +96,11 @@ describe("collectDmBundles", () => {
     expect(result.json?.threads[0]?.participants[0]).toBe("https://example.com/ap/users/alice");
     expect(result.json?.threads[0]?.raw_participants[0]).toContain("alice");
     expect(result.json?.threads[0]?.messages[0]?.actor).toBe("https://example.com/ap/users/alice");
-    expect(
-      result.activitypub?.threads[0]?.activities[0]?.object?.content,
-    ).toContain("hello");
-    expect(result.activitypub?.threads[0]?.participants[0]).toBe("https://example.com/ap/users/alice");
   });
 });
 
 describe("collectMediaBundles", () => {
-  it("builds media activitypub documents with absolute urls", async () => {
+  it("collects media metadata", async () => {
     const store = {
       listMediaByUser: vi.fn().mockResolvedValue([
         {
@@ -172,8 +115,7 @@ describe("collectMediaBundles", () => {
 
     const result = await collectMediaBundles(store, "alice", "example.com");
     expect(result.counts.media).toBe(1);
-    expect(result.activitypub?.orderedItems[0]?.type).toBe("Image");
-    expect(result.activitypub?.orderedItems[0]?.url).toContain("example.com");
+    expect(result.json?.files[0]?.key).toBe("media-1");
     expect(store.listMediaByUser).toHaveBeenCalledWith("alice");
   });
 });
@@ -298,8 +240,8 @@ describe("staged download endpoints", () => {
         },
         artifacts: {
           core: {
-            key: "exports/admin/exp-artifacts/core.json.json",
-            url: "/media/exports/admin/exp-artifacts/core.json.json",
+            key: "exports/admin/exp-artifacts/core.json",
+            url: "/media/exports/admin/exp-artifacts/core.json",
             contentType: "application/json",
           },
           dm: {
@@ -307,11 +249,6 @@ describe("staged download endpoints", () => {
             json: {
               key: "exports/admin/exp-artifacts/dm.json",
               url: "/media/exports/admin/exp-artifacts/dm.json",
-              contentType: "application/json",
-            },
-            activitypub: {
-              key: "exports/admin/exp-artifacts/dm.activitypub.json",
-              url: "/media/exports/admin/exp-artifacts/dm.activitypub.json",
               contentType: "application/json",
             },
           },
@@ -337,11 +274,10 @@ describe("staged download endpoints", () => {
     const json: any = await res.json();
     expect(json.ok).toBe(true);
     expect(json.data.id).toBe("exp-artifacts");
-    expect(json.data.artifacts).toHaveLength(4);
+    expect(json.data.artifacts).toHaveLength(3);
     expect(json.data.artifacts[0].key).toBe("core");
     expect(json.data.artifacts[1].key).toBe("dm-json");
-    expect(json.data.artifacts[2].key).toBe("dm-activitypub");
-    expect(json.data.artifacts[3].key).toBe("media-json");
+    expect(json.data.artifacts[2].key).toBe("media-json");
   });
 
   it("GET /exports/:id/artifacts returns 400 for non-completed export", async () => {

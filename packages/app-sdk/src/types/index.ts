@@ -104,6 +104,16 @@ export interface AppInfo {
   version: string;
 }
 
+/**
+ * Instance metadata (read-only).
+ */
+export interface InstanceInfo {
+  domain: string;
+  name: string;
+  description: string;
+  openRegistrations: boolean;
+}
+
 // =============================================================================
 // Core Services (高レベル API)
 // =============================================================================
@@ -214,20 +224,29 @@ export interface CoreServices {
  * Provides access to Core services and utilities.
  *
  * Note: Raw Cloudflare bindings (DB, KV, STORAGE) are NOT exposed.
- * Use the takos-provided APIs instead:
- * - `core.objects` for data operations
- * - `storage` for per-user KV storage
- * - `fetch` for internal API calls
+ * Use the takos-provided APIs instead (JS API, not direct bindings):
+ * - `core.objects`, `core.actors`, ...
+ * - `storage` for App state
+ * - `fetch` for internal Core HTTP APIs (escape hatch)
  */
 export interface AppEnv {
   /** Core Kernel services */
-  core?: CoreServices;
+  core: CoreServices;
 
   /** Authentication info (null if not authenticated) */
   auth: AuthInfo | null;
 
   /** App metadata */
   app: AppInfo;
+
+  /** Instance metadata */
+  instance: InstanceInfo;
+
+  /**
+   * Node configuration (read-only).
+   * Shape matches takos config, but is intentionally typed as unknown in the SDK.
+   */
+  takosConfig?: unknown;
 
   /** Per-user KV storage */
   storage: AppStorage;

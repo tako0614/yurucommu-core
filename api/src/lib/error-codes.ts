@@ -84,6 +84,9 @@ export const ErrorCodes = {
   HANDLER_EXECUTION_ERROR: "HANDLER_EXECUTION_ERROR",
   RESERVED_ROUTE: "RESERVED_ROUTE",
   CYCLIC_DEPENDENCY: "CYCLIC_DEPENDENCY",
+  DANGEROUS_APP_PATTERN: "DANGEROUS_APP_PATTERN",
+  ESBUILD_ERROR: "ESBUILD_ERROR",
+  NO_COMPILER: "NO_COMPILER",
 
   // Audit trail
   AUDIT_INTEGRITY_VIOLATION: "AUDIT_INTEGRITY_VIOLATION",
@@ -192,6 +195,9 @@ export const ErrorCodeHttpStatus = {
   HANDLER_EXECUTION_ERROR: 500,
   RESERVED_ROUTE: 400,
   CYCLIC_DEPENDENCY: 400,
+  DANGEROUS_APP_PATTERN: 400,
+  ESBUILD_ERROR: 400,
+  NO_COMPILER: 501,
 
   // Audit trail
   AUDIT_INTEGRITY_VIOLATION: 500,
@@ -214,4 +220,3 @@ export const ErrorCodeHttpStatus = {
 
 export const isErrorCode = (value: unknown): value is ErrorCode =>
   typeof value === "string" && value in ErrorCodes;
-

@@ -347,17 +347,14 @@ debugApp.post("/-/app/debug/run", async (c) => {
 
     if (!result.ok) {
       const message = result.error?.message ?? "App handler execution failed";
+      if (result.error?.code === ErrorCodes.SANDBOX_TIMEOUT || result.error?.code === "SANDBOX_TIMEOUT") {
+        throw new HttpError(408, ErrorCodes.SANDBOX_TIMEOUT, message, { runId, logs, handler: handlerName });
+      }
       const status =
-        result.error?.code === ErrorCodes.SANDBOX_TIMEOUT || result.error?.code === "SANDBOX_TIMEOUT"
-          ? 408
-          : message.includes("Unknown app handler")
-            ? 404
-            : 500;
-      const code =
-        result.error?.code === ErrorCodes.SANDBOX_TIMEOUT || result.error?.code === "SANDBOX_TIMEOUT"
-          ? ErrorCodes.SANDBOX_TIMEOUT
-          : ErrorCodes.HANDLER_EXECUTION_ERROR;
-      throw new HttpError(status, code, message, { runId, logs, handler: handlerName });
+        message.includes("Unknown app handler")
+          ? 404
+          : 500;
+      throw new HttpError(status, ErrorCodes.HANDLER_EXECUTION_ERROR, message, { runId, logs, handler: handlerName });
     }
 
     return ok(c, {

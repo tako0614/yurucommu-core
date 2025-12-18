@@ -1,5 +1,5 @@
 import type { PublicAccountBindings as Bindings, TakosConfig } from "@takos/platform/server";
-import { HttpError } from "@takos/platform/server";
+import { HttpError, setDataFactory } from "@takos/platform/server";
 import { buildAiProviderRegistry, chatCompletion, chatCompletionStream, embed } from "@takos/platform/server";
 import type {
   AppEnv,
@@ -71,11 +71,18 @@ interface OpenAICompatibleClient {
 }
 import type { AuthContext } from "./auth-context-model";
 import { buildCoreServices } from "./core-services";
-import { createAppCollectionFactory } from "./app-collections";
 import { ErrorCodes } from "./error-codes";
+import { makeData } from "../data";
 
 const appCache = new Map<string, TakosApp>();
 const manifestCache = new Map<string, AppManifest>();
+
+let platformDataFactoryConfigured = false;
+function ensurePlatformDataFactory(): void {
+  if (platformDataFactoryConfigured) return;
+  platformDataFactoryConfigured = true;
+  setDataFactory((env: any) => makeData(env));
+}
 
 function isTakosApp(value: unknown): value is TakosApp {
   return !!value && typeof value === "object" && typeof (value as any).fetch === "function";
@@ -203,19 +210,13 @@ interface StorageSetOptions {
 }
 
 /**
- * Create per-user KV storage for App.
- * Key structure: `app:${appId}:user:${userId}:${key}` (authenticated)
- *            or: `app:${appId}:global:${key}` (unauthenticated)
+ * Create KV-backed storage for App.
+ * Key structure: `app:${appId}:${key}`
  *
- * v3.0: Supports per-user isolation and TTL.
+ * Note: per-user scoping is handled at the storage binding layer.
  */
-function createAppStorage(env: Bindings, appId: string, userId?: string | null) {
-  const buildKey = (key: string): string => {
-    if (userId) {
-      return `app:${appId}:user:${userId}:${key}`;
-    }
-    return `app:${appId}:global:${key}`;
-  };
+function createAppStorage(env: Bindings, appId: string) {
+  const buildKey = (key: string): string => `app:${appId}:${key}`;
 
   const kv = (env as any).APP_STATE || env.KV;
 
@@ -615,6 +616,7 @@ function createSimplifiedNotificationService(coreNotifications: any, authContext
 }
 
 export function buildTakosAppEnv(c: any, appId: string, manifest: AppManifest | null): AppEnv {
+  ensurePlatformDataFactory();
   const authContext = (c.get("authContext") as AuthContext | undefined) ?? null;
   const userId = authContext?.isAuthenticated ? authContext.userId : null;
   const handle =
@@ -622,45 +624,41 @@ export function buildTakosAppEnv(c: any, appId: string, manifest: AppManifest | 
     (typeof userId === "string" ? userId : "") ||
     "";
 
-  let core: AppEnv["core"] | undefined;
-  const workspaceId =
-    (c.get?.("workspaceId") as string | undefined) ??
-    (c.env as any)?.APP_WORKSPACE_ID ??
-    (c.env as any)?.WORKSPACE_ID ??
-    null;
-  try {
-    const coreServices = buildCoreServices(c.env as Bindings);
-    core = {
-      ...coreServices,
-      // Add OpenAI SDK compatible AI API
-      ai: createOpenAICompatibleAiAPI(c, c.env),
-      // Wrap ObjectService with simplified API (ctx auto-injected)
-      objects: createSimplifiedObjectService(coreServices.objects, authContext),
-      // Wrap ActorService with simplified API (ctx auto-injected)
-      actors: coreServices.actors
-        ? createSimplifiedActorService(coreServices.actors, authContext)
-        : undefined,
-      // Wrap NotificationService with simplified API (ctx auto-injected)
-      notifications: coreServices.notifications
-        ? createSimplifiedNotificationService(coreServices.notifications, authContext)
-        : undefined,
-    } as any;
-    (core as any).db = createAppCollectionFactory(c.env as Bindings, appId, workspaceId);
-  } catch (error) {
-    core = undefined;
-    console.warn("[app-sdk-loader] Failed to build core services for AppEnv:", error);
-  }
+  const appStorage = createAppStorage(c.env as Bindings, appId);
+  const coreServices = buildCoreServices(c.env as Bindings);
+  const core = {
+    ...coreServices,
+    // App storage (KV-backed; per-user isolated in production)
+    storage: appStorage,
+    // Add OpenAI SDK compatible AI API
+    ai: createOpenAICompatibleAiAPI(c, c.env),
+    // Wrap ObjectService with simplified API (ctx auto-injected)
+    objects: createSimplifiedObjectService(coreServices.objects, authContext),
+    // Wrap ActorService with simplified API (ctx auto-injected)
+    actors: coreServices.actors
+      ? createSimplifiedActorService(coreServices.actors, authContext)
+      : undefined,
+    // Wrap NotificationService with simplified API (ctx auto-injected)
+    notifications: coreServices.notifications
+      ? createSimplifiedNotificationService(coreServices.notifications, authContext)
+      : undefined,
+  } as any;
+
+  const parseBooleanEnv = (value: unknown, fallback: boolean): boolean => {
+    if (typeof value !== "string") return fallback;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1" || normalized === "yes") return true;
+    if (normalized === "false" || normalized === "0" || normalized === "no") return false;
+    return fallback;
+  };
+
+  const reqUrl = new URL(c.req.url);
+  const domain = ((c.env as any)?.INSTANCE_DOMAIN || reqUrl.host || "").toString().trim() || "localhost";
 
   return {
     core,
-    DB: (c.env as any)?.DB,
-    KV: (c.env as any)?.KV,
-    STORAGE: (c.env as any)?.STORAGE ?? (c.env as any)?.MEDIA,
-    INSTANCE_DOMAIN: (c.env as any)?.INSTANCE_DOMAIN,
-    JWT_SECRET: (c.env as any)?.JWT_SECRET,
     takosConfig: (c.get("takosConfig") as any) ?? (c.env as any)?.takosConfig,
-    workspaceId: workspaceId ?? undefined,
-    storage: createAppStorage(c.env, appId, userId),
+    storage: appStorage,
     fetch: createAuthenticatedFetch(c),
     auth: userId
       ? {
@@ -676,6 +674,15 @@ export function buildTakosAppEnv(c: any, appId: string, manifest: AppManifest | 
       id: appId,
       version: manifest?.version ?? "0.0.0",
     },
+    instance: {
+      domain,
+      name:
+        ((c.env as any)?.INSTANCE_NAME || "Takos Instance").toString().trim() || "Takos Instance",
+      description:
+        ((c.env as any)?.INSTANCE_DESCRIPTION || "A Takos instance").toString().trim() ||
+        "A Takos instance",
+      openRegistrations: parseBooleanEnv((c.env as any)?.INSTANCE_OPEN_REGISTRATIONS, false),
+    },
   };
 }
 
@@ -684,47 +691,52 @@ export function buildTakosScheduledAppEnv(
   appId: string,
   manifest: AppManifest | null,
 ): AppEnv {
-  let core: AppEnv["core"] | undefined;
-  const workspaceId = (env as any)?.APP_WORKSPACE_ID ?? (env as any)?.WORKSPACE_ID ?? null;
+  ensurePlatformDataFactory();
+  const appStorage = createAppStorage(env as Bindings, appId);
   const mockContext = { get: () => null, env };
-  try {
-    const coreServices = buildCoreServices(env as Bindings);
-    core = {
-      ...coreServices,
-      // Add OpenAI SDK compatible AI API
-      ai: createOpenAICompatibleAiAPI(mockContext, env),
-      // Wrap ObjectService with simplified API (system context for scheduled)
-      objects: createSimplifiedObjectService(coreServices.objects, null),
-      // Wrap ActorService with simplified API (system context for scheduled)
-      actors: coreServices.actors
-        ? createSimplifiedActorService(coreServices.actors, null)
-        : undefined,
-      // Wrap NotificationService with simplified API (system context for scheduled)
-      notifications: coreServices.notifications
-        ? createSimplifiedNotificationService(coreServices.notifications, null)
-        : undefined,
-    } as any;
-    (core as any).db = createAppCollectionFactory(env as Bindings, appId, workspaceId);
-  } catch (error) {
-    core = undefined;
-    console.warn("[app-sdk-loader] Failed to build core services for scheduled AppEnv:", error);
-  }
+  const coreServices = buildCoreServices(env as Bindings);
+  const core = {
+    ...coreServices,
+    storage: appStorage,
+    // Add OpenAI SDK compatible AI API
+    ai: createOpenAICompatibleAiAPI(mockContext, env),
+    // Wrap ObjectService with simplified API (system context for scheduled)
+    objects: createSimplifiedObjectService(coreServices.objects, null),
+    // Wrap ActorService with simplified API (system context for scheduled)
+    actors: coreServices.actors ? createSimplifiedActorService(coreServices.actors, null) : undefined,
+    // Wrap NotificationService with simplified API (system context for scheduled)
+    notifications: coreServices.notifications
+      ? createSimplifiedNotificationService(coreServices.notifications, null)
+      : undefined,
+  } as any;
+
+  const parseBooleanEnv = (value: unknown, fallback: boolean): boolean => {
+    if (typeof value !== "string") return fallback;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1" || normalized === "yes") return true;
+    if (normalized === "false" || normalized === "0" || normalized === "no") return false;
+    return fallback;
+  };
+
+  const domain = ((env as any)?.INSTANCE_DOMAIN || "").toString().trim() || "localhost";
 
   return {
     core,
-    DB: (env as any)?.DB,
-    KV: (env as any)?.KV,
-    STORAGE: (env as any)?.STORAGE ?? (env as any)?.MEDIA,
-    INSTANCE_DOMAIN: (env as any)?.INSTANCE_DOMAIN,
-    JWT_SECRET: (env as any)?.JWT_SECRET,
     takosConfig: (env as any)?.takosConfig,
-    workspaceId: workspaceId ?? undefined,
-    storage: createAppStorage(env, appId, null), // No user in scheduled context
+    storage: appStorage,
     fetch: createUnauthenticatedFetchFromEnv(env),
     auth: null,
     app: {
       id: appId,
       version: manifest?.version ?? "0.0.0",
+    },
+    instance: {
+      domain,
+      name: ((env as any)?.INSTANCE_NAME || "Takos Instance").toString().trim() || "Takos Instance",
+      description:
+        ((env as any)?.INSTANCE_DESCRIPTION || "A Takos instance").toString().trim() ||
+        "A Takos instance",
+      openRegistrations: parseBooleanEnv((env as any)?.INSTANCE_OPEN_REGISTRATIONS, false),
     },
   };
 }

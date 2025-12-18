@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { buildTakosAppEnv, buildTakosScheduledAppEnv } from "./app-sdk-loader";
 
 describe("buildTakosAppEnv", () => {
-  it("exposes optional bindings/env vars on AppEnv", () => {
+  it("does not expose raw bindings on AppEnv", () => {
     const fakeDb = { name: "DB" };
     const fakeKv = { name: "KV" };
     const fakeBucket = { name: "MEDIA" };
@@ -23,11 +23,12 @@ describe("buildTakosAppEnv", () => {
     };
 
     const env = buildTakosAppEnv(c, "default", { version: "1.0.0" } as any);
-    expect(env.DB).toBe(fakeDb);
-    expect(env.KV).toBe(fakeKv);
-    expect(env.STORAGE).toBe(fakeBucket);
-    expect(env.INSTANCE_DOMAIN).toBe("example.test");
-    expect(env.JWT_SECRET).toBe("secret");
+    expect((env as any).DB).toBeUndefined();
+    expect((env as any).KV).toBeUndefined();
+    expect((env as any).STORAGE).toBeUndefined();
+    expect((env as any).INSTANCE_DOMAIN).toBeUndefined();
+    expect((env as any).JWT_SECRET).toBeUndefined();
+    expect(env.instance.domain).toBe("example.test");
   });
 
   it("provides auth info when user is authenticated", () => {
@@ -95,7 +96,7 @@ describe("buildTakosAppEnv", () => {
 });
 
 describe("per-user storage", () => {
-  it("uses per-user key structure for authenticated users", async () => {
+  it("uses app-scoped key structure", async () => {
     const kvStore: Record<string, string> = {};
     const fakeKv = {
       get: vi.fn(async (key: string) => {
@@ -137,9 +138,9 @@ describe("per-user storage", () => {
     // Set a value
     await env.storage.set("mykey", { foo: "bar" });
 
-    // Verify key structure includes user ID
+    // Verify key structure
     expect(fakeKv.put).toHaveBeenCalledWith(
-      "app:test-app:user:user123:mykey",
+      "app:test-app:mykey",
       JSON.stringify({ foo: "bar" }),
       {},
     );
@@ -149,7 +150,7 @@ describe("per-user storage", () => {
     expect(value).toEqual({ foo: "bar" });
   });
 
-  it("uses global key structure for unauthenticated users", async () => {
+  it("uses app-scoped key structure when unauthenticated", async () => {
     const fakeKv = {
       get: vi.fn(async () => null),
       put: vi.fn(async () => {}),
@@ -173,7 +174,7 @@ describe("per-user storage", () => {
     await env.storage.set("globalkey", "value");
 
     expect(fakeKv.put).toHaveBeenCalledWith(
-      "app:test-app:global:globalkey",
+      "app:test-app:globalkey",
       JSON.stringify("value"),
       {},
     );
@@ -210,7 +211,7 @@ describe("per-user storage", () => {
     await env.storage.set("tempkey", "tempvalue", { expirationTtl: 3600 });
 
     expect(fakeKv.put).toHaveBeenCalledWith(
-      "app:test-app:user:user123:tempkey",
+      "app:test-app:tempkey",
       JSON.stringify("tempvalue"),
       { expirationTtl: 3600 },
     );
@@ -249,10 +250,9 @@ describe("buildTakosScheduledAppEnv", () => {
     await appEnv.storage.set("task-state", { completed: true });
 
     expect(fakeKv.put).toHaveBeenCalledWith(
-      "app:scheduled-app:global:task-state",
+      "app:scheduled-app:task-state",
       JSON.stringify({ completed: true }),
       {},
     );
   });
 });
-

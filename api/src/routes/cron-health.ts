@@ -8,8 +8,6 @@ import { makeData } from "../data";
 import { auth } from "../middleware/auth";
 import { ErrorCodes } from "../lib/error-codes";
 import type {
-  ApDeliveryQueueHealth,
-  ApInboxQueueHealth,
   ExportQueueHealth,
   PostPlanQueueHealth,
 } from "../lib/types";
@@ -40,28 +38,6 @@ const EMPTY_EXPORT_HEALTH: ExportQueueHealth = {
   last_error: null,
 };
 
-const EMPTY_DELIVERY_HEALTH: ApDeliveryQueueHealth = {
-  pending: 0,
-  processing: 0,
-  failed: 0,
-  delivered: 0,
-  oldest_pending_at: null,
-  max_delay_ms: null,
-  last_failed_at: null,
-  last_error: null,
-};
-
-const EMPTY_INBOX_HEALTH: ApInboxQueueHealth = {
-  pending: 0,
-  processing: 0,
-  failed: 0,
-  processed: 0,
-  oldest_pending_at: null,
-  max_delay_ms: null,
-  last_failed_at: null,
-  last_error: null,
-};
-
 const withSupport = <T>(
   data: T | null | undefined,
   fallback: T,
@@ -77,21 +53,15 @@ cronHealthRoutes.get("/api/cron/health", auth, async (c) => {
   }
   const store = makeData(c.env as any, c);
   try {
-    const [postPlans, exports, delivery, inbox] = await Promise.all([
+    const [postPlans, exports] = await Promise.all([
       store.getPostPlanQueueHealth ? store.getPostPlanQueueHealth() : null,
       store.getExportQueueHealth ? store.getExportQueueHealth() : null,
-      store.getApDeliveryQueueHealth ? store.getApDeliveryQueueHealth() : null,
-      store.getApInboxQueueHealth ? store.getApInboxQueueHealth() : null,
     ]);
 
     return ok(c, {
       timestamp: new Date().toISOString(),
       post_plans: withSupport(postPlans, EMPTY_POST_PLAN_HEALTH),
       data_exports: withSupport(exports, EMPTY_EXPORT_HEALTH),
-      activitypub: {
-        delivery: withSupport(delivery, EMPTY_DELIVERY_HEALTH),
-        inbox: withSupport(inbox, EMPTY_INBOX_HEALTH),
-      },
     });
   } catch (error) {
     console.error("[owner] failed to build cron health summary", error);

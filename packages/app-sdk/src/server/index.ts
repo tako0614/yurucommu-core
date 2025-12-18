@@ -16,6 +16,7 @@ export type {
   TakosNotification,
   AuthInfo,
   AppInfo,
+  InstanceInfo,
   // Manifest types
   AppManifest,
   AppEntry,

@@ -961,18 +961,44 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       local_id: reaction.id,
       type: "Like",
       actor: reaction.user_id,
-      content: { object: reaction.post_id },
+      content: { object: reaction.post_id, emoji: reaction.emoji ?? "👍" },
       published: toIso(reaction.created_at) ?? new Date().toISOString(),
       visibility: "public",
       is_local: true,
     });
 
-  const listReactionsByPost = async (post_id: string) =>
-    queryObjects({ type: "Like", include_deleted: false, visibility: ["public", "followers", "direct"], limit: 200, offset: 0 }).then((items) =>
-      items.filter((o) => o.content?.object === post_id),
-    );
+  const listReactionsByPost = async (post_id: string) => {
+    const items = await queryObjects({
+      type: "Like",
+      include_deleted: false,
+      visibility: ["public", "followers", "direct"],
+      limit: 200,
+      offset: 0,
+    });
+    return items
+      .filter((o) => o.content?.object === post_id)
+      .map((o) => ({
+        id: o.local_id ?? o.id,
+        post_id: o.content?.object ?? post_id,
+        user_id: o.actor,
+        emoji: o.content?.emoji ?? "👍",
+        created_at: o.published ?? o.created_at ?? null,
+        ap_activity_id: o.id,
+      }));
+  };
 
-  const getReaction = async (id: string) => getObject(id);
+  const getReaction = async (id: string) => {
+    const obj = await getObject(id);
+    if (!obj) return null;
+    return {
+      id: obj.local_id ?? obj.id,
+      post_id: obj.content?.object ?? null,
+      user_id: obj.actor,
+      emoji: obj.content?.emoji ?? "👍",
+      created_at: obj.published ?? obj.created_at ?? null,
+      ap_activity_id: obj.id,
+    };
+  };
 
   const deleteReaction = async (id: string) => deleteObject(id);
 
@@ -989,9 +1015,30 @@ export function createDatabaseAPI(config: DatabaseConfig): DatabaseAPI {
       is_local: true,
     });
 
-  const listCommentsByPost = async (post_id: string) => queryObjects({ in_reply_to: post_id, type: "Note" });
+  const listCommentsByPost = async (post_id: string) => {
+    const items = await queryObjects({ in_reply_to: post_id, type: "Note" });
+    return items.map((o) => ({
+      id: o.local_id ?? o.id,
+      post_id,
+      author_id: o.actor,
+      text: o.content?.content ?? "",
+      created_at: o.published ?? o.created_at ?? null,
+      ap_object_id: o.id,
+    }));
+  };
 
-  const getComment = async (id: string) => getObject(id);
+  const getComment = async (id: string) => {
+    const obj = await getObject(id);
+    if (!obj) return null;
+    return {
+      id: obj.local_id ?? obj.id,
+      post_id: obj.in_reply_to ?? null,
+      author_id: obj.actor,
+      text: obj.content?.content ?? "",
+      created_at: obj.published ?? obj.created_at ?? null,
+      ap_object_id: obj.id,
+    };
+  };
 
   const deleteComment = async (id: string) => deleteObject(id);
 
