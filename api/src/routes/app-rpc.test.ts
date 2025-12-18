@@ -268,4 +268,46 @@ describe("/-/internal/app-rpc", () => {
 
     expect(body.result?.choices?.[0]?.message?.tool_calls).toBeTruthy();
   });
+
+  it("rejects outbound rpc when disabled", async () => {
+    const env: any = { TAKOS_APP_RPC_TOKEN: "test-token" };
+    const res = await postRpc(env, { kind: "outbound", url: "https://example.com" });
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects outbound rpc during authenticated requests", async () => {
+    const env: any = { TAKOS_APP_RPC_TOKEN: "test-token", TAKOS_OUTBOUND_RPC_ENABLED: "true" };
+    const res = await postRpc(env, {
+      kind: "outbound",
+      url: "https://example.com",
+      auth: { userId: "u1", isAuthenticated: true },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("performs outbound fetch for background jobs when enabled", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200, headers: { "x-test": "1" } }));
+    // @ts-ignore
+    globalThis.fetch = fetchMock;
+
+    const env: any = { TAKOS_APP_RPC_TOKEN: "test-token", TAKOS_OUTBOUND_RPC_ENABLED: "true" };
+    const res = await postRpc(env, {
+      kind: "outbound",
+      url: "https://remote.example/test",
+      init: { method: "POST", headers: { "content-type": "text/plain" }, body: { encoding: "utf8", data: "hi" } },
+      auth: null,
+    });
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    expect(body).toMatchObject({ ok: true });
+    expect(body.result?.status).toBe(200);
+    expect(body.result?.headers?.["x-test"]).toBe("1");
+    expect(body.result?.body?.encoding).toBe("base64");
+    expect(typeof body.result?.body?.data).toBe("string");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // @ts-ignore
+    globalThis.fetch = originalFetch;
+  });
 });

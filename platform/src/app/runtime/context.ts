@@ -12,6 +12,7 @@ import type {
   AppRuntimeMode,
   BindingResolver,
   BindingResolverInfo,
+  OutboundRuntime,
   ServiceRegistry,
   TakosContext,
 } from "./types";
@@ -27,6 +28,7 @@ export type CreateTakosContextOptions = {
   resolveDb?: BindingResolver<any>;
   resolveStorage?: BindingResolver<any>;
   ai?: AiRuntime;
+  outbound?: OutboundRuntime;
   logSink?: AppLogSink;
 };
 
@@ -133,6 +135,7 @@ export function createTakosContext(options: CreateTakosContextOptions): TakosCon
     db: createBindingAccessor("database", options.resolveDb, bindingInfo),
     storage: createBindingAccessor("storage", options.resolveStorage, bindingInfo),
     ai,
+    outbound: options.outbound,
     log,
     json: responses.json,
     error: responses.error,

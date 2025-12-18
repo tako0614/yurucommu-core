@@ -44,6 +44,16 @@ type RpcRequest =
       method: "chat.completions.create" | "embeddings.create";
       args: unknown[];
       auth?: AppAuthContext | null;
+    }
+  | {
+      kind: "outbound";
+      url: string;
+      init?: {
+        method?: string;
+        headers?: Record<string, string>;
+        body?: { encoding: "utf8" | "base64"; data: string } | null;
+      };
+      auth?: AppAuthContext | null;
     };
 
 type RpcResponse =
@@ -109,6 +119,83 @@ const ALLOWED_SERVICE_ROOTS = new Set([
   "notifications",
   "storage",
 ]);
+
+const isOutboundEnabled = (env: Bindings): boolean => {
+  const raw = typeof (env as any)?.TAKOS_OUTBOUND_RPC_ENABLED === "string" ? (env as any).TAKOS_OUTBOUND_RPC_ENABLED : "";
+  return raw.trim().toLowerCase() === "true" || raw.trim() === "1";
+};
+
+const normalizeHeadersRecord = (value: unknown): Record<string, string> => {
+  if (!value || typeof value !== "object") return {};
+  const input = value as Record<string, unknown>;
+  const headers: Record<string, string> = {};
+  for (const [key, rawValue] of Object.entries(input)) {
+    const name = typeof key === "string" ? key.trim() : "";
+    if (!name) continue;
+    if (!/^[A-Za-z0-9-]+$/.test(name)) continue;
+    const headerValue = typeof rawValue === "string" ? rawValue : rawValue == null ? "" : String(rawValue);
+    headers[name] = headerValue;
+  }
+  return headers;
+};
+
+const parseOutboundUrl = (value: unknown): URL => {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) throw new Error("url is required");
+  const url = new URL(raw);
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("only http/https urls are allowed");
+  }
+  return url;
+};
+
+const isLoopbackHost = (hostname: string): boolean => {
+  const host = hostname.trim().toLowerCase();
+  return host === "localhost" || host === "takos.internal" || host.endsWith(".local");
+};
+
+const parseIpv4 = (hostname: string): number[] | null => {
+  const parts = hostname.split(".");
+  if (parts.length !== 4) return null;
+  const octets: number[] = [];
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null;
+    const n = Number.parseInt(part, 10);
+    if (n < 0 || n > 255) return null;
+    octets.push(n);
+  }
+  return octets;
+};
+
+const isPrivateIpv4 = (octets: number[]): boolean => {
+  const [a, b] = octets;
+  if (a === 127) return true; // loopback
+  if (a === 10) return true; // 10/8
+  if (a === 192 && b === 168) return true; // 192.168/16
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16/12
+  if (a === 169 && b === 254) return true; // link-local
+  if (a === 0) return true;
+  return false;
+};
+
+const isPrivateIpv6 = (hostname: string): boolean => {
+  const h = hostname.toLowerCase();
+  if (h === "::1") return true;
+  if (h.startsWith("fe80:")) return true; // link-local
+  if (h.startsWith("fc") || h.startsWith("fd")) return true; // unique local
+  return false;
+};
+
+const normalizeHostname = (hostname: string): string => hostname.trim().toLowerCase().replace(/^\*\./, "");
+
+const matchesBlockedInstances = (hostname: string, config: any): boolean => {
+  const normalized = normalizeHostname(hostname);
+  const list = Array.isArray(config?.activitypub?.blocked_instances)
+    ? config.activitypub.blocked_instances.map((v: any) => (typeof v === "string" ? normalizeHostname(v) : "")).filter(Boolean)
+    : [];
+  if (!list.length) return false;
+  return list.includes(normalized);
+};
 
 type KvLike = {
   get: (key: string, type?: "text") => Promise<string | null>;
@@ -215,6 +302,21 @@ const getKv = (env: Bindings): KvLike | null => {
   const kv = (env as any).APP_STATE || (env as any).KV;
   if (!kv?.get || !kv?.put || !kv?.delete || !kv?.list) return null;
   return kv as KvLike;
+};
+
+const readResponseBodyBase64 = async (response: Response, limitBytes = 1024 * 1024): Promise<{ encoding: "base64"; data: string } | null> => {
+  const contentLengthHeader = response.headers.get("content-length");
+  if (contentLengthHeader) {
+    const n = Number.parseInt(contentLengthHeader, 10);
+    if (Number.isFinite(n) && n > limitBytes) {
+      throw new Error("outbound response body exceeds size limit");
+    }
+  }
+  const buf = await response.arrayBuffer();
+  if (buf.byteLength > limitBytes) {
+    throw new Error("outbound response body exceeds size limit");
+  }
+  return { encoding: "base64", data: toBase64(new Uint8Array(buf)) };
 };
 
 export const appRpcRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -643,6 +745,103 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
       return c.json(
         { ok: false, error: { message: `Unknown AI method "${method}"` } } satisfies RpcResponse,
         400,
+      );
+    }
+
+    if (payload.kind === "outbound") {
+      if (!isOutboundEnabled(c.env as any)) {
+        return c.json(
+          { ok: false, error: { message: "Outbound RPC is disabled", code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
+          403,
+        );
+      }
+
+      const auth = (payload as any).auth as AppAuthContext | null | undefined;
+      if (auth?.isAuthenticated) {
+        return c.json(
+          { ok: false, error: { message: "Outbound RPC is only available for background jobs", code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
+          403,
+        );
+      }
+
+      const url = parseOutboundUrl((payload as any).url);
+      const hostname = url.hostname;
+
+      if (isLoopbackHost(hostname)) {
+        return c.json(
+          { ok: false, error: { message: "Outbound URL host is not allowed", code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
+          403,
+        );
+      }
+
+      const ipv4 = parseIpv4(hostname);
+      if (ipv4 && isPrivateIpv4(ipv4)) {
+        return c.json(
+          { ok: false, error: { message: "Outbound URL host is not allowed", code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
+          403,
+        );
+      }
+      if (!ipv4 && hostname.includes(":") && isPrivateIpv6(hostname)) {
+        return c.json(
+          { ok: false, error: { message: "Outbound URL host is not allowed", code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
+          403,
+        );
+      }
+
+      const takosConfig = ((c.get?.("takosConfig") as any) ?? (c.env as any).takosConfig) as any;
+      if (takosConfig && matchesBlockedInstances(hostname, takosConfig)) {
+        return c.json(
+          { ok: false, error: { message: "Outbound URL host is blocked by federation policy", code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
+          403,
+        );
+      }
+
+      const init = (payload as any).init ?? {};
+      const methodRaw = typeof init?.method === "string" ? init.method.trim().toUpperCase() : "GET";
+      const method = methodRaw || "GET";
+      if (!/^(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH)$/.test(method)) {
+        return c.json(
+          { ok: false, error: { message: "invalid outbound method" } } satisfies RpcResponse,
+          400,
+        );
+      }
+
+      const headers = normalizeHeadersRecord(init?.headers);
+      const body = init?.body as { encoding: "utf8" | "base64"; data: string } | null | undefined;
+      let outboundBody: BodyInit | undefined;
+      if (body) {
+        if (body.encoding === "utf8") {
+          outboundBody = body.data;
+        } else if (body.encoding === "base64") {
+          outboundBody = toBytes({ encoding: "base64", data: body.data });
+        } else {
+          return c.json({ ok: false, error: { message: "invalid outbound body" } } satisfies RpcResponse, 400);
+        }
+      }
+
+      const response = await fetch(url.toString(), {
+        method,
+        headers,
+        body: outboundBody,
+      });
+
+      const responseHeaders: Record<string, string> = {};
+      for (const [key, value] of response.headers.entries()) {
+        responseHeaders[key] = value;
+      }
+
+      const responseBody = await readResponseBodyBase64(response);
+
+      return c.json(
+        {
+          ok: true,
+          result: {
+            url: url.toString(),
+            status: response.status,
+            headers: responseHeaders,
+            body: responseBody,
+          },
+        } satisfies RpcResponse,
       );
     }
 
