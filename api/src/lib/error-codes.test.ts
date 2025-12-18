@@ -89,6 +89,9 @@ describe("error codes", () => {
       "HANDLER_EXECUTION_ERROR",
       "RESERVED_ROUTE",
       "CYCLIC_DEPENDENCY",
+      "DANGEROUS_APP_PATTERN",
+      "ESBUILD_ERROR",
+      "NO_COMPILER",
 
       // Audit trail
       "AUDIT_INTEGRITY_VIOLATION",
@@ -122,4 +125,3 @@ describe("error codes", () => {
     }
   });
 });
-
