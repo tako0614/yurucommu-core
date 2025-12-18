@@ -775,6 +775,15 @@ type GeminiContent = {
   parts: Array<{ text: string }>;
 };
 
+type GeminiResponsePart =
+  | { text: string }
+  | {
+      functionCall: {
+        name: string;
+        args?: unknown;
+      };
+    };
+
 type GeminiRequest = {
   contents: GeminiContent[];
   systemInstruction?: { parts: Array<{ text: string }> };
@@ -789,7 +798,7 @@ type GeminiRequest = {
 
 type GeminiCandidate = {
   content: {
-    parts: Array<{ text: string }>;
+    parts: GeminiResponsePart[];
     role: string;
   };
   finishReason: string;
@@ -955,9 +964,27 @@ export class GeminiAdapter implements AiProviderAdapter {
 
     const data = (await response.json()) as GeminiResponse;
 
-    const textContent = data.candidates?.[0]?.content?.parts
-      ?.map((p) => p.text)
-      .join("") ?? "";
+    const parts = data.candidates?.[0]?.content?.parts ?? [];
+    const textContent = parts
+      .map((p) => ("text" in p && typeof p.text === "string" ? p.text : ""))
+      .join("");
+
+    const toolCalls = parts
+      .map((p, index) => {
+        if (!("functionCall" in p)) return null;
+        const name = p.functionCall?.name;
+        if (typeof name !== "string" || name.trim() === "") return null;
+        const args = p.functionCall?.args ?? {};
+        return {
+          id: `call_${index + 1}`,
+          type: "function",
+          function: {
+            name,
+            arguments: JSON.stringify(args),
+          },
+        };
+      })
+      .filter((v): v is NonNullable<typeof v> => v !== null);
 
     return {
       id: `gemini-${Date.now()}`,
@@ -969,8 +996,11 @@ export class GeminiAdapter implements AiProviderAdapter {
           message: {
             role: "assistant",
             content: textContent,
+            tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
           },
-          finishReason: data.candidates?.[0]?.finishReason ?? null,
+          finishReason: toolCalls.length > 0
+            ? "tool_calls"
+            : (data.candidates?.[0]?.finishReason ?? null),
         },
       ],
       usage: data.usageMetadata
