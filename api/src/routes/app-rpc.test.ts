@@ -310,4 +310,14 @@ describe("/-/internal/app-rpc", () => {
     // @ts-ignore
     globalThis.fetch = originalFetch;
   });
+
+  it("rate limits outbound when limit is zero", async () => {
+    const env: any = {
+      TAKOS_APP_RPC_TOKEN: "test-token",
+      TAKOS_OUTBOUND_RPC_ENABLED: "true",
+      OUTBOUND_RATE_LIMIT_PER_MINUTE: "0",
+    };
+    const res = await postRpc(env, { kind: "outbound", url: "https://remote.example/test", auth: null });
+    expect(res.status).toBe(429);
+  });
 });

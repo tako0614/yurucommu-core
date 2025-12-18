@@ -15,6 +15,7 @@ import type { AppAuthContext } from "@takos/platform/app/runtime/types";
 import { requireAiQuota } from "../lib/plan-guard";
 import { createUsageTrackerFromEnv } from "../lib/usage-tracker";
 import { ensureAiCallAllowed } from "../lib/ai-rate-limit";
+import { ensureOutboundCallAllowed } from "../lib/outbound-rate-limit";
 
 type RpcRequest =
   | {
@@ -793,6 +794,14 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
         return c.json(
           { ok: false, error: { message: "Outbound URL host is blocked by federation policy", code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
           403,
+        );
+      }
+
+      const rateLimit = await ensureOutboundCallAllowed(c.env as any, auth, { actorKey: "app-scheduled" });
+      if (!rateLimit.ok) {
+        return c.json(
+          { ok: false, error: { message: rateLimit.message, code: rateLimit.code } } satisfies RpcResponse,
+          rateLimit.status,
         );
       }
 
