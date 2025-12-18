@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { OpenAiAdapter } from "./provider-adapters";
+import { ClaudeAdapter, OpenAiAdapter } from "./provider-adapters";
 
 const makeClient = () =>
   ({
@@ -88,3 +88,48 @@ describe("provider-adapters OpenAiAdapter", () => {
   });
 });
 
+describe("provider-adapters ClaudeAdapter", () => {
+  it("maps OpenAI function tools into Claude tools/tool_choice payload", async () => {
+    const adapter = new ClaudeAdapter();
+    const fetchMock = vi.fn(async (_url: string, init: any) => {
+      const parsed = JSON.parse(init.body);
+      expect(Array.isArray(parsed.tools)).toBe(true);
+      expect(parsed.tools[0]).toMatchObject({
+        name: "tool.echo",
+        input_schema: { type: "object" },
+      });
+      expect(parsed.tool_choice).toMatchObject({ type: "auto" });
+      return new Response(
+        JSON.stringify({
+          id: "msg_1",
+          type: "message",
+          role: "assistant",
+          model: "claude-test",
+          stop_reason: "stop",
+          content: [{ type: "text", text: "ok" }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+        { status: 200 },
+      );
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await adapter.chatCompletion(
+      {
+        ...makeClient(),
+        type: "claude",
+        baseUrl: "https://example.ai",
+        model: "claude-test",
+      },
+      [{ role: "user", content: "hi" }],
+      {
+        tools: [{ type: "function", function: { name: "tool.echo", parameters: { type: "object" } } }],
+        toolChoice: "auto",
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+});
