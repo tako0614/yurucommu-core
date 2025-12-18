@@ -393,7 +393,33 @@ const createTakosContextLite = (options) => {
       }
       return createStorageProxy(normalized);
     },
-    ai: { providers: null },
+    ai: {
+      providers: null,
+      openai: {
+        chat: {
+          completions: {
+            create: async (params) => {
+              return rpc({
+                kind: "ai",
+                method: "chat.completions.create",
+                args: [params],
+                auth,
+              });
+            },
+          },
+        },
+        embeddings: {
+          create: async (params) => {
+            return rpc({
+              kind: "ai",
+              method: "embeddings.create",
+              args: [params],
+              auth,
+            });
+          },
+        },
+      },
+    },
     log,
     json,
     error,

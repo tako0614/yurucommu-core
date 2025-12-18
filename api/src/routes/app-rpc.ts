@@ -1,9 +1,20 @@
 import { Hono } from "hono";
 import type { PublicAccountBindings as Bindings, Variables } from "@takos/platform/server";
-import { HttpError } from "@takos/platform/server";
+import {
+  HttpError,
+  buildAiProviderRegistry,
+  chatCompletion,
+  embed,
+  mergeTakosAiConfig,
+  DEFAULT_TAKOS_AI_CONFIG,
+} from "@takos/platform/server";
 import { buildCoreServices } from "../lib/core-services";
 import { createAppCollectionFactory } from "../lib/app-collections";
 import { ErrorCodes } from "../lib/error-codes";
+import type { AppAuthContext } from "@takos/platform/app/runtime/types";
+import { requireAiQuota } from "../lib/plan-guard";
+import { createUsageTrackerFromEnv } from "../lib/usage-tracker";
+import { ensureAiCallAllowed } from "../lib/ai-rate-limit";
 
 type RpcRequest =
   | {
@@ -27,6 +38,12 @@ type RpcRequest =
       workspaceId?: string | null;
       userId?: string | null;
       mode?: "dev" | "prod";
+    }
+  | {
+      kind: "ai";
+      method: "chat.completions.create" | "embeddings.create";
+      args: unknown[];
+      auth?: AppAuthContext | null;
     };
 
 type RpcResponse =
@@ -85,6 +102,13 @@ function isSafePropertyName(value: string): boolean {
   if (!value) return false;
   return value !== "__proto__" && value !== "prototype" && value !== "constructor";
 }
+
+const ALLOWED_SERVICE_ROOTS = new Set([
+  "objects",
+  "actors",
+  "notifications",
+  "storage",
+]);
 
 type KvLike = {
   get: (key: string, type?: "text") => Promise<string | null>;
@@ -252,6 +276,13 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
         return c.json(
           { ok: false, error: { message: "services path contains invalid segment" } } satisfies RpcResponse,
           400,
+        );
+      }
+      const root = path[0];
+      if (!ALLOWED_SERVICE_ROOTS.has(root)) {
+        return c.json(
+          { ok: false, error: { message: `Service "${root}" is not available to apps`, code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
+          403,
         );
       }
       const services = buildCoreServices(c.env as any) as any;
@@ -471,6 +502,140 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
       }
 
       return c.json({ ok: false, error: { message: `Unknown storage method "${method}"` } } satisfies RpcResponse, 400);
+    }
+
+    if (payload.kind === "ai") {
+      const method = normalizeString((payload as any).method);
+      const args = normalizeArgs((payload as any).args);
+      const auth = ((payload as any).auth ?? null) as AppAuthContext | null;
+
+      const userId = typeof auth?.userId === "string" ? auth.userId : null;
+      if (!auth?.isAuthenticated || !userId) {
+        return c.json(
+          { ok: false, error: { message: "authentication required", code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
+          403,
+        );
+      }
+
+      const takosConfig = ((c.get?.("takosConfig") as any) ?? (c.env as any).takosConfig) as any;
+      if (!takosConfig) {
+        return c.json(
+          { ok: false, error: { message: "takos-config is not available", code: ErrorCodes.SERVICE_UNAVAILABLE } } satisfies RpcResponse,
+          503,
+        );
+      }
+
+      const aiConfig = mergeTakosAiConfig(DEFAULT_TAKOS_AI_CONFIG, takosConfig.ai ?? {});
+      if (aiConfig.enabled === false) {
+        return c.json(
+          { ok: false, error: { message: "AI is disabled for this node", code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
+          403,
+        );
+      }
+      if (aiConfig.requires_external_network === false) {
+        return c.json(
+          { ok: false, error: { message: "AI external network access is disabled for this node", code: ErrorCodes.SERVICE_UNAVAILABLE } } satisfies RpcResponse,
+          503,
+        );
+      }
+
+      const usageTracker = createUsageTrackerFromEnv(c.env as any);
+      const currentUsage = await usageTracker.getAiUsage(userId);
+      const planCheck = requireAiQuota(auth as any, { used: currentUsage, requested: 1 });
+      if (!planCheck.ok) {
+        return c.json(
+          { ok: false, error: { message: planCheck.message, code: planCheck.code } } satisfies RpcResponse,
+          planCheck.status,
+        );
+      }
+
+      const rateLimit = await ensureAiCallAllowed(c.env as any, auth as any, {});
+      if (!rateLimit.ok) {
+        return c.json(
+          { ok: false, error: { message: rateLimit.message, code: rateLimit.code } } satisfies RpcResponse,
+          rateLimit.status,
+        );
+      }
+
+      let providers;
+      try {
+        providers = buildAiProviderRegistry(aiConfig, c.env as any);
+      } catch (error: any) {
+        return c.json(
+          { ok: false, error: { message: error?.message || "failed to resolve AI providers" } } satisfies RpcResponse,
+          400,
+        );
+      }
+
+      const provider = providers.get();
+      if (!provider) {
+        return c.json({ ok: false, error: { message: "No AI provider configured" } } satisfies RpcResponse, 503);
+      }
+
+      if (method === "chat.completions.create") {
+        const params = (args?.[0] ?? {}) as any;
+        if (params?.stream) {
+          return c.json({ ok: false, error: { message: "streaming is not supported via app-rpc" } } satisfies RpcResponse, 400);
+        }
+
+        const messages = Array.isArray(params?.messages)
+          ? params.messages.map((m: any) => ({ role: m.role, content: m.content }))
+          : [];
+
+        const result = await chatCompletion(provider, messages, {
+          model: params.model,
+          temperature: params.temperature,
+          maxTokens: params.max_tokens,
+          stream: false,
+        });
+
+        await usageTracker.recordAiRequest(userId);
+
+        return c.json(
+          {
+            ok: true,
+            result: {
+              id: result.id,
+              choices: result.choices.map((choice) => ({
+                index: choice.index,
+                message: choice.message,
+                finish_reason: choice.finishReason ?? "stop",
+              })),
+              usage: result.usage
+                ? {
+                    prompt_tokens: result.usage.promptTokens,
+                    completion_tokens: result.usage.completionTokens,
+                    total_tokens: result.usage.totalTokens,
+                  }
+                : undefined,
+            },
+          } satisfies RpcResponse,
+        );
+      }
+
+      if (method === "embeddings.create") {
+        const params = (args?.[0] ?? {}) as any;
+        const result = await embed(provider, params?.input ?? "", { model: params?.model });
+
+        await usageTracker.recordAiRequest(userId);
+
+        return c.json(
+          {
+            ok: true,
+            result: {
+              data: result.embeddings.map((entry) => ({ index: entry.index, embedding: entry.embedding })),
+              usage: result.usage
+                ? { prompt_tokens: result.usage.promptTokens, total_tokens: result.usage.totalTokens }
+                : undefined,
+            },
+          } satisfies RpcResponse,
+        );
+      }
+
+      return c.json(
+        { ok: false, error: { message: `Unknown AI method "${method}"` } } satisfies RpcResponse,
+        400,
+      );
     }
 
     return c.json({ ok: false, error: { message: "unknown kind" } } satisfies RpcResponse, 400);

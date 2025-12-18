@@ -66,6 +66,14 @@ describe("/-/internal/app-rpc", () => {
     expect(body).toMatchObject({ ok: false });
   });
 
+  it("rejects calling disallowed services", async () => {
+    const env: any = { TAKOS_APP_RPC_TOKEN: "test-token" };
+    const res = await postRpc(env, { kind: "services", path: ["auth", "login"], args: [] });
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false });
+  });
+
   it("supports storage put/getText for app:* buckets", async () => {
     const env: any = { TAKOS_APP_RPC_TOKEN: "test-token", APP_STATE: createMockKv() };
     const putRes = await postRpc(env, {
@@ -147,5 +155,41 @@ describe("/-/internal/app-rpc", () => {
     const body = await res.json();
     expect(body).toMatchObject({ ok: false });
     expect(typeof body.error.stack).toBe("string");
+  });
+
+  it("rejects AI calls when unauthenticated", async () => {
+    const env: any = {
+      TAKOS_APP_RPC_TOKEN: "test-token",
+      takosConfig: { schema_version: "3.0", distro: "oss", ai: { enabled: true } },
+    };
+    const res = await postRpc(env, {
+      kind: "ai",
+      method: "chat.completions.create",
+      args: [{ model: "x", messages: [] }],
+      auth: { userId: null, isAuthenticated: false },
+    });
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false });
+  });
+
+  it("returns 503 when AI external network is disabled", async () => {
+    const env: any = {
+      TAKOS_APP_RPC_TOKEN: "test-token",
+      takosConfig: {
+        schema_version: "3.0",
+        distro: "oss",
+        ai: { enabled: true, requires_external_network: false },
+      },
+    };
+    const res = await postRpc(env, {
+      kind: "ai",
+      method: "chat.completions.create",
+      args: [{ model: "x", messages: [] }],
+      auth: { userId: "user123", isAuthenticated: true, plan: { name: "pro", limits: {}, features: [] }, limits: {} },
+    });
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false });
   });
 });
