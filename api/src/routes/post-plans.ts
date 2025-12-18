@@ -6,13 +6,6 @@ import {
   HttpError,
   nowISO,
   uuid,
-  requireInstanceDomain,
-  getObjectUri,
-  getActivityUri,
-  getActorUri,
-  ACTIVITYSTREAMS_CONTEXT,
-  generateNoteObject,
-  enqueueDeliveriesToFollowers,
   releaseStore,
 } from "@takos/platform/server";
 import { makeData } from "../data";
@@ -69,9 +62,6 @@ async function publishPlan(
   }
 
   const id = uuid();
-  const instanceDomain = requireInstanceDomain(env);
-  const ap_object_id = getObjectUri(user.id, id, instanceDomain);
-  const ap_activity_id = getActivityUri(user.id, `create-${id}`, instanceDomain);
 
   const postPayload = {
     id,
@@ -85,45 +75,9 @@ async function publishPlan(
     broadcast_all: plan.broadcast_all,
     visible_to_friends: plan.visible_to_friends,
     attributed_community_id: plan.community_id,
-    ap_object_id,
-    ap_activity_id,
   };
 
   await store.createPost(postPayload);
-
-  const protocol = "https";
-  const noteObject = generateNoteObject(
-    { ...postPayload, media_json: JSON.stringify(postPayload.media_urls) },
-    { id: user.id },
-    instanceDomain,
-    protocol,
-  );
-  const actorUri = getActorUri(user.id, instanceDomain);
-  const createActivity = {
-    "@context": ACTIVITYSTREAMS_CONTEXT,
-    type: "Create",
-    id: ap_activity_id,
-    actor: actorUri,
-    object: noteObject,
-    published: new Date(postPayload.created_at).toISOString(),
-    to: noteObject.to,
-    cc: noteObject.cc,
-  };
-
-  await store.upsertApOutboxActivity({
-    id: crypto.randomUUID(),
-    local_user_id: user.id,
-    activity_id: ap_activity_id,
-    activity_type: "Create",
-    activity_json: JSON.stringify(createActivity),
-    object_id: postPayload.ap_object_id ?? null,
-    object_type: "Note",
-    created_at: new Date(),
-  });
-
-  await enqueueDeliveriesToFollowers(store as any, user.id, ap_activity_id, {
-    env,
-  });
 
   return postPayload;
 }

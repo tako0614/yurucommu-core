@@ -8,9 +8,6 @@ import {
   fail,
   nowISO,
   uuid,
-  requireInstanceDomain,
-  getActorUri,
-  getObjectUri,
   releaseStore,
 } from "@takos/platform/server";
 import { makeData } from "../data";
@@ -46,35 +43,30 @@ moderation.post("/reports", auth, async (c) => {
     const category = REPORT_CATEGORIES.has(categoryRaw) ? categoryRaw : "other";
     const reason = typeof body.reason === "string" ? body.reason.trim() : "";
 
-    const instanceDomain = requireInstanceDomain(c.env);
     let targetActorId: string | null = null;
     let targetObjectId: string | null = null;
 
     if (targetType === "user") {
       const targetUser = await store.getUser(targetId);
       if (!targetUser) return fail(c, "target not found", 404);
-      targetActorId = getActorUri(targetUser.id, instanceDomain);
+      targetActorId = targetUser.id;
     } else if (targetType === "post") {
       const post = await store.getPost(targetId);
       if (!post) return fail(c, "target not found", 404);
-      targetActorId = getActorUri((post as any).author_id, instanceDomain);
-      targetObjectId =
-        (post as any).ap_object_id ||
-        getObjectUri((post as any).author_id, (post as any).id, instanceDomain);
+      targetActorId = (post as any).author_id;
+      targetObjectId = (post as any).id;
     } else if (targetType === "comment") {
       const comment = await store.getComment(targetId);
       if (!comment) return fail(c, "target not found", 404);
-      targetActorId = getActorUri((comment as any).author_id, instanceDomain);
-      targetObjectId =
-        (comment as any).ap_object_id ||
-        getObjectUri((comment as any).author_id, (comment as any).id, instanceDomain);
+      targetActorId = (comment as any).author_id;
+      targetObjectId = (comment as any).id;
     } else {
       return fail(c, "invalid target_type", 400);
     }
 
     const created = await store.createReport({
       id: uuid(),
-      reporter_actor_id: getActorUri(user.id, instanceDomain),
+      reporter_actor_id: user.id,
       target_actor_id: targetActorId!,
       target_object_id: targetObjectId,
       category,
@@ -96,11 +88,9 @@ moderation.get("/reports", auth, async (c) => {
   try {
     const user = c.get("user") as any;
     if (!store.listReportsByUser) return fail(c, "reports not available", 500);
-    const instanceDomain = requireInstanceDomain(c.env);
-    const reporterActorId = getActorUri(user.id, instanceDomain);
     const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") || "20", 10)));
     const offset = Math.max(0, parseInt(c.req.query("offset") || "0", 10));
-    const reports = await store.listReportsByUser(reporterActorId, limit, offset);
+    const reports = await store.listReportsByUser(user.id, limit, offset);
     return ok(c, reports);
   } finally {
     await releaseStore(store);

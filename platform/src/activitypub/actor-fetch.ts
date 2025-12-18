@@ -243,10 +243,13 @@ export async function fetchRemoteActor(
  */
 export async function getOrFetchActor(
   actorUri: string,
-  env: { DB: D1Database },
+  env: { DB?: D1Database },
   forceRefresh = false,
   fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = fetch
 ): Promise<RemoteActor | null> {
+  if (!env?.DB) {
+    return fetchRemoteActor(actorUri, fetcher);
+  }
   const availability = getActivityPubAvailability(env as any);
   const db = makeData(env as any);
 
@@ -314,7 +317,7 @@ export async function getOrFetchActor(
  * @param env - Cloudflare Workers environment
  * @returns Public key PEM or null
  */
-export async function getActorPublicKey(actorUri: string, env: { DB: D1Database }): Promise<string | null> {
+export async function getActorPublicKey(actorUri: string, env: { DB?: D1Database }): Promise<string | null> {
   const actor = await getOrFetchActor(actorUri, env);
   if (!actor || !actor.publicKey) {
     return null;
@@ -333,7 +336,7 @@ export async function getActorPublicKey(actorUri: string, env: { DB: D1Database 
 export async function verifyActorOwnsKey(
   activityActorUri: string,
   signatureKeyId: string,
-  env: { DB: D1Database },
+  env: { DB?: D1Database },
   fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = fetch
 ): Promise<boolean> {
   // Fetch actor

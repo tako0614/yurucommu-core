@@ -53,8 +53,6 @@ describe("Post delete/update operations", () => {
       deleteComment: vi.fn().mockResolvedValue(undefined),
       getReaction: vi.fn().mockResolvedValue(mockReaction),
       deleteReaction: vi.fn().mockResolvedValue(undefined),
-      upsertApOutboxActivity: vi.fn().mockResolvedValue(undefined),
-      createApDeliveryQueueItem: vi.fn().mockResolvedValue(undefined),
       hasMembership: vi.fn().mockResolvedValue(true),
       listApFollowers: vi.fn().mockResolvedValue([]),
       disconnect: vi.fn().mockResolvedValue(undefined),
@@ -128,62 +126,4 @@ describe("Post delete/update operations", () => {
     });
   });
 
-  describe("ActivityPub integration", () => {
-    it("should create Delete activity when deleting post", async () => {
-      await mockStore.upsertApOutboxActivity!({
-        id: "activity123",
-        local_user_id: "user123",
-        activity_id: "https://example.com/activities/delete-post123",
-        activity_type: "Delete",
-        activity_json: JSON.stringify({
-          type: "Delete",
-          object: mockPost.ap_object_id,
-        }),
-        object_id: mockPost.ap_object_id,
-        object_type: "Note",
-        created_at: new Date(),
-      });
-
-      expect(mockStore.upsertApOutboxActivity).toHaveBeenCalled();
-    });
-
-    it("should create Update activity when updating post", async () => {
-      await mockStore.upsertApOutboxActivity!({
-        id: "activity123",
-        local_user_id: "user123",
-        activity_id: "https://example.com/activities/update-post123",
-        activity_type: "Update",
-        activity_json: JSON.stringify({
-          type: "Update",
-          object: mockPost.ap_object_id,
-        }),
-        object_id: mockPost.ap_object_id,
-        object_type: "Note",
-        created_at: new Date(),
-      });
-
-      expect(mockStore.upsertApOutboxActivity).toHaveBeenCalled();
-    });
-
-    it("should create Undo activity when deleting reaction", async () => {
-      await mockStore.upsertApOutboxActivity!({
-        id: "activity123",
-        local_user_id: "user123",
-        activity_id: "https://example.com/activities/undo-like-reaction123",
-        activity_type: "Undo",
-        activity_json: JSON.stringify({
-          type: "Undo",
-          object: {
-            type: "Like",
-            id: mockReaction.ap_activity_id,
-          },
-        }),
-        object_id: mockReaction.ap_activity_id,
-        object_type: "Like",
-        created_at: new Date(),
-      });
-
-      expect(mockStore.upsertApOutboxActivity).toHaveBeenCalled();
-    });
-  });
 });
