@@ -49,6 +49,8 @@ describe("App Script runtime", () => {
       },
     });
 
+    expect((ctx.ai as any).openai).toBeTruthy();
+
     const dbHandle = ctx.db("app:notes") as any;
     expect(dbHandle.name).toBe("app:notes");
     expect(dbHandle.info.mode).toBe("dev");
@@ -81,6 +83,19 @@ describe("App Script runtime", () => {
       status: 307,
       location: "/next",
     });
+  });
+
+  it("exposes ctx.ai.openai but rejects calls without providers", async () => {
+    const ctx = createTakosContext({
+      mode: "prod",
+      services: {},
+      resolveDb: () => ({}),
+      resolveStorage: () => ({}),
+    });
+
+    await expect(
+      (ctx.ai as any).openai.chat.completions.create({ model: "x", messages: [{ role: "user", content: "hi" }] }),
+    ).rejects.toThrow(/providers/i);
   });
 
   it("runs handlers in sandbox with prod/dev separation and response normalization", async () => {

@@ -15,6 +15,7 @@ import type {
   ServiceRegistry,
   TakosContext,
 } from "./types";
+import { chatCompletion, embed } from "../../ai/provider-adapters";
 
 export type CreateTakosContextOptions = {
   mode: AppRuntimeMode;
@@ -36,7 +37,79 @@ export function createTakosContext(options: CreateTakosContextOptions): TakosCon
   const bindingInfo: BindingResolverInfo = { mode, workspaceId };
 
   const services = { ...(options.services ?? {}) };
-  const ai = options.ai ?? { providers: null };
+  const baseAi = (options.ai ?? { providers: null }) as AiRuntime;
+  const ai =
+    typeof (baseAi as any).openai === "object" && (baseAi as any).openai
+      ? baseAi
+      : ({
+          ...baseAi,
+          openai: {
+            chat: {
+              completions: {
+                create: async (params: any) => {
+                  if (params?.stream) {
+                    throw new Error("streaming is not supported in ctx.ai.openai");
+                  }
+                  const registry = baseAi.providers;
+                  if (!registry) {
+                    throw new Error("AI providers are not configured for this runtime");
+                  }
+                  const provider = registry.get();
+                  if (!provider) {
+                    throw new Error("No AI provider configured");
+                  }
+
+                  const messages = Array.isArray(params?.messages)
+                    ? params.messages.map((m: any) => ({ role: m.role, content: m.content }))
+                    : [];
+
+                  const result = await chatCompletion(provider as any, messages as any, {
+                    model: params?.model,
+                    temperature: params?.temperature,
+                    maxTokens: params?.max_tokens,
+                    stream: false,
+                  });
+
+                  return {
+                    id: result.id,
+                    choices: result.choices.map((choice) => ({
+                      index: choice.index,
+                      message: choice.message,
+                      finish_reason: choice.finishReason ?? "stop",
+                    })),
+                    usage: result.usage
+                      ? {
+                          prompt_tokens: result.usage.promptTokens,
+                          completion_tokens: result.usage.completionTokens,
+                          total_tokens: result.usage.totalTokens,
+                        }
+                      : undefined,
+                  };
+                },
+              },
+            },
+            embeddings: {
+              create: async (params: any) => {
+                const registry = baseAi.providers;
+                if (!registry) {
+                  throw new Error("AI providers are not configured for this runtime");
+                }
+                const provider = registry.get();
+                if (!provider) {
+                  throw new Error("No AI provider configured");
+                }
+
+                const result = await embed(provider as any, params?.input ?? "", { model: params?.model });
+                return {
+                  data: result.embeddings.map((entry) => ({ index: entry.index, embedding: entry.embedding })),
+                  usage: result.usage
+                    ? { prompt_tokens: result.usage.promptTokens, total_tokens: result.usage.totalTokens }
+                    : undefined,
+                };
+              },
+            },
+          },
+        } as AiRuntime);
   const log = createLogEmitter({
     mode,
     workspaceId,
