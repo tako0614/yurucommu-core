@@ -749,7 +749,7 @@ const validateHandlerPresence = (
     if (!handlerName) {
       issues.push({
         severity: "error",
-        message: `ActivityPub handler ${handler.id} is missing handler`,
+        message: `AP handler ${handler.id} is missing handler`,
         path: `ap:${handler.id}`,
       });
       continue;
@@ -757,7 +757,7 @@ const validateHandlerPresence = (
     if (!available.has(handlerName)) {
       issues.push({
         severity: "error",
-        message: `ActivityPub handler "${handlerName}" is not exported by app script`,
+        message: `AP handler "${handlerName}" is not exported by app script`,
         path: `ap:${handler.id}`,
       });
     }
