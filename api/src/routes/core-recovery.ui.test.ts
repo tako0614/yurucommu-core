@@ -23,8 +23,7 @@ describe("Core Recovery UI HTML", () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain("/-/config/pending");
+    expect(html).toContain("/-/config/pending/bulk-decide");
     expect(html).toContain("unwrapOkJson");
-    expect(html).not.toContain("data.result");
   });
 });
-

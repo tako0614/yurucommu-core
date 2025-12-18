@@ -978,7 +978,30 @@ function getRecoveryPageHtml(): string {
           return;
         }
 
-        const html = '<ul class="revision-list">' +
+        const header = \`
+          <div style="display:flex; align-items:center; justify-content:space-between; gap: 12px; margin-bottom: 12px;">
+            <div>
+              <div style="font-weight: 600;">Pending config changes</div>
+              \${stats ? \`<div class="small">pending: \${stats.pending}, approved: \${stats.approved}, rejected: \${stats.rejected}, expired: \${stats.expired}</div>\` : ''}
+            </div>
+            <div style="display:flex; gap: 8px;">
+              <button class="btn btn-secondary" onclick="selectAllPending(true)">Select all</button>
+              <button class="btn btn-secondary" onclick="selectAllPending(false)">Clear</button>
+            </div>
+          </div>
+          <div style="display:flex; gap: 12px; align-items:flex-start; margin-bottom: 12px;">
+            <div style="flex: 1;">
+              <label class="small" for="pending-comment" style="display:block; margin-bottom: 6px;">Comment (optional)</label>
+              <textarea id="pending-comment" rows="2" style="width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; resize: vertical;" placeholder="Reason / notes for this decision"></textarea>
+            </div>
+            <div style="display:flex; flex-direction:column; gap: 8px;">
+              <button class="btn" onclick="bulkDecidePending('approve')">Approve selected</button>
+              <button class="btn btn-secondary" onclick="bulkDecidePending('reject')">Reject selected</button>
+            </div>
+          </div>
+        \`;
+
+        const html = header + '<ul class="revision-list">' +
           proposals.map(p => {
             const content = (p && p.content) || {};
             const path = content.path || '(unknown path)';
@@ -986,6 +1009,9 @@ function getRecoveryPageHtml(): string {
             const proposedValue = JSON.stringify(content.proposedValue ?? null);
             return \`
               <li class="revision-item">
+                <div style="display:flex; align-items:flex-start; gap: 12px;">
+                  <input type="checkbox" class="pending-select" data-id="\${p.id}" style="margin-top: 6px;">
+                  <div style="flex: 1;">
                 <div class="revision-info">
                   <div class="revision-id">\${p.id}</div>
                   <div class="revision-date">\${p.createdAt ? new Date(p.createdAt).toLocaleString() : ''}</div>
@@ -993,9 +1019,11 @@ function getRecoveryPageHtml(): string {
                   <div class="small">current: <code>\${currentValue}</code></div>
                   <div class="small">proposed: <code>\${proposedValue}</code></div>
                 </div>
+                  </div>
                 <div>
                   <button class="btn btn-secondary" onclick="decidePendingChange('\${p.id}', 'reject')">Reject</button>
                   <button class="btn" onclick="decidePendingChange('\${p.id}', 'approve')" style="margin-left: 8px;">Approve</button>
+                </div>
                 </div>
               </li>
             \`;
@@ -1009,14 +1037,69 @@ function getRecoveryPageHtml(): string {
       }
     }
 
+    function getPendingComment() {
+      const el = document.getElementById('pending-comment');
+      if (!el) return undefined;
+      const raw = (el.value || '').trim();
+      return raw ? raw : undefined;
+    }
+
+    function getSelectedPendingIds() {
+      const boxes = Array.from(document.querySelectorAll('.pending-select'));
+      return boxes
+        .filter((el) => el && el.checked)
+        .map((el) => (el.getAttribute('data-id') || '').trim())
+        .filter(Boolean);
+    }
+
+    function selectAllPending(select) {
+      const boxes = Array.from(document.querySelectorAll('.pending-select'));
+      for (const box of boxes) {
+        box.checked = !!select;
+      }
+    }
+
+    async function bulkDecidePending(decision) {
+      const ids = getSelectedPendingIds();
+      if (!ids.length) {
+        alert('No changes selected.');
+        return;
+      }
+
+      const label = decision === 'approve' ? 'approve' : 'reject';
+      if (!confirm('Are you sure you want to ' + label + ' ' + ids.length + ' changes?')) return;
+
+      const comment = getPendingComment();
+      try {
+        const response = await fetch('/-/config/pending/bulk-decide', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ decision, ids, comment }),
+        });
+        const data = await unwrapOkJson(response);
+        if (!data.ok) {
+          alert('Bulk decision failed: ' + (data.error || 'Unknown error'));
+          return;
+        }
+        const results = (data.data && data.data.results) || [];
+        const okCount = results.filter(r => r && r.ok).length;
+        const failCount = results.length - okCount;
+        alert('Bulk decision recorded: ok=' + okCount + ', failed=' + failCount);
+        loadPendingConfigChanges();
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+
     async function decidePendingChange(id, decision) {
       const label = decision === 'approve' ? 'approve' : 'reject';
       if (!confirm('Are you sure you want to ' + label + ' this change?')) return;
       try {
+        const comment = getPendingComment();
         const response = await fetch('/-/config/pending/' + encodeURIComponent(id) + '/decide', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ decision }),
+          body: JSON.stringify({ decision, comment }),
         });
         const data = await unwrapOkJson(response);
         if (!data.ok) {
