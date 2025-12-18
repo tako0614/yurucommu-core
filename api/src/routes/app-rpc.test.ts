@@ -311,6 +311,44 @@ describe("/-/internal/app-rpc", () => {
     globalThis.fetch = originalFetch;
   });
 
+  it("records AP delivery usage when outbound metering header is present", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2025-01-02T03:04:05.000Z"));
+
+    const kvStore = new Map<string, string>();
+    const kv = {
+      get: vi.fn(async (key: string) => kvStore.get(key) ?? null),
+      put: vi.fn(async (key: string, value: string) => {
+        kvStore.set(key, value);
+      }),
+    };
+
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async (_url: string, init: any) => {
+      const headers = new Headers(init?.headers);
+      expect(headers.get("x-takos-meter-ap-delivery")).toBeNull();
+      return new Response("ok", { status: 200 });
+    });
+    // @ts-ignore
+    globalThis.fetch = fetchMock;
+
+    const env: any = { TAKOS_APP_RPC_TOKEN: "test-token", TAKOS_OUTBOUND_RPC_ENABLED: "true", APP_STATE: kv };
+    const res = await postRpc(env, {
+      kind: "outbound",
+      url: "https://remote.example/test",
+      init: { headers: { "x-takos-meter-ap-delivery": "2" } },
+      auth: { userId: "u1", isAuthenticated: false },
+    });
+    expect(res.status).toBe(200);
+
+    expect(kvStore.get("usage:u1:ap:day:2025-01-02")).toBe("2");
+    expect(kvStore.get("usage:u1:ap:minute:2025-01-02-0304")).toBe("2");
+
+    // @ts-ignore
+    globalThis.fetch = originalFetch;
+    vi.useRealTimers();
+  });
+
   it("rate limits outbound when limit is zero", async () => {
     const env: any = {
       TAKOS_APP_RPC_TOKEN: "test-token",
