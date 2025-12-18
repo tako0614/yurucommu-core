@@ -22,6 +22,8 @@ export type ChatRole = "system" | "user" | "assistant";
 export type ChatMessage = {
   role: ChatRole;
   content: string;
+  tool_calls?: unknown;
+  tool_call_id?: string;
 };
 
 export type ChatCompletionOptions = {
@@ -30,6 +32,9 @@ export type ChatCompletionOptions = {
   maxTokens?: number;
   topP?: number;
   stream?: boolean;
+  tools?: unknown;
+  toolChoice?: unknown;
+  responseFormat?: unknown;
 };
 
 export type ChatCompletionChoice = {
@@ -125,6 +130,8 @@ export interface AiProviderAdapter {
 type OpenAiMessage = {
   role: "system" | "user" | "assistant";
   content: string;
+  tool_calls?: unknown;
+  tool_call_id?: string;
 };
 
 type OpenAiRequest = {
@@ -134,6 +141,9 @@ type OpenAiRequest = {
   max_tokens?: number;
   top_p?: number;
   stream?: boolean;
+  tools?: unknown;
+  tool_choice?: unknown;
+  response_format?: unknown;
 };
 
 type OpenAiChoice = {
@@ -141,6 +151,7 @@ type OpenAiChoice = {
   message: {
     role: string;
     content: string;
+    tool_calls?: unknown;
   };
   finish_reason: string | null;
 };
@@ -203,7 +214,12 @@ export class OpenAiAdapter implements AiProviderAdapter {
 
     const body: OpenAiRequest = {
       model,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      messages: messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        tool_calls: (m as any)?.tool_calls,
+        tool_call_id: (m as any)?.tool_call_id,
+      })),
       stream: false,
     };
 
@@ -215,6 +231,15 @@ export class OpenAiAdapter implements AiProviderAdapter {
     }
     if (options?.topP !== undefined) {
       body.top_p = options.topP;
+    }
+    if (options?.tools !== undefined) {
+      body.tools = options.tools;
+    }
+    if (options?.toolChoice !== undefined) {
+      body.tool_choice = options.toolChoice;
+    }
+    if (options?.responseFormat !== undefined) {
+      body.response_format = options.responseFormat;
     }
 
     const response = await fetch(url, {
@@ -244,6 +269,7 @@ export class OpenAiAdapter implements AiProviderAdapter {
         message: {
           role: choice.message.role as ChatRole,
           content: choice.message.content,
+          tool_calls: (choice.message as any)?.tool_calls,
         },
         finishReason: choice.finish_reason,
       })),
@@ -273,7 +299,12 @@ export class OpenAiAdapter implements AiProviderAdapter {
 
     const body: OpenAiRequest = {
       model,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      messages: messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        tool_calls: (m as any)?.tool_calls,
+        tool_call_id: (m as any)?.tool_call_id,
+      })),
       stream: true,
     };
 
@@ -285,6 +316,15 @@ export class OpenAiAdapter implements AiProviderAdapter {
     }
     if (options?.topP !== undefined) {
       body.top_p = options.topP;
+    }
+    if (options?.tools !== undefined) {
+      body.tools = options.tools;
+    }
+    if (options?.toolChoice !== undefined) {
+      body.tool_choice = options.toolChoice;
+    }
+    if (options?.responseFormat !== undefined) {
+      body.response_format = options.responseFormat;
     }
 
     const response = await fetch(url, {
