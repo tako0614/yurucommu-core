@@ -266,6 +266,37 @@ describe("provider-adapters ClaudeAdapter", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
   });
+
+  it("streams tool_calls chunks when Claude emits tool_use", async () => {
+    const adapter = new ClaudeAdapter();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode([
+          "data: " + JSON.stringify({ type: "content_block_start", content_block: { type: "tool_use", id: "toolu_1", name: "tool.echo", input: { x: 1 } } }) + "\n",
+          "data: " + JSON.stringify({ type: "message_stop" }) + "\n",
+        ].join("")));
+        controller.close();
+      },
+    });
+    const fetchMock = vi.fn(async () => new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await adapter.chatCompletionStream(
+      {
+        ...makeClient(),
+        type: "claude",
+        baseUrl: "https://example.ai",
+        model: "claude-test",
+      },
+      [{ role: "user", content: "hi" }],
+      { tools: [{ type: "function", function: { name: "tool.echo", parameters: { type: "object" } } }] },
+    );
+
+    const text = await new Response(result.stream).text();
+    expect(text).toContain("\"tool_calls\"");
+    expect(text).toContain("\"finish_reason\":\"tool_calls\"");
+    vi.unstubAllGlobals();
+  });
 });
 
 describe("provider-adapters GeminiAdapter", () => {
@@ -398,6 +429,38 @@ describe("provider-adapters GeminiAdapter", () => {
       { type: "function", function: { name: "tool.echo", arguments: "{\"x\":1}" } },
     ]);
     expect(result.choices[0]?.finishReason).toBe("tool_calls");
+    vi.unstubAllGlobals();
+  });
+
+  it("streams tool_calls chunks when Gemini emits functionCall parts", async () => {
+    const adapter = new GeminiAdapter();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode([
+          "data: " + JSON.stringify({ candidates: [{ content: { role: "model", parts: [{ functionCall: { name: "tool.echo", args: { x: 1 } } }] } }] }) + "\n",
+          "data: " + JSON.stringify({ candidates: [{ finishReason: "STOP", content: { role: "model", parts: [] } }] }) + "\n",
+        ].join("")));
+        controller.close();
+      },
+    });
+    const fetchMock = vi.fn(async () => new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await adapter.chatCompletionStream(
+      {
+        ...makeClient(),
+        type: "gemini",
+        baseUrl: "https://example.ai/v1beta",
+        model: "gemini-1.5-flash",
+        apiKey: "k",
+      },
+      [{ role: "user", content: "hi" }],
+      { tools: [{ type: "function", function: { name: "tool.echo", parameters: { type: "object" } } }] },
+    );
+
+    const text = await new Response(result.stream).text();
+    expect(text).toContain("\"tool_calls\"");
+    expect(text).toContain("\"finish_reason\":\"tool_calls\"");
     vi.unstubAllGlobals();
   });
 });
