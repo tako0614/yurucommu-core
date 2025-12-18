@@ -163,7 +163,7 @@ describe("default app E2E smoke", () => {
   it("excludes blocked users from /api/timeline/home", async () => {
     bindings = createMockBindings();
     (bindings.APP_STATE.get as any).mockImplementation(async (key: string) => {
-      if (key === "app:default:block:test-user:list") return ["followed-user"];
+      if (key === "app:default:user:test-user:block:test-user:list") return ["followed-user"];
       return null;
     });
 
