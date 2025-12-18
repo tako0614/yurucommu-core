@@ -141,6 +141,34 @@ const normalizeHeadersRecord = (value: unknown): Record<string, string> => {
   return headers;
 };
 
+const getHeaderValue = (headers: Record<string, string>, name: string): string | null => {
+  const target = name.trim().toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.trim().toLowerCase() === target) return value;
+  }
+  return null;
+};
+
+const deleteHeader = (headers: Record<string, string>, name: string): void => {
+  const target = name.trim().toLowerCase();
+  for (const key of Object.keys(headers)) {
+    if (key.trim().toLowerCase() === target) {
+      delete headers[key];
+      return;
+    }
+  }
+};
+
+const parseMeterCount = (raw: string | null): number => {
+  if (!raw) return 0;
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed) return 0;
+  if (trimmed === "true" || trimmed === "on" || trimmed === "yes") return 1;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(parsed) || Number.isNaN(parsed)) return 0;
+  return Math.max(0, parsed);
+};
+
 const parseOutboundUrl = (value: unknown): URL => {
   const raw = typeof value === "string" ? value.trim() : "";
   if (!raw) throw new Error("url is required");
@@ -882,6 +910,11 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
       }
 
       const headers = normalizeHeadersRecord(init?.headers);
+      const apDeliveryMeter = parseMeterCount(getHeaderValue(headers, "x-takos-meter-ap-delivery"));
+      if (apDeliveryMeter > 0) {
+        // Do not forward internal metering headers to the remote host.
+        deleteHeader(headers, "x-takos-meter-ap-delivery");
+      }
       const body = init?.body as { encoding: "utf8" | "base64"; data: string } | null | undefined;
       let outboundBody: BodyInit | undefined;
       if (body) {
@@ -937,6 +970,15 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
           durationMs: Date.now() - startedAt,
           responseBytes,
         });
+
+        if (apDeliveryMeter > 0 && auth?.userId && !auth.isAuthenticated) {
+          try {
+            const tracker = createUsageTrackerFromEnv(c.env as any);
+            await tracker.recordApDelivery(auth.userId, apDeliveryMeter);
+          } catch {
+            // metering is best-effort
+          }
+        }
 
         return c.json(
           {
