@@ -63,6 +63,7 @@ export type StreamChunk = {
   delta: {
     role?: ChatRole;
     content?: string;
+    tool_calls?: unknown;
   };
   finishReason: string | null;
 };
@@ -823,6 +824,7 @@ function transformClaudeStream(
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   let buffer = "";
+  let sawToolCalls = false;
 
   return new ReadableStream({
     async start(controller) {
@@ -851,6 +853,40 @@ function transformClaudeStream(
 
             try {
               const event = JSON.parse(data);
+              if (event.type === "content_block_start" && event.content_block?.type === "tool_use") {
+                sawToolCalls = true;
+                const toolUseId = String(event.content_block?.id ?? "").trim();
+                const toolName = String(event.content_block?.name ?? "").trim();
+                if (toolUseId && toolName) {
+                  const openAiChunk = {
+                    id: `chatcmpl-${Date.now()}`,
+                    object: "chat.completion.chunk",
+                    created: Math.floor(Date.now() / 1000),
+                    model: "claude",
+                    choices: [
+                      {
+                        index: 0,
+                        delta: {
+                          tool_calls: [
+                            {
+                              id: toolUseId,
+                              type: "function",
+                              function: {
+                                name: toolName,
+                                arguments: JSON.stringify(event.content_block?.input ?? {}),
+                              },
+                            },
+                          ],
+                        },
+                        finish_reason: null,
+                      },
+                    ],
+                  };
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify(openAiChunk)}\n\n`),
+                  );
+                }
+              }
               if (event.type === "content_block_delta" && event.delta?.text) {
                 // Convert to OpenAI format
                 const openAiChunk = {
@@ -879,7 +915,7 @@ function transformClaudeStream(
                     {
                       index: 0,
                       delta: {},
-                      finish_reason: "stop",
+                      finish_reason: sawToolCalls ? "tool_calls" : "stop",
                     },
                   ],
                 };
@@ -1432,6 +1468,7 @@ function transformGeminiStream(
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   let buffer = "";
+  let sawToolCalls = false;
 
   return new ReadableStream({
     async start(controller) {
@@ -1456,9 +1493,27 @@ function transformGeminiStream(
 
             try {
               const event = JSON.parse(data) as GeminiResponse;
-              const text = event.candidates?.[0]?.content?.parts
-                ?.map((p) => p.text)
+              const parts = event.candidates?.[0]?.content?.parts ?? [];
+              const text = parts
+                .map((p: any) => (p && typeof p === "object" && typeof p.text === "string" ? p.text : ""))
                 .join("");
+
+              const toolCalls = parts
+                .map((p: any, index: number) => {
+                  const functionCall = p?.functionCall;
+                  const name = typeof functionCall?.name === "string" ? functionCall.name.trim() : "";
+                  if (!name) return null;
+                  sawToolCalls = true;
+                  return {
+                    id: `call_${index + 1}`,
+                    type: "function",
+                    function: {
+                      name,
+                      arguments: JSON.stringify(functionCall?.args ?? {}),
+                    },
+                  };
+                })
+                .filter((v: any) => v !== null);
 
               if (text) {
                 // Convert to OpenAI format
@@ -1480,6 +1535,25 @@ function transformGeminiStream(
                 );
               }
 
+              if (toolCalls.length > 0) {
+                const openAiChunk = {
+                  id: `chatcmpl-${Date.now()}`,
+                  object: "chat.completion.chunk",
+                  created: Math.floor(Date.now() / 1000),
+                  model: "gemini",
+                  choices: [
+                    {
+                      index: 0,
+                      delta: { tool_calls: toolCalls },
+                      finish_reason: null,
+                    },
+                  ],
+                };
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify(openAiChunk)}\n\n`),
+                );
+              }
+
               const finishReason = event.candidates?.[0]?.finishReason;
               if (finishReason) {
                 const stopChunk = {
@@ -1491,7 +1565,7 @@ function transformGeminiStream(
                     {
                       index: 0,
                       delta: {},
-                      finish_reason: "stop",
+                      finish_reason: sawToolCalls ? "tool_calls" : "stop",
                     },
                   ],
                 };
