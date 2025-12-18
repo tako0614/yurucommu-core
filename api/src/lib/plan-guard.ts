@@ -199,7 +199,7 @@ export const requireApDeliveryQuota = (
     return buildError(
       429,
       ErrorCodes.RATE_LIMIT_MINUTE,
-      "ActivityPub delivery per-minute limit exceeded",
+      "Delivery per-minute limit exceeded",
       { used: usage.minute, requested, limit: limits.apDeliveryPerMinute },
     );
   }
@@ -214,7 +214,7 @@ export const requireApDeliveryQuota = (
     return buildError(
       429,
       ErrorCodes.RATE_LIMIT_DAY,
-      "ActivityPub daily delivery limit exceeded",
+      "Delivery daily limit exceeded",
       { used: usage.day, requested, limit: limits.apDeliveryPerDay },
     );
   }
