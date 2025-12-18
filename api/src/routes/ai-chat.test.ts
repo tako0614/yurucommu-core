@@ -127,6 +127,48 @@ describe("/api/ai/chat", () => {
     expect(body).toContain("\"response_format\"");
   });
 
+  it("passes tool-calling messages (assistant tool_calls + tool result) through to the provider request", async () => {
+    setBackendDataFactory(() => buildStore());
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { role: "assistant", content: "done" } }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    (global as any).fetch = fetchMock as any;
+
+    const res = await aiChatRoutes.request(
+      "/api/ai/chat",
+      {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({
+          messages: [
+            { role: "user", content: "hello" },
+            { role: "assistant", content: "", tool_calls: [{ id: "call_1", type: "function" }] },
+            { role: "tool", content: "{\"ok\":true}", tool_call_id: "call_1" },
+          ],
+        }),
+      },
+      buildEnv(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [, init] = fetchMock.mock.calls[0];
+    const parsed = JSON.parse(String((init as any).body ?? "{}"));
+    expect(parsed.messages).toMatchObject([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "", tool_calls: [{ id: "call_1", type: "function" }] },
+      { role: "tool", content: "{\"ok\":true}", tool_call_id: "call_1" },
+    ]);
+  });
+
   it("rejects chat when AI is disabled", async () => {
     setBackendDataFactory(() => buildStore());
     const fetchMock = vi.fn();

@@ -42,11 +42,13 @@ import { ensureAiCallAllowed } from "../lib/ai-rate-limit";
 import { createUsageTrackerFromEnv } from "../lib/usage-tracker";
 import { buildTakosAppEnv, loadStoredAppManifest, loadTakosApp } from "../lib/app-sdk-loader";
 
-type ChatRole = "user" | "assistant" | "system";
+type ChatRole = "user" | "assistant" | "system" | "tool";
 
 type ChatMessage = {
   role: ChatRole;
   content: string;
+  tool_calls?: unknown;
+  tool_call_id?: string;
 };
 
 type ChatRequestBody = {
@@ -74,13 +76,43 @@ const AI_CHAT_ACTION_ID = "ai.chat";
 
 function normalizeMessages(input: any): ChatMessage[] {
   if (!Array.isArray(input)) return [];
-  const allowedRoles = new Set<ChatRole>(["user", "assistant", "system"]);
+  const allowedRoles = new Set<ChatRole>(["user", "assistant", "system", "tool"]);
   const normalized: ChatMessage[] = [];
   for (const item of input) {
     if (!item || typeof item !== "object") continue;
     const roleRaw = typeof item.role === "string" ? item.role.trim().toLowerCase() : "";
     const content = typeof item.content === "string" ? item.content : "";
-    if (!content || !allowedRoles.has(roleRaw as ChatRole)) continue;
+    const toolCalls = (item as any)?.tool_calls;
+    const toolCallIdRaw = (item as any)?.tool_call_id;
+    const toolCallId = typeof toolCallIdRaw === "string" && toolCallIdRaw.trim()
+      ? toolCallIdRaw.trim()
+      : undefined;
+
+    if (!allowedRoles.has(roleRaw as ChatRole)) continue;
+    if (roleRaw !== "assistant" && !content) continue;
+    if (roleRaw === "assistant" && !content && toolCalls === undefined) continue;
+    if (roleRaw === "tool" && !toolCallId) continue;
+
+    if ((roleRaw === "assistant" || roleRaw === "tool") && toolCallId) {
+      normalized.push({
+        role: roleRaw as ChatRole,
+        content,
+        tool_calls: toolCalls,
+        tool_call_id: toolCallId,
+      });
+      continue;
+    }
+
+    if (roleRaw === "assistant" && toolCalls !== undefined) {
+      // allow assistant messages with tool_calls even if content is empty
+      normalized.push({
+        role: roleRaw as ChatRole,
+        content,
+        tool_calls: toolCalls,
+      });
+      continue;
+    }
+
     normalized.push({ role: roleRaw as ChatRole, content });
   }
   return normalized;
@@ -1148,8 +1180,10 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
 
   // Convert messages to adapter format
   const adapterMessages: AdapterChatMessage[] = messages.map((m) => ({
-    role: m.role,
+    role: m.role as any,
     content: m.content,
+    tool_calls: (m as any)?.tool_calls,
+    tool_call_id: (m as any)?.tool_call_id,
   }));
 
   const completionOptions = {
