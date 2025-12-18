@@ -12,6 +12,7 @@ import { auth } from "../middleware/auth";
 import { getAppAuthContext } from "../lib/auth-context";
 import { ErrorCodes } from "../lib/error-codes";
 import { createObjectService } from "../services";
+import { createUsageTrackerFromEnv } from "../lib/usage-tracker";
 
 const objects = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -107,6 +108,15 @@ const handleError = (_c: any, error: unknown): never => {
   throw error;
 };
 
+const isDirectVisibility = (value: unknown): boolean => {
+  if (!value) return false;
+  if (typeof value === "string") return value.trim().toLowerCase() === "direct";
+  if (Array.isArray(value)) {
+    return value.some((item) => typeof item === "string" && item.trim().toLowerCase() === "direct");
+  }
+  return false;
+};
+
 const registerRoutes = (basePath: "" | "/-/api") => {
   objects.get(`${basePath}/objects/timeline`, auth, async (c) => {
     try {
@@ -166,6 +176,10 @@ const registerRoutes = (basePath: "" | "/-/api") => {
       const authCtx = ensureAuth(getAppAuthContext(c));
       const body = (await c.req.json().catch(() => ({}))) as CreateObjectInput;
       const created = await service.create(authCtx, body);
+      if (isDirectVisibility((body as any)?.visibility)) {
+        const tracker = createUsageTrackerFromEnv(c.env as any);
+        await tracker.recordDmMessage(authCtx.userId);
+      }
       return ok(c, created, 201);
     } catch (error) {
       return handleError(c, error);
