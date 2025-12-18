@@ -617,7 +617,7 @@ const communityChannelMessagesKey = (communityId: string, channelId: string) =>
   `community:${communityId}:channels:${channelId}:messages`;
 
 const loadCommunityIndex = async (env: AppEnv): Promise<string[]> => {
-  const value = await env.storage.get<unknown>(COMMUNITY_INDEX_KEY);
+  const value = await env.storageGlobal.get<unknown>(COMMUNITY_INDEX_KEY);
   const ids = normalizeStringList(value);
   const unique: string[] = [];
   const seen = new Set<string>();
@@ -631,7 +631,7 @@ const loadCommunityIndex = async (env: AppEnv): Promise<string[]> => {
 };
 
 const saveCommunityIndex = async (env: AppEnv, ids: string[]): Promise<void> => {
-  await env.storage.set(COMMUNITY_INDEX_KEY, ids);
+  await env.storageGlobal.set(COMMUNITY_INDEX_KEY, ids);
 };
 
 const slugify = (input: string): string => {
@@ -650,18 +650,18 @@ const ensureAuthUserId = (env: AppEnv): string => {
 };
 
 const loadCommunitySettings = async (env: AppEnv, communityId: string): Promise<CommunitySettings | null> => {
-  const settings = await env.storage.get<CommunitySettings>(communitySettingsKey(communityId));
+  const settings = await env.storageGlobal.get<CommunitySettings>(communitySettingsKey(communityId));
   return settings ?? null;
 };
 
 const loadCommunityChannels = async (env: AppEnv, communityId: string): Promise<CommunityChannels> => {
-  const stored = await env.storage.get<CommunityChannels>(communityChannelsKey(communityId));
+  const stored = await env.storageGlobal.get<CommunityChannels>(communityChannelsKey(communityId));
   if (stored && Array.isArray((stored as any).channels)) return stored;
   return { channels: [] };
 };
 
 const saveCommunityChannels = async (env: AppEnv, communityId: string, channels: CommunityChannels): Promise<void> => {
-  await env.storage.set(communityChannelsKey(communityId), channels);
+  await env.storageGlobal.set(communityChannelsKey(communityId), channels);
 };
 
 const loadCommunityMember = async (
@@ -669,7 +669,7 @@ const loadCommunityMember = async (
   communityId: string,
   userId: string,
 ): Promise<CommunityMember | null> => {
-  const member = await env.storage.get<CommunityMember>(communityMemberKey(communityId, userId));
+  const member = await env.storageGlobal.get<CommunityMember>(communityMemberKey(communityId, userId));
   return member ?? null;
 };
 
@@ -767,7 +767,7 @@ const bumpDmThreadRef = async (env: AppEnv, userId: string, threadId: string, up
 };
 
 const loadDmThread = async (env: AppEnv, threadId: string): Promise<DmThread | null> => {
-  const raw = await env.storage.get<unknown>(dmThreadKey(threadId));
+  const raw = await env.storageGlobal.get<unknown>(dmThreadKey(threadId));
   const parsed = parseMaybeJson<any>(raw);
   if (!parsed || typeof parsed !== "object") return null;
   const participants = Array.isArray(parsed.participants) ? parsed.participants.map(String).filter(Boolean) : [];
@@ -787,7 +787,7 @@ const loadDmThread = async (env: AppEnv, threadId: string): Promise<DmThread | n
 };
 
 const saveDmThread = async (env: AppEnv, thread: DmThread): Promise<void> => {
-  await env.storage.set(dmThreadKey(thread.id), thread);
+  await env.storageGlobal.set(dmThreadKey(thread.id), thread);
 };
 
 const fetchThreadObjects = async (env: AppEnv, threadId: string): Promise<any[]> => {
@@ -1082,7 +1082,7 @@ router.post("/communities", async (c) => {
     created_at: now,
     members_count: 1,
   };
-  await c.env.storage.set(communitySettingsKey(communityId), settings);
+  await c.env.storageGlobal.set(communitySettingsKey(communityId), settings);
 
   const defaultChannels: CommunityChannels = {
     channels: [
@@ -1096,7 +1096,7 @@ router.post("/communities", async (c) => {
       },
     ],
   };
-  await c.env.storage.set(communityChannelsKey(communityId), defaultChannels);
+  await c.env.storageGlobal.set(communityChannelsKey(communityId), defaultChannels);
 
   const roles: CommunityRoles = {
     roles: [
@@ -1105,10 +1105,10 @@ router.post("/communities", async (c) => {
       { id: "member", name: "Member", permissions: [] },
     ],
   };
-  await c.env.storage.set(communityRolesKey(communityId), roles);
+  await c.env.storageGlobal.set(communityRolesKey(communityId), roles);
 
   const member: CommunityMember = { user_id: c.env.auth.userId, role: "owner", joined_at: now, status: "active" };
-  await c.env.storage.set(communityMemberKey(communityId, c.env.auth.userId), member);
+  await c.env.storageGlobal.set(communityMemberKey(communityId, c.env.auth.userId), member);
   await addMembershipIndex(c.env, c.env.auth.userId, communityId);
 
   const ids = await loadCommunityIndex(c.env);
@@ -1141,11 +1141,11 @@ router.get("/communities/:id", async (c) => {
   const settings = await loadCommunitySettings(c.env, id);
   if (!settings) return error("community not found", 404);
   const member = await loadCommunityMember(c.env, id, c.env.auth.userId).catch(() => null);
-  const membersKeys = await c.env.storage.list(`community:${id}:members:`);
+  const membersKeys = await c.env.storageGlobal.list(`community:${id}:members:`);
   const members = await Promise.all(
     membersKeys.map(async (keySuffix) => {
       const userId = keySuffix.split(":").pop() ?? "";
-      const m = await c.env.storage.get<CommunityMember>(communityMemberKey(id, userId));
+      const m = await c.env.storageGlobal.get<CommunityMember>(communityMemberKey(id, userId));
       if (!m) return null;
       const userRes = await c.env.fetch(`/users/${encodeURIComponent(userId)}`).catch(() => null);
       const user = userRes && userRes.ok ? await readCoreData<any>(userRes) : null;
@@ -1202,7 +1202,7 @@ router.patch("/communities/:id", async (c) => {
     visibility:
       body.visibility === "public" ? "public" : body.visibility === "private" ? "private" : settings.visibility,
   };
-  await c.env.storage.set(communitySettingsKey(id), next);
+  await c.env.storageGlobal.set(communitySettingsKey(id), next);
   const member = await loadCommunityMember(c.env, id, c.env.auth.userId).catch(() => null);
   return json({
     id: next.id,
@@ -1313,9 +1313,9 @@ router.post("/communities/:id/join", async (c) => {
   const existing = await loadCommunityMember(c.env, id, c.env.auth.userId);
   if (!existing) {
     const member: CommunityMember = { user_id: c.env.auth.userId, role: "member", joined_at: now, status: "active" };
-    await c.env.storage.set(communityMemberKey(id, c.env.auth.userId), member);
+    await c.env.storageGlobal.set(communityMemberKey(id, c.env.auth.userId), member);
     await addMembershipIndex(c.env, c.env.auth.userId, id);
-    await c.env.storage.set(communitySettingsKey(id), { ...settings, members_count: settings.members_count + 1 });
+    await c.env.storageGlobal.set(communitySettingsKey(id), { ...settings, members_count: settings.members_count + 1 });
   }
   return json({ community_id: id, joined: true });
 });
@@ -1328,10 +1328,10 @@ router.post("/communities/:id/leave", async (c) => {
   const existing = await loadCommunityMember(c.env, id, c.env.auth.userId);
   if (existing?.role === "owner") return error("owner cannot leave community", 400);
   if (existing) {
-    await c.env.storage.delete(communityMemberKey(id, c.env.auth.userId));
+    await c.env.storageGlobal.delete(communityMemberKey(id, c.env.auth.userId));
     await removeMembershipIndex(c.env, c.env.auth.userId, id);
     const nextCount = Math.max(0, settings.members_count - 1);
-    await c.env.storage.set(communitySettingsKey(id), { ...settings, members_count: nextCount });
+    await c.env.storageGlobal.set(communitySettingsKey(id), { ...settings, members_count: nextCount });
   }
   return json({ community_id: id, left: true });
 });
@@ -1341,7 +1341,7 @@ router.get("/communities/:id/members", async (c) => {
   const id = c.req.param("id");
   const settings = await loadCommunitySettings(c.env, id);
   if (!settings) return error("community not found", 404);
-  const keys = await c.env.storage.list(`community:${id}:members:`);
+  const keys = await c.env.storageGlobal.list(`community:${id}:members:`);
   const members = await Promise.all(
     keys.map(async (suffix) => {
       const userId = suffix.split(":").pop() ?? "";
@@ -1415,7 +1415,7 @@ router.get("/communities/:id/channels/:channelId/messages", async (c) => {
   const channelId = c.req.param("channelId");
   const query = parseQuery(c.req.raw);
   const { limit } = parsePagination(query, { limit: 50, offset: 0 });
-  const stored = await c.env.storage.get<any>(communityChannelMessagesKey(id, channelId));
+  const stored = await c.env.storageGlobal.get<any>(communityChannelMessagesKey(id, channelId));
   const messages = Array.isArray(stored) ? stored : [];
   return json(messages.slice(-limit));
 });
@@ -1427,7 +1427,7 @@ router.post("/communities/:id/channels/:channelId/messages", async (c) => {
   const body = await parseBody<any>(c.req.raw).catch(() => ({}));
   const content = String(body.content ?? "").trim();
   if (!content) return error("content is required", 400);
-  const existing = await c.env.storage.get<any>(communityChannelMessagesKey(id, channelId));
+  const existing = await c.env.storageGlobal.get<any>(communityChannelMessagesKey(id, channelId));
   const messages = Array.isArray(existing) ? existing : [];
   const createdAt = new Date().toISOString();
   const message = {
@@ -1441,7 +1441,7 @@ router.post("/communities/:id/channels/:channelId/messages", async (c) => {
   };
   messages.push(message);
   const next = messages.slice(-200);
-  await c.env.storage.set(communityChannelMessagesKey(id, channelId), next);
+  await c.env.storageGlobal.set(communityChannelMessagesKey(id, channelId), next);
   return json({ activity: message }, { status: 201 });
 });
 

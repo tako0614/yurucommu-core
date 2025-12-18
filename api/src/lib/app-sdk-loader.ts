@@ -211,12 +211,13 @@ interface StorageSetOptions {
 
 /**
  * Create KV-backed storage for App.
- * Key structure: `app:${appId}:${key}`
- *
- * Note: per-user scoping is handled at the storage binding layer.
+ * Key structure:
+ * - authenticated: `app:${appId}:user:${userId}:${key}`
+ * - unauthenticated: `app:${appId}:global:${key}`
  */
-function createAppStorage(env: Bindings, appId: string) {
-  const buildKey = (key: string): string => `app:${appId}:${key}`;
+function createAppStorage(env: Bindings, appId: string, userId: string | null) {
+  const scope = userId ? `user:${userId}` : "global";
+  const buildKey = (key: string): string => `app:${appId}:${scope}:${key}`;
 
   const kv = (env as any).APP_STATE || env.KV;
 
@@ -624,7 +625,8 @@ export function buildTakosAppEnv(c: any, appId: string, manifest: AppManifest | 
     (typeof userId === "string" ? userId : "") ||
     "";
 
-  const appStorage = createAppStorage(c.env as Bindings, appId);
+  const appStorage = createAppStorage(c.env as Bindings, appId, userId);
+  const appStorageGlobal = createAppStorage(c.env as Bindings, appId, null);
   const coreServices = buildCoreServices(c.env as Bindings);
   const core = {
     ...coreServices,
@@ -659,6 +661,7 @@ export function buildTakosAppEnv(c: any, appId: string, manifest: AppManifest | 
     core,
     takosConfig: (c.get("takosConfig") as any) ?? (c.env as any)?.takosConfig,
     storage: appStorage,
+    storageGlobal: appStorageGlobal,
     fetch: createAuthenticatedFetch(c),
     auth: userId
       ? {
@@ -692,7 +695,8 @@ export function buildTakosScheduledAppEnv(
   manifest: AppManifest | null,
 ): AppEnv {
   ensurePlatformDataFactory();
-  const appStorage = createAppStorage(env as Bindings, appId);
+  const appStorage = createAppStorage(env as Bindings, appId, null);
+  const appStorageGlobal = appStorage;
   const mockContext = { get: () => null, env };
   const coreServices = buildCoreServices(env as Bindings);
   const core = {
@@ -724,6 +728,7 @@ export function buildTakosScheduledAppEnv(
     core,
     takosConfig: (env as any)?.takosConfig,
     storage: appStorage,
+    storageGlobal: appStorageGlobal,
     fetch: createUnauthenticatedFetchFromEnv(env),
     auth: null,
     app: {
