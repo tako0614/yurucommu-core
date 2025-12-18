@@ -56,6 +56,9 @@ type ChatRequestBody = {
   model?: string;
   temperature?: number;
   max_tokens?: number;
+  tools?: unknown;
+  tool_choice?: unknown;
+  response_format?: unknown;
   tool?: AgentToolId | { id?: AgentToolId };
   input?: unknown;
   service?: string;
@@ -1153,6 +1156,9 @@ aiChatRoutes.post("/api/ai/chat", auth, async (c) => {
     model,
     temperature: typeof body.temperature === "number" ? body.temperature : undefined,
     maxTokens: typeof body.max_tokens === "number" ? body.max_tokens : undefined,
+    tools: body.tools,
+    toolChoice: body.tool_choice,
+    responseFormat: body.response_format,
   };
 
   try {

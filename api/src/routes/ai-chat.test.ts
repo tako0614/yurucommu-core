@@ -88,6 +88,45 @@ describe("/api/ai/chat", () => {
     expect((init as any).body).toContain("hello");
   });
 
+  it("passes OpenAI tools options through to the provider request", async () => {
+    setBackendDataFactory(() => buildStore());
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { role: "assistant", content: "" }, finish_reason: "tool_calls" }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    (global as any).fetch = fetchMock as any;
+
+    const res = await aiChatRoutes.request(
+      "/api/ai/chat",
+      {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({
+          messages: [{ role: "user", content: "hello" }],
+          tools: [{ type: "function", function: { name: "tool.echo" } }],
+          tool_choice: "auto",
+          response_format: { type: "json_object" },
+        }),
+      },
+      buildEnv(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [, init] = fetchMock.mock.calls[0];
+    const body = String((init as any).body ?? "");
+    expect(body).toContain("\"tools\"");
+    expect(body).toContain("\"tool_choice\"");
+    expect(body).toContain("\"response_format\"");
+  });
+
   it("rejects chat when AI is disabled", async () => {
     setBackendDataFactory(() => buildStore());
     const fetchMock = vi.fn();
