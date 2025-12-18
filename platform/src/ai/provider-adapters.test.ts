@@ -164,6 +164,48 @@ describe("provider-adapters ClaudeAdapter", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
   });
+
+  it("normalizes Claude tool_use blocks into OpenAI-style tool_calls", async () => {
+    const adapter = new ClaudeAdapter();
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          id: "msg_2",
+          type: "message",
+          role: "assistant",
+          model: "claude-test",
+          stop_reason: "tool_use",
+          content: [
+            { type: "tool_use", id: "toolu_1", name: "tool.echo", input: { x: 1 } },
+          ],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+        { status: 200 },
+      );
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await adapter.chatCompletion(
+      {
+        ...makeClient(),
+        type: "claude",
+        baseUrl: "https://example.ai",
+        model: "claude-test",
+      },
+      [{ role: "user", content: "hi" }],
+      {
+        tools: [{ type: "function", function: { name: "tool.echo", parameters: { type: "object" } } }],
+        toolChoice: "auto",
+      },
+    );
+
+    expect((result.choices[0]?.message as any)?.tool_calls).toMatchObject([
+      { id: "toolu_1", type: "function", function: { name: "tool.echo", arguments: "{\"x\":1}" } },
+    ]);
+    expect(result.choices[0]?.finishReason).toBe("tool_calls");
+    vi.unstubAllGlobals();
+  });
 });
 
 describe("provider-adapters GeminiAdapter", () => {

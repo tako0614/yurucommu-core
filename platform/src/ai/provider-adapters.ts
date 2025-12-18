@@ -428,10 +428,17 @@ type ClaudeRequest = {
   tool_choice?: unknown;
 };
 
-type ClaudeContentBlock = {
-  type: "text";
-  text: string;
-};
+type ClaudeContentBlock =
+  | {
+      type: "text";
+      text: string;
+    }
+  | {
+      type: "tool_use";
+      id: string;
+      name: string;
+      input?: unknown;
+    };
 
 type ClaudeResponse = {
   id: string;
@@ -559,11 +566,21 @@ export class ClaudeAdapter implements AiProviderAdapter {
 
     const data = (await response.json()) as ClaudeResponse;
 
-    // Extract text content from Claude's content blocks
     const textContent = data.content
-      .filter((block) => block.type === "text")
+      .filter((block): block is Extract<ClaudeContentBlock, { type: "text" }> => block.type === "text")
       .map((block) => block.text)
       .join("");
+
+    const toolCalls = data.content
+      .filter((block): block is Extract<ClaudeContentBlock, { type: "tool_use" }> => block.type === "tool_use")
+      .map((block) => ({
+        id: block.id,
+        type: "function",
+        function: {
+          name: block.name,
+          arguments: JSON.stringify(block.input ?? {}),
+        },
+      }));
 
     return {
       id: data.id,
@@ -575,8 +592,9 @@ export class ClaudeAdapter implements AiProviderAdapter {
           message: {
             role: "assistant",
             content: textContent,
+            tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
           },
-          finishReason: data.stop_reason,
+          finishReason: toolCalls.length > 0 ? "tool_calls" : data.stop_reason,
         },
       ],
       usage: {
