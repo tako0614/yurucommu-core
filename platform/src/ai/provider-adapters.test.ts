@@ -306,6 +306,56 @@ describe("provider-adapters GeminiAdapter", () => {
     vi.unstubAllGlobals();
   });
 
+  it("maps tool_calls + tool result history into Gemini functionCall/functionResponse parts", async () => {
+    const adapter = new GeminiAdapter();
+    const fetchMock = vi.fn(async (_url: string, init: any) => {
+      const parsed = JSON.parse(init.body);
+      expect(parsed.contents).toMatchObject([
+        {
+          role: "model",
+          parts: [{ functionCall: { name: "tool.echo", args: { x: 1 } } }],
+        },
+        {
+          role: "user",
+          parts: [{ functionResponse: { name: "tool.echo", response: { ok: true } } }],
+        },
+      ]);
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: "ok" }], role: "model" }, finishReason: "stop" }],
+        }),
+        { status: 200 },
+      );
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await adapter.chatCompletion(
+      {
+        ...makeClient(),
+        type: "gemini",
+        baseUrl: "https://example.ai/v1beta",
+        model: "gemini-1.5-flash",
+        apiKey: "k",
+      },
+      [
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [{ id: "call_1", type: "function", function: { name: "tool.echo", arguments: "{\"x\":1}" } }],
+        } as any,
+        { role: "tool", content: "{\"ok\":true}", tool_call_id: "call_1" } as any,
+      ],
+      {
+        tools: [{ type: "function", function: { name: "tool.echo", parameters: { type: "object" } } }],
+        toolChoice: "auto",
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
   it("normalizes Gemini functionCall parts into OpenAI-style tool_calls", async () => {
     const adapter = new GeminiAdapter();
     const fetchMock = vi.fn(async () => {

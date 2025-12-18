@@ -903,7 +903,7 @@ function transformClaudeStream(
 
 type GeminiContent = {
   role: "user" | "model";
-  parts: Array<{ text: string }>;
+  parts: GeminiRequestPart[];
 };
 
 type GeminiResponsePart =
@@ -912,6 +912,21 @@ type GeminiResponsePart =
       functionCall: {
         name: string;
         args?: unknown;
+      };
+    };
+
+type GeminiRequestPart =
+  | { text: string }
+  | {
+      functionCall: {
+        name: string;
+        args?: unknown;
+      };
+    }
+  | {
+      functionResponse: {
+        name: string;
+        response: unknown;
       };
     };
 
@@ -977,6 +992,102 @@ type GeminiBatchEmbedResponse = {
 export class GeminiAdapter implements AiProviderAdapter {
   readonly type: AiProviderType = "gemini";
 
+  private parseToolArgs(raw: unknown): unknown {
+    if (typeof raw !== "string" || raw.trim() === "") return {};
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+
+  private parseToolResult(raw: string): unknown {
+    const trimmed = raw.trim();
+    if (!trimmed) return {};
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return { result: raw };
+    }
+  }
+
+  private toGeminiContents(messages: ChatMessage[]): {
+    systemInstruction?: { parts: Array<{ text: string }> };
+    contents: GeminiContent[];
+  } {
+    let systemInstruction: { parts: Array<{ text: string }> } | undefined;
+    const contents: GeminiContent[] = [];
+
+    const toolNameByCallId = new Map<string, string>();
+    for (const msg of messages) {
+      if (msg.role !== "assistant") continue;
+      const toolCalls = (msg as any)?.tool_calls;
+      if (!Array.isArray(toolCalls)) continue;
+      for (const call of toolCalls) {
+        const id = typeof call?.id === "string" ? call.id.trim() : "";
+        const name = typeof call?.function?.name === "string" ? call.function.name.trim() : "";
+        if (id && name) toolNameByCallId.set(id, name);
+      }
+    }
+
+    for (const msg of messages) {
+      if (msg.role === "system") {
+        systemInstruction = { parts: [{ text: msg.content }] };
+        continue;
+      }
+
+      if (msg.role === "assistant") {
+        const parts: GeminiRequestPart[] = [];
+        if (msg.content) parts.push({ text: msg.content });
+
+        const toolCalls = (msg as any)?.tool_calls;
+        if (Array.isArray(toolCalls)) {
+          for (const call of toolCalls) {
+            const name = typeof call?.function?.name === "string" ? call.function.name.trim() : "";
+            if (!name) continue;
+            parts.push({
+              functionCall: {
+                name,
+                args: this.parseToolArgs(call?.function?.arguments),
+              },
+            });
+          }
+        }
+
+        if (parts.length > 0) {
+          contents.push({ role: "model", parts });
+        }
+        continue;
+      }
+
+      if (msg.role === "tool") {
+        const toolCallId = typeof (msg as any)?.tool_call_id === "string"
+          ? (msg as any).tool_call_id.trim()
+          : "";
+        const name = toolCallId ? toolNameByCallId.get(toolCallId) : undefined;
+        if (!name) continue;
+        contents.push({
+          role: "user",
+          parts: [
+            {
+              functionResponse: {
+                name,
+                response: this.parseToolResult(msg.content),
+              },
+            },
+          ],
+        });
+        continue;
+      }
+
+      // user
+      if (!msg.content) continue;
+      contents.push({ role: "user", parts: [{ text: msg.content }] });
+    }
+
+    return { systemInstruction, contents };
+  }
+
   private normalizeTools(options?: ChatCompletionOptions): { tools?: unknown; toolConfig?: unknown } {
     const rawTools = options?.tools;
     if (!Array.isArray(rawTools) || rawTools.length === 0) return {};
@@ -1031,28 +1142,10 @@ export class GeminiAdapter implements AiProviderAdapter {
     const baseUrl = client.baseUrl.replace(/\/$/, "");
     const url = `${baseUrl}/models/${model}:generateContent`;
 
-    // Extract system message and convert to Gemini format
-    let systemInstruction: { parts: Array<{ text: string }> } | undefined;
-    const geminiContents: GeminiContent[] = [];
-
-    for (const msg of messages) {
-      if (msg.role === "system") {
-        systemInstruction = { parts: [{ text: msg.content }] };
-        continue;
-      }
-      if (msg.role === "tool") {
-        // Not supported yet: tool result unification for Gemini.
-        continue;
-      } else {
-        geminiContents.push({
-          role: msg.role === "assistant" ? "model" : "user",
-          parts: [{ text: msg.content }],
-        });
-      }
-    }
+    const { systemInstruction, contents } = this.toGeminiContents(messages);
 
     const body: GeminiRequest = {
-      contents: geminiContents,
+      contents,
     };
 
     if (systemInstruction) {
@@ -1163,28 +1256,10 @@ export class GeminiAdapter implements AiProviderAdapter {
     const baseUrl = client.baseUrl.replace(/\/$/, "");
     const url = `${baseUrl}/models/${model}:streamGenerateContent`;
 
-    // Extract system message and convert to Gemini format
-    let systemInstruction: { parts: Array<{ text: string }> } | undefined;
-    const geminiContents: GeminiContent[] = [];
-
-    for (const msg of messages) {
-      if (msg.role === "system") {
-        systemInstruction = { parts: [{ text: msg.content }] };
-        continue;
-      }
-      if (msg.role === "tool") {
-        // Not supported yet: tool result unification for Gemini.
-        continue;
-      } else {
-        geminiContents.push({
-          role: msg.role === "assistant" ? "model" : "user",
-          parts: [{ text: msg.content }],
-        });
-      }
-    }
+    const { systemInstruction, contents } = this.toGeminiContents(messages);
 
     const body: GeminiRequest = {
-      contents: geminiContents,
+      contents,
     };
 
     if (systemInstruction) {
