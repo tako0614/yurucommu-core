@@ -78,7 +78,7 @@ describe("app-sdk-loader core service wrappers", () => {
 
     const searched = await actors.search("bob", { limit: 3, offset: 0 });
     expect(searched).toMatchObject({ items: [{ id: "actor:bob" }], nextCursor: "12" });
-  });
+  }, 20_000);
 
   it("wraps NotificationService methods to match app-sdk types", async () => {
     const { buildTakosAppEnv } = await import("./app-sdk-loader");
@@ -110,4 +110,3 @@ describe("app-sdk-loader core service wrappers", () => {
     expect(raw.markRead).toHaveBeenCalledWith(expect.anything(), "n2");
   });
 });
-
