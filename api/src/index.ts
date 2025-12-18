@@ -370,19 +370,25 @@ const proxyDefaultAppStrict = async (c: any, label: string) => {
   }
 };
 
-// ActivityPub endpoints are handled by the Default App.
-app.get("/.well-known/webfinger", async (c) => proxyDefaultAppStrict(c, "webfinger"));
-app.get("/.well-known/nodeinfo", async (c) => proxyDefaultAppStrict(c, "nodeinfo"));
-app.get("/nodeinfo/2.0", async (c) => proxyDefaultAppStrict(c, "nodeinfo"));
-app.get("/ap/users/:handle", async (c) => proxyDefaultAppStrict(c, "actor"));
-app.get("/ap/users/:handle/outbox", async (c) => proxyDefaultAppStrict(c, "outbox"));
+const shouldProxyToDefaultApp = (pathname: string): boolean => {
+  if (!pathname) return false;
+  if (pathname === "/.well-known/takos-push.json") return false;
+  if (pathname === "/.well-known/webfinger") return true;
+  if (pathname === "/.well-known/nodeinfo") return true;
+  if (pathname.startsWith("/nodeinfo/")) return true;
+  if (pathname.startsWith("/ap/")) return true;
+  return false;
+};
 
-app.post("/ap/inbox", async (c) => proxyDefaultAppStrict(c, "shared-inbox"));
-app.post("/ap/users/:handle/inbox", async (c) => proxyDefaultAppStrict(c, "user-inbox"));
-app.get("/ap/objects/:id", async (c) => proxyDefaultAppStrict(c, "object"));
-app.get("/ap/users/:handle/followers", async (c) => proxyDefaultAppStrict(c, "followers"));
-app.get("/ap/users/:handle/following", async (c) => proxyDefaultAppStrict(c, "following"));
-app.get("/ap/groups/:id", async (c) => proxyDefaultAppStrict(c, "group"));
+// Proxy App-owned well-known/AP routes to the Default App.
+// Core does not process ActivityPub; it only routes/proxies.
+app.use("*", async (c, next) => {
+  const pathname = new URL(c.req.url).pathname;
+  if (!shouldProxyToDefaultApp(pathname)) {
+    return next();
+  }
+  return proxyDefaultAppStrict(c, "default-app-proxy");
+});
 
 app.route("/", coreRecoveryRoutes);
 
