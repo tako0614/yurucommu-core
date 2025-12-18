@@ -579,7 +579,12 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
         }
 
         const messages = Array.isArray(params?.messages)
-          ? params.messages.map((m: any) => ({ role: m.role, content: m.content }))
+          ? params.messages.map((m: any) => ({
+              role: m.role,
+              content: m.content,
+              tool_calls: (m as any)?.tool_calls,
+              tool_call_id: (m as any)?.tool_call_id,
+            }))
           : [];
 
         const result = await chatCompletion(provider, messages, {
@@ -587,6 +592,9 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
           temperature: params.temperature,
           maxTokens: params.max_tokens,
           stream: false,
+          tools: params.tools,
+          toolChoice: params.tool_choice,
+          responseFormat: params.response_format,
         });
 
         await usageTracker.recordAiRequest(userId);
@@ -598,7 +606,7 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
               id: result.id,
               choices: result.choices.map((choice) => ({
                 index: choice.index,
-                message: choice.message,
+                message: choice.message as any,
                 finish_reason: choice.finishReason ?? "stop",
               })),
               usage: result.usage

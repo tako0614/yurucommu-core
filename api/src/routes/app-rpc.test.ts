@@ -1,5 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import appRpcRoutes from "./app-rpc";
+
+const mockChatCompletion = vi.fn();
+const mockEmbed = vi.fn();
+
+vi.mock("@takos/platform/server", async () => {
+  const actual = await vi.importActual<any>("@takos/platform/server");
+  return {
+    ...actual,
+    chatCompletion: (...args: any[]) => mockChatCompletion(...args),
+    embed: (...args: any[]) => mockEmbed(...args),
+  };
+});
 
 function createMockKv() {
   const store = new Map<string, string>();
@@ -191,5 +203,69 @@ describe("/-/internal/app-rpc", () => {
     expect(res.status).toBe(503);
     const body = await res.json();
     expect(body).toMatchObject({ ok: false });
+  });
+
+  it("passes tools options through AI RPC", async () => {
+    mockChatCompletion.mockReset();
+    mockChatCompletion.mockResolvedValueOnce({
+      id: "chatcmpl_1",
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: "", tool_calls: [{ id: "call_1" }] },
+          finishReason: "tool_calls",
+        },
+      ],
+      usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+    });
+
+    const env: any = {
+      TAKOS_APP_RPC_TOKEN: "test-token",
+      takosConfig: {
+        schema_version: "3.0",
+        distro: "oss",
+        ai: {
+          enabled: true,
+          default_provider: "openai",
+          providers: {
+            openai: { type: "openai", api_key_env: "AI_OPENAI_API_KEY" },
+          },
+        },
+      },
+      AI_OPENAI_API_KEY: "test",
+    };
+
+    const res = await postRpc(env, {
+      kind: "ai",
+      method: "chat.completions.create",
+      args: [
+        {
+          model: "x",
+          messages: [{ role: "user", content: "hi" }],
+          tools: [{ type: "function", function: { name: "tool.echo" } }],
+          tool_choice: "auto",
+          response_format: { type: "json_object" },
+        },
+      ],
+      auth: {
+        userId: "user123",
+        isAuthenticated: true,
+        plan: { name: "pro", limits: { aiRequests: Number.MAX_SAFE_INTEGER }, features: ["ai"] },
+        limits: { aiRequests: Number.MAX_SAFE_INTEGER },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    expect(body).toMatchObject({ ok: true });
+
+    expect(mockChatCompletion).toHaveBeenCalledTimes(1);
+    const callArgs = mockChatCompletion.mock.calls[0];
+    const options = callArgs[2] ?? {};
+    expect(options.tools).toEqual([{ type: "function", function: { name: "tool.echo" } }]);
+    expect(options.toolChoice).toBe("auto");
+    expect(options.responseFormat).toEqual({ type: "json_object" });
+
+    expect(body.result?.choices?.[0]?.message?.tool_calls).toBeTruthy();
   });
 });
