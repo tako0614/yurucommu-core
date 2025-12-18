@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import appRpcRoutes from "../routes/app-rpc";
 import { createIsolatedAppRunner } from "./app-worker-loader";
 
@@ -125,5 +125,43 @@ describe("app-worker-loader runner", () => {
     if (!invoked.ok) {
       expect(invoked.error.code).toBe("SANDBOX_TIMEOUT");
     }
+  });
+
+  it("supports ctx.outbound.fetch via internal RPC for background jobs when enabled", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200, headers: { "content-type": "text/plain" } }));
+    // @ts-ignore
+    globalThis.fetch = fetchMock;
+
+    const env: any = {
+      LOADER: createRealisticMockWorkerLoader(),
+      TAKOS_APP_RPC_TOKEN: "test-token",
+      TAKOS_OUTBOUND_RPC_ENABLED: "true",
+      APP_STATE: createMockKv(),
+    };
+    env.TAKOS_CORE = { fetch: (req: Request) => appRpcRoutes.fetch(req, env, {} as any) };
+
+    const scriptCode = `
+      export const outbound = async (ctx) => {
+        const res = await ctx.outbound.fetch("https://remote.example/test", { method: "GET" });
+        return ctx.json({ status: res.status, encoding: res.body?.encoding ?? null, data: res.body?.data ?? null });
+      };
+    `;
+
+    const runner = await createIsolatedAppRunner({ env, scriptCode });
+    const invoked = await runner.invoke("outbound", null, { mode: "prod", auth: null, runId: undefined });
+
+    if (!invoked.ok) {
+      throw new Error(invoked.error?.message ?? "invoke failed");
+    }
+    expect((invoked.response as any).type).toBe("json");
+    const body = (invoked.response as any).body;
+    expect(body.status).toBe(200);
+    expect(body.encoding).toBe("base64");
+    expect(typeof body.data).toBe("string");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // @ts-ignore
+    globalThis.fetch = originalFetch;
   });
 });

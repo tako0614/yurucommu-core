@@ -108,6 +108,23 @@ export type AiRuntime = {
   [key: string]: unknown;
 };
 
+export type OutboundFetchInit = {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: { encoding: "utf8" | "base64"; data: string } | null;
+};
+
+export type OutboundFetchResult = {
+  url: string;
+  status: number;
+  headers: Record<string, string>;
+  body: { encoding: "base64"; data: string } | null;
+};
+
+export type OutboundRuntime = {
+  fetch: (url: string, init?: OutboundFetchInit) => Promise<OutboundFetchResult>;
+};
+
 export interface TakosContext<
   TServices extends ServiceRegistry = ServiceRegistry,
   TDb = unknown,
@@ -122,6 +139,7 @@ export interface TakosContext<
   db: (name: string) => TDb;
   storage: (name: string) => TStorage;
   ai: AiRuntime;
+  outbound?: OutboundRuntime;
   log: (level: AppLogLevel, message: string, data?: Record<string, unknown>) => void;
   json: <T = unknown>(body: T, init?: AppResponseInit) => AppJsonResponse<T>;
   error: (message: string, status?: number) => AppErrorResponse;

@@ -239,6 +239,33 @@ const createTakosContextLite = (options) => {
     throw new Error("Base64 decoding is not supported in this environment");
   };
 
+  const normalizeOutboundInit = async (init) => {
+    if (!init || typeof init !== "object") return {};
+    const method = typeof init.method === "string" ? init.method : undefined;
+    const headers =
+      init.headers && typeof init.headers === "object" && !Array.isArray(init.headers)
+        ? { ...init.headers }
+        : undefined;
+    const body = init.body;
+    if (body === undefined || body === null) {
+      return { method, headers };
+    }
+    if (typeof body === "string") {
+      return { method, headers, body: { encoding: "utf8", data: body } };
+    }
+    if (body instanceof ArrayBuffer) {
+      return { method, headers, body: { encoding: "base64", data: encodeBase64(new Uint8Array(body)) } };
+    }
+    if (ArrayBuffer.isView(body)) {
+      return { method, headers, body: { encoding: "base64", data: encodeBase64(new Uint8Array(body.buffer)) } };
+    }
+    if (body && typeof body.arrayBuffer === "function") {
+      const buf = await body.arrayBuffer();
+      return { method, headers, body: { encoding: "base64", data: encodeBase64(new Uint8Array(buf)) } };
+    }
+    throw new Error("unsupported outbound fetch body");
+  };
+
   const normalizePutBody = async (body) => {
     if (typeof body === "string") return { encoding: "utf8", data: body };
     if (body instanceof ArrayBuffer) return { encoding: "base64", data: encodeBase64(new Uint8Array(body)) };
@@ -392,6 +419,19 @@ const createTakosContextLite = (options) => {
         );
       }
       return createStorageProxy(normalized);
+    },
+    outbound: {
+      fetch: async (url, init) => {
+        const normalizedUrl = url?.toString?.().trim?.() ?? "";
+        if (!normalizedUrl) throw new Error("outbound url is required");
+        const normalizedInit = await normalizeOutboundInit(init);
+        return rpc({
+          kind: "outbound",
+          url: normalizedUrl,
+          init: normalizedInit,
+          auth,
+        });
+      },
     },
     ai: {
       providers: null,
