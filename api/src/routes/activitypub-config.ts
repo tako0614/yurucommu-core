@@ -139,20 +139,23 @@ function buildBlockedPayload(
 
 const activityPubConfigRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
-activityPubConfigRoutes.use("/api/activitypub/*", auth, async (c, next) => {
+const requireOwner = async (c: any, next: any) => {
   const user = c.get("user") as any;
   if (!isAuthenticated(user, c.env as Bindings)) {
     return fail(c, "Forbidden", 403, { code: ErrorCodes.FORBIDDEN });
   }
   await next();
-});
+};
 
-activityPubConfigRoutes.get("/api/activitypub/blocked-instances", async (c) => {
+activityPubConfigRoutes.use("/api/activitypub/*", auth, requireOwner);
+activityPubConfigRoutes.use("/api/federation/*", auth, requireOwner);
+
+const handleListBlocked = async (c: any) => {
   const { source, configBlocked } = await resolveConfig(c.env as Bindings);
   return ok(c, buildBlockedPayload(c.env as Bindings, configBlocked, source));
-});
+};
 
-activityPubConfigRoutes.post("/api/activitypub/blocked-instances", async (c) => {
+const handleAddBlocked = async (c: any) => {
   const agentGuard = guardAgentRequest(c.req, { toolId: "tool.updateTakosConfig" });
   if (!agentGuard.ok) {
     return fail(c, agentGuard.error, agentGuard.status);
@@ -208,9 +211,9 @@ activityPubConfigRoutes.post("/api/activitypub/blocked-instances", async (c) => 
     updated: true,
     reload: applyResult.reload,
   });
-});
+};
 
-activityPubConfigRoutes.delete("/api/activitypub/blocked-instances/:domain", async (c) => {
+const handleDeleteBlocked = async (c: any) => {
   const agentGuard = guardAgentRequest(c.req, { toolId: "tool.updateTakosConfig" });
   if (!agentGuard.ok) {
     return fail(c, agentGuard.error, agentGuard.status);
@@ -262,6 +265,15 @@ activityPubConfigRoutes.delete("/api/activitypub/blocked-instances/:domain", asy
     still_blocked: envBlocked.includes(normalized),
     reload: applyResult.reload,
   });
-});
+};
+
+activityPubConfigRoutes.get("/api/activitypub/blocked-instances", handleListBlocked);
+activityPubConfigRoutes.post("/api/activitypub/blocked-instances", handleAddBlocked);
+activityPubConfigRoutes.delete("/api/activitypub/blocked-instances/:domain", handleDeleteBlocked);
+
+// Alias endpoints: prefer federation naming from the Core control plane.
+activityPubConfigRoutes.get("/api/federation/blocked-instances", handleListBlocked);
+activityPubConfigRoutes.post("/api/federation/blocked-instances", handleAddBlocked);
+activityPubConfigRoutes.delete("/api/federation/blocked-instances/:domain", handleDeleteBlocked);
 
 export default activityPubConfigRoutes;
