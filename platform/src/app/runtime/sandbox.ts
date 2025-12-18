@@ -8,6 +8,7 @@ import type {
   AppLogSink,
   BindingResolver,
   HandlerExecutionResult,
+  OutboundRuntime,
   ServiceRegistry,
   TakosContext,
 } from "./types";
@@ -21,6 +22,7 @@ export type AppSandboxOptions = {
   resolveDb?: BindingResolver<any>;
   resolveStorage?: BindingResolver<any>;
   ai?: AiRuntime;
+  outbound?: OutboundRuntime;
   logSink?: AppLogSink;
 };
 
@@ -46,6 +48,7 @@ export class AppSandbox {
   private readonly resolveDb?: BindingResolver<any>;
   private readonly resolveStorage?: BindingResolver<any>;
   private readonly ai?: AiRuntime;
+  private readonly outbound?: OutboundRuntime;
   private readonly logSink?: AppLogSink;
 
   constructor(options: AppSandboxOptions) {
@@ -57,6 +60,7 @@ export class AppSandbox {
     this.resolveDb = options.resolveDb;
     this.resolveStorage = options.resolveStorage;
     this.ai = options.ai;
+    this.outbound = options.outbound;
     this.logSink = options.logSink;
   }
 
@@ -81,6 +85,7 @@ export class AppSandbox {
       resolveDb: this.resolveDb,
       resolveStorage: this.resolveStorage,
       ai: this.ai,
+      outbound: this.outbound,
       logSink: this.logSink,
     });
 
