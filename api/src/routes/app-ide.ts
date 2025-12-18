@@ -14,13 +14,16 @@ const handlerDts = `declare module "takos/handler" {
     TakosApp,
     AppEnv,
     AppStorage,
-    ActivityPubAPI,
-    AiAPI,
+    OpenAICompatibleClient,
     AuthInfo,
     AppInfo,
-    Activity,
-    AiCompleteOptions,
-    AiEmbedOptions
+    InstanceInfo,
+    ObjectService,
+    ActorService,
+    NotificationService,
+    TakosObject,
+    TakosActor,
+    TakosNotification
   } from "@takos/app-sdk/server";
 }
 `;
