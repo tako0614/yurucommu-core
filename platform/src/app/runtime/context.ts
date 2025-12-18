@@ -68,13 +68,16 @@ export function createTakosContext(options: CreateTakosContextOptions): TakosCon
                     temperature: params?.temperature,
                     maxTokens: params?.max_tokens,
                     stream: false,
+                    tools: params?.tools,
+                    toolChoice: params?.tool_choice,
+                    responseFormat: params?.response_format,
                   });
 
                   return {
                     id: result.id,
                     choices: result.choices.map((choice) => ({
                       index: choice.index,
-                      message: choice.message,
+                      message: choice.message as any,
                       finish_reason: choice.finishReason ?? "stop",
                     })),
                     usage: result.usage
