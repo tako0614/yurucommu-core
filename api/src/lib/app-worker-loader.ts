@@ -242,10 +242,20 @@ const createTakosContextLite = (options) => {
   const normalizeOutboundInit = async (init) => {
     if (!init || typeof init !== "object") return {};
     const method = typeof init.method === "string" ? init.method : undefined;
-    const headers =
+    const initialHeaders =
       init.headers && typeof init.headers === "object" && !Array.isArray(init.headers)
         ? { ...init.headers }
         : undefined;
+    let headers = initialHeaders;
+    const meterApDeliveryRaw = init.meterApDelivery ?? init?.takos?.meterApDelivery;
+    const meterApDelivery =
+      typeof meterApDeliveryRaw === "number" && Number.isFinite(meterApDeliveryRaw)
+        ? Math.max(0, Math.floor(meterApDeliveryRaw))
+        : 0;
+    if (meterApDelivery > 0) {
+      if (!headers) headers = {};
+      headers["x-takos-meter-ap-delivery"] = String(meterApDelivery);
+    }
     const body = init.body;
     if (body === undefined || body === null) {
       return { method, headers };

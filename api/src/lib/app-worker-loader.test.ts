@@ -128,28 +128,34 @@ describe("app-worker-loader runner", () => {
   });
 
   it("supports ctx.outbound.fetch via internal RPC for background jobs when enabled", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2025-01-02T03:04:05.000Z"));
+
     const originalFetch = globalThis.fetch;
     const fetchMock = vi.fn(async () => new Response("ok", { status: 200, headers: { "content-type": "text/plain" } }));
     // @ts-ignore
     globalThis.fetch = fetchMock;
 
+    const kv = createMockKv();
+    const kvPutSpy = vi.spyOn(kv as any, "put");
+
     const env: any = {
       LOADER: createRealisticMockWorkerLoader(),
       TAKOS_APP_RPC_TOKEN: "test-token",
       TAKOS_OUTBOUND_RPC_ENABLED: "true",
-      APP_STATE: createMockKv(),
+      APP_STATE: kv,
     };
     env.TAKOS_CORE = { fetch: (req: Request) => appRpcRoutes.fetch(req, env, {} as any) };
 
     const scriptCode = `
       export const outbound = async (ctx) => {
-        const res = await ctx.outbound.fetch("https://remote.example/test", { method: "GET" });
+        const res = await ctx.outbound.fetch("https://remote.example/test", { method: "GET", meterApDelivery: 2 });
         return ctx.json({ status: res.status, encoding: res.body?.encoding ?? null, data: res.body?.data ?? null });
       };
     `;
 
     const runner = await createIsolatedAppRunner({ env, scriptCode });
-    const invoked = await runner.invoke("outbound", null, { mode: "prod", auth: null, runId: undefined });
+    const invoked = await runner.invoke("outbound", null, { mode: "prod", auth: { userId: "u1", isAuthenticated: false }, runId: undefined });
 
     if (!invoked.ok) {
       throw new Error(invoked.error?.message ?? "invoke failed");
@@ -160,8 +166,13 @@ describe("app-worker-loader runner", () => {
     expect(body.encoding).toBe("base64");
     expect(typeof body.data).toBe("string");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(headers.get("x-takos-meter-ap-delivery")).toBeNull();
+    expect(kvPutSpy).toHaveBeenCalledWith("usage:u1:ap:day:2025-01-02", "2", expect.anything());
+    expect(kvPutSpy).toHaveBeenCalledWith("usage:u1:ap:minute:2025-01-02-0304", "2", expect.anything());
 
     // @ts-ignore
     globalThis.fetch = originalFetch;
+    vi.useRealTimers();
   });
 });
