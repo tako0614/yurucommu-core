@@ -16,6 +16,7 @@ import { requireAiQuota } from "../lib/plan-guard";
 import { createUsageTrackerFromEnv } from "../lib/usage-tracker";
 import { ensureAiCallAllowed } from "../lib/ai-rate-limit";
 import { ensureOutboundCallAllowed } from "../lib/outbound-rate-limit";
+import { createOutboundAuditLogger } from "../lib/outbound-audit";
 
 type RpcRequest =
   | {
@@ -750,7 +751,17 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
     }
 
     if (payload.kind === "outbound") {
+      const audit = createOutboundAuditLogger(c.env as any);
+      const startedAt = Date.now();
+
       if (!isOutboundEnabled(c.env as any)) {
+        await audit({
+          status: "blocked",
+          url: String((payload as any)?.url ?? ""),
+          method: String(((payload as any)?.init as any)?.method ?? "GET"),
+          reason: "disabled",
+          durationMs: Date.now() - startedAt,
+        });
         return c.json(
           { ok: false, error: { message: "Outbound RPC is disabled", code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
           403,
@@ -759,6 +770,13 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
 
       const auth = (payload as any).auth as AppAuthContext | null | undefined;
       if (auth?.isAuthenticated) {
+        await audit({
+          status: "blocked",
+          url: String((payload as any)?.url ?? ""),
+          method: String(((payload as any)?.init as any)?.method ?? "GET"),
+          reason: "auth_required",
+          durationMs: Date.now() - startedAt,
+        });
         return c.json(
           { ok: false, error: { message: "Outbound RPC is only available for background jobs", code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
           403,
@@ -769,6 +787,14 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
       const hostname = url.hostname;
 
       if (isLoopbackHost(hostname)) {
+        await audit({
+          status: "blocked",
+          url: url.toString(),
+          hostname,
+          method: String(((payload as any)?.init as any)?.method ?? "GET"),
+          reason: "loopback",
+          durationMs: Date.now() - startedAt,
+        });
         return c.json(
           { ok: false, error: { message: "Outbound URL host is not allowed", code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
           403,
@@ -777,12 +803,28 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
 
       const ipv4 = parseIpv4(hostname);
       if (ipv4 && isPrivateIpv4(ipv4)) {
+        await audit({
+          status: "blocked",
+          url: url.toString(),
+          hostname,
+          method: String(((payload as any)?.init as any)?.method ?? "GET"),
+          reason: "private_ip",
+          durationMs: Date.now() - startedAt,
+        });
         return c.json(
           { ok: false, error: { message: "Outbound URL host is not allowed", code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
           403,
         );
       }
       if (!ipv4 && hostname.includes(":") && isPrivateIpv6(hostname)) {
+        await audit({
+          status: "blocked",
+          url: url.toString(),
+          hostname,
+          method: String(((payload as any)?.init as any)?.method ?? "GET"),
+          reason: "private_ip",
+          durationMs: Date.now() - startedAt,
+        });
         return c.json(
           { ok: false, error: { message: "Outbound URL host is not allowed", code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
           403,
@@ -791,6 +833,14 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
 
       const takosConfig = ((c.get?.("takosConfig") as any) ?? (c.env as any).takosConfig) as any;
       if (takosConfig && matchesBlockedInstances(hostname, takosConfig)) {
+        await audit({
+          status: "blocked",
+          url: url.toString(),
+          hostname,
+          method: String(((payload as any)?.init as any)?.method ?? "GET"),
+          reason: "blocked_instances",
+          durationMs: Date.now() - startedAt,
+        });
         return c.json(
           { ok: false, error: { message: "Outbound URL host is blocked by federation policy", code: ErrorCodes.FORBIDDEN } } satisfies RpcResponse,
           403,
@@ -799,6 +849,14 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
 
       const rateLimit = await ensureOutboundCallAllowed(c.env as any, auth, { actorKey: "app-scheduled" });
       if (!rateLimit.ok) {
+        await audit({
+          status: "blocked",
+          url: url.toString(),
+          hostname,
+          method: String(((payload as any)?.init as any)?.method ?? "GET"),
+          reason: rateLimit.code,
+          durationMs: Date.now() - startedAt,
+        });
         return c.json(
           { ok: false, error: { message: rateLimit.message, code: rateLimit.code } } satisfies RpcResponse,
           rateLimit.status,
@@ -809,6 +867,14 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
       const methodRaw = typeof init?.method === "string" ? init.method.trim().toUpperCase() : "GET";
       const method = methodRaw || "GET";
       if (!/^(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH)$/.test(method)) {
+        await audit({
+          status: "blocked",
+          url: url.toString(),
+          hostname,
+          method,
+          reason: "invalid_method",
+          durationMs: Date.now() - startedAt,
+        });
         return c.json(
           { ok: false, error: { message: "invalid outbound method" } } satisfies RpcResponse,
           400,
@@ -824,34 +890,76 @@ appRpcRoutes.post("/-/internal/app-rpc", async (c) => {
         } else if (body.encoding === "base64") {
           outboundBody = toBytes({ encoding: "base64", data: body.data });
         } else {
+          await audit({
+            status: "blocked",
+            url: url.toString(),
+            hostname,
+            method,
+            reason: "invalid_body",
+            durationMs: Date.now() - startedAt,
+          });
           return c.json({ ok: false, error: { message: "invalid outbound body" } } satisfies RpcResponse, 400);
         }
       }
 
-      const response = await fetch(url.toString(), {
-        method,
-        headers,
-        body: outboundBody,
-      });
+      try {
+        await audit({
+          status: "attempt",
+          url: url.toString(),
+          hostname,
+          method,
+          durationMs: Date.now() - startedAt,
+        });
 
-      const responseHeaders: Record<string, string> = {};
-      for (const [key, value] of response.headers.entries()) {
-        responseHeaders[key] = value;
+        const response = await fetch(url.toString(), {
+          method,
+          headers,
+          body: outboundBody,
+        });
+
+        const responseHeaders: Record<string, string> = {};
+        for (const [key, value] of response.headers.entries()) {
+          responseHeaders[key] = value;
+        }
+
+        const responseBody = await readResponseBodyBase64(response);
+        const responseBytes =
+          responseBody && responseBody.encoding === "base64" && typeof responseBody.data === "string"
+            ? Math.floor((responseBody.data.length * 3) / 4)
+            : 0;
+
+        await audit({
+          status: "success",
+          url: url.toString(),
+          hostname,
+          method,
+          httpStatus: response.status,
+          durationMs: Date.now() - startedAt,
+          responseBytes,
+        });
+
+        return c.json(
+          {
+            ok: true,
+            result: {
+              url: url.toString(),
+              status: response.status,
+              headers: responseHeaders,
+              body: responseBody,
+            },
+          } satisfies RpcResponse,
+        );
+      } catch (error: any) {
+        await audit({
+          status: "error",
+          url: url.toString(),
+          hostname,
+          method,
+          reason: error?.message || "outbound_failed",
+          durationMs: Date.now() - startedAt,
+        });
+        throw error;
       }
-
-      const responseBody = await readResponseBodyBase64(response);
-
-      return c.json(
-        {
-          ok: true,
-          result: {
-            url: url.toString(),
-            status: response.status,
-            headers: responseHeaders,
-            body: responseBody,
-          },
-        } satisfies RpcResponse,
-      );
     }
 
     return c.json({ ok: false, error: { message: "unknown kind" } } satisfies RpcResponse, 400);
