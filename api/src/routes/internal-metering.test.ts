@@ -48,6 +48,14 @@ describe("/-/internal/metering/users/:userId", () => {
     });
   });
 
+  it("returns INVALID_INPUT when userId is missing", async () => {
+    const env: any = { TAKOS_INTERNAL_TOKEN: "test-token" };
+    const res = await getMetering(env, " ", "test-token");
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toMatchObject({ code: "INVALID_INPUT", status: 400 });
+  });
+
   it("returns recorded usage from UsageTracker", async () => {
     const env: any = { TAKOS_INTERNAL_TOKEN: "test-token", APP_STATE: createMockKv() };
     const tracker = createUsageTrackerFromEnv(env);
@@ -69,4 +77,3 @@ describe("/-/internal/metering/users/:userId", () => {
     });
   });
 });
-

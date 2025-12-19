@@ -64,7 +64,7 @@ internalMeteringRoutes.get("/-/internal/metering/users/:userId", async (c) => {
   requireInternalToken(c.env as any, c.req.raw);
   const userId = (c.req.param("userId") ?? "").trim();
   if (!userId) {
-    throw new HttpError(400, ErrorCodes.BAD_REQUEST, "userId is required");
+    throw new HttpError(400, ErrorCodes.INVALID_INPUT, "userId is required");
   }
 
   const tracker = createUsageTrackerFromEnv(c.env as any);
