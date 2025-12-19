@@ -114,11 +114,27 @@ export const mapErrorToResponse = (error: unknown, requestIdOrOptions?: string |
     message = error.message || message;
     details = error.details;
   } else {
-    console.error("Unhandled error:", error);
     if (isDev) {
       message = String(error);
     }
   }
+
+  const logDetails: Record<string, unknown> = {
+    status,
+    code,
+    message,
+  };
+  if (details) {
+    logDetails.details = details;
+  }
+  if (isDev && error instanceof Error && error.stack) {
+    logDetails.stack = error.stack;
+  }
+
+  logEvent(null, status >= 500 ? "error" : "warn", "request.error", {
+    requestId,
+    details: logDetails,
+  });
 
   const body = {
     status,
