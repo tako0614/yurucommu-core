@@ -1,0 +1,28 @@
+name = "takos"
+main = "src/backend/index.ts"
+compatibility_date = "2024-12-01"
+
+# This is a template for User Workers
+# Each tenant gets their own D1/R2 bindings
+
+[vars]
+PLATFORM_PUBLIC_KEY = ""
+TENANT_ID = ""
+HOSTNAME = ""
+
+# D1 Database (tenant-specific)
+[[d1_databases]]
+binding = "DB"
+database_name = "takos-tenant-db"
+database_id = ""
+
+# R2 Bucket (tenant-specific)
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "takos-tenant-media"
+
+[site]
+bucket = "./dist"
+
+[triggers]
+crons = ["*/2 * * * *"]
