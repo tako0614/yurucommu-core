@@ -1,7 +1,0 @@
-/* Reset legacy template styles to let Tailwind drive layout */
-#root {
-  max-width: none;
-  margin: 0;
-  padding: 0;
-  text-align: left;
-}
