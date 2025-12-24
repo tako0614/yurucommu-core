@@ -34,6 +34,17 @@ app.use('*', cors({
 // Health check
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
+// Debug endpoint to check bindings
+app.get('/_debug/bindings', (c) => {
+  return c.json({
+    hasDB: !!c.env.DB,
+    hasMEDIA: !!c.env.MEDIA,
+    mediaType: c.env.MEDIA ? typeof c.env.MEDIA : 'undefined',
+    hostname: c.env.HOSTNAME || 'not set',
+    tenantId: c.env.TENANT_ID || 'not set',
+  });
+});
+
 // Platform Protocol routes (public)
 app.route('/_platform', platform);
 
