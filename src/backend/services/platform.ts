@@ -15,14 +15,27 @@ export async function verifyPlatformJWT(params: {
     audience: expectedAudience,
   });
 
+  const iss = typeof payload.iss === 'string' ? payload.iss : null;
+  const aud = typeof payload.aud === 'string' ? payload.aud : null;
+  const sub = typeof payload.sub === 'string' ? payload.sub : null;
+  const role = payload.role as PlatformJWTPayload['role'] | undefined;
+  const iat = typeof payload.iat === 'number' ? payload.iat : null;
+  const exp = typeof payload.exp === 'number' ? payload.exp : null;
+  const jti = typeof payload.jti === 'string' ? payload.jti : null;
+  const validRole = role === 'owner' || role === 'admin' || role === 'editor';
+
+  if (!iss || !aud || !sub || !validRole || !iat || !exp || !jti) {
+    throw new Error('Invalid platform token payload');
+  }
+
   return {
-    iss: payload.iss as string,
-    aud: payload.aud as string,
-    sub: payload.sub as string,
-    role: payload.role as 'owner' | 'admin' | 'editor',
-    iat: payload.iat as number,
-    exp: payload.exp as number,
-    jti: payload.jti as string,
+    iss,
+    aud,
+    sub,
+    role,
+    iat,
+    exp,
+    jti,
   };
 }
 

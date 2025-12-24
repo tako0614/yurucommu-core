@@ -8,7 +8,6 @@ import {
 } from '../services/platform';
 import { processOutboxQueue } from '../services/activitypub/activities';
 import { createSession, setSessionCookie } from '../services/session';
-import { saveConfig, getConfig, type L1Package } from '../services/config';
 
 const platform = new Hono<{ Bindings: Env }>();
 
@@ -120,24 +119,9 @@ platform.post('/admin', async (c) => {
 
     await markJTIUsed(c.env, payload.jti, payload.exp);
 
-    const body = await c.req.json<{ action: string; config?: L1Package; [key: string]: unknown }>();
+    const body = await c.req.json<{ action: string; [key: string]: unknown }>();
 
     switch (body.action) {
-      case 'update_config':
-        // Handle config update from platform
-        if (!body.config) {
-          return c.json({ error: 'Missing config' }, 400);
-        }
-
-        await saveConfig(c.env, body.config);
-        console.log('L1 config updated from platform');
-        return c.json({ success: true });
-
-      case 'get_config':
-        // Return current config
-        const currentConfig = await getConfig(c.env);
-        return c.json(currentConfig);
-
       case 'get_stats':
         // Return basic stats
         const postsCount = await c.env.DB.prepare(
@@ -157,7 +141,7 @@ platform.post('/admin', async (c) => {
           following: followingCount?.count || 0,
         });
 
-      case 'run_maintenance':
+      case 'run_maintenance': {
         // Cleanup expired sessions and JTIs
         const nowMs = Date.now();
         const nowSeconds = Math.floor(nowMs / 1000);
@@ -168,9 +152,10 @@ platform.post('/admin', async (c) => {
           `DELETE FROM used_jtis WHERE expires_at < ?`
         ).bind(nowSeconds).run();
         // Process outbound deliveries
-        const hostname = c.env.HOSTNAME || new URL(c.req.url).host;
-        await processOutboxQueue(c.env, localUser, hostname);
+        const maintenanceHost = c.env.HOSTNAME || new URL(c.req.url).host;
+        await processOutboxQueue(c.env, localUser, maintenanceHost);
         return c.json({ success: true });
+      }
 
       default:
         return c.json({ error: 'Unknown action' }, 400);

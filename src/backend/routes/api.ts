@@ -114,10 +114,10 @@ api.get('/me', async (c) => {
   });
 });
 
-// Get tenant configuration (L1)
+// Get tenant configuration
 api.get('/config', async (c) => {
-  const l1 = await getConfig(c.env);
-  return c.json(l1);
+  const configPackage = await getConfig(c.env);
+  return c.json(configPackage);
 });
 
 // Update profile

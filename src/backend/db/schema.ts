@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read_at);
 CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);
 
--- Tenant configuration (L1)
+-- Tenant configuration
 CREATE TABLE IF NOT EXISTS tenant_config (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
