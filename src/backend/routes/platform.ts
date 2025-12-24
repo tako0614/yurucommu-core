@@ -157,6 +157,56 @@ platform.post('/admin', async (c) => {
         return c.json({ success: true });
       }
 
+      case 'push_asset': {
+        // Receive an asset from the platform and store in MEDIA R2
+        const assetPath = body.path as string;
+        const assetData = body.data as string; // base64 encoded
+        const contentType = body.content_type as string;
+
+        if (!assetPath || !assetData) {
+          return c.json({ error: 'Missing path or data' }, 400);
+        }
+
+        // Decode base64 data
+        const binaryString = atob(assetData);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        // Store in R2 under assets/ prefix
+        const key = `assets/${assetPath}`;
+        await c.env.MEDIA.put(key, bytes.buffer, {
+          httpMetadata: { contentType: contentType || 'application/octet-stream' },
+        });
+
+        return c.json({ success: true, path: assetPath });
+      }
+
+      case 'delete_asset': {
+        const assetPath = body.path as string;
+        if (!assetPath) {
+          return c.json({ error: 'Missing path' }, 400);
+        }
+
+        const key = `assets/${assetPath}`;
+        await c.env.MEDIA.delete(key);
+
+        return c.json({ success: true, path: assetPath });
+      }
+
+      case 'list_assets': {
+        const prefix = 'assets/';
+        const objects = await c.env.MEDIA.list({ prefix });
+
+        const assets = objects.objects.map((obj) => ({
+          path: obj.key.slice(prefix.length),
+          size: obj.size,
+        }));
+
+        return c.json({ assets });
+      }
+
       default:
         return c.json({ error: 'Unknown action' }, 400);
     }

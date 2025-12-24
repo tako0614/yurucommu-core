@@ -250,6 +250,47 @@ app.route('/api', api);
   return new Response(object.body, { headers });
 });
 
+// Static assets serving from R2 (for frontend SPA)
+app.get('/assets/*', async (c) => {
+  const path = c.req.path.slice('/assets/'.length);
+  if (!path || path.includes('..')) {
+    return c.notFound();
+  }
+
+  const key = `assets/${path}`;
+  const object = await c.env.MEDIA.get(key);
+
+  if (!object) {
+    return c.notFound();
+  }
+
+  const headers = new Headers();
+  headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream');
+  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+
+  return new Response(object.body, { headers });
+});
+
+// Serve index.html for SPA routes (if it exists)
+app.get('/', async (c) => {
+  const object = await c.env.MEDIA.get('assets/index.html');
+  if (object) {
+    const headers = new Headers();
+    headers.set('Content-Type', 'text/html; charset=utf-8');
+    headers.set('Cache-Control', 'no-cache');
+    return new Response(object.body, { headers });
+  }
+  // If no index.html, return basic info
+  const hostname = c.env.HOSTNAME || new URL(c.req.url).host;
+  return c.json({
+    instance: hostname,
+    endpoints: {
+      activitypub: `https://${hostname}/.well-known/webfinger`,
+      health: `https://${hostname}/health`,
+    },
+  });
+});
+
 // Profile page (public) - returns JSON for API clients
 app.get('/@:username', async (c) => {
   const username = c.req.param('username');
