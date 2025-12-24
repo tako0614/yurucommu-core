@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { serveStatic } from 'hono/cloudflare-workers';
 import type { Env, LocalUser } from './types';
 import { getSession, getSessionIdFromCookie, deleteSession, clearSessionCookie } from './services/session';
 import { processOutboxQueue } from './services/activitypub/activities';
@@ -97,11 +96,67 @@ app.post('/api/logout', async (c) => {
 });
 
 // Setup endpoint (no auth required, but only works once)
-app.post('/api/setup', optionalAuth, async (c, next) => {
-  // Forward to api router
-  const apiRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
-  apiRouter.route('/', api);
-  return apiRouter.fetch(new Request(c.req.url, c.req.raw), c.env);
+app.post('/api/setup', optionalAuth, async (c) => {
+  // Check if already initialized
+  const existingUser = await c.env.DB.prepare(
+    `SELECT * FROM local_users LIMIT 1`
+  ).first<LocalUser>();
+
+  if (existingUser) {
+    return c.json({ error: 'Already initialized' }, 400);
+  }
+
+  const body = await c.req.json<{
+    username: string;
+    display_name: string;
+    summary?: string;
+  }>();
+
+  if (!body.username || !body.display_name) {
+    return c.json({ error: 'username and display_name required' }, 400);
+  }
+
+  // Validate username
+  if (!/^[a-zA-Z0-9_]+$/.test(body.username)) {
+    return c.json({ error: 'Invalid username format' }, 400);
+  }
+
+  // Generate key pair for ActivityPub
+  const keyPair = await crypto.subtle.generateKey(
+    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true,
+    ['sign', 'verify']
+  );
+
+  const privateKeyBuffer = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
+  const publicKeyBuffer = await crypto.subtle.exportKey('spki', keyPair.publicKey);
+
+  const privateKeyPem = '-----BEGIN PRIVATE KEY-----\n' +
+    btoa(String.fromCharCode(...new Uint8Array(privateKeyBuffer))).match(/.{1,64}/g)!.join('\n') +
+    '\n-----END PRIVATE KEY-----';
+  const publicKeyPem = '-----BEGIN PUBLIC KEY-----\n' +
+    btoa(String.fromCharCode(...new Uint8Array(publicKeyBuffer))).match(/.{1,64}/g)!.join('\n') +
+    '\n-----END PUBLIC KEY-----';
+
+  const userId = crypto.randomUUID().replace(/-/g, '');
+
+  await c.env.DB.prepare(
+    `INSERT INTO local_users (id, username, display_name, summary, public_key, private_key)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(
+    userId,
+    body.username,
+    body.display_name,
+    body.summary || '',
+    publicKeyPem,
+    privateKeyPem
+  ).run();
+
+  const user = await c.env.DB.prepare(
+    `SELECT id, username, display_name, summary, avatar_url, header_url, created_at FROM local_users WHERE id = ?`
+  ).bind(userId).first();
+
+  return c.json(user, 201);
 });
 
 // Protected API routes
@@ -184,7 +239,7 @@ app.route('/api', api);
   return new Response(object.body, { headers });
 });
 
-// Profile page (public)
+// Profile page (public) - returns JSON for API clients
 app.get('/@:username', async (c) => {
   const username = c.req.param('username');
 
@@ -196,9 +251,17 @@ app.get('/@:username', async (c) => {
     return c.notFound();
   }
 
-  // Serve SPA for profile pages
-  // The frontend will fetch the user data via API
-  return serveStatic({ path: './index.html' })(c, async () => {});
+  // Return user profile as JSON (no SPA in tenant workers)
+  const hostname = c.env.HOSTNAME || new URL(c.req.url).host;
+  return c.json({
+    id: user.id,
+    username: user.username,
+    display_name: user.display_name,
+    summary: user.summary,
+    avatar_url: user.avatar_url,
+    header_url: user.header_url,
+    url: `https://${hostname}/@${user.username}`,
+  });
 });
 
 // Post page (public, for ActivityPub)
@@ -214,12 +277,12 @@ app.get('/posts/:id', async (c) => {
     return c.notFound();
   }
 
+  const hostname = c.env.HOSTNAME || new URL(c.req.url).host;
+  const actorUrl = `https://${hostname}/users/${post.username}`;
+  const postUrl = `https://${hostname}/posts/${postId}`;
+
   // Return ActivityPub object for AP clients
   if (accept.includes('application/activity+json') || accept.includes('application/ld+json')) {
-    const hostname = c.env.HOSTNAME || new URL(c.req.url).host;
-    const actorUrl = `https://${hostname}/users/${post.username}`;
-    const postUrl = `https://${hostname}/posts/${postId}`;
-
     const note: Record<string, unknown> = {
       '@context': 'https://www.w3.org/ns/activitystreams',
       id: postUrl,
@@ -240,23 +303,20 @@ app.get('/posts/:id', async (c) => {
     });
   }
 
-  // Serve SPA for browsers
-  return serveStatic({ path: './index.html' })(c, async () => {});
+  // Return JSON for regular requests (no SPA in tenant workers)
+  return c.json({
+    id: post.id,
+    content: post.content,
+    content_warning: post.content_warning,
+    published_at: post.published_at,
+    username: post.username,
+    url: postUrl,
+  });
 });
 
-// Serve static files
-app.get('/assets/*', serveStatic());
-
-// SPA fallback
-app.get('*', serveStatic({ path: './index.html' }));
-
-// 404 handler
+// 404 handler - tenant workers are API-only
 app.notFound((c) => {
-  const accept = c.req.header('Accept') || '';
-  if (accept.includes('application/json') || accept.includes('application/activity+json')) {
-    return c.json({ error: 'Not Found' }, 404);
-  }
-  return serveStatic({ path: './index.html' })(c, async () => {});
+  return c.json({ error: 'Not Found' }, 404);
 });
 
 // Error handler
