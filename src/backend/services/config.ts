@@ -1,7 +1,7 @@
 /**
  * Tenant Configuration Service
  *
- * Handles L1 configuration storage and retrieval for the tenant worker.
+ * Handles tenant configuration storage and retrieval for the tenant worker.
  * Configuration is stored in the tenant's D1 database.
  */
 
@@ -63,7 +63,7 @@ export interface RulesConfig {
   rules: ContentRule[];
 }
 
-export interface L1Package {
+export interface TenantConfigPackage {
   config: TenantConfig;
   theme: string | null;
   rules: RulesConfig;
@@ -112,12 +112,12 @@ export const DEFAULT_RULES: RulesConfig = {
 // Storage Functions
 // ============================================================================
 
-const CONFIG_KEY = 'l1_config';
+const CONFIG_KEY = 'tenant_config';
 
 /**
- * Get the current L1 configuration
+ * Get the current tenant configuration
  */
-export async function getConfig(env: Env): Promise<L1Package> {
+export async function getConfig(env: Env): Promise<TenantConfigPackage> {
   const result = await env.DB.prepare(
     `SELECT value FROM tenant_config WHERE key = ?`
   ).bind(CONFIG_KEY).first<{ value: string }>();
@@ -131,7 +131,7 @@ export async function getConfig(env: Env): Promise<L1Package> {
   }
 
   try {
-    return JSON.parse(result.value) as L1Package;
+    return JSON.parse(result.value) as TenantConfigPackage;
   } catch {
     return {
       config: DEFAULT_CONFIG,
@@ -142,10 +142,10 @@ export async function getConfig(env: Env): Promise<L1Package> {
 }
 
 /**
- * Save L1 configuration
+ * Save tenant configuration
  */
-export async function saveConfig(env: Env, l1: L1Package): Promise<void> {
-  const value = JSON.stringify(l1);
+export async function saveConfig(env: Env, config: TenantConfigPackage): Promise<void> {
+  const value = JSON.stringify(config);
 
   await env.DB.prepare(
     `INSERT OR REPLACE INTO tenant_config (key, value, updated_at)
@@ -157,24 +157,24 @@ export async function saveConfig(env: Env, l1: L1Package): Promise<void> {
  * Get only the config portion
  */
 export async function getTenantConfig(env: Env): Promise<TenantConfig> {
-  const l1 = await getConfig(env);
-  return l1.config;
+  const config = await getConfig(env);
+  return config.config;
 }
 
 /**
  * Get only the theme
  */
 export async function getTheme(env: Env): Promise<string | null> {
-  const l1 = await getConfig(env);
-  return l1.theme;
+  const config = await getConfig(env);
+  return config.theme;
 }
 
 /**
  * Get only the rules
  */
 export async function getRules(env: Env): Promise<RulesConfig> {
-  const l1 = await getConfig(env);
-  return l1.rules;
+  const config = await getConfig(env);
+  return config.rules;
 }
 
 // ============================================================================
