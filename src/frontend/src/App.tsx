@@ -160,7 +160,7 @@ interface FollowItem {
   } | null;
 }
 
-type View = 'loading' | 'setup' | 'home' | 'notifications' | 'following' | 'followers' | 'profile';
+type View = 'loading' | 'login' | 'setup' | 'home' | 'notifications' | 'following' | 'followers' | 'profile';
 
 function App() {
   const [view, setView] = useState<View>('loading');
@@ -319,16 +319,25 @@ function App() {
       const res = await fetch('/api/me');
       if (res.ok) {
         const data = await res.json();
-        setUser(data);
-        setView('home');
-        fetchConfig();
-        fetchPosts();
-        fetchNotifications();
+        if (data && data.id) {
+          setUser(data);
+          setView('home');
+          fetchConfig();
+          fetchPosts();
+          fetchNotifications();
+        } else {
+          // User authenticated but no profile yet - show setup
+          setView('setup');
+        }
       } else if (res.status === 401) {
+        // Not authenticated - show login page
+        setView('login');
+      } else if (res.status === 404) {
+        // Authenticated but no user profile - show setup
         setView('setup');
       }
     } catch {
-      setView('setup');
+      setView('login');
     }
   }, []);
 
@@ -394,6 +403,7 @@ function App() {
   };
 
   useEffect(() => {
+    fetchConfig(); // Always fetch config for login page branding
     fetchUser();
   }, [fetchUser]);
 
@@ -408,6 +418,10 @@ function App() {
 
   if (view === 'loading') {
     return <Loading />;
+  }
+
+  if (view === 'login') {
+    return <LoginPage siteName={siteName} siteDescription={siteDescription} logoUrl={logoUrl} />;
   }
 
   if (view === 'setup') {
@@ -480,6 +494,46 @@ function Loading() {
   return (
     <div className="loading-screen">
       <div className="loading-spinner" />
+    </div>
+  );
+}
+
+function LoginPage({
+  siteName,
+  siteDescription,
+  logoUrl,
+}: {
+  siteName: string;
+  siteDescription: string | null;
+  logoUrl: string | null;
+}) {
+  const handleLogin = () => {
+    // Redirect to platform SSO login
+    window.location.href = '/api/auth/login';
+  };
+
+  return (
+    <div className="login-container">
+      <div className="login-card">
+        <div className="login-header">
+          {logoUrl ? (
+            <img src={logoUrl} alt={siteName} className="login-logo" />
+          ) : (
+            <div className="login-logo-placeholder">{Icons.logo}</div>
+          )}
+          <h1>{siteName}</h1>
+          {siteDescription && <p className="login-description">{siteDescription}</p>}
+        </div>
+        <div className="login-body">
+          <p>This is a private community. Please sign in to continue.</p>
+          <button className="btn btn-primary btn-block" onClick={handleLogin}>
+            Sign in
+          </button>
+        </div>
+        <div className="login-footer">
+          <span>Powered by Takos</span>
+        </div>
+      </div>
     </div>
   );
 }
