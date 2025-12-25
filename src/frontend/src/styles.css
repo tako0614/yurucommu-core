@@ -1049,6 +1049,77 @@ body {
   font-size: 15px;
 }
 
+/* Login Page */
+.login-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: var(--bg-secondary);
+}
+
+.login-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 48px 32px;
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+}
+
+.login-header {
+  margin-bottom: 32px;
+}
+
+.login-logo {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  margin-bottom: 16px;
+}
+
+.login-logo-placeholder {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 16px;
+}
+
+.login-logo-placeholder svg {
+  width: 100%;
+  height: 100%;
+  fill: var(--text-primary);
+}
+
+.login-header h1 {
+  font-size: 24px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.login-description {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-top: 8px;
+}
+
+.login-body {
+  margin-bottom: 24px;
+}
+
+.login-body p {
+  color: var(--text-secondary);
+  font-size: 15px;
+  margin-bottom: 24px;
+  line-height: 1.4;
+}
+
+.login-footer {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
 /* Notifications View */
 .notifications-list {
   display: flex;
