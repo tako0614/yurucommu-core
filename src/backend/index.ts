@@ -1,11 +1,11 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { Env, LocalUser } from './types';
-import { getSession, getSessionIdFromCookie, deleteSession, clearSessionCookie } from './services/session';
+import { getSession, getSessionIdFromCookie } from './services/session';
 import { processOutboxQueue } from './services/activitypub/activities';
-import platform from './routes/platform';
 import activitypub from './routes/activitypub';
 import api from './routes/api';
+import auth from './routes/auth';
 
 type Variables = {
   user?: LocalUser;
@@ -45,8 +45,8 @@ app.get('/_debug/bindings', (c) => {
   });
 });
 
-// Platform Protocol routes (public)
-app.route('/_platform', platform);
+// Authentication routes (public)
+app.route('/auth', auth);
 
 // ActivityPub routes (public)
 app.route('/', activitypub);
@@ -91,20 +91,6 @@ const optionalAuth = async (c: any, next: any) => {
   }
   await next();
 };
-
-// Logout
-app.post('/api/logout', async (c) => {
-  const sessionId = getSessionIdFromCookie(c.req.header('Cookie'));
-  if (sessionId) {
-    await deleteSession(c.env, sessionId);
-  }
-  return new Response(JSON.stringify({ success: true }), {
-    headers: {
-      'Content-Type': 'application/json',
-      'Set-Cookie': clearSessionCookie(),
-    },
-  });
-});
 
 // Setup endpoint (no auth required, but only works once)
 app.post('/api/setup', optionalAuth, async (c) => {

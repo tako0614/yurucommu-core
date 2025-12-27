@@ -6,6 +6,10 @@ export interface Env {
   PLATFORM_PUBLIC_KEY: string;
   TENANT_ID: string;
   HOSTNAME: string;
+  // OAuth2 Client settings
+  OAUTH_ISSUER?: string;
+  OAUTH_CLIENT_ID?: string;
+  OAUTH_CLIENT_SECRET?: string;
 }
 
 export interface LocalUser {
@@ -17,6 +21,31 @@ export interface LocalUser {
   header_url: string | null;
   public_key: string;
   private_key: string;
+  email: string | null;
+  password_hash: string | null;
+  auth_provider: 'local' | 'oauth2';
+  external_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OAuthState {
+  id: string;
+  state: string;
+  code_verifier: string;
+  redirect_uri: string | null;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface OAuthToken {
+  id: string;
+  user_id: string;
+  access_token: string;
+  refresh_token: string | null;
+  token_type: string;
+  scope: string | null;
+  expires_at: string | null;
   created_at: string;
   updated_at: string;
 }
