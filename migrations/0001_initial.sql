@@ -1,5 +1,5 @@
--- Migration: 0001_initial
--- Description: Initial schema for takos tenant
+-- Initial schema for yurucommu (Tenant DB)
+-- Generated: 2025-12-27
 
 -- Local user (single user per tenant)
 CREATE TABLE IF NOT EXISTS local_users (
@@ -11,6 +11,10 @@ CREATE TABLE IF NOT EXISTS local_users (
   header_url TEXT,
   public_key TEXT NOT NULL,
   private_key TEXT NOT NULL,
+  email TEXT UNIQUE,
+  password_hash TEXT,
+  auth_provider TEXT NOT NULL DEFAULT 'local',
+  external_user_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -87,11 +91,14 @@ CREATE TABLE IF NOT EXISTS inbox_queue (
   activity_json TEXT NOT NULL,
   received_at TEXT NOT NULL DEFAULT (datetime('now')),
   processed_at TEXT,
-  error TEXT
+  error TEXT,
+  signature_verified INTEGER NOT NULL DEFAULT 0,
+  signature_error TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_inbox_queue_processed ON inbox_queue(processed_at);
 CREATE INDEX IF NOT EXISTS idx_inbox_queue_received ON inbox_queue(received_at);
+CREATE INDEX IF NOT EXISTS idx_inbox_queue_signature ON inbox_queue(signature_verified);
 
 -- Outbox queue (for delivery)
 CREATE TABLE IF NOT EXISTS outbox_queue (
@@ -143,3 +150,48 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read_at);
 CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);
+
+-- Tenant configuration
+CREATE TABLE IF NOT EXISTS tenant_config (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Media file lookup
+CREATE TABLE IF NOT EXISTS media_files (
+  id TEXT PRIMARY KEY,
+  r2_key TEXT NOT NULL,
+  content_type TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_files_key ON media_files(r2_key);
+
+-- OAuth2 state storage (for CSRF protection and PKCE)
+CREATE TABLE IF NOT EXISTS oauth_states (
+  id TEXT PRIMARY KEY,
+  state TEXT UNIQUE NOT NULL,
+  code_verifier TEXT NOT NULL,
+  redirect_uri TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_states_state ON oauth_states(state);
+CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
+
+-- OAuth2 tokens (for storing tokens from IdP)
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES local_users(id),
+  access_token TEXT NOT NULL,
+  refresh_token TEXT,
+  token_type TEXT NOT NULL DEFAULT 'Bearer',
+  scope TEXT,
+  expires_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user ON oauth_tokens(user_id);
