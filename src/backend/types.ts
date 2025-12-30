@@ -135,14 +135,3 @@ export interface PlatformJWTPayload {
   exp: number;
   jti: string;
 }
-
-/**
- * Agent context for service tool calls
- * Set when requests come from platform agents via service_call tool
- */
-export interface AgentContext {
-  workspaceId: string;
-  runId: string;
-  deploymentId: string;
-  timestamp: number;
-}

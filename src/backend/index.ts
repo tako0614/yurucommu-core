@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import type { Env, LocalUser, AgentContext } from './types';
+import type { Env, LocalUser } from './types';
 import { getSession, getSessionIdFromCookie } from './services/session';
 import { processOutboxQueue } from './services/activitypub/activities';
 import activitypub from './routes/activitypub';
@@ -9,7 +9,6 @@ import auth from './routes/auth';
 
 type Variables = {
   user?: LocalUser;
-  agentContext?: AgentContext;
 };
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -53,49 +52,7 @@ app.route('/auth', auth);
 app.route('/', activitypub);
 
 // Auth middleware for protected API routes
-// Accepts either user session or agent token
 const requireAuth = async (c: any, next: any) => {
-  // First, check for agent token
-  const authHeader = c.req.header('Authorization');
-  const workspaceId = c.req.header('X-Agent-Workspace');
-  const runId = c.req.header('X-Agent-Run');
-
-  if (authHeader?.startsWith('Bearer agent-token:')) {
-    const tokenPayload = authHeader.slice('Bearer agent-token:'.length);
-    const parts = tokenPayload.split('.');
-
-    if (parts.length === 2) {
-      const [deploymentId, timestampStr] = parts;
-      const timestamp = parseInt(timestampStr, 10);
-      const now = Date.now();
-      const maxAge = 5 * 60 * 1000; // 5 minutes
-
-      if (!isNaN(timestamp) && now - timestamp < maxAge) {
-        if (deploymentId === c.env.TENANT_ID) {
-          c.set('agentContext', {
-            workspaceId: workspaceId || 'unknown',
-            runId: runId || 'unknown',
-            deploymentId,
-            timestamp,
-          } as AgentContext);
-
-          // For agent calls, get the first user as the acting user
-          const user = await c.env.DB.prepare(
-            'SELECT * FROM local_users LIMIT 1'
-          ).first<LocalUser>();
-
-          if (user) {
-            c.set('user', user);
-            await next();
-            return;
-          }
-        }
-      }
-    }
-    return c.json({ error: 'Invalid agent token' }, 401);
-  }
-
-  // Fall back to session auth for regular users
   const sessionId = getSessionIdFromCookie(c.req.header('Cookie'));
   if (!sessionId) {
     return c.json({ error: 'Unauthorized' }, 401);
