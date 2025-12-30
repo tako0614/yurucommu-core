@@ -8,9 +8,9 @@ interface LayoutProps {
 
 export function Layout({ notificationCount }: LayoutProps) {
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    <div className="app">
       <Sidebar notificationCount={notificationCount} />
-      <main className="flex-1 overflow-y-auto">
+      <main className="main-content">
         <Outlet />
       </main>
     </div>

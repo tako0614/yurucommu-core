@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Input } from '../components/common';
-import { TextArea } from '../components/common/Input';
 import { api } from '../api/client';
 import { useAuthStore } from '../stores/authStore';
 
@@ -47,53 +45,60 @@ export function Setup() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4">
-      <div className="max-w-md w-full">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Welcome to yurucommu</h1>
-          <p className="mt-2 text-gray-600">Let's set up your profile</p>
+    <div className="setup-container">
+      <div className="setup-card">
+        <div className="setup-header">
+          <h1>Create <span style={{ background: 'var(--accent)', padding: '0 8px', borderRadius: '4px' }}>your account</span></h1>
+          <p>Set up your profile to get started</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-lg p-8">
+        <form onSubmit={handleSubmit}>
           {error && (
-            <div className="mb-4 p-3 bg-red-100 text-red-600 rounded-lg text-sm">
+            <div className="error-message">
               {error}
             </div>
           )}
 
-          <div className="space-y-4">
-            <Input
-              label="Username"
-              placeholder="johndoe"
+          <div className="input-group">
+            <label>Username</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="alice"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              fullWidth
               disabled={loading}
             />
+            <span className="input-hint">Letters, numbers, and underscores only</span>
+          </div>
 
-            <Input
-              label="Display Name"
-              placeholder="John Doe"
+          <div className="input-group">
+            <label>Display Name</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="Alice"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              fullWidth
               disabled={loading}
             />
+          </div>
 
-            <TextArea
-              label="Bio (optional)"
+          <div className="input-group">
+            <label>Bio</label>
+            <textarea
+              className="textarea"
               placeholder="Tell us about yourself..."
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
-              fullWidth
               rows={3}
               disabled={loading}
             />
-
-            <Button type="submit" fullWidth loading={loading}>
-              Complete Setup
-            </Button>
           </div>
+
+          <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
+            {loading ? 'Setting up...' : 'Next'}
+          </button>
         </form>
       </div>
     </div>
