@@ -20,8 +20,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full" />
+      <div className="loading-screen">
+        <div className="loading-spinner" />
       </div>
     );
   }
@@ -59,8 +59,8 @@ function SetupCheck({ children }: { children: React.ReactNode }) {
 
   if (needsSetup === null) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full" />
+      <div className="loading-screen">
+        <div className="loading-spinner" />
       </div>
     );
   }
@@ -107,8 +107,8 @@ function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full" />
+      <div className="loading-screen">
+        <div className="loading-spinner" />
       </div>
     );
   }

@@ -14,22 +14,15 @@ function NavItem({ to, icon, label, badge }: NavItemProps) {
   return (
     <NavLink
       to={to}
-      className={({ isActive }) => `
-        flex items-center gap-3 px-4 py-3 rounded-lg
-        transition-colors
-        ${isActive
-          ? 'bg-blue-50 text-blue-600'
-          : 'text-gray-700 hover:bg-gray-100'
-        }
-      `}
+      className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
     >
-      <span className="w-6 h-6">{icon}</span>
-      <span className="font-medium">{label}</span>
-      {badge && badge > 0 && (
-        <span className="ml-auto bg-red-500 text-white text-xs font-medium px-2 py-0.5 rounded-full">
-          {badge > 99 ? '99+' : badge}
-        </span>
-      )}
+      <span className="nav-icon">
+        {icon}
+        {badge && badge > 0 && (
+          <span className="nav-badge">{badge > 99 ? '99+' : badge}</span>
+        )}
+      </span>
+      <span className="nav-label">{label}</span>
     </NavLink>
   );
 }
@@ -84,14 +77,17 @@ export function Sidebar({ notificationCount = 0 }: SidebarProps) {
   };
 
   return (
-    <aside className="w-64 h-screen bg-white border-r border-gray-200 flex flex-col">
+    <aside className="sidebar">
       {/* Logo */}
-      <div className="p-4 border-b border-gray-200">
-        <h1 className="text-xl font-bold text-gray-900">yurucommu</h1>
+      <div className="sidebar-header">
+        <div className="sidebar-logo">
+          <img src="/yurucommu.png" alt="yurucommu" />
+        </div>
+        <span className="sidebar-title">yurucommu</span>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+      <nav className="sidebar-nav">
         <NavItem to="/" icon={<HomeIcon />} label="Home" />
         <NavItem
           to="/notifications"
@@ -105,29 +101,21 @@ export function Sidebar({ notificationCount = 0 }: SidebarProps) {
 
       {/* User */}
       {user && (
-        <div className="p-4 border-t border-gray-200">
-          <div className="flex items-center gap-3 mb-3">
-            <Avatar
-              src={user.avatar_url}
-              alt={user.display_name}
-              size="md"
-            />
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-gray-900 truncate">
-                {user.display_name}
-              </p>
-              <p className="text-sm text-gray-500 truncate">
-                @{user.username}
-              </p>
-            </div>
+        <div className="sidebar-user" onClick={handleLogout}>
+          <div className="user-avatar">
+            {user.avatar_url ? (
+              <img src={user.avatar_url} alt={user.display_name} />
+            ) : (
+              user.display_name?.charAt(0).toUpperCase() || 'U'
+            )}
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 w-full px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <span className="w-5 h-5"><LogoutIcon /></span>
-            <span>Sign Out</span>
-          </button>
+          <div className="user-info">
+            <div className="user-name">{user.display_name}</div>
+            <div className="user-handle">@{user.username}</div>
+          </div>
+          <div className="more-icon">
+            <LogoutIcon />
+          </div>
         </div>
       )}
     </aside>

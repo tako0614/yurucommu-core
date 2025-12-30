@@ -26,23 +26,24 @@ export function Login() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full" />
+      <div className="loading-screen">
+        <div className="loading-spinner" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4">
-      <div className="max-w-md w-full">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">yurucommu</h1>
-          <p className="mt-2 text-gray-600">
+    <div className="login-container">
+      <div className="login-card">
+        <div className="login-header">
+          <img src="/yurucommu.png" alt="yurucommu" className="login-logo" />
+          <h1>yurucommu</h1>
+          <p className="login-description">
             {mode === 'login' ? 'Sign in to your account' : 'Create your account'}
           </p>
         </div>
 
-        <div className="bg-white rounded-xl shadow-lg p-8">
+        <div className="login-body">
           {mode === 'login' ? (
             <LoginForm
               onSuccess={handleSuccess}
@@ -57,17 +58,9 @@ export function Login() {
 
           {authMethods.oauth && (
             <>
-              <div className="relative my-6">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-200" />
-                </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="px-4 bg-white text-gray-500">
-                    Or continue with
-                  </span>
-                </div>
+              <div style={{ margin: '24px 0', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                Or continue with
               </div>
-
               <OAuthButton />
             </>
           )}

@@ -2,7 +2,17 @@
  * API Client for yurucommu backend
  */
 
-const API_BASE = '';
+// Default to relative URL for standalone deployment
+// Can be overridden for embedded usage
+let API_BASE = '';
+
+export function setApiBase(base: string) {
+  API_BASE = base;
+}
+
+export function getApiBase(): string {
+  return API_BASE;
+}
 
 export interface ApiError {
   error: string;
