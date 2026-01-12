@@ -6,10 +6,12 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 TAKOS_URL = "https://takos.jp"
 APP_URL = "https://app.yurucommu.com"
+AUTH_MODE = "password"
 
 # Secrets (set via wrangler secret put):
 # - TAKOS_CLIENT_ID
 # - TAKOS_CLIENT_SECRET
+# - AUTH_PASSWORD
 
 # D1 Database
 [[d1_databases]]
