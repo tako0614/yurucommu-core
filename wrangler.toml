@@ -1,28 +1,40 @@
-name = "takos"
+name = "yurucommu"
 main = "src/backend/index.ts"
 compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
 
-# This is a template for User Workers
-# Each tenant gets their own D1/R2 bindings
+# Yurucommu App - OAuth-enabled worker
 
 [vars]
 PLATFORM_PUBLIC_KEY = ""
-TENANT_ID = ""
-HOSTNAME = ""
+TENANT_ID = "yurucommu"
+HOSTNAME = "app.yurucommu.com"
+# OAuth2 Client settings (takos as IdP)
+OAUTH_ISSUER = "https://takos.jp"
+OAUTH_CLIENT_ID = "X6aFO7CwG7MuzyyR0SSmAA"
 
-# D1 Database (tenant-specific)
+# D1 Database
 [[d1_databases]]
 binding = "DB"
-database_name = "takos-tenant-db"
-database_id = ""
+database_name = "yurucommu-db"
+database_id = "054f575a-1fa1-497a-9b27-3682d0155e23"
+migrations_dir = "migrations"
 
-# R2 Bucket (tenant-specific)
+# R2 Bucket
 [[r2_buckets]]
 binding = "MEDIA"
-bucket_name = "takos-tenant-media"
+bucket_name = "yurucommu-media"
 
 [site]
 bucket = "./dist"
 
 [triggers]
 crons = ["*/2 * * * *"]
+
+# Route for app.yurucommu.com
+[[routes]]
+pattern = "app.yurucommu.com/*"
+zone_name = "yurucommu.com"
+
+# Secrets (set via wrangler secret put):
+# - OAUTH_CLIENT_SECRET
