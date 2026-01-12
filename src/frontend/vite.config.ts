@@ -12,9 +12,6 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': 'http://localhost:8787',
-      '/_platform': 'http://localhost:8787',
-      '/.well-known': 'http://localhost:8787',
-      '/users': 'http://localhost:8787',
     },
   },
 });
