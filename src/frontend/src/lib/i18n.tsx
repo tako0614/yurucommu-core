@@ -5,11 +5,40 @@ export type Language = 'ja' | 'en';
 const translations = {
   ja: {
     // Navigation
+    'nav.home': 'ホーム',
     'nav.groups': 'グループ',
     'nav.messages': 'メッセージ',
     'nav.members': 'メンバー',
     'nav.notifications': '通知',
+    'nav.profile': 'プロフィール',
     'nav.logout': 'ログアウト',
+
+    // Timeline / Posts
+    'timeline.title': 'ホーム',
+    'timeline.empty': '投稿がありません',
+    'timeline.all': 'すべて',
+    'timeline.postsOnly': '投稿のみ',
+    'timeline.groupsOnly': 'グループのみ',
+    'posts.placeholder': '今なにしてる？',
+    'posts.post': '投稿',
+    'posts.like': 'いいね',
+    'posts.repost': 'リポスト',
+    'posts.reply': '返信',
+    'posts.delete': '削除',
+
+    // Profile
+    'profile.posts': '投稿',
+    'profile.likes': 'いいね',
+    'profile.noLikes': 'まだいいねがありません',
+    'profile.followers': 'フォロワー',
+    'profile.following': 'フォロー中',
+    'profile.follow': 'フォロー',
+    'profile.unfollow': 'フォロー解除',
+    'profile.editProfile': 'プロフィールを編集',
+
+    // Timeline tabs
+    'timeline.following': 'フォロー中',
+    'timeline.communities': 'コミュニティ',
 
     // Groups
     'groups.title': 'グループ',
@@ -59,10 +88,13 @@ const translations = {
     // Notifications
     'notifications.title': '通知',
     'notifications.empty': '通知はありません',
+    'notifications.follow': 'があなたをフォローしました',
+    'notifications.like': 'があなたの投稿にいいねしました',
+    'notifications.repost': 'があなたの投稿をリポストしました',
+    'notifications.mention': 'があなたをメンションしました',
+    'notifications.reply': 'があなたの投稿に返信しました',
     'notifications.joinRequest': 'がグループへの参加をリクエストしました',
     'notifications.joinAccepted': 'がグループへの参加を承認しました',
-    'notifications.mention': 'があなたをメンションしました',
-    'notifications.reply': 'があなたのメッセージに返信しました',
     'notifications.invite': 'がグループに招待しました',
 
     // Common
@@ -76,11 +108,40 @@ const translations = {
   },
   en: {
     // Navigation
+    'nav.home': 'Home',
     'nav.groups': 'Groups',
     'nav.messages': 'Messages',
     'nav.members': 'Members',
     'nav.notifications': 'Notifications',
+    'nav.profile': 'Profile',
     'nav.logout': 'Logout',
+
+    // Timeline / Posts
+    'timeline.title': 'Home',
+    'timeline.empty': 'No posts yet',
+    'timeline.all': 'All',
+    'timeline.postsOnly': 'Posts',
+    'timeline.groupsOnly': 'Groups',
+    'posts.placeholder': "What's happening?",
+    'posts.post': 'Post',
+    'posts.like': 'Like',
+    'posts.repost': 'Repost',
+    'posts.reply': 'Reply',
+    'posts.delete': 'Delete',
+
+    // Profile
+    'profile.posts': 'Posts',
+    'profile.likes': 'Likes',
+    'profile.noLikes': 'No likes yet',
+    'profile.followers': 'Followers',
+    'profile.following': 'Following',
+    'profile.follow': 'Follow',
+    'profile.unfollow': 'Unfollow',
+    'profile.editProfile': 'Edit profile',
+
+    // Timeline tabs
+    'timeline.following': 'Following',
+    'timeline.communities': 'Communities',
 
     // Groups
     'groups.title': 'Groups',
@@ -130,10 +191,13 @@ const translations = {
     // Notifications
     'notifications.title': 'Notifications',
     'notifications.empty': 'No notifications',
+    'notifications.follow': ' followed you',
+    'notifications.like': ' liked your post',
+    'notifications.repost': ' reposted your post',
+    'notifications.mention': ' mentioned you',
+    'notifications.reply': ' replied to your post',
     'notifications.joinRequest': ' requested to join the group',
     'notifications.joinAccepted': ' accepted your join request',
-    'notifications.mention': ' mentioned you',
-    'notifications.reply': ' replied to your message',
     'notifications.invite': ' invited you to a group',
 
     // Common

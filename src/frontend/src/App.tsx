@@ -5,9 +5,10 @@ import { fetchUnreadNotificationCount } from './lib/api';
 import { I18nProvider, useI18n } from './lib/i18n';
 import { LoginForm } from './components/LoginForm';
 import { AppLayout } from './components/layout';
+import { TimelinePage } from './pages/TimelinePage';
 import { GroupPage } from './pages/GroupPage';
 import { DMPage } from './pages/DMPage';
-import { MemberPage } from './pages/MemberPage';
+import { ProfilePage } from './pages/ProfilePage';
 import { NotificationPage } from './pages/NotificationPage';
 
 function AppContent() {
@@ -66,12 +67,12 @@ function AppContent() {
     <BrowserRouter>
       <Routes>
         <Route element={<AppLayout member={member} unreadNotifications={unreadNotifications} />}>
-          <Route path="/" element={<GroupPage currentMember={member} />} />
-          <Route path="/groups/:groupId" element={<GroupPage currentMember={member} />} />
-          <Route path="/groups/:groupId/rooms/:roomId" element={<GroupPage currentMember={member} />} />
+          <Route path="/" element={<TimelinePage currentMember={member} />} />
+          <Route path="/groups" element={<GroupPage currentMember={member} />} />
           <Route path="/dm" element={<DMPage currentMember={member} />} />
           <Route path="/dm/:conversationId" element={<DMPage currentMember={member} />} />
-          <Route path="/members" element={<MemberPage />} />
+          <Route path="/profile" element={<ProfilePage currentMember={member} />} />
+          <Route path="/profile/:memberId" element={<ProfilePage currentMember={member} />} />
           <Route path="/notifications" element={<NotificationPage />} />
         </Route>
       </Routes>

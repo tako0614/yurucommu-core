@@ -1,15 +1,11 @@
 import {
   Member,
-  Group,
-  GroupWithMembership,
-  Room,
-  Message,
-  Thread,
-  ThreadReply,
+  MemberProfile,
+  Community,
+  Post,
   DMConversation,
   DMMessage,
   Notification,
-  MemberWithRole,
 } from '../types';
 
 // ===== Auth API =====
@@ -36,127 +32,11 @@ export async function loginWithPassword(
   return res.json();
 }
 
-// ===== Groups API =====
+// ===== Communities API =====
 
-export async function fetchGroups(): Promise<{ groups: GroupWithMembership[] }> {
-  const res = await fetch('/api/groups');
+export async function fetchCommunities(): Promise<{ communities: Community[] }> {
+  const res = await fetch('/api/communities');
   return res.json();
-}
-
-export async function fetchGroup(groupId: string): Promise<{ group: GroupWithMembership }> {
-  const res = await fetch(`/api/groups/${groupId}`);
-  if (!res.ok) throw new Error('Group not found');
-  return res.json();
-}
-
-export async function joinGroup(groupId: string): Promise<void> {
-  const res = await fetch(`/api/groups/${groupId}/join`, { method: 'POST' });
-  if (!res.ok) throw new Error('Failed to join group');
-}
-
-export async function leaveGroup(groupId: string): Promise<void> {
-  const res = await fetch(`/api/groups/${groupId}/leave`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('Failed to leave group');
-}
-
-export async function fetchGroupMembers(groupId: string): Promise<{ members: MemberWithRole[] }> {
-  const res = await fetch(`/api/groups/${groupId}/members`);
-  return res.json();
-}
-
-// ===== Rooms API =====
-
-export async function fetchRooms(groupId: string): Promise<{ rooms: Room[] }> {
-  const res = await fetch(`/api/groups/${groupId}/rooms`);
-  return res.json();
-}
-
-export async function fetchRoom(roomId: string): Promise<{ room: Room }> {
-  const res = await fetch(`/api/rooms/${roomId}`);
-  if (!res.ok) throw new Error('Room not found');
-  return res.json();
-}
-
-// ===== Messages API (Chat Rooms) =====
-
-export async function fetchMessages(
-  roomId: string,
-  options?: { limit?: number; before?: string; since?: string }
-): Promise<{ messages: Message[] }> {
-  const params = new URLSearchParams();
-  if (options?.limit) params.set('limit', String(options.limit));
-  if (options?.before) params.set('before', options.before);
-  if (options?.since) params.set('since', options.since);
-
-  const query = params.toString() ? `?${params.toString()}` : '';
-  const res = await fetch(`/api/rooms/${roomId}/messages${query}`);
-  return res.json();
-}
-
-export async function sendMessage(
-  roomId: string,
-  data: { content: string; reply_to_id?: string }
-): Promise<Message> {
-  const res = await fetch(`/api/rooms/${roomId}/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to send message');
-  return res.json();
-}
-
-export async function deleteMessage(roomId: string, messageId: string): Promise<void> {
-  const res = await fetch(`/api/rooms/${roomId}/messages/${messageId}`, {
-    method: 'DELETE',
-  });
-  if (!res.ok) throw new Error('Failed to delete message');
-}
-
-// ===== Threads API (Forum Rooms) =====
-
-export async function fetchThreads(roomId: string): Promise<{ threads: Thread[] }> {
-  const res = await fetch(`/api/rooms/${roomId}/threads`);
-  return res.json();
-}
-
-export async function createThread(
-  roomId: string,
-  data: { title: string; content?: string }
-): Promise<Thread> {
-  const res = await fetch(`/api/rooms/${roomId}/threads`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error('Failed to create thread');
-  return res.json();
-}
-
-export async function fetchThread(threadId: string): Promise<{ thread: Thread; replies: ThreadReply[] }> {
-  const res = await fetch(`/api/threads/${threadId}`);
-  if (!res.ok) throw new Error('Thread not found');
-  return res.json();
-}
-
-export async function createThreadReply(threadId: string, content: string): Promise<ThreadReply> {
-  const res = await fetch(`/api/threads/${threadId}/replies`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
-  });
-  if (!res.ok) throw new Error('Failed to create reply');
-  return res.json();
-}
-
-export async function deleteThread(threadId: string): Promise<void> {
-  const res = await fetch(`/api/threads/${threadId}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('Failed to delete thread');
-}
-
-export async function deleteThreadReply(threadId: string, replyId: string): Promise<void> {
-  const res = await fetch(`/api/threads/${threadId}/replies/${replyId}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('Failed to delete reply');
 }
 
 // ===== Members API =====
@@ -170,6 +50,112 @@ export async function fetchMember(memberId: string): Promise<{ member: Member }>
   const res = await fetch(`/api/members/${memberId}`);
   if (!res.ok) throw new Error('Member not found');
   return res.json();
+}
+
+export async function fetchMemberProfile(memberId: string): Promise<{ member: MemberProfile }> {
+  const res = await fetch(`/api/members/${memberId}/profile`);
+  if (!res.ok) throw new Error('Member not found');
+  return res.json();
+}
+
+export async function followMember(memberId: string): Promise<void> {
+  const res = await fetch(`/api/follow/${memberId}`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to follow');
+}
+
+export async function unfollowMember(memberId: string): Promise<void> {
+  const res = await fetch(`/api/follow/${memberId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to unfollow');
+}
+
+export async function fetchFollowers(memberId: string): Promise<{ members: Member[] }> {
+  const res = await fetch(`/api/members/${memberId}/followers`);
+  return res.json();
+}
+
+export async function fetchFollowing(memberId: string): Promise<{ members: Member[] }> {
+  const res = await fetch(`/api/members/${memberId}/following`);
+  return res.json();
+}
+
+// ===== Posts API =====
+
+export async function fetchTimeline(options?: {
+  limit?: number;
+  before?: string;
+  filter?: 'following' | 'community';
+  communityId?: string;
+}): Promise<{ posts: Post[] }> {
+  const params = new URLSearchParams();
+  if (options?.limit) params.set('limit', String(options.limit));
+  if (options?.before) params.set('before', options.before);
+  if (options?.communityId) params.set('community', options.communityId);
+
+  const query = params.toString() ? `?${params.toString()}` : '';
+
+  // Use /api/timeline/following for following filter, /api/timeline for community or all
+  const endpoint = options?.filter === 'following' ? '/api/timeline/following' : '/api/timeline';
+  const res = await fetch(`${endpoint}${query}`);
+  return res.json();
+}
+
+export async function fetchMemberPosts(memberId: string, options?: {
+  limit?: number;
+  before?: string;
+}): Promise<{ posts: Post[] }> {
+  const params = new URLSearchParams();
+  if (options?.limit) params.set('limit', String(options.limit));
+  if (options?.before) params.set('before', options.before);
+
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`/api/members/${memberId}/posts${query}`);
+  return res.json();
+}
+
+export async function fetchPost(postId: string): Promise<{ post: Post }> {
+  const res = await fetch(`/api/posts/${postId}`);
+  if (!res.ok) throw new Error('Post not found');
+  return res.json();
+}
+
+export async function createPost(data: {
+  content: string;
+  visibility?: 'public' | 'unlisted' | 'followers';
+  reply_to_id?: string;
+  community_id?: string;
+}): Promise<Post> {
+  const res = await fetch('/api/posts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to create post');
+  return res.json();
+}
+
+export async function deletePost(postId: string): Promise<void> {
+  const res = await fetch(`/api/posts/${postId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete post');
+}
+
+export async function likePost(postId: string): Promise<void> {
+  const res = await fetch(`/api/posts/${postId}/like`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to like post');
+}
+
+export async function unlikePost(postId: string): Promise<void> {
+  const res = await fetch(`/api/posts/${postId}/like`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to unlike post');
+}
+
+export async function repostPost(postId: string): Promise<void> {
+  const res = await fetch(`/api/posts/${postId}/repost`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to repost');
+}
+
+export async function unrepostPost(postId: string): Promise<void> {
+  const res = await fetch(`/api/posts/${postId}/repost`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to unrepost');
 }
 
 // ===== DM API =====
