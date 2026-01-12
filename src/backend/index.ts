@@ -931,6 +931,45 @@ app.get('/api/members/:id', async (c) => {
   return c.json({ member });
 });
 
+// Get member profile with follow stats
+app.get('/api/members/:id/profile', async (c) => {
+  const currentMember = c.get('member');
+  const id = c.req.param('id');
+
+  const member = await c.env.DB.prepare(`
+    SELECT id, username, display_name, avatar_url, header_url, role, bio, is_remote, ap_actor_id,
+           follower_count, following_count, post_count, created_at
+    FROM members WHERE id = ?
+  `).bind(id).first();
+
+  if (!member) return c.json({ error: 'Member not found' }, 404);
+
+  // Check if current user is following this member
+  let is_following = false;
+  let is_followed_by = false;
+
+  if (currentMember && currentMember.id !== id) {
+    const followStatus = await c.env.DB.prepare(`
+      SELECT
+        EXISTS(SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? AND status = 'accepted') as is_following,
+        EXISTS(SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? AND status = 'accepted') as is_followed_by
+    `).bind(currentMember.id, id, id, currentMember.id).first<{ is_following: number; is_followed_by: number }>();
+
+    if (followStatus) {
+      is_following = !!followStatus.is_following;
+      is_followed_by = !!followStatus.is_followed_by;
+    }
+  }
+
+  return c.json({
+    member: {
+      ...member,
+      is_following,
+      is_followed_by,
+    }
+  });
+});
+
 app.put('/api/members/:id/role', async (c) => {
   const currentMember = c.get('member');
   if (!currentMember || currentMember.role !== 'owner') return c.json({ error: 'Only owners can change roles' }, 403);

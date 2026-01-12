@@ -1,36 +1,18 @@
-// ===== APC (ActivityPub Communities) Types =====
-// Based on apc-spec.md v0.3
+// ===== Community Types =====
 
-// Group represents a community (AS2 Group Actor)
-export interface Group {
+// Community represents a group/community
+export interface Community {
   id: string;
   name: string;
-  summary: string | null;
+  description: string | null;
   icon_url: string | null;
-  header_url: string | null;
-  visibility: 'public' | 'unlisted' | 'confidential';
-  join_policy: 'open' | 'inviteOnly' | 'moderated';
-  posting_policy: 'members' | 'mods' | 'owners';
-  member_count: number;
-  room_count: number;
+  sort_order: number;
   created_at: string;
   updated_at: string;
 }
 
-// Room represents a channel within a Group (apc:Room)
-export interface Room {
-  id: string;
-  group_id: string;
-  name: string;
-  summary: string | null;
-  kind: 'chat' | 'forum';
-  posting_policy: 'members' | 'mods' | 'owners' | null; // null = inherit from group
-  sort_order: number;
-  message_count: number;
-  thread_count: number;
-  created_at: string;
-  updated_at: string;
-}
+// Alias for backward compatibility
+export type Group = Community;
 
 // Member represents a user
 export interface Member {
@@ -38,69 +20,73 @@ export interface Member {
   username: string;
   display_name: string | null;
   avatar_url: string | null;
+  header_url: string | null;
   bio: string | null;
   is_remote: boolean;
   ap_actor_id: string | null;
   created_at: string;
 }
 
-// GroupMembership represents a member's relationship to a group
-export interface GroupMembership {
-  id: string;
-  group_id: string;
-  member_id: string;
-  role: 'owner' | 'moderator' | 'member';
-  status: 'pending' | 'accepted' | 'rejected';
-  created_at: string;
-  accepted_at: string | null;
-}
+// ===== Post Types =====
 
-// Message represents a note in a room (AS2 Note with apc:room)
-export interface Message {
+// Post represents a timeline post
+export interface Post {
   id: string;
-  room_id: string;
   member_id: string;
+  community_id: string | null; // null = personal post, otherwise community post
   content: string;
+  visibility: 'public' | 'unlisted' | 'followers';
   reply_to_id: string | null;
-  thread_root_id: string | null; // For forum threads
+  like_count: number;
+  repost_count: number;
+  reply_count: number;
   created_at: string;
   updated_at: string;
   // Joined fields
   username: string;
   display_name: string | null;
   avatar_url: string | null;
+  // Current user's interaction state
+  liked?: boolean;
+  reposted?: boolean;
+  bookmarked?: boolean;
 }
 
-// Thread represents a forum thread (for kind='forum' rooms)
-export interface Thread {
+// Like represents a like on a post
+export interface Like {
   id: string;
-  room_id: string;
+  post_id: string;
   member_id: string;
-  title: string;
-  content: string | null;
-  reply_count: number;
-  last_reply_at: string | null;
-  pinned: boolean;
-  locked: boolean;
   created_at: string;
-  // Joined fields
-  username: string;
-  display_name: string | null;
-  avatar_url: string | null;
 }
 
-// ThreadReply is a message in a forum thread
-export interface ThreadReply {
+// Repost represents a repost/boost of a post
+export interface Repost {
   id: string;
-  thread_id: string;
+  post_id: string;
   member_id: string;
-  content: string;
   created_at: string;
-  // Joined fields
-  username: string;
-  display_name: string | null;
-  avatar_url: string | null;
 }
+
+// Follow represents a user-to-user follow relationship
+export interface Follow {
+  id: string;
+  follower_id: string;
+  following_id: string;
+  status: 'pending' | 'accepted';
+  created_at: string;
+  accepted_at: string | null;
+}
+
+// MemberProfile extends Member with follow stats
+export interface MemberProfile extends Member {
+  follower_count: number;
+  following_count: number;
+  post_count: number;
+  is_following?: boolean;
+  is_followed_by?: boolean;
+}
+
 
 // ===== DM Types =====
 
@@ -138,8 +124,8 @@ export interface Notification {
   id: string;
   member_id: string;
   actor_id: string;
-  type: 'join_request' | 'join_accepted' | 'mention' | 'reply' | 'invite';
-  target_type: 'group' | 'room' | 'message' | null;
+  type: 'follow' | 'like' | 'repost' | 'mention' | 'reply' | 'join_request' | 'join_accepted' | 'invite';
+  target_type: 'post' | 'group' | 'room' | 'message' | null;
   target_id: string | null;
   read: boolean;
   created_at: string;
