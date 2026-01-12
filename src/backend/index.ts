@@ -1,232 +1,631 @@
 import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import type { Env, LocalUser } from './types';
-import { getSession, getSessionIdFromCookie } from './services/session';
-import { processOutboxQueue } from './services/activitypub/activities';
-import activitypub from './routes/activitypub';
-import api from './routes/api';
-import auth from './routes/auth';
+import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
+
+type Env = {
+  DB: D1Database;
+  MEDIA: R2Bucket;
+  ASSETS: Fetcher;
+  TAKOS_URL: string;
+  TAKOS_CLIENT_ID: string;
+  TAKOS_CLIENT_SECRET: string;
+  APP_URL: string;
+};
 
 type Variables = {
-  user?: LocalUser;
+  member: Member | null;
 };
+
+interface Member {
+  id: string;
+  takos_user_id: string;
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  role: 'owner' | 'moderator' | 'member';
+}
+
+interface Room {
+  id: string;
+  name: string;
+  description: string | null;
+  kind: 'chat' | 'forum';
+  posting_policy: 'members' | 'mods' | 'owners';
+  sort_order: number;
+}
+
+interface Message {
+  id: string;
+  room_id: string;
+  member_id: string;
+  content: string;
+  reply_to_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-function isAllowedOrigin(origin: string, hostname: string): boolean {
-  if (origin === `https://${hostname}`) return true;
-  if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
-    return true;
-  }
-  return false;
+// Helper functions
+function generateId(): string {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// CORS
-app.use('*', cors({
-  origin: (origin, c) => {
-    if (!origin) return null;
-    const hostname = c.env.HOSTNAME || new URL(c.req.url).hostname;
-    return isAllowedOrigin(origin, hostname) ? origin : null;
-  },
-  credentials: true,
-}));
+function generateState(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
-// Health check
-app.get('/health', (c) => c.json({ status: 'ok' }));
+// PKCE helper functions
+function generateCodeVerifier(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+}
 
-// Debug endpoint to check bindings
-app.get('/_debug/bindings', (c) => {
-  return c.json({
-    hasDB: !!c.env.DB,
-    hasMEDIA: !!c.env.MEDIA,
-    mediaType: c.env.MEDIA ? typeof c.env.MEDIA : 'undefined',
-    hostname: c.env.HOSTNAME || 'not set',
-    tenantId: c.env.TENANT_ID || 'not set',
-  });
+async function generateCodeChallenge(verifier: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+}
+
+// Auth middleware
+app.use('/api/*', async (c, next) => {
+  const sessionId = getCookie(c, 'session');
+  if (sessionId) {
+    const session = await c.env.DB.prepare(
+      `SELECT s.*, m.* FROM sessions s
+       JOIN members m ON s.member_id = m.id
+       WHERE s.id = ? AND s.expires_at > datetime('now')`
+    ).bind(sessionId).first();
+
+    if (session) {
+      c.set('member', {
+        id: session.member_id as string,
+        takos_user_id: session.takos_user_id as string,
+        username: session.username as string,
+        display_name: session.display_name as string | null,
+        avatar_url: session.avatar_url as string | null,
+        role: session.role as 'owner' | 'moderator' | 'member',
+      });
+    }
+  }
+  await next();
 });
 
-// Authentication routes (public)
-app.route('/auth', auth);
+// Auth routes
+app.get('/api/auth/login', async (c) => {
+  const state = generateState();
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = await generateCodeChallenge(codeVerifier);
+  const takosUrl = c.env.TAKOS_URL || 'https://takos.jp';
+  const appUrl = c.env.APP_URL || 'https://app.yurucommu.com';
 
-// ActivityPub routes (public)
-app.route('/', activitypub);
+  // Store state and code_verifier in cookies for verification
+  setCookie(c, 'oauth_state', state, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Lax',
+    maxAge: 600,
+    path: '/',
+  });
+  setCookie(c, 'oauth_verifier', codeVerifier, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Lax',
+    maxAge: 600,
+    path: '/',
+  });
 
-// Auth middleware for protected API routes
-const requireAuth = async (c: any, next: any) => {
-  const sessionId = getSessionIdFromCookie(c.req.header('Cookie'));
-  if (!sessionId) {
+  const authUrl = new URL(`${takosUrl}/oauth/authorize`);
+  authUrl.searchParams.set('client_id', c.env.TAKOS_CLIENT_ID);
+  authUrl.searchParams.set('redirect_uri', `${appUrl}/api/auth/callback`);
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('scope', 'openid profile');
+  authUrl.searchParams.set('state', state);
+  authUrl.searchParams.set('code_challenge', codeChallenge);
+  authUrl.searchParams.set('code_challenge_method', 'S256');
+
+  return c.redirect(authUrl.toString());
+});
+
+app.get('/api/auth/callback', async (c) => {
+  const { code, state } = c.req.query();
+  const savedState = getCookie(c, 'oauth_state');
+  const codeVerifier = getCookie(c, 'oauth_verifier');
+
+  if (!code || !state || state !== savedState || !codeVerifier) {
+    return c.json({ error: 'Invalid state or missing verifier' }, 400);
+  }
+
+  deleteCookie(c, 'oauth_state');
+  deleteCookie(c, 'oauth_verifier');
+
+  const takosUrl = c.env.TAKOS_URL || 'https://takos.jp';
+  const appUrl = c.env.APP_URL || 'https://app.yurucommu.com';
+
+  // Exchange code for tokens (with PKCE code_verifier)
+  const tokenRes = await fetch(`${takosUrl}/oauth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: `${appUrl}/api/auth/callback`,
+      client_id: c.env.TAKOS_CLIENT_ID,
+      client_secret: c.env.TAKOS_CLIENT_SECRET,
+      code_verifier: codeVerifier,
+    }),
+  });
+
+  if (!tokenRes.ok) {
+    return c.json({ error: 'Token exchange failed' }, 400);
+  }
+
+  const tokens = await tokenRes.json() as { access_token: string; refresh_token?: string; expires_in: number };
+
+  // Get user info
+  const userRes = await fetch(`${takosUrl}/oauth/userinfo`, {
+    headers: { Authorization: `Bearer ${tokens.access_token}` },
+  });
+
+  if (!userRes.ok) {
+    return c.json({ error: 'Failed to get user info' }, 400);
+  }
+
+  const userInfo = await userRes.json() as { sub: string; preferred_username?: string; name?: string; picture?: string };
+
+  // Find or create member
+  let member = await c.env.DB.prepare(
+    'SELECT * FROM members WHERE takos_user_id = ?'
+  ).bind(userInfo.sub).first<Member>();
+
+  if (!member) {
+    // First user becomes owner
+    const memberCount = await c.env.DB.prepare('SELECT COUNT(*) as count FROM members').first<{ count: number }>();
+    const role = memberCount?.count === 0 ? 'owner' : 'member';
+
+    const memberId = generateId();
+    await c.env.DB.prepare(
+      `INSERT INTO members (id, takos_user_id, username, display_name, avatar_url, role)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(
+      memberId,
+      userInfo.sub,
+      userInfo.preferred_username || `user_${memberId.slice(0, 8)}`,
+      userInfo.name || null,
+      userInfo.picture || null,
+      role
+    ).run();
+
+    member = {
+      id: memberId,
+      takos_user_id: userInfo.sub,
+      username: userInfo.preferred_username || `user_${memberId.slice(0, 8)}`,
+      display_name: userInfo.name || null,
+      avatar_url: userInfo.picture || null,
+      role: role as 'owner' | 'moderator' | 'member',
+    };
+  }
+
+  // Create session
+  const sessionId = generateId();
+  const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
+
+  await c.env.DB.prepare(
+    `INSERT INTO sessions (id, member_id, access_token, refresh_token, expires_at)
+     VALUES (?, ?, ?, ?, ?)`
+  ).bind(sessionId, member.id, tokens.access_token, tokens.refresh_token || null, expiresAt).run();
+
+  setCookie(c, 'session', sessionId, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Lax',
+    maxAge: tokens.expires_in,
+    path: '/',
+  });
+
+  return c.redirect('/');
+});
+
+app.get('/api/auth/logout', async (c) => {
+  const sessionId = getCookie(c, 'session');
+  if (sessionId) {
+    await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(sessionId).run();
+  }
+  deleteCookie(c, 'session');
+  return c.redirect('/');
+});
+
+app.get('/api/me', async (c) => {
+  const member = c.get('member');
+  if (!member) {
+    return c.json({ authenticated: false }, 401);
+  }
+  return c.json({ authenticated: true, member });
+});
+
+// Rooms API
+app.get('/api/rooms', async (c) => {
+  const result = await c.env.DB.prepare(
+    'SELECT * FROM rooms ORDER BY sort_order ASC, created_at ASC'
+  ).all<Room>();
+  return c.json({ rooms: result.results || [] });
+});
+
+app.post('/api/rooms', async (c) => {
+  const member = c.get('member');
+  if (!member || (member.role !== 'owner' && member.role !== 'moderator')) {
+    return c.json({ error: 'Unauthorized' }, 403);
+  }
+
+  const body = await c.req.json<{ name: string; description?: string }>();
+  if (!body.name) {
+    return c.json({ error: 'Name is required' }, 400);
+  }
+
+  const id = generateId();
+  await c.env.DB.prepare(
+    `INSERT INTO rooms (id, name, description) VALUES (?, ?, ?)`
+  ).bind(id, body.name, body.description || null).run();
+
+  return c.json({ id, name: body.name, description: body.description || null }, 201);
+});
+
+app.get('/api/rooms/:id', async (c) => {
+  const id = c.req.param('id');
+  const room = await c.env.DB.prepare('SELECT * FROM rooms WHERE id = ?').bind(id).first<Room>();
+  if (!room) {
+    return c.json({ error: 'Room not found' }, 404);
+  }
+  return c.json({ room });
+});
+
+app.put('/api/rooms/:id', async (c) => {
+  const member = c.get('member');
+  if (!member || (member.role !== 'owner' && member.role !== 'moderator')) {
+    return c.json({ error: 'Unauthorized' }, 403);
+  }
+
+  const id = c.req.param('id');
+  const body = await c.req.json<{ name?: string; description?: string; posting_policy?: string }>();
+
+  const updates: string[] = [];
+  const values: unknown[] = [];
+
+  if (body.name !== undefined) {
+    updates.push('name = ?');
+    values.push(body.name);
+  }
+  if (body.description !== undefined) {
+    updates.push('description = ?');
+    values.push(body.description);
+  }
+  if (body.posting_policy !== undefined) {
+    updates.push('posting_policy = ?');
+    values.push(body.posting_policy);
+  }
+
+  if (updates.length === 0) {
+    return c.json({ error: 'No fields to update' }, 400);
+  }
+
+  updates.push("updated_at = datetime('now')");
+  values.push(id);
+
+  await c.env.DB.prepare(
+    `UPDATE rooms SET ${updates.join(', ')} WHERE id = ?`
+  ).bind(...values).run();
+
+  return c.json({ success: true });
+});
+
+app.delete('/api/rooms/:id', async (c) => {
+  const member = c.get('member');
+  if (!member || member.role !== 'owner') {
+    return c.json({ error: 'Unauthorized' }, 403);
+  }
+
+  const id = c.req.param('id');
+  await c.env.DB.prepare('DELETE FROM rooms WHERE id = ?').bind(id).run();
+  return c.json({ success: true });
+});
+
+// Messages API
+app.get('/api/rooms/:roomId/messages', async (c) => {
+  const roomId = c.req.param('roomId');
+  const before = c.req.query('before');
+  const since = c.req.query('since');
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100);
+
+  let query = `
+    SELECT m.*, mem.username, mem.display_name, mem.avatar_url
+    FROM messages m
+    JOIN members mem ON m.member_id = mem.id
+    WHERE m.room_id = ?
+  `;
+  const params: unknown[] = [roomId];
+
+  if (before) {
+    query += ' AND m.created_at < ?';
+    params.push(before);
+  }
+
+  if (since) {
+    query += ' AND m.created_at > ?';
+    params.push(since);
+  }
+
+  query += ' ORDER BY m.created_at DESC LIMIT ?';
+  params.push(limit);
+
+  const result = await c.env.DB.prepare(query).bind(...params).all();
+  const messages = (result.results || []).reverse();
+
+  // Fetch attachments for all messages
+  if (messages.length > 0) {
+    const messageIds = messages.map((m: any) => m.id);
+    const placeholders = messageIds.map(() => '?').join(',');
+    const attachmentsResult = await c.env.DB.prepare(
+      `SELECT * FROM attachments WHERE message_id IN (${placeholders})`
+    ).bind(...messageIds).all();
+
+    const attachmentsByMessage = new Map<string, any[]>();
+    for (const att of attachmentsResult.results || []) {
+      const msgId = (att as any).message_id;
+      if (!attachmentsByMessage.has(msgId)) {
+        attachmentsByMessage.set(msgId, []);
+      }
+      attachmentsByMessage.get(msgId)!.push(att);
+    }
+
+    for (const msg of messages as any[]) {
+      msg.attachments = attachmentsByMessage.get(msg.id) || [];
+    }
+  }
+
+  return c.json({ messages });
+});
+
+app.post('/api/rooms/:roomId/messages', async (c) => {
+  const member = c.get('member');
+  if (!member) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
 
-  const session = await getSession(c.env, sessionId);
-  if (!session) {
-    return c.json({ error: 'Session expired' }, 401);
+  const roomId = c.req.param('roomId');
+  const room = await c.env.DB.prepare('SELECT * FROM rooms WHERE id = ?').bind(roomId).first<Room>();
+  if (!room) {
+    return c.json({ error: 'Room not found' }, 404);
   }
 
-  const user = await c.env.DB.prepare(
-    'SELECT * FROM local_users WHERE id = ?'
-  ).bind(session.user_id).first<LocalUser>();
-
-  if (!user) {
-    return c.json({ error: 'User not found' }, 401);
+  // Check posting policy
+  if (room.posting_policy === 'owners' && member.role !== 'owner') {
+    return c.json({ error: 'Only owners can post in this room' }, 403);
+  }
+  if (room.posting_policy === 'mods' && member.role === 'member') {
+    return c.json({ error: 'Only moderators can post in this room' }, 403);
   }
 
-  c.set('user', user);
-  await next();
-};
-
-// Optional auth (for setup endpoint)
-const optionalAuth = async (c: any, next: any) => {
-  const sessionId = getSessionIdFromCookie(c.req.header('Cookie'));
-  if (sessionId) {
-    const session = await getSession(c.env, sessionId);
-    if (session) {
-      const user = await c.env.DB.prepare(
-        'SELECT * FROM local_users WHERE id = ?'
-      ).bind(session.user_id).first<LocalUser>();
-      if (user) {
-        c.set('user', user);
-      }
-    }
-  }
-  await next();
-};
-
-// Setup endpoint (no auth required, but only works once)
-app.post('/api/setup', optionalAuth, async (c) => {
-  // Check if already initialized
-  const existingUser = await c.env.DB.prepare(
-    `SELECT * FROM local_users LIMIT 1`
-  ).first<LocalUser>();
-
-  if (existingUser) {
-    return c.json({ error: 'Already initialized' }, 400);
+  const body = await c.req.json<{ content: string; reply_to_id?: string; attachments?: Array<{ r2_key: string; content_type: string; filename: string; size: number }> }>();
+  if (!body.content && (!body.attachments || body.attachments.length === 0)) {
+    return c.json({ error: 'Content or attachments required' }, 400);
   }
 
-  const body = await c.req.json<{
-    username: string;
-    display_name: string;
-    summary?: string;
-  }>();
-
-  if (!body.username || !body.display_name) {
-    return c.json({ error: 'username and display_name required' }, 400);
-  }
-
-  // Validate username
-  if (!/^[a-zA-Z0-9_]+$/.test(body.username)) {
-    return c.json({ error: 'Invalid username format' }, 400);
-  }
-
-  // Generate key pair for ActivityPub
-  const keyPair = await crypto.subtle.generateKey(
-    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
-    true,
-    ['sign', 'verify']
-  );
-
-  const privateKeyBuffer = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
-  const publicKeyBuffer = await crypto.subtle.exportKey('spki', keyPair.publicKey);
-
-  const privateKeyPem = '-----BEGIN PRIVATE KEY-----\n' +
-    btoa(String.fromCharCode(...new Uint8Array(privateKeyBuffer))).match(/.{1,64}/g)!.join('\n') +
-    '\n-----END PRIVATE KEY-----';
-  const publicKeyPem = '-----BEGIN PUBLIC KEY-----\n' +
-    btoa(String.fromCharCode(...new Uint8Array(publicKeyBuffer))).match(/.{1,64}/g)!.join('\n') +
-    '\n-----END PUBLIC KEY-----';
-
-  const userId = crypto.randomUUID().replace(/-/g, '');
+  const id = generateId();
+  const now = new Date().toISOString();
 
   await c.env.DB.prepare(
-    `INSERT INTO local_users (id, username, display_name, summary, public_key, private_key)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(
-    userId,
-    body.username,
-    body.display_name,
-    body.summary || '',
-    publicKeyPem,
-    privateKeyPem
-  ).run();
+    `INSERT INTO messages (id, room_id, member_id, content, reply_to_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, roomId, member.id, body.content || '', body.reply_to_id || null, now, now).run();
 
-  const user = await c.env.DB.prepare(
-    `SELECT id, username, display_name, summary, avatar_url, header_url, created_at FROM local_users WHERE id = ?`
-  ).bind(userId).first();
+  // Save attachments if provided
+  const savedAttachments: Array<{ id: string; r2_key: string; content_type: string; filename: string; size: number }> = [];
+  if (body.attachments && body.attachments.length > 0) {
+    for (const att of body.attachments) {
+      const attId = generateId();
+      await c.env.DB.prepare(
+        `INSERT INTO attachments (id, message_id, r2_key, content_type, filename, size)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).bind(attId, id, att.r2_key, att.content_type, att.filename, att.size).run();
+      savedAttachments.push({ id: attId, ...att });
+    }
+  }
 
-  return c.json(user, 201);
+  return c.json({
+    id,
+    room_id: roomId,
+    member_id: member.id,
+    content: body.content || '',
+    reply_to_id: body.reply_to_id || null,
+    created_at: now,
+    updated_at: now,
+    username: member.username,
+    display_name: member.display_name,
+    avatar_url: member.avatar_url,
+    attachments: savedAttachments,
+  }, 201);
 });
 
-// Protected API routes
-app.use('/api/*', requireAuth);
-app.route('/api', api);
+app.put('/api/rooms/:roomId/messages/:id', async (c) => {
+  const member = c.get('member');
+  if (!member) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
 
-  // Media serving from R2
-  app.get('/media/:filename', async (c) => {
-    const filename = c.req.param('filename');
-    if (!/^[a-f0-9]{32}\.[a-z0-9]+$/i.test(filename)) {
-      return c.notFound();
-    }
+  const id = c.req.param('id');
+  const message = await c.env.DB.prepare('SELECT * FROM messages WHERE id = ?').bind(id).first<Message>();
 
-    // Find the file in R2 (search in all user directories)
-    const mediaId = filename.split('.')[0];
-    const directKey = `media/${filename}`;
-    let mapping: { r2_key: string } | null = null;
-    try {
-      mapping = await c.env.DB.prepare(
-        `SELECT r2_key FROM media_files WHERE id = ?`
-      ).bind(mediaId).first<{ r2_key: string }>();
-    } catch (error) {
-      console.warn('media_files lookup failed:', error);
-    }
-    let object = mapping ? await c.env.MEDIA.get(mapping.r2_key) : null;
+  if (!message) {
+    return c.json({ error: 'Message not found' }, 404);
+  }
+  if (message.member_id !== member.id) {
+    return c.json({ error: 'Can only edit your own messages' }, 403);
+  }
 
-    if (!object) {
-      object = await c.env.MEDIA.get(directKey);
-      if (object) {
-        const contentType = object.httpMetadata?.contentType || null;
-        try {
-          await c.env.DB.prepare(
-            `INSERT OR REPLACE INTO media_files (id, r2_key, content_type, created_at)
-             VALUES (?, ?, ?, datetime('now'))`
-          ).bind(mediaId, directKey, contentType).run();
-        } catch (error) {
-          console.warn('media_files insert failed:', error);
-        }
-      }
-    }
+  const body = await c.req.json<{ content: string }>();
+  if (!body.content) {
+    return c.json({ error: 'Content is required' }, 400);
+  }
 
-    if (!object) {
-      // Legacy lookup for older uploads stored under media/<userId>/...
-      const objects = await c.env.MEDIA.list({ prefix: 'media/' });
-      let targetKey: string | null = null;
+  await c.env.DB.prepare(
+    "UPDATE messages SET content = ?, updated_at = datetime('now') WHERE id = ?"
+  ).bind(body.content, id).run();
 
-      for (const obj of objects.objects) {
-        if (obj.key.endsWith(`/${filename}`)) {
-          targetKey = obj.key;
-          break;
-        }
-      }
+  return c.json({ success: true });
+});
 
-      if (!targetKey) {
-        return c.notFound();
-      }
+app.delete('/api/rooms/:roomId/messages/:id', async (c) => {
+  const member = c.get('member');
+  if (!member) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
 
-      object = await c.env.MEDIA.get(targetKey);
-      if (object) {
-        const contentType = object.httpMetadata?.contentType || null;
-        try {
-          await c.env.DB.prepare(
-            `INSERT OR REPLACE INTO media_files (id, r2_key, content_type, created_at)
-             VALUES (?, ?, ?, datetime('now'))`
-          ).bind(mediaId, targetKey, contentType).run();
-        } catch (error) {
-          console.warn('media_files insert failed:', error);
-        }
-      }
-    }
+  const id = c.req.param('id');
+  const message = await c.env.DB.prepare('SELECT * FROM messages WHERE id = ?').bind(id).first<Message>();
+
+  if (!message) {
+    return c.json({ error: 'Message not found' }, 404);
+  }
+
+  // Can delete own messages or moderators/owners can delete any
+  if (message.member_id !== member.id && member.role === 'member') {
+    return c.json({ error: 'Cannot delete this message' }, 403);
+  }
+
+  await c.env.DB.prepare('DELETE FROM messages WHERE id = ?').bind(id).run();
+  return c.json({ success: true });
+});
+
+// Members API
+app.get('/api/members', async (c) => {
+  const result = await c.env.DB.prepare(
+    'SELECT id, username, display_name, avatar_url, role, created_at FROM members ORDER BY created_at ASC'
+  ).all();
+  return c.json({ members: result.results || [] });
+});
+
+app.get('/api/members/:id', async (c) => {
+  const id = c.req.param('id');
+  const member = await c.env.DB.prepare(
+    'SELECT id, username, display_name, avatar_url, role, created_at FROM members WHERE id = ?'
+  ).bind(id).first();
+  if (!member) {
+    return c.json({ error: 'Member not found' }, 404);
+  }
+  return c.json({ member });
+});
+
+app.put('/api/members/:id/role', async (c) => {
+  const currentMember = c.get('member');
+  if (!currentMember || currentMember.role !== 'owner') {
+    return c.json({ error: 'Only owners can change roles' }, 403);
+  }
+
+  const id = c.req.param('id');
+  const body = await c.req.json<{ role: string }>();
+
+  if (!['owner', 'moderator', 'member'].includes(body.role)) {
+    return c.json({ error: 'Invalid role' }, 400);
+  }
+
+  await c.env.DB.prepare(
+    "UPDATE members SET role = ?, updated_at = datetime('now') WHERE id = ?"
+  ).bind(body.role, id).run();
+
+  return c.json({ success: true });
+});
+
+app.delete('/api/members/:id', async (c) => {
+  const currentMember = c.get('member');
+  if (!currentMember || (currentMember.role !== 'owner' && currentMember.role !== 'moderator')) {
+    return c.json({ error: 'Unauthorized' }, 403);
+  }
+
+  const id = c.req.param('id');
+
+  // Cannot delete yourself or owners
+  if (id === currentMember.id) {
+    return c.json({ error: 'Cannot delete yourself' }, 400);
+  }
+
+  const targetMember = await c.env.DB.prepare('SELECT * FROM members WHERE id = ?').bind(id).first<Member>();
+  if (!targetMember) {
+    return c.json({ error: 'Member not found' }, 404);
+  }
+  if (targetMember.role === 'owner') {
+    return c.json({ error: 'Cannot delete an owner' }, 403);
+  }
+
+  // Delete sessions first
+  await c.env.DB.prepare('DELETE FROM sessions WHERE member_id = ?').bind(id).run();
+  await c.env.DB.prepare('DELETE FROM members WHERE id = ?').bind(id).run();
+
+  return c.json({ success: true });
+});
+
+// Media upload API
+app.post('/api/upload', async (c) => {
+  const member = c.get('member');
+  if (!member) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  const formData = await c.req.formData();
+  const file = formData.get('file') as File | null;
+
+  if (!file) {
+    return c.json({ error: 'No file provided' }, 400);
+  }
+
+  // Validate file type (images only for now)
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+  if (!allowedTypes.includes(file.type)) {
+    return c.json({ error: 'Invalid file type. Only images allowed.' }, 400);
+  }
+
+  // Max 10MB
+  if (file.size > 10 * 1024 * 1024) {
+    return c.json({ error: 'File too large. Max 10MB.' }, 400);
+  }
+
+  const id = generateId();
+  const ext = file.name.split('.').pop() || 'bin';
+  const r2Key = `uploads/${id}.${ext}`;
+
+  // Upload to R2
+  await c.env.MEDIA.put(r2Key, file.stream(), {
+    httpMetadata: {
+      contentType: file.type,
+    },
+  });
+
+  return c.json({
+    id,
+    r2_key: r2Key,
+    content_type: file.type,
+    filename: file.name,
+    size: file.size,
+  }, 201);
+});
+
+// Serve media files from R2
+app.get('/media/:key{.+}', async (c) => {
+  const key = c.req.param('key');
+  const object = await c.env.MEDIA.get(key);
 
   if (!object) {
-    return c.notFound();
+    return c.json({ error: 'Not found' }, 404);
   }
 
   const headers = new Headers();
@@ -236,145 +635,19 @@ app.route('/api', api);
   return new Response(object.body, { headers });
 });
 
-// Static assets serving from R2 (for frontend SPA)
-app.get('/assets/*', async (c) => {
-  const path = c.req.path.slice('/assets/'.length);
-  if (!path || path.includes('..')) {
-    return c.notFound();
-  }
-
-  const key = `assets/${path}`;
-  const object = await c.env.MEDIA.get(key);
-
-  if (!object) {
-    return c.notFound();
-  }
-
-  const headers = new Headers();
-  headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream');
-  headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-
-  return new Response(object.body, { headers });
+// Get attachments for a message
+app.get('/api/messages/:messageId/attachments', async (c) => {
+  const messageId = c.req.param('messageId');
+  const result = await c.env.DB.prepare(
+    'SELECT * FROM attachments WHERE message_id = ?'
+  ).bind(messageId).all();
+  return c.json({ attachments: result.results || [] });
 });
 
-// Serve index.html for SPA routes (if it exists)
-app.get('/', async (c) => {
-  const object = await c.env.MEDIA.get('assets/index.html');
-  if (object) {
-    const headers = new Headers();
-    headers.set('Content-Type', 'text/html; charset=utf-8');
-    headers.set('Cache-Control', 'no-cache');
-    return new Response(object.body, { headers });
-  }
-  // If no index.html, return basic info
-  const hostname = c.env.HOSTNAME || new URL(c.req.url).host;
-  return c.json({
-    instance: hostname,
-    endpoints: {
-      activitypub: `https://${hostname}/.well-known/webfinger`,
-      health: `https://${hostname}/health`,
-    },
-  });
-});
+// Health check
+app.get('/api/health', (c) => c.json({ ok: true }));
 
-// Profile page (public) - returns JSON for API clients
-app.get('/@:username', async (c) => {
-  const username = c.req.param('username');
+// Serve static files
+app.get('*', (c) => c.env.ASSETS.fetch(c.req.raw));
 
-  const user = await c.env.DB.prepare(
-    `SELECT * FROM local_users WHERE username = ?`
-  ).bind(username).first<LocalUser>();
-
-  if (!user) {
-    return c.notFound();
-  }
-
-  // Return user profile as JSON (no SPA in tenant workers)
-  const hostname = c.env.HOSTNAME || new URL(c.req.url).host;
-  return c.json({
-    id: user.id,
-    username: user.username,
-    display_name: user.display_name,
-    summary: user.summary,
-    avatar_url: user.avatar_url,
-    header_url: user.header_url,
-    url: `https://${hostname}/@${user.username}`,
-  });
-});
-
-// Post page (public, for ActivityPub)
-app.get('/posts/:id', async (c) => {
-  const postId = c.req.param('id');
-  const accept = c.req.header('Accept') || '';
-
-  const post = await c.env.DB.prepare(
-    `SELECT p.*, u.username FROM posts p JOIN local_users u ON p.user_id = u.id WHERE p.id = ?`
-  ).bind(postId).first<{ id: string; content: string; published_at: string; username: string; content_warning: string | null }>();
-
-  if (!post) {
-    return c.notFound();
-  }
-
-  const hostname = c.env.HOSTNAME || new URL(c.req.url).host;
-  const actorUrl = `https://${hostname}/users/${post.username}`;
-  const postUrl = `https://${hostname}/posts/${postId}`;
-
-  // Return ActivityPub object for AP clients
-  if (accept.includes('application/activity+json') || accept.includes('application/ld+json')) {
-    const note: Record<string, unknown> = {
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      id: postUrl,
-      type: 'Note',
-      content: post.content,
-      published: post.published_at,
-      attributedTo: actorUrl,
-      to: ['https://www.w3.org/ns/activitystreams#Public'],
-      cc: [`${actorUrl}/followers`],
-    };
-
-    if (post.content_warning) {
-      note.summary = post.content_warning;
-    }
-
-    return c.json(note, 200, {
-      'Content-Type': 'application/activity+json',
-    });
-  }
-
-  // Return JSON for regular requests (no SPA in tenant workers)
-  return c.json({
-    id: post.id,
-    content: post.content,
-    content_warning: post.content_warning,
-    published_at: post.published_at,
-    username: post.username,
-    url: postUrl,
-  });
-});
-
-// 404 handler - tenant workers are API-only
-app.notFound((c) => {
-  return c.json({ error: 'Not Found' }, 404);
-});
-
-// Error handler
-app.onError((err, c) => {
-  console.error('Unhandled error:', err);
-  return c.json({ error: 'Internal Server Error' }, 500);
-});
-
-async function runOutbox(env: Env): Promise<void> {
-  if (!env.HOSTNAME) return;
-  const localUser = await env.DB.prepare(
-    `SELECT * FROM local_users LIMIT 1`
-  ).first<LocalUser>();
-  if (!localUser) return;
-  await processOutboxQueue(env, localUser, env.HOSTNAME);
-}
-
-export default {
-  fetch: app.fetch,
-  scheduled: (event: ScheduledEvent, env: Env, ctx: ExecutionContext) => {
-    ctx.waitUntil(runOutbox(env));
-  },
-};
+export default app;
