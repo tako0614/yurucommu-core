@@ -1,10 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useI18n } from '../../lib/i18n';
 
-interface BottomNavProps {
-  unreadNotifications?: number;
-}
-
 // SVG Icons
 const HomeIcon = ({ active }: { active: boolean }) => (
   <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
@@ -36,42 +32,31 @@ const ProfileIcon = ({ active }: { active: boolean }) => (
   </svg>
 );
 
-export function BottomNav({ unreadNotifications = 0 }: BottomNavProps) {
+export function BottomNav() {
   const { t } = useI18n();
 
   const navItems = [
     { to: '/', icon: HomeIcon, label: t('nav.home') },
     { to: '/groups', icon: GroupIcon, label: t('nav.groups') },
     { to: '/dm', icon: MessageIcon, label: t('nav.messages') },
-    { to: '/notifications', icon: BellIcon, label: t('nav.notifications'), badge: unreadNotifications },
+    { to: '/notifications', icon: BellIcon, label: t('nav.notifications') },
     { to: '/profile', icon: ProfileIcon, label: t('nav.profile') },
   ];
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 h-14 bg-black border-t border-neutral-900 flex items-center justify-around z-50">
-      {navItems.map(({ to, icon: Icon, label, badge }) => (
+      {navItems.map(({ to, icon: Icon }) => (
         <NavLink
           key={to}
           to={to}
           end={to === '/'}
           className={({ isActive }) =>
-            `flex flex-col items-center justify-center p-2 relative ${
+            `flex flex-col items-center justify-center p-2 ${
               isActive ? 'text-white' : 'text-neutral-500'
             }`
           }
         >
-          {({ isActive }) => (
-            <>
-              <span className="relative">
-                <Icon active={isActive} />
-                {badge && badge > 0 && (
-                  <span className="absolute -top-1 -right-2 bg-blue-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
-                    {badge > 9 ? '9+' : badge}
-                  </span>
-                )}
-              </span>
-            </>
-          )}
+          {({ isActive }) => <Icon active={isActive} />}
         </NavLink>
       ))}
     </nav>

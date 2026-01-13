@@ -2181,6 +2181,28 @@ app.get('/api/communities', async (c) => {
   return c.json({ communities: communities.results || [] });
 });
 
+// Create community
+app.post('/api/communities', async (c) => {
+  const member = c.get('member');
+  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+
+  const body = await c.req.json<{ name: string; description?: string }>();
+  if (!body.name?.trim()) {
+    return c.json({ error: 'Name is required' }, 400);
+  }
+
+  const id = generateId();
+  const now = new Date().toISOString();
+
+  await c.env.DB.prepare(`
+    INSERT INTO communities (id, name, description, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(id, body.name.trim(), body.description?.trim() || '', now, now).run();
+
+  const community = await c.env.DB.prepare(`SELECT * FROM communities WHERE id = ?`).bind(id).first();
+  return c.json({ community }, 201);
+});
+
 // ----- Timeline / Posts -----
 
 // Get timeline (all public posts, optionally filtered by community)
@@ -2255,19 +2277,20 @@ app.post('/api/posts', async (c) => {
   const member = c.get('member');
   if (!member) return c.json({ error: 'Unauthorized' }, 401);
 
-  const body = await c.req.json<{ content: string; reply_to_id?: string; visibility?: string; community_id?: string }>();
-  if (!body.content?.trim()) {
-    return c.json({ error: 'Content is required' }, 400);
+  const body = await c.req.json<{ content: string; reply_to_id?: string; visibility?: string; community_id?: string; media?: { r2_key: string; content_type: string }[] }>();
+  if (!body.content?.trim() && (!body.media || body.media.length === 0)) {
+    return c.json({ error: 'Content or media is required' }, 400);
   }
 
   const postId = generateId();
   const visibility = body.visibility || 'public';
-  const communityId = body.community_id || 'general'; // Default to general community
+  const communityId = body.community_id || null; // NULL = personal post
+  const mediaJson = JSON.stringify(body.media || []);
 
   await c.env.DB.prepare(`
-    INSERT INTO posts (id, member_id, content, reply_to_id, visibility, community_id)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(postId, member.id, body.content.trim(), body.reply_to_id || null, visibility, communityId).run();
+    INSERT INTO posts (id, member_id, content, reply_to_id, visibility, community_id, media_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(postId, member.id, body.content?.trim() || '', body.reply_to_id || null, visibility, communityId, mediaJson).run();
 
   // Update post count
   await c.env.DB.prepare(`UPDATE members SET post_count = post_count + 1 WHERE id = ?`).bind(member.id).run();
@@ -2439,6 +2462,35 @@ app.get('/api/members/:id/posts', async (c) => {
   }
 
   query += ` ORDER BY p.created_at DESC LIMIT ?`;
+  params.push(limit);
+
+  const posts = await c.env.DB.prepare(query).bind(...params).all();
+  return c.json({ posts: posts.results || [] });
+});
+
+// Get member's liked posts
+app.get('/api/members/:id/likes', async (c) => {
+  const currentMember = c.get('member');
+  const memberId = c.req.param('id');
+  const limit = parseInt(c.req.query('limit') || '20');
+  const before = c.req.query('before');
+
+  let query = `
+    SELECT p.*, m.username, m.display_name, m.avatar_url,
+           EXISTS(SELECT 1 FROM likes l2 WHERE l2.post_id = p.id AND l2.member_id = ?) as liked
+    FROM likes l
+    JOIN posts p ON l.post_id = p.id
+    JOIN members m ON p.member_id = m.id
+    WHERE l.member_id = ?
+  `;
+  const params: any[] = [currentMember?.id || '', memberId];
+
+  if (before) {
+    query += ` AND l.created_at < ?`;
+    params.push(before);
+  }
+
+  query += ` ORDER BY l.created_at DESC LIMIT ?`;
   params.push(limit);
 
   const posts = await c.env.DB.prepare(query).bind(...params).all();
@@ -2702,6 +2754,257 @@ app.get('/api/profile/:id', async (c) => {
   }
 
   return c.json({ profile: { ...profile, followStatus } });
+});
+
+// ----- Search -----
+
+// Search users
+app.get('/api/search/users', async (c) => {
+  const query = c.req.query('q')?.trim();
+  if (!query) return c.json({ users: [] });
+
+  const users = await c.env.DB.prepare(`
+    SELECT id, username, display_name, avatar_url, bio
+    FROM members
+    WHERE username LIKE ? OR display_name LIKE ?
+    ORDER BY username ASC
+    LIMIT 20
+  `).bind(`%${query}%`, `%${query}%`).all();
+
+  return c.json({ users: users.results || [] });
+});
+
+// Search posts
+app.get('/api/search/posts', async (c) => {
+  const member = c.get('member');
+  const query = c.req.query('q')?.trim();
+  if (!query) return c.json({ posts: [] });
+
+  const posts = await c.env.DB.prepare(`
+    SELECT p.*, m.username, m.display_name, m.avatar_url,
+           EXISTS(SELECT 1 FROM likes l WHERE l.post_id = p.id AND l.member_id = ?) as liked
+    FROM posts p JOIN members m ON p.member_id = m.id
+    WHERE p.content LIKE ? AND p.visibility = 'public'
+    ORDER BY p.created_at DESC
+    LIMIT 50
+  `).bind(member?.id || '', `%${query}%`).all();
+
+  return c.json({ posts: posts.results || [] });
+});
+
+// ----- Bookmarks -----
+
+// Get bookmarked posts
+app.get('/api/bookmarks', async (c) => {
+  const member = c.get('member');
+  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+
+  const limit = parseInt(c.req.query('limit') || '20');
+  const before = c.req.query('before');
+
+  let query = `
+    SELECT p.*, m.username, m.display_name, m.avatar_url,
+           EXISTS(SELECT 1 FROM likes l WHERE l.post_id = p.id AND l.member_id = ?) as liked,
+           1 as bookmarked
+    FROM bookmarks b
+    JOIN posts p ON b.post_id = p.id
+    JOIN members m ON p.member_id = m.id
+    WHERE b.member_id = ?
+  `;
+  const params: any[] = [member.id, member.id];
+
+  if (before) {
+    query += ` AND b.created_at < ?`;
+    params.push(before);
+  }
+
+  query += ` ORDER BY b.created_at DESC LIMIT ?`;
+  params.push(limit);
+
+  const posts = await c.env.DB.prepare(query).bind(...params).all();
+  return c.json({ posts: posts.results || [] });
+});
+
+// ----- Block/Mute -----
+
+// Block user
+app.post('/api/block/:memberId', async (c) => {
+  const member = c.get('member');
+  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+
+  const targetId = c.req.param('memberId');
+  if (targetId === member.id) return c.json({ error: 'Cannot block yourself' }, 400);
+
+  try {
+    const id = generateId();
+    await c.env.DB.prepare(`INSERT INTO blocks (id, blocker_id, blocked_id) VALUES (?, ?, ?)`)
+      .bind(id, member.id, targetId).run();
+    // Also unfollow each other
+    await c.env.DB.prepare(`DELETE FROM follows WHERE (follower_id = ? AND following_id = ?) OR (follower_id = ? AND following_id = ?)`)
+      .bind(member.id, targetId, targetId, member.id).run();
+  } catch (e) {
+    // Already blocked
+  }
+  return c.json({ success: true });
+});
+
+// Unblock user
+app.delete('/api/block/:memberId', async (c) => {
+  const member = c.get('member');
+  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+
+  const targetId = c.req.param('memberId');
+  await c.env.DB.prepare(`DELETE FROM blocks WHERE blocker_id = ? AND blocked_id = ?`)
+    .bind(member.id, targetId).run();
+  return c.json({ success: true });
+});
+
+// Mute user
+app.post('/api/mute/:memberId', async (c) => {
+  const member = c.get('member');
+  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+
+  const targetId = c.req.param('memberId');
+  if (targetId === member.id) return c.json({ error: 'Cannot mute yourself' }, 400);
+
+  try {
+    const id = generateId();
+    await c.env.DB.prepare(`INSERT INTO mutes (id, muter_id, muted_id) VALUES (?, ?, ?)`)
+      .bind(id, member.id, targetId).run();
+  } catch (e) {
+    // Already muted
+  }
+  return c.json({ success: true });
+});
+
+// Unmute user
+app.delete('/api/mute/:memberId', async (c) => {
+  const member = c.get('member');
+  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+
+  const targetId = c.req.param('memberId');
+  await c.env.DB.prepare(`DELETE FROM mutes WHERE muter_id = ? AND muted_id = ?`)
+    .bind(member.id, targetId).run();
+  return c.json({ success: true });
+});
+
+// Get blocked users
+app.get('/api/blocks', async (c) => {
+  const member = c.get('member');
+  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+
+  const blocks = await c.env.DB.prepare(`
+    SELECT m.id, m.username, m.display_name, m.avatar_url, b.created_at as blocked_at
+    FROM blocks b JOIN members m ON b.blocked_id = m.id
+    WHERE b.blocker_id = ?
+    ORDER BY b.created_at DESC
+  `).bind(member.id).all();
+
+  return c.json({ users: blocks.results || [] });
+});
+
+// Get muted users
+app.get('/api/mutes', async (c) => {
+  const member = c.get('member');
+  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+
+  const mutes = await c.env.DB.prepare(`
+    SELECT m.id, m.username, m.display_name, m.avatar_url, mu.created_at as muted_at
+    FROM mutes mu JOIN members m ON mu.muted_id = m.id
+    WHERE mu.muter_id = ?
+    ORDER BY mu.created_at DESC
+  `).bind(member.id).all();
+
+  return c.json({ users: mutes.results || [] });
+});
+
+// ----- Community Management -----
+
+// Update community
+app.put('/api/communities/:id', async (c) => {
+  const member = c.get('member');
+  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+
+  const communityId = c.req.param('id');
+  const body = await c.req.json<{ name?: string; description?: string }>();
+
+  // Only creator or owner can edit (for now just check member role)
+  if (member.role !== 'owner' && member.role !== 'moderator') {
+    return c.json({ error: 'Forbidden' }, 403);
+  }
+
+  const updates: string[] = [];
+  const values: unknown[] = [];
+
+  if (body.name !== undefined) {
+    updates.push('name = ?');
+    values.push(body.name.trim());
+  }
+  if (body.description !== undefined) {
+    updates.push('description = ?');
+    values.push(body.description.trim());
+  }
+
+  if (updates.length === 0) {
+    return c.json({ error: 'No updates provided' }, 400);
+  }
+
+  updates.push("updated_at = datetime('now')");
+  values.push(communityId);
+
+  await c.env.DB.prepare(`UPDATE communities SET ${updates.join(', ')} WHERE id = ?`)
+    .bind(...values).run();
+
+  const community = await c.env.DB.prepare(`SELECT * FROM communities WHERE id = ?`).bind(communityId).first();
+  return c.json({ community });
+});
+
+// Delete community
+app.delete('/api/communities/:id', async (c) => {
+  const member = c.get('member');
+  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+
+  const communityId = c.req.param('id');
+
+  // Only owner can delete
+  if (member.role !== 'owner') {
+    return c.json({ error: 'Forbidden' }, 403);
+  }
+
+  // Set posts in this community to personal (null community_id)
+  await c.env.DB.prepare(`UPDATE posts SET community_id = NULL WHERE community_id = ?`)
+    .bind(communityId).run();
+
+  await c.env.DB.prepare(`DELETE FROM communities WHERE id = ?`).bind(communityId).run();
+
+  return c.json({ success: true });
+});
+
+// ----- Settings -----
+
+// Delete account
+app.delete('/api/me', async (c) => {
+  const member = c.get('member');
+  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+
+  // Cannot delete if owner (need to transfer ownership first)
+  if (member.role === 'owner') {
+    return c.json({ error: 'Owners cannot delete their account. Transfer ownership first.' }, 400);
+  }
+
+  // Delete all related data
+  await c.env.DB.prepare(`DELETE FROM sessions WHERE member_id = ?`).bind(member.id).run();
+  await c.env.DB.prepare(`DELETE FROM posts WHERE member_id = ?`).bind(member.id).run();
+  await c.env.DB.prepare(`DELETE FROM likes WHERE member_id = ?`).bind(member.id).run();
+  await c.env.DB.prepare(`DELETE FROM follows WHERE follower_id = ? OR following_id = ?`).bind(member.id, member.id).run();
+  await c.env.DB.prepare(`DELETE FROM notifications WHERE member_id = ? OR actor_id = ?`).bind(member.id, member.id).run();
+  await c.env.DB.prepare(`DELETE FROM bookmarks WHERE member_id = ?`).bind(member.id).run();
+  await c.env.DB.prepare(`DELETE FROM blocks WHERE blocker_id = ? OR blocked_id = ?`).bind(member.id, member.id).run();
+  await c.env.DB.prepare(`DELETE FROM mutes WHERE muter_id = ? OR muted_id = ?`).bind(member.id, member.id).run();
+  await c.env.DB.prepare(`DELETE FROM dm_messages WHERE sender_id = ?`).bind(member.id).run();
+  await c.env.DB.prepare(`DELETE FROM members WHERE id = ?`).bind(member.id).run();
+
+  return c.json({ success: true });
 });
 
 // Serve static files with SPA fallback

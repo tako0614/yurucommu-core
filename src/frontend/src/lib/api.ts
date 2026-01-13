@@ -39,6 +39,16 @@ export async function fetchCommunities(): Promise<{ communities: Community[] }> 
   return res.json();
 }
 
+export async function createCommunity(data: { name: string; description?: string }): Promise<{ community: Community }> {
+  const res = await fetch('/api/communities', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to create community');
+  return res.json();
+}
+
 // ===== Members API =====
 
 export async function fetchMembers(): Promise<{ members: Member[] }> {
@@ -78,6 +88,16 @@ export async function fetchFollowing(memberId: string): Promise<{ members: Membe
   return res.json();
 }
 
+export async function updateProfile(data: { display_name?: string; bio?: string }): Promise<{ member: Member }> {
+  const res = await fetch('/api/me/profile', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update profile');
+  return res.json();
+}
+
 // ===== Posts API =====
 
 export async function fetchTimeline(options?: {
@@ -112,9 +132,27 @@ export async function fetchMemberPosts(memberId: string, options?: {
   return res.json();
 }
 
+export async function fetchMemberLikes(memberId: string, options?: {
+  limit?: number;
+  before?: string;
+}): Promise<{ posts: Post[] }> {
+  const params = new URLSearchParams();
+  if (options?.limit) params.set('limit', String(options.limit));
+  if (options?.before) params.set('before', options.before);
+
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`/api/members/${memberId}/likes${query}`);
+  return res.json();
+}
+
 export async function fetchPost(postId: string): Promise<{ post: Post }> {
   const res = await fetch(`/api/posts/${postId}`);
   if (!res.ok) throw new Error('Post not found');
+  return res.json();
+}
+
+export async function fetchPostReplies(postId: string): Promise<{ replies: Post[] }> {
+  const res = await fetch(`/api/posts/${postId}/replies`);
   return res.json();
 }
 
@@ -123,6 +161,7 @@ export async function createPost(data: {
   visibility?: 'public' | 'unlisted' | 'followers';
   reply_to_id?: string;
   community_id?: string;
+  media?: { r2_key: string; content_type: string }[];
 }): Promise<Post> {
   const res = await fetch('/api/posts', {
     method: 'POST',
@@ -230,4 +269,96 @@ export async function uploadFile(file: File): Promise<{
 
   if (!res.ok) throw new Error('Failed to upload file');
   return res.json();
+}
+
+// ===== Search API =====
+
+export async function searchUsers(query: string): Promise<{ users: Member[] }> {
+  const res = await fetch(`/api/search/users?q=${encodeURIComponent(query)}`);
+  return res.json();
+}
+
+export async function searchPosts(query: string): Promise<{ posts: Post[] }> {
+  const res = await fetch(`/api/search/posts?q=${encodeURIComponent(query)}`);
+  return res.json();
+}
+
+// ===== Bookmarks API =====
+
+export async function fetchBookmarks(options?: { limit?: number; before?: string }): Promise<{ posts: Post[] }> {
+  const params = new URLSearchParams();
+  if (options?.limit) params.set('limit', String(options.limit));
+  if (options?.before) params.set('before', options.before);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`/api/bookmarks${query}`);
+  return res.json();
+}
+
+export async function bookmarkPost(postId: string): Promise<void> {
+  const res = await fetch(`/api/posts/${postId}/bookmark`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to bookmark');
+}
+
+export async function unbookmarkPost(postId: string): Promise<void> {
+  const res = await fetch(`/api/posts/${postId}/bookmark`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to unbookmark');
+}
+
+// ===== Block/Mute API =====
+
+export async function blockUser(memberId: string): Promise<void> {
+  const res = await fetch(`/api/block/${memberId}`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to block');
+}
+
+export async function unblockUser(memberId: string): Promise<void> {
+  const res = await fetch(`/api/block/${memberId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to unblock');
+}
+
+export async function muteUser(memberId: string): Promise<void> {
+  const res = await fetch(`/api/mute/${memberId}`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to mute');
+}
+
+export async function unmuteUser(memberId: string): Promise<void> {
+  const res = await fetch(`/api/mute/${memberId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to unmute');
+}
+
+export async function fetchBlockedUsers(): Promise<{ users: Member[] }> {
+  const res = await fetch('/api/blocks');
+  return res.json();
+}
+
+export async function fetchMutedUsers(): Promise<{ users: Member[] }> {
+  const res = await fetch('/api/mutes');
+  return res.json();
+}
+
+// ===== Community Management API =====
+
+export async function updateCommunity(id: string, data: { name?: string; description?: string }): Promise<{ community: Community }> {
+  const res = await fetch(`/api/communities/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to update community');
+  return res.json();
+}
+
+export async function deleteCommunity(id: string): Promise<void> {
+  const res = await fetch(`/api/communities/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete community');
+}
+
+// ===== Account API =====
+
+export async function deleteAccount(): Promise<void> {
+  const res = await fetch('/api/me', { method: 'DELETE' });
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || 'Failed to delete account');
+  }
 }
