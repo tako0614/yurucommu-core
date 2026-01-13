@@ -1,10 +1,9 @@
 import { NavLink } from 'react-router-dom';
 import { Member } from '../../types';
-import { useI18n, Language } from '../../lib/i18n';
+import { useI18n } from '../../lib/i18n';
 
 interface SidebarProps {
   member: Member;
-  unreadNotifications?: number;
 }
 
 // SVG Icons
@@ -38,25 +37,30 @@ const ProfileIcon = () => (
   </svg>
 );
 
-const LogoutIcon = () => (
+const BookmarkIcon = () => (
   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
   </svg>
 );
 
-export function Sidebar({ member, unreadNotifications = 0 }: SidebarProps) {
-  const { t, language, setLanguage } = useI18n();
+const SettingsIcon = () => (
+  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+  </svg>
+);
 
-  const toggleLanguage = () => {
-    setLanguage(language === 'ja' ? 'en' : 'ja');
-  };
+export function Sidebar({ member }: SidebarProps) {
+  const { t } = useI18n();
 
   const navItems = [
     { to: '/', icon: HomeIcon, label: t('nav.home') },
     { to: '/groups', icon: GroupIcon, label: t('nav.groups') },
     { to: '/dm', icon: MessageIcon, label: t('nav.messages') },
-    { to: '/notifications', icon: BellIcon, label: t('nav.notifications'), badge: unreadNotifications },
+    { to: '/notifications', icon: BellIcon, label: t('nav.notifications') },
+    { to: '/bookmarks', icon: BookmarkIcon, label: t('nav.bookmarks') },
     { to: '/profile', icon: ProfileIcon, label: t('nav.profile') },
+    { to: '/settings', icon: SettingsIcon, label: t('nav.settings') },
   ];
 
   return (
@@ -69,7 +73,7 @@ export function Sidebar({ member, unreadNotifications = 0 }: SidebarProps) {
       {/* Navigation */}
       <nav className="flex-1 px-4">
         <div className="space-y-2">
-          {navItems.map(({ to, icon: Icon, label, badge }) => (
+          {navItems.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
               to={to}
@@ -83,36 +87,11 @@ export function Sidebar({ member, unreadNotifications = 0 }: SidebarProps) {
               }
             >
               <Icon />
-              <span className="flex-1">{label}</span>
-              {badge && badge > 0 && (
-                <span className="bg-blue-500 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center">
-                  {badge > 99 ? '99+' : badge}
-                </span>
-              )}
+              <span>{label}</span>
             </NavLink>
           ))}
         </div>
       </nav>
-
-      {/* Language & Logout */}
-      <div className="px-4 pb-6 space-y-2">
-        <button
-          onClick={toggleLanguage}
-          className="flex items-center gap-4 px-4 py-3 rounded-full text-xl text-neutral-400 hover:bg-neutral-900/50 hover:text-white transition-colors w-full"
-        >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
-          </svg>
-          <span>{language === 'ja' ? '日本語' : 'English'}</span>
-        </button>
-        <a
-          href="/api/auth/logout"
-          className="flex items-center gap-4 px-4 py-3 rounded-full text-xl text-neutral-400 hover:bg-neutral-900/50 hover:text-white transition-colors"
-        >
-          <LogoutIcon />
-          <span>{t('nav.logout')}</span>
-        </a>
-      </div>
     </aside>
   );
 }

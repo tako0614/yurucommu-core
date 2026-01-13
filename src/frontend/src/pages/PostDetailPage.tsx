@@ -1,0 +1,377 @@
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { Post, Member, MediaAttachment } from '../types';
+import { fetchPost, fetchPostReplies, createPost, likePost, unlikePost, deletePost, bookmarkPost, unbookmarkPost } from '../lib/api';
+import { useI18n } from '../lib/i18n';
+import { UserAvatar } from '../components/UserAvatar';
+import { PostContent } from '../components/PostContent';
+
+interface PostDetailPageProps {
+  currentMember: Member;
+}
+
+const BackIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+  </svg>
+);
+
+const HeartIcon = ({ filled }: { filled: boolean }) => (
+  <svg className="w-5 h-5" fill={filled ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+  </svg>
+);
+
+const ReplyIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+  </svg>
+);
+
+const TrashIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+  </svg>
+);
+
+const BookmarkIcon = ({ filled }: { filled: boolean }) => (
+  <svg className="w-5 h-5" fill={filled ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+  </svg>
+);
+
+export function PostDetailPage({ currentMember }: PostDetailPageProps) {
+  const { postId } = useParams<{ postId: string }>();
+  const navigate = useNavigate();
+  const { t } = useI18n();
+  const [post, setPost] = useState<Post | null>(null);
+  const [replies, setReplies] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [replyContent, setReplyContent] = useState('');
+  const [replying, setReplying] = useState(false);
+
+  useEffect(() => {
+    if (!postId) return;
+
+    setLoading(true);
+    Promise.all([
+      fetchPost(postId),
+      fetchPostReplies(postId)
+    ]).then(([postData, repliesData]) => {
+      setPost(postData.post);
+      setReplies(repliesData.replies || []);
+    }).catch(e => {
+      console.error('Failed to load post:', e);
+    }).finally(() => {
+      setLoading(false);
+    });
+  }, [postId]);
+
+  const handleLike = async (targetPost: Post, isReply: boolean = false) => {
+    try {
+      if (targetPost.liked) {
+        await unlikePost(targetPost.id);
+        if (isReply) {
+          setReplies(prev => prev.map(r => r.id === targetPost.id ? { ...r, liked: false, like_count: r.like_count - 1 } : r));
+        } else {
+          setPost(prev => prev ? { ...prev, liked: false, like_count: prev.like_count - 1 } : null);
+        }
+      } else {
+        await likePost(targetPost.id);
+        if (isReply) {
+          setReplies(prev => prev.map(r => r.id === targetPost.id ? { ...r, liked: true, like_count: r.like_count + 1 } : r));
+        } else {
+          setPost(prev => prev ? { ...prev, liked: true, like_count: prev.like_count + 1 } : null);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to toggle like:', e);
+    }
+  };
+
+  const handleReply = async () => {
+    if (!replyContent.trim() || replying || !postId) return;
+    setReplying(true);
+    try {
+      const newReply = await createPost({
+        content: replyContent.trim(),
+        reply_to_id: postId,
+      });
+      setReplies(prev => [...prev, newReply]);
+      setReplyContent('');
+      if (post) {
+        setPost({ ...post, reply_count: post.reply_count + 1 });
+      }
+    } catch (e) {
+      console.error('Failed to reply:', e);
+    } finally {
+      setReplying(false);
+    }
+  };
+
+  const handleDelete = async (targetPost: Post, isReply: boolean = false) => {
+    if (!confirm('この投稿を削除しますか？')) return;
+    try {
+      await deletePost(targetPost.id);
+      if (isReply) {
+        setReplies(prev => prev.filter(r => r.id !== targetPost.id));
+        if (post) {
+          setPost({ ...post, reply_count: Math.max(0, post.reply_count - 1) });
+        }
+      } else {
+        navigate(-1);
+      }
+    } catch (e) {
+      console.error('Failed to delete:', e);
+    }
+  };
+
+  const handleBookmark = async () => {
+    if (!post) return;
+    try {
+      if (post.bookmarked) {
+        await unbookmarkPost(post.id);
+        setPost({ ...post, bookmarked: false });
+      } else {
+        await bookmarkPost(post.id);
+        setPost({ ...post, bookmarked: true });
+      }
+    } catch (e) {
+      console.error('Failed to toggle bookmark:', e);
+    }
+  };
+
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleString('ja-JP', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col h-full">
+        <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
+          <div className="flex items-center gap-4 px-4 py-3">
+            <button onClick={() => navigate(-1)} className="p-1 hover:bg-neutral-800 rounded-full">
+              <BackIcon />
+            </button>
+            <h1 className="text-xl font-bold">投稿</h1>
+          </div>
+        </header>
+        <div className="p-8 text-center text-neutral-500">{t('common.loading')}</div>
+      </div>
+    );
+  }
+
+  if (!post) {
+    return (
+      <div className="flex flex-col h-full">
+        <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
+          <div className="flex items-center gap-4 px-4 py-3">
+            <button onClick={() => navigate(-1)} className="p-1 hover:bg-neutral-800 rounded-full">
+              <BackIcon />
+            </button>
+            <h1 className="text-xl font-bold">投稿</h1>
+          </div>
+        </header>
+        <div className="p-8 text-center text-neutral-500">投稿が見つかりません</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
+        <div className="flex items-center gap-4 px-4 py-3">
+          <button onClick={() => navigate(-1)} className="p-1 hover:bg-neutral-800 rounded-full">
+            <BackIcon />
+          </button>
+          <h1 className="text-xl font-bold">投稿</h1>
+        </div>
+      </header>
+
+      <div className="flex-1 overflow-y-auto">
+        {/* Main Post */}
+        <div className="px-4 py-4 border-b border-neutral-900">
+          <div className="flex gap-3">
+            <Link to={`/profile/${post.member_id}`}>
+              <UserAvatar
+                avatarUrl={post.avatar_url}
+                name={post.display_name || post.username}
+                size={48}
+              />
+            </Link>
+            <div className="flex-1">
+              <Link to={`/profile/${post.member_id}`} className="font-bold text-white hover:underline">
+                {post.display_name || post.username}
+              </Link>
+              <div className="text-neutral-500">@{post.username}</div>
+            </div>
+            {post.member_id === currentMember.id && (
+              <button
+                onClick={() => handleDelete(post)}
+                className="p-2 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
+              >
+                <TrashIcon />
+              </button>
+            )}
+          </div>
+          <PostContent
+            content={post.content}
+            className="text-lg text-neutral-100 mt-3"
+          />
+          {/* Post Images */}
+          {post.media_json && (() => {
+            try {
+              const media: MediaAttachment[] = JSON.parse(post.media_json);
+              if (media.length === 0) return null;
+              return (
+                <div className={`mt-3 grid gap-1 rounded-xl overflow-hidden ${
+                  media.length === 1 ? 'grid-cols-1' :
+                  media.length === 2 ? 'grid-cols-2' :
+                  media.length === 3 ? 'grid-cols-2' : 'grid-cols-2'
+                }`}>
+                  {media.map((m, idx) => (
+                    <img
+                      key={idx}
+                      src={`/media/${m.r2_key}`}
+                      alt=""
+                      className={`w-full object-cover ${
+                        media.length === 1 ? 'max-h-[500px]' :
+                        media.length === 3 && idx === 0 ? 'row-span-2 h-full' : 'h-48'
+                      }`}
+                    />
+                  ))}
+                </div>
+              );
+            } catch { return null; }
+          })()}
+          <div className="text-neutral-500 text-sm mt-3">
+            {formatTime(post.created_at)}
+          </div>
+          <div className="flex items-center gap-6 mt-3 pt-3 border-t border-neutral-800">
+            <div className="text-sm">
+              <span className="font-bold text-white">{post.reply_count}</span>
+              <span className="text-neutral-500 ml-1">返信</span>
+            </div>
+            {post.member_id === currentMember.id && (
+              <div className="text-sm">
+                <span className="font-bold text-white">{post.like_count}</span>
+                <span className="text-neutral-500 ml-1">いいね</span>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center justify-around mt-3 pt-3 border-t border-neutral-800">
+            <button className="flex items-center gap-2 p-2 text-neutral-500 hover:text-blue-500 transition-colors">
+              <ReplyIcon />
+            </button>
+            <button
+              onClick={() => handleLike(post)}
+              className={`flex items-center gap-2 p-2 transition-colors ${
+                post.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'
+              }`}
+            >
+              <HeartIcon filled={post.liked || false} />
+            </button>
+            <button
+              onClick={handleBookmark}
+              className={`flex items-center gap-2 p-2 transition-colors ${
+                post.bookmarked ? 'text-blue-500' : 'text-neutral-500 hover:text-blue-500'
+              }`}
+            >
+              <BookmarkIcon filled={post.bookmarked || false} />
+            </button>
+          </div>
+        </div>
+
+        {/* Reply Composer */}
+        <div className="px-4 py-3 border-b border-neutral-900">
+          <div className="flex gap-3">
+            <UserAvatar
+              avatarUrl={currentMember.avatar_url}
+              name={currentMember.display_name || currentMember.username}
+              size={40}
+            />
+            <div className="flex-1">
+              <textarea
+                value={replyContent}
+                onChange={e => setReplyContent(e.target.value)}
+                placeholder="返信を投稿"
+                className="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none"
+                rows={2}
+              />
+              <div className="flex justify-end">
+                <button
+                  onClick={handleReply}
+                  disabled={!replyContent.trim() || replying}
+                  className="px-4 py-1.5 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-800 disabled:text-neutral-600 rounded-full text-sm font-bold transition-colors"
+                >
+                  返信
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Replies */}
+        {replies.map(reply => (
+          <div key={reply.id} className="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
+            <Link to={`/profile/${reply.member_id}`}>
+              <UserAvatar
+                avatarUrl={reply.avatar_url}
+                name={reply.display_name || reply.username}
+                size={40}
+              />
+            </Link>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <Link to={`/profile/${reply.member_id}`} className="font-bold text-white truncate hover:underline">
+                  {reply.display_name || reply.username}
+                </Link>
+                <span className="text-neutral-500 truncate">@{reply.username}</span>
+                <span className="text-neutral-500">·</span>
+                <span className="text-neutral-500 text-sm">{formatTime(reply.created_at)}</span>
+                {reply.member_id === currentMember.id && (
+                  <button
+                    onClick={() => handleDelete(reply, true)}
+                    className="ml-auto p-1 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
+                  >
+                    <TrashIcon />
+                  </button>
+                )}
+              </div>
+              <PostContent
+                content={reply.content}
+                className="text-[15px] text-neutral-200 mt-1"
+              />
+              <div className="flex items-center gap-6 mt-2">
+                <button
+                  onClick={() => handleLike(reply, true)}
+                  className={`flex items-center gap-2 transition-colors ${
+                    reply.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'
+                  }`}
+                >
+                  <HeartIcon filled={reply.liked || false} />
+                  {reply.member_id === currentMember.id && reply.like_count > 0 && (
+                    <span className="text-sm">{reply.like_count}</span>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {replies.length === 0 && (
+          <div className="p-8 text-center text-neutral-500">
+            まだ返信がありません
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -6,11 +6,14 @@ const translations = {
   ja: {
     // Navigation
     'nav.home': 'ホーム',
+    'nav.search': '検索',
     'nav.groups': 'グループ',
     'nav.messages': 'メッセージ',
     'nav.members': 'メンバー',
     'nav.notifications': '通知',
+    'nav.bookmarks': 'ブックマーク',
     'nav.profile': 'プロフィール',
+    'nav.settings': '設定',
     'nav.logout': 'ログアウト',
 
     // Timeline / Posts
@@ -43,6 +46,12 @@ const translations = {
     // Groups
     'groups.title': 'グループ',
     'groups.noGroups': 'グループがありません',
+    'groups.create': '作成',
+    'groups.createTitle': 'グループを作成',
+    'groups.name': '名前',
+    'groups.namePlaceholder': 'グループ名を入力',
+    'groups.description': '説明',
+    'groups.descriptionPlaceholder': 'グループの説明を入力',
     'groups.join': '参加',
     'groups.leave': '退出',
     'groups.pending': '承認待ち',
@@ -109,11 +118,14 @@ const translations = {
   en: {
     // Navigation
     'nav.home': 'Home',
+    'nav.search': 'Search',
     'nav.groups': 'Groups',
     'nav.messages': 'Messages',
     'nav.members': 'Members',
     'nav.notifications': 'Notifications',
+    'nav.bookmarks': 'Bookmarks',
     'nav.profile': 'Profile',
+    'nav.settings': 'Settings',
     'nav.logout': 'Logout',
 
     // Timeline / Posts
@@ -146,6 +158,12 @@ const translations = {
     // Groups
     'groups.title': 'Groups',
     'groups.noGroups': 'No groups',
+    'groups.create': 'Create',
+    'groups.createTitle': 'Create Group',
+    'groups.name': 'Name',
+    'groups.namePlaceholder': 'Enter group name',
+    'groups.description': 'Description',
+    'groups.descriptionPlaceholder': 'Enter group description',
     'groups.join': 'Join',
     'groups.leave': 'Leave',
     'groups.pending': 'Pending',

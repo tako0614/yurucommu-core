@@ -29,6 +29,12 @@ export interface Member {
 
 // ===== Post Types =====
 
+// Media attachment
+export interface MediaAttachment {
+  r2_key: string;
+  content_type: string;
+}
+
 // Post represents a timeline post
 export interface Post {
   id: string;
@@ -40,6 +46,7 @@ export interface Post {
   like_count: number;
   repost_count: number;
   reply_count: number;
+  media_json?: string; // JSON string of MediaAttachment[]
   created_at: string;
   updated_at: string;
   // Joined fields

@@ -1,7 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
-import { fetchUnreadNotificationCount } from './lib/api';
 import { I18nProvider, useI18n } from './lib/i18n';
 import { LoginForm } from './components/LoginForm';
 import { AppLayout } from './components/layout';
@@ -10,28 +8,13 @@ import { GroupPage } from './pages/GroupPage';
 import { DMPage } from './pages/DMPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { NotificationPage } from './pages/NotificationPage';
+import { PostDetailPage } from './pages/PostDetailPage';
+import { BookmarksPage } from './pages/BookmarksPage';
+import { SettingsPage } from './pages/SettingsPage';
 
 function AppContent() {
-  const { member, loading, authMode, login, loginError } = useAuth();
+  const { member, loading, authMode, login, logout, loginError } = useAuth();
   const { t } = useI18n();
-  const [unreadNotifications, setUnreadNotifications] = useState(0);
-
-  // Poll for unread notification count
-  const loadUnreadCount = useCallback(async () => {
-    if (!member) return;
-    try {
-      const data = await fetchUnreadNotificationCount();
-      setUnreadNotifications(data.count);
-    } catch (e) {
-      console.error('Failed to load unread count:', e);
-    }
-  }, [member]);
-
-  useEffect(() => {
-    loadUnreadCount();
-    const interval = setInterval(loadUnreadCount, 30000);
-    return () => clearInterval(interval);
-  }, [loadUnreadCount]);
 
   if (loading) {
     return (
@@ -66,7 +49,7 @@ function AppContent() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route element={<AppLayout member={member} unreadNotifications={unreadNotifications} />}>
+        <Route element={<AppLayout member={member} />}>
           <Route path="/" element={<TimelinePage currentMember={member} />} />
           <Route path="/groups" element={<GroupPage currentMember={member} />} />
           <Route path="/dm" element={<DMPage currentMember={member} />} />
@@ -74,6 +57,9 @@ function AppContent() {
           <Route path="/profile" element={<ProfilePage currentMember={member} />} />
           <Route path="/profile/:memberId" element={<ProfilePage currentMember={member} />} />
           <Route path="/notifications" element={<NotificationPage />} />
+          <Route path="/post/:postId" element={<PostDetailPage currentMember={member} />} />
+          <Route path="/bookmarks" element={<BookmarksPage currentMember={member} />} />
+          <Route path="/settings" element={<SettingsPage currentMember={member} />} />
         </Route>
       </Routes>
     </BrowserRouter>
