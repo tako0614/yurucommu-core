@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Post, Actor, Community } from '../types';
+import { Post, Actor, Community, ActorStories } from '../types';
 import {
   fetchTimeline,
   fetchFollowingTimeline,
   fetchCommunities,
+  fetchStories,
   createPost,
   likePost,
   unlikePost,
@@ -15,6 +16,9 @@ import {
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
 import { PostContent } from '../components/PostContent';
+import { StoryBar } from '../components/StoryBar';
+import { StoryViewer } from '../components/StoryViewer';
+import { StoryComposer } from '../components/StoryComposer';
 
 interface TimelinePageProps {
   actor: Actor;
@@ -74,9 +78,45 @@ export function TimelinePage({ actor }: TimelinePageProps) {
   const [hasMore, setHasMore] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  // Story state
+  const [actorStories, setActorStories] = useState<ActorStories[]>([]);
+  const [storiesLoading, setStoriesLoading] = useState(true);
+  const [showStoryViewer, setShowStoryViewer] = useState(false);
+  const [storyViewerActorIndex, setStoryViewerActorIndex] = useState(0);
+  const [showStoryComposer, setShowStoryComposer] = useState(false);
+
   useEffect(() => {
     fetchCommunities().then(setCommunities).catch(console.error);
+    loadStories();
   }, []);
+
+  const loadStories = async () => {
+    try {
+      const data = await fetchStories();
+      setActorStories(data);
+    } catch (e) {
+      console.error('Failed to load stories:', e);
+    } finally {
+      setStoriesLoading(false);
+    }
+  };
+
+  const handleStoryClick = (stories: ActorStories, index: number) => {
+    // Find the actual index in the actorStories array
+    const actualIndex = actorStories.findIndex(as => as.actor.ap_id === stories.actor.ap_id);
+    if (actualIndex >= 0) {
+      setStoryViewerActorIndex(actualIndex);
+      setShowStoryViewer(true);
+    }
+  };
+
+  const handleAddStory = () => {
+    setShowStoryComposer(true);
+  };
+
+  const handleStorySuccess = () => {
+    loadStories();
+  };
 
   const loadTimeline = useCallback(async () => {
     setLoading(true);
@@ -240,6 +280,26 @@ export function TimelinePage({ actor }: TimelinePageProps) {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Story Viewer Modal */}
+      {showStoryViewer && actorStories.length > 0 && (
+        <StoryViewer
+          actorStories={actorStories}
+          initialActorIndex={storyViewerActorIndex}
+          onClose={() => {
+            setShowStoryViewer(false);
+            loadStories(); // Refresh to update viewed status
+          }}
+        />
+      )}
+
+      {/* Story Composer Modal */}
+      {showStoryComposer && (
+        <StoryComposer
+          onClose={() => setShowStoryComposer(false)}
+          onSuccess={handleStorySuccess}
+        />
+      )}
+
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
         <h1 className="text-xl font-bold px-4 py-3">{t('timeline.title')}</h1>
         <div className="flex overflow-x-auto scrollbar-hide border-b border-neutral-900">
@@ -270,6 +330,15 @@ export function TimelinePage({ actor }: TimelinePageProps) {
           ))}
         </div>
       </header>
+
+      {/* Story Bar */}
+      <StoryBar
+        actor={actor}
+        actorStories={actorStories}
+        loading={storiesLoading}
+        onStoryClick={handleStoryClick}
+        onAddStory={handleAddStory}
+      />
 
       <div className="border-b border-neutral-900 p-4">
         <div className="flex gap-3">

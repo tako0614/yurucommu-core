@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>APC (ActivityPub Communities) - Yurucommu</title>
+  <meta name="description" content="ActivityPubでコミュニティ機能を実現するための拡張仕様">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="/" class="logo">Yurucommu</a>
+      <div class="header-links">
+        <a href="/docs/" class="header-link">Docs</a>
+        <a href="/specs/" class="header-link active">Specs</a>
+      </div>
+      <a href="https://github.com/example/yurucommu" class="header-cta">
+        GitHub
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <p class="docs-sidebar-title">仕様</p>
+      <ul class="docs-sidebar-nav">
+        <li><a href="/specs/">概要</a></li>
+        <li><a href="/specs/activitypub.html">ActivityPub拡張</a></li>
+        <li><a href="/specs/yurucommu.html">Yurucommu仕様</a></li>
+        <li><a href="/specs/namespace.html">名前空間</a></li>
+      </ul>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">ActivityPub拡張</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/specs/apc.html" class="active">APC (Communities)</a></li>
+          <li><a href="/specs/single-user.html">Single-User Instance</a></li>
+          <li><a href="/specs/story.html">Story</a></li>
+          <li><a href="/specs/dmnote.html">DM Note</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">Yurucommu仕様</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/specs/qr-exchange.html">QR Exchange</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">リソース</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="https://www.w3.org/TR/activitypub/">ActivityPub (W3C)</a></li>
+          <li><a href="https://www.w3.org/TR/activitystreams-core/">Activity Streams 2.0</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="docs-content">
+      <span class="spec-status draft">Draft</span>
+      <h1>APC (ActivityPub Communities)</h1>
+      <p class="lead">
+        ActivityPubの<code>Group</code>アクターを使用してコミュニティ機能を実現するための仕様です。
+        Lemmy、Kbinなどの実装と相互運用性を持ちます。
+      </p>
+
+      <h2>概要</h2>
+      <p>
+        APCは、ActivityPubの標準的な<code>Group</code>アクタータイプを使用して、
+        コミュニティ（グループ、サブレディット的なもの）を実現します。
+      </p>
+
+      <h3>設計方針</h3>
+      <ul>
+        <li><strong>AS2準拠</strong> - 標準の<code>Group</code>アクターを使用</li>
+        <li><strong>相互運用性</strong> - Lemmy、Kbin等と互換性を持つ</li>
+        <li><strong>シンプル</strong> - 必要最小限の拡張のみ</li>
+      </ul>
+
+      <h2>名前空間</h2>
+      <pre><code>https://yurucommu.com/ns/apc#</code></pre>
+
+      <h2>コミュニティ（Group）</h2>
+      <p>コミュニティはActivityPubの<code>Group</code>アクターとして表現されます。</p>
+
+      <h3>必須プロパティ</h3>
+      <table class="docs-table">
+        <thead>
+          <tr>
+            <th>プロパティ</th>
+            <th>型</th>
+            <th>説明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>type</code></td>
+            <td>String</td>
+            <td><code>"Group"</code></td>
+          </tr>
+          <tr>
+            <td><code>id</code></td>
+            <td>URI</td>
+            <td>コミュニティのActivityPub IRI</td>
+          </tr>
+          <tr>
+            <td><code>name</code></td>
+            <td>String</td>
+            <td>コミュニティの表示名</td>
+          </tr>
+          <tr>
+            <td><code>preferredUsername</code></td>
+            <td>String</td>
+            <td>@メンション用の識別子</td>
+          </tr>
+          <tr>
+            <td><code>inbox</code></td>
+            <td>URI</td>
+            <td>受信ボックスURL</td>
+          </tr>
+          <tr>
+            <td><code>outbox</code></td>
+            <td>URI</td>
+            <td>送信ボックスURL</td>
+          </tr>
+          <tr>
+            <td><code>followers</code></td>
+            <td>URI</td>
+            <td>メンバー一覧（フォロワーコレクション）</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>拡張プロパティ</h3>
+      <table class="docs-table">
+        <thead>
+          <tr>
+            <th>プロパティ</th>
+            <th>型</th>
+            <th>説明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>apc:visibility</code></td>
+            <td>String</td>
+            <td><code>public</code> または <code>private</code></td>
+          </tr>
+          <tr>
+            <td><code>apc:postPolicy</code></td>
+            <td>String</td>
+            <td>投稿権限: <code>members</code>, <code>moderators</code></td>
+          </tr>
+          <tr>
+            <td><code>apc:joinPolicy</code></td>
+            <td>String</td>
+            <td>参加方式: <code>open</code>, <code>approval</code>, <code>invite</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>例: コミュニティアクター</h3>
+      <pre><code>{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    "https://yurucommu.com/ns/apc/context.jsonld"
+  ],
+  "type": "Group",
+  "id": "https://example.com/communities/tech",
+  "name": "Tech Talk",
+  "preferredUsername": "tech",
+  "summary": "技術について話すコミュニティ",
+  "icon": {
+    "type": "Image",
+    "url": "https://example.com/media/communities/tech/icon.png"
+  },
+  "inbox": "https://example.com/communities/tech/inbox",
+  "outbox": "https://example.com/communities/tech/outbox",
+  "followers": "https://example.com/communities/tech/followers",
+  "apc:visibility": "public",
+  "apc:postPolicy": "members",
+  "apc:joinPolicy": "open"
+}</code></pre>
+
+      <h2>メンバーシップ</h2>
+      <p>コミュニティへの参加は<code>Follow</code>アクティビティで表現されます。</p>
+
+      <h3>参加リクエスト</h3>
+      <pre><code>{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "type": "Follow",
+  "id": "https://alice.example/activities/join-tech",
+  "actor": "https://alice.example/users/alice",
+  "object": "https://example.com/communities/tech"
+}</code></pre>
+
+      <h3>参加承認</h3>
+      <pre><code>{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "type": "Accept",
+  "id": "https://example.com/activities/accept-alice",
+  "actor": "https://example.com/communities/tech",
+  "object": {
+    "type": "Follow",
+    "id": "https://alice.example/activities/join-tech",
+    "actor": "https://alice.example/users/alice",
+    "object": "https://example.com/communities/tech"
+  }
+}</code></pre>
+
+      <h2>投稿の配信</h2>
+      <p>コミュニティへの投稿は、コミュニティの<code>inbox</code>に送信されます。</p>
+
+      <h3>コミュニティ宛の投稿</h3>
+      <pre><code>{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "type": "Create",
+  "id": "https://alice.example/activities/create-note-1",
+  "actor": "https://alice.example/users/alice",
+  "to": ["https://example.com/communities/tech"],
+  "cc": ["https://www.w3.org/ns/activitystreams#Public"],
+  "object": {
+    "type": "Note",
+    "id": "https://alice.example/notes/1",
+    "attributedTo": "https://alice.example/users/alice",
+    "content": "新しいプログラミング言語を試してみました！",
+    "to": ["https://example.com/communities/tech"],
+    "cc": ["https://www.w3.org/ns/activitystreams#Public"]
+  }
+}</code></pre>
+
+      <h3>コミュニティによる再配信</h3>
+      <p>
+        コミュニティは受け取った投稿を全メンバーに<code>Announce</code>として再配信します。
+      </p>
+      <pre><code>{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "type": "Announce",
+  "id": "https://example.com/communities/tech/announces/1",
+  "actor": "https://example.com/communities/tech",
+  "to": ["https://example.com/communities/tech/followers"],
+  "cc": ["https://www.w3.org/ns/activitystreams#Public"],
+  "object": "https://alice.example/notes/1"
+}</code></pre>
+
+      <h2>モデレーション</h2>
+      <p>モデレーターは特定の管理アクションを実行できます。</p>
+
+      <h3>投稿の削除</h3>
+      <pre><code>{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "type": "Remove",
+  "id": "https://example.com/communities/tech/removes/1",
+  "actor": "https://example.com/communities/tech",
+  "object": "https://alice.example/notes/1",
+  "target": "https://example.com/communities/tech/outbox",
+  "summary": "コミュニティガイドライン違反"
+}</code></pre>
+
+      <h3>メンバーのBAN</h3>
+      <pre><code>{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "type": "Block",
+  "id": "https://example.com/communities/tech/blocks/1",
+  "actor": "https://example.com/communities/tech",
+  "object": "https://spammer.example/users/spam"
+}</code></pre>
+
+      <h2>相互運用性</h2>
+      <p>
+        この仕様はLemmy、Kbinなどの既存実装との互換性を考慮しています。
+        標準の<code>Group</code>アクターを使用することで、基本的なフォロー・投稿の配信は
+        ActivityPub対応の多くの実装で動作します。
+      </p>
+
+      <h2>参考</h2>
+      <ul>
+        <li><a href="https://www.w3.org/TR/activitystreams-vocabulary/#dfn-group">Activity Streams 2.0 - Group</a></li>
+        <li><a href="https://join-lemmy.org/docs/contributors/05-federation.html">Lemmy Federation</a></li>
+      </ul>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">Yurucommu</div>
+      <div class="footer-links">
+        <a href="/" class="footer-link">ホーム</a>
+        <a href="/docs/" class="footer-link">Docs</a>
+        <a href="/specs/" class="footer-link">Specs</a>
+        <a href="https://github.com/example/yurucommu" class="footer-link">GitHub</a>
+      </div>
+      <p class="footer-copy">&copy; 2025 Yurucommu. MIT License.</p>
+    </div>
+  </footer>
+</body>
+</html>

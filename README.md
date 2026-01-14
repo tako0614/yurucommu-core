@@ -64,9 +64,24 @@ npm install
 
 # 開発サーバー起動
 npm run dev
+```
 
-# デプロイ
+## デプロイ
+
+### アプリ (app.yurucommu.com)
+
+Cloudflare Workers にデプロイ:
+
+```bash
 npm run deploy
+```
+
+### ウェブサイト (yurucommu.com)
+
+Cloudflare Pages にデプロイ:
+
+```bash
+wrangler pages deploy site --project-name yurucommu-site
 ```
 
 ## ライセンス

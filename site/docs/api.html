@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API リファレンス - Yurucommu</title>
+  <meta name="description" content="Yurucommu REST APIのエンドポイント一覧">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="/" class="logo">Yurucommu</a>
+      <div class="header-links">
+        <a href="/docs/" class="header-link active">Docs</a>
+        <a href="/specs/" class="header-link">Specs</a>
+      </div>
+      <a href="https://github.com/example/yurucommu" class="header-cta">
+        GitHub
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <p class="docs-sidebar-title">はじめに</p>
+      <ul class="docs-sidebar-nav">
+        <li><a href="/docs/">概要</a></li>
+        <li><a href="/docs/getting-started.html">クイックスタート</a></li>
+        <li><a href="/docs/requirements.html">必要な環境</a></li>
+      </ul>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">セットアップ</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/cloudflare-setup.html">Cloudflare設定</a></li>
+          <li><a href="/docs/deployment.html">デプロイ</a></li>
+          <li><a href="/docs/configuration.html">環境変数</a></li>
+          <li><a href="/docs/custom-domain.html">カスタムドメイン</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">使い方</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/first-post.html">最初の投稿</a></li>
+          <li><a href="/docs/following.html">フォローする</a></li>
+          <li><a href="/docs/communities.html">コミュニティ</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">リファレンス</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/api.html" class="active">API</a></li>
+          <li><a href="/docs/database.html">データベース</a></li>
+          <li><a href="/specs/">ActivityPub拡張</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="docs-content">
+      <h1>API リファレンス</h1>
+      <p class="lead">
+        Yurucommuの内部REST APIエンドポイント一覧です。
+        主にフロントエンドから使用されますが、外部クライアントからも利用可能です。
+      </p>
+
+      <h2>認証</h2>
+      <p>APIはセッションベースの認証を使用します。ログイン後、Cookieでセッションが管理されます。</p>
+
+      <h3>POST /api/auth/login</h3>
+      <p>ログイン</p>
+      <pre><code>{
+  "password": "string",
+  "username": "string" // オプション
+}</code></pre>
+
+      <h3>POST /api/auth/logout</h3>
+      <p>ログアウト</p>
+
+      <h3>GET /api/auth/me</h3>
+      <p>現在のログインユーザー情報を取得</p>
+
+      <h2>タイムライン</h2>
+
+      <h3>GET /api/timeline</h3>
+      <p>公開タイムラインを取得</p>
+      <p>クエリパラメータ:</p>
+      <ul>
+        <li><code>limit</code> - 取得件数（デフォルト: 20）</li>
+        <li><code>before</code> - ページネーション用のap_id</li>
+        <li><code>community</code> - コミュニティのap_idでフィルタ</li>
+      </ul>
+
+      <h3>GET /api/timeline/following</h3>
+      <p>フォロー中ユーザーのタイムラインを取得（要認証）</p>
+
+      <h2>投稿</h2>
+
+      <h3>GET /api/posts/:id</h3>
+      <p>投稿の詳細を取得</p>
+
+      <h3>POST /api/posts</h3>
+      <p>投稿を作成（要認証）</p>
+      <pre><code>{
+  "content": "string",
+  "summary": "string",        // CW（オプション）
+  "visibility": "public",    // public, unlisted, followers, direct
+  "in_reply_to": "string",   // 返信先ap_id（オプション）
+  "community_ap_id": "string", // コミュニティ（オプション）
+  "attachments": [{          // メディア添付（オプション）
+    "r2_key": "string",
+    "content_type": "string"
+  }]
+}</code></pre>
+
+      <h3>DELETE /api/posts/:id</h3>
+      <p>投稿を削除（要認証）</p>
+
+      <h3>GET /api/posts/:id/replies</h3>
+      <p>投稿への返信一覧を取得</p>
+
+      <h3>POST /api/posts/:id/like</h3>
+      <p>いいねする（要認証）</p>
+
+      <h3>DELETE /api/posts/:id/like</h3>
+      <p>いいね解除（要認証）</p>
+
+      <h3>POST /api/posts/:id/bookmark</h3>
+      <p>ブックマーク追加（要認証）</p>
+
+      <h3>DELETE /api/posts/:id/bookmark</h3>
+      <p>ブックマーク解除（要認証）</p>
+
+      <h2>ストーリー</h2>
+
+      <h3>GET /api/stories</h3>
+      <p>フォロー中ユーザーのアクティブなストーリーを取得（要認証）</p>
+
+      <h3>POST /api/stories</h3>
+      <p>ストーリーを作成（要認証）</p>
+      <pre><code>{
+  "frames": [{
+    "attachment": {
+      "r2_key": "string",
+      "content_type": "string"
+    },
+    "displayDuration": "PT5S", // ISO 8601 duration
+    "content": "string"        // テキストオーバーレイ（オプション）
+  }]
+}</code></pre>
+
+      <h3>DELETE /api/stories/:id</h3>
+      <p>ストーリーを削除（要認証）</p>
+
+      <h3>POST /api/stories/:id/view</h3>
+      <p>ストーリーを閲覧済みにする（要認証）</p>
+
+      <h2>アクター（ユーザー）</h2>
+
+      <h3>GET /api/actors/:identifier</h3>
+      <p>ユーザー情報を取得</p>
+
+      <h3>GET /api/actors/:identifier/followers</h3>
+      <p>フォロワー一覧を取得</p>
+
+      <h3>GET /api/actors/:identifier/following</h3>
+      <p>フォロー中一覧を取得</p>
+
+      <h2>フォロー</h2>
+
+      <h3>POST /api/follow</h3>
+      <p>フォローする（要認証）</p>
+      <pre><code>{
+  "target_ap_id": "string"
+}</code></pre>
+
+      <h3>DELETE /api/follow</h3>
+      <p>フォロー解除（要認証）</p>
+
+      <h3>POST /api/follow/accept</h3>
+      <p>フォローリクエストを承認（要認証）</p>
+
+      <h2>メディア</h2>
+
+      <h3>POST /api/media/upload</h3>
+      <p>メディアファイルをアップロード（要認証）</p>
+      <p><code>multipart/form-data</code> で <code>file</code> フィールドにファイルを送信</p>
+
+      <h3>GET /media/:r2_key</h3>
+      <p>アップロードされたメディアファイルを取得</p>
+
+      <h2>通知</h2>
+
+      <h3>GET /api/notifications</h3>
+      <p>通知一覧を取得（要認証）</p>
+
+      <h3>GET /api/notifications/unread/count</h3>
+      <p>未読通知数を取得（要認証）</p>
+
+      <h3>POST /api/notifications/read</h3>
+      <p>通知を既読にする（要認証）</p>
+
+      <h2>ActivityPubエンドポイント</h2>
+      <p>連合用のActivityPubエンドポイントについては、<a href="/specs/">仕様書</a>を参照してください。</p>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">Yurucommu</div>
+      <div class="footer-links">
+        <a href="/" class="footer-link">ホーム</a>
+        <a href="/docs/" class="footer-link">Docs</a>
+        <a href="/specs/" class="footer-link">Specs</a>
+        <a href="https://github.com/example/yurucommu" class="footer-link">GitHub</a>
+      </div>
+      <p class="footer-copy">&copy; 2025 Yurucommu. MIT License.</p>
+    </div>
+  </footer>
+</body>
+</html>

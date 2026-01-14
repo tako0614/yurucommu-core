@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Single-User Instance - Yurucommu</title>
+  <meta name="description" content="1インスタンス1ユーザーの設計に関する仕様">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="/" class="logo">Yurucommu</a>
+      <div class="header-links">
+        <a href="/docs/" class="header-link">Docs</a>
+        <a href="/specs/" class="header-link active">Specs</a>
+      </div>
+      <a href="https://github.com/example/yurucommu" class="header-cta">
+        GitHub
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <p class="docs-sidebar-title">仕様</p>
+      <ul class="docs-sidebar-nav">
+        <li><a href="/specs/">概要</a></li>
+        <li><a href="/specs/activitypub.html">ActivityPub拡張</a></li>
+        <li><a href="/specs/yurucommu.html">Yurucommu仕様</a></li>
+        <li><a href="/specs/namespace.html">名前空間</a></li>
+      </ul>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">ActivityPub拡張</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/specs/apc.html">APC (Communities)</a></li>
+          <li><a href="/specs/single-user.html" class="active">Single-User Instance</a></li>
+          <li><a href="/specs/story.html">Story</a></li>
+          <li><a href="/specs/dmnote.html">DM Note</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">Yurucommu仕様</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/specs/qr-exchange.html">QR Exchange</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">リソース</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="https://www.w3.org/TR/activitypub/">ActivityPub (W3C)</a></li>
+          <li><a href="https://www.w3.org/TR/activitystreams-core/">Activity Streams 2.0</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="docs-content">
+      <span class="spec-status draft">Draft</span>
+      <h1>Single-User Instance</h1>
+      <p class="lead">
+        1インスタンス1ユーザーの設計パターンに関する仕様です。
+        個人で運用する分散SNSインスタンスの設計指針を定義します。
+      </p>
+
+      <h2>概要</h2>
+      <p>
+        Single-User Instanceは、1つのインスタンスを1人のユーザーが所有・運用するモデルです。
+        データの自己管理、プライバシーの確保、運用コストの最小化を目的としています。
+      </p>
+
+      <h3>メリット</h3>
+      <ul>
+        <li><strong>データ主権</strong> - 自分のデータは自分で管理</li>
+        <li><strong>プライバシー</strong> - 管理者＝ユーザーなのでデータ漏洩リスクが低い</li>
+        <li><strong>シンプルな運用</strong> - マルチユーザー機能が不要</li>
+        <li><strong>低コスト</strong> - 1ユーザー分のリソースで十分</li>
+        <li><strong>カスタマイズ性</strong> - 自分好みに設定可能</li>
+      </ul>
+
+      <h2>アーキテクチャ</h2>
+
+      <h3>アクター構成</h3>
+      <p>Single-User Instanceには通常1つのメインアクターが存在します：</p>
+      <pre><code>{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "type": "Person",
+  "id": "https://alice.example/users/alice",
+  "preferredUsername": "alice",
+  "name": "Alice",
+  "inbox": "https://alice.example/users/alice/inbox",
+  "outbox": "https://alice.example/users/alice/outbox",
+  "followers": "https://alice.example/users/alice/followers",
+  "following": "https://alice.example/users/alice/following"
+}</code></pre>
+
+      <h3>WebFinger</h3>
+      <p>
+        <code>@alice@alice.example</code> のようなアドレスでユーザーを特定できます。
+        Single-User Instanceでは、任意のユーザー名でも同じアクターを返すことが推奨されます。
+      </p>
+      <pre><code>GET /.well-known/webfinger?resource=acct:alice@alice.example
+
+{
+  "subject": "acct:alice@alice.example",
+  "links": [
+    {
+      "rel": "self",
+      "type": "application/activity+json",
+      "href": "https://alice.example/users/alice"
+    }
+  ]
+}</code></pre>
+
+      <h2>認証</h2>
+      <p>
+        Single-User Instanceでは、複雑なユーザー管理は不要です。
+        シンプルなパスワード認証やマジックリンク認証が適しています。
+      </p>
+
+      <h3>推奨される認証方式</h3>
+      <table class="docs-table">
+        <thead>
+          <tr>
+            <th>方式</th>
+            <th>説明</th>
+            <th>適用場面</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>パスワード認証</td>
+            <td>シンプルなパスワードベース認証</td>
+            <td>基本的な保護</td>
+          </tr>
+          <tr>
+            <td>マジックリンク</td>
+            <td>メールで送られるワンタイムリンク</td>
+            <td>パスワード不要の運用</td>
+          </tr>
+          <tr>
+            <td>Passkey/WebAuthn</td>
+            <td>生体認証やハードウェアキー</td>
+            <td>高セキュリティ</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>セッション管理</h3>
+      <p>
+        ログイン状態はセッションCookieで管理します。
+        Single-User Instanceでは、長期間のセッション有効期限を設定しても問題ありません。
+      </p>
+
+      <h2>初期セットアップ</h2>
+      <p>
+        インスタンスの初回起動時に、オーナーアカウントを作成します。
+        以降の新規ユーザー登録は無効化されます。
+      </p>
+
+      <h3>セットアップフロー</h3>
+      <ol>
+        <li>インスタンスをデプロイ</li>
+        <li>初回アクセス時にセットアップ画面を表示</li>
+        <li>ユーザー名、表示名、パスワードを設定</li>
+        <li>キーペア（公開鍵/秘密鍵）を自動生成</li>
+        <li>セットアップ完了、以降は通常のログイン画面</li>
+      </ol>
+
+      <h2>インスタンス情報</h2>
+      <p>
+        NodeInfoを通じてインスタンス情報を公開します。
+        Single-User Instanceであることを示すメタデータを含めることができます。
+      </p>
+      <pre><code>{
+  "version": "2.1",
+  "software": {
+    "name": "yurucommu",
+    "version": "1.0.0"
+  },
+  "protocols": ["activitypub"],
+  "usage": {
+    "users": {
+      "total": 1,
+      "activeMonth": 1,
+      "activeHalfyear": 1
+    },
+    "localPosts": 42
+  },
+  "openRegistrations": false,
+  "metadata": {
+    "singleUser": true
+  }
+}</code></pre>
+
+      <h2>セキュリティ考慮事項</h2>
+
+      <h3>HTTP Signatures</h3>
+      <p>
+        ActivityPubの連合通信にはHTTP Signaturesを使用します。
+        秘密鍵は安全に保管する必要があります。
+      </p>
+
+      <h3>HTTPS必須</h3>
+      <p>
+        本番環境では必ずHTTPSを使用してください。
+        ActivityPubの仕様上、HTTPSが推奨されています。
+      </p>
+
+      <h3>レート制限</h3>
+      <p>
+        単一ユーザーでも、外部からのリクエストにはレート制限を設けてください。
+        DoS攻撃の防止に役立ちます。
+      </p>
+
+      <h2>運用ガイドライン</h2>
+
+      <h3>バックアップ</h3>
+      <p>定期的なバックアップを推奨します：</p>
+      <ul>
+        <li>データベース（D1）のエクスポート</li>
+        <li>メディアファイル（R2）のバックアップ</li>
+        <li>秘密鍵の安全な保管</li>
+      </ul>
+
+      <h3>更新</h3>
+      <p>
+        セキュリティアップデートは速やかに適用してください。
+        Single-User Instanceは管理者＝ユーザーなので、更新タイミングを柔軟に決められます。
+      </p>
+
+      <h2>参考</h2>
+      <ul>
+        <li><a href="https://www.w3.org/TR/activitypub/">ActivityPub W3C Recommendation</a></li>
+        <li><a href="https://nodeinfo.diaspora.software/">NodeInfo</a></li>
+        <li><a href="https://webfinger.net/">WebFinger</a></li>
+      </ul>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">Yurucommu</div>
+      <div class="footer-links">
+        <a href="/" class="footer-link">ホーム</a>
+        <a href="/docs/" class="footer-link">Docs</a>
+        <a href="/specs/" class="footer-link">Specs</a>
+        <a href="https://github.com/example/yurucommu" class="footer-link">GitHub</a>
+      </div>
+      <p class="footer-copy">&copy; 2025 Yurucommu. MIT License.</p>
+    </div>
+  </footer>
+</body>
+</html>

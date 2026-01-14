@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>データベース - Yurucommu</title>
+  <meta name="description" content="Yurucommuのデータベーススキーマ">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="/" class="logo">Yurucommu</a>
+      <div class="header-links">
+        <a href="/docs/" class="header-link active">Docs</a>
+        <a href="/specs/" class="header-link">Specs</a>
+      </div>
+      <a href="https://github.com/example/yurucommu" class="header-cta">
+        GitHub
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <p class="docs-sidebar-title">はじめに</p>
+      <ul class="docs-sidebar-nav">
+        <li><a href="/docs/">概要</a></li>
+        <li><a href="/docs/getting-started.html">クイックスタート</a></li>
+        <li><a href="/docs/requirements.html">必要な環境</a></li>
+      </ul>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">セットアップ</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/cloudflare-setup.html">Cloudflare設定</a></li>
+          <li><a href="/docs/deployment.html">デプロイ</a></li>
+          <li><a href="/docs/configuration.html">環境変数</a></li>
+          <li><a href="/docs/custom-domain.html">カスタムドメイン</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">使い方</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/first-post.html">最初の投稿</a></li>
+          <li><a href="/docs/following.html">フォローする</a></li>
+          <li><a href="/docs/communities.html">コミュニティ</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">リファレンス</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/api.html">API</a></li>
+          <li><a href="/docs/database.html" class="active">データベース</a></li>
+          <li><a href="/specs/">ActivityPub拡張</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="docs-content">
+      <h1>データベース</h1>
+      <p class="lead">
+        YurucommuはCloudflare D1（SQLite）を使用したAP-nativeなスキーマを採用しています。
+        すべてのActivityPubオブジェクトはAP IRIを主キーとして使用します。
+      </p>
+
+      <h2>設計思想</h2>
+      <ul>
+        <li><strong>AP-native</strong> - ActivityPub IRIをそのまま主キーとして使用</li>
+        <li><strong>統一スキーマ</strong> - ローカルとリモートのオブジェクトを同じテーブルで管理</li>
+        <li><strong>非正規化</strong> - パフォーマンスのためカウンターなどを非正規化</li>
+      </ul>
+
+      <h2>主要テーブル</h2>
+
+      <h3>actors</h3>
+      <p>ローカルアクター（ユーザー）を格納</p>
+      <table class="docs-table">
+        <thead>
+          <tr><th>カラム</th><th>型</th><th>説明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>ap_id</td><td>TEXT PK</td><td>ActivityPub IRI</td></tr>
+          <tr><td>type</td><td>TEXT</td><td>Person</td></tr>
+          <tr><td>preferred_username</td><td>TEXT</td><td>ユーザー名</td></tr>
+          <tr><td>name</td><td>TEXT</td><td>表示名</td></tr>
+          <tr><td>summary</td><td>TEXT</td><td>自己紹介</td></tr>
+          <tr><td>icon_url</td><td>TEXT</td><td>アイコンURL</td></tr>
+          <tr><td>header_url</td><td>TEXT</td><td>ヘッダー画像URL</td></tr>
+          <tr><td>inbox</td><td>TEXT</td><td>インボックスURL</td></tr>
+          <tr><td>outbox</td><td>TEXT</td><td>アウトボックスURL</td></tr>
+          <tr><td>followers_url</td><td>TEXT</td><td>フォロワーコレクションURL</td></tr>
+          <tr><td>following_url</td><td>TEXT</td><td>フォローコレクションURL</td></tr>
+          <tr><td>public_key_pem</td><td>TEXT</td><td>公開鍵（PEM形式）</td></tr>
+          <tr><td>private_key_pem</td><td>TEXT</td><td>秘密鍵（PEM形式）</td></tr>
+          <tr><td>follower_count</td><td>INTEGER</td><td>フォロワー数（非正規化）</td></tr>
+          <tr><td>following_count</td><td>INTEGER</td><td>フォロー数（非正規化）</td></tr>
+          <tr><td>post_count</td><td>INTEGER</td><td>投稿数（非正規化）</td></tr>
+          <tr><td>is_private</td><td>INTEGER</td><td>承認制フラグ</td></tr>
+          <tr><td>role</td><td>TEXT</td><td>owner / moderator / member</td></tr>
+        </tbody>
+      </table>
+
+      <h3>actor_cache</h3>
+      <p>リモートアクターのキャッシュ</p>
+      <p>連合で取得したリモートユーザーの情報を保存。定期的に更新。</p>
+
+      <h3>objects</h3>
+      <p>投稿（Note）やストーリー（Story）などのActivityPubオブジェクト</p>
+      <table class="docs-table">
+        <thead>
+          <tr><th>カラム</th><th>型</th><th>説明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>ap_id</td><td>TEXT PK</td><td>ActivityPub IRI</td></tr>
+          <tr><td>type</td><td>TEXT</td><td>Note / Story</td></tr>
+          <tr><td>attributed_to</td><td>TEXT</td><td>作成者のap_id</td></tr>
+          <tr><td>content</td><td>TEXT</td><td>本文（HTML）</td></tr>
+          <tr><td>summary</td><td>TEXT</td><td>CW（Content Warning）</td></tr>
+          <tr><td>attachments_json</td><td>TEXT</td><td>添付メディア（JSON配列）</td></tr>
+          <tr><td>in_reply_to</td><td>TEXT</td><td>返信先のap_id</td></tr>
+          <tr><td>visibility</td><td>TEXT</td><td>公開範囲</td></tr>
+          <tr><td>community_ap_id</td><td>TEXT</td><td>所属コミュニティ</td></tr>
+          <tr><td>end_time</td><td>TEXT</td><td>ストーリーの有効期限</td></tr>
+          <tr><td>like_count</td><td>INTEGER</td><td>いいね数（非正規化）</td></tr>
+          <tr><td>reply_count</td><td>INTEGER</td><td>返信数（非正規化）</td></tr>
+          <tr><td>announce_count</td><td>INTEGER</td><td>ブースト数（非正規化）</td></tr>
+          <tr><td>is_local</td><td>INTEGER</td><td>ローカル投稿フラグ</td></tr>
+        </tbody>
+      </table>
+
+      <h3>follows</h3>
+      <p>フォロー関係</p>
+      <table class="docs-table">
+        <thead>
+          <tr><th>カラム</th><th>型</th><th>説明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>follower_ap_id</td><td>TEXT</td><td>フォローする側</td></tr>
+          <tr><td>following_ap_id</td><td>TEXT</td><td>フォローされる側</td></tr>
+          <tr><td>status</td><td>TEXT</td><td>pending / accepted / rejected</td></tr>
+          <tr><td>activity_ap_id</td><td>TEXT</td><td>Followアクティビティの参照</td></tr>
+        </tbody>
+      </table>
+
+      <h3>likes</h3>
+      <p>いいね</p>
+      <pre><code>PRIMARY KEY (actor_ap_id, object_ap_id)</code></pre>
+
+      <h3>bookmarks</h3>
+      <p>ブックマーク（ローカル機能、連合しない）</p>
+
+      <h3>notifications</h3>
+      <p>通知</p>
+
+      <h3>communities</h3>
+      <p>コミュニティ（ActivityPub Group）</p>
+
+      <h3>story_views</h3>
+      <p>ストーリー閲覧履歴</p>
+
+      <h2>マイグレーション</h2>
+      <p>マイグレーションファイルは <code>migrations/</code> ディレクトリにあります。</p>
+      <pre><code># マイグレーション状態を確認
+npx wrangler d1 migrations list yurucommu-db --remote
+
+# マイグレーションを適用
+npx wrangler d1 migrations apply yurucommu-db --remote</code></pre>
+
+      <h2>データの確認</h2>
+      <pre><code># テーブル一覧
+npx wrangler d1 execute yurucommu-db --remote \
+  --command "SELECT name FROM sqlite_master WHERE type='table'"
+
+# データ確認
+npx wrangler d1 execute yurucommu-db --remote \
+  --command "SELECT * FROM actors LIMIT 5"</code></pre>
+
+      <h2>バックアップ</h2>
+      <p>D1のデータをエクスポートするには：</p>
+      <pre><code>npx wrangler d1 export yurucommu-db --remote --output backup.sql</code></pre>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">Yurucommu</div>
+      <div class="footer-links">
+        <a href="/" class="footer-link">ホーム</a>
+        <a href="/docs/" class="footer-link">Docs</a>
+        <a href="/specs/" class="footer-link">Specs</a>
+        <a href="https://github.com/example/yurucommu" class="footer-link">GitHub</a>
+      </div>
+      <p class="footer-copy">&copy; 2025 Yurucommu. MIT License.</p>
+    </div>
+  </footer>
+</body>
+</html>

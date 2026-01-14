@@ -5,6 +5,9 @@ import {
   DMConversation,
   DMMessage,
   Notification,
+  Story,
+  StoryFrame,
+  ActorStories,
 } from '../types';
 
 // ===== Auth API =====
@@ -310,4 +313,45 @@ export async function uploadMedia(file: File): Promise<{ url: string; r2_key: st
   });
   if (!res.ok) throw new Error('Failed to upload');
   return res.json();
+}
+
+// ===== Story API =====
+
+export async function fetchStories(): Promise<ActorStories[]> {
+  const res = await fetch('/api/stories');
+  if (!res.ok) throw new Error('Failed to fetch stories');
+  const data = await res.json();
+  return data.actor_stories || [];
+}
+
+export async function fetchActorStories(actorId: string): Promise<Story[]> {
+  const res = await fetch(`/api/stories/${encodeURIComponent(actorId)}`);
+  if (!res.ok) throw new Error('Failed to fetch actor stories');
+  const data = await res.json();
+  return data.stories || [];
+}
+
+export async function createStory(frames: {
+  attachment: { r2_key: string; content_type: string };
+  displayDuration?: string;
+  content?: string;
+}[]): Promise<Story> {
+  const res = await fetch('/api/stories', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ frames }),
+  });
+  if (!res.ok) throw new Error('Failed to create story');
+  const data = await res.json();
+  return data.story;
+}
+
+export async function deleteStory(apId: string): Promise<void> {
+  const res = await fetch(`/api/stories/${encodeURIComponent(apId)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete story');
+}
+
+export async function markStoryViewed(apId: string): Promise<void> {
+  const res = await fetch(`/api/stories/${encodeURIComponent(apId)}/view`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to mark story as viewed');
 }

@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QR Exchange - Yurucommu</title>
+  <meta name="description" content="QRコードを使用したアカウント交換の仕様">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="/" class="logo">Yurucommu</a>
+      <div class="header-links">
+        <a href="/docs/" class="header-link">Docs</a>
+        <a href="/specs/" class="header-link active">Specs</a>
+      </div>
+      <a href="https://github.com/example/yurucommu" class="header-cta">
+        GitHub
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <p class="docs-sidebar-title">仕様</p>
+      <ul class="docs-sidebar-nav">
+        <li><a href="/specs/">概要</a></li>
+        <li><a href="/specs/activitypub.html">ActivityPub拡張</a></li>
+        <li><a href="/specs/yurucommu.html">Yurucommu仕様</a></li>
+        <li><a href="/specs/namespace.html">名前空間</a></li>
+      </ul>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">ActivityPub拡張</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/specs/apc.html">APC (Communities)</a></li>
+          <li><a href="/specs/single-user.html">Single-User Instance</a></li>
+          <li><a href="/specs/story.html">Story</a></li>
+          <li><a href="/specs/dmnote.html">DM Note</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">Yurucommu仕様</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/specs/qr-exchange.html" class="active">QR Exchange</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">リソース</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="https://www.w3.org/TR/activitypub/">ActivityPub (W3C)</a></li>
+          <li><a href="https://www.w3.org/TR/activitystreams-core/">Activity Streams 2.0</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="docs-content">
+      <span class="spec-status experimental">Experimental</span>
+      <h1>QR Exchange</h1>
+      <p class="lead">
+        QRコードを使用して、対面でActivityPubアカウントを簡単に交換するための仕様です。
+        LINEの友だち追加のような体験を分散SNSで実現します。
+      </p>
+
+      <h2>概要</h2>
+      <p>
+        QR Exchangeは、ActivityPubアカウントの情報をQRコードにエンコードし、
+        スマートフォンのカメラでスキャンすることで簡単にフォローできる機能です。
+      </p>
+
+      <h3>ユースケース</h3>
+      <ul>
+        <li>対面でのアカウント交換</li>
+        <li>名刺やポスターへのQRコード印刷</li>
+        <li>イベントでの参加者同士の繋がり</li>
+      </ul>
+
+      <h2>QRコードフォーマット</h2>
+      <p>QRコードには以下の形式でデータをエンコードします。</p>
+
+      <h3>URL形式（推奨）</h3>
+      <p>WebブラウザでもアクセスできるURL形式を推奨します：</p>
+      <pre><code>https://example.com/@alice</code></pre>
+      <p>または</p>
+      <pre><code>https://example.com/users/alice</code></pre>
+
+      <h3>acctスキーム</h3>
+      <p>WebFingerのacctスキームも使用可能です：</p>
+      <pre><code>acct:alice@example.com</code></pre>
+
+      <h3>ActivityPub IRI</h3>
+      <p>アクターのActivityPub IRIを直接使用することも可能です：</p>
+      <pre><code>https://example.com/users/alice</code></pre>
+
+      <h2>スキャン処理フロー</h2>
+
+      <h3>1. QRコードのスキャン</h3>
+      <p>カメラでQRコードを読み取り、URLまたはacctアドレスを取得します。</p>
+
+      <h3>2. アクター情報の取得</h3>
+      <p>取得した情報からActivityPubアクターを解決します：</p>
+
+      <h4>URL形式の場合</h4>
+      <ol>
+        <li>URLに<code>Accept: application/activity+json</code>でリクエスト</li>
+        <li>アクターオブジェクトを取得</li>
+      </ol>
+
+      <h4>acct形式の場合</h4>
+      <ol>
+        <li>WebFingerでアクターURLを解決</li>
+        <li>アクターオブジェクトを取得</li>
+      </ol>
+
+      <h3>3. プロフィール表示</h3>
+      <p>取得したアクター情報をユーザーに表示します：</p>
+      <ul>
+        <li>アイコン</li>
+        <li>表示名</li>
+        <li>ユーザー名</li>
+        <li>自己紹介</li>
+        <li>フォロワー/フォロー数</li>
+      </ul>
+
+      <h3>4. フォローアクション</h3>
+      <p>ユーザーが「フォロー」ボタンを押すと、通常のActivityPub Followアクティビティを送信します。</p>
+
+      <h2>実装例</h2>
+
+      <h3>QRコード生成（React）</h3>
+      <pre><code>import QRCode from 'qrcode.react';
+
+function MyQRCode({ actorUrl }) {
+  return (
+    &lt;QRCode
+      value={actorUrl}
+      size={256}
+      level="M"
+    /&gt;
+  );
+}</code></pre>
+
+      <h3>QRコードスキャン</h3>
+      <pre><code>import { Html5QrcodeScanner } from 'html5-qrcode';
+
+function startScanner(onSuccess) {
+  const scanner = new Html5QrcodeScanner("reader", {
+    fps: 10,
+    qrbox: 250
+  });
+
+  scanner.render((decodedText) => {
+    onSuccess(decodedText);
+    scanner.clear();
+  });
+}</code></pre>
+
+      <h3>アクター解決</h3>
+      <pre><code>async function resolveActor(qrData) {
+  // acct形式の場合
+  if (qrData.startsWith('acct:')) {
+    const [user, domain] = qrData.slice(5).split('@');
+    const webfinger = await fetch(
+      `https://${domain}/.well-known/webfinger?resource=${qrData}`
+    );
+    const data = await webfinger.json();
+    const actorUrl = data.links.find(
+      l => l.rel === 'self' && l.type === 'application/activity+json'
+    )?.href;
+    return fetchActor(actorUrl);
+  }
+
+  // URL形式の場合
+  return fetchActor(qrData);
+}
+
+async function fetchActor(url) {
+  const response = await fetch(url, {
+    headers: { 'Accept': 'application/activity+json' }
+  });
+  return response.json();
+}</code></pre>
+
+      <h2>セキュリティ考慮事項</h2>
+
+      <h3>悪意あるQRコード</h3>
+      <ul>
+        <li>フォロー前に必ずプロフィールを表示し、ユーザーに確認を求める</li>
+        <li>自動フォローは行わない</li>
+        <li>外部URLへのリダイレクトに注意</li>
+      </ul>
+
+      <h3>プライバシー</h3>
+      <ul>
+        <li>QRコードに個人情報を含めすぎない</li>
+        <li>公開プロフィールのURLのみを使用</li>
+      </ul>
+
+      <h2>UI/UXガイドライン</h2>
+
+      <h3>QRコード表示画面</h3>
+      <ul>
+        <li>QRコードを大きく中央に配置</li>
+        <li>ユーザー名を表示</li>
+        <li>共有ボタンを配置（Web Share API）</li>
+        <li>画像として保存できるオプション</li>
+      </ul>
+
+      <h3>スキャン画面</h3>
+      <ul>
+        <li>カメラプレビューを表示</li>
+        <li>スキャン枠のガイドを表示</li>
+        <li>スキャン成功時のフィードバック</li>
+        <li>手動入力へのフォールバック</li>
+      </ul>
+
+      <h3>プロフィールプレビュー</h3>
+      <ul>
+        <li>アクター情報を見やすく表示</li>
+        <li>「フォロー」ボタンを目立つ位置に</li>
+        <li>キャンセルオプションを明確に</li>
+      </ul>
+
+      <h2>相互運用性</h2>
+      <p>
+        URL形式を使用することで、Yurucommu以外のActivityPub実装でも
+        QRコードを読み取ってフォローすることができます。
+        特別な拡張プロトコルは不要です。
+      </p>
+
+      <div class="callout callout-info">
+        <strong>ヒント:</strong>
+        URL形式を使用すれば、QRコードをスマートフォンの標準カメラアプリで
+        スキャンしてもWebブラウザでプロフィールページを開くことができます。
+      </div>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">Yurucommu</div>
+      <div class="footer-links">
+        <a href="/" class="footer-link">ホーム</a>
+        <a href="/docs/" class="footer-link">Docs</a>
+        <a href="/specs/" class="footer-link">Specs</a>
+        <a href="https://github.com/example/yurucommu" class="footer-link">GitHub</a>
+      </div>
+      <p class="footer-copy">&copy; 2025 Yurucommu. MIT License.</p>
+    </div>
+  </footer>
+</body>
+</html>

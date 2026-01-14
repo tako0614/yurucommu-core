@@ -126,3 +126,33 @@ export interface UploadedFile {
   size: number;
   preview?: string;
 }
+
+// Story frame
+export interface StoryFrame {
+  type: 'StoryFrame';
+  displayDuration: string; // ISO 8601 duration (e.g., "PT5S" for 5 seconds)
+  attachment: {
+    type: string;
+    mediaType: string;
+    url: string;
+    r2_key: string;
+  };
+  content?: string | null; // Optional text overlay
+}
+
+// Story
+export interface Story {
+  ap_id: string;
+  author: PostAuthor;
+  frames: StoryFrame[];
+  published: string;
+  end_time: string;
+  viewed: boolean;
+}
+
+// Actor with stories grouped
+export interface ActorStories {
+  actor: PostAuthor;
+  stories: Story[];
+  has_unviewed: boolean;
+}
