@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>カスタムドメイン - Yurucommu</title>
+  <meta name="description" content="Yurucommuに独自ドメインを設定する方法">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="/" class="logo">Yurucommu</a>
+      <div class="header-links">
+        <a href="/docs/" class="header-link active">Docs</a>
+        <a href="/specs/" class="header-link">Specs</a>
+      </div>
+      <a href="https://github.com/example/yurucommu" class="header-cta">
+        GitHub
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <p class="docs-sidebar-title">はじめに</p>
+      <ul class="docs-sidebar-nav">
+        <li><a href="/docs/">概要</a></li>
+        <li><a href="/docs/getting-started.html">クイックスタート</a></li>
+        <li><a href="/docs/requirements.html">必要な環境</a></li>
+      </ul>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">セットアップ</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/cloudflare-setup.html">Cloudflare設定</a></li>
+          <li><a href="/docs/deployment.html">デプロイ</a></li>
+          <li><a href="/docs/configuration.html">環境変数</a></li>
+          <li><a href="/docs/custom-domain.html" class="active">カスタムドメイン</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">使い方</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/first-post.html">最初の投稿</a></li>
+          <li><a href="/docs/following.html">フォローする</a></li>
+          <li><a href="/docs/communities.html">コミュニティ</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">リファレンス</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/api.html">API</a></li>
+          <li><a href="/docs/database.html">データベース</a></li>
+          <li><a href="/specs/">ActivityPub拡張</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="docs-content">
+      <h1>カスタムドメイン</h1>
+      <p class="lead">
+        独自ドメインでYurucommuを運用するための設定方法です。
+      </p>
+
+      <div class="callout callout-warning">
+        <strong>重要:</strong> ActivityPubでは、一度設定したドメインを後から変更すると、既存のフォロー関係が失われます。ドメインは慎重に選択してください。
+      </div>
+
+      <h2>方法1: Cloudflareでドメインを管理する（推奨）</h2>
+      <p>ドメインのDNSをCloudflareで管理している場合、最も簡単に設定できます。</p>
+
+      <h3>Step 1: ドメインをCloudflareに追加</h3>
+      <ol>
+        <li>Cloudflareダッシュボード &gt; 「サイトを追加」</li>
+        <li>ドメイン名を入力</li>
+        <li>指示に従ってネームサーバーを変更</li>
+      </ol>
+
+      <h3>Step 2: Workers ルートを設定</h3>
+      <p><code>wrangler.toml</code> に以下を追加：</p>
+      <pre><code>routes = [
+  { pattern = "yurucommu.example.com/*", zone_name = "example.com" }
+]</code></pre>
+
+      <h3>Step 3: 環境変数を更新</h3>
+      <pre><code>[vars]
+APP_URL = "https://yurucommu.example.com"</code></pre>
+
+      <h3>Step 4: 再デプロイ</h3>
+      <pre><code>npm run build
+npx wrangler deploy</code></pre>
+
+      <h2>方法2: 外部DNSでCNAMEを設定</h2>
+      <p>ドメインを他のDNSプロバイダで管理している場合：</p>
+
+      <h3>Step 1: WorkersのURLを確認</h3>
+      <p>デプロイ後に表示されるURL（例: <code>yurucommu.xxx.workers.dev</code>）をメモ</p>
+
+      <h3>Step 2: CNAMEレコードを追加</h3>
+      <p>DNSプロバイダの管理画面で以下を設定：</p>
+      <pre><code>タイプ: CNAME
+名前: yurucommu（サブドメイン部分）
+値: yurucommu.xxx.workers.dev</code></pre>
+
+      <h3>Step 3: Cloudflare側でカスタムドメインを追加</h3>
+      <ol>
+        <li>Cloudflareダッシュボード &gt; Workers &amp; Pages</li>
+        <li>yurucommuを選択</li>
+        <li>「カスタムドメイン」タブ</li>
+        <li>「カスタムドメインを追加」</li>
+        <li>ドメインを入力して追加</li>
+      </ol>
+
+      <h2>SSL/TLS設定</h2>
+      <p>Cloudflare経由でアクセスする場合、自動的にSSL/TLSが有効になります。</p>
+      <p>推奨設定：</p>
+      <ul>
+        <li>SSL/TLS暗号化モード: <strong>Full (strict)</strong></li>
+        <li>常にHTTPSを使用: <strong>有効</strong></li>
+        <li>自動HTTPS書き換え: <strong>有効</strong></li>
+      </ul>
+
+      <h2>サブドメインの選択</h2>
+      <p>ActivityPubでの表示名に影響するため、適切なサブドメインを選びましょう：</p>
+      <ul>
+        <li><code>@alice@example.com</code> - ルートドメイン（上級者向け）</li>
+        <li><code>@alice@social.example.com</code> - socialサブドメイン</li>
+        <li><code>@alice@yurucommu.example.com</code> - アプリ名サブドメイン</li>
+      </ul>
+
+      <h2>ドメイン移行の注意点</h2>
+      <div class="callout callout-danger">
+        <strong>警告:</strong> ドメインを変更すると以下の問題が発生します：
+        <ul>
+          <li>既存のフォロワーからのフォローが切れる</li>
+          <li>他サーバーにキャッシュされた投稿のリンクが切れる</li>
+          <li>ActivityPub上での identity が変わる</li>
+        </ul>
+      </div>
+      <p>どうしてもドメインを変更する必要がある場合は、事前にフォロワーに告知し、新しいアカウントを作り直すことを検討してください。</p>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">Yurucommu</div>
+      <div class="footer-links">
+        <a href="/" class="footer-link">ホーム</a>
+        <a href="/docs/" class="footer-link">Docs</a>
+        <a href="/specs/" class="footer-link">Specs</a>
+        <a href="https://github.com/example/yurucommu" class="footer-link">GitHub</a>
+      </div>
+      <p class="footer-copy">&copy; 2025 Yurucommu. MIT License.</p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>フォローする - Yurucommu</title>
+  <meta name="description" content="他のサーバーのユーザーをフォローする方法">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="/" class="logo">Yurucommu</a>
+      <div class="header-links">
+        <a href="/docs/" class="header-link active">Docs</a>
+        <a href="/specs/" class="header-link">Specs</a>
+      </div>
+      <a href="https://github.com/example/yurucommu" class="header-cta">
+        GitHub
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <p class="docs-sidebar-title">はじめに</p>
+      <ul class="docs-sidebar-nav">
+        <li><a href="/docs/">概要</a></li>
+        <li><a href="/docs/getting-started.html">クイックスタート</a></li>
+        <li><a href="/docs/requirements.html">必要な環境</a></li>
+      </ul>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">セットアップ</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/cloudflare-setup.html">Cloudflare設定</a></li>
+          <li><a href="/docs/deployment.html">デプロイ</a></li>
+          <li><a href="/docs/configuration.html">環境変数</a></li>
+          <li><a href="/docs/custom-domain.html">カスタムドメイン</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">使い方</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/first-post.html">最初の投稿</a></li>
+          <li><a href="/docs/following.html" class="active">フォローする</a></li>
+          <li><a href="/docs/communities.html">コミュニティ</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">リファレンス</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/api.html">API</a></li>
+          <li><a href="/docs/database.html">データベース</a></li>
+          <li><a href="/specs/">ActivityPub拡張</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="docs-content">
+      <h1>フォローする</h1>
+      <p class="lead">
+        YurucommuはActivityPubに対応しているため、Mastodon、Misskey、Pleroma等のユーザーをフォローできます。
+      </p>
+
+      <h2>リモートユーザーをフォロー</h2>
+      <p>他のサーバーのユーザーをフォローするには、完全なアドレスを検索します。</p>
+
+      <h3>Step 1: 検索</h3>
+      <ol>
+        <li>検索画面を開く</li>
+        <li>フォローしたいユーザーのアドレスを入力<br>
+          例: <code>@alice@mastodon.social</code></li>
+        <li>検索結果からユーザーを選択</li>
+      </ol>
+
+      <h3>Step 2: フォロー</h3>
+      <ol>
+        <li>ユーザーのプロフィールページで「フォロー」ボタンをクリック</li>
+        <li>相手が承認制の場合、「フォロー申請中」と表示される</li>
+        <li>承認されると「フォロー中」に変わる</li>
+      </ol>
+
+      <h2>QRコードでフォロー</h2>
+      <p>対面でアカウントを交換する場合、QRコードを使用できます。</p>
+
+      <h3>自分のQRコードを表示</h3>
+      <ol>
+        <li>コミュニティ画面のQRアイコンをタップ</li>
+        <li>「マイQR」タブを選択</li>
+        <li>表示されたQRコードを相手に見せる</li>
+      </ol>
+
+      <h3>相手のQRコードをスキャン</h3>
+      <ol>
+        <li>コミュニティ画面のQRアイコンをタップ</li>
+        <li>「スキャン」タブを選択</li>
+        <li>カメラで相手のQRコードを読み取る</li>
+        <li>プロフィールが表示されたら「フォロー」をタップ</li>
+      </ol>
+
+      <h2>フォローリクエストの管理</h2>
+      <p>自分のアカウントを承認制にしている場合、フォローリクエストを管理できます。</p>
+      <ol>
+        <li>通知画面を開く</li>
+        <li>フォローリクエストの通知をタップ</li>
+        <li>「承認」または「拒否」を選択</li>
+      </ol>
+
+      <h2>フォロー解除</h2>
+      <ol>
+        <li>相手のプロフィールページを開く</li>
+        <li>「フォロー中」ボタンをクリック</li>
+        <li>確認ダイアログで「フォロー解除」を選択</li>
+      </ol>
+
+      <h2>ブロック</h2>
+      <p>特定のユーザーからの投稿やフォローを拒否したい場合：</p>
+      <ol>
+        <li>相手のプロフィールページを開く</li>
+        <li>メニュー（...）から「ブロック」を選択</li>
+      </ol>
+
+      <h2>ミュート</h2>
+      <p>フォローは維持しつつ、投稿を非表示にしたい場合：</p>
+      <ol>
+        <li>相手のプロフィールページを開く</li>
+        <li>メニュー（...）から「ミュート」を選択</li>
+      </ol>
+
+      <h2>連合について</h2>
+      <p>YurucommuはActivityPubプロトコルを使用しており、以下のサービスと連携可能です：</p>
+      <ul>
+        <li>Mastodon</li>
+        <li>Misskey</li>
+        <li>Pleroma</li>
+        <li>Pixelfed</li>
+        <li>PeerTube</li>
+        <li>その他ActivityPub対応サービス</li>
+      </ul>
+      <div class="callout callout-info">
+        <strong>ヒント:</strong> 一部のサーバーはプライベート設定になっており、検索できない場合があります。その場合は相手に直接アドレスを聞いてください。
+      </div>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">Yurucommu</div>
+      <div class="footer-links">
+        <a href="/" class="footer-link">ホーム</a>
+        <a href="/docs/" class="footer-link">Docs</a>
+        <a href="/specs/" class="footer-link">Specs</a>
+        <a href="https://github.com/example/yurucommu" class="footer-link">GitHub</a>
+      </div>
+      <p class="footer-copy">&copy; 2025 Yurucommu. MIT License.</p>
+    </div>
+  </footer>
+</body>
+</html>

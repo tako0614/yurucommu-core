@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DM Note - Yurucommu</title>
+  <meta name="description" content="一時的なダイレクトメッセージノートの仕様">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="/" class="logo">Yurucommu</a>
+      <div class="header-links">
+        <a href="/docs/" class="header-link">Docs</a>
+        <a href="/specs/" class="header-link active">Specs</a>
+      </div>
+      <a href="https://github.com/example/yurucommu" class="header-cta">
+        GitHub
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <p class="docs-sidebar-title">仕様</p>
+      <ul class="docs-sidebar-nav">
+        <li><a href="/specs/">概要</a></li>
+        <li><a href="/specs/activitypub.html">ActivityPub拡張</a></li>
+        <li><a href="/specs/yurucommu.html">Yurucommu仕様</a></li>
+        <li><a href="/specs/namespace.html">名前空間</a></li>
+      </ul>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">ActivityPub拡張</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/specs/apc.html">APC (Communities)</a></li>
+          <li><a href="/specs/single-user.html">Single-User Instance</a></li>
+          <li><a href="/specs/story.html">Story</a></li>
+          <li><a href="/specs/dmnote.html" class="active">DM Note</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">Yurucommu仕様</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/specs/qr-exchange.html">QR Exchange</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">リソース</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="https://www.w3.org/TR/activitypub/">ActivityPub (W3C)</a></li>
+          <li><a href="https://www.w3.org/TR/activitystreams-core/">Activity Streams 2.0</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="docs-content">
+      <span class="spec-status draft">Draft</span>
+      <h1>DM Note</h1>
+      <p class="lead">
+        一時的なダイレクトメッセージノート（消えるメッセージ）をActivityPubで配信するための仕様です。
+        フォロワー限定や特定ユーザー向けの短命なメッセージを実現します。
+      </p>
+
+      <h2>概要</h2>
+      <p>
+        DM Noteは、<code>endTime</code>を持つ一時的なNoteを、限定された宛先に配信する機能です。
+        Instagramの「消えるメッセージ」やSnapchatのような体験をActivityPubで実現します。
+      </p>
+
+      <h3>特徴</h3>
+      <ul>
+        <li><strong>一時的</strong> - <code>endTime</code>で有効期限を設定</li>
+        <li><strong>限定配信</strong> - <code>to</code>（フォロワー）または<code>bto</code>（特定ユーザー）</li>
+        <li><strong>標準互換</strong> - AS2標準のNoteとして処理可能</li>
+        <li><strong>シンプル</strong> - 特別な拡張プロパティなし</li>
+      </ul>
+
+      <h2>識別子</h2>
+      <p>DM Noteは<code>context</code>プロパティで識別します：</p>
+      <pre><code>urn:dmnote:v1</code></pre>
+      <p>
+        この識別子により、受信側はNoteがDM Noteであることを認識し、
+        適切なUI（消えるメッセージとして表示）で処理できます。
+      </p>
+
+      <h2>配信モード</h2>
+
+      <h3>1. フォロワー限定 (to)</h3>
+      <p>
+        フォロワー全員に配信する場合は、<code>to</code>にフォロワーコレクションを指定します。
+        通常の<code>Create</code>アクティビティとして配信されます。
+      </p>
+
+      <h3>2. 特定ユーザー限定 (bto)</h3>
+      <p>
+        特定のユーザーにのみ配信する場合は、<code>bto</code>（Blind To）を使用します。
+        <code>bto</code>は配信先には含まれますが、受信者には宛先リストが見えません。
+      </p>
+
+      <h2>例</h2>
+
+      <h3>フォロワー限定ノート</h3>
+      <p>フォロワー全員に24時間で消えるメッセージを送信：</p>
+      <pre><code>{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://origin.example/activities/aaa",
+  "type": "Create",
+  "actor": "https://origin.example/users/alice",
+  "to": ["https://origin.example/users/alice/followers"],
+  "object": {
+    "id": "https://origin.example/users/alice/dmnotes/2026-01-14T10:00:00Z",
+    "type": "Note",
+    "context": "urn:dmnote:v1",
+    "attributedTo": "https://origin.example/users/alice",
+    "content": "🍜たべたい",
+    "mediaType": "text/plain",
+    "published": "2026-01-14T10:00:00Z",
+    "endTime": "2026-01-15T10:00:00Z",
+    "to": ["https://origin.example/users/alice/followers"]
+  }
+}</code></pre>
+
+      <h3>特定ユーザー限定ノート (Direct / Mutuals)</h3>
+      <p>特定のユーザーにのみ配信（宛先は受信者に見えない）：</p>
+      <pre><code>{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://origin.example/activities/bbb",
+  "type": "Create",
+  "actor": "https://origin.example/users/alice",
+  "bto": [
+    "https://remote.example/users/bob",
+    "https://remote2.example/users/charlie"
+  ],
+  "object": {
+    "id": "https://origin.example/users/alice/dmnotes/2026-01-14T11:00:00Z",
+    "type": "Note",
+    "context": "urn:dmnote:v1",
+    "attributedTo": "https://origin.example/users/alice",
+    "content": "今日いける人？",
+    "mediaType": "text/plain",
+    "published": "2026-01-14T11:00:00Z",
+    "endTime": "2026-01-14T23:00:00Z"
+  }
+}</code></pre>
+
+      <h3>メディア付きノート</h3>
+      <p>画像や動画を添付したDM Note：</p>
+      <pre><code>{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "id": "https://origin.example/activities/ccc",
+  "type": "Create",
+  "actor": "https://origin.example/users/alice",
+  "bto": ["https://remote.example/users/bob"],
+  "object": {
+    "id": "https://origin.example/users/alice/dmnotes/2026-01-14T12:00:00Z",
+    "type": "Note",
+    "context": "urn:dmnote:v1",
+    "attributedTo": "https://origin.example/users/alice",
+    "content": "これ見て！",
+    "mediaType": "text/plain",
+    "published": "2026-01-14T12:00:00Z",
+    "endTime": "2026-01-14T12:30:00Z",
+    "attachment": [
+      {
+        "type": "Image",
+        "mediaType": "image/jpeg",
+        "url": "https://origin.example/media/dmnotes/photo.jpg"
+      }
+    ]
+  }
+}</code></pre>
+
+      <h2>プロパティ</h2>
+
+      <table class="docs-table">
+        <thead>
+          <tr>
+            <th>プロパティ</th>
+            <th>型</th>
+            <th>必須</th>
+            <th>説明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>type</code></td>
+            <td>String</td>
+            <td>必須</td>
+            <td><code>"Note"</code></td>
+          </tr>
+          <tr>
+            <td><code>context</code></td>
+            <td>String</td>
+            <td>必須</td>
+            <td><code>"urn:dmnote:v1"</code></td>
+          </tr>
+          <tr>
+            <td><code>content</code></td>
+            <td>String</td>
+            <td>必須</td>
+            <td>メッセージ本文</td>
+          </tr>
+          <tr>
+            <td><code>mediaType</code></td>
+            <td>String</td>
+            <td>推奨</td>
+            <td>通常 <code>"text/plain"</code></td>
+          </tr>
+          <tr>
+            <td><code>published</code></td>
+            <td>DateTime</td>
+            <td>必須</td>
+            <td>作成日時</td>
+          </tr>
+          <tr>
+            <td><code>endTime</code></td>
+            <td>DateTime</td>
+            <td>必須</td>
+            <td>有効期限</td>
+          </tr>
+          <tr>
+            <td><code>attachment</code></td>
+            <td>Array</td>
+            <td>任意</td>
+            <td>添付メディア</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>to vs bto の使い分け</h2>
+
+      <table class="docs-table">
+        <thead>
+          <tr>
+            <th>プロパティ</th>
+            <th>宛先の可視性</th>
+            <th>ユースケース</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>to</code></td>
+            <td>受信者に見える</td>
+            <td>フォロワー限定投稿、グループメッセージ</td>
+          </tr>
+          <tr>
+            <td><code>bto</code></td>
+            <td>受信者に見えない</td>
+            <td>プライベートDM、個別メッセージ</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-info">
+        <strong>btoについて:</strong>
+        <code>bto</code>（Blind To）はActivityPub標準のプロパティです。
+        配信時には指定されたアクターのinboxに送信されますが、
+        オブジェクト自体からは<code>bto</code>フィールドが削除されます。
+        これにより、受信者は他の誰に送られたか知ることができません。
+      </div>
+
+      <h2>期限切れの処理</h2>
+
+      <h3>送信側</h3>
+      <ul>
+        <li><code>endTime</code>を過ぎたDM Noteは表示しない</li>
+        <li>定期的に期限切れノートを削除（推奨）</li>
+        <li><code>Delete</code>アクティビティの送信は任意</li>
+      </ul>
+
+      <h3>受信側</h3>
+      <ul>
+        <li><code>endTime</code>を過ぎたDM Noteは自動的に非表示</li>
+        <li>ローカルキャッシュからの削除を推奨</li>
+        <li><code>context: "urn:dmnote:v1"</code>を認識しない場合は通常のNoteとして扱う</li>
+      </ul>
+
+      <h2>実装ガイドライン</h2>
+
+      <h3>UI/UX</h3>
+      <ul>
+        <li>DM Noteは通常の投稿とは異なるUIで表示（例: 背景色、アイコン）</li>
+        <li>残り時間または有効期限を表示</li>
+        <li>スクリーンショット警告を表示（任意）</li>
+        <li>期限切れ時のアニメーション（フェードアウト等）</li>
+      </ul>
+
+      <h3>通知</h3>
+      <ul>
+        <li>DM Note受信時は通知を表示</li>
+        <li>通知からDM Noteを直接開けるようにする</li>
+        <li>未読のDM Noteがあることをバッジ等で表示</li>
+      </ul>
+
+      <h3>セキュリティ</h3>
+      <ul>
+        <li>DM Noteは検索インデックスに含めない</li>
+        <li>公開タイムラインに表示しない</li>
+        <li><code>bto</code>のノートは特に厳重に管理</li>
+      </ul>
+
+      <h2>下位互換性</h2>
+      <p>
+        DM Noteは標準の<code>Note</code>タイプを使用するため、
+        <code>context: "urn:dmnote:v1"</code>を認識しない実装でも
+        通常のNoteとして処理できます。
+      </p>
+      <p>
+        ただし、<code>endTime</code>を処理しない実装では
+        メッセージが永続的に表示される可能性があります。
+        これは既知の制限事項です。
+      </p>
+
+      <h2>Storyとの違い</h2>
+
+      <table class="docs-table">
+        <thead>
+          <tr>
+            <th>項目</th>
+            <th>DM Note</th>
+            <th>Story</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>type</td>
+            <td><code>Note</code></td>
+            <td><code>["Story", "Note"]</code></td>
+          </tr>
+          <tr>
+            <td>識別方法</td>
+            <td><code>context</code></td>
+            <td><code>type</code></td>
+          </tr>
+          <tr>
+            <td>複数フレーム</td>
+            <td>なし</td>
+            <td>あり（frames）</td>
+          </tr>
+          <tr>
+            <td>表示時間制御</td>
+            <td>なし</td>
+            <td>あり（displayDuration）</td>
+          </tr>
+          <tr>
+            <td>主な用途</td>
+            <td>プライベートメッセージ</td>
+            <td>フィード上の一時コンテンツ</td>
+          </tr>
+          <tr>
+            <td>配信先</td>
+            <td>限定（to/bto）</td>
+            <td>通常はフォロワー</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>参考</h2>
+      <ul>
+        <li><a href="https://www.w3.org/TR/activitystreams-vocabulary/#dfn-endtime">Activity Streams 2.0 - endTime</a></li>
+        <li><a href="https://www.w3.org/TR/activitystreams-vocabulary/#dfn-bto">Activity Streams 2.0 - bto</a></li>
+        <li><a href="https://www.w3.org/TR/activitystreams-vocabulary/#dfn-context">Activity Streams 2.0 - context</a></li>
+      </ul>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">Yurucommu</div>
+      <div class="footer-links">
+        <a href="/" class="footer-link">ホーム</a>
+        <a href="/docs/" class="footer-link">Docs</a>
+        <a href="/specs/" class="footer-link">Specs</a>
+        <a href="https://github.com/example/yurucommu" class="footer-link">GitHub</a>
+      </div>
+      <p class="footer-copy">&copy; 2025 Yurucommu. MIT License.</p>
+    </div>
+  </footer>
+</body>
+</html>

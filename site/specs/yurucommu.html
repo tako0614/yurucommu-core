@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>仕様 - Yurucommu</title>
-  <meta name="description" content="YurucommuのActivityPub拡張仕様とYurucommu仕様">
+  <title>Yurucommu仕様 - Yurucommu</title>
+  <meta name="description" content="Yurucommu独自の機能仕様。ローカルのみで動作する仕様一覧">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
@@ -31,9 +31,9 @@
     <aside class="docs-sidebar">
       <p class="docs-sidebar-title">仕様</p>
       <ul class="docs-sidebar-nav">
-        <li><a href="/specs/" class="active">概要</a></li>
+        <li><a href="/specs/">概要</a></li>
         <li><a href="/specs/activitypub.html">ActivityPub拡張</a></li>
-        <li><a href="/specs/yurucommu.html">Yurucommu仕様</a></li>
+        <li><a href="/specs/yurucommu.html" class="active">Yurucommu仕様</a></li>
         <li><a href="/specs/namespace.html">名前空間</a></li>
       </ul>
 
@@ -64,42 +64,64 @@
     </aside>
 
     <main class="docs-content">
-      <h1>仕様</h1>
+      <span class="spec-scope local">ローカルのみ</span>
+      <h1>Yurucommu仕様</h1>
       <p class="lead">
-        Yurucommuの仕様は「ActivityPub拡張」と「Yurucommu仕様」の2つに分類されます。
+        Yurucommu独自の機能仕様です。これらはローカル機能であり、連合には配信されません。
+        他のサーバーとの相互運用は必要なく、Yurucommu内でのみ動作します。
       </p>
 
-      <h2>仕様のステータス</h2>
-      <p>各仕様は以下のステータスを持ちます：</p>
+      <h2>設計方針</h2>
       <ul>
-        <li><span class="spec-status draft">Draft</span> - 策定中。大きな変更の可能性あり</li>
-        <li><span class="spec-status experimental">Experimental</span> - 実験的実装。フィードバック募集中</li>
-        <li><span class="spec-status stable">Stable</span> - 安定版。後方互換性を維持</li>
+        <li><strong>ローカル完結</strong> - 連合に依存せず、単体で動作する</li>
+        <li><strong>プライバシー</strong> - ユーザーのプライバシーを尊重する</li>
+        <li><strong>シンプルさ</strong> - 複雑な同期メカニズムを避ける</li>
       </ul>
 
-      <div class="card-grid" style="margin-top: 3rem;">
-        <a href="/specs/activitypub.html" class="card">
-          <span class="spec-scope federation">連合に配信</span>
-          <h3 class="card-title">ActivityPub拡張</h3>
+      <h2>仕様一覧</h2>
+
+      <div class="card-grid">
+        <a href="/specs/qr-exchange.html" class="card">
+          <span class="spec-status experimental">Experimental</span>
+          <h3 class="card-title">QR Exchange</h3>
           <p class="card-description">
-            ActivityPubプロトコルを拡張し、他のFediverse実装との相互運用性を確保する仕様。
-            APC、Single-User Instance、Story、DM Noteを含む。
-          </p>
-        </a>
-        <a href="/specs/yurucommu.html" class="card">
-          <span class="spec-scope local">ローカルのみ</span>
-          <h3 class="card-title">Yurucommu仕様</h3>
-          <p class="card-description">
-            Yurucommu独自の機能仕様。連合には配信されず、ローカルでのみ動作する。
-            QR Exchangeを含む。
+            QRコードを使用したアカウント交換の仕様。対面でのフォローリクエストを簡略化。
           </p>
         </a>
       </div>
 
-      <h2>フィードバック</h2>
-      <p>
-        仕様に関するフィードバックは <a href="https://github.com/example/yurucommu/issues">GitHub Issues</a> でお待ちしています。
-      </p>
+      <h2>ActivityPub拡張との違い</h2>
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">項目</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">ActivityPub拡張</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">Yurucommu仕様</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;">連合への配信</td>
+            <td style="padding: 0.75rem;">あり</td>
+            <td style="padding: 0.75rem;">なし</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;">他サーバーとの相互運用</td>
+            <td style="padding: 0.75rem;">必要</td>
+            <td style="padding: 0.75rem;">不要</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;">名前空間</td>
+            <td style="padding: 0.75rem;">必須</td>
+            <td style="padding: 0.75rem;">不要</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;">下位互換性</td>
+            <td style="padding: 0.75rem;">必須</td>
+            <td style="padding: 0.75rem;">不要</td>
+          </tr>
+        </tbody>
+      </table>
     </main>
   </div>
 

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>コミュニティ - Yurucommu</title>
+  <meta name="description" content="Yurucommuでコミュニティを作成・参加する方法">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <a href="/" class="logo">Yurucommu</a>
+      <div class="header-links">
+        <a href="/docs/" class="header-link active">Docs</a>
+        <a href="/specs/" class="header-link">Specs</a>
+      </div>
+      <a href="https://github.com/example/yurucommu" class="header-cta">
+        GitHub
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <aside class="docs-sidebar">
+      <p class="docs-sidebar-title">はじめに</p>
+      <ul class="docs-sidebar-nav">
+        <li><a href="/docs/">概要</a></li>
+        <li><a href="/docs/getting-started.html">クイックスタート</a></li>
+        <li><a href="/docs/requirements.html">必要な環境</a></li>
+      </ul>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">セットアップ</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/cloudflare-setup.html">Cloudflare設定</a></li>
+          <li><a href="/docs/deployment.html">デプロイ</a></li>
+          <li><a href="/docs/configuration.html">環境変数</a></li>
+          <li><a href="/docs/custom-domain.html">カスタムドメイン</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">使い方</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/first-post.html">最初の投稿</a></li>
+          <li><a href="/docs/following.html">フォローする</a></li>
+          <li><a href="/docs/communities.html" class="active">コミュニティ</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">リファレンス</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/api.html">API</a></li>
+          <li><a href="/docs/database.html">データベース</a></li>
+          <li><a href="/specs/">ActivityPub拡張</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="docs-content">
+      <h1>コミュニティ</h1>
+      <p class="lead">
+        コミュニティは、特定のトピックや興味を共有するユーザーが集まる場所です。
+        ActivityPubのGroupアクターとして実装されています。
+      </p>
+
+      <h2>コミュニティの仕組み</h2>
+      <p>Yurucommuのコミュニティは以下の特徴があります：</p>
+      <ul>
+        <li>インスタンス内で作成・管理</li>
+        <li>タイムラインのタブとして表示</li>
+        <li>コミュニティ宛の投稿は、コミュニティメンバー全員に配信</li>
+        <li>ActivityPubの<code>Group</code>アクターとして連合可能</li>
+      </ul>
+
+      <h2>コミュニティへの投稿</h2>
+      <ol>
+        <li>タイムライン上部のタブからコミュニティを選択</li>
+        <li>投稿欄にテキストを入力</li>
+        <li>「投稿」ボタンをクリック</li>
+      </ol>
+      <p>コミュニティタブが選択された状態で投稿すると、そのコミュニティ宛の投稿になります。</p>
+
+      <h2>タイムラインの切り替え</h2>
+      <p>タイムライン上部のタブで表示内容を切り替えられます：</p>
+      <table class="docs-table">
+        <thead>
+          <tr>
+            <th>タブ</th>
+            <th>表示内容</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>フォロー中</td>
+            <td>フォローしているユーザーの投稿</td>
+          </tr>
+          <tr>
+            <td>コミュニティ名</td>
+            <td>そのコミュニティ宛の投稿</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>コミュニティの公開範囲</h2>
+      <table class="docs-table">
+        <thead>
+          <tr>
+            <th>設定</th>
+            <th>説明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>公開</td>
+            <td>誰でも参加可能、投稿も公開</td>
+          </tr>
+          <tr>
+            <td>非公開</td>
+            <td>招待制、投稿はメンバーのみ閲覧可能</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>メンバーの役割</h2>
+      <table class="docs-table">
+        <thead>
+          <tr>
+            <th>役割</th>
+            <th>権限</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>オーナー</td>
+            <td>全ての管理権限、コミュニティの削除</td>
+          </tr>
+          <tr>
+            <td>モデレーター</td>
+            <td>投稿の削除、メンバーのBAN</td>
+          </tr>
+          <tr>
+            <td>メンバー</td>
+            <td>投稿の作成、閲覧</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>連合との関係</h2>
+      <p>コミュニティはActivityPubの<code>Group</code>アクターとして連合に公開されます。</p>
+      <ul>
+        <li>公開コミュニティは他サーバーから検索・参加可能</li>
+        <li>コミュニティ宛の投稿は、メンバー全員のインボックスに配信</li>
+        <li>詳細な仕様は<a href="/specs/">仕様書</a>を参照</li>
+      </ul>
+
+      <div class="callout callout-info">
+        <strong>ヒント:</strong> 一人用インスタンスでは、コミュニティは自分専用のカテゴリとして使用できます。
+        例えば「日記」「技術」「趣味」などのコミュニティを作成し、投稿を整理できます。
+      </div>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">Yurucommu</div>
+      <div class="footer-links">
+        <a href="/" class="footer-link">ホーム</a>
+        <a href="/docs/" class="footer-link">Docs</a>
+        <a href="/specs/" class="footer-link">Specs</a>
+        <a href="https://github.com/example/yurucommu" class="footer-link">GitHub</a>
+      </div>
+      <p class="footer-copy">&copy; 2025 Yurucommu. MIT License.</p>
+    </div>
+  </footer>
+</body>
+</html>
