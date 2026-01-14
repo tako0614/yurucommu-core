@@ -67,7 +67,7 @@ auth.post('/login', async (c) => {
 
   const sessionId = generateId();
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  await c.env.DB.prepare('INSERT INTO sessions (id, member_id, expires_at) VALUES (?, ?, ?)').bind(sessionId, actor!.ap_id, expiresAt).run();
+  await c.env.DB.prepare('INSERT INTO sessions (id, member_id, access_token, expires_at) VALUES (?, ?, ?, ?)').bind(sessionId, actor!.ap_id, sessionId, expiresAt).run();
 
   setCookie(c, 'session', sessionId, {
     httpOnly: true,
