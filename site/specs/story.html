@@ -330,7 +330,31 @@
         <li><strong>期限管理</strong> - <code>endTime</code> を必ず設定し、期限切れコンテンツは表示しない</li>
         <li><strong>displayDuration形式</strong> - ISO 8601 duration形式（<code>PT5S</code> = 5秒、<code>PT1M30S</code> = 1分30秒）</li>
         <li><strong>動画の尺</strong> - 動画の実際の長さはAS2標準の <code>duration</code> プロパティを使用</li>
+        <li><strong>アスペクト比</strong> - 推奨は縦型9:16（1080x1920px）。モバイルファーストで全画面表示に最適化</li>
       </ul>
+
+      <h3>推奨メディアサイズ</h3>
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">形式</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">推奨サイズ</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">最大尺</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;">画像</td>
+            <td style="padding: 0.75rem;">1080x1920px (9:16)</td>
+            <td style="padding: 0.75rem;">-</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;">動画</td>
+            <td style="padding: 0.75rem;">1080x1920px (9:16)</td>
+            <td style="padding: 0.75rem;">60秒</td>
+          </tr>
+        </tbody>
+      </table>
 
       <h2>参考</h2>
       <ul>
