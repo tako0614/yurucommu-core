@@ -81,7 +81,7 @@ npm run deploy
 Cloudflare Pages にデプロイ:
 
 ```bash
-wrangler pages deploy site --project-name yurucommu-site
+wrangler pages deploy site --project-name yurucommu-site --branch main
 ```
 
 ## ライセンス
