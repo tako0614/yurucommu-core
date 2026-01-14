@@ -244,7 +244,7 @@ export function StoryViewer({ actorStories, initialActorIndex, onClose }: StoryV
         </button>
       </div>
 
-      {/* Main content area */}
+      {/* Main content area - vertical 9:16 container */}
       <div
         ref={containerRef}
         className="absolute inset-0 flex items-center justify-center cursor-pointer"
@@ -254,32 +254,35 @@ export function StoryViewer({ actorStories, initialActorIndex, onClose }: StoryV
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
-        {/* Media content */}
-        {currentFrame.attachment.mediaType.startsWith('image/') ? (
-          <img
-            src={currentFrame.attachment.url || `/media/${currentFrame.attachment.r2_key}`}
-            alt=""
-            className="max-w-full max-h-full object-contain"
-            draggable={false}
-          />
-        ) : currentFrame.attachment.mediaType.startsWith('video/') ? (
-          <video
-            src={currentFrame.attachment.url || `/media/${currentFrame.attachment.r2_key}`}
-            className="max-w-full max-h-full object-contain"
-            autoPlay
-            muted
-            playsInline
-          />
-        ) : null}
+        {/* Vertical story container (9:16 aspect ratio) */}
+        <div className="relative w-full h-full sm:w-auto sm:h-[calc(100vh-2rem)] sm:aspect-[9/16] sm:max-h-[900px] bg-neutral-900 overflow-hidden sm:rounded-xl">
+          {/* Media content */}
+          {currentFrame.attachment.mediaType.startsWith('image/') ? (
+            <img
+              src={currentFrame.attachment.url || `/media/${currentFrame.attachment.r2_key}`}
+              alt=""
+              className="w-full h-full object-cover"
+              draggable={false}
+            />
+          ) : currentFrame.attachment.mediaType.startsWith('video/') ? (
+            <video
+              src={currentFrame.attachment.url || `/media/${currentFrame.attachment.r2_key}`}
+              className="w-full h-full object-cover"
+              autoPlay
+              muted
+              playsInline
+            />
+          ) : null}
 
-        {/* Text overlay */}
-        {currentFrame.content && (
-          <div className="absolute bottom-24 left-4 right-4 text-center">
-            <p className="text-white text-lg font-medium drop-shadow-lg bg-black/30 px-4 py-2 rounded-lg">
-              {currentFrame.content}
-            </p>
-          </div>
-        )}
+          {/* Text overlay */}
+          {currentFrame.content && (
+            <div className="absolute bottom-24 left-4 right-4 text-center">
+              <p className="text-white text-lg font-medium drop-shadow-lg bg-black/30 px-4 py-2 rounded-lg">
+                {currentFrame.content}
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Navigation hints */}
