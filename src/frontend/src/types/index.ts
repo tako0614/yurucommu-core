@@ -1,33 +1,35 @@
-// ===== Community Types =====
+// ===== Yurucommu AP-Native Types =====
 
-// Community represents a group/community
-export interface Community {
-  id: string;
-  name: string;
-  description: string | null;
+// Actor represents a user (Person) in ActivityPub
+export interface Actor {
+  ap_id: string;  // Primary key: https://domain/ap/users/username
+  username: string;  // Formatted: user@domain
+  preferred_username: string;
+  name: string | null;
+  summary: string | null;
   icon_url: string | null;
-  sort_order: number;
-  created_at: string;
-  updated_at: string;
-}
-
-// Alias for backward compatibility
-export type Group = Community;
-
-// Member represents a user
-export interface Member {
-  id: string;
-  username: string;
-  display_name: string | null;
-  avatar_url: string | null;
   header_url: string | null;
-  bio: string | null;
-  is_remote: boolean;
-  ap_actor_id: string | null;
+  follower_count: number;
+  following_count: number;
+  post_count: number;
+  is_private?: boolean;
+  role?: 'owner' | 'moderator' | 'member';
   created_at: string;
+  is_following?: boolean;
+  is_followed_by?: boolean;
 }
 
-// ===== Post Types =====
+// Community (AP Group)
+export interface Community {
+  ap_id: string;
+  preferred_username: string;
+  name: string;
+  summary: string | null;
+  icon_url: string | null;
+  visibility?: 'public' | 'private';
+  member_count?: number;
+  created_at: string;
+}
 
 // Media attachment
 export interface MediaAttachment {
@@ -35,131 +37,92 @@ export interface MediaAttachment {
   content_type: string;
 }
 
-// Post represents a timeline post
-export interface Post {
-  id: string;
-  member_id: string;
-  community_id: string | null; // null = personal post, otherwise community post
-  content: string;
-  visibility: 'public' | 'unlisted' | 'followers';
-  reply_to_id: string | null;
-  like_count: number;
-  repost_count: number;
-  reply_count: number;
-  media_json?: string; // JSON string of MediaAttachment[]
-  created_at: string;
-  updated_at: string;
-  // Joined fields
+// Post author info
+export interface PostAuthor {
+  ap_id: string;
   username: string;
-  display_name: string | null;
-  avatar_url: string | null;
-  // Current user's interaction state
-  liked?: boolean;
-  reposted?: boolean;
-  bookmarked?: boolean;
+  preferred_username: string;
+  name: string | null;
+  icon_url: string | null;
 }
 
-// Like represents a like on a post
-export interface Like {
-  id: string;
-  post_id: string;
-  member_id: string;
-  created_at: string;
+// Post (AP Note)
+export interface Post {
+  ap_id: string;
+  type: string;
+  author: PostAuthor;
+  content: string;
+  summary: string | null;
+  attachments: MediaAttachment[];
+  in_reply_to: string | null;
+  visibility: 'public' | 'unlisted' | 'followers' | 'direct';
+  community_ap_id: string | null;
+  like_count: number;
+  reply_count: number;
+  announce_count: number;
+  published: string;
+  liked: boolean;
+  bookmarked: boolean;
 }
 
-// Repost represents a repost/boost of a post
-export interface Repost {
-  id: string;
-  post_id: string;
-  member_id: string;
-  created_at: string;
+// DM participant
+export interface DMParticipant {
+  ap_id: string;
+  username: string;
+  preferred_username: string;
+  name: string | null;
+  icon_url: string | null;
 }
 
-// Follow represents a user-to-user follow relationship
-export interface Follow {
-  id: string;
-  follower_id: string;
-  following_id: string;
-  status: 'pending' | 'accepted';
-  created_at: string;
-  accepted_at: string | null;
-}
-
-// MemberProfile extends Member with follow stats
-export interface MemberProfile extends Member {
-  follower_count: number;
-  following_count: number;
-  post_count: number;
-  is_following?: boolean;
-  is_followed_by?: boolean;
-}
-
-
-// ===== DM Types =====
-
-// DMConversation represents a 1:1 conversation
+// DM conversation
 export interface DMConversation {
   id: string;
-  member1_id: string;
-  member2_id: string;
+  other_participant: DMParticipant;
   last_message_at: string | null;
   created_at: string;
-  other_member: {
-    id: string;
-    username: string;
-    display_name: string | null;
-    avatar_url: string | null;
-  };
 }
 
-// DMMessage represents a direct message
+// DM message sender
+export interface DMSender {
+  ap_id: string;
+  username: string;
+  preferred_username: string;
+  name: string | null;
+  icon_url: string | null;
+}
+
+// DM message
 export interface DMMessage {
   id: string;
-  conversation_id: string;
-  sender_id: string;
+  sender: DMSender;
   content: string;
   created_at: string;
-  // Joined fields
-  username: string;
-  display_name: string | null;
-  avatar_url: string | null;
 }
 
-// ===== Notification Types =====
+// Notification actor
+export interface NotificationActor {
+  ap_id: string;
+  username: string;
+  preferred_username: string;
+  name: string | null;
+  icon_url: string | null;
+}
 
+// Notification
 export interface Notification {
   id: string;
-  member_id: string;
-  actor_id: string;
-  type: 'follow' | 'like' | 'repost' | 'mention' | 'reply' | 'join_request' | 'join_accepted' | 'invite';
-  target_type: 'post' | 'group' | 'room' | 'message' | null;
-  target_id: string | null;
+  type: 'follow' | 'follow_request' | 'like' | 'announce' | 'reply' | 'mention';
+  actor: NotificationActor;
+  object_ap_id: string | null;
   read: boolean;
   created_at: string;
-  // Joined fields
-  actor_username: string;
-  actor_display_name: string | null;
-  actor_avatar_url: string | null;
 }
 
-// ===== Utility Types =====
-
+// Uploaded file
 export interface UploadedFile {
   r2_key: string;
   content_type: string;
   filename: string;
   size: number;
   preview?: string;
-}
-
-// ===== API Response Types =====
-
-export interface MemberWithRole extends Member {
-  role: 'owner' | 'moderator' | 'member';
-  membership_status?: 'pending' | 'accepted';
-}
-
-export interface GroupWithMembership extends Group {
-  membership_status: 'pending' | 'accepted' | null;
-  role: 'owner' | 'moderator' | 'member' | null;
 }

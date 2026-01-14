@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef, FormEvent } from 'react';
-import { DMConversation, DMMessage, Member } from '../types';
+import { DMConversation, DMMessage, Actor } from '../types';
 import { UserAvatar } from './UserAvatar';
 import { fetchDMMessages, sendDMMessage } from '../lib/api';
 
 interface DMChatProps {
   conversation: DMConversation;
-  currentMember: Member;
+  actor: Actor;
 }
 
-export function DMChat({ conversation, currentMember }: DMChatProps) {
+export function DMChat({ conversation, actor }: DMChatProps) {
   const [messages, setMessages] = useState<DMMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -26,8 +26,8 @@ export function DMChat({ conversation, currentMember }: DMChatProps) {
 
   const loadMessages = async () => {
     try {
-      const data = await fetchDMMessages(conversation.id);
-      setMessages(data.messages || []);
+      const msgs = await fetchDMMessages(conversation.id);
+      setMessages(msgs);
     } catch (e) {
       console.error('Failed to load DM messages:', e);
     }
@@ -82,15 +82,15 @@ export function DMChat({ conversation, currentMember }: DMChatProps) {
       {/* Header - hidden on mobile since DMPage shows it */}
       <div className="hidden md:flex px-4 py-3 border-b border-neutral-900 bg-black/80 backdrop-blur-sm items-center gap-3">
         <UserAvatar
-          avatarUrl={conversation.other_member.avatar_url}
-          name={conversation.other_member.display_name || conversation.other_member.username}
+          avatarUrl={conversation.other_participant.icon_url}
+          name={conversation.other_participant.name || conversation.other_participant.preferred_username}
           size={40}
         />
         <div>
           <h3 className="font-bold text-white">
-            {conversation.other_member.display_name || conversation.other_member.username}
+            {conversation.other_participant.name || conversation.other_participant.preferred_username}
           </h3>
-          <p className="text-sm text-neutral-500">@{conversation.other_member.username}</p>
+          <p className="text-sm text-neutral-500">@{conversation.other_participant.username}</p>
         </div>
       </div>
 
@@ -105,7 +105,7 @@ export function DMChat({ conversation, currentMember }: DMChatProps) {
             </div>
             <div className="space-y-2">
               {group.messages.map((msg) => {
-                const isMe = msg.sender_id === currentMember.id;
+                const isMe = msg.sender.ap_id === actor.ap_id;
                 return (
                   <div
                     key={msg.id}

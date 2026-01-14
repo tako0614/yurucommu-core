@@ -1,15 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { DMConversation, Member } from '../types';
+import { DMConversation, Actor } from '../types';
 import { fetchDMConversations } from '../lib/api';
 import { DMList } from '../components/DMList';
 import { DMChat } from '../components/DMChat';
 
 interface DMPageProps {
-  currentMember: Member;
+  actor: Actor;
 }
 
-export function DMPage({ currentMember }: DMPageProps) {
+export function DMPage({ actor }: DMPageProps) {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
   const [conversations, setConversations] = useState<DMConversation[]>([]);
@@ -19,11 +19,11 @@ export function DMPage({ currentMember }: DMPageProps) {
   const loadConversations = useCallback(async () => {
     try {
       const data = await fetchDMConversations();
-      setConversations(data.conversations || []);
+      setConversations(data);
 
       // Select conversation from URL param
       if (conversationId) {
-        const conv = data.conversations?.find(c => c.id === conversationId);
+        const conv = data.find(c => c.id === conversationId);
         setSelectedConversation(conv || null);
       }
     } catch (e) {
@@ -81,10 +81,10 @@ export function DMPage({ currentMember }: DMPageProps) {
                 </svg>
               </button>
               <span className="font-bold text-white">
-                {selectedConversation.other_member.display_name || selectedConversation.other_member.username}
+                {selectedConversation.other_participant.name || selectedConversation.other_participant.preferred_username}
               </span>
             </div>
-            <DMChat conversation={selectedConversation} currentMember={currentMember} />
+            <DMChat conversation={selectedConversation} actor={actor} />
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-neutral-500">

@@ -44,20 +44,20 @@ export function DMList({ conversations, selectedId, onSelect }: DMListProps) {
           }`}
         >
           <UserAvatar
-            avatarUrl={conv.other_member.avatar_url}
-            name={conv.other_member.display_name || conv.other_member.username}
+            avatarUrl={conv.other_participant.icon_url}
+            name={conv.other_participant.name || conv.other_participant.preferred_username}
             size={48}
           />
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between">
               <span className="font-bold text-white truncate">
-                {conv.other_member.display_name || conv.other_member.username}
+                {conv.other_participant.name || conv.other_participant.preferred_username}
               </span>
               <span className="text-xs text-neutral-600">
                 {formatDate(conv.last_message_at)}
               </span>
             </div>
-            <span className="text-sm text-neutral-500 truncate">@{conv.other_member.username}</span>
+            <span className="text-sm text-neutral-500 truncate">@{conv.other_participant.username}</span>
           </div>
         </div>
       ))}

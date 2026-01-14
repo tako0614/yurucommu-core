@@ -35,15 +35,9 @@ const ReplyIcon = () => (
   </svg>
 );
 
-const JoinIcon = () => (
+const FollowRequestIcon = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-  </svg>
-);
-
-const InviteIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
   </svg>
 );
 
@@ -55,10 +49,10 @@ export function NotificationPage() {
   const loadNotifications = useCallback(async () => {
     try {
       const data = await fetchNotifications();
-      setNotifications(data.notifications || []);
+      setNotifications(data);
 
       // Mark unread as read
-      const unread = data.notifications?.filter(n => !n.read) || [];
+      const unread = data.filter(n => !n.read);
       if (unread.length > 0) {
         await markNotificationsRead(unread.map(n => n.id));
         setNotifications(prev => prev.map(n => ({ ...n, read: true })));
@@ -75,24 +69,20 @@ export function NotificationPage() {
   }, [loadNotifications]);
 
   const getNotificationText = (notification: Notification) => {
-    const actor = notification.actor_display_name || notification.actor_username;
+    const actorName = notification.actor.name || notification.actor.preferred_username;
     switch (notification.type) {
       case 'follow':
-        return <><span className="font-bold text-white">{actor}</span>{t('notifications.follow')}</>;
+        return <><span className="font-bold text-white">{actorName}</span>{t('notifications.follow')}</>;
+      case 'follow_request':
+        return <><span className="font-bold text-white">{actorName}</span> sent you a follow request</>;
       case 'like':
-        return <><span className="font-bold text-white">{actor}</span>{t('notifications.like')}</>;
-      case 'repost':
-        return <><span className="font-bold text-white">{actor}</span>{t('notifications.repost')}</>;
+        return <><span className="font-bold text-white">{actorName}</span>{t('notifications.like')}</>;
+      case 'announce':
+        return <><span className="font-bold text-white">{actorName}</span>{t('notifications.repost')}</>;
       case 'mention':
-        return <><span className="font-bold text-white">{actor}</span>{t('notifications.mention')}</>;
+        return <><span className="font-bold text-white">{actorName}</span>{t('notifications.mention')}</>;
       case 'reply':
-        return <><span className="font-bold text-white">{actor}</span>{t('notifications.reply')}</>;
-      case 'join_request':
-        return <><span className="font-bold text-white">{actor}</span>{t('notifications.joinRequest')}</>;
-      case 'join_accepted':
-        return <><span className="font-bold text-white">{actor}</span>{t('notifications.joinAccepted')}</>;
-      case 'invite':
-        return <><span className="font-bold text-white">{actor}</span>{t('notifications.invite')}</>;
+        return <><span className="font-bold text-white">{actorName}</span>{t('notifications.reply')}</>;
       default:
         return 'New notification';
     }
@@ -102,19 +92,16 @@ export function NotificationPage() {
     switch (type) {
       case 'follow':
         return <div className="p-1 bg-blue-500 rounded-full text-white"><FollowIcon /></div>;
+      case 'follow_request':
+        return <div className="p-1 bg-yellow-500 rounded-full text-white"><FollowRequestIcon /></div>;
       case 'like':
         return <div className="p-1 bg-pink-500 rounded-full text-white"><HeartIcon /></div>;
-      case 'repost':
+      case 'announce':
         return <div className="p-1 bg-green-500 rounded-full text-white"><RepostIcon /></div>;
       case 'mention':
         return <div className="p-1 bg-purple-500 rounded-full text-white"><MentionIcon /></div>;
       case 'reply':
         return <div className="p-1 bg-sky-500 rounded-full text-white"><ReplyIcon /></div>;
-      case 'join_request':
-      case 'join_accepted':
-        return <div className="p-1 bg-indigo-500 rounded-full text-white"><JoinIcon /></div>;
-      case 'invite':
-        return <div className="p-1 bg-yellow-500 rounded-full text-white"><InviteIcon /></div>;
       default:
         return null;
     }
@@ -158,8 +145,8 @@ export function NotificationPage() {
             >
               <div className="relative shrink-0">
                 <UserAvatar
-                  avatarUrl={notification.actor_avatar_url}
-                  name={notification.actor_display_name || notification.actor_username}
+                  avatarUrl={notification.actor.icon_url}
+                  name={notification.actor.name || notification.actor.preferred_username}
                   size={40}
                 />
                 <span className="absolute -bottom-1 -right-1">
