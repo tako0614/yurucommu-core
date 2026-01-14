@@ -1,51 +1,37 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Member } from '../types';
-import { fetchMe, fetchAuthMode, loginWithPassword } from '../lib/api';
-import { getCachedMember, setCachedMember } from '../lib/cache';
+import { Actor } from '../types';
+import { fetchMe, login, logout as apiLogout } from '../lib/api';
 
 export function useAuth() {
-  const [member, setMember] = useState<Member | null>(null);
+  const [actor, setActor] = useState<Actor | null>(null);
   const [loading, setLoading] = useState(true);
-  const [authMode, setAuthMode] = useState<'oauth' | 'password'>('oauth');
   const [loginError, setLoginError] = useState<string | null>(null);
 
   useEffect(() => {
-    // First, try to show cached member for instant load
-    const cachedMember = getCachedMember();
-    if (cachedMember) {
-      setMember(cachedMember);
-      setLoading(false);
-    }
-
-    // Get auth mode
-    fetchAuthMode()
-      .then(data => setAuthMode(data.mode))
-      .catch(() => {});
-
-    // Then verify with server
     fetchMe()
       .then(data => {
-        if (data.authenticated && data.member) {
-          setMember(data.member);
-          setCachedMember(data.member);
+        if (data.authenticated && data.actor) {
+          setActor(data.actor);
         } else {
-          setMember(null);
-          setCachedMember(null);
+          setActor(null);
         }
       })
       .catch(() => {
-        // Offline - keep using cached member if available
+        setActor(null);
       })
       .finally(() => setLoading(false));
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
+  const doLogin = useCallback(async (password: string, username?: string) => {
     setLoginError(null);
     try {
-      const result = await loginWithPassword(username, password);
-      if (result.success && result.member) {
-        setMember(result.member);
-        setCachedMember(result.member);
+      const result = await login(password, username);
+      if (result.success) {
+        // Refresh auth state
+        const meData = await fetchMe();
+        if (meData.authenticated && meData.actor) {
+          setActor(meData.actor);
+        }
         return true;
       } else {
         setLoginError(result.error || 'Login failed');
@@ -57,12 +43,16 @@ export function useAuth() {
     }
   }, []);
 
-  const logout = useCallback(() => {
-    setMember(null);
-    setCachedMember(null);
-    // Redirect to logout endpoint
-    window.location.href = '/api/auth/logout';
+  const doLogout = useCallback(async () => {
+    await apiLogout();
+    setActor(null);
   }, []);
 
-  return { member, loading, authMode, login, logout, loginError };
+  return {
+    actor,
+    loading,
+    loginError,
+    login: doLogin,
+    logout: doLogout,
+  };
 }

@@ -1,40 +1,28 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Member, MemberProfile, Post } from '../types';
+import { Actor, Post } from '../types';
 import {
-  fetchMemberProfile,
-  fetchMemberPosts,
-  fetchMemberLikes,
-  followMember,
-  unfollowMember,
+  fetchActor,
+  fetchFollowers,
+  fetchFollowing,
+  follow,
+  unfollow,
   likePost,
   unlikePost,
-  repostPost,
-  unrepostPost,
   updateProfile,
-  blockUser,
-  unblockUser,
-  muteUser,
-  unmuteUser,
 } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
 import { PostContent } from '../components/PostContent';
 
 interface ProfilePageProps {
-  currentMember: Member;
+  actor: Actor;
 }
 
 // Icons
 const HeartIcon = ({ filled }: { filled: boolean }) => (
   <svg className="w-5 h-5" fill={filled ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-  </svg>
-);
-
-const RepostIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
   </svg>
 );
 
@@ -68,75 +56,56 @@ const MoreIcon = () => (
   </svg>
 );
 
-export function ProfilePage({ currentMember }: ProfilePageProps) {
+export function ProfilePage({ actor }: ProfilePageProps) {
   const { t } = useI18n();
-  const { memberId } = useParams<{ memberId?: string }>();
-  const [profile, setProfile] = useState<MemberProfile | null>(null);
+  const { actorId } = useParams<{ actorId?: string }>();
+  const [profile, setProfile] = useState<Actor | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
-  const [likedPosts, setLikedPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
-  const [likesLoading, setLikesLoading] = useState(false);
-  const [likesLoaded, setLikesLoaded] = useState(false);
-  const [following, setFollowing] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(false);
   const [activeTab, setActiveTab] = useState<'posts' | 'likes'>('posts');
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editDisplayName, setEditDisplayName] = useState('');
-  const [editBio, setEditBio] = useState('');
+  const [editName, setEditName] = useState('');
+  const [editSummary, setEditSummary] = useState('');
   const [saving, setSaving] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
-  const [isBlocked, setIsBlocked] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [showFollowModal, setShowFollowModal] = useState<'followers' | 'following' | null>(null);
+  const [followModalActors, setFollowModalActors] = useState<Actor[]>([]);
+  const [followModalLoading, setFollowModalLoading] = useState(false);
 
-  // Use current member if no memberId in URL
-  const targetMemberId = memberId || currentMember.id;
-  const isOwnProfile = targetMemberId === currentMember.id;
+  // Use current actor if no actorId in URL
+  const targetActorId = actorId ? decodeURIComponent(actorId) : actor.ap_id;
+  const isOwnProfile = targetActorId === actor.ap_id;
 
   const loadProfile = useCallback(async () => {
     try {
-      const [profileData, postsData] = await Promise.all([
-        fetchMemberProfile(targetMemberId),
-        fetchMemberPosts(targetMemberId, { limit: 50 }),
-      ]);
-      setProfile(profileData.member);
-      setPosts(postsData.posts || []);
-      setFollowing(profileData.member.is_following || false);
+      const profileData = await fetchActor(targetActorId);
+      setProfile(profileData);
+      setIsFollowing(profileData.is_following || false);
+      // TODO: fetch posts for this actor when API is available
+      setPosts([]);
     } catch (e) {
       console.error('Failed to load profile:', e);
     } finally {
       setLoading(false);
     }
-  }, [targetMemberId]);
+  }, [targetActorId]);
 
   useEffect(() => {
     setLoading(true);
-    setLikesLoaded(false);
     loadProfile();
   }, [loadProfile]);
-
-  // Load likes when tab switches to likes
-  useEffect(() => {
-    if (activeTab === 'likes' && !likesLoaded && !likesLoading) {
-      setLikesLoading(true);
-      fetchMemberLikes(targetMemberId, { limit: 50 })
-        .then(data => {
-          setLikedPosts(data.posts || []);
-          setLikesLoaded(true);
-        })
-        .catch(e => console.error('Failed to load likes:', e))
-        .finally(() => setLikesLoading(false));
-    }
-  }, [activeTab, targetMemberId, likesLoaded, likesLoading]);
 
   const handleFollow = async () => {
     if (!profile) return;
     try {
-      if (following) {
-        await unfollowMember(profile.id);
-        setFollowing(false);
+      if (isFollowing) {
+        await unfollow(profile.ap_id);
+        setIsFollowing(false);
         setProfile(prev => prev ? { ...prev, follower_count: prev.follower_count - 1 } : null);
       } else {
-        await followMember(profile.id);
-        setFollowing(true);
+        await follow(profile.ap_id);
+        setIsFollowing(true);
         setProfile(prev => prev ? { ...prev, follower_count: prev.follower_count + 1 } : null);
       }
     } catch (e) {
@@ -147,43 +116,21 @@ export function ProfilePage({ currentMember }: ProfilePageProps) {
   const handleLike = async (post: Post) => {
     try {
       if (post.liked) {
-        await unlikePost(post.id);
-        const updateFn = (p: Post) => p.id === post.id ? { ...p, liked: false, like_count: p.like_count - 1 } : p;
-        setPosts(prev => prev.map(updateFn));
-        setLikedPosts(prev => prev.map(updateFn));
+        await unlikePost(post.ap_id);
+        setPosts(prev => prev.map(p => p.ap_id === post.ap_id ? { ...p, liked: false, like_count: p.like_count - 1 } : p));
       } else {
-        await likePost(post.id);
-        const updateFn = (p: Post) => p.id === post.id ? { ...p, liked: true, like_count: p.like_count + 1 } : p;
-        setPosts(prev => prev.map(updateFn));
-        setLikedPosts(prev => prev.map(updateFn));
+        await likePost(post.ap_id);
+        setPosts(prev => prev.map(p => p.ap_id === post.ap_id ? { ...p, liked: true, like_count: p.like_count + 1 } : p));
       }
     } catch (e) {
       console.error('Failed to toggle like:', e);
     }
   };
 
-  const handleRepost = async (post: Post) => {
-    try {
-      if (post.reposted) {
-        await unrepostPost(post.id);
-        const updateFn = (p: Post) => p.id === post.id ? { ...p, reposted: false, repost_count: p.repost_count - 1 } : p;
-        setPosts(prev => prev.map(updateFn));
-        setLikedPosts(prev => prev.map(updateFn));
-      } else {
-        await repostPost(post.id);
-        const updateFn = (p: Post) => p.id === post.id ? { ...p, reposted: true, repost_count: p.repost_count + 1 } : p;
-        setPosts(prev => prev.map(updateFn));
-        setLikedPosts(prev => prev.map(updateFn));
-      }
-    } catch (e) {
-      console.error('Failed to toggle repost:', e);
-    }
-  };
-
   const openEditModal = () => {
     if (profile) {
-      setEditDisplayName(profile.display_name || '');
-      setEditBio(profile.bio || '');
+      setEditName(profile.name || '');
+      setEditSummary(profile.summary || '');
       setShowEditModal(true);
     }
   };
@@ -193,13 +140,13 @@ export function ProfilePage({ currentMember }: ProfilePageProps) {
     setSaving(true);
     try {
       await updateProfile({
-        display_name: editDisplayName.trim() || undefined,
-        bio: editBio.trim() || undefined,
+        name: editName.trim() || undefined,
+        summary: editSummary.trim() || undefined,
       });
       setProfile(prev => prev ? {
         ...prev,
-        display_name: editDisplayName.trim() || prev.username,
-        bio: editBio.trim(),
+        name: editName.trim() || prev.preferred_username,
+        summary: editSummary.trim(),
       } : null);
       setShowEditModal(false);
     } catch (e) {
@@ -209,36 +156,19 @@ export function ProfilePage({ currentMember }: ProfilePageProps) {
     }
   };
 
-  const handleBlock = async () => {
-    if (!profile) return;
+  const openFollowModal = async (type: 'followers' | 'following') => {
+    setShowFollowModal(type);
+    setFollowModalLoading(true);
+    setFollowModalActors([]);
     try {
-      if (isBlocked) {
-        await unblockUser(profile.id);
-        setIsBlocked(false);
-      } else {
-        await blockUser(profile.id);
-        setIsBlocked(true);
-        setFollowing(false);
-      }
-      setShowMenu(false);
+      const data = type === 'followers'
+        ? await fetchFollowers(targetActorId)
+        : await fetchFollowing(targetActorId);
+      setFollowModalActors(data);
     } catch (e) {
-      console.error('Failed to toggle block:', e);
-    }
-  };
-
-  const handleMute = async () => {
-    if (!profile) return;
-    try {
-      if (isMuted) {
-        await unmuteUser(profile.id);
-        setIsMuted(false);
-      } else {
-        await muteUser(profile.id);
-        setIsMuted(true);
-      }
-      setShowMenu(false);
-    } catch (e) {
-      console.error('Failed to toggle mute:', e);
+      console.error(`Failed to load ${type}:`, e);
+    } finally {
+      setFollowModalLoading(false);
     }
   };
 
@@ -299,14 +229,14 @@ export function ProfilePage({ currentMember }: ProfilePageProps) {
       {/* Header */}
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
         <div className="flex items-center gap-4 px-4 py-3">
-          {memberId && (
+          {actorId && (
             <Link to="/" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
               <BackIcon />
             </Link>
           )}
           <div>
             <h1 className="text-xl font-bold">
-              {profile.display_name || profile.username}
+              {profile.name || profile.preferred_username}
             </h1>
             <p className="text-sm text-neutral-500">{profile.post_count} {t('profile.posts')}</p>
           </div>
@@ -331,8 +261,8 @@ export function ProfilePage({ currentMember }: ProfilePageProps) {
           <div className="absolute -top-16 left-4">
             <div className="w-32 h-32 rounded-full border-4 border-black overflow-hidden bg-neutral-800">
               <UserAvatar
-                avatarUrl={profile.avatar_url}
-                name={profile.display_name || profile.username}
+                avatarUrl={profile.icon_url}
+                name={profile.name || profile.preferred_username}
                 size={128}
               />
             </div>
@@ -352,30 +282,23 @@ export function ProfilePage({ currentMember }: ProfilePageProps) {
                   {showMenu && (
                     <div className="absolute right-0 top-full mt-1 bg-neutral-900 rounded-xl shadow-lg py-1 min-w-[180px] z-20 border border-neutral-800">
                       <button
-                        onClick={handleMute}
+                        onClick={() => setShowMenu(false)}
                         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-800 transition-colors"
                       >
-                        {isMuted ? 'ミュート解除' : 'ミュートする'}
-                      </button>
-                      <button
-                        onClick={handleBlock}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left text-red-500 hover:bg-neutral-800 transition-colors"
-                      >
-                        {isBlocked ? 'ブロック解除' : 'ブロックする'}
+                        Report
                       </button>
                     </div>
                   )}
                 </div>
                 <button
                   onClick={handleFollow}
-                  disabled={isBlocked}
                   className={`px-4 py-2 rounded-full font-bold transition-colors ${
-                    following
+                    isFollowing
                       ? 'bg-transparent border border-neutral-600 text-white hover:border-red-500 hover:text-red-500'
                       : 'bg-white text-black hover:bg-neutral-200'
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  }`}
                 >
-                  {following ? t('profile.unfollow') : t('profile.follow')}
+                  {isFollowing ? t('profile.unfollow') : t('profile.follow')}
                 </button>
               </>
             )}
@@ -392,14 +315,14 @@ export function ProfilePage({ currentMember }: ProfilePageProps) {
           {/* Name & Username */}
           <div className="mb-3">
             <div className="text-xl font-bold text-white">
-              {profile.display_name || profile.username}
+              {profile.name || profile.preferred_username}
             </div>
             <div className="text-neutral-500">@{profile.username}</div>
           </div>
 
           {/* Bio */}
-          {profile.bio && (
-            <p className="text-neutral-200 mb-3 whitespace-pre-wrap">{profile.bio}</p>
+          {profile.summary && (
+            <p className="text-neutral-200 mb-3 whitespace-pre-wrap">{profile.summary}</p>
           )}
 
           {/* Join Date */}
@@ -410,14 +333,20 @@ export function ProfilePage({ currentMember }: ProfilePageProps) {
 
           {/* Follow Stats */}
           <div className="flex gap-4 text-sm">
-            <span className="hover:underline cursor-pointer">
+            <button
+              onClick={() => openFollowModal('following')}
+              className="hover:underline"
+            >
               <span className="font-bold text-white">{profile.following_count}</span>
               <span className="text-neutral-500 ml-1">{t('profile.following')}</span>
-            </span>
-            <span className="hover:underline cursor-pointer">
+            </button>
+            <button
+              onClick={() => openFollowModal('followers')}
+              className="hover:underline"
+            >
               <span className="font-bold text-white">{profile.follower_count}</span>
               <span className="text-neutral-500 ml-1">{t('profile.followers')}</span>
-            </span>
+            </button>
           </div>
         </div>
 
@@ -455,24 +384,24 @@ export function ProfilePage({ currentMember }: ProfilePageProps) {
             ) : (
               posts.map(post => (
                 <div
-                  key={post.id}
+                  key={post.ap_id}
                   className="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors"
                 >
-                  <Link to={`/profile/${post.member_id}`}>
+                  <Link to={`/profile/${encodeURIComponent(post.author.ap_id)}`}>
                     <UserAvatar
-                      avatarUrl={post.avatar_url}
-                      name={post.display_name || post.username}
+                      avatarUrl={post.author.icon_url}
+                      name={post.author.name || post.author.preferred_username}
                       size={48}
                     />
                   </Link>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline gap-2">
-                      <Link to={`/profile/${post.member_id}`} className="font-bold text-white truncate hover:underline">
-                        {post.display_name || post.username}
+                      <Link to={`/profile/${encodeURIComponent(post.author.ap_id)}`} className="font-bold text-white truncate hover:underline">
+                        {post.author.name || post.author.preferred_username}
                       </Link>
-                      <span className="text-neutral-500 truncate">@{post.username}</span>
+                      <span className="text-neutral-500 truncate">@{post.author.username}</span>
                       <span className="text-neutral-500">·</span>
-                      <span className="text-neutral-500 text-sm">{formatTime(post.created_at)}</span>
+                      <span className="text-neutral-500 text-sm">{formatTime(post.published)}</span>
                     </div>
                     <PostContent
                       content={post.content}
@@ -485,22 +414,13 @@ export function ProfilePage({ currentMember }: ProfilePageProps) {
                         <span className="text-sm">{post.reply_count || ''}</span>
                       </button>
                       <button
-                        onClick={() => handleRepost(post)}
-                        className={`flex items-center gap-2 transition-colors ${
-                          post.reposted ? 'text-green-500' : 'text-neutral-500 hover:text-green-500'
-                        }`}
-                      >
-                        <RepostIcon />
-                        <span className="text-sm">{post.repost_count || ''}</span>
-                      </button>
-                      <button
                         onClick={() => handleLike(post)}
                         className={`flex items-center gap-2 transition-colors ${
                           post.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'
                         }`}
                       >
                         <HeartIcon filled={post.liked || false} />
-                        {post.member_id === currentMember.id && post.like_count > 0 && (
+                        {post.author.ap_id === actor.ap_id && post.like_count > 0 && (
                           <span className="text-sm">{post.like_count}</span>
                         )}
                       </button>
@@ -514,70 +434,7 @@ export function ProfilePage({ currentMember }: ProfilePageProps) {
 
         {/* Likes Tab */}
         {activeTab === 'likes' && (
-          <>
-            {likesLoading ? (
-              <div className="p-8 text-center text-neutral-500">{t('common.loading')}</div>
-            ) : likedPosts.length === 0 ? (
-              <div className="p-8 text-center text-neutral-500">{t('profile.noLikes')}</div>
-            ) : (
-              likedPosts.map(post => (
-                <div
-                  key={post.id}
-                  className="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors"
-                >
-                  <Link to={`/profile/${post.member_id}`}>
-                    <UserAvatar
-                      avatarUrl={post.avatar_url}
-                      name={post.display_name || post.username}
-                      size={48}
-                    />
-                  </Link>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline gap-2">
-                      <Link to={`/profile/${post.member_id}`} className="font-bold text-white truncate hover:underline">
-                        {post.display_name || post.username}
-                      </Link>
-                      <span className="text-neutral-500 truncate">@{post.username}</span>
-                      <span className="text-neutral-500">·</span>
-                      <span className="text-neutral-500 text-sm">{formatTime(post.created_at)}</span>
-                    </div>
-                    <Link to={`/post/${post.id}`}>
-                      <PostContent
-                        content={post.content}
-                        className="text-[15px] text-neutral-200 mt-1"
-                      />
-                    </Link>
-                    <div className="flex items-center gap-6 mt-3">
-                      <button className="flex items-center gap-2 text-neutral-500 hover:text-blue-500 transition-colors">
-                        <ReplyIcon />
-                        <span className="text-sm">{post.reply_count || ''}</span>
-                      </button>
-                      <button
-                        onClick={() => handleRepost(post)}
-                        className={`flex items-center gap-2 transition-colors ${
-                          post.reposted ? 'text-green-500' : 'text-neutral-500 hover:text-green-500'
-                        }`}
-                      >
-                        <RepostIcon />
-                        <span className="text-sm">{post.repost_count || ''}</span>
-                      </button>
-                      <button
-                        onClick={() => handleLike(post)}
-                        className={`flex items-center gap-2 transition-colors ${
-                          post.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'
-                        }`}
-                      >
-                        <HeartIcon filled={post.liked || false} />
-                        {post.member_id === currentMember.id && post.like_count > 0 && (
-                          <span className="text-sm">{post.like_count}</span>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </>
+          <div className="p-8 text-center text-neutral-500">{t('profile.noLikes')}</div>
         )}
       </div>
 
@@ -605,25 +462,76 @@ export function ProfilePage({ currentMember }: ProfilePageProps) {
             </div>
             <div className="p-4 space-y-4">
               <div>
-                <label className="block text-sm text-neutral-400 mb-1">名前</label>
+                <label className="block text-sm text-neutral-400 mb-1">Name</label>
                 <input
                   type="text"
-                  value={editDisplayName}
-                  onChange={e => setEditDisplayName(e.target.value)}
-                  placeholder="表示名"
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  placeholder="Display name"
                   className="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-sm text-neutral-400 mb-1">自己紹介</label>
+                <label className="block text-sm text-neutral-400 mb-1">Bio</label>
                 <textarea
-                  value={editBio}
-                  onChange={e => setEditBio(e.target.value)}
-                  placeholder="自己紹介を入力"
+                  value={editSummary}
+                  onChange={e => setEditSummary(e.target.value)}
+                  placeholder="Tell us about yourself"
                   rows={4}
                   className="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Followers/Following Modal */}
+      {showFollowModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-neutral-900 rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => setShowFollowModal(null)}
+                  className="p-1 hover:bg-neutral-800 rounded-full transition-colors"
+                >
+                  <CloseIcon />
+                </button>
+                <h2 className="text-lg font-bold">
+                  {showFollowModal === 'followers' ? t('profile.followers') : t('profile.following')}
+                </h2>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {followModalLoading ? (
+                <div className="p-8 text-center text-neutral-500">{t('common.loading')}</div>
+              ) : followModalActors.length === 0 ? (
+                <div className="p-8 text-center text-neutral-500">
+                  {showFollowModal === 'followers' ? 'No followers yet' : 'Not following anyone'}
+                </div>
+              ) : (
+                followModalActors.map(a => (
+                  <Link
+                    key={a.ap_id}
+                    to={`/profile/${encodeURIComponent(a.ap_id)}`}
+                    onClick={() => setShowFollowModal(null)}
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-neutral-800 transition-colors"
+                  >
+                    <UserAvatar
+                      avatarUrl={a.icon_url}
+                      name={a.name || a.preferred_username}
+                      size={48}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-white truncate">
+                        {a.name || a.preferred_username}
+                      </div>
+                      <div className="text-neutral-500 truncate">@{a.username}</div>
+                    </div>
+                  </Link>
+                ))
+              )}
             </div>
           </div>
         </div>

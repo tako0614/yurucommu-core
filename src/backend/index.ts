@@ -1,6 +1,10 @@
 import { Hono } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 
+// ============================================================
+// TYPES - All AP-native with AP IRIs
+// ============================================================
+
 type Env = {
   DB: D1Database;
   MEDIA: R2Bucket;
@@ -9,951 +13,342 @@ type Env = {
   TAKOS_CLIENT_ID: string;
   TAKOS_CLIENT_SECRET: string;
   APP_URL: string;
-  AUTH_MODE?: string;       // 'oauth' or 'password'
-  AUTH_PASSWORD?: string;   // Password for password auth mode
+  AUTH_MODE?: string;
+  AUTH_PASSWORD?: string;
 };
 
 type Variables = {
-  member: Member | null;
+  actor: Actor | null;
 };
 
-interface Member {
-  id: string;
-  takos_user_id: string;
-  username: string;
-  display_name: string | null;
-  avatar_url: string | null;
+// Local actor (Person)
+interface Actor {
+  ap_id: string;  // Primary key: https://domain/ap/users/username
+  type: string;
+  preferred_username: string;
+  name: string | null;
+  summary: string | null;
+  icon_url: string | null;
+  header_url: string | null;
+  inbox: string;
+  outbox: string;
+  followers_url: string;
+  following_url: string;
+  public_key_pem: string;
+  private_key_pem: string;
+  takos_user_id: string | null;
+  follower_count: number;
+  following_count: number;
+  post_count: number;
+  is_private: number;
   role: 'owner' | 'moderator' | 'member';
-  bio?: string | null;
+  created_at: string;
 }
 
-interface Room {
-  id: string;
-  name: string;
-  description: string | null;
-  kind: 'chat' | 'forum';
-  posting_policy: 'members' | 'mods' | 'owners';
-  join_policy: 'open' | 'inviteOnly' | 'moderated';
-  sort_order: number;
+// Cached remote actor
+interface ActorCache {
+  ap_id: string;
+  type: string;
+  preferred_username: string | null;
+  name: string | null;
+  summary: string | null;
+  icon_url: string | null;
+  inbox: string;
+  public_key_pem: string | null;
+  raw_json: string;
 }
 
-interface Message {
-  id: string;
-  room_id: string;
-  member_id: string;
+// AP Object (Note/Post)
+interface APObject {
+  ap_id: string;
+  type: string;
+  attributed_to: string;
   content: string;
-  reply_to_id: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface Thread {
-  id: string;
-  room_id: string;
-  member_id: string;
-  title: string;
-  content: string | null;
-  pinned: number;
-  locked: number;
-  reply_count: number;
-  last_reply_at: string | null;
-  created_at: string;
-}
-
-interface ThreadReply {
-  id: string;
-  thread_id: string;
-  member_id: string;
-  content: string;
-  created_at: string;
-}
-
-interface DMConversation {
-  id: string;
-  member1_id: string;
-  member2_id: string;
-  last_message_at: string | null;
-  created_at: string;
-}
-
-// ===== v4.0 Social Network Types =====
-
-interface Post {
-  id: string;
-  member_id: string;
-  content: string;
-  reply_to_id: string | null;
-  repost_of_id: string | null;
-  visibility: 'public' | 'followers' | 'private';
+  summary: string | null;
+  attachments_json: string;
+  in_reply_to: string | null;
+  visibility: string;
+  community_ap_id: string | null;
   like_count: number;
   reply_count: number;
-  repost_count: number;
-  created_at: string;
-  updated_at: string;
-}
-
-interface Follow {
-  id: string;
-  follower_id: string;
-  following_id: string;
-  status: 'pending' | 'accepted' | 'rejected';
-  created_at: string;
-  accepted_at: string | null;
-}
-
-interface Notification {
-  id: string;
-  member_id: string;
-  actor_id: string;
-  type: 'follow_request' | 'follow_accepted' | 'like' | 'reply' | 'repost' | 'mention';
-  target_type: 'post' | 'member' | null;
-  target_id: string | null;
-  read: number;
-  created_at: string;
+  announce_count: number;
+  published: string;
+  is_local: number;
 }
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-// Helper functions
+// ============================================================
+// HELPER FUNCTIONS
+// ============================================================
+
 function generateId(): string {
   const bytes = new Uint8Array(12);
   crypto.getRandomValues(bytes);
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function generateState(): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+// Generate AP IRI for local resources
+function actorApId(baseUrl: string, username: string): string {
+  return `${baseUrl}/ap/users/${username}`;
 }
 
-// PKCE helper functions
-function generateCodeVerifier(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
+function objectApId(baseUrl: string, id: string): string {
+  return `${baseUrl}/ap/objects/${id}`;
 }
 
-async function generateCodeChallenge(verifier: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(verifier);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return btoa(String.fromCharCode(...new Uint8Array(digest)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '');
+function activityApId(baseUrl: string, id: string): string {
+  return `${baseUrl}/ap/activities/${id}`;
 }
 
-// Auth middleware
+function communityApId(baseUrl: string, name: string): string {
+  return `${baseUrl}/ap/groups/${name}`;
+}
+
+// Extract domain from AP IRI
+function getDomain(apId: string): string {
+  return new URL(apId).host;
+}
+
+// Check if AP IRI is local
+function isLocal(apId: string, baseUrl: string): boolean {
+  return apId.startsWith(baseUrl);
+}
+
+// Format username with domain for display
+function formatUsername(apId: string): string {
+  const url = new URL(apId);
+  const match = apId.match(/\/users\/([^\/]+)$/);
+  if (match) {
+    return `${match[1]}@${url.host}`;
+  }
+  return apId;
+}
+
+// RSA key generation
+async function generateKeyPair(): Promise<{ publicKeyPem: string; privateKeyPem: string }> {
+  const keyPair = await crypto.subtle.generateKey(
+    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true,
+    ['sign', 'verify']
+  );
+
+  const publicKey = await crypto.subtle.exportKey('spki', keyPair.publicKey);
+  const privateKey = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
+
+  const publicKeyPem = `-----BEGIN PUBLIC KEY-----\n${btoa(String.fromCharCode(...new Uint8Array(publicKey))).match(/.{1,64}/g)?.join('\n')}\n-----END PUBLIC KEY-----`;
+  const privateKeyPem = `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCharCode(...new Uint8Array(privateKey))).match(/.{1,64}/g)?.join('\n')}\n-----END PRIVATE KEY-----`;
+
+  return { publicKeyPem, privateKeyPem };
+}
+
+// HTTP Signature
+async function signRequest(privateKeyPem: string, keyId: string, method: string, url: string, body?: string): Promise<Record<string, string>> {
+  const urlObj = new URL(url);
+  const date = new Date().toUTCString();
+  const digest = body ? `SHA-256=${btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body)))))}` : undefined;
+
+  const signedHeaders = digest ? '(request-target) host date digest' : '(request-target) host date';
+  const signatureString = digest
+    ? `(request-target): ${method.toLowerCase()} ${urlObj.pathname}\nhost: ${urlObj.host}\ndate: ${date}\ndigest: ${digest}`
+    : `(request-target): ${method.toLowerCase()} ${urlObj.pathname}\nhost: ${urlObj.host}\ndate: ${date}`;
+
+  const pemContents = privateKeyPem.replace(/-----[^-]+-----/g, '').replace(/\s/g, '');
+  const binaryKey = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
+  const cryptoKey = await crypto.subtle.importKey('pkcs8', binaryKey, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const signatureBuffer = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, new TextEncoder().encode(signatureString));
+  const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+
+  const headers: Record<string, string> = {
+    'Date': date,
+    'Host': urlObj.host,
+    'Signature': `keyId="${keyId}",algorithm="rsa-sha256",headers="${signedHeaders}",signature="${signature}"`,
+  };
+  if (digest) headers['Digest'] = digest;
+
+  return headers;
+}
+
+// ============================================================
+// AUTH MIDDLEWARE
+// ============================================================
+
 app.use('/api/*', async (c, next) => {
   const sessionId = getCookie(c, 'session');
   if (sessionId) {
+    // Sessions now store actor ap_id in member_id column (legacy compatibility)
     const session = await c.env.DB.prepare(
-      `SELECT s.*, m.* FROM sessions s
-       JOIN members m ON s.member_id = m.id
+      `SELECT s.*, a.* FROM sessions s
+       JOIN actors a ON s.member_id = a.ap_id
        WHERE s.id = ? AND s.expires_at > datetime('now')`
-    ).bind(sessionId).first();
+    ).bind(sessionId).first<any>();
 
     if (session) {
-      c.set('member', {
-        id: session.member_id as string,
-        takos_user_id: session.takos_user_id as string,
-        username: session.username as string,
-        display_name: session.display_name as string | null,
-        avatar_url: session.avatar_url as string | null,
-        role: session.role as 'owner' | 'moderator' | 'member',
-        bio: session.bio as string | null,
-      });
+      c.set('actor', session as Actor);
     }
   }
   await next();
 });
 
-// ==================== Auth Routes ====================
+// ============================================================
+// AUTH ENDPOINTS
+// ============================================================
 
-// Get auth mode
-app.get('/api/auth/mode', (c) => {
-  const mode = c.env.AUTH_MODE || 'oauth';
-  return c.json({ mode });
+app.get('/api/auth/me', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Not authenticated' }, 401);
+
+  return c.json({
+    actor: {
+      ap_id: actor.ap_id,
+      username: formatUsername(actor.ap_id),
+      preferred_username: actor.preferred_username,
+      name: actor.name,
+      summary: actor.summary,
+      icon_url: actor.icon_url,
+      header_url: actor.header_url,
+      follower_count: actor.follower_count,
+      following_count: actor.following_count,
+      post_count: actor.post_count,
+      role: actor.role,
+    }
+  });
 });
 
-// Password authentication
-app.post('/api/auth/password', async (c) => {
-  const authMode = c.env.AUTH_MODE || 'oauth';
-  if (authMode !== 'password') {
-    return c.json({ error: 'Password auth is disabled' }, 400);
+// Password auth (simple mode)
+app.post('/api/auth/login', async (c) => {
+  if (c.env.AUTH_MODE !== 'password') {
+    return c.json({ error: 'Password auth not enabled' }, 400);
   }
 
-  const body = await c.req.json<{ username: string; password: string }>();
-  if (!body.username || !body.password) {
-    return c.json({ error: 'Username and password required' }, 400);
-  }
-
-  // Check password
+  const body = await c.req.json<{ password: string; username?: string }>();
   if (body.password !== c.env.AUTH_PASSWORD) {
     return c.json({ error: 'Invalid password' }, 401);
   }
 
-  // Find or create member by username
-  let member = await c.env.DB.prepare(
-    'SELECT * FROM members WHERE username = ?'
-  ).bind(body.username).first<Member>();
+  const baseUrl = c.env.APP_URL;
+  const username = body.username || 'tako';
+  const apId = actorApId(baseUrl, username);
 
-  if (!member) {
-    // First user becomes owner
-    const memberCount = await c.env.DB.prepare('SELECT COUNT(*) as count FROM members').first<{ count: number }>();
-    const role = memberCount?.count === 0 ? 'owner' : 'member';
+  // Get or create actor
+  let actor = await c.env.DB.prepare('SELECT * FROM actors WHERE ap_id = ?').bind(apId).first<Actor>();
 
-    const memberId = generateId();
-    await c.env.DB.prepare(
-      `INSERT INTO members (id, takos_user_id, username, display_name, role)
-       VALUES (?, ?, ?, ?, ?)`
-    ).bind(memberId, `local:${body.username}`, body.username, body.username, role).run();
+  if (!actor) {
+    const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+    await c.env.DB.prepare(`
+      INSERT INTO actors (ap_id, type, preferred_username, name, inbox, outbox, followers_url, following_url, public_key_pem, private_key_pem, takos_user_id, role)
+      VALUES (?, 'Person', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'owner')
+    `).bind(
+      apId,
+      username,
+      username,
+      `${apId}/inbox`,
+      `${apId}/outbox`,
+      `${apId}/followers`,
+      `${apId}/following`,
+      publicKeyPem,
+      privateKeyPem,
+      `password:${username}`
+    ).run();
 
-    member = {
-      id: memberId,
-      takos_user_id: `local:${body.username}`,
-      username: body.username,
-      display_name: body.username,
-      avatar_url: null,
-      role: role as 'owner' | 'moderator' | 'member',
-    };
+    actor = await c.env.DB.prepare('SELECT * FROM actors WHERE ap_id = ?').bind(apId).first<Actor>();
   }
 
-  // Create session (30 days)
+  // Create session (store ap_id in member_id for compatibility)
   const sessionId = generateId();
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-
-  await c.env.DB.prepare(
-    `INSERT INTO sessions (id, member_id, access_token, expires_at)
-     VALUES (?, ?, ?, ?)`
-  ).bind(sessionId, member.id, 'password_auth', expiresAt).run();
+  await c.env.DB.prepare('INSERT INTO sessions (id, member_id, expires_at) VALUES (?, ?, ?)').bind(sessionId, apId, expiresAt).run();
 
   setCookie(c, 'session', sessionId, {
     httpOnly: true,
     secure: true,
     sameSite: 'Lax',
-    maxAge: 30 * 24 * 60 * 60,
     path: '/',
+    maxAge: 30 * 24 * 60 * 60,
   });
 
-  return c.json({ success: true, member });
+  return c.json({ success: true });
 });
 
-// OAuth login
-app.get('/api/auth/login', async (c) => {
-  const authMode = c.env.AUTH_MODE || 'oauth';
-  if (authMode !== 'oauth') {
-    return c.redirect('/');
-  }
-
-  const state = generateState();
-  const codeVerifier = generateCodeVerifier();
-  const codeChallenge = await generateCodeChallenge(codeVerifier);
-  const takosUrl = c.env.TAKOS_URL || 'https://takos.jp';
-  const appUrl = c.env.APP_URL || 'https://app.yurucommu.com';
-
-  setCookie(c, 'oauth_state', state, { httpOnly: true, secure: true, sameSite: 'Lax', maxAge: 600, path: '/' });
-  setCookie(c, 'oauth_verifier', codeVerifier, { httpOnly: true, secure: true, sameSite: 'Lax', maxAge: 600, path: '/' });
-
-  const authUrl = new URL(`${takosUrl}/oauth/authorize`);
-  authUrl.searchParams.set('client_id', c.env.TAKOS_CLIENT_ID);
-  authUrl.searchParams.set('redirect_uri', `${appUrl}/api/auth/callback`);
-  authUrl.searchParams.set('response_type', 'code');
-  authUrl.searchParams.set('scope', 'openid profile');
-  authUrl.searchParams.set('state', state);
-  authUrl.searchParams.set('code_challenge', codeChallenge);
-  authUrl.searchParams.set('code_challenge_method', 'S256');
-
-  return c.redirect(authUrl.toString());
-});
-
-// OAuth callback
-app.get('/api/auth/callback', async (c) => {
-  const { code, state } = c.req.query();
-  const savedState = getCookie(c, 'oauth_state');
-  const codeVerifier = getCookie(c, 'oauth_verifier');
-
-  if (!code || !state || state !== savedState || !codeVerifier) {
-    return c.json({ error: 'Invalid state or missing verifier' }, 400);
-  }
-
-  deleteCookie(c, 'oauth_state');
-  deleteCookie(c, 'oauth_verifier');
-
-  const takosUrl = c.env.TAKOS_URL || 'https://takos.jp';
-  const appUrl = c.env.APP_URL || 'https://app.yurucommu.com';
-
-  const tokenRes = await fetch(`${takosUrl}/oauth/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: `${appUrl}/api/auth/callback`,
-      client_id: c.env.TAKOS_CLIENT_ID,
-      client_secret: c.env.TAKOS_CLIENT_SECRET,
-      code_verifier: codeVerifier,
-    }),
-  });
-
-  if (!tokenRes.ok) {
-    return c.json({ error: 'Token exchange failed' }, 400);
-  }
-
-  const tokens = await tokenRes.json() as { access_token: string; refresh_token?: string; expires_in: number };
-
-  const userRes = await fetch(`${takosUrl}/oauth/userinfo`, {
-    headers: { Authorization: `Bearer ${tokens.access_token}` },
-  });
-
-  if (!userRes.ok) {
-    return c.json({ error: 'Failed to get user info' }, 400);
-  }
-
-  const userInfo = await userRes.json() as { sub: string; preferred_username?: string; name?: string; picture?: string };
-
-  let member = await c.env.DB.prepare('SELECT * FROM members WHERE takos_user_id = ?').bind(userInfo.sub).first<Member>();
-
-  if (!member) {
-    const memberCount = await c.env.DB.prepare('SELECT COUNT(*) as count FROM members').first<{ count: number }>();
-    const role = memberCount?.count === 0 ? 'owner' : 'member';
-
-    const memberId = generateId();
-    await c.env.DB.prepare(
-      `INSERT INTO members (id, takos_user_id, username, display_name, avatar_url, role)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).bind(memberId, userInfo.sub, userInfo.preferred_username || `user_${memberId.slice(0, 8)}`, userInfo.name || null, userInfo.picture || null, role).run();
-
-    member = {
-      id: memberId,
-      takos_user_id: userInfo.sub,
-      username: userInfo.preferred_username || `user_${memberId.slice(0, 8)}`,
-      display_name: userInfo.name || null,
-      avatar_url: userInfo.picture || null,
-      role: role as 'owner' | 'moderator' | 'member',
-    };
-  }
-
-  const sessionId = generateId();
-  const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
-
-  await c.env.DB.prepare(
-    `INSERT INTO sessions (id, member_id, access_token, refresh_token, expires_at)
-     VALUES (?, ?, ?, ?, ?)`
-  ).bind(sessionId, member.id, tokens.access_token, tokens.refresh_token || null, expiresAt).run();
-
-  setCookie(c, 'session', sessionId, { httpOnly: true, secure: true, sameSite: 'Lax', maxAge: tokens.expires_in, path: '/' });
-
-  return c.redirect('/');
-});
-
-app.get('/api/auth/logout', async (c) => {
+app.post('/api/auth/logout', async (c) => {
   const sessionId = getCookie(c, 'session');
   if (sessionId) {
     await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(sessionId).run();
+    deleteCookie(c, 'session');
   }
-  deleteCookie(c, 'session');
-  return c.redirect('/');
-});
-
-app.get('/api/me', async (c) => {
-  const member = c.get('member');
-  if (!member) {
-    return c.json({ authenticated: false }, 401);
-  }
-  return c.json({ authenticated: true, member });
-});
-
-// Update profile
-app.put('/api/me/profile', async (c) => {
-  const member = c.get('member');
-  if (!member) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
-
-  const body = await c.req.json<{ display_name?: string; bio?: string }>();
-  const updates: string[] = [];
-  const values: unknown[] = [];
-
-  if (body.display_name !== undefined) {
-    updates.push('display_name = ?');
-    values.push(body.display_name);
-  }
-  if (body.bio !== undefined) {
-    updates.push('bio = ?');
-    values.push(body.bio);
-  }
-
-  if (updates.length === 0) {
-    return c.json({ error: 'No fields to update' }, 400);
-  }
-
-  updates.push("updated_at = datetime('now')");
-  values.push(member.id);
-
-  await c.env.DB.prepare(`UPDATE members SET ${updates.join(', ')} WHERE id = ?`).bind(...values).run();
-
   return c.json({ success: true });
 });
 
-// ==================== Rooms API ====================
+// ============================================================
+// ACTOR ENDPOINTS (Users/Profiles)
+// ============================================================
 
-app.get('/api/rooms', async (c) => {
-  const result = await c.env.DB.prepare('SELECT * FROM rooms ORDER BY sort_order ASC, created_at ASC').all<Room>();
-  return c.json({ rooms: result.results || [] });
-});
-
-app.post('/api/rooms', async (c) => {
-  const member = c.get('member');
-  if (!member || (member.role !== 'owner' && member.role !== 'moderator')) {
-    return c.json({ error: 'Unauthorized' }, 403);
-  }
-
-  const body = await c.req.json<{ name: string; description?: string; kind?: string; join_policy?: string }>();
-  if (!body.name) {
-    return c.json({ error: 'Name is required' }, 400);
-  }
-
-  const id = generateId();
-  await c.env.DB.prepare(
-    `INSERT INTO rooms (id, name, description, kind, join_policy) VALUES (?, ?, ?, ?, ?)`
-  ).bind(id, body.name, body.description || null, body.kind || 'chat', body.join_policy || 'open').run();
-
-  return c.json({ id, name: body.name, description: body.description || null, kind: body.kind || 'chat', join_policy: body.join_policy || 'open' }, 201);
-});
-
-app.get('/api/rooms/:id', async (c) => {
-  const id = c.req.param('id');
-  const room = await c.env.DB.prepare('SELECT * FROM rooms WHERE id = ?').bind(id).first<Room>();
-  if (!room) {
-    return c.json({ error: 'Room not found' }, 404);
-  }
-  return c.json({ room });
-});
-
-app.put('/api/rooms/:id', async (c) => {
-  const member = c.get('member');
-  if (!member || (member.role !== 'owner' && member.role !== 'moderator')) {
-    return c.json({ error: 'Unauthorized' }, 403);
-  }
-
-  const id = c.req.param('id');
-  const body = await c.req.json<{ name?: string; description?: string; posting_policy?: string; join_policy?: string; kind?: string }>();
-
-  const updates: string[] = [];
-  const values: unknown[] = [];
-
-  if (body.name !== undefined) { updates.push('name = ?'); values.push(body.name); }
-  if (body.description !== undefined) { updates.push('description = ?'); values.push(body.description); }
-  if (body.posting_policy !== undefined) { updates.push('posting_policy = ?'); values.push(body.posting_policy); }
-  if (body.join_policy !== undefined) { updates.push('join_policy = ?'); values.push(body.join_policy); }
-  if (body.kind !== undefined) { updates.push('kind = ?'); values.push(body.kind); }
-
-  if (updates.length === 0) {
-    return c.json({ error: 'No fields to update' }, 400);
-  }
-
-  updates.push("updated_at = datetime('now')");
-  values.push(id);
-
-  await c.env.DB.prepare(`UPDATE rooms SET ${updates.join(', ')} WHERE id = ?`).bind(...values).run();
-
-  const room = await c.env.DB.prepare('SELECT * FROM rooms WHERE id = ?').bind(id).first<Room>();
-  return c.json({ success: true, room });
-});
-
-app.delete('/api/rooms/:id', async (c) => {
-  const member = c.get('member');
-  if (!member || member.role !== 'owner') {
-    return c.json({ error: 'Unauthorized' }, 403);
-  }
-
-  const id = c.req.param('id');
-  await c.env.DB.prepare('DELETE FROM rooms WHERE id = ?').bind(id).run();
-  return c.json({ success: true });
-});
-
-// ==================== Messages API (Chat rooms) ====================
-
-app.get('/api/rooms/:roomId/messages', async (c) => {
-  const roomId = c.req.param('roomId');
-  const before = c.req.query('before');
-  const since = c.req.query('since');
-  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100);
-
-  let query = `SELECT m.*, mem.username, mem.display_name, mem.avatar_url FROM messages m JOIN members mem ON m.member_id = mem.id WHERE m.room_id = ?`;
-  const params: unknown[] = [roomId];
-
-  if (before) { query += ' AND m.created_at < ?'; params.push(before); }
-  if (since) { query += ' AND m.created_at > ?'; params.push(since); }
-
-  query += ' ORDER BY m.created_at DESC LIMIT ?';
-  params.push(limit);
-
-  const result = await c.env.DB.prepare(query).bind(...params).all();
-  const messages = (result.results || []).reverse();
-
-  if (messages.length > 0) {
-    const messageIds = messages.map((m: any) => m.id);
-    const placeholders = messageIds.map(() => '?').join(',');
-    const attachmentsResult = await c.env.DB.prepare(`SELECT * FROM attachments WHERE message_id IN (${placeholders})`).bind(...messageIds).all();
-
-    const attachmentsByMessage = new Map<string, any[]>();
-    for (const att of attachmentsResult.results || []) {
-      const msgId = (att as any).message_id;
-      if (!attachmentsByMessage.has(msgId)) attachmentsByMessage.set(msgId, []);
-      attachmentsByMessage.get(msgId)!.push(att);
-    }
-
-    for (const msg of messages as any[]) {
-      msg.attachments = attachmentsByMessage.get(msg.id) || [];
-    }
-  }
-
-  return c.json({ messages });
-});
-
-app.post('/api/rooms/:roomId/messages', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const roomId = c.req.param('roomId');
-  const room = await c.env.DB.prepare('SELECT * FROM rooms WHERE id = ?').bind(roomId).first<Room>();
-  if (!room) return c.json({ error: 'Room not found' }, 404);
-
-  if (room.posting_policy === 'owners' && member.role !== 'owner') return c.json({ error: 'Only owners can post' }, 403);
-  if (room.posting_policy === 'mods' && member.role === 'member') return c.json({ error: 'Only moderators can post' }, 403);
-
-  const body = await c.req.json<{ content: string; reply_to_id?: string; attachments?: Array<{ r2_key: string; content_type: string; filename: string; size: number }> }>();
-  if (!body.content && (!body.attachments || body.attachments.length === 0)) return c.json({ error: 'Content or attachments required' }, 400);
-
-  const id = generateId();
-  const now = new Date().toISOString();
-  const baseUrl = c.env.APP_URL;
-  const noteId = `${baseUrl}/ap/notes/${id}`;
-  const contextId = `${baseUrl}/ap/rooms/${roomId}`; // chat rooms use room as context
-
-  await c.env.DB.prepare(
-    `INSERT INTO messages (id, room_id, member_id, content, reply_to_id, ap_note_id, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, roomId, member.id, body.content || '', body.reply_to_id || null, noteId, contextId, now, now).run();
-
-  const savedAttachments: any[] = [];
-  if (body.attachments?.length) {
-    for (const att of body.attachments) {
-      const attId = generateId();
-      await c.env.DB.prepare(`INSERT INTO attachments (id, message_id, r2_key, content_type, filename, size) VALUES (?, ?, ?, ?, ?, ?)`).bind(attId, id, att.r2_key, att.content_type, att.filename, att.size).run();
-      savedAttachments.push({ id: attId, ...att });
-    }
-  }
-
-  // ActivityPub: Announce to remote followers
-  const remoteFollowers = await c.env.DB.prepare(`
-    SELECT ra.* FROM ap_remote_actors ra
-    JOIN ap_followers af ON ra.id = af.actor_id
-    WHERE af.accepted = 1
+// Get all local actors
+app.get('/api/actors', async (c) => {
+  const result = await c.env.DB.prepare(`
+    SELECT ap_id, preferred_username, name, summary, icon_url, role, follower_count, following_count, post_count, created_at
+    FROM actors ORDER BY created_at ASC
   `).all();
 
-  if (remoteFollowers.results && remoteFollowers.results.length > 0) {
-    try {
-      const { privateKeyPem } = await getOrCreateKeyPair(c.env.DB);
-      const keyId = `${baseUrl}/ap/actor#main-key`;
+  const actors = (result.results || []).map((a: any) => ({
+    ...a,
+    username: formatUsername(a.ap_id),
+  }));
 
-      // Create Note object
-      const noteObject = {
-        type: 'Note',
-        id: noteId,
-        attributedTo: `${baseUrl}/ap/actor`,
-        to: [`${baseUrl}/ap/actor/followers`],
-        content: body.content || '',
-        room: `${baseUrl}/ap/rooms/${roomId}`,
-        context: `${baseUrl}/ap/rooms/${roomId}`,
-        published: now
-      };
+  return c.json({ actors });
+});
 
-      // Create Announce activity (with routing metadata)
-      const announceActivity = {
-        '@context': AP_CONTEXT,
-        id: `${baseUrl}/ap/activities/${generateId()}`,
-        type: 'Announce',
-        actor: `${baseUrl}/ap/actor`,
-        to: [`${baseUrl}/ap/actor/followers`],
-        object: noteObject,
-        room: `${baseUrl}/ap/rooms/${roomId}`,
-        context: contextId,
-        published: now
-      };
+// Get actor by AP ID or username
+app.get('/api/actors/:identifier', async (c) => {
+  const currentActor = c.get('actor');
+  const identifier = c.req.param('identifier');
+  const baseUrl = c.env.APP_URL;
 
-      // Store outbound activity
-      await c.env.DB.prepare(
-        'INSERT INTO ap_activities (id, activity_id, activity_type, actor, object, raw_json, direction) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).bind(generateId(), announceActivity.id, 'Announce', `${baseUrl}/ap/actor`, JSON.stringify(noteObject), JSON.stringify(announceActivity), 'outbound').run();
-
-      // Queue deliveries for each remote follower
-      for (const follower of remoteFollowers.results as any[]) {
-        if (follower.inbox) {
-          await queueDelivery(c.env.DB, announceActivity.id, follower.inbox);
-        }
+  // Check if identifier is a full AP ID or just username
+  let apId: string;
+  if (identifier.startsWith('http')) {
+    apId = identifier;
+  } else if (identifier.includes('@')) {
+    // Handle @username@domain format
+    const [username, domain] = identifier.replace(/^@/, '').split('@');
+    if (domain === getDomain(baseUrl)) {
+      apId = actorApId(baseUrl, username);
+    } else {
+      // Remote actor - check cache
+      const cached = await c.env.DB.prepare('SELECT * FROM actor_cache WHERE preferred_username = ? AND ap_id LIKE ?')
+        .bind(username, `%${domain}%`).first();
+      if (cached) {
+        return c.json({ actor: { ...cached, username: formatUsername(cached.ap_id) } });
       }
-
-      // Try immediate delivery (async, don't block response)
-      processDeliveryQueue(c.env.DB, privateKeyPem, keyId).catch(e => {
-        console.error('Failed to process delivery queue:', e);
-      });
-    } catch (e) {
-      console.error('Failed to announce message:', e);
+      return c.json({ error: 'Actor not found' }, 404);
     }
+  } else {
+    apId = actorApId(baseUrl, identifier);
   }
 
-  return c.json({ id, room_id: roomId, member_id: member.id, content: body.content || '', reply_to_id: body.reply_to_id || null, created_at: now, updated_at: now, username: member.username, display_name: member.display_name, avatar_url: member.avatar_url, attachments: savedAttachments }, 201);
-});
-
-app.put('/api/rooms/:roomId/messages/:id', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const id = c.req.param('id');
-  const message = await c.env.DB.prepare('SELECT * FROM messages WHERE id = ?').bind(id).first<Message>();
-  if (!message) return c.json({ error: 'Message not found' }, 404);
-  if (message.member_id !== member.id) return c.json({ error: 'Can only edit your own messages' }, 403);
-
-  const body = await c.req.json<{ content: string }>();
-  if (!body.content) return c.json({ error: 'Content is required' }, 400);
-
-  await c.env.DB.prepare("UPDATE messages SET content = ?, updated_at = datetime('now') WHERE id = ?").bind(body.content, id).run();
-  return c.json({ success: true });
-});
-
-app.delete('/api/rooms/:roomId/messages/:id', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const id = c.req.param('id');
-  const message = await c.env.DB.prepare('SELECT * FROM messages WHERE id = ?').bind(id).first<Message>();
-  if (!message) return c.json({ error: 'Message not found' }, 404);
-  if (message.member_id !== member.id && member.role === 'member') return c.json({ error: 'Cannot delete this message' }, 403);
-
-  await c.env.DB.prepare('DELETE FROM messages WHERE id = ?').bind(id).run();
-  return c.json({ success: true });
-});
-
-// ==================== Threads API (Forum rooms) ====================
-
-app.get('/api/rooms/:roomId/threads', async (c) => {
-  const roomId = c.req.param('roomId');
-  const limit = Math.min(parseInt(c.req.query('limit') || '30'), 100);
-  const offset = parseInt(c.req.query('offset') || '0');
-
-  const result = await c.env.DB.prepare(`
-    SELECT t.*, m.username, m.display_name, m.avatar_url
-    FROM threads t
-    JOIN members m ON t.member_id = m.id
-    WHERE t.room_id = ?
-    ORDER BY t.pinned DESC, t.last_reply_at DESC NULLS LAST, t.created_at DESC
-    LIMIT ? OFFSET ?
-  `).bind(roomId, limit, offset).all();
-
-  return c.json({ threads: result.results || [] });
-});
-
-app.post('/api/rooms/:roomId/threads', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const roomId = c.req.param('roomId');
-  const room = await c.env.DB.prepare('SELECT * FROM rooms WHERE id = ?').bind(roomId).first<Room>();
-  if (!room) return c.json({ error: 'Room not found' }, 404);
-  if (room.kind !== 'forum') return c.json({ error: 'This room is not a forum' }, 400);
-
-  const body = await c.req.json<{ title: string; content?: string }>();
-  if (!body.title) return c.json({ error: 'Title is required' }, 400);
-
-  const id = generateId();
-  const now = new Date().toISOString();
-
-  await c.env.DB.prepare(`INSERT INTO threads (id, room_id, member_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(id, roomId, member.id, body.title, body.content || null, now, now).run();
-
-  return c.json({ id, room_id: roomId, member_id: member.id, title: body.title, content: body.content || null, pinned: 0, locked: 0, reply_count: 0, last_reply_at: null, created_at: now, username: member.username, display_name: member.display_name, avatar_url: member.avatar_url }, 201);
-});
-
-app.get('/api/rooms/:roomId/threads/:threadId', async (c) => {
-  const threadId = c.req.param('threadId');
-  const thread = await c.env.DB.prepare(`
-    SELECT t.*, m.username, m.display_name, m.avatar_url
-    FROM threads t
-    JOIN members m ON t.member_id = m.id
-    WHERE t.id = ?
-  `).bind(threadId).first();
-
-  if (!thread) return c.json({ error: 'Thread not found' }, 404);
-  return c.json({ thread });
-});
-
-app.put('/api/rooms/:roomId/threads/:threadId', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const threadId = c.req.param('threadId');
-  const thread = await c.env.DB.prepare('SELECT * FROM threads WHERE id = ?').bind(threadId).first<Thread>();
-  if (!thread) return c.json({ error: 'Thread not found' }, 404);
-  if (thread.member_id !== member.id && member.role === 'member') return c.json({ error: 'Cannot edit this thread' }, 403);
-
-  const body = await c.req.json<{ title?: string; content?: string }>();
-  const updates: string[] = [];
-  const values: unknown[] = [];
-
-  if (body.title !== undefined) { updates.push('title = ?'); values.push(body.title); }
-  if (body.content !== undefined) { updates.push('content = ?'); values.push(body.content); }
-
-  if (updates.length === 0) return c.json({ error: 'No fields to update' }, 400);
-
-  updates.push("updated_at = datetime('now')");
-  values.push(threadId);
-
-  await c.env.DB.prepare(`UPDATE threads SET ${updates.join(', ')} WHERE id = ?`).bind(...values).run();
-  return c.json({ success: true });
-});
-
-app.delete('/api/rooms/:roomId/threads/:threadId', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const threadId = c.req.param('threadId');
-  const thread = await c.env.DB.prepare('SELECT * FROM threads WHERE id = ?').bind(threadId).first<Thread>();
-  if (!thread) return c.json({ error: 'Thread not found' }, 404);
-  if (thread.member_id !== member.id && member.role === 'member') return c.json({ error: 'Cannot delete this thread' }, 403);
-
-  await c.env.DB.prepare('DELETE FROM threads WHERE id = ?').bind(threadId).run();
-  return c.json({ success: true });
-});
-
-// Pin/Lock thread
-app.post('/api/rooms/:roomId/threads/:threadId/pin', async (c) => {
-  const member = c.get('member');
-  if (!member || member.role === 'member') return c.json({ error: 'Unauthorized' }, 403);
-
-  const threadId = c.req.param('threadId');
-  const thread = await c.env.DB.prepare('SELECT * FROM threads WHERE id = ?').bind(threadId).first<Thread>();
-  if (!thread) return c.json({ error: 'Thread not found' }, 404);
-
-  const newPinned = thread.pinned ? 0 : 1;
-  await c.env.DB.prepare('UPDATE threads SET pinned = ? WHERE id = ?').bind(newPinned, threadId).run();
-  return c.json({ success: true, pinned: newPinned });
-});
-
-app.post('/api/rooms/:roomId/threads/:threadId/lock', async (c) => {
-  const member = c.get('member');
-  if (!member || member.role === 'member') return c.json({ error: 'Unauthorized' }, 403);
-
-  const threadId = c.req.param('threadId');
-  const thread = await c.env.DB.prepare('SELECT * FROM threads WHERE id = ?').bind(threadId).first<Thread>();
-  if (!thread) return c.json({ error: 'Thread not found' }, 404);
-
-  const newLocked = thread.locked ? 0 : 1;
-  await c.env.DB.prepare('UPDATE threads SET locked = ? WHERE id = ?').bind(newLocked, threadId).run();
-  return c.json({ success: true, locked: newLocked });
-});
-
-// Thread replies
-app.get('/api/threads/:threadId/replies', async (c) => {
-  const threadId = c.req.param('threadId');
-  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100);
-  const offset = parseInt(c.req.query('offset') || '0');
-
-  const result = await c.env.DB.prepare(`
-    SELECT r.*, m.username, m.display_name, m.avatar_url
-    FROM thread_replies r
-    JOIN members m ON r.member_id = m.id
-    WHERE r.thread_id = ?
-    ORDER BY r.created_at ASC
-    LIMIT ? OFFSET ?
-  `).bind(threadId, limit, offset).all();
-
-  return c.json({ replies: result.results || [] });
-});
-
-app.post('/api/threads/:threadId/replies', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const threadId = c.req.param('threadId');
-  const thread = await c.env.DB.prepare('SELECT * FROM threads WHERE id = ?').bind(threadId).first<Thread>();
-  if (!thread) return c.json({ error: 'Thread not found' }, 404);
-  if (thread.locked) return c.json({ error: 'Thread is locked' }, 403);
-
-  const body = await c.req.json<{ content: string }>();
-  if (!body.content) return c.json({ error: 'Content is required' }, 400);
-
-  const id = generateId();
-  const now = new Date().toISOString();
-
-  await c.env.DB.prepare(`INSERT INTO thread_replies (id, thread_id, member_id, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`).bind(id, threadId, member.id, body.content, now, now).run();
-
-  // Update thread stats
-  await c.env.DB.prepare(`UPDATE threads SET reply_count = reply_count + 1, last_reply_at = ? WHERE id = ?`).bind(now, threadId).run();
-
-  return c.json({ id, thread_id: threadId, member_id: member.id, content: body.content, created_at: now, username: member.username, display_name: member.display_name, avatar_url: member.avatar_url }, 201);
-});
-
-app.delete('/api/threads/:threadId/replies/:replyId', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const replyId = c.req.param('replyId');
-  const reply = await c.env.DB.prepare('SELECT * FROM thread_replies WHERE id = ?').bind(replyId).first<ThreadReply>();
-  if (!reply) return c.json({ error: 'Reply not found' }, 404);
-  if (reply.member_id !== member.id && member.role === 'member') return c.json({ error: 'Cannot delete this reply' }, 403);
-
-  await c.env.DB.prepare('DELETE FROM thread_replies WHERE id = ?').bind(replyId).run();
-  await c.env.DB.prepare('UPDATE threads SET reply_count = reply_count - 1 WHERE id = ?').bind(reply.thread_id).run();
-
-  return c.json({ success: true });
-});
-
-// ==================== DM API ====================
-
-app.get('/api/dm/conversations', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const result = await c.env.DB.prepare(`
-    SELECT c.*,
-      m1.username as member1_username, m1.display_name as member1_display_name, m1.avatar_url as member1_avatar_url,
-      m2.username as member2_username, m2.display_name as member2_display_name, m2.avatar_url as member2_avatar_url
-    FROM dm_conversations c
-    JOIN members m1 ON c.member1_id = m1.id
-    JOIN members m2 ON c.member2_id = m2.id
-    WHERE c.member1_id = ? OR c.member2_id = ?
-    ORDER BY c.last_message_at DESC NULLS LAST
-  `).bind(member.id, member.id).all();
-
-  return c.json({ conversations: result.results || [] });
-});
-
-app.post('/api/dm/conversations', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const body = await c.req.json<{ member_id: string }>();
-  if (!body.member_id) return c.json({ error: 'member_id is required' }, 400);
-  if (body.member_id === member.id) return c.json({ error: 'Cannot start conversation with yourself' }, 400);
-
-  // Check if conversation already exists
-  const existing = await c.env.DB.prepare(`
-    SELECT * FROM dm_conversations
-    WHERE (member1_id = ? AND member2_id = ?) OR (member1_id = ? AND member2_id = ?)
-  `).bind(member.id, body.member_id, body.member_id, member.id).first();
-
-  if (existing) return c.json({ conversation: existing });
-
-  // Create new conversation
-  const id = generateId();
-  await c.env.DB.prepare(`INSERT INTO dm_conversations (id, member1_id, member2_id) VALUES (?, ?, ?)`).bind(id, member.id, body.member_id).run();
-
-  const conversation = await c.env.DB.prepare(`
-    SELECT c.*,
-      m1.username as member1_username, m1.display_name as member1_display_name, m1.avatar_url as member1_avatar_url,
-      m2.username as member2_username, m2.display_name as member2_display_name, m2.avatar_url as member2_avatar_url
-    FROM dm_conversations c
-    JOIN members m1 ON c.member1_id = m1.id
-    JOIN members m2 ON c.member2_id = m2.id
-    WHERE c.id = ?
-  `).bind(id).first();
-
-  return c.json({ conversation }, 201);
-});
-
-app.get('/api/dm/conversations/:conversationId/messages', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const conversationId = c.req.param('conversationId');
-
-  // Verify access
-  const conversation = await c.env.DB.prepare('SELECT * FROM dm_conversations WHERE id = ?').bind(conversationId).first<DMConversation>();
-  if (!conversation) return c.json({ error: 'Conversation not found' }, 404);
-  if (conversation.member1_id !== member.id && conversation.member2_id !== member.id) return c.json({ error: 'Unauthorized' }, 403);
-
-  const before = c.req.query('before');
-  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100);
-
-  let query = `SELECT dm.*, m.username, m.display_name, m.avatar_url FROM dm_messages dm JOIN members m ON dm.sender_id = m.id WHERE dm.conversation_id = ?`;
-  const params: unknown[] = [conversationId];
-
-  if (before) { query += ' AND dm.created_at < ?'; params.push(before); }
-
-  query += ' ORDER BY dm.created_at DESC LIMIT ?';
-  params.push(limit);
-
-  const result = await c.env.DB.prepare(query).bind(...params).all();
-  return c.json({ messages: (result.results || []).reverse() });
-});
-
-app.post('/api/dm/conversations/:conversationId/messages', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const conversationId = c.req.param('conversationId');
-
-  // Verify access
-  const conversation = await c.env.DB.prepare('SELECT * FROM dm_conversations WHERE id = ?').bind(conversationId).first<DMConversation>();
-  if (!conversation) return c.json({ error: 'Conversation not found' }, 404);
-  if (conversation.member1_id !== member.id && conversation.member2_id !== member.id) return c.json({ error: 'Unauthorized' }, 403);
-
-  const body = await c.req.json<{ content: string }>();
-  if (!body.content) return c.json({ error: 'Content is required' }, 400);
-
-  const id = generateId();
-  const now = new Date().toISOString();
-
-  await c.env.DB.prepare(`INSERT INTO dm_messages (id, conversation_id, sender_id, content, created_at) VALUES (?, ?, ?, ?, ?)`).bind(id, conversationId, member.id, body.content, now).run();
-
-  // Update conversation
-  await c.env.DB.prepare('UPDATE dm_conversations SET last_message_at = ? WHERE id = ?').bind(now, conversationId).run();
-
-  return c.json({ id, conversation_id: conversationId, sender_id: member.id, content: body.content, created_at: now, username: member.username, display_name: member.display_name, avatar_url: member.avatar_url }, 201);
-});
-
-// ==================== Members API ====================
-
-app.get('/api/members', async (c) => {
-  const result = await c.env.DB.prepare('SELECT id, username, display_name, avatar_url, role, bio, is_remote, ap_actor_id, created_at FROM members ORDER BY created_at ASC').all();
-  return c.json({ members: result.results || [] });
-});
-
-app.get('/api/members/:id', async (c) => {
-  const id = c.req.param('id');
-  const member = await c.env.DB.prepare('SELECT id, username, display_name, avatar_url, role, bio, is_remote, ap_actor_id, created_at FROM members WHERE id = ?').bind(id).first();
-  if (!member) return c.json({ error: 'Member not found' }, 404);
-  return c.json({ member });
-});
-
-// Get member profile with follow stats
-app.get('/api/members/:id/profile', async (c) => {
-  const currentMember = c.get('member');
-  const id = c.req.param('id');
-
-  const member = await c.env.DB.prepare(`
-    SELECT id, username, display_name, avatar_url, header_url, role, bio, is_remote, ap_actor_id,
-           follower_count, following_count, post_count, created_at
-    FROM members WHERE id = ?
-  `).bind(id).first();
-
-  if (!member) return c.json({ error: 'Member not found' }, 404);
-
-  // Check if current user is following this member
+  // Try local actors first
+  let actor = await c.env.DB.prepare(`
+    SELECT ap_id, preferred_username, name, summary, icon_url, header_url, role,
+           follower_count, following_count, post_count, is_private, created_at
+    FROM actors WHERE ap_id = ?
+  `).bind(apId).first<any>();
+
+  if (!actor) {
+    // Try actor cache (remote)
+    actor = await c.env.DB.prepare('SELECT * FROM actor_cache WHERE ap_id = ?').bind(apId).first();
+    if (!actor) return c.json({ error: 'Actor not found' }, 404);
+  }
+
+  // Check follow status if logged in
   let is_following = false;
   let is_followed_by = false;
 
-  if (currentMember && currentMember.id !== id) {
+  if (currentActor && currentActor.ap_id !== apId) {
     const followStatus = await c.env.DB.prepare(`
       SELECT
-        EXISTS(SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? AND status = 'accepted') as is_following,
-        EXISTS(SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? AND status = 'accepted') as is_followed_by
-    `).bind(currentMember.id, id, id, currentMember.id).first<{ is_following: number; is_followed_by: number }>();
+        EXISTS(SELECT 1 FROM follows WHERE follower_ap_id = ? AND following_ap_id = ? AND status = 'accepted') as is_following,
+        EXISTS(SELECT 1 FROM follows WHERE follower_ap_id = ? AND following_ap_id = ? AND status = 'accepted') as is_followed_by
+    `).bind(currentActor.ap_id, apId, apId, currentActor.ap_id).first<any>();
 
     if (followStatus) {
       is_following = !!followStatus.is_following;
@@ -962,1856 +357,875 @@ app.get('/api/members/:id/profile', async (c) => {
   }
 
   return c.json({
-    member: {
-      ...member,
+    actor: {
+      ...actor,
+      username: formatUsername(actor.ap_id),
       is_following,
       is_followed_by,
     }
   });
 });
 
-app.put('/api/members/:id/role', async (c) => {
-  const currentMember = c.get('member');
-  if (!currentMember || currentMember.role !== 'owner') return c.json({ error: 'Only owners can change roles' }, 403);
+// Update own profile
+app.put('/api/actors/me', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const id = c.req.param('id');
-  const body = await c.req.json<{ role: string }>();
-  if (!['owner', 'moderator', 'member'].includes(body.role)) return c.json({ error: 'Invalid role' }, 400);
+  const body = await c.req.json<{ name?: string; summary?: string; icon_url?: string; header_url?: string }>();
 
-  await c.env.DB.prepare("UPDATE members SET role = ?, updated_at = datetime('now') WHERE id = ?").bind(body.role, id).run();
-  return c.json({ success: true });
-});
+  const updates: string[] = [];
+  const values: any[] = [];
 
-app.delete('/api/members/:id', async (c) => {
-  const currentMember = c.get('member');
-  if (!currentMember || (currentMember.role !== 'owner' && currentMember.role !== 'moderator')) return c.json({ error: 'Unauthorized' }, 403);
+  if (body.name !== undefined) { updates.push('name = ?'); values.push(body.name); }
+  if (body.summary !== undefined) { updates.push('summary = ?'); values.push(body.summary); }
+  if (body.icon_url !== undefined) { updates.push('icon_url = ?'); values.push(body.icon_url); }
+  if (body.header_url !== undefined) { updates.push('header_url = ?'); values.push(body.header_url); }
 
-  const id = c.req.param('id');
-  if (id === currentMember.id) return c.json({ error: 'Cannot delete yourself' }, 400);
+  if (updates.length === 0) return c.json({ error: 'No fields to update' }, 400);
 
-  const targetMember = await c.env.DB.prepare('SELECT * FROM members WHERE id = ?').bind(id).first<Member>();
-  if (!targetMember) return c.json({ error: 'Member not found' }, 404);
-  if (targetMember.role === 'owner') return c.json({ error: 'Cannot delete an owner' }, 403);
+  updates.push("updated_at = datetime('now')");
+  values.push(actor.ap_id);
 
-  await c.env.DB.prepare('DELETE FROM sessions WHERE member_id = ?').bind(id).run();
-  await c.env.DB.prepare('DELETE FROM members WHERE id = ?').bind(id).run();
-  return c.json({ success: true });
-});
-
-// ==================== ActivityPub Invite/BAN API ====================
-
-// Send Invite to remote actor
-app.post('/api/ap/invite', async (c) => {
-  const member = c.get('member');
-  if (!member || (member.role !== 'owner' && member.role !== 'moderator')) {
-    return c.json({ error: 'Only owners/moderators can invite' }, 403);
-  }
-
-  const body = await c.req.json<{ actor_id: string }>();
-  if (!body.actor_id) return c.json({ error: 'actor_id required' }, 400);
-
-  const baseUrl = c.env.APP_URL;
-
-  // Check if already invited
-  const existing = await c.env.DB.prepare('SELECT * FROM ap_invites WHERE actor_id = ?').bind(body.actor_id).first();
-  if (existing) return c.json({ error: 'Already invited' }, 400);
-
-  // Fetch actor info
-  let actorInbox: string | null = null;
-  try {
-    const actorResponse = await fetch(body.actor_id, { headers: { Accept: 'application/activity+json' } });
-    if (actorResponse.ok) {
-      const actorData: any = await actorResponse.json();
-      actorInbox = actorData.inbox;
-
-      // Store remote actor
-      await c.env.DB.prepare(
-        'INSERT OR REPLACE INTO ap_remote_actors (id, actor_type, preferred_username, name, summary, inbox, outbox, followers, following, public_key_id, public_key_pem, icon_url, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-      ).bind(
-        body.actor_id,
-        actorData.type || 'Person',
-        actorData.preferredUsername,
-        actorData.name,
-        actorData.summary,
-        actorData.inbox,
-        actorData.outbox,
-        actorData.followers,
-        actorData.following,
-        actorData.publicKey?.id,
-        actorData.publicKey?.publicKeyPem,
-        actorData.icon?.url || actorData.icon,
-        JSON.stringify(actorData)
-      ).run();
-    }
-  } catch (e) {
-    return c.json({ error: 'Failed to fetch actor' }, 400);
-  }
-
-  if (!actorInbox) return c.json({ error: 'Could not find actor inbox' }, 400);
-
-  // Create invite record
-  const inviteId = generateId();
-  await c.env.DB.prepare(
-    'INSERT INTO ap_invites (id, actor_id, invited_by, created_at) VALUES (?, ?, ?, datetime("now"))'
-  ).bind(inviteId, body.actor_id, member.id).run();
-
-  // Send Invite activity
-  const { privateKeyPem } = await getOrCreateKeyPair(c.env.DB);
-  const inviteActivity = {
-    '@context': 'https://www.w3.org/ns/activitystreams',
-    id: `${baseUrl}/ap/activities/${inviteId}`,
-    type: 'Invite',
-    actor: `${baseUrl}/ap/actor`,
-    object: `${baseUrl}/ap/actor`,
-    to: [body.actor_id]
-  };
-
-  await deliverActivity(inviteActivity, actorInbox, privateKeyPem, `${baseUrl}/ap/actor#main-key`);
-
-  // Store outbound activity
-  await c.env.DB.prepare(
-    'INSERT INTO ap_activities (id, activity_id, activity_type, actor, object, raw_json, direction) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).bind(generateId(), inviteActivity.id, 'Invite', `${baseUrl}/ap/actor`, body.actor_id, JSON.stringify(inviteActivity), 'outbound').run();
-
-  return c.json({ success: true, invite_id: inviteId });
-});
-
-// Get invites list
-app.get('/api/ap/invites', async (c) => {
-  const member = c.get('member');
-  if (!member || (member.role !== 'owner' && member.role !== 'moderator')) {
-    return c.json({ error: 'Only owners/moderators can view invites' }, 403);
-  }
-
-  const invites = await c.env.DB.prepare(`
-    SELECT i.*, ra.preferred_username, ra.name, ra.icon_url
-    FROM ap_invites i
-    LEFT JOIN ap_remote_actors ra ON i.actor_id = ra.id
-    ORDER BY i.created_at DESC
-  `).all();
-
-  return c.json({ invites: invites.results || [] });
-});
-
-// Delete invite
-app.delete('/api/ap/invites/:id', async (c) => {
-  const member = c.get('member');
-  if (!member || (member.role !== 'owner' && member.role !== 'moderator')) {
-    return c.json({ error: 'Only owners/moderators can delete invites' }, 403);
-  }
-
-  const id = c.req.param('id');
-  await c.env.DB.prepare('DELETE FROM ap_invites WHERE id = ?').bind(id).run();
-  return c.json({ success: true });
-});
-
-// BAN remote actor (Remove activity)
-app.post('/api/ap/ban', async (c) => {
-  const member = c.get('member');
-  if (!member || (member.role !== 'owner' && member.role !== 'moderator')) {
-    return c.json({ error: 'Only owners/moderators can ban' }, 403);
-  }
-
-  const body = await c.req.json<{ actor_id: string; reason?: string }>();
-  if (!body.actor_id) return c.json({ error: 'actor_id required' }, 400);
-
-  const baseUrl = c.env.APP_URL;
-
-  // Add to ban list
-  await c.env.DB.prepare(
-    'INSERT OR REPLACE INTO ap_bans (id, actor_id, reason, banned_by, created_at) VALUES (?, ?, ?, ?, datetime("now"))'
-  ).bind(generateId(), body.actor_id, body.reason || null, member.id).run();
-
-  // Remove from followers
-  await c.env.DB.prepare('DELETE FROM ap_followers WHERE actor_id = ?').bind(body.actor_id).run();
-
-  // Remove member entry
-  await c.env.DB.prepare('DELETE FROM members WHERE ap_actor_id = ?').bind(body.actor_id).run();
-
-  // Send Remove activity
-  const cachedActor = await c.env.DB.prepare('SELECT inbox FROM ap_remote_actors WHERE id = ?').bind(body.actor_id).first();
-  if (cachedActor?.inbox) {
-    const { privateKeyPem } = await getOrCreateKeyPair(c.env.DB);
-    const removeActivity = {
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      id: `${baseUrl}/ap/activities/${generateId()}`,
-      type: 'Remove',
-      actor: `${baseUrl}/ap/actor`,
-      object: body.actor_id,
-      target: `${baseUrl}/ap/actor/followers`
-    };
-
-    await deliverActivity(removeActivity, cachedActor.inbox as string, privateKeyPem, `${baseUrl}/ap/actor#main-key`);
-
-    // Store outbound activity
-    await c.env.DB.prepare(
-      'INSERT INTO ap_activities (id, activity_id, activity_type, actor, object, raw_json, direction) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).bind(generateId(), removeActivity.id, 'Remove', `${baseUrl}/ap/actor`, body.actor_id, JSON.stringify(removeActivity), 'outbound').run();
-  }
+  await c.env.DB.prepare(`UPDATE actors SET ${updates.join(', ')} WHERE ap_id = ?`).bind(...values).run();
 
   return c.json({ success: true });
 });
 
-// Get ban list
-app.get('/api/ap/bans', async (c) => {
-  const member = c.get('member');
-  if (!member || (member.role !== 'owner' && member.role !== 'moderator')) {
-    return c.json({ error: 'Only owners/moderators can view bans' }, 403);
-  }
-
-  const bans = await c.env.DB.prepare(`
-    SELECT b.*, ra.preferred_username, ra.name, ra.icon_url
-    FROM ap_bans b
-    LEFT JOIN ap_remote_actors ra ON b.actor_id = ra.id
-    ORDER BY b.created_at DESC
-  `).all();
-
-  return c.json({ bans: bans.results || [] });
-});
-
-// Unban actor
-app.delete('/api/ap/bans/:actor_id', async (c) => {
-  const member = c.get('member');
-  if (!member || (member.role !== 'owner' && member.role !== 'moderator')) {
-    return c.json({ error: 'Only owners/moderators can unban' }, 403);
-  }
-
-  const actorId = decodeURIComponent(c.req.param('actor_id'));
-  await c.env.DB.prepare('DELETE FROM ap_bans WHERE actor_id = ?').bind(actorId).run();
-  return c.json({ success: true });
-});
-
-// ==================== Search API ====================
-
-app.get('/api/search/messages', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const q = c.req.query('q');
-  if (!q || q.length < 2) return c.json({ error: 'Query too short' }, 400);
-
-  const result = await c.env.DB.prepare(`
-    SELECT m.*, mem.username, mem.display_name, mem.avatar_url, r.name as room_name
-    FROM messages m
-    JOIN members mem ON m.member_id = mem.id
-    JOIN rooms r ON m.room_id = r.id
-    WHERE m.content LIKE ?
-    ORDER BY m.created_at DESC
-    LIMIT 50
-  `).bind(`%${q}%`).all();
-
-  return c.json({ messages: result.results || [] });
-});
-
-// ==================== Media API ====================
-
-app.post('/api/upload', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const formData = await c.req.formData();
-  const file = formData.get('file') as File | null;
-  if (!file) return c.json({ error: 'No file provided' }, 400);
-
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-  if (!allowedTypes.includes(file.type)) return c.json({ error: 'Invalid file type. Only images allowed.' }, 400);
-  if (file.size > 10 * 1024 * 1024) return c.json({ error: 'File too large. Max 10MB.' }, 400);
-
-  const id = generateId();
-  const ext = file.name.split('.').pop() || 'bin';
-  const r2Key = `uploads/${id}.${ext}`;
-
-  await c.env.MEDIA.put(r2Key, file.stream(), { httpMetadata: { contentType: file.type } });
-
-  return c.json({ id, r2_key: r2Key, content_type: file.type, filename: file.name, size: file.size }, 201);
-});
-
-app.get('/media/:key{.+}', async (c) => {
-  const key = c.req.param('key');
-  const object = await c.env.MEDIA.get(key);
-  if (!object) return c.json({ error: 'Not found' }, 404);
-
-  const headers = new Headers();
-  headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream');
-  headers.set('Cache-Control', 'public, max-age=31536000');
-
-  return new Response(object.body, { headers });
-});
-
-// Health check
-app.get('/api/health', (c) => c.json({ ok: true }));
-
-// ============================================
-// ActivityPub Federation (v3.0)
-// ============================================
-
-const AP_CONTEXT = [
-  'https://www.w3.org/ns/activitystreams',
-  'https://w3id.org/security/v1',
-  {
-    'apc': 'https://yurucommu.com/ns/apc#',
-    'rooms': { '@id': 'apc:rooms', '@type': '@id' },
-    'room': { '@id': 'apc:room', '@type': '@id' },
-    'Room': 'apc:Room',
-    'kind': 'apc:kind',
-    'joinPolicy': 'apc:joinPolicy',
-    'postingPolicy': 'apc:postingPolicy',
-    'visibility': 'apc:visibility',
-    'threadRoot': { '@id': 'apc:threadRoot', '@type': '@id' },
-    'stream': { '@id': 'apc:stream', '@type': '@id' },
-    'threads': { '@id': 'apc:threads', '@type': '@id' },
-    'owners': { '@id': 'apc:owners', '@type': '@id' },
-    'moderators': { '@id': 'apc:moderators', '@type': '@id' },
-    'specVersion': 'apc:specVersion',
-    'capabilities': 'apc:capabilities',
-  }
-];
-
-// Helper: Get or create RSA key pair
-async function getOrCreateKeyPair(db: D1Database): Promise<{ publicKeyPem: string; privateKeyPem: string }> {
-  const existing = await db.prepare('SELECT * FROM ap_actor_keys WHERE id = ?').bind('main').first();
-  if (existing) {
-    return { publicKeyPem: existing.public_key_pem as string, privateKeyPem: existing.private_key_pem as string };
-  }
-
-  // Generate new RSA key pair
-  const keyPair = await crypto.subtle.generateKey(
-    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
-    true,
-    ['sign', 'verify']
-  );
-
-  const publicKeyDer = await crypto.subtle.exportKey('spki', keyPair.publicKey);
-  const privateKeyDer = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
-
-  const publicKeyPem = `-----BEGIN PUBLIC KEY-----\n${btoa(String.fromCharCode(...new Uint8Array(publicKeyDer))).match(/.{1,64}/g)?.join('\n')}\n-----END PUBLIC KEY-----`;
-  const privateKeyPem = `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCharCode(...new Uint8Array(privateKeyDer))).match(/.{1,64}/g)?.join('\n')}\n-----END PRIVATE KEY-----`;
-
-  await db.prepare('INSERT INTO ap_actor_keys (id, public_key_pem, private_key_pem) VALUES (?, ?, ?)')
-    .bind('main', publicKeyPem, privateKeyPem).run();
-
-  return { publicKeyPem, privateKeyPem };
-}
-
-// Helper: Import private key for signing
-async function importPrivateKey(pem: string): Promise<CryptoKey> {
-  const pemContents = pem.replace(/-----BEGIN PRIVATE KEY-----/, '').replace(/-----END PRIVATE KEY-----/, '').replace(/\s/g, '');
-  const der = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
-  return crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
-}
-
-// Helper: Sign HTTP request
-async function signRequest(method: string, url: string, body: string, privateKeyPem: string, keyId: string): Promise<Headers> {
-  const privateKey = await importPrivateKey(privateKeyPem);
-  const urlObj = new URL(url);
-  const date = new Date().toUTCString();
-
-  // Create digest
-  const bodyBytes = new TextEncoder().encode(body);
-  const digestBuffer = await crypto.subtle.digest('SHA-256', bodyBytes);
-  const digest = `SHA-256=${btoa(String.fromCharCode(...new Uint8Array(digestBuffer)))}`;
-
-  // Create signature string
-  const signedHeaders = '(request-target) host date digest';
-  const signatureString = [
-    `(request-target): ${method.toLowerCase()} ${urlObj.pathname}`,
-    `host: ${urlObj.host}`,
-    `date: ${date}`,
-    `digest: ${digest}`
-  ].join('\n');
-
-  // Sign
-  const signatureBytes = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', privateKey, new TextEncoder().encode(signatureString));
-  const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBytes)));
-
-  const headers = new Headers();
-  headers.set('Date', date);
-  headers.set('Digest', digest);
-  headers.set('Signature', `keyId="${keyId}",algorithm="rsa-sha256",headers="${signedHeaders}",signature="${signature}"`);
-  headers.set('Content-Type', 'application/activity+json');
-
-  return headers;
-}
-
-// Helper: Import public key for verification
-async function importPublicKey(pem: string): Promise<CryptoKey> {
-  const pemContents = pem.replace(/-----BEGIN PUBLIC KEY-----/, '').replace(/-----END PUBLIC KEY-----/, '').replace(/\s/g, '');
-  const der = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
-  return crypto.subtle.importKey('spki', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
-}
-
-// Helper: Verify HTTP Signature
-async function verifyHttpSignature(request: Request, db: D1Database): Promise<{ verified: boolean; actorId?: string }> {
-  try {
-    const signatureHeader = request.headers.get('Signature');
-    if (!signatureHeader) return { verified: false };
-
-    // Parse signature header
-    const params: Record<string, string> = {};
-    signatureHeader.split(',').forEach(part => {
-      const [key, ...valueParts] = part.split('=');
-      const value = valueParts.join('=').replace(/^"/, '').replace(/"$/, '');
-      params[key.trim()] = value;
-    });
-
-    const keyId = params.keyId;
-    const signedHeaders = params.headers?.split(' ') || [];
-    const signature = params.signature;
-
-    if (!keyId || !signature) return { verified: false };
-
-    // Fetch actor's public key
-    const actorId = keyId.split('#')[0];
-    let publicKeyPem: string | null = null;
-
-    // Check cache first
-    const cached = await db.prepare('SELECT public_key_pem FROM ap_remote_actors WHERE id = ?').bind(actorId).first();
-    if (cached?.public_key_pem) {
-      publicKeyPem = cached.public_key_pem as string;
-    } else {
-      // Fetch from remote
-      const actorResponse = await fetch(actorId, { headers: { Accept: 'application/activity+json' } });
-      if (actorResponse.ok) {
-        const actorData: any = await actorResponse.json();
-        publicKeyPem = actorData.publicKey?.publicKeyPem;
-      }
-    }
-
-    if (!publicKeyPem) return { verified: false };
-
-    // Reconstruct signature string
-    const url = new URL(request.url);
-    const signatureParts: string[] = [];
-    for (const header of signedHeaders) {
-      if (header === '(request-target)') {
-        signatureParts.push(`(request-target): ${request.method.toLowerCase()} ${url.pathname}`);
-      } else {
-        const value = request.headers.get(header);
-        if (value) signatureParts.push(`${header}: ${value}`);
-      }
-    }
-    const signatureString = signatureParts.join('\n');
-
-    // Verify signature
-    const publicKey = await importPublicKey(publicKeyPem);
-    const signatureBytes = Uint8Array.from(atob(signature), c => c.charCodeAt(0));
-    const verified = await crypto.subtle.verify(
-      'RSASSA-PKCS1-v1_5',
-      publicKey,
-      signatureBytes,
-      new TextEncoder().encode(signatureString)
-    );
-
-    return { verified, actorId: verified ? actorId : undefined };
-  } catch (e) {
-    console.error('Signature verification failed:', e);
-    return { verified: false };
-  }
-}
-
-// Helper: Deliver activity to remote inbox (immediate)
-async function deliverActivityImmediate(activity: object, targetInbox: string, privateKeyPem: string, keyId: string): Promise<boolean> {
-  try {
-    const body = JSON.stringify(activity);
-    const headers = await signRequest('POST', targetInbox, body, privateKeyPem, keyId);
-
-    const response = await fetch(targetInbox, { method: 'POST', headers, body });
-    return response.ok || response.status === 202;
-  } catch (e) {
-    console.error('Delivery failed:', e);
-    return false;
-  }
-}
-
-// Helper: Queue activity for delivery with retry
-async function queueDelivery(db: D1Database, activityId: string, targetInbox: string): Promise<void> {
-  const id = generateId();
-  await db.prepare(
-    `INSERT INTO ap_delivery_queue (id, activity_id, target_inbox, status, created_at) VALUES (?, ?, ?, 'pending', datetime('now'))`
-  ).bind(id, activityId, targetInbox).run();
-}
-
-// Helper: Process delivery queue
-async function processDeliveryQueue(db: D1Database, privateKeyPem: string, keyId: string): Promise<{ processed: number; succeeded: number; failed: number }> {
-  // Get pending deliveries (up to 10 at a time)
-  const pendingDeliveries = await db.prepare(`
-    SELECT dq.*, aa.raw_json as activity_json
-    FROM ap_delivery_queue dq
-    JOIN ap_activities aa ON dq.activity_id = aa.activity_id
-    WHERE dq.status = 'pending'
-      AND (dq.next_retry_at IS NULL OR dq.next_retry_at <= datetime('now'))
-    ORDER BY dq.created_at ASC
-    LIMIT 10
-  `).all();
-
-  let processed = 0, succeeded = 0, failed = 0;
-
-  for (const delivery of (pendingDeliveries.results || []) as any[]) {
-    processed++;
-    const activity = JSON.parse(delivery.activity_json);
-
-    const success = await deliverActivityImmediate(activity, delivery.target_inbox, privateKeyPem, keyId);
-
-    if (success) {
-      succeeded++;
-      await db.prepare(`UPDATE ap_delivery_queue SET status = 'success', last_attempt_at = datetime('now') WHERE id = ?`)
-        .bind(delivery.id).run();
-    } else {
-      const attempts = (delivery.attempts || 0) + 1;
-      if (attempts >= 5) {
-        failed++;
-        await db.prepare(`UPDATE ap_delivery_queue SET status = 'failed', attempts = ?, last_attempt_at = datetime('now'), error_message = 'Max retries exceeded' WHERE id = ?`)
-          .bind(attempts, delivery.id).run();
-      } else {
-        // Exponential backoff: 1min, 5min, 15min, 60min
-        const delayMinutes = [1, 5, 15, 60][attempts - 1] || 60;
-        await db.prepare(`UPDATE ap_delivery_queue SET attempts = ?, last_attempt_at = datetime('now'), next_retry_at = datetime('now', '+${delayMinutes} minutes') WHERE id = ?`)
-          .bind(attempts, delivery.id).run();
-      }
-    }
-  }
-
-  return { processed, succeeded, failed };
-}
-
-// Helper: Deliver activity (queued version for background delivery)
-async function deliverActivity(activity: object, targetInbox: string, privateKeyPem: string, keyId: string): Promise<boolean> {
-  // For now, still do immediate delivery but log failures
-  // In production, this would queue and return immediately
-  return deliverActivityImmediate(activity, targetInbox, privateKeyPem, keyId);
-}
-
-// WebFinger
-app.get('/.well-known/webfinger', async (c) => {
-  const resource = c.req.query('resource');
-  if (!resource) return c.json({ error: 'resource required' }, 400);
-
-  const expected = `acct:community@${new URL(c.env.APP_URL).host}`;
-  if (resource !== expected) return c.json({ error: 'not found' }, 404);
-
-  return c.json({
-    subject: resource,
-    links: [
-      { rel: 'self', type: 'application/activity+json', href: `${c.env.APP_URL}/ap/actor` }
-    ]
-  });
-});
-
-// NodeInfo (for compatibility)
-app.get('/.well-known/nodeinfo', (c) => {
-  return c.json({
-    links: [
-      { rel: 'http://nodeinfo.diaspora.software/ns/schema/2.1', href: `${c.env.APP_URL}/nodeinfo/2.1` }
-    ]
-  });
-});
-
-app.get('/nodeinfo/2.1', async (c) => {
-  const memberCount = await c.env.DB.prepare('SELECT COUNT(*) as count FROM members').first();
-  const messageCount = await c.env.DB.prepare('SELECT COUNT(*) as count FROM messages').first();
-
-  return c.json({
-    version: '2.1',
-    software: { name: 'yurucommu', version: '3.0.0' },
-    protocols: ['activitypub'],
-    usage: {
-      users: { total: memberCount?.count || 0, activeMonth: memberCount?.count || 0 },
-      localPosts: messageCount?.count || 0
-    },
-    openRegistrations: true
-  });
-});
-
-// Group Actor
-app.get('/ap/actor', async (c) => {
-  const accept = c.req.header('Accept') || '';
-  if (!accept.includes('application/activity+json') && !accept.includes('application/ld+json')) {
-    return c.env.ASSETS.fetch(c.req.raw);
-  }
-
-  const { publicKeyPem } = await getOrCreateKeyPair(c.env.DB);
+// Get actor's followers
+app.get('/api/actors/:identifier/followers', async (c) => {
+  const identifier = c.req.param('identifier');
   const baseUrl = c.env.APP_URL;
+  const apId = identifier.startsWith('http') ? identifier : actorApId(baseUrl, identifier);
 
-  const actor = {
-    '@context': AP_CONTEXT,
-    id: `${baseUrl}/ap/actor`,
-    type: 'Group',
-    preferredUsername: 'community',
-    name: 'Yurucommu',
-    summary: 'ゆるいコミュニティチャット',
-    inbox: `${baseUrl}/ap/actor/inbox`,
-    outbox: `${baseUrl}/ap/actor/outbox`,
-    followers: `${baseUrl}/ap/actor/followers`,
-    following: `${baseUrl}/ap/actor/following`,
-    publicKey: {
-      id: `${baseUrl}/ap/actor#main-key`,
-      owner: `${baseUrl}/ap/actor`,
-      publicKeyPem
-    },
-    rooms: `${baseUrl}/ap/rooms`,
-    owners: `${baseUrl}/ap/actor/owners`,
-    moderators: `${baseUrl}/ap/actor/moderators`,
-    joinPolicy: 'open',
-    postingPolicy: 'members',
-    visibility: 'public',
-    specVersion: '0.3',
-    capabilities: ['rooms', 'forum', 'announceOnlyForwarding'],
-    endpoints: { sharedInbox: `${baseUrl}/ap/actor/inbox` }
-  };
+  const followers = await c.env.DB.prepare(`
+    SELECT f.follower_ap_id, f.created_at,
+           COALESCE(a.preferred_username, ac.preferred_username) as preferred_username,
+           COALESCE(a.name, ac.name) as name,
+           COALESCE(a.icon_url, ac.icon_url) as icon_url,
+           COALESCE(a.summary, ac.summary) as summary
+    FROM follows f
+    LEFT JOIN actors a ON f.follower_ap_id = a.ap_id
+    LEFT JOIN actor_cache ac ON f.follower_ap_id = ac.ap_id
+    WHERE f.following_ap_id = ? AND f.status = 'accepted'
+    ORDER BY f.created_at DESC
+  `).bind(apId).all();
 
-  return c.json(actor, 200, { 'Content-Type': 'application/activity+json' });
+  const result = (followers.results || []).map((f: any) => ({
+    ap_id: f.follower_ap_id,
+    username: formatUsername(f.follower_ap_id),
+    preferred_username: f.preferred_username,
+    name: f.name,
+    icon_url: f.icon_url,
+    summary: f.summary,
+  }));
+
+  return c.json({ followers: result });
 });
 
-// Owners collection
-app.get('/ap/actor/owners', async (c) => {
-  const owners = await c.env.DB.prepare("SELECT id, username, display_name, ap_actor_id FROM members WHERE role = 'owner'").all();
+// Get actor's following
+app.get('/api/actors/:identifier/following', async (c) => {
+  const identifier = c.req.param('identifier');
   const baseUrl = c.env.APP_URL;
+  const apId = identifier.startsWith('http') ? identifier : actorApId(baseUrl, identifier);
 
-  return c.json({
-    '@context': 'https://www.w3.org/ns/activitystreams',
-    id: `${baseUrl}/ap/actor/owners`,
-    type: 'OrderedCollection',
-    totalItems: owners.results?.length || 0,
-    orderedItems: owners.results?.map((m: any) => m.ap_actor_id || `${baseUrl}/ap/members/${m.id}`) || []
-  }, 200, { 'Content-Type': 'application/activity+json' });
+  const following = await c.env.DB.prepare(`
+    SELECT f.following_ap_id, f.created_at,
+           COALESCE(a.preferred_username, ac.preferred_username) as preferred_username,
+           COALESCE(a.name, ac.name) as name,
+           COALESCE(a.icon_url, ac.icon_url) as icon_url,
+           COALESCE(a.summary, ac.summary) as summary
+    FROM follows f
+    LEFT JOIN actors a ON f.following_ap_id = a.ap_id
+    LEFT JOIN actor_cache ac ON f.following_ap_id = ac.ap_id
+    WHERE f.follower_ap_id = ? AND f.status = 'accepted'
+    ORDER BY f.created_at DESC
+  `).bind(apId).all();
+
+  const result = (following.results || []).map((f: any) => ({
+    ap_id: f.following_ap_id,
+    username: formatUsername(f.following_ap_id),
+    preferred_username: f.preferred_username,
+    name: f.name,
+    icon_url: f.icon_url,
+    summary: f.summary,
+  }));
+
+  return c.json({ following: result });
 });
 
-// Moderators collection
-app.get('/ap/actor/moderators', async (c) => {
-  const mods = await c.env.DB.prepare("SELECT id, username, display_name, ap_actor_id FROM members WHERE role = 'moderator'").all();
-  const baseUrl = c.env.APP_URL;
+// ============================================================
+// FOLLOW ENDPOINTS (Unified)
+// ============================================================
 
-  return c.json({
-    '@context': 'https://www.w3.org/ns/activitystreams',
-    id: `${baseUrl}/ap/actor/moderators`,
-    type: 'OrderedCollection',
-    totalItems: mods.results?.length || 0,
-    orderedItems: mods.results?.map((m: any) => m.ap_actor_id || `${baseUrl}/ap/members/${m.id}`) || []
-  }, 200, { 'Content-Type': 'application/activity+json' });
-});
+// Follow an actor
+app.post('/api/follow', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-// Followers collection (with access control for unlisted/inviteOnly)
-app.get('/ap/actor/followers', async (c) => {
-  const visibility = 'public'; // TODO: make configurable
-
-  // For unlisted/confidential, check if requester is a member
-  if (visibility !== 'public') {
-    const signatureResult = await verifyHttpSignature(c.req.raw, c.env.DB);
-    if (signatureResult.verified && signatureResult.actorId) {
-      const isMember = await c.env.DB.prepare('SELECT * FROM ap_followers WHERE actor_id = ? AND accepted = 1').bind(signatureResult.actorId).first();
-      if (!isMember) {
-        // Non-member: only return totalItems
-        const count = await c.env.DB.prepare('SELECT COUNT(*) as count FROM ap_followers WHERE accepted = 1').first();
-        return c.json({
-          '@context': 'https://www.w3.org/ns/activitystreams',
-          id: `${c.env.APP_URL}/ap/actor/followers`,
-          type: 'OrderedCollection',
-          totalItems: count?.count || 0
-        }, 200, { 'Content-Type': 'application/activity+json' });
-      }
-    }
-  }
-
-  const followers = await c.env.DB.prepare('SELECT actor_id FROM ap_followers WHERE accepted = 1').all();
-
-  return c.json({
-    '@context': 'https://www.w3.org/ns/activitystreams',
-    id: `${c.env.APP_URL}/ap/actor/followers`,
-    type: 'OrderedCollection',
-    totalItems: followers.results?.length || 0,
-    orderedItems: followers.results?.map((f: any) => f.actor_id) || []
-  }, 200, { 'Content-Type': 'application/activity+json' });
-});
-
-// Following collection (empty for Group)
-app.get('/ap/actor/following', (c) => {
-  return c.json({
-    '@context': 'https://www.w3.org/ns/activitystreams',
-    id: `${c.env.APP_URL}/ap/actor/following`,
-    type: 'OrderedCollection',
-    totalItems: 0,
-    orderedItems: []
-  }, 200, { 'Content-Type': 'application/activity+json' });
-});
-
-// Outbox collection
-app.get('/ap/actor/outbox', async (c) => {
-  const activities = await c.env.DB.prepare(
-    "SELECT * FROM ap_activities WHERE direction = 'outbound' ORDER BY created_at DESC LIMIT 50"
-  ).all();
-
-  return c.json({
-    '@context': 'https://www.w3.org/ns/activitystreams',
-    id: `${c.env.APP_URL}/ap/actor/outbox`,
-    type: 'OrderedCollection',
-    totalItems: activities.results?.length || 0,
-    orderedItems: activities.results?.map((a: any) => JSON.parse(a.raw_json)) || []
-  }, 200, { 'Content-Type': 'application/activity+json' });
-});
-
-// Inbox (receive activities)
-app.post('/ap/actor/inbox', async (c) => {
-  // Verify HTTP Signature (soft fail for now - log but accept)
-  const signatureResult = await verifyHttpSignature(c.req.raw, c.env.DB);
-  if (!signatureResult.verified) {
-    console.log('Warning: Signature verification failed or missing, accepting anyway');
-  }
-
-  const activity = await c.req.json();
-  console.log('Received activity:', JSON.stringify(activity));
-
-  const activityId = activity.id || generateId();
-  const activityType = activity.type;
-  const actor = typeof activity.actor === 'string' ? activity.actor : activity.actor?.id;
-
-  // Store activity
-  await c.env.DB.prepare(
-    'INSERT OR IGNORE INTO ap_activities (id, activity_id, activity_type, actor, object, raw_json, direction) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).bind(generateId(), activityId, activityType, actor, JSON.stringify(activity.object), JSON.stringify(activity), 'inbound').run();
+  const body = await c.req.json<{ target_ap_id: string }>();
+  if (!body.target_ap_id) return c.json({ error: 'target_ap_id required' }, 400);
+  if (body.target_ap_id === actor.ap_id) return c.json({ error: 'Cannot follow yourself' }, 400);
 
   const baseUrl = c.env.APP_URL;
+  const targetApId = body.target_ap_id;
 
-  // Handle Follow
-  if (activityType === 'Follow') {
-    const targetId = typeof activity.object === 'string' ? activity.object : activity.object?.id;
-    if (targetId !== `${baseUrl}/ap/actor`) {
-      return c.json({ error: 'Invalid target' }, 400);
+  // Check if already following
+  const existing = await c.env.DB.prepare(
+    'SELECT * FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?'
+  ).bind(actor.ap_id, targetApId).first();
+
+  if (existing) return c.json({ error: 'Already following or pending' }, 400);
+
+  // Check if target is local or remote
+  const isLocalTarget = isLocal(targetApId, baseUrl);
+
+  if (isLocalTarget) {
+    // Local target - check if they require approval
+    const target = await c.env.DB.prepare('SELECT is_private FROM actors WHERE ap_id = ?').bind(targetApId).first<any>();
+    if (!target) return c.json({ error: 'Target actor not found' }, 404);
+
+    const status = target.is_private ? 'pending' : 'accepted';
+    const activityId = activityApId(baseUrl, generateId());
+
+    await c.env.DB.prepare(`
+      INSERT INTO follows (follower_ap_id, following_ap_id, status, activity_ap_id, accepted_at)
+      VALUES (?, ?, ?, ?, ${status === 'accepted' ? "datetime('now')" : 'NULL'})
+    `).bind(actor.ap_id, targetApId, status, activityId).run();
+
+    // Update counts if accepted
+    if (status === 'accepted') {
+      await c.env.DB.prepare('UPDATE actors SET following_count = following_count + 1 WHERE ap_id = ?').bind(actor.ap_id).run();
+      await c.env.DB.prepare('UPDATE actors SET follower_count = follower_count + 1 WHERE ap_id = ?').bind(targetApId).run();
     }
 
-    const { privateKeyPem } = await getOrCreateKeyPair(c.env.DB);
-    const keyId = `${baseUrl}/ap/actor#main-key`;
+    // Create notification
+    const notifId = generateId();
+    await c.env.DB.prepare(`
+      INSERT INTO notifications (id, recipient_ap_id, actor_ap_id, type)
+      VALUES (?, ?, ?, ?)
+    `).bind(notifId, targetApId, actor.ap_id, status === 'pending' ? 'follow_request' : 'follow').run();
 
-    // Check if banned
-    const banned = await c.env.DB.prepare('SELECT * FROM ap_bans WHERE actor_id = ?').bind(actor).first();
-    if (banned) {
-      // Send Reject
-      const rejectActivity = {
-        '@context': 'https://www.w3.org/ns/activitystreams',
-        id: `${baseUrl}/ap/activities/${generateId()}`,
-        type: 'Reject',
-        actor: `${baseUrl}/ap/actor`,
-        object: activity
-      };
-      // Try to get actor inbox
-      const cachedActor = await c.env.DB.prepare('SELECT inbox FROM ap_remote_actors WHERE id = ?').bind(actor).first();
-      if (cachedActor?.inbox) {
-        await deliverActivity(rejectActivity, cachedActor.inbox as string, privateKeyPem, keyId);
-      }
-      return c.json({ status: 'rejected', reason: 'banned' }, 202);
-    }
+    return c.json({ success: true, status });
+  } else {
+    // Remote target - send Follow activity
+    // First, ensure we have cached the remote actor
+    let cachedActor = await c.env.DB.prepare('SELECT * FROM actor_cache WHERE ap_id = ?').bind(targetApId).first<ActorCache>();
 
-    // joinPolicy check (currently always 'open', but prepared for inviteOnly)
-    const joinPolicy = 'open'; // TODO: make configurable
+    if (!cachedActor) {
+      // Fetch remote actor
+      try {
+        const res = await fetch(targetApId, {
+          headers: { 'Accept': 'application/activity+json, application/ld+json' }
+        });
+        if (!res.ok) return c.json({ error: 'Could not fetch remote actor' }, 400);
 
-    if (joinPolicy === 'inviteOnly') {
-      const invite = await c.env.DB.prepare('SELECT * FROM ap_invites WHERE actor_id = ? AND (expires_at IS NULL OR expires_at > datetime("now"))').bind(actor).first();
-      if (!invite) {
-        // No valid invite - Reject
-        const rejectActivity = {
-          '@context': 'https://www.w3.org/ns/activitystreams',
-          id: `${baseUrl}/ap/activities/${generateId()}`,
-          type: 'Reject',
-          actor: `${baseUrl}/ap/actor`,
-          object: activity
-        };
-        const cachedActor = await c.env.DB.prepare('SELECT inbox FROM ap_remote_actors WHERE id = ?').bind(actor).first();
-        if (cachedActor?.inbox) {
-          await deliverActivity(rejectActivity, cachedActor.inbox as string, privateKeyPem, keyId);
-        }
-        return c.json({ status: 'rejected', reason: 'invite_required' }, 202);
-      }
-      // Mark invite as used
-      await c.env.DB.prepare('UPDATE ap_invites SET accepted = 1 WHERE actor_id = ?').bind(actor).run();
-    }
-
-    // Fetch actor info and create member
-    try {
-      const actorResponse = await fetch(actor, { headers: { Accept: 'application/activity+json' } });
-      if (actorResponse.ok) {
-        const actorData: any = await actorResponse.json();
-
-        // Store remote actor
-        await c.env.DB.prepare(
-          'INSERT OR REPLACE INTO ap_remote_actors (id, actor_type, preferred_username, name, summary, inbox, outbox, followers, following, public_key_id, public_key_pem, icon_url, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        ).bind(
-          actor,
-          actorData.type || 'Person',
+        const actorData = await res.json() as any;
+        await c.env.DB.prepare(`
+          INSERT INTO actor_cache (ap_id, type, preferred_username, name, summary, icon_url, inbox, outbox, public_key_id, public_key_pem, raw_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          actorData.id,
+          actorData.type,
           actorData.preferredUsername,
           actorData.name,
           actorData.summary,
+          actorData.icon?.url,
           actorData.inbox,
           actorData.outbox,
-          actorData.followers,
-          actorData.following,
           actorData.publicKey?.id,
           actorData.publicKey?.publicKeyPem,
-          actorData.icon?.url || actorData.icon,
           JSON.stringify(actorData)
         ).run();
 
-        // Add to followers
-        await c.env.DB.prepare('INSERT OR IGNORE INTO ap_followers (id, actor_id, accepted) VALUES (?, ?, 1)')
-          .bind(generateId(), actor).run();
-
-        // Create member entry
-        const existingMember = await c.env.DB.prepare('SELECT * FROM members WHERE ap_actor_id = ?').bind(actor).first();
-        if (!existingMember) {
-          await c.env.DB.prepare(
-            'INSERT INTO members (id, takos_user_id, username, display_name, avatar_url, role, ap_actor_id, is_remote) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
-          ).bind(
-            generateId(),
-            actor,
-            actorData.preferredUsername || 'remote',
-            actorData.name,
-            actorData.icon?.url || actorData.icon,
-            'member',
-            actor
-          ).run();
-        }
-
-        // Send Accept
-        const acceptActivity = {
-          '@context': 'https://www.w3.org/ns/activitystreams',
-          id: `${baseUrl}/ap/activities/${generateId()}`,
-          type: 'Accept',
-          actor: `${baseUrl}/ap/actor`,
-          object: activity
-        };
-
-        await deliverActivity(acceptActivity, actorData.inbox, privateKeyPem, keyId);
-
-        // Store outbound activity
-        await c.env.DB.prepare(
-          'INSERT INTO ap_activities (id, activity_id, activity_type, actor, object, raw_json, direction) VALUES (?, ?, ?, ?, ?, ?, ?)'
-        ).bind(generateId(), acceptActivity.id, 'Accept', `${baseUrl}/ap/actor`, JSON.stringify(activity), JSON.stringify(acceptActivity), 'outbound').run();
+        cachedActor = await c.env.DB.prepare('SELECT * FROM actor_cache WHERE ap_id = ?').bind(targetApId).first<ActorCache>();
+      } catch (e) {
+        return c.json({ error: 'Failed to fetch remote actor' }, 400);
       }
+    }
+
+    // Create pending follow
+    const activityId = activityApId(baseUrl, generateId());
+    await c.env.DB.prepare(`
+      INSERT INTO follows (follower_ap_id, following_ap_id, status, activity_ap_id)
+      VALUES (?, ?, 'pending', ?)
+    `).bind(actor.ap_id, targetApId, activityId).run();
+
+    // Send Follow activity
+    const followActivity = {
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      id: activityId,
+      type: 'Follow',
+      actor: actor.ap_id,
+      object: targetApId,
+    };
+
+    const keyId = `${actor.ap_id}#main-key`;
+    const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor!.inbox, JSON.stringify(followActivity));
+
+    try {
+      await fetch(cachedActor!.inbox, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/activity+json',
+        },
+        body: JSON.stringify(followActivity),
+      });
     } catch (e) {
-      console.error('Failed to process Follow:', e);
+      console.error('Failed to send Follow activity:', e);
     }
 
-    return c.json({ status: 'accepted' }, 202);
+    // Store activity
+    await c.env.DB.prepare(`
+      INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
+      VALUES (?, 'Follow', ?, ?, ?, 'outbound')
+    `).bind(activityId, actor.ap_id, targetApId, JSON.stringify(followActivity)).run();
+
+    return c.json({ success: true, status: 'pending' });
+  }
+});
+
+// Unfollow
+app.delete('/api/follow', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const body = await c.req.json<{ target_ap_id: string }>();
+  if (!body.target_ap_id) return c.json({ error: 'target_ap_id required' }, 400);
+
+  const baseUrl = c.env.APP_URL;
+  const targetApId = body.target_ap_id;
+
+  const follow = await c.env.DB.prepare(
+    'SELECT * FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?'
+  ).bind(actor.ap_id, targetApId).first<any>();
+
+  if (!follow) return c.json({ error: 'Not following' }, 400);
+
+  // Delete the follow
+  await c.env.DB.prepare('DELETE FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?')
+    .bind(actor.ap_id, targetApId).run();
+
+  // Update counts if was accepted
+  if (follow.status === 'accepted') {
+    await c.env.DB.prepare('UPDATE actors SET following_count = following_count - 1 WHERE ap_id = ? AND following_count > 0')
+      .bind(actor.ap_id).run();
+
+    if (isLocal(targetApId, baseUrl)) {
+      await c.env.DB.prepare('UPDATE actors SET follower_count = follower_count - 1 WHERE ap_id = ? AND follower_count > 0')
+        .bind(targetApId).run();
+    }
   }
 
-  // Handle Undo (for Follow)
-  if (activityType === 'Undo') {
-    const innerActivity = activity.object;
-    if (innerActivity?.type === 'Follow') {
-      await c.env.DB.prepare('DELETE FROM ap_followers WHERE actor_id = ?').bind(actor).run();
-      await c.env.DB.prepare('DELETE FROM members WHERE ap_actor_id = ?').bind(actor).run();
-    }
-    return c.json({ status: 'accepted' }, 202);
-  }
-
-  // Handle Create (Note or Article)
-  if (activityType === 'Create') {
-    const obj = activity.object;
-
-    // Verify sender is a follower
-    const follower = await c.env.DB.prepare('SELECT * FROM ap_followers WHERE actor_id = ? AND accepted = 1').bind(actor).first();
-    if (!follower) {
-      return c.json({ error: 'Not a member' }, 403);
-    }
-
-    // Get member
-    const member = await c.env.DB.prepare('SELECT * FROM members WHERE ap_actor_id = ?').bind(actor).first();
-    if (!member) {
-      return c.json({ error: 'Member not found' }, 403);
-    }
-
-    // Handle Note (chat message or thread reply)
-    if (obj?.type === 'Note') {
-      // Check if this is a thread reply
-      const threadRoot = obj.threadRoot || obj.inReplyTo;
-      const isThreadReply = threadRoot && (threadRoot.includes('/ap/threads/') || obj.inReplyTo?.includes('/ap/threads/'));
-
-      if (isThreadReply) {
-        // Extract thread ID
-        const threadIdMatch = (obj.threadRoot || obj.inReplyTo).match(/\/ap\/threads\/([^\/]+)/);
-        const threadId = threadIdMatch ? threadIdMatch[1] : null;
-
-        if (threadId) {
-          const thread = await c.env.DB.prepare('SELECT * FROM threads WHERE id = ?').bind(threadId).first();
-          if (thread && !(thread as any).locked) {
-            const replyId = generateId();
-            await c.env.DB.prepare(
-              'INSERT INTO thread_replies (id, thread_id, member_id, content, created_at, updated_at) VALUES (?, ?, ?, ?, datetime("now"), datetime("now"))'
-            ).bind(replyId, threadId, member.id, obj.content || '').run();
-
-            // Update thread reply count
-            await c.env.DB.prepare(
-              "UPDATE threads SET reply_count = reply_count + 1, last_reply_at = datetime('now') WHERE id = ?"
-            ).bind(threadId).run();
-
-            return c.json({ status: 'accepted' }, 202);
-          }
-        }
-      }
-
-      // Regular chat message
-      const roomId = typeof obj.room === 'string' ? obj.room.split('/').pop() : null;
-      const room = roomId ? await c.env.DB.prepare('SELECT * FROM rooms WHERE id = ?').bind(roomId).first() : null;
-      const targetRoomId = room ? room.id : 'general';
-
-      const messageId = generateId();
-      const contextId = `${baseUrl}/ap/rooms/${targetRoomId}`;
-      await c.env.DB.prepare(
-        'INSERT INTO messages (id, room_id, member_id, content, ap_note_id, context, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))'
-      ).bind(messageId, targetRoomId, member.id, obj.content || '', obj.id, contextId).run();
-
-      // Announce to all followers (except sender)
-      const { privateKeyPem } = await getOrCreateKeyPair(c.env.DB);
-      const remoteActors = await c.env.DB.prepare('SELECT * FROM ap_remote_actors WHERE id IN (SELECT actor_id FROM ap_followers WHERE accepted = 1)').all();
-
-      const announceActivity = {
-        '@context': AP_CONTEXT,
-        id: `${baseUrl}/ap/activities/${generateId()}`,
-        type: 'Announce',
-        actor: `${baseUrl}/ap/actor`,
-        to: [`${baseUrl}/ap/actor/followers`],
-        object: obj.id,
-        room: `${baseUrl}/ap/rooms/${targetRoomId}`,
-        context: contextId,
-        published: new Date().toISOString()
+  // Send Undo Follow to remote
+  if (!isLocal(targetApId, baseUrl)) {
+    const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(targetApId).first<any>();
+    if (cachedActor?.inbox) {
+      const activityId = activityApId(baseUrl, generateId());
+      const undoActivity = {
+        '@context': 'https://www.w3.org/ns/activitystreams',
+        id: activityId,
+        type: 'Undo',
+        actor: actor.ap_id,
+        object: {
+          type: 'Follow',
+          actor: actor.ap_id,
+          object: targetApId,
+        },
       };
 
-      await c.env.DB.prepare(
-        'INSERT INTO ap_activities (id, activity_id, activity_type, actor, object, raw_json, direction) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).bind(generateId(), announceActivity.id, 'Announce', `${baseUrl}/ap/actor`, obj.id, JSON.stringify(announceActivity), 'outbound').run();
+      const keyId = `${actor.ap_id}#main-key`;
+      const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(undoActivity));
 
-      for (const remoteActor of (remoteActors.results || []) as any[]) {
-        if (remoteActor.inbox && remoteActor.id !== actor) {
-          await queueDelivery(c.env.DB, announceActivity.id, remoteActor.inbox);
-        }
-      }
-
-      processDeliveryQueue(c.env.DB, privateKeyPem, `${baseUrl}/ap/actor#main-key`).catch(e => {
-        console.error('Failed to process delivery queue:', e);
-      });
-
-      return c.json({ status: 'accepted' }, 202);
-    }
-
-    // Handle Article (forum thread)
-    if (obj?.type === 'Article') {
-      const roomId = typeof obj.room === 'string' ? obj.room.split('/').pop() : null;
-      const room = roomId ? await c.env.DB.prepare('SELECT * FROM rooms WHERE id = ? AND kind = ?').bind(roomId, 'forum').first() : null;
-
-      if (room) {
-        const threadId = generateId();
-        const threadContextId = obj.id; // forum uses thread as context
-        await c.env.DB.prepare(
-          'INSERT INTO threads (id, room_id, member_id, title, content, ap_article_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))'
-        ).bind(threadId, room.id, member.id, obj.name || 'Untitled', obj.content || '', obj.id).run();
-
-        // Announce the thread
-        const { privateKeyPem } = await getOrCreateKeyPair(c.env.DB);
-        const remoteActors = await c.env.DB.prepare('SELECT * FROM ap_remote_actors WHERE id IN (SELECT actor_id FROM ap_followers WHERE accepted = 1)').all();
-
-        const announceActivity = {
-          '@context': AP_CONTEXT,
-          id: `${baseUrl}/ap/activities/${generateId()}`,
-          type: 'Announce',
-          actor: `${baseUrl}/ap/actor`,
-          to: [`${baseUrl}/ap/actor/followers`],
-          object: obj.id,
-          room: `${baseUrl}/ap/rooms/${room.id}`,
-          context: threadContextId,
-          threadRoot: obj.id,
-          published: new Date().toISOString()
-        };
-
-        await c.env.DB.prepare(
-          'INSERT INTO ap_activities (id, activity_id, activity_type, actor, object, raw_json, direction) VALUES (?, ?, ?, ?, ?, ?, ?)'
-        ).bind(generateId(), announceActivity.id, 'Announce', `${baseUrl}/ap/actor`, obj.id, JSON.stringify(announceActivity), 'outbound').run();
-
-        for (const remoteActor of (remoteActors.results || []) as any[]) {
-          if (remoteActor.inbox && remoteActor.id !== actor) {
-            await queueDelivery(c.env.DB, announceActivity.id, remoteActor.inbox);
-          }
-        }
-
-        processDeliveryQueue(c.env.DB, privateKeyPem, `${baseUrl}/ap/actor#main-key`).catch(e => {
-          console.error('Failed to process delivery queue:', e);
+      try {
+        await fetch(cachedActor.inbox, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/activity+json' },
+          body: JSON.stringify(undoActivity),
         });
-
-        return c.json({ status: 'accepted' }, 202);
+      } catch (e) {
+        console.error('Failed to send Undo Follow:', e);
       }
     }
   }
 
-  return c.json({ status: 'received' }, 202);
+  return c.json({ success: true });
 });
 
-// Rooms collection
-app.get('/ap/rooms', async (c) => {
-  const rooms = await c.env.DB.prepare('SELECT * FROM rooms ORDER BY sort_order ASC').all();
+// Accept follow request
+app.post('/api/follow/accept', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  return c.json({
-    '@context': AP_CONTEXT,
-    id: `${c.env.APP_URL}/ap/rooms`,
-    type: 'Collection',
-    totalItems: rooms.results?.length || 0,
-    items: rooms.results?.map((r: any) => ({
-      id: `${c.env.APP_URL}/ap/rooms/${r.id}`,
-      type: 'Room',
-      name: r.name,
-      summary: r.description,
-      kind: r.kind,
-      postingPolicy: r.posting_policy,
-      attributedTo: `${c.env.APP_URL}/ap/actor`,
-      stream: `${c.env.APP_URL}/ap/rooms/${r.id}/stream`
-    })) || []
-  }, 200, { 'Content-Type': 'application/activity+json' });
-});
+  const body = await c.req.json<{ requester_ap_id: string }>();
+  if (!body.requester_ap_id) return c.json({ error: 'requester_ap_id required' }, 400);
 
-// Single Room
-app.get('/ap/rooms/:roomId', async (c) => {
-  const roomId = c.req.param('roomId');
-  const room = await c.env.DB.prepare('SELECT * FROM rooms WHERE id = ?').bind(roomId).first();
+  const follow = await c.env.DB.prepare(
+    'SELECT * FROM follows WHERE follower_ap_id = ? AND following_ap_id = ? AND status = ?'
+  ).bind(body.requester_ap_id, actor.ap_id, 'pending').first();
 
-  if (!room) return c.json({ error: 'Not found' }, 404);
-
-  return c.json({
-    '@context': AP_CONTEXT,
-    id: `${c.env.APP_URL}/ap/rooms/${room.id}`,
-    type: 'Room',
-    name: room.name,
-    summary: room.description,
-    kind: room.kind,
-    postingPolicy: room.posting_policy,
-    attributedTo: `${c.env.APP_URL}/ap/actor`,
-    stream: `${c.env.APP_URL}/ap/rooms/${room.id}/stream`
-  }, 200, { 'Content-Type': 'application/activity+json' });
-});
-
-// Thread object (for forum federation)
-app.get('/ap/threads/:threadId', async (c) => {
-  const threadId = c.req.param('threadId');
-  const baseUrl = c.env.APP_URL;
-
-  const thread = await c.env.DB.prepare(`
-    SELECT t.*, mem.username, mem.display_name, mem.avatar_url, mem.ap_actor_id, r.name as room_name
-    FROM threads t
-    JOIN members mem ON t.member_id = mem.id
-    JOIN rooms r ON t.room_id = r.id
-    WHERE t.id = ?
-  `).bind(threadId).first();
-
-  if (!thread) return c.json({ error: 'Not found' }, 404);
-
-  const article = {
-    '@context': AP_CONTEXT,
-    type: 'Article',
-    id: `${baseUrl}/ap/threads/${thread.id}`,
-    attributedTo: (thread as any).ap_actor_id || `${baseUrl}/ap/actor`,
-    to: [`${baseUrl}/ap/actor/followers`],
-    name: (thread as any).title,
-    content: (thread as any).content || '',
-    room: `${baseUrl}/ap/rooms/${(thread as any).room_id}`,
-    context: `${baseUrl}/ap/rooms/${(thread as any).room_id}`,
-    replies: `${baseUrl}/ap/threads/${thread.id}/replies`,
-    published: (thread as any).created_at,
-    updated: (thread as any).updated_at
-  };
-
-  return c.json(article, 200, { 'Content-Type': 'application/activity+json' });
-});
-
-// Thread replies collection
-app.get('/ap/threads/:threadId/replies', async (c) => {
-  const threadId = c.req.param('threadId');
-  const baseUrl = c.env.APP_URL;
-
-  const replies = await c.env.DB.prepare(`
-    SELECT tr.*, mem.username, mem.display_name, mem.avatar_url, mem.ap_actor_id
-    FROM thread_replies tr
-    JOIN members mem ON tr.member_id = mem.id
-    WHERE tr.thread_id = ?
-    ORDER BY tr.created_at ASC
-  `).bind(threadId).all();
-
-  return c.json({
-    '@context': AP_CONTEXT,
-    id: `${baseUrl}/ap/threads/${threadId}/replies`,
-    type: 'OrderedCollection',
-    totalItems: replies.results?.length || 0,
-    orderedItems: replies.results?.map((r: any) => ({
-      type: 'Note',
-      id: `${baseUrl}/ap/replies/${r.id}`,
-      attributedTo: r.ap_actor_id || `${baseUrl}/ap/actor`,
-      content: r.content,
-      inReplyTo: `${baseUrl}/ap/threads/${threadId}`,
-      threadRoot: `${baseUrl}/ap/threads/${threadId}`,
-      published: r.created_at
-    })) || []
-  }, 200, { 'Content-Type': 'application/activity+json' });
-});
-
-// Thread reply object
-app.get('/ap/replies/:replyId', async (c) => {
-  const replyId = c.req.param('replyId');
-  const baseUrl = c.env.APP_URL;
-
-  const reply = await c.env.DB.prepare(`
-    SELECT tr.*, mem.username, mem.display_name, mem.avatar_url, mem.ap_actor_id, t.room_id
-    FROM thread_replies tr
-    JOIN members mem ON tr.member_id = mem.id
-    JOIN threads t ON tr.thread_id = t.id
-    WHERE tr.id = ?
-  `).bind(replyId).first();
-
-  if (!reply) return c.json({ error: 'Not found' }, 404);
-
-  return c.json({
-    '@context': AP_CONTEXT,
-    type: 'Note',
-    id: `${baseUrl}/ap/replies/${reply.id}`,
-    attributedTo: (reply as any).ap_actor_id || `${baseUrl}/ap/actor`,
-    to: [`${baseUrl}/ap/actor/followers`],
-    content: (reply as any).content,
-    inReplyTo: `${baseUrl}/ap/threads/${(reply as any).thread_id}`,
-    threadRoot: `${baseUrl}/ap/threads/${(reply as any).thread_id}`,
-    room: `${baseUrl}/ap/rooms/${(reply as any).room_id}`,
-    published: (reply as any).created_at
-  }, 200, { 'Content-Type': 'application/activity+json' });
-});
-
-// Note object (for remote fetch)
-app.get('/ap/notes/:noteId', async (c) => {
-  const noteId = c.req.param('noteId');
-  const baseUrl = c.env.APP_URL;
-
-  const message = await c.env.DB.prepare(`
-    SELECT m.*, mem.username, mem.display_name, mem.avatar_url, mem.ap_actor_id
-    FROM messages m
-    JOIN members mem ON m.member_id = mem.id
-    WHERE m.id = ?
-  `).bind(noteId).first();
-
-  if (!message) return c.json({ error: 'Not found' }, 404);
-
-  const note = {
-    '@context': AP_CONTEXT,
-    type: 'Note',
-    id: `${baseUrl}/ap/notes/${message.id}`,
-    attributedTo: (message as any).ap_actor_id || `${baseUrl}/ap/actor`,
-    to: [`${baseUrl}/ap/actor/followers`],
-    content: (message as any).content,
-    room: `${baseUrl}/ap/rooms/${(message as any).room_id}`,
-    context: `${baseUrl}/ap/rooms/${(message as any).room_id}`,
-    published: (message as any).created_at
-  };
-
-  return c.json(note, 200, { 'Content-Type': 'application/activity+json' });
-});
-
-// Room stream (messages as Announce activities)
-app.get('/ap/rooms/:roomId/stream', async (c) => {
-  const roomId = c.req.param('roomId');
-  const messages = await c.env.DB.prepare(`
-    SELECT m.*, mem.username, mem.display_name, mem.avatar_url, mem.ap_actor_id
-    FROM messages m
-    JOIN members mem ON m.member_id = mem.id
-    WHERE m.room_id = ?
-    ORDER BY m.created_at DESC
-    LIMIT 50
-  `).bind(roomId).all();
-
-  const baseUrl = c.env.APP_URL;
-
-  return c.json({
-    '@context': AP_CONTEXT,
-    id: `${baseUrl}/ap/rooms/${roomId}/stream`,
-    type: 'OrderedCollection',
-    totalItems: messages.results?.length || 0,
-    orderedItems: messages.results?.map((m: any) => ({
-      type: 'Announce',
-      id: `${baseUrl}/ap/activities/msg-${m.id}`,
-      actor: `${baseUrl}/ap/actor`,
-      object: m.ap_note_id || {
-        type: 'Note',
-        id: `${baseUrl}/ap/notes/${m.id}`,
-        attributedTo: m.ap_actor_id || `${baseUrl}/ap/actor`,
-        content: m.content,
-        published: m.created_at
-      },
-      room: `${baseUrl}/ap/rooms/${roomId}`,
-      published: m.created_at
-    })) || []
-  }, 200, { 'Content-Type': 'application/activity+json' });
-});
-
-// ==================== Delivery Queue Management ====================
-
-// Process delivery queue (can be called by cron or manually)
-app.post('/ap/queue/process', async (c) => {
-  const { privateKeyPem } = await getOrCreateKeyPair(c.env.DB);
-  const keyId = `${c.env.APP_URL}/ap/actor#main-key`;
-
-  const result = await processDeliveryQueue(c.env.DB, privateKeyPem, keyId);
-  return c.json(result);
-});
-
-// Get queue stats
-app.get('/ap/queue/stats', async (c) => {
-  const stats = await c.env.DB.prepare(`
-    SELECT status, COUNT(*) as count FROM ap_delivery_queue GROUP BY status
-  `).all();
-
-  const pending = await c.env.DB.prepare(`
-    SELECT COUNT(*) as count FROM ap_delivery_queue
-    WHERE status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= datetime('now'))
-  `).first();
-
-  return c.json({
-    byStatus: stats.results || [],
-    readyToProcess: pending?.count || 0
-  });
-});
-
-// ==================== v4.0 Social Network API ====================
-
-// ----- Communities -----
-
-// Get all communities
-app.get('/api/communities', async (c) => {
-  const communities = await c.env.DB.prepare(`
-    SELECT * FROM communities ORDER BY sort_order ASC, created_at ASC
-  `).all();
-  return c.json({ communities: communities.results || [] });
-});
-
-// Create community
-app.post('/api/communities', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const body = await c.req.json<{ name: string; description?: string }>();
-  if (!body.name?.trim()) {
-    return c.json({ error: 'Name is required' }, 400);
-  }
-
-  const id = generateId();
-  const now = new Date().toISOString();
+  if (!follow) return c.json({ error: 'No pending follow request' }, 404);
 
   await c.env.DB.prepare(`
-    INSERT INTO communities (id, name, description, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?)
-  `).bind(id, body.name.trim(), body.description?.trim() || '', now, now).run();
+    UPDATE follows SET status = 'accepted', accepted_at = datetime('now')
+    WHERE follower_ap_id = ? AND following_ap_id = ?
+  `).bind(body.requester_ap_id, actor.ap_id).run();
 
-  const community = await c.env.DB.prepare(`SELECT * FROM communities WHERE id = ?`).bind(id).first();
-  return c.json({ community }, 201);
+  // Update counts
+  await c.env.DB.prepare('UPDATE actors SET follower_count = follower_count + 1 WHERE ap_id = ?').bind(actor.ap_id).run();
+  if (isLocal(body.requester_ap_id, c.env.APP_URL)) {
+    await c.env.DB.prepare('UPDATE actors SET following_count = following_count + 1 WHERE ap_id = ?').bind(body.requester_ap_id).run();
+  }
+
+  // Update notification
+  await c.env.DB.prepare(`
+    UPDATE notifications SET type = 'follow' WHERE recipient_ap_id = ? AND actor_ap_id = ? AND type = 'follow_request'
+  `).bind(actor.ap_id, body.requester_ap_id).run();
+
+  // Send Accept to remote
+  if (!isLocal(body.requester_ap_id, c.env.APP_URL)) {
+    const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(body.requester_ap_id).first<any>();
+    if (cachedActor?.inbox) {
+      const baseUrl = c.env.APP_URL;
+      const activityId = activityApId(baseUrl, generateId());
+      const acceptActivity = {
+        '@context': 'https://www.w3.org/ns/activitystreams',
+        id: activityId,
+        type: 'Accept',
+        actor: actor.ap_id,
+        object: (follow as any).activity_ap_id,
+      };
+
+      const keyId = `${actor.ap_id}#main-key`;
+      const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(acceptActivity));
+
+      try {
+        await fetch(cachedActor.inbox, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/activity+json' },
+          body: JSON.stringify(acceptActivity),
+        });
+      } catch (e) {
+        console.error('Failed to send Accept:', e);
+      }
+    }
+  }
+
+  return c.json({ success: true });
 });
 
-// ----- Timeline / Posts -----
+// Get pending follow requests
+app.get('/api/follow/requests', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-// Get timeline (all public posts, optionally filtered by community)
+  const requests = await c.env.DB.prepare(`
+    SELECT f.follower_ap_id, f.created_at,
+           COALESCE(a.preferred_username, ac.preferred_username) as preferred_username,
+           COALESCE(a.name, ac.name) as name,
+           COALESCE(a.icon_url, ac.icon_url) as icon_url
+    FROM follows f
+    LEFT JOIN actors a ON f.follower_ap_id = a.ap_id
+    LEFT JOIN actor_cache ac ON f.follower_ap_id = ac.ap_id
+    WHERE f.following_ap_id = ? AND f.status = 'pending'
+    ORDER BY f.created_at DESC
+  `).bind(actor.ap_id).all();
+
+  const result = (requests.results || []).map((r: any) => ({
+    ap_id: r.follower_ap_id,
+    username: formatUsername(r.follower_ap_id),
+    preferred_username: r.preferred_username,
+    name: r.name,
+    icon_url: r.icon_url,
+    created_at: r.created_at,
+  }));
+
+  return c.json({ requests: result });
+});
+
+// ============================================================
+// OBJECTS ENDPOINTS (Posts)
+// ============================================================
+
+// Get timeline
 app.get('/api/timeline', async (c) => {
-  const member = c.get('member');
+  const actor = c.get('actor');
   const limit = parseInt(c.req.query('limit') || '20');
   const before = c.req.query('before');
-  const communityId = c.req.query('community');
+  const communityApId = c.req.query('community');
 
   let query = `
-    SELECT p.*, m.username, m.display_name, m.avatar_url, p.community_id,
-           EXISTS(SELECT 1 FROM likes l WHERE l.post_id = p.id AND l.member_id = ?) as liked,
-           EXISTS(SELECT 1 FROM bookmarks b WHERE b.post_id = p.id AND b.member_id = ?) as bookmarked
-    FROM posts p
-    JOIN members m ON p.member_id = m.id
-    WHERE p.visibility = 'public'
+    SELECT o.*,
+           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
+           COALESCE(a.name, ac.name) as author_name,
+           COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
+           EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked,
+           EXISTS(SELECT 1 FROM bookmarks b WHERE b.object_ap_id = o.ap_id AND b.actor_ap_id = ?) as bookmarked
+    FROM objects o
+    LEFT JOIN actors a ON o.attributed_to = a.ap_id
+    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
+    WHERE o.visibility = 'public' AND o.in_reply_to IS NULL
   `;
-  const params: any[] = [member?.id || '', member?.id || ''];
+  const params: any[] = [actor?.ap_id || '', actor?.ap_id || ''];
 
-  // Filter by community if specified
-  if (communityId) {
-    query += ` AND p.community_id = ?`;
-    params.push(communityId);
+  if (communityApId) {
+    query += ` AND o.community_ap_id = ?`;
+    params.push(communityApId);
   }
 
   if (before) {
-    query += ` AND p.created_at < ?`;
+    query += ` AND o.published < ?`;
     params.push(before);
   }
 
-  query += ` ORDER BY p.created_at DESC LIMIT ?`;
+  query += ` ORDER BY o.published DESC LIMIT ?`;
   params.push(limit);
 
   const posts = await c.env.DB.prepare(query).bind(...params).all();
-  return c.json({ posts: posts.results || [] });
+
+  const result = (posts.results || []).map((p: any) => ({
+    ap_id: p.ap_id,
+    type: p.type,
+    author: {
+      ap_id: p.attributed_to,
+      username: formatUsername(p.attributed_to),
+      preferred_username: p.author_username,
+      name: p.author_name,
+      icon_url: p.author_icon_url,
+    },
+    content: p.content,
+    summary: p.summary,
+    attachments: JSON.parse(p.attachments_json || '[]'),
+    in_reply_to: p.in_reply_to,
+    visibility: p.visibility,
+    community_ap_id: p.community_ap_id,
+    like_count: p.like_count,
+    reply_count: p.reply_count,
+    announce_count: p.announce_count,
+    published: p.published,
+    liked: !!p.liked,
+    bookmarked: !!p.bookmarked,
+  }));
+
+  return c.json({ posts: result });
 });
 
-// Get timeline (following only)
+// Get following timeline
 app.get('/api/timeline/following', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const limit = parseInt(c.req.query('limit') || '20');
   const before = c.req.query('before');
 
   let query = `
-    SELECT p.*, m.username, m.display_name, m.avatar_url,
-           EXISTS(SELECT 1 FROM likes l WHERE l.post_id = p.id AND l.member_id = ?) as liked,
-           EXISTS(SELECT 1 FROM bookmarks b WHERE b.post_id = p.id AND b.member_id = ?) as bookmarked
-    FROM posts p
-    JOIN members m ON p.member_id = m.id
-    WHERE p.member_id IN (
-      SELECT following_id FROM follows WHERE follower_id = ? AND status = 'accepted'
-    ) OR p.member_id = ?
+    SELECT o.*,
+           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
+           COALESCE(a.name, ac.name) as author_name,
+           COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
+           EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked,
+           EXISTS(SELECT 1 FROM bookmarks b WHERE b.object_ap_id = o.ap_id AND b.actor_ap_id = ?) as bookmarked
+    FROM objects o
+    LEFT JOIN actors a ON o.attributed_to = a.ap_id
+    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
+    WHERE o.in_reply_to IS NULL
+      AND (o.attributed_to IN (
+        SELECT following_ap_id FROM follows WHERE follower_ap_id = ? AND status = 'accepted'
+      ) OR o.attributed_to = ?)
   `;
-  const params: any[] = [member.id, member.id, member.id, member.id];
+  const params: any[] = [actor.ap_id, actor.ap_id, actor.ap_id, actor.ap_id];
 
   if (before) {
-    query += ` AND p.created_at < ?`;
+    query += ` AND o.published < ?`;
     params.push(before);
   }
 
-  query += ` ORDER BY p.created_at DESC LIMIT ?`;
+  query += ` ORDER BY o.published DESC LIMIT ?`;
   params.push(limit);
 
   const posts = await c.env.DB.prepare(query).bind(...params).all();
-  return c.json({ posts: posts.results || [] });
+
+  const result = (posts.results || []).map((p: any) => ({
+    ap_id: p.ap_id,
+    type: p.type,
+    author: {
+      ap_id: p.attributed_to,
+      username: formatUsername(p.attributed_to),
+      preferred_username: p.author_username,
+      name: p.author_name,
+      icon_url: p.author_icon_url,
+    },
+    content: p.content,
+    summary: p.summary,
+    attachments: JSON.parse(p.attachments_json || '[]'),
+    in_reply_to: p.in_reply_to,
+    visibility: p.visibility,
+    like_count: p.like_count,
+    reply_count: p.reply_count,
+    announce_count: p.announce_count,
+    published: p.published,
+    liked: !!p.liked,
+    bookmarked: !!p.bookmarked,
+  }));
+
+  return c.json({ posts: result });
 });
 
 // Create post
 app.post('/api/posts', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const body = await c.req.json<{ content: string; reply_to_id?: string; visibility?: string; community_id?: string; media?: { r2_key: string; content_type: string }[] }>();
-  if (!body.content?.trim() && (!body.media || body.media.length === 0)) {
-    return c.json({ error: 'Content or media is required' }, 400);
+  const body = await c.req.json<{
+    content: string;
+    summary?: string;
+    in_reply_to?: string;
+    visibility?: string;
+    community_ap_id?: string;
+    attachments?: { r2_key: string; content_type: string }[];
+  }>();
+
+  if (!body.content?.trim() && (!body.attachments || body.attachments.length === 0)) {
+    return c.json({ error: 'Content or attachments required' }, 400);
   }
 
-  const postId = generateId();
+  const baseUrl = c.env.APP_URL;
+  const objectId = generateId();
+  const apId = objectApId(baseUrl, objectId);
   const visibility = body.visibility || 'public';
-  const communityId = body.community_id || null; // NULL = personal post
-  const mediaJson = JSON.stringify(body.media || []);
+
+  const attachmentsJson = JSON.stringify(body.attachments || []);
 
   await c.env.DB.prepare(`
-    INSERT INTO posts (id, member_id, content, reply_to_id, visibility, community_id, media_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).bind(postId, member.id, body.content?.trim() || '', body.reply_to_id || null, visibility, communityId, mediaJson).run();
+    INSERT INTO objects (ap_id, type, attributed_to, content, summary, attachments_json, in_reply_to, visibility, community_ap_id, is_local)
+    VALUES (?, 'Note', ?, ?, ?, ?, ?, ?, ?, 1)
+  `).bind(apId, actor.ap_id, body.content?.trim() || '', body.summary || null, attachmentsJson, body.in_reply_to || null, visibility, body.community_ap_id || null).run();
 
   // Update post count
-  await c.env.DB.prepare(`UPDATE members SET post_count = post_count + 1 WHERE id = ?`).bind(member.id).run();
+  await c.env.DB.prepare('UPDATE actors SET post_count = post_count + 1 WHERE ap_id = ?').bind(actor.ap_id).run();
 
-  // If reply, update reply count and create notification
-  if (body.reply_to_id) {
-    await c.env.DB.prepare(`UPDATE posts SET reply_count = reply_count + 1 WHERE id = ?`).bind(body.reply_to_id).run();
+  // Update reply count if this is a reply
+  if (body.in_reply_to) {
+    await c.env.DB.prepare('UPDATE objects SET reply_count = reply_count + 1 WHERE ap_id = ?').bind(body.in_reply_to).run();
 
-    // Get original post author
-    const originalPost = await c.env.DB.prepare(`SELECT member_id FROM posts WHERE id = ?`).bind(body.reply_to_id).first();
-    if (originalPost && originalPost.member_id !== member.id) {
+    // Create notification for reply
+    const parentPost = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(body.in_reply_to).first<any>();
+    if (parentPost && parentPost.attributed_to !== actor.ap_id) {
       const notifId = generateId();
       await c.env.DB.prepare(`
-        INSERT INTO notifications (id, member_id, actor_id, type, target_type, target_id)
-        VALUES (?, ?, ?, 'reply', 'post', ?)
-      `).bind(notifId, originalPost.member_id, member.id, postId).run();
+        INSERT INTO notifications (id, recipient_ap_id, actor_ap_id, type, object_ap_id)
+        VALUES (?, ?, ?, 'reply', ?)
+      `).bind(notifId, parentPost.attributed_to, actor.ap_id, apId).run();
     }
   }
 
-  const post = await c.env.DB.prepare(`
-    SELECT p.*, m.username, m.display_name, m.avatar_url
-    FROM posts p JOIN members m ON p.member_id = m.id
-    WHERE p.id = ?
-  `).bind(postId).first();
+  // Federate to followers if public
+  if (visibility === 'public') {
+    // Get remote followers
+    const remoteFollowers = await c.env.DB.prepare(`
+      SELECT ac.inbox FROM follows f
+      JOIN actor_cache ac ON f.follower_ap_id = ac.ap_id
+      WHERE f.following_ap_id = ? AND f.status = 'accepted'
+    `).bind(actor.ap_id).all();
 
-  return c.json({ post }, 201);
+    if (remoteFollowers.results && remoteFollowers.results.length > 0) {
+      const createActivityId = activityApId(baseUrl, generateId());
+      const createActivity = {
+        '@context': 'https://www.w3.org/ns/activitystreams',
+        id: createActivityId,
+        type: 'Create',
+        actor: actor.ap_id,
+        published: new Date().toISOString(),
+        to: ['https://www.w3.org/ns/activitystreams#Public'],
+        cc: [actor.followers_url],
+        object: {
+          id: apId,
+          type: 'Note',
+          attributedTo: actor.ap_id,
+          content: body.content,
+          published: new Date().toISOString(),
+          to: ['https://www.w3.org/ns/activitystreams#Public'],
+          cc: [actor.followers_url],
+        },
+      };
+
+      // Queue deliveries
+      for (const follower of remoteFollowers.results as any[]) {
+        if (follower.inbox) {
+          const queueId = generateId();
+          await c.env.DB.prepare(`
+            INSERT INTO delivery_queue (id, activity_ap_id, inbox_url)
+            VALUES (?, ?, ?)
+          `).bind(queueId, createActivityId, follower.inbox).run();
+        }
+      }
+
+      // Store activity
+      await c.env.DB.prepare(`
+        INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
+        VALUES (?, 'Create', ?, ?, ?, 'outbound')
+      `).bind(createActivityId, actor.ap_id, apId, JSON.stringify(createActivity)).run();
+    }
+  }
+
+  return c.json({
+    post: {
+      ap_id: apId,
+      type: 'Note',
+      author: {
+        ap_id: actor.ap_id,
+        username: formatUsername(actor.ap_id),
+        preferred_username: actor.preferred_username,
+        name: actor.name,
+        icon_url: actor.icon_url,
+      },
+      content: body.content?.trim() || '',
+      summary: body.summary || null,
+      attachments: body.attachments || [],
+      in_reply_to: body.in_reply_to || null,
+      visibility,
+      community_ap_id: body.community_ap_id || null,
+      like_count: 0,
+      reply_count: 0,
+      announce_count: 0,
+      published: new Date().toISOString(),
+      liked: false,
+      bookmarked: false,
+    }
+  }, 201);
 });
 
 // Get single post
 app.get('/api/posts/:id', async (c) => {
-  const member = c.get('member');
-  const postId = c.req.param('id');
+  const actor = c.get('actor');
+  const id = c.req.param('id');
+  const baseUrl = c.env.APP_URL;
+
+  // Handle both AP IRI and short ID
+  const apId = id.startsWith('http') ? id : objectApId(baseUrl, id);
 
   const post = await c.env.DB.prepare(`
-    SELECT p.*, m.username, m.display_name, m.avatar_url,
-           EXISTS(SELECT 1 FROM likes l WHERE l.post_id = p.id AND l.member_id = ?) as liked,
-           EXISTS(SELECT 1 FROM bookmarks b WHERE b.post_id = p.id AND b.member_id = ?) as bookmarked
-    FROM posts p JOIN members m ON p.member_id = m.id
-    WHERE p.id = ?
-  `).bind(member?.id || '', member?.id || '', postId).first();
+    SELECT o.*,
+           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
+           COALESCE(a.name, ac.name) as author_name,
+           COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
+           EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked,
+           EXISTS(SELECT 1 FROM bookmarks b WHERE b.object_ap_id = o.ap_id AND b.actor_ap_id = ?) as bookmarked
+    FROM objects o
+    LEFT JOIN actors a ON o.attributed_to = a.ap_id
+    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
+    WHERE o.ap_id = ?
+  `).bind(actor?.ap_id || '', actor?.ap_id || '', apId).first<any>();
 
   if (!post) return c.json({ error: 'Not found' }, 404);
-  return c.json({ post });
+
+  return c.json({
+    post: {
+      ap_id: post.ap_id,
+      type: post.type,
+      author: {
+        ap_id: post.attributed_to,
+        username: formatUsername(post.attributed_to),
+        preferred_username: post.author_username,
+        name: post.author_name,
+        icon_url: post.author_icon_url,
+      },
+      content: post.content,
+      summary: post.summary,
+      attachments: JSON.parse(post.attachments_json || '[]'),
+      in_reply_to: post.in_reply_to,
+      visibility: post.visibility,
+      community_ap_id: post.community_ap_id,
+      like_count: post.like_count,
+      reply_count: post.reply_count,
+      announce_count: post.announce_count,
+      published: post.published,
+      liked: !!post.liked,
+      bookmarked: !!post.bookmarked,
+    }
+  });
 });
 
 // Get post replies
 app.get('/api/posts/:id/replies', async (c) => {
-  const member = c.get('member');
-  const postId = c.req.param('id');
+  const actor = c.get('actor');
+  const id = c.req.param('id');
+  const baseUrl = c.env.APP_URL;
+  const apId = id.startsWith('http') ? id : objectApId(baseUrl, id);
 
   const replies = await c.env.DB.prepare(`
-    SELECT p.*, m.username, m.display_name, m.avatar_url,
-           EXISTS(SELECT 1 FROM likes l WHERE l.post_id = p.id AND l.member_id = ?) as liked
-    FROM posts p JOIN members m ON p.member_id = m.id
-    WHERE p.reply_to_id = ?
-    ORDER BY p.created_at ASC
-  `).bind(member?.id || '', postId).all();
+    SELECT o.*,
+           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
+           COALESCE(a.name, ac.name) as author_name,
+           COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
+           EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked
+    FROM objects o
+    LEFT JOIN actors a ON o.attributed_to = a.ap_id
+    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
+    WHERE o.in_reply_to = ?
+    ORDER BY o.published ASC
+  `).bind(actor?.ap_id || '', apId).all();
 
-  return c.json({ replies: replies.results || [] });
+  const result = (replies.results || []).map((r: any) => ({
+    ap_id: r.ap_id,
+    type: r.type,
+    author: {
+      ap_id: r.attributed_to,
+      username: formatUsername(r.attributed_to),
+      preferred_username: r.author_username,
+      name: r.author_name,
+      icon_url: r.author_icon_url,
+    },
+    content: r.content,
+    published: r.published,
+    like_count: r.like_count,
+    liked: !!r.liked,
+  }));
+
+  return c.json({ replies: result });
 });
 
 // Delete post
 app.delete('/api/posts/:id', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const postId = c.req.param('id');
-  const post = await c.env.DB.prepare(`SELECT * FROM posts WHERE id = ?`).bind(postId).first<Post>();
+  const id = c.req.param('id');
+  const baseUrl = c.env.APP_URL;
+  const apId = id.startsWith('http') ? id : objectApId(baseUrl, id);
 
+  const post = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ?').bind(apId).first<APObject>();
   if (!post) return c.json({ error: 'Not found' }, 404);
-  if (post.member_id !== member.id && member.role !== 'owner' && member.role !== 'moderator') {
-    return c.json({ error: 'Forbidden' }, 403);
+  if (post.attributed_to !== actor.ap_id && actor.role !== 'owner' && actor.role !== 'moderator') {
+    return c.json({ error: 'Unauthorized' }, 403);
   }
 
-  await c.env.DB.prepare(`DELETE FROM posts WHERE id = ?`).bind(postId).run();
-  await c.env.DB.prepare(`UPDATE members SET post_count = post_count - 1 WHERE id = ? AND post_count > 0`).bind(post.member_id).run();
+  await c.env.DB.prepare('DELETE FROM objects WHERE ap_id = ?').bind(apId).run();
+  await c.env.DB.prepare('UPDATE actors SET post_count = post_count - 1 WHERE ap_id = ? AND post_count > 0').bind(post.attributed_to).run();
+
+  // Update parent reply count if this was a reply
+  if (post.in_reply_to) {
+    await c.env.DB.prepare('UPDATE objects SET reply_count = reply_count - 1 WHERE ap_id = ? AND reply_count > 0').bind(post.in_reply_to).run();
+  }
 
   return c.json({ success: true });
 });
 
-// Like post
+// ============================================================
+// LIKE ENDPOINTS
+// ============================================================
+
 app.post('/api/posts/:id/like', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const postId = c.req.param('id');
-  const post = await c.env.DB.prepare(`SELECT * FROM posts WHERE id = ?`).bind(postId).first<Post>();
-  if (!post) return c.json({ error: 'Not found' }, 404);
+  const id = c.req.param('id');
+  const baseUrl = c.env.APP_URL;
+  const objectApIdVal = id.startsWith('http') ? id : objectApId(baseUrl, id);
 
-  try {
-    const likeId = generateId();
-    await c.env.DB.prepare(`INSERT INTO likes (id, member_id, post_id) VALUES (?, ?, ?)`).bind(likeId, member.id, postId).run();
-    await c.env.DB.prepare(`UPDATE posts SET like_count = like_count + 1 WHERE id = ?`).bind(postId).run();
+  const existing = await c.env.DB.prepare('SELECT 1 FROM likes WHERE actor_ap_id = ? AND object_ap_id = ?')
+    .bind(actor.ap_id, objectApIdVal).first();
 
-    // Create notification
-    if (post.member_id !== member.id) {
-      const notifId = generateId();
-      await c.env.DB.prepare(`
-        INSERT INTO notifications (id, member_id, actor_id, type, target_type, target_id)
-        VALUES (?, ?, ?, 'like', 'post', ?)
-      `).bind(notifId, post.member_id, member.id, postId).run();
-    }
-  } catch (e) {
-    // Already liked
-  }
+  if (existing) return c.json({ error: 'Already liked' }, 400);
 
-  return c.json({ success: true });
-});
+  const activityId = activityApId(baseUrl, generateId());
 
-// Unlike post
-app.delete('/api/posts/:id/like', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const postId = c.req.param('id');
-  const result = await c.env.DB.prepare(`DELETE FROM likes WHERE member_id = ? AND post_id = ?`).bind(member.id, postId).run();
-
-  if (result.meta.changes > 0) {
-    await c.env.DB.prepare(`UPDATE posts SET like_count = like_count - 1 WHERE id = ? AND like_count > 0`).bind(postId).run();
-  }
-
-  return c.json({ success: true });
-});
-
-// Bookmark post
-app.post('/api/posts/:id/bookmark', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const postId = c.req.param('id');
-  try {
-    const bookmarkId = generateId();
-    await c.env.DB.prepare(`INSERT INTO bookmarks (id, member_id, post_id) VALUES (?, ?, ?)`).bind(bookmarkId, member.id, postId).run();
-  } catch (e) {
-    // Already bookmarked
-  }
-
-  return c.json({ success: true });
-});
-
-// Remove bookmark
-app.delete('/api/posts/:id/bookmark', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const postId = c.req.param('id');
-  await c.env.DB.prepare(`DELETE FROM bookmarks WHERE member_id = ? AND post_id = ?`).bind(member.id, postId).run();
-  return c.json({ success: true });
-});
-
-// Get user's posts
-app.get('/api/members/:id/posts', async (c) => {
-  const currentMember = c.get('member');
-  const memberId = c.req.param('id');
-  const limit = parseInt(c.req.query('limit') || '20');
-  const before = c.req.query('before');
-
-  let query = `
-    SELECT p.*, m.username, m.display_name, m.avatar_url,
-           EXISTS(SELECT 1 FROM likes l WHERE l.post_id = p.id AND l.member_id = ?) as liked
-    FROM posts p JOIN members m ON p.member_id = m.id
-    WHERE p.member_id = ? AND p.reply_to_id IS NULL
-  `;
-  const params: any[] = [currentMember?.id || '', memberId];
-
-  if (before) {
-    query += ` AND p.created_at < ?`;
-    params.push(before);
-  }
-
-  query += ` ORDER BY p.created_at DESC LIMIT ?`;
-  params.push(limit);
-
-  const posts = await c.env.DB.prepare(query).bind(...params).all();
-  return c.json({ posts: posts.results || [] });
-});
-
-// Get member's liked posts
-app.get('/api/members/:id/likes', async (c) => {
-  const currentMember = c.get('member');
-  const memberId = c.req.param('id');
-  const limit = parseInt(c.req.query('limit') || '20');
-  const before = c.req.query('before');
-
-  let query = `
-    SELECT p.*, m.username, m.display_name, m.avatar_url,
-           EXISTS(SELECT 1 FROM likes l2 WHERE l2.post_id = p.id AND l2.member_id = ?) as liked
-    FROM likes l
-    JOIN posts p ON l.post_id = p.id
-    JOIN members m ON p.member_id = m.id
-    WHERE l.member_id = ?
-  `;
-  const params: any[] = [currentMember?.id || '', memberId];
-
-  if (before) {
-    query += ` AND l.created_at < ?`;
-    params.push(before);
-  }
-
-  query += ` ORDER BY l.created_at DESC LIMIT ?`;
-  params.push(limit);
-
-  const posts = await c.env.DB.prepare(query).bind(...params).all();
-  return c.json({ posts: posts.results || [] });
-});
-
-// ----- Follow -----
-
-// Get followers
-app.get('/api/follow/followers', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const followers = await c.env.DB.prepare(`
-    SELECT m.*, f.status, f.created_at as follow_date
-    FROM follows f
-    JOIN members m ON f.follower_id = m.id
-    WHERE f.following_id = ? AND f.status = 'accepted'
-    ORDER BY f.created_at DESC
-  `).bind(member.id).all();
-
-  return c.json({ followers: followers.results || [] });
-});
-
-// Get following
-app.get('/api/follow/following', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const following = await c.env.DB.prepare(`
-    SELECT m.*, f.status, f.created_at as follow_date
-    FROM follows f
-    JOIN members m ON f.following_id = m.id
-    WHERE f.follower_id = ? AND f.status = 'accepted'
-    ORDER BY f.created_at DESC
-  `).bind(member.id).all();
-
-  return c.json({ following: following.results || [] });
-});
-
-// Get pending follow requests (requests to me)
-app.get('/api/follow/requests', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const requests = await c.env.DB.prepare(`
-    SELECT m.*, f.id as follow_id, f.created_at as request_date
-    FROM follows f
-    JOIN members m ON f.follower_id = m.id
-    WHERE f.following_id = ? AND f.status = 'pending'
-    ORDER BY f.created_at DESC
-  `).bind(member.id).all();
-
-  return c.json({ requests: requests.results || [] });
-});
-
-// Get follow status with a user
-app.get('/api/follow/:memberId/status', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const targetId = c.req.param('memberId');
-
-  // Am I following them?
-  const following = await c.env.DB.prepare(`
-    SELECT status FROM follows WHERE follower_id = ? AND following_id = ?
-  `).bind(member.id, targetId).first();
-
-  // Are they following me?
-  const followedBy = await c.env.DB.prepare(`
-    SELECT status FROM follows WHERE follower_id = ? AND following_id = ?
-  `).bind(targetId, member.id).first();
-
-  return c.json({
-    following: following?.status || null,
-    followedBy: followedBy?.status || null
-  });
-});
-
-// Send follow request
-app.post('/api/follow/:memberId', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const targetId = c.req.param('memberId');
-  if (targetId === member.id) return c.json({ error: 'Cannot follow yourself' }, 400);
-
-  // Check if target exists
-  const target = await c.env.DB.prepare(`SELECT * FROM members WHERE id = ?`).bind(targetId).first();
-  if (!target) return c.json({ error: 'User not found' }, 404);
-
-  // Check existing follow
-  const existing = await c.env.DB.prepare(`
-    SELECT * FROM follows WHERE follower_id = ? AND following_id = ?
-  `).bind(member.id, targetId).first();
-
-  if (existing) {
-    return c.json({ status: existing.status });
-  }
-
-  // Create follow request (pending for mutual follow system)
-  const followId = generateId();
   await c.env.DB.prepare(`
-    INSERT INTO follows (id, follower_id, following_id, status)
-    VALUES (?, ?, ?, 'pending')
-  `).bind(followId, member.id, targetId).run();
+    INSERT INTO likes (actor_ap_id, object_ap_id, activity_ap_id)
+    VALUES (?, ?, ?)
+  `).bind(actor.ap_id, objectApIdVal, activityId).run();
+
+  await c.env.DB.prepare('UPDATE objects SET like_count = like_count + 1 WHERE ap_id = ?').bind(objectApIdVal).run();
 
   // Create notification
-  const notifId = generateId();
-  await c.env.DB.prepare(`
-    INSERT INTO notifications (id, member_id, actor_id, type, target_type, target_id)
-    VALUES (?, ?, ?, 'follow_request', 'member', ?)
-  `).bind(notifId, targetId, member.id, member.id).run();
-
-  return c.json({ status: 'pending' }, 201);
-});
-
-// Accept follow request
-app.post('/api/follow/:memberId/accept', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const followerId = c.req.param('memberId');
-
-  const result = await c.env.DB.prepare(`
-    UPDATE follows SET status = 'accepted', accepted_at = datetime('now')
-    WHERE follower_id = ? AND following_id = ? AND status = 'pending'
-  `).bind(followerId, member.id).run();
-
-  if (result.meta.changes === 0) {
-    return c.json({ error: 'No pending request found' }, 404);
-  }
-
-  // Update follower counts
-  await c.env.DB.prepare(`UPDATE members SET following_count = following_count + 1 WHERE id = ?`).bind(followerId).run();
-  await c.env.DB.prepare(`UPDATE members SET follower_count = follower_count + 1 WHERE id = ?`).bind(member.id).run();
-
-  // Create notification for the follower
-  const notifId = generateId();
-  await c.env.DB.prepare(`
-    INSERT INTO notifications (id, member_id, actor_id, type, target_type, target_id)
-    VALUES (?, ?, ?, 'follow_accepted', 'member', ?)
-  `).bind(notifId, followerId, member.id, member.id).run();
-
-  return c.json({ success: true });
-});
-
-// Reject follow request
-app.post('/api/follow/:memberId/reject', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const followerId = c.req.param('memberId');
-
-  await c.env.DB.prepare(`
-    DELETE FROM follows WHERE follower_id = ? AND following_id = ? AND status = 'pending'
-  `).bind(followerId, member.id).run();
-
-  return c.json({ success: true });
-});
-
-// Unfollow
-app.delete('/api/follow/:memberId', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const targetId = c.req.param('memberId');
-
-  const follow = await c.env.DB.prepare(`
-    SELECT * FROM follows WHERE follower_id = ? AND following_id = ?
-  `).bind(member.id, targetId).first<Follow>();
-
-  if (!follow) return c.json({ success: true });
-
-  await c.env.DB.prepare(`DELETE FROM follows WHERE id = ?`).bind(follow.id).run();
-
-  // Update counts if was accepted
-  if (follow.status === 'accepted') {
-    await c.env.DB.prepare(`UPDATE members SET following_count = following_count - 1 WHERE id = ? AND following_count > 0`).bind(member.id).run();
-    await c.env.DB.prepare(`UPDATE members SET follower_count = follower_count - 1 WHERE id = ? AND follower_count > 0`).bind(targetId).run();
-  }
-
-  return c.json({ success: true });
-});
-
-// ----- Notifications -----
-
-// Get notifications
-app.get('/api/notifications', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const limit = parseInt(c.req.query('limit') || '20');
-
-  const notifications = await c.env.DB.prepare(`
-    SELECT n.*, m.username as actor_username, m.display_name as actor_display_name, m.avatar_url as actor_avatar_url
-    FROM notifications n
-    JOIN members m ON n.actor_id = m.id
-    WHERE n.member_id = ?
-    ORDER BY n.created_at DESC
-    LIMIT ?
-  `).bind(member.id, limit).all();
-
-  return c.json({ notifications: notifications.results || [] });
-});
-
-// Get unread count
-app.get('/api/notifications/unread/count', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const result = await c.env.DB.prepare(`
-    SELECT COUNT(*) as count FROM notifications WHERE member_id = ? AND read = 0
-  `).bind(member.id).first();
-
-  return c.json({ count: result?.count || 0 });
-});
-
-// Mark notifications as read
-app.post('/api/notifications/read', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const body = await c.req.json<{ ids?: string[] }>();
-
-  if (body.ids && body.ids.length > 0) {
-    // Mark specific notifications as read
-    const placeholders = body.ids.map(() => '?').join(',');
+  const post = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(objectApIdVal).first<any>();
+  if (post && post.attributed_to !== actor.ap_id && isLocal(post.attributed_to, baseUrl)) {
+    const notifId = generateId();
     await c.env.DB.prepare(`
-      UPDATE notifications SET read = 1 WHERE id IN (${placeholders}) AND member_id = ?
-    `).bind(...body.ids, member.id).run();
-  } else {
-    // Mark all as read
-    await c.env.DB.prepare(`UPDATE notifications SET read = 1 WHERE member_id = ?`).bind(member.id).run();
+      INSERT INTO notifications (id, recipient_ap_id, actor_ap_id, type, object_ap_id)
+      VALUES (?, ?, ?, 'like', ?)
+    `).bind(notifId, post.attributed_to, actor.ap_id, objectApIdVal).run();
   }
 
   return c.json({ success: true });
 });
 
-// ----- Profile -----
+app.delete('/api/posts/:id/like', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-// Get member profile (public)
-app.get('/api/profile/:id', async (c) => {
-  const currentMember = c.get('member');
-  const memberId = c.req.param('id');
+  const id = c.req.param('id');
+  const baseUrl = c.env.APP_URL;
+  const objectApIdVal = id.startsWith('http') ? id : objectApId(baseUrl, id);
 
-  const profile = await c.env.DB.prepare(`
-    SELECT id, username, display_name, avatar_url, header_url, bio, follower_count, following_count, post_count, created_at
-    FROM members WHERE id = ?
-  `).bind(memberId).first();
+  const result = await c.env.DB.prepare('DELETE FROM likes WHERE actor_ap_id = ? AND object_ap_id = ?')
+    .bind(actor.ap_id, objectApIdVal).run();
 
-  if (!profile) return c.json({ error: 'Not found' }, 404);
-
-  // Get follow status if logged in
-  let followStatus = null;
-  if (currentMember && currentMember.id !== memberId) {
-    const follow = await c.env.DB.prepare(`
-      SELECT status FROM follows WHERE follower_id = ? AND following_id = ?
-    `).bind(currentMember.id, memberId).first();
-    followStatus = follow?.status || null;
+  if (result.meta.changes > 0) {
+    await c.env.DB.prepare('UPDATE objects SET like_count = like_count - 1 WHERE ap_id = ? AND like_count > 0').bind(objectApIdVal).run();
   }
 
-  return c.json({ profile: { ...profile, followStatus } });
+  return c.json({ success: true });
 });
 
-// ----- Search -----
+// ============================================================
+// BOOKMARK ENDPOINTS
+// ============================================================
 
-// Search users
-app.get('/api/search/users', async (c) => {
-  const query = c.req.query('q')?.trim();
-  if (!query) return c.json({ users: [] });
+app.post('/api/posts/:id/bookmark', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const users = await c.env.DB.prepare(`
-    SELECT id, username, display_name, avatar_url, bio
-    FROM members
-    WHERE username LIKE ? OR display_name LIKE ?
-    ORDER BY username ASC
-    LIMIT 20
-  `).bind(`%${query}%`, `%${query}%`).all();
+  const id = c.req.param('id');
+  const baseUrl = c.env.APP_URL;
+  const objectApIdVal = id.startsWith('http') ? id : objectApId(baseUrl, id);
 
-  return c.json({ users: users.results || [] });
+  try {
+    await c.env.DB.prepare('INSERT INTO bookmarks (actor_ap_id, object_ap_id) VALUES (?, ?)')
+      .bind(actor.ap_id, objectApIdVal).run();
+  } catch (e) {
+    return c.json({ error: 'Already bookmarked' }, 400);
+  }
+
+  return c.json({ success: true });
 });
 
-// Search posts
-app.get('/api/search/posts', async (c) => {
-  const member = c.get('member');
-  const query = c.req.query('q')?.trim();
-  if (!query) return c.json({ posts: [] });
+app.delete('/api/posts/:id/bookmark', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const posts = await c.env.DB.prepare(`
-    SELECT p.*, m.username, m.display_name, m.avatar_url,
-           EXISTS(SELECT 1 FROM likes l WHERE l.post_id = p.id AND l.member_id = ?) as liked
-    FROM posts p JOIN members m ON p.member_id = m.id
-    WHERE p.content LIKE ? AND p.visibility = 'public'
-    ORDER BY p.created_at DESC
-    LIMIT 50
-  `).bind(member?.id || '', `%${query}%`).all();
+  const id = c.req.param('id');
+  const baseUrl = c.env.APP_URL;
+  const objectApIdVal = id.startsWith('http') ? id : objectApId(baseUrl, id);
 
-  return c.json({ posts: posts.results || [] });
+  await c.env.DB.prepare('DELETE FROM bookmarks WHERE actor_ap_id = ? AND object_ap_id = ?')
+    .bind(actor.ap_id, objectApIdVal).run();
+
+  return c.json({ success: true });
 });
 
-// ----- Bookmarks -----
-
-// Get bookmarked posts
 app.get('/api/bookmarks', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const limit = parseInt(c.req.query('limit') || '20');
   const before = c.req.query('before');
 
   let query = `
-    SELECT p.*, m.username, m.display_name, m.avatar_url,
-           EXISTS(SELECT 1 FROM likes l WHERE l.post_id = p.id AND l.member_id = ?) as liked,
-           1 as bookmarked
+    SELECT o.*,
+           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
+           COALESCE(a.name, ac.name) as author_name,
+           COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
+           EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked,
+           1 as bookmarked,
+           b.created_at as bookmark_created_at
     FROM bookmarks b
-    JOIN posts p ON b.post_id = p.id
-    JOIN members m ON p.member_id = m.id
-    WHERE b.member_id = ?
+    JOIN objects o ON b.object_ap_id = o.ap_id
+    LEFT JOIN actors a ON o.attributed_to = a.ap_id
+    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
+    WHERE b.actor_ap_id = ?
   `;
-  const params: any[] = [member.id, member.id];
+  const params: any[] = [actor.ap_id, actor.ap_id];
 
   if (before) {
     query += ` AND b.created_at < ?`;
@@ -2822,203 +1236,831 @@ app.get('/api/bookmarks', async (c) => {
   params.push(limit);
 
   const posts = await c.env.DB.prepare(query).bind(...params).all();
-  return c.json({ posts: posts.results || [] });
+
+  const result = (posts.results || []).map((p: any) => ({
+    ap_id: p.ap_id,
+    type: p.type,
+    author: {
+      ap_id: p.attributed_to,
+      username: formatUsername(p.attributed_to),
+      preferred_username: p.author_username,
+      name: p.author_name,
+      icon_url: p.author_icon_url,
+    },
+    content: p.content,
+    published: p.published,
+    like_count: p.like_count,
+    liked: !!p.liked,
+    bookmarked: true,
+  }));
+
+  return c.json({ posts: result });
 });
 
-// ----- Block/Mute -----
+// ============================================================
+// NOTIFICATIONS ENDPOINTS
+// ============================================================
 
-// Block user
-app.post('/api/block/:memberId', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+app.get('/api/notifications', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const targetId = c.req.param('memberId');
-  if (targetId === member.id) return c.json({ error: 'Cannot block yourself' }, 400);
+  const limit = parseInt(c.req.query('limit') || '20');
+
+  const notifications = await c.env.DB.prepare(`
+    SELECT n.*,
+           COALESCE(a.preferred_username, ac.preferred_username) as actor_username,
+           COALESCE(a.name, ac.name) as actor_name,
+           COALESCE(a.icon_url, ac.icon_url) as actor_icon_url
+    FROM notifications n
+    LEFT JOIN actors a ON n.actor_ap_id = a.ap_id
+    LEFT JOIN actor_cache ac ON n.actor_ap_id = ac.ap_id
+    WHERE n.recipient_ap_id = ?
+    ORDER BY n.created_at DESC
+    LIMIT ?
+  `).bind(actor.ap_id, limit).all();
+
+  const result = (notifications.results || []).map((n: any) => ({
+    id: n.id,
+    type: n.type,
+    actor: {
+      ap_id: n.actor_ap_id,
+      username: formatUsername(n.actor_ap_id),
+      preferred_username: n.actor_username,
+      name: n.actor_name,
+      icon_url: n.actor_icon_url,
+    },
+    object_ap_id: n.object_ap_id,
+    read: !!n.read,
+    created_at: n.created_at,
+  }));
+
+  return c.json({ notifications: result });
+});
+
+app.get('/api/notifications/unread/count', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const result = await c.env.DB.prepare(
+    'SELECT COUNT(*) as count FROM notifications WHERE recipient_ap_id = ? AND read = 0'
+  ).bind(actor.ap_id).first<{ count: number }>();
+
+  return c.json({ count: result?.count || 0 });
+});
+
+app.post('/api/notifications/read', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const body = await c.req.json<{ ids?: string[] }>();
+
+  if (body.ids && body.ids.length > 0) {
+    const placeholders = body.ids.map(() => '?').join(',');
+    await c.env.DB.prepare(`UPDATE notifications SET read = 1 WHERE id IN (${placeholders}) AND recipient_ap_id = ?`)
+      .bind(...body.ids, actor.ap_id).run();
+  } else {
+    await c.env.DB.prepare('UPDATE notifications SET read = 1 WHERE recipient_ap_id = ?').bind(actor.ap_id).run();
+  }
+
+  return c.json({ success: true });
+});
+
+// ============================================================
+// SEARCH ENDPOINTS
+// ============================================================
+
+app.get('/api/search/actors', async (c) => {
+  const query = c.req.query('q')?.trim();
+  if (!query) return c.json({ actors: [] });
+
+  // Search local actors
+  const actors = await c.env.DB.prepare(`
+    SELECT ap_id, preferred_username, name, icon_url, summary
+    FROM actors
+    WHERE preferred_username LIKE ? OR name LIKE ?
+    ORDER BY preferred_username ASC
+    LIMIT 20
+  `).bind(`%${query}%`, `%${query}%`).all();
+
+  const result = (actors.results || []).map((a: any) => ({
+    ...a,
+    username: formatUsername(a.ap_id),
+  }));
+
+  return c.json({ actors: result });
+});
+
+app.get('/api/search/posts', async (c) => {
+  const actor = c.get('actor');
+  const query = c.req.query('q')?.trim();
+  if (!query) return c.json({ posts: [] });
+
+  const posts = await c.env.DB.prepare(`
+    SELECT o.*,
+           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
+           COALESCE(a.name, ac.name) as author_name,
+           COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
+           EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked
+    FROM objects o
+    LEFT JOIN actors a ON o.attributed_to = a.ap_id
+    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
+    WHERE o.content LIKE ? AND o.visibility = 'public'
+    ORDER BY o.published DESC
+    LIMIT 50
+  `).bind(actor?.ap_id || '', `%${query}%`).all();
+
+  const result = (posts.results || []).map((p: any) => ({
+    ap_id: p.ap_id,
+    author: {
+      ap_id: p.attributed_to,
+      username: formatUsername(p.attributed_to),
+      preferred_username: p.author_username,
+      name: p.author_name,
+      icon_url: p.author_icon_url,
+    },
+    content: p.content,
+    published: p.published,
+    like_count: p.like_count,
+    liked: !!p.liked,
+  }));
+
+  return c.json({ posts: result });
+});
+
+// Remote actor search via WebFinger
+app.get('/api/search/remote', async (c) => {
+  const query = c.req.query('q')?.trim();
+  if (!query) return c.json({ actors: [] });
+
+  // Parse @user@domain format
+  const match = query.match(/^@?([^@]+)@([^@]+)$/);
+  if (!match) return c.json({ actors: [] });
+
+  const [, username, domain] = match;
 
   try {
-    const id = generateId();
-    await c.env.DB.prepare(`INSERT INTO blocks (id, blocker_id, blocked_id) VALUES (?, ?, ?)`)
-      .bind(id, member.id, targetId).run();
-    // Also unfollow each other
-    await c.env.DB.prepare(`DELETE FROM follows WHERE (follower_id = ? AND following_id = ?) OR (follower_id = ? AND following_id = ?)`)
-      .bind(member.id, targetId, targetId, member.id).run();
+    // WebFinger lookup
+    const webfingerUrl = `https://${domain}/.well-known/webfinger?resource=acct:${username}@${domain}`;
+    const wfRes = await fetch(webfingerUrl, { headers: { 'Accept': 'application/jrd+json' } });
+    if (!wfRes.ok) return c.json({ actors: [] });
+
+    const wfData = await wfRes.json() as any;
+    const actorLink = wfData.links?.find((l: any) => l.rel === 'self' && l.type === 'application/activity+json');
+    if (!actorLink?.href) return c.json({ actors: [] });
+
+    // Fetch actor
+    const actorRes = await fetch(actorLink.href, {
+      headers: { 'Accept': 'application/activity+json, application/ld+json' }
+    });
+    if (!actorRes.ok) return c.json({ actors: [] });
+
+    const actorData = await actorRes.json() as any;
+
+    // Cache the actor
+    await c.env.DB.prepare(`
+      INSERT OR REPLACE INTO actor_cache (ap_id, type, preferred_username, name, summary, icon_url, inbox, outbox, public_key_id, public_key_pem, raw_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      actorData.id,
+      actorData.type,
+      actorData.preferredUsername,
+      actorData.name,
+      actorData.summary,
+      actorData.icon?.url,
+      actorData.inbox,
+      actorData.outbox,
+      actorData.publicKey?.id,
+      actorData.publicKey?.publicKeyPem,
+      JSON.stringify(actorData)
+    ).run();
+
+    return c.json({
+      actors: [{
+        ap_id: actorData.id,
+        username: `${actorData.preferredUsername}@${domain}`,
+        preferred_username: actorData.preferredUsername,
+        name: actorData.name,
+        summary: actorData.summary,
+        icon_url: actorData.icon?.url,
+      }]
+    });
   } catch (e) {
-    // Already blocked
+    console.error('Remote search failed:', e);
+    return c.json({ actors: [] });
   }
-  return c.json({ success: true });
 });
 
-// Unblock user
-app.delete('/api/block/:memberId', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+// ============================================================
+// COMMUNITIES ENDPOINTS
+// ============================================================
 
-  const targetId = c.req.param('memberId');
-  await c.env.DB.prepare(`DELETE FROM blocks WHERE blocker_id = ? AND blocked_id = ?`)
-    .bind(member.id, targetId).run();
-  return c.json({ success: true });
+app.get('/api/communities', async (c) => {
+  const result = await c.env.DB.prepare(`
+    SELECT ap_id, preferred_username, name, summary, icon_url, visibility, member_count, created_at
+    FROM communities
+    ORDER BY name ASC
+  `).all();
+
+  return c.json({ communities: result.results || [] });
 });
 
-// Mute user
-app.post('/api/mute/:memberId', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+app.get('/api/communities/:name', async (c) => {
+  const name = c.req.param('name');
+  const baseUrl = c.env.APP_URL;
+  const apId = name.startsWith('http') ? name : communityApId(baseUrl, name);
 
-  const targetId = c.req.param('memberId');
-  if (targetId === member.id) return c.json({ error: 'Cannot mute yourself' }, 400);
+  const community = await c.env.DB.prepare('SELECT * FROM communities WHERE ap_id = ?').bind(apId).first();
+  if (!community) return c.json({ error: 'Community not found' }, 404);
 
-  try {
-    const id = generateId();
-    await c.env.DB.prepare(`INSERT INTO mutes (id, muter_id, muted_id) VALUES (?, ?, ?)`)
-      .bind(id, member.id, targetId).run();
-  } catch (e) {
-    // Already muted
-  }
-  return c.json({ success: true });
-});
-
-// Unmute user
-app.delete('/api/mute/:memberId', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const targetId = c.req.param('memberId');
-  await c.env.DB.prepare(`DELETE FROM mutes WHERE muter_id = ? AND muted_id = ?`)
-    .bind(member.id, targetId).run();
-  return c.json({ success: true });
-});
-
-// Get blocked users
-app.get('/api/blocks', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const blocks = await c.env.DB.prepare(`
-    SELECT m.id, m.username, m.display_name, m.avatar_url, b.created_at as blocked_at
-    FROM blocks b JOIN members m ON b.blocked_id = m.id
-    WHERE b.blocker_id = ?
-    ORDER BY b.created_at DESC
-  `).bind(member.id).all();
-
-  return c.json({ users: blocks.results || [] });
-});
-
-// Get muted users
-app.get('/api/mutes', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const mutes = await c.env.DB.prepare(`
-    SELECT m.id, m.username, m.display_name, m.avatar_url, mu.created_at as muted_at
-    FROM mutes mu JOIN members m ON mu.muted_id = m.id
-    WHERE mu.muter_id = ?
-    ORDER BY mu.created_at DESC
-  `).bind(member.id).all();
-
-  return c.json({ users: mutes.results || [] });
-});
-
-// ----- Community Management -----
-
-// Update community
-app.put('/api/communities/:id', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
-
-  const communityId = c.req.param('id');
-  const body = await c.req.json<{ name?: string; description?: string }>();
-
-  // Only creator or owner can edit (for now just check member role)
-  if (member.role !== 'owner' && member.role !== 'moderator') {
-    return c.json({ error: 'Forbidden' }, 403);
-  }
-
-  const updates: string[] = [];
-  const values: unknown[] = [];
-
-  if (body.name !== undefined) {
-    updates.push('name = ?');
-    values.push(body.name.trim());
-  }
-  if (body.description !== undefined) {
-    updates.push('description = ?');
-    values.push(body.description.trim());
-  }
-
-  if (updates.length === 0) {
-    return c.json({ error: 'No updates provided' }, 400);
-  }
-
-  updates.push("updated_at = datetime('now')");
-  values.push(communityId);
-
-  await c.env.DB.prepare(`UPDATE communities SET ${updates.join(', ')} WHERE id = ?`)
-    .bind(...values).run();
-
-  const community = await c.env.DB.prepare(`SELECT * FROM communities WHERE id = ?`).bind(communityId).first();
   return c.json({ community });
 });
 
-// Delete community
-app.delete('/api/communities/:id', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+// ============================================================
+// DM ENDPOINTS
+// ============================================================
 
-  const communityId = c.req.param('id');
+app.get('/api/dm/conversations', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  // Only owner can delete
-  if (member.role !== 'owner') {
-    return c.json({ error: 'Forbidden' }, 403);
-  }
+  const result = await c.env.DB.prepare(`
+    SELECT c.*,
+           COALESCE(a1.preferred_username, ac1.preferred_username) as p1_username,
+           COALESCE(a1.name, ac1.name) as p1_name,
+           COALESCE(a1.icon_url, ac1.icon_url) as p1_icon_url,
+           COALESCE(a2.preferred_username, ac2.preferred_username) as p2_username,
+           COALESCE(a2.name, ac2.name) as p2_name,
+           COALESCE(a2.icon_url, ac2.icon_url) as p2_icon_url
+    FROM dm_conversations c
+    LEFT JOIN actors a1 ON c.participant1_ap_id = a1.ap_id
+    LEFT JOIN actor_cache ac1 ON c.participant1_ap_id = ac1.ap_id
+    LEFT JOIN actors a2 ON c.participant2_ap_id = a2.ap_id
+    LEFT JOIN actor_cache ac2 ON c.participant2_ap_id = ac2.ap_id
+    WHERE c.participant1_ap_id = ? OR c.participant2_ap_id = ?
+    ORDER BY c.last_message_at DESC NULLS LAST
+  `).bind(actor.ap_id, actor.ap_id).all();
 
-  // Set posts in this community to personal (null community_id)
-  await c.env.DB.prepare(`UPDATE posts SET community_id = NULL WHERE community_id = ?`)
-    .bind(communityId).run();
+  const conversations = (result.results || []).map((conv: any) => {
+    const isP1 = conv.participant1_ap_id === actor.ap_id;
+    const other = {
+      ap_id: isP1 ? conv.participant2_ap_id : conv.participant1_ap_id,
+      username: formatUsername(isP1 ? conv.participant2_ap_id : conv.participant1_ap_id),
+      preferred_username: isP1 ? conv.p2_username : conv.p1_username,
+      name: isP1 ? conv.p2_name : conv.p1_name,
+      icon_url: isP1 ? conv.p2_icon_url : conv.p1_icon_url,
+    };
+    return {
+      id: conv.id,
+      other_participant: other,
+      last_message_at: conv.last_message_at,
+      created_at: conv.created_at,
+    };
+  });
 
-  await c.env.DB.prepare(`DELETE FROM communities WHERE id = ?`).bind(communityId).run();
-
-  return c.json({ success: true });
+  return c.json({ conversations });
 });
 
-// ----- Settings -----
+app.post('/api/dm/conversations', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-// Delete account
-app.delete('/api/me', async (c) => {
-  const member = c.get('member');
-  if (!member) return c.json({ error: 'Unauthorized' }, 401);
+  const body = await c.req.json<{ participant_ap_id: string }>();
+  if (!body.participant_ap_id) return c.json({ error: 'participant_ap_id required' }, 400);
+  if (body.participant_ap_id === actor.ap_id) return c.json({ error: 'Cannot start conversation with yourself' }, 400);
 
-  // Cannot delete if owner (need to transfer ownership first)
-  if (member.role === 'owner') {
-    return c.json({ error: 'Owners cannot delete their account. Transfer ownership first.' }, 400);
-  }
+  // Check if conversation exists
+  const existing = await c.env.DB.prepare(`
+    SELECT * FROM dm_conversations
+    WHERE (participant1_ap_id = ? AND participant2_ap_id = ?) OR (participant1_ap_id = ? AND participant2_ap_id = ?)
+  `).bind(actor.ap_id, body.participant_ap_id, body.participant_ap_id, actor.ap_id).first();
 
-  // Delete all related data
-  await c.env.DB.prepare(`DELETE FROM sessions WHERE member_id = ?`).bind(member.id).run();
-  await c.env.DB.prepare(`DELETE FROM posts WHERE member_id = ?`).bind(member.id).run();
-  await c.env.DB.prepare(`DELETE FROM likes WHERE member_id = ?`).bind(member.id).run();
-  await c.env.DB.prepare(`DELETE FROM follows WHERE follower_id = ? OR following_id = ?`).bind(member.id, member.id).run();
-  await c.env.DB.prepare(`DELETE FROM notifications WHERE member_id = ? OR actor_id = ?`).bind(member.id, member.id).run();
-  await c.env.DB.prepare(`DELETE FROM bookmarks WHERE member_id = ?`).bind(member.id).run();
-  await c.env.DB.prepare(`DELETE FROM blocks WHERE blocker_id = ? OR blocked_id = ?`).bind(member.id, member.id).run();
-  await c.env.DB.prepare(`DELETE FROM mutes WHERE muter_id = ? OR muted_id = ?`).bind(member.id, member.id).run();
-  await c.env.DB.prepare(`DELETE FROM dm_messages WHERE sender_id = ?`).bind(member.id).run();
-  await c.env.DB.prepare(`DELETE FROM members WHERE id = ?`).bind(member.id).run();
+  if (existing) return c.json({ conversation: { id: (existing as any).id } });
 
-  return c.json({ success: true });
+  const id = generateId();
+  await c.env.DB.prepare(`
+    INSERT INTO dm_conversations (id, participant1_ap_id, participant2_ap_id)
+    VALUES (?, ?, ?)
+  `).bind(id, actor.ap_id, body.participant_ap_id).run();
+
+  return c.json({ conversation: { id } }, 201);
 });
 
-// Serve static files with SPA fallback
-app.get('*', async (c) => {
-  const response = await c.env.ASSETS.fetch(c.req.raw);
+app.get('/api/dm/conversations/:id/messages', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  // If asset not found and not an API route, serve index.html for SPA routing
-  if (response.status === 404) {
-    const url = new URL(c.req.url);
-    url.pathname = '/index.html';
-    return c.env.ASSETS.fetch(new Request(url.toString(), c.req.raw));
+  const convId = c.req.param('id');
+
+  // Verify access
+  const conv = await c.env.DB.prepare('SELECT * FROM dm_conversations WHERE id = ?').bind(convId).first<any>();
+  if (!conv) return c.json({ error: 'Conversation not found' }, 404);
+  if (conv.participant1_ap_id !== actor.ap_id && conv.participant2_ap_id !== actor.ap_id) {
+    return c.json({ error: 'Unauthorized' }, 403);
   }
 
-  return response;
+  const limit = parseInt(c.req.query('limit') || '50');
+  const before = c.req.query('before');
+
+  let query = `
+    SELECT m.*,
+           COALESCE(a.preferred_username, ac.preferred_username) as sender_username,
+           COALESCE(a.name, ac.name) as sender_name,
+           COALESCE(a.icon_url, ac.icon_url) as sender_icon_url
+    FROM dm_messages m
+    LEFT JOIN actors a ON m.sender_ap_id = a.ap_id
+    LEFT JOIN actor_cache ac ON m.sender_ap_id = ac.ap_id
+    WHERE m.conversation_id = ?
+  `;
+  const params: any[] = [convId];
+
+  if (before) {
+    query += ` AND m.created_at < ?`;
+    params.push(before);
+  }
+
+  query += ` ORDER BY m.created_at DESC LIMIT ?`;
+  params.push(limit);
+
+  const result = await c.env.DB.prepare(query).bind(...params).all();
+
+  const messages = (result.results || []).reverse().map((m: any) => ({
+    id: m.id,
+    sender: {
+      ap_id: m.sender_ap_id,
+      username: formatUsername(m.sender_ap_id),
+      preferred_username: m.sender_username,
+      name: m.sender_name,
+      icon_url: m.sender_icon_url,
+    },
+    content: m.content,
+    created_at: m.created_at,
+  }));
+
+  return c.json({ messages });
+});
+
+app.post('/api/dm/conversations/:id/messages', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const convId = c.req.param('id');
+
+  // Verify access
+  const conv = await c.env.DB.prepare('SELECT * FROM dm_conversations WHERE id = ?').bind(convId).first<any>();
+  if (!conv) return c.json({ error: 'Conversation not found' }, 404);
+  if (conv.participant1_ap_id !== actor.ap_id && conv.participant2_ap_id !== actor.ap_id) {
+    return c.json({ error: 'Unauthorized' }, 403);
+  }
+
+  const body = await c.req.json<{ content: string }>();
+  if (!body.content?.trim()) return c.json({ error: 'Content required' }, 400);
+
+  const id = generateId();
+  const now = new Date().toISOString();
+
+  await c.env.DB.prepare(`
+    INSERT INTO dm_messages (id, conversation_id, sender_ap_id, content, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(id, convId, actor.ap_id, body.content.trim(), now).run();
+
+  await c.env.DB.prepare('UPDATE dm_conversations SET last_message_at = ? WHERE id = ?').bind(now, convId).run();
+
+  return c.json({
+    message: {
+      id,
+      sender: {
+        ap_id: actor.ap_id,
+        username: formatUsername(actor.ap_id),
+        preferred_username: actor.preferred_username,
+        name: actor.name,
+        icon_url: actor.icon_url,
+      },
+      content: body.content.trim(),
+      created_at: now,
+    }
+  }, 201);
+});
+
+// ============================================================
+// MEDIA UPLOAD
+// ============================================================
+
+app.post('/api/media/upload', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const formData = await c.req.formData();
+  const file = formData.get('file') as File;
+  if (!file) return c.json({ error: 'No file provided' }, 400);
+
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm'];
+  if (!allowedTypes.includes(file.type)) {
+    return c.json({ error: 'Invalid file type' }, 400);
+  }
+
+  const id = generateId();
+  const ext = file.name.split('.').pop() || 'bin';
+  const r2Key = `uploads/${id}.${ext}`;
+
+  await c.env.MEDIA.put(r2Key, file.stream(), {
+    httpMetadata: { contentType: file.type },
+  });
+
+  const url = `${c.env.APP_URL}/media/${r2Key}`;
+
+  return c.json({ url, r2_key: r2Key, content_type: file.type });
+});
+
+app.get('/media/*', async (c) => {
+  const path = c.req.path.replace('/media/', '');
+  const object = await c.env.MEDIA.get(path);
+  if (!object) return c.json({ error: 'Not found' }, 404);
+
+  return new Response(object.body, {
+    headers: {
+      'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
+      'Cache-Control': 'public, max-age=31536000',
+    },
+  });
+});
+
+// ============================================================
+// ACTIVITYPUB ENDPOINTS
+// ============================================================
+
+// WebFinger
+app.get('/.well-known/webfinger', async (c) => {
+  const resource = c.req.query('resource');
+  if (!resource) return c.json({ error: 'resource required' }, 400);
+
+  const baseUrl = c.env.APP_URL;
+  const domain = getDomain(baseUrl);
+
+  // Parse acct:user@domain
+  const match = resource.match(/^acct:([^@]+)@(.+)$/);
+  if (!match || match[2] !== domain) return c.json({ error: 'Not found' }, 404);
+
+  const username = match[1];
+  const apId = actorApId(baseUrl, username);
+
+  const actor = await c.env.DB.prepare('SELECT ap_id FROM actors WHERE preferred_username = ?').bind(username).first();
+  if (!actor) return c.json({ error: 'Not found' }, 404);
+
+  return c.json({
+    subject: resource,
+    links: [
+      {
+        rel: 'self',
+        type: 'application/activity+json',
+        href: apId,
+      },
+    ],
+  });
+});
+
+// Actor profile
+app.get('/ap/users/:username', async (c) => {
+  const username = c.req.param('username');
+  const baseUrl = c.env.APP_URL;
+  const apId = actorApId(baseUrl, username);
+
+  const actor = await c.env.DB.prepare('SELECT * FROM actors WHERE ap_id = ?').bind(apId).first<Actor>();
+  if (!actor) return c.json({ error: 'Not found' }, 404);
+
+  const actorJson = {
+    '@context': [
+      'https://www.w3.org/ns/activitystreams',
+      'https://w3id.org/security/v1',
+    ],
+    id: actor.ap_id,
+    type: 'Person',
+    preferredUsername: actor.preferred_username,
+    name: actor.name,
+    summary: actor.summary,
+    inbox: actor.inbox,
+    outbox: actor.outbox,
+    followers: actor.followers_url,
+    following: actor.following_url,
+    icon: actor.icon_url ? {
+      type: 'Image',
+      mediaType: 'image/png',
+      url: actor.icon_url,
+    } : undefined,
+    image: actor.header_url ? {
+      type: 'Image',
+      mediaType: 'image/png',
+      url: actor.header_url,
+    } : undefined,
+    publicKey: {
+      id: `${actor.ap_id}#main-key`,
+      owner: actor.ap_id,
+      publicKeyPem: actor.public_key_pem,
+    },
+  };
+
+  return c.json(actorJson, 200, {
+    'Content-Type': 'application/activity+json',
+  });
+});
+
+// Actor inbox
+app.post('/ap/users/:username/inbox', async (c) => {
+  const username = c.req.param('username');
+  const baseUrl = c.env.APP_URL;
+  const localActorApId = actorApId(baseUrl, username);
+
+  const localActor = await c.env.DB.prepare('SELECT * FROM actors WHERE ap_id = ?').bind(localActorApId).first<Actor>();
+  if (!localActor) return c.json({ error: 'Not found' }, 404);
+
+  const activity = await c.req.json() as any;
+  const activityType = activity.type;
+  const actorApIdVal = typeof activity.actor === 'string' ? activity.actor : activity.actor?.id;
+
+  console.log(`Inbox received: ${activityType} from ${actorApIdVal}`);
+
+  // Store activity
+  const activityId = activity.id || activityApId(baseUrl, generateId());
+  await c.env.DB.prepare(`
+    INSERT OR IGNORE INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction, processed)
+    VALUES (?, ?, ?, ?, ?, 'inbound', 0)
+  `).bind(activityId, activityType, actorApIdVal, typeof activity.object === 'string' ? activity.object : activity.object?.id, JSON.stringify(activity)).run();
+
+  // Ensure remote actor is cached
+  let remoteActor = await c.env.DB.prepare('SELECT * FROM actor_cache WHERE ap_id = ?').bind(actorApIdVal).first<ActorCache>();
+  if (!remoteActor) {
+    try {
+      const res = await fetch(actorApIdVal, { headers: { 'Accept': 'application/activity+json' } });
+      if (res.ok) {
+        const actorData = await res.json() as any;
+        await c.env.DB.prepare(`
+          INSERT INTO actor_cache (ap_id, type, preferred_username, name, summary, icon_url, inbox, outbox, public_key_id, public_key_pem, raw_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          actorData.id, actorData.type, actorData.preferredUsername, actorData.name, actorData.summary,
+          actorData.icon?.url, actorData.inbox, actorData.outbox, actorData.publicKey?.id, actorData.publicKey?.publicKeyPem,
+          JSON.stringify(actorData)
+        ).run();
+        remoteActor = await c.env.DB.prepare('SELECT * FROM actor_cache WHERE ap_id = ?').bind(actorApIdVal).first<ActorCache>();
+      }
+    } catch (e) {
+      console.error('Failed to fetch remote actor:', e);
+    }
+  }
+
+  // Handle activity types
+  if (activityType === 'Follow') {
+    // Someone wants to follow local user
+    const status = localActor.is_private ? 'pending' : 'accepted';
+
+    await c.env.DB.prepare(`
+      INSERT OR REPLACE INTO follows (follower_ap_id, following_ap_id, status, activity_ap_id, accepted_at)
+      VALUES (?, ?, ?, ?, ${status === 'accepted' ? "datetime('now')" : 'NULL'})
+    `).bind(actorApIdVal, localActorApId, status, activityId).run();
+
+    if (status === 'accepted') {
+      // Update follower count
+      await c.env.DB.prepare('UPDATE actors SET follower_count = follower_count + 1 WHERE ap_id = ?').bind(localActorApId).run();
+
+      // Send Accept
+      const acceptId = activityApId(baseUrl, generateId());
+      const acceptActivity = {
+        '@context': 'https://www.w3.org/ns/activitystreams',
+        id: acceptId,
+        type: 'Accept',
+        actor: localActorApId,
+        object: activity,
+      };
+
+      if (remoteActor?.inbox) {
+        const keyId = `${localActorApId}#main-key`;
+        const headers = await signRequest(localActor.private_key_pem, keyId, 'POST', remoteActor.inbox, JSON.stringify(acceptActivity));
+
+        try {
+          await fetch(remoteActor.inbox, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/activity+json' },
+            body: JSON.stringify(acceptActivity),
+          });
+        } catch (e) {
+          console.error('Failed to send Accept:', e);
+        }
+      }
+    }
+
+    // Create notification
+    const notifId = generateId();
+    await c.env.DB.prepare(`
+      INSERT INTO notifications (id, recipient_ap_id, actor_ap_id, type)
+      VALUES (?, ?, ?, ?)
+    `).bind(notifId, localActorApId, actorApIdVal, status === 'pending' ? 'follow_request' : 'follow').run();
+  }
+  else if (activityType === 'Accept') {
+    // Our follow was accepted
+    const objectId = typeof activity.object === 'string' ? activity.object : activity.object?.id;
+
+    await c.env.DB.prepare(`
+      UPDATE follows SET status = 'accepted', accepted_at = datetime('now')
+      WHERE activity_ap_id = ? OR (follower_ap_id = ? AND following_ap_id = ?)
+    `).bind(objectId, localActorApId, actorApIdVal).run();
+
+    // Update following count
+    await c.env.DB.prepare('UPDATE actors SET following_count = following_count + 1 WHERE ap_id = ?').bind(localActorApId).run();
+  }
+  else if (activityType === 'Undo') {
+    const objectType = activity.object?.type;
+
+    if (objectType === 'Follow') {
+      // Unfollow
+      await c.env.DB.prepare('DELETE FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?')
+        .bind(actorApIdVal, localActorApId).run();
+      await c.env.DB.prepare('UPDATE actors SET follower_count = follower_count - 1 WHERE ap_id = ? AND follower_count > 0')
+        .bind(localActorApId).run();
+    }
+    else if (objectType === 'Like') {
+      const objectApIdVal = typeof activity.object.object === 'string' ? activity.object.object : activity.object.object?.id;
+      await c.env.DB.prepare('DELETE FROM likes WHERE actor_ap_id = ? AND object_ap_id = ?')
+        .bind(actorApIdVal, objectApIdVal).run();
+      await c.env.DB.prepare('UPDATE objects SET like_count = like_count - 1 WHERE ap_id = ? AND like_count > 0')
+        .bind(objectApIdVal).run();
+    }
+  }
+  else if (activityType === 'Like') {
+    const objectApIdVal = typeof activity.object === 'string' ? activity.object : activity.object?.id;
+
+    // Only process if it's a local object
+    if (isLocal(objectApIdVal, baseUrl)) {
+      await c.env.DB.prepare(`
+        INSERT OR IGNORE INTO likes (actor_ap_id, object_ap_id, activity_ap_id)
+        VALUES (?, ?, ?)
+      `).bind(actorApIdVal, objectApIdVal, activityId).run();
+
+      await c.env.DB.prepare('UPDATE objects SET like_count = like_count + 1 WHERE ap_id = ?').bind(objectApIdVal).run();
+
+      // Create notification
+      const obj = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(objectApIdVal).first<any>();
+      if (obj) {
+        const notifId = generateId();
+        await c.env.DB.prepare(`
+          INSERT INTO notifications (id, recipient_ap_id, actor_ap_id, type, object_ap_id)
+          VALUES (?, ?, ?, 'like', ?)
+        `).bind(notifId, obj.attributed_to, actorApIdVal, objectApIdVal).run();
+      }
+    }
+  }
+  else if (activityType === 'Create') {
+    const object = activity.object;
+    if (object?.type === 'Note') {
+      // Cache remote post
+      await c.env.DB.prepare(`
+        INSERT OR IGNORE INTO objects (ap_id, type, attributed_to, content, summary, in_reply_to, visibility, published, is_local, raw_json)
+        VALUES (?, 'Note', ?, ?, ?, ?, 'public', ?, 0, ?)
+      `).bind(
+        object.id,
+        actorApIdVal,
+        object.content || '',
+        object.summary,
+        object.inReplyTo,
+        object.published || new Date().toISOString(),
+        JSON.stringify(object)
+      ).run();
+
+      // If it's a reply to a local object, update reply count and notify
+      if (object.inReplyTo && isLocal(object.inReplyTo, baseUrl)) {
+        await c.env.DB.prepare('UPDATE objects SET reply_count = reply_count + 1 WHERE ap_id = ?').bind(object.inReplyTo).run();
+
+        const parent = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(object.inReplyTo).first<any>();
+        if (parent) {
+          const notifId = generateId();
+          await c.env.DB.prepare(`
+            INSERT INTO notifications (id, recipient_ap_id, actor_ap_id, type, object_ap_id)
+            VALUES (?, ?, ?, 'reply', ?)
+          `).bind(notifId, parent.attributed_to, actorApIdVal, object.id).run();
+        }
+      }
+    }
+  }
+  else if (activityType === 'Delete') {
+    const objectApIdVal = typeof activity.object === 'string' ? activity.object : activity.object?.id;
+
+    // Delete if it's from the same actor
+    await c.env.DB.prepare('DELETE FROM objects WHERE ap_id = ? AND attributed_to = ?')
+      .bind(objectApIdVal, actorApIdVal).run();
+  }
+
+  // Mark activity as processed
+  await c.env.DB.prepare('UPDATE activities SET processed = 1 WHERE ap_id = ?').bind(activityId).run();
+
+  return c.json({ success: true }, 202);
+});
+
+// Actor outbox
+app.get('/ap/users/:username/outbox', async (c) => {
+  const username = c.req.param('username');
+  const baseUrl = c.env.APP_URL;
+  const apId = actorApId(baseUrl, username);
+
+  const actor = await c.env.DB.prepare('SELECT ap_id FROM actors WHERE ap_id = ?').bind(apId).first();
+  if (!actor) return c.json({ error: 'Not found' }, 404);
+
+  const posts = await c.env.DB.prepare(`
+    SELECT ap_id, content, published FROM objects
+    WHERE attributed_to = ? AND visibility = 'public' AND is_local = 1
+    ORDER BY published DESC
+    LIMIT 20
+  `).bind(apId).all();
+
+  const items = (posts.results || []).map((p: any) => ({
+    type: 'Create',
+    actor: apId,
+    published: p.published,
+    object: {
+      id: p.ap_id,
+      type: 'Note',
+      attributedTo: apId,
+      content: p.content,
+      published: p.published,
+    },
+  }));
+
+  return c.json({
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    id: `${apId}/outbox`,
+    type: 'OrderedCollection',
+    totalItems: items.length,
+    orderedItems: items,
+  }, 200, { 'Content-Type': 'application/activity+json' });
+});
+
+// Actor followers collection
+app.get('/ap/users/:username/followers', async (c) => {
+  const username = c.req.param('username');
+  const baseUrl = c.env.APP_URL;
+  const apId = actorApId(baseUrl, username);
+
+  const followers = await c.env.DB.prepare(`
+    SELECT follower_ap_id FROM follows WHERE following_ap_id = ? AND status = 'accepted'
+  `).bind(apId).all();
+
+  return c.json({
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    id: `${apId}/followers`,
+    type: 'OrderedCollection',
+    totalItems: followers.results?.length || 0,
+    orderedItems: (followers.results || []).map((f: any) => f.follower_ap_id),
+  }, 200, { 'Content-Type': 'application/activity+json' });
+});
+
+// Actor following collection
+app.get('/ap/users/:username/following', async (c) => {
+  const username = c.req.param('username');
+  const baseUrl = c.env.APP_URL;
+  const apId = actorApId(baseUrl, username);
+
+  const following = await c.env.DB.prepare(`
+    SELECT following_ap_id FROM follows WHERE follower_ap_id = ? AND status = 'accepted'
+  `).bind(apId).all();
+
+  return c.json({
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    id: `${apId}/following`,
+    type: 'OrderedCollection',
+    totalItems: following.results?.length || 0,
+    orderedItems: (following.results || []).map((f: any) => f.following_ap_id),
+  }, 200, { 'Content-Type': 'application/activity+json' });
+});
+
+// Object endpoint
+app.get('/ap/objects/:id', async (c) => {
+  const id = c.req.param('id');
+  const baseUrl = c.env.APP_URL;
+  const apId = objectApId(baseUrl, id);
+
+  const obj = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ?').bind(apId).first<APObject>();
+  if (!obj) return c.json({ error: 'Not found' }, 404);
+
+  const actor = await c.env.DB.prepare('SELECT followers_url FROM actors WHERE ap_id = ?').bind(obj.attributed_to).first<any>();
+
+  return c.json({
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    id: obj.ap_id,
+    type: obj.type,
+    attributedTo: obj.attributed_to,
+    content: obj.content,
+    summary: obj.summary,
+    inReplyTo: obj.in_reply_to,
+    published: obj.published,
+    to: obj.visibility === 'public' ? ['https://www.w3.org/ns/activitystreams#Public'] : [],
+    cc: actor?.followers_url ? [actor.followers_url] : [],
+  }, 200, { 'Content-Type': 'application/activity+json' });
+});
+
+// ============================================================
+// FALLBACK TO STATIC ASSETS
+// ============================================================
+
+app.all('*', async (c) => {
+  return c.env.ASSETS.fetch(c.req.raw);
 });
 
 export default app;

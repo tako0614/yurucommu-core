@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ActivityPub拡張仕様 - Yurucommu</title>
+  <meta name="description" content="YurucommuのActivityPub拡張仕様。コミュニティ機能やその他の独自拡張の仕様書">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <a href="/" class="logo">Yurucommu</a>
+      <div class="header-links">
+        <a href="/docs/" class="header-link">Docs</a>
+        <a href="/specs/" class="header-link active">Specs</a>
+      </div>
+      <a href="https://github.com/example/yurucommu" class="header-cta">
+        GitHub
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <!-- Sidebar -->
+    <aside class="docs-sidebar">
+      <p class="docs-sidebar-title">概要</p>
+      <ul class="docs-sidebar-nav">
+        <li><a href="/specs/" class="active">仕様一覧</a></li>
+        <li><a href="/specs/namespace.html">名前空間</a></li>
+      </ul>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">コア仕様</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/specs/apc.html">APC (Communities)</a></li>
+          <li><a href="/specs/single-user.html">Single-User Instance</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">拡張仕様</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/specs/story.html">Story</a></li>
+          <li><a href="/specs/qr-exchange.html">QR Exchange</a></li>
+          <li><a href="/specs/bookmark.html">Bookmark</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">リソース</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="https://www.w3.org/TR/activitypub/">ActivityPub (W3C)</a></li>
+          <li><a href="https://www.w3.org/TR/activitystreams-core/">Activity Streams 2.0</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <!-- Content -->
+    <main class="docs-content">
+      <h1>ActivityPub拡張仕様</h1>
+      <p class="lead">
+        YurucommuはActivityPubプロトコルを拡張して、コミュニティ機能やその他の独自機能を実装しています。
+        これらの仕様は、他の実装との相互運用性を確保するために公開されています。
+      </p>
+
+      <h2>仕様のステータス</h2>
+      <p>各仕様は以下のステータスを持ちます：</p>
+      <ul>
+        <li><span class="spec-status draft">Draft</span> - 策定中。大きな変更の可能性あり</li>
+        <li><span class="spec-status experimental">Experimental</span> - 実験的実装。フィードバック募集中</li>
+        <li><span class="spec-status stable">Stable</span> - 安定版。後方互換性を維持</li>
+      </ul>
+
+      <h2>名前空間</h2>
+      <p>
+        Yurucommuの拡張プロパティは以下の名前空間を使用します：
+      </p>
+      <pre><code>{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    "https://yurucommu.com/ns"
+  ]
+}</code></pre>
+
+      <h2>仕様一覧</h2>
+
+      <h3>コア仕様</h3>
+      <div class="card-grid">
+        <a href="/specs/apc.html" class="card">
+          <span class="spec-status draft">Draft</span>
+          <h3 class="card-title">APC (ActivityPub Communities)</h3>
+          <p class="card-description">
+            コミュニティ（グループ）機能の仕様。Groupアクターを使用したコミュニティの作成、参加、投稿の配信について定義。
+          </p>
+        </a>
+        <a href="/specs/single-user.html" class="card">
+          <span class="spec-status draft">Draft</span>
+          <h3 class="card-title">Single-User Instance</h3>
+          <p class="card-description">
+            1インスタンス1ユーザーの設計に関する仕様。認証、権限、インスタンス管理について定義。
+          </p>
+        </a>
+      </div>
+
+      <h3>拡張仕様</h3>
+      <div class="card-grid">
+        <a href="/specs/story.html" class="card">
+          <span class="spec-status draft">Draft</span>
+          <h3 class="card-title">Story</h3>
+          <p class="card-description">
+            24時間で消えるストーリー機能の仕様。複数フレーム、表示時間、投票などを定義。
+          </p>
+        </a>
+        <a href="/specs/qr-exchange.html" class="card">
+          <span class="spec-status experimental">Experimental</span>
+          <h3 class="card-title">QR Exchange</h3>
+          <p class="card-description">
+            QRコードを使用したアカウント交換の仕様。フォローリクエストの簡略化について定義。
+          </p>
+        </a>
+        <a href="/specs/bookmark.html" class="card">
+          <span class="spec-status experimental">Experimental</span>
+          <h3 class="card-title">Bookmark</h3>
+          <p class="card-description">
+            ブックマーク機能の仕様。プライベートなブックマークの保存と同期について定義。
+          </p>
+        </a>
+      </div>
+
+      <h2>実装ガイドライン</h2>
+      <p>
+        Yurucommuの拡張仕様を実装する際は、以下のガイドラインに従ってください：
+      </p>
+      <ol>
+        <li><strong>下位互換性</strong> - 標準のActivityPub実装と互換性を維持する</li>
+        <li><strong>オプショナル</strong> - 拡張機能は必須ではなく、サポートしない実装でも基本機能は動作する</li>
+        <li><strong>名前空間の使用</strong> - 拡張プロパティには必ず名前空間を指定する</li>
+        <li><strong>ドキュメント</strong> - 実装の挙動を文書化し、テストケースを提供する</li>
+      </ol>
+
+      <h2>フィードバック</h2>
+      <p>
+        仕様に関するフィードバックは <a href="https://github.com/example/yurucommu/issues">GitHub Issues</a> でお待ちしています。
+      </p>
+    </main>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">Yurucommu</div>
+      <div class="footer-links">
+        <a href="/" class="footer-link">ホーム</a>
+        <a href="/docs/" class="footer-link">Docs</a>
+        <a href="/specs/" class="footer-link">Specs</a>
+        <a href="https://github.com/example/yurucommu" class="footer-link">GitHub</a>
+      </div>
+      <p class="footer-copy">&copy; 2025 Yurucommu. MIT License.</p>
+    </div>
+  </footer>
+</body>
+</html>

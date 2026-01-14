@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ドキュメント - Yurucommu</title>
+  <meta name="description" content="Yurucommuのセットアップガイド、設定方法、APIリファレンスなどのドキュメント">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <a href="/" class="logo">Yurucommu</a>
+      <div class="header-links">
+        <a href="/docs/" class="header-link active">Docs</a>
+        <a href="/specs/" class="header-link">Specs</a>
+      </div>
+      <a href="https://github.com/example/yurucommu" class="header-cta">
+        GitHub
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <!-- Sidebar -->
+    <aside class="docs-sidebar">
+      <p class="docs-sidebar-title">はじめに</p>
+      <ul class="docs-sidebar-nav">
+        <li><a href="/docs/" class="active">概要</a></li>
+        <li><a href="/docs/getting-started.html">クイックスタート</a></li>
+        <li><a href="/docs/requirements.html">必要な環境</a></li>
+      </ul>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">セットアップ</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/cloudflare-setup.html">Cloudflare設定</a></li>
+          <li><a href="/docs/deployment.html">デプロイ</a></li>
+          <li><a href="/docs/configuration.html">環境変数</a></li>
+          <li><a href="/docs/custom-domain.html">カスタムドメイン</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">使い方</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/first-post.html">最初の投稿</a></li>
+          <li><a href="/docs/following.html">フォローする</a></li>
+          <li><a href="/docs/communities.html">コミュニティ</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">リファレンス</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/docs/api.html">API</a></li>
+          <li><a href="/docs/database.html">データベース</a></li>
+          <li><a href="/specs/">ActivityPub拡張</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <!-- Content -->
+    <main class="docs-content">
+      <h1>Yurucommu ドキュメント</h1>
+      <p class="lead">
+        セルフホスト型・一人用 ActivityPub SNS のセットアップと使い方
+      </p>
+
+      <h2>Yurucommuとは</h2>
+      <p>
+        Yurucommuは、自分だけのSNSインスタンスを立ち上げ、コミュニティ単位で人と繋がっていくための分散型ソーシャルネットワークです。
+      </p>
+      <ul>
+        <li><strong>セルフホスト</strong> - 自分のデータは自分で管理</li>
+        <li><strong>一人用</strong> - 1インスタンス1ユーザーの設計</li>
+        <li><strong>ActivityPub対応</strong> - Mastodon、Misskeyと連携可能</li>
+        <li><strong>低コスト</strong> - Cloudflare無料枠で運用可能</li>
+      </ul>
+
+      <h2>クイックスタート</h2>
+      <p>最小限の手順でYurucommuを立ち上げる方法です。</p>
+
+      <h3>1. リポジトリをクローン</h3>
+      <pre><code>git clone https://github.com/example/yurucommu.git
+cd yurucommu
+npm install</code></pre>
+
+      <h3>2. Cloudflareリソースを作成</h3>
+      <pre><code># D1データベース作成
+npx wrangler d1 create yurucommu-db
+
+# R2バケット作成
+npx wrangler r2 bucket create yurucommu-media</code></pre>
+
+      <h3>3. wrangler.tomlを設定</h3>
+      <p>
+        <code>wrangler.toml</code>に作成したD1とR2の情報を設定します。
+      </p>
+
+      <h3>4. デプロイ</h3>
+      <pre><code>npm run deploy</code></pre>
+
+      <h2>ドキュメント一覧</h2>
+      <div class="card-grid">
+        <a href="/docs/getting-started.html" class="card">
+          <div class="card-tag">はじめに</div>
+          <h3 class="card-title">クイックスタート</h3>
+          <p class="card-description">5分でYurucommuをセットアップする手順</p>
+        </a>
+        <a href="/docs/cloudflare-setup.html" class="card">
+          <div class="card-tag">セットアップ</div>
+          <h3 class="card-title">Cloudflare設定</h3>
+          <p class="card-description">Workers、D1、R2の設定方法</p>
+        </a>
+        <a href="/docs/configuration.html" class="card">
+          <div class="card-tag">セットアップ</div>
+          <h3 class="card-title">環境変数</h3>
+          <p class="card-description">設定可能な環境変数の一覧</p>
+        </a>
+        <a href="/docs/api.html" class="card">
+          <div class="card-tag">リファレンス</div>
+          <h3 class="card-title">API</h3>
+          <p class="card-description">REST APIのエンドポイント一覧</p>
+        </a>
+        <a href="/specs/" class="card">
+          <div class="card-tag">仕様</div>
+          <h3 class="card-title">ActivityPub拡張</h3>
+          <p class="card-description">Yurucommu独自のActivityPub拡張仕様</p>
+        </a>
+      </div>
+    </main>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">Yurucommu</div>
+      <div class="footer-links">
+        <a href="/" class="footer-link">ホーム</a>
+        <a href="/docs/" class="footer-link">Docs</a>
+        <a href="/specs/" class="footer-link">Specs</a>
+        <a href="https://github.com/example/yurucommu" class="footer-link">GitHub</a>
+      </div>
+      <p class="footer-copy">&copy; 2025 Yurucommu. MIT License.</p>
+    </div>
+  </footer>
+</body>
+</html>

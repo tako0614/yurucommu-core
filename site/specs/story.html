@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Story Extension - ActivityPub拡張仕様 - Yurucommu</title>
+  <meta name="description" content="ActivityPub Story拡張仕様。24時間で消える一時的なコンテンツの配信について定義">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <a href="/" class="logo">Yurucommu</a>
+      <div class="header-links">
+        <a href="/docs/" class="header-link">Docs</a>
+        <a href="/specs/" class="header-link active">Specs</a>
+      </div>
+      <a href="https://github.com/example/yurucommu" class="header-cta">
+        GitHub
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <!-- Sidebar -->
+    <aside class="docs-sidebar">
+      <p class="docs-sidebar-title">概要</p>
+      <ul class="docs-sidebar-nav">
+        <li><a href="/specs/">仕様一覧</a></li>
+        <li><a href="/specs/namespace.html">名前空間</a></li>
+      </ul>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">コア仕様</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/specs/apc.html">APC (Communities)</a></li>
+          <li><a href="/specs/single-user.html">Single-User Instance</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">拡張仕様</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/specs/story.html" class="active">Story</a></li>
+          <li><a href="/specs/qr-exchange.html">QR Exchange</a></li>
+          <li><a href="/specs/bookmark.html">Bookmark</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">リソース</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="https://www.w3.org/TR/activitypub/">ActivityPub (W3C)</a></li>
+          <li><a href="https://www.w3.org/TR/activitystreams-core/">Activity Streams 2.0</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <!-- Content -->
+    <main class="docs-content">
+      <span class="spec-status draft">Draft</span>
+      <h1>Story Extension</h1>
+      <p class="lead">
+        24時間で消える一時的なコンテンツ（ストーリー）をActivityPubで配信するための拡張仕様。
+        Instagram StoriesやSnapchat Storiesのような機能を分散SNSで実現します。
+      </p>
+
+      <h2>概要</h2>
+      <p>
+        Story拡張は、時間制限付きのコンテンツを配信するためのActivityPub拡張です。
+        AS2標準の <code>Note</code> を拡張し、複数フレーム（画像/動画）の順序付きリストと
+        各フレームの表示時間を定義します。
+      </p>
+
+      <h3>設計方針</h3>
+      <ul>
+        <li><strong>AS2互換</strong> - 標準プロパティ（endTime, duration等）を最大限活用</li>
+        <li><strong>下位互換</strong> - Story非対応の実装でも通常のNoteとして表示可能</li>
+        <li><strong>拡張性</strong> - 投票、質問などAS2標準型との組み合わせが可能</li>
+      </ul>
+
+      <h2>名前空間</h2>
+      <p>Story拡張は以下の名前空間を使用します：</p>
+      <pre><code>https://yurucommu.com/ns/story#</code></pre>
+
+      <h3>JSON-LD Context</h3>
+      <pre><code>{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    {
+      "story": "https://yurucommu.com/ns/story#",
+      "xsd": "http://www.w3.org/2001/XMLSchema#",
+
+      "Story": "story:Story",
+      "StoryFrame": "story:StoryFrame",
+
+      "frames": {
+        "@id": "story:frames",
+        "@container": "@list"
+      },
+
+      "displayDuration": {
+        "@id": "story:displayDuration",
+        "@type": "xsd:duration"
+      },
+
+      "replyPolicy": "story:replyPolicy",
+      "reactionPolicy": "story:reactionPolicy"
+    }
+  ]
+}</code></pre>
+
+      <h2>型定義</h2>
+
+      <h3>Story</h3>
+      <p>
+        ストーリーオブジェクト。AS2の <code>Note</code> を拡張します。
+      </p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">プロパティ</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">型</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">説明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>type</code></td>
+            <td style="padding: 0.75rem;">Array</td>
+            <td style="padding: 0.75rem;"><code>["Story", "Note"]</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>frames</code></td>
+            <td style="padding: 0.75rem;">Array&lt;StoryFrame&gt;</td>
+            <td style="padding: 0.75rem;">順序付きフレームのリスト</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>endTime</code></td>
+            <td style="padding: 0.75rem;">DateTime</td>
+            <td style="padding: 0.75rem;">ストーリーの有効期限（AS2標準）</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>replyPolicy</code></td>
+            <td style="padding: 0.75rem;">String</td>
+            <td style="padding: 0.75rem;">返信ポリシー（optional）</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>reactionPolicy</code></td>
+            <td style="padding: 0.75rem;">String</td>
+            <td style="padding: 0.75rem;">リアクションポリシー（optional）</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>StoryFrame</h3>
+      <p>
+        ストーリーの1フレーム。画像、動画、または質問などを含むことができます。
+      </p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">プロパティ</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">型</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">説明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>type</code></td>
+            <td style="padding: 0.75rem;">String</td>
+            <td style="padding: 0.75rem;"><code>"StoryFrame"</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>displayDuration</code></td>
+            <td style="padding: 0.75rem;">xsd:duration</td>
+            <td style="padding: 0.75rem;">表示時間（例: <code>PT5S</code> = 5秒）</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>attachment</code></td>
+            <td style="padding: 0.75rem;">Array</td>
+            <td style="padding: 0.75rem;">メディア（Document, Video, Question等）</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>content</code></td>
+            <td style="padding: 0.75rem;">String</td>
+            <td style="padding: 0.75rem;">オーバーレイテキスト（optional）</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>例</h2>
+
+      <h3>基本的なストーリー（単一画像）</h3>
+      <pre><code>{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    {
+      "story": "https://yurucommu.com/ns/story#",
+      "xsd": "http://www.w3.org/2001/XMLSchema#",
+      "Story": "story:Story",
+      "StoryFrame": "story:StoryFrame",
+      "frames": { "@id": "story:frames", "@container": "@list" },
+      "displayDuration": { "@id": "story:displayDuration", "@type": "xsd:duration" }
+    }
+  ],
+  "id": "https://example.com/users/alice/stories/2026-01-14/1",
+  "type": ["Story", "Note"],
+  "attributedTo": "https://example.com/users/alice",
+  "published": "2026-01-14T10:00:00Z",
+  "startTime": "2026-01-14T10:00:00Z",
+  "endTime": "2026-01-15T10:00:00Z",
+  "to": ["https://example.com/users/alice/followers"],
+  "summary": "（任意）CW/注意書き",
+  "content": "おはよう",
+  "frames": [
+    {
+      "type": "StoryFrame",
+      "displayDuration": "PT5S",
+      "attachment": [
+        {
+          "type": "Document",
+          "mediaType": "image/jpeg",
+          "url": "https://example.com/media/story/abc123.jpg",
+          "name": "frame-1"
+        }
+      ]
+    }
+  ]
+}</code></pre>
+
+      <h3>複数フレーム（画像 → 動画 → 質問）</h3>
+      <pre><code>{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    {
+      "story": "https://yurucommu.com/ns/story#",
+      "xsd": "http://www.w3.org/2001/XMLSchema#",
+      "Story": "story:Story",
+      "StoryFrame": "story:StoryFrame",
+      "frames": { "@id": "story:frames", "@container": "@list" },
+      "displayDuration": { "@id": "story:displayDuration", "@type": "xsd:duration" }
+    }
+  ],
+  "id": "https://example.com/users/alice/stories/2026-01-14/2",
+  "type": ["Story", "Note"],
+  "attributedTo": "https://example.com/users/alice",
+  "published": "2026-01-14T12:00:00Z",
+  "endTime": "2026-01-15T12:00:00Z",
+  "to": ["https://example.com/users/alice/followers"],
+  "frames": [
+    {
+      "type": "StoryFrame",
+      "displayDuration": "PT5S",
+      "attachment": [
+        {
+          "type": "Document",
+          "mediaType": "image/png",
+          "url": "https://example.com/media/story/frame1.png"
+        }
+      ],
+      "content": "画像の上に出すテキスト"
+    },
+    {
+      "type": "StoryFrame",
+      "displayDuration": "PT15S",
+      "attachment": [
+        {
+          "type": "Video",
+          "mediaType": "video/mp4",
+          "url": "https://example.com/media/story/frame2.mp4",
+          "duration": "PT12S"
+        }
+      ]
+    },
+    {
+      "type": "StoryFrame",
+      "displayDuration": "PT7S",
+      "attachment": [
+        {
+          "type": "Question",
+          "name": "今日どっちがいい？",
+          "oneOf": [
+            { "type": "Note", "name": "A" },
+            { "type": "Note", "name": "B" }
+          ],
+          "closed": "2026-01-14T20:00:00Z"
+        }
+      ]
+    }
+  ]
+}</code></pre>
+
+      <h2>配信</h2>
+      <p>
+        StoryはActivityPubの <code>Create</code> アクティビティで配信されます。
+      </p>
+      <pre><code>{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "type": "Create",
+  "actor": "https://example.com/users/alice",
+  "to": ["https://example.com/users/alice/followers"],
+  "object": {
+    "type": ["Story", "Note"],
+    "id": "https://example.com/users/alice/stories/2026-01-14/1",
+    ...
+  }
+}</code></pre>
+
+      <h2>削除</h2>
+      <p>
+        ストーリーの期限切れ時、または手動削除時は <code>Delete</code> アクティビティを送信します。
+        <code>endTime</code> を過ぎたストーリーは、受信側で自動的に非表示にすることが推奨されます。
+      </p>
+
+      <h2>実装上の注意</h2>
+      <ul>
+        <li><strong>下位互換性</strong> - <code>type: ["Story", "Note"]</code> とすることで、Story非対応の実装でもNoteとして表示可能</li>
+        <li><strong>期限管理</strong> - <code>endTime</code> を必ず設定し、期限切れコンテンツは表示しない</li>
+        <li><strong>displayDuration形式</strong> - ISO 8601 duration形式（<code>PT5S</code> = 5秒、<code>PT1M30S</code> = 1分30秒）</li>
+        <li><strong>動画の尺</strong> - 動画の実際の長さはAS2標準の <code>duration</code> プロパティを使用</li>
+      </ul>
+
+      <h2>参考</h2>
+      <ul>
+        <li><a href="https://www.w3.org/TR/activitystreams-vocabulary/#dfn-endtime">Activity Streams 2.0 - endTime</a></li>
+        <li><a href="https://www.w3.org/TR/activitystreams-vocabulary/#dfn-duration">Activity Streams 2.0 - duration</a></li>
+        <li><a href="https://www.w3.org/TR/activitystreams-vocabulary/#dfn-question">Activity Streams 2.0 - Question</a></li>
+      </ul>
+    </main>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">Yurucommu</div>
+      <div class="footer-links">
+        <a href="/" class="footer-link">ホーム</a>
+        <a href="/docs/" class="footer-link">Docs</a>
+        <a href="/specs/" class="footer-link">Specs</a>
+        <a href="https://github.com/example/yurucommu" class="footer-link">GitHub</a>
+      </div>
+      <p class="footer-copy">&copy; 2025 Yurucommu. MIT License.</p>
+    </div>
+  </footer>
+</body>
+</html>

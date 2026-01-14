@@ -1,0 +1,22 @@
+{
+  "@context": {
+    "story": "https://yurucommu.com/ns/story#",
+    "xsd": "http://www.w3.org/2001/XMLSchema#",
+
+    "Story": "story:Story",
+    "StoryFrame": "story:StoryFrame",
+
+    "frames": {
+      "@id": "story:frames",
+      "@container": "@list"
+    },
+
+    "displayDuration": {
+      "@id": "story:displayDuration",
+      "@type": "xsd:duration"
+    },
+
+    "replyPolicy": "story:replyPolicy",
+    "reactionPolicy": "story:reactionPolicy"
+  }
+}

@@ -13,7 +13,7 @@ import { BookmarksPage } from './pages/BookmarksPage';
 import { SettingsPage } from './pages/SettingsPage';
 
 function AppContent() {
-  const { member, loading, authMode, login, logout, loginError } = useAuth();
+  const { actor, loading, loginError, login } = useAuth();
   const { t } = useI18n();
 
   if (loading) {
@@ -24,42 +24,30 @@ function AppContent() {
     );
   }
 
-  // Login page
-  if (!member) {
+  if (!actor) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-neutral-950 text-neutral-100 p-8">
         <h1 className="text-4xl font-bold mb-4">Yurucommu</h1>
         <p className="text-neutral-500 mb-8">Social Network</p>
-
-        {authMode === 'password' ? (
-          <LoginForm onLogin={login} error={loginError} />
-        ) : (
-          <a
-            href="/api/auth/login"
-            className="inline-block bg-blue-600 text-white px-6 py-3 rounded-md font-medium hover:bg-blue-700 transition-colors"
-          >
-            takosでログイン
-          </a>
-        )}
+        <LoginForm onLogin={login} error={loginError} />
       </div>
     );
   }
 
-  // Main app with routing
   return (
     <BrowserRouter>
       <Routes>
-        <Route element={<AppLayout member={member} />}>
-          <Route path="/" element={<TimelinePage currentMember={member} />} />
-          <Route path="/groups" element={<GroupPage currentMember={member} />} />
-          <Route path="/dm" element={<DMPage currentMember={member} />} />
-          <Route path="/dm/:conversationId" element={<DMPage currentMember={member} />} />
-          <Route path="/profile" element={<ProfilePage currentMember={member} />} />
-          <Route path="/profile/:memberId" element={<ProfilePage currentMember={member} />} />
-          <Route path="/notifications" element={<NotificationPage />} />
-          <Route path="/post/:postId" element={<PostDetailPage currentMember={member} />} />
-          <Route path="/bookmarks" element={<BookmarksPage currentMember={member} />} />
-          <Route path="/settings" element={<SettingsPage currentMember={member} />} />
+        <Route element={<AppLayout actor={actor} />}>
+          <Route path="/" element={<TimelinePage actor={actor} />} />
+          <Route path="/groups" element={<GroupPage actor={actor} />} />
+          <Route path="/dm" element={<DMPage actor={actor} />} />
+          <Route path="/dm/:conversationId" element={<DMPage actor={actor} />} />
+          <Route path="/profile" element={<ProfilePage actor={actor} />} />
+          <Route path="/profile/:actorId" element={<ProfilePage actor={actor} />} />
+          <Route path="/notifications" element={<NotificationPage actor={actor} />} />
+          <Route path="/post/:postId" element={<PostDetailPage actor={actor} />} />
+          <Route path="/bookmarks" element={<BookmarksPage actor={actor} />} />
+          <Route path="/settings" element={<SettingsPage actor={actor} />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -1,12 +1,11 @@
 import { NavLink } from 'react-router-dom';
-import { Member } from '../../types';
+import { Actor } from '../../types';
 import { useI18n } from '../../lib/i18n';
 
 interface SidebarProps {
-  member: Member;
+  actor: Actor;
 }
 
-// SVG Icons
 const HomeIcon = () => (
   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
@@ -50,7 +49,7 @@ const SettingsIcon = () => (
   </svg>
 );
 
-export function Sidebar({ member }: SidebarProps) {
+export function Sidebar({ actor }: SidebarProps) {
   const { t } = useI18n();
 
   const navItems = [
@@ -65,12 +64,9 @@ export function Sidebar({ member }: SidebarProps) {
 
   return (
     <aside className="hidden md:flex w-72 bg-black flex-col h-screen shrink-0">
-      {/* Logo */}
       <div className="px-6 pt-8 pb-6">
         <h1 className="text-2xl font-bold text-white">Yurucommu</h1>
       </div>
-
-      {/* Navigation */}
       <nav className="flex-1 px-4">
         <div className="space-y-2">
           {navItems.map(({ to, icon: Icon, label }) => (

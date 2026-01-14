@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { Post, Member, MediaAttachment } from '../types';
-import { fetchPost, fetchPostReplies, createPost, likePost, unlikePost, deletePost, bookmarkPost, unbookmarkPost } from '../lib/api';
+import { Post, Actor, MediaAttachment } from '../types';
+import { fetchPost, fetchReplies, createPost, likePost, unlikePost, deletePost, bookmarkPost, unbookmarkPost } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
 import { PostContent } from '../components/PostContent';
 
 interface PostDetailPageProps {
-  currentMember: Member;
+  actor: Actor;
 }
 
 const BackIcon = () => (
@@ -40,7 +40,7 @@ const BookmarkIcon = ({ filled }: { filled: boolean }) => (
   </svg>
 );
 
-export function PostDetailPage({ currentMember }: PostDetailPageProps) {
+export function PostDetailPage({ actor }: PostDetailPageProps) {
   const { postId } = useParams<{ postId: string }>();
   const navigate = useNavigate();
   const { t } = useI18n();
@@ -53,13 +53,14 @@ export function PostDetailPage({ currentMember }: PostDetailPageProps) {
   useEffect(() => {
     if (!postId) return;
 
+    const decodedPostId = decodeURIComponent(postId);
     setLoading(true);
     Promise.all([
-      fetchPost(postId),
-      fetchPostReplies(postId)
+      fetchPost(decodedPostId),
+      fetchReplies(decodedPostId)
     ]).then(([postData, repliesData]) => {
-      setPost(postData.post);
-      setReplies(repliesData.replies || []);
+      setPost(postData);
+      setReplies(repliesData);
     }).catch(e => {
       console.error('Failed to load post:', e);
     }).finally(() => {
@@ -70,16 +71,16 @@ export function PostDetailPage({ currentMember }: PostDetailPageProps) {
   const handleLike = async (targetPost: Post, isReply: boolean = false) => {
     try {
       if (targetPost.liked) {
-        await unlikePost(targetPost.id);
+        await unlikePost(targetPost.ap_id);
         if (isReply) {
-          setReplies(prev => prev.map(r => r.id === targetPost.id ? { ...r, liked: false, like_count: r.like_count - 1 } : r));
+          setReplies(prev => prev.map(r => r.ap_id === targetPost.ap_id ? { ...r, liked: false, like_count: r.like_count - 1 } : r));
         } else {
           setPost(prev => prev ? { ...prev, liked: false, like_count: prev.like_count - 1 } : null);
         }
       } else {
-        await likePost(targetPost.id);
+        await likePost(targetPost.ap_id);
         if (isReply) {
-          setReplies(prev => prev.map(r => r.id === targetPost.id ? { ...r, liked: true, like_count: r.like_count + 1 } : r));
+          setReplies(prev => prev.map(r => r.ap_id === targetPost.ap_id ? { ...r, liked: true, like_count: r.like_count + 1 } : r));
         } else {
           setPost(prev => prev ? { ...prev, liked: true, like_count: prev.like_count + 1 } : null);
         }
@@ -90,18 +91,16 @@ export function PostDetailPage({ currentMember }: PostDetailPageProps) {
   };
 
   const handleReply = async () => {
-    if (!replyContent.trim() || replying || !postId) return;
+    if (!replyContent.trim() || replying || !post) return;
     setReplying(true);
     try {
       const newReply = await createPost({
         content: replyContent.trim(),
-        reply_to_id: postId,
+        in_reply_to: post.ap_id,
       });
       setReplies(prev => [...prev, newReply]);
       setReplyContent('');
-      if (post) {
-        setPost({ ...post, reply_count: post.reply_count + 1 });
-      }
+      setPost(prev => prev ? { ...prev, reply_count: prev.reply_count + 1 } : null);
     } catch (e) {
       console.error('Failed to reply:', e);
     } finally {
@@ -110,11 +109,11 @@ export function PostDetailPage({ currentMember }: PostDetailPageProps) {
   };
 
   const handleDelete = async (targetPost: Post, isReply: boolean = false) => {
-    if (!confirm('この投稿を削除しますか？')) return;
+    if (!confirm('Delete this post?')) return;
     try {
-      await deletePost(targetPost.id);
+      await deletePost(targetPost.ap_id);
       if (isReply) {
-        setReplies(prev => prev.filter(r => r.id !== targetPost.id));
+        setReplies(prev => prev.filter(r => r.ap_id !== targetPost.ap_id));
         if (post) {
           setPost({ ...post, reply_count: Math.max(0, post.reply_count - 1) });
         }
@@ -130,10 +129,10 @@ export function PostDetailPage({ currentMember }: PostDetailPageProps) {
     if (!post) return;
     try {
       if (post.bookmarked) {
-        await unbookmarkPost(post.id);
+        await unbookmarkPost(post.ap_id);
         setPost({ ...post, bookmarked: false });
       } else {
-        await bookmarkPost(post.id);
+        await bookmarkPost(post.ap_id);
         setPost({ ...post, bookmarked: true });
       }
     } catch (e) {
@@ -160,7 +159,7 @@ export function PostDetailPage({ currentMember }: PostDetailPageProps) {
             <button onClick={() => navigate(-1)} className="p-1 hover:bg-neutral-800 rounded-full">
               <BackIcon />
             </button>
-            <h1 className="text-xl font-bold">投稿</h1>
+            <h1 className="text-xl font-bold">Post</h1>
           </div>
         </header>
         <div className="p-8 text-center text-neutral-500">{t('common.loading')}</div>
@@ -176,10 +175,10 @@ export function PostDetailPage({ currentMember }: PostDetailPageProps) {
             <button onClick={() => navigate(-1)} className="p-1 hover:bg-neutral-800 rounded-full">
               <BackIcon />
             </button>
-            <h1 className="text-xl font-bold">投稿</h1>
+            <h1 className="text-xl font-bold">Post</h1>
           </div>
         </header>
-        <div className="p-8 text-center text-neutral-500">投稿が見つかりません</div>
+        <div className="p-8 text-center text-neutral-500">Post not found</div>
       </div>
     );
   }
@@ -191,7 +190,7 @@ export function PostDetailPage({ currentMember }: PostDetailPageProps) {
           <button onClick={() => navigate(-1)} className="p-1 hover:bg-neutral-800 rounded-full">
             <BackIcon />
           </button>
-          <h1 className="text-xl font-bold">投稿</h1>
+          <h1 className="text-xl font-bold">Post</h1>
         </div>
       </header>
 
@@ -199,20 +198,20 @@ export function PostDetailPage({ currentMember }: PostDetailPageProps) {
         {/* Main Post */}
         <div className="px-4 py-4 border-b border-neutral-900">
           <div className="flex gap-3">
-            <Link to={`/profile/${post.member_id}`}>
+            <Link to={`/profile/${encodeURIComponent(post.author.ap_id)}`}>
               <UserAvatar
-                avatarUrl={post.avatar_url}
-                name={post.display_name || post.username}
+                avatarUrl={post.author.icon_url}
+                name={post.author.name || post.author.preferred_username}
                 size={48}
               />
             </Link>
             <div className="flex-1">
-              <Link to={`/profile/${post.member_id}`} className="font-bold text-white hover:underline">
-                {post.display_name || post.username}
+              <Link to={`/profile/${encodeURIComponent(post.author.ap_id)}`} className="font-bold text-white hover:underline">
+                {post.author.name || post.author.preferred_username}
               </Link>
-              <div className="text-neutral-500">@{post.username}</div>
+              <div className="text-neutral-500">@{post.author.username}</div>
             </div>
-            {post.member_id === currentMember.id && (
+            {post.author.ap_id === actor.ap_id && (
               <button
                 onClick={() => handleDelete(post)}
                 className="p-2 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
@@ -226,43 +225,37 @@ export function PostDetailPage({ currentMember }: PostDetailPageProps) {
             className="text-lg text-neutral-100 mt-3"
           />
           {/* Post Images */}
-          {post.media_json && (() => {
-            try {
-              const media: MediaAttachment[] = JSON.parse(post.media_json);
-              if (media.length === 0) return null;
-              return (
-                <div className={`mt-3 grid gap-1 rounded-xl overflow-hidden ${
-                  media.length === 1 ? 'grid-cols-1' :
-                  media.length === 2 ? 'grid-cols-2' :
-                  media.length === 3 ? 'grid-cols-2' : 'grid-cols-2'
-                }`}>
-                  {media.map((m, idx) => (
-                    <img
-                      key={idx}
-                      src={`/media/${m.r2_key}`}
-                      alt=""
-                      className={`w-full object-cover ${
-                        media.length === 1 ? 'max-h-[500px]' :
-                        media.length === 3 && idx === 0 ? 'row-span-2 h-full' : 'h-48'
-                      }`}
-                    />
-                  ))}
-                </div>
-              );
-            } catch { return null; }
-          })()}
+          {post.attachments.length > 0 && (
+            <div className={`mt-3 grid gap-1 rounded-xl overflow-hidden ${
+              post.attachments.length === 1 ? 'grid-cols-1' :
+              post.attachments.length === 2 ? 'grid-cols-2' :
+              post.attachments.length === 3 ? 'grid-cols-2' : 'grid-cols-2'
+            }`}>
+              {post.attachments.map((m, idx) => (
+                <img
+                  key={idx}
+                  src={`/media/${m.r2_key}`}
+                  alt=""
+                  className={`w-full object-cover ${
+                    post.attachments.length === 1 ? 'max-h-[500px]' :
+                    post.attachments.length === 3 && idx === 0 ? 'row-span-2 h-full' : 'h-48'
+                  }`}
+                />
+              ))}
+            </div>
+          )}
           <div className="text-neutral-500 text-sm mt-3">
-            {formatTime(post.created_at)}
+            {formatTime(post.published)}
           </div>
           <div className="flex items-center gap-6 mt-3 pt-3 border-t border-neutral-800">
             <div className="text-sm">
               <span className="font-bold text-white">{post.reply_count}</span>
-              <span className="text-neutral-500 ml-1">返信</span>
+              <span className="text-neutral-500 ml-1">Replies</span>
             </div>
-            {post.member_id === currentMember.id && (
+            {post.author.ap_id === actor.ap_id && (
               <div className="text-sm">
                 <span className="font-bold text-white">{post.like_count}</span>
-                <span className="text-neutral-500 ml-1">いいね</span>
+                <span className="text-neutral-500 ml-1">Likes</span>
               </div>
             )}
           </div>
@@ -293,15 +286,15 @@ export function PostDetailPage({ currentMember }: PostDetailPageProps) {
         <div className="px-4 py-3 border-b border-neutral-900">
           <div className="flex gap-3">
             <UserAvatar
-              avatarUrl={currentMember.avatar_url}
-              name={currentMember.display_name || currentMember.username}
+              avatarUrl={actor.icon_url}
+              name={actor.name || actor.preferred_username}
               size={40}
             />
             <div className="flex-1">
               <textarea
                 value={replyContent}
                 onChange={e => setReplyContent(e.target.value)}
-                placeholder="返信を投稿"
+                placeholder="Post a reply"
                 className="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none"
                 rows={2}
               />
@@ -311,7 +304,7 @@ export function PostDetailPage({ currentMember }: PostDetailPageProps) {
                   disabled={!replyContent.trim() || replying}
                   className="px-4 py-1.5 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-800 disabled:text-neutral-600 rounded-full text-sm font-bold transition-colors"
                 >
-                  返信
+                  Reply
                 </button>
               </div>
             </div>
@@ -320,23 +313,23 @@ export function PostDetailPage({ currentMember }: PostDetailPageProps) {
 
         {/* Replies */}
         {replies.map(reply => (
-          <div key={reply.id} className="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
-            <Link to={`/profile/${reply.member_id}`}>
+          <div key={reply.ap_id} className="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
+            <Link to={`/profile/${encodeURIComponent(reply.author.ap_id)}`}>
               <UserAvatar
-                avatarUrl={reply.avatar_url}
-                name={reply.display_name || reply.username}
+                avatarUrl={reply.author.icon_url}
+                name={reply.author.name || reply.author.preferred_username}
                 size={40}
               />
             </Link>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <Link to={`/profile/${reply.member_id}`} className="font-bold text-white truncate hover:underline">
-                  {reply.display_name || reply.username}
+                <Link to={`/profile/${encodeURIComponent(reply.author.ap_id)}`} className="font-bold text-white truncate hover:underline">
+                  {reply.author.name || reply.author.preferred_username}
                 </Link>
-                <span className="text-neutral-500 truncate">@{reply.username}</span>
+                <span className="text-neutral-500 truncate">@{reply.author.username}</span>
                 <span className="text-neutral-500">·</span>
-                <span className="text-neutral-500 text-sm">{formatTime(reply.created_at)}</span>
-                {reply.member_id === currentMember.id && (
+                <span className="text-neutral-500 text-sm">{formatTime(reply.published)}</span>
+                {reply.author.ap_id === actor.ap_id && (
                   <button
                     onClick={() => handleDelete(reply, true)}
                     className="ml-auto p-1 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
@@ -357,7 +350,7 @@ export function PostDetailPage({ currentMember }: PostDetailPageProps) {
                   }`}
                 >
                   <HeartIcon filled={reply.liked || false} />
-                  {reply.member_id === currentMember.id && reply.like_count > 0 && (
+                  {reply.author.ap_id === actor.ap_id && reply.like_count > 0 && (
                     <span className="text-sm">{reply.like_count}</span>
                   )}
                 </button>
@@ -368,7 +361,7 @@ export function PostDetailPage({ currentMember }: PostDetailPageProps) {
 
         {replies.length === 0 && (
           <div className="p-8 text-center text-neutral-500">
-            まだ返信がありません
+            No replies yet
           </div>
         )}
       </div>
