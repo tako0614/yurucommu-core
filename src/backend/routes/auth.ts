@@ -31,18 +31,20 @@ auth.post('/login', async (c) => {
     return c.json({ error: 'Password auth not enabled' }, 400);
   }
 
-  const body = await c.req.json<{ password: string; username?: string }>();
+  const body = await c.req.json<{ password: string }>();
   if (body.password !== c.env.AUTH_PASSWORD) {
     return c.json({ error: 'Invalid password' }, 401);
   }
 
-  const baseUrl = c.env.APP_URL;
-  const username = body.username || 'tako';
-  const apId = actorApId(baseUrl, username);
-
-  let actor = await c.env.DB.prepare('SELECT * FROM actors WHERE ap_id = ?').bind(apId).first<Actor>();
+  // Single-user instance: find existing owner or create default
+  let actor = await c.env.DB.prepare("SELECT * FROM actors WHERE role = 'owner' LIMIT 1").first<Actor>();
 
   if (!actor) {
+    // Create default owner actor
+    const baseUrl = c.env.APP_URL;
+    const username = 'tako';
+    const apId = actorApId(baseUrl, username);
+
     const { publicKeyPem, privateKeyPem } = await generateKeyPair();
     await c.env.DB.prepare(`
       INSERT INTO actors (ap_id, type, preferred_username, name, inbox, outbox, followers_url, following_url, public_key_pem, private_key_pem, takos_user_id, role)
@@ -65,7 +67,7 @@ auth.post('/login', async (c) => {
 
   const sessionId = generateId();
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  await c.env.DB.prepare('INSERT INTO sessions (id, member_id, expires_at) VALUES (?, ?, ?)').bind(sessionId, apId, expiresAt).run();
+  await c.env.DB.prepare('INSERT INTO sessions (id, member_id, expires_at) VALUES (?, ?, ?)').bind(sessionId, actor!.ap_id, expiresAt).run();
 
   setCookie(c, 'session', sessionId, {
     httpOnly: true,

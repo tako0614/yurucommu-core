@@ -22,11 +22,11 @@ export async function fetchMe(): Promise<{ authenticated: boolean; actor?: Actor
   return { authenticated: false };
 }
 
-export async function login(password: string, username?: string): Promise<{ success: boolean; error?: string }> {
+export async function login(password: string): Promise<{ success: boolean; error?: string }> {
   const res = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password, username }),
+    body: JSON.stringify({ password }),
   });
   return res.json();
 }

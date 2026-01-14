@@ -22,10 +22,10 @@ export function useAuth() {
       .finally(() => setLoading(false));
   }, []);
 
-  const doLogin = useCallback(async (password: string, username?: string) => {
+  const doLogin = useCallback(async (password: string) => {
     setLoginError(null);
     try {
-      const result = await login(password, username);
+      const result = await login(password);
       if (result.success) {
         // Refresh auth state
         const meData = await fetchMe();
