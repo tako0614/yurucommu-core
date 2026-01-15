@@ -67,7 +67,7 @@
 
     <!-- Content -->
     <main class="docs-content">
-      <span class="spec-status draft">Draft</span>
+      <span class="spec-status draft">Draft v2</span>
       <h1>Story Extension</h1>
       <p class="lead">
         24時間で消える一時的なコンテンツ（ストーリー）をActivityPubで配信するための拡張仕様。
@@ -77,15 +77,17 @@
       <h2>概要</h2>
       <p>
         Story拡張は、時間制限付きのコンテンツを配信するためのActivityPub拡張です。
-        AS2標準の <code>Note</code> を拡張し、複数フレーム（画像/動画）の順序付きリストと
-        各フレームの表示時間を定義します。
+        AS2標準の <code>Note</code> を拡張し、単一のメディア（画像または動画）と
+        インタラクティブなオーバーレイ（投票など）を定義します。
       </p>
 
       <h3>設計方針</h3>
       <ul>
-        <li><strong>AS2互換</strong> - 標準プロパティ（endTime, duration等）を最大限活用</li>
-        <li><strong>下位互換</strong> - Story非対応の実装でも通常のNoteとして表示可能</li>
-        <li><strong>拡張性</strong> - 投票、質問などAS2標準型との組み合わせが可能</li>
+        <li><strong>1投稿 = 1メディア</strong> - 各Storyは独立した画像または動画を持つ</li>
+        <li><strong>テキスト/スタンプは焼き込み</strong> - メディアに合成済みの状態で配信</li>
+        <li><strong>インタラクティブ要素は分離</strong> - 投票などは <code>overlays</code> で定義</li>
+        <li><strong>連続再生はUIの責務</strong> - 同一ユーザーの複数Storyをクライアントが連続表示</li>
+        <li><strong>AS2互換</strong> - Story非対応の実装でも通常のNoteとして表示可能</li>
       </ul>
 
       <h2>名前空間</h2>
@@ -101,20 +103,18 @@
       "xsd": "http://www.w3.org/2001/XMLSchema#",
 
       "Story": "story:Story",
-      "StoryFrame": "story:StoryFrame",
-
-      "frames": {
-        "@id": "story:frames",
-        "@container": "@list"
-      },
 
       "displayDuration": {
         "@id": "story:displayDuration",
         "@type": "xsd:duration"
       },
 
-      "replyPolicy": "story:replyPolicy",
-      "reactionPolicy": "story:reactionPolicy"
+      "overlays": {
+        "@id": "story:overlays",
+        "@container": "@list"
+      },
+
+      "position": "story:position"
     }
   ]
 }</code></pre>
@@ -124,6 +124,7 @@
       <h3>Story</h3>
       <p>
         ストーリーオブジェクト。AS2の <code>Note</code> を拡張します。
+        1つのStoryは1つのメディア（画像または動画）を持ちます。
       </p>
 
       <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
@@ -131,6 +132,7 @@
           <tr style="border-bottom: 1px solid var(--border);">
             <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">プロパティ</th>
             <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">型</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">必須</th>
             <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">説明</th>
           </tr>
         </thead>
@@ -138,166 +140,197 @@
           <tr style="border-bottom: 1px solid var(--border);">
             <td style="padding: 0.75rem;"><code>type</code></td>
             <td style="padding: 0.75rem;">Array</td>
+            <td style="padding: 0.75rem;">Yes</td>
             <td style="padding: 0.75rem;"><code>["Story", "Note"]</code></td>
           </tr>
           <tr style="border-bottom: 1px solid var(--border);">
-            <td style="padding: 0.75rem;"><code>frames</code></td>
-            <td style="padding: 0.75rem;">Array&lt;StoryFrame&gt;</td>
-            <td style="padding: 0.75rem;">順序付きフレームのリスト</td>
-          </tr>
-          <tr style="border-bottom: 1px solid var(--border);">
-            <td style="padding: 0.75rem;"><code>endTime</code></td>
-            <td style="padding: 0.75rem;">DateTime</td>
-            <td style="padding: 0.75rem;">ストーリーの有効期限（AS2標準）</td>
-          </tr>
-          <tr style="border-bottom: 1px solid var(--border);">
-            <td style="padding: 0.75rem;"><code>replyPolicy</code></td>
-            <td style="padding: 0.75rem;">String</td>
-            <td style="padding: 0.75rem;">返信ポリシー（optional）</td>
-          </tr>
-          <tr style="border-bottom: 1px solid var(--border);">
-            <td style="padding: 0.75rem;"><code>reactionPolicy</code></td>
-            <td style="padding: 0.75rem;">String</td>
-            <td style="padding: 0.75rem;">リアクションポリシー（optional）</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <h3>StoryFrame</h3>
-      <p>
-        ストーリーの1フレーム。画像、動画、または質問などを含むことができます。
-      </p>
-
-      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
-        <thead>
-          <tr style="border-bottom: 1px solid var(--border);">
-            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">プロパティ</th>
-            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">型</th>
-            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">説明</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr style="border-bottom: 1px solid var(--border);">
-            <td style="padding: 0.75rem;"><code>type</code></td>
-            <td style="padding: 0.75rem;">String</td>
-            <td style="padding: 0.75rem;"><code>"StoryFrame"</code></td>
+            <td style="padding: 0.75rem;"><code>attachment</code></td>
+            <td style="padding: 0.75rem;">Document | Video</td>
+            <td style="padding: 0.75rem;">Yes</td>
+            <td style="padding: 0.75rem;">メディア（画像または動画）</td>
           </tr>
           <tr style="border-bottom: 1px solid var(--border);">
             <td style="padding: 0.75rem;"><code>displayDuration</code></td>
             <td style="padding: 0.75rem;">xsd:duration</td>
+            <td style="padding: 0.75rem;">Yes</td>
             <td style="padding: 0.75rem;">表示時間（例: <code>PT5S</code> = 5秒）</td>
           </tr>
           <tr style="border-bottom: 1px solid var(--border);">
-            <td style="padding: 0.75rem;"><code>attachment</code></td>
-            <td style="padding: 0.75rem;">Array</td>
-            <td style="padding: 0.75rem;">メディア（Document, Video, Question等）</td>
+            <td style="padding: 0.75rem;"><code>endTime</code></td>
+            <td style="padding: 0.75rem;">DateTime</td>
+            <td style="padding: 0.75rem;">Yes</td>
+            <td style="padding: 0.75rem;">ストーリーの有効期限（AS2標準）</td>
           </tr>
           <tr style="border-bottom: 1px solid var(--border);">
-            <td style="padding: 0.75rem;"><code>content</code></td>
-            <td style="padding: 0.75rem;">String</td>
-            <td style="padding: 0.75rem;">オーバーレイテキスト（optional）</td>
+            <td style="padding: 0.75rem;"><code>overlays</code></td>
+            <td style="padding: 0.75rem;">Array&lt;Object&gt;</td>
+            <td style="padding: 0.75rem;">No</td>
+            <td style="padding: 0.75rem;">インタラクティブなオーバーレイ要素</td>
           </tr>
         </tbody>
       </table>
 
+      <h3>OverlayPosition</h3>
+      <p>
+        オーバーレイ要素の位置を指定します。座標は相対値（0.0〜1.0）で指定します。
+      </p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">プロパティ</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">型</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">説明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>x</code></td>
+            <td style="padding: 0.75rem;">Number (0.0-1.0)</td>
+            <td style="padding: 0.75rem;">要素中心のX座標（左端=0, 右端=1）</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>y</code></td>
+            <td style="padding: 0.75rem;">Number (0.0-1.0)</td>
+            <td style="padding: 0.75rem;">要素中心のY座標（上端=0, 下端=1）</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>width</code></td>
+            <td style="padding: 0.75rem;">Number (0.0-1.0)</td>
+            <td style="padding: 0.75rem;">要素の幅（キャンバス幅に対する比率）</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>height</code></td>
+            <td style="padding: 0.75rem;">Number (0.0-1.0)</td>
+            <td style="padding: 0.75rem;">要素の高さ（キャンバス高さに対する比率）</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h4>座標系</h4>
+      <pre><code>┌─────────────────────────────┐
+│ (0,0)                       │
+│                             │
+│        ┌───────┐            │
+│        │ x=0.5 │ ← 中央配置  │
+│        │ y=0.75│            │
+│        └───────┘            │
+│                       (1,1) │
+└─────────────────────────────┘
+
+x, y: 要素の中心点の位置
+width, height: 要素のサイズ（相対値）</code></pre>
+
+      <h3>Overlays</h3>
+      <p>
+        <code>overlays</code> 配列には任意のActivityStreams 2.0オブジェクトを含めることができます。
+        各オーバーレイは <code>position</code> プロパティを持つ必要があります。
+      </p>
+
+      <p><strong>想定されるオーバーレイ型:</strong></p>
+      <ul>
+        <li><code>Question</code> - 投票（AS2標準）</li>
+        <li><code>Note</code> - テキストリンク</li>
+        <li><code>Link</code> - 外部リンク</li>
+        <li>任意の拡張型</li>
+      </ul>
+
       <h2>例</h2>
 
-      <h3>基本的なストーリー（単一画像）</h3>
+      <h3>基本的なストーリー（画像のみ）</h3>
       <pre><code>{
   "@context": [
     "https://www.w3.org/ns/activitystreams",
     {
       "story": "https://yurucommu.com/ns/story#",
-      "xsd": "http://www.w3.org/2001/XMLSchema#",
       "Story": "story:Story",
-      "StoryFrame": "story:StoryFrame",
-      "frames": { "@id": "story:frames", "@container": "@list" },
-      "displayDuration": { "@id": "story:displayDuration", "@type": "xsd:duration" }
+      "displayDuration": "story:displayDuration"
     }
   ],
-  "id": "https://example.com/users/alice/stories/2026-01-14/1",
+  "id": "https://example.com/users/alice/stories/2026-01-15/1",
   "type": ["Story", "Note"],
   "attributedTo": "https://example.com/users/alice",
-  "published": "2026-01-14T10:00:00Z",
-  "startTime": "2026-01-14T10:00:00Z",
-  "endTime": "2026-01-15T10:00:00Z",
+  "published": "2026-01-15T10:00:00Z",
+  "endTime": "2026-01-16T10:00:00Z",
   "to": ["https://example.com/users/alice/followers"],
-  "summary": "（任意）CW/注意書き",
-  "content": "おはよう",
-  "frames": [
-    {
-      "type": "StoryFrame",
-      "displayDuration": "PT5S",
-      "attachment": [
-        {
-          "type": "Document",
-          "mediaType": "image/jpeg",
-          "url": "https://example.com/media/story/abc123.jpg",
-          "name": "frame-1"
-        }
-      ]
-    }
-  ]
+  "attachment": {
+    "type": "Document",
+    "mediaType": "image/jpeg",
+    "url": "https://example.com/media/story/abc123.jpg",
+    "width": 1080,
+    "height": 1920
+  },
+  "displayDuration": "PT5S"
 }</code></pre>
 
-      <h3>複数フレーム（画像 → 動画 → 質問）</h3>
+      <h3>動画ストーリー</h3>
       <pre><code>{
   "@context": [
     "https://www.w3.org/ns/activitystreams",
     {
       "story": "https://yurucommu.com/ns/story#",
-      "xsd": "http://www.w3.org/2001/XMLSchema#",
       "Story": "story:Story",
-      "StoryFrame": "story:StoryFrame",
-      "frames": { "@id": "story:frames", "@container": "@list" },
-      "displayDuration": { "@id": "story:displayDuration", "@type": "xsd:duration" }
+      "displayDuration": "story:displayDuration"
     }
   ],
-  "id": "https://example.com/users/alice/stories/2026-01-14/2",
+  "id": "https://example.com/users/alice/stories/2026-01-15/2",
   "type": ["Story", "Note"],
   "attributedTo": "https://example.com/users/alice",
-  "published": "2026-01-14T12:00:00Z",
-  "endTime": "2026-01-15T12:00:00Z",
+  "published": "2026-01-15T12:00:00Z",
+  "endTime": "2026-01-16T12:00:00Z",
   "to": ["https://example.com/users/alice/followers"],
-  "frames": [
+  "attachment": {
+    "type": "Video",
+    "mediaType": "video/mp4",
+    "url": "https://example.com/media/story/video456.mp4",
+    "width": 1080,
+    "height": 1920,
+    "duration": "PT15S"
+  },
+  "displayDuration": "PT15S"
+}</code></pre>
+
+      <h3>投票付きストーリー</h3>
+      <pre><code>{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
     {
-      "type": "StoryFrame",
-      "displayDuration": "PT5S",
-      "attachment": [
-        {
-          "type": "Document",
-          "mediaType": "image/png",
-          "url": "https://example.com/media/story/frame1.png"
-        }
+      "story": "https://yurucommu.com/ns/story#",
+      "Story": "story:Story",
+      "displayDuration": "story:displayDuration",
+      "overlays": { "@id": "story:overlays", "@container": "@list" },
+      "position": "story:position"
+    }
+  ],
+  "id": "https://example.com/users/alice/stories/2026-01-15/3",
+  "type": ["Story", "Note"],
+  "attributedTo": "https://example.com/users/alice",
+  "published": "2026-01-15T14:00:00Z",
+  "endTime": "2026-01-16T14:00:00Z",
+  "to": ["https://example.com/users/alice/followers"],
+  "attachment": {
+    "type": "Document",
+    "mediaType": "image/jpeg",
+    "url": "https://example.com/media/story/poll-bg.jpg",
+    "width": 1080,
+    "height": 1920
+  },
+  "displayDuration": "PT7S",
+  "overlays": [
+    {
+      "type": "Question",
+      "name": "今日どっちがいい？",
+      "oneOf": [
+        { "type": "Note", "name": "A" },
+        { "type": "Note", "name": "B" }
       ],
-      "content": "画像の上に出すテキスト"
-    },
-    {
-      "type": "StoryFrame",
-      "displayDuration": "PT15S",
-      "attachment": [
-        {
-          "type": "Video",
-          "mediaType": "video/mp4",
-          "url": "https://example.com/media/story/frame2.mp4",
-          "duration": "PT12S"
-        }
-      ]
-    },
-    {
-      "type": "StoryFrame",
-      "displayDuration": "PT7S",
-      "attachment": [
-        {
-          "type": "Question",
-          "name": "今日どっちがいい？",
-          "oneOf": [
-            { "type": "Note", "name": "A" },
-            { "type": "Note", "name": "B" }
-          ],
-          "closed": "2026-01-14T20:00:00Z"
-        }
-      ]
+      "closed": "2026-01-15T20:00:00Z",
+      "position": {
+        "x": 0.5,
+        "y": 0.75,
+        "width": 0.8,
+        "height": 0.15
+      }
     }
   ]
 }</code></pre>
@@ -313,9 +346,25 @@
   "to": ["https://example.com/users/alice/followers"],
   "object": {
     "type": ["Story", "Note"],
-    "id": "https://example.com/users/alice/stories/2026-01-14/1",
+    "id": "https://example.com/users/alice/stories/2026-01-15/1",
     ...
   }
+}</code></pre>
+
+      <h2>連続再生</h2>
+      <p>
+        同一ユーザーの複数Storyは、クライアントUIが連続再生として表示します。
+        これはサーバー側ではなくクライアント側の責務です。
+      </p>
+
+      <pre><code>// クライアントの表示ロジック
+const storiesByUser = groupBy(stories, s => s.attributedTo);
+
+// 各ユーザーのストーリーを published 順にソート
+for (const [userId, userStories] of storiesByUser) {
+  userStories.sort((a, b) =>
+    new Date(a.published) - new Date(b.published)
+  );
 }</code></pre>
 
       <h2>削除</h2>
@@ -331,6 +380,7 @@
         <li><strong>displayDuration形式</strong> - ISO 8601 duration形式（<code>PT5S</code> = 5秒、<code>PT1M30S</code> = 1分30秒）</li>
         <li><strong>動画の尺</strong> - 動画の実際の長さはAS2標準の <code>duration</code> プロパティを使用</li>
         <li><strong>アスペクト比</strong> - 推奨は縦型9:16（1080x1920px）。モバイルファーストで全画面表示に最適化</li>
+        <li><strong>テキスト/スタンプ</strong> - メディアに焼き込み済みの状態で配信。別レイヤーとしては配信しない</li>
       </ul>
 
       <h3>推奨メディアサイズ</h3>
@@ -352,6 +402,26 @@
             <td style="padding: 0.75rem;">動画</td>
             <td style="padding: 0.75rem;">1080x1920px (9:16)</td>
             <td style="padding: 0.75rem;">60秒</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>変更履歴</h2>
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">バージョン</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">変更内容</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;">v2 (2026-01)</td>
+            <td style="padding: 0.75rem;"><code>frames</code> 配列を廃止、<code>attachment</code> をStory直下に移動、<code>overlays</code> を追加</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;">v1 (2025-12)</td>
+            <td style="padding: 0.75rem;">初期仕様（<code>frames</code> 配列ベース）</td>
           </tr>
         </tbody>
       </table>

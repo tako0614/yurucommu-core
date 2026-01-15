@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ActorStories, Story, StoryFrame } from '../types';
-import { markStoryViewed } from '../lib/api';
+import { ActorStories, Story, StoryOverlay } from '../types';
+import { markStoryViewed, deleteStory, voteOnStory } from '../lib/api';
 import { UserAvatar } from './UserAvatar';
 
 interface StoryViewerProps {
   actorStories: ActorStories[];
   initialActorIndex: number;
+  currentUserApId?: string;
   onClose: () => void;
 }
 
@@ -15,14 +16,55 @@ const CloseIcon = () => (
   </svg>
 );
 
-// Parse ISO 8601 duration (e.g., "PT5S" -> 5000ms)
-function parseDuration(duration: string): number {
-  const match = duration.match(/PT(\d+)S/);
-  if (match) {
-    return parseInt(match[1]) * 1000;
+const TrashIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+  </svg>
+);
+
+const ErrorIcon = () => (
+  <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+  </svg>
+);
+
+const MutedIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+  </svg>
+);
+
+const UnmutedIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+  </svg>
+);
+
+// Validate URL for XSS protection - only allow http: and https: protocols
+function isValidUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return ['http:', 'https:'].includes(parsed.protocol);
+  } catch {
+    return false;
   }
-  // Default to 5 seconds
-  return 5000;
+}
+
+// Parse ISO 8601 duration (e.g., "PT5S", "PT1M30S", "PT1H2M30S" -> ms)
+function parseDuration(duration: string): number {
+  let totalMs = 0;
+
+  const hoursMatch = duration.match(/(\d+)H/);
+  const minutesMatch = duration.match(/(\d+)M/);
+  const secondsMatch = duration.match(/(\d+)S/);
+
+  if (hoursMatch) totalMs += parseInt(hoursMatch[1]) * 3600000;
+  if (minutesMatch) totalMs += parseInt(minutesMatch[1]) * 60000;
+  if (secondsMatch) totalMs += parseInt(secondsMatch[1]) * 1000;
+
+  // Default 5 seconds, max 60 seconds
+  return totalMs > 0 ? Math.min(totalMs, 60000) : 5000;
 }
 
 // Format relative time
@@ -39,19 +81,165 @@ function formatTime(dateString: string): string {
   return date.toLocaleDateString();
 }
 
-export function StoryViewer({ actorStories, initialActorIndex, onClose }: StoryViewerProps) {
+// Render overlay based on type
+function renderOverlay(
+  overlay: StoryOverlay,
+  containerSize: { width: number; height: number },
+  storyApId: string,
+  votes?: { [key: number]: number },
+  votesTotal?: number,
+  userVote?: number
+) {
+  const { position } = overlay;
+
+  // Convert relative position to pixels
+  const left = position.x * containerSize.width - (position.width * containerSize.width) / 2;
+  const top = position.y * containerSize.height - (position.height * containerSize.height) / 2;
+  const width = position.width * containerSize.width;
+  const height = position.height * containerSize.height;
+
+  const style: React.CSSProperties = {
+    position: 'absolute',
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`,
+    height: `${height}px`,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+  };
+
+  // Render Question (Poll) overlay
+  if (overlay.type === 'Question' && overlay.name && overlay.oneOf) {
+    const hasVotes = votesTotal && votesTotal > 0;
+    const hasUserVoted = userVote !== undefined && userVote !== null;
+
+    return (
+      <div key={`overlay-${overlay.name}`} style={style}>
+        <div className="bg-black/60 backdrop-blur-sm rounded-xl p-3 w-full">
+          <p className="text-white text-sm font-medium text-center mb-2">{overlay.name}</p>
+          <div className="flex gap-2">
+            {overlay.oneOf.map((option, idx) => {
+              const voteCount = votes?.[idx] || 0;
+              const percentage = hasVotes ? Math.round((voteCount / votesTotal!) * 100) : 0;
+              const isSelected = userVote === idx;
+
+              return (
+                <button
+                  key={idx}
+                  className={`flex-1 relative overflow-hidden text-white text-sm py-2 px-3 rounded-lg transition-colors ${
+                    isSelected ? 'ring-2 ring-white' : ''
+                  } ${hasUserVoted ? 'cursor-default' : 'hover:bg-white/30'}`}
+                  style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (hasUserVoted) return; // Already voted
+                    try {
+                      await voteOnStory(storyApId, idx);
+                      // TODO: Update state after voting
+                    } catch (err) {
+                      console.error('Failed to vote:', err);
+                    }
+                  }}
+                  disabled={hasUserVoted}
+                >
+                  {/* Vote bar (shown when results are available) */}
+                  {hasVotes && (
+                    <div
+                      className="absolute inset-0 bg-white/20 transition-all"
+                      style={{ width: `${percentage}%` }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center justify-between">
+                    <span>{option.name}</span>
+                    {hasVotes && (
+                      <span className="text-xs ml-2">{percentage}%</span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {hasVotes && (
+            <p className="text-white/60 text-xs text-center mt-2">{votesTotal}票</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Render Note (text) overlay
+  if (overlay.type === 'Note' && overlay.name) {
+    return (
+      <div key={`overlay-note-${overlay.name}`} style={style}>
+        <p className="text-white text-lg font-medium drop-shadow-lg bg-black/30 px-4 py-2 rounded-lg text-center">
+          {overlay.name}
+        </p>
+      </div>
+    );
+  }
+
+  // Render Link overlay
+  if (overlay.type === 'Link' && (overlay as unknown as { href?: string }).href) {
+    const linkOverlay = overlay as unknown as { href: string; name?: string };
+
+    // URL validation - only allow safe protocols
+    if (!isValidUrl(linkOverlay.href)) {
+      return null; // Don't render invalid URLs
+    }
+
+    return (
+      <div key={`overlay-link-${linkOverlay.href}`} style={style}>
+        <a
+          href={linkOverlay.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="bg-white text-black text-sm font-medium px-4 py-2 rounded-full hover:bg-neutral-200 transition-colors"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {linkOverlay.name || 'リンクを開く'}
+        </a>
+      </div>
+    );
+  }
+
+  // Default: render nothing for unknown types
+  return null;
+}
+
+export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, onClose }: StoryViewerProps) {
   const [actorIndex, setActorIndex] = useState(initialActorIndex);
   const [storyIndex, setStoryIndex] = useState(0);
-  const [frameIndex, setFrameIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const [videoReady, setVideoReady] = useState(false);
+  const [mediaError, setMediaError] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
+  const storyContainerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const currentActorStories = actorStories[actorIndex];
   const currentStory = currentActorStories?.stories[storyIndex];
-  const currentFrame = currentStory?.frames[frameIndex];
+  const isOwnStory = currentUserApId && currentActorStories?.actor.ap_id === currentUserApId;
+
+  // Update container size for overlay positioning
+  useEffect(() => {
+    const updateSize = () => {
+      if (storyContainerRef.current) {
+        const rect = storyContainerRef.current.getBoundingClientRect();
+        setContainerSize({ width: rect.width, height: rect.height });
+      }
+    };
+
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, [currentStory]);
 
   // Mark story as viewed when displaying
   useEffect(() => {
@@ -60,11 +248,21 @@ export function StoryViewer({ actorStories, initialActorIndex, onClose }: StoryV
     }
   }, [currentStory?.ap_id]);
 
-  // Auto-advance timer
-  const startTimer = useCallback(() => {
-    if (!currentFrame) return;
+  // Reset media states when story changes
+  useEffect(() => {
+    setMediaError(false);
+    setVideoReady(false);
+    setShowDeleteConfirm(false);
+  }, [actorIndex, storyIndex]);
 
-    const duration = parseDuration(currentFrame.displayDuration);
+  // Check if current story is a video
+  const isVideo = currentStory?.attachment?.mediaType?.startsWith('video/') ?? false;
+
+  // Auto-advance timer (for images only, videos use onEnded)
+  const startTimer = useCallback(() => {
+    if (!currentStory || isVideo) return;
+
+    const duration = parseDuration(currentStory.displayDuration);
     const startTime = Date.now();
 
     // Clear existing timers
@@ -83,10 +281,10 @@ export function StoryViewer({ actorStories, initialActorIndex, onClose }: StoryV
       if (progressTimerRef.current) clearInterval(progressTimerRef.current);
       goNext();
     }, duration);
-  }, [currentFrame, isPaused]);
+  }, [currentStory, isPaused, isVideo]);
 
   useEffect(() => {
-    if (!isPaused) {
+    if (!isPaused && !isVideo) {
       setProgress(0);
       startTimer();
     }
@@ -94,25 +292,17 @@ export function StoryViewer({ actorStories, initialActorIndex, onClose }: StoryV
       if (timerRef.current) clearTimeout(timerRef.current);
       if (progressTimerRef.current) clearInterval(progressTimerRef.current);
     };
-  }, [actorIndex, storyIndex, frameIndex, isPaused, startTimer]);
+  }, [actorIndex, storyIndex, isPaused, startTimer, isVideo]);
 
-  // Navigation functions
+  // Navigation functions (defined first for dependency order)
   const goNext = useCallback(() => {
     if (!currentActorStories) return;
 
     const currentStoriesLen = currentActorStories.stories.length;
-    const currentFramesLen = currentStory?.frames.length || 0;
-
-    // Next frame in current story
-    if (frameIndex < currentFramesLen - 1) {
-      setFrameIndex(frameIndex + 1);
-      return;
-    }
 
     // Next story from same user
     if (storyIndex < currentStoriesLen - 1) {
       setStoryIndex(storyIndex + 1);
-      setFrameIndex(0);
       return;
     }
 
@@ -120,25 +310,17 @@ export function StoryViewer({ actorStories, initialActorIndex, onClose }: StoryV
     if (actorIndex < actorStories.length - 1) {
       setActorIndex(actorIndex + 1);
       setStoryIndex(0);
-      setFrameIndex(0);
       return;
     }
 
     // End of all stories
     onClose();
-  }, [actorIndex, storyIndex, frameIndex, currentActorStories, currentStory, actorStories.length, onClose]);
+  }, [actorIndex, storyIndex, currentActorStories, actorStories.length, onClose]);
 
   const goPrev = useCallback(() => {
-    // Previous frame in current story
-    if (frameIndex > 0) {
-      setFrameIndex(frameIndex - 1);
-      return;
-    }
-
     // Previous story from same user
     if (storyIndex > 0) {
       setStoryIndex(storyIndex - 1);
-      setFrameIndex(0);
       return;
     }
 
@@ -148,13 +330,67 @@ export function StoryViewer({ actorStories, initialActorIndex, onClose }: StoryV
       const prevActorStories = actorStories[actorIndex - 1];
       const lastStoryIndex = prevActorStories.stories.length - 1;
       setStoryIndex(lastStoryIndex);
-      setFrameIndex(0);
       return;
     }
 
-    // At the beginning, restart current frame
+    // At the beginning, restart current story
     setProgress(0);
-  }, [actorIndex, storyIndex, frameIndex, actorStories]);
+  }, [actorIndex, storyIndex, actorStories]);
+
+  // Handle video ended event
+  const handleVideoEnded = useCallback(() => {
+    goNext();
+  }, [goNext]);
+
+  // Handle video time update for progress bar
+  const handleVideoTimeUpdate = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = e.currentTarget;
+    if (video.duration) {
+      setProgress((video.currentTime / video.duration) * 100);
+    }
+  }, []);
+
+  // Handle video loaded metadata
+  const handleVideoLoadedMetadata = useCallback(() => {
+    setVideoReady(true);
+    setProgress(0);
+  }, []);
+
+  // Handle media error
+  const handleMediaError = useCallback(() => {
+    setMediaError(true);
+  }, []);
+
+  // Handle delete story
+  const handleDeleteStory = useCallback(() => {
+    setShowDeleteConfirm(true);
+  }, []);
+
+  // Confirm delete story
+  const confirmDelete = useCallback(async () => {
+    if (!currentStory) return;
+
+    try {
+      await deleteStory(currentStory.ap_id);
+      // Navigate to next story or close
+      if (currentActorStories.stories.length === 1) {
+        // Last story from this user
+        if (actorIndex < actorStories.length - 1) {
+          setActorIndex(actorIndex + 1);
+          setStoryIndex(0);
+        } else {
+          onClose();
+        }
+      } else {
+        // Same user's next story
+        goNext();
+      }
+    } catch (e) {
+      console.error('Failed to delete story:', e);
+    } finally {
+      setShowDeleteConfirm(false);
+    }
+  }, [currentStory, currentActorStories, actorIndex, actorStories.length, goNext, onClose]);
 
   // Handle click/tap navigation
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -192,27 +428,25 @@ export function StoryViewer({ actorStories, initialActorIndex, onClose }: StoryV
   const handleTouchStart = () => setIsPaused(true);
   const handleTouchEnd = () => setIsPaused(false);
 
-  if (!currentActorStories || !currentStory || !currentFrame) {
+  if (!currentActorStories || !currentStory) {
     return null;
   }
 
-  const totalFrames = currentActorStories.stories.reduce((acc, s) => acc + s.frames.length, 0);
-  const currentFrameGlobalIndex = currentActorStories.stories
-    .slice(0, storyIndex)
-    .reduce((acc, s) => acc + s.frames.length, 0) + frameIndex;
+  // Total stories for this user (for progress bar)
+  const totalStories = currentActorStories.stories.length;
 
   return (
     <div className="fixed inset-0 z-50 bg-black">
-      {/* Progress bars */}
+      {/* Progress bars - one per story */}
       <div className="absolute top-0 left-0 right-0 z-20 px-2 pt-2 flex gap-1">
-        {Array.from({ length: totalFrames }).map((_, idx) => (
+        {Array.from({ length: totalStories }).map((_, idx) => (
           <div key={idx} className="flex-1 h-0.5 bg-neutral-700 rounded-full overflow-hidden">
             <div
               className="h-full bg-white transition-all duration-100"
               style={{
-                width: idx < currentFrameGlobalIndex
+                width: idx < storyIndex
                   ? '100%'
-                  : idx === currentFrameGlobalIndex
+                  : idx === storyIndex
                     ? `${progress}%`
                     : '0%'
               }}
@@ -236,12 +470,30 @@ export function StoryViewer({ actorStories, initialActorIndex, onClose }: StoryV
             <p className="text-neutral-400 text-xs">{formatTime(currentStory.published)}</p>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          className="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
-        >
-          <CloseIcon />
-        </button>
+        <div className="flex items-center gap-1">
+          {isVideo && (
+            <button
+              onClick={() => setIsMuted(!isMuted)}
+              className="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
+            >
+              {isMuted ? <MutedIcon /> : <UnmutedIcon />}
+            </button>
+          )}
+          {isOwnStory && (
+            <button
+              onClick={handleDeleteStory}
+              className="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
+            >
+              <TrashIcon />
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
+          >
+            <CloseIcon />
+          </button>
+        </div>
       </div>
 
       {/* Main content area - vertical 9:16 container */}
@@ -255,37 +507,66 @@ export function StoryViewer({ actorStories, initialActorIndex, onClose }: StoryV
         onTouchEnd={handleTouchEnd}
       >
         {/* Vertical story container (9:16 aspect ratio) */}
-        <div className="relative w-full h-full sm:w-auto sm:h-[calc(100vh-2rem)] sm:aspect-[9/16] sm:max-h-[900px] bg-neutral-900 overflow-hidden sm:rounded-xl">
-          {/* Media content */}
-          {currentFrame.attachment.mediaType.startsWith('image/') ? (
+        <div
+          ref={storyContainerRef}
+          className="relative w-full h-full sm:w-auto sm:h-[calc(100vh-2rem)] sm:aspect-[9/16] sm:max-h-[900px] bg-neutral-900 overflow-hidden sm:rounded-xl"
+        >
+          {/* Media content - directly from story.attachment */}
+          {!mediaError && currentStory.attachment.mediaType.startsWith('image/') ? (
             <img
-              src={currentFrame.attachment.url || `/media/${currentFrame.attachment.r2_key}`}
+              src={currentStory.attachment.url || `/media/${currentStory.attachment.r2_key}`}
               alt=""
               className="w-full h-full object-cover"
               draggable={false}
+              onError={handleMediaError}
             />
-          ) : currentFrame.attachment.mediaType.startsWith('video/') ? (
+          ) : !mediaError && currentStory.attachment.mediaType.startsWith('video/') ? (
             <video
-              src={currentFrame.attachment.url || `/media/${currentFrame.attachment.r2_key}`}
+              src={currentStory.attachment.url || `/media/${currentStory.attachment.r2_key}`}
               className="w-full h-full object-cover"
-              autoPlay
-              muted
+              autoPlay={videoReady}
+              muted={isMuted}
               playsInline
+              onEnded={handleVideoEnded}
+              onTimeUpdate={handleVideoTimeUpdate}
+              onLoadedMetadata={handleVideoLoadedMetadata}
+              onError={handleMediaError}
             />
           ) : null}
 
-          {/* Text overlay */}
-          {currentFrame.content && (
-            <div className="absolute bottom-24 left-4 right-4 text-center">
-              <p className="text-white text-lg font-medium drop-shadow-lg bg-black/30 px-4 py-2 rounded-lg">
-                {currentFrame.content}
-              </p>
+          {/* Media error fallback */}
+          {mediaError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-neutral-900">
+              <div className="text-center text-neutral-400">
+                <ErrorIcon />
+                <p className="mt-2">メディアを読み込めませんでした</p>
+              </div>
+            </div>
+          )}
+
+          {/* Overlays rendering */}
+          {currentStory.overlays && containerSize.width > 0 && (
+            <div className="absolute inset-0 pointer-events-none">
+              <div className="pointer-events-auto">
+                {currentStory.overlays.map((overlay, idx) => (
+                  <div key={idx}>
+                    {renderOverlay(
+                      overlay,
+                      containerSize,
+                      currentStory.ap_id,
+                      currentStory.votes,
+                      currentStory.votes_total,
+                      currentStory.user_vote
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Navigation hints */}
+      {/* Navigation hints - dots for each user */}
       <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-2">
         {actorStories.map((as, idx) => (
           <button
@@ -293,7 +574,6 @@ export function StoryViewer({ actorStories, initialActorIndex, onClose }: StoryV
             onClick={() => {
               setActorIndex(idx);
               setStoryIndex(0);
-              setFrameIndex(0);
             }}
             className={`w-2 h-2 rounded-full transition-colors ${
               idx === actorIndex ? 'bg-white' : 'bg-white/30'
@@ -301,6 +581,30 @@ export function StoryViewer({ actorStories, initialActorIndex, onClose }: StoryV
           />
         ))}
       </div>
+
+      {/* Delete confirmation dialog */}
+      {showDeleteConfirm && (
+        <div className="absolute inset-0 z-30 bg-black/80 flex items-center justify-center">
+          <div className="bg-neutral-800 rounded-2xl p-6 max-w-xs mx-4">
+            <h3 className="text-white font-semibold text-lg mb-2">ストーリーを削除</h3>
+            <p className="text-neutral-400 text-sm mb-4">このストーリーを削除しますか？この操作は取り消せません。</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 px-4 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-white transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 rounded-lg text-white transition-colors"
+              >
+                削除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

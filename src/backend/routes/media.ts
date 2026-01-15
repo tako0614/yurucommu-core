@@ -7,6 +7,10 @@ const media = new Hono<{ Bindings: Env; Variables: Variables }>();
 // Allowed MIME types for media upload
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm'];
 
+// File size limits
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
+const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
+
 // Get file extension from MIME type
 function getExtensionFromMimeType(mimeType: string): string {
   const extensions: Record<string, string> = {
@@ -40,10 +44,15 @@ media.post('/upload', async (c) => {
       }, 400);
     }
 
-    // Check file size (limit to 100MB)
-    const maxSize = 100 * 1024 * 1024;
+    // Check file size based on content type
+    const isVideo = contentType.startsWith('video/');
+    const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+
     if (file.size > maxSize) {
-      return c.json({ error: 'File too large (max 100MB)' }, 400);
+      const maxMB = maxSize / 1024 / 1024;
+      return c.json({
+        error: `File too large. Maximum size is ${maxMB}MB for ${isVideo ? 'videos' : 'images'}`
+      }, 413);
     }
 
     // Generate unique ID and extension

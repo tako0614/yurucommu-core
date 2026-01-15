@@ -10,6 +10,8 @@
     "deploy": "vite build --config src/frontend/vite.config.ts && wrangler deploy"
   },
   "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "hono": "^4.6.0",
     "html5-qrcode": "^2.3.8",
     "qrcode.react": "^4.2.0",

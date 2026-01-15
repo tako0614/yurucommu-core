@@ -18,7 +18,7 @@ import { UserAvatar } from '../components/UserAvatar';
 import { PostContent } from '../components/PostContent';
 import { StoryBar } from '../components/StoryBar';
 import { StoryViewer } from '../components/StoryViewer';
-import { StoryComposer } from '../components/StoryComposer';
+import { StoryComposerV2 } from '../components/story';
 
 interface TimelinePageProps {
   actor: Actor;
@@ -54,6 +54,9 @@ const CloseIcon = () => (
   </svg>
 );
 
+// File size limits
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
+
 interface UploadedMedia {
   r2_key: string;
   content_type: string;
@@ -74,6 +77,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
   const [activeTab, setActiveTab] = useState<TabType>('following');
   const [uploadedMedia, setUploadedMedia] = useState<UploadedMedia[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -179,10 +183,18 @@ export function TimelinePage({ actor }: TimelinePageProps) {
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    setUploadError(null);
     setUploading(true);
     try {
       for (const file of Array.from(files)) {
         if (uploadedMedia.length >= 4) break;
+
+        // Size check
+        if (file.size > MAX_IMAGE_SIZE) {
+          setUploadError(`画像サイズが大きすぎます（最大${MAX_IMAGE_SIZE / 1024 / 1024}MB）`);
+          continue;
+        }
+
         const result = await uploadMedia(file);
         const preview = URL.createObjectURL(file);
         setUploadedMedia(prev => [...prev, {
@@ -193,6 +205,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
       }
     } catch (err) {
       console.error('Failed to upload:', err);
+      setUploadError('アップロードに失敗しました');
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -294,7 +307,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
 
       {/* Story Composer Modal */}
       {showStoryComposer && (
-        <StoryComposer
+        <StoryComposerV2
           onClose={() => setShowStoryComposer(false)}
           onSuccess={handleStorySuccess}
         />
@@ -374,6 +387,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
                   <ImageIcon />
                 </button>
                 {uploading && <span className="text-sm text-neutral-500">アップロード中...</span>}
+                {uploadError && <span className="text-sm text-red-500">{uploadError}</span>}
               </div>
               <button
                 onClick={handlePost}
