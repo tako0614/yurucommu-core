@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Story Canvas Editor 仕様 - Yurucommu</title>
+  <meta name="description" content="Story Canvas Editorのレンダリング仕様。キャンバス座標系、要素描画、テキストレンダリング、エクスポート処理を定義">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <a href="/" class="logo">Yurucommu</a>
+      <div class="header-links">
+        <a href="/docs/" class="header-link">Docs</a>
+        <a href="/specs/" class="header-link active">Specs</a>
+      </div>
+      <a href="https://github.com/example/yurucommu" class="header-cta">
+        GitHub
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+
+  <div class="docs-layout">
+    <!-- Sidebar -->
+    <aside class="docs-sidebar">
+      <p class="docs-sidebar-title">仕様</p>
+      <ul class="docs-sidebar-nav">
+        <li><a href="/specs/">概要</a></li>
+        <li><a href="/specs/activitypub.html">ActivityPub拡張</a></li>
+        <li><a href="/specs/yurucommu.html">Yurucommu仕様</a></li>
+        <li><a href="/specs/namespace.html">名前空間</a></li>
+      </ul>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">ActivityPub拡張</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/specs/apc.html">APC (Communities)</a></li>
+          <li><a href="/specs/single-user.html">Single-User Instance</a></li>
+          <li><a href="/specs/story.html">Story</a></li>
+          <li><a href="/specs/dmnote.html">DM Note</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">Yurucommu仕様</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="/specs/qr-exchange.html">QR Exchange</a></li>
+          <li><a href="/specs/story-editor.html" class="active">Story Editor</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-sidebar-section">
+        <p class="docs-sidebar-title">リソース</p>
+        <ul class="docs-sidebar-nav">
+          <li><a href="https://www.w3.org/TR/activitypub/">ActivityPub (W3C)</a></li>
+          <li><a href="https://www.w3.org/TR/activitystreams-core/">Activity Streams 2.0</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <!-- Content -->
+    <main class="docs-content">
+      <span class="spec-status draft">Draft</span>
+      <h1>Story Canvas Editor 仕様</h1>
+      <p class="lead">
+        Story Canvas Editor のレンダリング仕様。キャンバス座標系、要素の描画順序、
+        テキストレンダリング、エクスポート処理を厳密に定義します。
+      </p>
+
+      <h2>1. キャンバス仕様</h2>
+
+      <h3>1.1 キャンバスサイズ</h3>
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem; font-weight: 500;">幅</td>
+            <td style="padding: 0.75rem;"><code>1080px</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem; font-weight: 500;">高さ</td>
+            <td style="padding: 0.75rem;"><code>1920px</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem; font-weight: 500;">アスペクト比</td>
+            <td style="padding: 0.75rem;"><code>9:16</code>（縦型）</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>1.2 座標系</h3>
+      <ul>
+        <li><strong>原点</strong>: 左上 (0, 0)</li>
+        <li><strong>X軸</strong>: 右方向が正（0 〜 1080）</li>
+        <li><strong>Y軸</strong>: 下方向が正（0 〜 1920）</li>
+        <li><strong>単位</strong>: ピクセル（px）</li>
+      </ul>
+
+      <p>エディタ表示時は、実際のキャンバスサイズと表示サイズの比率（<code>canvasScale</code>）を計算し、座標変換を行います。</p>
+      <pre><code>canvasScale = displayWidth / CANVAS_WIDTH
+displayX = canvasX * canvasScale
+displayY = canvasY * canvasScale</code></pre>
+
+      <h2>2. 要素型定義</h2>
+
+      <h3>2.1 基底型 CanvasElement</h3>
+      <p>すべてのキャンバス要素が持つ共通プロパティ。</p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">プロパティ</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">型</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">説明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>id</code></td>
+            <td style="padding: 0.75rem;">string</td>
+            <td style="padding: 0.75rem;">一意の識別子（UUID形式推奨）</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>type</code></td>
+            <td style="padding: 0.75rem;">'image' | 'text'</td>
+            <td style="padding: 0.75rem;">要素の種別</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>x</code></td>
+            <td style="padding: 0.75rem;">number</td>
+            <td style="padding: 0.75rem;">左上X座標（0-1080）</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>y</code></td>
+            <td style="padding: 0.75rem;">number</td>
+            <td style="padding: 0.75rem;">左上Y座標（0-1920）</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>width</code></td>
+            <td style="padding: 0.75rem;">number</td>
+            <td style="padding: 0.75rem;">幅（px）、最小値: 50</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>height</code></td>
+            <td style="padding: 0.75rem;">number</td>
+            <td style="padding: 0.75rem;">高さ（px）、最小値: 50</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>rotation</code></td>
+            <td style="padding: 0.75rem;">number</td>
+            <td style="padding: 0.75rem;">回転角度（度）、現在未実装</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>zIndex</code></td>
+            <td style="padding: 0.75rem;">number</td>
+            <td style="padding: 0.75rem;">描画順序（大きいほど前面）</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>2.2 ImageElement</h3>
+      <p>画像要素。<code>CanvasElement</code> を拡張。</p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">プロパティ</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">型</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">説明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>type</code></td>
+            <td style="padding: 0.75rem;">'image'</td>
+            <td style="padding: 0.75rem;">固定値</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>r2_key</code></td>
+            <td style="padding: 0.75rem;">string</td>
+            <td style="padding: 0.75rem;">R2ストレージのキー</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>content_type</code></td>
+            <td style="padding: 0.75rem;">string</td>
+            <td style="padding: 0.75rem;">MIMEタイプ（image/jpeg, image/png等）</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>preview</code></td>
+            <td style="padding: 0.75rem;">string</td>
+            <td style="padding: 0.75rem;">プレビュー用Blob URL</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>dominantColors</code></td>
+            <td style="padding: 0.75rem;">string[]</td>
+            <td style="padding: 0.75rem;">抽出した主要色（RGB形式）</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>2.3 TextElement</h3>
+      <p>テキスト要素。<code>CanvasElement</code> を拡張。</p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">プロパティ</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">型</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">説明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>type</code></td>
+            <td style="padding: 0.75rem;">'text'</td>
+            <td style="padding: 0.75rem;">固定値</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>content</code></td>
+            <td style="padding: 0.75rem;">string</td>
+            <td style="padding: 0.75rem;">テキスト内容</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>fontSize</code></td>
+            <td style="padding: 0.75rem;">number</td>
+            <td style="padding: 0.75rem;">フォントサイズ（px）、範囲: 24-96、デフォルト: 48</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>fontWeight</code></td>
+            <td style="padding: 0.75rem;">'normal' | 'bold'</td>
+            <td style="padding: 0.75rem;">フォントウェイト、デフォルト: 'bold'</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>color</code></td>
+            <td style="padding: 0.75rem;">string</td>
+            <td style="padding: 0.75rem;">テキスト色（CSS color形式）、デフォルト: '#ffffff'</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>backgroundColor</code></td>
+            <td style="padding: 0.75rem;">string?</td>
+            <td style="padding: 0.75rem;">背景色（CSS color形式）、デフォルト: 'rgba(0,0,0,0.5)'</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>3. 背景仕様</h2>
+
+      <h3>3.1 背景タイプ</h3>
+      <ul>
+        <li><strong>単色</strong>: CSS color値（例: <code>#000000</code>, <code>rgb(0,0,0)</code>）</li>
+        <li><strong>グラデーション</strong>: CSS linear-gradient（例: <code>linear-gradient(135deg, #667eea 0%, #764ba2 100%)</code>）</li>
+      </ul>
+
+      <h3>3.2 プリセット背景</h3>
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">ID</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">名前</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">値</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>black</code></td>
+            <td style="padding: 0.75rem;">黒</td>
+            <td style="padding: 0.75rem;"><code>#000000</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>white</code></td>
+            <td style="padding: 0.75rem;">白</td>
+            <td style="padding: 0.75rem;"><code>#ffffff</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>gray</code></td>
+            <td style="padding: 0.75rem;">グレー</td>
+            <td style="padding: 0.75rem;"><code>#374151</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>blue</code></td>
+            <td style="padding: 0.75rem;">青</td>
+            <td style="padding: 0.75rem;"><code>linear-gradient(135deg, #667eea 0%, #764ba2 100%)</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>sunset</code></td>
+            <td style="padding: 0.75rem;">夕焼け</td>
+            <td style="padding: 0.75rem;"><code>linear-gradient(135deg, #fa709a 0%, #fee140 100%)</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>ocean</code></td>
+            <td style="padding: 0.75rem;">海</td>
+            <td style="padding: 0.75rem;"><code>linear-gradient(135deg, #667eea 0%, #00d4ff 100%)</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>forest</code></td>
+            <td style="padding: 0.75rem;">森</td>
+            <td style="padding: 0.75rem;"><code>linear-gradient(135deg, #11998e 0%, #38ef7d 100%)</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>night</code></td>
+            <td style="padding: 0.75rem;">夜</td>
+            <td style="padding: 0.75rem;"><code>linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;"><code>pink</code></td>
+            <td style="padding: 0.75rem;">ピンク</td>
+            <td style="padding: 0.75rem;"><code>linear-gradient(135deg, #f093fb 0%, #f5576c 100%)</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>3.3 背景レンダリング</h3>
+      <pre><code>function drawBackground(ctx: CanvasRenderingContext2D, background: string): void {
+  if (background.startsWith('linear-gradient')) {
+    // 135度の対角グラデーション（左上→右下）
+    const gradient = ctx.createLinearGradient(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // CSS linear-gradientから色を抽出
+    const colors = background.match(/#[a-fA-F0-9]{6}/g) || [];
+    const stops = background.match(/(\d+)%/g)?.map(s => parseInt(s) / 100) || [];
+
+    colors.forEach((color, i) => {
+      const stop = stops[i] ?? (i / (colors.length - 1));
+      gradient.addColorStop(stop, color);
+    });
+
+    ctx.fillStyle = gradient;
+  } else {
+    ctx.fillStyle = background;
+  }
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+}</code></pre>
+
+      <h2>4. 描画順序</h2>
+
+      <h3>4.1 レイヤー構造</h3>
+      <ol>
+        <li><strong>背景レイヤー</strong>: 最背面（zIndex関係なく常に最初に描画）</li>
+        <li><strong>要素レイヤー</strong>: <code>zIndex</code> の昇順で描画（小さい値が背面）</li>
+      </ol>
+
+      <h3>4.2 描画アルゴリズム</h3>
+      <pre><code>function render(ctx: CanvasRenderingContext2D, state: EditorState): void {
+  // 1. キャンバスをクリア
+  ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  // 2. 背景を描画
+  drawBackground(ctx, state.background);
+
+  // 3. 要素をzIndex順にソート
+  const sortedElements = [...state.elements].sort((a, b) => a.zIndex - b.zIndex);
+
+  // 4. 各要素を順番に描画
+  for (const element of sortedElements) {
+    if (element.type === 'image') {
+      drawImageElement(ctx, element);
+    } else if (element.type === 'text') {
+      drawTextElement(ctx, element);
+    }
+  }
+}</code></pre>
+
+      <h2>5. 画像要素レンダリング</h2>
+
+      <h3>5.1 描画仕様</h3>
+      <ul>
+        <li><strong>スケーリング</strong>: 要素の width/height に合わせて拡縮</li>
+        <li><strong>配置</strong>: 要素の (x, y) を左上として配置</li>
+        <li><strong>アスペクト比</strong>: 維持しない（要素サイズに合わせて変形）</li>
+      </ul>
+
+      <h3>5.2 描画アルゴリズム</h3>
+      <pre><code>async function drawImageElement(
+  ctx: CanvasRenderingContext2D,
+  element: ImageElement
+): Promise&lt;void&gt; {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    img.onload = () => {
+      ctx.drawImage(
+        img,
+        element.x,      // 描画先X
+        element.y,      // 描画先Y
+        element.width,  // 描画幅
+        element.height  // 描画高さ
+      );
+      resolve();
+    };
+
+    img.onerror = () => {
+      console.error('Failed to load image:', element.preview);
+      resolve();
+    };
+
+    img.src = element.preview;
+  });
+}</code></pre>
+
+      <h2>6. テキスト要素レンダリング</h2>
+
+      <h3>6.1 描画仕様</h3>
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem; font-weight: 500;">フォントファミリー</td>
+            <td style="padding: 0.75rem;"><code>sans-serif</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem; font-weight: 500;">テキスト配置（水平）</td>
+            <td style="padding: 0.75rem;"><code>center</code>（要素の中央）</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem; font-weight: 500;">テキスト配置（垂直）</td>
+            <td style="padding: 0.75rem;"><code>middle</code>（要素の中央）</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem; font-weight: 500;">行の高さ</td>
+            <td style="padding: 0.75rem;"><code>fontSize × 1.2</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem; font-weight: 500;">テキスト折り返し</td>
+            <td style="padding: 0.75rem;">要素幅 - 20px（左右10pxパディング）</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>6.2 テキスト折り返しアルゴリズム</h3>
+      <p>日本語テキストは文字単位で折り返し（単語分割なし）。</p>
+      <pre><code>function wrapText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number
+): string[] {
+  const lines: string[] = [];
+  let currentLine = '';
+
+  // 文字単位でループ（日本語対応）
+  for (const char of text) {
+    const testLine = currentLine + char;
+    const metrics = ctx.measureText(testLine);
+
+    if (metrics.width > maxWidth && currentLine !== '') {
+      lines.push(currentLine);
+      currentLine = char;
+    } else {
+      currentLine = testLine;
+    }
+  }
+
+  if (currentLine !== '') {
+    lines.push(currentLine);
+  }
+
+  return lines;
+}</code></pre>
+
+      <h3>6.3 描画アルゴリズム</h3>
+      <pre><code>function drawTextElement(
+  ctx: CanvasRenderingContext2D,
+  element: TextElement
+): void {
+  const PADDING = 10;
+  const LINE_HEIGHT_RATIO = 1.2;
+
+  // 1. 背景を描画（設定されている場合）
+  if (element.backgroundColor) {
+    ctx.fillStyle = element.backgroundColor;
+    ctx.fillRect(element.x, element.y, element.width, element.height);
+  }
+
+  // 2. フォント設定
+  ctx.fillStyle = element.color;
+  ctx.font = `${element.fontWeight} ${element.fontSize}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // 3. テキスト折り返し
+  const maxWidth = element.width - (PADDING * 2);
+  const lines = wrapText(ctx, element.content, maxWidth);
+
+  // 4. 行の高さと開始Y座標を計算
+  const lineHeight = element.fontSize * LINE_HEIGHT_RATIO;
+  const totalHeight = lines.length * lineHeight;
+  const startY = element.y + (element.height - totalHeight) / 2 + lineHeight / 2;
+
+  // 5. 各行を描画
+  const centerX = element.x + element.width / 2;
+  lines.forEach((line, index) => {
+    ctx.fillText(line, centerX, startY + index * lineHeight);
+  });
+}</code></pre>
+
+      <h2>7. 色抽出アルゴリズム</h2>
+
+      <h3>7.1 概要</h3>
+      <p>画像から主要な色を抽出し、背景色パレットとして提案。</p>
+
+      <h3>7.2 アルゴリズム</h3>
+      <pre><code>async function extractDominantColors(imageUrl: string): Promise&lt;string[]&gt; {
+  const SAMPLE_SIZE = 50;        // サンプリング解像度
+  const QUANTIZE_STEP = 32;      // 色の量子化ステップ（256/32 = 8段階）
+  const MAX_COLORS = 5;          // 返す色の最大数
+
+  // 1. 画像を読み込み
+  const img = await loadImage(imageUrl);
+
+  // 2. 小さいキャンバスにリサンプリング
+  const canvas = document.createElement('canvas');
+  canvas.width = SAMPLE_SIZE;
+  canvas.height = SAMPLE_SIZE;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+
+  // 3. ピクセルデータを取得
+  const imageData = ctx.getImageData(0, 0, SAMPLE_SIZE, SAMPLE_SIZE).data;
+  const colorCounts: Map&lt;string, number&gt; = new Map();
+
+  // 4. 各ピクセルを量子化してカウント
+  for (let i = 0; i < imageData.length; i += 4) {
+    const alpha = imageData[i + 3];
+    if (alpha < 128) continue;  // 半透明以下はスキップ
+
+    const r = Math.round(imageData[i] / QUANTIZE_STEP) * QUANTIZE_STEP;
+    const g = Math.round(imageData[i + 1] / QUANTIZE_STEP) * QUANTIZE_STEP;
+    const b = Math.round(imageData[i + 2] / QUANTIZE_STEP) * QUANTIZE_STEP;
+
+    const key = `rgb(${r},${g},${b})`;
+    colorCounts.set(key, (colorCounts.get(key) || 0) + 1);
+  }
+
+  // 5. 頻度でソートして上位を返す
+  return [...colorCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MAX_COLORS)
+    .map(([color]) => color);
+}</code></pre>
+
+      <h2>8. 表示時間の自動計算</h2>
+
+      <h3>8.1 計算式</h3>
+      <pre><code>function calculateDuration(elements: CanvasElement[]): string {
+  let seconds = 3;  // 基本時間
+
+  const textElements = elements.filter(e => e.type === 'text');
+  const imageElements = elements.filter(e => e.type === 'image');
+
+  // テキスト要素1つにつき +2秒
+  seconds += textElements.length * 2;
+
+  // テキストの長さに応じて追加（20文字ごとに +1秒）
+  for (const el of textElements) {
+    seconds += Math.ceil(el.content.length / 20);
+  }
+
+  // 画像が2枚以上の場合 +2秒
+  if (imageElements.length >= 2) {
+    seconds += 2;
+  }
+
+  // 範囲制限: 3-15秒
+  seconds = Math.max(3, Math.min(15, seconds));
+
+  return `PT${seconds}S`;  // ISO 8601 duration形式
+}</code></pre>
+
+      <h3>8.2 例</h3>
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">要素構成</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">計算</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">結果</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;">画像1枚のみ</td>
+            <td style="padding: 0.75rem;">3</td>
+            <td style="padding: 0.75rem;"><code>PT3S</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;">画像1枚 + テキスト(10文字)</td>
+            <td style="padding: 0.75rem;">3 + 2 + 1 = 6</td>
+            <td style="padding: 0.75rem;"><code>PT6S</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;">画像2枚 + テキスト(30文字)</td>
+            <td style="padding: 0.75rem;">3 + 2 + 2 + 2 = 9</td>
+            <td style="padding: 0.75rem;"><code>PT9S</code></td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;">テキスト2つ(各50文字)</td>
+            <td style="padding: 0.75rem;">3 + 4 + 6 = 13</td>
+            <td style="padding: 0.75rem;"><code>PT13S</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>9. エクスポート仕様</h2>
+
+      <h3>9.1 出力フォーマット</h3>
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem; font-weight: 500;">形式</td>
+            <td style="padding: 0.75rem;">JPEG</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem; font-weight: 500;">品質</td>
+            <td style="padding: 0.75rem;">0.9（90%）</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem; font-weight: 500;">サイズ</td>
+            <td style="padding: 0.75rem;">1080 × 1920 px</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem; font-weight: 500;">ファイル名</td>
+            <td style="padding: 0.75rem;"><code>story.jpg</code></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>9.2 エクスポート処理</h3>
+      <pre><code>async function exportCanvas(state: EditorState): Promise&lt;Blob&gt; {
+  // 1. オフスクリーンキャンバスを作成
+  const canvas = document.createElement('canvas');
+  canvas.width = CANVAS_WIDTH;   // 1080
+  canvas.height = CANVAS_HEIGHT; // 1920
+  const ctx = canvas.getContext('2d');
+
+  // 2. 全要素を描画
+  await render(ctx, state);
+
+  // 3. JPEGとしてエクスポート
+  return new Promise((resolve) => {
+    canvas.toBlob(
+      (blob) => resolve(blob),
+      'image/jpeg',
+      0.9  // 品質90%
+    );
+  });
+}</code></pre>
+
+      <h2>10. エディタUI仕様</h2>
+
+      <h3>10.1 選択状態の表示</h3>
+      <ul>
+        <li><strong>選択枠</strong>: 2px solid #3B82F6（blue-500）</li>
+        <li><strong>リサイズハンドル</strong>: 四隅に16×16pxの円形ハンドル</li>
+        <li><strong>ハンドルスタイル</strong>: 白背景、2px solid #3B82F6の枠</li>
+      </ul>
+
+      <h3>10.2 要素の初期配置</h3>
+      <table style="width: 100%; border-collapse: collapse; margin: 1rem 0;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">要素</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">初期位置</th>
+            <th style="text-align: left; padding: 0.75rem; color: var(--text-secondary);">初期サイズ</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;">画像</td>
+            <td style="padding: 0.75rem;">(140, 560) - キャンバス中央</td>
+            <td style="padding: 0.75rem;">800 × 800 px</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 0.75rem;">テキスト</td>
+            <td style="padding: 0.75rem;">(240, 860) - キャンバス中央</td>
+            <td style="padding: 0.75rem;">600 × 200 px</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>10.3 制約</h3>
+      <ul>
+        <li><strong>最小サイズ</strong>: 50 × 50 px</li>
+        <li><strong>フォントサイズ範囲</strong>: 24 〜 96 px</li>
+        <li><strong>フォントサイズ増減ステップ</strong>: 8 px</li>
+      </ul>
+
+    </main>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-logo">Yurucommu</div>
+      <div class="footer-links">
+        <a href="/" class="footer-link">ホーム</a>
+        <a href="/docs/" class="footer-link">Docs</a>
+        <a href="/specs/" class="footer-link">Specs</a>
+        <a href="https://github.com/example/yurucommu" class="footer-link">GitHub</a>
+      </div>
+      <p class="footer-copy">&copy; 2025 Yurucommu. MIT License.</p>
+    </div>
+  </footer>
+</body>
+</html>

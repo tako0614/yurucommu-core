@@ -6,7 +6,7 @@ import {
   DMMessage,
   Notification,
   Story,
-  StoryFrame,
+  StoryOverlay,
   ActorStories,
 } from '../types';
 
@@ -331,15 +331,15 @@ export async function fetchActorStories(actorId: string): Promise<Story[]> {
   return data.stories || [];
 }
 
-export async function createStory(frames: {
+export async function createStory(story: {
   attachment: { r2_key: string; content_type: string };
-  displayDuration?: string;
-  content?: string;
-}[]): Promise<Story> {
+  displayDuration: string;
+  overlays?: StoryOverlay[];
+}): Promise<Story> {
   const res = await fetch('/api/stories', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ frames }),
+    body: JSON.stringify(story),
   });
   if (!res.ok) throw new Error('Failed to create story');
   const data = await res.json();
@@ -354,4 +354,13 @@ export async function deleteStory(apId: string): Promise<void> {
 export async function markStoryViewed(apId: string): Promise<void> {
   const res = await fetch(`/api/stories/${encodeURIComponent(apId)}/view`, { method: 'POST' });
   if (!res.ok) throw new Error('Failed to mark story as viewed');
+}
+
+export async function voteOnStory(apId: string, optionIndex: number): Promise<void> {
+  const res = await fetch(`/api/stories/${encodeURIComponent(apId)}/vote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ option_index: optionIndex }),
+  });
+  if (!res.ok) throw new Error('Failed to vote on story');
 }

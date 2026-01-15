@@ -379,10 +379,27 @@ async function handleLike(c: any, activity: any, recipient: Actor, actor: string
   }
 }
 
+// Check if object type includes Story
+function isStoryType(type: string | string[]): boolean {
+  if (Array.isArray(type)) {
+    return type.includes('Story');
+  }
+  return type === 'Story';
+}
+
 // Handle Create activity
 async function handleCreate(c: any, activity: any, recipient: Actor, actor: string, baseUrl: string) {
   const object = activity.object;
-  if (!object || object.type !== 'Note') return;
+  if (!object) return;
+
+  // Handle Story type
+  if (isStoryType(object.type)) {
+    await handleCreateStory(c, activity, actor, baseUrl);
+    return;
+  }
+
+  // Handle Note type
+  if (object.type !== 'Note') return;
 
   const objectId = object.id || objectApId(baseUrl, generateId());
 
@@ -430,16 +447,97 @@ async function handleCreate(c: any, activity: any, recipient: Actor, actor: stri
   }
 }
 
+// Handle Create(Story) activity
+async function handleCreateStory(c: any, activity: any, actor: string, baseUrl: string) {
+  const object = activity.object;
+  const objectId = object.id || objectApId(baseUrl, generateId());
+
+  // Check if story already exists
+  const existing = await c.env.DB.prepare('SELECT ap_id FROM objects WHERE ap_id = ?').bind(objectId).first();
+  if (existing) return;
+
+  // attachment validation (required)
+  if (!object.attachment) {
+    console.error('Remote story has no attachment:', objectId);
+    return; // Ignore stories without attachment
+  }
+
+  // Normalize attachment (handle array or single object)
+  const attachment = Array.isArray(object.attachment)
+    ? object.attachment[0]
+    : object.attachment;
+
+  if (!attachment || !attachment.url) {
+    console.error('Remote story attachment has no URL:', objectId);
+    return;
+  }
+
+  // overlays validation (optional, validate if present)
+  let overlays = object.overlays;
+  if (overlays) {
+    if (!Array.isArray(overlays)) {
+      overlays = undefined; // Ignore invalid format
+    } else {
+      // Simple validation: position is required
+      overlays = overlays.filter((o: any) =>
+        o && o.position &&
+        typeof o.position.x === 'number' &&
+        typeof o.position.y === 'number'
+      );
+      if (overlays.length === 0) overlays = undefined;
+    }
+  }
+
+  // Build attachments_json
+  const attachmentData = {
+    attachment: {
+      r2_key: '', // Remote stories don't have local R2 key
+      content_type: attachment.mediaType || 'image/jpeg',
+      url: attachment.url,
+      width: attachment.width || 1080,
+      height: attachment.height || 1920,
+    },
+    displayDuration: object.displayDuration || 'PT5S',
+    overlays: overlays,
+  };
+
+  const now = new Date().toISOString();
+  const endTime = object.endTime || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+  // DB save
+  await c.env.DB.prepare(`
+    INSERT INTO objects (ap_id, type, attributed_to, content, attachments_json, end_time, published, is_local)
+    VALUES (?, 'Story', ?, '', ?, ?, ?, 0)
+  `).bind(
+    objectId,
+    actor,
+    JSON.stringify(attachmentData),
+    endTime,
+    object.published || now
+  ).run();
+
+  console.log('Stored remote story:', objectId);
+
+  // Increment post count for actor in cache
+  await c.env.DB.prepare('UPDATE actor_cache SET post_count = COALESCE(post_count, 0) + 1 WHERE ap_id = ?').bind(actor).run();
+}
+
 // Handle Delete activity
 async function handleDelete(c: any, activity: any) {
   const objectId = activity.object?.id || activity.object;
   if (!objectId) return;
 
   // Get object before deletion
-  const delObj = await c.env.DB.prepare('SELECT attributed_to, reply_count FROM objects WHERE ap_id = ?')
+  const delObj = await c.env.DB.prepare('SELECT attributed_to, type, reply_count FROM objects WHERE ap_id = ?')
     .bind(objectId).first() as any;
 
   if (!delObj) return;
+
+  // If it's a Story, also delete related votes and views
+  if (delObj.type === 'Story') {
+    await c.env.DB.prepare('DELETE FROM story_votes WHERE story_ap_id = ?').bind(objectId).run();
+    await c.env.DB.prepare('DELETE FROM story_views WHERE story_ap_id = ?').bind(objectId).run();
+  }
 
   // Delete object
   await c.env.DB.prepare('DELETE FROM objects WHERE ap_id = ?').bind(objectId).run();
@@ -448,8 +546,10 @@ async function handleDelete(c: any, activity: any) {
   await c.env.DB.prepare('UPDATE actors SET post_count = post_count - 1 WHERE ap_id = ? AND post_count > 0')
     .bind(delObj.attributed_to).run();
 
-  // Delete associated likes and replies
-  await c.env.DB.prepare('DELETE FROM likes WHERE object_ap_id = ?').bind(objectId).run();
+  // Delete associated likes and replies (for Notes)
+  if (delObj.type !== 'Story') {
+    await c.env.DB.prepare('DELETE FROM likes WHERE object_ap_id = ?').bind(objectId).run();
+  }
 }
 
 // ============================================================
