@@ -88,8 +88,16 @@ app.route('/api/follow', followRoutes);
 app.route('/api/timeline', timelineRoutes);
 
 // Posts, likes, bookmarks routes
-// Note: bookmarks endpoint is at /api/posts/bookmarks
 app.route('/api/posts', postsRoutes);
+
+// Bookmarks alias (frontend calls /api/bookmarks, backend has /api/posts/bookmarks)
+app.get('/api/bookmarks', async (c) => {
+  // Forward to posts/bookmarks handler
+  const url = new URL(c.req.url);
+  url.pathname = '/api/posts/bookmarks';
+  const newReq = new Request(url.toString(), c.req.raw);
+  return app.fetch(newReq, c.env, c.executionCtx);
+});
 
 // Notifications routes
 app.route('/api/notifications', notificationsRoutes);

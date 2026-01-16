@@ -556,8 +556,18 @@ ap.post('/ap/users/:username/inbox', async (c) => {
     case 'Reject':
       await handleReject(c, activity);
       break;
+    case 'Add':
+    case 'Remove':
+    case 'Block':
+    case 'Flag':
+    case 'Move':
+      // Known but unsupported activity types - silently acknowledge
+      break;
     default:
-      // Unhandled activity types are silently ignored
+      // Log unknown activity types for debugging (production: remove or use proper logging)
+      if (activityType) {
+        console.warn(`[ActivityPub] Unhandled activity type: ${activityType} from ${actor}`);
+      }
   }
 
   return c.json({ success: true });
@@ -664,12 +674,48 @@ async function handleAccept(c: any, activity: any) {
 // Handle Undo activity
 async function handleUndo(c: any, activity: any, recipient: Actor, actor: string, baseUrl: string) {
   const objectType = activity.object?.type;
-  const objectId = activity.object?.id;
+  const objectId = typeof activity.object === 'string' ? activity.object : activity.object?.id;
+
+  // If object is just a string (activity ID), try to find the original activity
+  if (!objectType && objectId) {
+    const originalActivity = await c.env.DB.prepare(
+      'SELECT type, object_ap_id FROM activities WHERE ap_id = ?'
+    ).bind(objectId).first<any>();
+
+    if (originalActivity) {
+      // Handle based on original activity type
+      if (originalActivity.type === 'Follow') {
+        await c.env.DB.prepare('DELETE FROM follows WHERE activity_ap_id = ?').bind(objectId).run();
+        await c.env.DB.prepare('UPDATE actors SET follower_count = follower_count - 1 WHERE ap_id = ? AND follower_count > 0')
+          .bind(recipient.ap_id).run();
+      } else if (originalActivity.type === 'Like' && originalActivity.object_ap_id) {
+        await c.env.DB.prepare('DELETE FROM likes WHERE activity_ap_id = ?').bind(objectId).run();
+        await c.env.DB.prepare('UPDATE objects SET like_count = like_count - 1 WHERE ap_id = ? AND like_count > 0')
+          .bind(originalActivity.object_ap_id).run();
+      } else if (originalActivity.type === 'Announce' && originalActivity.object_ap_id) {
+        await c.env.DB.prepare('DELETE FROM announces WHERE activity_ap_id = ?').bind(objectId).run();
+        await c.env.DB.prepare('UPDATE objects SET announce_count = announce_count - 1 WHERE ap_id = ? AND announce_count > 0')
+          .bind(originalActivity.object_ap_id).run();
+      }
+      return;
+    }
+  }
 
   if (objectType === 'Follow') {
     // Undo follow
-    await c.env.DB.prepare('DELETE FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?')
-      .bind(actor, recipient.ap_id).run();
+    if (objectId) {
+      // Try to find by activity_ap_id first
+      const deleted = await c.env.DB.prepare('DELETE FROM follows WHERE activity_ap_id = ? RETURNING *')
+        .bind(objectId).first();
+      if (!deleted) {
+        // Fallback: delete by actor pair
+        await c.env.DB.prepare('DELETE FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?')
+          .bind(actor, recipient.ap_id).run();
+      }
+    } else {
+      await c.env.DB.prepare('DELETE FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?')
+        .bind(actor, recipient.ap_id).run();
+    }
 
     // Update counts
     await c.env.DB.prepare('UPDATE actors SET follower_count = follower_count - 1 WHERE ap_id = ? AND follower_count > 0')
@@ -692,6 +738,13 @@ async function handleUndo(c: any, activity: any, recipient: Actor, actor: string
         await c.env.DB.prepare('DELETE FROM likes WHERE activity_ap_id = ?').bind(objectId).run();
         await c.env.DB.prepare('UPDATE objects SET like_count = like_count - 1 WHERE ap_id = ? AND like_count > 0')
           .bind(like.object_ap_id).run();
+      } else {
+        // Last resort: try to delete any like from this actor for the recipient's objects
+        await c.env.DB.prepare(`
+          DELETE FROM likes WHERE actor_ap_id = ? AND object_ap_id IN (
+            SELECT ap_id FROM objects WHERE attributed_to = ?
+          )
+        `).bind(actor, recipient.ap_id).run();
       }
     }
   } else if (objectType === 'Announce') {
