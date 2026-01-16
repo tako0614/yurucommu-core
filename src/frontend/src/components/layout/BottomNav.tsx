@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useI18n } from '../../lib/i18n';
+import { useUnreadCount } from '../../hooks/useUnreadCount';
 
 // SVG Icons
 const HomeIcon = ({ active }: { active: boolean }) => (
@@ -34,6 +35,7 @@ const ProfileIcon = ({ active }: { active: boolean }) => (
 
 export function BottomNav() {
   const { t } = useI18n();
+  const unreadCount = useUnreadCount();
 
   const navItems = [
     { to: '/', icon: HomeIcon, label: t('nav.home') },
@@ -45,7 +47,9 @@ export function BottomNav() {
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 h-14 bg-black border-t border-neutral-900 flex items-center justify-around z-50">
-      {navItems.map(({ to, icon: Icon }) => (
+      {navItems.map(({ to, icon: Icon }) => {
+        const showBadge = to === '/notifications' && unreadCount > 0;
+        return (
         <NavLink
           key={to}
           to={to}
@@ -56,9 +60,19 @@ export function BottomNav() {
             }`
           }
         >
-          {({ isActive }) => <Icon active={isActive} />}
+          {({ isActive }) => (
+            <div className="relative">
+              <Icon active={isActive} />
+              {showBadge && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 text-[10px] leading-[18px] text-center rounded-full bg-red-500 text-white">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+            </div>
+          )}
         </NavLink>
-      ))}
+        );
+      })}
     </nav>
   );
 }

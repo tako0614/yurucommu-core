@@ -95,6 +95,17 @@ export async function updateProfile(data: { name?: string; summary?: string; ico
   if (!res.ok) throw new Error('Failed to update profile');
 }
 
+export async function fetchActorPosts(identifier: string, options?: { limit?: number; before?: string }): Promise<Post[]> {
+  const params = new URLSearchParams();
+  if (options?.limit) params.set('limit', String(options.limit));
+  if (options?.before) params.set('before', options.before);
+  const query = params.toString() ? `?${params}` : '';
+  const res = await fetch(`/api/actors/${encodeURIComponent(identifier)}/posts${query}`);
+  if (!res.ok) throw new Error('Failed to fetch actor posts');
+  const data = await res.json();
+  return data.posts || [];
+}
+
 export async function fetchFollowers(identifier: string): Promise<Actor[]> {
   const res = await fetch(`/api/actors/${encodeURIComponent(identifier)}/followers`);
   const data = await res.json();
@@ -141,6 +152,84 @@ export async function acceptFollowRequest(requesterApId: string): Promise<void> 
     body: JSON.stringify({ requester_ap_id: requesterApId }),
   });
   if (!res.ok) throw new Error('Failed to accept');
+}
+
+export async function acceptFollowRequestsBatch(
+  requesterApIds: string[]
+): Promise<{ results: { ap_id: string; success: boolean; error?: string }[]; accepted_count: number }> {
+  const res = await fetch('/api/follow/accept/batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requester_ap_ids: requesterApIds }),
+  });
+  if (!res.ok) throw new Error('Failed to accept follow requests');
+  return res.json();
+}
+
+export async function rejectFollowRequest(requesterApId: string): Promise<void> {
+  const res = await fetch('/api/follow/reject', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requester_ap_id: requesterApId }),
+  });
+  if (!res.ok) throw new Error('Failed to reject');
+}
+
+// ===== Block / Mute API =====
+
+export async function fetchBlockedUsers(): Promise<Actor[]> {
+  const res = await fetch('/api/actors/me/blocked');
+  if (!res.ok) throw new Error('Failed to fetch blocked users');
+  const data = await res.json();
+  return data.blocked || [];
+}
+
+export async function blockUser(apId: string): Promise<void> {
+  const res = await fetch('/api/actors/me/blocked', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ap_id: apId }),
+  });
+  if (!res.ok) throw new Error('Failed to block user');
+}
+
+export async function unblockUser(apId: string): Promise<void> {
+  const res = await fetch('/api/actors/me/blocked', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ap_id: apId }),
+  });
+  if (!res.ok) throw new Error('Failed to unblock user');
+}
+
+export async function fetchMutedUsers(): Promise<Actor[]> {
+  const res = await fetch('/api/actors/me/muted');
+  if (!res.ok) throw new Error('Failed to fetch muted users');
+  const data = await res.json();
+  return data.muted || [];
+}
+
+export async function muteUser(apId: string): Promise<void> {
+  const res = await fetch('/api/actors/me/muted', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ap_id: apId }),
+  });
+  if (!res.ok) throw new Error('Failed to mute user');
+}
+
+export async function unmuteUser(apId: string): Promise<void> {
+  const res = await fetch('/api/actors/me/muted', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ap_id: apId }),
+  });
+  if (!res.ok) throw new Error('Failed to unmute user');
+}
+
+export async function deleteAccount(): Promise<void> {
+  const res = await fetch('/api/actors/me/delete', { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to delete account');
 }
 
 // ===== Posts API =====
@@ -259,13 +348,14 @@ export interface CommunityDetail {
   icon_url: string | null;
   visibility: 'public' | 'private';
   join_policy: 'open' | 'invite' | 'approval';
-  post_policy: 'members' | 'admins';
+  post_policy: 'anyone' | 'members' | 'mods' | 'owners';
   member_count: number;
   post_count?: number;
   created_by: string;
   created_at: string;
   is_member: boolean;
-  member_role: 'admin' | 'member' | null;
+  member_role: 'owner' | 'moderator' | 'member' | null;
+  join_status?: 'pending' | null;
   last_message_at?: string | null;
 }
 
@@ -275,7 +365,7 @@ export interface CommunityMember {
   preferred_username: string;
   name: string | null;
   icon_url: string | null;
-  role: 'admin' | 'member';
+  role: 'owner' | 'moderator' | 'member';
   joined_at: string;
 }
 
@@ -323,14 +413,41 @@ export async function createCommunity(data: {
   return result.community;
 }
 
-export async function joinCommunity(identifier: string): Promise<void> {
+export interface JoinCommunityResult {
+  status: 'joined' | 'pending' | 'invite_required';
+}
+
+export interface CommunityJoinRequest {
+  ap_id: string;
+  username: string;
+  preferred_username: string;
+  name: string | null;
+  icon_url: string | null;
+  created_at: string;
+}
+
+export interface CommunityInviteResult {
+  invite_id: string;
+}
+
+export async function joinCommunity(
+  identifier: string,
+  options?: { inviteId?: string }
+): Promise<JoinCommunityResult> {
+  const body = options?.inviteId ? JSON.stringify({ invite_id: options.inviteId }) : undefined;
   const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/join`, {
     method: 'POST',
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body,
   });
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.error || 'Failed to join community');
+    const error = data.error || 'Failed to join community';
+    const err = new Error(error) as Error & { status?: string };
+    err.status = data.status;
+    throw err;
   }
+  return { status: data.status || 'joined' };
 }
 
 export async function leaveCommunity(identifier: string): Promise<void> {
@@ -389,6 +506,7 @@ export interface DMContact {
   member_count?: number;
   last_message: { content: string; is_mine: boolean } | null;
   last_message_at: string | null;
+  unread_count?: number;
 }
 
 export interface DMContactsResponse {
@@ -429,15 +547,23 @@ export async function fetchDMRequests(): Promise<DMRequest[]> {
   return data.requests || [];
 }
 
-// Accept message request
-export async function acceptDMRequest(requestId: string): Promise<void> {
-  const res = await fetch(`/api/dm/requests/${requestId}/accept`, { method: 'POST' });
+// Accept message request (by sender AP ID)
+export async function acceptDMRequest(senderApId: string): Promise<void> {
+  const res = await fetch('/api/dm/requests/accept', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sender_ap_id: senderApId }),
+  });
   if (!res.ok) throw new Error('Failed to accept request');
 }
 
-// Reject message request
-export async function rejectDMRequest(requestId: string): Promise<void> {
-  const res = await fetch(`/api/dm/requests/${requestId}/reject`, { method: 'POST' });
+// Reject message request (by sender AP ID, optionally block)
+export async function rejectDMRequest(senderApId: string, block?: boolean): Promise<void> {
+  const res = await fetch('/api/dm/requests/reject', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sender_ap_id: senderApId, block }),
+  });
   if (!res.ok) throw new Error('Failed to reject request');
 }
 
@@ -509,6 +635,26 @@ export async function sendUserDMMessage(userApId: string, content: string): Prom
     message: data.message,
     conversation_id: data.conversation_id,
   };
+}
+
+export async function sendUserDMTyping(userApId: string): Promise<void> {
+  const res = await fetch(`/api/dm/user/${encodeURIComponent(userApId)}/typing`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to send typing');
+}
+
+export async function fetchUserDMTyping(userApId: string): Promise<{ is_typing: boolean; last_typed_at: string | null }> {
+  const res = await fetch(`/api/dm/user/${encodeURIComponent(userApId)}/typing`);
+  if (!res.ok) throw new Error('Failed to fetch typing');
+  const data = await res.json();
+  return {
+    is_typing: !!data.is_typing,
+    last_typed_at: data.last_typed_at ?? null,
+  };
+}
+
+export async function markDMAsRead(userApId: string): Promise<void> {
+  const res = await fetch(`/api/dm/user/${encodeURIComponent(userApId)}/read`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to mark as read');
 }
 
 // ===== Notifications API =====
@@ -617,11 +763,172 @@ export async function markStoryViewed(apId: string): Promise<void> {
   if (!res.ok) throw new Error('Failed to mark story as viewed');
 }
 
-export async function voteOnStory(apId: string, optionIndex: number): Promise<void> {
+export async function voteOnStory(
+  apId: string,
+  optionIndex: number
+): Promise<{ votes: Record<number, number>; total: number; user_vote: number }> {
   const res = await fetch('/api/stories/vote', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ap_id: apId, option_index: optionIndex }),
   });
   if (!res.ok) throw new Error('Failed to vote on story');
+  return res.json();
+}
+
+export async function fetchCommunityJoinRequests(identifier: string): Promise<CommunityJoinRequest[]> {
+  const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/requests`);
+  if (!res.ok) throw new Error('Failed to fetch join requests');
+  const data = await res.json();
+  return data.requests || [];
+}
+
+export async function acceptCommunityJoinRequest(identifier: string, actorApId: string): Promise<void> {
+  const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/requests/accept`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actor_ap_id: actorApId }),
+  });
+  if (!res.ok) throw new Error('Failed to accept join request');
+}
+
+export async function rejectCommunityJoinRequest(identifier: string, actorApId: string): Promise<void> {
+  const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/requests/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actor_ap_id: actorApId }),
+  });
+  if (!res.ok) throw new Error('Failed to reject join request');
+}
+
+export interface CommunityInvite {
+  id: string;
+  invited_ap_id: string | null;
+  invited_by: {
+    ap_id: string;
+    username: string;
+    preferred_username: string;
+    name: string;
+  };
+  created_at: string;
+  expires_at: string | null;
+  used_at: string | null;
+  used_by_ap_id: string | null;
+  is_valid: boolean;
+}
+
+export async function fetchCommunityInvites(identifier: string): Promise<CommunityInvite[]> {
+  const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/invites`);
+  if (!res.ok) throw new Error('Failed to fetch invites');
+  const data = await res.json();
+  return data.invites || [];
+}
+
+export async function createCommunityInvite(
+  identifier: string,
+  options?: { invited_ap_id?: string; expires_in_hours?: number }
+): Promise<CommunityInviteResult & { expires_at?: string }> {
+  const body = options ? JSON.stringify(options) : undefined;
+  const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/invites`, {
+    method: 'POST',
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body,
+  });
+  if (!res.ok) throw new Error('Failed to create invite');
+  return res.json();
+}
+
+export async function revokeCommunityInvite(identifier: string, inviteId: string): Promise<void> {
+  const res = await fetch(
+    `/api/communities/${encodeURIComponent(identifier)}/invites/${encodeURIComponent(inviteId)}`,
+    { method: 'DELETE' }
+  );
+  if (!res.ok) throw new Error('Failed to revoke invite');
+}
+
+export interface CommunitySettings {
+  display_name?: string;
+  summary?: string;
+  icon_url?: string;
+  visibility?: 'public' | 'private';
+  join_policy?: 'open' | 'approval' | 'invite';
+  post_policy?: 'anyone' | 'members' | 'mods' | 'owners';
+}
+
+export async function updateCommunitySettings(
+  identifier: string,
+  settings: CommunitySettings
+): Promise<void> {
+  const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/settings`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) throw new Error('Failed to update community settings');
+}
+
+export async function removeCommunityMember(
+  identifier: string,
+  actorApId: string
+): Promise<void> {
+  const res = await fetch(
+    `/api/communities/${encodeURIComponent(identifier)}/members/${encodeURIComponent(actorApId)}`,
+    { method: 'DELETE' }
+  );
+  if (!res.ok) throw new Error('Failed to remove member');
+}
+
+export async function updateCommunityMemberRole(
+  identifier: string,
+  actorApId: string,
+  role: 'owner' | 'moderator' | 'member'
+): Promise<void> {
+  const res = await fetch(
+    `/api/communities/${encodeURIComponent(identifier)}/members/${encodeURIComponent(actorApId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role }),
+    }
+  );
+  if (!res.ok) throw new Error('Failed to update member role');
+}
+
+export async function editCommunityMessage(
+  identifier: string,
+  messageId: string,
+  content: string
+): Promise<void> {
+  const res = await fetch(
+    `/api/communities/${encodeURIComponent(identifier)}/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    }
+  );
+  if (!res.ok) throw new Error('Failed to edit message');
+}
+
+export async function deleteCommunityMessage(
+  identifier: string,
+  messageId: string
+): Promise<void> {
+  const res = await fetch(
+    `/api/communities/${encodeURIComponent(identifier)}/messages/${encodeURIComponent(messageId)}`,
+    { method: 'DELETE' }
+  );
+  if (!res.ok) throw new Error('Failed to delete message');
+}
+
+export async function likeStory(apId: string): Promise<{ liked: boolean; like_count: number }> {
+  const res = await fetch(`/api/stories/${encodeURIComponent(apId)}/like`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to like story');
+  return res.json();
+}
+
+export async function unlikeStory(apId: string): Promise<{ liked: boolean; like_count: number }> {
+  const res = await fetch(`/api/stories/${encodeURIComponent(apId)}/like`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to unlike story');
+  return res.json();
 }

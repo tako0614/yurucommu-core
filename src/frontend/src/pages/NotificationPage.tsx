@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Notification } from '../types';
-import { fetchNotifications, markNotificationsRead } from '../lib/api';
+import { acceptFollowRequest, fetchNotifications, markNotificationsRead, rejectFollowRequest } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
 
@@ -41,10 +41,14 @@ const FollowRequestIcon = () => (
   </svg>
 );
 
+type FilterType = 'all' | 'follow' | 'like' | 'announce' | 'mention' | 'reply';
+
 export function NotificationPage() {
   const { t } = useI18n();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pendingAction, setPendingAction] = useState<Record<string, boolean>>({});
+  const [filter, setFilter] = useState<FilterType>('all');
 
   const loadNotifications = useCallback(async () => {
     try {
@@ -67,6 +71,23 @@ export function NotificationPage() {
   useEffect(() => {
     loadNotifications();
   }, [loadNotifications]);
+
+  const handleFollowRequest = async (notification: Notification, action: 'accept' | 'reject') => {
+    if (pendingAction[notification.id]) return;
+    setPendingAction(prev => ({ ...prev, [notification.id]: true }));
+    try {
+      if (action === 'accept') {
+        await acceptFollowRequest(notification.actor.ap_id);
+      } else {
+        await rejectFollowRequest(notification.actor.ap_id);
+      }
+      setNotifications(prev => prev.filter(n => n.id !== notification.id));
+    } catch (e) {
+      console.error('Failed to handle follow request:', e);
+    } finally {
+      setPendingAction(prev => ({ ...prev, [notification.id]: false }));
+    }
+  };
 
   const getNotificationText = (notification: Notification) => {
     const actorName = notification.actor.name || notification.actor.preferred_username;
@@ -122,21 +143,57 @@ export function NotificationPage() {
     return date.toLocaleDateString();
   };
 
+  // Filter notifications
+  const filteredNotifications = filter === 'all'
+    ? notifications
+    : notifications.filter(n => {
+        if (filter === 'follow') return n.type === 'follow' || n.type === 'follow_request';
+        return n.type === filter;
+      });
+
+  const filterTabs: { key: FilterType; label: string; icon: JSX.Element }[] = [
+    { key: 'all', label: 'すべて', icon: <span className="w-4 h-4 flex items-center justify-center text-xs">全</span> },
+    { key: 'follow', label: 'フォロー', icon: <FollowIcon /> },
+    { key: 'like', label: 'いいね', icon: <HeartIcon /> },
+    { key: 'announce', label: 'リポスト', icon: <RepostIcon /> },
+    { key: 'mention', label: 'メンション', icon: <MentionIcon /> },
+    { key: 'reply', label: '返信', icon: <ReplyIcon /> },
+  ];
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
         <h1 className="text-xl font-bold px-4 py-3">{t('notifications.title')}</h1>
+        {/* Filter tabs */}
+        <div className="flex overflow-x-auto scrollbar-hide border-t border-neutral-900">
+          {filterTabs.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setFilter(tab.key)}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm whitespace-nowrap transition-colors border-b-2 ${
+                filter === tab.key
+                  ? 'text-white border-blue-500'
+                  : 'text-neutral-500 border-transparent hover:text-neutral-300'
+              }`}
+            >
+              {tab.icon}
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </div>
       </header>
 
       {/* Notifications */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="p-8 text-center text-neutral-500">{t('common.loading')}</div>
-        ) : notifications.length === 0 ? (
-          <div className="p-8 text-center text-neutral-500">{t('notifications.empty')}</div>
+        ) : filteredNotifications.length === 0 ? (
+          <div className="p-8 text-center text-neutral-500">
+            {filter === 'all' ? t('notifications.empty') : 'この種類の通知はありません'}
+          </div>
         ) : (
-          notifications.map(notification => (
+          filteredNotifications.map(notification => (
             <div
               key={notification.id}
               className={`flex items-start gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors ${
@@ -155,6 +212,24 @@ export function NotificationPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[15px] text-neutral-400">{getNotificationText(notification)}</p>
+                {notification.type === 'follow_request' && (
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => handleFollowRequest(notification, 'accept')}
+                      disabled={pendingAction[notification.id]}
+                      className="px-3 py-1 text-xs bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
+                    >
+                      Accept
+                    </button>
+                    <button
+                      onClick={() => handleFollowRequest(notification, 'reject')}
+                      disabled={pendingAction[notification.id]}
+                      className="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                )}
                 <p className="text-sm text-neutral-600 mt-1">
                   {formatTime(notification.created_at)}
                 </p>

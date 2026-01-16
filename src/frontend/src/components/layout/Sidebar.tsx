@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { Actor } from '../../types';
 import { useI18n } from '../../lib/i18n';
+import { useUnreadCount } from '../../hooks/useUnreadCount';
 
 interface SidebarProps {
   actor: Actor;
@@ -51,6 +52,7 @@ const SettingsIcon = () => (
 
 export function Sidebar({ actor }: SidebarProps) {
   const { t } = useI18n();
+  const unreadCount = useUnreadCount();
 
   const navItems = [
     { to: '/', icon: HomeIcon, label: t('nav.home') },
@@ -69,7 +71,9 @@ export function Sidebar({ actor }: SidebarProps) {
       </div>
       <nav className="flex-1 px-4">
         <div className="space-y-2">
-          {navItems.map(({ to, icon: Icon, label }) => (
+          {navItems.map(({ to, icon: Icon, label }) => {
+            const showBadge = to === '/notifications' && unreadCount > 0;
+            return (
             <NavLink
               key={to}
               to={to}
@@ -82,10 +86,18 @@ export function Sidebar({ actor }: SidebarProps) {
                 }`
               }
             >
-              <Icon />
+              <div className="relative">
+                <Icon />
+                {showBadge && (
+                  <span className="absolute -top-1 -right-2 min-w-[18px] h-[18px] px-1 text-[10px] leading-[18px] text-center rounded-full bg-red-500 text-white">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </div>
               <span>{label}</span>
             </NavLink>
-          ))}
+            );
+          })}
         </div>
       </nav>
     </aside>

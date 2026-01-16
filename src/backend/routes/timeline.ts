@@ -6,11 +6,36 @@ import { formatUsername } from '../utils';
 const timeline = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // Get public timeline
+// Supports both cursor (before) and offset pagination
+// Returns: posts, limit, offset (if used), has_more
 timeline.get('/', async (c) => {
   const actor = c.get('actor');
-  const limit = parseInt(c.req.query('limit') || '20');
+  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+  const offset = parseInt(c.req.query('offset') || '0');
   const before = c.req.query('before');
   const communityApId = c.req.query('community');
+
+  const viewerApId = actor?.ap_id || '';
+
+  // Build WHERE clause for reuse
+  let whereClause = `o.type = 'Note' AND o.visibility = 'public' AND o.in_reply_to IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM blocks b WHERE b.blocker_ap_id = ? AND b.blocked_ap_id = o.attributed_to
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM mutes m WHERE m.muter_ap_id = ? AND m.muted_ap_id = o.attributed_to
+      )`;
+  const whereParams: any[] = [viewerApId, viewerApId];
+
+  if (communityApId) {
+    whereClause += ` AND o.community_ap_id = ?`;
+    whereParams.push(communityApId);
+  }
+
+  if (before) {
+    whereClause += ` AND o.published < ?`;
+    whereParams.push(before);
+  }
 
   let query = `
     SELECT o.*,
@@ -23,26 +48,20 @@ timeline.get('/', async (c) => {
     FROM objects o
     LEFT JOIN actors a ON o.attributed_to = a.ap_id
     LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    WHERE o.type = 'Note' AND o.visibility = 'public' AND o.in_reply_to IS NULL
+    WHERE ${whereClause}
+    ORDER BY o.published DESC
+    LIMIT ? OFFSET ?
   `;
-  const params: any[] = [actor?.ap_id || '', actor?.ap_id || '', actor?.ap_id || ''];
-
-  if (communityApId) {
-    query += ` AND o.community_ap_id = ?`;
-    params.push(communityApId);
-  }
-
-  if (before) {
-    query += ` AND o.published < ?`;
-    params.push(before);
-  }
-
-  query += ` ORDER BY o.published DESC LIMIT ?`;
-  params.push(limit);
+  const params: any[] = [viewerApId, viewerApId, viewerApId, ...whereParams, limit + 1, offset];
 
   const posts = await c.env.DB.prepare(query).bind(...params).all();
 
-  const result = (posts.results || []).map((p: any) => ({
+  // Check if there are more results
+  const results = posts.results || [];
+  const has_more = results.length > limit;
+  const actualResults = has_more ? results.slice(0, limit) : results;
+
+  const result = actualResults.map((p: any) => ({
     ap_id: p.ap_id,
     type: p.type,
     author: {
@@ -67,16 +86,43 @@ timeline.get('/', async (c) => {
     reposted: !!p.reposted,
   }));
 
-  return c.json({ posts: result });
+  return c.json({ posts: result, limit, offset, has_more });
 });
 
 // Get following timeline
+// Supports both cursor (before) and offset pagination
+// Returns: posts, limit, offset (if used), has_more
 timeline.get('/following', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const limit = parseInt(c.req.query('limit') || '20');
+  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+  const offset = parseInt(c.req.query('offset') || '0');
   const before = c.req.query('before');
+
+  const viewerApId = actor.ap_id;
+
+  // Build WHERE clause
+  let whereClause = `o.type = 'Note' AND o.in_reply_to IS NULL
+      AND (o.attributed_to IN (
+        SELECT following_ap_id FROM follows WHERE follower_ap_id = ? AND status = 'accepted'
+      ) OR o.attributed_to = ?)
+      AND (
+        o.attributed_to = ?
+        OR o.visibility IN ('public', 'unlisted', 'followers', 'followers_only')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM blocks b WHERE b.blocker_ap_id = ? AND b.blocked_ap_id = o.attributed_to
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM mutes m WHERE m.muter_ap_id = ? AND m.muted_ap_id = o.attributed_to
+      )`;
+  const whereParams: any[] = [viewerApId, viewerApId, viewerApId, viewerApId, viewerApId];
+
+  if (before) {
+    whereClause += ` AND o.published < ?`;
+    whereParams.push(before);
+  }
 
   let query = `
     SELECT o.*,
@@ -89,24 +135,20 @@ timeline.get('/following', async (c) => {
     FROM objects o
     LEFT JOIN actors a ON o.attributed_to = a.ap_id
     LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    WHERE o.type = 'Note' AND o.in_reply_to IS NULL
-      AND (o.attributed_to IN (
-        SELECT following_ap_id FROM follows WHERE follower_ap_id = ? AND status = 'accepted'
-      ) OR o.attributed_to = ?)
+    WHERE ${whereClause}
+    ORDER BY o.published DESC
+    LIMIT ? OFFSET ?
   `;
-  const params: any[] = [actor.ap_id, actor.ap_id, actor.ap_id, actor.ap_id, actor.ap_id];
-
-  if (before) {
-    query += ` AND o.published < ?`;
-    params.push(before);
-  }
-
-  query += ` ORDER BY o.published DESC LIMIT ?`;
-  params.push(limit);
+  const params: any[] = [viewerApId, viewerApId, viewerApId, ...whereParams, limit + 1, offset];
 
   const posts = await c.env.DB.prepare(query).bind(...params).all();
 
-  const result = (posts.results || []).map((p: any) => ({
+  // Check if there are more results
+  const results = posts.results || [];
+  const has_more = results.length > limit;
+  const actualResults = has_more ? results.slice(0, limit) : results;
+
+  const result = actualResults.map((p: any) => ({
     ap_id: p.ap_id,
     type: p.type,
     author: {
@@ -130,7 +172,7 @@ timeline.get('/following', async (c) => {
     reposted: !!p.reposted,
   }));
 
-  return c.json({ posts: result });
+  return c.json({ posts: result, limit, offset, has_more });
 });
 
 export default timeline;

@@ -81,9 +81,14 @@ function MembersModal({
                   @{member.username}
                 </div>
               </div>
-              {member.role === 'admin' && (
+              {member.role === 'owner' && (
+                <span className="px-2 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
+                  オーナー
+                </span>
+              )}
+              {member.role === 'moderator' && (
                 <span className="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-400 rounded">
-                  管理者
+                  モデレーター
                 </span>
               )}
             </Link>
@@ -383,14 +388,12 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
         </div>
 
         {/* Leave button */}
-        {community.member_role !== 'admin' && (
-          <button
-            onClick={handleLeave}
-            className="mt-3 w-full text-center text-sm text-red-400 hover:text-red-300 transition-colors"
-          >
-            グループを退出
-          </button>
-        )}
+        <button
+          onClick={handleLeave}
+          className="mt-3 w-full text-center text-sm text-red-400 hover:text-red-300 transition-colors"
+        >
+          グループを退出
+        </button>
       </div>
 
       {/* Members Modal */}
