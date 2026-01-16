@@ -22,7 +22,7 @@ timeline.get('/', async (c) => {
     FROM objects o
     LEFT JOIN actors a ON o.attributed_to = a.ap_id
     LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    WHERE o.visibility = 'public' AND o.in_reply_to IS NULL
+    WHERE o.type = 'Note' AND o.visibility = 'public' AND o.in_reply_to IS NULL
   `;
   const params: any[] = [actor?.ap_id || '', actor?.ap_id || ''];
 
@@ -86,7 +86,7 @@ timeline.get('/following', async (c) => {
     FROM objects o
     LEFT JOIN actors a ON o.attributed_to = a.ap_id
     LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    WHERE o.in_reply_to IS NULL
+    WHERE o.type = 'Note' AND o.in_reply_to IS NULL
       AND (o.attributed_to IN (
         SELECT following_ap_id FROM follows WHERE follower_ap_id = ? AND status = 'accepted'
       ) OR o.attributed_to = ?)

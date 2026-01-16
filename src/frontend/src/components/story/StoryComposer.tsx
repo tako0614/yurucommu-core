@@ -1,5 +1,5 @@
 /**
- * Story Composer V2
+ * Story Composer
  *
  * Canvas-first story editor with WYSIWYG rendering.
  * All elements are rendered to Canvas for perfect preview-output matching.
@@ -36,7 +36,7 @@ import {
 } from './ToolPanel';
 import { TextEditorModal, TextData } from './TextEditorModal';
 
-interface StoryComposerV2Props {
+interface StoryComposerProps {
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -157,7 +157,7 @@ const VideoIcon = () => (
 
 type ToolTab = 'background' | 'text' | 'sticker' | 'draw' | 'video' | 'none';
 
-export function StoryComposerV2({ onClose, onSuccess }: StoryComposerV2Props) {
+export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
   // Canvas state
   const [storyCanvas, setStoryCanvas] = useState<StoryCanvas | null>(null);
   const [renderKey, setRenderKey] = useState(0);
@@ -900,8 +900,8 @@ export function StoryComposerV2({ onClose, onSuccess }: StoryComposerV2Props) {
             {/* Stories button */}
             <button
               onClick={handlePost}
-              disabled={!canPost || posting || (videoFile && !ffmpegReady)}
-              className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r from-pink-500 via-red-500 to-yellow-500 rounded-full text-white font-medium disabled:opacity-50 transition-opacity"
+              disabled={!canPost || posting || !!(videoFile && !ffmpegReady)}
+              className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-neutral-800 hover:bg-neutral-700 rounded-full text-white font-medium disabled:opacity-50 transition-all"
             >
               <span className="w-7 h-7 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 flex items-center justify-center border-2 border-black">
                 <span className="w-4 h-4 rounded-full bg-black"></span>
@@ -912,7 +912,7 @@ export function StoryComposerV2({ onClose, onSuccess }: StoryComposerV2Props) {
             {/* Close Friends button */}
             <button
               onClick={handlePost}
-              disabled={!canPost || posting || (videoFile && !ffmpegReady)}
+              disabled={!canPost || posting || !!(videoFile && !ffmpegReady)}
               className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-neutral-800 hover:bg-neutral-700 rounded-full text-white font-medium disabled:opacity-50 transition-all"
             >
               <span className="w-7 h-7 rounded-full bg-green-500 flex items-center justify-center">
@@ -926,7 +926,7 @@ export function StoryComposerV2({ onClose, onSuccess }: StoryComposerV2Props) {
             {/* Send button */}
             <button
               onClick={handlePost}
-              disabled={!canPost || posting || (videoFile && !ffmpegReady)}
+              disabled={!canPost || posting || !!(videoFile && !ffmpegReady)}
               className="w-12 h-12 flex items-center justify-center bg-blue-500 hover:bg-blue-600 rounded-full text-white disabled:opacity-50 transition-all"
             >
               <SendIcon />
@@ -1104,4 +1104,4 @@ export function StoryComposerV2({ onClose, onSuccess }: StoryComposerV2Props) {
   );
 }
 
-export default StoryComposerV2;
+export default StoryComposer;

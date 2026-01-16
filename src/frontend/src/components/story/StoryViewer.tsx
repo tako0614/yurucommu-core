@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ActorStories, Story, StoryOverlay } from '../types';
-import { markStoryViewed, deleteStory, voteOnStory } from '../lib/api';
-import { UserAvatar } from './UserAvatar';
+import { ActorStories, Story, StoryOverlay } from '../../types';
+import { markStoryViewed, deleteStory, voteOnStory } from '../../lib/api';
+import { UserAvatar } from '../UserAvatar';
 
 interface StoryViewerProps {
   actorStories: ActorStories[];
@@ -436,7 +436,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
   const totalStories = currentActorStories.stories.length;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black">
+    <div className="fixed inset-0 z-51 bg-black">
       {/* Progress bars - one per story */}
       <div className="absolute top-0 left-0 right-0 z-20 px-2 pt-2 flex gap-1">
         {Array.from({ length: totalStories }).map((_, idx) => (
