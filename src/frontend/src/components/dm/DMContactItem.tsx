@@ -1,4 +1,5 @@
-import { DMContact } from '../../lib/api';
+﻿import { DMContact } from '../../lib/api';
+import { formatConversationListTime } from '../../lib/datetime';
 
 interface DMContactItemProps {
   contact: DMContact;
@@ -7,27 +8,6 @@ interface DMContactItemProps {
   unreadCount?: number;
 }
 
-function formatMessageTime(dateString: string | null): string {
-  if (!dateString) return '';
-  const date = new Date(dateString);
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const oneDay = 24 * 60 * 60 * 1000;
-  const oneWeek = 7 * oneDay;
-  const oneYear = 365 * oneDay;
-
-  if (diff < oneDay && date.getDate() === now.getDate()) {
-    return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-  }
-  if (diff < oneWeek) {
-    const days = ['譌･', '譛・', '轣ｫ', '豌ｴ', '譛ｨ', '驥・', '蝨・'];
-    return days[date.getDay()];
-  }
-  if (diff < oneYear) {
-    return `${date.getMonth() + 1}/${date.getDate()}`;
-  }
-  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
-}
 
 export function DMContactItem({
   contact,
@@ -91,7 +71,7 @@ export function DMContactItem({
 
       <div className="flex flex-col items-end gap-1">
         <span className="text-xs text-neutral-500">
-          {formatMessageTime(contact.last_message_at)}
+          {formatConversationListTime(contact.last_message_at)}
         </span>
         {unreadCount > 0 && (
           <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-green-500 text-white text-[10px] font-bold flex items-center justify-center">
@@ -102,3 +82,4 @@ export function DMContactItem({
     </button>
   );
 }
+

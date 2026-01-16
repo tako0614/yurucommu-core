@@ -2,6 +2,7 @@
 import { ActorStories, StoryOverlay } from '../../types';
 import { markStoryViewed, deleteStory, voteOnStory, likeStory, unlikeStory, shareStory } from '../../lib/api';
 import { useI18n } from '../../lib/i18n';
+import { formatRelativeTime } from '../../lib/datetime';
 import { UserAvatar } from '../UserAvatar';
 
 interface StoryViewerProps {
@@ -66,20 +67,6 @@ function parseDuration(duration: string): number {
 
   // Default 5 seconds, max 60 seconds
   return totalMs > 0 ? Math.min(totalMs, 60000) : 5000;
-}
-
-// Format relative time
-function formatTime(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-
-  if (diffMins < 1) return 'now';
-  if (diffMins < 60) return `${diffMins}m`;
-  if (diffHours < 24) return `${diffHours}h`;
-  return date.toLocaleDateString();
 }
 
 // Render overlay based on type
@@ -578,7 +565,9 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
             <p className="text-white text-sm font-medium">
               {currentActorStories.actor.name || currentActorStories.actor.preferred_username}
             </p>
-            <p className="text-neutral-400 text-xs">{formatTime(currentStory.published)}</p>
+            <p className="text-neutral-400 text-xs">
+              {formatRelativeTime(currentStory.published, { maxDays: 1 })}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-1">

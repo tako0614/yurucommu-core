@@ -18,38 +18,16 @@ import {
   switchAccount,
   AccountInfo,
 } from '../lib/api';
+import { formatRelativeTime } from '../lib/datetime';
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
 import { PostContent } from '../components/PostContent';
 import { StoryBar, StoryViewer, StoryComposer } from '../components/story';
+import { HeartIcon, ReplyIcon, BookmarkIcon, RepostIcon } from '../components/icons/SocialIcons';
 
 interface TimelinePageProps {
   actor: Actor;
 }
-
-const HeartIcon = ({ filled }: { filled: boolean }) => (
-  <svg className="w-5 h-5" fill={filled ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-  </svg>
-);
-
-const ReplyIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-  </svg>
-);
-
-const BookmarkIcon = ({ filled }: { filled: boolean }) => (
-  <svg className="w-5 h-5" fill={filled ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-  </svg>
-);
-
-const RepostIcon = ({ filled }: { filled: boolean }) => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={filled ? 2.5 : 2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-  </svg>
-);
 
 const ImageIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -389,20 +367,6 @@ export function TimelinePage({ actor }: TimelinePageProps) {
     }
   };
 
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    if (diffMins < 1) return 'now';
-    if (diffMins < 60) return `${diffMins}m`;
-    if (diffHours < 24) return `${diffHours}h`;
-    if (diffDays < 7) return `${diffDays}d`;
-    return date.toLocaleDateString();
-  };
-
   const getPlaceholder = () => {
     if (activeTab === 'following') return t('posts.placeholder');
     const community = communities.find(c => c.ap_id === activeTab);
@@ -596,7 +560,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
                     </Link>
                     <span className="text-neutral-500 truncate">@{post.author.username}</span>
                     <span className="text-neutral-500">·</span>
-                    <span className="text-neutral-500 text-sm">{formatTime(post.published)}</span>
+                    <span className="text-neutral-500 text-sm">{formatRelativeTime(post.published)}</span>
                   </div>
                   <Link to={`/post/${encodeURIComponent(post.ap_id)}`} className="block">
                     <PostContent content={post.content} className="text-[15px] text-neutral-200 mt-1" />

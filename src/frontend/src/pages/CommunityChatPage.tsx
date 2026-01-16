@@ -12,6 +12,7 @@ import {
   leaveCommunity,
 } from '../lib/api';
 import { useI18n } from '../lib/i18n';
+import { formatChatDateHeader, formatTime } from '../lib/datetime';
 import { UserAvatar } from '../components/UserAvatar';
 
 interface CommunityChatPageProps {
@@ -191,23 +192,6 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
     }
   };
 
-  const formatTime = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const formatDateHeader = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const isToday = date.toDateString() === now.toDateString();
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const isYesterday = date.toDateString() === yesterday.toDateString();
-
-    if (isToday) return '莉頑律';
-    if (isYesterday) return '譏ｨ譌･';
-    return date.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' });
-  };
 
   // Group messages by date
   const groupedMessages: { date: string; messages: CommunityMessage[] }[] = [];
@@ -316,7 +300,7 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
               {/* Date header */}
               <div className="flex justify-center my-4">
                 <span className="px-3 py-1 text-xs text-neutral-500 bg-neutral-900 rounded-full">
-                  {formatDateHeader(group.date)}
+                  {formatChatDateHeader(group.date)}
                 </span>
               </div>
 
@@ -422,6 +406,7 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
     </div>
   );
 }
+
 
 
 
