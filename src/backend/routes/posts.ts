@@ -5,6 +5,17 @@ import { generateId, objectApId, activityApId, formatUsername, isLocal, signRequ
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+// Extract @mentions from content (supports @username and @username@domain formats)
+function extractMentions(content: string): string[] {
+  const mentionRegex = /@([a-zA-Z0-9_]+(?:@[a-zA-Z0-9.-]+)?)/g;
+  const mentions: string[] = [];
+  let match;
+  while ((match = mentionRegex.exec(content)) !== null) {
+    mentions.push(match[1]);
+  }
+  return [...new Set(mentions)]; // dedupe
+}
+
 // Helper function to format a post response
 function formatPost(p: any, currentActorApId?: string): any {
   return {
@@ -49,6 +60,37 @@ posts.post('/', async (c) => {
     return c.json({ error: 'Content required' }, 400);
   }
 
+  let communityId: string | null = null;
+  if (body.community_ap_id) {
+    const community = await c.env.DB.prepare(
+      'SELECT ap_id, post_policy FROM communities WHERE ap_id = ? OR preferred_username = ?'
+    ).bind(body.community_ap_id, body.community_ap_id).first<any>();
+
+    if (!community) {
+      return c.json({ error: 'Community not found' }, 404);
+    }
+
+    communityId = community.ap_id;
+
+    const membership = await c.env.DB.prepare(
+      'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
+    ).bind(community.ap_id, actor.ap_id).first<any>();
+
+    const policy = community.post_policy || 'members';
+    const role = membership?.role;
+    const isManager = role === 'owner' || role === 'moderator';
+
+    if (policy === 'members' && !membership) {
+      return c.json({ error: 'Not a community member' }, 403);
+    }
+    if (policy === 'mods' && !isManager) {
+      return c.json({ error: 'Moderator role required' }, 403);
+    }
+    if (policy === 'owners' && role !== 'owner') {
+      return c.json({ error: 'Owner role required' }, 403);
+    }
+  }
+
   const baseUrl = c.env.APP_URL;
   const postId = generateId();
   const apId = objectApId(baseUrl, postId);
@@ -66,7 +108,7 @@ posts.post('/', async (c) => {
     JSON.stringify(body.attachments || []),
     body.in_reply_to || null,
     body.visibility || 'public',
-    body.community_ap_id || null,
+    communityId,
     now
   ).run();
 
@@ -92,6 +134,52 @@ posts.post('/', async (c) => {
         INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
         VALUES (?, ?, 0, ?)
       `).bind(parentPost.attributed_to, replyActivityId, now).run();
+    }
+  }
+
+  // Process mentions and create notifications
+  const mentions = extractMentions(body.content);
+  for (const mention of mentions) {
+    try {
+      let mentionedActorApId: string | null = null;
+
+      if (mention.includes('@')) {
+        // Remote mention @username@domain - lookup in actor_cache
+        const [username, domain] = mention.split('@');
+        const cached = await c.env.DB.prepare(
+          `SELECT ap_id FROM actor_cache WHERE preferred_username = ? AND ap_id LIKE ?`
+        ).bind(username, `%${domain}%`).first<any>();
+        if (cached) mentionedActorApId = cached.ap_id;
+      } else {
+        // Local mention @username
+        const localActor = await c.env.DB.prepare(
+          `SELECT ap_id FROM actors WHERE preferred_username = ?`
+        ).bind(mention).first<any>();
+        if (localActor) mentionedActorApId = localActor.ap_id;
+      }
+
+      // Skip if not found, is self, or already notified as reply recipient
+      if (!mentionedActorApId || mentionedActorApId === actor.ap_id) continue;
+      if (body.in_reply_to) {
+        const parentPost = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(body.in_reply_to).first<any>();
+        if (parentPost?.attributed_to === mentionedActorApId) continue; // Already notified via reply
+      }
+
+      // Create mention activity if local
+      if (isLocal(mentionedActorApId, baseUrl)) {
+        const mentionActivityId = activityApId(baseUrl, generateId());
+        await c.env.DB.prepare(`
+          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, published, local)
+          VALUES (?, 'Create', ?, ?, ?, 1)
+        `).bind(mentionActivityId, actor.ap_id, apId, now).run();
+
+        await c.env.DB.prepare(`
+          INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
+          VALUES (?, ?, 0, ?)
+        `).bind(mentionedActorApId, mentionActivityId, now).run();
+      }
+    } catch (e) {
+      console.error(`Failed to process mention ${mention}:`, e);
     }
   }
 
@@ -241,6 +329,113 @@ posts.get('/:id/replies', async (c) => {
   const result = (replies.results || []).map((r: any) => formatPost(r, currentActor?.ap_id));
 
   return c.json({ replies: result });
+});
+
+// Edit post
+posts.patch('/:id', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const postId = c.req.param('id');
+  const baseUrl = c.env.APP_URL;
+  const body = await c.req.json<{ content?: string; summary?: string }>();
+
+  // Get the post
+  const post = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? OR ap_id = ?')
+    .bind(objectApId(baseUrl, postId), postId).first<any>();
+
+  if (!post) return c.json({ error: 'Post not found' }, 404);
+
+  // Only author can edit
+  if (post.attributed_to !== actor.ap_id) {
+    return c.json({ error: 'Forbidden' }, 403);
+  }
+
+  // Validate content
+  if (body.content !== undefined && body.content.trim().length === 0) {
+    return c.json({ error: 'Content cannot be empty' }, 400);
+  }
+
+  const now = new Date().toISOString();
+  const updates: string[] = [];
+  const params: any[] = [];
+
+  if (body.content !== undefined) {
+    updates.push('content = ?');
+    params.push(body.content.trim());
+  }
+  if (body.summary !== undefined) {
+    updates.push('summary = ?');
+    params.push(body.summary || null);
+  }
+  updates.push('updated_at = ?');
+  params.push(now);
+
+  if (updates.length === 1) {
+    return c.json({ error: 'No changes provided' }, 400);
+  }
+
+  params.push(post.ap_id);
+
+  await c.env.DB.prepare(`UPDATE objects SET ${updates.join(', ')} WHERE ap_id = ?`).bind(...params).run();
+
+  // Send Update activity to followers
+  const followers = await c.env.DB.prepare(`
+    SELECT DISTINCT f.follower_ap_id
+    FROM follows f
+    WHERE f.following_ap_id = ? AND f.status = 'accepted'
+  `).bind(actor.ap_id).all();
+
+  const updateActivity = {
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    id: activityApId(baseUrl, generateId()),
+    type: 'Update',
+    actor: actor.ap_id,
+    object: {
+      id: post.ap_id,
+      type: 'Note',
+      attributedTo: actor.ap_id,
+      content: body.content !== undefined ? body.content.trim() : post.content,
+      summary: body.summary !== undefined ? body.summary : post.summary,
+      updated: now,
+    },
+  };
+
+  // Send to remote followers
+  const remoteFollowers = (followers.results || []).filter((f: any) => !isLocal(f.follower_ap_id, baseUrl));
+  for (const follower of remoteFollowers) {
+    try {
+      const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(follower.follower_ap_id).first<any>();
+      if (cachedActor?.inbox) {
+        const keyId = `${actor.ap_id}#main-key`;
+        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(updateActivity));
+
+        await fetch(cachedActor.inbox, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/activity+json' },
+          body: JSON.stringify(updateActivity),
+        });
+      }
+    } catch (e) {
+      console.error(`Failed to federate update to ${follower.follower_ap_id}:`, e);
+    }
+  }
+
+  // Store activity
+  await c.env.DB.prepare(`
+    INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
+    VALUES (?, 'Update', ?, ?, ?, 'outbound')
+  `).bind(updateActivity.id, actor.ap_id, post.ap_id, JSON.stringify(updateActivity)).run();
+
+  return c.json({
+    success: true,
+    post: {
+      ap_id: post.ap_id,
+      content: body.content !== undefined ? body.content.trim() : post.content,
+      summary: body.summary !== undefined ? body.summary : post.summary,
+      updated_at: now,
+    },
+  });
 });
 
 // Delete post
@@ -422,16 +617,19 @@ posts.delete('/:id/like', async (c) => {
     try {
       const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<any>();
       if (postAuthor?.inbox) {
+        const undoObject = like.activity_ap_id
+          ? like.activity_ap_id
+          : {
+            type: 'Like',
+            actor: actor.ap_id,
+            object: post.ap_id,
+          };
         const undoLikeActivity = {
           '@context': 'https://www.w3.org/ns/activitystreams',
           id: activityApId(baseUrl, generateId()),
           type: 'Undo',
           actor: actor.ap_id,
-          object: {
-            type: 'Like',
-            actor: actor.ap_id,
-            object: post.ap_id,
-          },
+          object: undoObject,
         };
 
         const keyId = `${actor.ap_id}#main-key`;

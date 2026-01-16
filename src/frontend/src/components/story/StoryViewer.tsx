@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ActorStories, Story, StoryOverlay } from '../../types';
-import { markStoryViewed, deleteStory, voteOnStory } from '../../lib/api';
+import { ActorStories, StoryOverlay } from '../../types';
+import { markStoryViewed, deleteStory, voteOnStory, likeStory, unlikeStory } from '../../lib/api';
 import { UserAvatar } from '../UserAvatar';
 
 interface StoryViewerProps {
@@ -88,7 +88,8 @@ function renderOverlay(
   storyApId: string,
   votes?: { [key: number]: number },
   votesTotal?: number,
-  userVote?: number
+  userVote?: number,
+  onVote?: (storyApId: string, optionIndex: number) => Promise<void>
 ) {
   const { position } = overlay;
 
@@ -136,8 +137,11 @@ function renderOverlay(
                     e.stopPropagation();
                     if (hasUserVoted) return; // Already voted
                     try {
-                      await voteOnStory(storyApId, idx);
-                      // TODO: Update state after voting
+                      if (onVote) {
+                        await onVote(storyApId, idx);
+                      } else {
+                        await voteOnStory(storyApId, idx);
+                      }
                     } catch (err) {
                       console.error('Failed to vote:', err);
                     }
@@ -209,6 +213,7 @@ function renderOverlay(
 }
 
 export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, onClose }: StoryViewerProps) {
+  const [localActorStories, setLocalActorStories] = useState(actorStories);
   const [actorIndex, setActorIndex] = useState(initialActorIndex);
   const [storyIndex, setStoryIndex] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -223,9 +228,14 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const currentActorStories = actorStories[actorIndex];
+  const currentActorStories = localActorStories[actorIndex];
   const currentStory = currentActorStories?.stories[storyIndex];
   const isOwnStory = currentUserApId && currentActorStories?.actor.ap_id === currentUserApId;
+  const isLiked = !!currentStory?.liked;
+
+  useEffect(() => {
+    setLocalActorStories(actorStories);
+  }, [actorStories]);
 
   // Update container size for overlay positioning
   useEffect(() => {
@@ -307,7 +317,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
     }
 
     // Next user
-    if (actorIndex < actorStories.length - 1) {
+    if (actorIndex < localActorStories.length - 1) {
       setActorIndex(actorIndex + 1);
       setStoryIndex(0);
       return;
@@ -315,7 +325,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
 
     // End of all stories
     onClose();
-  }, [actorIndex, storyIndex, currentActorStories, actorStories.length, onClose]);
+  }, [actorIndex, storyIndex, currentActorStories, localActorStories.length, onClose]);
 
   const goPrev = useCallback(() => {
     // Previous story from same user
@@ -327,7 +337,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
     // Previous user
     if (actorIndex > 0) {
       setActorIndex(actorIndex - 1);
-      const prevActorStories = actorStories[actorIndex - 1];
+      const prevActorStories = localActorStories[actorIndex - 1];
       const lastStoryIndex = prevActorStories.stories.length - 1;
       setStoryIndex(lastStoryIndex);
       return;
@@ -335,7 +345,64 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
 
     // At the beginning, restart current story
     setProgress(0);
-  }, [actorIndex, storyIndex, actorStories]);
+  }, [actorIndex, storyIndex, localActorStories]);
+
+  const handleVote = useCallback(async (storyApId: string, optionIndex: number) => {
+    const result = await voteOnStory(storyApId, optionIndex);
+    setLocalActorStories(prev =>
+      prev.map(group => ({
+        ...group,
+        stories: group.stories.map(story => {
+          if (story.ap_id !== storyApId) return story;
+          return {
+            ...story,
+            votes: result.votes,
+            votes_total: result.total,
+            user_vote: result.user_vote,
+          };
+        }),
+      }))
+    );
+  }, []);
+
+  const handleLike = useCallback(async () => {
+    if (!currentStory) return;
+    try {
+      const result = currentStory.liked
+        ? await unlikeStory(currentStory.ap_id)
+        : await likeStory(currentStory.ap_id);
+      setLocalActorStories(prev =>
+        prev.map(group => ({
+          ...group,
+          stories: group.stories.map(story =>
+            story.ap_id === currentStory.ap_id
+              ? { ...story, liked: result.liked, like_count: result.like_count }
+              : story
+          ),
+        }))
+      );
+    } catch (err) {
+      console.error('Failed to toggle story like:', err);
+    }
+  }, [currentStory]);
+
+  const handleShare = useCallback(async () => {
+    if (!currentStory) return;
+    const shareUrl = currentStory.ap_id;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `${currentActorStories?.actor?.name || currentActorStories?.actor?.preferred_username || 'Story'}`,
+          url: shareUrl,
+        });
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(shareUrl);
+        alert('リンクをコピーしました');
+      }
+    } catch (err) {
+      console.error('Failed to share story:', err);
+    }
+  }, [currentStory, currentActorStories?.actor]);
 
   // Handle video ended event
   const handleVideoEnded = useCallback(() => {
@@ -375,7 +442,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
       // Navigate to next story or close
       if (currentActorStories.stories.length === 1) {
         // Last story from this user
-        if (actorIndex < actorStories.length - 1) {
+        if (actorIndex < localActorStories.length - 1) {
           setActorIndex(actorIndex + 1);
           setStoryIndex(0);
         } else {
@@ -390,7 +457,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
     } finally {
       setShowDeleteConfirm(false);
     }
-  }, [currentStory, currentActorStories, actorIndex, actorStories.length, goNext, onClose]);
+  }, [currentStory, currentActorStories, actorIndex, localActorStories.length, goNext, onClose]);
 
   // Handle click/tap navigation
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -556,7 +623,8 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
                       currentStory.ap_id,
                       currentStory.votes,
                       currentStory.votes_total,
-                      currentStory.user_vote
+                      currentStory.user_vote,
+                      handleVote
                     )}
                   </div>
                 ))}
@@ -589,13 +657,13 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
         </div>
         {/* Heart button */}
         <button
-          className="p-2 text-white hover:text-red-400 transition-colors"
+          className={`p-2 transition-colors ${isLiked ? 'text-red-400' : 'text-white hover:text-red-400'}`}
           onClick={(e) => {
             e.stopPropagation();
-            // TODO: Like story
+            handleLike();
           }}
         >
-          <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-7 h-7" fill={isLiked ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
           </svg>
         </button>
@@ -604,7 +672,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
           className="p-2 text-white hover:text-white/70 transition-colors"
           onClick={(e) => {
             e.stopPropagation();
-            // TODO: Share story
+            handleShare();
           }}
         >
           <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">

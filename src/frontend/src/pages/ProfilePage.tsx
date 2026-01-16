@@ -10,6 +10,7 @@ import {
   likePost,
   unlikePost,
   updateProfile,
+  fetchActorPosts,
   fetchAccounts,
   switchAccount,
   AccountInfo,
@@ -123,8 +124,8 @@ export function ProfilePage({ actor }: ProfilePageProps) {
       const profileData = await fetchActor(targetActorId);
       setProfile(profileData);
       setIsFollowing(profileData.is_following || false);
-      // TODO: fetch posts for this actor when API is available
-      setPosts([]);
+      const postsData = await fetchActorPosts(targetActorId);
+      setPosts(postsData);
     } catch (e) {
       console.error('Failed to load profile:', e);
     } finally {

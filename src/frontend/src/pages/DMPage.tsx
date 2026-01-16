@@ -13,6 +13,9 @@ import {
   DMRequest,
   acceptDMRequest,
   rejectDMRequest,
+  fetchUserDMTyping,
+  sendUserDMTyping,
+  markDMAsRead,
 } from '../lib/api';
 
 interface DMPageProps {
@@ -211,16 +214,20 @@ function Chat({
   contact,
   actor,
   onBack,
+  onRead,
 }: {
   contact: DMContact;
   actor: Actor;
   onBack: () => void;
+  onRead?: () => void;
 }) {
   const [messages, setMessages] = useState<(DMMessage | CommunityMessage)[]>([]);
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const lastTypingSentRef = useRef(0);
 
   const loadMessages = useCallback(async () => {
     try {
@@ -230,13 +237,20 @@ function Chat({
       } else {
         const { messages } = await fetchUserDMMessages(contact.ap_id);
         setMessages(messages);
+        // Mark as read when messages are loaded
+        try {
+          await markDMAsRead(contact.ap_id);
+          onRead?.();
+        } catch (e) {
+          // Ignore read marking errors
+        }
       }
     } catch (e) {
       console.error('Failed to load messages:', e);
     } finally {
       setLoading(false);
     }
-  }, [contact]);
+  }, [contact.ap_id, contact.type, onRead]);
 
   useEffect(() => {
     loadMessages();
@@ -245,6 +259,47 @@ function Chat({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (contact.type !== 'user') {
+      setIsTyping(false);
+      return;
+    }
+
+    let cancelled = false;
+    const pollTyping = async () => {
+      try {
+        const typing = await fetchUserDMTyping(contact.ap_id);
+        if (!cancelled) {
+          setIsTyping(typing.is_typing);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setIsTyping(false);
+        }
+      }
+    };
+
+    pollTyping();
+    const intervalId = window.setInterval(pollTyping, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [contact.ap_id, contact.type]);
+
+  const sendTyping = useCallback(async (value: string) => {
+    if (contact.type !== 'user') return;
+    if (!value.trim()) return;
+    const now = Date.now();
+    if (now - lastTypingSentRef.current < 2000) return;
+    lastTypingSentRef.current = now;
+    try {
+      await sendUserDMTyping(contact.ap_id);
+    } catch (e) {
+      console.error('Failed to send typing:', e);
+    }
+  }, [contact.ap_id, contact.type]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -265,6 +320,12 @@ function Chat({
     } finally {
       setSending(false);
     }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setInput(value);
+    void sendTyping(value);
   };
 
   const getSenderApId = (msg: DMMessage | CommunityMessage): string => {
@@ -295,9 +356,11 @@ function Chat({
           <span className="font-bold text-white">
             {contact.name || contact.preferred_username}
           </span>
-          {contact.type === 'community' && (
+          {contact.type === 'community' ? (
             <p className="text-xs text-neutral-500">{contact.member_count}人のメンバー</p>
-          )}
+          ) : isTyping ? (
+            <p className="text-xs text-neutral-500">Typing...</p>
+          ) : null}
         </div>
       </div>
 
@@ -350,7 +413,7 @@ function Chat({
           <input
             type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             placeholder="メッセージを入力..."
             className="flex-1 px-4 py-2 bg-neutral-900 border border-neutral-800 rounded-full text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500"
           />
@@ -436,10 +499,10 @@ export function DMPage({ actor }: DMPageProps) {
     navigate('/dm');
   };
 
-  const handleAcceptRequest = async (requestId: string) => {
+  const handleAcceptRequest = async (senderApId: string) => {
     try {
-      await acceptDMRequest(requestId);
-      setRequests(prev => prev.filter(r => r.id !== requestId));
+      await acceptDMRequest(senderApId);
+      setRequests(prev => prev.filter(r => r.sender.ap_id !== senderApId));
       setRequestCount(prev => Math.max(0, prev - 1));
       loadContacts(); // Reload contacts to show new contact
     } catch (e) {
@@ -447,10 +510,10 @@ export function DMPage({ actor }: DMPageProps) {
     }
   };
 
-  const handleRejectRequest = async (requestId: string) => {
+  const handleRejectRequest = async (senderApId: string) => {
     try {
-      await rejectDMRequest(requestId);
-      setRequests(prev => prev.filter(r => r.id !== requestId));
+      await rejectDMRequest(senderApId);
+      setRequests(prev => prev.filter(r => r.sender.ap_id !== senderApId));
       setRequestCount(prev => Math.max(0, prev - 1));
     } catch (e) {
       console.error('Failed to reject request:', e);
@@ -523,7 +586,19 @@ export function DMPage({ actor }: DMPageProps) {
     <div className="flex flex-col h-full">
       {/* Chat view */}
       {showChat ? (
-        <Chat contact={selectedContact} actor={actor} onBack={handleBack} />
+        <Chat
+          contact={selectedContact}
+          actor={actor}
+          onBack={handleBack}
+          onRead={() => {
+            // Clear unread count locally for this contact
+            if (selectedContact.type === 'user') {
+              setContacts(prev => prev.map(c =>
+                c.ap_id === selectedContact.ap_id ? { ...c, unread_count: 0 } : c
+              ));
+            }
+          }}
+        />
       ) : (
         <>
           {/* Header - LINE style */}
@@ -649,8 +724,8 @@ export function DMPage({ actor }: DMPageProps) {
                     <RequestItem
                       key={request.id}
                       request={request}
-                      onAccept={() => handleAcceptRequest(request.id)}
-                      onReject={() => handleRejectRequest(request.id)}
+                      onAccept={() => handleAcceptRequest(request.sender.ap_id)}
+                      onReject={() => handleRejectRequest(request.sender.ap_id)}
                     />
                   ))}
                 </div>
@@ -685,6 +760,7 @@ export function DMPage({ actor }: DMPageProps) {
                     key={contact.ap_id}
                     contact={contact}
                     onClick={() => handleSelectContact(contact)}
+                    unreadCount={contact.unread_count || 0}
                   />
                 ))}
               </div>

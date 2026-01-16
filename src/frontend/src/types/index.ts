@@ -173,6 +173,8 @@ export interface Story {
   published: string;
   end_time: string;
   viewed: boolean;
+  like_count?: number;
+  liked?: boolean;
   // Poll/Question voting results
   votes?: { [key: number]: number };  // Index -> vote count
   votes_total?: number;               // Total vote count

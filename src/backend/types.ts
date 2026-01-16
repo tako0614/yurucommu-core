@@ -3,13 +3,29 @@
 export type Env = {
   DB: D1Database;
   MEDIA: R2Bucket;
+  KV: KVNamespace;
   ASSETS: Fetcher;
-  TAKOS_URL: string;
-  TAKOS_CLIENT_ID: string;
-  TAKOS_CLIENT_SECRET: string;
   APP_URL: string;
-  AUTH_MODE?: string;
+
+  // 認証設定（自由に組み合わせ可能）
+  // パスワード認証
   AUTH_PASSWORD?: string;
+
+  // Google OAuth
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+
+  // X (Twitter) OAuth
+  X_CLIENT_ID?: string;
+  X_CLIENT_SECRET?: string;
+
+  // Takos OAuth
+  TAKOS_URL?: string;
+  TAKOS_CLIENT_ID?: string;
+  TAKOS_CLIENT_SECRET?: string;
+
+  // 非推奨（後方互換性）
+  AUTH_MODE?: string;
 };
 
 export type Variables = {

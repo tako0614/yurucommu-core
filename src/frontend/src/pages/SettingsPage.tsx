@@ -2,7 +2,17 @@ import { useState, useEffect } from 'react';
 import { Actor } from '../types';
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
-import { fetchAccounts, switchAccount, createAccount, AccountInfo } from '../lib/api';
+import {
+  fetchAccounts,
+  switchAccount,
+  createAccount,
+  fetchBlockedUsers,
+  fetchMutedUsers,
+  unblockUser,
+  unmuteUser,
+  deleteAccount,
+  AccountInfo,
+} from '../lib/api';
 
 interface SettingsPageProps {
   actor: Actor;
@@ -51,14 +61,16 @@ export function SettingsPage({ actor }: SettingsPageProps) {
   useEffect(() => {
     if (activeSection === 'blocked') {
       setLoading(true);
-      // TODO: Implement fetchBlockedUsers API
-      setBlockedUsers([]);
-      setLoading(false);
+      fetchBlockedUsers()
+        .then(setBlockedUsers)
+        .catch(console.error)
+        .finally(() => setLoading(false));
     } else if (activeSection === 'muted') {
       setLoading(true);
-      // TODO: Implement fetchMutedUsers API
-      setMutedUsers([]);
-      setLoading(false);
+      fetchMutedUsers()
+        .then(setMutedUsers)
+        .catch(console.error)
+        .finally(() => setLoading(false));
     } else if (activeSection === 'accounts') {
       setLoading(true);
       fetchAccounts()
@@ -100,7 +112,7 @@ export function SettingsPage({ actor }: SettingsPageProps) {
 
   const handleUnblock = async (userApId: string) => {
     try {
-      // TODO: Implement unblockUser API
+      await unblockUser(userApId);
       setBlockedUsers(prev => prev.filter(u => u.ap_id !== userApId));
     } catch (e) {
       console.error('Failed to unblock:', e);
@@ -109,7 +121,7 @@ export function SettingsPage({ actor }: SettingsPageProps) {
 
   const handleUnmute = async (userApId: string) => {
     try {
-      // TODO: Implement unmuteUser API
+      await unmuteUser(userApId);
       setMutedUsers(prev => prev.filter(u => u.ap_id !== userApId));
     } catch (e) {
       console.error('Failed to unmute:', e);
@@ -122,7 +134,7 @@ export function SettingsPage({ actor }: SettingsPageProps) {
       return;
     }
     try {
-      // TODO: Implement deleteAccount API
+      await deleteAccount();
       window.location.href = '/';
     } catch (e: any) {
       alert(e.message || 'Failed to delete account');

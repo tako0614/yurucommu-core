@@ -85,8 +85,6 @@ export function QRCodeModal({ actor, onClose }: QRCodeModalProps) {
             const pathMatch = url.pathname.match(/\/profile\/([^\/\?]+)/);
             const username = url.hash ? decodeURIComponent(url.hash.slice(1)) : null;
 
-            console.log('QR Scan Debug:', { decodedText, scannedDomain, currentDomain, pathMatch, username });
-
             if (!pathMatch) {
               setScanError('Invalid QR code');
               setLookingUp(false);

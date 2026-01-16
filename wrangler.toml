@@ -4,14 +4,32 @@ compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
 [vars]
-TAKOS_URL = "https://takos.jp"
 APP_URL = "https://app.yurucommu.com"
-AUTH_MODE = "password"
+
+# Authentication Configuration
+# Set any combination of the following to enable different auth methods:
+#
+# Password authentication:
+# AUTH_PASSWORD = "your-password"  # Set via wrangler secret put
+#
+# Google OAuth:
+# GOOGLE_CLIENT_ID = "xxx.apps.googleusercontent.com"
+# GOOGLE_CLIENT_SECRET = "xxx"  # Set via wrangler secret put
+#
+# X/Twitter OAuth:
+# X_CLIENT_ID = "xxx"
+# X_CLIENT_SECRET = "xxx"  # Set via wrangler secret put
+#
+# Takos OAuth (enables Takos API access):
+TAKOS_URL = "https://takos.jp"
+# TAKOS_CLIENT_ID = "xxx"  # Set via wrangler secret put
+# TAKOS_CLIENT_SECRET = "xxx"  # Set via wrangler secret put
 
 # Secrets (set via wrangler secret put):
-# - TAKOS_CLIENT_ID
-# - TAKOS_CLIENT_SECRET
-# - AUTH_PASSWORD
+# - AUTH_PASSWORD (optional)
+# - GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET (optional)
+# - X_CLIENT_ID, X_CLIENT_SECRET (optional)
+# - TAKOS_CLIENT_ID, TAKOS_CLIENT_SECRET (optional)
 
 # D1 Database
 [[d1_databases]]
@@ -24,6 +42,11 @@ migrations_dir = "migrations"
 [[r2_buckets]]
 binding = "MEDIA"
 bucket_name = "yurucommu-media"
+
+# KV Namespace (for OAuth state, sessions, etc.)
+[[kv_namespaces]]
+binding = "KV"
+id = "yurucommu-kv"  # Replace with actual KV namespace ID after creation
 
 # Static assets
 [assets]
@@ -40,7 +63,7 @@ zone_name = "yurucommu.com"
 # Test environment
 [env.test]
 name = "yurucommu-test"
-vars = { TAKOS_URL = "https://takos.jp", APP_URL = "https://test.yurucommu.com", AUTH_MODE = "password" }
+vars = { TAKOS_URL = "https://takos.jp", APP_URL = "https://test.yurucommu.com" }
 
 [[env.test.d1_databases]]
 binding = "DB"
@@ -51,6 +74,10 @@ migrations_dir = "migrations"
 [[env.test.r2_buckets]]
 binding = "MEDIA"
 bucket_name = "yurucommu-media"
+
+[[env.test.kv_namespaces]]
+binding = "KV"
+id = "yurucommu-kv"  # Replace with actual KV namespace ID
 
 [[env.test.routes]]
 pattern = "test.yurucommu.com/*"

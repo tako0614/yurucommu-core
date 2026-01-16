@@ -6,20 +6,50 @@ const search = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 /**
  * Search local actors by username or name
- * GET /api/search/actors?q=query
+ * GET /api/search/actors?q=query&sort=relevance|followers|recent
  */
 search.get('/actors', async (c) => {
   const query = c.req.query('q')?.trim();
+  const sort = c.req.query('sort') || 'relevance';
   if (!query) return c.json({ actors: [] });
 
-  // Search local actors
-  const actors = await c.env.DB.prepare(`
-    SELECT ap_id, preferred_username, name, icon_url, summary
-    FROM actors
-    WHERE preferred_username LIKE ? OR name LIKE ?
-    ORDER BY preferred_username ASC
-    LIMIT 20
-  `).bind(`%${query}%`, `%${query}%`).all();
+  let orderBy = 'preferred_username ASC';
+  switch (sort) {
+    case 'followers':
+      orderBy = 'follower_count DESC, preferred_username ASC';
+      break;
+    case 'recent':
+      orderBy = 'created_at DESC';
+      break;
+    case 'relevance':
+    default:
+      // Relevance: exact match first, then prefix match, then contains
+      orderBy = `
+        CASE
+          WHEN LOWER(preferred_username) = LOWER(?) THEN 0
+          WHEN LOWER(preferred_username) LIKE LOWER(?) THEN 1
+          ELSE 2
+        END,
+        follower_count DESC
+      `.replace(/\s+/g, ' ');
+      break;
+  }
+
+  const actors = sort === 'relevance'
+    ? await c.env.DB.prepare(`
+        SELECT ap_id, preferred_username, name, icon_url, summary, follower_count, created_at
+        FROM actors
+        WHERE preferred_username LIKE ? OR name LIKE ?
+        ORDER BY ${orderBy}
+        LIMIT 20
+      `).bind(query, `${query}%`, `%${query}%`, `%${query}%`).all()
+    : await c.env.DB.prepare(`
+        SELECT ap_id, preferred_username, name, icon_url, summary, follower_count, created_at
+        FROM actors
+        WHERE preferred_username LIKE ? OR name LIKE ?
+        ORDER BY ${orderBy}
+        LIMIT 20
+      `).bind(`%${query}%`, `%${query}%`).all();
 
   const result = (actors.results || []).map((a: any) => ({
     ...a,
@@ -31,12 +61,24 @@ search.get('/actors', async (c) => {
 
 /**
  * Search posts by content
- * GET /api/search/posts?q=query
+ * GET /api/search/posts?q=query&sort=recent|popular
  */
 search.get('/posts', async (c) => {
   const actor = c.get('actor');
   const query = c.req.query('q')?.trim();
+  const sort = c.req.query('sort') || 'recent';
   if (!query) return c.json({ posts: [] });
+
+  let orderBy = 'o.published DESC';
+  switch (sort) {
+    case 'popular':
+      orderBy = 'o.like_count DESC, o.published DESC';
+      break;
+    case 'recent':
+    default:
+      orderBy = 'o.published DESC';
+      break;
+  }
 
   const posts = await c.env.DB.prepare(`
     SELECT o.*,
@@ -48,7 +90,7 @@ search.get('/posts', async (c) => {
     LEFT JOIN actors a ON o.attributed_to = a.ap_id
     LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
     WHERE o.content LIKE ? AND o.visibility = 'public'
-    ORDER BY o.published DESC
+    ORDER BY ${orderBy}
     LIMIT 50
   `).bind(actor?.ap_id || '', `%${query}%`).all();
 
@@ -135,6 +177,117 @@ search.get('/remote', async (c) => {
     console.error('Remote search failed:', e);
     return c.json({ actors: [] });
   }
+});
+
+/**
+ * Search posts by hashtag
+ * GET /api/search/hashtag/:tag?sort=recent|popular
+ */
+search.get('/hashtag/:tag', async (c) => {
+  const actor = c.get('actor');
+  const tag = c.req.param('tag')?.trim().replace(/^#/, '');
+  const sort = c.req.query('sort') || 'recent';
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100);
+  const offset = parseInt(c.req.query('offset') || '0');
+
+  if (!tag) return c.json({ posts: [], total: 0 });
+
+  let orderBy = 'o.published DESC';
+  switch (sort) {
+    case 'popular':
+      orderBy = 'o.like_count DESC, o.published DESC';
+      break;
+    case 'recent':
+    default:
+      orderBy = 'o.published DESC';
+      break;
+  }
+
+  // Search for #tag in content (case-insensitive)
+  const hashtagPattern = `#${tag}`;
+
+  const countResult = await c.env.DB.prepare(`
+    SELECT COUNT(*) as total FROM objects o
+    WHERE o.content LIKE ? AND o.visibility = 'public'
+  `).bind(`%${hashtagPattern}%`).first<{ total: number }>();
+
+  const posts = await c.env.DB.prepare(`
+    SELECT o.*,
+           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
+           COALESCE(a.name, ac.name) as author_name,
+           COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
+           EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked
+    FROM objects o
+    LEFT JOIN actors a ON o.attributed_to = a.ap_id
+    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
+    WHERE o.content LIKE ? AND o.visibility = 'public'
+    ORDER BY ${orderBy}
+    LIMIT ? OFFSET ?
+  `).bind(actor?.ap_id || '', `%${hashtagPattern}%`, limit, offset).all();
+
+  const result = (posts.results || []).map((p: any) => ({
+    ap_id: p.ap_id,
+    author: {
+      ap_id: p.attributed_to,
+      username: formatUsername(p.attributed_to),
+      preferred_username: p.author_username,
+      name: p.author_name,
+      icon_url: p.author_icon_url,
+    },
+    content: p.content,
+    published: p.published,
+    like_count: p.like_count,
+    liked: !!p.liked,
+  }));
+
+  return c.json({
+    posts: result,
+    total: countResult?.total || 0,
+    limit,
+    offset,
+    has_more: offset + result.length < (countResult?.total || 0),
+  });
+});
+
+/**
+ * Get trending hashtags
+ * GET /api/search/hashtags/trending?limit=10&days=7
+ */
+search.get('/hashtags/trending', async (c) => {
+  const limit = Math.min(parseInt(c.req.query('limit') || '10'), 50);
+  const days = Math.min(parseInt(c.req.query('days') || '7'), 30);
+
+  const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  // Extract hashtags from recent public posts and count them
+  // This is a simple approach - for large scale, a separate hashtag table would be better
+  const posts = await c.env.DB.prepare(`
+    SELECT content FROM objects
+    WHERE visibility = 'public' AND published > ?
+    ORDER BY published DESC
+    LIMIT 1000
+  `).bind(sinceDate).all();
+
+  // Extract and count hashtags
+  const hashtagCounts: Record<string, number> = {};
+  const hashtagRegex = /#([a-zA-Z0-9_\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]+)/g;
+
+  for (const post of posts.results || []) {
+    const content = (post as any).content || '';
+    let match;
+    while ((match = hashtagRegex.exec(content)) !== null) {
+      const tag = match[1].toLowerCase();
+      hashtagCounts[tag] = (hashtagCounts[tag] || 0) + 1;
+    }
+  }
+
+  // Sort by count and take top N
+  const trending = Object.entries(hashtagCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([tag, count]) => ({ tag, count }));
+
+  return c.json({ trending });
 });
 
 export default search;

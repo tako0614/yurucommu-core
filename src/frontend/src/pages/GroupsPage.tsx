@@ -156,13 +156,21 @@ export function GroupsPage({ actor }: GroupsPageProps) {
     e.preventDefault();
     e.stopPropagation();
     try {
-      await joinCommunity(community.name);
+      let inviteId: string | undefined;
+      if (community.join_policy === 'invite') {
+        const input = window.prompt('Invite code');
+        if (!input) return;
+        inviteId = input.trim();
+      }
+      const result = await joinCommunity(community.name, { inviteId });
       setCommunities(prev =>
-        prev.map(c =>
-          c.ap_id === community.ap_id
-            ? { ...c, is_member: true, member_count: c.member_count + 1 }
-            : c
-        )
+        prev.map(c => {
+          if (c.ap_id !== community.ap_id) return c;
+          if (result.status === 'pending') {
+            return { ...c, join_status: 'pending' };
+          }
+          return { ...c, is_member: true, join_status: null, member_count: c.member_count + 1 };
+        })
       );
     } catch (err) {
       console.error('Failed to join:', err);
@@ -257,9 +265,14 @@ export function GroupsPage({ actor }: GroupsPageProps) {
                       <div className="flex items-center gap-2 text-sm text-neutral-500 mt-0.5">
                         <UsersIcon />
                         <span>{community.member_count}人</span>
-                        {community.member_role === 'admin' && (
+                        {community.member_role === 'owner' && (
+                          <span className="px-1.5 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
+                            オーナー
+                          </span>
+                        )}
+                        {community.member_role === 'moderator' && (
                           <span className="px-1.5 py-0.5 text-xs bg-blue-500/20 text-blue-400 rounded">
-                            管理者
+                            モデレーター
                           </span>
                         )}
                       </div>
@@ -301,9 +314,14 @@ export function GroupsPage({ actor }: GroupsPageProps) {
                     </div>
                     <button
                       onClick={(e) => handleJoin(community, e)}
-                      className="px-4 py-1.5 bg-blue-500 text-white font-medium rounded-full hover:bg-blue-600 transition-colors text-sm"
+                      disabled={community.join_status === 'pending'}
+                      className="px-4 py-1.5 bg-blue-500 text-white font-medium rounded-full hover:bg-blue-600 transition-colors text-sm disabled:opacity-50"
                     >
-                      参加
+                      {community.join_status === 'pending'
+                        ? '承認待ち'
+                        : community.join_policy === 'invite'
+                          ? '招待コードで参加'
+                          : '参加'}
                     </button>
                   </div>
                 ))}

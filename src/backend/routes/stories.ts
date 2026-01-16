@@ -2,7 +2,7 @@
 // v2: 1 Story = 1 Media (Instagram style)
 import { Hono } from 'hono';
 import type { Env, Variables, APObject } from '../types';
-import { generateId, objectApId, actorApId, formatUsername } from '../utils';
+import { generateId, objectApId, actorApId, formatUsername, activityApId, isLocal, signRequest } from '../utils';
 import { sendCreateStoryActivity, sendDeleteStoryActivity } from '../lib/activitypub-helpers';
 
 // Types for vote results
@@ -28,6 +28,15 @@ async function cleanupExpiredStories(db: D1Database): Promise<number> {
   await db.prepare(`
     DELETE FROM story_votes
     WHERE story_ap_id IN (
+      SELECT ap_id FROM objects
+      WHERE type = 'Story' AND end_time < ?
+    )
+  `).bind(now).run();
+
+  // Delete related likes
+  await db.prepare(`
+    DELETE FROM likes
+    WHERE object_ap_id IN (
       SELECT ap_id FROM objects
       WHERE type = 'Story' AND end_time < ?
     )
@@ -177,23 +186,38 @@ stories.get('/', async (c) => {
   }
 
   // Get stories from followed users and self, ordered by end_time (unviewed first)
-  const stories_data = await c.env.DB.prepare(`
-    SELECT o.*,
-           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
-           COALESCE(a.name, ac.name) as author_name,
-           COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
-           CASE WHEN sv.story_ap_id IS NOT NULL THEN 1 ELSE 0 END as viewed
-    FROM objects o
-    LEFT JOIN actors a ON o.attributed_to = a.ap_id
-    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    LEFT JOIN story_views sv ON o.ap_id = sv.story_ap_id AND sv.actor_ap_id = ?
-    WHERE o.type = 'Story'
-      AND o.end_time > ?
-      AND (o.attributed_to IN (
-        SELECT following_ap_id FROM follows WHERE follower_ap_id = ? AND status = 'accepted'
-      ) OR o.attributed_to = ?)
-    ORDER BY viewed ASC, o.end_time DESC
-  `).bind(actor.ap_id, now, actor.ap_id, actor.ap_id).all();
+    const stories_data = await c.env.DB.prepare(`
+      SELECT o.*,
+             COALESCE(a.preferred_username, ac.preferred_username) as author_username,
+             COALESCE(a.name, ac.name) as author_name,
+             COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
+             CASE WHEN sv.story_ap_id IS NOT NULL THEN 1 ELSE 0 END as viewed,
+             EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked
+      FROM objects o
+      LEFT JOIN actors a ON o.attributed_to = a.ap_id
+      LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
+      LEFT JOIN story_views sv ON o.ap_id = sv.story_ap_id AND sv.actor_ap_id = ?
+      WHERE o.type = 'Story'
+        AND o.end_time > ?
+        AND (o.attributed_to IN (
+          SELECT following_ap_id FROM follows WHERE follower_ap_id = ? AND status = 'accepted'
+        ) OR o.attributed_to = ?)
+        AND NOT EXISTS (
+          SELECT 1 FROM blocks b WHERE b.blocker_ap_id = ? AND b.blocked_ap_id = o.attributed_to
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM mutes m WHERE m.muter_ap_id = ? AND m.muted_ap_id = o.attributed_to
+        )
+      ORDER BY viewed ASC, o.end_time DESC
+    `).bind(
+      actor.ap_id,
+      actor.ap_id,
+      now,
+      actor.ap_id,
+      actor.ap_id,
+      actor.ap_id,
+      actor.ap_id
+    ).all();
 
   // Get all story ap_ids for batch vote query
   const storyApIds = (stories_data.results || []).map((s: any) => s.ap_id);
@@ -280,6 +304,9 @@ stories.get('/', async (c) => {
       end_time: s.end_time,
       published: s.published,
       viewed: isViewed,
+      like_count: s.like_count,
+      share_count: s.share_count || 0,
+      liked: !!s.liked,
       votes: storyVotes,
       votes_total: total,
       user_vote: userVotes[s.ap_id],
@@ -313,21 +340,35 @@ stories.get('/:actorId', async (c) => {
     targetApId = actorApId(baseUrl, targetActorId);
   }
 
-  const user_stories = await c.env.DB.prepare(`
-    SELECT o.*,
-           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
-           COALESCE(a.name, ac.name) as author_name,
-           COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
-           CASE WHEN sv.story_ap_id IS NOT NULL THEN 1 ELSE 0 END as viewed
-    FROM objects o
-    LEFT JOIN actors a ON o.attributed_to = a.ap_id
-    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    LEFT JOIN story_views sv ON o.ap_id = sv.story_ap_id AND sv.actor_ap_id = ?
-    WHERE o.type = 'Story'
-      AND o.attributed_to = ?
-      AND o.end_time > ?
-    ORDER BY o.published DESC
-  `).bind(actor?.ap_id || '', targetApId, now).all();
+    const user_stories = await c.env.DB.prepare(`
+      SELECT o.*,
+             COALESCE(a.preferred_username, ac.preferred_username) as author_username,
+             COALESCE(a.name, ac.name) as author_name,
+             COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
+             CASE WHEN sv.story_ap_id IS NOT NULL THEN 1 ELSE 0 END as viewed,
+             EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked
+      FROM objects o
+      LEFT JOIN actors a ON o.attributed_to = a.ap_id
+      LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
+      LEFT JOIN story_views sv ON o.ap_id = sv.story_ap_id AND sv.actor_ap_id = ?
+      WHERE o.type = 'Story'
+        AND o.attributed_to = ?
+        AND o.end_time > ?
+        AND NOT EXISTS (
+          SELECT 1 FROM blocks b WHERE b.blocker_ap_id = ? AND b.blocked_ap_id = o.attributed_to
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM mutes m WHERE m.muter_ap_id = ? AND m.muted_ap_id = o.attributed_to
+        )
+      ORDER BY o.published DESC
+    `).bind(
+      actor?.ap_id || '',
+      actor?.ap_id || '',
+      targetApId,
+      now,
+      actor?.ap_id || '',
+      actor?.ap_id || ''
+    ).all();
 
   // Get all story ap_ids for batch vote query
   const storyApIds = (user_stories.results || []).map((s: any) => s.ap_id);
@@ -389,6 +430,9 @@ stories.get('/:actorId', async (c) => {
       end_time: s.end_time,
       published: s.published,
       viewed: !!s.viewed,
+      like_count: s.like_count,
+      share_count: s.share_count || 0,
+      liked: !!s.liked,
       votes: storyVotes,
       votes_total: total,
       user_vote: userVotes[s.ap_id],
@@ -473,6 +517,8 @@ stories.post('/', async (c) => {
     end_time: endTime,
     published: now,
     viewed: false,
+    like_count: 0,
+    liked: false,
   };
 
   // Send Create(Story) activity to followers (async, don't block response)
@@ -516,6 +562,10 @@ stories.post('/delete', async (c) => {
 
   // Delete story votes first
   await c.env.DB.prepare('DELETE FROM story_votes WHERE story_ap_id = ?')
+    .bind(apId).run();
+
+  // Delete story likes
+  await c.env.DB.prepare('DELETE FROM likes WHERE object_ap_id = ?')
     .bind(apId).run();
 
   // Delete story views
@@ -631,8 +681,204 @@ stories.post('/vote', async (c) => {
 
   // Get updated vote counts
   const votes = await getVoteCounts(c.env.DB, apId);
+  const total = Object.values(votes).reduce((sum: number, count: number) => sum + count, 0);
 
-  return c.json({ success: true, votes });
+  return c.json({ success: true, votes, total, user_vote: body.option_index });
+});
+
+// Like a story
+stories.post('/:id/like', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const storyId = c.req.param('id');
+  const baseUrl = c.env.APP_URL;
+  const apId = storyId.startsWith('http') ? storyId : objectApId(baseUrl, storyId);
+
+  const story = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? AND type = ?')
+    .bind(apId, 'Story').first<APObject>();
+
+  if (!story) return c.json({ error: 'Story not found' }, 404);
+
+  const existing = await c.env.DB.prepare(
+    'SELECT * FROM likes WHERE object_ap_id = ? AND actor_ap_id = ?'
+  ).bind(apId, actor.ap_id).first();
+
+  if (existing) {
+    return c.json({ success: true, liked: true, like_count: story.like_count });
+  }
+
+  const likeId = generateId();
+  const likeActivityApId = activityApId(baseUrl, likeId);
+  const now = new Date().toISOString();
+
+  await c.env.DB.prepare(`
+    INSERT INTO likes (object_ap_id, actor_ap_id, activity_ap_id)
+    VALUES (?, ?, ?)
+  `).bind(apId, actor.ap_id, likeActivityApId).run();
+
+  await c.env.DB.prepare('UPDATE objects SET like_count = like_count + 1 WHERE ap_id = ?')
+    .bind(apId).run();
+
+  const likeActivityRaw = {
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    id: likeActivityApId,
+    type: 'Like',
+    actor: actor.ap_id,
+    object: apId,
+  };
+
+  await c.env.DB.prepare(`
+    INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, published, local)
+    VALUES (?, 'Like', ?, ?, ?, ?, 1)
+  `).bind(likeActivityApId, actor.ap_id, apId, JSON.stringify(likeActivityRaw), now).run();
+
+  if (story.attributed_to !== actor.ap_id && isLocal(story.attributed_to, baseUrl)) {
+    await c.env.DB.prepare(`
+      INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
+      VALUES (?, ?, 0, ?)
+    `).bind(story.attributed_to, likeActivityApId, now).run();
+  }
+
+  if (!isLocal(apId, baseUrl)) {
+    try {
+      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?')
+        .bind(story.attributed_to).first<any>();
+      if (postAuthor?.inbox) {
+        const keyId = `${actor.ap_id}#main-key`;
+        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(likeActivityRaw));
+
+        await fetch(postAuthor.inbox, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/activity+json' },
+          body: JSON.stringify(likeActivityRaw),
+        });
+      }
+    } catch (e) {
+      console.error('Failed to send Like activity for story:', e);
+    }
+  }
+
+  return c.json({ success: true, liked: true, like_count: story.like_count + 1 });
+});
+
+// Unlike a story
+stories.delete('/:id/like', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const storyId = c.req.param('id');
+  const baseUrl = c.env.APP_URL;
+  const apId = storyId.startsWith('http') ? storyId : objectApId(baseUrl, storyId);
+
+  const story = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? AND type = ?')
+    .bind(apId, 'Story').first<APObject>();
+
+  if (!story) return c.json({ error: 'Story not found' }, 404);
+
+  const like = await c.env.DB.prepare(
+    'SELECT * FROM likes WHERE object_ap_id = ? AND actor_ap_id = ?'
+  ).bind(apId, actor.ap_id).first<any>();
+
+  if (!like) return c.json({ error: 'Not liked' }, 400);
+
+  await c.env.DB.prepare('DELETE FROM likes WHERE object_ap_id = ? AND actor_ap_id = ?')
+    .bind(apId, actor.ap_id).run();
+
+  await c.env.DB.prepare('UPDATE objects SET like_count = like_count - 1 WHERE ap_id = ? AND like_count > 0')
+    .bind(apId).run();
+
+  if (!isLocal(apId, baseUrl)) {
+    try {
+      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?')
+        .bind(story.attributed_to).first<any>();
+      if (postAuthor?.inbox) {
+        const undoObject = like.activity_ap_id
+          ? like.activity_ap_id
+          : {
+            type: 'Like',
+            actor: actor.ap_id,
+            object: apId,
+          };
+        const undoLikeActivity = {
+          '@context': 'https://www.w3.org/ns/activitystreams',
+          id: activityApId(baseUrl, generateId()),
+          type: 'Undo',
+          actor: actor.ap_id,
+          object: undoObject,
+        };
+
+        const keyId = `${actor.ap_id}#main-key`;
+        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(undoLikeActivity));
+
+        await fetch(postAuthor.inbox, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/activity+json' },
+          body: JSON.stringify(undoLikeActivity),
+        });
+
+        await c.env.DB.prepare(`
+          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
+          VALUES (?, 'Undo', ?, ?, ?, 'outbound')
+        `).bind(undoLikeActivity.id, actor.ap_id, apId, JSON.stringify(undoLikeActivity)).run();
+      }
+    } catch (e) {
+      console.error('Failed to send Undo Like for story:', e);
+    }
+  }
+
+  return c.json({ success: true, liked: false, like_count: Math.max(0, story.like_count - 1) });
+});
+
+// Share a story (track that user shared it)
+stories.post('/:id/share', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const storyId = c.req.param('id');
+  const baseUrl = c.env.APP_URL;
+  const apId = storyId.startsWith('http') ? storyId : objectApId(baseUrl, storyId);
+
+  const story = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? AND type = ?')
+    .bind(apId, 'Story').first<APObject>();
+
+  if (!story) return c.json({ error: 'Story not found' }, 404);
+
+  // Check if already shared
+  const existing = await c.env.DB.prepare(
+    'SELECT * FROM story_shares WHERE story_ap_id = ? AND actor_ap_id = ?'
+  ).bind(apId, actor.ap_id).first();
+
+  if (existing) {
+    return c.json({ success: true, shared: true, share_count: story.share_count || 0 });
+  }
+
+  const shareId = generateId();
+  const now = new Date().toISOString();
+
+  await c.env.DB.prepare(`
+    INSERT INTO story_shares (id, story_ap_id, actor_ap_id, shared_at)
+    VALUES (?, ?, ?, ?)
+  `).bind(shareId, apId, actor.ap_id, now).run();
+
+  await c.env.DB.prepare('UPDATE objects SET share_count = COALESCE(share_count, 0) + 1 WHERE ap_id = ?')
+    .bind(apId).run();
+
+  return c.json({ success: true, shared: true, share_count: (story.share_count || 0) + 1 });
+});
+
+// Get share count for a story
+stories.get('/:id/shares', async (c) => {
+  const storyId = c.req.param('id');
+  const baseUrl = c.env.APP_URL;
+  const apId = storyId.startsWith('http') ? storyId : objectApId(baseUrl, storyId);
+
+  const story = await c.env.DB.prepare('SELECT share_count FROM objects WHERE ap_id = ? AND type = ?')
+    .bind(apId, 'Story').first<any>();
+
+  if (!story) return c.json({ error: 'Story not found' }, 404);
+
+  return c.json({ share_count: story.share_count || 0 });
 });
 
 // Get votes for a story
