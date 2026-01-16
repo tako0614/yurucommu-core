@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Actor, Post } from '../types';
 import { CommunityDetail, fetchCommunities, fetchFollowing, follow, searchActors, searchPosts, likePost, unlikePost } from '../lib/api';
 import { useI18n } from '../lib/i18n';
+import { formatRelativeTime } from '../lib/datetime';
 import { UserAvatar } from '../components/UserAvatar';
 import { PostContent } from '../components/PostContent';
 import { QRCodeModal } from '../components/QRCodeModal';
+import { HeartIcon, ReplyIcon, BookmarkIcon, RepostIcon } from '../components/icons/SocialIcons';
 
 interface GroupPageProps {
   actor: Actor;
@@ -29,11 +31,6 @@ const QRCodeIcon = () => (
   </svg>
 );
 
-const HeartIcon = ({ filled }: { filled: boolean }) => (
-  <svg className="w-5 h-5" fill={filled ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-  </svg>
-);
 
 const ChevronRightIcon = () => (
   <svg className="w-5 h-5 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -231,20 +228,6 @@ export function GroupPage({ actor }: GroupPageProps) {
   // Check if a user is already followed
   const isFollowing = (actorApId: string) => following.some(f => f.ap_id === actorApId);
 
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    if (diffMins < 1) return 'now';
-    if (diffMins < 60) return `${diffMins}m`;
-    if (diffHours < 24) return `${diffHours}h`;
-    if (diffDays < 7) return `${diffDays}d`;
-    return date.toLocaleDateString();
-  };
-
   // Get display names for categories
   const getFriendsPreview = () => {
     return following.slice(0, 3).map(m => m.name || m.preferred_username).join(', ');
@@ -365,7 +348,7 @@ export function GroupPage({ actor }: GroupPageProps) {
                       </Link>
                       <span className="text-neutral-500 truncate">@{post.author.username}</span>
                       <span className="text-neutral-500">·</span>
-                      <span className="text-neutral-500 text-sm">{formatTime(post.published)}</span>
+                      <span className="text-neutral-500 text-sm">{formatRelativeTime(post.published)}</span>
                     </div>
                     <Link to={`/post/${encodeURIComponent(post.ap_id)}`}>
                       <PostContent content={post.content} className="text-[15px] text-neutral-200 mt-1" />
@@ -482,3 +465,4 @@ export function GroupPage({ actor }: GroupPageProps) {
     </div>
   );
 }
+

@@ -18,6 +18,7 @@ import {
   uploadMedia,
 } from '../lib/api';
 import { useI18n } from '../lib/i18n';
+import { formatMonthYear } from '../lib/datetime';
 import { UserAvatar } from '../components/UserAvatar';
 
 interface CommunityProfilePageProps {
@@ -218,11 +219,6 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
     }
   };
 
-  const formatJoinDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
-  };
-
   // Initialize settings form when community is loaded
   useEffect(() => {
     if (community) {
@@ -407,7 +403,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
             </div>
             <div className="flex items-center gap-1">
               <CalendarIcon />
-              <span>菴懈・譌･ {formatJoinDate(community.created_at)}</span>
+              <span>菴懈・譌･ {formatMonthYear(community.created_at)}</span>
             </div>
           </div>
 

@@ -2,25 +2,15 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Post, Actor } from '../types';
 import { fetchBookmarks, likePost, unlikePost, unbookmarkPost } from '../lib/api';
+import { formatRelativeTime } from '../lib/datetime';
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
 import { PostContent } from '../components/PostContent';
+import { HeartIcon, BookmarkIcon } from '../components/icons/SocialIcons';
 
 interface BookmarksPageProps {
   actor: Actor;
 }
-
-const HeartIcon = ({ filled }: { filled: boolean }) => (
-  <svg className="w-5 h-5" fill={filled ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-  </svg>
-);
-
-const BookmarkIcon = ({ filled }: { filled: boolean }) => (
-  <svg className="w-5 h-5" fill={filled ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-  </svg>
-);
 
 export function BookmarksPage({ actor }: BookmarksPageProps) {
   const { t } = useI18n();
@@ -65,20 +55,6 @@ export function BookmarksPage({ actor }: BookmarksPageProps) {
     }
   };
 
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    if (diffMins < 1) return 'now';
-    if (diffMins < 60) return `${diffMins}m`;
-    if (diffHours < 24) return `${diffHours}h`;
-    if (diffDays < 7) return `${diffDays}d`;
-    return date.toLocaleDateString();
-  };
-
   return (
     <div className="flex flex-col h-full">
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
@@ -103,7 +79,7 @@ export function BookmarksPage({ actor }: BookmarksPageProps) {
                   </Link>
                   <span className="text-neutral-500 truncate">@{post.author.username}</span>
                   <span className="text-neutral-500">·</span>
-                  <span className="text-neutral-500 text-sm">{formatTime(post.published)}</span>
+                  <span className="text-neutral-500 text-sm">{formatRelativeTime(post.published)}</span>
                 </div>
                 <Link to={`/post/${encodeURIComponent(post.ap_id)}`}>
                   <PostContent content={post.content} className="text-[15px] text-neutral-200 mt-1" />

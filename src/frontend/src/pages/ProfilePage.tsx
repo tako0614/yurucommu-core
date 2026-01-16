@@ -16,25 +16,14 @@ import {
   AccountInfo,
 } from '../lib/api';
 import { useI18n } from '../lib/i18n';
+import { formatMonthYear, formatRelativeTime } from '../lib/datetime';
 import { UserAvatar } from '../components/UserAvatar';
 import { PostContent } from '../components/PostContent';
+import { HeartIcon, ReplyIcon } from '../components/icons/SocialIcons';
 
 interface ProfilePageProps {
   actor: Actor;
 }
-
-// Icons
-const HeartIcon = ({ filled }: { filled: boolean }) => (
-  <svg className="w-5 h-5" fill={filled ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-  </svg>
-);
-
-const ReplyIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-  </svg>
-);
 
 const BackIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -215,26 +204,6 @@ export function ProfilePage({ actor }: ProfilePageProps) {
     } finally {
       setFollowModalLoading(false);
     }
-  };
-
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'now';
-    if (diffMins < 60) return `${diffMins}m`;
-    if (diffHours < 24) return `${diffHours}h`;
-    if (diffDays < 7) return `${diffDays}d`;
-    return date.toLocaleDateString();
-  };
-
-  const formatJoinDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
   };
 
   if (loading) {
@@ -429,7 +398,7 @@ export function ProfilePage({ actor }: ProfilePageProps) {
           {/* Join Date */}
           <div className="flex items-center gap-1 text-neutral-500 text-sm mb-3">
             <CalendarIcon />
-            <span>Joined {formatJoinDate(profile.created_at)}</span>
+            <span>Joined {formatMonthYear(profile.created_at)}</span>
           </div>
 
           {/* Follow Stats */}
@@ -502,7 +471,7 @@ export function ProfilePage({ actor }: ProfilePageProps) {
                       </Link>
                       <span className="text-neutral-500 truncate">@{post.author.username}</span>
                       <span className="text-neutral-500">·</span>
-                      <span className="text-neutral-500 text-sm">{formatTime(post.published)}</span>
+                      <span className="text-neutral-500 text-sm">{formatRelativeTime(post.published)}</span>
                     </div>
                     <PostContent
                       content={post.content}

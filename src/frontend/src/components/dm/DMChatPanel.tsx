@@ -11,6 +11,7 @@ import {
   sendUserDMTyping,
   markDMAsRead,
 } from '../../lib/api';
+import { formatTime } from '../../lib/datetime';
 import { useI18n } from '../../lib/i18n';
 
 interface DMChatPanelProps {
@@ -208,10 +209,7 @@ export function DMChatPanel({ contact, actor, onBack, onRead }: DMChatPanelProps
                     <p className="text-sm">{msg.content}</p>
                   </div>
                   <div className="text-xs text-neutral-500 mt-1">
-                    {new Date(msg.created_at).toLocaleTimeString('ja-JP', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {formatTime(msg.created_at)}
                   </div>
                 </div>
               </div>

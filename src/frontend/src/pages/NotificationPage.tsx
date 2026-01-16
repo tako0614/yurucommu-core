@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { Notification } from '../types';
 import { acceptFollowRequest, fetchNotifications, markNotificationsRead, rejectFollowRequest } from '../lib/api';
 import { useI18n } from '../lib/i18n';
+import { formatRelativeTime } from '../lib/datetime';
 import { UserAvatar } from '../components/UserAvatar';
+import { HeartIcon, ReplyIcon, RepostIcon } from '../components/icons/SocialIcons';
 
 // SVG Icons
 const FollowIcon = () => (
@@ -11,27 +13,9 @@ const FollowIcon = () => (
   </svg>
 );
 
-const HeartIcon = () => (
-  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-    <path d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-  </svg>
-);
-
-const RepostIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-  </svg>
-);
-
 const MentionIcon = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
-  </svg>
-);
-
-const ReplyIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
   </svg>
 );
 
@@ -117,31 +101,28 @@ export function NotificationPage() {
       case 'follow_request':
         return <div className="p-1 bg-yellow-500 rounded-full text-white"><FollowRequestIcon /></div>;
       case 'like':
-        return <div className="p-1 bg-pink-500 rounded-full text-white"><HeartIcon /></div>;
+        return (
+          <div className="p-1 bg-pink-500 rounded-full text-white">
+            <HeartIcon className="w-4 h-4" filled stroke={false} />
+          </div>
+        );
       case 'announce':
-        return <div className="p-1 bg-green-500 rounded-full text-white"><RepostIcon /></div>;
+        return (
+          <div className="p-1 bg-green-500 rounded-full text-white">
+            <RepostIcon className="w-4 h-4" />
+          </div>
+        );
       case 'mention':
         return <div className="p-1 bg-purple-500 rounded-full text-white"><MentionIcon /></div>;
       case 'reply':
-        return <div className="p-1 bg-sky-500 rounded-full text-white"><ReplyIcon /></div>;
+        return (
+          <div className="p-1 bg-sky-500 rounded-full text-white">
+            <ReplyIcon className="w-4 h-4" />
+          </div>
+        );
       default:
         return null;
     }
-  };
-
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'now';
-    if (diffMins < 60) return `${diffMins}m`;
-    if (diffHours < 24) return `${diffHours}h`;
-    if (diffDays < 7) return `${diffDays}d`;
-    return date.toLocaleDateString();
   };
 
   // Notifications are already filtered by the server
@@ -150,10 +131,10 @@ export function NotificationPage() {
   const filterTabs: { key: FilterType; label: string; icon: JSX.Element }[] = [
     { key: 'all', label: 'すべて', icon: <span className="w-4 h-4 flex items-center justify-center text-xs">全</span> },
     { key: 'follow', label: 'フォロー', icon: <FollowIcon /> },
-    { key: 'like', label: 'いいね', icon: <HeartIcon /> },
-    { key: 'announce', label: 'リポスト', icon: <RepostIcon /> },
+    { key: 'like', label: 'いいね', icon: <HeartIcon className="w-4 h-4" filled stroke={false} /> },
+    { key: 'announce', label: 'リポスト', icon: <RepostIcon className="w-4 h-4" /> },
     { key: 'mention', label: 'メンション', icon: <MentionIcon /> },
-    { key: 'reply', label: '返信', icon: <ReplyIcon /> },
+    { key: 'reply', label: '返信', icon: <ReplyIcon className="w-4 h-4" /> },
   ];
 
   return (
@@ -227,7 +208,7 @@ export function NotificationPage() {
                   </div>
                 )}
                 <p className="text-sm text-neutral-600 mt-1">
-                  {formatTime(notification.created_at)}
+                  {formatRelativeTime(notification.created_at)}
                 </p>
               </div>
             </div>

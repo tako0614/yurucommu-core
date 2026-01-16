@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Actor } from '../types';
 import { CommunityDetail, fetchCommunities, createCommunity, joinCommunity } from '../lib/api';
+import { formatRecentTime } from '../lib/datetime';
 import { UserAvatar } from '../components/UserAvatar';
 
 interface GroupsPageProps {
@@ -196,22 +197,6 @@ export function GroupsPage({ actor }: GroupsPageProps) {
     setCommunities(prev => [community, ...prev]);
   };
 
-  const formatDate = (dateStr: string | null | undefined) => {
-    if (!dateStr) return '';
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-
-    if (days === 0) {
-      return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-    } else if (days === 1) {
-      return '昨日';
-    } else if (days < 7) {
-      return `${days}日前`;
-    }
-    return date.toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' });
-  };
 
   // Separate my communities and other communities
   const myCommunities = communities.filter(c => c.is_member);
@@ -275,7 +260,7 @@ export function GroupsPage({ actor }: GroupsPageProps) {
                           {community.display_name || community.name}
                         </span>
                         <span className="text-xs text-neutral-500 ml-2 flex-shrink-0">
-                          {formatDate(community.last_message_at)}
+                          {formatRecentTime(community.last_message_at)}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-sm text-neutral-500 mt-0.5">
@@ -357,3 +342,4 @@ export function GroupsPage({ actor }: GroupsPageProps) {
     </div>
   );
 }
+
