@@ -3,6 +3,9 @@ import type { Env, Variables } from '../types';
 import { communityApId, generateId, formatUsername, generateKeyPair } from '../utils';
 
 const communities = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+const MAX_COMMUNITY_MESSAGE_LENGTH = 5000;
+const MAX_COMMUNITY_MESSAGES_LIMIT = 100;
 const managerRoles = new Set(['owner', 'moderator']);
 
 // GET /api/communities - List all communities
@@ -698,7 +701,10 @@ communities.get('/:identifier/messages', async (c) => {
   const identifier = c.req.param('identifier');
   const baseUrl = c.env.APP_URL;
   const apId = identifier.startsWith('http') ? identifier : communityApId(baseUrl, identifier);
-  const limit = parseInt(c.req.query('limit') || '50');
+  const rawLimit = parseInt(c.req.query('limit') || '50', 10);
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(rawLimit, 1), MAX_COMMUNITY_MESSAGES_LIMIT)
+    : 50;
   const before = c.req.query('before');
 
   // Get community
@@ -783,8 +789,12 @@ communities.post('/:identifier/messages', async (c) => {
   const apId = identifier.startsWith('http') ? identifier : communityApId(baseUrl, identifier);
   const body = await c.req.json<{ content: string }>();
 
-  if (!body.content || body.content.trim() === '') {
+  const content = body.content?.trim();
+  if (!content) {
     return c.json({ error: 'Message content is required' }, 400);
+  }
+  if (content.length > MAX_COMMUNITY_MESSAGE_LENGTH) {
+    return c.json({ error: `Message too long (max ${MAX_COMMUNITY_MESSAGE_LENGTH} chars)` }, 400);
   }
 
   // Check community exists and user is member
@@ -824,7 +834,7 @@ communities.post('/:identifier/messages', async (c) => {
   await c.env.DB.prepare(`
     INSERT INTO objects (ap_id, type, attributed_to, content, to_json, audience_json, visibility, published, is_local)
     VALUES (?, 'Note', ?, ?, ?, ?, 'unlisted', ?, 1)
-  `).bind(objectApId, actor.ap_id, body.content.trim(), toJson, audienceJson, now).run();
+  `).bind(objectApId, actor.ap_id, content, toJson, audienceJson, now).run();
 
   // Add to object_recipients for efficient querying
   await c.env.DB.prepare(`
@@ -854,7 +864,7 @@ communities.post('/:identifier/messages', async (c) => {
         name: actor.name,
         icon_url: actor.icon_url,
       },
-      content: body.content.trim(),
+      content,
       created_at: now,
     }
   }, 201);
@@ -871,8 +881,12 @@ communities.patch('/:identifier/messages/:messageId', async (c) => {
   const apId = identifier.startsWith('http') ? identifier : communityApId(baseUrl, identifier);
   const body = await c.req.json<{ content: string }>();
 
-  if (!body.content || body.content.trim() === '') {
+  const content = body.content?.trim();
+  if (!content) {
     return c.json({ error: 'Message content is required' }, 400);
+  }
+  if (content.length > MAX_COMMUNITY_MESSAGE_LENGTH) {
+    return c.json({ error: `Message too long (max ${MAX_COMMUNITY_MESSAGE_LENGTH} chars)` }, 400);
   }
 
   // Check community exists
@@ -902,7 +916,7 @@ communities.patch('/:identifier/messages/:messageId', async (c) => {
   // Update message
   await c.env.DB.prepare(`
     UPDATE objects SET content = ?, updated_at = datetime('now') WHERE ap_id = ?
-  `).bind(body.content.trim(), messageId).run();
+  `).bind(content, messageId).run();
 
   return c.json({ success: true });
 });

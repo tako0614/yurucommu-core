@@ -2,7 +2,7 @@
 // v2: 1 Story = 1 Media (Instagram style)
 import { Hono } from 'hono';
 import type { Env, Variables, APObject } from '../types';
-import { generateId, objectApId, actorApId, formatUsername, activityApId, isLocal, signRequest } from '../utils';
+import { generateId, objectApId, actorApId, formatUsername, activityApId, isLocal, signRequest, isSafeRemoteUrl } from '../utils';
 import { sendCreateStoryActivity, sendDeleteStoryActivity } from '../lib/activitypub-helpers';
 
 // Types for vote results
@@ -745,14 +745,18 @@ stories.post('/:id/like', async (c) => {
       const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?')
         .bind(story.attributed_to).first<any>();
       if (postAuthor?.inbox) {
-        const keyId = `${actor.ap_id}#main-key`;
-        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(likeActivityRaw));
+        if (!isSafeRemoteUrl(postAuthor.inbox)) {
+          console.warn(`[Stories] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
+        } else {
+          const keyId = `${actor.ap_id}#main-key`;
+          const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(likeActivityRaw));
 
-        await fetch(postAuthor.inbox, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(likeActivityRaw),
-        });
+          await fetch(postAuthor.inbox, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/activity+json' },
+            body: JSON.stringify(likeActivityRaw),
+          });
+        }
       }
     } catch (e) {
       console.error('Failed to send Like activity for story:', e);
@@ -793,6 +797,10 @@ stories.delete('/:id/like', async (c) => {
       const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?')
         .bind(story.attributed_to).first<any>();
       if (postAuthor?.inbox) {
+        if (!isSafeRemoteUrl(postAuthor.inbox)) {
+          console.warn(`[Stories] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
+          return c.json({ success: true, liked: false });
+        }
         const undoObject = like.activity_ap_id
           ? like.activity_ap_id
           : {
