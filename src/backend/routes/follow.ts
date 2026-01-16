@@ -43,20 +43,19 @@ follow.post('/', async (c) => {
     if (status === 'accepted') {
       await c.env.DB.prepare('UPDATE actors SET following_count = following_count + 1 WHERE ap_id = ?').bind(actor.ap_id).run();
       await c.env.DB.prepare('UPDATE actors SET follower_count = follower_count + 1 WHERE ap_id = ?').bind(targetApId).run();
-
-      // Add to dm_contacts (follower can now message the followed user)
-      await c.env.DB.prepare(`
-        INSERT OR IGNORE INTO dm_contacts (owner_ap_id, contact_ap_id, added_reason)
-        VALUES (?, ?, 'follow')
-      `).bind(actor.ap_id, targetApId).run();
     }
 
-    // Create notification
-    const notifId = generateId();
+    // Store Follow activity and add to inbox (AP Native notification)
+    const now = new Date().toISOString();
     await c.env.DB.prepare(`
-      INSERT INTO notifications (id, recipient_ap_id, actor_ap_id, type)
-      VALUES (?, ?, ?, ?)
-    `).bind(notifId, targetApId, actor.ap_id, status === 'pending' ? 'follow_request' : 'follow').run();
+      INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, published, local)
+      VALUES (?, 'Follow', ?, ?, ?, 1)
+    `).bind(activityId, actor.ap_id, targetApId, now).run();
+
+    await c.env.DB.prepare(`
+      INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
+      VALUES (?, ?, 0, ?)
+    `).bind(targetApId, activityId, now).run();
 
     return c.json({ success: true, status });
   } else {
@@ -234,18 +233,9 @@ follow.post('/accept', async (c) => {
   await c.env.DB.prepare('UPDATE actors SET follower_count = follower_count + 1 WHERE ap_id = ?').bind(actor.ap_id).run();
   if (isLocal(body.requester_ap_id, c.env.APP_URL)) {
     await c.env.DB.prepare('UPDATE actors SET following_count = following_count + 1 WHERE ap_id = ?').bind(body.requester_ap_id).run();
-
-    // Add to dm_contacts (the requester can now message this actor)
-    await c.env.DB.prepare(`
-      INSERT OR IGNORE INTO dm_contacts (owner_ap_id, contact_ap_id, added_reason)
-      VALUES (?, ?, 'follow')
-    `).bind(body.requester_ap_id, actor.ap_id).run();
   }
 
-  // Update notification
-  await c.env.DB.prepare(`
-    UPDATE notifications SET type = 'follow' WHERE recipient_ap_id = ? AND actor_ap_id = ? AND type = 'follow_request'
-  `).bind(actor.ap_id, body.requester_ap_id).run();
+  // Note: inbox already has the Follow activity, no need to update (it remains as Follow notification)
 
   // Send Accept to remote
   if (!isLocal(body.requester_ap_id, c.env.APP_URL)) {
