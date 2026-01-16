@@ -16,11 +16,49 @@ function getConversationId(baseUrl: string, ap1: string, ap2: string): string {
   return `${baseUrl}/ap/conversations/${hash}`;
 }
 
+async function resolveConversationId(
+  db: D1Database,
+  baseUrl: string,
+  actorApId: string,
+  otherApId: string
+): Promise<string> {
+  const existing = await db.prepare(`
+    SELECT o.conversation
+    FROM objects o
+    WHERE o.visibility = 'direct'
+      AND o.type = 'Note'
+      AND o.conversation IS NOT NULL
+      AND o.conversation != ''
+      AND (
+        (o.attributed_to = ? AND json_extract(o.to_json, '$[0]') = ?)
+        OR (o.attributed_to = ? AND json_extract(o.to_json, '$[0]') = ?)
+      )
+    ORDER BY o.published DESC
+    LIMIT 1
+  `).bind(actorApId, otherApId, otherApId, actorApId).first<any>();
+
+  return existing?.conversation || getConversationId(baseUrl, actorApId, otherApId);
+}
+
 // Get conversations list - aggregated from direct objects
 dm.get('/contacts', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
   const baseUrl = c.env.APP_URL;
+
+  await c.env.DB.prepare(`
+    DELETE FROM dm_read_status
+    WHERE actor_ap_id = ?
+      AND conversation_id NOT IN (
+        SELECT DISTINCT o.conversation
+        FROM objects o
+        WHERE o.visibility = 'direct'
+          AND o.type = 'Note'
+          AND o.conversation IS NOT NULL
+          AND o.conversation != ''
+          AND (o.attributed_to = ? OR json_extract(o.to_json, '$[0]') = ?)
+      )
+  `).bind(actor.ap_id, actor.ap_id, actor.ap_id).run();
 
   // Get distinct conversations where this actor is sender or recipient
   // A conversation is a unique (sender, recipient) pair in direct messages
@@ -213,20 +251,20 @@ dm.post('/requests/reject', async (c) => {
   const baseUrl = c.env.APP_URL;
   const conversationId = getConversationId(baseUrl, actor.ap_id, body.sender_ap_id);
 
-  // Delete all messages in this conversation from the sender
-  await c.env.DB.prepare(`
-    DELETE FROM objects
-    WHERE conversation = ?
-      AND visibility = 'direct'
-      AND attributed_to = ?
-  `).bind(conversationId, body.sender_ap_id).run();
-
   // Clean up object_recipients
   await c.env.DB.prepare(`
     DELETE FROM object_recipients
     WHERE object_ap_id IN (
       SELECT ap_id FROM objects WHERE conversation = ? AND attributed_to = ?
     )
+  `).bind(conversationId, body.sender_ap_id).run();
+
+  // Delete all messages in this conversation from the sender
+  await c.env.DB.prepare(`
+    DELETE FROM objects
+    WHERE conversation = ?
+      AND visibility = 'direct'
+      AND attributed_to = ?
   `).bind(conversationId, body.sender_ap_id).run();
 
   // Optionally block the sender
@@ -701,6 +739,15 @@ dm.get('/user/:encodedApId/typing', async (c) => {
   const lastTypedMs = Date.parse(lastTypedAt);
   const nowMs = Date.now();
   const isTyping = Number.isFinite(lastTypedMs) && (nowMs - lastTypedMs) <= 8000;
+  const isExpired = !Number.isFinite(lastTypedMs) || (nowMs - lastTypedMs) > 5 * 60 * 1000;
+
+  if (isExpired) {
+    await c.env.DB.prepare(`
+      DELETE FROM dm_typing
+      WHERE actor_ap_id = ? AND recipient_ap_id = ?
+    `).bind(otherApId, actor.ap_id).run();
+    return c.json({ is_typing: false, last_typed_at: null });
+  }
 
   return c.json({ is_typing: isTyping, last_typed_at: lastTypedAt });
 });
@@ -714,7 +761,7 @@ dm.post('/user/:encodedApId/read', async (c) => {
   if (!otherApId) return c.json({ error: 'ap_id required' }, 400);
 
   const baseUrl = c.env.APP_URL;
-  const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
+  const conversationId = await resolveConversationId(c.env.DB, baseUrl, actor.ap_id, otherApId);
   const now = new Date().toISOString();
 
   await c.env.DB.prepare(`

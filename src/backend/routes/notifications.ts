@@ -6,6 +6,26 @@ import { formatUsername } from '../utils';
 
 const notifications = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+const ARCHIVE_RETENTION_DAYS = 90;
+
+async function cleanupArchivedNotifications(db: Env['DB'], actorApId: string): Promise<void> {
+  const retention = `-${ARCHIVE_RETENTION_DAYS} days`;
+  await db.prepare(`
+    DELETE FROM inbox
+    WHERE actor_ap_id = ?
+      AND activity_ap_id IN (
+        SELECT activity_ap_id
+        FROM notification_archived
+        WHERE actor_ap_id = ? AND archived_at < datetime('now', ?)
+      )
+  `).bind(actorApId, actorApId, retention).run();
+
+  await db.prepare(`
+    DELETE FROM notification_archived
+    WHERE actor_ap_id = ? AND archived_at < datetime('now', ?)
+  `).bind(actorApId, retention).run();
+}
+
 // Map activity types to notification types
 function activityToNotificationType(activityType: string, hasInReplyTo: boolean, followStatus?: string | null): string | null {
   switch (activityType) {
@@ -29,6 +49,8 @@ function activityToNotificationType(activityType: string, hasInReplyTo: boolean,
 notifications.get('/', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  await cleanupArchivedNotifications(c.env.DB, actor.ap_id);
 
   const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
   const offset = parseInt(c.req.query('offset') || '0');
@@ -138,6 +160,8 @@ notifications.get('/', async (c) => {
 notifications.get('/unread/count', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  await cleanupArchivedNotifications(c.env.DB, actor.ap_id);
 
   const result = await c.env.DB.prepare(`
     SELECT COUNT(*) as unread_count

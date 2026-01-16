@@ -273,13 +273,14 @@ export function GroupPage({ actor }: GroupPageProps) {
                 className="flex-1 bg-transparent outline-none text-white placeholder-neutral-500 text-sm"
               />
               {searchQuery && (
-                <button onClick={clearSearch} className="text-neutral-500 hover:text-white">
+                <button onClick={clearSearch} aria-label="Clear search" className="text-neutral-500 hover:text-white">
                   <CloseIcon />
                 </button>
               )}
             </div>
             <button
               onClick={() => setShowQRModal(true)}
+              aria-label="Open QR code"
               className="p-2 text-neutral-400 hover:text-white transition-colors"
             >
               <QRCodeIcon />
@@ -372,6 +373,8 @@ export function GroupPage({ actor }: GroupPageProps) {
                     <div className="flex items-center gap-6 mt-3">
                       <button
                         onClick={() => handleLike(post)}
+                        aria-label={post.liked ? 'Unlike' : 'Like'}
+                        aria-pressed={post.liked}
                         className={`flex items-center gap-2 transition-colors ${post.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'}`}
                       >
                         <HeartIcon filled={post.liked || false} />

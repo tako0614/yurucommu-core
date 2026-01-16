@@ -42,6 +42,12 @@ function formatPost(p: any, currentActorApId?: string): any {
   };
 }
 
+function normalizeVisibility(value?: string): 'public' | 'unlisted' | 'followers' | 'direct' {
+  if (value === 'private' || value === 'followers_only') return 'followers';
+  if (value === 'public' || value === 'unlisted' || value === 'followers' || value === 'direct') return value;
+  return 'public';
+}
+
 // Create post
 posts.post('/', async (c) => {
   const actor = c.get('actor');
@@ -60,6 +66,7 @@ posts.post('/', async (c) => {
     return c.json({ error: 'Content required' }, 400);
   }
 
+  const visibility = normalizeVisibility(body.visibility);
   let communityId: string | null = null;
   if (body.community_ap_id) {
     const community = await c.env.DB.prepare(
@@ -80,7 +87,7 @@ posts.post('/', async (c) => {
     const role = membership?.role;
     const isManager = role === 'owner' || role === 'moderator';
 
-    if (policy === 'members' && !membership) {
+    if (policy !== 'anyone' && !membership) {
       return c.json({ error: 'Not a community member' }, 403);
     }
     if (policy === 'mods' && !isManager) {
@@ -107,7 +114,7 @@ posts.post('/', async (c) => {
     body.summary || null,
     JSON.stringify(body.attachments || []),
     body.in_reply_to || null,
-    body.visibility || 'public',
+    visibility,
     communityId,
     now
   ).run();
@@ -184,7 +191,7 @@ posts.post('/', async (c) => {
   }
 
   // Federate to followers if visibility is public
-  if (body.visibility !== 'private' && body.visibility !== 'followers_only') {
+  if (visibility !== 'direct') {
     const followers = await c.env.DB.prepare(`
       SELECT DISTINCT f.follower_ap_id
       FROM follows f
@@ -204,7 +211,7 @@ posts.post('/', async (c) => {
         summary: body.summary || null,
         attachments: body.attachments || [],
         inReplyTo: body.in_reply_to || null,
-        visibility: body.visibility || 'public',
+        visibility,
         published: now,
       },
     };
@@ -249,7 +256,7 @@ posts.post('/', async (c) => {
     content: body.content,
     summary: body.summary || null,
     attachments: body.attachments || [],
-    visibility: body.visibility || 'public',
+    visibility,
     published: now,
     like_count: 0,
     reply_count: 0,
@@ -281,8 +288,35 @@ posts.get('/:id', async (c) => {
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
   // Check visibility
-  if (post.visibility === 'private' && (!currentActor || currentActor.ap_id !== post.attributed_to)) {
-    return c.json({ error: 'Post not found' }, 404);
+  if (post.visibility === 'followers') {
+    if (!currentActor) {
+      return c.json({ error: 'Post not found' }, 404);
+    }
+    if (currentActor.ap_id !== post.attributed_to) {
+      const follows = await c.env.DB.prepare(
+        'SELECT 1 FROM follows WHERE follower_ap_id = ? AND following_ap_id = ? AND status = ?'
+      ).bind(currentActor.ap_id, post.attributed_to, 'accepted').first();
+      if (!follows) {
+        return c.json({ error: 'Post not found' }, 404);
+      }
+    }
+  }
+
+  if (post.visibility === 'direct') {
+    if (!currentActor) {
+      return c.json({ error: 'Post not found' }, 404);
+    }
+    if (currentActor.ap_id !== post.attributed_to) {
+      let recipients: string[] = [];
+      try {
+        recipients = JSON.parse(post.to_json || '[]');
+      } catch {
+        recipients = [];
+      }
+      if (!recipients.includes(currentActor.ap_id)) {
+        return c.json({ error: 'Post not found' }, 404);
+      }
+    }
   }
 
   return c.json({ post: formatPost(post, currentActor?.ap_id) });

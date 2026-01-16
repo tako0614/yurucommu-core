@@ -175,6 +175,13 @@
       <h3>POST /api/stories/:id/view</h3>
       <p>ストーリーを閲覧済みにする（要認証）</p>
 
+      <h3>POST /api/stories/:id/share</h3>
+      <p>ストーリーをシェアとして記録（要認証）</p>
+      <p>既にシェア済みでも成功を返します。</p>
+
+      <h3>GET /api/stories/:id/shares</h3>
+      <p>ストーリーのシェア数を取得</p>
+
       <h2>アクター（ユーザー）</h2>
 
       <h3>GET /api/actors/:identifier</h3>
@@ -213,12 +220,28 @@
 
       <h3>GET /api/notifications</h3>
       <p>通知一覧を取得（要認証）</p>
+      <p><code>?archived=true</code> を付けるとアーカイブ済み通知のみを取得できます。</p>
 
       <h3>GET /api/notifications/unread/count</h3>
       <p>未読通知数を取得（要認証）</p>
 
       <h3>POST /api/notifications/read</h3>
       <p>通知を既読にする（要認証）</p>
+
+      <h3>POST /api/notifications/archive</h3>
+      <p>通知をアーカイブ（要認証）</p>
+      <pre><code>{
+  "ids": ["activity_ap_id"]
+}</code></pre>
+
+      <h3>DELETE /api/notifications/archive</h3>
+      <p>通知のアーカイブ解除（要認証）</p>
+      <pre><code>{
+  "ids": ["activity_ap_id"]
+}</code></pre>
+
+      <h3>POST /api/notifications/archive/all</h3>
+      <p>通知をすべてアーカイブ（要認証）</p>
 
       <h2>ダイレクトメッセージ</h2>
 
@@ -234,6 +257,15 @@
   "to_ap_id": "string",     // 送信先のap_id
   "content": "string"       // メッセージ本文
 }</code></pre>
+
+      <h3>POST /api/dm/user/:encodedApId/read</h3>
+      <p>会話を既読にする（要認証）</p>
+
+      <h3>POST /api/dm/user/:encodedApId/typing</h3>
+      <p>タイピング中を通知（要認証）</p>
+
+      <h3>GET /api/dm/user/:encodedApId/typing</h3>
+      <p>相手のタイピング状態を取得（要認証）</p>
 
       <h2>ActivityPubエンドポイント</h2>
       <p>連合用のActivityPubエンドポイントについては、<a href="/specs/">仕様書</a>を参照してください。</p>

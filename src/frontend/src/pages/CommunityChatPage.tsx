@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+﻿import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Actor } from '../types';
 import {
@@ -11,6 +11,7 @@ import {
   sendCommunityMessage,
   leaveCommunity,
 } from '../lib/api';
+import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
 
 interface CommunityChatPageProps {
@@ -54,8 +55,8 @@ function MembersModal({
     <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
       <div className="bg-neutral-900 rounded-xl w-full max-w-md max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between p-4 border-b border-neutral-800">
-          <h2 className="text-lg font-bold text-white">メンバー ({members.length})</h2>
-          <button onClick={onClose} className="text-neutral-400 hover:text-white">
+          <h2 className="text-lg font-bold text-white">繝｡繝ｳ繝舌・ ({members.length})</h2>
+          <button onClick={onClose} aria-label="Close" className="text-neutral-400 hover:text-white">
             <CloseIcon />
           </button>
         </div>
@@ -83,12 +84,12 @@ function MembersModal({
               </div>
               {member.role === 'owner' && (
                 <span className="px-2 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
-                  オーナー
+                  繧ｪ繝ｼ繝翫・
                 </span>
               )}
               {member.role === 'moderator' && (
                 <span className="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-400 rounded">
-                  モデレーター
+                  繝｢繝・Ξ繝ｼ繧ｿ繝ｼ
                 </span>
               )}
             </Link>
@@ -102,6 +103,7 @@ function MembersModal({
 export function CommunityChatPage({ actor }: CommunityChatPageProps) {
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
+  const { t } = useI18n();
 
   const [community, setCommunity] = useState<CommunityDetail | null>(null);
   const [messages, setMessages] = useState<CommunityMessage[]>([]);
@@ -110,6 +112,7 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
   const [inputValue, setInputValue] = useState('');
   const [sending, setSending] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -129,6 +132,7 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
 
   const loadData = async () => {
     if (!name) return;
+    setErrorMessage(null);
     try {
       const [communityData, messagesData, membersData] = await Promise.all([
         fetchCommunity(name),
@@ -140,6 +144,7 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
       setMembers(membersData);
     } catch (e) {
       console.error('Failed to load community:', e);
+      setErrorMessage(t('common.error'));
     } finally {
       setLoading(false);
     }
@@ -151,6 +156,7 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
     const content = inputValue.trim();
     setInputValue('');
     setSending(true);
+    setErrorMessage(null);
 
     try {
       const message = await sendCommunityMessage(name, content);
@@ -158,6 +164,7 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
     } catch (e) {
       console.error('Failed to send message:', e);
       setInputValue(content);
+      setErrorMessage(t('common.error'));
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -173,14 +180,14 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
 
   const handleLeave = async () => {
     if (!name || !community) return;
-    if (!confirm('このグループを退出しますか？')) return;
+    if (!confirm(t('communityChat.leaveConfirm'))) return;
 
     try {
       await leaveCommunity(name);
       navigate('/groups');
     } catch (e) {
       console.error('Failed to leave:', e);
-      alert(e instanceof Error ? e.message : 'Failed to leave');
+      setErrorMessage(t('common.error'));
     }
   };
 
@@ -197,8 +204,8 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
     yesterday.setDate(yesterday.getDate() - 1);
     const isYesterday = date.toDateString() === yesterday.toDateString();
 
-    if (isToday) return '今日';
-    if (isYesterday) return '昨日';
+    if (isToday) return '莉頑律';
+    if (isYesterday) return '譏ｨ譌･';
     return date.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' });
   };
 
@@ -218,7 +225,7 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full bg-black">
-        <div className="text-neutral-500">読み込み中...</div>
+        <div className="text-neutral-500">{t('messages.loading')}</div>
       </div>
     );
   }
@@ -226,12 +233,12 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
   if (!community) {
     return (
       <div className="flex flex-col items-center justify-center h-full bg-black">
-        <div className="text-neutral-500 mb-4">グループが見つかりません</div>
+        <div className="text-neutral-500 mb-4">{t('communityChat.notFound')}</div>
         <button
           onClick={() => navigate('/groups')}
           className="px-4 py-2 bg-neutral-800 text-white rounded-lg hover:bg-neutral-700 transition-colors"
         >
-          戻る
+          {t('communityChat.backToList')}
         </button>
       </div>
     );
@@ -240,12 +247,12 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
   if (!community.is_member) {
     return (
       <div className="flex flex-col items-center justify-center h-full bg-black">
-        <div className="text-neutral-500 mb-4">このグループに参加していません</div>
+        <div className="text-neutral-500 mb-4">{t('communityChat.notMember')}</div>
         <button
           onClick={() => navigate('/groups')}
           className="px-4 py-2 bg-neutral-800 text-white rounded-lg hover:bg-neutral-700 transition-colors"
         >
-          グループ一覧へ
+          {t('communityChat.backToList')}
         </button>
       </div>
     );
@@ -258,6 +265,7 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
         <div className="flex items-center gap-3 px-2 py-2">
           <button
             onClick={() => navigate('/groups')}
+            aria-label="Back"
             className="p-2 text-neutral-400 hover:text-white transition-colors"
           >
             <BackIcon />
@@ -277,11 +285,12 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
             <div className="font-semibold text-white truncate">
               {community.display_name || community.name}
             </div>
-            <div className="text-xs text-neutral-500">{community.member_count}人</div>
+            <div className="text-xs text-neutral-500">{community.member_count}莠ｺ</div>
           </div>
 
           <button
             onClick={() => setShowMembers(true)}
+            aria-label="View members"
             className="p-2 text-neutral-400 hover:text-white transition-colors"
           >
             <UsersIcon />
@@ -291,10 +300,15 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
+        {errorMessage && (
+          <div className="mb-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-400">
+            {errorMessage}
+          </div>
+        )}
         {messages.length === 0 ? (
           <div className="text-center text-neutral-500 py-8">
-            <p>メッセージはまだありません</p>
-            <p className="text-sm mt-2">最初のメッセージを送ってみましょう</p>
+            <p>{t('communityChat.noMessages')}</p>
+            <p className="text-sm mt-2">{t('communityChat.noMessagesHint')}</p>
           </div>
         ) : (
           groupedMessages.map((group, groupIndex) => (
@@ -373,7 +387,7 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="メッセージを入力..."
+            placeholder={t('messages.placeholder')}
             rows={1}
             className="flex-1 bg-neutral-800 text-white rounded-2xl px-4 py-2 outline-none resize-none max-h-32 focus:ring-2 focus:ring-blue-500"
             style={{ minHeight: '40px' }}
@@ -381,6 +395,7 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
           <button
             onClick={handleSend}
             disabled={!inputValue.trim() || sending}
+            aria-label="Send message"
             className="p-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
           >
             <SendIcon />
@@ -392,7 +407,7 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
           onClick={handleLeave}
           className="mt-3 w-full text-center text-sm text-red-400 hover:text-red-300 transition-colors"
         >
-          グループを退出
+          {t('communityChat.leave')}
         </button>
       </div>
 
@@ -407,3 +422,17 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+

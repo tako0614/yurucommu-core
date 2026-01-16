@@ -111,6 +111,8 @@ export function BookmarksPage({ actor }: BookmarksPageProps) {
                 <div className="flex items-center gap-6 mt-3">
                   <button
                     onClick={() => handleLike(post)}
+                    aria-label={post.liked ? 'Unlike' : 'Like'}
+                    aria-pressed={post.liked}
                     className={`flex items-center gap-2 transition-colors ${post.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'}`}
                   >
                     <HeartIcon filled={post.liked || false} />
@@ -120,6 +122,7 @@ export function BookmarksPage({ actor }: BookmarksPageProps) {
                   </button>
                   <button
                     onClick={() => handleUnbookmark(post.ap_id)}
+                    aria-label="Remove bookmark"
                     className="flex items-center gap-2 text-blue-500 hover:text-blue-400 transition-colors"
                     title="Remove bookmark"
                   >

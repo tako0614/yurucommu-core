@@ -44,16 +44,30 @@ function CreateCommunityModal({
   const [summary, setSummary] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const namePattern = /^[a-zA-Z0-9_]+$/;
+  const trimmedName = name.trim();
+  const isNameValid = trimmedName.length >= 2 && namePattern.test(trimmedName);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!trimmedName) {
+      setError('Group ID is required');
+      return;
+    }
+    if (trimmedName.length < 2) {
+      setError('Group ID must be at least 2 characters');
+      return;
+    }
+    if (!namePattern.test(trimmedName)) {
+      setError('Use letters, numbers, and underscores only');
+      return;
+    }
 
     setLoading(true);
     setError(null);
     try {
       const community = await createCommunity({
-        name: name.trim(),
+        name: trimmedName,
         display_name: displayName.trim() || undefined,
         summary: summary.trim() || undefined,
       });
@@ -71,7 +85,7 @@ function CreateCommunityModal({
       <div className="bg-neutral-900 rounded-xl w-full max-w-md">
         <div className="flex items-center justify-between p-4 border-b border-neutral-800">
           <h2 className="text-lg font-bold text-white">グループを作成</h2>
-          <button onClick={onClose} className="text-neutral-400 hover:text-white">
+          <button onClick={onClose} aria-label="Close" className="text-neutral-400 hover:text-white">
             <CloseIcon />
           </button>
         </div>
@@ -84,6 +98,7 @@ function CreateCommunityModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="my_group"
+              minLength={2}
               pattern="^[a-zA-Z0-9_]+$"
               className="w-full bg-neutral-800 text-white rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-500"
               required
@@ -121,7 +136,7 @@ function CreateCommunityModal({
 
           <button
             type="submit"
-            disabled={loading || !name.trim()}
+            disabled={loading || !isNameValid}
             className="w-full bg-blue-500 text-white font-medium py-2 rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
           >
             {loading ? '作成中...' : '作成'}
@@ -210,6 +225,7 @@ export function GroupsPage({ actor }: GroupsPageProps) {
           <h1 className="text-xl font-bold text-white">グループ</h1>
           <button
             onClick={() => setShowCreateModal(true)}
+            aria-label="Create group"
             className="p-2 text-neutral-400 hover:text-white transition-colors"
           >
             <PlusIcon />

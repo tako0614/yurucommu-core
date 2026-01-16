@@ -183,6 +183,7 @@ export function QRCodeModal({ actor, onClose }: QRCodeModalProps) {
           <h2 className="text-lg font-bold text-white">QR Code</h2>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="p-1 hover:bg-neutral-800 rounded-full transition-colors text-neutral-400 hover:text-white"
           >
             <CloseIcon />

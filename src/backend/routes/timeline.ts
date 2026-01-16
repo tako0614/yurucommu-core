@@ -19,6 +19,7 @@ timeline.get('/', async (c) => {
 
   // Build WHERE clause for reuse
   let whereClause = `o.type = 'Note' AND o.visibility = 'public' AND o.in_reply_to IS NULL
+      AND (o.audience_json IS NULL OR o.audience_json = '[]')
       AND NOT EXISTS (
         SELECT 1 FROM blocks b WHERE b.blocker_ap_id = ? AND b.blocked_ap_id = o.attributed_to
       )
@@ -109,8 +110,9 @@ timeline.get('/following', async (c) => {
       ) OR o.attributed_to = ?)
       AND (
         o.attributed_to = ?
-        OR o.visibility IN ('public', 'unlisted', 'followers', 'followers_only')
+        OR o.visibility IN ('public', 'unlisted', 'followers')
       )
+      AND (o.audience_json IS NULL OR o.audience_json = '[]')
       AND NOT EXISTS (
         SELECT 1 FROM blocks b WHERE b.blocker_ap_id = ? AND b.blocked_ap_id = o.attributed_to
       )

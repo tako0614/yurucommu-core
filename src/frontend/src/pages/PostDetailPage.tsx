@@ -156,7 +156,7 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
       <div className="flex flex-col h-full">
         <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
           <div className="flex items-center gap-4 px-4 py-3">
-            <button onClick={() => navigate(-1)} className="p-1 hover:bg-neutral-800 rounded-full">
+            <button onClick={() => navigate(-1)} aria-label="Back" className="p-1 hover:bg-neutral-800 rounded-full">
               <BackIcon />
             </button>
             <h1 className="text-xl font-bold">Post</h1>
@@ -172,7 +172,7 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
       <div className="flex flex-col h-full">
         <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
           <div className="flex items-center gap-4 px-4 py-3">
-            <button onClick={() => navigate(-1)} className="p-1 hover:bg-neutral-800 rounded-full">
+            <button onClick={() => navigate(-1)} aria-label="Back" className="p-1 hover:bg-neutral-800 rounded-full">
               <BackIcon />
             </button>
             <h1 className="text-xl font-bold">Post</h1>
@@ -187,7 +187,7 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
     <div className="flex flex-col h-full">
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
         <div className="flex items-center gap-4 px-4 py-3">
-          <button onClick={() => navigate(-1)} className="p-1 hover:bg-neutral-800 rounded-full">
+          <button onClick={() => navigate(-1)} aria-label="Back" className="p-1 hover:bg-neutral-800 rounded-full">
             <BackIcon />
           </button>
           <h1 className="text-xl font-bold">Post</h1>
@@ -260,11 +260,13 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
             )}
           </div>
           <div className="flex items-center justify-around mt-3 pt-3 border-t border-neutral-800">
-            <button className="flex items-center gap-2 p-2 text-neutral-500 hover:text-blue-500 transition-colors">
+            <button aria-label="Reply" className="flex items-center gap-2 p-2 text-neutral-500 hover:text-blue-500 transition-colors">
               <ReplyIcon />
             </button>
             <button
               onClick={() => handleLike(post)}
+              aria-label={post.liked ? 'Unlike' : 'Like'}
+              aria-pressed={post.liked}
               className={`flex items-center gap-2 p-2 transition-colors ${
                 post.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'
               }`}
@@ -273,6 +275,8 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
             </button>
             <button
               onClick={handleBookmark}
+              aria-label={post.bookmarked ? 'Remove bookmark' : 'Bookmark'}
+              aria-pressed={post.bookmarked}
               className={`flex items-center gap-2 p-2 transition-colors ${
                 post.bookmarked ? 'text-blue-500' : 'text-neutral-500 hover:text-blue-500'
               }`}
@@ -332,6 +336,7 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
                 {reply.author.ap_id === actor.ap_id && (
                   <button
                     onClick={() => handleDelete(reply, true)}
+                    aria-label="Delete reply"
                     className="ml-auto p-1 text-neutral-500 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
                   >
                     <TrashIcon />
@@ -345,6 +350,8 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
               <div className="flex items-center gap-6 mt-2">
                 <button
                   onClick={() => handleLike(reply, true)}
+                  aria-label={reply.liked ? 'Unlike reply' : 'Like reply'}
+                  aria-pressed={reply.liked}
                   className={`flex items-center gap-2 transition-colors ${
                     reply.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'
                   }`}

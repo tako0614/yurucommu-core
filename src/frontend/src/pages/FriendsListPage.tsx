@@ -78,6 +78,7 @@ export function FriendsListPage({ actor }: FriendsListPageProps) {
         <div className="flex items-center gap-4 px-4 py-3">
           <button
             onClick={() => navigate(-1)}
+            aria-label="Back"
             className="p-2 -ml-2 hover:bg-neutral-900 rounded-full"
           >
             <BackIcon />

@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+﻿import { useState, useEffect, useRef, useCallback } from 'react';
 import { ActorStories, StoryOverlay } from '../../types';
-import { markStoryViewed, deleteStory, voteOnStory, likeStory, unlikeStory } from '../../lib/api';
+import { markStoryViewed, deleteStory, voteOnStory, likeStory, unlikeStory, shareStory } from '../../lib/api';
+import { useI18n } from '../../lib/i18n';
 import { UserAvatar } from '../UserAvatar';
 
 interface StoryViewerProps {
@@ -166,7 +167,7 @@ function renderOverlay(
             })}
           </div>
           {hasVotes && (
-            <p className="text-white/60 text-xs text-center mt-2">{votesTotal}票</p>
+            <p className="text-white/60 text-xs text-center mt-2">{votesTotal}逾ｨ</p>
           )}
         </div>
       </div>
@@ -202,7 +203,7 @@ function renderOverlay(
           className="bg-white text-black text-sm font-medium px-4 py-2 rounded-full hover:bg-neutral-200 transition-colors"
           onClick={(e) => e.stopPropagation()}
         >
-          {linkOverlay.name || 'リンクを開く'}
+          {linkOverlay.name || '繝ｪ繝ｳ繧ｯ繧帝幕縺・}
         </a>
       </div>
     );
@@ -213,6 +214,7 @@ function renderOverlay(
 }
 
 export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, onClose }: StoryViewerProps) {
+  const { t } = useI18n();
   const [localActorStories, setLocalActorStories] = useState(actorStories);
   const [actorIndex, setActorIndex] = useState(initialActorIndex);
   const [storyIndex, setStoryIndex] = useState(0);
@@ -223,6 +225,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
   const [mediaError, setMediaError] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const storyContainerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -236,6 +239,12 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
   useEffect(() => {
     setLocalActorStories(actorStories);
   }, [actorStories]);
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timeoutId = window.setTimeout(() => setToastMessage(null), 2000);
+    return () => window.clearTimeout(timeoutId);
+  }, [toastMessage]);
 
   // Update container size for overlay positioning
   useEffect(() => {
@@ -383,8 +392,9 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
       );
     } catch (err) {
       console.error('Failed to toggle story like:', err);
+      setToastMessage(t('common.error'));
     }
-  }, [currentStory]);
+  }, [currentStory, t]);
 
   const handleShare = useCallback(async () => {
     if (!currentStory) return;
@@ -395,14 +405,47 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
           title: `${currentActorStories?.actor?.name || currentActorStories?.actor?.preferred_username || 'Story'}`,
           url: shareUrl,
         });
+        try {
+          const result = await shareStory(currentStory.ap_id);
+          setLocalActorStories(prev =>
+            prev.map(group => ({
+              ...group,
+              stories: group.stories.map(story =>
+                story.ap_id === currentStory.ap_id
+                  ? { ...story, share_count: result.share_count }
+                  : story
+              ),
+            }))
+          );
+        } catch (err) {
+          console.error('Failed to record story share:', err);
+          setToastMessage(t('story.shareRecordFailed'));
+        }
       } else if (navigator.clipboard) {
         await navigator.clipboard.writeText(shareUrl);
-        alert('リンクをコピーしました');
+        setToastMessage(t('story.shareCopied'));
+        try {
+          const result = await shareStory(currentStory.ap_id);
+          setLocalActorStories(prev =>
+            prev.map(group => ({
+              ...group,
+              stories: group.stories.map(story =>
+                story.ap_id === currentStory.ap_id
+                  ? { ...story, share_count: result.share_count }
+                  : story
+              ),
+            }))
+          );
+        } catch (err) {
+          console.error('Failed to record story share:', err);
+          setToastMessage(t('story.shareRecordFailed'));
+        }
       }
     } catch (err) {
       console.error('Failed to share story:', err);
+      setToastMessage(t('story.shareFailed'));
     }
-  }, [currentStory, currentActorStories?.actor]);
+  }, [currentStory, currentActorStories?.actor, t]);
 
   // Handle video ended event
   const handleVideoEnded = useCallback(() => {
@@ -454,10 +497,11 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
       }
     } catch (e) {
       console.error('Failed to delete story:', e);
+      setToastMessage(t('common.error'));
     } finally {
       setShowDeleteConfirm(false);
     }
-  }, [currentStory, currentActorStories, actorIndex, localActorStories.length, goNext, onClose]);
+  }, [currentStory, currentActorStories, actorIndex, localActorStories.length, goNext, onClose, t]);
 
   // Handle click/tap navigation
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -549,6 +593,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
           {isOwnStory && (
             <button
               onClick={handleDeleteStory}
+              aria-label="Delete story"
               className="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
             >
               <TrashIcon />
@@ -556,6 +601,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
           )}
           <button
             onClick={onClose}
+            aria-label="Close"
             className="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
           >
             <CloseIcon />
@@ -606,7 +652,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
             <div className="absolute inset-0 flex items-center justify-center bg-neutral-900">
               <div className="text-center text-neutral-400">
                 <ErrorIcon />
-                <p className="mt-2">メディアを読み込めませんでした</p>
+                <p className="mt-2">繝｡繝・ぅ繧｢繧定ｪｭ縺ｿ霎ｼ繧√∪縺帙ｓ縺ｧ縺励◆</p>
               </div>
             </div>
           )}
@@ -634,13 +680,19 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
         </div>
       </div>
 
+      {toastMessage && (
+        <div className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/80 px-4 py-2 text-sm text-white shadow-lg">
+          {toastMessage}
+        </div>
+      )}
+
       {/* Action bar at bottom */}
       <div className="absolute bottom-0 left-0 right-0 z-20 p-4 flex items-center gap-3">
         {/* Message input */}
         <div className="flex-1 flex items-center gap-2 border border-white/40 rounded-full px-4 py-2">
           <input
             type="text"
-            placeholder="メッセージを送信..."
+            placeholder="繝｡繝・そ繝ｼ繧ｸ繧帝∽ｿ｡..."
             className="flex-1 bg-transparent text-white placeholder-white/50 text-sm outline-none"
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
@@ -685,20 +737,20 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
       {showDeleteConfirm && (
         <div className="absolute inset-0 z-30 bg-black/80 flex items-center justify-center">
           <div className="bg-neutral-800 rounded-2xl p-6 max-w-xs mx-4">
-            <h3 className="text-white font-semibold text-lg mb-2">ストーリーを削除</h3>
-            <p className="text-neutral-400 text-sm mb-4">このストーリーを削除しますか？この操作は取り消せません。</p>
+            <h3 className="text-white font-semibold text-lg mb-2">繧ｹ繝医・繝ｪ繝ｼ繧貞炎髯､</h3>
+            <p className="text-neutral-400 text-sm mb-4">縺薙・繧ｹ繝医・繝ｪ繝ｼ繧貞炎髯､縺励∪縺吶°・溘％縺ｮ謫堺ｽ懊・蜿悶ｊ豸医○縺ｾ縺帙ｓ縲・/p>
             <div className="flex gap-3">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
                 className="flex-1 px-4 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-white transition-colors"
               >
-                キャンセル
+                繧ｭ繝｣繝ｳ繧ｻ繝ｫ
               </button>
               <button
                 onClick={confirmDelete}
                 className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 rounded-lg text-white transition-colors"
               >
-                削除
+                蜑企勁
               </button>
             </div>
           </div>
@@ -707,3 +759,4 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
     </div>
   );
 }
+

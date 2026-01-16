@@ -97,8 +97,7 @@ export function rateLimit(config: RateLimitConfig) {
 
       return c.json({
         error: 'Too many requests',
-        retryAfter,
-        message: `Rate limit exceeded. Try again in ${retryAfter} seconds.`,
+        retry_after: retryAfter,
       }, 429);
     }
 

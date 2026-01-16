@@ -277,7 +277,7 @@ export function ProfilePage({ actor }: ProfilePageProps) {
           {/* Left: Back button (only when viewing other's profile) */}
           <div className="w-10">
             {actorId && (
-              <Link to="/" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full inline-block">
+              <Link to="/" aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full inline-block">
                 <BackIcon />
               </Link>
             )}
@@ -375,6 +375,7 @@ export function ProfilePage({ actor }: ProfilePageProps) {
                 <div className="relative">
                   <button
                     onClick={() => setShowMenu(!showMenu)}
+                    aria-label="More options"
                     className="p-2 border border-neutral-600 rounded-full hover:bg-neutral-900 transition-colors"
                   >
                     <MoreIcon />
@@ -509,12 +510,14 @@ export function ProfilePage({ actor }: ProfilePageProps) {
                     />
                     {/* Actions */}
                     <div className="flex items-center gap-6 mt-3">
-                      <button className="flex items-center gap-2 text-neutral-500 hover:text-blue-500 transition-colors">
+                      <button aria-label="Reply" className="flex items-center gap-2 text-neutral-500 hover:text-blue-500 transition-colors">
                         <ReplyIcon />
                         <span className="text-sm">{post.reply_count || ''}</span>
                       </button>
                       <button
                         onClick={() => handleLike(post)}
+                        aria-label={post.liked ? 'Unlike' : 'Like'}
+                        aria-pressed={post.liked}
                         className={`flex items-center gap-2 transition-colors ${
                           post.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'
                         }`}
@@ -546,6 +549,7 @@ export function ProfilePage({ actor }: ProfilePageProps) {
               <div className="flex items-center gap-4">
                 <button
                   onClick={() => setShowEditModal(false)}
+                  aria-label="Close"
                   className="p-1 hover:bg-neutral-800 rounded-full transition-colors"
                 >
                   <CloseIcon />
@@ -613,6 +617,7 @@ export function ProfilePage({ actor }: ProfilePageProps) {
               <div className="flex items-center gap-4">
                 <button
                   onClick={() => setShowFollowModal(null)}
+                  aria-label="Close"
                   className="p-1 hover:bg-neutral-800 rounded-full transition-colors"
                 >
                   <CloseIcon />
