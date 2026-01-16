@@ -9,27 +9,62 @@ import {
   fetchCommunityMessages,
   sendCommunityMessage,
   CommunityMessage,
+  fetchDMRequests,
+  DMRequest,
+  acceptDMRequest,
+  rejectDMRequest,
 } from '../lib/api';
 
 interface DMPageProps {
   actor: Actor;
 }
 
-type TabType = 'communities' | 'friends';
+type TabType = 'all' | 'friends' | 'communities' | 'requests';
 
-// Contact item in the list
+// Format time for display (LINE style)
+function formatMessageTime(dateString: string | null): string {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const oneDay = 24 * 60 * 60 * 1000;
+  const oneWeek = 7 * oneDay;
+  const oneYear = 365 * oneDay;
+
+  if (diff < oneDay && date.getDate() === now.getDate()) {
+    // Today - show time only
+    return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+  } else if (diff < oneWeek) {
+    // This week - show day name
+    const days = ['日', '月', '火', '水', '木', '金', '土'];
+    return days[date.getDay()];
+  } else if (diff < oneYear) {
+    // This year - show month/day
+    return `${date.getMonth() + 1}/${date.getDate()}`;
+  } else {
+    // Older - show year/month/day
+    return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+  }
+}
+
+// Contact item in the list (LINE style)
 function ContactItem({
   contact,
   onClick,
+  isPinned = false,
+  unreadCount = 0,
 }: {
   contact: DMContact;
   onClick: () => void;
+  isPinned?: boolean;
+  unreadCount?: number;
 }) {
   return (
     <button
       onClick={onClick}
       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900 active:bg-neutral-800 transition-colors"
     >
+      {/* Avatar */}
       <div className="relative flex-shrink-0">
         {contact.icon_url ? (
           <img
@@ -42,6 +77,15 @@ function ContactItem({
             {(contact.name || contact.preferred_username)?.[0]?.toUpperCase() || '?'}
           </div>
         )}
+        {/* Pin badge */}
+        {isPinned && (
+          <div className="absolute -top-1 -left-1 w-5 h-5 bg-green-500 rounded-full flex items-center justify-center border-2 border-black">
+            <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M16,12V4H17V2H7V4H8V12L6,14V16H11.2V22H12.8V16H18V14L16,12Z" />
+            </svg>
+          </div>
+        )}
+        {/* Community badge */}
         {contact.type === 'community' && (
           <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center border-2 border-black">
             <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -50,13 +94,15 @@ function ContactItem({
           </div>
         )}
       </div>
+
+      {/* Content */}
       <div className="flex-1 min-w-0 text-left">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-white truncate text-base">
             {contact.name || contact.preferred_username}
           </span>
           {contact.type === 'community' && contact.member_count !== undefined && (
-            <span className="text-xs text-neutral-500">{contact.member_count}人</span>
+            <span className="text-xs text-neutral-500">({contact.member_count})</span>
           )}
         </div>
         {contact.last_message ? (
@@ -70,10 +116,93 @@ function ContactItem({
           </p>
         )}
       </div>
-      <svg className="w-5 h-5 text-neutral-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-      </svg>
+
+      {/* Time and unread badge */}
+      <div className="flex flex-col items-end gap-1 flex-shrink-0">
+        <span className="text-xs text-neutral-500">
+          {formatMessageTime(contact.last_message_at)}
+        </span>
+        {unreadCount > 0 && (
+          <span className="min-w-[20px] h-5 px-1.5 bg-green-500 rounded-full text-xs flex items-center justify-center text-white font-bold">
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </span>
+        )}
+      </div>
     </button>
+  );
+}
+
+// Request item
+function RequestItem({
+  request,
+  onAccept,
+  onReject,
+}: {
+  request: DMRequest;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  const [processing, setProcessing] = useState(false);
+
+  const handleAccept = async () => {
+    setProcessing(true);
+    try {
+      await onAccept();
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleReject = async () => {
+    setProcessing(true);
+    try {
+      await onReject();
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  return (
+    <div className="px-4 py-4 border-b border-neutral-900">
+      <div className="flex items-start gap-3">
+        {request.sender.icon_url ? (
+          <img
+            src={request.sender.icon_url}
+            alt={request.sender.name || request.sender.preferred_username}
+            className="w-12 h-12 rounded-full object-cover flex-shrink-0"
+          />
+        ) : (
+          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold flex-shrink-0">
+            {(request.sender.name || request.sender.preferred_username)?.[0]?.toUpperCase() || '?'}
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-white">
+            {request.sender.name || request.sender.preferred_username}
+          </div>
+          <div className="text-sm text-neutral-500">@{request.sender.preferred_username}</div>
+          <div className="mt-2 p-3 bg-neutral-900 rounded-lg">
+            <p className="text-sm text-neutral-300 whitespace-pre-wrap">{request.content}</p>
+          </div>
+          <div className="flex gap-2 mt-3">
+            <button
+              onClick={handleAccept}
+              disabled={processing}
+              className="flex-1 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 text-white rounded-full font-medium text-sm transition-colors"
+            >
+              承認
+            </button>
+            <button
+              onClick={handleReject}
+              disabled={processing}
+              className="flex-1 py-2 bg-neutral-800 hover:bg-neutral-700 disabled:bg-neutral-900 text-white rounded-full font-medium text-sm transition-colors"
+            >
+              拒否
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -243,11 +372,14 @@ function Chat({
 export function DMPage({ actor }: DMPageProps) {
   const { contactId } = useParams<{ contactId?: string }>();
   const navigate = useNavigate();
-  const [mutualFollowers, setMutualFollowers] = useState<DMContact[]>([]);
+  const [contacts, setContacts] = useState<DMContact[]>([]);
   const [communities, setCommunities] = useState<DMContact[]>([]);
+  const [requests, setRequests] = useState<DMRequest[]>([]);
+  const [requestCount, setRequestCount] = useState(0);
   const [selectedContact, setSelectedContact] = useState<DMContact | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<TabType>('friends');
+  const [activeTab, setActiveTab] = useState<TabType>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const tabContainerRef = useRef<HTMLDivElement>(null);
 
   // Touch handling for swipe
@@ -257,8 +389,9 @@ export function DMPage({ actor }: DMPageProps) {
   const loadContacts = useCallback(async () => {
     try {
       const data = await fetchDMContacts();
-      setMutualFollowers(data.mutual_followers);
+      setContacts(data.mutual_followers);
       setCommunities(data.communities);
+      setRequestCount(data.request_count);
 
       // Select contact from URL param
       if (contactId) {
@@ -274,9 +407,24 @@ export function DMPage({ actor }: DMPageProps) {
     }
   }, [contactId]);
 
+  const loadRequests = useCallback(async () => {
+    try {
+      const data = await fetchDMRequests();
+      setRequests(data);
+    } catch (e) {
+      console.error('Failed to load requests:', e);
+    }
+  }, []);
+
   useEffect(() => {
     loadContacts();
   }, [loadContacts]);
+
+  useEffect(() => {
+    if (activeTab === 'requests') {
+      loadRequests();
+    }
+  }, [activeTab, loadRequests]);
 
   const handleSelectContact = (contact: DMContact) => {
     setSelectedContact(contact);
@@ -288,7 +436,29 @@ export function DMPage({ actor }: DMPageProps) {
     navigate('/dm');
   };
 
+  const handleAcceptRequest = async (requestId: string) => {
+    try {
+      await acceptDMRequest(requestId);
+      setRequests(prev => prev.filter(r => r.id !== requestId));
+      setRequestCount(prev => Math.max(0, prev - 1));
+      loadContacts(); // Reload contacts to show new contact
+    } catch (e) {
+      console.error('Failed to accept request:', e);
+    }
+  };
+
+  const handleRejectRequest = async (requestId: string) => {
+    try {
+      await rejectDMRequest(requestId);
+      setRequests(prev => prev.filter(r => r.id !== requestId));
+      setRequestCount(prev => Math.max(0, prev - 1));
+    } catch (e) {
+      console.error('Failed to reject request:', e);
+    }
+  };
+
   // Swipe handlers
+  const tabs: TabType[] = ['all', 'friends', 'communities', 'requests'];
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
   };
@@ -300,20 +470,54 @@ export function DMPage({ actor }: DMPageProps) {
   const handleTouchEnd = () => {
     const diff = touchStartX.current - touchEndX.current;
     const threshold = 50;
+    const currentIndex = tabs.indexOf(activeTab);
 
     if (Math.abs(diff) > threshold) {
-      if (diff > 0 && activeTab === 'friends') {
-        setActiveTab('communities');
-      } else if (diff < 0 && activeTab === 'communities') {
-        setActiveTab('friends');
+      if (diff > 0 && currentIndex < tabs.length - 1) {
+        setActiveTab(tabs[currentIndex + 1]);
+      } else if (diff < 0 && currentIndex > 0) {
+        setActiveTab(tabs[currentIndex - 1]);
       }
     }
   };
 
   const showChat = selectedContact !== null;
 
-  // Get current tab's contacts
-  const currentContacts = activeTab === 'friends' ? mutualFollowers : communities;
+  // Get current tab's content with search filter
+  const getCurrentContent = () => {
+    let result: DMContact[] = [];
+    switch (activeTab) {
+      case 'all':
+        result = [...contacts, ...communities].sort((a, b) => {
+          const aTime = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+          const bTime = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+          return bTime - aTime;
+        });
+        break;
+      case 'friends':
+        result = contacts;
+        break;
+      case 'communities':
+        result = communities;
+        break;
+      default:
+        result = [];
+    }
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(c =>
+        (c.name?.toLowerCase().includes(query)) ||
+        c.preferred_username.toLowerCase().includes(query)
+      );
+    }
+
+    return result;
+  };
+
+  const currentContacts = getCurrentContent();
+  const tabIndex = tabs.indexOf(activeTab);
 
   return (
     <div className="flex flex-col h-full">
@@ -322,36 +526,94 @@ export function DMPage({ actor }: DMPageProps) {
         <Chat contact={selectedContact} actor={actor} onBack={handleBack} />
       ) : (
         <>
-          {/* Header with tabs */}
-          <header className="sticky top-0 bg-black/95 backdrop-blur-sm border-b border-neutral-900 z-10">
-            <div className="px-4 py-3">
-              <h1 className="text-xl font-bold text-center">メッセージ</h1>
+          {/* Header - LINE style */}
+          <header className="sticky top-0 bg-black/95 backdrop-blur-sm z-10">
+            {/* Title bar with icons */}
+            <div className="flex items-center justify-between px-4 py-3">
+              <h1 className="text-xl font-bold text-white">トーク</h1>
+              <div className="flex items-center gap-2">
+                {/* Search icon */}
+                <button className="p-2 text-neutral-400 hover:text-white transition-colors">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </button>
+                {/* New chat icon */}
+                <button className="p-2 text-neutral-400 hover:text-white transition-colors">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  </svg>
+                </button>
+                {/* More icon */}
+                <button className="p-2 text-neutral-400 hover:text-white transition-colors">
+                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
-            {/* Tab bar */}
-            <div className="relative flex">
+            {/* Search bar */}
+            <div className="px-4 pb-3">
+              <div className="relative">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="検索"
+                  className="w-full pl-10 pr-4 py-2 bg-neutral-900 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-700"
+                />
+              </div>
+            </div>
+
+            {/* Tab bar - LINE style with underline on active */}
+            <div className="relative flex overflow-x-auto scrollbar-hide border-b border-neutral-900">
+              <button
+                onClick={() => setActiveTab('all')}
+                className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
+                  activeTab === 'all' ? 'text-white' : 'text-neutral-500'
+                }`}
+              >
+                すべて
+              </button>
               <button
                 onClick={() => setActiveTab('friends')}
-                className={`flex-1 py-3 text-center font-medium transition-colors ${
+                className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
                   activeTab === 'friends' ? 'text-white' : 'text-neutral-500'
                 }`}
               >
-                友達
+                友だち
               </button>
               <button
                 onClick={() => setActiveTab('communities')}
-                className={`flex-1 py-3 text-center font-medium transition-colors ${
+                className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
                   activeTab === 'communities' ? 'text-white' : 'text-neutral-500'
                 }`}
               >
-                コミュニティ
+                グループ
               </button>
-              {/* Tab indicator */}
+              <button
+                onClick={() => setActiveTab('requests')}
+                className={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors relative ${
+                  activeTab === 'requests' ? 'text-white' : 'text-neutral-500'
+                }`}
+              >
+                リクエスト
+                {requestCount > 0 && (
+                  <span className="absolute top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-green-500 rounded-full text-[10px] flex items-center justify-center text-white font-bold">
+                    {requestCount > 99 ? '99+' : requestCount}
+                  </span>
+                )}
+              </button>
+              {/* Tab indicator - underline style */}
               <div
-                className="absolute bottom-0 h-0.5 bg-white transition-transform duration-200"
+                className="absolute bottom-0 h-0.5 bg-green-500 transition-all duration-200"
                 style={{
-                  width: '50%',
-                  transform: `translateX(${activeTab === 'friends' ? '0%' : '100%'})`,
+                  width: tabIndex === 0 ? '52px' : tabIndex === 1 ? '52px' : tabIndex === 2 ? '64px' : '72px',
+                  left: tabIndex === 0 ? '0px' : tabIndex === 1 ? '68px' : tabIndex === 2 ? '136px' : '216px',
                 }}
               />
             </div>
@@ -367,30 +629,56 @@ export function DMPage({ actor }: DMPageProps) {
           >
             {loading ? (
               <div className="p-8 text-center text-neutral-500">Loading...</div>
+            ) : activeTab === 'requests' ? (
+              // Requests tab
+              requests.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center min-h-[50vh]">
+                  <div className="w-20 h-20 mb-4 rounded-full bg-neutral-800 flex items-center justify-center">
+                    <svg className="w-10 h-10 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <p className="text-neutral-400 mb-2 text-lg font-medium">リクエストがありません</p>
+                  <p className="text-neutral-500 text-sm">
+                    新しいメッセージリクエストが<br />ここに表示されます
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  {requests.map((request) => (
+                    <RequestItem
+                      key={request.id}
+                      request={request}
+                      onAccept={() => handleAcceptRequest(request.id)}
+                      onReject={() => handleRejectRequest(request.id)}
+                    />
+                  ))}
+                </div>
+              )
             ) : currentContacts.length === 0 ? (
+              // Empty state for all/friends/communities
               <div className="flex-1 flex flex-col items-center justify-center p-8 text-center min-h-[50vh]">
                 <div className="w-20 h-20 mb-4 rounded-full bg-neutral-800 flex items-center justify-center">
-                  {activeTab === 'friends' ? (
-                    <svg className="w-10 h-10 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                  ) : (
-                    <svg className="w-10 h-10 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                  )}
+                  <svg className="w-10 h-10 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  </svg>
                 </div>
                 <p className="text-neutral-400 mb-2 text-lg font-medium">
-                  {activeTab === 'friends' ? '友達がいません' : 'コミュニティがありません'}
+                  {searchQuery ? '検索結果がありません' : activeTab === 'all' ? 'トークがありません' : activeTab === 'friends' ? '友だちがいません' : 'グループがありません'}
                 </p>
                 <p className="text-neutral-500 text-sm">
-                  {activeTab === 'friends'
+                  {searchQuery
+                    ? '別のキーワードで検索してください'
+                    : activeTab === 'all'
+                    ? '友だちやグループとの\nトークがここに表示されます'
+                    : activeTab === 'friends'
                     ? '相互フォローしているユーザーが\nここに表示されます'
                     : '参加しているコミュニティが\nここに表示されます'
                   }
                 </p>
               </div>
             ) : (
+              // Contact list
               <div className="divide-y divide-neutral-900">
                 {currentContacts.map((contact) => (
                   <ContactItem

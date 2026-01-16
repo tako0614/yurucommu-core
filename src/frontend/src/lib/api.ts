@@ -35,6 +35,42 @@ export async function logout(): Promise<void> {
   await fetch('/api/auth/logout', { method: 'POST' });
 }
 
+export interface AccountInfo {
+  ap_id: string;
+  preferred_username: string;
+  name: string | null;
+  icon_url: string | null;
+}
+
+export async function fetchAccounts(): Promise<{ accounts: AccountInfo[]; current_ap_id: string }> {
+  const res = await fetch('/api/auth/accounts');
+  if (!res.ok) throw new Error('Failed to fetch accounts');
+  return res.json();
+}
+
+export async function switchAccount(apId: string): Promise<void> {
+  const res = await fetch('/api/auth/switch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ap_id: apId }),
+  });
+  if (!res.ok) throw new Error('Failed to switch account');
+}
+
+export async function createAccount(username: string, name?: string): Promise<AccountInfo> {
+  const res = await fetch('/api/auth/accounts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, name }),
+  });
+  if (!res.ok) {
+    const data = await res.json();
+    throw new Error(data.error || 'Failed to create account');
+  }
+  const data = await res.json();
+  return data.account;
+}
+
 // ===== Actors API =====
 
 export async function fetchActors(): Promise<Actor[]> {
@@ -50,7 +86,7 @@ export async function fetchActor(identifier: string): Promise<Actor> {
   return data.actor;
 }
 
-export async function updateProfile(data: { name?: string; summary?: string; icon_url?: string; header_url?: string }): Promise<void> {
+export async function updateProfile(data: { name?: string; summary?: string; icon_url?: string; header_url?: string; is_private?: boolean }): Promise<void> {
   const res = await fetch('/api/actors/me', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -348,16 +384,51 @@ export interface DMContact {
 export interface DMContactsResponse {
   mutual_followers: DMContact[];
   communities: DMContact[];
+  request_count: number;
 }
 
-// Fetch contacts (mutual followers + communities) - no room creation needed
+// Fetch contacts (followers + communities) - no room creation needed
 export async function fetchDMContacts(): Promise<DMContactsResponse> {
   const res = await fetch('/api/dm/contacts');
   const data = await res.json();
   return {
     mutual_followers: data.mutual_followers || [],
     communities: data.communities || [],
+    request_count: data.request_count || 0,
   };
+}
+
+// Message request types
+export interface DMRequest {
+  id: string;
+  sender: {
+    ap_id: string;
+    username: string;
+    preferred_username: string;
+    name: string | null;
+    icon_url: string | null;
+  };
+  content: string;
+  created_at: string;
+}
+
+// Fetch message requests
+export async function fetchDMRequests(): Promise<DMRequest[]> {
+  const res = await fetch('/api/dm/requests');
+  const data = await res.json();
+  return data.requests || [];
+}
+
+// Accept message request
+export async function acceptDMRequest(requestId: string): Promise<void> {
+  const res = await fetch(`/api/dm/requests/${requestId}/accept`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to accept request');
+}
+
+// Reject message request
+export async function rejectDMRequest(requestId: string): Promise<void> {
+  const res = await fetch(`/api/dm/requests/${requestId}/reject`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to reject request');
 }
 
 // Legacy: Fetch conversations (for backwards compatibility)
@@ -519,20 +590,28 @@ export async function createStory(story: {
 }
 
 export async function deleteStory(apId: string): Promise<void> {
-  const res = await fetch(`/api/stories/${encodeURIComponent(apId)}`, { method: 'DELETE' });
+  const res = await fetch('/api/stories/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ap_id: apId }),
+  });
   if (!res.ok) throw new Error('Failed to delete story');
 }
 
 export async function markStoryViewed(apId: string): Promise<void> {
-  const res = await fetch(`/api/stories/${encodeURIComponent(apId)}/view`, { method: 'POST' });
+  const res = await fetch('/api/stories/view', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ap_id: apId }),
+  });
   if (!res.ok) throw new Error('Failed to mark story as viewed');
 }
 
 export async function voteOnStory(apId: string, optionIndex: number): Promise<void> {
-  const res = await fetch(`/api/stories/${encodeURIComponent(apId)}/vote`, {
+  const res = await fetch('/api/stories/vote', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ option_index: optionIndex }),
+    body: JSON.stringify({ ap_id: apId, option_index: optionIndex }),
   });
   if (!res.ok) throw new Error('Failed to vote on story');
 }

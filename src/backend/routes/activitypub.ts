@@ -358,11 +358,10 @@ async function handleLike(c: any, activity: any, recipient: Actor, actor: string
   if (existing) return;
 
   // Create like record
-  const likeId = generateId();
   await c.env.DB.prepare(`
-    INSERT INTO likes (id, actor_ap_id, object_ap_id)
-    VALUES (?, ?, ?)
-  `).bind(likeId, actor, objectId).run();
+    INSERT INTO likes (actor_ap_id, object_ap_id)
+    VALUES (?, ?)
+  `).bind(actor, objectId).run();
 
   // Update like count on object
   await c.env.DB.prepare('UPDATE objects SET like_count = like_count + 1 WHERE ap_id = ?')

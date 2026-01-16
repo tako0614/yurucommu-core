@@ -89,4 +89,96 @@ auth.post('/logout', async (c) => {
   return c.json({ success: true });
 });
 
+// Get all accounts (for account switching)
+auth.get('/accounts', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Not authenticated' }, 401);
+
+  const accounts = await c.env.DB.prepare(`
+    SELECT ap_id, preferred_username, name, icon_url
+    FROM actors ORDER BY created_at ASC
+  `).all();
+
+  return c.json({
+    accounts: (accounts.results || []).map((a: any) => ({
+      ap_id: a.ap_id,
+      preferred_username: a.preferred_username,
+      name: a.name,
+      icon_url: a.icon_url,
+    })),
+    current_ap_id: actor.ap_id,
+  });
+});
+
+// Switch to a different account
+auth.post('/switch', async (c) => {
+  const currentActor = c.get('actor');
+  if (!currentActor) return c.json({ error: 'Not authenticated' }, 401);
+
+  const sessionId = getCookie(c, 'session');
+  if (!sessionId) return c.json({ error: 'No session' }, 401);
+
+  const body = await c.req.json<{ ap_id: string }>();
+  if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
+
+  // Verify the target account exists
+  const targetActor = await c.env.DB.prepare('SELECT ap_id FROM actors WHERE ap_id = ?')
+    .bind(body.ap_id).first();
+
+  if (!targetActor) return c.json({ error: 'Account not found' }, 404);
+
+  // Update session to point to new account
+  await c.env.DB.prepare('UPDATE sessions SET member_id = ? WHERE id = ?')
+    .bind(body.ap_id, sessionId).run();
+
+  return c.json({ success: true });
+});
+
+// Create a new account
+auth.post('/accounts', async (c) => {
+  const currentActor = c.get('actor');
+  if (!currentActor) return c.json({ error: 'Not authenticated' }, 401);
+
+  const body = await c.req.json<{ username: string; name?: string }>();
+  if (!body.username) return c.json({ error: 'username required' }, 400);
+
+  // Validate username (alphanumeric and underscore only)
+  if (!/^[a-zA-Z0-9_]+$/.test(body.username)) {
+    return c.json({ error: 'Invalid username. Use only letters, numbers, and underscores.' }, 400);
+  }
+
+  const baseUrl = c.env.APP_URL;
+  const apId = actorApId(baseUrl, body.username);
+
+  // Check if username already exists
+  const existing = await c.env.DB.prepare('SELECT ap_id FROM actors WHERE ap_id = ?')
+    .bind(apId).first();
+
+  if (existing) return c.json({ error: 'Username already taken' }, 400);
+
+  // Create new actor
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  await c.env.DB.prepare(`
+    INSERT INTO actors (ap_id, type, preferred_username, name, inbox, outbox, followers_url, following_url, public_key_pem, private_key_pem, takos_user_id, role)
+    VALUES (?, 'Person', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'member')
+  `).bind(
+    apId,
+    body.username,
+    body.name || body.username,
+    `${apId}/inbox`,
+    `${apId}/outbox`,
+    `${apId}/followers`,
+    `${apId}/following`,
+    publicKeyPem,
+    privateKeyPem,
+    `local:${body.username}`
+  ).run();
+
+  const newActor = await c.env.DB.prepare(`
+    SELECT ap_id, preferred_username, name, icon_url FROM actors WHERE ap_id = ?
+  `).bind(apId).first();
+
+  return c.json({ success: true, account: newActor });
+});
+
 export default auth;

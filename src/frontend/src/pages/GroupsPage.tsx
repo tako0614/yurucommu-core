@@ -233,7 +233,7 @@ export function GroupsPage({ actor }: GroupsPageProps) {
                 {myCommunities.map(community => (
                   <Link
                     key={community.ap_id}
-                    to={`/groups/${community.name}/chat`}
+                    to={`/groups/${community.name}`}
                     className="flex items-center gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors"
                   >
                     <div className="w-14 h-14 rounded-full bg-neutral-800 flex items-center justify-center overflow-hidden">

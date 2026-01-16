@@ -401,7 +401,7 @@ export function GroupPage({ actor }: GroupPageProps) {
             {/* Favorites Section */}
             {favorites.length > 0 && (
               <Link
-                to="/friends/favorites"
+                to="/friends"
                 className="flex items-center gap-4 px-4 py-3 hover:bg-neutral-900/30 transition-colors"
               >
                 <AvatarCollage
@@ -422,7 +422,7 @@ export function GroupPage({ actor }: GroupPageProps) {
 
             {/* Friends Section */}
             <Link
-              to="/friends/list"
+              to="/friends"
               className="flex items-center gap-4 px-4 py-3 hover:bg-neutral-900/30 transition-colors"
             >
               <AvatarCollage
