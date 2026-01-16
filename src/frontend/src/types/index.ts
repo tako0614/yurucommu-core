@@ -174,6 +174,7 @@ export interface Story {
   end_time: string;
   viewed: boolean;
   like_count?: number;
+  share_count?: number;
   liked?: boolean;
   // Poll/Question voting results
   votes?: { [key: number]: number };  // Index -> vote count

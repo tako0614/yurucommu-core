@@ -822,8 +822,8 @@ communities.post('/:identifier/messages', async (c) => {
   const audienceJson = JSON.stringify([community.ap_id]);
 
   await c.env.DB.prepare(`
-    INSERT INTO objects (ap_id, type, attributed_to, content, to_json, audience_json, visibility, published, local)
-    VALUES (?, 'Note', ?, ?, ?, ?, 'group', ?, 1)
+    INSERT INTO objects (ap_id, type, attributed_to, content, to_json, audience_json, visibility, published, is_local)
+    VALUES (?, 'Note', ?, ?, ?, ?, 'unlisted', ?, 1)
   `).bind(objectApId, actor.ap_id, body.content.trim(), toJson, audienceJson, now).run();
 
   // Add to object_recipients for efficient querying

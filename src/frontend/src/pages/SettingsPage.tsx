@@ -56,6 +56,9 @@ export function SettingsPage({ actor }: SettingsPageProps) {
   const [newUsername, setNewUsername] = useState('');
   const [newDisplayName, setNewDisplayName] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
+  const usernamePattern = /^[a-zA-Z0-9_]+$/;
+  const normalizedUsername = newUsername.trim();
+  const isUsernameValid = normalizedUsername.length > 0 && usernamePattern.test(normalizedUsername);
   const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
@@ -94,13 +97,17 @@ export function SettingsPage({ actor }: SettingsPageProps) {
   };
 
   const handleCreateAccount = async () => {
-    if (!newUsername.trim()) {
+    if (!normalizedUsername) {
       setCreateError('Username is required');
+      return;
+    }
+    if (!usernamePattern.test(normalizedUsername)) {
+      setCreateError('Use letters, numbers, and underscores only');
       return;
     }
     setCreateError(null);
     try {
-      const newAccount = await createAccount(newUsername.trim(), newDisplayName.trim() || undefined);
+      const newAccount = await createAccount(normalizedUsername, newDisplayName.trim() || undefined);
       setAccounts(prev => [...prev, newAccount]);
       setShowCreateAccount(false);
       setNewUsername('');
@@ -146,7 +153,7 @@ export function SettingsPage({ actor }: SettingsPageProps) {
       <div className="flex flex-col h-full">
         <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
           <div className="flex items-center gap-4 px-4 py-3">
-            <button onClick={() => setActiveSection('main')} className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
+            <button onClick={() => setActiveSection('main')} aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
@@ -186,7 +193,7 @@ export function SettingsPage({ actor }: SettingsPageProps) {
       <div className="flex flex-col h-full">
         <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
           <div className="flex items-center gap-4 px-4 py-3">
-            <button onClick={() => setActiveSection('main')} className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
+            <button onClick={() => setActiveSection('main')} aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
@@ -226,7 +233,7 @@ export function SettingsPage({ actor }: SettingsPageProps) {
       <div className="flex flex-col h-full">
         <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
           <div className="flex items-center gap-4 px-4 py-3">
-            <button onClick={() => setActiveSection('main')} className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
+            <button onClick={() => setActiveSection('main')} aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
@@ -269,7 +276,7 @@ export function SettingsPage({ actor }: SettingsPageProps) {
       <div className="flex flex-col h-full">
         <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
           <div className="flex items-center gap-4 px-4 py-3">
-            <button onClick={() => setActiveSection('main')} className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
+            <button onClick={() => setActiveSection('main')} aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
               </svg>
@@ -327,6 +334,7 @@ export function SettingsPage({ actor }: SettingsPageProps) {
                         setNewDisplayName('');
                         setCreateError(null);
                       }}
+                      aria-label="Close"
                       className="p-1 hover:bg-neutral-800 rounded-full"
                     >
                       <CloseIcon />
@@ -345,6 +353,8 @@ export function SettingsPage({ actor }: SettingsPageProps) {
                         value={newUsername}
                         onChange={e => setNewUsername(e.target.value)}
                         placeholder="username"
+                        pattern="^[a-zA-Z0-9_]+$"
+                        required
                         className="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <p className="text-xs text-neutral-500 mt-1">英数字とアンダースコアのみ</p>
@@ -361,7 +371,8 @@ export function SettingsPage({ actor }: SettingsPageProps) {
                     </div>
                     <button
                       onClick={handleCreateAccount}
-                      className="w-full py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-bold transition-colors"
+                      disabled={!isUsernameValid}
+                      className="w-full py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-bold transition-colors disabled:opacity-50 disabled:hover:bg-blue-500"
                     >
                       作成
                     </button>

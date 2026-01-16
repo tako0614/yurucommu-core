@@ -90,6 +90,7 @@ search.get('/posts', async (c) => {
     LEFT JOIN actors a ON o.attributed_to = a.ap_id
     LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
     WHERE o.content LIKE ? AND o.visibility = 'public'
+      AND (o.audience_json IS NULL OR o.audience_json = '[]')
     ORDER BY ${orderBy}
     LIMIT 50
   `).bind(actor?.ap_id || '', `%${query}%`).all();

@@ -10,6 +10,81 @@ import {
   ActorStories,
 } from '../types';
 
+type ActorLike = { ap_id: string; username?: string; preferred_username?: string };
+
+function formatUsernameFromApId(apId: string, preferred?: string): string | null {
+  try {
+    const url = new URL(apId);
+    const match = apId.match(/\/(users|groups)\/([^/]+)$/);
+    if (match) return `${match[2]}@${url.host}`;
+    if (preferred) return `${preferred}@${url.host}`;
+  } catch {
+    // Ignore malformed URLs and fallback to existing fields.
+  }
+  return null;
+}
+
+function normalizeActor<T extends ActorLike>(actor: T): T {
+  if (!actor || !actor.ap_id) return actor;
+  const rawUsername = actor.username?.trim();
+  const formatted =
+    rawUsername ||
+    formatUsernameFromApId(actor.ap_id, actor.preferred_username) ||
+    actor.preferred_username ||
+    actor.username ||
+    actor.ap_id;
+  const preferred =
+    actor.preferred_username?.trim() ||
+    (formatted.includes('@') ? formatted.split('@')[0] : formatted);
+
+  return {
+    ...actor,
+    username: formatted,
+    preferred_username: preferred,
+  };
+}
+
+const normalizePost = (post: Post): Post => ({
+  ...post,
+  author: normalizeActor(post.author),
+});
+
+const normalizeStory = (story: Story): Story => ({
+  ...story,
+  author: normalizeActor(story.author),
+});
+
+const normalizeActorStories = (stories: ActorStories): ActorStories => ({
+  ...stories,
+  actor: normalizeActor(stories.actor),
+  stories: (stories.stories || []).map(normalizeStory),
+});
+
+const normalizeCommunityMessage = (message: CommunityMessage): CommunityMessage => ({
+  ...message,
+  sender: normalizeActor(message.sender),
+});
+
+const normalizeDmMessage = (message: DMMessage): DMMessage => ({
+  ...message,
+  sender: normalizeActor(message.sender),
+});
+
+const normalizeDmConversation = (conversation: DMConversation): DMConversation => ({
+  ...conversation,
+  other_participant: normalizeActor(conversation.other_participant),
+});
+
+const normalizeDmRequest = (request: DMRequest): DMRequest => ({
+  ...request,
+  sender: normalizeActor(request.sender),
+});
+
+const normalizeNotification = (notification: Notification): Notification => ({
+  ...notification,
+  actor: normalizeActor(notification.actor),
+});
+
 // ===== Auth API =====
 
 export async function fetchMe(): Promise<{ authenticated: boolean; actor?: Actor }> {
@@ -17,7 +92,7 @@ export async function fetchMe(): Promise<{ authenticated: boolean; actor?: Actor
   if (!res.ok) return { authenticated: false };
   const data = await res.json();
   if (data.actor) {
-    return { authenticated: true, actor: data.actor };
+    return { authenticated: true, actor: normalizeActor(data.actor) };
   }
   return { authenticated: false };
 }
@@ -76,14 +151,14 @@ export async function createAccount(username: string, name?: string): Promise<Ac
 export async function fetchActors(): Promise<Actor[]> {
   const res = await fetch('/api/actors');
   const data = await res.json();
-  return data.actors || [];
+  return (data.actors || []).map(normalizeActor);
 }
 
 export async function fetchActor(identifier: string): Promise<Actor> {
   const res = await fetch(`/api/actors/${encodeURIComponent(identifier)}`);
   if (!res.ok) throw new Error('Actor not found');
   const data = await res.json();
-  return data.actor;
+  return normalizeActor(data.actor);
 }
 
 export async function updateProfile(data: { name?: string; summary?: string; icon_url?: string; header_url?: string; is_private?: boolean }): Promise<void> {
@@ -103,19 +178,19 @@ export async function fetchActorPosts(identifier: string, options?: { limit?: nu
   const res = await fetch(`/api/actors/${encodeURIComponent(identifier)}/posts${query}`);
   if (!res.ok) throw new Error('Failed to fetch actor posts');
   const data = await res.json();
-  return data.posts || [];
+  return (data.posts || []).map(normalizePost);
 }
 
 export async function fetchFollowers(identifier: string): Promise<Actor[]> {
   const res = await fetch(`/api/actors/${encodeURIComponent(identifier)}/followers`);
   const data = await res.json();
-  return data.followers || [];
+  return (data.followers || []).map(normalizeActor);
 }
 
 export async function fetchFollowing(identifier: string): Promise<Actor[]> {
   const res = await fetch(`/api/actors/${encodeURIComponent(identifier)}/following`);
   const data = await res.json();
-  return data.following || [];
+  return (data.following || []).map(normalizeActor);
 }
 
 // ===== Follow API =====
@@ -142,7 +217,7 @@ export async function unfollow(targetApId: string): Promise<void> {
 export async function fetchFollowRequests(): Promise<Actor[]> {
   const res = await fetch('/api/follow/requests');
   const data = await res.json();
-  return data.requests || [];
+  return (data.requests || []).map(normalizeActor);
 }
 
 export async function acceptFollowRequest(requesterApId: string): Promise<void> {
@@ -181,7 +256,7 @@ export async function fetchBlockedUsers(): Promise<Actor[]> {
   const res = await fetch('/api/actors/me/blocked');
   if (!res.ok) throw new Error('Failed to fetch blocked users');
   const data = await res.json();
-  return data.blocked || [];
+  return (data.blocked || []).map(normalizeActor);
 }
 
 export async function blockUser(apId: string): Promise<void> {
@@ -206,7 +281,7 @@ export async function fetchMutedUsers(): Promise<Actor[]> {
   const res = await fetch('/api/actors/me/muted');
   if (!res.ok) throw new Error('Failed to fetch muted users');
   const data = await res.json();
-  return data.muted || [];
+  return (data.muted || []).map(normalizeActor);
 }
 
 export async function muteUser(apId: string): Promise<void> {
@@ -246,7 +321,7 @@ export async function fetchTimeline(options?: {
   const query = params.toString() ? `?${params}` : '';
   const res = await fetch(`/api/timeline${query}`);
   const data = await res.json();
-  return data.posts || [];
+  return (data.posts || []).map(normalizePost);
 }
 
 export async function fetchFollowingTimeline(options?: {
@@ -259,20 +334,20 @@ export async function fetchFollowingTimeline(options?: {
   const query = params.toString() ? `?${params}` : '';
   const res = await fetch(`/api/timeline/following${query}`);
   const data = await res.json();
-  return data.posts || [];
+  return (data.posts || []).map(normalizePost);
 }
 
 export async function fetchPost(apId: string): Promise<Post> {
   const res = await fetch(`/api/posts/${encodeURIComponent(apId)}`);
   if (!res.ok) throw new Error('Post not found');
   const data = await res.json();
-  return data.post;
+  return normalizePost(data.post);
 }
 
 export async function fetchReplies(postApId: string): Promise<Post[]> {
   const res = await fetch(`/api/posts/${encodeURIComponent(postApId)}/replies`);
   const data = await res.json();
-  return data.replies || [];
+  return (data.replies || []).map(normalizePost);
 }
 
 export async function createPost(data: {
@@ -290,7 +365,7 @@ export async function createPost(data: {
   });
   if (!res.ok) throw new Error('Failed to create post');
   const result = await res.json();
-  return result.post;
+  return normalizePost(result.post);
 }
 
 export async function deletePost(apId: string): Promise<void> {
@@ -335,7 +410,7 @@ export async function fetchBookmarks(options?: { limit?: number; before?: string
   const query = params.toString() ? `?${params}` : '';
   const res = await fetch(`/api/bookmarks${query}`);
   const data = await res.json();
-  return data.posts || [];
+  return (data.posts || []).map(normalizePost);
 }
 
 // ===== Communities API =====
@@ -471,7 +546,7 @@ export async function fetchCommunityMessages(
   const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/messages${query}`);
   if (!res.ok) throw new Error('Failed to fetch messages');
   const data = await res.json();
-  return data.messages || [];
+  return (data.messages || []).map(normalizeCommunityMessage);
 }
 
 export async function sendCommunityMessage(identifier: string, content: string): Promise<CommunityMessage> {
@@ -482,14 +557,14 @@ export async function sendCommunityMessage(identifier: string, content: string):
   });
   if (!res.ok) throw new Error('Failed to send message');
   const data = await res.json();
-  return data.message;
+  return normalizeCommunityMessage(data.message);
 }
 
 export async function fetchCommunityMembers(identifier: string): Promise<CommunityMember[]> {
   const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/members`);
   if (!res.ok) throw new Error('Failed to fetch members');
   const data = await res.json();
-  return data.members || [];
+  return (data.members || []).map(normalizeActor);
 }
 
 // ===== DM API =====
@@ -520,8 +595,8 @@ export async function fetchDMContacts(): Promise<DMContactsResponse> {
   const res = await fetch('/api/dm/contacts');
   const data = await res.json();
   return {
-    mutual_followers: data.mutual_followers || [],
-    communities: data.communities || [],
+    mutual_followers: (data.mutual_followers || []).map(normalizeActor),
+    communities: (data.communities || []).map(normalizeActor),
     request_count: data.request_count || 0,
   };
 }
@@ -544,7 +619,7 @@ export interface DMRequest {
 export async function fetchDMRequests(): Promise<DMRequest[]> {
   const res = await fetch('/api/dm/requests');
   const data = await res.json();
-  return data.requests || [];
+  return (data.requests || []).map(normalizeDmRequest);
 }
 
 // Accept message request (by sender AP ID)
@@ -571,7 +646,7 @@ export async function rejectDMRequest(senderApId: string, block?: boolean): Prom
 export async function fetchDMConversations(): Promise<DMConversation[]> {
   const res = await fetch('/api/dm/conversations');
   const data = await res.json();
-  return data.conversations || [];
+  return (data.conversations || []).map(normalizeDmConversation);
 }
 
 export async function createDMConversation(participantApId: string): Promise<DMConversation> {
@@ -582,7 +657,7 @@ export async function createDMConversation(participantApId: string): Promise<DMC
   });
   if (!res.ok) throw new Error('Failed to create conversation');
   const data = await res.json();
-  return data.conversation;
+  return normalizeDmConversation(data.conversation);
 }
 
 export async function fetchDMMessages(conversationId: string, options?: { limit?: number; before?: string }): Promise<DMMessage[]> {
@@ -592,7 +667,7 @@ export async function fetchDMMessages(conversationId: string, options?: { limit?
   const query = params.toString() ? `?${params}` : '';
   const res = await fetch(`/api/dm/conversations/${conversationId}/messages${query}`);
   const data = await res.json();
-  return data.messages || [];
+  return (data.messages || []).map(normalizeDmMessage);
 }
 
 export async function sendDMMessage(conversationId: string, content: string): Promise<DMMessage> {
@@ -603,7 +678,7 @@ export async function sendDMMessage(conversationId: string, content: string): Pr
   });
   if (!res.ok) throw new Error('Failed to send message');
   const data = await res.json();
-  return data.message;
+  return normalizeDmMessage(data.message);
 }
 
 // User-based DM endpoints (no conversation creation needed)
@@ -615,7 +690,7 @@ export async function fetchUserDMMessages(userApId: string, options?: { limit?: 
   const res = await fetch(`/api/dm/user/${encodeURIComponent(userApId)}/messages${query}`);
   const data = await res.json();
   return {
-    messages: data.messages || [],
+    messages: (data.messages || []).map(normalizeDmMessage),
     conversation_id: data.conversation_id,
   };
 }
@@ -632,7 +707,7 @@ export async function sendUserDMMessage(userApId: string, content: string): Prom
   }
   const data = await res.json();
   return {
-    message: data.message,
+    message: normalizeDmMessage(data.message),
     conversation_id: data.conversation_id,
   };
 }
@@ -666,7 +741,7 @@ export async function fetchNotifications(options?: { limit?: number; type?: stri
   const query = params.toString() ? `?${params}` : '';
   const res = await fetch(`/api/notifications${query}`);
   const data = await res.json();
-  return data.notifications || [];
+  return (data.notifications || []).map(normalizeNotification);
 }
 
 export async function fetchUnreadCount(): Promise<number> {
@@ -689,19 +764,19 @@ export async function markNotificationsRead(ids?: string[]): Promise<void> {
 export async function searchActors(query: string): Promise<Actor[]> {
   const res = await fetch(`/api/search/actors?q=${encodeURIComponent(query)}`);
   const data = await res.json();
-  return data.actors || [];
+  return (data.actors || []).map(normalizeActor);
 }
 
 export async function searchRemote(query: string): Promise<Actor[]> {
   const res = await fetch(`/api/search/remote?q=${encodeURIComponent(query)}`);
   const data = await res.json();
-  return data.actors || [];
+  return (data.actors || []).map(normalizeActor);
 }
 
 export async function searchPosts(query: string): Promise<Post[]> {
   const res = await fetch(`/api/search/posts?q=${encodeURIComponent(query)}`);
   const data = await res.json();
-  return data.posts || [];
+  return (data.posts || []).map(normalizePost);
 }
 
 // ===== Media API =====
@@ -723,14 +798,14 @@ export async function fetchStories(): Promise<ActorStories[]> {
   const res = await fetch('/api/stories');
   if (!res.ok) throw new Error('Failed to fetch stories');
   const data = await res.json();
-  return data.actor_stories || [];
+  return (data.actor_stories || []).map(normalizeActorStories);
 }
 
 export async function fetchActorStories(actorId: string): Promise<Story[]> {
   const res = await fetch(`/api/stories/${encodeURIComponent(actorId)}`);
   if (!res.ok) throw new Error('Failed to fetch actor stories');
   const data = await res.json();
-  return data.stories || [];
+  return (data.stories || []).map(normalizeStory);
 }
 
 export async function createStory(story: {
@@ -745,7 +820,7 @@ export async function createStory(story: {
   });
   if (!res.ok) throw new Error('Failed to create story');
   const data = await res.json();
-  return data.story;
+  return normalizeStory(data.story);
 }
 
 export async function deleteStory(apId: string): Promise<void> {
@@ -783,7 +858,7 @@ export async function fetchCommunityJoinRequests(identifier: string): Promise<Co
   const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/requests`);
   if (!res.ok) throw new Error('Failed to fetch join requests');
   const data = await res.json();
-  return data.requests || [];
+  return (data.requests || []).map(normalizeActor);
 }
 
 export async function acceptCommunityJoinRequest(identifier: string, actorApId: string): Promise<void> {
@@ -824,7 +899,10 @@ export async function fetchCommunityInvites(identifier: string): Promise<Communi
   const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/invites`);
   if (!res.ok) throw new Error('Failed to fetch invites');
   const data = await res.json();
-  return data.invites || [];
+  return (data.invites || []).map((invite: CommunityInvite) => ({
+    ...invite,
+    invited_by: normalizeActor(invite.invited_by),
+  }));
 }
 
 export async function createCommunityInvite(
@@ -933,5 +1011,11 @@ export async function likeStory(apId: string): Promise<{ liked: boolean; like_co
 export async function unlikeStory(apId: string): Promise<{ liked: boolean; like_count: number }> {
   const res = await fetch(`/api/stories/${encodeURIComponent(apId)}/like`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to unlike story');
+  return res.json();
+}
+
+export async function shareStory(apId: string): Promise<{ shared: boolean; share_count: number }> {
+  const res = await fetch(`/api/stories/${encodeURIComponent(apId)}/share`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to share story');
   return res.json();
 }

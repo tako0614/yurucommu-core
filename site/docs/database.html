@@ -137,6 +137,7 @@
           <tr><td>like_count</td><td>INTEGER</td><td>いいね数（非正規化）</td></tr>
           <tr><td>reply_count</td><td>INTEGER</td><td>返信数（非正規化）</td></tr>
           <tr><td>announce_count</td><td>INTEGER</td><td>ブースト数（非正規化）</td></tr>
+          <tr><td>share_count</td><td>INTEGER</td><td>シェア数（非正規化）</td></tr>
           <tr><td>is_local</td><td>INTEGER</td><td>ローカル投稿フラグ</td></tr>
         </tbody>
       </table>
@@ -212,6 +213,59 @@
 
       <h3>story_views</h3>
       <p>ストーリー閲覧履歴</p>
+
+      <h3>story_shares</h3>
+      <p>ストーリーのシェア履歴</p>
+      <table class="docs-table">
+        <thead>
+          <tr><th>カラム</th><th>型</th><th>説明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>id</td><td>TEXT PK</td><td>シェアID</td></tr>
+          <tr><td>story_ap_id</td><td>TEXT</td><td>ストーリーのap_id</td></tr>
+          <tr><td>actor_ap_id</td><td>TEXT</td><td>シェアしたアクター</td></tr>
+          <tr><td>shared_at</td><td>TEXT</td><td>シェア日時</td></tr>
+        </tbody>
+      </table>
+
+      <h3>dm_read_status</h3>
+      <p>DM会話の既読状態</p>
+      <table class="docs-table">
+        <thead>
+          <tr><th>カラム</th><th>型</th><th>説明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>actor_ap_id</td><td>TEXT</td><td>既読側のap_id</td></tr>
+          <tr><td>conversation_id</td><td>TEXT</td><td>会話コンテキスト</td></tr>
+          <tr><td>last_read_at</td><td>TEXT</td><td>最終既読日時</td></tr>
+        </tbody>
+      </table>
+
+      <h3>dm_typing</h3>
+      <p>DMのタイピング状態</p>
+      <table class="docs-table">
+        <thead>
+          <tr><th>カラム</th><th>型</th><th>説明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>actor_ap_id</td><td>TEXT</td><td>タイピング側のap_id</td></tr>
+          <tr><td>recipient_ap_id</td><td>TEXT</td><td>受信者のap_id</td></tr>
+          <tr><td>last_typed_at</td><td>TEXT</td><td>最終タイピング日時</td></tr>
+        </tbody>
+      </table>
+
+      <h3>notification_archived</h3>
+      <p>通知のアーカイブ状態</p>
+      <table class="docs-table">
+        <thead>
+          <tr><th>カラム</th><th>型</th><th>説明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>actor_ap_id</td><td>TEXT</td><td>対象ユーザー</td></tr>
+          <tr><td>activity_ap_id</td><td>TEXT</td><td>通知アクティビティ</td></tr>
+          <tr><td>archived_at</td><td>TEXT</td><td>アーカイブ日時</td></tr>
+        </tbody>
+      </table>
 
       <h2>マイグレーション</h2>
       <p>マイグレーションファイルは <code>migrations/</code> ディレクトリにあります。</p>

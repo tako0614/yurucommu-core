@@ -1105,6 +1105,7 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
                   setShowToolPanel(false);
                   setActiveTool(null);
                 }}
+                aria-label="Close"
                 className="text-white/60 hover:text-white p-1"
               >
                 <CloseIcon />

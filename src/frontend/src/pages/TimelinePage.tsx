@@ -527,6 +527,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
           {/* Mobile: User avatar button that opens menu */}
           <button
             onClick={handleOpenMenu}
+            aria-label="Open menu"
             className="md:hidden"
           >
             <UserAvatar avatarUrl={actor.icon_url} name={actor.name || actor.username} size={32} />
@@ -534,7 +535,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
           {/* Desktop: Show text title */}
           <h1 className="hidden md:block text-xl font-bold">{t('timeline.title')}</h1>
           {/* Mobile: Notification heart icon */}
-          <Link to="/notifications" className="md:hidden p-2 text-white hover:text-pink-500 transition-colors">
+          <Link to="/notifications" aria-label="Notifications" className="md:hidden p-2 text-white hover:text-pink-500 transition-colors">
             <HeartIcon filled={false} />
           </Link>
         </div>
@@ -610,19 +611,38 @@ export function TimelinePage({ actor }: TimelinePageProps) {
                     )}
                   </Link>
                   <div className="flex items-center gap-6 mt-3">
-                    <button onClick={() => navigate(`/post/${encodeURIComponent(post.ap_id)}`)} className="flex items-center gap-2 text-neutral-500 hover:text-blue-500 transition-colors">
+                    <button
+                      onClick={() => navigate(`/post/${encodeURIComponent(post.ap_id)}`)}
+                      aria-label="Reply"
+                      className="flex items-center gap-2 text-neutral-500 hover:text-blue-500 transition-colors"
+                    >
                       <ReplyIcon />
                       <span className="text-sm">{post.reply_count || ''}</span>
                     </button>
-                    <button onClick={() => handleRepost(post)} className={`flex items-center gap-2 transition-colors ${post.reposted ? 'text-green-500' : 'text-neutral-500 hover:text-green-500'}`}>
+                    <button
+                      onClick={() => handleRepost(post)}
+                      aria-label={post.reposted ? 'Undo repost' : 'Repost'}
+                      aria-pressed={post.reposted}
+                      className={`flex items-center gap-2 transition-colors ${post.reposted ? 'text-green-500' : 'text-neutral-500 hover:text-green-500'}`}
+                    >
                       <RepostIcon filled={post.reposted} />
                       {post.announce_count > 0 && <span className="text-sm">{post.announce_count}</span>}
                     </button>
-                    <button onClick={() => handleLike(post)} className={`flex items-center gap-2 transition-colors ${post.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'}`}>
+                    <button
+                      onClick={() => handleLike(post)}
+                      aria-label={post.liked ? 'Unlike' : 'Like'}
+                      aria-pressed={post.liked}
+                      className={`flex items-center gap-2 transition-colors ${post.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'}`}
+                    >
                       <HeartIcon filled={post.liked} />
                       {post.like_count > 0 && <span className="text-sm">{post.like_count}</span>}
                     </button>
-                    <button onClick={() => handleBookmark(post)} className={`flex items-center gap-2 transition-colors ${post.bookmarked ? 'text-blue-500' : 'text-neutral-500 hover:text-blue-500'}`}>
+                    <button
+                      onClick={() => handleBookmark(post)}
+                      aria-label={post.bookmarked ? 'Remove bookmark' : 'Bookmark'}
+                      aria-pressed={post.bookmarked}
+                      className={`flex items-center gap-2 transition-colors ${post.bookmarked ? 'text-blue-500' : 'text-neutral-500 hover:text-blue-500'}`}
+                    >
                       <BookmarkIcon filled={post.bookmarked} />
                     </button>
                   </div>
@@ -638,6 +658,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
       {/* Floating Action Button */}
       <button
         onClick={() => setShowPostModal(true)}
+        aria-label="Create post"
         className="fixed bottom-20 right-4 md:bottom-8 md:right-8 w-14 h-14 bg-blue-500 hover:bg-blue-600 rounded-full shadow-lg flex items-center justify-center text-white transition-colors z-40"
       >
         <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -658,6 +679,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
                   setUploadedMedia([]);
                   setUploadError(null);
                 }}
+                aria-label="Close"
                 className="text-white hover:text-neutral-400 transition-colors"
               >
                 <CloseIconLarge />
@@ -693,7 +715,11 @@ export function TimelinePage({ actor }: TimelinePageProps) {
                       {uploadedMedia.map((media, idx) => (
                         <div key={idx} className="relative">
                           <img src={media.preview} alt="" className="w-20 h-20 object-cover rounded-lg" />
-                          <button onClick={() => removeMedia(idx)} className="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5 hover:bg-black">
+                          <button
+                            onClick={() => removeMedia(idx)}
+                            aria-label="Remove media"
+                            className="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5 hover:bg-black"
+                          >
                             <CloseIcon />
                           </button>
                         </div>
@@ -710,6 +736,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading || uploadedMedia.length >= 4}
+                aria-label="Add image"
                 className="p-2 text-blue-500 hover:bg-blue-500/10 rounded-full disabled:opacity-50 transition-colors"
               >
                 <ImageIcon />
