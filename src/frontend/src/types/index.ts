@@ -78,6 +78,10 @@ export interface DMParticipant {
 export interface DMConversation {
   id: string;
   other_participant: DMParticipant;
+  last_message: {
+    content: string;
+    is_mine: boolean;
+  } | null;
   last_message_at: string | null;
   created_at: string;
 }

@@ -205,17 +205,128 @@ export async function fetchBookmarks(options?: { limit?: number; before?: string
 
 // ===== Communities API =====
 
-export async function fetchCommunities(): Promise<Community[]> {
+export interface CommunityDetail {
+  ap_id: string;
+  name: string;
+  display_name: string;
+  summary: string | null;
+  icon_url: string | null;
+  visibility: 'public' | 'private';
+  join_policy: 'open' | 'invite' | 'approval';
+  post_policy: 'members' | 'admins';
+  member_count: number;
+  post_count?: number;
+  created_by: string;
+  created_at: string;
+  is_member: boolean;
+  member_role: 'admin' | 'member' | null;
+  last_message_at?: string | null;
+}
+
+export interface CommunityMember {
+  ap_id: string;
+  username: string;
+  preferred_username: string;
+  name: string | null;
+  icon_url: string | null;
+  role: 'admin' | 'member';
+  joined_at: string;
+}
+
+export interface CommunityMessage {
+  id: string;
+  sender: {
+    ap_id: string;
+    username: string;
+    preferred_username: string;
+    name: string | null;
+    icon_url: string | null;
+  };
+  content: string;
+  created_at: string;
+}
+
+export async function fetchCommunities(): Promise<CommunityDetail[]> {
   const res = await fetch('/api/communities');
   const data = await res.json();
   return data.communities || [];
 }
 
-export async function fetchCommunity(identifier: string): Promise<Community> {
+export async function fetchCommunity(identifier: string): Promise<CommunityDetail> {
   const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}`);
   if (!res.ok) throw new Error('Community not found');
   const data = await res.json();
   return data.community;
+}
+
+export async function createCommunity(data: {
+  name: string;
+  display_name?: string;
+  summary?: string;
+}): Promise<CommunityDetail> {
+  const res = await fetch('/api/communities', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to create community');
+  }
+  const result = await res.json();
+  return result.community;
+}
+
+export async function joinCommunity(identifier: string): Promise<void> {
+  const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/join`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to join community');
+  }
+}
+
+export async function leaveCommunity(identifier: string): Promise<void> {
+  const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/leave`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to leave community');
+  }
+}
+
+export async function fetchCommunityMessages(
+  identifier: string,
+  options?: { limit?: number; before?: string }
+): Promise<CommunityMessage[]> {
+  const params = new URLSearchParams();
+  if (options?.limit) params.set('limit', String(options.limit));
+  if (options?.before) params.set('before', options.before);
+  const query = params.toString() ? `?${params}` : '';
+  const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/messages${query}`);
+  if (!res.ok) throw new Error('Failed to fetch messages');
+  const data = await res.json();
+  return data.messages || [];
+}
+
+export async function sendCommunityMessage(identifier: string, content: string): Promise<CommunityMessage> {
+  const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) throw new Error('Failed to send message');
+  const data = await res.json();
+  return data.message;
+}
+
+export async function fetchCommunityMembers(identifier: string): Promise<CommunityMember[]> {
+  const res = await fetch(`/api/communities/${encodeURIComponent(identifier)}/members`);
+  if (!res.ok) throw new Error('Failed to fetch members');
+  const data = await res.json();
+  return data.members || [];
 }
 
 // ===== DM API =====

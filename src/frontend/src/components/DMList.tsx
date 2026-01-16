@@ -18,9 +18,9 @@ export function DMList({ conversations, selectedId, onSelect }: DMListProps) {
     if (days === 0) {
       return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
     } else if (days === 1) {
-      return 'Yesterday';
+      return '昨日';
     } else if (days < 7) {
-      return `${days}d ago`;
+      return `${days}日前`;
     }
     return date.toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' });
   };
@@ -39,32 +39,41 @@ export function DMList({ conversations, selectedId, onSelect }: DMListProps) {
           onClick={() => onSelect(conv)}
           className={`px-4 py-3 flex items-center gap-3 cursor-pointer transition-colors border-b border-neutral-900 ${
             selectedId === conv.id
-              ? 'bg-neutral-900'
+              ? 'bg-neutral-800'
               : 'hover:bg-neutral-900/50'
           }`}
         >
           <UserAvatar
             avatarUrl={conv.other_participant.icon_url}
             name={conv.other_participant.name || conv.other_participant.preferred_username}
-            size={48}
+            size={52}
           />
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-white truncate">
+              <span className="font-semibold text-white truncate">
                 {conv.other_participant.name || conv.other_participant.preferred_username}
               </span>
-              <span className="text-xs text-neutral-600">
+              <span className="text-xs text-neutral-500 ml-2 flex-shrink-0">
                 {formatDate(conv.last_message_at)}
               </span>
             </div>
-            <span className="text-sm text-neutral-500 truncate">@{conv.other_participant.username}</span>
+            <p className="text-sm text-neutral-500 truncate mt-0.5">
+              {conv.last_message ? (
+                <>
+                  {conv.last_message.is_mine && <span className="text-neutral-600">あなた: </span>}
+                  {conv.last_message.content}
+                </>
+              ) : (
+                <span className="text-neutral-600">メッセージはありません</span>
+              )}
+            </p>
           </div>
         </div>
       ))}
 
       {conversations.length === 0 && (
         <div className="p-8 text-center text-neutral-500">
-          No conversations yet
+          会話がありません
         </div>
       )}
     </div>

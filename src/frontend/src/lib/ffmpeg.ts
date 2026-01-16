@@ -504,13 +504,23 @@ export async function exportCanvasToJpeg(
 }
 
 /**
+ * Video transform parameters
+ */
+export interface VideoTransform {
+  scale: number;
+  position: { x: number; y: number };
+  displayScale: number; // The scale factor from canvas to display
+}
+
+/**
  * Export Canvas + Video to MP4 through FFmpeg
  * Canvas is overlaid on top of video
  */
 export async function exportCanvasWithVideo(
   canvas: HTMLCanvasElement,
   videoFile: File,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  videoTransform?: VideoTransform
 ): Promise<{ blob: Blob; duration: number }> {
   const ff = await initFFmpeg();
 
@@ -542,12 +552,35 @@ export async function exportCanvasWithVideo(
     await ff.writeFile(`input.${ext}`, videoData);
     await ff.writeFile('overlay.png', pngData);
 
+    // Build video filter with transform
+    let videoFilter: string;
+    if (videoTransform && (videoTransform.scale !== 1 || videoTransform.position.x !== 0 || videoTransform.position.y !== 0)) {
+      // Convert display coordinates to canvas coordinates
+      const scale = videoTransform.scale;
+      const offsetX = Math.round(videoTransform.position.x * videoTransform.displayScale);
+      const offsetY = Math.round(videoTransform.position.y * videoTransform.displayScale);
+
+      // Calculate scaled video dimensions
+      const scaledW = Math.round(CANVAS_WIDTH * scale);
+      const scaledH = Math.round(CANVAS_HEIGHT * scale);
+
+      // Calculate position (centered + offset)
+      const posX = Math.round((CANVAS_WIDTH - scaledW) / 2 + offsetX);
+      const posY = Math.round((CANVAS_HEIGHT - scaledH) / 2 + offsetY);
+
+      // Scale video to fill, then scale again by user transform, position on black background
+      videoFilter = `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,crop=${scaledW}:${scaledH}[scaled];color=black:s=${CANVAS_WIDTH}x${CANVAS_HEIGHT}[bg];[bg][scaled]overlay=${posX}:${posY}[v];[v][1:v]overlay=0:0[out]`;
+    } else {
+      // Default: scale to fit and center
+      videoFilter = `[0:v]scale=${CANVAS_WIDTH}:${CANVAS_HEIGHT}:force_original_aspect_ratio=decrease,pad=${CANVAS_WIDTH}:${CANVAS_HEIGHT}:(ow-iw)/2:(oh-ih)/2[v];[v][1:v]overlay=0:0[out]`;
+    }
+
     // Compose video with canvas overlay
     await withTimeout(
       ff.exec([
         '-i', `input.${ext}`,
         '-i', 'overlay.png',
-        '-filter_complex', `[0:v]scale=${CANVAS_WIDTH}:${CANVAS_HEIGHT}:force_original_aspect_ratio=decrease,pad=${CANVAS_WIDTH}:${CANVAS_HEIGHT}:(ow-iw)/2:(oh-ih)/2[v];[v][1:v]overlay=0:0[out]`,
+        '-filter_complex', videoFilter,
         '-map', '[out]',
         '-map', '0:a?',
         '-c:v', 'libx264',
