@@ -452,6 +452,154 @@ posts.delete('/:id/like', async (c) => {
   return c.json({ success: true, liked: false });
 });
 
+// Repost (Announce)
+posts.post('/:id/repost', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const postId = c.req.param('id');
+  const baseUrl = c.env.APP_URL;
+
+  // Get the post
+  const post = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? OR ap_id = ?')
+    .bind(objectApId(baseUrl, postId), postId).first<APObject>();
+
+  if (!post) return c.json({ error: 'Post not found' }, 404);
+
+  // Check if already reposted
+  const existingRepost = await c.env.DB.prepare(
+    'SELECT * FROM announces WHERE object_ap_id = ? AND actor_ap_id = ?'
+  ).bind(post.ap_id, actor.ap_id).first();
+
+  if (existingRepost) return c.json({ error: 'Already reposted' }, 400);
+
+  // Create repost
+  const announceId = generateId();
+  const announceActivityApId = activityApId(baseUrl, announceId);
+  await c.env.DB.prepare(`
+    INSERT INTO announces (object_ap_id, actor_ap_id, activity_ap_id)
+    VALUES (?, ?, ?)
+  `).bind(post.ap_id, actor.ap_id, announceActivityApId).run();
+
+  // Update announce count
+  await c.env.DB.prepare('UPDATE objects SET announce_count = announce_count + 1 WHERE ap_id = ?').bind(post.ap_id).run();
+
+  // Create notification if post is not authored by current user
+  if (post.attributed_to !== actor.ap_id) {
+    const notifId = generateId();
+    await c.env.DB.prepare(`
+      INSERT INTO notifications (id, recipient_ap_id, actor_ap_id, type, object_ap_id)
+      VALUES (?, ?, ?, 'repost', ?)
+    `).bind(notifId, post.attributed_to, actor.ap_id, post.ap_id).run();
+  }
+
+  // Send Announce activity if post is remote
+  if (!isLocal(post.ap_id, baseUrl)) {
+    try {
+      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<any>();
+      if (postAuthor?.inbox) {
+        const announceActivity = {
+          '@context': 'https://www.w3.org/ns/activitystreams',
+          id: announceActivityApId,
+          type: 'Announce',
+          actor: actor.ap_id,
+          object: post.ap_id,
+          to: ['https://www.w3.org/ns/activitystreams#Public'],
+          cc: [actor.ap_id + '/followers'],
+        };
+
+        const keyId = `${actor.ap_id}#main-key`;
+        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(announceActivity));
+
+        await fetch(postAuthor.inbox, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/activity+json' },
+          body: JSON.stringify(announceActivity),
+        });
+
+        // Store activity
+        await c.env.DB.prepare(`
+          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
+          VALUES (?, 'Announce', ?, ?, ?, 'outbound')
+        `).bind(announceActivityApId, actor.ap_id, post.ap_id, JSON.stringify(announceActivity)).run();
+      }
+    } catch (e) {
+      console.error('Failed to send Announce activity:', e);
+    }
+  }
+
+  return c.json({ success: true, reposted: true });
+});
+
+// Unrepost (Undo Announce)
+posts.delete('/:id/repost', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const postId = c.req.param('id');
+  const baseUrl = c.env.APP_URL;
+
+  // Get the post
+  const post = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? OR ap_id = ?')
+    .bind(objectApId(baseUrl, postId), postId).first<APObject>();
+
+  if (!post) return c.json({ error: 'Post not found' }, 404);
+
+  // Get the announce
+  const announce = await c.env.DB.prepare(
+    'SELECT * FROM announces WHERE object_ap_id = ? AND actor_ap_id = ?'
+  ).bind(post.ap_id, actor.ap_id).first<any>();
+
+  if (!announce) return c.json({ error: 'Not reposted' }, 400);
+
+  // Delete the announce
+  await c.env.DB.prepare('DELETE FROM announces WHERE object_ap_id = ? AND actor_ap_id = ?')
+    .bind(post.ap_id, actor.ap_id).run();
+
+  // Update announce count
+  await c.env.DB.prepare('UPDATE objects SET announce_count = announce_count - 1 WHERE ap_id = ? AND announce_count > 0')
+    .bind(post.ap_id).run();
+
+  // Send Undo Announce if post is remote
+  if (!isLocal(post.ap_id, baseUrl)) {
+    try {
+      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<any>();
+      if (postAuthor?.inbox) {
+        const undoAnnounceActivity = {
+          '@context': 'https://www.w3.org/ns/activitystreams',
+          id: activityApId(baseUrl, generateId()),
+          type: 'Undo',
+          actor: actor.ap_id,
+          object: {
+            type: 'Announce',
+            actor: actor.ap_id,
+            object: post.ap_id,
+          },
+        };
+
+        const keyId = `${actor.ap_id}#main-key`;
+        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(undoAnnounceActivity));
+
+        await fetch(postAuthor.inbox, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/activity+json' },
+          body: JSON.stringify(undoAnnounceActivity),
+        });
+
+        // Store activity
+        await c.env.DB.prepare(`
+          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
+          VALUES (?, 'Undo', ?, ?, ?, 'outbound')
+        `).bind(undoAnnounceActivity.id, actor.ap_id, post.ap_id, JSON.stringify(undoAnnounceActivity)).run();
+      }
+    } catch (e) {
+      console.error('Failed to send Undo Announce activity:', e);
+    }
+  }
+
+  return c.json({ success: true, reposted: false });
+});
+
 // Bookmark post
 posts.post('/:id/bookmark', async (c) => {
   const actor = c.get('actor');

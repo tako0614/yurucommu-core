@@ -18,13 +18,14 @@ timeline.get('/', async (c) => {
            COALESCE(a.name, ac.name) as author_name,
            COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
            EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked,
-           EXISTS(SELECT 1 FROM bookmarks b WHERE b.object_ap_id = o.ap_id AND b.actor_ap_id = ?) as bookmarked
+           EXISTS(SELECT 1 FROM bookmarks b WHERE b.object_ap_id = o.ap_id AND b.actor_ap_id = ?) as bookmarked,
+           EXISTS(SELECT 1 FROM announces ann WHERE ann.object_ap_id = o.ap_id AND ann.actor_ap_id = ?) as reposted
     FROM objects o
     LEFT JOIN actors a ON o.attributed_to = a.ap_id
     LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
     WHERE o.type = 'Note' AND o.visibility = 'public' AND o.in_reply_to IS NULL
   `;
-  const params: any[] = [actor?.ap_id || '', actor?.ap_id || ''];
+  const params: any[] = [actor?.ap_id || '', actor?.ap_id || '', actor?.ap_id || ''];
 
   if (communityApId) {
     query += ` AND o.community_ap_id = ?`;
@@ -63,6 +64,7 @@ timeline.get('/', async (c) => {
     published: p.published,
     liked: !!p.liked,
     bookmarked: !!p.bookmarked,
+    reposted: !!p.reposted,
   }));
 
   return c.json({ posts: result });
@@ -82,7 +84,8 @@ timeline.get('/following', async (c) => {
            COALESCE(a.name, ac.name) as author_name,
            COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
            EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked,
-           EXISTS(SELECT 1 FROM bookmarks b WHERE b.object_ap_id = o.ap_id AND b.actor_ap_id = ?) as bookmarked
+           EXISTS(SELECT 1 FROM bookmarks b WHERE b.object_ap_id = o.ap_id AND b.actor_ap_id = ?) as bookmarked,
+           EXISTS(SELECT 1 FROM announces ann WHERE ann.object_ap_id = o.ap_id AND ann.actor_ap_id = ?) as reposted
     FROM objects o
     LEFT JOIN actors a ON o.attributed_to = a.ap_id
     LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
@@ -91,7 +94,7 @@ timeline.get('/following', async (c) => {
         SELECT following_ap_id FROM follows WHERE follower_ap_id = ? AND status = 'accepted'
       ) OR o.attributed_to = ?)
   `;
-  const params: any[] = [actor.ap_id, actor.ap_id, actor.ap_id, actor.ap_id];
+  const params: any[] = [actor.ap_id, actor.ap_id, actor.ap_id, actor.ap_id, actor.ap_id];
 
   if (before) {
     query += ` AND o.published < ?`;
@@ -124,6 +127,7 @@ timeline.get('/following', async (c) => {
     published: p.published,
     liked: !!p.liked,
     bookmarked: !!p.bookmarked,
+    reposted: !!p.reposted,
   }));
 
   return c.json({ posts: result });
