@@ -4,9 +4,18 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { generateId, objectApId, activityApId, formatUsername, signRequest, isLocal } from '../utils';
+import { generateId, objectApId, activityApId, formatUsername, signRequest, isLocal, isSafeRemoteUrl } from '../utils';
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+const MAX_DM_CONTENT_LENGTH = 5000;
+const MAX_DM_PAGE_LIMIT = 100;
+
+function parseLimit(value: string | undefined, fallback: number, max: number): number {
+  const parsed = parseInt(value || '', 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 1), max);
+}
 
 // Generate a conversation ID for two participants (deterministic)
 function getConversationId(baseUrl: string, ap1: string, ap2: string): string {
@@ -301,7 +310,7 @@ dm.get('/user/:encodedApId/messages', async (c) => {
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const otherApId = decodeURIComponent(c.req.param('encodedApId'));
-  const limit = parseInt(c.req.query('limit') || '50');
+  const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
   const before = c.req.query('before');
   const baseUrl = c.env.APP_URL;
 
@@ -363,8 +372,12 @@ dm.post('/user/:encodedApId/messages', async (c) => {
   const body = await c.req.json<{ content: string }>();
   const baseUrl = c.env.APP_URL;
 
-  if (!body.content || body.content.trim() === '') {
+  const content = body.content?.trim();
+  if (!content) {
     return c.json({ error: 'Message content is required' }, 400);
+  }
+  if (content.length > MAX_DM_CONTENT_LENGTH) {
+    return c.json({ error: `Message too long (max ${MAX_DM_CONTENT_LENGTH} chars)` }, 400);
   }
 
   // Verify other user exists
@@ -390,7 +403,7 @@ dm.post('/user/:encodedApId/messages', async (c) => {
   await c.env.DB.prepare(`
     INSERT INTO objects (ap_id, type, attributed_to, content, visibility, to_json, cc_json, conversation, published, is_local)
     VALUES (?, 'Note', ?, ?, 'direct', ?, ?, ?, ?, 1)
-  `).bind(apId, actor.ap_id, body.content.trim(), toJson, ccJson, conversationId, now).run();
+  `).bind(apId, actor.ap_id, content, toJson, ccJson, conversationId, now).run();
 
   // Track recipient for efficient querying
   await c.env.DB.prepare(`
@@ -401,31 +414,35 @@ dm.post('/user/:encodedApId/messages', async (c) => {
   // Send to recipient's inbox if they're remote
   if (!isLocal(otherApId, baseUrl) && otherActor.inbox) {
     try {
-      const createActivity = {
-        '@context': 'https://www.w3.org/ns/activitystreams',
-        id: activityApId(baseUrl, generateId()),
-        type: 'Create',
-        actor: actor.ap_id,
-        to: [otherApId],
-        object: {
-          id: apId,
-          type: 'Note',
-          attributedTo: actor.ap_id,
+      if (!isSafeRemoteUrl(otherActor.inbox)) {
+        console.warn(`[DM] Blocked unsafe inbox URL: ${otherActor.inbox}`);
+      } else {
+        const createActivity = {
+          '@context': 'https://www.w3.org/ns/activitystreams',
+          id: activityApId(baseUrl, generateId()),
+          type: 'Create',
+          actor: actor.ap_id,
           to: [otherApId],
-          content: body.content.trim(),
-          published: now,
-          conversation: conversationId,
-        },
-      };
+          object: {
+            id: apId,
+            type: 'Note',
+            attributedTo: actor.ap_id,
+            to: [otherApId],
+            content,
+            published: now,
+            conversation: conversationId,
+          },
+        };
 
-      const keyId = `${actor.ap_id}#main-key`;
-      const headers = await signRequest(actor.private_key_pem, keyId, 'POST', otherActor.inbox, JSON.stringify(createActivity));
+        const keyId = `${actor.ap_id}#main-key`;
+        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', otherActor.inbox, JSON.stringify(createActivity));
 
-      await fetch(otherActor.inbox, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/activity+json' },
-        body: JSON.stringify(createActivity),
-      });
+        await fetch(otherActor.inbox, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/activity+json' },
+          body: JSON.stringify(createActivity),
+        });
+      }
     } catch (e) {
       console.error('Failed to deliver DM:', e);
     }
@@ -455,7 +472,7 @@ dm.post('/user/:encodedApId/messages', async (c) => {
         name: actor.name,
         icon_url: actor.icon_url,
       },
-      content: body.content.trim(),
+      content,
       created_at: now,
     },
     conversation_id: conversationId,
@@ -470,8 +487,12 @@ dm.patch('/messages/:messageId', async (c) => {
   const messageId = c.req.param('messageId');
   const body = await c.req.json<{ content: string }>();
 
-  if (!body.content || body.content.trim() === '') {
+  const content = body.content?.trim();
+  if (!content) {
     return c.json({ error: 'Content is required' }, 400);
+  }
+  if (content.length > MAX_DM_CONTENT_LENGTH) {
+    return c.json({ error: `Message too long (max ${MAX_DM_CONTENT_LENGTH} chars)` }, 400);
   }
 
   // Get the message
@@ -493,13 +514,13 @@ dm.patch('/messages/:messageId', async (c) => {
 
   await c.env.DB.prepare(`
     UPDATE objects SET content = ?, updated_at = ? WHERE ap_id = ?
-  `).bind(body.content.trim(), now, message.ap_id).run();
+  `).bind(content, now, message.ap_id).run();
 
   return c.json({
     success: true,
     message: {
       id: message.ap_id,
-      content: body.content.trim(),
+      content,
       updated_at: now,
     },
   });
@@ -587,7 +608,7 @@ dm.get('/conversations/:id/messages', async (c) => {
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const conversationId = c.req.param('id');
-  const limit = parseInt(c.req.query('limit') || '50');
+  const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
   const before = c.req.query('before');
 
   let query = `
@@ -645,8 +666,12 @@ dm.post('/conversations/:id/messages', async (c) => {
   const body = await c.req.json<{ content: string }>();
   const baseUrl = c.env.APP_URL;
 
-  if (!body.content || body.content.trim() === '') {
+  const content = body.content?.trim();
+  if (!content) {
     return c.json({ error: 'Message content is required' }, 400);
+  }
+  if (content.length > MAX_DM_CONTENT_LENGTH) {
+    return c.json({ error: `Message too long (max ${MAX_DM_CONTENT_LENGTH} chars)` }, 400);
   }
 
   // Find the other participant from the conversation
@@ -676,7 +701,7 @@ dm.post('/conversations/:id/messages', async (c) => {
   await c.env.DB.prepare(`
     INSERT INTO objects (ap_id, type, attributed_to, content, visibility, to_json, cc_json, conversation, published, is_local)
     VALUES (?, 'Note', ?, ?, 'direct', ?, ?, ?, ?, 1)
-  `).bind(apId, actor.ap_id, body.content.trim(), toJson, ccJson, conversationId, now).run();
+  `).bind(apId, actor.ap_id, content, toJson, ccJson, conversationId, now).run();
 
   await c.env.DB.prepare(`
     INSERT OR IGNORE INTO object_recipients (object_ap_id, recipient_ap_id, type)
@@ -693,7 +718,7 @@ dm.post('/conversations/:id/messages', async (c) => {
         name: actor.name,
         icon_url: actor.icon_url,
       },
-      content: body.content.trim(),
+      content,
       created_at: now,
     }
   }, 201);

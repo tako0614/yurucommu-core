@@ -1,9 +1,16 @@
 import { Hono } from 'hono';
 import type { Env, Variables, Actor, ActorCache, APObject } from '../types';
-import { generateId, actorApId, objectApId, activityApId, getDomain, isLocal, signRequest, generateKeyPair } from '../utils';
+import { generateId, actorApId, objectApId, activityApId, getDomain, isLocal, signRequest, generateKeyPair, isSafeRemoteUrl } from '../utils';
 
 const ap = new Hono<{ Bindings: Env; Variables: Variables }>();
 const INSTANCE_ACTOR_USERNAME = 'community';
+const MAX_ROOM_STREAM_LIMIT = 50;
+
+function parseLimit(value: string | undefined, fallback: number, max: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, max);
+}
 
 function roomApId(baseUrl: string, roomId: string): string {
   return `${baseUrl}/ap/rooms/${roomId}`;
@@ -419,7 +426,7 @@ ap.get('/ap/rooms/:roomId', async (c) => {
 ap.get('/ap/rooms/:roomId/stream', async (c) => {
   const baseUrl = c.env.APP_URL;
   const roomId = c.req.param('roomId');
-  const limit = parseInt(c.req.query('limit') || '20');
+  const limit = parseLimit(c.req.query('limit'), 20, MAX_ROOM_STREAM_LIMIT);
   const before = c.req.query('before');
 
   const community = await c.env.DB.prepare(`
@@ -501,25 +508,36 @@ ap.post('/ap/users/:username/inbox', async (c) => {
     const cached = await c.env.DB.prepare('SELECT ap_id FROM actor_cache WHERE ap_id = ?').bind(actor).first();
     if (!cached) {
       try {
-        const res = await fetch(actor, {
-          headers: { 'Accept': 'application/activity+json, application/ld+json' }
-        });
-        if (res.ok) {
-          const actorData = await res.json() as any;
-          await c.env.DB.prepare(`
-            INSERT INTO actor_cache (ap_id, type, preferred_username, name, summary, icon_url, inbox, public_key_pem, raw_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).bind(
-            actorData.id,
-            actorData.type,
-            actorData.preferredUsername,
-            actorData.name,
-            actorData.summary,
-            actorData.icon?.url,
-            actorData.inbox,
-            actorData.publicKey?.publicKeyPem,
-            JSON.stringify(actorData)
-          ).run();
+        if (!isSafeRemoteUrl(actor)) {
+          console.warn(`[ActivityPub] Blocked unsafe actor fetch: ${actor}`);
+        } else {
+          const res = await fetch(actor, {
+            headers: { 'Accept': 'application/activity+json, application/ld+json' }
+          });
+          if (res.ok) {
+            const actorData = await res.json() as any;
+            if (
+              actorData?.id &&
+              actorData?.inbox &&
+              isSafeRemoteUrl(actorData.id) &&
+              isSafeRemoteUrl(actorData.inbox)
+            ) {
+              await c.env.DB.prepare(`
+                INSERT INTO actor_cache (ap_id, type, preferred_username, name, summary, icon_url, inbox, public_key_pem, raw_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `).bind(
+                actorData.id,
+                actorData.type,
+                actorData.preferredUsername,
+                actorData.name,
+                actorData.summary,
+                actorData.icon?.url,
+                actorData.inbox,
+                actorData.publicKey?.publicKeyPem,
+                JSON.stringify(actorData)
+              ).run();
+            }
+          }
         }
       } catch (e) {
         console.error('Failed to cache remote actor:', e);
@@ -615,6 +633,10 @@ async function handleFollow(c: any, activity: any, recipient: Actor, actor: stri
   if (!isLocal(actor, baseUrl)) {
     const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(actor).first();
     if (cachedActor?.inbox) {
+      if (!isSafeRemoteUrl(cachedActor.inbox)) {
+        console.warn(`[ActivityPub] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
+        return;
+      }
       const acceptId = activityApId(baseUrl, generateId());
       const acceptActivity = {
         '@context': 'https://www.w3.org/ns/activitystreams',
@@ -1086,15 +1108,25 @@ async function handleReject(c: any, activity: any) {
 async function fetchRemoteInbox(c: any, actorApId: string): Promise<string | null> {
   const cached = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?')
     .bind(actorApId).first<any>();
-  if (cached?.inbox) return cached.inbox;
+  if (cached?.inbox) {
+    if (!isSafeRemoteUrl(cached.inbox)) {
+      console.warn(`[ActivityPub] Blocked unsafe inbox URL: ${cached.inbox}`);
+      return null;
+    }
+    return cached.inbox;
+  }
 
   try {
+    if (!isSafeRemoteUrl(actorApId)) {
+      console.warn(`[ActivityPub] Blocked unsafe actor fetch: ${actorApId}`);
+      return null;
+    }
     const res = await fetch(actorApId, {
       headers: { 'Accept': 'application/activity+json, application/ld+json' }
     });
     if (!res.ok) return null;
     const actorData = await res.json() as any;
-    if (!actorData?.inbox) return null;
+    if (!actorData?.inbox || !isSafeRemoteUrl(actorData.inbox)) return null;
 
     await c.env.DB.prepare(`
       INSERT OR REPLACE INTO actor_cache (ap_id, type, preferred_username, name, summary, icon_url, inbox, outbox, public_key_id, public_key_pem, raw_json)
@@ -1150,6 +1182,10 @@ async function handleGroupFollow(
   if (status === 'accepted' || status === 'rejected') {
     const inboxUrl = await fetchRemoteInbox(c, actorApId);
     if (!inboxUrl) return;
+    if (!isSafeRemoteUrl(inboxUrl)) {
+      console.warn(`[ActivityPub] Blocked unsafe inbox URL: ${inboxUrl}`);
+      return;
+    }
 
     const responseType = status === 'accepted' ? 'Accept' : 'Reject';
     const responseId = activityApId(baseUrl, generateId());

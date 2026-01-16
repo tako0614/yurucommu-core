@@ -43,6 +43,62 @@ export function formatUsername(apId: string): string {
   return apId;
 }
 
+const HOSTNAME_PATTERN = /^[a-z0-9.-]+$/i;
+
+function parseIPv4(hostname: string): number[] | null {
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return null;
+  const parts = hostname.split('.').map((part) => Number(part));
+  if (parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)) return null;
+  return parts;
+}
+
+function isPrivateIPv4(hostname: string): boolean {
+  const parts = parseIPv4(hostname);
+  if (!parts) return false;
+  const [a, b, c] = parts;
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  if (a === 192 && b === 0 && c === 0) return true;
+  if (a === 192 && b === 0 && c === 2) return true;
+  if (a === 198 && (b === 18 || b === 19)) return true;
+  if (a === 198 && b === 51 && c === 100) return true;
+  if (a === 203 && b === 0 && c === 113) return true;
+  if (a >= 224) return true;
+  return false;
+}
+
+function isBlockedHostname(hostname: string): boolean {
+  const lower = hostname.toLowerCase();
+  if (
+    lower === 'localhost' ||
+    lower.endsWith('.localhost') ||
+    lower.endsWith('.local') ||
+    lower.endsWith('.localdomain') ||
+    lower.endsWith('.internal')
+  ) {
+    return true;
+  }
+  if (isPrivateIPv4(lower)) return true;
+  return false;
+}
+
+export function isSafeRemoteUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.username || parsed.password) return false;
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    if (!HOSTNAME_PATTERN.test(parsed.hostname)) return false;
+    if (!parsed.hostname.includes('.')) return false;
+    if (isBlockedHostname(parsed.hostname)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // RSA key generation
 export async function generateKeyPair(): Promise<{ publicKeyPem: string; privateKeyPem: string }> {
   const keyPair = await crypto.subtle.generateKey(

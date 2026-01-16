@@ -1,9 +1,19 @@
 // Posts, Likes, and Bookmarks routes for Yurucommu backend
 import { Hono } from 'hono';
 import type { Env, Variables, APObject, Actor, ActorCache } from '../types';
-import { generateId, objectApId, activityApId, formatUsername, isLocal, signRequest } from '../utils';
+import { generateId, objectApId, activityApId, formatUsername, isLocal, signRequest, isSafeRemoteUrl } from '../utils';
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+const MAX_POST_CONTENT_LENGTH = 5000;
+const MAX_POST_SUMMARY_LENGTH = 500;
+const MAX_POSTS_PAGE_LIMIT = 100;
+
+function parseLimit(value: string | undefined, fallback: number, max: number): number {
+  const parsed = parseInt(value || '', 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 1), max);
+}
 
 // Extract @mentions from content (supports @username and @username@domain formats)
 function extractMentions(content: string): string[] {
@@ -62,8 +72,17 @@ posts.post('/', async (c) => {
     community_ap_id?: string;
   }>();
 
-  if (!body.content || body.content.trim().length === 0) {
+  const content = body.content?.trim();
+  const summary = body.summary?.trim();
+
+  if (!content) {
     return c.json({ error: 'Content required' }, 400);
+  }
+  if (content.length > MAX_POST_CONTENT_LENGTH) {
+    return c.json({ error: `Content too long (max ${MAX_POST_CONTENT_LENGTH} chars)` }, 400);
+  }
+  if (summary && summary.length > MAX_POST_SUMMARY_LENGTH) {
+    return c.json({ error: `Summary too long (max ${MAX_POST_SUMMARY_LENGTH} chars)` }, 400);
   }
 
   const visibility = normalizeVisibility(body.visibility);
@@ -110,8 +129,8 @@ posts.post('/', async (c) => {
   `).bind(
     apId,
     actor.ap_id,
-    body.content,
-    body.summary || null,
+    content,
+    summary || null,
     JSON.stringify(body.attachments || []),
     body.in_reply_to || null,
     visibility,
@@ -145,7 +164,7 @@ posts.post('/', async (c) => {
   }
 
   // Process mentions and create notifications
-  const mentions = extractMentions(body.content);
+  const mentions = extractMentions(content);
   for (const mention of mentions) {
     try {
       let mentionedActorApId: string | null = null;
@@ -207,8 +226,8 @@ posts.post('/', async (c) => {
         id: apId,
         type: 'Note',
         attributedTo: actor.ap_id,
-        content: body.content,
-        summary: body.summary || null,
+        content,
+        summary: summary || null,
         attachments: body.attachments || [],
         inReplyTo: body.in_reply_to || null,
         visibility,
@@ -222,6 +241,10 @@ posts.post('/', async (c) => {
       try {
         const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(follower.follower_ap_id).first<any>();
         if (cachedActor?.inbox) {
+          if (!isSafeRemoteUrl(cachedActor.inbox)) {
+            console.warn(`[Posts] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
+            continue;
+          }
           const keyId = `${actor.ap_id}#main-key`;
           const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(createActivity));
 
@@ -253,8 +276,8 @@ posts.post('/', async (c) => {
       name: actor.name,
       icon_url: actor.icon_url,
     },
-    content: body.content,
-    summary: body.summary || null,
+    content,
+    summary: summary || null,
     attachments: body.attachments || [],
     visibility,
     published: now,
@@ -327,7 +350,7 @@ posts.get('/:id/replies', async (c) => {
   const currentActor = c.get('actor');
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
-  const limit = parseInt(c.req.query('limit') || '20');
+  const limit = parseLimit(c.req.query('limit'), 20, MAX_POSTS_PAGE_LIMIT);
   const before = c.req.query('before');
 
   // Verify post exists
@@ -386,9 +409,26 @@ posts.patch('/:id', async (c) => {
   }
 
   // Validate content
-  if (body.content !== undefined && body.content.trim().length === 0) {
-    return c.json({ error: 'Content cannot be empty' }, 400);
+  let trimmedContent: string | undefined;
+  if (body.content !== undefined) {
+    trimmedContent = body.content.trim();
+    if (trimmedContent.length === 0) {
+      return c.json({ error: 'Content cannot be empty' }, 400);
+    }
+    if (trimmedContent.length > MAX_POST_CONTENT_LENGTH) {
+      return c.json({ error: `Content too long (max ${MAX_POST_CONTENT_LENGTH} chars)` }, 400);
+    }
   }
+  let trimmedSummary: string | undefined;
+  if (body.summary !== undefined) {
+    trimmedSummary = body.summary.trim();
+    if (trimmedSummary.length > MAX_POST_SUMMARY_LENGTH) {
+      return c.json({ error: `Summary too long (max ${MAX_POST_SUMMARY_LENGTH} chars)` }, 400);
+    }
+  }
+
+  const nextContent = body.content !== undefined ? (trimmedContent as string) : post.content;
+  const nextSummary = body.summary !== undefined ? trimmedSummary || null : post.summary;
 
   const now = new Date().toISOString();
   const updates: string[] = [];
@@ -396,11 +436,11 @@ posts.patch('/:id', async (c) => {
 
   if (body.content !== undefined) {
     updates.push('content = ?');
-    params.push(body.content.trim());
+    params.push(trimmedContent ?? null);
   }
   if (body.summary !== undefined) {
     updates.push('summary = ?');
-    params.push(body.summary || null);
+    params.push(trimmedSummary || null);
   }
   updates.push('updated_at = ?');
   params.push(now);
@@ -429,8 +469,8 @@ posts.patch('/:id', async (c) => {
       id: post.ap_id,
       type: 'Note',
       attributedTo: actor.ap_id,
-      content: body.content !== undefined ? body.content.trim() : post.content,
-      summary: body.summary !== undefined ? body.summary : post.summary,
+      content: nextContent,
+      summary: nextSummary,
       updated: now,
     },
   };
@@ -441,6 +481,10 @@ posts.patch('/:id', async (c) => {
     try {
       const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(follower.follower_ap_id).first<any>();
       if (cachedActor?.inbox) {
+        if (!isSafeRemoteUrl(cachedActor.inbox)) {
+          console.warn(`[Posts] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
+          continue;
+        }
         const keyId = `${actor.ap_id}#main-key`;
         const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(updateActivity));
 
@@ -465,8 +509,8 @@ posts.patch('/:id', async (c) => {
     success: true,
     post: {
       ap_id: post.ap_id,
-      content: body.content !== undefined ? body.content.trim() : post.content,
-      summary: body.summary !== undefined ? body.summary : post.summary,
+      content: nextContent,
+      summary: nextSummary,
       updated_at: now,
     },
   });
@@ -525,6 +569,10 @@ posts.delete('/:id', async (c) => {
     try {
       const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(follower.follower_ap_id).first<any>();
       if (cachedActor?.inbox) {
+        if (!isSafeRemoteUrl(cachedActor.inbox)) {
+          console.warn(`[Posts] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
+          continue;
+        }
         const keyId = `${actor.ap_id}#main-key`;
         const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(deleteActivity));
 
@@ -600,14 +648,18 @@ posts.post('/:id/like', async (c) => {
     try {
       const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<any>();
       if (postAuthor?.inbox) {
-        const keyId = `${actor.ap_id}#main-key`;
-        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(likeActivityRaw));
+        if (!isSafeRemoteUrl(postAuthor.inbox)) {
+          console.warn(`[Posts] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
+        } else {
+          const keyId = `${actor.ap_id}#main-key`;
+          const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(likeActivityRaw));
 
-        await fetch(postAuthor.inbox, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(likeActivityRaw),
-        });
+          await fetch(postAuthor.inbox, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/activity+json' },
+            body: JSON.stringify(likeActivityRaw),
+          });
+        }
       }
     } catch (e) {
       console.error('Failed to send Like activity:', e);
@@ -651,6 +703,10 @@ posts.delete('/:id/like', async (c) => {
     try {
       const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<any>();
       if (postAuthor?.inbox) {
+        if (!isSafeRemoteUrl(postAuthor.inbox)) {
+          console.warn(`[Posts] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
+          return c.json({ success: true, liked: false });
+        }
         const undoObject = like.activity_ap_id
           ? like.activity_ap_id
           : {
@@ -750,14 +806,18 @@ posts.post('/:id/repost', async (c) => {
     try {
       const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<any>();
       if (postAuthor?.inbox) {
-        const keyId = `${actor.ap_id}#main-key`;
-        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(announceActivityRaw));
+        if (!isSafeRemoteUrl(postAuthor.inbox)) {
+          console.warn(`[Posts] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
+        } else {
+          const keyId = `${actor.ap_id}#main-key`;
+          const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(announceActivityRaw));
 
-        await fetch(postAuthor.inbox, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(announceActivityRaw),
-        });
+          await fetch(postAuthor.inbox, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/activity+json' },
+            body: JSON.stringify(announceActivityRaw),
+          });
+        }
       }
     } catch (e) {
       console.error('Failed to send Announce activity:', e);
@@ -801,6 +861,10 @@ posts.delete('/:id/repost', async (c) => {
     try {
       const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<any>();
       if (postAuthor?.inbox) {
+        if (!isSafeRemoteUrl(postAuthor.inbox)) {
+          console.warn(`[Posts] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
+          return c.json({ success: true, reposted: false });
+        }
         const undoAnnounceActivity = {
           '@context': 'https://www.w3.org/ns/activitystreams',
           id: activityApId(baseUrl, generateId()),
@@ -900,7 +964,7 @@ posts.get('/bookmarks', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const limit = parseInt(c.req.query('limit') || '20');
+  const limit = parseLimit(c.req.query('limit'), 20, MAX_POSTS_PAGE_LIMIT);
   const before = c.req.query('before');
 
   let query = `

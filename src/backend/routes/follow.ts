@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env, Variables, ActorCache } from '../types';
-import { generateId, activityApId, isLocal, formatUsername, signRequest } from '../utils';
+import { generateId, activityApId, isLocal, formatUsername, signRequest, isSafeRemoteUrl } from '../utils';
 
 const follow = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -66,12 +66,23 @@ follow.post('/', async (c) => {
     if (!cachedActor) {
       // Fetch remote actor
       try {
+        if (!isSafeRemoteUrl(targetApId)) {
+          return c.json({ error: 'Invalid target_ap_id' }, 400);
+        }
         const res = await fetch(targetApId, {
           headers: { 'Accept': 'application/activity+json, application/ld+json' }
         });
         if (!res.ok) return c.json({ error: 'Could not fetch remote actor' }, 400);
 
         const actorData = await res.json() as any;
+        if (
+          !actorData?.id ||
+          !actorData?.inbox ||
+          !isSafeRemoteUrl(actorData.id) ||
+          !isSafeRemoteUrl(actorData.inbox)
+        ) {
+          return c.json({ error: 'Invalid remote actor data' }, 400);
+        }
         await c.env.DB.prepare(`
           INSERT INTO actor_cache (ap_id, type, preferred_username, name, summary, icon_url, inbox, outbox, public_key_id, public_key_pem, raw_json)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -93,6 +104,10 @@ follow.post('/', async (c) => {
       } catch (e) {
         return c.json({ error: 'Failed to fetch remote actor' }, 400);
       }
+    }
+
+    if (!cachedActor?.inbox || !isSafeRemoteUrl(cachedActor.inbox)) {
+      return c.json({ error: 'Invalid inbox URL' }, 400);
     }
 
     // Create pending follow
@@ -173,37 +188,41 @@ follow.delete('/', async (c) => {
   if (!isLocal(targetApId, baseUrl)) {
     const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(targetApId).first<any>();
     if (cachedActor?.inbox) {
-      const activityId = activityApId(baseUrl, generateId());
-      const undoActivity = {
-        '@context': 'https://www.w3.org/ns/activitystreams',
-        id: activityId,
-        type: 'Undo',
-        actor: actor.ap_id,
-        object: {
-          type: 'Follow',
+      if (isSafeRemoteUrl(cachedActor.inbox)) {
+        const activityId = activityApId(baseUrl, generateId());
+        const undoActivity = {
+          '@context': 'https://www.w3.org/ns/activitystreams',
+          id: activityId,
+          type: 'Undo',
           actor: actor.ap_id,
-          object: targetApId,
-        },
-      };
+          object: {
+            type: 'Follow',
+            actor: actor.ap_id,
+            object: targetApId,
+          },
+        };
 
-      const keyId = `${actor.ap_id}#main-key`;
-      const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(undoActivity));
+        const keyId = `${actor.ap_id}#main-key`;
+        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(undoActivity));
 
-      try {
-        await fetch(cachedActor.inbox, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(undoActivity),
-        });
-      } catch (e) {
-        console.error('Failed to send Undo Follow:', e);
+        try {
+          await fetch(cachedActor.inbox, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/activity+json' },
+            body: JSON.stringify(undoActivity),
+          });
+        } catch (e) {
+          console.error('Failed to send Undo Follow:', e);
+        }
+
+        // Store activity
+        await c.env.DB.prepare(`
+          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
+          VALUES (?, 'Undo', ?, ?, ?, 'outbound')
+        `).bind(activityId, actor.ap_id, targetApId, JSON.stringify(undoActivity)).run();
+      } else {
+        console.warn(`[Follow] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
       }
-
-      // Store activity
-      await c.env.DB.prepare(`
-        INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-        VALUES (?, 'Undo', ?, ?, ?, 'outbound')
-      `).bind(activityId, actor.ap_id, targetApId, JSON.stringify(undoActivity)).run();
     }
   }
 
@@ -252,6 +271,10 @@ follow.post('/accept', async (c) => {
       };
 
       const keyId = `${actor.ap_id}#main-key`;
+      if (!isSafeRemoteUrl(cachedActor.inbox)) {
+        console.warn(`[Follow] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
+        return c.json({ success: true });
+      }
       const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(acceptActivity));
 
       try {
@@ -311,33 +334,37 @@ follow.post('/accept/batch', async (c) => {
       }
 
       // Send Accept to remote
-      if (!isLocal(requesterApId, baseUrl)) {
-        const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(requesterApId).first<any>();
-        if (cachedActor?.inbox) {
-          const activityId = activityApId(baseUrl, generateId());
-          const acceptActivity = {
-            '@context': 'https://www.w3.org/ns/activitystreams',
-            id: activityId,
-            type: 'Accept',
-            actor: actor.ap_id,
-            object: pendingFollow.activity_ap_id,
-          };
+  if (!isLocal(requesterApId, baseUrl)) {
+    const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(requesterApId).first<any>();
+    if (cachedActor?.inbox) {
+      const activityId = activityApId(baseUrl, generateId());
+      const acceptActivity = {
+        '@context': 'https://www.w3.org/ns/activitystreams',
+        id: activityId,
+        type: 'Accept',
+        actor: actor.ap_id,
+        object: pendingFollow.activity_ap_id,
+      };
 
-          const keyId = `${actor.ap_id}#main-key`;
-          const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(acceptActivity));
+      const keyId = `${actor.ap_id}#main-key`;
+      if (!isSafeRemoteUrl(cachedActor.inbox)) {
+        console.warn(`[Follow] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
+      } else {
+        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(acceptActivity));
 
-          fetch(cachedActor.inbox, {
-            method: 'POST',
-            headers: { ...headers, 'Content-Type': 'application/activity+json' },
-            body: JSON.stringify(acceptActivity),
-          }).catch(() => {}); // Fire and forget for batch
+        fetch(cachedActor.inbox, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/activity+json' },
+          body: JSON.stringify(acceptActivity),
+        }).catch(() => {}); // Fire and forget for batch
 
-          await c.env.DB.prepare(`
-            INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-            VALUES (?, 'Accept', ?, ?, ?, 'outbound')
-          `).bind(activityId, actor.ap_id, pendingFollow.activity_ap_id, JSON.stringify(acceptActivity)).run();
-        }
+        await c.env.DB.prepare(`
+          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
+          VALUES (?, 'Accept', ?, ?, ?, 'outbound')
+        `).bind(activityId, actor.ap_id, pendingFollow.activity_ap_id, JSON.stringify(acceptActivity)).run();
       }
+    }
+  }
 
       results.push({ ap_id: requesterApId, success: true });
     } catch (e) {
@@ -375,6 +402,10 @@ follow.post('/reject', async (c) => {
     const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?')
       .bind(body.requester_ap_id).first<any>();
     if (cachedActor?.inbox) {
+      if (!isSafeRemoteUrl(cachedActor.inbox)) {
+        console.warn(`[Follow] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
+        return c.json({ success: true });
+      }
       const baseUrl = c.env.APP_URL;
       const activityId = activityApId(baseUrl, generateId());
       const rejectActivity = {

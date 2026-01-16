@@ -5,6 +5,26 @@ import { actorApId, getDomain, formatUsername } from '../utils';
 
 const actors = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+const MAX_ACTOR_POSTS_LIMIT = 100;
+const MAX_PROFILE_NAME_LENGTH = 50;
+const MAX_PROFILE_SUMMARY_LENGTH = 500;
+const MAX_PROFILE_URL_LENGTH = 2000;
+
+function parseLimit(value: string | undefined, fallback: number, max: number): number {
+  const parsed = parseInt(value || '', 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 1), max);
+}
+
+function isValidHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 // Helper to resolve identifier to AP ID
 async function resolveActorApId(
   c: { env: Env },
@@ -259,7 +279,7 @@ actors.get('/:identifier/posts', async (c) => {
     return c.json({ error: 'Actor not found' }, 404);
   }
 
-  const limit = parseInt(c.req.query('limit') || '20');
+  const limit = parseLimit(c.req.query('limit'), 20, MAX_ACTOR_POSTS_LIMIT);
   const before = c.req.query('before');
 
   let query = `
@@ -413,10 +433,44 @@ actors.put('/me', async (c) => {
   const updates: string[] = [];
   const values: any[] = [];
 
-  if (body.name !== undefined) { updates.push('name = ?'); values.push(body.name); }
-  if (body.summary !== undefined) { updates.push('summary = ?'); values.push(body.summary); }
-  if (body.icon_url !== undefined) { updates.push('icon_url = ?'); values.push(body.icon_url); }
-  if (body.header_url !== undefined) { updates.push('header_url = ?'); values.push(body.header_url); }
+  if (body.name !== undefined) {
+    const name = body.name.trim();
+    if (name.length > MAX_PROFILE_NAME_LENGTH) {
+      return c.json({ error: `Name too long (max ${MAX_PROFILE_NAME_LENGTH} chars)` }, 400);
+    }
+    updates.push('name = ?');
+    values.push(name);
+  }
+  if (body.summary !== undefined) {
+    const summary = body.summary.trim();
+    if (summary.length > MAX_PROFILE_SUMMARY_LENGTH) {
+      return c.json({ error: `Summary too long (max ${MAX_PROFILE_SUMMARY_LENGTH} chars)` }, 400);
+    }
+    updates.push('summary = ?');
+    values.push(summary.length > 0 ? summary : null);
+  }
+  if (body.icon_url !== undefined) {
+    const iconUrl = body.icon_url.trim();
+    if (iconUrl.length > MAX_PROFILE_URL_LENGTH) {
+      return c.json({ error: `Icon URL too long (max ${MAX_PROFILE_URL_LENGTH} chars)` }, 400);
+    }
+    if (iconUrl.length > 0 && !isValidHttpUrl(iconUrl)) {
+      return c.json({ error: 'Invalid icon_url' }, 400);
+    }
+    updates.push('icon_url = ?');
+    values.push(iconUrl.length > 0 ? iconUrl : null);
+  }
+  if (body.header_url !== undefined) {
+    const headerUrl = body.header_url.trim();
+    if (headerUrl.length > MAX_PROFILE_URL_LENGTH) {
+      return c.json({ error: `Header URL too long (max ${MAX_PROFILE_URL_LENGTH} chars)` }, 400);
+    }
+    if (headerUrl.length > 0 && !isValidHttpUrl(headerUrl)) {
+      return c.json({ error: 'Invalid header_url' }, 400);
+    }
+    updates.push('header_url = ?');
+    values.push(headerUrl.length > 0 ? headerUrl : null);
+  }
   if (body.is_private !== undefined) { updates.push('is_private = ?'); values.push(body.is_private ? 1 : 0); }
 
   if (updates.length === 0) return c.json({ error: 'No fields to update' }, 400);

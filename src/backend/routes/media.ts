@@ -27,6 +27,11 @@ function getExtensionFromMimeType(mimeType: string): string {
 // POST /api/media/upload - Upload media file to R2
 media.post('/upload', async (c) => {
   try {
+    const actor = c.get('actor');
+    if (!actor) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
     const formData = await c.req.formData();
     const file = formData.get('file') as File;
 
