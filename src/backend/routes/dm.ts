@@ -4,7 +4,100 @@ import { generateId, formatUsername } from '../utils';
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-// Get conversations for current user
+// Get contacts - mutual followers and communities (automatic, no room creation needed)
+dm.get('/contacts', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  // Get mutual followers (people I follow AND who follow me back)
+  const mutualFollowers = await c.env.DB.prepare(`
+    SELECT
+      a.ap_id,
+      a.preferred_username,
+      a.name,
+      a.icon_url,
+      dc.id as conversation_id,
+      dc.last_message_at,
+      lm.content as last_message_content,
+      lm.sender_ap_id as last_message_sender_ap_id
+    FROM follows f1
+    JOIN follows f2 ON f1.following_ap_id = f2.follower_ap_id AND f1.follower_ap_id = f2.following_ap_id
+    JOIN actors a ON f1.following_ap_id = a.ap_id
+    LEFT JOIN dm_conversations dc ON
+      (dc.participant1_ap_id = ? AND dc.participant2_ap_id = a.ap_id) OR
+      (dc.participant1_ap_id = a.ap_id AND dc.participant2_ap_id = ?)
+    LEFT JOIN (
+      SELECT dm1.conversation_id, dm1.content, dm1.sender_ap_id
+      FROM dm_messages dm1
+      WHERE dm1.created_at = (
+        SELECT MAX(dm2.created_at) FROM dm_messages dm2 WHERE dm2.conversation_id = dm1.conversation_id
+      )
+    ) lm ON lm.conversation_id = dc.id
+    WHERE f1.follower_ap_id = ? AND f1.status = 'accepted' AND f2.status = 'accepted'
+    ORDER BY dc.last_message_at DESC NULLS LAST, a.name ASC
+  `).bind(actor.ap_id, actor.ap_id, actor.ap_id).all();
+
+  // Get communities the user is a member of
+  const communities = await c.env.DB.prepare(`
+    SELECT
+      c.ap_id,
+      c.preferred_username,
+      c.name,
+      c.icon_url,
+      c.member_count,
+      c.last_message_at,
+      lm.content as last_message_content,
+      lm.sender_ap_id as last_message_sender_ap_id
+    FROM community_members cm
+    JOIN communities c ON cm.community_ap_id = c.ap_id
+    LEFT JOIN (
+      SELECT cm1.community_ap_id, cm1.content, cm1.sender_ap_id
+      FROM community_messages cm1
+      WHERE cm1.created_at = (
+        SELECT MAX(cm2.created_at) FROM community_messages cm2 WHERE cm2.community_ap_id = cm1.community_ap_id
+      )
+    ) lm ON lm.community_ap_id = c.ap_id
+    WHERE cm.actor_ap_id = ?
+    ORDER BY c.last_message_at DESC NULLS LAST, c.name ASC
+  `).bind(actor.ap_id).all();
+
+  const mutualFollowersResult = (mutualFollowers.results || []).map((f: any) => ({
+    type: 'user' as const,
+    ap_id: f.ap_id,
+    username: formatUsername(f.ap_id),
+    preferred_username: f.preferred_username,
+    name: f.name,
+    icon_url: f.icon_url,
+    conversation_id: f.conversation_id,
+    last_message: f.last_message_content ? {
+      content: f.last_message_content,
+      is_mine: f.last_message_sender_ap_id === actor.ap_id,
+    } : null,
+    last_message_at: f.last_message_at,
+  }));
+
+  const communitiesResult = (communities.results || []).map((c: any) => ({
+    type: 'community' as const,
+    ap_id: c.ap_id,
+    username: formatUsername(c.ap_id),
+    preferred_username: c.preferred_username,
+    name: c.name,
+    icon_url: c.icon_url,
+    member_count: c.member_count,
+    last_message: c.last_message_content ? {
+      content: c.last_message_content,
+      is_mine: c.last_message_sender_ap_id === actor.ap_id,
+    } : null,
+    last_message_at: c.last_message_at,
+  }));
+
+  return c.json({
+    mutual_followers: mutualFollowersResult,
+    communities: communitiesResult,
+  });
+});
+
+// Get conversations for current user (legacy endpoint, still used for individual chats)
 dm.get('/conversations', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
@@ -259,6 +352,144 @@ dm.post('/conversations/:id/messages', async (c) => {
       content: body.content.trim(),
       created_at: now,
     }
+  }, 201);
+});
+
+// ============================================================
+// USER-BASED DM ENDPOINTS (no conversation creation needed)
+// ============================================================
+
+// Get messages with a specific user (by their ap_id)
+dm.get('/user/:encodedApId/messages', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const otherApId = decodeURIComponent(c.req.param('encodedApId'));
+  const limit = parseInt(c.req.query('limit') || '50');
+  const before = c.req.query('before');
+
+  // Find existing conversation
+  const conversation = await c.env.DB.prepare(`
+    SELECT id FROM dm_conversations
+    WHERE (participant1_ap_id = ? AND participant2_ap_id = ?) OR (participant1_ap_id = ? AND participant2_ap_id = ?)
+  `).bind(actor.ap_id, otherApId, otherApId, actor.ap_id).first<any>();
+
+  if (!conversation) {
+    // No conversation yet - return empty messages
+    return c.json({ messages: [], conversation_id: null });
+  }
+
+  let query = `
+    SELECT
+      dm.id,
+      dm.conversation_id,
+      dm.sender_ap_id,
+      dm.content,
+      dm.created_at,
+      COALESCE(a.preferred_username, ac.preferred_username) as sender_preferred_username,
+      COALESCE(a.name, ac.name) as sender_name,
+      COALESCE(a.icon_url, ac.icon_url) as sender_icon_url
+    FROM dm_messages dm
+    LEFT JOIN actors a ON dm.sender_ap_id = a.ap_id
+    LEFT JOIN actor_cache ac ON dm.sender_ap_id = ac.ap_id
+    WHERE dm.conversation_id = ?
+  `;
+
+  const params: any[] = [conversation.id];
+
+  if (before) {
+    query += ` AND dm.created_at < ?`;
+    params.push(before);
+  }
+
+  query += ` ORDER BY dm.created_at DESC LIMIT ?`;
+  params.push(limit);
+
+  const messages = await c.env.DB.prepare(query).bind(...params).all();
+
+  const result = (messages.results || []).reverse().map((msg: any) => ({
+    id: msg.id,
+    sender: {
+      ap_id: msg.sender_ap_id,
+      username: formatUsername(msg.sender_ap_id),
+      preferred_username: msg.sender_preferred_username,
+      name: msg.sender_name,
+      icon_url: msg.sender_icon_url,
+    },
+    content: msg.content,
+    created_at: msg.created_at,
+  }));
+
+  return c.json({ messages: result, conversation_id: conversation.id });
+});
+
+// Send message to a specific user (creates conversation if needed)
+dm.post('/user/:encodedApId/messages', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const otherApId = decodeURIComponent(c.req.param('encodedApId'));
+  const body = await c.req.json<{ content: string }>();
+
+  if (!body.content || body.content.trim() === '') {
+    return c.json({ error: 'Message content is required' }, 400);
+  }
+
+  // Verify mutual follow
+  const mutualFollow = await c.env.DB.prepare(`
+    SELECT 1 FROM follows f1
+    JOIN follows f2 ON f1.following_ap_id = f2.follower_ap_id AND f1.follower_ap_id = f2.following_ap_id
+    WHERE f1.follower_ap_id = ? AND f1.following_ap_id = ? AND f1.status = 'accepted' AND f2.status = 'accepted'
+  `).bind(actor.ap_id, otherApId).first();
+
+  if (!mutualFollow) {
+    return c.json({ error: 'Can only message mutual followers' }, 403);
+  }
+
+  // Find or create conversation
+  let conversation = await c.env.DB.prepare(`
+    SELECT id FROM dm_conversations
+    WHERE (participant1_ap_id = ? AND participant2_ap_id = ?) OR (participant1_ap_id = ? AND participant2_ap_id = ?)
+  `).bind(actor.ap_id, otherApId, otherApId, actor.ap_id).first<any>();
+
+  const now = new Date().toISOString();
+
+  if (!conversation) {
+    // Create new conversation
+    const [participant1, participant2] = [actor.ap_id, otherApId].sort();
+    const conversationId = generateId();
+    await c.env.DB.prepare(`
+      INSERT INTO dm_conversations (id, participant1_ap_id, participant2_ap_id, created_at)
+      VALUES (?, ?, ?, ?)
+    `).bind(conversationId, participant1, participant2, now).run();
+    conversation = { id: conversationId };
+  }
+
+  // Insert message
+  const messageId = generateId();
+  await c.env.DB.prepare(`
+    INSERT INTO dm_messages (id, conversation_id, sender_ap_id, content, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(messageId, conversation.id, actor.ap_id, body.content.trim(), now).run();
+
+  await c.env.DB.prepare(`
+    UPDATE dm_conversations SET last_message_at = ? WHERE id = ?
+  `).bind(now, conversation.id).run();
+
+  return c.json({
+    message: {
+      id: messageId,
+      sender: {
+        ap_id: actor.ap_id,
+        username: formatUsername(actor.ap_id),
+        preferred_username: actor.preferred_username,
+        name: actor.name,
+        icon_url: actor.icon_url,
+      },
+      content: body.content.trim(),
+      created_at: now,
+    },
+    conversation_id: conversation.id,
   }, 201);
 });
 

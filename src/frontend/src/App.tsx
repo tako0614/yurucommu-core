@@ -45,7 +45,7 @@ function AppContent() {
           <Route path="/friends/groups" element={<GroupsPage actor={actor} />} />
           <Route path="/groups/:name/chat" element={<CommunityChatPage actor={actor} />} />
           <Route path="/dm" element={<DMPage actor={actor} />} />
-          <Route path="/dm/:conversationId" element={<DMPage actor={actor} />} />
+          <Route path="/dm/:contactId" element={<DMPage actor={actor} />} />
           <Route path="/profile" element={<ProfilePage actor={actor} />} />
           <Route path="/profile/:actorId" element={<ProfilePage actor={actor} />} />
           <Route path="/notifications" element={<NotificationPage actor={actor} />} />
