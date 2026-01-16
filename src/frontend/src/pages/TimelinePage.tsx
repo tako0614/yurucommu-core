@@ -9,6 +9,8 @@ import {
   createPost,
   likePost,
   unlikePost,
+  repostPost,
+  unrepostPost,
   bookmarkPost,
   unbookmarkPost,
   uploadMedia,
@@ -40,6 +42,12 @@ const ReplyIcon = () => (
 const BookmarkIcon = ({ filled }: { filled: boolean }) => (
   <svg className="w-5 h-5" fill={filled ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+  </svg>
+);
+
+const RepostIcon = ({ filled }: { filled: boolean }) => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={filled ? 2.5 : 2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
   </svg>
 );
 
@@ -363,6 +371,24 @@ export function TimelinePage({ actor }: TimelinePageProps) {
     }
   };
 
+  const handleRepost = async (post: Post) => {
+    try {
+      if (post.reposted) {
+        await unrepostPost(post.ap_id);
+        setPosts(prev => prev.map(p =>
+          p.ap_id === post.ap_id ? { ...p, reposted: false, announce_count: p.announce_count - 1 } : p
+        ));
+      } else {
+        await repostPost(post.ap_id);
+        setPosts(prev => prev.map(p =>
+          p.ap_id === post.ap_id ? { ...p, reposted: true, announce_count: p.announce_count + 1 } : p
+        ));
+      }
+    } catch (e) {
+      console.error('Failed to toggle repost:', e);
+    }
+  };
+
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -587,6 +613,10 @@ export function TimelinePage({ actor }: TimelinePageProps) {
                     <button onClick={() => navigate(`/post/${encodeURIComponent(post.ap_id)}`)} className="flex items-center gap-2 text-neutral-500 hover:text-blue-500 transition-colors">
                       <ReplyIcon />
                       <span className="text-sm">{post.reply_count || ''}</span>
+                    </button>
+                    <button onClick={() => handleRepost(post)} className={`flex items-center gap-2 transition-colors ${post.reposted ? 'text-green-500' : 'text-neutral-500 hover:text-green-500'}`}>
+                      <RepostIcon filled={post.reposted} />
+                      {post.announce_count > 0 && <span className="text-sm">{post.announce_count}</span>}
                     </button>
                     <button onClick={() => handleLike(post)} className={`flex items-center gap-2 transition-colors ${post.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'}`}>
                       <HeartIcon filled={post.liked} />

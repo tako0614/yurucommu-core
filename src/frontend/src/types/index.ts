@@ -63,6 +63,7 @@ export interface Post {
   published: string;
   liked: boolean;
   bookmarked: boolean;
+  reposted: boolean;
 }
 
 // DM participant

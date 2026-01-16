@@ -219,6 +219,16 @@ export async function unlikePost(apId: string): Promise<void> {
   if (!res.ok) throw new Error('Failed to unlike');
 }
 
+export async function repostPost(apId: string): Promise<void> {
+  const res = await fetch(`/api/posts/${encodeURIComponent(apId)}/repost`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to repost');
+}
+
+export async function unrepostPost(apId: string): Promise<void> {
+  const res = await fetch(`/api/posts/${encodeURIComponent(apId)}/repost`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to unrepost');
+}
+
 export async function bookmarkPost(apId: string): Promise<void> {
   const res = await fetch(`/api/posts/${encodeURIComponent(apId)}/bookmark`, { method: 'POST' });
   if (!res.ok) throw new Error('Failed to bookmark');
