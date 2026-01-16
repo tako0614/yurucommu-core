@@ -43,6 +43,12 @@ follow.post('/', async (c) => {
     if (status === 'accepted') {
       await c.env.DB.prepare('UPDATE actors SET following_count = following_count + 1 WHERE ap_id = ?').bind(actor.ap_id).run();
       await c.env.DB.prepare('UPDATE actors SET follower_count = follower_count + 1 WHERE ap_id = ?').bind(targetApId).run();
+
+      // Add to dm_contacts (follower can now message the followed user)
+      await c.env.DB.prepare(`
+        INSERT OR IGNORE INTO dm_contacts (owner_ap_id, contact_ap_id, added_reason)
+        VALUES (?, ?, 'follow')
+      `).bind(actor.ap_id, targetApId).run();
     }
 
     // Create notification
@@ -228,6 +234,12 @@ follow.post('/accept', async (c) => {
   await c.env.DB.prepare('UPDATE actors SET follower_count = follower_count + 1 WHERE ap_id = ?').bind(actor.ap_id).run();
   if (isLocal(body.requester_ap_id, c.env.APP_URL)) {
     await c.env.DB.prepare('UPDATE actors SET following_count = following_count + 1 WHERE ap_id = ?').bind(body.requester_ap_id).run();
+
+    // Add to dm_contacts (the requester can now message this actor)
+    await c.env.DB.prepare(`
+      INSERT OR IGNORE INTO dm_contacts (owner_ap_id, contact_ap_id, added_reason)
+      VALUES (?, ?, 'follow')
+    `).bind(body.requester_ap_id, actor.ap_id).run();
   }
 
   // Update notification

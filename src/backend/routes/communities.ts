@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { communityApId, generateId, formatUsername } from '../utils';
+import { communityApId, generateId, formatUsername, generateKeyPair } from '../utils';
 
 const communities = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -58,6 +58,14 @@ communities.post('/', async (c) => {
   const apId = communityApId(baseUrl, body.name);
   const now = new Date().toISOString();
 
+  // Generate AP endpoints
+  const inbox = `${apId}/inbox`;
+  const outbox = `${apId}/outbox`;
+  const followersUrl = `${apId}/followers`;
+
+  // Generate key pair for ActivityPub
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+
   // Check if community name already exists
   const existing = await c.env.DB.prepare('SELECT ap_id FROM communities WHERE preferred_username = ?')
     .bind(body.name).first();
@@ -67,15 +75,15 @@ communities.post('/', async (c) => {
 
   // Create community
   await c.env.DB.prepare(`
-    INSERT INTO communities (ap_id, preferred_username, name, summary, visibility, join_policy, post_policy, member_count, created_by, created_at)
-    VALUES (?, ?, ?, ?, 'public', 'open', 'members', 1, ?, ?)
-  `).bind(apId, body.name, body.display_name || body.name, body.summary || '', actor.ap_id, now).run();
+    INSERT INTO communities (ap_id, preferred_username, name, summary, inbox, outbox, followers_url, public_key_pem, private_key_pem, visibility, join_policy, post_policy, member_count, created_by, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'public', 'open', 'members', 1, ?, ?)
+  `).bind(apId, body.name, body.display_name || body.name, body.summary || '', inbox, outbox, followersUrl, publicKeyPem, privateKeyPem, actor.ap_id, now).run();
 
-  // Add creator as member
+  // Add creator as member (owner role)
   await c.env.DB.prepare(`
-    INSERT INTO community_members (id, community_ap_id, actor_ap_id, role, joined_at)
-    VALUES (?, ?, ?, 'admin', ?)
-  `).bind(generateId(), apId, actor.ap_id, now).run();
+    INSERT INTO community_members (community_ap_id, actor_ap_id, role, joined_at)
+    VALUES (?, ?, 'owner', ?)
+  `).bind(apId, actor.ap_id, now).run();
 
   return c.json({
     community: {
@@ -180,9 +188,9 @@ communities.post('/:identifier/join', async (c) => {
 
   // Add member
   await c.env.DB.prepare(`
-    INSERT INTO community_members (id, community_ap_id, actor_ap_id, role, joined_at)
-    VALUES (?, ?, ?, 'member', ?)
-  `).bind(generateId(), community.ap_id, actor.ap_id, now).run();
+    INSERT INTO community_members (community_ap_id, actor_ap_id, role, joined_at)
+    VALUES (?, ?, 'member', ?)
+  `).bind(community.ap_id, actor.ap_id, now).run();
 
   // Update member count
   await c.env.DB.prepare('UPDATE communities SET member_count = member_count + 1 WHERE ap_id = ?')

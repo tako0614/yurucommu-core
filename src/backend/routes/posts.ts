@@ -329,10 +329,11 @@ posts.post('/:id/like', async (c) => {
 
   // Create like
   const likeId = generateId();
+  const likeActivityApId = activityApId(baseUrl, likeId);
   await c.env.DB.prepare(`
-    INSERT INTO likes (id, object_ap_id, actor_ap_id, activity_ap_id)
-    VALUES (?, ?, ?, ?)
-  `).bind(likeId, post.ap_id, actor.ap_id, activityApId(baseUrl, likeId)).run();
+    INSERT INTO likes (object_ap_id, actor_ap_id, activity_ap_id)
+    VALUES (?, ?, ?)
+  `).bind(post.ap_id, actor.ap_id, likeActivityApId).run();
 
   // Update like count
   await c.env.DB.prepare('UPDATE objects SET like_count = like_count + 1 WHERE ap_id = ?').bind(post.ap_id).run();
@@ -353,7 +354,7 @@ posts.post('/:id/like', async (c) => {
       if (postAuthor?.inbox) {
         const likeActivity = {
           '@context': 'https://www.w3.org/ns/activitystreams',
-          id: activityApId(baseUrl, likeId),
+          id: likeActivityApId,
           type: 'Like',
           actor: actor.ap_id,
           object: post.ap_id,

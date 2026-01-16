@@ -10,6 +10,9 @@ import {
   likePost,
   unlikePost,
   updateProfile,
+  fetchAccounts,
+  switchAccount,
+  AccountInfo,
 } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
@@ -70,12 +73,50 @@ export function ProfilePage({ actor }: ProfilePageProps) {
   const [saving, setSaving] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showFollowModal, setShowFollowModal] = useState<'followers' | 'following' | null>(null);
+  const [editIsPrivate, setEditIsPrivate] = useState(false);
   const [followModalActors, setFollowModalActors] = useState<Actor[]>([]);
   const [followModalLoading, setFollowModalLoading] = useState(false);
+  const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
+  const [accounts, setAccounts] = useState<AccountInfo[]>([]);
+  const [currentApId, setCurrentApId] = useState<string>('');
+  const [accountsLoading, setAccountsLoading] = useState(false);
 
   // Use current actor if no actorId in URL
   const targetActorId = actorId ? decodeURIComponent(actorId) : actor.ap_id;
   const isOwnProfile = targetActorId === actor.ap_id;
+
+  const loadAccounts = async () => {
+    setAccountsLoading(true);
+    try {
+      const data = await fetchAccounts();
+      setAccounts(data.accounts);
+      setCurrentApId(data.current_ap_id);
+    } catch (e) {
+      console.error('Failed to load accounts:', e);
+    } finally {
+      setAccountsLoading(false);
+    }
+  };
+
+  const handleSwitchAccount = async (apId: string) => {
+    if (apId === currentApId) {
+      setShowAccountSwitcher(false);
+      return;
+    }
+    try {
+      await switchAccount(apId);
+      window.location.reload();
+    } catch (e) {
+      console.error('Failed to switch account:', e);
+    }
+  };
+
+  const toggleAccountSwitcher = () => {
+    if (!showAccountSwitcher) {
+      loadAccounts();
+    }
+    setShowAccountSwitcher(!showAccountSwitcher);
+  };
 
   const loadProfile = useCallback(async () => {
     try {
@@ -131,6 +172,7 @@ export function ProfilePage({ actor }: ProfilePageProps) {
     if (profile) {
       setEditName(profile.name || '');
       setEditSummary(profile.summary || '');
+      setEditIsPrivate(profile.is_private || false);
       setShowEditModal(true);
     }
   };
@@ -142,11 +184,13 @@ export function ProfilePage({ actor }: ProfilePageProps) {
       await updateProfile({
         name: editName.trim() || undefined,
         summary: editSummary.trim() || undefined,
+        is_private: editIsPrivate,
       });
       setProfile(prev => prev ? {
         ...prev,
         name: editName.trim() || prev.preferred_username,
         summary: editSummary.trim(),
+        is_private: editIsPrivate,
       } : null);
       setShowEditModal(false);
     } catch (e) {
@@ -228,20 +272,75 @@ export function ProfilePage({ actor }: ProfilePageProps) {
     <div className="flex flex-col h-full">
       {/* Header */}
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-        <div className="flex items-center gap-4 px-4 py-3">
-          {actorId && (
-            <Link to="/" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
-              <BackIcon />
-            </Link>
-          )}
-          <div>
-            <h1 className="text-xl font-bold">
-              {profile.name || profile.preferred_username}
-            </h1>
-            <p className="text-sm text-neutral-500">{profile.post_count} {t('profile.posts')}</p>
+        <div className="flex items-center justify-between px-4 py-3">
+          {/* Left: Back button (only when viewing other's profile) */}
+          <div className="w-10">
+            {actorId && (
+              <Link to="/" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full inline-block">
+                <BackIcon />
+              </Link>
+            )}
           </div>
+
+          {/* Center: Username with account switcher (own profile only) */}
+          {isOwnProfile ? (
+            <button
+              onClick={toggleAccountSwitcher}
+              className="flex items-center gap-1 hover:bg-neutral-900 px-3 py-1 rounded-full transition-colors"
+            >
+              <span className="font-bold text-white">@{profile.username}</span>
+              <svg className={`w-4 h-4 transition-transform ${showAccountSwitcher ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          ) : (
+            <span className="font-bold text-white">@{profile.username}</span>
+          )}
+
+          {/* Right: Placeholder for balance */}
+          <div className="w-10" />
         </div>
+
+        {/* Account Switcher Dropdown */}
+        {showAccountSwitcher && isOwnProfile && (
+          <div className="absolute left-1/2 -translate-x-1/2 top-14 bg-neutral-900 rounded-xl shadow-lg border border-neutral-800 min-w-[250px] z-20">
+            {accountsLoading ? (
+              <div className="p-4 text-center text-neutral-500">読み込み中...</div>
+            ) : (
+              <div className="py-2">
+                {accounts.map((account) => (
+                  <button
+                    key={account.ap_id}
+                    onClick={() => handleSwitchAccount(account.ap_id)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-800 transition-colors ${
+                      account.ap_id === currentApId ? 'bg-neutral-800/50' : ''
+                    }`}
+                  >
+                    <UserAvatar avatarUrl={account.icon_url} name={account.name || account.preferred_username} size={40} />
+                    <div className="flex-1 text-left">
+                      <p className="font-bold text-white">{account.name || account.preferred_username}</p>
+                      <p className="text-sm text-neutral-500">@{account.preferred_username}</p>
+                    </div>
+                    {account.ap_id === currentApId && (
+                      <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                      </svg>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </header>
+
+      {/* Backdrop for account switcher */}
+      {showAccountSwitcher && (
+        <div
+          className="fixed inset-0 z-10"
+          onClick={() => setShowAccountSwitcher(false)}
+        />
+      )}
 
       <div className="flex-1 overflow-y-auto">
         {/* Header Image */}
@@ -480,6 +579,25 @@ export function ProfilePage({ actor }: ProfilePageProps) {
                   rows={4}
                   className="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                 />
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <div>
+                  <div className="text-white font-medium">フォロー許可制</div>
+                  <div className="text-sm text-neutral-400">フォローリクエストを承認制にする</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditIsPrivate(!editIsPrivate)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    editIsPrivate ? 'bg-blue-500' : 'bg-neutral-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      editIsPrivate ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
               </div>
             </div>
           </div>

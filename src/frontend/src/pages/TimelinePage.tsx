@@ -12,6 +12,9 @@ import {
   bookmarkPost,
   unbookmarkPost,
   uploadMedia,
+  fetchAccounts,
+  switchAccount,
+  AccountInfo,
 } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
@@ -52,6 +55,56 @@ const CloseIcon = () => (
   </svg>
 );
 
+const CloseIconLarge = () => (
+  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+  </svg>
+);
+
+// Menu Icons
+const HomeIconMenu = ({ active }: { active?: boolean }) => (
+  <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+  </svg>
+);
+
+const GroupIconMenu = ({ active }: { active?: boolean }) => (
+  <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+  </svg>
+);
+
+const MessageIconMenu = ({ active }: { active?: boolean }) => (
+  <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+  </svg>
+);
+
+const BellIconMenu = ({ active }: { active?: boolean }) => (
+  <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+  </svg>
+);
+
+const ProfileIconMenu = ({ active }: { active?: boolean }) => (
+  <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+  </svg>
+);
+
+const BookmarkIconMenu = ({ active }: { active?: boolean }) => (
+  <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+  </svg>
+);
+
+const SettingsIconMenu = ({ active }: { active?: boolean }) => (
+  <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+  </svg>
+);
+
 // File size limits
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
 
@@ -86,6 +139,42 @@ export function TimelinePage({ actor }: TimelinePageProps) {
   const [showStoryViewer, setShowStoryViewer] = useState(false);
   const [storyViewerActorIndex, setStoryViewerActorIndex] = useState(0);
   const [showStoryComposer, setShowStoryComposer] = useState(false);
+
+  // Mobile menu state
+  const [showMenu, setShowMenu] = useState(false);
+  const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
+  const [showPostModal, setShowPostModal] = useState(false);
+  const [accounts, setAccounts] = useState<AccountInfo[]>([]);
+  const [currentApId, setCurrentApId] = useState<string>('');
+  const [accountsLoading, setAccountsLoading] = useState(false);
+
+  const loadAccounts = async () => {
+    setAccountsLoading(true);
+    try {
+      const data = await fetchAccounts();
+      setAccounts(data.accounts);
+      setCurrentApId(data.current_ap_id);
+    } catch (e) {
+      console.error('Failed to load accounts:', e);
+    } finally {
+      setAccountsLoading(false);
+    }
+  };
+
+  const handleSwitchAccount = async (apId: string) => {
+    if (apId === currentApId) return;
+    try {
+      await switchAccount(apId);
+      window.location.reload();
+    } catch (e) {
+      console.error('Failed to switch account:', e);
+    }
+  };
+
+  const handleOpenMenu = () => {
+    setShowMenu(true);
+    loadAccounts();
+  };
 
   useEffect(() => {
     fetchCommunities().then(setCommunities).catch(console.error);
@@ -214,8 +303,8 @@ export function TimelinePage({ actor }: TimelinePageProps) {
     setUploadedMedia(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handlePost = async () => {
-    if ((!postContent.trim() && uploadedMedia.length === 0) || posting) return;
+  const handlePost = async (): Promise<boolean> => {
+    if ((!postContent.trim() && uploadedMedia.length === 0) || posting) return false;
     setPosting(true);
     try {
       const newPost = await createPost({
@@ -223,11 +312,16 @@ export function TimelinePage({ actor }: TimelinePageProps) {
         community_ap_id: activeTab !== 'following' ? activeTab : undefined,
         attachments: uploadedMedia.length > 0 ? uploadedMedia.map(m => ({ r2_key: m.r2_key, content_type: m.content_type })) : undefined,
       });
-      setPosts(prev => [newPost, ...prev]);
-      setPostContent('');
-      setUploadedMedia([]);
+      if (newPost) {
+        setPosts(prev => [newPost, ...prev]);
+        setPostContent('');
+        setUploadedMedia([]);
+        return true;
+      }
+      return false;
     } catch (e) {
       console.error('Failed to create post:', e);
+      return false;
     } finally {
       setPosting(false);
     }
@@ -311,8 +405,113 @@ export function TimelinePage({ actor }: TimelinePageProps) {
         />
       )}
 
+      {/* Mobile Menu Overlay */}
+      {showMenu && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => { setShowMenu(false); setShowAccountSwitcher(false); }}
+          />
+          {/* Slide-in Menu */}
+          <div className="absolute left-0 top-0 bottom-0 w-72 bg-black border-r border-neutral-800 animate-slide-in overflow-y-auto">
+            {/* Profile Header */}
+            <div className="p-4 border-b border-neutral-800">
+              {/* Avatar and Account Switcher Toggle */}
+              <div className="flex items-center justify-between mb-3">
+                <UserAvatar avatarUrl={actor.icon_url} name={actor.name || actor.username} size={48} />
+                <button
+                  onClick={() => setShowAccountSwitcher(!showAccountSwitcher)}
+                  className="p-2 rounded-full border border-neutral-700 hover:bg-neutral-800 transition-colors"
+                >
+                  <svg className={`w-4 h-4 transition-transform ${showAccountSwitcher ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              </div>
+              {/* Name and Username */}
+              <p className="font-bold text-white text-lg">{actor.name || actor.username}</p>
+              <p className="text-neutral-500">@{actor.username}</p>
+              {/* Follow/Follower counts */}
+              <div className="flex gap-4 mt-3">
+                <Link to={`/profile/${encodeURIComponent(actor.ap_id)}/following`} onClick={() => setShowMenu(false)} className="hover:underline">
+                  <span className="font-bold text-white">{actor.following_count || 0}</span>
+                  <span className="text-neutral-500 ml-1">{t('profile.following')}</span>
+                </Link>
+                <Link to={`/profile/${encodeURIComponent(actor.ap_id)}/followers`} onClick={() => setShowMenu(false)} className="hover:underline">
+                  <span className="font-bold text-white">{actor.follower_count || 0}</span>
+                  <span className="text-neutral-500 ml-1">{t('profile.followers')}</span>
+                </Link>
+              </div>
+            </div>
+
+            {/* Account Switcher */}
+            {showAccountSwitcher && (
+              <div className="border-b border-neutral-800">
+                {accountsLoading ? (
+                  <div className="p-4 text-center text-neutral-500">読み込み中...</div>
+                ) : (
+                  <div className="py-2">
+                    {accounts.map((account) => (
+                      <button
+                        key={account.ap_id}
+                        onClick={() => handleSwitchAccount(account.ap_id)}
+                        className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900 transition-colors ${
+                          account.ap_id === currentApId ? 'bg-neutral-900/50' : ''
+                        }`}
+                      >
+                        <UserAvatar avatarUrl={account.icon_url} name={account.name || account.preferred_username} size={40} />
+                        <div className="flex-1 text-left">
+                          <p className="font-bold text-white">{account.name || account.preferred_username}</p>
+                          <p className="text-sm text-neutral-500">@{account.preferred_username}</p>
+                        </div>
+                        {account.ap_id === currentApId && (
+                          <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Navigation */}
+            <nav className="p-2">
+              <Link to="/profile" onClick={() => setShowMenu(false)} className="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors">
+                <ProfileIconMenu />
+                <span className="text-lg">{t('nav.profile')}</span>
+              </Link>
+              <Link to="/bookmarks" onClick={() => setShowMenu(false)} className="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors">
+                <BookmarkIconMenu />
+                <span className="text-lg">{t('nav.bookmarks')}</span>
+              </Link>
+              <Link to="/settings" onClick={() => setShowMenu(false)} className="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors">
+                <SettingsIconMenu />
+                <span className="text-lg">{t('nav.settings')}</span>
+              </Link>
+            </nav>
+          </div>
+        </div>
+      )}
+
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-        <h1 className="text-xl font-bold px-4 py-3">{t('timeline.title')}</h1>
+        <div className="flex items-center justify-between px-4 py-3">
+          {/* Mobile: User avatar button that opens menu */}
+          <button
+            onClick={handleOpenMenu}
+            className="md:hidden"
+          >
+            <UserAvatar avatarUrl={actor.icon_url} name={actor.name || actor.username} size={32} />
+          </button>
+          {/* Desktop: Show text title */}
+          <h1 className="hidden md:block text-xl font-bold">{t('timeline.title')}</h1>
+          {/* Mobile: Notification heart icon */}
+          <Link to="/notifications" className="md:hidden p-2 text-white hover:text-pink-500 transition-colors">
+            <HeartIcon filled={false} />
+          </Link>
+        </div>
         <div className="flex overflow-x-auto scrollbar-hide border-b border-neutral-900">
           <button
             onClick={() => setActiveTab('following')}
@@ -350,54 +549,6 @@ export function TimelinePage({ actor }: TimelinePageProps) {
         onStoryClick={handleStoryClick}
         onAddStory={handleAddStory}
       />
-
-      <div className="border-b border-neutral-900 p-4">
-        <div className="flex gap-3">
-          <UserAvatar avatarUrl={actor.icon_url} name={actor.name || actor.username} size={48} />
-          <div className="flex-1">
-            <textarea
-              value={postContent}
-              onChange={e => setPostContent(e.target.value)}
-              placeholder={getPlaceholder()}
-              className="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none text-lg"
-              rows={3}
-            />
-            {uploadedMedia.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2">
-                {uploadedMedia.map((media, idx) => (
-                  <div key={idx} className="relative">
-                    <img src={media.preview} alt="" className="w-20 h-20 object-cover rounded-lg" />
-                    <button onClick={() => removeMedia(idx)} className="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5 hover:bg-black">
-                      <CloseIcon />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="flex items-center justify-between mt-2">
-              <div className="flex items-center gap-2">
-                <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileSelect} className="hidden" />
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading || uploadedMedia.length >= 4}
-                  className="p-2 text-blue-500 hover:bg-blue-500/10 rounded-full disabled:opacity-50 transition-colors"
-                >
-                  <ImageIcon />
-                </button>
-                {uploading && <span className="text-sm text-neutral-500">アップロード中...</span>}
-                {uploadError && <span className="text-sm text-red-500">{uploadError}</span>}
-              </div>
-              <button
-                onClick={handlePost}
-                disabled={(!postContent.trim() && uploadedMedia.length === 0) || posting}
-                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-800 disabled:text-neutral-600 rounded-full font-bold transition-colors"
-              >
-                {t('posts.post')}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
 
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
         {loading ? (
@@ -453,6 +604,92 @@ export function TimelinePage({ actor }: TimelinePageProps) {
           </>
         )}
       </div>
+
+      {/* Floating Action Button */}
+      <button
+        onClick={() => setShowPostModal(true)}
+        className="fixed bottom-20 right-4 md:bottom-8 md:right-8 w-14 h-14 bg-blue-500 hover:bg-blue-600 rounded-full shadow-lg flex items-center justify-center text-white transition-colors z-40"
+      >
+        <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+        </svg>
+      </button>
+
+      {/* Post Modal */}
+      {showPostModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-start justify-center z-50 p-4 pt-12">
+          <div className="bg-black w-full max-w-lg rounded-2xl border border-neutral-800">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
+              <button
+                onClick={() => {
+                  setShowPostModal(false);
+                  setPostContent('');
+                  setUploadedMedia([]);
+                  setUploadError(null);
+                }}
+                className="text-white hover:text-neutral-400 transition-colors"
+              >
+                <CloseIconLarge />
+              </button>
+              <button
+                onClick={async () => {
+                  const success = await handlePost();
+                  if (success) {
+                    setShowPostModal(false);
+                  }
+                }}
+                disabled={(!postContent.trim() && uploadedMedia.length === 0) || posting}
+                className="px-4 py-1.5 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
+              >
+                {posting ? '投稿中...' : t('posts.post')}
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-4">
+              <div className="flex gap-3">
+                <UserAvatar avatarUrl={actor.icon_url} name={actor.name || actor.username} size={48} />
+                <div className="flex-1">
+                  <textarea
+                    value={postContent}
+                    onChange={e => setPostContent(e.target.value)}
+                    placeholder={getPlaceholder()}
+                    className="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none text-lg min-h-[120px]"
+                    autoFocus
+                  />
+                  {uploadedMedia.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {uploadedMedia.map((media, idx) => (
+                        <div key={idx} className="relative">
+                          <img src={media.preview} alt="" className="w-20 h-20 object-cover rounded-lg" />
+                          <button onClick={() => removeMedia(idx)} className="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5 hover:bg-black">
+                            <CloseIcon />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center gap-2 px-4 py-3 border-t border-neutral-800">
+              <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileSelect} className="hidden" />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading || uploadedMedia.length >= 4}
+                className="p-2 text-blue-500 hover:bg-blue-500/10 rounded-full disabled:opacity-50 transition-colors"
+              >
+                <ImageIcon />
+              </button>
+              {uploading && <span className="text-sm text-neutral-500">アップロード中...</span>}
+              {uploadError && <span className="text-sm text-red-500">{uploadError}</span>}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

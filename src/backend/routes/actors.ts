@@ -92,7 +92,7 @@ actors.put('/me', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const body = await c.req.json<{ name?: string; summary?: string; icon_url?: string; header_url?: string }>();
+  const body = await c.req.json<{ name?: string; summary?: string; icon_url?: string; header_url?: string; is_private?: boolean }>();
 
   const updates: string[] = [];
   const values: any[] = [];
@@ -101,6 +101,7 @@ actors.put('/me', async (c) => {
   if (body.summary !== undefined) { updates.push('summary = ?'); values.push(body.summary); }
   if (body.icon_url !== undefined) { updates.push('icon_url = ?'); values.push(body.icon_url); }
   if (body.header_url !== undefined) { updates.push('header_url = ?'); values.push(body.header_url); }
+  if (body.is_private !== undefined) { updates.push('is_private = ?'); values.push(body.is_private ? 1 : 0); }
 
   if (updates.length === 0) return c.json({ error: 'No fields to update' }, 400);
 

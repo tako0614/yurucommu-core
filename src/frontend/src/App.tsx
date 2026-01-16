@@ -13,6 +13,8 @@ import { NotificationPage } from './pages/NotificationPage';
 import { PostDetailPage } from './pages/PostDetailPage';
 import { BookmarksPage } from './pages/BookmarksPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { FriendsListPage } from './pages/FriendsListPage';
+import { CommunityProfilePage } from './pages/CommunityProfilePage';
 
 function AppContent() {
   const { actor, loading, loginError, login } = useAuth();
@@ -42,7 +44,10 @@ function AppContent() {
         <Route element={<AppLayout actor={actor} />}>
           <Route path="/" element={<TimelinePage actor={actor} />} />
           <Route path="/groups" element={<GroupPage actor={actor} />} />
+          <Route path="/friends" element={<FriendsListPage actor={actor} />} />
+          <Route path="/friends/list" element={<FriendsListPage actor={actor} />} />
           <Route path="/friends/groups" element={<GroupsPage actor={actor} />} />
+          <Route path="/groups/:name" element={<CommunityProfilePage actor={actor} />} />
           <Route path="/groups/:name/chat" element={<CommunityChatPage actor={actor} />} />
           <Route path="/dm" element={<DMPage actor={actor} />} />
           <Route path="/dm/:contactId" element={<DMPage actor={actor} />} />

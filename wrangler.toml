@@ -30,6 +30,7 @@ bucket_name = "yurucommu-media"
 directory = "./dist"
 binding = "ASSETS"
 run_worker_first = true
+not_found_handling = "single-page-application"
 
 # Route
 [[routes]]

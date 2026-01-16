@@ -494,13 +494,13 @@ stories.post('/', async (c) => {
 });
 
 // Delete story
-stories.delete('/:id', async (c) => {
+stories.post('/delete', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const storyId = c.req.param('id');
-  const baseUrl = c.env.APP_URL;
-  const apId = objectApId(baseUrl, storyId);
+  const body = await c.req.json<{ ap_id: string }>();
+  if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
+  const apId = body.ap_id;
 
   // Verify ownership
   const story = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ?')
@@ -534,13 +534,13 @@ stories.delete('/:id', async (c) => {
 });
 
 // Mark story as viewed
-stories.post('/:id/view', async (c) => {
+stories.post('/view', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const storyId = c.req.param('id');
-  const baseUrl = c.env.APP_URL;
-  const apId = objectApId(baseUrl, storyId);
+  const body = await c.req.json<{ ap_id: string }>();
+  if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
+  const apId = body.ap_id;
 
   // Check if story exists
   const story = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? AND type = ?')
@@ -567,15 +567,13 @@ stories.post('/:id/view', async (c) => {
 });
 
 // Vote on a story poll
-stories.post('/:id/vote', async (c) => {
+stories.post('/vote', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const storyId = c.req.param('id');
-  const baseUrl = c.env.APP_URL;
-  const apId = objectApId(baseUrl, storyId);
-
-  const body = await c.req.json<{ option_index: number }>();
+  const body = await c.req.json<{ ap_id: string; option_index: number }>();
+  if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
+  const apId = body.ap_id;
 
   if (typeof body.option_index !== 'number' || body.option_index < 0) {
     return c.json({ error: 'Invalid option_index' }, 400);

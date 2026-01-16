@@ -4,13 +4,13 @@ import { generateId, formatUsername } from '../utils';
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-// Get contacts - mutual followers and communities (automatic, no room creation needed)
+// Get contacts - from dm_contacts table + communities
 dm.get('/contacts', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  // Get mutual followers (people I follow AND who follow me back)
-  const mutualFollowers = await c.env.DB.prepare(`
+  // Get contacts from dm_contacts table (people user follows or received messages from)
+  const contacts = await c.env.DB.prepare(`
     SELECT
       a.ap_id,
       a.preferred_username,
@@ -20,9 +20,8 @@ dm.get('/contacts', async (c) => {
       dc.last_message_at,
       lm.content as last_message_content,
       lm.sender_ap_id as last_message_sender_ap_id
-    FROM follows f1
-    JOIN follows f2 ON f1.following_ap_id = f2.follower_ap_id AND f1.follower_ap_id = f2.following_ap_id
-    JOIN actors a ON f1.following_ap_id = a.ap_id
+    FROM dm_contacts dmc
+    JOIN actors a ON dmc.contact_ap_id = a.ap_id
     LEFT JOIN dm_conversations dc ON
       (dc.participant1_ap_id = ? AND dc.participant2_ap_id = a.ap_id) OR
       (dc.participant1_ap_id = a.ap_id AND dc.participant2_ap_id = ?)
@@ -33,7 +32,7 @@ dm.get('/contacts', async (c) => {
         SELECT MAX(dm2.created_at) FROM dm_messages dm2 WHERE dm2.conversation_id = dm1.conversation_id
       )
     ) lm ON lm.conversation_id = dc.id
-    WHERE f1.follower_ap_id = ? AND f1.status = 'accepted' AND f2.status = 'accepted'
+    WHERE dmc.owner_ap_id = ?
     ORDER BY dc.last_message_at DESC NULLS LAST, a.name ASC
   `).bind(actor.ap_id, actor.ap_id, actor.ap_id).all();
 
@@ -61,7 +60,7 @@ dm.get('/contacts', async (c) => {
     ORDER BY c.last_message_at DESC NULLS LAST, c.name ASC
   `).bind(actor.ap_id).all();
 
-  const mutualFollowersResult = (mutualFollowers.results || []).map((f: any) => ({
+  const contactsResult = (contacts.results || []).map((f: any) => ({
     type: 'user' as const,
     ap_id: f.ap_id,
     username: formatUsername(f.ap_id),
@@ -91,10 +90,128 @@ dm.get('/contacts', async (c) => {
     last_message_at: c.last_message_at,
   }));
 
+  // Get pending request count
+  const requestCount = await c.env.DB.prepare(`
+    SELECT COUNT(*) as count FROM dm_requests WHERE recipient_ap_id = ? AND status = 'pending'
+  `).bind(actor.ap_id).first<any>();
+
   return c.json({
-    mutual_followers: mutualFollowersResult,
+    mutual_followers: contactsResult,
     communities: communitiesResult,
+    request_count: requestCount?.count || 0,
   });
+});
+
+// Get message requests
+dm.get('/requests', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const requests = await c.env.DB.prepare(`
+    SELECT
+      r.id,
+      r.sender_ap_id,
+      r.content,
+      r.created_at,
+      a.preferred_username,
+      a.name,
+      a.icon_url
+    FROM dm_requests r
+    JOIN actors a ON r.sender_ap_id = a.ap_id
+    WHERE r.recipient_ap_id = ? AND r.status = 'pending'
+    ORDER BY r.created_at DESC
+  `).bind(actor.ap_id).all();
+
+  const result = (requests.results || []).map((r: any) => ({
+    id: r.id,
+    sender: {
+      ap_id: r.sender_ap_id,
+      username: formatUsername(r.sender_ap_id),
+      preferred_username: r.preferred_username,
+      name: r.name,
+      icon_url: r.icon_url,
+    },
+    content: r.content,
+    created_at: r.created_at,
+  }));
+
+  return c.json({ requests: result });
+});
+
+// Accept message request
+dm.post('/requests/:id/accept', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const requestId = c.req.param('id');
+
+  const request = await c.env.DB.prepare(`
+    SELECT * FROM dm_requests WHERE id = ? AND recipient_ap_id = ? AND status = 'pending'
+  `).bind(requestId, actor.ap_id).first<any>();
+
+  if (!request) {
+    return c.json({ error: 'Request not found' }, 404);
+  }
+
+  const now = new Date().toISOString();
+
+  // Update request status
+  await c.env.DB.prepare(`
+    UPDATE dm_requests SET status = 'accepted', updated_at = ? WHERE id = ?
+  `).bind(now, requestId).run();
+
+  // Add sender to recipient's contacts
+  await c.env.DB.prepare(`
+    INSERT OR IGNORE INTO dm_contacts (owner_ap_id, contact_ap_id, added_reason)
+    VALUES (?, ?, 'message_received')
+  `).bind(actor.ap_id, request.sender_ap_id).run();
+
+  // Create conversation and move the message
+  const [participant1, participant2] = [actor.ap_id, request.sender_ap_id].sort();
+  let conversation = await c.env.DB.prepare(`
+    SELECT id FROM dm_conversations
+    WHERE (participant1_ap_id = ? AND participant2_ap_id = ?) OR (participant1_ap_id = ? AND participant2_ap_id = ?)
+  `).bind(actor.ap_id, request.sender_ap_id, request.sender_ap_id, actor.ap_id).first<any>();
+
+  if (!conversation) {
+    const conversationId = generateId();
+    await c.env.DB.prepare(`
+      INSERT INTO dm_conversations (id, participant1_ap_id, participant2_ap_id, created_at, last_message_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).bind(conversationId, participant1, participant2, request.created_at, request.created_at).run();
+    conversation = { id: conversationId };
+  }
+
+  // Move the message to dm_messages
+  const messageId = generateId();
+  await c.env.DB.prepare(`
+    INSERT INTO dm_messages (id, conversation_id, sender_ap_id, content, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(messageId, conversation.id, request.sender_ap_id, request.content, request.created_at).run();
+
+  return c.json({ success: true });
+});
+
+// Reject message request
+dm.post('/requests/:id/reject', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const requestId = c.req.param('id');
+
+  const request = await c.env.DB.prepare(`
+    SELECT * FROM dm_requests WHERE id = ? AND recipient_ap_id = ? AND status = 'pending'
+  `).bind(requestId, actor.ap_id).first<any>();
+
+  if (!request) {
+    return c.json({ error: 'Request not found' }, 404);
+  }
+
+  await c.env.DB.prepare(`
+    UPDATE dm_requests SET status = 'rejected', updated_at = datetime('now') WHERE id = ?
+  `).bind(requestId).run();
+
+  return c.json({ success: true });
 });
 
 // Get conversations for current user (legacy endpoint, still used for individual chats)
@@ -423,7 +540,7 @@ dm.get('/user/:encodedApId/messages', async (c) => {
   return c.json({ messages: result, conversation_id: conversation.id });
 });
 
-// Send message to a specific user (creates conversation if needed)
+// Send message to a specific user (creates conversation if in contacts, or request if not)
 dm.post('/user/:encodedApId/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
@@ -435,24 +552,60 @@ dm.post('/user/:encodedApId/messages', async (c) => {
     return c.json({ error: 'Message content is required' }, 400);
   }
 
-  // Verify mutual follow
-  const mutualFollow = await c.env.DB.prepare(`
-    SELECT 1 FROM follows f1
-    JOIN follows f2 ON f1.following_ap_id = f2.follower_ap_id AND f1.follower_ap_id = f2.following_ap_id
-    WHERE f1.follower_ap_id = ? AND f1.following_ap_id = ? AND f1.status = 'accepted' AND f2.status = 'accepted'
-  `).bind(actor.ap_id, otherApId).first();
+  // Verify other user exists
+  const otherActor = await c.env.DB.prepare(`
+    SELECT ap_id FROM actors WHERE ap_id = ?
+  `).bind(otherApId).first();
 
-  if (!mutualFollow) {
-    return c.json({ error: 'Can only message mutual followers' }, 403);
+  if (!otherActor) {
+    return c.json({ error: 'User not found' }, 404);
   }
 
+  const now = new Date().toISOString();
+
+  // Check if sender is in their own dm_contacts (allowed to message directly)
+  const isInMyContacts = await c.env.DB.prepare(`
+    SELECT 1 FROM dm_contacts WHERE owner_ap_id = ? AND contact_ap_id = ?
+  `).bind(actor.ap_id, otherApId).first();
+
+  // Check if recipient has sender in their contacts (can receive direct message)
+  const isInTheirContacts = await c.env.DB.prepare(`
+    SELECT 1 FROM dm_contacts WHERE owner_ap_id = ? AND contact_ap_id = ?
+  `).bind(otherApId, actor.ap_id).first();
+
+  // If sender is not in recipient's contacts, create a message request
+  if (!isInTheirContacts) {
+    // Check if request already exists
+    const existingRequest = await c.env.DB.prepare(`
+      SELECT * FROM dm_requests WHERE recipient_ap_id = ? AND sender_ap_id = ?
+    `).bind(otherApId, actor.ap_id).first<any>();
+
+    if (existingRequest) {
+      if (existingRequest.status === 'rejected') {
+        return c.json({ error: 'Your message request was declined' }, 403);
+      }
+      return c.json({ error: 'Message request already sent' }, 400);
+    }
+
+    // Create message request
+    const requestId = generateId();
+    await c.env.DB.prepare(`
+      INSERT INTO dm_requests (id, recipient_ap_id, sender_ap_id, content, status)
+      VALUES (?, ?, ?, ?, 'pending')
+    `).bind(requestId, otherApId, actor.ap_id, body.content.trim()).run();
+
+    return c.json({
+      request_sent: true,
+      message: 'Message request sent. Waiting for approval.',
+    }, 201);
+  }
+
+  // Direct message - recipient has sender in their contacts
   // Find or create conversation
   let conversation = await c.env.DB.prepare(`
     SELECT id FROM dm_conversations
     WHERE (participant1_ap_id = ? AND participant2_ap_id = ?) OR (participant1_ap_id = ? AND participant2_ap_id = ?)
   `).bind(actor.ap_id, otherApId, otherApId, actor.ap_id).first<any>();
-
-  const now = new Date().toISOString();
 
   if (!conversation) {
     // Create new conversation
@@ -475,6 +628,12 @@ dm.post('/user/:encodedApId/messages', async (c) => {
   await c.env.DB.prepare(`
     UPDATE dm_conversations SET last_message_at = ? WHERE id = ?
   `).bind(now, conversation.id).run();
+
+  // Add sender to recipient's dm_contacts if not already (for reply)
+  await c.env.DB.prepare(`
+    INSERT OR IGNORE INTO dm_contacts (owner_ap_id, contact_ap_id, added_reason)
+    VALUES (?, ?, 'message_received')
+  `).bind(otherApId, actor.ap_id).run();
 
   return c.json({
     message: {
