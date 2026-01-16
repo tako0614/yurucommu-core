@@ -15,6 +15,7 @@ import {
   MediaLayer,
   StickerLayer,
   BackgroundFill,
+  BackgroundLayer,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
   FONTS,
@@ -25,6 +26,7 @@ import {
   getVideoDuration,
   isVideoFile,
   FFmpegError,
+  VideoTransform,
 } from '../../lib/ffmpeg';
 import { useCanvasInteraction, InteractionMode, SnapGuide } from '../../hooks/useCanvasInteraction';
 import { StoryOverlay } from '../../types';
@@ -180,6 +182,10 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
   const [videoDuration, setVideoDuration] = useState<number>(5);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const [savedBackground, setSavedBackground] = useState<BackgroundFill | null>(null);
+  const [videoScale, setVideoScale] = useState(1);
+  const [videoPosition, setVideoPosition] = useState({ x: 0, y: 0 });
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   // Background state
   const [backgroundType, setBackgroundType] = useState<'solid' | 'gradient'>('gradient');
@@ -576,6 +582,83 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
     handlePointerDown(e);
   };
 
+  // Video gesture state
+  const videoDragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
+  const videoPinchRef = useRef<{ startDistance: number; startScale: number } | null>(null);
+
+  // Handle video pointer down (for drag)
+  const handleVideoPointerDown = (e: React.PointerEvent) => {
+    if (!videoPreview) return;
+    e.stopPropagation();
+
+    const touches = (e.nativeEvent as PointerEvent).pointerType === 'touch' ? 1 : 0;
+
+    videoDragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startPosX: videoPosition.x,
+      startPosY: videoPosition.y,
+    };
+
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+  };
+
+  // Handle video pointer move (for drag)
+  const handleVideoPointerMove = (e: React.PointerEvent) => {
+    if (!videoDragRef.current || !videoPreview) return;
+
+    const dx = e.clientX - videoDragRef.current.startX;
+    const dy = e.clientY - videoDragRef.current.startY;
+
+    setVideoPosition({
+      x: videoDragRef.current.startPosX + dx,
+      y: videoDragRef.current.startPosY + dy,
+    });
+  };
+
+  // Handle video pointer up
+  const handleVideoPointerUp = (e: React.PointerEvent) => {
+    videoDragRef.current = null;
+    const target = e.currentTarget as HTMLElement;
+    target.releasePointerCapture(e.pointerId);
+  };
+
+  // Handle video wheel (for zoom)
+  const handleVideoWheel = (e: React.WheelEvent) => {
+    if (!videoPreview) return;
+    e.stopPropagation();
+
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setVideoScale(prev => Math.max(0.5, Math.min(3, prev * delta)));
+  };
+
+  // Handle video touch for pinch zoom
+  const handleVideoTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && videoPreview) {
+      e.stopPropagation();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      videoPinchRef.current = { startDistance: distance, startScale: videoScale };
+    }
+  };
+
+  const handleVideoTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && videoPinchRef.current && videoPreview) {
+      e.stopPropagation();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const scale = (distance / videoPinchRef.current.startDistance) * videoPinchRef.current.startScale;
+      setVideoScale(Math.max(0.5, Math.min(3, scale)));
+    }
+  };
+
+  const handleVideoTouchEnd = () => {
+    videoPinchRef.current = null;
+  };
+
   // Calculate display duration based on content
   const calculateDuration = (): number => {
     if (!storyCanvas) return 5;
@@ -618,10 +701,16 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
       if (videoFile) {
         // Video mode: export canvas overlay on video through FFmpeg
         setProgress(10);
+        const videoTransform: VideoTransform = {
+          scale: videoScale,
+          position: videoPosition,
+          displayScale: displayScale,
+        };
         const result = await exportCanvasWithVideo(
           canvas,
           videoFile,
-          (p) => setProgress(10 + p * 0.6) // 10-70%
+          (p) => setProgress(10 + p * 0.6), // 10-70%
+          videoTransform
         );
         blob = result.blob;
         contentType = 'video/mp4';
@@ -682,7 +771,7 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
   // Handle video file select
   const handleVideoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !storyCanvas) return;
 
     if (!isVideoFile(file)) {
       setError('動画ファイルを選択してください');
@@ -698,6 +787,15 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
     try {
       const preview = URL.createObjectURL(file);
       const duration = await getVideoDuration(file);
+
+      // Save current background and set to transparent
+      const bgLayer = storyCanvas.getLayers().find(l => l.type === 'background') as BackgroundLayer | undefined;
+      if (bgLayer) {
+        setSavedBackground(bgLayer.fill);
+        storyCanvas.setBackground({ type: 'transparent' });
+        setRenderKey(k => k + 1);
+      }
+
       setVideoFile(file);
       setVideoPreview(preview);
       setVideoDuration(duration);
@@ -717,6 +815,15 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
     }
     setVideoFile(null);
     setVideoPreview(null);
+    setVideoScale(1);
+    setVideoPosition({ x: 0, y: 0 });
+
+    // Restore saved background
+    if (savedBackground && storyCanvas) {
+      storyCanvas.setBackground(savedBackground);
+      setSavedBackground(null);
+      setRenderKey(k => k + 1);
+    }
   };
 
   const selectedLayer = getSelectedLayer();
@@ -757,20 +864,42 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
         <div
           ref={canvasContainerRef}
           className="absolute inset-0 flex items-center justify-center"
-          onMouseDown={handleCanvasPointerDown}
-          onTouchStart={handleCanvasPointerDown}
-          onWheel={handleWheel}
+          onMouseDown={videoPreview ? undefined : handleCanvasPointerDown}
+          onTouchStart={videoPreview ? undefined : handleCanvasPointerDown}
+          onWheel={videoPreview ? undefined : handleWheel}
         >
-          {/* Video preview (behind canvas) */}
+          {/* Video preview (behind canvas) - draggable and zoomable */}
           {videoPreview && (
-            <video
-              src={videoPreview}
-              className="absolute inset-0 w-full h-full object-cover"
-              autoPlay
-              loop
-              muted
-              playsInline
-            />
+            <div
+              className="absolute inset-0 overflow-hidden touch-none z-10"
+              onPointerDown={handleVideoPointerDown}
+              onPointerMove={handleVideoPointerMove}
+              onPointerUp={handleVideoPointerUp}
+              onPointerCancel={handleVideoPointerUp}
+              onWheel={handleVideoWheel}
+              onTouchStart={handleVideoTouchStart}
+              onTouchMove={handleVideoTouchMove}
+              onTouchEnd={handleVideoTouchEnd}
+            >
+              <video
+                ref={videoRef}
+                src={videoPreview}
+                className="absolute w-full h-full object-cover origin-center"
+                style={{
+                  transform: `translate(${videoPosition.x}px, ${videoPosition.y}px) scale(${videoScale})`,
+                }}
+                autoPlay
+                loop
+                muted
+                playsInline
+              />
+              {/* Video resize hint */}
+              {videoScale === 1 && videoPosition.x === 0 && videoPosition.y === 0 && (
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-black/70 rounded-full pointer-events-none">
+                  <span className="text-white/80 text-xs">ピンチで拡大縮小・ドラッグで移動</span>
+                </div>
+              )}
+            </div>
           )}
 
           {/* Canvas */}
@@ -779,7 +908,7 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
             width={displayDimensions.width}
             height={displayDimensions.height}
             className={`w-full h-full object-contain ${videoPreview ? 'absolute inset-0' : ''}`}
-            style={videoPreview ? { mixBlendMode: 'normal' } : undefined}
+            style={videoPreview ? { mixBlendMode: 'normal', pointerEvents: 'none' } : undefined}
           />
         </div>
 

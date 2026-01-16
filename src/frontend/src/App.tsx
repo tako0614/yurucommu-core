@@ -5,6 +5,8 @@ import { LoginForm } from './components/LoginForm';
 import { AppLayout } from './components/layout';
 import { TimelinePage } from './pages/TimelinePage';
 import { GroupPage } from './pages/GroupPage';
+import { GroupsPage } from './pages/GroupsPage';
+import { CommunityChatPage } from './pages/CommunityChatPage';
 import { DMPage } from './pages/DMPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { NotificationPage } from './pages/NotificationPage';
@@ -40,6 +42,8 @@ function AppContent() {
         <Route element={<AppLayout actor={actor} />}>
           <Route path="/" element={<TimelinePage actor={actor} />} />
           <Route path="/groups" element={<GroupPage actor={actor} />} />
+          <Route path="/friends/groups" element={<GroupsPage actor={actor} />} />
+          <Route path="/groups/:name/chat" element={<CommunityChatPage actor={actor} />} />
           <Route path="/dm" element={<DMPage actor={actor} />} />
           <Route path="/dm/:conversationId" element={<DMPage actor={actor} />} />
           <Route path="/profile" element={<ProfilePage actor={actor} />} />

@@ -36,7 +36,8 @@ export interface BackgroundLayer extends BaseLayer {
 export type BackgroundFill =
   | { type: 'solid'; color: string }
   | { type: 'gradient'; colors: string[]; angle: number }
-  | { type: 'image'; src: string };
+  | { type: 'image'; src: string }
+  | { type: 'transparent' };
 
 // Media layer (images)
 export interface MediaLayer extends BaseLayer {
@@ -302,6 +303,7 @@ export class StoryCanvas {
         this.ctx.drawImage(img, x, y, w, h);
       }
     }
+    // 'transparent' type: do nothing, canvas is already cleared
   }
 
   // Draw media layer

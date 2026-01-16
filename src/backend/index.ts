@@ -19,6 +19,18 @@ import activitypubRoutes from './routes/activitypub';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // ============================================================
+// COOP/COEP HEADERS (Required for FFmpeg WASM SharedArrayBuffer)
+// ============================================================
+
+app.use('*', async (c, next) => {
+  await next();
+  // These headers enable SharedArrayBuffer for FFmpeg WASM
+  // Using 'credentialless' instead of 'require-corp' to allow cross-origin resources
+  c.header('Cross-Origin-Opener-Policy', 'same-origin');
+  c.header('Cross-Origin-Embedder-Policy', 'credentialless');
+});
+
+// ============================================================
 // AUTH MIDDLEWARE
 // ============================================================
 

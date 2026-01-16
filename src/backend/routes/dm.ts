@@ -22,12 +22,21 @@ dm.get('/conversations', async (c) => {
       END as other_ap_id,
       COALESCE(a1.preferred_username, a2.preferred_username, ac1.preferred_username, ac2.preferred_username) as other_preferred_username,
       COALESCE(a1.name, a2.name, ac1.name, ac2.name) as other_name,
-      COALESCE(a1.icon_url, a2.icon_url, ac1.icon_url, ac2.icon_url) as other_icon_url
+      COALESCE(a1.icon_url, a2.icon_url, ac1.icon_url, ac2.icon_url) as other_icon_url,
+      lm.content as last_message_content,
+      lm.sender_ap_id as last_message_sender_ap_id
     FROM dm_conversations dc
     LEFT JOIN actors a1 ON dc.participant2_ap_id = a1.ap_id AND dc.participant1_ap_id = ?
     LEFT JOIN actors a2 ON dc.participant1_ap_id = a2.ap_id AND dc.participant2_ap_id = ?
     LEFT JOIN actor_cache ac1 ON dc.participant2_ap_id = ac1.ap_id AND dc.participant1_ap_id = ?
     LEFT JOIN actor_cache ac2 ON dc.participant1_ap_id = ac2.ap_id AND dc.participant2_ap_id = ?
+    LEFT JOIN (
+      SELECT dm1.conversation_id, dm1.content, dm1.sender_ap_id
+      FROM dm_messages dm1
+      WHERE dm1.created_at = (
+        SELECT MAX(dm2.created_at) FROM dm_messages dm2 WHERE dm2.conversation_id = dm1.conversation_id
+      )
+    ) lm ON lm.conversation_id = dc.id
     WHERE dc.participant1_ap_id = ? OR dc.participant2_ap_id = ?
     ORDER BY dc.last_message_at DESC NULLS LAST
   `).bind(
@@ -46,6 +55,10 @@ dm.get('/conversations', async (c) => {
       name: conv.other_name,
       icon_url: conv.other_icon_url,
     },
+    last_message: conv.last_message_content ? {
+      content: conv.last_message_content,
+      is_mine: conv.last_message_sender_ap_id === actor.ap_id,
+    } : null,
     last_message_at: conv.last_message_at,
     created_at: conv.created_at,
   }));

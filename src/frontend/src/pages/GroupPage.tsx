@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Community, Actor, Post } from '../types';
-import { fetchCommunities, fetchFollowing, follow, searchActors, searchPosts, likePost, unlikePost } from '../lib/api';
+import { Actor, Post } from '../types';
+import { CommunityDetail, fetchCommunities, fetchFollowing, follow, searchActors, searchPosts, likePost, unlikePost } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
 import { PostContent } from '../components/PostContent';
@@ -130,7 +130,7 @@ export function GroupPage({ actor }: GroupPageProps) {
   const [searched, setSearched] = useState(false);
 
   // Communities state
-  const [communities, setCommunities] = useState<Community[]>([]);
+  const [communities, setCommunities] = useState<CommunityDetail[]>([]);
   const [loadingCommunities, setLoadingCommunities] = useState(true);
 
   // Following state
@@ -251,7 +251,7 @@ export function GroupPage({ actor }: GroupPageProps) {
   };
 
   const getGroupsPreview = () => {
-    return communities.slice(0, 3).map(c => c.name).join(', ');
+    return communities.slice(0, 3).map(c => c.display_name || c.name).join(', ');
   };
 
   const isLoading = loadingCommunities || loadingFollowing;
@@ -449,7 +449,7 @@ export function GroupPage({ actor }: GroupPageProps) {
                 {communities.length > 0 && communities[0].icon_url ? (
                   <img src={communities[0].icon_url} alt="" className="w-full h-full object-cover" />
                 ) : communities.length > 0 ? (
-                  <span className="text-xl font-medium text-white">{communities[0]?.name.charAt(0).toUpperCase()}</span>
+                  <span className="text-xl font-medium text-white">{(communities[0]?.display_name || communities[0]?.name)?.charAt(0).toUpperCase()}</span>
                 ) : (
                   <span className="text-neutral-500 text-xl">G</span>
                 )}
