@@ -185,6 +185,7 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
   const [savedBackground, setSavedBackground] = useState<BackgroundFill | null>(null);
   const [videoScale, setVideoScale] = useState(1);
   const [videoPosition, setVideoPosition] = useState({ x: 0, y: 0 });
+  const [videoRotation, setVideoRotation] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   // Background state
@@ -584,7 +585,7 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
 
   // Video gesture state
   const videoDragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
-  const videoPinchRef = useRef<{ startDistance: number; startScale: number } | null>(null);
+  const videoPinchRef = useRef<{ startDistance: number; startScale: number; startAngle: number; startRotation: number } | null>(null);
 
   // Handle video pointer down (for drag)
   const handleVideoPointerDown = (e: React.PointerEvent) => {
@@ -633,14 +634,20 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
     setVideoScale(prev => Math.max(0.5, Math.min(3, prev * delta)));
   };
 
-  // Handle video touch for pinch zoom
+  // Handle video touch for pinch zoom and rotation
   const handleVideoTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 2 && videoPreview) {
       e.stopPropagation();
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const distance = Math.sqrt(dx * dx + dy * dy);
-      videoPinchRef.current = { startDistance: distance, startScale: videoScale };
+      const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+      videoPinchRef.current = {
+        startDistance: distance,
+        startScale: videoScale,
+        startAngle: angle,
+        startRotation: videoRotation,
+      };
     }
   };
 
@@ -650,8 +657,15 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
       const dx = e.touches[0].clientX - e.touches[1].clientX;
       const dy = e.touches[0].clientY - e.touches[1].clientY;
       const distance = Math.sqrt(dx * dx + dy * dy);
+      const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+      // Calculate scale
       const scale = (distance / videoPinchRef.current.startDistance) * videoPinchRef.current.startScale;
       setVideoScale(Math.max(0.5, Math.min(3, scale)));
+
+      // Calculate rotation
+      const angleDelta = angle - videoPinchRef.current.startAngle;
+      setVideoRotation(videoPinchRef.current.startRotation + angleDelta);
     }
   };
 
@@ -704,6 +718,7 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
         const videoTransform: VideoTransform = {
           scale: videoScale,
           position: videoPosition,
+          rotation: videoRotation,
           displayScale: displayScale,
         };
         const result = await exportCanvasWithVideo(
@@ -817,6 +832,7 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
     setVideoPreview(null);
     setVideoScale(1);
     setVideoPosition({ x: 0, y: 0 });
+    setVideoRotation(0);
 
     // Restore saved background
     if (savedBackground && storyCanvas) {
@@ -886,7 +902,7 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
                 src={videoPreview}
                 className="absolute w-full h-full object-cover origin-center"
                 style={{
-                  transform: `translate(${videoPosition.x}px, ${videoPosition.y}px) scale(${videoScale})`,
+                  transform: `translate(${videoPosition.x}px, ${videoPosition.y}px) scale(${videoScale}) rotate(${videoRotation}deg)`,
                 }}
                 autoPlay
                 loop
@@ -894,9 +910,9 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
                 playsInline
               />
               {/* Video resize hint */}
-              {videoScale === 1 && videoPosition.x === 0 && videoPosition.y === 0 && (
+              {videoScale === 1 && videoPosition.x === 0 && videoPosition.y === 0 && videoRotation === 0 && (
                 <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-black/70 rounded-full pointer-events-none">
-                  <span className="text-white/80 text-xs">ピンチで拡大縮小・ドラッグで移動</span>
+                  <span className="text-white/80 text-xs">2本指で拡大縮小・回転・ドラッグで移動</span>
                 </div>
               )}
             </div>

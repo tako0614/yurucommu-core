@@ -331,6 +331,36 @@ export async function fetchCommunityMembers(identifier: string): Promise<Communi
 
 // ===== DM API =====
 
+// Contact types for the unified DM view
+export interface DMContact {
+  type: 'user' | 'community';
+  ap_id: string;
+  username: string;
+  preferred_username: string;
+  name: string | null;
+  icon_url: string | null;
+  conversation_id?: string | null;
+  member_count?: number;
+  last_message: { content: string; is_mine: boolean } | null;
+  last_message_at: string | null;
+}
+
+export interface DMContactsResponse {
+  mutual_followers: DMContact[];
+  communities: DMContact[];
+}
+
+// Fetch contacts (mutual followers + communities) - no room creation needed
+export async function fetchDMContacts(): Promise<DMContactsResponse> {
+  const res = await fetch('/api/dm/contacts');
+  const data = await res.json();
+  return {
+    mutual_followers: data.mutual_followers || [],
+    communities: data.communities || [],
+  };
+}
+
+// Legacy: Fetch conversations (for backwards compatibility)
 export async function fetchDMConversations(): Promise<DMConversation[]> {
   const res = await fetch('/api/dm/conversations');
   const data = await res.json();
@@ -367,6 +397,37 @@ export async function sendDMMessage(conversationId: string, content: string): Pr
   if (!res.ok) throw new Error('Failed to send message');
   const data = await res.json();
   return data.message;
+}
+
+// User-based DM endpoints (no conversation creation needed)
+export async function fetchUserDMMessages(userApId: string, options?: { limit?: number; before?: string }): Promise<{ messages: DMMessage[]; conversation_id: string | null }> {
+  const params = new URLSearchParams();
+  if (options?.limit) params.set('limit', String(options.limit));
+  if (options?.before) params.set('before', options.before);
+  const query = params.toString() ? `?${params}` : '';
+  const res = await fetch(`/api/dm/user/${encodeURIComponent(userApId)}/messages${query}`);
+  const data = await res.json();
+  return {
+    messages: data.messages || [],
+    conversation_id: data.conversation_id,
+  };
+}
+
+export async function sendUserDMMessage(userApId: string, content: string): Promise<{ message: DMMessage; conversation_id: string }> {
+  const res = await fetch(`/api/dm/user/${encodeURIComponent(userApId)}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to send message');
+  }
+  const data = await res.json();
+  return {
+    message: data.message,
+    conversation_id: data.conversation_id,
+  };
 }
 
 // ===== Notifications API =====
