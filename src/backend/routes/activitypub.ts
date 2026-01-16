@@ -203,7 +203,7 @@ ap.post('/ap/users/:username/inbox', async (c) => {
       await handleUndo(c, activity, recipient, actor, baseUrl);
       break;
     case 'Like':
-      await handleLike(c, activity, recipient, actor);
+      await handleLike(c, activity, recipient, actor, baseUrl);
       break;
     case 'Create':
       await handleCreate(c, activity, recipient, actor, baseUrl);
@@ -244,12 +244,17 @@ async function handleFollow(c: any, activity: any, recipient: Actor, actor: stri
       .bind(recipient.ap_id).run();
   }
 
-  // Create notification
-  const notifId = generateId();
+  // Store activity and add to inbox (AP Native notification)
+  const now = new Date().toISOString();
   await c.env.DB.prepare(`
-    INSERT INTO notifications (id, recipient_ap_id, actor_ap_id, type)
-    VALUES (?, ?, ?, ?)
-  `).bind(notifId, recipient.ap_id, actor, status === 'pending' ? 'follow_request' : 'follow').run();
+    INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, published, local)
+    VALUES (?, 'Follow', ?, ?, ?, 0)
+  `).bind(activityId, actor, recipient.ap_id, now).run();
+
+  await c.env.DB.prepare(`
+    INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
+    VALUES (?, ?, 0, ?)
+  `).bind(recipient.ap_id, activityId, now).run();
 
   // Send Accept response
   if (!isLocal(actor, baseUrl)) {
@@ -333,22 +338,17 @@ async function handleUndo(c: any, activity: any, recipient: Actor, actor: string
     await c.env.DB.prepare('UPDATE objects SET like_count = like_count - 1 WHERE ap_id = ? AND like_count > 0')
       .bind(objectId).run();
 
-    // Create notification for undo
-    const notifId = generateId();
-    const obj = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(objectId).first() as any;
-    if (obj) {
-      await c.env.DB.prepare(`
-        INSERT INTO notifications (id, recipient_ap_id, actor_ap_id, type, object_ap_id)
-        VALUES (?, ?, ?, 'unlike', ?)
-      `).bind(notifId, obj.attributed_to, actor, objectId).run();
-    }
+    // Note: We don't create "unlike" notifications in AP Native model
+    // The original Like activity remains in inbox but the action is undone
   }
 }
 
 // Handle Like activity
-async function handleLike(c: any, activity: any, recipient: Actor, actor: string) {
+async function handleLike(c: any, activity: any, recipient: Actor, actor: string, baseUrl: string) {
   const objectId = activity.object;
   if (!objectId) return;
+
+  const activityId = activity.id || activityApId(baseUrl, generateId());
 
   // Check if already liked
   const existing = await c.env.DB.prepare(
@@ -359,22 +359,27 @@ async function handleLike(c: any, activity: any, recipient: Actor, actor: string
 
   // Create like record
   await c.env.DB.prepare(`
-    INSERT INTO likes (actor_ap_id, object_ap_id)
-    VALUES (?, ?)
-  `).bind(actor, objectId).run();
+    INSERT INTO likes (actor_ap_id, object_ap_id, activity_ap_id)
+    VALUES (?, ?, ?)
+  `).bind(actor, objectId, activityId).run();
 
   // Update like count on object
   await c.env.DB.prepare('UPDATE objects SET like_count = like_count + 1 WHERE ap_id = ?')
     .bind(objectId).run();
 
-  // Create notification
+  // Store activity and add to inbox (AP Native notification)
   const likedObj = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(objectId).first() as any;
-  if (likedObj) {
-    const notifId = generateId();
+  if (likedObj && isLocal(likedObj.attributed_to, baseUrl)) {
+    const now = new Date().toISOString();
     await c.env.DB.prepare(`
-      INSERT INTO notifications (id, recipient_ap_id, actor_ap_id, type, object_ap_id)
-      VALUES (?, ?, ?, 'like', ?)
-    `).bind(notifId, likedObj.attributed_to, actor, objectId).run();
+      INSERT OR IGNORE INTO activities (ap_id, type, actor_ap_id, object_ap_id, published, local)
+      VALUES (?, 'Like', ?, ?, ?, 0)
+    `).bind(activityId, actor, objectId, now).run();
+
+    await c.env.DB.prepare(`
+      INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
+      VALUES (?, ?, 0, ?)
+    `).bind(likedObj.attributed_to, activityId, now).run();
   }
 }
 
@@ -428,20 +433,27 @@ async function handleCreate(c: any, activity: any, recipient: Actor, actor: stri
   // Increment post count for actor
   await c.env.DB.prepare('UPDATE actors SET post_count = post_count + 1 WHERE ap_id = ?').bind(actor).run();
 
-  // If it's a reply, update reply count
+  // If it's a reply, update reply count and add to inbox
   if (object.inReplyTo) {
     await c.env.DB.prepare('UPDATE objects SET reply_count = reply_count + 1 WHERE ap_id = ?')
       .bind(object.inReplyTo).run();
 
-    // Create notification for reply
+    // Add to inbox for reply notification (AP Native)
     const parentObj = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?')
       .bind(object.inReplyTo).first() as any;
-    if (parentObj) {
-      const notifId = generateId();
+    if (parentObj && isLocal(parentObj.attributed_to, baseUrl)) {
+      const activityId = activity.id || activityApId(baseUrl, generateId());
+      const now = new Date().toISOString();
+
       await c.env.DB.prepare(`
-        INSERT INTO notifications (id, recipient_ap_id, actor_ap_id, type, object_ap_id)
-        VALUES (?, ?, ?, 'reply', ?)
-      `).bind(notifId, parentObj.attributed_to, actor, objectId).run();
+        INSERT OR IGNORE INTO activities (ap_id, type, actor_ap_id, object_ap_id, published, local)
+        VALUES (?, 'Create', ?, ?, ?, 0)
+      `).bind(activityId, actor, objectId, now).run();
+
+      await c.env.DB.prepare(`
+        INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
+        VALUES (?, ?, 0, ?)
+      `).bind(parentObj.attributed_to, activityId, now).run();
     }
   }
 }

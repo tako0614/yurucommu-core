@@ -77,14 +77,21 @@ posts.post('/', async (c) => {
   if (body.in_reply_to) {
     await c.env.DB.prepare('UPDATE objects SET reply_count = reply_count + 1 WHERE ap_id = ?').bind(body.in_reply_to).run();
 
-    // Create notification for the post author being replied to
+    // Add to inbox of the post author being replied to (AP Native notification)
     const parentPost = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(body.in_reply_to).first<any>();
-    if (parentPost && parentPost.attributed_to !== actor.ap_id) {
-      const notifId = generateId();
+    if (parentPost && parentPost.attributed_to !== actor.ap_id && isLocal(parentPost.attributed_to, baseUrl)) {
+      // Create activity for the inbox
+      const replyActivityId = activityApId(baseUrl, generateId());
       await c.env.DB.prepare(`
-        INSERT INTO notifications (id, recipient_ap_id, actor_ap_id, type, object_ap_id)
-        VALUES (?, ?, ?, 'reply', ?)
-      `).bind(notifId, parentPost.attributed_to, actor.ap_id, apId).run();
+        INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, published, local)
+        VALUES (?, 'Create', ?, ?, ?, 1)
+      `).bind(replyActivityId, actor.ap_id, apId, now).run();
+
+      // Add to recipient's inbox
+      await c.env.DB.prepare(`
+        INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
+        VALUES (?, ?, 0, ?)
+      `).bind(parentPost.attributed_to, replyActivityId, now).run();
     }
   }
 
@@ -338,42 +345,40 @@ posts.post('/:id/like', async (c) => {
   // Update like count
   await c.env.DB.prepare('UPDATE objects SET like_count = like_count + 1 WHERE ap_id = ?').bind(post.ap_id).run();
 
-  // Create notification if post is not authored by current user
-  if (post.attributed_to !== actor.ap_id) {
-    const notifId = generateId();
+  // Store Like activity
+  const likeActivityRaw = {
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    id: likeActivityApId,
+    type: 'Like',
+    actor: actor.ap_id,
+    object: post.ap_id,
+  };
+  await c.env.DB.prepare(`
+    INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, published, local)
+    VALUES (?, 'Like', ?, ?, ?, ?, 1)
+  `).bind(likeActivityApId, actor.ap_id, post.ap_id, JSON.stringify(likeActivityRaw), new Date().toISOString()).run();
+
+  // Add to inbox of post author if local (AP Native notification)
+  if (post.attributed_to !== actor.ap_id && isLocal(post.attributed_to, baseUrl)) {
     await c.env.DB.prepare(`
-      INSERT INTO notifications (id, recipient_ap_id, actor_ap_id, type, object_ap_id)
-      VALUES (?, ?, ?, 'like', ?)
-    `).bind(notifId, post.attributed_to, actor.ap_id, post.ap_id).run();
+      INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
+      VALUES (?, ?, 0, ?)
+    `).bind(post.attributed_to, likeActivityApId, new Date().toISOString()).run();
   }
 
-  // Send Like activity if post is remote
+  // Send Like activity to remote post author
   if (!isLocal(post.ap_id, baseUrl)) {
     try {
       const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<any>();
       if (postAuthor?.inbox) {
-        const likeActivity = {
-          '@context': 'https://www.w3.org/ns/activitystreams',
-          id: likeActivityApId,
-          type: 'Like',
-          actor: actor.ap_id,
-          object: post.ap_id,
-        };
-
         const keyId = `${actor.ap_id}#main-key`;
-        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(likeActivity));
+        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(likeActivityRaw));
 
         await fetch(postAuthor.inbox, {
           method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(likeActivity),
+          body: JSON.stringify(likeActivityRaw),
         });
-
-        // Store activity
-        await c.env.DB.prepare(`
-          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-          VALUES (?, 'Like', ?, ?, ?, 'outbound')
-        `).bind(activityApId(baseUrl, likeId), actor.ap_id, post.ap_id, JSON.stringify(likeActivity)).run();
       }
     } catch (e) {
       console.error('Failed to send Like activity:', e);
@@ -484,44 +489,43 @@ posts.post('/:id/repost', async (c) => {
   // Update announce count
   await c.env.DB.prepare('UPDATE objects SET announce_count = announce_count + 1 WHERE ap_id = ?').bind(post.ap_id).run();
 
-  // Create notification if post is not authored by current user
-  if (post.attributed_to !== actor.ap_id) {
-    const notifId = generateId();
+  // Store Announce activity
+  const announceActivityRaw = {
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    id: announceActivityApId,
+    type: 'Announce',
+    actor: actor.ap_id,
+    object: post.ap_id,
+    to: ['https://www.w3.org/ns/activitystreams#Public'],
+    cc: [actor.ap_id + '/followers'],
+  };
+  const now = new Date().toISOString();
+  await c.env.DB.prepare(`
+    INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, published, local)
+    VALUES (?, 'Announce', ?, ?, ?, ?, 1)
+  `).bind(announceActivityApId, actor.ap_id, post.ap_id, JSON.stringify(announceActivityRaw), now).run();
+
+  // Add to inbox of post author if local (AP Native notification)
+  if (post.attributed_to !== actor.ap_id && isLocal(post.attributed_to, baseUrl)) {
     await c.env.DB.prepare(`
-      INSERT INTO notifications (id, recipient_ap_id, actor_ap_id, type, object_ap_id)
-      VALUES (?, ?, ?, 'repost', ?)
-    `).bind(notifId, post.attributed_to, actor.ap_id, post.ap_id).run();
+      INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
+      VALUES (?, ?, 0, ?)
+    `).bind(post.attributed_to, announceActivityApId, now).run();
   }
 
-  // Send Announce activity if post is remote
+  // Send Announce activity to remote post author
   if (!isLocal(post.ap_id, baseUrl)) {
     try {
       const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<any>();
       if (postAuthor?.inbox) {
-        const announceActivity = {
-          '@context': 'https://www.w3.org/ns/activitystreams',
-          id: announceActivityApId,
-          type: 'Announce',
-          actor: actor.ap_id,
-          object: post.ap_id,
-          to: ['https://www.w3.org/ns/activitystreams#Public'],
-          cc: [actor.ap_id + '/followers'],
-        };
-
         const keyId = `${actor.ap_id}#main-key`;
-        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(announceActivity));
+        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(announceActivityRaw));
 
         await fetch(postAuthor.inbox, {
           method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(announceActivity),
+          body: JSON.stringify(announceActivityRaw),
         });
-
-        // Store activity
-        await c.env.DB.prepare(`
-          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-          VALUES (?, 'Announce', ?, ?, ?, 'outbound')
-        `).bind(announceActivityApId, actor.ap_id, post.ap_id, JSON.stringify(announceActivity)).run();
       }
     } catch (e) {
       console.error('Failed to send Announce activity:', e);

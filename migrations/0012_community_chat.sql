@@ -14,5 +14,4 @@ CREATE TABLE IF NOT EXISTS community_messages (
 -- Index for efficient message retrieval by community
 CREATE INDEX IF NOT EXISTS idx_community_messages_community ON community_messages(community_ap_id, created_at DESC);
 
--- Add last_message_at to communities for sorting
-ALTER TABLE communities ADD COLUMN last_message_at TEXT;
+-- last_message_at already exists in communities table (added previously)

@@ -244,7 +244,7 @@ communities.post('/:identifier/leave', async (c) => {
   return c.json({ success: true });
 });
 
-// GET /api/communities/:name/messages - Get chat messages
+// GET /api/communities/:name/messages - Get chat messages (AP Native: uses objects with audience)
 communities.get('/:identifier/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
@@ -255,56 +255,68 @@ communities.get('/:identifier/messages', async (c) => {
   const limit = parseInt(c.req.query('limit') || '50');
   const before = c.req.query('before');
 
+  // Get community
+  const community = await c.env.DB.prepare('SELECT * FROM communities WHERE ap_id = ? OR preferred_username = ?')
+    .bind(apId, identifier).first<any>();
+  if (!community) {
+    return c.json({ error: 'Community not found' }, 404);
+  }
+
   // Check membership
-  const membership = await c.env.DB.prepare(`
-    SELECT cm.* FROM community_members cm
-    JOIN communities c ON cm.community_ap_id = c.ap_id
-    WHERE (c.ap_id = ? OR c.preferred_username = ?) AND cm.actor_ap_id = ?
-  `).bind(apId, identifier, actor.ap_id).first();
+  const membership = await c.env.DB.prepare(
+    'SELECT * FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
+  ).bind(community.ap_id, actor.ap_id).first();
   if (!membership) {
     return c.json({ error: 'Not a member' }, 403);
   }
 
+  // Query objects addressed to this community (via object_recipients or audience_json)
   let query = `
-    SELECT cm.*,
+    SELECT o.ap_id, o.content, o.published,
+           o.attributed_to,
            COALESCE(a.preferred_username, ac.preferred_username) as sender_preferred_username,
            COALESCE(a.name, ac.name) as sender_name,
            COALESCE(a.icon_url, ac.icon_url) as sender_icon_url
-    FROM community_messages cm
-    LEFT JOIN actors a ON cm.sender_ap_id = a.ap_id
-    LEFT JOIN actor_cache ac ON cm.sender_ap_id = ac.ap_id
-    JOIN communities c ON cm.community_ap_id = c.ap_id
-    WHERE c.ap_id = ? OR c.preferred_username = ?
+    FROM objects o
+    LEFT JOIN actors a ON o.attributed_to = a.ap_id
+    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
+    WHERE o.type = 'Note'
+      AND EXISTS (
+        SELECT 1 FROM object_recipients orec
+        WHERE orec.object_ap_id = o.ap_id
+          AND orec.recipient_ap_id = ?
+          AND orec.type = 'audience'
+      )
   `;
-  const params: any[] = [apId, identifier];
+  const params: any[] = [community.ap_id];
 
   if (before) {
-    query += ' AND cm.created_at < ?';
+    query += ' AND o.published < ?';
     params.push(before);
   }
 
-  query += ' ORDER BY cm.created_at DESC LIMIT ?';
+  query += ' ORDER BY o.published DESC LIMIT ?';
   params.push(limit);
 
   const messages = await c.env.DB.prepare(query).bind(...params).all();
 
   const result = (messages.results || []).reverse().map((msg: any) => ({
-    id: msg.id,
+    id: msg.ap_id,
     sender: {
-      ap_id: msg.sender_ap_id,
-      username: formatUsername(msg.sender_ap_id),
+      ap_id: msg.attributed_to,
+      username: formatUsername(msg.attributed_to),
       preferred_username: msg.sender_preferred_username,
       name: msg.sender_name,
       icon_url: msg.sender_icon_url,
     },
     content: msg.content,
-    created_at: msg.created_at,
+    created_at: msg.published,
   }));
 
   return c.json({ messages: result });
 });
 
-// POST /api/communities/:name/messages - Send a chat message
+// POST /api/communities/:name/messages - Send a chat message (AP Native: creates Note addressed to Group)
 communities.post('/:identifier/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
@@ -332,14 +344,33 @@ communities.post('/:identifier/messages', async (c) => {
     return c.json({ error: 'Not a member' }, 403);
   }
 
-  const messageId = generateId();
+  const objectId = generateId();
+  const objectApId = `${baseUrl}/ap/objects/${objectId}`;
   const now = new Date().toISOString();
 
-  // Insert message
+  // Create Note object addressed to the Group (AP native)
+  // to = [group followers/members], audience = [group]
+  const toJson = JSON.stringify([community.ap_id]);
+  const audienceJson = JSON.stringify([community.ap_id]);
+
   await c.env.DB.prepare(`
-    INSERT INTO community_messages (id, community_ap_id, sender_ap_id, content, created_at)
-    VALUES (?, ?, ?, ?, ?)
-  `).bind(messageId, community.ap_id, actor.ap_id, body.content.trim(), now).run();
+    INSERT INTO objects (ap_id, type, attributed_to, content, to_json, audience_json, visibility, published, local)
+    VALUES (?, 'Note', ?, ?, ?, ?, 'group', ?, 1)
+  `).bind(objectApId, actor.ap_id, body.content.trim(), toJson, audienceJson, now).run();
+
+  // Add to object_recipients for efficient querying
+  await c.env.DB.prepare(`
+    INSERT INTO object_recipients (object_ap_id, recipient_ap_id, type, created_at)
+    VALUES (?, ?, 'audience', ?)
+  `).bind(objectApId, community.ap_id, now).run();
+
+  // Create Create activity
+  const activityId = generateId();
+  const activityApId = `${baseUrl}/ap/activities/${activityId}`;
+  await c.env.DB.prepare(`
+    INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, to_json, published, local)
+    VALUES (?, 'Create', ?, ?, ?, ?, 1)
+  `).bind(activityApId, actor.ap_id, objectApId, toJson, now).run();
 
   // Update last_message_at
   await c.env.DB.prepare('UPDATE communities SET last_message_at = ? WHERE ap_id = ?')
@@ -347,7 +378,7 @@ communities.post('/:identifier/messages', async (c) => {
 
   return c.json({
     message: {
-      id: messageId,
+      id: objectApId,
       sender: {
         ap_id: actor.ap_id,
         username: formatUsername(actor.ap_id),
