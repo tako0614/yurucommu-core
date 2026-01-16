@@ -50,9 +50,10 @@ export function NotificationPage() {
   const [pendingAction, setPendingAction] = useState<Record<string, boolean>>({});
   const [filter, setFilter] = useState<FilterType>('all');
 
-  const loadNotifications = useCallback(async () => {
+  const loadNotifications = useCallback(async (typeFilter: FilterType) => {
+    setLoading(true);
     try {
-      const data = await fetchNotifications();
+      const data = await fetchNotifications({ type: typeFilter === 'all' ? undefined : typeFilter });
       setNotifications(data);
 
       // Mark unread as read
@@ -69,8 +70,8 @@ export function NotificationPage() {
   }, []);
 
   useEffect(() => {
-    loadNotifications();
-  }, [loadNotifications]);
+    loadNotifications(filter);
+  }, [loadNotifications, filter]);
 
   const handleFollowRequest = async (notification: Notification, action: 'accept' | 'reject') => {
     if (pendingAction[notification.id]) return;
@@ -143,13 +144,8 @@ export function NotificationPage() {
     return date.toLocaleDateString();
   };
 
-  // Filter notifications
-  const filteredNotifications = filter === 'all'
-    ? notifications
-    : notifications.filter(n => {
-        if (filter === 'follow') return n.type === 'follow' || n.type === 'follow_request';
-        return n.type === filter;
-      });
+  // Notifications are already filtered by the server
+  const filteredNotifications = notifications;
 
   const filterTabs: { key: FilterType; label: string; icon: JSX.Element }[] = [
     { key: 'all', label: 'すべて', icon: <span className="w-4 h-4 flex items-center justify-center text-xs">全</span> },

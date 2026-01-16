@@ -14,6 +14,7 @@ import {
   rejectCommunityJoinRequest,
   createCommunityInvite,
   updateCommunitySettings,
+  uploadMedia,
 } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
@@ -74,6 +75,8 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
   const [settingsForm, setSettingsForm] = useState<CommunitySettings>({});
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [uploadingIcon, setUploadingIcon] = useState(false);
+  const [iconPreview, setIconPreview] = useState<string | null>(null);
 
   useEffect(() => {
     if (name) {
@@ -209,6 +212,22 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
     }
   }, [community]);
 
+  const handleIconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || uploadingIcon) return;
+
+    setUploadingIcon(true);
+    try {
+      const result = await uploadMedia(file);
+      setSettingsForm(prev => ({ ...prev, icon_url: result.url }));
+      setIconPreview(URL.createObjectURL(file));
+    } catch (err) {
+      setSettingsError('アイコンのアップロードに失敗しました');
+    } finally {
+      setUploadingIcon(false);
+    }
+  };
+
   const handleSaveSettings = async () => {
     if (!community || savingSettings) return;
     setSavingSettings(true);
@@ -220,10 +239,12 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
         ...prev,
         display_name: settingsForm.display_name || prev.display_name,
         summary: settingsForm.summary || prev.summary,
+        icon_url: settingsForm.icon_url || prev.icon_url,
         visibility: settingsForm.visibility || prev.visibility,
         join_policy: settingsForm.join_policy || prev.join_policy,
         post_policy: settingsForm.post_policy || prev.post_policy,
       } : null);
+      setIconPreview(null); // Clear preview after successful save
     } catch (e) {
       setSettingsError('Failed to save settings');
     } finally {
@@ -541,6 +562,38 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
                 {settingsError}
               </div>
             )}
+
+            {/* Icon Upload */}
+            <div>
+              <label className="block text-sm font-semibold text-neutral-300 mb-2">
+                アイコン
+              </label>
+              <div className="flex items-center gap-4">
+                <div className="w-20 h-20 rounded-xl overflow-hidden bg-neutral-800 flex items-center justify-center">
+                  {iconPreview || community.icon_url ? (
+                    <img
+                      src={iconPreview || community.icon_url || ''}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-2xl font-bold text-white">
+                      {(community.display_name || community.name).charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                <label className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg cursor-pointer transition-colors">
+                  {uploadingIcon ? 'アップロード中...' : '画像を選択'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleIconUpload}
+                    disabled={uploadingIcon}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </div>
 
             {/* Display Name */}
             <div>
