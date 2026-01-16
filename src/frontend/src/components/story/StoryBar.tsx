@@ -1,5 +1,5 @@
-import { ActorStories, Actor } from '../types';
-import { UserAvatar } from './UserAvatar';
+import { ActorStories, Actor } from '../../types';
+import { UserAvatar } from '../UserAvatar';
 
 interface StoryBarProps {
   actor: Actor;
@@ -66,31 +66,37 @@ export function StoryBar({ actor, actorStories, loading = false, onStoryClick, o
   return (
     <div className="px-4 py-3 border-b border-neutral-900">
       <div className="flex gap-4 overflow-x-auto scrollbar-hide">
-        {/* Add story button (always first) */}
-        <button
-          onClick={hasMyStories ? () => onStoryClick(myStories!, 0) : onAddStory}
-          className="flex flex-col items-center gap-1 flex-shrink-0 group"
-        >
+        {/* My story / Add story button (always first) */}
+        <div className="flex flex-col items-center gap-1 flex-shrink-0">
           <div className="relative">
-            <div className={`w-16 h-16 rounded-full p-0.5 ${
-              hasMyStories
-                ? (myStories!.has_unviewed ? 'bg-gradient-to-tr from-yellow-500 to-pink-500' : 'bg-neutral-600')
-                : 'ring-2 ring-neutral-700'
-            }`}>
+            {/* Avatar - click to view stories if any */}
+            <button
+              onClick={hasMyStories ? () => onStoryClick(myStories!, 0) : onAddStory}
+              className={`w-16 h-16 rounded-full p-0.5 ${
+                hasMyStories
+                  ? (myStories!.has_unviewed ? 'bg-gradient-to-tr from-green-400 to-green-500' : 'bg-neutral-600')
+                  : 'ring-2 ring-neutral-700'
+              }`}
+            >
               <div className="w-full h-full rounded-full bg-black p-0.5">
                 <UserAvatar avatarUrl={actor.icon_url} name={actor.name || actor.username} size={56} />
               </div>
-            </div>
-            {!hasMyStories && (
-              <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center ring-2 ring-black">
-                <PlusIcon />
-              </div>
-            )}
+            </button>
+            {/* + button - always visible, always adds new story */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onAddStory();
+              }}
+              className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center ring-2 ring-black hover:bg-blue-600 transition-colors"
+            >
+              <PlusIcon />
+            </button>
           </div>
           <span className="text-xs text-neutral-400 max-w-16 truncate">
             {hasMyStories ? 'Your story' : 'Add story'}
           </span>
-        </button>
+        </div>
 
         {/* Other users' stories */}
         {otherStories.map((as, idx) => (
@@ -101,7 +107,7 @@ export function StoryBar({ actor, actorStories, loading = false, onStoryClick, o
           >
             <div className={`w-16 h-16 rounded-full p-0.5 ${
               as.has_unviewed
-                ? 'bg-gradient-to-tr from-yellow-500 to-pink-500'
+                ? 'bg-gradient-to-tr from-green-400 to-green-500'
                 : 'bg-neutral-600'
             }`}>
               <div className="w-full h-full rounded-full bg-black p-0.5">

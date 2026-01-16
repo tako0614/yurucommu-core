@@ -16,9 +16,7 @@ import {
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
 import { PostContent } from '../components/PostContent';
-import { StoryBar } from '../components/StoryBar';
-import { StoryViewer } from '../components/StoryViewer';
-import { StoryComposerV2 } from '../components/story';
+import { StoryBar, StoryViewer, StoryComposer } from '../components/story';
 
 interface TimelinePageProps {
   actor: Actor;
@@ -307,7 +305,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
 
       {/* Story Composer Modal */}
       {showStoryComposer && (
-        <StoryComposerV2
+        <StoryComposer
           onClose={() => setShowStoryComposer(false)}
           onSuccess={handleStorySuccess}
         />
