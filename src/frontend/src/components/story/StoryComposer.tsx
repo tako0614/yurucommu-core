@@ -12,16 +12,11 @@ import {
   createStoryCanvas,
   Layer,
   TextLayer,
-  BackgroundFill,
-  BackgroundLayer,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
 } from '../../lib/storyCanvas';
 import {
-  initFFmpeg,
   exportCanvasWithVideo,
-  getVideoDuration,
-  isVideoFile,
   FFmpegError,
   VideoTransform,
 } from '../../lib/ffmpeg';
@@ -39,6 +34,9 @@ import {
   StoryComposerStickerPanel,
 } from './composer/StoryComposerPanels';
 import { StoryComposerStatusOverlay } from './composer/StoryComposerStatusOverlay';
+import { useStoryBackground } from './composer/useStoryBackground';
+import { useStoryCanvasRenderer } from './composer/useStoryCanvasRenderer';
+import { useStoryVideo } from './composer/useStoryVideo';
 
 interface StoryComposerProps {
   onClose: () => void;
@@ -55,6 +53,7 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
   // Canvas state
   const [storyCanvas, setStoryCanvas] = useState<StoryCanvas | null>(null);
   const [renderKey, setRenderKey] = useState(0);
+  const bumpRenderKey = useCallback(() => setRenderKey(k => k + 1), [setRenderKey]);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const displayCanvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -66,25 +65,34 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [displayScale, setDisplayScale] = useState(1);
-  const [ffmpegReady, setFfmpegReady] = useState(false);
-  const [ffmpegLoading, setFfmpegLoading] = useState(false);
-
-  // Video mode state
-  const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [videoPreview, setVideoPreview] = useState<string | null>(null);
-  const [videoDuration, setVideoDuration] = useState<number>(5);
-  const videoInputRef = useRef<HTMLInputElement>(null);
-  const [savedBackground, setSavedBackground] = useState<BackgroundFill | null>(null);
-  const [videoScale, setVideoScale] = useState(1);
-  const [videoPosition, setVideoPosition] = useState({ x: 0, y: 0 });
-  const [videoRotation, setVideoRotation] = useState(0);
-  const videoRef = useRef<HTMLVideoElement>(null);
 
   // Background state
   const [backgroundType, setBackgroundType] = useState<'solid' | 'gradient'>('gradient');
   const [solidColor, setSolidColor] = useState('#000000');
   const [gradientColors, setGradientColors] = useState(['#667eea', '#764ba2']);
   const [gradientAngle, setGradientAngle] = useState(135);
+
+  const {
+    videoFile,
+    videoPreview,
+    videoInputRef,
+    videoRef,
+    videoScale,
+    setVideoScale,
+    videoPosition,
+    setVideoPosition,
+    videoRotation,
+    setVideoRotation,
+    ffmpegReady,
+    ffmpegLoading,
+    handleVideoSelect,
+  } = useStoryVideo({
+    storyCanvas,
+    setUploading: (value) => setUploading(value),
+    setError: (message) => setError(message),
+    maxVideoSize: MAX_VIDEO_SIZE,
+    onBackgroundChange: bumpRenderKey,
+  });
 
   // Overlay state (for interactive elements)
   const [overlays, setOverlays] = useState<StoryOverlay[]>([]);
@@ -118,7 +126,7 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
   } = useCanvasInteraction({
     canvas: storyCanvas,
     displayScale: displayScale,
-    onUpdate: () => setRenderKey(k => k + 1),
+    onUpdate: bumpRenderKey,
     onSnapGuidesChange: setSnapGuides,
   });
 
@@ -140,26 +148,6 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
       setRenderKey(k => k + 1);
     });
   }, []);
-
-  // Initialize FFmpeg only when video is selected (lazy loading)
-  useEffect(() => {
-    if (!videoFile) return;
-    if (ffmpegReady) return;
-
-    const loadFFmpeg = async () => {
-      setFfmpegLoading(true);
-      try {
-        await initFFmpeg();
-        setFfmpegReady(true);
-      } catch (e) {
-        console.error('Failed to load FFmpeg:', e);
-        setError('FFmpegの読み込みに失敗しました。動画機能は使用できません。');
-      } finally {
-        setFfmpegLoading(false);
-      }
-    };
-    loadFFmpeg();
-  }, [videoFile, ffmpegReady]);
 
   // Calculate display scale
   useEffect(() => {
@@ -183,110 +171,22 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
     }
   }, [setContainerRef]);
 
-  // Render canvas to display
-  useEffect(() => {
-    if (!storyCanvas || !displayCanvasRef.current) return;
+  useStoryCanvasRenderer({
+    storyCanvas,
+    displayCanvasRef,
+    renderKey,
+    snapGuides,
+    getSelectedLayer,
+  });
 
-    const render = async () => {
-      await storyCanvas.render();
-
-      // Draw to display canvas (scaled down)
-      const displayCtx = displayCanvasRef.current!.getContext('2d')!;
-      const displayWidth = displayCanvasRef.current!.width;
-      const displayHeight = displayCanvasRef.current!.height;
-
-      displayCtx.clearRect(0, 0, displayWidth, displayHeight);
-      displayCtx.drawImage(
-        storyCanvas.getCanvas(),
-        0, 0, CANVAS_WIDTH, CANVAS_HEIGHT,
-        0, 0, displayWidth, displayHeight
-      );
-
-      // Draw snap guides (Instagram-style alignment guides)
-      const scale = displayWidth / CANVAS_WIDTH;
-      drawSnapGuides(displayCtx, scale, displayWidth, displayHeight);
-
-      // Draw selection indicator (subtle dashed border)
-      const selectedLayer = getSelectedLayer();
-      if (selectedLayer && selectedLayer.type !== 'background') {
-        drawSelectionIndicator(displayCtx, selectedLayer, scale);
-      }
-    };
-
-    render();
-  }, [storyCanvas, renderKey, snapGuides, getSelectedLayer]);
-
-  // Draw selection indicator (subtle dashed border, no handles)
-  const drawSelectionIndicator = (
-    ctx: CanvasRenderingContext2D,
-    layer: Layer,
-    scale: number
-  ) => {
-    const corners = storyCanvas?.getLayerCorners(layer);
-    if (!corners) return;
-
-    const scaledCorners = corners.map(c => ({
-      x: c.x * scale,
-      y: c.y * scale,
-    }));
-
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([6, 4]);
-
-    ctx.beginPath();
-    ctx.moveTo(scaledCorners[0].x, scaledCorners[0].y);
-    scaledCorners.forEach(c => ctx.lineTo(c.x, c.y));
-    ctx.closePath();
-    ctx.stroke();
-
-    ctx.setLineDash([]);
-  };
-
-  // Draw snap guides (center alignment lines)
-  const drawSnapGuides = (
-    ctx: CanvasRenderingContext2D,
-    scale: number,
-    displayWidth: number,
-    displayHeight: number
-  ) => {
-    if (snapGuides.length === 0) return;
-
-    ctx.strokeStyle = '#FFD60A'; // Yellow guide line
-    ctx.lineWidth = 1;
-    ctx.setLineDash([5, 5]);
-
-    for (const guide of snapGuides) {
-      ctx.beginPath();
-      if (guide.type === 'vertical') {
-        const x = guide.position * scale;
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, displayHeight);
-      } else {
-        const y = guide.position * scale;
-        ctx.moveTo(0, y);
-        ctx.lineTo(displayWidth, y);
-      }
-      ctx.stroke();
-    }
-
-    ctx.setLineDash([]);
-  };
-
-  // Handle background change
-  useEffect(() => {
-    if (!storyCanvas) return;
-
-    let fill: BackgroundFill;
-    if (backgroundType === 'solid') {
-      fill = { type: 'solid', color: solidColor };
-    } else {
-      fill = { type: 'gradient', colors: gradientColors, angle: gradientAngle };
-    }
-
-    storyCanvas.setBackground(fill);
-    setRenderKey(k => k + 1);
-  }, [storyCanvas, backgroundType, solidColor, gradientColors, gradientAngle]);
+  useStoryBackground({
+    storyCanvas,
+    backgroundType,
+    solidColor,
+    gradientColors,
+    gradientAngle,
+    onUpdate: bumpRenderKey,
+  });
 
   // Handle image upload
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -592,65 +492,6 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
     } finally {
       setPosting(false);
       setProgress(0);
-    }
-  };
-
-  // Handle video file select
-  const handleVideoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !storyCanvas) return;
-
-    if (!isVideoFile(file)) {
-      setError('動画ファイルを選択してください');
-      return;
-    }
-
-    if (file.size > MAX_VIDEO_SIZE) {
-      setError(`動画サイズが大きすぎます（最大${MAX_VIDEO_SIZE / 1024 / 1024}MB）`);
-      return;
-    }
-
-    setUploading(true);
-    try {
-      const preview = URL.createObjectURL(file);
-      const duration = await getVideoDuration(file);
-
-      // Save current background and set to transparent
-      const bgLayer = storyCanvas.getLayers().find(l => l.type === 'background') as BackgroundLayer | undefined;
-      if (bgLayer) {
-        setSavedBackground(bgLayer.fill);
-        storyCanvas.setBackground({ type: 'transparent' });
-        setRenderKey(k => k + 1);
-      }
-
-      setVideoFile(file);
-      setVideoPreview(preview);
-      setVideoDuration(duration);
-    } catch (err) {
-      console.error('Failed to process video:', err);
-      setError('動画の処理に失敗しました');
-    } finally {
-      setUploading(false);
-      if (videoInputRef.current) videoInputRef.current.value = '';
-    }
-  };
-
-  // Clear video
-  const clearVideo = () => {
-    if (videoPreview) {
-      URL.revokeObjectURL(videoPreview);
-    }
-    setVideoFile(null);
-    setVideoPreview(null);
-    setVideoScale(1);
-    setVideoPosition({ x: 0, y: 0 });
-    setVideoRotation(0);
-
-    // Restore saved background
-    if (savedBackground && storyCanvas) {
-      storyCanvas.setBackground(savedBackground);
-      setSavedBackground(null);
-      setRenderKey(k => k + 1);
     }
   };
 

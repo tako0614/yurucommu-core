@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Actor } from '../types';
 import {
   CommunityDetail,
@@ -18,24 +18,17 @@ import {
   uploadMedia,
 } from '../lib/api';
 import { useI18n } from '../lib/i18n';
-import { UserAvatar } from '../components/UserAvatar';
 import { InlineErrorBanner } from '../components/InlineErrorBanner';
 import { useInlineError } from '../hooks/useInlineError';
 import { CommunityProfileHeader } from '../components/community/CommunityProfileHeader';
 import { CommunityProfileSummary } from '../components/community/CommunityProfileSummary';
+import { CommunityAboutPanel } from '../components/community/CommunityAboutPanel';
+import { CommunityMembersPanel } from '../components/community/CommunityMembersPanel';
+import { CommunitySettingsPanel } from '../components/community/CommunitySettingsPanel';
+import type { CommunityMember } from '../components/community/types';
 
 interface CommunityProfilePageProps {
   actor: Actor;
-}
-
-interface Member {
-  ap_id: string;
-  username: string;
-  preferred_username: string;
-  name: string | null;
-  icon_url: string | null;
-  role: string;
-  joined_at: string;
 }
 
 export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
@@ -44,7 +37,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
   const [community, setCommunity] = useState<CommunityDetail | null>(null);
-  const [members, setMembers] = useState<Member[]>([]);
+  const [members, setMembers] = useState<CommunityMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'about' | 'members' | 'settings'>('about');
   const [joining, setJoining] = useState(false);
@@ -184,7 +177,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
     }
   };
 
-  const handleUpdateMemberRole = async (member: Member, role: 'owner' | 'moderator' | 'member') => {
+  const handleUpdateMemberRole = async (member: CommunityMember, role: 'owner' | 'moderator' | 'member') => {
     if (!community) return;
     if (member.role === role || updatingMemberRole[member.ap_id]) return;
     setMemberActionError(null);
@@ -347,9 +340,9 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
               className={`flex-1 py-4 text-center font-bold transition-colors relative ${
                 activeTab === 'settings' ? 'text-white' : 'text-neutral-500 hover:bg-neutral-900/50'
               }`}
-          >
-            設定
-            {activeTab === 'settings' && (
+            >
+              設定
+              {activeTab === 'settings' && (
                 <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
               )}
             </button>
@@ -357,390 +350,42 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
         </div>
 
         {/* Content */}
-        {activeTab === 'about' && (
-          <div className="p-4">
-            {community.summary ? (
-              <div>
-                <h3 className="text-lg font-bold mb-2">グループについて</h3>
-                <p className="text-neutral-300 whitespace-pre-wrap">{community.summary}</p>
-              </div>
-            ) : (
-              <div className="text-neutral-500 text-center py-8">
-                説明がありません
-              </div>
-            )}
-          </div>
-        )}
-
+        {activeTab === 'about' && <CommunityAboutPanel community={community} />}
         {activeTab === 'members' && (
-          <div>
-            {canManage && (
-              <div className="border-b border-neutral-900">
-                <div className="px-4 py-3">
-                  <div className="text-sm font-semibold text-neutral-400">Join Requests</div>
-                </div>
-                {loadingRequests ? (
-                  <div className="px-4 pb-4 text-sm text-neutral-500">Loading...</div>
-                ) : joinRequests.length === 0 ? (
-                  <div className="px-4 pb-4 text-sm text-neutral-500">No pending requests</div>
-                ) : (
-                  joinRequests.map(request => (
-                    <div
-                      key={request.ap_id}
-                      className="flex items-center gap-3 px-4 py-3 border-t border-neutral-900"
-                    >
-                      <UserAvatar
-                        avatarUrl={request.icon_url}
-                        name={request.name || request.preferred_username}
-                        size={40}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-white truncate">
-                          {request.name || request.preferred_username}
-                        </div>
-                        <div className="text-sm text-neutral-500 truncate">@{request.username}</div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleAcceptRequest(request)}
-                          disabled={requestAction[request.ap_id]}
-                          className="px-3 py-1 text-xs bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
-                        >
-                          Accept
-                        </button>
-                        <button
-                          onClick={() => handleRejectRequest(request)}
-                          disabled={requestAction[request.ap_id]}
-                          className="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-            {memberActionError && (
-              <div className="px-4 py-2 text-sm text-red-400 bg-red-500/10">
-                {memberActionError}
-              </div>
-            )}
-            {members.length === 0 ? (
-              <div className="p-8 text-center text-neutral-500">メンバーがいません</div>
-            ) : (
-              members.map(member => (
-                <Link
-                  key={member.ap_id}
-                  to={`/profile/${encodeURIComponent(member.ap_id)}`}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-neutral-900/30 transition-colors"
-                >
-                  <UserAvatar
-                    avatarUrl={member.icon_url}
-                    name={member.name || member.preferred_username}
-                    size={48}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-white truncate">
-                        {member.name || member.preferred_username}
-                      </span>
-                      {member.role === 'owner' && (
-                        <span className="px-1.5 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
-                          オーナー
-                        </span>
-                      )}
-                      {member.role === 'moderator' && (
-                        <span className="px-1.5 py-0.5 text-xs bg-blue-500/20 text-blue-400 rounded">
-                          モデレーター
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-neutral-500 truncate">@{member.username}</div>
-                  </div>
-                  {isOwner && member.ap_id !== actor.ap_id && (
-                    <select
-                      value={member.role}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                      }}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                      }}
-                      onChange={(e) => handleUpdateMemberRole(member, e.target.value as 'owner' | 'moderator' | 'member')}
-                      disabled={updatingMemberRole[member.ap_id]}
-                      className="ml-auto bg-neutral-900 border border-neutral-700 text-xs text-white rounded-lg px-2 py-1"
-                    >
-                      <option value="member">{t('members.member')}</option>
-                      <option value="moderator">{t('members.moderator')}</option>
-                      <option value="owner">{t('members.owner')}</option>
-                    </select>
-                  )}
-                </Link>
-              ))
-            )}
-            {canManage && community.join_policy === 'invite' && (
-              <div className="mt-4 p-3 bg-neutral-900/50 rounded-lg">
-                <div className="text-sm font-semibold text-neutral-300 mb-2">Invite Code</div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    onClick={handleCreateInvite}
-                    disabled={creatingInvite}
-                    className="px-3 py-1 text-xs bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
-                  >
-                    {creatingInvite ? 'Creating...' : 'Create'}
-                  </button>
-                  {inviteCode && (
-                    <span className="px-2 py-1 text-xs bg-neutral-800 text-neutral-200 rounded">
-                      {inviteCode}
-                    </span>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          <CommunityMembersPanel
+            members={members}
+            joinRequests={joinRequests}
+            canManage={canManage}
+            isOwner={isOwner}
+            loadingRequests={loadingRequests}
+            requestAction={requestAction}
+            memberActionError={memberActionError}
+            updatingMemberRole={updatingMemberRole}
+            inviteCode={inviteCode}
+            creatingInvite={creatingInvite}
+            joinPolicy={community.join_policy}
+            actorApId={actor.ap_id}
+            onAcceptRequest={handleAcceptRequest}
+            onRejectRequest={handleRejectRequest}
+            onUpdateMemberRole={handleUpdateMemberRole}
+            onCreateInvite={handleCreateInvite}
+            t={t}
+          />
         )}
-
         {activeTab === 'settings' && canManage && (
-          <div className="p-4 space-y-6">
-            {settingsError && (
-              <div className="p-3 bg-red-500/20 border border-red-500 rounded-lg text-red-400 text-sm">
-                {settingsError}
-              </div>
-            )}
-
-            {/* Icon Upload */}
-            <div>
-              <label className="block text-sm font-semibold text-neutral-300 mb-2">
-                アイコン
-              </label>
-              <div className="flex items-center gap-4">
-                <div className="w-20 h-20 rounded-xl overflow-hidden bg-neutral-800 flex items-center justify-center">
-                  {iconPreview || community.icon_url ? (
-                    <img
-                      src={iconPreview || community.icon_url || ''}
-                      alt=""
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-2xl font-bold text-white">
-                      {(community.display_name || community.name).charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                </div>
-                <label className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg cursor-pointer transition-colors">
-                  {uploadingIcon ? 'アップロード中...' : '画像を選択'}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleIconUpload}
-                    disabled={uploadingIcon}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-            </div>
-
-            {/* Display Name */}
-            <div>
-              <label className="block text-sm font-semibold text-neutral-300 mb-2">
-                表示名
-              </label>
-              <input
-                type="text"
-                value={settingsForm.display_name || ''}
-                onChange={(e) => setSettingsForm(prev => ({ ...prev, display_name: e.target.value }))}
-                className="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:border-blue-500 focus:outline-none"
-                placeholder="グループの表示名"
-              />
-            </div>
-
-            {/* Summary */}
-            <div>
-              <label className="block text-sm font-semibold text-neutral-300 mb-2">
-                説明
-              </label>
-              <textarea
-                value={settingsForm.summary || ''}
-                onChange={(e) => setSettingsForm(prev => ({ ...prev, summary: e.target.value }))}
-                rows={4}
-                className="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:border-blue-500 focus:outline-none resize-none"
-                placeholder="グループの説明"
-              />
-            </div>
-
-            {/* Visibility */}
-            <div>
-              <label className="block text-sm font-semibold text-neutral-300 mb-2">
-                公開範囲
-              </label>
-              <div className="space-y-2">
-                <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
-                  <input
-                    type="radio"
-                    name="visibility"
-                    checked={settingsForm.visibility === 'public'}
-                    onChange={() => setSettingsForm(prev => ({ ...prev, visibility: 'public' }))}
-                    className="w-4 h-4 text-blue-500"
-                  />
-                  <div>
-                    <div className="text-white font-medium">公開</div>
-                    <div className="text-sm text-neutral-500">誰でもグループを見つけて閲覧できます</div>
-                  </div>
-                </label>
-                <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
-                  <input
-                    type="radio"
-                    name="visibility"
-                    checked={settingsForm.visibility === 'private'}
-                    onChange={() => setSettingsForm(prev => ({ ...prev, visibility: 'private' }))}
-                    className="w-4 h-4 text-blue-500"
-                  />
-                  <div>
-                    <div className="text-white font-medium">非公開</div>
-                    <div className="text-sm text-neutral-500">メンバーのみがグループの内容を閲覧できます</div>
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            {/* Join Policy */}
-            <div>
-              <label className="block text-sm font-semibold text-neutral-300 mb-2">
-                参加ポリシー
-              </label>
-              <div className="space-y-2">
-                <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
-                  <input
-                    type="radio"
-                    name="join_policy"
-                    checked={settingsForm.join_policy === 'open'}
-                    onChange={() => setSettingsForm(prev => ({ ...prev, join_policy: 'open' }))}
-                    className="w-4 h-4 text-blue-500"
-                  />
-                  <div>
-                    <div className="text-white font-medium">オープン</div>
-                    <div className="text-sm text-neutral-500">誰でも参加できます</div>
-                  </div>
-                </label>
-                <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
-                  <input
-                    type="radio"
-                    name="join_policy"
-                    checked={settingsForm.join_policy === 'approval'}
-                    onChange={() => setSettingsForm(prev => ({ ...prev, join_policy: 'approval' }))}
-                    className="w-4 h-4 text-blue-500"
-                  />
-                  <div>
-                    <div className="text-white font-medium">承認制</div>
-                    <div className="text-sm text-neutral-500">参加にはオーナーまたはモデレーターの承認が必要です</div>
-                  </div>
-                </label>
-                <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
-                  <input
-                    type="radio"
-                    name="join_policy"
-                    checked={settingsForm.join_policy === 'invite'}
-                    onChange={() => setSettingsForm(prev => ({ ...prev, join_policy: 'invite' }))}
-                    className="w-4 h-4 text-blue-500"
-                  />
-                  <div>
-                    <div className="text-white font-medium">招待制</div>
-                    <div className="text-sm text-neutral-500">招待コードがないと参加できません</div>
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            {/* Post Policy */}
-            <div>
-              <label className="block text-sm font-semibold text-neutral-300 mb-2">
-                投稿ポリシー
-              </label>
-              <div className="space-y-2">
-                <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
-                  <input
-                    type="radio"
-                    name="post_policy"
-                    checked={settingsForm.post_policy === 'anyone'}
-                    onChange={() => setSettingsForm(prev => ({ ...prev, post_policy: 'anyone' }))}
-                    className="w-4 h-4 text-blue-500"
-                  />
-                  <div>
-                    <div className="text-white font-medium">誰でも</div>
-                    <div className="text-sm text-neutral-500">誰でも投稿できます</div>
-                  </div>
-                </label>
-                <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
-                  <input
-                    type="radio"
-                    name="post_policy"
-                    checked={settingsForm.post_policy === 'members'}
-                    onChange={() => setSettingsForm(prev => ({ ...prev, post_policy: 'members' }))}
-                    className="w-4 h-4 text-blue-500"
-                  />
-                  <div>
-                    <div className="text-white font-medium">メンバーのみ</div>
-                    <div className="text-sm text-neutral-500">グループメンバーのみが投稿できます</div>
-                  </div>
-                </label>
-                <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
-                  <input
-                    type="radio"
-                    name="post_policy"
-                    checked={settingsForm.post_policy === 'mods'}
-                    onChange={() => setSettingsForm(prev => ({ ...prev, post_policy: 'mods' }))}
-                    className="w-4 h-4 text-blue-500"
-                  />
-                  <div>
-                    <div className="text-white font-medium">モデレーター以上</div>
-                    <div className="text-sm text-neutral-500">モデレーターとオーナーのみが投稿できます</div>
-                  </div>
-                </label>
-                <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
-                  <input
-                    type="radio"
-                    name="post_policy"
-                    checked={settingsForm.post_policy === 'owners'}
-                    onChange={() => setSettingsForm(prev => ({ ...prev, post_policy: 'owners' }))}
-                    className="w-4 h-4 text-blue-500"
-                  />
-                  <div>
-                    <div className="text-white font-medium">オーナーのみ</div>
-                    <div className="text-sm text-neutral-500">オーナーのみが投稿できます</div>
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            {/* Save Button */}
-            <div className="pt-4">
-              <button
-                onClick={handleSaveSettings}
-                disabled={savingSettings}
-                className="w-full px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-bold transition-colors disabled:opacity-50"
-              >
-                {savingSettings ? '保存中...' : '設定を保存'}
-              </button>
-            </div>
-          </div>
+          <CommunitySettingsPanel
+            community={community}
+            settingsForm={settingsForm}
+            settingsError={settingsError}
+            savingSettings={savingSettings}
+            uploadingIcon={uploadingIcon}
+            iconPreview={iconPreview}
+            onChangeSettings={(updater) => setSettingsForm((prev) => updater(prev))}
+            onUploadIcon={handleIconUpload}
+            onSaveSettings={handleSaveSettings}
+          />
         )}
       </div>
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
