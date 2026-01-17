@@ -1,9 +1,15 @@
 ﻿import { useState, useEffect, useRef, useCallback } from 'react';
-import { ActorStories, StoryOverlay } from '../../types';
+import { ActorStories } from '../../types';
 import { markStoryViewed, deleteStory, voteOnStory, likeStory, unlikeStory, shareStory } from '../../lib/api';
 import { useI18n } from '../../lib/i18n';
 import { formatRelativeTime } from '../../lib/datetime';
-import { UserAvatar } from '../UserAvatar';
+import { ErrorIcon } from './viewer/StoryViewerIcons';
+import { StoryViewerActionBar } from './viewer/StoryViewerActionBar';
+import { StoryViewerDeleteDialog } from './viewer/StoryViewerDeleteDialog';
+import { StoryViewerHeader } from './viewer/StoryViewerHeader';
+import { renderStoryOverlay } from './viewer/StoryViewerOverlays';
+import { StoryViewerProgress } from './viewer/StoryViewerProgress';
+import { parseStoryDuration } from './viewer/storyViewerUtils';
 
 interface StoryViewerProps {
   actorStories: ActorStories[];
@@ -11,195 +17,6 @@ interface StoryViewerProps {
   currentUserApId?: string;
   onClose: () => void;
 }
-
-const CloseIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-  </svg>
-);
-
-const TrashIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-  </svg>
-);
-
-const ErrorIcon = () => (
-  <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-  </svg>
-);
-
-const MutedIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-  </svg>
-);
-
-const UnmutedIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-  </svg>
-);
-
-// Validate URL for XSS protection - only allow http: and https: protocols
-function isValidUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return ['http:', 'https:'].includes(parsed.protocol);
-  } catch {
-    return false;
-  }
-}
-
-// Parse ISO 8601 duration (e.g., "PT5S", "PT1M30S", "PT1H2M30S" -> ms)
-function parseDuration(duration: string): number {
-  let totalMs = 0;
-
-  const hoursMatch = duration.match(/(\d+)H/);
-  const minutesMatch = duration.match(/(\d+)M/);
-  const secondsMatch = duration.match(/(\d+)S/);
-
-  if (hoursMatch) totalMs += parseInt(hoursMatch[1]) * 3600000;
-  if (minutesMatch) totalMs += parseInt(minutesMatch[1]) * 60000;
-  if (secondsMatch) totalMs += parseInt(secondsMatch[1]) * 1000;
-
-  // Default 5 seconds, max 60 seconds
-  return totalMs > 0 ? Math.min(totalMs, 60000) : 5000;
-}
-
-// Render overlay based on type
-function renderOverlay(
-  overlay: StoryOverlay,
-  containerSize: { width: number; height: number },
-  storyApId: string,
-  votes?: { [key: number]: number },
-  votesTotal?: number,
-  userVote?: number,
-  onVote?: (storyApId: string, optionIndex: number) => Promise<void>
-) {
-  const { position } = overlay;
-
-  // Convert relative position to pixels
-  const left = position.x * containerSize.width - (position.width * containerSize.width) / 2;
-  const top = position.y * containerSize.height - (position.height * containerSize.height) / 2;
-  const width = position.width * containerSize.width;
-  const height = position.height * containerSize.height;
-
-  const style: React.CSSProperties = {
-    position: 'absolute',
-    left: `${left}px`,
-    top: `${top}px`,
-    width: `${width}px`,
-    height: `${height}px`,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-  };
-
-  // Render Question (Poll) overlay
-  if (overlay.type === 'Question' && overlay.name && overlay.oneOf) {
-    const hasVotes = votesTotal && votesTotal > 0;
-    const hasUserVoted = userVote !== undefined && userVote !== null;
-
-    return (
-      <div key={`overlay-${overlay.name}`} style={style}>
-        <div className="bg-black/60 backdrop-blur-sm rounded-xl p-3 w-full">
-          <p className="text-white text-sm font-medium text-center mb-2">{overlay.name}</p>
-          <div className="flex gap-2">
-            {overlay.oneOf.map((option, idx) => {
-              const voteCount = votes?.[idx] || 0;
-              const percentage = hasVotes ? Math.round((voteCount / votesTotal!) * 100) : 0;
-              const isSelected = userVote === idx;
-
-              return (
-                <button
-                  key={idx}
-                  className={`flex-1 relative overflow-hidden text-white text-sm py-2 px-3 rounded-lg transition-colors ${
-                    isSelected ? 'ring-2 ring-white' : ''
-                  } ${hasUserVoted ? 'cursor-default' : 'hover:bg-white/30'}`}
-                  style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    if (hasUserVoted) return; // Already voted
-                    try {
-                      if (onVote) {
-                        await onVote(storyApId, idx);
-                      } else {
-                        await voteOnStory(storyApId, idx);
-                      }
-                    } catch (err) {
-                      console.error('Failed to vote:', err);
-                    }
-                  }}
-                  disabled={hasUserVoted}
-                >
-                  {/* Vote bar (shown when results are available) */}
-                  {hasVotes && (
-                    <div
-                      className="absolute inset-0 bg-white/20 transition-all"
-                      style={{ width: `${percentage}%` }}
-                    />
-                  )}
-                  <span className="relative z-10 flex items-center justify-between">
-                    <span>{option.name}</span>
-                    {hasVotes && (
-                      <span className="text-xs ml-2">{percentage}%</span>
-                    )}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          {hasVotes && (
-            <p className="text-white/60 text-xs text-center mt-2">{votesTotal}逾ｨ</p>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Render Note (text) overlay
-  if (overlay.type === 'Note' && overlay.name) {
-    return (
-      <div key={`overlay-note-${overlay.name}`} style={style}>
-        <p className="text-white text-lg font-medium drop-shadow-lg bg-black/30 px-4 py-2 rounded-lg text-center">
-          {overlay.name}
-        </p>
-      </div>
-    );
-  }
-
-  // Render Link overlay
-  if (overlay.type === 'Link' && (overlay as unknown as { href?: string }).href) {
-    const linkOverlay = overlay as unknown as { href: string; name?: string };
-
-    // URL validation - only allow safe protocols
-    if (!isValidUrl(linkOverlay.href)) {
-      return null; // Don't render invalid URLs
-    }
-
-    return (
-      <div key={`overlay-link-${linkOverlay.href}`} style={style}>
-        <a
-          href={linkOverlay.href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="bg-white text-black text-sm font-medium px-4 py-2 rounded-full hover:bg-neutral-200 transition-colors"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {linkOverlay.name || '繝ｪ繝ｳ繧ｯ繧帝幕縺・}
-        </a>
-      </div>
-    );
-  }
-
-  // Default: render nothing for unknown types
-  return null;
-}
-
 export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, onClose }: StoryViewerProps) {
   const { t } = useI18n();
   const [localActorStories, setLocalActorStories] = useState(actorStories);
@@ -268,7 +85,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
   const startTimer = useCallback(() => {
     if (!currentStory || isVideo) return;
 
-    const duration = parseDuration(currentStory.displayDuration);
+    const duration = parseStoryDuration(currentStory.displayDuration);
     const startTime = Date.now();
 
     // Clear existing timers
@@ -535,68 +352,22 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
 
   return (
     <div className="fixed inset-0 z-51 bg-black">
-      {/* Progress bars - one per story */}
-      <div className="absolute top-0 left-0 right-0 z-20 px-2 pt-2 flex gap-1">
-        {Array.from({ length: totalStories }).map((_, idx) => (
-          <div key={idx} className="flex-1 h-0.5 bg-neutral-700 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-white transition-all duration-100"
-              style={{
-                width: idx < storyIndex
-                  ? '100%'
-                  : idx === storyIndex
-                    ? `${progress}%`
-                    : '0%'
-              }}
-            />
-          </div>
-        ))}
-      </div>
+      <StoryViewerProgress
+        totalStories={totalStories}
+        storyIndex={storyIndex}
+        progress={progress}
+      />
 
-      {/* Header */}
-      <div className="absolute top-4 left-0 right-0 z-20 px-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <UserAvatar
-            avatarUrl={currentActorStories.actor.icon_url}
-            name={currentActorStories.actor.name || currentActorStories.actor.preferred_username}
-            size={32}
-          />
-          <div>
-            <p className="text-white text-sm font-medium">
-              {currentActorStories.actor.name || currentActorStories.actor.preferred_username}
-            </p>
-            <p className="text-neutral-400 text-xs">
-              {formatRelativeTime(currentStory.published, { maxDays: 1 })}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-1">
-          {isVideo && (
-            <button
-              onClick={() => setIsMuted(!isMuted)}
-              className="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
-            >
-              {isMuted ? <MutedIcon /> : <UnmutedIcon />}
-            </button>
-          )}
-          {isOwnStory && (
-            <button
-              onClick={handleDeleteStory}
-              aria-label="Delete story"
-              className="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
-            >
-              <TrashIcon />
-            </button>
-          )}
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
-          >
-            <CloseIcon />
-          </button>
-        </div>
-      </div>
+      <StoryViewerHeader
+        actor={currentActorStories.actor}
+        timeLabel={formatRelativeTime(currentStory.published, { maxDays: 1 })}
+        isVideo={isVideo}
+        isMuted={isMuted}
+        isOwnStory={Boolean(isOwnStory)}
+        onToggleMute={() => setIsMuted(!isMuted)}
+        onDelete={handleDeleteStory}
+        onClose={onClose}
+      />
 
       {/* Main content area - vertical 9:16 container */}
       <div
@@ -652,7 +423,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
               <div className="pointer-events-auto">
                 {currentStory.overlays.map((overlay, idx) => (
                   <div key={idx}>
-                    {renderOverlay(
+                    {renderStoryOverlay(
                       overlay,
                       containerSize,
                       currentStory.ap_id,
@@ -675,76 +446,17 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
         </div>
       )}
 
-      {/* Action bar at bottom */}
-      <div className="absolute bottom-0 left-0 right-0 z-20 p-4 flex items-center gap-3">
-        {/* Message input */}
-        <div className="flex-1 flex items-center gap-2 border border-white/40 rounded-full px-4 py-2">
-          <input
-            type="text"
-            placeholder="繝｡繝・そ繝ｼ繧ｸ繧帝∽ｿ｡..."
-            className="flex-1 bg-transparent text-white placeholder-white/50 text-sm outline-none"
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          />
-          <button
-            className="text-white/70 hover:text-white transition-colors"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-            </svg>
-          </button>
-        </div>
-        {/* Heart button */}
-        <button
-          className={`p-2 transition-colors ${isLiked ? 'text-red-400' : 'text-white hover:text-red-400'}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleLike();
-          }}
-        >
-          <svg className="w-7 h-7" fill={isLiked ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-          </svg>
-        </button>
-        {/* Share/Send button */}
-        <button
-          className="p-2 text-white hover:text-white/70 transition-colors"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleShare();
-          }}
-        >
-          <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-          </svg>
-        </button>
-      </div>
+      <StoryViewerActionBar
+        isLiked={isLiked}
+        onLike={handleLike}
+        onShare={handleShare}
+      />
 
-      {/* Delete confirmation dialog */}
-      {showDeleteConfirm && (
-        <div className="absolute inset-0 z-30 bg-black/80 flex items-center justify-center">
-          <div className="bg-neutral-800 rounded-2xl p-6 max-w-xs mx-4">
-            <h3 className="text-white font-semibold text-lg mb-2">繧ｹ繝医・繝ｪ繝ｼ繧貞炎髯､</h3>
-            <p className="text-neutral-400 text-sm mb-4">縺薙・繧ｹ繝医・繝ｪ繝ｼ繧貞炎髯､縺励∪縺吶°・溘％縺ｮ謫堺ｽ懊・蜿悶ｊ豸医○縺ｾ縺帙ｓ縲・/p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 px-4 py-2 bg-neutral-700 hover:bg-neutral-600 rounded-lg text-white transition-colors"
-              >
-                繧ｭ繝｣繝ｳ繧ｻ繝ｫ
-              </button>
-              <button
-                onClick={confirmDelete}
-                className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 rounded-lg text-white transition-colors"
-              >
-                蜑企勁
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <StoryViewerDeleteDialog
+        open={showDeleteConfirm}
+        onCancel={() => setShowDeleteConfirm(false)}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }
