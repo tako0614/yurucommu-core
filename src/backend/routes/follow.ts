@@ -4,6 +4,39 @@ import { generateId, activityApId, isLocal, formatUsername, signRequest, isSafeR
 
 const follow = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type ActorPrivacyRow = {
+  is_private: number;
+};
+
+type FollowRow = {
+  status: string;
+  activity_ap_id: string;
+};
+
+type ActorCacheInboxRow = {
+  inbox: string | null;
+};
+
+type FollowRequestRow = {
+  follower_ap_id: string;
+  preferred_username: string | null;
+  name: string | null;
+  icon_url: string | null;
+  created_at: string;
+};
+
+type RemoteActor = {
+  id: string;
+  type?: string;
+  preferredUsername?: string;
+  name?: string;
+  summary?: string;
+  icon?: { url?: string };
+  inbox?: string;
+  outbox?: string;
+  publicKey?: { id?: string; publicKeyPem?: string };
+};
+
 // Follow an actor (handles local and remote)
 follow.post('/', async (c) => {
   const actor = c.get('actor');
@@ -28,7 +61,7 @@ follow.post('/', async (c) => {
 
   if (isLocalTarget) {
     // Local target - check if they require approval
-    const target = await c.env.DB.prepare('SELECT is_private FROM actors WHERE ap_id = ?').bind(targetApId).first<any>();
+    const target = await c.env.DB.prepare('SELECT is_private FROM actors WHERE ap_id = ?').bind(targetApId).first<ActorPrivacyRow>();
     if (!target) return c.json({ error: 'Target actor not found' }, 404);
 
     const status = target.is_private ? 'pending' : 'accepted';
@@ -74,7 +107,7 @@ follow.post('/', async (c) => {
         });
         if (!res.ok) return c.json({ error: 'Could not fetch remote actor' }, 400);
 
-        const actorData = await res.json() as any;
+        const actorData = await res.json() as RemoteActor;
         if (
           !actorData?.id ||
           !actorData?.inbox ||
@@ -165,7 +198,7 @@ follow.delete('/', async (c) => {
 
   const existingFollow = await c.env.DB.prepare(
     'SELECT * FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?'
-  ).bind(actor.ap_id, targetApId).first<any>();
+  ).bind(actor.ap_id, targetApId).first<FollowRow>();
 
   if (!existingFollow) return c.json({ error: 'Not following' }, 400);
 
@@ -186,7 +219,7 @@ follow.delete('/', async (c) => {
 
   // Send Undo Follow to remote
   if (!isLocal(targetApId, baseUrl)) {
-    const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(targetApId).first<any>();
+    const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(targetApId).first<ActorCacheInboxRow>();
     if (cachedActor?.inbox) {
       if (isSafeRemoteUrl(cachedActor.inbox)) {
         const activityId = activityApId(baseUrl, generateId());
@@ -239,7 +272,7 @@ follow.post('/accept', async (c) => {
 
   const pendingFollow = await c.env.DB.prepare(
     'SELECT * FROM follows WHERE follower_ap_id = ? AND following_ap_id = ? AND status = ?'
-  ).bind(body.requester_ap_id, actor.ap_id, 'pending').first<any>();
+  ).bind(body.requester_ap_id, actor.ap_id, 'pending').first<FollowRow>();
 
   if (!pendingFollow) return c.json({ error: 'No pending follow request' }, 404);
 
@@ -258,7 +291,7 @@ follow.post('/accept', async (c) => {
 
   // Send Accept to remote
   if (!isLocal(body.requester_ap_id, c.env.APP_URL)) {
-    const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(body.requester_ap_id).first<any>();
+    const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(body.requester_ap_id).first<ActorCacheInboxRow>();
     if (cachedActor?.inbox) {
       const baseUrl = c.env.APP_URL;
       const activityId = activityApId(baseUrl, generateId());
@@ -315,7 +348,7 @@ follow.post('/accept/batch', async (c) => {
     try {
       const pendingFollow = await c.env.DB.prepare(
         'SELECT * FROM follows WHERE follower_ap_id = ? AND following_ap_id = ? AND status = ?'
-      ).bind(requesterApId, actor.ap_id, 'pending').first<any>();
+      ).bind(requesterApId, actor.ap_id, 'pending').first<FollowRow>();
 
       if (!pendingFollow) {
         results.push({ ap_id: requesterApId, success: false, error: 'No pending follow request' });
@@ -335,7 +368,7 @@ follow.post('/accept/batch', async (c) => {
 
       // Send Accept to remote
   if (!isLocal(requesterApId, baseUrl)) {
-    const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(requesterApId).first<any>();
+    const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(requesterApId).first<ActorCacheInboxRow>();
     if (cachedActor?.inbox) {
       const activityId = activityApId(baseUrl, generateId());
       const acceptActivity = {
@@ -385,7 +418,7 @@ follow.post('/reject', async (c) => {
 
   const pendingFollow = await c.env.DB.prepare(
     'SELECT * FROM follows WHERE follower_ap_id = ? AND following_ap_id = ? AND status = ?'
-  ).bind(body.requester_ap_id, actor.ap_id, 'pending').first<any>();
+  ).bind(body.requester_ap_id, actor.ap_id, 'pending').first<FollowRow>();
 
   if (!pendingFollow) return c.json({ error: 'No pending follow request' }, 404);
 
@@ -400,7 +433,7 @@ follow.post('/reject', async (c) => {
 
   if (!isLocal(body.requester_ap_id, c.env.APP_URL)) {
     const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?')
-      .bind(body.requester_ap_id).first<any>();
+      .bind(body.requester_ap_id).first<ActorCacheInboxRow>();
     if (cachedActor?.inbox) {
       if (!isSafeRemoteUrl(cachedActor.inbox)) {
         console.warn(`[Follow] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
@@ -456,7 +489,7 @@ follow.get('/requests', async (c) => {
     ORDER BY f.created_at DESC
   `).bind(actor.ap_id).all();
 
-  const result = (requests.results || []).map((r: any) => ({
+  const result = (requests.results || []).map((r: FollowRequestRow) => ({
     ap_id: r.follower_ap_id,
     username: formatUsername(r.follower_ap_id),
     preferred_username: r.preferred_username,

@@ -5,6 +5,27 @@ import { getVoteCounts } from './utils';
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type StoryOverlay = {
+  type?: string;
+  oneOf?: unknown[];
+};
+
+type StoryData = {
+  overlays?: StoryOverlay[];
+};
+
+type ActorCacheInboxRow = {
+  inbox: string | null;
+};
+
+type LikeRow = {
+  activity_ap_id: string | null;
+};
+
+type StoryShareCountRow = {
+  share_count: number | null;
+};
+
 // Mark story as viewed
 stories.post('/view', async (c) => {
   const actor = c.get('actor');
@@ -69,8 +90,8 @@ stories.post('/vote', async (c) => {
   }
 
   // Get story data and validate option_index range
-  const storyData = JSON.parse(story.attachments_json || '{}');
-  const questionOverlays = (storyData.overlays || []).filter((o: any) => o.type === 'Question');
+  const storyData = JSON.parse(story.attachments_json || '{}') as StoryData;
+  const questionOverlays = (storyData.overlays || []).filter((o: StoryOverlay) => o.type === 'Question');
 
   if (questionOverlays.length === 0) {
     return c.json({ error: 'Story has no poll' }, 400);
@@ -165,7 +186,7 @@ stories.post('/:id/like', async (c) => {
   if (!isLocal(apId, baseUrl)) {
     try {
       const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?')
-        .bind(story.attributed_to).first<any>();
+        .bind(story.attributed_to).first<ActorCacheInboxRow>();
       if (postAuthor?.inbox) {
         if (!isSafeRemoteUrl(postAuthor.inbox)) {
           console.warn(`[Stories] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
@@ -204,7 +225,7 @@ stories.delete('/:id/like', async (c) => {
 
   const like = await c.env.DB.prepare(
     'SELECT * FROM likes WHERE object_ap_id = ? AND actor_ap_id = ?'
-  ).bind(apId, actor.ap_id).first<any>();
+  ).bind(apId, actor.ap_id).first<LikeRow>();
 
   if (!like) return c.json({ error: 'Not liked' }, 400);
 
@@ -217,7 +238,7 @@ stories.delete('/:id/like', async (c) => {
   if (!isLocal(apId, baseUrl)) {
     try {
       const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?')
-        .bind(story.attributed_to).first<any>();
+        .bind(story.attributed_to).first<ActorCacheInboxRow>();
       if (postAuthor?.inbox) {
         if (!isSafeRemoteUrl(postAuthor.inbox)) {
           console.warn(`[Stories] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
@@ -304,7 +325,7 @@ stories.get('/:id/shares', async (c) => {
   const apId = storyId.startsWith('http') ? storyId : objectApId(baseUrl, storyId);
 
   const story = await c.env.DB.prepare('SELECT share_count FROM objects WHERE ap_id = ? AND type = ?')
-    .bind(apId, 'Story').first<any>();
+    .bind(apId, 'Story').first<StoryShareCountRow>();
 
   if (!story) return c.json({ error: 'Story not found' }, 404);
 
@@ -341,7 +362,5 @@ stories.get('/:id/votes', async (c) => {
 
   return c.json({ votes, total, user_vote });
 });
-
-export default stories;
 
 export default stories;

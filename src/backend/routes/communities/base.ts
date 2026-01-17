@@ -1,8 +1,54 @@
 ﻿import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { communityApId, generateKeyPair } from '../../utils';
+import { managerRoles } from './utils';
 
 const communities = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+type CommunityListRow = {
+  ap_id: string;
+  preferred_username: string;
+  name: string;
+  summary: string | null;
+  icon_url: string | null;
+  visibility: string;
+  join_policy: string;
+  post_policy: string;
+  member_count: number;
+  created_at: string;
+  last_message_at: string | null;
+  is_member: number;
+  join_status: string | null;
+};
+
+type CommunityDetailRow = {
+  ap_id: string;
+  preferred_username: string;
+  name: string;
+  summary: string | null;
+  icon_url: string | null;
+  visibility: string;
+  join_policy: string;
+  post_policy: string;
+  member_count: number;
+  created_by: string;
+  created_at: string;
+  is_member: number;
+  member_role: string | null;
+  join_status: string | null;
+};
+
+type CommunityIdRow = {
+  ap_id: string;
+};
+
+type CommunityMemberRow = {
+  role: 'owner' | 'moderator' | 'member';
+};
+
+type CountRow = {
+  count: number;
+};
 
 // GET /api/communities - List all communities
 communities.get('/', async (c) => {
@@ -19,7 +65,7 @@ communities.get('/', async (c) => {
     ORDER BY c.last_message_at DESC NULLS LAST, c.created_at ASC
   `).bind(actor?.ap_id || '', actor?.ap_id || '').all();
 
-  const communitiesList = (result.results || []).map((community: any) => ({
+  const communitiesList = (result.results || []).map((community: CommunityListRow) => ({
     ap_id: community.ap_id,
     name: community.preferred_username,
     display_name: community.name,
@@ -131,7 +177,7 @@ communities.get('/:identifier', async (c) => {
     LEFT JOIN community_join_requests cjr
       ON c.ap_id = cjr.community_ap_id AND cjr.actor_ap_id = ? AND cjr.status = 'pending'
     WHERE c.ap_id = ? OR c.preferred_username = ?
-  `).bind(actor?.ap_id || '', actor?.ap_id || '', apId, identifier).first<any>();
+  `).bind(actor?.ap_id || '', actor?.ap_id || '', apId, identifier).first<CommunityDetailRow>();
 
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
@@ -140,12 +186,12 @@ communities.get('/:identifier', async (c) => {
   // Get member count (for verification)
   const memberCountResult = await c.env.DB.prepare(`
     SELECT COUNT(*) as count FROM community_members WHERE community_ap_id = ?
-  `).bind(community.ap_id).first<any>();
+  `).bind(community.ap_id).first<CountRow>();
 
   // Get posts in this community
   const postsResult = await c.env.DB.prepare(`
     SELECT COUNT(*) as count FROM objects WHERE community_ap_id = ?
-  `).bind(community.ap_id).first<any>();
+  `).bind(community.ap_id).first<CountRow>();
 
   return c.json({
     community: {
@@ -179,7 +225,7 @@ communities.patch('/:identifier/settings', async (c) => {
 
   const community = await c.env.DB.prepare(
     'SELECT ap_id FROM communities WHERE ap_id = ? OR preferred_username = ?'
-  ).bind(apId, identifier).first<any>();
+  ).bind(apId, identifier).first<CommunityIdRow>();
 
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
@@ -187,7 +233,7 @@ communities.patch('/:identifier/settings', async (c) => {
 
   const member = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, actor.ap_id).first<any>();
+  ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
 
   if (!member || !managerRoles.has(member.role)) {
     return c.json({ error: 'Forbidden' }, 403);
@@ -203,7 +249,7 @@ communities.patch('/:identifier/settings', async (c) => {
   }>();
 
   const updates: string[] = [];
-  const values: any[] = [];
+  const values: Array<string | number | null> = [];
 
   if (body.display_name !== undefined) {
     updates.push('name = ?');

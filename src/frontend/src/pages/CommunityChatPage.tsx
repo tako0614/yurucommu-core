@@ -56,7 +56,7 @@ function MembersModal({
     <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
       <div className="bg-neutral-900 rounded-xl w-full max-w-md max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between p-4 border-b border-neutral-800">
-          <h2 className="text-lg font-bold text-white">繝｡繝ｳ繝舌・ ({members.length})</h2>
+          <h2 className="text-lg font-bold text-white">メンバー ({members.length})</h2>
           <button onClick={onClose} aria-label="Close" className="text-neutral-400 hover:text-white">
             <CloseIcon />
           </button>
@@ -85,12 +85,12 @@ function MembersModal({
               </div>
               {member.role === 'owner' && (
                 <span className="px-2 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
-                  繧ｪ繝ｼ繝翫・
+                  オーナー
                 </span>
               )}
               {member.role === 'moderator' && (
                 <span className="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-400 rounded">
-                  繝｢繝・Ξ繝ｼ繧ｿ繝ｼ
+                  モデレーター
                 </span>
               )}
             </Link>
@@ -269,7 +269,7 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
             <div className="font-semibold text-white truncate">
               {community.display_name || community.name}
             </div>
-            <div className="text-xs text-neutral-500">{community.member_count}莠ｺ</div>
+            <div className="text-xs text-neutral-500">{community.member_count}人</div>
           </div>
 
           <button

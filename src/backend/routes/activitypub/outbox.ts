@@ -5,6 +5,26 @@ import { getInstanceActor } from './utils';
 
 const ap = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type CountRow = {
+  count: number;
+};
+
+type ActivityRow = {
+  raw_json: string;
+};
+
+type FollowerRow = {
+  follower_ap_id: string;
+};
+
+type FollowingRow = {
+  following_ap_id: string;
+};
+
+type ActorIdRow = {
+  ap_id: string;
+};
+
 ap.get('/ap/actor/outbox', async (c) => {
   const instanceActor = await getInstanceActor(c);
   const page = c.req.query('page');
@@ -22,7 +42,7 @@ ap.get('/ap/actor/outbox', async (c) => {
 
   const totalCount = await c.env.DB.prepare(
     'SELECT COUNT(*) as count FROM activities WHERE actor_ap_id = ? AND direction = "outbound"'
-  ).bind(instanceActor.ap_id).first<any>();
+  ).bind(instanceActor.ap_id).first<CountRow>();
 
   const outboxUrl = `${instanceActor.ap_id}/outbox`;
 
@@ -32,7 +52,7 @@ ap.get('/ap/actor/outbox', async (c) => {
       id: `${outboxUrl}?page=${pageNum}`,
       type: 'OrderedCollectionPage',
       partOf: outboxUrl,
-      orderedItems: (activities.results || []).map((a: any) => JSON.parse(a.raw_json)),
+      orderedItems: (activities.results || []).map((a: ActivityRow) => JSON.parse(a.raw_json)),
     });
   }
 
@@ -62,7 +82,7 @@ ap.get('/ap/actor/followers', async (c) => {
 
   const totalCount = await c.env.DB.prepare(
     'SELECT COUNT(*) as count FROM follows WHERE following_ap_id = ? AND status = "accepted"'
-  ).bind(instanceActor.ap_id).first<any>();
+  ).bind(instanceActor.ap_id).first<CountRow>();
 
   const followersUrl = `${instanceActor.ap_id}/followers`;
 
@@ -72,7 +92,7 @@ ap.get('/ap/actor/followers', async (c) => {
       id: `${followersUrl}?page=${pageNum}`,
       type: 'OrderedCollectionPage',
       partOf: followersUrl,
-      orderedItems: (followers.results || []).map((f: any) => f.follower_ap_id),
+      orderedItems: (followers.results || []).map((f: FollowerRow) => f.follower_ap_id),
     });
   }
 
@@ -109,7 +129,7 @@ ap.get('/ap/users/:username/outbox', async (c) => {
 
   const actor = await c.env.DB.prepare(
     'SELECT ap_id FROM actors WHERE ap_id = ?'
-  ).bind(apId).first<any>();
+  ).bind(apId).first<ActorIdRow>();
 
   if (!actor) return c.json({ error: 'Actor not found' }, 404);
 
@@ -129,7 +149,7 @@ ap.get('/ap/users/:username/outbox', async (c) => {
 
   const totalCount = await c.env.DB.prepare(
     'SELECT COUNT(*) as count FROM activities WHERE actor_ap_id = ? AND direction = "outbound"'
-  ).bind(apId).first<any>();
+  ).bind(apId).first<CountRow>();
 
   const outboxUrl = `${apId}/outbox`;
 
@@ -140,7 +160,7 @@ ap.get('/ap/users/:username/outbox', async (c) => {
       id: `${outboxUrl}?page=${pageNum}`,
       type: 'OrderedCollectionPage',
       partOf: outboxUrl,
-      orderedItems: (activities.results || []).map((a: any) => JSON.parse(a.raw_json)),
+      orderedItems: (activities.results || []).map((a: ActivityRow) => JSON.parse(a.raw_json)),
     });
   } else {
     // Return collection
@@ -165,7 +185,7 @@ ap.get('/ap/users/:username/followers', async (c) => {
 
   const actor = await c.env.DB.prepare(
     'SELECT ap_id FROM actors WHERE ap_id = ?'
-  ).bind(apId).first<any>();
+  ).bind(apId).first<ActorIdRow>();
 
   if (!actor) return c.json({ error: 'Actor not found' }, 404);
 
@@ -185,7 +205,7 @@ ap.get('/ap/users/:username/followers', async (c) => {
 
   const totalCount = await c.env.DB.prepare(
     'SELECT COUNT(*) as count FROM follows WHERE following_ap_id = ? AND status = "accepted"'
-  ).bind(apId).first<any>();
+  ).bind(apId).first<CountRow>();
 
   const followersUrl = `${apId}/followers`;
 
@@ -195,7 +215,7 @@ ap.get('/ap/users/:username/followers', async (c) => {
       id: `${followersUrl}?page=${pageNum}`,
       type: 'OrderedCollectionPage',
       partOf: followersUrl,
-      orderedItems: (followers.results || []).map((f: any) => f.follower_ap_id),
+      orderedItems: (followers.results || []).map((f: FollowerRow) => f.follower_ap_id),
     });
   } else {
     return c.json({
@@ -219,7 +239,7 @@ ap.get('/ap/users/:username/following', async (c) => {
 
   const actor = await c.env.DB.prepare(
     'SELECT ap_id FROM actors WHERE ap_id = ?'
-  ).bind(apId).first<any>();
+  ).bind(apId).first<ActorIdRow>();
 
   if (!actor) return c.json({ error: 'Actor not found' }, 404);
 
@@ -239,7 +259,7 @@ ap.get('/ap/users/:username/following', async (c) => {
 
   const totalCount = await c.env.DB.prepare(
     'SELECT COUNT(*) as count FROM follows WHERE follower_ap_id = ? AND status = "accepted"'
-  ).bind(apId).first<any>();
+  ).bind(apId).first<CountRow>();
 
   const followingUrl = `${apId}/following`;
 
@@ -249,7 +269,7 @@ ap.get('/ap/users/:username/following', async (c) => {
       id: `${followingUrl}?page=${pageNum}`,
       type: 'OrderedCollectionPage',
       partOf: followingUrl,
-      orderedItems: (following.results || []).map((f: any) => f.following_ap_id),
+      orderedItems: (following.results || []).map((f: FollowingRow) => f.following_ap_id),
     });
   } else {
     return c.json({
@@ -280,14 +300,14 @@ ap.get('/ap/objects/:id', async (c) => {
   if (!obj) return c.json({ error: 'Object not found' }, 404);
 
   // Parse attachments
-  let attachments: any[] = [];
+  let attachments: unknown[] = [];
   try {
     attachments = JSON.parse(obj.attachments_json);
   } catch {
     attachments = [];
   }
 
-  const objectResponse = {
+  const objectResponse: Record<string, unknown> = {
     '@context': [
       'https://www.w3.org/ns/activitystreams',
       'https://w3id.org/security/v1',
@@ -316,8 +336,8 @@ ap.get('/ap/objects/:id', async (c) => {
 
   // Remove undefined fields
   Object.keys(objectResponse).forEach((key) => {
-    if ((objectResponse as any)[key] === undefined) {
-      delete (objectResponse as any)[key];
+    if (objectResponse[key] === undefined) {
+      delete objectResponse[key];
     }
   });
 

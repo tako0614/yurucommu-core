@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { Notification } from '../types';
 import { acceptFollowRequest, fetchNotifications, markNotificationsRead, rejectFollowRequest } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { formatRelativeTime } from '../lib/datetime';
 import { UserAvatar } from '../components/UserAvatar';
 import { HeartIcon, ReplyIcon, RepostIcon } from '../components/icons/SocialIcons';
+import { InlineErrorBanner } from '../components/InlineErrorBanner';
+import { useInlineError } from '../hooks/useInlineError';
 
 // SVG Icons
 const FollowIcon = () => (
@@ -29,6 +31,7 @@ type FilterType = 'all' | 'follow' | 'like' | 'announce' | 'mention' | 'reply';
 
 export function NotificationPage() {
   const { t } = useI18n();
+  const { error, setError, clearError } = useInlineError();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<Record<string, boolean>>({});
@@ -48,10 +51,11 @@ export function NotificationPage() {
       }
     } catch (e) {
       console.error('Failed to load notifications:', e);
+      setError(t('common.error'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setError, t]);
 
   useEffect(() => {
     loadNotifications(filter);
@@ -69,6 +73,7 @@ export function NotificationPage() {
       setNotifications(prev => prev.filter(n => n.id !== notification.id));
     } catch (e) {
       console.error('Failed to handle follow request:', e);
+      setError(t('common.error'));
     } finally {
       setPendingAction(prev => ({ ...prev, [notification.id]: false }));
     }
@@ -139,6 +144,9 @@ export function NotificationPage() {
 
   return (
     <div className="flex flex-col h-full">
+      {error && (
+        <InlineErrorBanner message={error} onClose={clearError} />
+      )}
       {/* Header */}
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
         <h1 className="text-xl font-bold px-4 py-3">{t('notifications.title')}</h1>
@@ -218,3 +226,4 @@ export function NotificationPage() {
     </div>
   );
 }
+

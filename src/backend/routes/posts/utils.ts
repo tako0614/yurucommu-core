@@ -4,6 +4,49 @@ export const MAX_POST_CONTENT_LENGTH = 5000;
 export const MAX_POST_SUMMARY_LENGTH = 500;
 export const MAX_POSTS_PAGE_LIMIT = 100;
 
+export type PostRow = {
+  ap_id: string;
+  type: string;
+  attributed_to: string;
+  author_username: string | null;
+  author_name: string | null;
+  author_icon_url: string | null;
+  content: string;
+  summary: string | null;
+  attachments_json: string | null;
+  in_reply_to: string | null;
+  visibility: string;
+  community_ap_id: string | null;
+  like_count: number;
+  reply_count: number;
+  announce_count: number;
+  published: string;
+  liked?: number | boolean;
+};
+
+export type FormattedPost = {
+  ap_id: string;
+  type: string;
+  author: {
+    ap_id: string;
+    username: string;
+    preferred_username: string | null;
+    name: string | null;
+    icon_url: string | null;
+  };
+  content: string;
+  summary: string | null;
+  attachments: unknown[];
+  in_reply_to: string | null;
+  visibility: string;
+  community_ap_id: string | null;
+  like_count: number;
+  reply_count: number;
+  announce_count: number;
+  published: string;
+  liked: boolean;
+};
+
 export function parseLimit(value: string | undefined, fallback: number, max: number): number {
   const parsed = parseInt(value || '', 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -20,7 +63,7 @@ export function extractMentions(content: string): string[] {
   return [...new Set(mentions)];
 }
 
-export function formatPost(p: any, currentActorApId?: string): any {
+export function formatPost(p: PostRow, currentActorApId?: string): FormattedPost {
   return {
     ap_id: p.ap_id,
     type: p.type,

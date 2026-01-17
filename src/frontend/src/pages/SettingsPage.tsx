@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { Actor } from '../types';
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
+import { InlineErrorBanner } from '../components/InlineErrorBanner';
+import { useInlineError } from '../hooks/useInlineError';
 import {
   fetchAccounts,
   switchAccount,
@@ -66,22 +68,31 @@ export function SettingsPage({ actor }: SettingsPageProps) {
       setLoading(true);
       fetchBlockedUsers()
         .then(setBlockedUsers)
-        .catch(console.error)
+        .catch((err) => {
+          console.error('Failed to load blocked users:', err);
+          setError(t('common.error'));
+        })
         .finally(() => setLoading(false));
     } else if (activeSection === 'muted') {
       setLoading(true);
       fetchMutedUsers()
         .then(setMutedUsers)
-        .catch(console.error)
+        .catch((err) => {
+          console.error('Failed to load muted users:', err);
+          setError(t('common.error'));
+        })
         .finally(() => setLoading(false));
     } else if (activeSection === 'accounts') {
       setLoading(true);
       fetchAccounts()
         .then(data => setAccounts(data.accounts))
-        .catch(console.error)
+        .catch((err) => {
+          console.error('Failed to load accounts:', err);
+          setError(t('common.error'));
+        })
         .finally(() => setLoading(false));
     }
-  }, [activeSection]);
+  }, [activeSection, setError, t]);
 
   const handleSwitchAccount = async (apId: string) => {
     if (apId === actor.ap_id) return;
@@ -91,6 +102,7 @@ export function SettingsPage({ actor }: SettingsPageProps) {
       window.location.reload();
     } catch (e) {
       console.error('Failed to switch account:', e);
+      setError(t('common.error'));
     } finally {
       setSwitching(false);
     }
@@ -123,6 +135,7 @@ export function SettingsPage({ actor }: SettingsPageProps) {
       setBlockedUsers(prev => prev.filter(u => u.ap_id !== userApId));
     } catch (e) {
       console.error('Failed to unblock:', e);
+      setError(t('common.error'));
     }
   };
 
@@ -132,6 +145,7 @@ export function SettingsPage({ actor }: SettingsPageProps) {
       setMutedUsers(prev => prev.filter(u => u.ap_id !== userApId));
     } catch (e) {
       console.error('Failed to unmute:', e);
+      setError(t('common.error'));
     }
   };
 
@@ -151,6 +165,9 @@ export function SettingsPage({ actor }: SettingsPageProps) {
   if (activeSection === 'blocked') {
     return (
       <div className="flex flex-col h-full">
+      {error && (
+        <InlineErrorBanner message={error} onClose={clearError} />
+      )}
         <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
           <div className="flex items-center gap-4 px-4 py-3">
             <button onClick={() => setActiveSection('main')} aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
@@ -191,6 +208,9 @@ export function SettingsPage({ actor }: SettingsPageProps) {
   if (activeSection === 'muted') {
     return (
       <div className="flex flex-col h-full">
+      {error && (
+        <InlineErrorBanner message={error} onClose={clearError} />
+      )}
         <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
           <div className="flex items-center gap-4 px-4 py-3">
             <button onClick={() => setActiveSection('main')} aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
@@ -231,6 +251,9 @@ export function SettingsPage({ actor }: SettingsPageProps) {
   if (activeSection === 'delete') {
     return (
       <div className="flex flex-col h-full">
+      {error && (
+        <InlineErrorBanner message={error} onClose={clearError} />
+      )}
         <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
           <div className="flex items-center gap-4 px-4 py-3">
             <button onClick={() => setActiveSection('main')} aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
@@ -274,6 +297,9 @@ export function SettingsPage({ actor }: SettingsPageProps) {
   if (activeSection === 'accounts') {
     return (
       <div className="flex flex-col h-full">
+      {error && (
+        <InlineErrorBanner message={error} onClose={clearError} />
+      )}
         <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
           <div className="flex items-center gap-4 px-4 py-3">
             <button onClick={() => setActiveSection('main')} aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
@@ -388,6 +414,9 @@ export function SettingsPage({ actor }: SettingsPageProps) {
 
   return (
     <div className="flex flex-col h-full">
+      {error && (
+        <InlineErrorBanner message={error} onClose={clearError} />
+      )}
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
         <h1 className="text-xl font-bold px-4 py-3">Settings</h1>
       </header>
@@ -458,3 +487,5 @@ export function SettingsPage({ actor }: SettingsPageProps) {
     </div>
   );
 }
+
+

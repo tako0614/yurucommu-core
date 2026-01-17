@@ -9,6 +9,32 @@ import { MAX_DM_CONTENT_LENGTH, MAX_DM_PAGE_LIMIT, getConversationId, parseLimit
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type MessageRow = {
+  id: string;
+  sender_ap_id: string;
+  content: string;
+  created_at: string;
+  attachments_json?: string | null;
+  sender_preferred_username: string | null;
+  sender_name: string | null;
+  sender_icon_url: string | null;
+};
+
+type RecipientRow = {
+  ap_id: string;
+  inbox: string | null;
+};
+
+type DirectMessageRow = {
+  ap_id: string;
+  attributed_to: string;
+  conversation: string;
+};
+
+type OtherApIdRow = {
+  other_ap_id: string;
+};
+
 dm.get('/user/:encodedApId/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
@@ -38,7 +64,7 @@ dm.get('/user/:encodedApId/messages', async (c) => {
       AND o.conversation = ?
   `;
 
-  const params: any[] = [conversationId];
+  const params: Array<string | number | null> = [conversationId];
 
   if (before) {
     query += ` AND o.published < ?`;
@@ -50,7 +76,7 @@ dm.get('/user/:encodedApId/messages', async (c) => {
 
   const messages = await c.env.DB.prepare(query).bind(...params).all();
 
-  const result = (messages.results || []).reverse().map((msg: any) => ({
+  const result = (messages.results || []).reverse().map((msg: MessageRow) => ({
     id: msg.id,
     sender: {
       ap_id: msg.sender_ap_id,
@@ -89,7 +115,7 @@ dm.post('/user/:encodedApId/messages', async (c) => {
     SELECT ap_id, inbox FROM actors WHERE ap_id = ?
     UNION
     SELECT ap_id, inbox FROM actor_cache WHERE ap_id = ?
-  `).bind(otherApId, otherApId).first<any>();
+  `).bind(otherApId, otherApId).first<RecipientRow>();
 
   if (!otherActor) {
     return c.json({ error: 'User not found' }, 404);
@@ -203,7 +229,7 @@ dm.patch('/messages/:messageId', async (c) => {
   const message = await c.env.DB.prepare(`
     SELECT ap_id, attributed_to, conversation FROM objects
     WHERE ap_id = ? AND visibility = 'direct' AND type = 'Note'
-  `).bind(messageId).first<any>();
+  `).bind(messageId).first<DirectMessageRow>();
 
   if (!message) {
     return c.json({ error: 'Message not found' }, 404);
@@ -241,7 +267,7 @@ dm.delete('/messages/:messageId', async (c) => {
   const message = await c.env.DB.prepare(`
     SELECT ap_id, attributed_to, conversation FROM objects
     WHERE ap_id = ? AND visibility = 'direct' AND type = 'Note'
-  `).bind(messageId).first<any>();
+  `).bind(messageId).first<DirectMessageRow>();
 
   if (!message) {
     return c.json({ error: 'Message not found' }, 404);
@@ -290,7 +316,7 @@ dm.get('/conversations/:id/messages', async (c) => {
       AND (o.attributed_to = ? OR json_extract(o.to_json, '$[0]') = ?)
   `;
 
-  const params: any[] = [conversationId, actor.ap_id, actor.ap_id];
+  const params: Array<string | number | null> = [conversationId, actor.ap_id, actor.ap_id];
 
   if (before) {
     query += ` AND o.published < ?`;
@@ -302,7 +328,7 @@ dm.get('/conversations/:id/messages', async (c) => {
 
   const messages = await c.env.DB.prepare(query).bind(...params).all();
 
-  const result = (messages.results || []).reverse().map((msg: any) => ({
+  const result = (messages.results || []).reverse().map((msg: MessageRow) => ({
     id: msg.id,
     sender: {
       ap_id: msg.sender_ap_id,
@@ -344,7 +370,7 @@ dm.post('/conversations/:id/messages', async (c) => {
     FROM objects
     WHERE conversation = ? AND visibility = 'direct'
     LIMIT 1
-  `).bind(actor.ap_id, conversationId).first<any>();
+  `).bind(actor.ap_id, conversationId).first<OtherApIdRow>();
 
   if (!existingMsg?.other_ap_id) {
     return c.json({ error: 'Conversation not found' }, 404);

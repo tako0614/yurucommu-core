@@ -3,6 +3,10 @@ import type { D1Database } from '@cloudflare/workers-types';
 export const MAX_DM_CONTENT_LENGTH = 5000;
 export const MAX_DM_PAGE_LIMIT = 100;
 
+type ConversationRow = {
+  conversation: string;
+};
+
 export function parseLimit(value: string | undefined, fallback: number, max: number): number {
   const parsed = parseInt(value || '', 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -39,7 +43,7 @@ export async function resolveConversationId(
   `
     )
     .bind(actorApId, otherApId, otherApId, actorApId)
-    .first<any>();
+    .first<ConversationRow>();
 
   return existing?.conversation || getConversationId(baseUrl, actorApId, otherApId);
 }

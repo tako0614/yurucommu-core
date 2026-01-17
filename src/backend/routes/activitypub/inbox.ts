@@ -5,25 +5,135 @@ import { getInstanceActor } from './utils';
 
 const ap = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type ActivityObject = {
+  id?: string;
+  type?: string;
+  object?: string;
+  inReplyTo?: string;
+  to?: string[];
+  content?: string;
+  summary?: string | null;
+  attachment?: unknown;
+  overlays?: unknown;
+  endTime?: string;
+  displayDuration?: string;
+  published?: string;
+  room?: string;
+};
+
+type Activity = {
+  id?: string;
+  type?: string;
+  actor?: string;
+  object?: string | ActivityObject;
+  room?: string;
+};
+
+type RemoteActor = {
+  id: string;
+  type?: string;
+  preferredUsername?: string;
+  name?: string;
+  summary?: string;
+  icon?: { url?: string };
+  inbox?: string;
+  outbox?: string;
+  publicKey?: { id?: string; publicKeyPem?: string };
+};
+
+type ActorCacheInboxRow = {
+  inbox: string;
+};
+
+type ActivityRow = {
+  type: string;
+  object_ap_id: string | null;
+};
+
+type ObjectApIdRow = {
+  object_ap_id: string;
+};
+
+type AttributedToRow = {
+  attributed_to: string;
+};
+
+type ObjectOwnerRow = {
+  ap_id: string;
+  attributed_to: string;
+};
+
+type ObjectDeleteRow = {
+  attributed_to: string;
+  type: string;
+  reply_count: number;
+};
+
+type FollowRow = {
+  follower_ap_id: string;
+  following_ap_id: string;
+  activity_ap_id: string;
+  status: string;
+};
+
+type CommunityRow = {
+  ap_id: string;
+  preferred_username: string;
+};
+
+type InstanceActor = {
+  ap_id: string;
+  private_key_pem: string;
+  join_policy?: string;
+  posting_policy?: string;
+};
+
+type ActivityContext = { env: Env };
+
+function getActivityObject(activity: Activity): ActivityObject | null {
+  if (!activity.object || typeof activity.object === 'string') return null;
+  return activity.object;
+}
+
+function getActivityObjectId(activity: Activity): string | null {
+  if (!activity.object) return null;
+  if (typeof activity.object === 'string') return activity.object;
+  return activity.object.id || null;
+}
+
+type StoryOverlay = {
+  position?: {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+  };
+};
+
 ap.post('/ap/actor/inbox', async (c) => {
   const instanceActor = await getInstanceActor(c);
   const baseUrl = c.env.APP_URL;
 
-  let activity: any;
+  let activity: Activity;
   try {
-    activity = await c.req.json();
+    activity = await c.req.json<Activity>();
   } catch {
     return c.json({ error: 'Invalid JSON' }, 400);
   }
 
-  const activityId = activity.id || activityApId(baseUrl, generateId());
-  const actor = activity.actor;
-  const activityType = activity.type;
+  const activityId = typeof activity.id === 'string' ? activity.id : activityApId(baseUrl, generateId());
+  const actor = typeof activity.actor === 'string' ? activity.actor : null;
+  const activityType = typeof activity.type === 'string' ? activity.type : null;
+  const activityObjectId = getActivityObjectId(activity);
+
+  if (!actor || !activityType) {
+    return c.json({ error: 'Invalid activity' }, 400);
+  }
 
   await c.env.DB.prepare(`
     INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
     VALUES (?, ?, ?, ?, ?, 'inbound')
-  `).bind(activityId, activityType, actor, activity.object?.id || activity.object, JSON.stringify(activity)).run();
+  `).bind(activityId, activityType, actor, activityObjectId, JSON.stringify(activity)).run();
 
   switch (activityType) {
     case 'Follow':
@@ -57,22 +167,27 @@ ap.post('/ap/users/:username/inbox', async (c) => {
 
   if (!recipient) return c.json({ error: 'Actor not found' }, 404);
 
-  let activity: any;
+  let activity: Activity;
   try {
-    activity = await c.req.json();
+    activity = await c.req.json<Activity>();
   } catch {
     return c.json({ error: 'Invalid JSON' }, 400);
   }
 
-  const activityId = activity.id || activityApId(baseUrl, generateId());
-  const actor = activity.actor;
-  const activityType = activity.type;
+  const activityId = typeof activity.id === 'string' ? activity.id : activityApId(baseUrl, generateId());
+  const actor = typeof activity.actor === 'string' ? activity.actor : null;
+  const activityType = typeof activity.type === 'string' ? activity.type : null;
+  const activityObjectId = getActivityObjectId(activity);
+
+  if (!actor || !activityType) {
+    return c.json({ error: 'Invalid activity' }, 400);
+  }
 
   // Store activity
   await c.env.DB.prepare(`
     INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
     VALUES (?, ?, ?, ?, ?, 'inbound')
-  `).bind(activityId, activityType, actor, activity.object?.id || activity.object, JSON.stringify(activity)).run();
+  `).bind(activityId, activityType, actor, activityObjectId, JSON.stringify(activity)).run();
 
   // Cache remote actor if not already cached
   if (!isLocal(actor, baseUrl)) {
@@ -86,7 +201,7 @@ ap.post('/ap/users/:username/inbox', async (c) => {
             headers: { 'Accept': 'application/activity+json, application/ld+json' }
           });
           if (res.ok) {
-            const actorData = await res.json() as any;
+            const actorData = await res.json() as RemoteActor;
             if (
               actorData?.id &&
               actorData?.inbox &&
@@ -163,7 +278,7 @@ ap.post('/ap/users/:username/inbox', async (c) => {
 });
 
 // Handle Follow activity
-async function handleFollow(c: any, activity: any, recipient: Actor, actor: string, baseUrl: string) {
+async function handleFollow(c: ActivityContext, activity: Activity, recipient: Actor, actor: string, baseUrl: string) {
   // Check if follow already exists
   const existing = await c.env.DB.prepare(
     'SELECT * FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?'
@@ -240,14 +355,14 @@ async function handleFollow(c: any, activity: any, recipient: Actor, actor: stri
 }
 
 // Handle Accept activity
-async function handleAccept(c: any, activity: any) {
-  const followId = activity.object?.id || activity.object;
+async function handleAccept(c: ActivityContext, activity: Activity) {
+  const followId = getActivityObjectId(activity);
   if (!followId) return;
 
   // Find the follow by activity_ap_id
   const follow = await c.env.DB.prepare(
     'SELECT * FROM follows WHERE activity_ap_id = ?'
-  ).bind(followId).first() as any;
+  ).bind(followId).first<FollowRow>();
 
   if (!follow) return;
 
@@ -265,15 +380,16 @@ async function handleAccept(c: any, activity: any) {
 }
 
 // Handle Undo activity
-async function handleUndo(c: any, activity: any, recipient: Actor, actor: string, baseUrl: string) {
-  const objectType = activity.object?.type;
-  const objectId = typeof activity.object === 'string' ? activity.object : activity.object?.id;
+async function handleUndo(c: ActivityContext, activity: Activity, recipient: Actor, actor: string, baseUrl: string) {
+  const activityObject = getActivityObject(activity);
+  const objectType = activityObject?.type;
+  const objectId = getActivityObjectId(activity);
 
   // If object is just a string (activity ID), try to find the original activity
   if (!objectType && objectId) {
     const originalActivity = await c.env.DB.prepare(
       'SELECT type, object_ap_id FROM activities WHERE ap_id = ?'
-    ).bind(objectId).first<any>();
+    ).bind(objectId).first<ActivityRow>();
 
     if (originalActivity) {
       // Handle based on original activity type
@@ -315,7 +431,7 @@ async function handleUndo(c: any, activity: any, recipient: Actor, actor: string
       .bind(recipient.ap_id).run();
   } else if (objectType === 'Like') {
     // Undo like - find the original liked object from the Like activity
-    const likedObjectId = activity.object?.object;
+    const likedObjectId = activityObject?.object;
     if (likedObjectId) {
       await c.env.DB.prepare('DELETE FROM likes WHERE actor_ap_id = ? AND object_ap_id = ?')
         .bind(actor, likedObjectId).run();
@@ -326,7 +442,7 @@ async function handleUndo(c: any, activity: any, recipient: Actor, actor: string
     } else if (objectId) {
       // Fallback: try to find by activity_ap_id
       const like = await c.env.DB.prepare('SELECT object_ap_id FROM likes WHERE activity_ap_id = ?')
-        .bind(objectId).first<any>();
+        .bind(objectId).first<ObjectApIdRow>();
       if (like) {
         await c.env.DB.prepare('DELETE FROM likes WHERE activity_ap_id = ?').bind(objectId).run();
         await c.env.DB.prepare('UPDATE objects SET like_count = like_count - 1 WHERE ap_id = ? AND like_count > 0')
@@ -342,7 +458,7 @@ async function handleUndo(c: any, activity: any, recipient: Actor, actor: string
     }
   } else if (objectType === 'Announce') {
     // Undo announce (repost)
-    const announcedObjectId = activity.object?.object;
+    const announcedObjectId = activityObject?.object;
     if (announcedObjectId) {
       await c.env.DB.prepare('DELETE FROM announces WHERE actor_ap_id = ? AND object_ap_id = ?')
         .bind(actor, announcedObjectId).run();
@@ -353,7 +469,7 @@ async function handleUndo(c: any, activity: any, recipient: Actor, actor: string
     } else if (objectId) {
       // Fallback: try to find by activity_ap_id
       const announce = await c.env.DB.prepare('SELECT object_ap_id FROM announces WHERE activity_ap_id = ?')
-        .bind(objectId).first<any>();
+        .bind(objectId).first<ObjectApIdRow>();
       if (announce) {
         await c.env.DB.prepare('DELETE FROM announces WHERE activity_ap_id = ?').bind(objectId).run();
         await c.env.DB.prepare('UPDATE objects SET announce_count = announce_count - 1 WHERE ap_id = ? AND announce_count > 0')
@@ -364,8 +480,8 @@ async function handleUndo(c: any, activity: any, recipient: Actor, actor: string
 }
 
 // Handle Like activity
-async function handleLike(c: any, activity: any, recipient: Actor, actor: string, baseUrl: string) {
-  const objectId = activity.object;
+async function handleLike(c: ActivityContext, activity: Activity, recipient: Actor, actor: string, baseUrl: string) {
+  const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
   const activityId = activity.id || activityApId(baseUrl, generateId());
@@ -388,7 +504,7 @@ async function handleLike(c: any, activity: any, recipient: Actor, actor: string
     .bind(objectId).run();
 
   // Store activity and add to inbox (AP Native notification)
-  const likedObj = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(objectId).first() as any;
+  const likedObj = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(objectId).first<AttributedToRow>();
   if (likedObj && isLocal(likedObj.attributed_to, baseUrl)) {
     const now = new Date().toISOString();
     await c.env.DB.prepare(`
@@ -412,8 +528,8 @@ function isStoryType(type: string | string[]): boolean {
 }
 
 // Handle Create activity
-async function handleCreate(c: any, activity: any, recipient: Actor, actor: string, baseUrl: string) {
-  const object = activity.object;
+async function handleCreate(c: ActivityContext, activity: Activity, recipient: Actor, actor: string, baseUrl: string) {
+  const object = getActivityObject(activity);
   if (!object) return;
 
   // Handle Story type
@@ -460,7 +576,7 @@ async function handleCreate(c: any, activity: any, recipient: Actor, actor: stri
 
     // Add to inbox for reply notification (AP Native)
     const parentObj = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?')
-      .bind(object.inReplyTo).first() as any;
+      .bind(object.inReplyTo).first<AttributedToRow>();
     if (parentObj && isLocal(parentObj.attributed_to, baseUrl)) {
       const activityId = activity.id || activityApId(baseUrl, generateId());
       const now = new Date().toISOString();
@@ -479,8 +595,9 @@ async function handleCreate(c: any, activity: any, recipient: Actor, actor: stri
 }
 
 // Handle Create(Story) activity
-async function handleCreateStory(c: any, activity: any, actor: string, baseUrl: string) {
-  const object = activity.object;
+async function handleCreateStory(c: ActivityContext, activity: Activity, actor: string, baseUrl: string) {
+  const object = getActivityObject(activity);
+  if (!object) return;
   const objectId = object.id || objectApId(baseUrl, generateId());
 
   // Check if story already exists
@@ -510,7 +627,7 @@ async function handleCreateStory(c: any, activity: any, actor: string, baseUrl: 
       overlays = undefined; // Ignore invalid format
     } else {
       // Simple validation: position is required
-      overlays = overlays.filter((o: any) =>
+      overlays = overlays.filter((o: StoryOverlay) =>
         o && o.position &&
         typeof o.position.x === 'number' &&
         typeof o.position.y === 'number'
@@ -552,13 +669,13 @@ async function handleCreateStory(c: any, activity: any, actor: string, baseUrl: 
 }
 
 // Handle Delete activity
-async function handleDelete(c: any, activity: any) {
-  const objectId = activity.object?.id || activity.object;
+async function handleDelete(c: ActivityContext, activity: Activity) {
+  const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
   // Get object before deletion
   const delObj = await c.env.DB.prepare('SELECT attributed_to, type, reply_count FROM objects WHERE ap_id = ?')
-    .bind(objectId).first() as any;
+    .bind(objectId).first<ObjectDeleteRow>();
 
   if (!delObj) return;
 
@@ -583,8 +700,8 @@ async function handleDelete(c: any, activity: any) {
 }
 
 // Handle Announce activity (repost/boost)
-async function handleAnnounce(c: any, activity: any, recipient: Actor, actor: string, baseUrl: string) {
-  const objectId = typeof activity.object === 'string' ? activity.object : activity.object?.id;
+async function handleAnnounce(c: ActivityContext, activity: Activity, recipient: Actor, actor: string, baseUrl: string) {
+  const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
   const activityId = activity.id || activityApId(baseUrl, generateId());
@@ -607,7 +724,7 @@ async function handleAnnounce(c: any, activity: any, recipient: Actor, actor: st
     .bind(objectId).run();
 
   // Store activity and add to inbox (AP Native notification)
-  const announcedObj = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(objectId).first() as any;
+  const announcedObj = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(objectId).first<AttributedToRow>();
   if (announcedObj && isLocal(announcedObj.attributed_to, baseUrl)) {
     const now = new Date().toISOString();
     await c.env.DB.prepare(`
@@ -623,8 +740,8 @@ async function handleAnnounce(c: any, activity: any, recipient: Actor, actor: st
 }
 
 // Handle Update activity (edit posts)
-async function handleUpdate(c: any, activity: any, actor: string) {
-  const object = activity.object;
+async function handleUpdate(c: ActivityContext, activity: Activity, actor: string) {
+  const object = getActivityObject(activity);
   if (!object) return;
 
   const objectId = object.id;
@@ -633,7 +750,7 @@ async function handleUpdate(c: any, activity: any, actor: string) {
   // Verify the actor owns this object
   const existing = await c.env.DB.prepare(
     'SELECT ap_id, attributed_to FROM objects WHERE ap_id = ?'
-  ).bind(objectId).first<any>();
+  ).bind(objectId).first<ObjectOwnerRow>();
 
   if (!existing || existing.attributed_to !== actor) return;
 
@@ -657,14 +774,14 @@ async function handleUpdate(c: any, activity: any, actor: string) {
 }
 
 // Handle Reject activity (follow request rejection)
-async function handleReject(c: any, activity: any) {
-  const followId = activity.object?.id || activity.object;
+async function handleReject(c: ActivityContext, activity: Activity) {
+  const followId = getActivityObjectId(activity);
   if (!followId) return;
 
   // Find the follow by activity_ap_id and update status
   const follow = await c.env.DB.prepare(
     'SELECT * FROM follows WHERE activity_ap_id = ?'
-  ).bind(followId).first() as any;
+  ).bind(followId).first<FollowRow>();
 
   if (!follow) return;
 
@@ -676,9 +793,9 @@ async function handleReject(c: any, activity: any) {
 // Group Actor Inbox Handlers
 // ============================================================
 
-async function fetchRemoteInbox(c: any, actorApId: string): Promise<string | null> {
+async function fetchRemoteInbox(c: ActivityContext, actorApId: string): Promise<string | null> {
   const cached = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?')
-    .bind(actorApId).first<any>();
+    .bind(actorApId).first<ActorCacheInboxRow>();
   if (cached?.inbox) {
     if (!isSafeRemoteUrl(cached.inbox)) {
       console.warn(`[ActivityPub] Blocked unsafe inbox URL: ${cached.inbox}`);
@@ -696,7 +813,7 @@ async function fetchRemoteInbox(c: any, actorApId: string): Promise<string | nul
       headers: { 'Accept': 'application/activity+json, application/ld+json' }
     });
     if (!res.ok) return null;
-    const actorData = await res.json() as any;
+    const actorData = await res.json() as RemoteActor;
     if (!actorData?.inbox || !isSafeRemoteUrl(actorData.inbox)) return null;
 
     await c.env.DB.prepare(`
@@ -724,9 +841,9 @@ async function fetchRemoteInbox(c: any, actorApId: string): Promise<string | nul
 }
 
 async function handleGroupFollow(
-  c: any,
-  activity: any,
-  instanceActor: any,
+  c: ActivityContext,
+  activity: Activity,
+  instanceActor: InstanceActor,
   actorApId: string,
   baseUrl: string,
   activityId: string
@@ -788,8 +905,8 @@ async function handleGroupFollow(
   }
 }
 
-async function handleGroupUndo(c: any, activity: any, instanceActor: any) {
-  const objectId = activity.object?.id || activity.object;
+async function handleGroupUndo(c: ActivityContext, activity: Activity, instanceActor: InstanceActor) {
+  const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
   const follow = await c.env.DB.prepare(
@@ -802,20 +919,20 @@ async function handleGroupUndo(c: any, activity: any, instanceActor: any) {
     return;
   }
 
-  if (activity.object?.type === 'Follow') {
+  if (getActivityObject(activity)?.type === 'Follow') {
     await c.env.DB.prepare('DELETE FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?')
       .bind(activity.actor, instanceActor.ap_id).run();
   }
 }
 
 async function handleGroupCreate(
-  c: any,
-  activity: any,
-  instanceActor: any,
+  c: ActivityContext,
+  activity: Activity,
+  instanceActor: InstanceActor,
   actorApId: string,
   baseUrl: string
 ) {
-  const object = activity.object;
+  const object = getActivityObject(activity);
   if (!object || object.type !== 'Note') return;
 
   const roomUrl = object.room || activity.room;
@@ -828,7 +945,7 @@ async function handleGroupCreate(
     SELECT ap_id, preferred_username
     FROM communities
     WHERE preferred_username = ? OR ap_id = ?
-  `).bind(roomId, roomId).first<any>();
+  `).bind(roomId, roomId).first<CommunityRow>();
   if (!community) return;
 
   const postingPolicy = instanceActor.posting_policy || 'members';

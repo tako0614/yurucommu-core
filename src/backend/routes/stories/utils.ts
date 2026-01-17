@@ -4,6 +4,46 @@ interface VoteResults {
   [optionIndex: number]: number;
 }
 
+type VoteRow = {
+  option_index: number;
+  count: number;
+};
+
+type OverlayPosition = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type Overlay = {
+  type: string;
+  position: OverlayPosition;
+  oneOf?: unknown[];
+  href?: string;
+};
+
+type StoryAttachment = {
+  type: string;
+  mediaType: string;
+  url: string;
+  r2_key: string;
+  width: number;
+  height: number;
+};
+
+type StoredStoryData = {
+  attachment?: {
+    r2_key?: string;
+    content_type?: string;
+    url?: string;
+    width?: number;
+    height?: number;
+  };
+  displayDuration?: string;
+  overlays?: Overlay[];
+};
+
 export async function cleanupExpiredStories(db: D1Database): Promise<number> {
   const now = new Date().toISOString();
 
@@ -87,19 +127,19 @@ export async function getVoteCounts(db: D1Database, storyApId: string): Promise<
     .all();
 
   const results: VoteResults = {};
-  (votes.results || []).forEach((vote: any) => {
+  (votes.results || []).forEach((vote: VoteRow) => {
     results[vote.option_index] = vote.count;
   });
   return results;
 }
 
-export function validateOverlays(overlays: any[]): { valid: boolean; error?: string } {
+export function validateOverlays(overlays: unknown[]): { valid: boolean; error?: string } {
   if (!Array.isArray(overlays)) {
     return { valid: false, error: 'overlays must be an array' };
   }
 
   for (let i = 0; i < overlays.length; i++) {
-    const overlay = overlays[i];
+    const overlay = overlays[i] as Record<string, unknown>;
 
     // type validation
     if (!overlay.type || typeof overlay.type !== 'string') {
@@ -111,7 +151,8 @@ export function validateOverlays(overlays: any[]): { valid: boolean; error?: str
       return { valid: false, error: `overlay[${i}].position is required` };
     }
 
-    const { x, y, width, height } = overlay.position;
+    const position = overlay.position as Partial<OverlayPosition>;
+    const { x, y, width, height } = position;
     if (typeof x !== 'number' || x < 0 || x > 1) {
       return { valid: false, error: `overlay[${i}].position.x must be 0.0-1.0` };
     }
@@ -126,7 +167,8 @@ export function validateOverlays(overlays: any[]): { valid: boolean; error?: str
     }
 
     if (overlay.type === 'Question') {
-      if (!overlay.oneOf || !Array.isArray(overlay.oneOf) || overlay.oneOf.length < 2 || overlay.oneOf.length > 4) {
+      const oneOf = overlay.oneOf as unknown[] | undefined;
+      if (!oneOf || !Array.isArray(oneOf) || oneOf.length < 2 || oneOf.length > 4) {
         return { valid: false, error: `overlay[${i}].oneOf must have 2-4 options` };
       }
     }
@@ -147,11 +189,11 @@ export function validateOverlays(overlays: any[]): { valid: boolean; error?: str
 }
 
 export function transformStoryData(attachmentsJson: string): {
-  attachment: any;
+  attachment: StoryAttachment;
   displayDuration: string;
-  overlays?: any[];
+  overlays?: Overlay[];
 } {
-  const stored = JSON.parse(attachmentsJson || '{}');
+  const stored = JSON.parse(attachmentsJson || '{}') as StoredStoryData;
   const r2Key = stored.attachment?.r2_key;
   const contentType = stored.attachment?.content_type || 'image/jpeg';
   const externalUrl = stored.attachment?.url;
