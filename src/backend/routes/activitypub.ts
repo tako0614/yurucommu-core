@@ -7,6 +7,29 @@ import outboxRoutes from './activitypub/outbox';
 
 const ap = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type ActorIdRow = {
+  ap_id: string;
+  preferred_username: string;
+};
+
+type RoomRow = {
+  preferred_username: string;
+  name: string;
+  summary: string | null;
+};
+
+type CommunityRow = {
+  ap_id: string;
+  preferred_username: string;
+};
+
+type RoomStreamRow = {
+  ap_id: string;
+  attributed_to: string;
+  content: string;
+  published: string;
+};
+
 // WebFinger - Actor Discovery
 // ============================================================
 
@@ -71,7 +94,7 @@ ap.get('/.well-known/webfinger', async (c) => {
   // Look up actor
   const actor = await c.env.DB.prepare(
     'SELECT ap_id, preferred_username FROM actors WHERE preferred_username = ?'
-  ).bind(username).first<any>();
+  ).bind(username).first<ActorIdRow>();
 
   if (!actor) return c.json({ error: 'Actor not found' }, 404);
 
@@ -113,7 +136,7 @@ ap.get('/ap/users/:username', async (c) => {
   if (!actor) return c.json({ error: 'Actor not found' }, 404);
 
   // Build AP JSON-LD response
-  const actorResponse = {
+  const actorResponse: Record<string, unknown> = {
     '@context': [
       'https://www.w3.org/ns/activitystreams',
       'https://w3id.org/security/v1',
@@ -141,8 +164,8 @@ ap.get('/ap/users/:username', async (c) => {
 
   // Remove undefined fields
   Object.keys(actorResponse).forEach((key) => {
-    if ((actorResponse as any)[key] === undefined) {
-      delete (actorResponse as any)[key];
+    if (actorResponse[key] === undefined) {
+      delete actorResponse[key];
     }
   });
 
@@ -207,7 +230,7 @@ ap.get('/ap/rooms', async (c) => {
     ORDER BY created_at ASC
   `).all();
 
-  const items = (rooms.results || []).map((room: any) => ({
+  const items = (rooms.results || []).map((room: RoomRow) => ({
     id: roomApId(baseUrl, room.preferred_username),
     type: 'Room',
     name: room.name,
@@ -231,7 +254,7 @@ ap.get('/ap/rooms/:roomId', async (c) => {
     SELECT preferred_username, name, summary
     FROM communities
     WHERE preferred_username = ? OR ap_id = ?
-  `).bind(roomId, roomId).first<any>();
+  `).bind(roomId, roomId).first<RoomRow>();
 
   if (!room) return c.json({ error: 'Room not found' }, 404);
 
@@ -255,7 +278,7 @@ ap.get('/ap/rooms/:roomId/stream', async (c) => {
     SELECT ap_id, preferred_username
     FROM communities
     WHERE preferred_username = ? OR ap_id = ?
-  `).bind(roomId, roomId).first<any>();
+  `).bind(roomId, roomId).first<CommunityRow>();
 
   if (!community) return c.json({ error: 'Room not found' }, 404);
 
@@ -264,7 +287,7 @@ ap.get('/ap/rooms/:roomId/stream', async (c) => {
     FROM objects o
     WHERE o.type = 'Note' AND o.community_ap_id = ?
   `;
-  const params: any[] = [community.ap_id];
+  const params: Array<string | number | null> = [community.ap_id];
 
   if (before) {
     query += ' AND o.published < ?';
@@ -275,7 +298,7 @@ ap.get('/ap/rooms/:roomId/stream', async (c) => {
   params.push(limit);
 
   const objects = await c.env.DB.prepare(query).bind(...params).all();
-  const items = (objects.results || []).map((o: any) => ({
+  const items = (objects.results || []).map((o: RoomStreamRow) => ({
     id: o.ap_id,
     type: 'Note',
     attributedTo: o.attributed_to,

@@ -14,7 +14,19 @@ export function roomApId(baseUrl: string, roomId: string): string {
   return `${baseUrl}/ap/rooms/${roomId}`;
 }
 
-export async function getInstanceActor(c: { env: Env }) {
+type InstanceActorRow = {
+  ap_id: string;
+  preferred_username: string;
+  name: string;
+  summary: string;
+  public_key_pem: string;
+  private_key_pem: string;
+  join_policy: string;
+  posting_policy: string;
+  visibility: string;
+};
+
+export async function getInstanceActor(c: { env: Env }): Promise<InstanceActorRow> {
   const baseUrl = c.env.APP_URL;
   const apId = `${baseUrl}/ap/actor`;
   let actor = await c.env.DB.prepare(
@@ -22,7 +34,7 @@ export async function getInstanceActor(c: { env: Env }) {
      FROM instance_actor WHERE ap_id = ?`
   )
     .bind(apId)
-    .first<any>();
+    .first<InstanceActorRow>();
 
   if (!actor) {
     const { publicKeyPem, privateKeyPem } = await generateKeyPair();

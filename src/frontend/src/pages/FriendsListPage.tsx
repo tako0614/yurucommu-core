@@ -4,6 +4,8 @@ import { Actor } from '../types';
 import { fetchFollowing, fetchFollowers } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
+import { InlineErrorBanner } from '../components/InlineErrorBanner';
+import { useInlineError } from '../hooks/useInlineError';
 
 interface FriendsListPageProps {
   actor: Actor;
@@ -31,6 +33,7 @@ type TabType = 'following' | 'followers';
 
 export function FriendsListPage({ actor }: FriendsListPageProps) {
   const { t } = useI18n();
+  const { error, setError, clearError } = useInlineError();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabType>('following');
   const [following, setFollowing] = useState<Actor[]>([]);
@@ -53,6 +56,7 @@ export function FriendsListPage({ actor }: FriendsListPageProps) {
       setFollowers(followersData);
     } catch (e) {
       console.error('Failed to load friends:', e);
+      setError(t('common.error'));
     } finally {
       setLoading(false);
     }
@@ -73,6 +77,9 @@ export function FriendsListPage({ actor }: FriendsListPageProps) {
 
   return (
     <div className="flex flex-col h-full">
+      {error && (
+        <InlineErrorBanner message={error} onClose={clearError} />
+      )}
       {/* Header */}
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
         <div className="flex items-center gap-4 px-4 py-3">

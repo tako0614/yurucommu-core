@@ -6,6 +6,54 @@ const search = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const HOSTNAME_PATTERN = /^[a-z0-9.-]+$/i;
 
+type ActorSearchRow = {
+  ap_id: string;
+  preferred_username: string;
+  name: string | null;
+  icon_url: string | null;
+  summary: string | null;
+  follower_count: number;
+  created_at: string;
+};
+
+type SearchPostRow = {
+  ap_id: string;
+  attributed_to: string;
+  content: string;
+  published: string;
+  like_count: number;
+  author_username: string | null;
+  author_name: string | null;
+  author_icon_url: string | null;
+  liked: number;
+};
+
+type HashtagContentRow = {
+  content: string | null;
+};
+
+type WebFingerLink = {
+  rel?: string;
+  type?: string;
+  href?: string;
+};
+
+type WebFingerResponse = {
+  links?: WebFingerLink[];
+};
+
+type RemoteActor = {
+  id: string;
+  type?: string;
+  preferredUsername?: string;
+  name?: string;
+  summary?: string;
+  icon?: { url?: string };
+  inbox?: string;
+  outbox?: string;
+  publicKey?: { id?: string; publicKeyPem?: string };
+};
+
 function parseIPv4(hostname: string): number[] | null {
   if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return null;
   const parts = hostname.split('.').map((part) => Number(part));
@@ -124,7 +172,7 @@ search.get('/actors', async (c) => {
         LIMIT 20
       `).bind(`%${query}%`, `%${query}%`).all();
 
-  const result = (actors.results || []).map((a: any) => ({
+  const result = (actors.results || []).map((a: ActorSearchRow) => ({
     ...a,
     username: formatUsername(a.ap_id),
   }));
@@ -168,7 +216,7 @@ search.get('/posts', async (c) => {
     LIMIT 50
   `).bind(actor?.ap_id || '', `%${query}%`).all();
 
-  const result = (posts.results || []).map((p: any) => ({
+  const result = (posts.results || []).map((p: SearchPostRow) => ({
     ap_id: p.ap_id,
     author: {
       ap_id: p.attributed_to,
@@ -209,8 +257,8 @@ search.get('/remote', async (c) => {
     const wfRes = await fetch(webfingerUrl, { headers: { 'Accept': 'application/jrd+json' } });
     if (!wfRes.ok) return c.json({ actors: [] });
 
-    const wfData = await wfRes.json() as any;
-    const actorLink = wfData.links?.find((l: any) => l.rel === 'self' && l.type === 'application/activity+json');
+    const wfData = await wfRes.json() as WebFingerResponse;
+    const actorLink = wfData.links?.find((l) => l.rel === 'self' && l.type === 'application/activity+json');
     if (!actorLink?.href) return c.json({ actors: [] });
     if (!isSafeRemoteUrl(actorLink.href)) return c.json({ actors: [] });
 
@@ -220,7 +268,7 @@ search.get('/remote', async (c) => {
     });
     if (!actorRes.ok) return c.json({ actors: [] });
 
-    const actorData = await actorRes.json() as any;
+    const actorData = await actorRes.json() as RemoteActor;
 
     // Cache the actor
     await c.env.DB.prepare(`
@@ -302,7 +350,7 @@ search.get('/hashtag/:tag', async (c) => {
     LIMIT ? OFFSET ?
   `).bind(actor?.ap_id || '', `%${hashtagPattern}%`, limit, offset).all();
 
-  const result = (posts.results || []).map((p: any) => ({
+  const result = (posts.results || []).map((p: SearchPostRow) => ({
     ap_id: p.ap_id,
     author: {
       ap_id: p.attributed_to,
@@ -349,8 +397,8 @@ search.get('/hashtags/trending', async (c) => {
   const hashtagCounts: Record<string, number> = {};
   const hashtagRegex = /#([a-zA-Z0-9_\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]+)/g;
 
-  for (const post of posts.results || []) {
-    const content = (post as any).content || '';
+  for (const post of (posts.results || []) as HashtagContentRow[]) {
+    const content = post.content || '';
     let match;
     while ((match = hashtagRegex.exec(content)) !== null) {
       const tag = match[1].toLowerCase();

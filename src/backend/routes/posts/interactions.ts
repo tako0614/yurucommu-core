@@ -1,9 +1,25 @@
 ﻿import { Hono } from 'hono';
 import type { Env, Variables, APObject } from '../../types';
 import { generateId, objectApId, activityApId, isLocal, signRequest, isSafeRemoteUrl } from '../../utils';
-import { MAX_POSTS_PAGE_LIMIT, formatPost, parseLimit } from './utils';
+import { MAX_POSTS_PAGE_LIMIT, formatPost, parseLimit, PostRow } from './utils';
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+type ActorCacheInboxRow = {
+  inbox: string | null;
+};
+
+type LikeRow = {
+  activity_ap_id: string | null;
+};
+
+type AnnounceRow = {
+  activity_ap_id: string | null;
+};
+
+type PostIdRow = {
+  ap_id: string;
+};
 
 // Like post
 posts.post('/:id/like', async (c) => {
@@ -61,7 +77,7 @@ posts.post('/:id/like', async (c) => {
   // Send Like activity to remote post author
   if (!isLocal(post.ap_id, baseUrl)) {
     try {
-      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<any>();
+      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<ActorCacheInboxRow>();
       if (postAuthor?.inbox) {
         if (!isSafeRemoteUrl(postAuthor.inbox)) {
           console.warn(`[Posts] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
@@ -101,7 +117,7 @@ posts.delete('/:id/like', async (c) => {
   // Get the like
   const like = await c.env.DB.prepare(
     'SELECT * FROM likes WHERE object_ap_id = ? AND actor_ap_id = ?'
-  ).bind(post.ap_id, actor.ap_id).first<any>();
+  ).bind(post.ap_id, actor.ap_id).first<LikeRow>();
 
   if (!like) return c.json({ error: 'Not liked' }, 400);
 
@@ -116,7 +132,7 @@ posts.delete('/:id/like', async (c) => {
   // Send Undo Like if post is remote
   if (!isLocal(post.ap_id, baseUrl)) {
     try {
-      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<any>();
+      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<ActorCacheInboxRow>();
       if (postAuthor?.inbox) {
         if (!isSafeRemoteUrl(postAuthor.inbox)) {
           console.warn(`[Posts] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
@@ -219,7 +235,7 @@ posts.post('/:id/repost', async (c) => {
   // Send Announce activity to remote post author
   if (!isLocal(post.ap_id, baseUrl)) {
     try {
-      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<any>();
+      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<ActorCacheInboxRow>();
       if (postAuthor?.inbox) {
         if (!isSafeRemoteUrl(postAuthor.inbox)) {
           console.warn(`[Posts] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
@@ -259,7 +275,7 @@ posts.delete('/:id/repost', async (c) => {
   // Get the announce
   const announce = await c.env.DB.prepare(
     'SELECT * FROM announces WHERE object_ap_id = ? AND actor_ap_id = ?'
-  ).bind(post.ap_id, actor.ap_id).first<any>();
+  ).bind(post.ap_id, actor.ap_id).first<AnnounceRow>();
 
   if (!announce) return c.json({ error: 'Not reposted' }, 400);
 
@@ -274,7 +290,7 @@ posts.delete('/:id/repost', async (c) => {
   // Send Undo Announce if post is remote
   if (!isLocal(post.ap_id, baseUrl)) {
     try {
-      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<any>();
+      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<ActorCacheInboxRow>();
       if (postAuthor?.inbox) {
         if (!isSafeRemoteUrl(postAuthor.inbox)) {
           console.warn(`[Posts] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
@@ -325,7 +341,7 @@ posts.post('/:id/bookmark', async (c) => {
 
   // Get the post
   const post = await c.env.DB.prepare('SELECT ap_id FROM objects WHERE ap_id = ? OR ap_id = ?')
-    .bind(objectApId(baseUrl, postId), postId).first<any>();
+    .bind(objectApId(baseUrl, postId), postId).first<PostIdRow>();
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
@@ -356,14 +372,14 @@ posts.delete('/:id/bookmark', async (c) => {
 
   // Get the post
   const post = await c.env.DB.prepare('SELECT ap_id FROM objects WHERE ap_id = ? OR ap_id = ?')
-    .bind(objectApId(baseUrl, postId), postId).first<any>();
+    .bind(objectApId(baseUrl, postId), postId).first<PostIdRow>();
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
   // Get the bookmark
   const bookmark = await c.env.DB.prepare(
     'SELECT * FROM bookmarks WHERE object_ap_id = ? AND actor_ap_id = ?'
-  ).bind(post.ap_id, actor.ap_id).first<any>();
+  ).bind(post.ap_id, actor.ap_id).first<{ id: string }>();
 
   if (!bookmark) return c.json({ error: 'Not bookmarked' }, 400);
 
@@ -394,7 +410,7 @@ posts.get('/bookmarks', async (c) => {
     INNER JOIN bookmarks b ON o.ap_id = b.object_ap_id
     WHERE b.actor_ap_id = ?
   `;
-  const params: any[] = [actor.ap_id, actor.ap_id];
+  const params: Array<string | number | null> = [actor.ap_id, actor.ap_id];
 
   if (before) {
     query += ` AND o.published < ?`;
@@ -406,11 +422,9 @@ posts.get('/bookmarks', async (c) => {
 
   const bookmarks = await c.env.DB.prepare(query).bind(...params).all();
 
-  const result = (bookmarks.results || []).map((p: any) => formatPost(p, actor.ap_id));
+  const result = (bookmarks.results || []).map((p: PostRow) => formatPost(p, actor.ap_id));
 
   return c.json({ bookmarks: result });
 });
-
-export default posts;
 
 export default posts;

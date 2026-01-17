@@ -7,6 +7,8 @@ import { formatRelativeTime } from '../lib/datetime';
 import { UserAvatar } from '../components/UserAvatar';
 import { PostContent } from '../components/PostContent';
 import { QRCodeModal } from '../components/QRCodeModal';
+import { InlineErrorBanner } from '../components/InlineErrorBanner';
+import { useInlineError } from '../hooks/useInlineError';
 import { HeartIcon, ReplyIcon, BookmarkIcon, RepostIcon } from '../components/icons/SocialIcons';
 
 interface GroupPageProps {
@@ -116,6 +118,7 @@ function AvatarCollage({ items, maxShow = 4 }: { items: { icon_url?: string | nu
 
 export function GroupPage({ actor }: GroupPageProps) {
   const { t } = useI18n();
+  const { error, setError, clearError } = useInlineError();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Search state
@@ -144,7 +147,10 @@ export function GroupPage({ actor }: GroupPageProps) {
     // Load communities
     fetchCommunities()
       .then(data => setCommunities(data))
-      .catch(e => console.error('Failed to load communities:', e))
+      .catch(e => {
+        console.error('Failed to load communities:', e);
+        setError(t('common.error'));
+      })
       .finally(() => setLoadingCommunities(false));
 
     // Load following
@@ -154,9 +160,12 @@ export function GroupPage({ actor }: GroupPageProps) {
         // For now, favorites is empty - can be implemented later
         setFavorites([]);
       })
-      .catch(e => console.error('Failed to load following:', e))
+      .catch(e => {
+        console.error('Failed to load following:', e);
+        setError(t('common.error'));
+      })
       .finally(() => setLoadingFollowing(false));
-  }, [actor.ap_id]);
+  }, [actor.ap_id, setError, t]);
 
   // Handle search query parameter from URL (e.g., from mention links)
   useEffect(() => {
@@ -181,6 +190,7 @@ export function GroupPage({ actor }: GroupPageProps) {
       setSearchPostsResult(postsRes);
     } catch (e) {
       console.error('Search failed:', e);
+      setError(t('common.error'));
     } finally {
       setSearching(false);
     }
@@ -208,6 +218,7 @@ export function GroupPage({ actor }: GroupPageProps) {
       }
     } catch (e) {
       console.error('Failed to toggle like:', e);
+      setError(t('common.error'));
     }
   };
 
@@ -222,6 +233,7 @@ export function GroupPage({ actor }: GroupPageProps) {
       setSearchUsersResult(prev => prev.filter(u => u.ap_id !== targetActor.ap_id));
     } catch (e) {
       console.error('Failed to follow:', e);
+      setError(t('common.error'));
     }
   };
 
@@ -241,6 +253,9 @@ export function GroupPage({ actor }: GroupPageProps) {
 
   return (
     <div className="flex flex-col h-full bg-black">
+      {error && (
+        <InlineErrorBanner message={error} onClose={clearError} />
+      )}
       {/* Header with Search */}
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm z-10">
         <div className="px-4 py-3">

@@ -22,6 +22,12 @@ import { rateLimit, RateLimitConfigs } from './middleware/rate-limit';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type SessionActorRow = Actor & {
+  id: string;
+  member_id: string;
+  expires_at: string;
+};
+
 // ============================================================
 // COOP/COEP HEADERS (Required for FFmpeg WASM SharedArrayBuffer)
 // ============================================================
@@ -46,7 +52,7 @@ app.use('/api/*', async (c, next) => {
       `SELECT s.*, a.* FROM sessions s
        JOIN actors a ON s.member_id = a.ap_id
        WHERE s.id = ? AND s.expires_at > datetime('now')`
-    ).bind(sessionId).first<any>();
+    ).bind(sessionId).first<SessionActorRow>();
 
     if (session) {
       c.set('actor', session as Actor);

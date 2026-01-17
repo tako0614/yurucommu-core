@@ -9,6 +9,73 @@ import { getConversationId, resolveConversationId } from './utils';
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type ContactRow = {
+  conversation: string;
+  other_ap_id: string;
+  last_message_at: string | null;
+  preferred_username: string | null;
+  name: string | null;
+  icon_url: string | null;
+  last_content: string | null;
+  last_sender: string | null;
+  unread_count: number;
+};
+
+type CommunityRow = {
+  ap_id: string;
+  preferred_username: string;
+  name: string;
+  icon_url: string | null;
+  member_count: number;
+  last_message_at: string | null;
+  last_content: string | null;
+  last_sender: string | null;
+};
+
+type CountRow = {
+  count: number;
+};
+
+type RequestRow = {
+  id: string;
+  sender_ap_id: string;
+  content: string;
+  created_at: string;
+  conversation: string;
+  preferred_username: string | null;
+  name: string | null;
+  icon_url: string | null;
+};
+
+type OtherInfoRow = {
+  ap_id: string;
+  preferred_username: string;
+  name: string | null;
+  icon_url: string | null;
+};
+
+type OtherApIdRow = {
+  other_ap_id: string;
+};
+
+type TypingRow = {
+  last_typed_at: string | null;
+};
+
+type ArchivedIdRow = {
+  conversation_id: string;
+  archived_at: string;
+};
+
+type ArchivedConversationRow = {
+  conversation: string;
+  other_ap_id: string;
+  last_message_at: string | null;
+  preferred_username: string | null;
+  name: string | null;
+  icon_url: string | null;
+};
+
 dm.get('/contacts', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
@@ -104,7 +171,7 @@ dm.get('/contacts', async (c) => {
     ORDER BY last_message_at DESC NULLS LAST, c.name ASC
   `).bind(actor.ap_id).all();
 
-  const contactsResult = (conversations.results || []).map((f: any) => ({
+  const contactsResult = (conversations.results || []).map((f: ContactRow) => ({
     type: 'user' as const,
     ap_id: f.other_ap_id,
     username: formatUsername(f.other_ap_id),
@@ -120,7 +187,7 @@ dm.get('/contacts', async (c) => {
     unread_count: f.unread_count || 0,
   }));
 
-  const communitiesResult = (communities.results || []).map((c: any) => ({
+  const communitiesResult = (communities.results || []).map((c: CommunityRow) => ({
     type: 'community' as const,
     ap_id: c.ap_id,
     username: formatUsername(c.ap_id),
@@ -148,7 +215,7 @@ dm.get('/contacts', async (c) => {
         WHERE o2.conversation = o.conversation
         AND o2.attributed_to = ?
       )
-  `).bind(actor.ap_id, actor.ap_id).first<any>();
+  `).bind(actor.ap_id, actor.ap_id).first<CountRow>();
 
   return c.json({
     mutual_followers: contactsResult,
@@ -186,7 +253,7 @@ dm.get('/requests', async (c) => {
     ORDER BY o.published DESC
   `).bind(actor.ap_id, actor.ap_id).all();
 
-  const result = (requests.results || []).map((r: any) => ({
+  const result = (requests.results || []).map((r: RequestRow) => ({
     id: r.id,
     sender: {
       ap_id: r.sender_ap_id,
@@ -287,7 +354,7 @@ dm.post('/conversations', async (c) => {
     SELECT ap_id, preferred_username, name, icon_url FROM actors WHERE ap_id = ?
     UNION
     SELECT ap_id, preferred_username, name, icon_url FROM actor_cache WHERE ap_id = ?
-  `).bind(body.participant_ap_id, body.participant_ap_id).first<any>();
+  `).bind(body.participant_ap_id, body.participant_ap_id).first<OtherInfoRow>();
 
   if (!otherInfo) {
     return c.json({ error: 'Actor not found' }, 404);
@@ -339,7 +406,7 @@ dm.get('/user/:encodedApId/typing', async (c) => {
     SELECT last_typed_at
     FROM dm_typing
     WHERE actor_ap_id = ? AND recipient_ap_id = ?
-  `).bind(otherApId, actor.ap_id).first<any>();
+  `).bind(otherApId, actor.ap_id).first<TypingRow>();
 
   if (!typing?.last_typed_at) {
     return c.json({ is_typing: false, last_typed_at: null });
@@ -434,7 +501,7 @@ dm.get('/archived', async (c) => {
     SELECT conversation_id, archived_at FROM dm_archived_conversations WHERE actor_ap_id = ?
   `).bind(actor.ap_id).all();
 
-  const archivedSet = new Set((archivedIds.results || []).map((a: any) => a.conversation_id));
+  const archivedSet = new Set((archivedIds.results || []).map((a: ArchivedIdRow) => a.conversation_id));
   if (archivedSet.size === 0) return c.json({ archived: [] });
 
   // Get conversation details for archived ones
@@ -468,8 +535,8 @@ dm.get('/archived', async (c) => {
   `).bind(actor.ap_id, actor.ap_id, actor.ap_id).all();
 
   const archived = (conversations.results || [])
-    .filter((c: any) => archivedSet.has(c.conversation))
-    .map((f: any) => ({
+    .filter((c: ArchivedConversationRow) => archivedSet.has(c.conversation))
+    .map((f: ArchivedConversationRow) => ({
       ap_id: f.other_ap_id,
       username: formatUsername(f.other_ap_id),
       preferred_username: f.preferred_username,
@@ -481,7 +548,5 @@ dm.get('/archived', async (c) => {
 
   return c.json({ archived });
 });
-
-export default dm;
 
 export default dm;

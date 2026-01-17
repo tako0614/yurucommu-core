@@ -15,7 +15,7 @@ interface StoryData {
     r2_key: string;
   };
   displayDuration: string;
-  overlays?: any[];
+  overlays?: unknown[];
   end_time: string;
   published: string;
 }
@@ -75,7 +75,7 @@ export async function deliverToFollowers(
 
   // Filter to remote followers only
   const remoteFollowers = (followers.results || []).filter(
-    (f: any) => !isLocal(f.follower_ap_id, baseUrl)
+    (f: { follower_ap_id: string }) => !isLocal(f.follower_ap_id, baseUrl)
   );
 
   // Deliver to each remote follower's inbox

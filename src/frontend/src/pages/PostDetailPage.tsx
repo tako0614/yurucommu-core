@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Post, Actor, MediaAttachment } from '../types';
 import { fetchPost, fetchReplies, createPost, likePost, unlikePost, deletePost, bookmarkPost, unbookmarkPost } from '../lib/api';
@@ -7,6 +7,8 @@ import { formatDateTime } from '../lib/datetime';
 import { UserAvatar } from '../components/UserAvatar';
 import { PostContent } from '../components/PostContent';
 import { HeartIcon, ReplyIcon, BookmarkIcon } from '../components/icons/SocialIcons';
+import { InlineErrorBanner } from '../components/InlineErrorBanner';
+import { useInlineError } from '../hooks/useInlineError';
 
 interface PostDetailPageProps {
   actor: Actor;
@@ -28,6 +30,7 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
   const { postId } = useParams<{ postId: string }>();
   const navigate = useNavigate();
   const { t } = useI18n();
+  const { error, setError, clearError } = useInlineError();
   const [post, setPost] = useState<Post | null>(null);
   const [replies, setReplies] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,6 +50,7 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
       setReplies(repliesData);
     }).catch(e => {
       console.error('Failed to load post:', e);
+      setError(t('common.error'));
     }).finally(() => {
       setLoading(false);
     });
@@ -71,6 +75,7 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
       }
     } catch (e) {
       console.error('Failed to toggle like:', e);
+      setError(t('common.error'));
     }
   };
 
@@ -87,6 +92,7 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
       setPost(prev => prev ? { ...prev, reply_count: prev.reply_count + 1 } : null);
     } catch (e) {
       console.error('Failed to reply:', e);
+      setError(t('common.error'));
     } finally {
       setReplying(false);
     }
@@ -106,6 +112,7 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
       }
     } catch (e) {
       console.error('Failed to delete:', e);
+      setError(t('common.error'));
     }
   };
 
@@ -121,12 +128,16 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
       }
     } catch (e) {
       console.error('Failed to toggle bookmark:', e);
+      setError(t('common.error'));
     }
   };
 
   if (loading) {
     return (
       <div className="flex flex-col h-full">
+      {error && (
+        <InlineErrorBanner message={error} onClose={clearError} />
+      )}
         <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
           <div className="flex items-center gap-4 px-4 py-3">
             <button onClick={() => navigate(-1)} aria-label="Back" className="p-1 hover:bg-neutral-800 rounded-full">
@@ -143,6 +154,9 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
   if (!post) {
     return (
       <div className="flex flex-col h-full">
+      {error && (
+        <InlineErrorBanner message={error} onClose={clearError} />
+      )}
         <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
           <div className="flex items-center gap-4 px-4 py-3">
             <button onClick={() => navigate(-1)} aria-label="Back" className="p-1 hover:bg-neutral-800 rounded-full">
@@ -158,6 +172,9 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
 
   return (
     <div className="flex flex-col h-full">
+      {error && (
+        <InlineErrorBanner message={error} onClose={clearError} />
+      )}
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
         <div className="flex items-center gap-4 px-4 py-3">
           <button onClick={() => navigate(-1)} aria-label="Back" className="p-1 hover:bg-neutral-800 rounded-full">
@@ -348,3 +365,5 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
     </div>
   );
 }
+
+

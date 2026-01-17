@@ -5,6 +5,34 @@ import { MAX_COMMUNITY_MESSAGE_LENGTH, MAX_COMMUNITY_MESSAGES_LIMIT, managerRole
 
 const communities = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type CommunityRow = {
+  ap_id: string;
+  post_policy: string | null;
+};
+
+type CommunityIdRow = {
+  ap_id: string;
+};
+
+type CommunityMemberRow = {
+  role: 'owner' | 'moderator' | 'member';
+};
+
+type CommunityMessageRow = {
+  ap_id: string;
+  content: string;
+  published: string;
+  attributed_to: string;
+  sender_preferred_username: string | null;
+  sender_name: string | null;
+  sender_icon_url: string | null;
+};
+
+type MessageRow = {
+  ap_id: string;
+  attributed_to: string;
+};
+
 // GET /api/communities/:name/messages - Get chat messages (AP Native: uses objects with audience)
 communities.get('/:identifier/messages', async (c) => {
   const actor = c.get('actor');
@@ -21,7 +49,7 @@ communities.get('/:identifier/messages', async (c) => {
 
   // Get community
   const community = await c.env.DB.prepare('SELECT * FROM communities WHERE ap_id = ? OR preferred_username = ?')
-    .bind(apId, identifier).first<any>();
+    .bind(apId, identifier).first<CommunityRow>();
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
   }
@@ -29,7 +57,7 @@ communities.get('/:identifier/messages', async (c) => {
   // Check membership
   const membership = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, actor.ap_id).first<any>();
+  ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
 
   const policy = community.post_policy || 'members';
   const role = membership?.role;
@@ -63,7 +91,7 @@ communities.get('/:identifier/messages', async (c) => {
           AND orec.type = 'audience'
       )
   `;
-  const params: any[] = [community.ap_id];
+  const params: Array<string | number | null> = [community.ap_id];
 
   if (before) {
     query += ' AND o.published < ?';
@@ -75,7 +103,7 @@ communities.get('/:identifier/messages', async (c) => {
 
   const messages = await c.env.DB.prepare(query).bind(...params).all();
 
-  const result = (messages.results || []).reverse().map((msg: any) => ({
+  const result = (messages.results || []).reverse().map((msg: CommunityMessageRow) => ({
     id: msg.ap_id,
     sender: {
       ap_id: msg.attributed_to,
@@ -111,14 +139,14 @@ communities.post('/:identifier/messages', async (c) => {
 
   // Check community exists and user is member
   const community = await c.env.DB.prepare('SELECT * FROM communities WHERE ap_id = ? OR preferred_username = ?')
-    .bind(apId, identifier).first<any>();
+    .bind(apId, identifier).first<CommunityRow>();
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
   }
 
   const membership = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, actor.ap_id).first<any>();
+  ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
 
   const policy = community.post_policy || 'members';
   const role = membership?.role;
@@ -203,7 +231,7 @@ communities.patch('/:identifier/messages/:messageId', async (c) => {
 
   // Check community exists
   const community = await c.env.DB.prepare('SELECT ap_id FROM communities WHERE ap_id = ? OR preferred_username = ?')
-    .bind(apId, identifier).first<any>();
+    .bind(apId, identifier).first<CommunityIdRow>();
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
   }
@@ -214,7 +242,7 @@ communities.patch('/:identifier/messages/:messageId', async (c) => {
     FROM objects o
     JOIN object_recipients orec ON o.ap_id = orec.object_ap_id
     WHERE o.ap_id = ? AND orec.recipient_ap_id = ? AND orec.type = 'audience'
-  `).bind(messageId, community.ap_id).first<any>();
+  `).bind(messageId, community.ap_id).first<MessageRow>();
 
   if (!message) {
     return c.json({ error: 'Message not found' }, 404);
@@ -245,7 +273,7 @@ communities.delete('/:identifier/messages/:messageId', async (c) => {
 
   // Check community exists
   const community = await c.env.DB.prepare('SELECT ap_id FROM communities WHERE ap_id = ? OR preferred_username = ?')
-    .bind(apId, identifier).first<any>();
+    .bind(apId, identifier).first<CommunityIdRow>();
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
   }
@@ -256,7 +284,7 @@ communities.delete('/:identifier/messages/:messageId', async (c) => {
     FROM objects o
     JOIN object_recipients orec ON o.ap_id = orec.object_ap_id
     WHERE o.ap_id = ? AND orec.recipient_ap_id = ? AND orec.type = 'audience'
-  `).bind(messageId, community.ap_id).first<any>();
+  `).bind(messageId, community.ap_id).first<MessageRow>();
 
   if (!message) {
     return c.json({ error: 'Message not found' }, 404);
@@ -265,7 +293,7 @@ communities.delete('/:identifier/messages/:messageId', async (c) => {
   // Check permission: author can delete, or moderator/owner can delete any
   const membership = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, actor.ap_id).first<any>();
+  ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
 
   const isAuthor = message.attributed_to === actor.ap_id;
   const isManager = membership && managerRoles.has(membership.role);

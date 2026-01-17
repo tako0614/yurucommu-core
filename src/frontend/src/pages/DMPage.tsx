@@ -200,7 +200,7 @@ export function DMPage({ actor }: DMPageProps) {
           <header className="sticky top-0 bg-black/95 backdrop-blur-sm z-10">
             {/* Title bar with icons */}
             <div className="flex items-center justify-between px-4 py-3">
-              <h1 className="text-xl font-bold text-white">繝医・繧ｯ</h1>
+              <h1 className="text-xl font-bold text-white">トーク</h1>
               <div className="flex items-center gap-2">
                 {/* Search icon */}
                 <button aria-label="Search" className="p-2 text-neutral-400 hover:text-white transition-colors">
@@ -233,7 +233,7 @@ export function DMPage({ actor }: DMPageProps) {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="讀懃ｴ｢"
+                  placeholder="検索"
                   className="w-full pl-10 pr-4 py-2 bg-neutral-900 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-700"
                 />
               </div>
@@ -247,7 +247,7 @@ export function DMPage({ actor }: DMPageProps) {
                   activeTab === 'all' ? 'text-white' : 'text-neutral-500'
                 }`}
               >
-                縺吶∋縺ｦ
+                すべて
               </button>
               <button
                 onClick={() => setActiveTab('friends')}
@@ -255,7 +255,7 @@ export function DMPage({ actor }: DMPageProps) {
                   activeTab === 'friends' ? 'text-white' : 'text-neutral-500'
                 }`}
               >
-                蜿九□縺｡
+                友だち
               </button>
               <button
                 onClick={() => setActiveTab('communities')}
@@ -263,7 +263,7 @@ export function DMPage({ actor }: DMPageProps) {
                   activeTab === 'communities' ? 'text-white' : 'text-neutral-500'
                 }`}
               >
-                繧ｰ繝ｫ繝ｼ繝・
+                グループ
               </button>
               <button
                 onClick={() => setActiveTab('requests')}
@@ -271,7 +271,7 @@ export function DMPage({ actor }: DMPageProps) {
                   activeTab === 'requests' ? 'text-white' : 'text-neutral-500'
                 }`}
               >
-                繝ｪ繧ｯ繧ｨ繧ｹ繝・
+                リクエスト
                 {requestCount > 0 && (
                   <span className="absolute top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-green-500 rounded-full text-[10px] flex items-center justify-center text-white font-bold">
                     {requestCount > 99 ? '99+' : requestCount}
@@ -313,9 +313,9 @@ export function DMPage({ actor }: DMPageProps) {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                     </svg>
                   </div>
-                  <p className="text-neutral-400 mb-2 text-lg font-medium">繝ｪ繧ｯ繧ｨ繧ｹ繝医′縺ゅｊ縺ｾ縺帙ｓ</p>
+                  <p className="text-neutral-400 mb-2 text-lg font-medium">リクエストがありません</p>
                   <p className="text-neutral-500 text-sm">
-                    譁ｰ縺励＞繝｡繝・そ繝ｼ繧ｸ繝ｪ繧ｯ繧ｨ繧ｹ繝医′<br />縺薙％縺ｫ陦ｨ遉ｺ縺輔ｌ縺ｾ縺・
+                    新しいメッセージリクエストが<br />ここに表示されます
                   </p>
                 </div>
               ) : (
@@ -339,16 +339,16 @@ export function DMPage({ actor }: DMPageProps) {
                   </svg>
                 </div>
                 <p className="text-neutral-400 mb-2 text-lg font-medium">
-                  {searchQuery ? '讀懃ｴ｢邨先棡縺後≠繧翫∪縺帙ｓ' : activeTab === 'all' ? '繝医・繧ｯ縺後≠繧翫∪縺帙ｓ' : activeTab === 'friends' ? '蜿九□縺｡縺後＞縺ｾ縺帙ｓ' : '繧ｰ繝ｫ繝ｼ繝励′縺ゅｊ縺ｾ縺帙ｓ'}
+                  {searchQuery ? '検索結果がありません' : activeTab === 'all' ? 'トークがありません' : activeTab === 'friends' ? '友だちがいません' : 'グループがありません'}
                 </p>
                 <p className="text-neutral-500 text-sm">
                   {searchQuery
-                    ? '蛻･縺ｮ繧ｭ繝ｼ繝ｯ繝ｼ繝峨〒讀懃ｴ｢縺励※縺上□縺輔＞'
+                    ? '別のキーワードで検索してみてください'
                     : activeTab === 'all'
-                    ? '蜿九□縺｡繧・げ繝ｫ繝ｼ繝励→縺ｮ\n繝医・繧ｯ縺後％縺薙↓陦ｨ遉ｺ縺輔ｌ縺ｾ縺・
+                    ? '友だちやグループとの\nトークがここに表示されます'
                     : activeTab === 'friends'
-                    ? '逶ｸ莠偵ヵ繧ｩ繝ｭ繝ｼ縺励※縺・ｋ繝ｦ繝ｼ繧ｶ繝ｼ縺圭n縺薙％縺ｫ陦ｨ遉ｺ縺輔ｌ縺ｾ縺・
-                    : '蜿ょ刈縺励※縺・ｋ繧ｳ繝溘Η繝九ユ繧｣縺圭n縺薙％縺ｫ陦ｨ遉ｺ縺輔ｌ縺ｾ縺・
+                    ? '友だちとフォローすると\nトークがここに表示されます'
+                    : '参加しているコミュニティの\nトークがここに表示されます'
                   }
                 </p>
               </div>

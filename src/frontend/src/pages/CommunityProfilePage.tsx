@@ -18,36 +18,15 @@ import {
   uploadMedia,
 } from '../lib/api';
 import { useI18n } from '../lib/i18n';
-import { formatMonthYear } from '../lib/datetime';
 import { UserAvatar } from '../components/UserAvatar';
+import { InlineErrorBanner } from '../components/InlineErrorBanner';
+import { useInlineError } from '../hooks/useInlineError';
+import { CommunityProfileHeader } from '../components/community/CommunityProfileHeader';
+import { CommunityProfileSummary } from '../components/community/CommunityProfileSummary';
 
 interface CommunityProfilePageProps {
   actor: Actor;
 }
-
-const BackIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-  </svg>
-);
-
-const UsersIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-  </svg>
-);
-
-const ChatIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-  </svg>
-);
-
-const CalendarIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-  </svg>
-);
 
 interface Member {
   ap_id: string;
@@ -61,6 +40,7 @@ interface Member {
 
 export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
   const { t } = useI18n();
+  const { error, setError, clearError } = useInlineError();
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
   const [community, setCommunity] = useState<CommunityDetail | null>(null);
@@ -110,6 +90,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
       }
     } catch (e) {
       console.error('Failed to load community:', e);
+      setError(t('common.error'));
     } finally {
       setLoading(false);
     }
@@ -136,6 +117,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
       }
     } catch (e) {
       console.error('Failed to join:', e);
+      setError(t('common.error'));
     } finally {
       setJoining(false);
     }
@@ -149,6 +131,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
       setCommunity(prev => prev ? { ...prev, is_member: false, member_count: prev.member_count - 1 } : null);
     } catch (e) {
       console.error('Failed to leave:', e);
+      setError(t('common.error'));
     } finally {
       setJoining(false);
     }
@@ -166,6 +149,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
       setCommunity(prev => prev ? { ...prev, member_count: prev.member_count + 1 } : null);
     } catch (e) {
       console.error('Failed to accept join request:', e);
+      setError(t('common.error'));
     } finally {
       setRequestAction(prev => ({ ...prev, [request.ap_id]: false }));
     }
@@ -180,6 +164,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
       setJoinRequests(prev => prev.filter(r => r.ap_id !== request.ap_id));
     } catch (e) {
       console.error('Failed to reject join request:', e);
+      setError(t('common.error'));
     } finally {
       setRequestAction(prev => ({ ...prev, [request.ap_id]: false }));
     }
@@ -193,6 +178,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
       setInviteCode(result.invite_id);
     } catch (e) {
       console.error('Failed to create invite:', e);
+      setError(t('common.error'));
     } finally {
       setCreatingInvite(false);
     }
@@ -242,7 +228,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
       setSettingsForm(prev => ({ ...prev, icon_url: result.url }));
       setIconPreview(URL.createObjectURL(file));
     } catch (err) {
-      setSettingsError('繧｢繧､繧ｳ繝ｳ縺ｮ繧｢繝・・繝ｭ繝ｼ繝峨↓螟ｱ謨励＠縺ｾ縺励◆');
+      setSettingsError('アイコンのアップロードに失敗しました');
     } finally {
       setUploadingIcon(false);
     }
@@ -283,14 +269,14 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
   if (loading) {
     return (
       <div className="flex flex-col h-full">
-        <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-          <div className="flex items-center gap-4 px-4 py-3">
-            <button onClick={() => navigate(-1)} aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
-              <BackIcon />
-            </button>
-            <h1 className="text-xl font-bold">{t('groups.title')}</h1>
-          </div>
-        </header>
+        {error && (
+          <InlineErrorBanner message={error} onClose={clearError} />
+        )}
+        <CommunityProfileHeader
+          title={t('groups.title')}
+          subtitle=""
+          onBack={() => navigate(-1)}
+        />
         <div className="p-8 text-center text-neutral-500">{t('common.loading')}</div>
       </div>
     );
@@ -299,127 +285,38 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
   if (!community) {
     return (
       <div className="flex flex-col h-full">
-        <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-          <div className="flex items-center gap-4 px-4 py-3">
-            <button onClick={() => navigate(-1)} aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
-              <BackIcon />
-            </button>
-            <h1 className="text-xl font-bold">{t('groups.title')}</h1>
-          </div>
-        </header>
-        <div className="p-8 text-center text-neutral-500">繧ｰ繝ｫ繝ｼ繝励′隕九▽縺九ｊ縺ｾ縺帙ｓ</div>
+        {error && (
+          <InlineErrorBanner message={error} onClose={clearError} />
+        )}
+        <CommunityProfileHeader
+          title={t('groups.title')}
+          subtitle=""
+          onBack={() => navigate(-1)}
+        />
+        <div className="p-8 text-center text-neutral-500">グループが見つかりません</div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-        <div className="flex items-center gap-4 px-4 py-3">
-          <button onClick={() => navigate(-1)} aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
-            <BackIcon />
-          </button>
-          <div>
-            <h1 className="text-xl font-bold">{community.display_name || community.name}</h1>
-            <p className="text-sm text-neutral-500">{community.member_count} 繝｡繝ｳ繝舌・</p>
-          </div>
-        </div>
-      </header>
+      {error && (
+        <InlineErrorBanner message={error} onClose={clearError} />
+      )}
+      <CommunityProfileHeader
+        title={community.display_name || community.name}
+        subtitle={`${community.member_count} メンバー`}
+        onBack={() => navigate(-1)}
+      />
 
       <div className="flex-1 overflow-y-auto">
-        {/* Header Image */}
-        <div className="h-32 md:h-48 bg-gradient-to-br from-blue-600 to-purple-700 relative" />
-
-        {/* Profile Info */}
-        <div className="px-4 pb-4 relative">
-          {/* Icon */}
-          <div className="absolute -top-16 left-4">
-            <div className="w-32 h-32 rounded-2xl border-4 border-black overflow-hidden bg-neutral-800 flex items-center justify-center">
-              {community.icon_url ? (
-                <img src={community.icon_url} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-4xl font-bold text-white">
-                  {(community.display_name || community.name).charAt(0).toUpperCase()}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex justify-end pt-3 pb-12 gap-2">
-            {community.is_member ? (
-              <>
-                <Link
-                  to={`/groups/${community.name}/chat`}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-bold transition-colors"
-                >
-                  <ChatIcon />
-                  <span>繝医・繧ｯ</span>
-                </Link>
-                <button
-                  onClick={handleLeave}
-                  disabled={joining}
-                  className="px-4 py-2 border border-neutral-600 text-white hover:border-red-500 hover:text-red-500 rounded-full font-bold transition-colors disabled:opacity-50"
-                >
-                  騾蜃ｺ
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={handleJoin}
-                disabled={joining || community.join_status === 'pending'}
-                className="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-bold transition-colors disabled:opacity-50"
-              >
-                {joining
-                  ? '蜿ょ刈荳ｭ...'
-                  : community.join_status === 'pending'
-                    ? '謇ｿ隱榊ｾ・■'
-                    : community.join_policy === 'invite'
-                      ? '諡帛ｾ・さ繝ｼ繝峨〒蜿ょ刈'
-                      : '蜿ょ刈縺吶ｋ'}
-              </button>
-            )}
-          </div>
-
-          {/* Name */}
-          <div className="mb-3">
-            <div className="text-xl font-bold text-white">
-              {community.display_name || community.name}
-            </div>
-            <div className="text-neutral-500">@{community.name}</div>
-          </div>
-
-          {/* Summary */}
-          {community.summary && (
-            <p className="text-neutral-200 mb-3 whitespace-pre-wrap">{community.summary}</p>
-          )}
-
-          {/* Meta Info */}
-          <div className="flex flex-wrap gap-4 text-neutral-500 text-sm mb-3">
-            <div className="flex items-center gap-1">
-              <UsersIcon />
-              <span>{community.member_count} 繝｡繝ｳ繝舌・</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <CalendarIcon />
-              <span>菴懈・譌･ {formatMonthYear(community.created_at)}</span>
-            </div>
-          </div>
-
-          {/* Visibility & Policy */}
-          <div className="flex flex-wrap gap-2">
-            <span className={`px-2 py-1 text-xs rounded-full ${
-              community.visibility === 'public' ? 'bg-green-500/20 text-green-400' : 'bg-neutral-700 text-neutral-300'
-            }`}>
-              {community.visibility === 'public' ? '蜈ｬ髢・ : '髱槫・髢・}
-            </span>
-            <span className="px-2 py-1 text-xs rounded-full bg-neutral-700 text-neutral-300">
-              {community.join_policy === 'open' ? '隱ｰ縺ｧ繧ょ盾蜉蜿ｯ閭ｽ' : community.join_policy === 'approval' ? '謇ｿ隱榊宛' : '諡帛ｾ・宛'}
-            </span>
-          </div>
-        </div>
-
+        <CommunityProfileSummary
+          community={community}
+          joining={joining}
+          onJoin={handleJoin}
+          onLeave={handleLeave}
+          chatPath={`/groups/${community.name}/chat`}
+        />
         {/* Tabs */}
         <div className="border-b border-neutral-900 flex">
           <button
@@ -428,7 +325,8 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
               activeTab === 'about' ? 'text-white' : 'text-neutral-500 hover:bg-neutral-900/50'
             }`}
           >
-            讎りｦ・            {activeTab === 'about' && (
+            概要
+            {activeTab === 'about' && (
               <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
             )}
           </button>
@@ -438,7 +336,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
               activeTab === 'members' ? 'text-white' : 'text-neutral-500 hover:bg-neutral-900/50'
             }`}
           >
-            繝｡繝ｳ繝舌・
+            メンバー
             {activeTab === 'members' && (
               <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
             )}
@@ -449,8 +347,9 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
               className={`flex-1 py-4 text-center font-bold transition-colors relative ${
                 activeTab === 'settings' ? 'text-white' : 'text-neutral-500 hover:bg-neutral-900/50'
               }`}
-            >
-              險ｭ螳・              {activeTab === 'settings' && (
+          >
+            設定
+            {activeTab === 'settings' && (
                 <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
               )}
             </button>
@@ -462,12 +361,12 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
           <div className="p-4">
             {community.summary ? (
               <div>
-                <h3 className="text-lg font-bold mb-2">繧ｰ繝ｫ繝ｼ繝励↓縺､縺・※</h3>
+                <h3 className="text-lg font-bold mb-2">グループについて</h3>
                 <p className="text-neutral-300 whitespace-pre-wrap">{community.summary}</p>
               </div>
             ) : (
               <div className="text-neutral-500 text-center py-8">
-                隱ｬ譏弱・縺ゅｊ縺ｾ縺帙ｓ
+                説明がありません
               </div>
             )}
           </div>
@@ -528,7 +427,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
               </div>
             )}
             {members.length === 0 ? (
-              <div className="p-8 text-center text-neutral-500">繝｡繝ｳ繝舌・縺後＞縺ｾ縺帙ｓ</div>
+              <div className="p-8 text-center text-neutral-500">メンバーがいません</div>
             ) : (
               members.map(member => (
                 <Link
@@ -548,12 +447,12 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
                       </span>
                       {member.role === 'owner' && (
                         <span className="px-1.5 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
-                          繧ｪ繝ｼ繝翫・
+                          オーナー
                         </span>
                       )}
                       {member.role === 'moderator' && (
                         <span className="px-1.5 py-0.5 text-xs bg-blue-500/20 text-blue-400 rounded">
-                          繝｢繝・Ξ繝ｼ繧ｿ繝ｼ
+                          モデレーター
                         </span>
                       )}
                     </div>
@@ -615,7 +514,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
             {/* Icon Upload */}
             <div>
               <label className="block text-sm font-semibold text-neutral-300 mb-2">
-                繧｢繧､繧ｳ繝ｳ
+                アイコン
               </label>
               <div className="flex items-center gap-4">
                 <div className="w-20 h-20 rounded-xl overflow-hidden bg-neutral-800 flex items-center justify-center">
@@ -632,7 +531,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
                   )}
                 </div>
                 <label className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg cursor-pointer transition-colors">
-                  {uploadingIcon ? '繧｢繝・・繝ｭ繝ｼ繝我ｸｭ...' : '逕ｻ蜒上ｒ驕ｸ謚・}
+                  {uploadingIcon ? 'アップロード中...' : '画像を選択'}
                   <input
                     type="file"
                     accept="image/*"
@@ -647,33 +546,36 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
             {/* Display Name */}
             <div>
               <label className="block text-sm font-semibold text-neutral-300 mb-2">
-                陦ｨ遉ｺ蜷・              </label>
+                表示名
+              </label>
               <input
                 type="text"
                 value={settingsForm.display_name || ''}
                 onChange={(e) => setSettingsForm(prev => ({ ...prev, display_name: e.target.value }))}
                 className="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:border-blue-500 focus:outline-none"
-                placeholder="繧ｰ繝ｫ繝ｼ繝励・陦ｨ遉ｺ蜷・
+                placeholder="グループの表示名"
               />
             </div>
 
             {/* Summary */}
             <div>
               <label className="block text-sm font-semibold text-neutral-300 mb-2">
-                隱ｬ譏・              </label>
+                説明
+              </label>
               <textarea
                 value={settingsForm.summary || ''}
                 onChange={(e) => setSettingsForm(prev => ({ ...prev, summary: e.target.value }))}
                 rows={4}
                 className="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:border-blue-500 focus:outline-none resize-none"
-                placeholder="繧ｰ繝ｫ繝ｼ繝励・隱ｬ譏・
+                placeholder="グループの説明"
               />
             </div>
 
             {/* Visibility */}
             <div>
               <label className="block text-sm font-semibold text-neutral-300 mb-2">
-                蜈ｬ髢玖ｨｭ螳・              </label>
+                公開範囲
+              </label>
               <div className="space-y-2">
                 <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
                   <input
@@ -684,8 +586,8 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
                     className="w-4 h-4 text-blue-500"
                   />
                   <div>
-                    <div className="text-white font-medium">蜈ｬ髢・/div>
-                    <div className="text-sm text-neutral-500">隱ｰ縺ｧ繧ゅげ繝ｫ繝ｼ繝励ｒ隕九▽縺代※髢ｲ隕ｧ縺ｧ縺阪∪縺・/div>
+                    <div className="text-white font-medium">公開</div>
+                    <div className="text-sm text-neutral-500">誰でもグループを見つけて閲覧できます</div>
                   </div>
                 </label>
                 <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
@@ -697,8 +599,8 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
                     className="w-4 h-4 text-blue-500"
                   />
                   <div>
-                    <div className="text-white font-medium">髱槫・髢・/div>
-                    <div className="text-sm text-neutral-500">繝｡繝ｳ繝舌・縺ｮ縺ｿ縺後げ繝ｫ繝ｼ繝励・蜀・ｮｹ繧定ｦ九ｋ縺薙→縺後〒縺阪∪縺・/div>
+                    <div className="text-white font-medium">非公開</div>
+                    <div className="text-sm text-neutral-500">メンバーのみがグループの内容を閲覧できます</div>
                   </div>
                 </label>
               </div>
@@ -707,7 +609,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
             {/* Join Policy */}
             <div>
               <label className="block text-sm font-semibold text-neutral-300 mb-2">
-                蜿ょ刈繝昴Μ繧ｷ繝ｼ
+                参加ポリシー
               </label>
               <div className="space-y-2">
                 <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
@@ -719,8 +621,8 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
                     className="w-4 h-4 text-blue-500"
                   />
                   <div>
-                    <div className="text-white font-medium">繧ｪ繝ｼ繝励Φ</div>
-                    <div className="text-sm text-neutral-500">隱ｰ縺ｧ繧ょ盾蜉縺ｧ縺阪∪縺・/div>
+                    <div className="text-white font-medium">オープン</div>
+                    <div className="text-sm text-neutral-500">誰でも参加できます</div>
                   </div>
                 </label>
                 <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
@@ -732,8 +634,8 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
                     className="w-4 h-4 text-blue-500"
                   />
                   <div>
-                    <div className="text-white font-medium">謇ｿ隱榊宛</div>
-                    <div className="text-sm text-neutral-500">蜿ょ刈縺ｫ縺ｯ繧ｪ繝ｼ繝翫・縺ｾ縺溘・繝｢繝・Ξ繝ｼ繧ｿ繝ｼ縺ｮ謇ｿ隱阪′蠢・ｦ√〒縺・/div>
+                    <div className="text-white font-medium">承認制</div>
+                    <div className="text-sm text-neutral-500">参加にはオーナーまたはモデレーターの承認が必要です</div>
                   </div>
                 </label>
                 <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
@@ -745,8 +647,8 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
                     className="w-4 h-4 text-blue-500"
                   />
                   <div>
-                    <div className="text-white font-medium">諡帛ｾ・宛</div>
-                    <div className="text-sm text-neutral-500">諡帛ｾ・さ繝ｼ繝峨′縺ｪ縺・→蜿ょ刈縺ｧ縺阪∪縺帙ｓ</div>
+                    <div className="text-white font-medium">招待制</div>
+                    <div className="text-sm text-neutral-500">招待コードがないと参加できません</div>
                   </div>
                 </label>
               </div>
@@ -755,7 +657,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
             {/* Post Policy */}
             <div>
               <label className="block text-sm font-semibold text-neutral-300 mb-2">
-                謚慕ｨｿ繝昴Μ繧ｷ繝ｼ
+                投稿ポリシー
               </label>
               <div className="space-y-2">
                 <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
@@ -767,8 +669,8 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
                     className="w-4 h-4 text-blue-500"
                   />
                   <div>
-                    <div className="text-white font-medium">隱ｰ縺ｧ繧・/div>
-                    <div className="text-sm text-neutral-500">隱ｰ縺ｧ繧よ兜遞ｿ縺ｧ縺阪∪縺・/div>
+                    <div className="text-white font-medium">誰でも</div>
+                    <div className="text-sm text-neutral-500">誰でも投稿できます</div>
                   </div>
                 </label>
                 <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
@@ -780,8 +682,8 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
                     className="w-4 h-4 text-blue-500"
                   />
                   <div>
-                    <div className="text-white font-medium">繝｡繝ｳ繝舌・縺ｮ縺ｿ</div>
-                    <div className="text-sm text-neutral-500">繧ｰ繝ｫ繝ｼ繝励Γ繝ｳ繝舌・縺ｮ縺ｿ縺梧兜遞ｿ縺ｧ縺阪∪縺・/div>
+                    <div className="text-white font-medium">メンバーのみ</div>
+                    <div className="text-sm text-neutral-500">グループメンバーのみが投稿できます</div>
                   </div>
                 </label>
                 <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
@@ -793,8 +695,8 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
                     className="w-4 h-4 text-blue-500"
                   />
                   <div>
-                    <div className="text-white font-medium">繝｢繝・Ξ繝ｼ繧ｿ繝ｼ莉･荳・/div>
-                    <div className="text-sm text-neutral-500">繝｢繝・Ξ繝ｼ繧ｿ繝ｼ縺ｨ繧ｪ繝ｼ繝翫・縺ｮ縺ｿ縺梧兜遞ｿ縺ｧ縺阪∪縺・/div>
+                    <div className="text-white font-medium">モデレーター以上</div>
+                    <div className="text-sm text-neutral-500">モデレーターとオーナーのみが投稿できます</div>
                   </div>
                 </label>
                 <label className="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
@@ -806,8 +708,8 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
                     className="w-4 h-4 text-blue-500"
                   />
                   <div>
-                    <div className="text-white font-medium">繧ｪ繝ｼ繝翫・縺ｮ縺ｿ</div>
-                    <div className="text-sm text-neutral-500">繧ｪ繝ｼ繝翫・縺ｮ縺ｿ縺梧兜遞ｿ縺ｧ縺阪∪縺・/div>
+                    <div className="text-white font-medium">オーナーのみ</div>
+                    <div className="text-sm text-neutral-500">オーナーのみが投稿できます</div>
                   </div>
                 </label>
               </div>
@@ -820,7 +722,7 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
                 disabled={savingSettings}
                 className="w-full px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-bold transition-colors disabled:opacity-50"
               >
-                {savingSettings ? '菫晏ｭ倅ｸｭ...' : '險ｭ螳壹ｒ菫晏ｭ・}
+                {savingSettings ? '保存中...' : '設定を保存'}
               </button>
             </div>
           </div>
@@ -829,6 +731,14 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
     </div>
   );
 }
+
+
+
+
+
+
+
+
 
 
 

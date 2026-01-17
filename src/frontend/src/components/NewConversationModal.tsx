@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+﻿import { useState, useCallback } from 'react';
 import { searchActors } from '../lib/api';
 import { UserAvatar } from './UserAvatar';
 import { Actor } from '../types';
@@ -13,19 +13,23 @@ export function NewConversationModal({ isOpen, onClose, onSelect }: NewConversat
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Actor[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSearch = useCallback(async (q: string) => {
     setQuery(q);
     if (q.trim().length < 2) {
       setResults([]);
+      setError(null);
       return;
     }
     setLoading(true);
+    setError(null);
     try {
       const actors = await searchActors(q);
       setResults(actors);
     } catch (e) {
       console.error('Search failed:', e);
+      setError('検索に失敗しました');
     } finally {
       setLoading(false);
     }
@@ -63,7 +67,7 @@ export function NewConversationModal({ isOpen, onClose, onSelect }: NewConversat
         {/* Search input */}
         <div className="p-4 border-b border-neutral-800">
           <div className="flex items-center gap-3">
-            <span className="text-neutral-400">宛先:</span>
+            <span className="text-neutral-400">検索:</span>
             <input
               type="text"
               value={query}
@@ -78,7 +82,9 @@ export function NewConversationModal({ isOpen, onClose, onSelect }: NewConversat
         {/* Results */}
         <div className="max-h-80 overflow-y-auto">
           {loading ? (
-            <div className="p-8 text-center text-neutral-500">検索中...</div>
+            <div className="p-8 text-center text-neutral-500">読み込み中...</div>
+          ) : error ? (
+            <div className="p-8 text-center text-red-400">{error}</div>
           ) : results.length > 0 ? (
             <div className="py-2">
               {results.map((actor) => (
@@ -105,7 +111,7 @@ export function NewConversationModal({ isOpen, onClose, onSelect }: NewConversat
             </div>
           ) : (
             <div className="p-8 text-center text-neutral-500">
-              ユーザー名を入力して検索
+              ユーザー名で検索
             </div>
           )}
         </div>
@@ -113,3 +119,4 @@ export function NewConversationModal({ isOpen, onClose, onSelect }: NewConversat
     </div>
   );
 }
+

@@ -5,64 +5,64 @@ export type Language = 'ja' | 'en';
 const translations = {
   ja: {
     // Navigation
-    'nav.home': '繝帙・繝',
-    'nav.search': '讀懃ｴ｢',
-    'nav.groups': '繧ｰ繝ｫ繝ｼ繝・,
-    'nav.messages': '繝｡繝・そ繝ｼ繧ｸ',
-    'nav.members': '繝｡繝ｳ繝舌・',
-    'nav.notifications': '騾夂衍',
-    'nav.bookmarks': '繝悶ャ繧ｯ繝槭・繧ｯ',
-    'nav.profile': '繝励Ο繝輔ぅ繝ｼ繝ｫ',
-    'nav.settings': '險ｭ螳・,
-    'nav.logout': '繝ｭ繧ｰ繧｢繧ｦ繝・,
+    'nav.home': 'ホーム',
+    'nav.search': '検索',
+    'nav.groups': 'グループ',
+    'nav.messages': 'メッセージ',
+    'nav.members': 'メンバー',
+    'nav.notifications': '通知',
+    'nav.bookmarks': 'ブックマーク',
+    'nav.profile': 'プロフィール',
+    'nav.settings': '設定',
+    'nav.logout': 'ログアウト',
 
     // Timeline / Posts
-    'timeline.title': '繝帙・繝',
-    'timeline.empty': '謚慕ｨｿ縺後≠繧翫∪縺帙ｓ',
-    'timeline.all': '縺吶∋縺ｦ',
-    'timeline.postsOnly': '謚慕ｨｿ縺ｮ縺ｿ',
-    'timeline.groupsOnly': '繧ｰ繝ｫ繝ｼ繝励・縺ｿ',
-    'posts.placeholder': '莉翫↑縺ｫ縺励※繧具ｼ・,
-    'posts.post': '謚慕ｨｿ',
-    'posts.like': '縺・＞縺ｭ',
-    'posts.repost': '繝ｪ繝昴せ繝・,
-    'posts.reply': '霑比ｿ｡',
-    'posts.delete': '蜑企勁',
+    'timeline.title': 'ホーム',
+    'timeline.empty': '投稿がありません',
+    'timeline.all': 'すべて',
+    'timeline.postsOnly': '投稿のみ',
+    'timeline.groupsOnly': 'グループのみ',
+    'posts.placeholder': '今なにしてる？',
+    'posts.post': '投稿',
+    'posts.like': 'いいね',
+    'posts.repost': 'リポスト',
+    'posts.reply': '返信',
+    'posts.delete': '削除',
 
     // Profile
-    'profile.posts': '謚慕ｨｿ',
-    'profile.likes': '縺・＞縺ｭ',
-    'profile.noLikes': '縺ｾ縺縺・＞縺ｭ縺後≠繧翫∪縺帙ｓ',
-    'profile.followers': '繝輔か繝ｭ繝ｯ繝ｼ',
-    'profile.following': '繝輔か繝ｭ繝ｼ荳ｭ',
-    'profile.follow': '繝輔か繝ｭ繝ｼ',
-    'profile.unfollow': '繝輔か繝ｭ繝ｼ隗｣髯､',
-    'profile.editProfile': '繝励Ο繝輔ぅ繝ｼ繝ｫ繧堤ｷｨ髮・,
+    'profile.posts': '投稿',
+    'profile.likes': 'いいね',
+    'profile.noLikes': 'まだいいねがありません',
+    'profile.followers': 'フォロワー',
+    'profile.following': 'フォロー中',
+    'profile.follow': 'フォロー',
+    'profile.unfollow': 'フォロー解除',
+    'profile.editProfile': 'プロフィールを編集',
 
     // Timeline tabs
-    'timeline.following': '繝輔か繝ｭ繝ｼ荳ｭ',
-    'timeline.communities': '繧ｳ繝溘Η繝九ユ繧｣',
+    'timeline.following': 'フォロー中',
+    'timeline.communities': 'コミュニティ',
 
     // Groups
-    'groups.title': '繧ｰ繝ｫ繝ｼ繝・,
-    'groups.noGroups': '繧ｰ繝ｫ繝ｼ繝励′縺ゅｊ縺ｾ縺帙ｓ',
-    'groups.create': '菴懈・',
-    'groups.createTitle': '繧ｰ繝ｫ繝ｼ繝励ｒ菴懈・',
-    'groups.name': '蜷榊燕',
-    'groups.namePlaceholder': '繧ｰ繝ｫ繝ｼ繝怜錐繧貞・蜉・,
-    'groups.description': '隱ｬ譏・,
-    'groups.descriptionPlaceholder': '繧ｰ繝ｫ繝ｼ繝励・隱ｬ譏弱ｒ蜈･蜉・,
-    'groups.join': '蜿ょ刈',
-    'groups.leave': '騾蜃ｺ',
-    'groups.pending': '謇ｿ隱榊ｾ・■',
-    'groups.members': '繝｡繝ｳ繝舌・',
-    'groups.rooms': '繝ｫ繝ｼ繝',
+    'groups.title': 'グループ',
+    'groups.noGroups': 'グループがありません',
+    'groups.create': '作成',
+    'groups.createTitle': 'グループを作成',
+    'groups.name': '名前',
+    'groups.namePlaceholder': 'グループ名を入力',
+    'groups.description': '説明',
+    'groups.descriptionPlaceholder': 'グループの説明を入力',
+    'groups.join': '参加',
+    'groups.leave': '退出',
+    'groups.pending': '承認待ち',
+    'groups.members': 'メンバー',
+    'groups.rooms': 'ルーム',
 
     // Rooms
-    'rooms.title': '繝ｫ繝ｼ繝',
-    'rooms.noRooms': '繝ｫ繝ｼ繝縺後≠繧翫∪縺帙ｓ',
-    'rooms.chat': '繝√Ε繝・ヨ',
-    'rooms.forum': '繝輔か繝ｼ繝ｩ繝',
+    'rooms.title': 'ルーム',
+    'rooms.noRooms': 'ルームがありません',
+    'rooms.chat': 'チャット',
+    'rooms.forum': 'フォーラム',
 
     // Community Chat
     'communityChat.noMessages': 'メッセージはまだありません',
@@ -74,63 +74,62 @@ const translations = {
     'communityChat.leaveConfirm': 'このコミュニティを退出しますか？',
 
     // Messages
-    'messages.placeholder': '繝｡繝・そ繝ｼ繧ｸ繧貞・蜉・..',
-    'messages.send': '騾∽ｿ｡',
-    'messages.noMessages': '繝｡繝・そ繝ｼ繧ｸ縺後≠繧翫∪縺帙ｓ',
-    'messages.loading': '隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...',
-    'messages.loadMore': '繧ゅ▲縺ｨ隕九ｋ',
+    'messages.placeholder': 'メッセージを入力...',
+    'messages.send': '送信',
+    'messages.noMessages': 'メッセージがありません',
+    'messages.loading': '読み込み中...',
+    'messages.loadMore': 'もっと見る',
 
     // Threads (Forum)
-    'threads.title': '繧ｹ繝ｬ繝・ラ',
-    'threads.noThreads': '繧ｹ繝ｬ繝・ラ縺後≠繧翫∪縺帙ｓ',
-    'threads.newThread': '譁ｰ隕上せ繝ｬ繝・ラ',
-    'threads.replies': '莉ｶ縺ｮ霑比ｿ｡',
-    'threads.reply': '霑比ｿ｡',
-    'threads.pinned': '蝗ｺ螳・,
-    'threads.locked': '繝ｭ繝・け',
+    'threads.title': 'スレッド',
+    'threads.noThreads': 'スレッドがありません',
+    'threads.newThread': '新規スレッド',
+    'threads.replies': '件の返信',
+    'threads.reply': '返信',
+    'threads.pinned': '固定',
+    'threads.locked': 'ロック',
 
     // Members
-    'members.title': '繝｡繝ｳ繝舌・',
-    'members.noMembers': '繝｡繝ｳ繝舌・縺後＞縺ｾ縺帙ｓ',
-    'members.owner': '繧ｪ繝ｼ繝翫・',
-    'members.moderator': '繝｢繝・Ξ繝ｼ繧ｿ繝ｼ',
-    'members.member': '繝｡繝ｳ繝舌・',
+    'members.title': 'メンバー',
+    'members.noMembers': 'メンバーがいません',
+    'members.owner': 'オーナー',
+    'members.moderator': 'モデレーター',
+    'members.member': 'メンバー',
 
     // DM
-    'dm.title': '繝繧､繝ｬ繧ｯ繝医Γ繝・そ繝ｼ繧ｸ',
-    'dm.noConversations': '莨夊ｩｱ縺後≠繧翫∪縺帙ｓ',
-    'dm.noMessages': '繝｡繝・そ繝ｼ繧ｸ繧帝∽ｿ｡',
-    'dm.newMessage': '譁ｰ隕上Γ繝・そ繝ｼ繧ｸ',
-    'dm.placeholder': '繝｡繝・そ繝ｼ繧ｸ繧貞・蜉・..',
-    'dm.send': '騾∽ｿ｡',
+    'dm.title': 'ダイレクトメッセージ',
+    'dm.noConversations': '会話がありません',
+    'dm.noMessages': 'メッセージを送信',
+    'dm.newMessage': '新規メッセージ',
+    'dm.placeholder': 'メッセージを入力...',
+    'dm.send': '送信',
     'dm.typing': '入力中...',
+
     // Story
     'story.shareCopied': 'リンクをコピーしました',
     'story.shareFailed': '共有に失敗しました',
     'story.shareRecordFailed': '共有の記録に失敗しました',
 
-
-
     // Notifications
-    'notifications.title': '騾夂衍',
-    'notifications.empty': '騾夂衍縺ｯ縺ゅｊ縺ｾ縺帙ｓ',
-    'notifications.follow': '縺後≠縺ｪ縺溘ｒ繝輔か繝ｭ繝ｼ縺励∪縺励◆',
-    'notifications.like': '縺後≠縺ｪ縺溘・謚慕ｨｿ縺ｫ縺・＞縺ｭ縺励∪縺励◆',
-    'notifications.repost': '縺後≠縺ｪ縺溘・謚慕ｨｿ繧偵Μ繝昴せ繝医＠縺ｾ縺励◆',
-    'notifications.mention': '縺後≠縺ｪ縺溘ｒ繝｡繝ｳ繧ｷ繝ｧ繝ｳ縺励∪縺励◆',
-    'notifications.reply': '縺後≠縺ｪ縺溘・謚慕ｨｿ縺ｫ霑比ｿ｡縺励∪縺励◆',
-    'notifications.joinRequest': '縺後げ繝ｫ繝ｼ繝励∈縺ｮ蜿ょ刈繧偵Μ繧ｯ繧ｨ繧ｹ繝医＠縺ｾ縺励◆',
-    'notifications.joinAccepted': '縺後げ繝ｫ繝ｼ繝励∈縺ｮ蜿ょ刈繧呈価隱阪＠縺ｾ縺励◆',
-    'notifications.invite': '縺後げ繝ｫ繝ｼ繝励↓諡帛ｾ・＠縺ｾ縺励◆',
+    'notifications.title': '通知',
+    'notifications.empty': '通知はありません',
+    'notifications.follow': 'があなたをフォローしました',
+    'notifications.like': 'があなたの投稿にいいねしました',
+    'notifications.repost': 'があなたの投稿をリポストしました',
+    'notifications.mention': 'があなたをメンションしました',
+    'notifications.reply': 'があなたの投稿に返信しました',
+    'notifications.joinRequest': 'がグループへの参加をリクエストしました',
+    'notifications.joinAccepted': 'がグループへの参加を承認しました',
+    'notifications.invite': 'がグループに招待しました',
 
     // Common
-    'common.loading': '隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...',
-    'common.error': '繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆',
-    'common.cancel': '繧ｭ繝｣繝ｳ繧ｻ繝ｫ',
-    'common.save': '菫晏ｭ・,
-    'common.confirm': '遒ｺ隱・,
-    'common.delete': '蜑企勁',
-    'common.edit': '邱ｨ髮・,
+    'common.loading': '読み込み中...',
+    'common.error': 'エラーが発生しました',
+    'common.cancel': 'キャンセル',
+    'common.save': '保存',
+    'common.confirm': '確認',
+    'common.delete': '削除',
+    'common.edit': '編集',
   },
   en: {
     // Navigation
@@ -233,12 +232,11 @@ const translations = {
     'dm.placeholder': 'Type a message...',
     'dm.send': 'Send',
     'dm.typing': 'Typing...',
+
     // Story
     'story.shareCopied': 'Link copied',
     'story.shareFailed': 'Failed to share story',
     'story.shareRecordFailed': 'Failed to record share',
-
-
 
     // Notifications
     'notifications.title': 'Notifications',
@@ -304,5 +302,3 @@ export function useI18n() {
   }
   return context;
 }
-
-

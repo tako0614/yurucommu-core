@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+﻿import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Post, Actor, Community, ActorStories } from '../types';
 import {
   fetchTimeline,
@@ -18,92 +18,28 @@ import {
   switchAccount,
   AccountInfo,
 } from '../lib/api';
-import { formatRelativeTime } from '../lib/datetime';
 import { useI18n } from '../lib/i18n';
-import { UserAvatar } from '../components/UserAvatar';
-import { PostContent } from '../components/PostContent';
 import { StoryBar, StoryViewer, StoryComposer } from '../components/story';
-import { HeartIcon, ReplyIcon, BookmarkIcon, RepostIcon } from '../components/icons/SocialIcons';
+import { InlineErrorBanner } from '../components/InlineErrorBanner';
+import { useInlineError } from '../hooks/useInlineError';
+import { TimelineHeader } from '../components/timeline/TimelineHeader';
+import { TimelineMobileMenu } from '../components/timeline/TimelineMobileMenu';
+import { TimelinePostItem } from '../components/timeline/TimelinePostItem';
+import { TimelinePostModal } from '../components/timeline/TimelinePostModal';
+import type { UploadedMedia } from '../components/timeline/types';
 
 interface TimelinePageProps {
   actor: Actor;
 }
 
-const ImageIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-  </svg>
-);
-
-const CloseIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-  </svg>
-);
-
-const CloseIconLarge = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-  </svg>
-);
-
-// Menu Icons
-const HomeIconMenu = ({ active }: { active?: boolean }) => (
-  <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-  </svg>
-);
-
-const GroupIconMenu = ({ active }: { active?: boolean }) => (
-  <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-  </svg>
-);
-
-const MessageIconMenu = ({ active }: { active?: boolean }) => (
-  <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-  </svg>
-);
-
-const BellIconMenu = ({ active }: { active?: boolean }) => (
-  <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-  </svg>
-);
-
-const ProfileIconMenu = ({ active }: { active?: boolean }) => (
-  <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-  </svg>
-);
-
-const BookmarkIconMenu = ({ active }: { active?: boolean }) => (
-  <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-  </svg>
-);
-
-const SettingsIconMenu = ({ active }: { active?: boolean }) => (
-  <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-  </svg>
-);
-
 // File size limits
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
-
-interface UploadedMedia {
-  r2_key: string;
-  content_type: string;
-  preview: string;
-}
 
 type TabType = 'following' | string;
 
 export function TimelinePage({ actor }: TimelinePageProps) {
   const { t } = useI18n();
+  const { error, setError, clearError } = useInlineError();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -142,6 +78,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
       setCurrentApId(data.current_ap_id);
     } catch (e) {
       console.error('Failed to load accounts:', e);
+      setError(t('common.error'));
     } finally {
       setAccountsLoading(false);
     }
@@ -154,6 +91,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
       window.location.reload();
     } catch (e) {
       console.error('Failed to switch account:', e);
+      setError(t('common.error'));
     }
   };
 
@@ -162,8 +100,25 @@ export function TimelinePage({ actor }: TimelinePageProps) {
     loadAccounts();
   };
 
+  const handleCloseMenu = () => {
+    setShowMenu(false);
+    setShowAccountSwitcher(false);
+  };
+
+  const handleClosePostModal = () => {
+    setShowPostModal(false);
+    setPostContent('');
+    setUploadedMedia([]);
+    setUploadError(null);
+  };
+
   useEffect(() => {
-    fetchCommunities().then(setCommunities).catch(console.error);
+    fetchCommunities()
+      .then(setCommunities)
+      .catch((err) => {
+        console.error('Failed to load communities:', err);
+        setError(t('common.error'));
+      });
     loadStories();
   }, []);
 
@@ -173,6 +128,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
       setActorStories(data);
     } catch (e) {
       console.error('Failed to load stories:', e);
+      setError(t('common.error'));
     } finally {
       setStoriesLoading(false);
     }
@@ -209,6 +165,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
       setHasMore(loadedPosts.length >= 20);
     } catch (e) {
       console.error('Failed to load timeline:', e);
+      setError(t('common.error'));
     } finally {
       setLoading(false);
     }
@@ -231,6 +188,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
       setHasMore(newPosts.length >= 20);
     } catch (e) {
       console.error('Failed to load more:', e);
+      setError(t('common.error'));
     } finally {
       setLoadingMore(false);
     }
@@ -278,6 +236,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
       }
     } catch (err) {
       console.error('Failed to upload:', err);
+      setError(t('common.error'));
       setUploadError('アップロードに失敗しました');
     } finally {
       setUploading(false);
@@ -307,6 +266,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
       return false;
     } catch (e) {
       console.error('Failed to create post:', e);
+      setError(t('common.error'));
       return false;
     } finally {
       setPosting(false);
@@ -328,6 +288,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
       }
     } catch (e) {
       console.error('Failed to toggle like:', e);
+      setError(t('common.error'));
     }
   };
 
@@ -346,6 +307,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
       }
     } catch (e) {
       console.error('Failed to toggle bookmark:', e);
+      setError(t('common.error'));
     }
   };
 
@@ -364,6 +326,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
       }
     } catch (e) {
       console.error('Failed to toggle repost:', e);
+      setError(t('common.error'));
     }
   };
 
@@ -375,6 +338,9 @@ export function TimelinePage({ actor }: TimelinePageProps) {
 
   return (
     <div className="flex flex-col h-full">
+      {error && (
+        <InlineErrorBanner message={error} onClose={clearError} />
+      )}
       {/* Story Viewer Modal */}
       {showStoryViewer && actorStories.length > 0 && (
         <StoryViewer
@@ -395,142 +361,28 @@ export function TimelinePage({ actor }: TimelinePageProps) {
         />
       )}
 
-      {/* Mobile Menu Overlay */}
-      {showMenu && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/60"
-            onClick={() => { setShowMenu(false); setShowAccountSwitcher(false); }}
-          />
-          {/* Slide-in Menu */}
-          <div className="absolute left-0 top-0 bottom-0 w-72 bg-black border-r border-neutral-800 animate-slide-in overflow-y-auto">
-            {/* Profile Header */}
-            <div className="p-4 border-b border-neutral-800">
-              {/* Avatar and Account Switcher Toggle */}
-              <div className="flex items-center justify-between mb-3">
-                <UserAvatar avatarUrl={actor.icon_url} name={actor.name || actor.username} size={48} />
-                <button
-                  onClick={() => setShowAccountSwitcher(!showAccountSwitcher)}
-                  className="p-2 rounded-full border border-neutral-700 hover:bg-neutral-800 transition-colors"
-                >
-                  <svg className={`w-4 h-4 transition-transform ${showAccountSwitcher ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-              </div>
-              {/* Name and Username */}
-              <p className="font-bold text-white text-lg">{actor.name || actor.username}</p>
-              <p className="text-neutral-500">@{actor.username}</p>
-              {/* Follow/Follower counts */}
-              <div className="flex gap-4 mt-3">
-                <Link to={`/profile/${encodeURIComponent(actor.ap_id)}/following`} onClick={() => setShowMenu(false)} className="hover:underline">
-                  <span className="font-bold text-white">{actor.following_count || 0}</span>
-                  <span className="text-neutral-500 ml-1">{t('profile.following')}</span>
-                </Link>
-                <Link to={`/profile/${encodeURIComponent(actor.ap_id)}/followers`} onClick={() => setShowMenu(false)} className="hover:underline">
-                  <span className="font-bold text-white">{actor.follower_count || 0}</span>
-                  <span className="text-neutral-500 ml-1">{t('profile.followers')}</span>
-                </Link>
-              </div>
-            </div>
+      <TimelineMobileMenu
+        isOpen={showMenu}
+        actor={actor}
+        accounts={accounts}
+        accountsLoading={accountsLoading}
+        currentApId={currentApId}
+        showAccountSwitcher={showAccountSwitcher}
+        onToggleAccountSwitcher={() => setShowAccountSwitcher((prev) => !prev)}
+        onSwitchAccount={handleSwitchAccount}
+        onClose={handleCloseMenu}
+        t={t}
+      />
 
-            {/* Account Switcher */}
-            {showAccountSwitcher && (
-              <div className="border-b border-neutral-800">
-                {accountsLoading ? (
-                  <div className="p-4 text-center text-neutral-500">読み込み中...</div>
-                ) : (
-                  <div className="py-2">
-                    {accounts.map((account) => (
-                      <button
-                        key={account.ap_id}
-                        onClick={() => handleSwitchAccount(account.ap_id)}
-                        className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900 transition-colors ${
-                          account.ap_id === currentApId ? 'bg-neutral-900/50' : ''
-                        }`}
-                      >
-                        <UserAvatar avatarUrl={account.icon_url} name={account.name || account.preferred_username} size={40} />
-                        <div className="flex-1 text-left">
-                          <p className="font-bold text-white">{account.name || account.preferred_username}</p>
-                          <p className="text-sm text-neutral-500">@{account.preferred_username}</p>
-                        </div>
-                        {account.ap_id === currentApId && (
-                          <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                          </svg>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Navigation */}
-            <nav className="p-2">
-              <Link to="/profile" onClick={() => setShowMenu(false)} className="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors">
-                <ProfileIconMenu />
-                <span className="text-lg">{t('nav.profile')}</span>
-              </Link>
-              <Link to="/bookmarks" onClick={() => setShowMenu(false)} className="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors">
-                <BookmarkIconMenu />
-                <span className="text-lg">{t('nav.bookmarks')}</span>
-              </Link>
-              <Link to="/settings" onClick={() => setShowMenu(false)} className="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors">
-                <SettingsIconMenu />
-                <span className="text-lg">{t('nav.settings')}</span>
-              </Link>
-            </nav>
-          </div>
-        </div>
-      )}
-
-      <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-        <div className="flex items-center justify-between px-4 py-3">
-          {/* Mobile: User avatar button that opens menu */}
-          <button
-            onClick={handleOpenMenu}
-            aria-label="Open menu"
-            className="md:hidden"
-          >
-            <UserAvatar avatarUrl={actor.icon_url} name={actor.name || actor.username} size={32} />
-          </button>
-          {/* Desktop: Show text title */}
-          <h1 className="hidden md:block text-xl font-bold">{t('timeline.title')}</h1>
-          {/* Mobile: Notification heart icon */}
-          <Link to="/notifications" aria-label="Notifications" className="md:hidden p-2 text-white hover:text-pink-500 transition-colors">
-            <HeartIcon filled={false} />
-          </Link>
-        </div>
-        <div className="flex overflow-x-auto scrollbar-hide border-b border-neutral-900">
-          <button
-            onClick={() => setActiveTab('following')}
-            className={`px-4 py-3 text-sm font-medium whitespace-nowrap relative transition-colors ${
-              activeTab === 'following' ? 'text-white' : 'text-neutral-500 hover:bg-neutral-900/50'
-            }`}
-          >
-            {t('timeline.following')}
-            {activeTab === 'following' && (
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-blue-500 rounded-full" />
-            )}
-          </button>
-          {communities.map(community => (
-            <button
-              key={community.ap_id}
-              onClick={() => setActiveTab(community.ap_id)}
-              className={`px-4 py-3 text-sm font-medium whitespace-nowrap relative transition-colors ${
-                activeTab === community.ap_id ? 'text-white' : 'text-neutral-500 hover:bg-neutral-900/50'
-              }`}
-            >
-              {community.name}
-              {activeTab === community.ap_id && (
-                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-blue-500 rounded-full" />
-              )}
-            </button>
-          ))}
-        </div>
-      </header>
+      <TimelineHeader
+        actor={actor}
+        communities={communities}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        onOpenMenu={handleOpenMenu}
+        title={t('timeline.title')}
+        followingLabel={t('timeline.following')}
+      />
 
       {/* Story Bar */}
       <StoryBar
@@ -548,72 +400,16 @@ export function TimelinePage({ actor }: TimelinePageProps) {
           <div className="p-8 text-center text-neutral-500">{t('timeline.empty')}</div>
         ) : (
           <>
-            {posts.map(post => (
-              <div key={post.ap_id} className="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
-                <Link to={`/profile/${encodeURIComponent(post.author.ap_id)}`}>
-                  <UserAvatar avatarUrl={post.author.icon_url} name={post.author.name || post.author.username} size={48} />
-                </Link>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-baseline gap-2">
-                    <Link to={`/profile/${encodeURIComponent(post.author.ap_id)}`} className="font-bold text-white truncate hover:underline">
-                      {post.author.name || post.author.username}
-                    </Link>
-                    <span className="text-neutral-500 truncate">@{post.author.username}</span>
-                    <span className="text-neutral-500">·</span>
-                    <span className="text-neutral-500 text-sm">{formatRelativeTime(post.published)}</span>
-                  </div>
-                  <Link to={`/post/${encodeURIComponent(post.ap_id)}`} className="block">
-                    <PostContent content={post.content} className="text-[15px] text-neutral-200 mt-1" />
-                    {post.attachments && post.attachments.length > 0 && (
-                      <div className={`mt-3 grid gap-1 rounded-xl overflow-hidden ${
-                        post.attachments.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
-                      }`}>
-                        {post.attachments.map((m, idx) => (
-                          <img key={idx} src={`/media/${m.r2_key}`} alt="" className="w-full object-cover max-h-96" />
-                        ))}
-                      </div>
-                    )}
-                  </Link>
-                  <div className="flex items-center gap-6 mt-3">
-                    <button
-                      onClick={() => navigate(`/post/${encodeURIComponent(post.ap_id)}`)}
-                      aria-label="Reply"
-                      className="flex items-center gap-2 text-neutral-500 hover:text-blue-500 transition-colors"
-                    >
-                      <ReplyIcon />
-                      <span className="text-sm">{post.reply_count || ''}</span>
-                    </button>
-                    <button
-                      onClick={() => handleRepost(post)}
-                      aria-label={post.reposted ? 'Undo repost' : 'Repost'}
-                      aria-pressed={post.reposted}
-                      className={`flex items-center gap-2 transition-colors ${post.reposted ? 'text-green-500' : 'text-neutral-500 hover:text-green-500'}`}
-                    >
-                      <RepostIcon filled={post.reposted} />
-                      {post.announce_count > 0 && <span className="text-sm">{post.announce_count}</span>}
-                    </button>
-                    <button
-                      onClick={() => handleLike(post)}
-                      aria-label={post.liked ? 'Unlike' : 'Like'}
-                      aria-pressed={post.liked}
-                      className={`flex items-center gap-2 transition-colors ${post.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'}`}
-                    >
-                      <HeartIcon filled={post.liked} />
-                      {post.like_count > 0 && <span className="text-sm">{post.like_count}</span>}
-                    </button>
-                    <button
-                      onClick={() => handleBookmark(post)}
-                      aria-label={post.bookmarked ? 'Remove bookmark' : 'Bookmark'}
-                      aria-pressed={post.bookmarked}
-                      className={`flex items-center gap-2 transition-colors ${post.bookmarked ? 'text-blue-500' : 'text-neutral-500 hover:text-blue-500'}`}
-                    >
-                      <BookmarkIcon filled={post.bookmarked} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {loadingMore && <div className="p-4 text-center text-neutral-500">{t('common.loading')}</div>}
+            {posts.map((post) => (
+              <TimelinePostItem
+                key={post.ap_id}
+                post={post}
+                onReply={() => navigate(`/post/${encodeURIComponent(post.ap_id)}`)}
+                onRepost={handleRepost}
+                onLike={handleLike}
+                onBookmark={handleBookmark}
+              />
+            ))}            {loadingMore && <div className="p-4 text-center text-neutral-500">{t('common.loading')}</div>}
             {!hasMore && posts.length > 0 && <div className="p-4 text-center text-neutral-600 text-sm">これ以上の投稿はありません</div>}
           </>
         )}
@@ -630,87 +426,24 @@ export function TimelinePage({ actor }: TimelinePageProps) {
         </svg>
       </button>
 
-      {/* Post Modal */}
-      {showPostModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-start justify-center z-50 p-4 pt-12">
-          <div className="bg-black w-full max-w-lg rounded-2xl border border-neutral-800">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
-              <button
-                onClick={() => {
-                  setShowPostModal(false);
-                  setPostContent('');
-                  setUploadedMedia([]);
-                  setUploadError(null);
-                }}
-                aria-label="Close"
-                className="text-white hover:text-neutral-400 transition-colors"
-              >
-                <CloseIconLarge />
-              </button>
-              <button
-                onClick={async () => {
-                  const success = await handlePost();
-                  if (success) {
-                    setShowPostModal(false);
-                  }
-                }}
-                disabled={(!postContent.trim() && uploadedMedia.length === 0) || posting}
-                className="px-4 py-1.5 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
-              >
-                {posting ? '投稿中...' : t('posts.post')}
-              </button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="p-4">
-              <div className="flex gap-3">
-                <UserAvatar avatarUrl={actor.icon_url} name={actor.name || actor.username} size={48} />
-                <div className="flex-1">
-                  <textarea
-                    value={postContent}
-                    onChange={e => setPostContent(e.target.value)}
-                    placeholder={getPlaceholder()}
-                    className="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none text-lg min-h-[120px]"
-                    autoFocus
-                  />
-                  {uploadedMedia.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {uploadedMedia.map((media, idx) => (
-                        <div key={idx} className="relative">
-                          <img src={media.preview} alt="" className="w-20 h-20 object-cover rounded-lg" />
-                          <button
-                            onClick={() => removeMedia(idx)}
-                            aria-label="Remove media"
-                            className="absolute -top-1 -right-1 bg-black/70 rounded-full p-0.5 hover:bg-black"
-                          >
-                            <CloseIcon />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="flex items-center gap-2 px-4 py-3 border-t border-neutral-800">
-              <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileSelect} className="hidden" />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading || uploadedMedia.length >= 4}
-                aria-label="Add image"
-                className="p-2 text-blue-500 hover:bg-blue-500/10 rounded-full disabled:opacity-50 transition-colors"
-              >
-                <ImageIcon />
-              </button>
-              {uploading && <span className="text-sm text-neutral-500">アップロード中...</span>}
-              {uploadError && <span className="text-sm text-red-500">{uploadError}</span>}
-            </div>
-          </div>
-        </div>
-      )}
+      <TimelinePostModal
+        isOpen={showPostModal}
+        actor={actor}
+        postContent={postContent}
+        onPostContentChange={setPostContent}
+        placeholder={getPlaceholder()}
+        submitLabel={t('posts.post')}
+        submittingLabel="投稿中..."
+        onClose={handleClosePostModal}
+        onSubmit={handlePost}
+        posting={posting}
+        fileInputRef={fileInputRef}
+        onFileSelect={handleFileSelect}
+        uploadedMedia={uploadedMedia}
+        onRemoveMedia={removeMedia}
+        uploading={uploading}
+        uploadError={uploadError}
+      />
     </div>
   );
 }

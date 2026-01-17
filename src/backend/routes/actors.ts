@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { deleteCookie } from 'hono/cookie';
-import type { Env, Variables } from '../types';
+import type { Actor, ActorCache, Env, Variables } from '../types';
 import { actorApId, getDomain, formatUsername } from '../utils';
 
 const actors = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -9,6 +9,79 @@ const MAX_ACTOR_POSTS_LIMIT = 100;
 const MAX_PROFILE_NAME_LENGTH = 50;
 const MAX_PROFILE_SUMMARY_LENGTH = 500;
 const MAX_PROFILE_URL_LENGTH = 2000;
+
+type ActorListRow = Pick<
+  Actor,
+  'ap_id' | 'preferred_username' | 'name' | 'summary' | 'icon_url' | 'role' | 'follower_count' | 'following_count' | 'post_count' | 'created_at'
+>;
+
+type ActorProfileRow = Pick<
+  Actor,
+  'ap_id' | 'preferred_username' | 'name' | 'summary' | 'icon_url' | 'header_url' | 'role' | 'follower_count' | 'following_count' | 'post_count' | 'is_private' | 'created_at'
+>;
+
+type BlockedRow = {
+  blocked_ap_id: string;
+  preferred_username: string | null;
+  name: string | null;
+  icon_url: string | null;
+  summary: string | null;
+};
+
+type MutedRow = {
+  muted_ap_id: string;
+  preferred_username: string | null;
+  name: string | null;
+  icon_url: string | null;
+  summary: string | null;
+};
+
+type FollowerRow = {
+  follower_ap_id: string;
+  preferred_username: string | null;
+  name: string | null;
+  icon_url: string | null;
+  summary: string | null;
+};
+
+type FollowingRow = {
+  following_ap_id: string;
+  preferred_username: string | null;
+  name: string | null;
+  icon_url: string | null;
+  summary: string | null;
+};
+
+type ActorPostRow = {
+  ap_id: string;
+  type: string;
+  attributed_to: string;
+  content: string;
+  summary: string | null;
+  attachments_json: string | null;
+  in_reply_to: string | null;
+  visibility: string;
+  community_ap_id: string | null;
+  like_count: number;
+  reply_count: number;
+  announce_count: number;
+  published: string;
+  author_username: string | null;
+  author_name: string | null;
+  author_icon_url: string | null;
+  liked: number;
+  bookmarked: number;
+  reposted: number;
+};
+
+type CountRow = {
+  total: number;
+};
+
+type FollowStatusRow = {
+  is_following: number;
+  is_followed_by: number;
+};
 
 function parseLimit(value: string | undefined, fallback: number, max: number): number {
   const parsed = parseInt(value || '', 10);
@@ -52,7 +125,7 @@ async function resolveActorApId(
 
     const cached = await c.env.DB.prepare(
       'SELECT ap_id FROM actor_cache WHERE preferred_username = ? AND ap_id LIKE ?'
-    ).bind(username, `%${domain}%`).first<any>();
+    ).bind(username, `%${domain}%`).first<{ ap_id: string }>();
     return cached?.ap_id || null;
   }
 
@@ -66,7 +139,7 @@ actors.get('/', async (c) => {
     FROM actors ORDER BY created_at ASC
   `).all();
 
-  const actorsList = (result.results || []).map((a: any) => ({
+  const actorsList = (result.results || []).map((a: ActorListRow) => ({
     ...a,
     username: formatUsername(a.ap_id),
   }));
@@ -92,7 +165,7 @@ actors.get('/me/blocked', async (c) => {
     ORDER BY b.created_at DESC
   `).bind(actor.ap_id).all();
 
-  const blocked = (result.results || []).map((u: any) => ({
+  const blocked = (result.results || []).map((u: BlockedRow) => ({
     ap_id: u.blocked_ap_id,
     username: formatUsername(u.blocked_ap_id),
     preferred_username: u.preferred_username,
@@ -154,7 +227,7 @@ actors.get('/me/muted', async (c) => {
     ORDER BY m.created_at DESC
   `).bind(actor.ap_id).all();
 
-  const muted = (result.results || []).map((u: any) => ({
+  const muted = (result.results || []).map((u: MutedRow) => ({
     ap_id: u.muted_ap_id,
     username: formatUsername(u.muted_ap_id),
     preferred_username: u.preferred_username,
@@ -272,9 +345,9 @@ actors.get('/:identifier/posts', async (c) => {
 
   // Ensure actor exists (local or cached)
   const actorExists = await c.env.DB.prepare('SELECT ap_id FROM actors WHERE ap_id = ?')
-    .bind(apId).first<any>();
+    .bind(apId).first<{ ap_id: string }>();
   const cachedExists = actorExists ? null : await c.env.DB.prepare('SELECT ap_id FROM actor_cache WHERE ap_id = ?')
-    .bind(apId).first<any>();
+    .bind(apId).first<{ ap_id: string }>();
   if (!actorExists && !cachedExists) {
     return c.json({ error: 'Actor not found' }, 404);
   }
@@ -298,7 +371,7 @@ actors.get('/:identifier/posts', async (c) => {
       AND o.visibility != 'direct'
       AND o.attributed_to = ?
   `;
-  const params: any[] = [currentActor?.ap_id || '', currentActor?.ap_id || '', currentActor?.ap_id || '', apId];
+  const params: Array<string | number | null> = [currentActor?.ap_id || '', currentActor?.ap_id || '', currentActor?.ap_id || '', apId];
 
   if (!currentActor || currentActor.ap_id !== apId) {
     query += ` AND o.visibility = 'public'`;
@@ -314,7 +387,7 @@ actors.get('/:identifier/posts', async (c) => {
 
   const posts = await c.env.DB.prepare(query).bind(...params).all();
 
-  const result = (posts.results || []).map((p: any) => ({
+  const result = (posts.results || []).map((p: ActorPostRow) => ({
     ap_id: p.ap_id,
     type: p.type,
     author: {
@@ -372,7 +445,7 @@ actors.get('/:identifier', async (c) => {
       } else {
         // Remote actor - check cache
         const cached = await c.env.DB.prepare('SELECT * FROM actor_cache WHERE preferred_username = ? AND ap_id LIKE ?')
-          .bind(username, `%${domain}%`).first<any>();
+          .bind(username, `%${domain}%`).first<{ ap_id: string }>();
         if (cached) {
           return c.json({ actor: { ...cached, username: formatUsername(cached.ap_id as string) } });
         }
@@ -388,11 +461,11 @@ actors.get('/:identifier', async (c) => {
     SELECT ap_id, preferred_username, name, summary, icon_url, header_url, role,
            follower_count, following_count, post_count, is_private, created_at
     FROM actors WHERE ap_id = ?
-  `).bind(apId).first<any>();
+  `).bind(apId).first<ActorProfileRow>();
 
   if (!actor) {
     // Try actor cache (remote)
-    actor = await c.env.DB.prepare('SELECT * FROM actor_cache WHERE ap_id = ?').bind(apId).first();
+    actor = await c.env.DB.prepare('SELECT * FROM actor_cache WHERE ap_id = ?').bind(apId).first<ActorCache>();
     if (!actor) return c.json({ error: 'Actor not found' }, 404);
   }
 
@@ -405,7 +478,7 @@ actors.get('/:identifier', async (c) => {
       SELECT
         EXISTS(SELECT 1 FROM follows WHERE follower_ap_id = ? AND following_ap_id = ? AND status = 'accepted') as is_following,
         EXISTS(SELECT 1 FROM follows WHERE follower_ap_id = ? AND following_ap_id = ? AND status = 'accepted') as is_followed_by
-    `).bind(currentActor.ap_id, apId, apId, currentActor.ap_id).first<any>();
+    `).bind(currentActor.ap_id, apId, apId, currentActor.ap_id).first<FollowStatusRow>();
 
     if (followStatus) {
       is_following = !!followStatus.is_following;
@@ -431,7 +504,7 @@ actors.put('/me', async (c) => {
   const body = await c.req.json<{ name?: string; summary?: string; icon_url?: string; header_url?: string; is_private?: boolean }>();
 
   const updates: string[] = [];
-  const values: any[] = [];
+  const values: Array<string | number | null> = [];
 
   if (body.name !== undefined) {
     const name = body.name.trim();
@@ -507,9 +580,9 @@ actors.get('/:identifier/followers', async (c) => {
 
   const countResult = await c.env.DB.prepare(
     "SELECT COUNT(*) as total FROM follows WHERE following_ap_id = ? AND status = 'accepted'"
-  ).bind(apId).first<any>();
+  ).bind(apId).first<CountRow>();
 
-  const result = (followers.results || []).map((f: any) => ({
+  const result = (followers.results || []).map((f: FollowerRow) => ({
     ap_id: f.follower_ap_id,
     username: formatUsername(f.follower_ap_id),
     preferred_username: f.preferred_username,
@@ -551,9 +624,9 @@ actors.get('/:identifier/following', async (c) => {
 
   const countResult = await c.env.DB.prepare(
     "SELECT COUNT(*) as total FROM follows WHERE follower_ap_id = ? AND status = 'accepted'"
-  ).bind(apId).first<any>();
+  ).bind(apId).first<CountRow>();
 
-  const result = (following.results || []).map((f: any) => ({
+  const result = (following.results || []).map((f: FollowingRow) => ({
     ap_id: f.following_ap_id,
     username: formatUsername(f.following_ap_id),
     preferred_username: f.preferred_username,

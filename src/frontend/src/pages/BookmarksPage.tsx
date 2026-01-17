@@ -7,6 +7,8 @@ import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
 import { PostContent } from '../components/PostContent';
 import { HeartIcon, BookmarkIcon } from '../components/icons/SocialIcons';
+import { InlineErrorBanner } from '../components/InlineErrorBanner';
+import { useInlineError } from '../hooks/useInlineError';
 
 interface BookmarksPageProps {
   actor: Actor;
@@ -14,6 +16,7 @@ interface BookmarksPageProps {
 
 export function BookmarksPage({ actor }: BookmarksPageProps) {
   const { t } = useI18n();
+  const { error, setError, clearError } = useInlineError();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -27,6 +30,7 @@ export function BookmarksPage({ actor }: BookmarksPageProps) {
       setPosts(data);
     } catch (e) {
       console.error('Failed to load bookmarks:', e);
+      setError(t('common.error'));
     } finally {
       setLoading(false);
     }
@@ -43,6 +47,7 @@ export function BookmarksPage({ actor }: BookmarksPageProps) {
       }
     } catch (e) {
       console.error('Failed to toggle like:', e);
+      setError(t('common.error'));
     }
   };
 
@@ -52,11 +57,15 @@ export function BookmarksPage({ actor }: BookmarksPageProps) {
       setPosts(prev => prev.filter(p => p.ap_id !== postApId));
     } catch (e) {
       console.error('Failed to unbookmark:', e);
+      setError(t('common.error'));
     }
   };
 
   return (
     <div className="flex flex-col h-full">
+      {error && (
+        <InlineErrorBanner message={error} onClose={clearError} />
+      )}
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
         <h1 className="text-xl font-bold px-4 py-3">Bookmarks</h1>
       </header>

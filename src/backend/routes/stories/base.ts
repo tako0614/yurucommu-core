@@ -8,6 +8,70 @@ import { cleanupExpiredStories, transformStoryData, validateOverlays } from './u
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type VoteResults = Record<number, number>;
+
+type StoryAuthor = {
+  ap_id: string;
+  username: string;
+  preferred_username: string | null;
+  name: string | null;
+  icon_url: string | null;
+};
+
+type StoryRow = {
+  ap_id: string;
+  attributed_to: string;
+  attachments_json: string;
+  end_time: string;
+  published: string;
+  like_count: number;
+  share_count?: number | null;
+  author_username: string | null;
+  author_name: string | null;
+  author_icon_url: string | null;
+  viewed: number;
+  liked: number;
+};
+
+type VoteRow = {
+  story_ap_id: string;
+  option_index: number;
+  count: number;
+};
+
+type UserVoteRow = {
+  story_ap_id: string;
+  option_index: number;
+};
+
+type StoryResponse = {
+  ap_id: string;
+  author: StoryAuthor;
+  attachment: ReturnType<typeof transformStoryData>['attachment'];
+  displayDuration: string;
+  overlays?: ReturnType<typeof transformStoryData>['overlays'];
+  end_time: string;
+  published: string;
+  viewed: boolean;
+  like_count: number;
+  share_count: number;
+  liked: boolean;
+  votes?: VoteResults;
+  votes_total?: number;
+  user_vote?: number;
+};
+
+type StoryCreateBody = {
+  attachment: {
+    r2_key: string;
+    content_type: string;
+    width?: number;
+    height?: number;
+  };
+  displayDuration: string;
+  overlays?: unknown[];
+};
+
 // Get active stories from followed users and self (grouped by author)
 stories.get('/', async (c) => {
   const actor = c.get('actor');
@@ -57,7 +121,7 @@ stories.get('/', async (c) => {
     ).all();
 
   // Get all story ap_ids for batch vote query
-  const storyApIds = (stories_data.results || []).map((s: any) => s.ap_id);
+  const storyApIds = (stories_data.results || []).map((s: StoryRow) => s.ap_id);
 
   // Batch query for all votes
   let allVotes: Record<string, VoteResults> = {};
@@ -72,7 +136,7 @@ stories.get('/', async (c) => {
       GROUP BY story_ap_id, option_index
     `).bind(...storyApIds).all();
 
-    (votesQuery.results || []).forEach((v: any) => {
+    (votesQuery.results || []).forEach((v: VoteRow) => {
       if (!allVotes[v.story_ap_id]) {
         allVotes[v.story_ap_id] = {};
       }
@@ -87,18 +151,18 @@ stories.get('/', async (c) => {
         AND actor_ap_id = ?
     `).bind(...storyApIds, actor.ap_id).all();
 
-    (userVotesQuery.results || []).forEach((v: any) => {
+    (userVotesQuery.results || []).forEach((v: UserVoteRow) => {
       userVotes[v.story_ap_id] = v.option_index;
     });
   }
 
   // Group by author
-  const grouped: Record<string, any> = {};
+  const grouped: Record<string, { actor: StoryAuthor; stories: StoryResponse[]; has_unviewed: boolean }> = {};
   const authorOrder: string[] = [];
 
-  (stories_data.results || []).forEach((s: any) => {
+  (stories_data.results || []).forEach((s: StoryRow) => {
     const authorApId = s.attributed_to;
-    const authorInfo = {
+    const authorInfo: StoryAuthor = {
       ap_id: authorApId,
       username: formatUsername(authorApId),
       preferred_username: s.author_username,
@@ -208,7 +272,7 @@ stories.get('/:actorId', async (c) => {
     ).all();
 
   // Get all story ap_ids for batch vote query
-  const storyApIds = (user_stories.results || []).map((s: any) => s.ap_id);
+  const storyApIds = (user_stories.results || []).map((s: StoryRow) => s.ap_id);
 
   // Batch query for all votes
   let allVotes: Record<string, VoteResults> = {};
@@ -223,7 +287,7 @@ stories.get('/:actorId', async (c) => {
       GROUP BY story_ap_id, option_index
     `).bind(...storyApIds).all();
 
-    (votesQuery.results || []).forEach((v: any) => {
+    (votesQuery.results || []).forEach((v: VoteRow) => {
       if (!allVotes[v.story_ap_id]) {
         allVotes[v.story_ap_id] = {};
       }
@@ -239,13 +303,13 @@ stories.get('/:actorId', async (c) => {
           AND actor_ap_id = ?
       `).bind(...storyApIds, actor.ap_id).all();
 
-      (userVotesQuery.results || []).forEach((v: any) => {
+      (userVotesQuery.results || []).forEach((v: UserVoteRow) => {
         userVotes[v.story_ap_id] = v.option_index;
       });
     }
   }
 
-  const result = (user_stories.results || []).map((s: any) => {
+  const result = (user_stories.results || []).map((s: StoryRow) => {
     const storyData = transformStoryData(s.attachments_json);
 
     // Calculate vote totals
@@ -284,16 +348,7 @@ stories.post('/', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const body = await c.req.json<{
-    attachment: {
-      r2_key: string;
-      content_type: string;
-      width?: number;
-      height?: number;
-    };
-    displayDuration: string;
-    overlays?: any[];
-  }>();
+  const body = await c.req.json<StoryCreateBody>();
 
   if (!body.attachment || !body.attachment.r2_key) {
     return c.json({ error: 'attachment with r2_key required' }, 400);

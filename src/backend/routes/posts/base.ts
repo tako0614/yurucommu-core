@@ -1,23 +1,62 @@
 ﻿import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { generateId, objectApId, activityApId, formatUsername, isLocal, signRequest, isSafeRemoteUrl } from '../../utils';
-import { MAX_POST_CONTENT_LENGTH, MAX_POST_SUMMARY_LENGTH, MAX_POSTS_PAGE_LIMIT, extractMentions, formatPost, normalizeVisibility, parseLimit } from './utils';
+import { MAX_POST_CONTENT_LENGTH, MAX_POST_SUMMARY_LENGTH, MAX_POSTS_PAGE_LIMIT, extractMentions, formatPost, normalizeVisibility, parseLimit, PostRow } from './utils';
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+type PostAttachment = {
+  type?: string;
+  mediaType?: string;
+  url?: string;
+  [key: string]: unknown;
+};
+
+type CreatePostBody = {
+  content: string;
+  summary?: string;
+  attachments?: PostAttachment[];
+  in_reply_to?: string;
+  visibility?: string;
+  community_ap_id?: string;
+};
+
+type CommunityPolicyRow = {
+  ap_id: string;
+  post_policy: string | null;
+};
+
+type CommunityMemberRoleRow = {
+  role: 'owner' | 'moderator' | 'member';
+};
+
+type ApIdRow = {
+  ap_id: string;
+};
+
+type AttributedToRow = {
+  attributed_to: string;
+};
+
+type ActorCacheInboxRow = {
+  inbox: string | null;
+};
+
+type FollowerRow = {
+  follower_ap_id: string;
+};
+
+type PostDetailRow = PostRow & {
+  to_json?: string | null;
+  bookmarked?: number;
+};
 
 // Create post
 posts.post('/', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const body = await c.req.json<{
-    content: string;
-    summary?: string;
-    attachments?: any[];
-    in_reply_to?: string;
-    visibility?: string;
-    community_ap_id?: string;
-  }>();
+  const body = await c.req.json<CreatePostBody>();
 
   const content = body.content?.trim();
   const summary = body.summary?.trim();
@@ -37,7 +76,7 @@ posts.post('/', async (c) => {
   if (body.community_ap_id) {
     const community = await c.env.DB.prepare(
       'SELECT ap_id, post_policy FROM communities WHERE ap_id = ? OR preferred_username = ?'
-    ).bind(body.community_ap_id, body.community_ap_id).first<any>();
+    ).bind(body.community_ap_id, body.community_ap_id).first<CommunityPolicyRow>();
 
     if (!community) {
       return c.json({ error: 'Community not found' }, 404);
@@ -47,7 +86,7 @@ posts.post('/', async (c) => {
 
     const membership = await c.env.DB.prepare(
       'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(community.ap_id, actor.ap_id).first<any>();
+    ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRoleRow>();
 
     const policy = community.post_policy || 'members';
     const role = membership?.role;
@@ -93,7 +132,7 @@ posts.post('/', async (c) => {
     await c.env.DB.prepare('UPDATE objects SET reply_count = reply_count + 1 WHERE ap_id = ?').bind(body.in_reply_to).run();
 
     // Add to inbox of the post author being replied to (AP Native notification)
-    const parentPost = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(body.in_reply_to).first<any>();
+    const parentPost = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(body.in_reply_to).first<AttributedToRow>();
     if (parentPost && parentPost.attributed_to !== actor.ap_id && isLocal(parentPost.attributed_to, baseUrl)) {
       // Create activity for the inbox
       const replyActivityId = activityApId(baseUrl, generateId());
@@ -121,20 +160,20 @@ posts.post('/', async (c) => {
         const [username, domain] = mention.split('@');
         const cached = await c.env.DB.prepare(
           `SELECT ap_id FROM actor_cache WHERE preferred_username = ? AND ap_id LIKE ?`
-        ).bind(username, `%${domain}%`).first<any>();
+        ).bind(username, `%${domain}%`).first<ApIdRow>();
         if (cached) mentionedActorApId = cached.ap_id;
       } else {
         // Local mention @username
         const localActor = await c.env.DB.prepare(
           `SELECT ap_id FROM actors WHERE preferred_username = ?`
-        ).bind(mention).first<any>();
+        ).bind(mention).first<ApIdRow>();
         if (localActor) mentionedActorApId = localActor.ap_id;
       }
 
       // Skip if not found, is self, or already notified as reply recipient
       if (!mentionedActorApId || mentionedActorApId === actor.ap_id) continue;
       if (body.in_reply_to) {
-        const parentPost = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(body.in_reply_to).first<any>();
+        const parentPost = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(body.in_reply_to).first<AttributedToRow>();
         if (parentPost?.attributed_to === mentionedActorApId) continue; // Already notified via reply
       }
 
@@ -183,10 +222,10 @@ posts.post('/', async (c) => {
     };
 
     // Send to remote followers
-    const remoteFollowers = (followers.results || []).filter((f: any) => !isLocal(f.follower_ap_id, baseUrl));
+    const remoteFollowers = (followers.results || []).filter((f: FollowerRow) => !isLocal(f.follower_ap_id, baseUrl));
     for (const follower of remoteFollowers) {
       try {
-        const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(follower.follower_ap_id).first<any>();
+        const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(follower.follower_ap_id).first<ActorCacheInboxRow>();
         if (cachedActor?.inbox) {
           if (!isSafeRemoteUrl(cachedActor.inbox)) {
             console.warn(`[Posts] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
@@ -253,7 +292,7 @@ posts.get('/:id', async (c) => {
     LEFT JOIN actors a ON o.attributed_to = a.ap_id
     LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
     WHERE o.ap_id = ? OR o.ap_id = ?
-  `).bind(...(currentActor ? [currentActor.ap_id, currentActor.ap_id] : []), objectApId(baseUrl, postId), postId).first<any>();
+  `).bind(...(currentActor ? [currentActor.ap_id, currentActor.ap_id] : []), objectApId(baseUrl, postId), postId).first<PostDetailRow>();
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
@@ -302,7 +341,7 @@ posts.get('/:id/replies', async (c) => {
 
   // Verify post exists
   const parentPost = await c.env.DB.prepare('SELECT ap_id FROM objects WHERE ap_id = ? OR ap_id = ?')
-    .bind(objectApId(baseUrl, postId), postId).first<any>();
+    .bind(objectApId(baseUrl, postId), postId).first<ApIdRow>();
 
   if (!parentPost) return c.json({ error: 'Post not found' }, 404);
 
@@ -317,7 +356,7 @@ posts.get('/:id/replies', async (c) => {
     LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
     WHERE o.in_reply_to = ?
   `;
-  const params: any[] = currentActor ? [currentActor.ap_id, currentActor.ap_id] : [];
+  const params: Array<string | number | null> = currentActor ? [currentActor.ap_id, currentActor.ap_id] : [];
   params.push(parentPost.ap_id);
 
   if (before) {
@@ -330,7 +369,7 @@ posts.get('/:id/replies', async (c) => {
 
   const replies = await c.env.DB.prepare(query).bind(...params).all();
 
-  const result = (replies.results || []).map((r: any) => formatPost(r, currentActor?.ap_id));
+  const result = (replies.results || []).map((r: PostRow) => formatPost(r, currentActor?.ap_id));
 
   return c.json({ replies: result });
 });
@@ -346,7 +385,7 @@ posts.patch('/:id', async (c) => {
 
   // Get the post
   const post = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? OR ap_id = ?')
-    .bind(objectApId(baseUrl, postId), postId).first<any>();
+    .bind(objectApId(baseUrl, postId), postId).first<PostDetailRow>();
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
@@ -379,7 +418,7 @@ posts.patch('/:id', async (c) => {
 
   const now = new Date().toISOString();
   const updates: string[] = [];
-  const params: any[] = [];
+  const params: Array<string | number | null> = [];
 
   if (body.content !== undefined) {
     updates.push('content = ?');
@@ -423,10 +462,10 @@ posts.patch('/:id', async (c) => {
   };
 
   // Send to remote followers
-  const remoteFollowers = (followers.results || []).filter((f: any) => !isLocal(f.follower_ap_id, baseUrl));
+  const remoteFollowers = (followers.results || []).filter((f: FollowerRow) => !isLocal(f.follower_ap_id, baseUrl));
   for (const follower of remoteFollowers) {
     try {
-      const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(follower.follower_ap_id).first<any>();
+      const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(follower.follower_ap_id).first<ActorCacheInboxRow>();
       if (cachedActor?.inbox) {
         if (!isSafeRemoteUrl(cachedActor.inbox)) {
           console.warn(`[Posts] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
@@ -473,7 +512,7 @@ posts.delete('/:id', async (c) => {
 
   // Get the post
   const post = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? OR ap_id = ?')
-    .bind(objectApId(baseUrl, postId), postId).first<any>();
+    .bind(objectApId(baseUrl, postId), postId).first<PostDetailRow>();
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
@@ -511,10 +550,10 @@ posts.delete('/:id', async (c) => {
   };
 
   // Send to remote followers
-  const remoteFollowers = (followers.results || []).filter((f: any) => !isLocal(f.follower_ap_id, baseUrl));
+  const remoteFollowers = (followers.results || []).filter((f: FollowerRow) => !isLocal(f.follower_ap_id, baseUrl));
   for (const follower of remoteFollowers) {
     try {
-      const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(follower.follower_ap_id).first<any>();
+      const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(follower.follower_ap_id).first<ActorCacheInboxRow>();
       if (cachedActor?.inbox) {
         if (!isSafeRemoteUrl(cachedActor.inbox)) {
           console.warn(`[Posts] Blocked unsafe inbox URL: ${cachedActor.inbox}`);

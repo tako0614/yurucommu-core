@@ -5,6 +5,28 @@ import { formatUsername } from '../utils';
 
 const timeline = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type TimelinePostRow = {
+  ap_id: string;
+  type: string;
+  attributed_to: string;
+  content: string;
+  summary: string | null;
+  attachments_json: string | null;
+  in_reply_to: string | null;
+  visibility: string;
+  community_ap_id?: string | null;
+  like_count: number;
+  reply_count: number;
+  announce_count: number;
+  published: string;
+  author_username: string | null;
+  author_name: string | null;
+  author_icon_url: string | null;
+  liked: number;
+  bookmarked: number;
+  reposted: number;
+};
+
 // Get public timeline
 // Supports both cursor (before) and offset pagination
 // Returns: posts, limit, offset (if used), has_more
@@ -26,7 +48,7 @@ timeline.get('/', async (c) => {
       AND NOT EXISTS (
         SELECT 1 FROM mutes m WHERE m.muter_ap_id = ? AND m.muted_ap_id = o.attributed_to
       )`;
-  const whereParams: any[] = [viewerApId, viewerApId];
+  const whereParams: Array<string | number | null> = [viewerApId, viewerApId];
 
   if (communityApId) {
     whereClause += ` AND o.community_ap_id = ?`;
@@ -53,7 +75,7 @@ timeline.get('/', async (c) => {
     ORDER BY o.published DESC
     LIMIT ? OFFSET ?
   `;
-  const params: any[] = [viewerApId, viewerApId, viewerApId, ...whereParams, limit + 1, offset];
+  const params: Array<string | number | null> = [viewerApId, viewerApId, viewerApId, ...whereParams, limit + 1, offset];
 
   const posts = await c.env.DB.prepare(query).bind(...params).all();
 
@@ -62,7 +84,7 @@ timeline.get('/', async (c) => {
   const has_more = results.length > limit;
   const actualResults = has_more ? results.slice(0, limit) : results;
 
-  const result = actualResults.map((p: any) => ({
+  const result = actualResults.map((p: TimelinePostRow) => ({
     ap_id: p.ap_id,
     type: p.type,
     author: {
@@ -119,7 +141,7 @@ timeline.get('/following', async (c) => {
       AND NOT EXISTS (
         SELECT 1 FROM mutes m WHERE m.muter_ap_id = ? AND m.muted_ap_id = o.attributed_to
       )`;
-  const whereParams: any[] = [viewerApId, viewerApId, viewerApId, viewerApId, viewerApId];
+  const whereParams: Array<string | number | null> = [viewerApId, viewerApId, viewerApId, viewerApId, viewerApId];
 
   if (before) {
     whereClause += ` AND o.published < ?`;
@@ -141,7 +163,7 @@ timeline.get('/following', async (c) => {
     ORDER BY o.published DESC
     LIMIT ? OFFSET ?
   `;
-  const params: any[] = [viewerApId, viewerApId, viewerApId, ...whereParams, limit + 1, offset];
+  const params: Array<string | number | null> = [viewerApId, viewerApId, viewerApId, ...whereParams, limit + 1, offset];
 
   const posts = await c.env.DB.prepare(query).bind(...params).all();
 
@@ -150,7 +172,7 @@ timeline.get('/following', async (c) => {
   const has_more = results.length > limit;
   const actualResults = has_more ? results.slice(0, limit) : results;
 
-  const result = actualResults.map((p: any) => ({
+  const result = actualResults.map((p: TimelinePostRow) => ({
     ap_id: p.ap_id,
     type: p.type,
     author: {

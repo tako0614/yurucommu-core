@@ -4,6 +4,9 @@ import { Actor } from '../types';
 import { CommunityDetail, fetchCommunities, createCommunity, joinCommunity } from '../lib/api';
 import { formatRecentTime } from '../lib/datetime';
 import { UserAvatar } from '../components/UserAvatar';
+import { InlineErrorBanner } from '../components/InlineErrorBanner';
+import { useInlineError } from '../hooks/useInlineError';
+import { useI18n } from '../lib/i18n';
 
 interface GroupsPageProps {
   actor: Actor;
@@ -149,6 +152,8 @@ function CreateCommunityModal({
 }
 
 export function GroupsPage({ actor }: GroupsPageProps) {
+  const { t } = useI18n();
+  const { error, setError, clearError } = useInlineError();
   const [communities, setCommunities] = useState<CommunityDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -163,6 +168,7 @@ export function GroupsPage({ actor }: GroupsPageProps) {
       setCommunities(data);
     } catch (e) {
       console.error('Failed to load communities:', e);
+      setError(t('common.error'));
     } finally {
       setLoading(false);
     }
@@ -190,6 +196,7 @@ export function GroupsPage({ actor }: GroupsPageProps) {
       );
     } catch (err) {
       console.error('Failed to join:', err);
+      setError(t('common.error'));
     }
   };
 
@@ -204,6 +211,9 @@ export function GroupsPage({ actor }: GroupsPageProps) {
 
   return (
     <div className="flex flex-col h-full bg-black">
+      {error && (
+        <InlineErrorBanner message={error} onClose={clearError} />
+      )}
       {/* Header */}
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm z-10">
         <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-900">
@@ -342,4 +352,5 @@ export function GroupsPage({ actor }: GroupsPageProps) {
     </div>
   );
 }
+
 

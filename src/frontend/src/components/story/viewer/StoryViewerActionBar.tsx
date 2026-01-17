@@ -1,16 +1,17 @@
 interface StoryViewerActionBarProps {
   isLiked: boolean;
+  placeholder: string;
   onLike: () => void;
   onShare: () => void;
 }
 
-export function StoryViewerActionBar({ isLiked, onLike, onShare }: StoryViewerActionBarProps) {
+export function StoryViewerActionBar({ isLiked, placeholder, onLike, onShare }: StoryViewerActionBarProps) {
   return (
     <div className="absolute bottom-0 left-0 right-0 z-20 p-4 flex items-center gap-3">
       <div className="flex-1 flex items-center gap-2 border border-white/40 rounded-full px-4 py-2">
         <input
           type="text"
-          placeholder="繝｡繝・そ繝ｼ繧ｸ繧帝∽ｿ｡..."
+          placeholder={placeholder}
           className="flex-1 bg-transparent text-white placeholder-white/50 text-sm outline-none"
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}

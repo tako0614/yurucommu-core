@@ -8,6 +8,25 @@ const notifications = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const ARCHIVE_RETENTION_DAYS = 90;
 
+type NotificationRow = {
+  activity_ap_id: string;
+  read: number;
+  created_at: string;
+  activity_type: string;
+  actor_ap_id: string;
+  object_ap_id: string | null;
+  follow_status: string | null;
+  actor_username: string | null;
+  actor_name: string | null;
+  actor_icon_url: string | null;
+  object_content: string | null;
+  in_reply_to: string | null;
+};
+
+type ActivityIdRow = {
+  activity_ap_id: string;
+};
+
 async function cleanupArchivedNotifications(db: Env['DB'], actorApId: string): Promise<void> {
   const retention = `-${ARCHIVE_RETENTION_DAYS} days`;
   await db.prepare(`
@@ -94,7 +113,7 @@ notifications.get('/', async (c) => {
       AND act.actor_ap_id != ?
       AND act.type IN ('Follow', 'Like', 'Announce', 'Create')
   `;
-  const params: any[] = [actor.ap_id, actor.ap_id, actor.ap_id];
+  const params: Array<string | number> = [actor.ap_id, actor.ap_id, actor.ap_id];
 
   // Filter by type
   if (typeFilter && typeToActivityType[typeFilter]) {
@@ -134,7 +153,7 @@ notifications.get('/', async (c) => {
   const has_more = results.length > limit;
   const actualResults = has_more ? results.slice(0, limit) : results;
 
-  const notifications_list = actualResults.map((n: any) => {
+  const notifications_list = actualResults.map((n: NotificationRow) => {
     const notifType = activityToNotificationType(n.activity_type, !!n.in_reply_to, n.follow_status);
     return {
       id: n.activity_ap_id,
@@ -257,11 +276,11 @@ notifications.post('/archive/all', async (c) => {
   `).bind(actor.ap_id).all();
 
   let archived_count = 0;
-  for (const a of activities.results || []) {
+  for (const a of (activities.results || []) as ActivityIdRow[]) {
     await c.env.DB.prepare(`
       INSERT OR IGNORE INTO notification_archived (actor_ap_id, activity_ap_id, archived_at)
       VALUES (?, ?, ?)
-    `).bind(actor.ap_id, (a as any).activity_ap_id, now).run();
+    `).bind(actor.ap_id, a.activity_ap_id, now).run();
     archived_count++;
   }
 

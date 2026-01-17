@@ -5,6 +5,58 @@ import { managerRoles } from './utils';
 
 const communities = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+type CommunityRow = {
+  ap_id: string;
+  preferred_username: string | null;
+  join_policy: string;
+  member_count: number;
+};
+
+type CommunityIdRow = {
+  ap_id: string;
+};
+
+type CommunityMemberRow = {
+  role: 'owner' | 'moderator' | 'member';
+};
+
+type CountRow = {
+  count: number;
+};
+
+type JoinRequestRow = {
+  actor_ap_id: string;
+  preferred_username: string | null;
+  name: string | null;
+  icon_url: string | null;
+  created_at: string;
+};
+
+type InviteRow = {
+  id: string;
+  invited_ap_id: string | null;
+  invited_by_ap_id: string;
+  created_at: string;
+  expires_at: string | null;
+  used_at: string | null;
+  used_by_ap_id: string | null;
+  invited_by_username: string | null;
+  invited_by_name: string | null;
+};
+
+type InviteCheckRow = {
+  invited_ap_id: string | null;
+};
+
+type MemberListRow = {
+  actor_ap_id: string;
+  preferred_username: string | null;
+  name: string | null;
+  icon_url: string | null;
+  role: 'owner' | 'moderator' | 'member';
+  joined_at: string;
+};
+
 // POST /api/communities/:name/join - Join a community
 communities.post('/:identifier/join', async (c) => {
   const actor = c.get('actor');
@@ -24,7 +76,7 @@ communities.post('/:identifier/join', async (c) => {
 
   // Check community exists
   const community = await c.env.DB.prepare('SELECT * FROM communities WHERE ap_id = ? OR preferred_username = ?')
-    .bind(apId, identifier).first<any>();
+    .bind(apId, identifier).first<CommunityRow>();
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
   }
@@ -59,7 +111,7 @@ communities.post('/:identifier/join', async (c) => {
       SELECT * FROM community_invites
       WHERE id = ? AND community_ap_id = ? AND used_at IS NULL
         AND (expires_at IS NULL OR expires_at > datetime('now'))
-    `).bind(inviteId, community.ap_id).first<any>();
+    `).bind(inviteId, community.ap_id).first<InviteCheckRow>();
 
     if (!invite) {
       return c.json({ error: 'Invalid or expired invite', status: 'invite_required' }, 403);
@@ -109,7 +161,7 @@ communities.post('/:identifier/leave', async (c) => {
 
   // Check community exists
   const community = await c.env.DB.prepare('SELECT * FROM communities WHERE ap_id = ? OR preferred_username = ?')
-    .bind(apId, identifier).first<any>();
+    .bind(apId, identifier).first<CommunityRow>();
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
   }
@@ -117,7 +169,7 @@ communities.post('/:identifier/leave', async (c) => {
   // Check membership
   const membership = await c.env.DB.prepare(
     'SELECT * FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, actor.ap_id).first<any>();
+  ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
   if (!membership) {
     return c.json({ error: 'Not a member' }, 400);
   }
@@ -126,7 +178,7 @@ communities.post('/:identifier/leave', async (c) => {
   if (membership.role === 'owner') {
     const ownerCount = await c.env.DB.prepare(
       "SELECT COUNT(*) as count FROM community_members WHERE community_ap_id = ? AND role = 'owner'"
-    ).bind(community.ap_id).first<any>();
+    ).bind(community.ap_id).first<CountRow>();
     if (ownerCount?.count <= 1) {
       return c.json({ error: 'Cannot leave: you are the only owner' }, 400);
     }
@@ -154,7 +206,7 @@ communities.get('/:identifier/requests', async (c) => {
 
   const community = await c.env.DB.prepare(
     'SELECT ap_id FROM communities WHERE ap_id = ? OR preferred_username = ?'
-  ).bind(apId, identifier).first<any>();
+  ).bind(apId, identifier).first<CommunityIdRow>();
 
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
@@ -162,7 +214,7 @@ communities.get('/:identifier/requests', async (c) => {
 
   const member = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, actor.ap_id).first<any>();
+  ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
 
   if (!member || !managerRoles.has(member.role)) {
     return c.json({ error: 'Forbidden' }, 403);
@@ -180,7 +232,7 @@ communities.get('/:identifier/requests', async (c) => {
     ORDER BY r.created_at DESC
   `).bind(community.ap_id).all();
 
-  const result = (requests.results || []).map((r: any) => ({
+  const result = (requests.results || []).map((r: JoinRequestRow) => ({
     ap_id: r.actor_ap_id,
     username: formatUsername(r.actor_ap_id),
     preferred_username: r.preferred_username,
@@ -208,7 +260,7 @@ communities.post('/:identifier/requests/accept', async (c) => {
 
   const community = await c.env.DB.prepare(
     'SELECT ap_id FROM communities WHERE ap_id = ? OR preferred_username = ?'
-  ).bind(apId, identifier).first<any>();
+  ).bind(apId, identifier).first<CommunityIdRow>();
 
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
@@ -216,7 +268,7 @@ communities.post('/:identifier/requests/accept', async (c) => {
 
   const member = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, actor.ap_id).first<any>();
+  ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
 
   if (!member || !managerRoles.has(member.role)) {
     return c.json({ error: 'Forbidden' }, 403);
@@ -225,7 +277,7 @@ communities.post('/:identifier/requests/accept', async (c) => {
   const request = await c.env.DB.prepare(`
     SELECT * FROM community_join_requests
     WHERE community_ap_id = ? AND actor_ap_id = ? AND status = 'pending'
-  `).bind(community.ap_id, body.actor_ap_id).first<any>();
+  `).bind(community.ap_id, body.actor_ap_id).first<JoinRequestRow>();
 
   if (!request) {
     return c.json({ error: 'Join request not found' }, 404);
@@ -271,7 +323,7 @@ communities.post('/:identifier/requests/reject', async (c) => {
 
   const community = await c.env.DB.prepare(
     'SELECT ap_id FROM communities WHERE ap_id = ? OR preferred_username = ?'
-  ).bind(apId, identifier).first<any>();
+  ).bind(apId, identifier).first<CommunityIdRow>();
 
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
@@ -279,7 +331,7 @@ communities.post('/:identifier/requests/reject', async (c) => {
 
   const member = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, actor.ap_id).first<any>();
+  ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
 
   if (!member || !managerRoles.has(member.role)) {
     return c.json({ error: 'Forbidden' }, 403);
@@ -288,7 +340,7 @@ communities.post('/:identifier/requests/reject', async (c) => {
   const request = await c.env.DB.prepare(`
     SELECT * FROM community_join_requests
     WHERE community_ap_id = ? AND actor_ap_id = ? AND status = 'pending'
-  `).bind(community.ap_id, body.actor_ap_id).first<any>();
+  `).bind(community.ap_id, body.actor_ap_id).first<JoinRequestRow>();
 
   if (!request) {
     return c.json({ error: 'Join request not found' }, 404);
@@ -314,7 +366,7 @@ communities.get('/:identifier/invites', async (c) => {
 
   const community = await c.env.DB.prepare(
     'SELECT ap_id FROM communities WHERE ap_id = ? OR preferred_username = ?'
-  ).bind(apId, identifier).first<any>();
+  ).bind(apId, identifier).first<CommunityIdRow>();
 
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
@@ -322,7 +374,7 @@ communities.get('/:identifier/invites', async (c) => {
 
   const member = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, actor.ap_id).first<any>();
+  ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
 
   if (!member || !managerRoles.has(member.role)) {
     return c.json({ error: 'Forbidden' }, 403);
@@ -339,7 +391,7 @@ communities.get('/:identifier/invites', async (c) => {
     ORDER BY i.created_at DESC
   `).bind(community.ap_id).all();
 
-  const result = (invites.results || []).map((inv: any) => ({
+  const result = (invites.results || []).map((inv: InviteRow) => ({
     id: inv.id,
     invited_ap_id: inv.invited_ap_id,
     invited_by: {
@@ -379,7 +431,7 @@ communities.post('/:identifier/invites', async (c) => {
 
   const community = await c.env.DB.prepare(
     'SELECT ap_id FROM communities WHERE ap_id = ? OR preferred_username = ?'
-  ).bind(apId, identifier).first<any>();
+  ).bind(apId, identifier).first<CommunityIdRow>();
 
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
@@ -387,7 +439,7 @@ communities.post('/:identifier/invites', async (c) => {
 
   const member = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, actor.ap_id).first<any>();
+  ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
 
   if (!member || !managerRoles.has(member.role)) {
     return c.json({ error: 'Forbidden' }, 403);
@@ -417,7 +469,7 @@ communities.delete('/:identifier/invites/:inviteId', async (c) => {
 
   const community = await c.env.DB.prepare(
     'SELECT ap_id FROM communities WHERE ap_id = ? OR preferred_username = ?'
-  ).bind(apId, identifier).first<any>();
+  ).bind(apId, identifier).first<CommunityIdRow>();
 
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
@@ -425,7 +477,7 @@ communities.delete('/:identifier/invites/:inviteId', async (c) => {
 
   const member = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, actor.ap_id).first<any>();
+  ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
 
   if (!member || !managerRoles.has(member.role)) {
     return c.json({ error: 'Forbidden' }, 403);
@@ -457,7 +509,7 @@ communities.delete('/:identifier/members/:actorApId', async (c) => {
 
   const community = await c.env.DB.prepare(
     'SELECT ap_id FROM communities WHERE ap_id = ? OR preferred_username = ?'
-  ).bind(apId, identifier).first<any>();
+  ).bind(apId, identifier).first<CommunityIdRow>();
 
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
@@ -466,7 +518,7 @@ communities.delete('/:identifier/members/:actorApId', async (c) => {
   // Check if actor has permission to remove members
   const actorMembership = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, actor.ap_id).first<any>();
+  ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
 
   if (!actorMembership || !managerRoles.has(actorMembership.role)) {
     return c.json({ error: 'Forbidden' }, 403);
@@ -475,7 +527,7 @@ communities.delete('/:identifier/members/:actorApId', async (c) => {
   // Check target membership
   const targetMembership = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, targetApId).first<any>();
+  ).bind(community.ap_id, targetApId).first<CommunityMemberRow>();
 
   if (!targetMembership) {
     return c.json({ error: 'User is not a member' }, 404);
@@ -519,7 +571,7 @@ communities.patch('/:identifier/members/:actorApId', async (c) => {
 
   const community = await c.env.DB.prepare(
     'SELECT ap_id FROM communities WHERE ap_id = ? OR preferred_username = ?'
-  ).bind(apId, identifier).first<any>();
+  ).bind(apId, identifier).first<CommunityIdRow>();
 
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
@@ -528,7 +580,7 @@ communities.patch('/:identifier/members/:actorApId', async (c) => {
   // Only owners can change roles
   const actorMembership = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, actor.ap_id).first<any>();
+  ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
 
   if (!actorMembership || actorMembership.role !== 'owner') {
     return c.json({ error: 'Only owners can change member roles' }, 403);
@@ -537,7 +589,7 @@ communities.patch('/:identifier/members/:actorApId', async (c) => {
   // Check target membership
   const targetMembership = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, targetApId).first<any>();
+  ).bind(community.ap_id, targetApId).first<CommunityMemberRow>();
 
   if (!targetMembership) {
     return c.json({ error: 'User is not a member' }, 404);
@@ -547,7 +599,7 @@ communities.patch('/:identifier/members/:actorApId', async (c) => {
   if (targetApId === actor.ap_id && targetMembership.role === 'owner' && body.role !== 'owner') {
     const ownerCount = await c.env.DB.prepare(
       "SELECT COUNT(*) as count FROM community_members WHERE community_ap_id = ? AND role = 'owner'"
-    ).bind(community.ap_id).first<any>();
+    ).bind(community.ap_id).first<CountRow>();
     if (ownerCount?.count <= 1) {
       return c.json({ error: 'Cannot demote: you are the only owner' }, 400);
     }
@@ -581,7 +633,7 @@ communities.get('/:identifier/members', async (c) => {
     ORDER BY cm.role DESC, cm.joined_at ASC
   `).bind(apId, identifier).all();
 
-  const result = (members.results || []).map((m: any) => ({
+  const result = (members.results || []).map((m: MemberListRow) => ({
     ap_id: m.actor_ap_id,
     username: formatUsername(m.actor_ap_id),
     preferred_username: m.preferred_username,
@@ -610,7 +662,7 @@ communities.post('/:identifier/members/batch/remove', async (c) => {
 
   const community = await c.env.DB.prepare(
     'SELECT ap_id FROM communities WHERE ap_id = ? OR preferred_username = ?'
-  ).bind(apId, identifier).first<any>();
+  ).bind(apId, identifier).first<CommunityIdRow>();
 
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
@@ -619,7 +671,7 @@ communities.post('/:identifier/members/batch/remove', async (c) => {
   // Check permissions
   const actorMembership = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, actor.ap_id).first<any>();
+  ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
 
   if (!actorMembership || !managerRoles.has(actorMembership.role)) {
     return c.json({ error: 'Permission denied' }, 403);
@@ -638,7 +690,7 @@ communities.post('/:identifier/members/batch/remove', async (c) => {
       // Check target membership
       const targetMembership = await c.env.DB.prepare(
         'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-      ).bind(community.ap_id, targetApId).first<any>();
+      ).bind(community.ap_id, targetApId).first<CommunityMemberRow>();
 
       if (!targetMembership) {
         results.push({ ap_id: targetApId, success: false, error: 'Not a member' });
@@ -690,7 +742,7 @@ communities.post('/:identifier/members/batch/role', async (c) => {
 
   const community = await c.env.DB.prepare(
     'SELECT ap_id FROM communities WHERE ap_id = ? OR preferred_username = ?'
-  ).bind(apId, identifier).first<any>();
+  ).bind(apId, identifier).first<CommunityIdRow>();
 
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
@@ -699,7 +751,7 @@ communities.post('/:identifier/members/batch/role', async (c) => {
   // Only owners can change roles
   const actorMembership = await c.env.DB.prepare(
     'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-  ).bind(community.ap_id, actor.ap_id).first<any>();
+  ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
 
   if (!actorMembership || actorMembership.role !== 'owner') {
     return c.json({ error: 'Only owners can change roles' }, 403);
@@ -712,7 +764,7 @@ communities.post('/:identifier/members/batch/role', async (c) => {
       // Check target membership
       const targetMembership = await c.env.DB.prepare(
         'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-      ).bind(community.ap_id, targetApId).first<any>();
+      ).bind(community.ap_id, targetApId).first<CommunityMemberRow>();
 
       if (!targetMembership) {
         results.push({ ap_id: targetApId, success: false, error: 'Not a member' });
@@ -723,7 +775,7 @@ communities.post('/:identifier/members/batch/role', async (c) => {
       if (targetApId === actor.ap_id && targetMembership.role === 'owner' && body.role !== 'owner') {
         const ownerCount = await c.env.DB.prepare(
           "SELECT COUNT(*) as count FROM community_members WHERE community_ap_id = ? AND role = 'owner'"
-        ).bind(community.ap_id).first<any>();
+        ).bind(community.ap_id).first<CountRow>();
         if (ownerCount?.count <= 1) {
           results.push({ ap_id: targetApId, success: false, error: 'Cannot demote: only owner' });
           continue;
@@ -743,7 +795,5 @@ communities.post('/:identifier/members/batch/role', async (c) => {
 
   return c.json({ results, updated_count: results.filter(r => r.success).length });
 });
-
-export default communities;
 
 export default communities;

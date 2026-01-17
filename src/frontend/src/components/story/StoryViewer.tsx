@@ -412,7 +412,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
             <div className="absolute inset-0 flex items-center justify-center bg-neutral-900">
               <div className="text-center text-neutral-400">
                 <ErrorIcon />
-                <p className="mt-2">繝｡繝・ぅ繧｢繧定ｪｭ縺ｿ霎ｼ繧√∪縺帙ｓ縺ｧ縺励◆</p>
+                <p className="mt-2">メディアを読み込めませんでした</p>
               </div>
             </div>
           )}
@@ -448,6 +448,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
 
       <StoryViewerActionBar
         isLiked={isLiked}
+        placeholder={t('messages.placeholder')}
         onLike={handleLike}
         onShare={handleShare}
       />
