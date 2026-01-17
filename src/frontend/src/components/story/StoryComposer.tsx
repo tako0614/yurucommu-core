@@ -12,13 +12,10 @@ import {
   createStoryCanvas,
   Layer,
   TextLayer,
-  MediaLayer,
-  StickerLayer,
   BackgroundFill,
   BackgroundLayer,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
-  FONTS,
 } from '../../lib/storyCanvas';
 import {
   initFFmpeg,
@@ -28,134 +25,29 @@ import {
   FFmpegError,
   VideoTransform,
 } from '../../lib/ffmpeg';
-import { useCanvasInteraction, InteractionMode, SnapGuide } from '../../hooks/useCanvasInteraction';
+import { useCanvasInteraction, SnapGuide } from '../../hooks/useCanvasInteraction';
+import { useVideoTransform } from '../../hooks/useVideoTransform';
 import { StoryOverlay } from '../../types';
-import {
-  BackgroundPanel,
-  MediaPanel,
-  StickerPanel,
-  DrawingPanel,
-} from './ToolPanel';
 import { TextEditorModal, TextData } from './TextEditorModal';
+import { StoryComposerCanvas } from './composer/StoryComposerCanvas';
+import { StoryComposerFooter } from './composer/StoryComposerFooter';
+import { StoryComposerHeader } from './composer/StoryComposerHeader';
+import { StoryComposerSelectionToolbar } from './composer/StoryComposerSelectionToolbar';
+import {
+  StoryComposerDrawingPanel,
+  StoryComposerQuickActions,
+  StoryComposerStickerPanel,
+} from './composer/StoryComposerPanels';
+import { StoryComposerStatusOverlay } from './composer/StoryComposerStatusOverlay';
 
 interface StoryComposerProps {
   onClose: () => void;
   onSuccess: () => void;
 }
 
-// Instagram-style right side tool button (label left, icon right, right-aligned)
-const ToolButton = ({
-  icon,
-  label,
-  onClick,
-  active = false,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-  active?: boolean;
-}) => (
-  <button
-    onClick={onClick}
-    className="flex items-center justify-end gap-3 w-full"
-  >
-    <span className="text-white text-sm font-medium drop-shadow-md">{label}</span>
-    <span className={`w-11 h-11 flex items-center justify-center rounded-full ${
-      active ? 'bg-white/30' : 'bg-neutral-800/80'
-    }`}>
-      {icon}
-    </span>
-  </button>
-);
-
-// Back arrow icon
-const BackIcon = () => (
-  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-  </svg>
-);
-
-// Effect/sparkle icon
-const EffectIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-  </svg>
-);
-
-// Resize icon
-const ResizeIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
-  </svg>
-);
-
-// Music icon
-const MusicIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-  </svg>
-);
-
-// Chevron down icon
-const ChevronDownIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-  </svg>
-);
-
-// Send arrow icon
-const SendIcon = () => (
-  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-  </svg>
-);
-
 // File size limits
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
-
-// Icons
-const CloseIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-  </svg>
-);
-
-const ImageIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-  </svg>
-);
-
-const TextIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-  </svg>
-);
-
-const StickerIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
-
-const DrawIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-  </svg>
-);
-
-const BackgroundIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-  </svg>
-);
-
-const VideoIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-  </svg>
-);
 
 type ToolTab = 'background' | 'text' | 'sticker' | 'draw' | 'video' | 'none';
 
@@ -583,95 +475,15 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
     handlePointerDown(e);
   };
 
-  // Video gesture state
-  const videoDragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
-  const videoPinchRef = useRef<{ startDistance: number; startScale: number; startAngle: number; startRotation: number } | null>(null);
-
-  // Handle video pointer down (for drag)
-  const handleVideoPointerDown = (e: React.PointerEvent) => {
-    if (!videoPreview) return;
-    e.stopPropagation();
-
-    const touches = (e.nativeEvent as PointerEvent).pointerType === 'touch' ? 1 : 0;
-
-    videoDragRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      startPosX: videoPosition.x,
-      startPosY: videoPosition.y,
-    };
-
-    const target = e.currentTarget as HTMLElement;
-    target.setPointerCapture(e.pointerId);
-  };
-
-  // Handle video pointer move (for drag)
-  const handleVideoPointerMove = (e: React.PointerEvent) => {
-    if (!videoDragRef.current || !videoPreview) return;
-
-    const dx = e.clientX - videoDragRef.current.startX;
-    const dy = e.clientY - videoDragRef.current.startY;
-
-    setVideoPosition({
-      x: videoDragRef.current.startPosX + dx,
-      y: videoDragRef.current.startPosY + dy,
-    });
-  };
-
-  // Handle video pointer up
-  const handleVideoPointerUp = (e: React.PointerEvent) => {
-    videoDragRef.current = null;
-    const target = e.currentTarget as HTMLElement;
-    target.releasePointerCapture(e.pointerId);
-  };
-
-  // Handle video wheel (for zoom)
-  const handleVideoWheel = (e: React.WheelEvent) => {
-    if (!videoPreview) return;
-    e.stopPropagation();
-
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setVideoScale(prev => Math.max(0.5, Math.min(3, prev * delta)));
-  };
-
-  // Handle video touch for pinch zoom and rotation
-  const handleVideoTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 2 && videoPreview) {
-      e.stopPropagation();
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-      videoPinchRef.current = {
-        startDistance: distance,
-        startScale: videoScale,
-        startAngle: angle,
-        startRotation: videoRotation,
-      };
-    }
-  };
-
-  const handleVideoTouchMove = (e: React.TouchEvent) => {
-    if (e.touches.length === 2 && videoPinchRef.current && videoPreview) {
-      e.stopPropagation();
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-
-      // Calculate scale
-      const scale = (distance / videoPinchRef.current.startDistance) * videoPinchRef.current.startScale;
-      setVideoScale(Math.max(0.5, Math.min(3, scale)));
-
-      // Calculate rotation
-      const angleDelta = angle - videoPinchRef.current.startAngle;
-      setVideoRotation(videoPinchRef.current.startRotation + angleDelta);
-    }
-  };
-
-  const handleVideoTouchEnd = () => {
-    videoPinchRef.current = null;
-  };
+  const videoTransform = useVideoTransform({
+    enabled: !!videoPreview,
+    scale: videoScale,
+    position: videoPosition,
+    rotation: videoRotation,
+    setScale: setVideoScale,
+    setPosition: setVideoPosition,
+    setRotation: setVideoRotation,
+  });
 
   // Calculate display duration based on content
   const calculateDuration = (): number => {
@@ -843,7 +655,7 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
   };
 
   const selectedLayer = getSelectedLayer();
-  const canPost = storyCanvas && (storyCanvas.getLayers().length > 1 || videoFile); // Has content or video
+  const canPost = !!storyCanvas && (storyCanvas.getLayers().length > 1 || videoFile); // Has content or video
 
   // Get display canvas dimensions
   const getDisplayDimensions = () => {
@@ -876,348 +688,89 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
     <div className="fixed inset-0 bg-black z-51">
       {/* Full screen canvas area with overlay UI */}
       <div className="relative w-full h-full pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
-        {/* Canvas container - full screen */}
-        <div
-          ref={canvasContainerRef}
-          className="absolute inset-0 flex items-center justify-center"
-          onMouseDown={videoPreview ? undefined : handleCanvasPointerDown}
-          onTouchStart={videoPreview ? undefined : handleCanvasPointerDown}
-          onWheel={videoPreview ? undefined : handleWheel}
-        >
-          {/* Video preview (behind canvas) - draggable and zoomable */}
-          {videoPreview && (
-            <div
-              className="absolute inset-0 overflow-hidden touch-none z-10"
-              onPointerDown={handleVideoPointerDown}
-              onPointerMove={handleVideoPointerMove}
-              onPointerUp={handleVideoPointerUp}
-              onPointerCancel={handleVideoPointerUp}
-              onWheel={handleVideoWheel}
-              onTouchStart={handleVideoTouchStart}
-              onTouchMove={handleVideoTouchMove}
-              onTouchEnd={handleVideoTouchEnd}
-            >
-              <video
-                ref={videoRef}
-                src={videoPreview}
-                className="absolute w-full h-full object-cover origin-center"
-                style={{
-                  transform: `translate(${videoPosition.x}px, ${videoPosition.y}px) scale(${videoScale}) rotate(${videoRotation}deg)`,
-                }}
-                autoPlay
-                loop
-                muted
-                playsInline
-              />
-              {/* Video resize hint */}
-              {videoScale === 1 && videoPosition.x === 0 && videoPosition.y === 0 && videoRotation === 0 && (
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-black/70 rounded-full pointer-events-none">
-                  <span className="text-white/80 text-xs">2本指で拡大縮小・回転・ドラッグで移動</span>
-                </div>
-              )}
-            </div>
-          )}
+        <StoryComposerCanvas
+          canvasContainerRef={canvasContainerRef}
+          displayCanvasRef={displayCanvasRef}
+          displayDimensions={displayDimensions}
+          videoPreview={videoPreview}
+          videoRef={videoRef}
+          videoPosition={videoPosition}
+          videoScale={videoScale}
+          videoRotation={videoRotation}
+          onCanvasPointerDown={handleCanvasPointerDown}
+          onCanvasWheel={handleWheel}
+          onVideoPointerDown={videoTransform.handlePointerDown}
+          onVideoPointerMove={videoTransform.handlePointerMove}
+          onVideoPointerUp={videoTransform.handlePointerUp}
+          onVideoWheel={videoTransform.handleWheel}
+          onVideoTouchStart={videoTransform.handleTouchStart}
+          onVideoTouchMove={videoTransform.handleTouchMove}
+          onVideoTouchEnd={videoTransform.handleTouchEnd}
+        />
 
-          {/* Canvas */}
-          <canvas
-            ref={displayCanvasRef}
-            width={displayDimensions.width}
-            height={displayDimensions.height}
-            className={`w-full h-full object-contain ${videoPreview ? 'absolute inset-0' : ''}`}
-            style={videoPreview ? { mixBlendMode: 'normal', pointerEvents: 'none' } : undefined}
-          />
-        </div>
+        <StoryComposerHeader
+          onClose={onClose}
+          activeTool={activeTool}
+          onToolClick={handleToolClick}
+        />
 
-        {/* Back button - top left with safe area */}
-        <button
-          onClick={onClose}
-          className="absolute z-10 p-2 bg-black/40 hover:bg-black/60 rounded-full text-white transition-colors"
-          style={{ top: 'calc(env(safe-area-inset-top, 16px) + 16px)', left: '16px' }}
-        >
-          <BackIcon />
-        </button>
+        <StoryComposerSelectionToolbar
+          selectedLayer={selectedLayer}
+          onEditText={handleEditText}
+          onBringToFront={handleBringToFront}
+          onSendToBack={handleSendToBack}
+          onDelete={handleDeleteLayer}
+        />
 
-        {/* Right side tool buttons - Instagram style */}
-        <div
-          className="absolute right-4 z-10 flex flex-col gap-4 w-36"
-          style={{ top: 'calc(env(safe-area-inset-top, 16px) + 16px)' }}
-        >
-          <ToolButton
-            icon={<span className="text-lg font-bold text-white">Aa</span>}
-            label="テキスト"
-            onClick={() => handleToolClick('text')}
-            active={activeTool === 'text'}
-          />
-          <ToolButton
-            icon={<StickerIcon />}
-            label="スタンプ"
-            onClick={() => handleToolClick('sticker')}
-            active={activeTool === 'sticker'}
-          />
-          <ToolButton
-            icon={<MusicIcon />}
-            label="音楽"
-            onClick={() => handleToolClick('music')}
-            active={activeTool === 'music'}
-          />
-          <ToolButton
-            icon={<EffectIcon />}
-            label="エフェクト"
-            onClick={() => handleToolClick('effect')}
-            active={activeTool === 'effect'}
-          />
-          <ToolButton
-            icon={<ResizeIcon />}
-            label="サイズ変更"
-            onClick={() => handleToolClick('resize')}
-            active={activeTool === 'resize'}
-          />
-          {/* More options chevron */}
-          <button className="flex items-center justify-end w-full">
-            <span className="p-2 rounded-full bg-black/40">
-              <ChevronDownIcon />
-            </span>
-          </button>
-        </div>
+        <StoryComposerFooter
+          caption={caption}
+          onCaptionChange={setCaption}
+          onPost={handlePost}
+          canPost={canPost}
+          posting={posting}
+          progress={progress}
+          videoFile={videoFile}
+          ffmpegReady={ffmpegReady}
+          error={error}
+          onDismissError={() => setError(null)}
+        />
 
-        {/* Floating toolbar when layer is selected */}
-        {selectedLayer && selectedLayer.type !== 'background' && (
-          <div className="absolute top-1/2 left-4 z-10 -translate-y-1/2 flex flex-col gap-2 bg-black/70 backdrop-blur-sm rounded-2xl p-2 shadow-lg">
-            {selectedLayer.type === 'text' && (
-              <button
-                onClick={() => handleEditText(selectedLayer.id)}
-                className="p-3 text-white hover:bg-white/20 rounded-xl transition-colors"
-                title="編集"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-              </button>
-            )}
-            <button
-              onClick={handleBringToFront}
-              className="p-3 text-white hover:bg-white/20 rounded-xl transition-colors"
-              title="前面へ"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-              </svg>
-            </button>
-            <button
-              onClick={handleSendToBack}
-              className="p-3 text-white hover:bg-white/20 rounded-xl transition-colors"
-              title="背面へ"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            <button
-              onClick={handleDeleteLayer}
-              className="p-3 text-red-400 hover:bg-red-500/20 rounded-xl transition-colors"
-              title="削除"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
-          </div>
-        )}
+        <StoryComposerStickerPanel
+          open={showToolPanel && activeTool === 'sticker'}
+          onAddEmoji={(emoji) => {
+            handleAddEmoji(emoji);
+            setShowToolPanel(false);
+            setActiveTool(null);
+          }}
+          onClose={() => {
+            setShowToolPanel(false);
+            setActiveTool(null);
+          }}
+        />
 
-        {/* Bottom section - Caption and action buttons */}
-        <div
-          className="absolute left-0 right-0 bottom-0 z-10 bg-gradient-to-t from-black via-black/90 to-transparent"
-          style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 16px)' }}
-        >
-          {/* Caption input */}
-          <div className="px-4 pt-8 pb-3">
-            <input
-              type="text"
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
-              placeholder="キャプションを追加..."
-              className="w-full bg-transparent text-white placeholder-white/50 text-base py-2 outline-none"
-            />
-          </div>
+        <StoryComposerQuickActions
+          uploading={uploading}
+          hasVideo={!!videoFile}
+          isDrawing={interactionState.mode === 'draw'}
+          onSelectImage={() => fileInputRef.current?.click()}
+          onSelectVideo={() => videoInputRef.current?.click()}
+          onToggleDraw={() => handleTabChange('draw')}
+        />
 
-          {/* Action buttons - Stories / Close Friends / Send */}
-          <div className="flex items-center gap-3 px-4 pb-2">
-            {/* Stories button */}
-            <button
-              onClick={handlePost}
-              disabled={!canPost || posting || !!(videoFile && !ffmpegReady)}
-              className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-neutral-800 hover:bg-neutral-700 rounded-full text-white font-medium disabled:opacity-50 transition-all"
-            >
-              <span className="w-7 h-7 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 flex items-center justify-center border-2 border-black">
-                <span className="w-4 h-4 rounded-full bg-black"></span>
-              </span>
-              <span>{posting ? `${Math.round(progress)}%` : 'ストーリーズ'}</span>
-            </button>
+        <StoryComposerDrawingPanel
+          isDrawing={interactionState.mode === 'draw'}
+          drawingSettings={drawingSettings}
+          onDrawingSettingsChange={setDrawingSettings}
+          onClear={clearDrawing}
+          onUndo={undoDrawing}
+          onDone={() => setMode('select')}
+        />
 
-            {/* Close Friends button */}
-            <button
-              onClick={handlePost}
-              disabled={!canPost || posting || !!(videoFile && !ffmpegReady)}
-              className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-neutral-800 hover:bg-neutral-700 rounded-full text-white font-medium disabled:opacity-50 transition-all"
-            >
-              <span className="w-7 h-7 rounded-full bg-green-500 flex items-center justify-center">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                </svg>
-              </span>
-              <span>親しい友達</span>
-            </button>
-
-            {/* Send button */}
-            <button
-              onClick={handlePost}
-              disabled={!canPost || posting || !!(videoFile && !ffmpegReady)}
-              className="w-12 h-12 flex items-center justify-center bg-blue-500 hover:bg-blue-600 rounded-full text-white disabled:opacity-50 transition-all"
-            >
-              <SendIcon />
-            </button>
-          </div>
-
-          {/* Error message */}
-          {error && (
-            <div className="mx-4 mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-xl">
-              <p className="text-red-400 text-sm">{error}</p>
-              <button
-                onClick={() => setError(null)}
-                className="text-red-400/70 text-xs mt-1 hover:text-red-400"
-              >
-                閉じる
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Tool panel overlay (for sticker, etc.) - positioned above bottom bar */}
-        {showToolPanel && activeTool === 'sticker' && (
-          <div
-            className="absolute left-4 right-4 z-20 bg-neutral-900/95 backdrop-blur-sm rounded-2xl p-4 max-h-[40vh] overflow-y-auto"
-            style={{ bottom: 'calc(max(env(safe-area-inset-bottom, 0px), 16px) + 130px)' }}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-white font-medium">スタンプ</h3>
-              <button
-                onClick={() => {
-                  setShowToolPanel(false);
-                  setActiveTool(null);
-                }}
-                aria-label="Close"
-                className="text-white/60 hover:text-white p-1"
-              >
-                <CloseIcon />
-              </button>
-            </div>
-            <StickerPanel onAddEmoji={(emoji) => {
-              handleAddEmoji(emoji);
-              setShowToolPanel(false);
-              setActiveTool(null);
-            }} />
-          </div>
-        )}
-
-        {/* Background/Media quick access - positioned above bottom bar */}
-        <div
-          className="absolute left-4 z-10 flex gap-2"
-          style={{ bottom: 'calc(max(env(safe-area-inset-bottom, 0px), 16px) + 130px)' }}
-        >
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="p-3 bg-black/60 hover:bg-black/80 rounded-full text-white transition-colors"
-          >
-            <ImageIcon />
-          </button>
-          <button
-            onClick={() => videoInputRef.current?.click()}
-            disabled={uploading}
-            className={`p-3 rounded-full text-white transition-colors ${
-              videoFile ? 'bg-blue-500' : 'bg-black/60 hover:bg-black/80'
-            }`}
-          >
-            <VideoIcon />
-          </button>
-          <button
-            onClick={() => handleTabChange('draw')}
-            className={`p-3 rounded-full text-white transition-colors ${
-              interactionState.mode === 'draw' ? 'bg-purple-500' : 'bg-black/60 hover:bg-black/80'
-            }`}
-          >
-            <DrawIcon />
-          </button>
-        </div>
-
-        {/* Drawing panel overlay - positioned above bottom bar */}
-        {interactionState.mode === 'draw' && (
-          <div
-            className="absolute left-20 z-20 bg-neutral-900/95 backdrop-blur-sm rounded-2xl p-4"
-            style={{ bottom: 'calc(max(env(safe-area-inset-bottom, 0px), 16px) + 130px)' }}
-          >
-            <DrawingPanel
-              color={drawingSettings.color}
-              width={drawingSettings.width}
-              opacity={drawingSettings.opacity}
-              onColorChange={(color) => setDrawingSettings(prev => ({ ...prev, color }))}
-              onWidthChange={(width) => setDrawingSettings(prev => ({ ...prev, width }))}
-              onOpacityChange={(opacity) => setDrawingSettings(prev => ({ ...prev, opacity }))}
-              onClear={clearDrawing}
-              onUndo={undoDrawing}
-            />
-            <button
-              onClick={() => setMode('select')}
-              className="mt-3 w-full py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm transition-colors"
-            >
-              完了
-            </button>
-          </div>
-        )}
-
-        {/* FFmpeg loading indicator */}
-        {ffmpegLoading && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 bg-black/80 backdrop-blur-sm rounded-2xl px-6 py-4">
-            <div className="flex items-center gap-3">
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-              <span className="text-white">動画機能を準備中...</span>
-            </div>
-          </div>
-        )}
-
-        {/* Posting progress indicator */}
-        {posting && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 bg-black/80 backdrop-blur-sm rounded-2xl px-8 py-6">
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-16 h-16 relative">
-                <svg className="w-full h-full -rotate-90">
-                  <circle
-                    cx="32"
-                    cy="32"
-                    r="28"
-                    fill="none"
-                    stroke="rgba(255,255,255,0.2)"
-                    strokeWidth="4"
-                  />
-                  <circle
-                    cx="32"
-                    cy="32"
-                    r="28"
-                    fill="none"
-                    stroke="white"
-                    strokeWidth="4"
-                    strokeLinecap="round"
-                    strokeDasharray={`${progress * 1.76} 176`}
-                  />
-                </svg>
-                <span className="absolute inset-0 flex items-center justify-center text-white font-medium">
-                  {Math.round(progress)}%
-                </span>
-              </div>
-              <span className="text-white text-sm">投稿中...</span>
-            </div>
-          </div>
-        )}
+        <StoryComposerStatusOverlay
+          ffmpegLoading={ffmpegLoading}
+          posting={posting}
+          progress={progress}
+        />
       </div>
 
       {/* Hidden file inputs */}

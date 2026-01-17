@@ -1,0 +1,60 @@
+import type { Env } from '../../types';
+import { generateKeyPair } from '../../utils';
+
+export const INSTANCE_ACTOR_USERNAME = 'community';
+export const MAX_ROOM_STREAM_LIMIT = 50;
+
+export function parseLimit(value: string | undefined, fallback: number, max: number): number {
+  const parsed = Number.parseInt(value ?? '', 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, max);
+}
+
+export function roomApId(baseUrl: string, roomId: string): string {
+  return `${baseUrl}/ap/rooms/${roomId}`;
+}
+
+export async function getInstanceActor(c: { env: Env }) {
+  const baseUrl = c.env.APP_URL;
+  const apId = `${baseUrl}/ap/actor`;
+  let actor = await c.env.DB.prepare(
+    `SELECT ap_id, preferred_username, name, summary, public_key_pem, private_key_pem, join_policy, posting_policy, visibility
+     FROM instance_actor WHERE ap_id = ?`
+  )
+    .bind(apId)
+    .first<any>();
+
+  if (!actor) {
+    const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+    const now = new Date().toISOString();
+    await c.env.DB.prepare(`
+      INSERT INTO instance_actor (ap_id, preferred_username, name, summary, public_key_pem, private_key_pem, join_policy, posting_policy, visibility, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'open', 'members', 'public', ?, ?)
+    `)
+      .bind(
+        apId,
+        INSTANCE_ACTOR_USERNAME,
+        'Yurucommu',
+        'Yurucommu Community',
+        publicKeyPem,
+        privateKeyPem,
+        now,
+        now
+      )
+      .run();
+
+    actor = {
+      ap_id: apId,
+      preferred_username: INSTANCE_ACTOR_USERNAME,
+      name: 'Yurucommu',
+      summary: 'Yurucommu Community',
+      public_key_pem: publicKeyPem,
+      private_key_pem: privateKeyPem,
+      join_policy: 'open',
+      posting_policy: 'members',
+      visibility: 'public',
+    };
+  }
+
+  return actor;
+}
