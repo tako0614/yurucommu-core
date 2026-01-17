@@ -1,9 +1,13 @@
 ﻿import { useState, useEffect } from 'react';
-import { Actor } from '../types';
+import type { Actor } from '../types';
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
 import { InlineErrorBanner } from '../components/InlineErrorBanner';
 import { useInlineError } from '../hooks/useInlineError';
+import { SettingsAccountsSection } from '../components/settings/SettingsAccountsSection';
+import { SettingsDeleteSection } from '../components/settings/SettingsDeleteSection';
+import { SettingsUserList } from '../components/settings/SettingsUserList';
+import { ChevronRightIcon } from '../components/settings/SettingsIcons';
 import {
   fetchAccounts,
   switchAccount,
@@ -20,32 +24,9 @@ interface SettingsPageProps {
   actor: Actor;
 }
 
-const ChevronRightIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-  </svg>
-);
-
-const PlusIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-  </svg>
-);
-
-const CheckIcon = () => (
-  <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-  </svg>
-);
-
-const CloseIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-  </svg>
-);
-
 export function SettingsPage({ actor }: SettingsPageProps) {
   const { t, language, setLanguage } = useI18n();
+  const { error, setError, clearError } = useInlineError();
   const [activeSection, setActiveSection] = useState<'main' | 'blocked' | 'muted' | 'delete' | 'accounts'>('main');
   const [blockedUsers, setBlockedUsers] = useState<Actor[]>([]);
   const [mutedUsers, setMutedUsers] = useState<Actor[]>([]);
@@ -62,6 +43,21 @@ export function SettingsPage({ actor }: SettingsPageProps) {
   const normalizedUsername = newUsername.trim();
   const isUsernameValid = normalizedUsername.length > 0 && usernamePattern.test(normalizedUsername);
   const [switching, setSwitching] = useState(false);
+
+  const resetCreateAccount = () => {
+    setShowCreateAccount(false);
+    setNewUsername('');
+    setNewDisplayName('');
+    setCreateError(null);
+  };
+
+  const handleToggleCreate = (open: boolean) => {
+    if (open) {
+      setShowCreateAccount(true);
+    } else {
+      resetCreateAccount();
+    }
+  };
 
   useEffect(() => {
     if (activeSection === 'blocked') {
@@ -121,9 +117,7 @@ export function SettingsPage({ actor }: SettingsPageProps) {
     try {
       const newAccount = await createAccount(normalizedUsername, newDisplayName.trim() || undefined);
       setAccounts(prev => [...prev, newAccount]);
-      setShowCreateAccount(false);
-      setNewUsername('');
-      setNewDisplayName('');
+      resetCreateAccount();
     } catch (e: any) {
       setCreateError(e.message || 'Failed to create account');
     }
@@ -162,45 +156,24 @@ export function SettingsPage({ actor }: SettingsPageProps) {
     }
   };
 
+  const errorBanner = error ? (
+    <InlineErrorBanner message={error} onClose={clearError} />
+  ) : null;
+
   if (activeSection === 'blocked') {
     return (
       <div className="flex flex-col h-full">
-      {error && (
-        <InlineErrorBanner message={error} onClose={clearError} />
-      )}
-        <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-          <div className="flex items-center gap-4 px-4 py-3">
-            <button onClick={() => setActiveSection('main')} aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-            </button>
-            <h1 className="text-xl font-bold">Blocked Users</h1>
-          </div>
-        </header>
-        <div className="flex-1 overflow-y-auto">
-          {loading ? (
-            <div className="p-8 text-center text-neutral-500">{t('common.loading')}</div>
-          ) : blockedUsers.length === 0 ? (
-            <div className="p-8 text-center text-neutral-500">No blocked users</div>
-          ) : (
-            blockedUsers.map(user => (
-              <div key={user.ap_id} className="flex items-center gap-3 px-4 py-3 border-b border-neutral-900">
-                <UserAvatar avatarUrl={user.icon_url} name={user.name || user.preferred_username} size={48} />
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-white truncate">{user.name || user.preferred_username}</div>
-                  <div className="text-neutral-500 truncate">@{user.username}</div>
-                </div>
-                <button
-                  onClick={() => handleUnblock(user.ap_id)}
-                  className="px-3 py-1.5 border border-neutral-600 rounded-full text-sm hover:bg-neutral-900"
-                >
-                  Unblock
-                </button>
-              </div>
-            ))
-          )}
-        </div>
+        {errorBanner}
+        <SettingsUserList
+          title="Blocked Users"
+          emptyLabel="No blocked users"
+          actionLabel="Unblock"
+          loading={loading}
+          users={blockedUsers}
+          onBack={() => setActiveSection('main')}
+          onAction={handleUnblock}
+          t={t}
+        />
       </div>
     );
   }
@@ -208,42 +181,17 @@ export function SettingsPage({ actor }: SettingsPageProps) {
   if (activeSection === 'muted') {
     return (
       <div className="flex flex-col h-full">
-      {error && (
-        <InlineErrorBanner message={error} onClose={clearError} />
-      )}
-        <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-          <div className="flex items-center gap-4 px-4 py-3">
-            <button onClick={() => setActiveSection('main')} aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-            </button>
-            <h1 className="text-xl font-bold">Muted Users</h1>
-          </div>
-        </header>
-        <div className="flex-1 overflow-y-auto">
-          {loading ? (
-            <div className="p-8 text-center text-neutral-500">{t('common.loading')}</div>
-          ) : mutedUsers.length === 0 ? (
-            <div className="p-8 text-center text-neutral-500">No muted users</div>
-          ) : (
-            mutedUsers.map(user => (
-              <div key={user.ap_id} className="flex items-center gap-3 px-4 py-3 border-b border-neutral-900">
-                <UserAvatar avatarUrl={user.icon_url} name={user.name || user.preferred_username} size={48} />
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-white truncate">{user.name || user.preferred_username}</div>
-                  <div className="text-neutral-500 truncate">@{user.username}</div>
-                </div>
-                <button
-                  onClick={() => handleUnmute(user.ap_id)}
-                  className="px-3 py-1.5 border border-neutral-600 rounded-full text-sm hover:bg-neutral-900"
-                >
-                  Unmute
-                </button>
-              </div>
-            ))
-          )}
-        </div>
+        {errorBanner}
+        <SettingsUserList
+          title="Muted Users"
+          emptyLabel="No muted users"
+          actionLabel="Unmute"
+          loading={loading}
+          users={mutedUsers}
+          onBack={() => setActiveSection('main')}
+          onAction={handleUnmute}
+          t={t}
+        />
       </div>
     );
   }
@@ -251,45 +199,14 @@ export function SettingsPage({ actor }: SettingsPageProps) {
   if (activeSection === 'delete') {
     return (
       <div className="flex flex-col h-full">
-      {error && (
-        <InlineErrorBanner message={error} onClose={clearError} />
-      )}
-        <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-          <div className="flex items-center gap-4 px-4 py-3">
-            <button onClick={() => setActiveSection('main')} aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-            </button>
-            <h1 className="text-xl font-bold text-red-500">Delete Account</h1>
-          </div>
-        </header>
-        <div className="p-4 space-y-4">
-          <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
-            <p className="text-red-400 text-sm">
-              This action cannot be undone. All posts, likes, and follows will be deleted.
-            </p>
-          </div>
-          <div>
-            <label className="block text-sm text-neutral-400 mb-2">
-              Enter your username "{actor.preferred_username}" to confirm
-            </label>
-            <input
-              type="text"
-              value={deleteConfirm}
-              onChange={e => setDeleteConfirm(e.target.value)}
-              placeholder={actor.preferred_username}
-              className="w-full bg-neutral-900 rounded-lg px-3 py-2 text-white outline-none focus:ring-2 focus:ring-red-500"
-            />
-          </div>
-          <button
-            onClick={handleDeleteAccount}
-            disabled={deleteConfirm !== actor.preferred_username}
-            className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-neutral-800 disabled:text-neutral-600 rounded-lg font-bold"
-          >
-            Delete Account
-          </button>
-        </div>
+        {errorBanner}
+        <SettingsDeleteSection
+          actor={actor}
+          deleteConfirm={deleteConfirm}
+          onChangeConfirm={setDeleteConfirm}
+          onDelete={handleDeleteAccount}
+          onBack={() => setActiveSection('main')}
+        />
       </div>
     );
   }
@@ -297,126 +214,33 @@ export function SettingsPage({ actor }: SettingsPageProps) {
   if (activeSection === 'accounts') {
     return (
       <div className="flex flex-col h-full">
-      {error && (
-        <InlineErrorBanner message={error} onClose={clearError} />
-      )}
-        <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-          <div className="flex items-center gap-4 px-4 py-3">
-            <button onClick={() => setActiveSection('main')} aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-            </button>
-            <h1 className="text-xl font-bold">アカウント切り替え</h1>
-          </div>
-        </header>
-        <div className="flex-1 overflow-y-auto">
-          {loading ? (
-            <div className="p-8 text-center text-neutral-500">{t('common.loading')}</div>
-          ) : (
-            <>
-              {/* Account list */}
-              {accounts.map(account => (
-                <button
-                  key={account.ap_id}
-                  onClick={() => handleSwitchAccount(account.ap_id)}
-                  disabled={switching}
-                  className="w-full flex items-center gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/50 disabled:opacity-50"
-                >
-                  <UserAvatar
-                    avatarUrl={account.icon_url}
-                    name={account.name || account.preferred_username}
-                    size={48}
-                  />
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="font-bold text-white truncate">
-                      {account.name || account.preferred_username}
-                    </div>
-                    <div className="text-neutral-500 truncate">@{account.preferred_username}</div>
-                  </div>
-                  {account.ap_id === actor.ap_id && <CheckIcon />}
-                </button>
-              ))}
-
-              {/* Create new account button */}
-              {!showCreateAccount ? (
-                <button
-                  onClick={() => setShowCreateAccount(true)}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900/50 text-blue-400"
-                >
-                  <div className="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center">
-                    <PlusIcon />
-                  </div>
-                  <span>新しいアカウントを作成</span>
-                </button>
-              ) : (
-                <div className="p-4 border-t border-neutral-900">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-bold">新しいアカウント</h3>
-                    <button
-                      onClick={() => {
-                        setShowCreateAccount(false);
-                        setNewUsername('');
-                        setNewDisplayName('');
-                        setCreateError(null);
-                      }}
-                      aria-label="Close"
-                      className="p-1 hover:bg-neutral-800 rounded-full"
-                    >
-                      <CloseIcon />
-                    </button>
-                  </div>
-                  {createError && (
-                    <div className="mb-3 p-2 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
-                      {createError}
-                    </div>
-                  )}
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-sm text-neutral-400 mb-1">ユーザー名 *</label>
-                      <input
-                        type="text"
-                        value={newUsername}
-                        onChange={e => setNewUsername(e.target.value)}
-                        placeholder="username"
-                        pattern="^[a-zA-Z0-9_]+$"
-                        required
-                        className="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                      <p className="text-xs text-neutral-500 mt-1">英数字とアンダースコアのみ</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm text-neutral-400 mb-1">表示名</label>
-                      <input
-                        type="text"
-                        value={newDisplayName}
-                        onChange={e => setNewDisplayName(e.target.value)}
-                        placeholder="Display Name"
-                        className="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <button
-                      onClick={handleCreateAccount}
-                      disabled={!isUsernameValid}
-                      className="w-full py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-bold transition-colors disabled:opacity-50 disabled:hover:bg-blue-500"
-                    >
-                      作成
-                    </button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
+        {errorBanner}
+        <SettingsAccountsSection
+          actor={actor}
+          accounts={accounts}
+          loading={loading}
+          switching={switching}
+          showCreateAccount={showCreateAccount}
+          newUsername={newUsername}
+          newDisplayName={newDisplayName}
+          createError={createError}
+          isUsernameValid={isUsernameValid}
+          onBack={() => setActiveSection('main')}
+          onSwitchAccount={handleSwitchAccount}
+          onToggleCreate={handleToggleCreate}
+          onChangeUsername={setNewUsername}
+          onChangeDisplayName={setNewDisplayName}
+          onCreate={handleCreateAccount}
+          onResetCreate={resetCreateAccount}
+          t={t}
+        />
       </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full">
-      {error && (
-        <InlineErrorBanner message={error} onClose={clearError} />
-      )}
+      {errorBanner}
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm border-b border-neutral-900 z-10">
         <h1 className="text-xl font-bold px-4 py-3">Settings</h1>
       </header>
@@ -487,5 +311,3 @@ export function SettingsPage({ actor }: SettingsPageProps) {
     </div>
   );
 }
-
-
