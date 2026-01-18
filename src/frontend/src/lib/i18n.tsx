@@ -15,6 +15,7 @@ const translations = {
     'nav.profile': 'プロフィール',
     'nav.settings': '設定',
     'nav.logout': 'ログアウト',
+    'nav.friends': 'フレンド',
 
     // Timeline / Posts
     'timeline.title': 'ホーム',
@@ -143,6 +144,7 @@ const translations = {
     'nav.profile': 'Profile',
     'nav.settings': 'Settings',
     'nav.logout': 'Logout',
+    'nav.friends': 'Friends',
 
     // Timeline / Posts
     'timeline.title': 'Home',
@@ -261,7 +263,9 @@ const translations = {
   },
 } as const;
 
-type TranslationKey = keyof typeof translations.ja;
+export type TranslationKey = keyof typeof translations.ja;
+
+export type Translate = (key: TranslationKey) => string;
 
 interface I18nContextType {
   language: Language;

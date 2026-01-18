@@ -1,8 +1,7 @@
 ﻿import type { Actor } from '../../types';
 import { UserAvatar } from '../UserAvatar';
 import { SettingsSectionHeader } from './SettingsSectionHeader';
-
-type Translate = (key: string) => string;
+import type { Translate } from '../../lib/i18n';
 
 interface SettingsUserListProps {
   title: string;

@@ -1,7 +1,7 @@
 // Timeline routes for Yurucommu backend
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { formatUsername } from '../utils';
+import { formatUsername, safeJsonParse } from '../utils';
 
 const timeline = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -25,6 +25,13 @@ type TimelinePostRow = {
   liked: number;
   bookmarked: number;
   reposted: number;
+};
+
+type Attachment = {
+  type?: string;
+  mediaType?: string;
+  url?: string;
+  [key: string]: unknown;
 };
 
 // Get public timeline
@@ -77,14 +84,14 @@ timeline.get('/', async (c) => {
   `;
   const params: Array<string | number | null> = [viewerApId, viewerApId, viewerApId, ...whereParams, limit + 1, offset];
 
-  const posts = await c.env.DB.prepare(query).bind(...params).all();
+  const posts = await c.env.DB.prepare(query).bind(...params).all<TimelinePostRow>();
 
   // Check if there are more results
   const results = posts.results || [];
   const has_more = results.length > limit;
   const actualResults = has_more ? results.slice(0, limit) : results;
 
-  const result = actualResults.map((p: TimelinePostRow) => ({
+  const result = actualResults.map((p) => ({
     ap_id: p.ap_id,
     type: p.type,
     author: {
@@ -96,7 +103,7 @@ timeline.get('/', async (c) => {
     },
     content: p.content,
     summary: p.summary,
-    attachments: JSON.parse(p.attachments_json || '[]'),
+    attachments: safeJsonParse<Attachment[]>(p.attachments_json, []),
     in_reply_to: p.in_reply_to,
     visibility: p.visibility,
     community_ap_id: p.community_ap_id,
@@ -165,7 +172,7 @@ timeline.get('/following', async (c) => {
   `;
   const params: Array<string | number | null> = [viewerApId, viewerApId, viewerApId, ...whereParams, limit + 1, offset];
 
-  const posts = await c.env.DB.prepare(query).bind(...params).all();
+  const posts = await c.env.DB.prepare(query).bind(...params).all<TimelinePostRow>();
 
   // Check if there are more results
   const results = posts.results || [];
@@ -184,7 +191,7 @@ timeline.get('/following', async (c) => {
     },
     content: p.content,
     summary: p.summary,
-    attachments: JSON.parse(p.attachments_json || '[]'),
+    attachments: safeJsonParse<Attachment[]>(p.attachments_json, []),
     in_reply_to: p.in_reply_to,
     visibility: p.visibility,
     like_count: p.like_count,

@@ -2,7 +2,7 @@ import { UserAvatar } from '../../UserAvatar';
 import { CloseIcon, MutedIcon, TrashIcon, UnmutedIcon } from './StoryViewerIcons';
 
 interface StoryViewerHeaderProps {
-  actor: { icon_url?: string; name?: string; preferred_username?: string };
+  actor: { icon_url: string | null; name: string | null; preferred_username: string };
   timeLabel: string;
   isVideo: boolean;
   isMuted: boolean;

@@ -2,7 +2,62 @@
 // Provides utilities for delivering activities to followers
 
 import type { Env, Actor } from '../types';
-import { generateId, activityApId, isLocal, signRequest } from '../utils';
+import { generateId, activityApId, isLocal, signRequest, isSafeRemoteUrl } from '../utils';
+
+/**
+ * Actor information needed to send an activity
+ */
+interface SenderActor {
+  ap_id: string;
+  private_key_pem: string;
+}
+
+/**
+ * Deliver an activity to a specific recipient's inbox
+ * Handles: actor cache lookup, URL safety check, signing, and delivery
+ *
+ * @param db - D1Database instance
+ * @param senderActor - Actor sending the activity (needs ap_id and private_key_pem)
+ * @param recipientApId - AP ID of the recipient to look up in actor_cache
+ * @param activity - The activity object to deliver
+ * @returns Promise<boolean> - true if delivery succeeded, false otherwise
+ */
+export async function deliverActivity(
+  db: D1Database,
+  senderActor: SenderActor,
+  recipientApId: string,
+  activity: object
+): Promise<boolean> {
+  try {
+    const cachedActor = await db.prepare(
+      'SELECT inbox FROM actor_cache WHERE ap_id = ?'
+    ).bind(recipientApId).first<{ inbox: string | null }>();
+
+    if (!cachedActor?.inbox) {
+      return false;
+    }
+
+    if (!isSafeRemoteUrl(cachedActor.inbox)) {
+      console.warn(`[deliverActivity] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
+      return false;
+    }
+
+    const keyId = `${senderActor.ap_id}#main-key`;
+    const body = JSON.stringify(activity);
+    const headers = await signRequest(senderActor.private_key_pem, keyId, 'POST', cachedActor.inbox, body);
+
+    const response = await fetch(cachedActor.inbox, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/activity+json' },
+      body,
+    });
+
+    return response.ok;
+  } catch (e) {
+    console.error(`[deliverActivity] Failed to deliver to ${recipientApId}:`, e);
+    return false;
+  }
+}
 
 // Story data from database after transformation
 interface StoryData {
@@ -75,30 +130,12 @@ export async function deliverToFollowers(
 
   // Filter to remote followers only
   const remoteFollowers = (followers.results || []).filter(
-    (f: { follower_ap_id: string }) => !isLocal(f.follower_ap_id, baseUrl)
-  );
+    (f) => !isLocal((f as { follower_ap_id: string }).follower_ap_id, baseUrl)
+  ) as Array<{ follower_ap_id: string }>;
 
-  // Deliver to each remote follower's inbox
+  // Deliver to each remote follower's inbox using the centralized delivery function
   for (const follower of remoteFollowers) {
-    try {
-      const cachedActor = await env.DB.prepare(
-        'SELECT inbox FROM actor_cache WHERE ap_id = ?'
-      ).bind(follower.follower_ap_id).first<{ inbox: string }>();
-
-      if (cachedActor?.inbox) {
-        const keyId = `${actor.ap_id}#main-key`;
-        const body = JSON.stringify(activity);
-        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, body);
-
-        await fetch(cachedActor.inbox, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body,
-        });
-      }
-    } catch (e) {
-      console.error(`Failed to deliver to ${follower.follower_ap_id}:`, e);
-    }
+    await deliverActivity(env.DB, actor, follower.follower_ap_id, activity);
   }
 }
 

@@ -2,8 +2,7 @@
 import type { Actor } from '../../types';
 import { UserAvatar } from '../UserAvatar';
 import { CloseIcon } from './ProfileIcons';
-
-type Translate = (key: string) => string;
+import type { Translate } from '../../lib/i18n';
 
 type FollowModalType = 'followers' | 'following' | null;
 

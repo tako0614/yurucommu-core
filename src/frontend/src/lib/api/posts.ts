@@ -12,7 +12,7 @@ export async function fetchTimeline(options?: {
   if (options?.community) params.set('community', options.community);
   const query = params.toString() ? `?${params}` : '';
   const res = await fetch(`/api/timeline${query}`);
-  const data = await res.json();
+  const data = (await res.json()) as { posts?: Post[] };
   return (data.posts || []).map(normalizePost);
 }
 
@@ -25,20 +25,20 @@ export async function fetchFollowingTimeline(options?: {
   if (options?.before) params.set('before', options.before);
   const query = params.toString() ? `?${params}` : '';
   const res = await fetch(`/api/timeline/following${query}`);
-  const data = await res.json();
+  const data = (await res.json()) as { posts?: Post[] };
   return (data.posts || []).map(normalizePost);
 }
 
 export async function fetchPost(apId: string): Promise<Post> {
   const res = await fetch(`/api/posts/${encodeURIComponent(apId)}`);
   if (!res.ok) throw new Error('Post not found');
-  const data = await res.json();
+  const data = (await res.json()) as { post: Post };
   return normalizePost(data.post);
 }
 
 export async function fetchReplies(postApId: string): Promise<Post[]> {
   const res = await fetch(`/api/posts/${encodeURIComponent(postApId)}/replies`);
-  const data = await res.json();
+  const data = (await res.json()) as { replies?: Post[] };
   return (data.replies || []).map(normalizePost);
 }
 
@@ -56,7 +56,7 @@ export async function createPost(data: {
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error('Failed to create post');
-  const result = await res.json();
+  const result = (await res.json()) as { post: Post };
   return normalizePost(result.post);
 }
 
@@ -101,6 +101,6 @@ export async function fetchBookmarks(options?: { limit?: number; before?: string
   if (options?.before) params.set('before', options.before);
   const query = params.toString() ? `?${params}` : '';
   const res = await fetch(`/api/bookmarks${query}`);
-  const data = await res.json();
+  const data = (await res.json()) as { posts?: Post[] };
   return (data.posts || []).map(normalizePost);
 }

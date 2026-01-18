@@ -1,11 +1,10 @@
 ﻿import { Link } from 'react-router-dom';
-import type { Actor, Post } from '../../types';
+import type { Post } from '../../types';
 import { formatRelativeTime } from '../../lib/datetime';
 import { UserAvatar } from '../UserAvatar';
 import { PostContent } from '../PostContent';
 import { HeartIcon, ReplyIcon } from '../icons/SocialIcons';
-
-type Translate = (key: string) => string;
+import type { Translate } from '../../lib/i18n';
 
 type ProfileTab = 'posts' | 'likes';
 

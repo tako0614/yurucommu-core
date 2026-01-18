@@ -47,8 +47,8 @@ export function LoginForm({ onLogin, error }: LoginFormProps) {
 
   useEffect(() => {
     fetch('/api/auth/providers')
-      .then(res => res.json())
-      .then((data: AuthConfig) => {
+      .then(res => res.json() as Promise<AuthConfig>)
+      .then((data) => {
         setAuthConfig(data);
         setLoading(false);
       })

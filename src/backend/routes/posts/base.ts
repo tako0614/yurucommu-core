@@ -1,7 +1,8 @@
 ﻿import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
-import { generateId, objectApId, activityApId, formatUsername, isLocal, signRequest, isSafeRemoteUrl } from '../../utils';
+import { generateId, objectApId, activityApId, formatUsername, isLocal, safeJsonParse } from '../../utils';
 import { MAX_POST_CONTENT_LENGTH, MAX_POST_SUMMARY_LENGTH, MAX_POSTS_PAGE_LIMIT, extractMentions, formatPost, normalizeVisibility, parseLimit, PostRow } from './utils';
+import { deliverActivity } from '../../lib/activitypub-helpers';
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -36,10 +37,6 @@ type ApIdRow = {
 
 type AttributedToRow = {
   attributed_to: string;
-};
-
-type ActorCacheInboxRow = {
-  inbox: string | null;
 };
 
 type FollowerRow = {
@@ -109,43 +106,63 @@ posts.post('/', async (c) => {
   const now = new Date().toISOString();
 
   // Insert the post
-  await c.env.DB.prepare(`
-    INSERT INTO objects (ap_id, type, attributed_to, content, summary, attachments_json, in_reply_to, visibility, community_ap_id, published, is_local)
-    VALUES (?, 'Note', ?, ?, ?, ?, ?, ?, ?, ?, 1)
-  `).bind(
-    apId,
-    actor.ap_id,
-    content,
-    summary || null,
-    JSON.stringify(body.attachments || []),
-    body.in_reply_to || null,
-    visibility,
-    communityId,
-    now
-  ).run();
+  try {
+    await c.env.DB.prepare(`
+      INSERT INTO objects (ap_id, type, attributed_to, content, summary, attachments_json, in_reply_to, visibility, community_ap_id, published, is_local)
+      VALUES (?, 'Note', ?, ?, ?, ?, ?, ?, ?, ?, 1)
+    `).bind(
+      apId,
+      actor.ap_id,
+      content,
+      summary || null,
+      JSON.stringify(body.attachments || []),
+      body.in_reply_to || null,
+      visibility,
+      communityId,
+      now
+    ).run();
+  } catch (e) {
+    console.error('[Posts] Failed to insert post:', e);
+    return c.json({ error: 'Failed to create post' }, 500);
+  }
 
   // Update author's post count
-  await c.env.DB.prepare('UPDATE actors SET post_count = post_count + 1 WHERE ap_id = ?').bind(actor.ap_id).run();
+  try {
+    await c.env.DB.prepare('UPDATE actors SET post_count = post_count + 1 WHERE ap_id = ?').bind(actor.ap_id).run();
+  } catch (e) {
+    console.error('[Posts] Failed to update post count:', e);
+    // Non-critical error, continue
+  }
 
   // If replying to someone, update reply count
   if (body.in_reply_to) {
-    await c.env.DB.prepare('UPDATE objects SET reply_count = reply_count + 1 WHERE ap_id = ?').bind(body.in_reply_to).run();
+    try {
+      await c.env.DB.prepare('UPDATE objects SET reply_count = reply_count + 1 WHERE ap_id = ?').bind(body.in_reply_to).run();
+    } catch (e) {
+      console.error('[Posts] Failed to update reply count:', e);
+      // Non-critical error, continue
+    }
 
     // Add to inbox of the post author being replied to (AP Native notification)
-    const parentPost = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(body.in_reply_to).first<AttributedToRow>();
-    if (parentPost && parentPost.attributed_to !== actor.ap_id && isLocal(parentPost.attributed_to, baseUrl)) {
-      // Create activity for the inbox
-      const replyActivityId = activityApId(baseUrl, generateId());
-      await c.env.DB.prepare(`
-        INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, published, local)
-        VALUES (?, 'Create', ?, ?, ?, 1)
-      `).bind(replyActivityId, actor.ap_id, apId, now).run();
+    try {
+      const parentPost = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(body.in_reply_to).first<AttributedToRow>();
+      if (parentPost && parentPost.attributed_to !== actor.ap_id && isLocal(parentPost.attributed_to, baseUrl)) {
+        // Create activity for the inbox
+        const replyActivityId = activityApId(baseUrl, generateId());
+        await c.env.DB.prepare(`
+          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, published, local)
+          VALUES (?, 'Create', ?, ?, ?, 1)
+        `).bind(replyActivityId, actor.ap_id, apId, now).run();
 
-      // Add to recipient's inbox
-      await c.env.DB.prepare(`
-        INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
-        VALUES (?, ?, 0, ?)
-      `).bind(parentPost.attributed_to, replyActivityId, now).run();
+        // Add to recipient's inbox
+        await c.env.DB.prepare(`
+          INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
+          VALUES (?, ?, 0, ?)
+        `).bind(parentPost.attributed_to, replyActivityId, now).run();
+      }
+    } catch (e) {
+      console.error('[Posts] Failed to create reply notification:', e);
+      // Non-critical error, continue
     }
   }
 
@@ -201,7 +218,7 @@ posts.post('/', async (c) => {
       SELECT DISTINCT f.follower_ap_id
       FROM follows f
       WHERE f.following_ap_id = ? AND f.status = 'accepted'
-    `).bind(actor.ap_id).all();
+    `).bind(actor.ap_id).all<FollowerRow>();
 
     const createActivity = {
       '@context': 'https://www.w3.org/ns/activitystreams',
@@ -224,25 +241,7 @@ posts.post('/', async (c) => {
     // Send to remote followers
     const remoteFollowers = (followers.results || []).filter((f: FollowerRow) => !isLocal(f.follower_ap_id, baseUrl));
     for (const follower of remoteFollowers) {
-      try {
-        const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(follower.follower_ap_id).first<ActorCacheInboxRow>();
-        if (cachedActor?.inbox) {
-          if (!isSafeRemoteUrl(cachedActor.inbox)) {
-            console.warn(`[Posts] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
-            continue;
-          }
-          const keyId = `${actor.ap_id}#main-key`;
-          const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(createActivity));
-
-          await fetch(cachedActor.inbox, {
-            method: 'POST',
-            headers: { ...headers, 'Content-Type': 'application/activity+json' },
-            body: JSON.stringify(createActivity),
-          });
-        }
-      } catch (e) {
-        console.error(`Failed to federate to ${follower.follower_ap_id}:`, e);
-      }
+      await deliverActivity(c.env.DB, actor, follower.follower_ap_id, createActivity);
     }
 
     // Store activity
@@ -316,12 +315,7 @@ posts.get('/:id', async (c) => {
       return c.json({ error: 'Post not found' }, 404);
     }
     if (currentActor.ap_id !== post.attributed_to) {
-      let recipients: string[] = [];
-      try {
-        recipients = JSON.parse(post.to_json || '[]');
-      } catch {
-        recipients = [];
-      }
+      const recipients = safeJsonParse<string[]>(post.to_json, []);
       if (!recipients.includes(currentActor.ap_id)) {
         return c.json({ error: 'Post not found' }, 404);
       }
@@ -367,9 +361,9 @@ posts.get('/:id/replies', async (c) => {
   query += ` ORDER BY o.published DESC LIMIT ?`;
   params.push(limit);
 
-  const replies = await c.env.DB.prepare(query).bind(...params).all();
+  const replies = await c.env.DB.prepare(query).bind(...params).all<PostRow>();
 
-  const result = (replies.results || []).map((r: PostRow) => formatPost(r, currentActor?.ap_id));
+  const result = (replies.results || []).map((r) => formatPost(r, currentActor?.ap_id));
 
   return c.json({ replies: result });
 });
@@ -444,7 +438,7 @@ posts.patch('/:id', async (c) => {
     SELECT DISTINCT f.follower_ap_id
     FROM follows f
     WHERE f.following_ap_id = ? AND f.status = 'accepted'
-  `).bind(actor.ap_id).all();
+  `).bind(actor.ap_id).all<FollowerRow>();
 
   const updateActivity = {
     '@context': 'https://www.w3.org/ns/activitystreams',
@@ -464,25 +458,7 @@ posts.patch('/:id', async (c) => {
   // Send to remote followers
   const remoteFollowers = (followers.results || []).filter((f: FollowerRow) => !isLocal(f.follower_ap_id, baseUrl));
   for (const follower of remoteFollowers) {
-    try {
-      const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(follower.follower_ap_id).first<ActorCacheInboxRow>();
-      if (cachedActor?.inbox) {
-        if (!isSafeRemoteUrl(cachedActor.inbox)) {
-          console.warn(`[Posts] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
-          continue;
-        }
-        const keyId = `${actor.ap_id}#main-key`;
-        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(updateActivity));
-
-        await fetch(cachedActor.inbox, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(updateActivity),
-        });
-      }
-    } catch (e) {
-      console.error(`Failed to federate update to ${follower.follower_ap_id}:`, e);
-    }
+    await deliverActivity(c.env.DB, actor, follower.follower_ap_id, updateActivity);
   }
 
   // Store activity
@@ -539,7 +515,7 @@ posts.delete('/:id', async (c) => {
     SELECT DISTINCT f.follower_ap_id
     FROM follows f
     WHERE f.following_ap_id = ? AND f.status = 'accepted'
-  `).bind(actor.ap_id).all();
+  `).bind(actor.ap_id).all<FollowerRow>();
 
   const deleteActivity = {
     '@context': 'https://www.w3.org/ns/activitystreams',
@@ -552,25 +528,7 @@ posts.delete('/:id', async (c) => {
   // Send to remote followers
   const remoteFollowers = (followers.results || []).filter((f: FollowerRow) => !isLocal(f.follower_ap_id, baseUrl));
   for (const follower of remoteFollowers) {
-    try {
-      const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(follower.follower_ap_id).first<ActorCacheInboxRow>();
-      if (cachedActor?.inbox) {
-        if (!isSafeRemoteUrl(cachedActor.inbox)) {
-          console.warn(`[Posts] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
-          continue;
-        }
-        const keyId = `${actor.ap_id}#main-key`;
-        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(deleteActivity));
-
-        await fetch(cachedActor.inbox, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(deleteActivity),
-        });
-      }
-    } catch (e) {
-      console.error(`Failed to federate delete to ${follower.follower_ap_id}:`, e);
-    }
+    await deliverActivity(c.env.DB, actor, follower.follower_ap_id, deleteActivity);
   }
 
   return c.json({ success: true });

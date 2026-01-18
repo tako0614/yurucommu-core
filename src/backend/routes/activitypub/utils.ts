@@ -1,14 +1,10 @@
 import type { Env } from '../../types';
-import { generateKeyPair } from '../../utils';
+import { generateKeyPair, parseLimit } from '../../utils';
 
 export const INSTANCE_ACTOR_USERNAME = 'community';
 export const MAX_ROOM_STREAM_LIMIT = 50;
 
-export function parseLimit(value: string | undefined, fallback: number, max: number): number {
-  const parsed = Number.parseInt(value ?? '', 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-  return Math.min(parsed, max);
-}
+export { parseLimit };
 
 export function roomApId(baseUrl: string, roomId: string): string {
   return `${baseUrl}/ap/rooms/${roomId}`;

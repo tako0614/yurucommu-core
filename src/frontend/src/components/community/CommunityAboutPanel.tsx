@@ -1,4 +1,10 @@
-﻿import type { CommunityDetail } from '../../lib/api';\ninterface CommunityAboutPanelProps {\n  community: CommunityDetail;\n}\n\nexport function CommunityAboutPanel({ community }: CommunityAboutPanelProps) {
+import type { CommunityDetail } from '../../lib/api';
+
+interface CommunityAboutPanelProps {
+  community: CommunityDetail;
+}
+
+export function CommunityAboutPanel({ community }: CommunityAboutPanelProps) {
   return (
     <div className="p-4">
       {community.summary ? (
@@ -14,4 +20,3 @@
     </div>
   );
 }
-

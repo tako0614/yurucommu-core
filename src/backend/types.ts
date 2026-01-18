@@ -1,5 +1,7 @@
 // Types for Yurucommu backend
 
+import type { TakosClient } from './lib/takos-client';
+
 export type Env = {
   DB: D1Database;
   MEDIA: R2Bucket;
@@ -30,6 +32,7 @@ export type Env = {
 
 export type Variables = {
   actor: Actor | null;
+  takosClient: TakosClient | null;
 };
 
 // Local actor (Person)
@@ -84,6 +87,7 @@ export interface APObject {
   like_count: number;
   reply_count: number;
   announce_count: number;
+  share_count: number;
   published: string;
   is_local: number;
 }

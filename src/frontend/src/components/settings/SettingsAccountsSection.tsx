@@ -3,8 +3,7 @@ import type { Actor } from '../../types';
 import { UserAvatar } from '../UserAvatar';
 import { CheckIcon, CloseIcon, PlusIcon } from './SettingsIcons';
 import { SettingsSectionHeader } from './SettingsSectionHeader';
-
-type Translate = (key: string) => string;
+import type { Translate } from '../../lib/i18n';
 
 interface SettingsAccountsSectionProps {
   actor: Actor;

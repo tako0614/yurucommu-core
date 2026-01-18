@@ -63,7 +63,7 @@ communities.get('/', async (c) => {
     LEFT JOIN community_join_requests cjr
       ON c.ap_id = cjr.community_ap_id AND cjr.actor_ap_id = ? AND cjr.status = 'pending'
     ORDER BY c.last_message_at DESC NULLS LAST, c.created_at ASC
-  `).bind(actor?.ap_id || '', actor?.ap_id || '').all();
+  `).bind(actor?.ap_id || '', actor?.ap_id || '').all<CommunityListRow>();
 
   const communitiesList = (result.results || []).map((community: CommunityListRow) => ({
     ap_id: community.ap_id,

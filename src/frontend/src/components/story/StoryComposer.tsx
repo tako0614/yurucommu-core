@@ -97,6 +97,9 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
   // Overlay state (for interactive elements)
   const [overlays, setOverlays] = useState<StoryOverlay[]>([]);
 
+  // Track object URLs for cleanup to prevent memory leaks
+  const objectUrlsRef = useRef<Set<string>>(new Set());
+
   // Text editor modal state
   const [isTextEditorOpen, setIsTextEditorOpen] = useState(false);
   const [editingTextLayerId, setEditingTextLayerId] = useState<string | null>(null);
@@ -147,6 +150,17 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
     canvas.render().then(() => {
       setRenderKey(k => k + 1);
     });
+  }, []);
+
+  // Cleanup object URLs on unmount to prevent memory leaks
+  useEffect(() => {
+    const objectUrls = objectUrlsRef.current;
+    return () => {
+      objectUrls.forEach(url => {
+        URL.revokeObjectURL(url);
+      });
+      objectUrls.clear();
+    };
   }, []);
 
   // Calculate display scale
@@ -206,6 +220,8 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
     setUploading(true);
     try {
       const preview = URL.createObjectURL(file);
+      // Track the object URL for cleanup
+      objectUrlsRef.current.add(preview);
       const layer = await storyCanvas.createMediaLayer(preview);
       storyCanvas.addLayer(layer);
       selectLayer(layer.id);
@@ -496,7 +512,7 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
   };
 
   const selectedLayer = getSelectedLayer();
-  const canPost = !!storyCanvas && (storyCanvas.getLayers().length > 1 || videoFile); // Has content or video
+  const canPost = !!storyCanvas && (storyCanvas.getLayers().length > 1 || !!videoFile);
 
   // Get display canvas dimensions
   const getDisplayDimensions = () => {

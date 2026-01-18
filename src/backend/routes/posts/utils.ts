@@ -1,4 +1,6 @@
-import { formatUsername } from '../../utils';
+import { formatUsername, parseLimit } from '../../utils';
+
+export { parseLimit };
 
 export const MAX_POST_CONTENT_LENGTH = 5000;
 export const MAX_POST_SUMMARY_LENGTH = 500;
@@ -46,12 +48,6 @@ export type FormattedPost = {
   published: string;
   liked: boolean;
 };
-
-export function parseLimit(value: string | undefined, fallback: number, max: number): number {
-  const parsed = parseInt(value || '', 10);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(Math.max(parsed, 1), max);
-}
 
 export function extractMentions(content: string): string[] {
   const mentionRegex = /@([a-zA-Z0-9_]+(?:@[a-zA-Z0-9.-]+)?)/g;

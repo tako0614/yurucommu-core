@@ -2,8 +2,7 @@
 import { formatMonthYear } from '../../lib/datetime';
 import { UserAvatar } from '../UserAvatar';
 import { CalendarIcon, MoreIcon } from './ProfileIcons';
-
-type Translate = (key: string) => string;
+import type { Translate } from '../../lib/i18n';
 
 type FollowModalType = 'followers' | 'following';
 

@@ -80,31 +80,33 @@ export async function getTakosClient(
   const baseUrl = env.TAKOS_URL;
   if (!baseUrl) return null;
 
+  const takosFetch = async (path: string, options: RequestInit = {}) => {
+    return fetch(`${baseUrl}${path}`, {
+      ...options,
+      headers: {
+        ...options.headers,
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+  };
+
   return {
-    async fetch(path: string, options: RequestInit = {}) {
-      return fetch(`${baseUrl}${path}`, {
-        ...options,
-        headers: {
-          ...options.headers,
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-    },
+    fetch: takosFetch,
 
     async getWorkspaces() {
-      const res = await this.fetch('/workspaces');
+      const res = await takosFetch('/workspaces');
       if (!res.ok) throw new Error(`Failed to get workspaces: ${res.status}`);
       return res.json();
     },
 
     async getRepos() {
-      const res = await this.fetch('/repos');
+      const res = await takosFetch('/repos');
       if (!res.ok) throw new Error(`Failed to get repos: ${res.status}`);
       return res.json();
     },
 
     async getUser() {
-      const res = await this.fetch('/me');
+      const res = await takosFetch('/me');
       if (!res.ok) throw new Error(`Failed to get user: ${res.status}`);
       return res.json();
     },

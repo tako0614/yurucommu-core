@@ -4,7 +4,7 @@ import { normalizeActor } from './normalize';
 export async function fetchMe(): Promise<{ authenticated: boolean; actor?: Actor }> {
   const res = await fetch('/api/auth/me');
   if (!res.ok) return { authenticated: false };
-  const data = await res.json();
+  const data = (await res.json()) as { actor?: Actor };
   if (data.actor) {
     return { authenticated: true, actor: normalizeActor(data.actor) };
   }
@@ -17,7 +17,7 @@ export async function login(password: string): Promise<{ success: boolean; error
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),
   });
-  return res.json();
+  return (await res.json()) as { success: boolean; error?: string };
 }
 
 export async function logout(): Promise<void> {
@@ -34,7 +34,7 @@ export interface AccountInfo {
 export async function fetchAccounts(): Promise<{ accounts: AccountInfo[]; current_ap_id: string }> {
   const res = await fetch('/api/auth/accounts');
   if (!res.ok) throw new Error('Failed to fetch accounts');
-  return res.json();
+  return (await res.json()) as { accounts: AccountInfo[]; current_ap_id: string };
 }
 
 export async function switchAccount(apId: string): Promise<void> {
@@ -53,9 +53,9 @@ export async function createAccount(username: string, name?: string): Promise<Ac
     body: JSON.stringify({ username, name }),
   });
   if (!res.ok) {
-    const data = await res.json();
+    const data = (await res.json()) as { error?: string };
     throw new Error(data.error || 'Failed to create account');
   }
-  const data = await res.json();
+  const data = (await res.json()) as { account: AccountInfo };
   return data.account;
 }

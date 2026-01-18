@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom';
-import type { Actor, Community } from '../../types';
+import type { Actor } from '../../types';
+import type { CommunityDetail } from '../../lib/api';
 import { UserAvatar } from '../UserAvatar';
 import { HeartIcon } from '../icons/SocialIcons';
 
 interface TimelineHeaderProps {
   actor: Actor;
-  communities: Community[];
+  communities: CommunityDetail[];
   activeTab: string;
   onTabChange: (tab: string) => void;
   onOpenMenu: () => void;
