@@ -101,7 +101,7 @@ communities.get('/:identifier/messages', async (c) => {
   query += ' ORDER BY o.published DESC LIMIT ?';
   params.push(limit);
 
-  const messages = await c.env.DB.prepare(query).bind(...params).all();
+  const messages = await c.env.DB.prepare(query).bind(...params).all<CommunityMessageRow>();
 
   const result = (messages.results || []).reverse().map((msg: CommunityMessageRow) => ({
     id: msg.ap_id,

@@ -6,6 +6,14 @@ const search = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const HOSTNAME_PATTERN = /^[a-z0-9.-]+$/i;
 
+/**
+ * Escape special characters in LIKE patterns to prevent SQL injection
+ * Characters: % (any chars), _ (single char), \ (escape char)
+ */
+function escapeLikePattern(str: string): string {
+  return str.replace(/[%_\\]/g, '\\$&');
+}
+
 type ActorSearchRow = {
   ap_id: string;
   preferred_username: string;
@@ -148,7 +156,7 @@ search.get('/actors', async (c) => {
       orderBy = `
         CASE
           WHEN LOWER(preferred_username) = LOWER(?) THEN 0
-          WHEN LOWER(preferred_username) LIKE LOWER(?) THEN 1
+          WHEN LOWER(preferred_username) LIKE LOWER(?) ESCAPE '\\' THEN 1
           ELSE 2
         END,
         follower_count DESC
@@ -156,21 +164,22 @@ search.get('/actors', async (c) => {
       break;
   }
 
+  const escapedQuery = escapeLikePattern(query);
   const actors = sort === 'relevance'
     ? await c.env.DB.prepare(`
         SELECT ap_id, preferred_username, name, icon_url, summary, follower_count, created_at
         FROM actors
-        WHERE preferred_username LIKE ? OR name LIKE ?
+        WHERE preferred_username LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\'
         ORDER BY ${orderBy}
         LIMIT 20
-      `).bind(query, `${query}%`, `%${query}%`, `%${query}%`).all()
+      `).bind(query, `${escapedQuery}%`, `%${escapedQuery}%`, `%${escapedQuery}%`).all<ActorSearchRow>()
     : await c.env.DB.prepare(`
         SELECT ap_id, preferred_username, name, icon_url, summary, follower_count, created_at
         FROM actors
-        WHERE preferred_username LIKE ? OR name LIKE ?
+        WHERE preferred_username LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\'
         ORDER BY ${orderBy}
         LIMIT 20
-      `).bind(`%${query}%`, `%${query}%`).all();
+      `).bind(`%${escapedQuery}%`, `%${escapedQuery}%`).all<ActorSearchRow>();
 
   const result = (actors.results || []).map((a: ActorSearchRow) => ({
     ...a,
@@ -201,6 +210,7 @@ search.get('/posts', async (c) => {
       break;
   }
 
+  const escapedQuery = escapeLikePattern(query);
   const posts = await c.env.DB.prepare(`
     SELECT o.*,
            COALESCE(a.preferred_username, ac.preferred_username) as author_username,
@@ -210,11 +220,11 @@ search.get('/posts', async (c) => {
     FROM objects o
     LEFT JOIN actors a ON o.attributed_to = a.ap_id
     LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    WHERE o.content LIKE ? AND o.visibility = 'public'
+    WHERE o.content LIKE ? ESCAPE '\\' AND o.visibility = 'public'
       AND (o.audience_json IS NULL OR o.audience_json = '[]')
     ORDER BY ${orderBy}
     LIMIT 50
-  `).bind(actor?.ap_id || '', `%${query}%`).all();
+  `).bind(actor?.ap_id || '', `%${escapedQuery}%`).all<SearchPostRow>();
 
   const result = (posts.results || []).map((p: SearchPostRow) => ({
     ap_id: p.ap_id,
@@ -329,11 +339,12 @@ search.get('/hashtag/:tag', async (c) => {
   }
 
   // Search for #tag in content (case-insensitive)
-  const hashtagPattern = `#${tag}`;
+  const escapedTag = escapeLikePattern(tag);
+  const hashtagPattern = `#${escapedTag}`;
 
   const countResult = await c.env.DB.prepare(`
     SELECT COUNT(*) as total FROM objects o
-    WHERE o.content LIKE ? AND o.visibility = 'public'
+    WHERE o.content LIKE ? ESCAPE '\\' AND o.visibility = 'public'
   `).bind(`%${hashtagPattern}%`).first<{ total: number }>();
 
   const posts = await c.env.DB.prepare(`
@@ -345,10 +356,10 @@ search.get('/hashtag/:tag', async (c) => {
     FROM objects o
     LEFT JOIN actors a ON o.attributed_to = a.ap_id
     LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    WHERE o.content LIKE ? AND o.visibility = 'public'
+    WHERE o.content LIKE ? ESCAPE '\\' AND o.visibility = 'public'
     ORDER BY ${orderBy}
     LIMIT ? OFFSET ?
-  `).bind(actor?.ap_id || '', `%${hashtagPattern}%`, limit, offset).all();
+  `).bind(actor?.ap_id || '', `%${hashtagPattern}%`, limit, offset).all<SearchPostRow>();
 
   const result = (posts.results || []).map((p: SearchPostRow) => ({
     ap_id: p.ap_id,

@@ -3,8 +3,7 @@ import type { Actor } from '../../types';
 import type { AccountInfo } from '../../lib/api';
 import { UserAvatar } from '../UserAvatar';
 import { BookmarkIconMenu, ProfileIconMenu, SettingsIconMenu } from './TimelineIcons';
-
-type Translate = (key: string) => string;
+import type { Translate } from '../../lib/i18n';
 
 interface TimelineMobileMenuProps {
   isOpen: boolean;
@@ -86,7 +85,7 @@ export function TimelineMobileMenu({
         {showAccountSwitcher && (
           <div className="border-b border-neutral-800">
             {accountsLoading ? (
-              <div className="p-4 text-center text-neutral-500">“Ç‚İ‚İ’†...</div>
+              <div className="p-4 text-center text-neutral-500">ï¿½Ç‚İï¿½ï¿½İ’ï¿½...</div>
             ) : (
               <div className="py-2">
                 {accounts.map((account) => (

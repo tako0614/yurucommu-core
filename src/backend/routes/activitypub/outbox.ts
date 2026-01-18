@@ -38,7 +38,7 @@ ap.get('/ap/actor/outbox', async (c) => {
     WHERE actor_ap_id = ? AND direction = 'outbound'
     ORDER BY created_at DESC
     LIMIT ? OFFSET ?
-  `).bind(instanceActor.ap_id, limit, offset).all();
+  `).bind(instanceActor.ap_id, limit, offset).all<ActivityRow>();
 
   const totalCount = await c.env.DB.prepare(
     'SELECT COUNT(*) as count FROM activities WHERE actor_ap_id = ? AND direction = "outbound"'
@@ -52,7 +52,7 @@ ap.get('/ap/actor/outbox', async (c) => {
       id: `${outboxUrl}?page=${pageNum}`,
       type: 'OrderedCollectionPage',
       partOf: outboxUrl,
-      orderedItems: (activities.results || []).map((a: ActivityRow) => JSON.parse(a.raw_json)),
+      orderedItems: (activities.results || []).map((a) => JSON.parse(a.raw_json)),
     });
   }
 
@@ -78,7 +78,7 @@ ap.get('/ap/actor/followers', async (c) => {
     WHERE following_ap_id = ? AND status = 'accepted'
     ORDER BY accepted_at DESC
     LIMIT ? OFFSET ?
-  `).bind(instanceActor.ap_id, limit, offset).all();
+  `).bind(instanceActor.ap_id, limit, offset).all<FollowerRow>();
 
   const totalCount = await c.env.DB.prepare(
     'SELECT COUNT(*) as count FROM follows WHERE following_ap_id = ? AND status = "accepted"'
@@ -92,7 +92,7 @@ ap.get('/ap/actor/followers', async (c) => {
       id: `${followersUrl}?page=${pageNum}`,
       type: 'OrderedCollectionPage',
       partOf: followersUrl,
-      orderedItems: (followers.results || []).map((f: FollowerRow) => f.follower_ap_id),
+      orderedItems: (followers.results || []).map((f) => f.follower_ap_id),
     });
   }
 
@@ -145,7 +145,7 @@ ap.get('/ap/users/:username/outbox', async (c) => {
     WHERE actor_ap_id = ? AND direction = 'outbound'
     ORDER BY created_at DESC
     LIMIT ? OFFSET ?
-  `).bind(apId, limit, offset).all();
+  `).bind(apId, limit, offset).all<ActivityRow>();
 
   const totalCount = await c.env.DB.prepare(
     'SELECT COUNT(*) as count FROM activities WHERE actor_ap_id = ? AND direction = "outbound"'
@@ -160,7 +160,7 @@ ap.get('/ap/users/:username/outbox', async (c) => {
       id: `${outboxUrl}?page=${pageNum}`,
       type: 'OrderedCollectionPage',
       partOf: outboxUrl,
-      orderedItems: (activities.results || []).map((a: ActivityRow) => JSON.parse(a.raw_json)),
+      orderedItems: (activities.results || []).map((a) => JSON.parse(a.raw_json)),
     });
   } else {
     // Return collection
@@ -201,7 +201,7 @@ ap.get('/ap/users/:username/followers', async (c) => {
     WHERE following_ap_id = ? AND status = 'accepted'
     ORDER BY accepted_at DESC
     LIMIT ? OFFSET ?
-  `).bind(apId, limit, offset).all();
+  `).bind(apId, limit, offset).all<FollowerRow>();
 
   const totalCount = await c.env.DB.prepare(
     'SELECT COUNT(*) as count FROM follows WHERE following_ap_id = ? AND status = "accepted"'
@@ -215,7 +215,7 @@ ap.get('/ap/users/:username/followers', async (c) => {
       id: `${followersUrl}?page=${pageNum}`,
       type: 'OrderedCollectionPage',
       partOf: followersUrl,
-      orderedItems: (followers.results || []).map((f: FollowerRow) => f.follower_ap_id),
+      orderedItems: (followers.results || []).map((f) => f.follower_ap_id),
     });
   } else {
     return c.json({
@@ -255,7 +255,7 @@ ap.get('/ap/users/:username/following', async (c) => {
     WHERE follower_ap_id = ? AND status = 'accepted'
     ORDER BY accepted_at DESC
     LIMIT ? OFFSET ?
-  `).bind(apId, limit, offset).all();
+  `).bind(apId, limit, offset).all<FollowingRow>();
 
   const totalCount = await c.env.DB.prepare(
     'SELECT COUNT(*) as count FROM follows WHERE follower_ap_id = ? AND status = "accepted"'
@@ -269,7 +269,7 @@ ap.get('/ap/users/:username/following', async (c) => {
       id: `${followingUrl}?page=${pageNum}`,
       type: 'OrderedCollectionPage',
       partOf: followingUrl,
-      orderedItems: (following.results || []).map((f: FollowingRow) => f.following_ap_id),
+      orderedItems: (following.results || []).map((f) => f.following_ap_id),
     });
   } else {
     return c.json({

@@ -118,7 +118,7 @@ stories.get('/', async (c) => {
       actor.ap_id,
       actor.ap_id,
       actor.ap_id
-    ).all();
+    ).all<StoryRow>();
 
   // Get all story ap_ids for batch vote query
   const storyApIds = (stories_data.results || []).map((s: StoryRow) => s.ap_id);
@@ -134,7 +134,7 @@ stories.get('/', async (c) => {
       FROM story_votes
       WHERE story_ap_id IN (${storyApIds.map(() => '?').join(',')})
       GROUP BY story_ap_id, option_index
-    `).bind(...storyApIds).all();
+    `).bind(...storyApIds).all<VoteRow>();
 
     (votesQuery.results || []).forEach((v: VoteRow) => {
       if (!allVotes[v.story_ap_id]) {
@@ -149,7 +149,7 @@ stories.get('/', async (c) => {
       FROM story_votes
       WHERE story_ap_id IN (${storyApIds.map(() => '?').join(',')})
         AND actor_ap_id = ?
-    `).bind(...storyApIds, actor.ap_id).all();
+    `).bind(...storyApIds, actor.ap_id).all<UserVoteRow>();
 
     (userVotesQuery.results || []).forEach((v: UserVoteRow) => {
       userVotes[v.story_ap_id] = v.option_index;
@@ -269,7 +269,7 @@ stories.get('/:actorId', async (c) => {
       now,
       actor?.ap_id || '',
       actor?.ap_id || ''
-    ).all();
+    ).all<StoryRow>();
 
   // Get all story ap_ids for batch vote query
   const storyApIds = (user_stories.results || []).map((s: StoryRow) => s.ap_id);
@@ -285,7 +285,7 @@ stories.get('/:actorId', async (c) => {
       FROM story_votes
       WHERE story_ap_id IN (${storyApIds.map(() => '?').join(',')})
       GROUP BY story_ap_id, option_index
-    `).bind(...storyApIds).all();
+    `).bind(...storyApIds).all<VoteRow>();
 
     (votesQuery.results || []).forEach((v: VoteRow) => {
       if (!allVotes[v.story_ap_id]) {
@@ -301,7 +301,7 @@ stories.get('/:actorId', async (c) => {
         FROM story_votes
         WHERE story_ap_id IN (${storyApIds.map(() => '?').join(',')})
           AND actor_ap_id = ?
-      `).bind(...storyApIds, actor.ap_id).all();
+      `).bind(...storyApIds, actor.ap_id).all<UserVoteRow>();
 
       (userVotesQuery.results || []).forEach((v: UserVoteRow) => {
         userVotes[v.story_ap_id] = v.option_index;

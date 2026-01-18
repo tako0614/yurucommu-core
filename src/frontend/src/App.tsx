@@ -53,7 +53,7 @@ function AppContent() {
           <Route path="/dm/:contactId" element={<DMPage actor={actor} />} />
           <Route path="/profile" element={<ProfilePage actor={actor} />} />
           <Route path="/profile/:actorId" element={<ProfilePage actor={actor} />} />
-          <Route path="/notifications" element={<NotificationPage actor={actor} />} />
+          <Route path="/notifications" element={<NotificationPage />} />
           <Route path="/post/:postId" element={<PostDetailPage actor={actor} />} />
           <Route path="/bookmarks" element={<BookmarksPage actor={actor} />} />
           <Route path="/settings" element={<SettingsPage actor={actor} />} />

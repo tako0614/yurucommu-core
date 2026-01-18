@@ -7,13 +7,13 @@ export async function fetchNotifications(options?: { limit?: number; type?: stri
   if (options?.type && options.type !== 'all') params.set('type', options.type);
   const query = params.toString() ? `?${params}` : '';
   const res = await fetch(`/api/notifications${query}`);
-  const data = await res.json();
+  const data = (await res.json()) as { notifications?: Notification[] };
   return (data.notifications || []).map(normalizeNotification);
 }
 
 export async function fetchUnreadCount(): Promise<number> {
   const res = await fetch('/api/notifications/unread/count');
-  const data = await res.json();
+  const data = (await res.json()) as { count?: number };
   return data.count || 0;
 }
 

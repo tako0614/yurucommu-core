@@ -4,7 +4,7 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
-import { generateId, objectApId, activityApId, formatUsername, signRequest, isLocal, isSafeRemoteUrl } from '../../utils';
+import { generateId, objectApId, activityApId, formatUsername, signRequest, isLocal, isSafeRemoteUrl, safeJsonParse } from '../../utils';
 import { MAX_DM_CONTENT_LENGTH, MAX_DM_PAGE_LIMIT, getConversationId, parseLimit } from './utils';
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -35,6 +35,13 @@ type OtherApIdRow = {
   other_ap_id: string;
 };
 
+type Attachment = {
+  type?: string;
+  mediaType?: string;
+  url?: string;
+  [key: string]: unknown;
+};
+
 dm.get('/user/:encodedApId/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
@@ -46,6 +53,7 @@ dm.get('/user/:encodedApId/messages', async (c) => {
 
   const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
 
+  // Query messages where the actor is either sender or recipient
   let query = `
     SELECT
       o.ap_id as id,
@@ -62,9 +70,10 @@ dm.get('/user/:encodedApId/messages', async (c) => {
     WHERE o.visibility = 'direct'
       AND o.type = 'Note'
       AND o.conversation = ?
+      AND (o.attributed_to = ? OR json_extract(o.to_json, '$[0]') = ?)
   `;
 
-  const params: Array<string | number | null> = [conversationId];
+  const params: Array<string | number | null> = [conversationId, actor.ap_id, actor.ap_id];
 
   if (before) {
     query += ` AND o.published < ?`;
@@ -74,9 +83,9 @@ dm.get('/user/:encodedApId/messages', async (c) => {
   query += ` ORDER BY o.published DESC LIMIT ?`;
   params.push(limit);
 
-  const messages = await c.env.DB.prepare(query).bind(...params).all();
+  const messages = await c.env.DB.prepare(query).bind(...params).all<MessageRow>();
 
-  const result = (messages.results || []).reverse().map((msg: MessageRow) => ({
+  const result = (messages.results || []).reverse().map((msg) => ({
     id: msg.id,
     sender: {
       ap_id: msg.sender_ap_id,
@@ -86,7 +95,7 @@ dm.get('/user/:encodedApId/messages', async (c) => {
       icon_url: msg.sender_icon_url,
     },
     content: msg.content,
-    attachments: JSON.parse(msg.attachments_json || '[]'),
+    attachments: safeJsonParse<Attachment[]>(msg.attachments_json, []),
     created_at: msg.created_at,
   }));
 
@@ -130,16 +139,26 @@ dm.post('/user/:encodedApId/messages', async (c) => {
   const toJson = JSON.stringify([otherApId]);
   const ccJson = JSON.stringify([]);
 
-  await c.env.DB.prepare(`
-    INSERT INTO objects (ap_id, type, attributed_to, content, visibility, to_json, cc_json, conversation, published, is_local)
-    VALUES (?, 'Note', ?, ?, 'direct', ?, ?, ?, ?, 1)
-  `).bind(apId, actor.ap_id, content, toJson, ccJson, conversationId, now).run();
+  try {
+    await c.env.DB.prepare(`
+      INSERT INTO objects (ap_id, type, attributed_to, content, visibility, to_json, cc_json, conversation, published, is_local)
+      VALUES (?, 'Note', ?, ?, 'direct', ?, ?, ?, ?, 1)
+    `).bind(apId, actor.ap_id, content, toJson, ccJson, conversationId, now).run();
+  } catch (e) {
+    console.error('[DM] Failed to insert message:', e);
+    return c.json({ error: 'Failed to send message' }, 500);
+  }
 
   // Track recipient for efficient querying
-  await c.env.DB.prepare(`
-    INSERT OR IGNORE INTO object_recipients (object_ap_id, recipient_ap_id, type)
-    VALUES (?, ?, 'to')
-  `).bind(apId, otherApId).run();
+  try {
+    await c.env.DB.prepare(`
+      INSERT OR IGNORE INTO object_recipients (object_ap_id, recipient_ap_id, type)
+      VALUES (?, ?, 'to')
+    `).bind(apId, otherApId).run();
+  } catch (e) {
+    console.error('[DM] Failed to track recipient:', e);
+    // Non-critical error, continue
+  }
 
   // Send to recipient's inbox if they're remote
   if (!isLocal(otherApId, baseUrl) && otherActor.inbox) {
@@ -180,16 +199,21 @@ dm.post('/user/:encodedApId/messages', async (c) => {
 
   // Record in inbox for the recipient (if local)
   if (isLocal(otherApId, baseUrl)) {
-    const activityId = activityApId(baseUrl, generateId());
-    await c.env.DB.prepare(`
-      INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-      VALUES (?, 'Create', ?, ?, ?, 'inbound')
-    `).bind(activityId, actor.ap_id, apId, JSON.stringify({ type: 'Create', actor: actor.ap_id, object: apId })).run();
+    try {
+      const activityId = activityApId(baseUrl, generateId());
+      await c.env.DB.prepare(`
+        INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
+        VALUES (?, 'Create', ?, ?, ?, 'inbound')
+      `).bind(activityId, actor.ap_id, apId, JSON.stringify({ type: 'Create', actor: actor.ap_id, object: apId })).run();
 
-    await c.env.DB.prepare(`
-      INSERT INTO inbox (actor_ap_id, activity_ap_id)
-      VALUES (?, ?)
-    `).bind(otherApId, activityId).run();
+      await c.env.DB.prepare(`
+        INSERT INTO inbox (actor_ap_id, activity_ap_id)
+        VALUES (?, ?)
+      `).bind(otherApId, activityId).run();
+    } catch (e) {
+      console.error('[DM] Failed to record inbox notification:', e);
+      // Non-critical error, message was still created
+    }
   }
 
   return c.json({
@@ -326,9 +350,9 @@ dm.get('/conversations/:id/messages', async (c) => {
   query += ` ORDER BY o.published DESC LIMIT ?`;
   params.push(limit);
 
-  const messages = await c.env.DB.prepare(query).bind(...params).all();
+  const messages = await c.env.DB.prepare(query).bind(...params).all<MessageRow>();
 
-  const result = (messages.results || []).reverse().map((msg: MessageRow) => ({
+  const result = (messages.results || []).reverse().map((msg) => ({
     id: msg.id,
     sender: {
       ap_id: msg.sender_ap_id,
@@ -361,6 +385,7 @@ dm.post('/conversations/:id/messages', async (c) => {
   }
 
   // Find the other participant from the conversation
+  // Only match messages where the actor is either sender or recipient (authorization check)
   const existingMsg = await c.env.DB.prepare(`
     SELECT
       CASE
@@ -369,11 +394,13 @@ dm.post('/conversations/:id/messages', async (c) => {
       END as other_ap_id
     FROM objects
     WHERE conversation = ? AND visibility = 'direct'
+      AND (attributed_to = ? OR json_extract(to_json, '$[0]') = ?)
     LIMIT 1
-  `).bind(actor.ap_id, conversationId).first<OtherApIdRow>();
+  `).bind(actor.ap_id, conversationId, actor.ap_id, actor.ap_id).first<OtherApIdRow>();
 
   if (!existingMsg?.other_ap_id) {
-    return c.json({ error: 'Conversation not found' }, 404);
+    // Either conversation doesn't exist or actor is not a participant
+    return c.json({ error: 'Forbidden' }, 403);
   }
 
   const otherApId = existingMsg.other_ap_id;

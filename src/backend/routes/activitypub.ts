@@ -228,9 +228,9 @@ ap.get('/ap/rooms', async (c) => {
     SELECT preferred_username, name, summary
     FROM communities
     ORDER BY created_at ASC
-  `).all();
+  `).all<RoomRow>();
 
-  const items = (rooms.results || []).map((room: RoomRow) => ({
+  const items = (rooms.results || []).map((room) => ({
     id: roomApId(baseUrl, room.preferred_username),
     type: 'Room',
     name: room.name,
@@ -297,8 +297,8 @@ ap.get('/ap/rooms/:roomId/stream', async (c) => {
   query += ' ORDER BY o.published DESC LIMIT ?';
   params.push(limit);
 
-  const objects = await c.env.DB.prepare(query).bind(...params).all();
-  const items = (objects.results || []).map((o: RoomStreamRow) => ({
+  const objects = await c.env.DB.prepare(query).bind(...params).all<RoomStreamRow>();
+  const items = (objects.results || []).map((o) => ({
     id: o.ap_id,
     type: 'Note',
     attributedTo: o.attributed_to,

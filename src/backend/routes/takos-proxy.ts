@@ -7,7 +7,7 @@
 
 import { Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
-import type { Env, Variables, Actor } from '../types';
+import type { Env, Variables } from '../types';
 import { getTakosClient, type TakosSession } from '../lib/takos-client';
 
 const takosProxy = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -42,13 +42,13 @@ takosProxy.use('*', async (c, next) => {
     return c.json({ error: 'Failed to create Takos client' }, 500);
   }
 
-  c.set('takosClient' as keyof Variables, client as unknown as Actor);
+  c.set('takosClient', client);
   await next();
 });
 
 // ワークスペース一覧
 takosProxy.get('/workspaces', async (c) => {
-  const client = c.get('takosClient' as keyof Variables) as unknown as ReturnType<typeof getTakosClient> extends Promise<infer T> ? T : never;
+  const client = c.get('takosClient');
   if (!client) {
     return c.json({ error: 'Takos client not available' }, 500);
   }
@@ -64,7 +64,7 @@ takosProxy.get('/workspaces', async (c) => {
 
 // リポジトリ一覧
 takosProxy.get('/repos', async (c) => {
-  const client = c.get('takosClient' as keyof Variables) as unknown as ReturnType<typeof getTakosClient> extends Promise<infer T> ? T : never;
+  const client = c.get('takosClient');
   if (!client) {
     return c.json({ error: 'Takos client not available' }, 500);
   }
@@ -80,7 +80,7 @@ takosProxy.get('/repos', async (c) => {
 
 // ユーザー情報
 takosProxy.get('/user', async (c) => {
-  const client = c.get('takosClient' as keyof Variables) as unknown as ReturnType<typeof getTakosClient> extends Promise<infer T> ? T : never;
+  const client = c.get('takosClient');
   if (!client) {
     return c.json({ error: 'Takos client not available' }, 500);
   }

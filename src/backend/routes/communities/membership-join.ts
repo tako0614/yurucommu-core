@@ -126,7 +126,7 @@ export function registerMembershipJoinRoutes(communities: Hono<{ Bindings: Env; 
       const ownerCount = await c.env.DB.prepare(
         "SELECT COUNT(*) as count FROM community_members WHERE community_ap_id = ? AND role = 'owner'"
       ).bind(community.ap_id).first<CountRow>();
-      if (ownerCount?.count <= 1) {
+      if ((ownerCount?.count ?? 0) <= 1) {
         return c.json({ error: 'Cannot leave: you are the only owner' }, 400);
       }
     }

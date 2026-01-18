@@ -152,7 +152,7 @@ dm.get('/contacts', async (c) => {
         WHERE dac.actor_ap_id = ? AND dac.conversation_id = md.conversation
       )
     ORDER BY md.last_message_at DESC
-  `).bind(actor.ap_id, actor.ap_id, actor.ap_id, actor.ap_id, actor.ap_id, actor.ap_id).all();
+  `).bind(actor.ap_id, actor.ap_id, actor.ap_id, actor.ap_id, actor.ap_id, actor.ap_id).all<ContactRow>();
 
   // Get communities the user is a member of (for group chat)
   const communities = await c.env.DB.prepare(`
@@ -169,9 +169,9 @@ dm.get('/contacts', async (c) => {
     JOIN communities c ON cm.community_ap_id = c.ap_id
     WHERE cm.actor_ap_id = ?
     ORDER BY last_message_at DESC NULLS LAST, c.name ASC
-  `).bind(actor.ap_id).all();
+  `).bind(actor.ap_id).all<CommunityRow>();
 
-  const contactsResult = (conversations.results || []).map((f: ContactRow) => ({
+  const contactsResult = (conversations.results || []).map((f) => ({
     type: 'user' as const,
     ap_id: f.other_ap_id,
     username: formatUsername(f.other_ap_id),
@@ -187,7 +187,7 @@ dm.get('/contacts', async (c) => {
     unread_count: f.unread_count || 0,
   }));
 
-  const communitiesResult = (communities.results || []).map((c: CommunityRow) => ({
+  const communitiesResult = (communities.results || []).map((c) => ({
     type: 'community' as const,
     ap_id: c.ap_id,
     username: formatUsername(c.ap_id),
@@ -251,9 +251,9 @@ dm.get('/requests', async (c) => {
         AND o2.attributed_to = ?
       )
     ORDER BY o.published DESC
-  `).bind(actor.ap_id, actor.ap_id).all();
+  `).bind(actor.ap_id, actor.ap_id).all<RequestRow>();
 
-  const result = (requests.results || []).map((r: RequestRow) => ({
+  const result = (requests.results || []).map((r) => ({
     id: r.id,
     sender: {
       ap_id: r.sender_ap_id,
@@ -499,9 +499,9 @@ dm.get('/archived', async (c) => {
   // Get archived conversation IDs
   const archivedIds = await c.env.DB.prepare(`
     SELECT conversation_id, archived_at FROM dm_archived_conversations WHERE actor_ap_id = ?
-  `).bind(actor.ap_id).all();
+  `).bind(actor.ap_id).all<ArchivedIdRow>();
 
-  const archivedSet = new Set((archivedIds.results || []).map((a: ArchivedIdRow) => a.conversation_id));
+  const archivedSet = new Set((archivedIds.results || []).map((a) => a.conversation_id));
   if (archivedSet.size === 0) return c.json({ archived: [] });
 
   // Get conversation details for archived ones
@@ -532,11 +532,11 @@ dm.get('/archived', async (c) => {
     LEFT JOIN actor_cache ac ON md.other_ap_id = ac.ap_id
     WHERE md.other_ap_id IS NOT NULL AND md.other_ap_id != ''
     ORDER BY md.last_message_at DESC
-  `).bind(actor.ap_id, actor.ap_id, actor.ap_id).all();
+  `).bind(actor.ap_id, actor.ap_id, actor.ap_id).all<ArchivedConversationRow>();
 
   const archived = (conversations.results || [])
-    .filter((c: ArchivedConversationRow) => archivedSet.has(c.conversation))
-    .map((f: ArchivedConversationRow) => ({
+    .filter((c) => archivedSet.has(c.conversation))
+    .map((f) => ({
       ap_id: f.other_ap_id,
       username: formatUsername(f.other_ap_id),
       preferred_username: f.preferred_username,

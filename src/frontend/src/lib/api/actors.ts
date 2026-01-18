@@ -3,14 +3,14 @@ import { normalizeActor, normalizePost } from './normalize';
 
 export async function fetchActors(): Promise<Actor[]> {
   const res = await fetch('/api/actors');
-  const data = await res.json();
+  const data = (await res.json()) as { actors?: Actor[] };
   return (data.actors || []).map(normalizeActor);
 }
 
 export async function fetchActor(identifier: string): Promise<Actor> {
   const res = await fetch(`/api/actors/${encodeURIComponent(identifier)}`);
   if (!res.ok) throw new Error('Actor not found');
-  const data = await res.json();
+  const data = (await res.json()) as { actor: Actor };
   return normalizeActor(data.actor);
 }
 
@@ -39,26 +39,26 @@ export async function fetchActorPosts(
   const query = params.toString() ? `?${params}` : '';
   const res = await fetch(`/api/actors/${encodeURIComponent(identifier)}/posts${query}`);
   if (!res.ok) throw new Error('Failed to fetch actor posts');
-  const data = await res.json();
+  const data = (await res.json()) as { posts?: Post[] };
   return (data.posts || []).map(normalizePost);
 }
 
 export async function fetchFollowers(identifier: string): Promise<Actor[]> {
   const res = await fetch(`/api/actors/${encodeURIComponent(identifier)}/followers`);
-  const data = await res.json();
+  const data = (await res.json()) as { followers?: Actor[] };
   return (data.followers || []).map(normalizeActor);
 }
 
 export async function fetchFollowing(identifier: string): Promise<Actor[]> {
   const res = await fetch(`/api/actors/${encodeURIComponent(identifier)}/following`);
-  const data = await res.json();
+  const data = (await res.json()) as { following?: Actor[] };
   return (data.following || []).map(normalizeActor);
 }
 
 export async function fetchBlockedUsers(): Promise<Actor[]> {
   const res = await fetch('/api/actors/me/blocked');
   if (!res.ok) throw new Error('Failed to fetch blocked users');
-  const data = await res.json();
+  const data = (await res.json()) as { blocked?: Actor[] };
   return (data.blocked || []).map(normalizeActor);
 }
 
@@ -83,7 +83,7 @@ export async function unblockUser(apId: string): Promise<void> {
 export async function fetchMutedUsers(): Promise<Actor[]> {
   const res = await fetch('/api/actors/me/muted');
   if (!res.ok) throw new Error('Failed to fetch muted users');
-  const data = await res.json();
+  const data = (await res.json()) as { muted?: Actor[] };
   return (data.muted || []).map(normalizeActor);
 }
 

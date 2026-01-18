@@ -11,6 +11,7 @@ import {
   Activity,
   ActivityContext,
   ActivityRow,
+  ActorCacheInboxRow,
   AttributedToRow,
   FollowRow,
   ObjectApIdRow,
@@ -67,7 +68,7 @@ export async function handleFollow(
 
   // Send Accept response
   if (!isLocal(actor, baseUrl)) {
-    const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(actor).first();
+    const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(actor).first<ActorCacheInboxRow>();
     if (cachedActor?.inbox) {
       if (!isSafeRemoteUrl(cachedActor.inbox)) {
         console.warn(`[ActivityPub] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
@@ -401,18 +402,18 @@ export async function handleCreateStory(
   }
 
   // overlays validation (optional, validate if present)
-  let overlays = object.overlays;
-  if (overlays) {
-    if (!Array.isArray(overlays)) {
+  let overlays: StoryOverlay[] | undefined = undefined;
+  if (object.overlays) {
+    if (!Array.isArray(object.overlays)) {
       overlays = undefined; // Ignore invalid format
     } else {
       // Simple validation: position is required
-      overlays = overlays.filter((o: StoryOverlay) =>
+      const filtered = (object.overlays as StoryOverlay[]).filter((o: StoryOverlay) =>
         o && o.position &&
         typeof o.position.x === 'number' &&
         typeof o.position.y === 'number'
       );
-      if (overlays.length === 0) overlays = undefined;
+      overlays = filtered.length > 0 ? filtered : undefined;
     }
   }
 

@@ -487,9 +487,9 @@ follow.get('/requests', async (c) => {
     LEFT JOIN actor_cache ac ON f.follower_ap_id = ac.ap_id
     WHERE f.following_ap_id = ? AND f.status = 'pending'
     ORDER BY f.created_at DESC
-  `).bind(actor.ap_id).all();
+  `).bind(actor.ap_id).all<FollowRequestRow>();
 
-  const result = (requests.results || []).map((r: FollowRequestRow) => ({
+  const result = (requests.results || []).map((r) => ({
     ap_id: r.follower_ap_id,
     username: formatUsername(r.follower_ap_id),
     preferred_username: r.preferred_username,

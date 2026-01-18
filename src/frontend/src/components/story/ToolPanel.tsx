@@ -295,7 +295,7 @@ export function TextPanel({
           <div className="mt-2 space-y-2">
             <ColorPicker
               color={layer.stroke.color}
-              onChange={(color) => onUpdate({ stroke: { ...layer.stroke!, color } })}
+              onChange={(color) => onUpdate({ stroke: { color, width: layer.stroke?.width ?? 4 } })}
             />
             <div>
               <label className="text-neutral-500 text-xs">太さ: {layer.stroke.width}px</label>
@@ -304,7 +304,7 @@ export function TextPanel({
                 min="1"
                 max="20"
                 value={layer.stroke.width}
-                onChange={(e) => onUpdate({ stroke: { ...layer.stroke!, width: parseInt(e.target.value) } })}
+                onChange={(e) => onUpdate({ stroke: { color: layer.stroke?.color ?? '#000000', width: parseInt(e.target.value) } })}
                 className="w-full accent-blue-500"
               />
             </div>

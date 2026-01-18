@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Post, Actor, Community, ActorStories } from '../types';
+import { Post, Actor, ActorStories } from '../types';
 import {
   fetchTimeline,
   fetchFollowingTimeline,
@@ -17,6 +17,7 @@ import {
   fetchAccounts,
   switchAccount,
   AccountInfo,
+  CommunityDetail,
 } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { StoryBar, StoryViewer, StoryComposer } from '../components/story';
@@ -43,7 +44,7 @@ export function TimelinePage({ actor }: TimelinePageProps) {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [posts, setPosts] = useState<Post[]>([]);
-  const [communities, setCommunities] = useState<Community[]>([]);
+  const [communities, setCommunities] = useState<CommunityDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [postContent, setPostContent] = useState('');
   const [posting, setPosting] = useState(false);
@@ -108,6 +109,12 @@ export function TimelinePage({ actor }: TimelinePageProps) {
   const handleClosePostModal = () => {
     setShowPostModal(false);
     setPostContent('');
+    // Revoke all object URLs before clearing media to prevent memory leaks
+    uploadedMedia.forEach(media => {
+      if (media.preview) {
+        URL.revokeObjectURL(media.preview);
+      }
+    });
     setUploadedMedia([]);
     setUploadError(null);
   };
@@ -121,6 +128,17 @@ export function TimelinePage({ actor }: TimelinePageProps) {
       });
     loadStories();
   }, []);
+
+  // Cleanup object URLs on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      uploadedMedia.forEach(media => {
+        if (media.preview) {
+          URL.revokeObjectURL(media.preview);
+        }
+      });
+    };
+  }, [uploadedMedia]);
 
   const loadStories = async () => {
     try {
@@ -245,7 +263,14 @@ export function TimelinePage({ actor }: TimelinePageProps) {
   };
 
   const removeMedia = (index: number) => {
-    setUploadedMedia(prev => prev.filter((_, i) => i !== index));
+    setUploadedMedia(prev => {
+      // Revoke the object URL to prevent memory leak
+      const media = prev[index];
+      if (media?.preview) {
+        URL.revokeObjectURL(media.preview);
+      }
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const handlePost = async (): Promise<boolean> => {
@@ -260,6 +285,12 @@ export function TimelinePage({ actor }: TimelinePageProps) {
       if (newPost) {
         setPosts(prev => [newPost, ...prev]);
         setPostContent('');
+        // Revoke all object URLs after successful post to prevent memory leaks
+        uploadedMedia.forEach(media => {
+          if (media.preview) {
+            URL.revokeObjectURL(media.preview);
+          }
+        });
         setUploadedMedia([]);
         return true;
       }

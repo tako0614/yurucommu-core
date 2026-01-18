@@ -39,7 +39,7 @@ export function registerMembershipInviteRoutes(communities: Hono<{ Bindings: Env
       LEFT JOIN actor_cache ac ON i.invited_by_ap_id = ac.ap_id
       WHERE i.community_ap_id = ?
       ORDER BY i.created_at DESC
-    `).bind(community.ap_id).all();
+    `).bind(community.ap_id).all<InviteRow>();
 
     const result = (invites.results || []).map((inv: InviteRow) => ({
       id: inv.id,

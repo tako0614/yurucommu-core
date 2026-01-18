@@ -1,5 +1,24 @@
 // Utility functions for Yurucommu backend
 
+/**
+ * Safely parse JSON with a fallback value on parse failure.
+ * Returns the default value if json is null, undefined, or invalid JSON.
+ */
+export function safeJsonParse<T>(json: string | null | undefined, defaultValue: T): T {
+  if (!json) return defaultValue;
+  try {
+    return JSON.parse(json) as T;
+  } catch {
+    return defaultValue;
+  }
+}
+
+export function parseLimit(value: string | undefined, fallback: number, max: number): number {
+  const parsed = parseInt(value || '', 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 1), max);
+}
+
 export function generateId(): string {
   const bytes = new Uint8Array(12);
   crypto.getRandomValues(bytes);

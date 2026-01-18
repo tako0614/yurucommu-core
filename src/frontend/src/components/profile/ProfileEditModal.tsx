@@ -1,7 +1,6 @@
 ﻿import type { ChangeEvent } from 'react';
 import { CloseIcon } from './ProfileIcons';
-
-type Translate = (key: string) => string;
+import type { Translate } from '../../lib/i18n';
 
 interface ProfileEditModalProps {
   isOpen: boolean;

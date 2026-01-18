@@ -17,6 +17,49 @@ interface DMPageProps {
   actor: Actor;
 }
 
+interface RequestItemProps {
+  request: DMRequest;
+  onAccept: () => void;
+  onReject: () => void;
+}
+
+function RequestItem({ request, onAccept, onReject }: RequestItemProps) {
+  return (
+    <div className="flex items-start gap-3 p-4 border-b border-neutral-800">
+      <img
+        src={request.sender.icon_url || '/default-avatar.png'}
+        alt={request.sender.name || request.sender.preferred_username}
+        className="w-12 h-12 rounded-full object-cover"
+      />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-white truncate">
+            {request.sender.name || request.sender.preferred_username}
+          </span>
+          <span className="text-sm text-neutral-500 truncate">
+            @{request.sender.preferred_username}
+          </span>
+        </div>
+        <p className="text-sm text-neutral-400 mt-1 line-clamp-2">{request.content}</p>
+        <div className="flex gap-2 mt-3">
+          <button
+            onClick={onAccept}
+            className="px-4 py-1.5 bg-green-500 text-white text-sm font-medium rounded-full hover:bg-green-600 transition-colors"
+          >
+            承認
+          </button>
+          <button
+            onClick={onReject}
+            className="px-4 py-1.5 bg-neutral-700 text-white text-sm font-medium rounded-full hover:bg-neutral-600 transition-colors"
+          >
+            拒否
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type TabType = 'all' | 'friends' | 'communities' | 'requests';
 
 export function DMPage({ actor }: DMPageProps) {

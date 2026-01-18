@@ -267,6 +267,7 @@ export function ProfilePage({ actor }: ProfilePageProps) {
           onToggleFollow={handleFollow}
           onOpenEdit={openEditModal}
           onOpenFollowModal={openFollowModal}
+          t={t}
         />
         <ProfilePostsSection
           activeTab={activeTab}
@@ -274,6 +275,7 @@ export function ProfilePage({ actor }: ProfilePageProps) {
           posts={posts}
           actorApId={actor.ap_id}
           onLike={handleLike}
+          t={t}
         />
       </div>
       <ProfileEditModal
@@ -287,12 +289,14 @@ export function ProfilePage({ actor }: ProfilePageProps) {
         onChangeName={(event) => setEditName(event.target.value)}
         onChangeSummary={(event) => setEditSummary(event.target.value)}
         onTogglePrivate={() => setEditIsPrivate(!editIsPrivate)}
+        t={t}
       />
       <ProfileFollowModal
         type={showFollowModal}
         actors={followModalActors}
         loading={followModalLoading}
         onClose={() => setShowFollowModal(null)}
+        t={t}
       />
     </div>
   );

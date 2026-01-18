@@ -40,7 +40,7 @@ export function registerMembershipRequestRoutes(communities: Hono<{ Bindings: En
       LEFT JOIN actor_cache ac ON r.actor_ap_id = ac.ap_id
       WHERE r.community_ap_id = ? AND r.status = 'pending'
       ORDER BY r.created_at DESC
-    `).bind(community.ap_id).all();
+    `).bind(community.ap_id).all<JoinRequestRow>();
 
     const result = (requests.results || []).map((r: JoinRequestRow) => ({
       ap_id: r.actor_ap_id,

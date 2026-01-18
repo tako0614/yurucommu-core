@@ -1,13 +1,10 @@
 ﻿import { Hono } from 'hono';
 import type { Env, Variables, APObject } from '../../types';
-import { generateId, objectApId, activityApId, isLocal, signRequest, isSafeRemoteUrl } from '../../utils';
+import { generateId, objectApId, activityApId, isLocal } from '../../utils';
 import { MAX_POSTS_PAGE_LIMIT, formatPost, parseLimit, PostRow } from './utils';
+import { deliverActivity } from '../../lib/activitypub-helpers';
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-type ActorCacheInboxRow = {
-  inbox: string | null;
-};
 
 type LikeRow = {
   activity_ap_id: string | null;
@@ -76,25 +73,7 @@ posts.post('/:id/like', async (c) => {
 
   // Send Like activity to remote post author
   if (!isLocal(post.ap_id, baseUrl)) {
-    try {
-      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<ActorCacheInboxRow>();
-      if (postAuthor?.inbox) {
-        if (!isSafeRemoteUrl(postAuthor.inbox)) {
-          console.warn(`[Posts] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
-        } else {
-          const keyId = `${actor.ap_id}#main-key`;
-          const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(likeActivityRaw));
-
-          await fetch(postAuthor.inbox, {
-            method: 'POST',
-            headers: { ...headers, 'Content-Type': 'application/activity+json' },
-            body: JSON.stringify(likeActivityRaw),
-          });
-        }
-      }
-    } catch (e) {
-      console.error('Failed to send Like activity:', e);
-    }
+    await deliverActivity(c.env.DB, actor, post.attributed_to, likeActivityRaw);
   }
 
   return c.json({ success: true, liked: true });
@@ -131,45 +110,28 @@ posts.delete('/:id/like', async (c) => {
 
   // Send Undo Like if post is remote
   if (!isLocal(post.ap_id, baseUrl)) {
-    try {
-      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<ActorCacheInboxRow>();
-      if (postAuthor?.inbox) {
-        if (!isSafeRemoteUrl(postAuthor.inbox)) {
-          console.warn(`[Posts] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
-          return c.json({ success: true, liked: false });
-        }
-        const undoObject = like.activity_ap_id
-          ? like.activity_ap_id
-          : {
-            type: 'Like',
-            actor: actor.ap_id,
-            object: post.ap_id,
-          };
-        const undoLikeActivity = {
-          '@context': 'https://www.w3.org/ns/activitystreams',
-          id: activityApId(baseUrl, generateId()),
-          type: 'Undo',
-          actor: actor.ap_id,
-          object: undoObject,
-        };
+    const undoObject = like.activity_ap_id
+      ? like.activity_ap_id
+      : {
+        type: 'Like',
+        actor: actor.ap_id,
+        object: post.ap_id,
+      };
+    const undoLikeActivity = {
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      id: activityApId(baseUrl, generateId()),
+      type: 'Undo',
+      actor: actor.ap_id,
+      object: undoObject,
+    };
 
-        const keyId = `${actor.ap_id}#main-key`;
-        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(undoLikeActivity));
-
-        await fetch(postAuthor.inbox, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(undoLikeActivity),
-        });
-
-        // Store activity
-        await c.env.DB.prepare(`
-          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-          VALUES (?, 'Undo', ?, ?, ?, 'outbound')
-        `).bind(undoLikeActivity.id, actor.ap_id, post.ap_id, JSON.stringify(undoLikeActivity)).run();
-      }
-    } catch (e) {
-      console.error('Failed to send Undo Like activity:', e);
+    const delivered = await deliverActivity(c.env.DB, actor, post.attributed_to, undoLikeActivity);
+    if (delivered) {
+      // Store activity
+      await c.env.DB.prepare(`
+        INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
+        VALUES (?, 'Undo', ?, ?, ?, 'outbound')
+      `).bind(undoLikeActivity.id, actor.ap_id, post.ap_id, JSON.stringify(undoLikeActivity)).run();
     }
   }
 
@@ -234,25 +196,7 @@ posts.post('/:id/repost', async (c) => {
 
   // Send Announce activity to remote post author
   if (!isLocal(post.ap_id, baseUrl)) {
-    try {
-      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<ActorCacheInboxRow>();
-      if (postAuthor?.inbox) {
-        if (!isSafeRemoteUrl(postAuthor.inbox)) {
-          console.warn(`[Posts] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
-        } else {
-          const keyId = `${actor.ap_id}#main-key`;
-          const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(announceActivityRaw));
-
-          await fetch(postAuthor.inbox, {
-            method: 'POST',
-            headers: { ...headers, 'Content-Type': 'application/activity+json' },
-            body: JSON.stringify(announceActivityRaw),
-          });
-        }
-      }
-    } catch (e) {
-      console.error('Failed to send Announce activity:', e);
-    }
+    await deliverActivity(c.env.DB, actor, post.attributed_to, announceActivityRaw);
   }
 
   return c.json({ success: true, reposted: true });
@@ -289,42 +233,25 @@ posts.delete('/:id/repost', async (c) => {
 
   // Send Undo Announce if post is remote
   if (!isLocal(post.ap_id, baseUrl)) {
-    try {
-      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(post.attributed_to).first<ActorCacheInboxRow>();
-      if (postAuthor?.inbox) {
-        if (!isSafeRemoteUrl(postAuthor.inbox)) {
-          console.warn(`[Posts] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
-          return c.json({ success: true, reposted: false });
-        }
-        const undoAnnounceActivity = {
-          '@context': 'https://www.w3.org/ns/activitystreams',
-          id: activityApId(baseUrl, generateId()),
-          type: 'Undo',
-          actor: actor.ap_id,
-          object: {
-            type: 'Announce',
-            actor: actor.ap_id,
-            object: post.ap_id,
-          },
-        };
+    const undoAnnounceActivity = {
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      id: activityApId(baseUrl, generateId()),
+      type: 'Undo',
+      actor: actor.ap_id,
+      object: {
+        type: 'Announce',
+        actor: actor.ap_id,
+        object: post.ap_id,
+      },
+    };
 
-        const keyId = `${actor.ap_id}#main-key`;
-        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(undoAnnounceActivity));
-
-        await fetch(postAuthor.inbox, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(undoAnnounceActivity),
-        });
-
-        // Store activity
-        await c.env.DB.prepare(`
-          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-          VALUES (?, 'Undo', ?, ?, ?, 'outbound')
-        `).bind(undoAnnounceActivity.id, actor.ap_id, post.ap_id, JSON.stringify(undoAnnounceActivity)).run();
-      }
-    } catch (e) {
-      console.error('Failed to send Undo Announce activity:', e);
+    const delivered = await deliverActivity(c.env.DB, actor, post.attributed_to, undoAnnounceActivity);
+    if (delivered) {
+      // Store activity
+      await c.env.DB.prepare(`
+        INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
+        VALUES (?, 'Undo', ?, ?, ?, 'outbound')
+      `).bind(undoAnnounceActivity.id, actor.ap_id, post.ap_id, JSON.stringify(undoAnnounceActivity)).run();
     }
   }
 
@@ -420,7 +347,7 @@ posts.get('/bookmarks', async (c) => {
   query += ` ORDER BY b.created_at DESC LIMIT ?`;
   params.push(limit);
 
-  const bookmarks = await c.env.DB.prepare(query).bind(...params).all();
+  const bookmarks = await c.env.DB.prepare(query).bind(...params).all<PostRow>();
 
   const result = (bookmarks.results || []).map((p: PostRow) => formatPost(p, actor.ap_id));
 

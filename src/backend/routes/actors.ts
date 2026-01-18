@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { deleteCookie } from 'hono/cookie';
 import type { Actor, ActorCache, Env, Variables } from '../types';
-import { actorApId, getDomain, formatUsername } from '../utils';
+import { actorApId, getDomain, formatUsername, parseLimit } from '../utils';
 
 const actors = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -83,12 +83,6 @@ type FollowStatusRow = {
   is_followed_by: number;
 };
 
-function parseLimit(value: string | undefined, fallback: number, max: number): number {
-  const parsed = parseInt(value || '', 10);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(Math.max(parsed, 1), max);
-}
-
 function isValidHttpUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
@@ -137,9 +131,9 @@ actors.get('/', async (c) => {
   const result = await c.env.DB.prepare(`
     SELECT ap_id, preferred_username, name, summary, icon_url, role, follower_count, following_count, post_count, created_at
     FROM actors ORDER BY created_at ASC
-  `).all();
+  `).all<ActorListRow>();
 
-  const actorsList = (result.results || []).map((a: ActorListRow) => ({
+  const actorsList = (result.results || []).map((a) => ({
     ...a,
     username: formatUsername(a.ap_id),
   }));
@@ -163,9 +157,9 @@ actors.get('/me/blocked', async (c) => {
     LEFT JOIN actor_cache ac ON b.blocked_ap_id = ac.ap_id
     WHERE b.blocker_ap_id = ?
     ORDER BY b.created_at DESC
-  `).bind(actor.ap_id).all();
+  `).bind(actor.ap_id).all<BlockedRow>();
 
-  const blocked = (result.results || []).map((u: BlockedRow) => ({
+  const blocked = (result.results || []).map((u) => ({
     ap_id: u.blocked_ap_id,
     username: formatUsername(u.blocked_ap_id),
     preferred_username: u.preferred_username,
@@ -225,9 +219,9 @@ actors.get('/me/muted', async (c) => {
     LEFT JOIN actor_cache ac ON m.muted_ap_id = ac.ap_id
     WHERE m.muter_ap_id = ?
     ORDER BY m.created_at DESC
-  `).bind(actor.ap_id).all();
+  `).bind(actor.ap_id).all<MutedRow>();
 
-  const muted = (result.results || []).map((u: MutedRow) => ({
+  const muted = (result.results || []).map((u) => ({
     ap_id: u.muted_ap_id,
     username: formatUsername(u.muted_ap_id),
     preferred_username: u.preferred_username,
@@ -385,9 +379,9 @@ actors.get('/:identifier/posts', async (c) => {
   query += ` ORDER BY o.published DESC LIMIT ?`;
   params.push(limit);
 
-  const posts = await c.env.DB.prepare(query).bind(...params).all();
+  const posts = await c.env.DB.prepare(query).bind(...params).all<ActorPostRow>();
 
-  const result = (posts.results || []).map((p: ActorPostRow) => ({
+  const result = (posts.results || []).map((p) => ({
     ap_id: p.ap_id,
     type: p.type,
     author: {
@@ -457,7 +451,7 @@ actors.get('/:identifier', async (c) => {
   }
 
   // Try local actors first
-  let actor = await c.env.DB.prepare(`
+  let actor: ActorProfileRow | ActorCache | null = await c.env.DB.prepare(`
     SELECT ap_id, preferred_username, name, summary, icon_url, header_url, role,
            follower_count, following_count, post_count, is_private, created_at
     FROM actors WHERE ap_id = ?
@@ -576,13 +570,13 @@ actors.get('/:identifier/followers', async (c) => {
     WHERE f.following_ap_id = ? AND f.status = 'accepted'
     ORDER BY f.created_at DESC
     LIMIT ? OFFSET ?
-  `).bind(apId, limit, offset).all();
+  `).bind(apId, limit, offset).all<FollowerRow>();
 
   const countResult = await c.env.DB.prepare(
     "SELECT COUNT(*) as total FROM follows WHERE following_ap_id = ? AND status = 'accepted'"
   ).bind(apId).first<CountRow>();
 
-  const result = (followers.results || []).map((f: FollowerRow) => ({
+  const result = (followers.results || []).map((f) => ({
     ap_id: f.follower_ap_id,
     username: formatUsername(f.follower_ap_id),
     preferred_username: f.preferred_username,
@@ -620,13 +614,13 @@ actors.get('/:identifier/following', async (c) => {
     WHERE f.follower_ap_id = ? AND f.status = 'accepted'
     ORDER BY f.created_at DESC
     LIMIT ? OFFSET ?
-  `).bind(apId, limit, offset).all();
+  `).bind(apId, limit, offset).all<FollowingRow>();
 
   const countResult = await c.env.DB.prepare(
     "SELECT COUNT(*) as total FROM follows WHERE follower_ap_id = ? AND status = 'accepted'"
   ).bind(apId).first<CountRow>();
 
-  const result = (following.results || []).map((f: FollowingRow) => ({
+  const result = (following.results || []).map((f) => ({
     ap_id: f.following_ap_id,
     username: formatUsername(f.following_ap_id),
     preferred_username: f.preferred_username,

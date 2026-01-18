@@ -56,7 +56,7 @@ export function renderStoryOverlay(
           <div className="flex gap-2">
             {overlay.oneOf.map((option, idx) => {
               const voteCount = votes?.[idx] || 0;
-              const percentage = hasVotes ? Math.round((voteCount / votesTotal!) * 100) : 0;
+              const percentage = hasVotes && votesTotal ? Math.round((voteCount / votesTotal) * 100) : 0;
               const isSelected = userVote === idx;
 
               return (

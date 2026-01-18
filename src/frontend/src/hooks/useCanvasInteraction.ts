@@ -154,6 +154,49 @@ export function useCanvasInteraction({
     return { x: snappedX, y: snappedY };
   }, []);
 
+  // Refs for event handler access to avoid re-registering listeners
+  const stateRef = useRef(state);
+  const canvasRef = useRef(canvas);
+  const displayToCanvasRef = useRef(displayToCanvas);
+  const onUpdateRef = useRef(onUpdate);
+  const applySnapRef = useRef(applySnap);
+  const calculateSnapGuidesRef = useRef(calculateSnapGuides);
+  const onSnapGuidesChangeRef = useRef(onSnapGuidesChange);
+  const drawingSettingsRef = useRef(drawingSettings);
+
+  // Keep refs updated for event handlers
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    canvasRef.current = canvas;
+  }, [canvas]);
+
+  useEffect(() => {
+    displayToCanvasRef.current = displayToCanvas;
+  }, [displayToCanvas]);
+
+  useEffect(() => {
+    onUpdateRef.current = onUpdate;
+  }, [onUpdate]);
+
+  useEffect(() => {
+    applySnapRef.current = applySnap;
+  }, [applySnap]);
+
+  useEffect(() => {
+    calculateSnapGuidesRef.current = calculateSnapGuides;
+  }, [calculateSnapGuides]);
+
+  useEffect(() => {
+    onSnapGuidesChangeRef.current = onSnapGuidesChange;
+  }, [onSnapGuidesChange]);
+
+  useEffect(() => {
+    drawingSettingsRef.current = drawingSettings;
+  }, [drawingSettings]);
+
   // Get touch info (center point, distance, angle)
   const getTouchInfo = (touches: TouchList) => {
     if (touches.length === 1) {
@@ -245,7 +288,7 @@ export function useCanvasInteraction({
     if (isTouchEvent && touchCount >= 2) {
       // Two finger gesture - pinch/rotate
       e.preventDefault();
-      const touchInfo = getTouchInfo(e.touches);
+      const touchInfo = getTouchInfo(e.touches as unknown as TouchList);
       initialPinchDistance.current = touchInfo.distance;
       initialPinchAngle.current = touchInfo.angle;
 
@@ -300,25 +343,33 @@ export function useCanvasInteraction({
     }
   }, [canvas, state.mode, state.selectedLayerId, displayToCanvas, drawingSettings, onSnapGuidesChange]);
 
-  // Handle pointer/touch move
+  // Handle pointer/touch move - uses refs to avoid recreating handler
   const handlePointerMove = useCallback((e: MouseEvent | TouchEvent) => {
-    if (!canvas) return;
+    const currentCanvas = canvasRef.current;
+    const currentState = stateRef.current;
+    const currentDisplayToCanvas = displayToCanvasRef.current;
+    const currentOnUpdate = onUpdateRef.current;
+    const currentApplySnap = applySnapRef.current;
+    const currentCalculateSnapGuides = calculateSnapGuidesRef.current;
+    const currentOnSnapGuidesChange = onSnapGuidesChangeRef.current;
+
+    if (!currentCanvas) return;
 
     const isTouchEvent = 'touches' in e;
     const touchCount = isTouchEvent ? e.touches.length : 1;
 
-    if (state.isDrawing && currentDrawingPath.current && drawingLayerId.current) {
+    if (currentState.isDrawing && currentDrawingPath.current && drawingLayerId.current) {
       // Drawing
       const clientX = isTouchEvent ? e.touches[0].clientX : e.clientX;
       const clientY = isTouchEvent ? e.touches[0].clientY : e.clientY;
-      const canvasPos = displayToCanvas(clientX, clientY);
+      const canvasPos = currentDisplayToCanvas(clientX, clientY);
 
       currentDrawingPath.current.points.push({
         x: canvasPos.x,
         y: canvasPos.y,
       });
 
-      const drawingLayer = canvas.getLayer(drawingLayerId.current) as DrawingLayer;
+      const drawingLayer = currentCanvas.getLayer(drawingLayerId.current) as DrawingLayer;
       if (drawingLayer) {
         const paths = [...drawingLayer.paths];
         const pathIndex = paths.findIndex(p => p === currentDrawingPath.current);
@@ -327,13 +378,13 @@ export function useCanvasInteraction({
         } else {
           paths[pathIndex] = currentDrawingPath.current;
         }
-        canvas.updateLayer(drawingLayerId.current, { paths });
-        onUpdate();
+        currentCanvas.updateLayer(drawingLayerId.current, { paths });
+        currentOnUpdate();
       }
-    } else if (state.isPinching && state.selectedLayerId && isTouchEvent && touchCount >= 2) {
+    } else if (currentState.isPinching && currentState.selectedLayerId && isTouchEvent && touchCount >= 2) {
       // Pinch to resize and rotate
       const touchInfo = getTouchInfo(e.touches);
-      const layer = canvas.getLayer(state.selectedLayerId);
+      const layer = currentCanvas.getLayer(currentState.selectedLayerId);
       if (!layer) return;
 
       // Calculate scale change
@@ -354,20 +405,20 @@ export function useCanvasInteraction({
       // Apply minimum size
       const minSize = 50;
       if (newWidth >= minSize && newHeight >= minSize) {
-        canvas.updateLayer(state.selectedLayerId, {
+        currentCanvas.updateLayer(currentState.selectedLayerId, {
           x: newX,
           y: newY,
           width: newWidth,
           height: newHeight,
           rotation: newRotation,
         });
-        onUpdate();
+        currentOnUpdate();
       }
-    } else if (state.isDragging && state.selectedLayerId) {
+    } else if (currentState.isDragging && currentState.selectedLayerId) {
       // Drag to move
       const clientX = isTouchEvent ? e.touches[0].clientX : e.clientX;
       const clientY = isTouchEvent ? e.touches[0].clientY : e.clientY;
-      const canvasPos = displayToCanvas(clientX, clientY);
+      const canvasPos = currentDisplayToCanvas(clientX, clientY);
 
       const dx = canvasPos.x - startPos.current.x;
       const dy = canvasPos.y - startPos.current.y;
@@ -375,35 +426,35 @@ export function useCanvasInteraction({
       let newX = (startLayerState.current.x || 0) + dx;
       let newY = (startLayerState.current.y || 0) + dy;
 
-      const layer = canvas.getLayer(state.selectedLayerId);
+      const layer = currentCanvas.getLayer(currentState.selectedLayerId);
       if (layer) {
         // Apply snap
-        const snapped = applySnap(newX, newY, layer.width, layer.height);
+        const snapped = currentApplySnap(newX, newY, layer.width, layer.height);
         newX = snapped.x;
         newY = snapped.y;
 
         // Calculate and emit snap guides
         const tempLayer = { ...layer, x: newX, y: newY };
-        const guides = calculateSnapGuides(tempLayer);
-        onSnapGuidesChange?.(guides);
+        const guides = currentCalculateSnapGuides(tempLayer);
+        currentOnSnapGuidesChange?.(guides);
       }
 
-      canvas.updateLayer(state.selectedLayerId, {
+      currentCanvas.updateLayer(currentState.selectedLayerId, {
         x: newX,
         y: newY,
       });
-      onUpdate();
+      currentOnUpdate();
     }
 
     // Check if touch count changed (e.g., added second finger)
     if (isTouchEvent && touchCount !== lastTouchCount.current) {
-      if (touchCount >= 2 && state.isDragging && state.selectedLayerId) {
+      if (touchCount >= 2 && currentState.isDragging && currentState.selectedLayerId) {
         // Transition from drag to pinch
         const touchInfo = getTouchInfo(e.touches);
         initialPinchDistance.current = touchInfo.distance;
         initialPinchAngle.current = touchInfo.angle;
 
-        const layer = canvas.getLayer(state.selectedLayerId);
+        const layer = currentCanvas.getLayer(currentState.selectedLayerId);
         if (layer) {
           startLayerState.current = {
             x: layer.x,
@@ -415,12 +466,12 @@ export function useCanvasInteraction({
         }
 
         setState(prev => ({ ...prev, isDragging: false, isPinching: true }));
-      } else if (touchCount === 1 && state.isPinching && state.selectedLayerId) {
+      } else if (touchCount === 1 && currentState.isPinching && currentState.selectedLayerId) {
         // Transition from pinch to drag
-        const canvasPos = displayToCanvas(e.touches[0].clientX, e.touches[0].clientY);
+        const canvasPos = currentDisplayToCanvas(e.touches[0].clientX, e.touches[0].clientY);
         startPos.current = canvasPos;
 
-        const layer = canvas.getLayer(state.selectedLayerId);
+        const layer = currentCanvas.getLayer(currentState.selectedLayerId);
         if (layer) {
           startLayerState.current = {
             x: layer.x,
@@ -435,25 +486,30 @@ export function useCanvasInteraction({
       }
       lastTouchCount.current = touchCount;
     }
-  }, [canvas, state, displayToCanvas, onUpdate, applySnap, calculateSnapGuides, onSnapGuidesChange]);
+  }, []); // Empty deps - uses refs for current values
 
-  // Handle pointer/touch up
+  // Handle pointer/touch up - uses refs to avoid recreating handler
   const handlePointerUp = useCallback(() => {
-    if (state.isDrawing && currentDrawingPath.current && drawingLayerId.current && canvas) {
-      const drawingLayer = canvas.getLayer(drawingLayerId.current) as DrawingLayer;
+    const currentCanvas = canvasRef.current;
+    const currentState = stateRef.current;
+    const currentOnUpdate = onUpdateRef.current;
+    const currentOnSnapGuidesChange = onSnapGuidesChangeRef.current;
+
+    if (currentState.isDrawing && currentDrawingPath.current && drawingLayerId.current && currentCanvas) {
+      const drawingLayer = currentCanvas.getLayer(drawingLayerId.current) as DrawingLayer;
       if (drawingLayer) {
         const paths = [...drawingLayer.paths];
         if (!paths.includes(currentDrawingPath.current)) {
           paths.push(currentDrawingPath.current);
-          canvas.updateLayer(drawingLayerId.current, { paths });
+          currentCanvas.updateLayer(drawingLayerId.current, { paths });
         }
-        onUpdate();
+        currentOnUpdate();
       }
       currentDrawingPath.current = null;
     }
 
     // Clear snap guides
-    onSnapGuidesChange?.([]);
+    currentOnSnapGuidesChange?.([]);
 
     setState(prev => ({
       ...prev,
@@ -463,7 +519,7 @@ export function useCanvasInteraction({
     }));
 
     lastTouchCount.current = 0;
-  }, [canvas, state.isDrawing, onUpdate, onSnapGuidesChange]);
+  }, []); // Empty deps - uses refs for current values
 
   // Clear drawing
   const clearDrawing = useCallback(() => {
@@ -528,29 +584,35 @@ export function useCanvasInteraction({
     onUpdate();
   }, [canvas, state.selectedLayerId, state.mode, onUpdate]);
 
-  // Add event listeners
+  // Add event listeners - attach once and use refs to check state
   useEffect(() => {
-    if (state.isDragging || state.isPinching || state.isDrawing) {
-      const onMove = (e: MouseEvent | TouchEvent) => {
+    const onMove = (e: MouseEvent | TouchEvent) => {
+      const currentState = stateRef.current;
+      if (currentState.isDragging || currentState.isPinching || currentState.isDrawing) {
         e.preventDefault();
         handlePointerMove(e);
-      };
+      }
+    };
 
-      const onUp = () => handlePointerUp();
+    const onUp = () => {
+      const currentState = stateRef.current;
+      if (currentState.isDragging || currentState.isPinching || currentState.isDrawing) {
+        handlePointerUp();
+      }
+    };
 
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
-      window.addEventListener('touchmove', onMove, { passive: false });
-      window.addEventListener('touchend', onUp);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onUp);
 
-      return () => {
-        window.removeEventListener('mousemove', onMove);
-        window.removeEventListener('mouseup', onUp);
-        window.removeEventListener('touchmove', onMove);
-        window.removeEventListener('touchend', onUp);
-      };
-    }
-  }, [state.isDragging, state.isPinching, state.isDrawing, handlePointerMove, handlePointerUp]);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+    };
+  }, [handlePointerMove, handlePointerUp]); // These handlers now have empty deps, so this effect runs once
 
   return {
     state,

@@ -71,10 +71,10 @@ export function StoryBar({ actor, actorStories, loading = false, onStoryClick, o
           <div className="relative">
             {/* Avatar - click to view stories if any */}
             <button
-              onClick={hasMyStories ? () => onStoryClick(myStories!, 0) : onAddStory}
+              onClick={hasMyStories && myStories ? () => onStoryClick(myStories, 0) : onAddStory}
               className={`w-16 h-16 rounded-full p-0.5 ${
-                hasMyStories
-                  ? (myStories!.has_unviewed ? 'bg-gradient-to-tr from-green-400 to-green-500' : 'bg-neutral-600')
+                hasMyStories && myStories
+                  ? (myStories.has_unviewed ? 'bg-gradient-to-tr from-green-400 to-green-500' : 'bg-neutral-600')
                   : 'ring-2 ring-neutral-700'
               }`}
             >

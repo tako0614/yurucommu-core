@@ -1,17 +1,14 @@
 import type { D1Database } from '@cloudflare/workers-types';
+import { parseLimit } from '../../utils';
 
 export const MAX_DM_CONTENT_LENGTH = 5000;
 export const MAX_DM_PAGE_LIMIT = 100;
 
+export { parseLimit };
+
 type ConversationRow = {
   conversation: string;
 };
-
-export function parseLimit(value: string | undefined, fallback: number, max: number): number {
-  const parsed = parseInt(value || '', 10);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(Math.max(parsed, 1), max);
-}
 
 export function getConversationId(baseUrl: string, ap1: string, ap2: string): string {
   const [p1, p2] = [ap1, ap2].sort();

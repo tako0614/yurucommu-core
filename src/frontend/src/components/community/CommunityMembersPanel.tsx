@@ -2,6 +2,7 @@
 import type { CommunityJoinRequest } from '../../lib/api';
 import type { CommunityMember } from './types';
 import { UserAvatar } from '../UserAvatar';
+import type { Translate } from '../../lib/i18n';
 
 interface CommunityMembersPanelProps {
   members: CommunityMember[];
@@ -20,7 +21,7 @@ interface CommunityMembersPanelProps {
   onRejectRequest: (request: CommunityJoinRequest) => void;
   onUpdateMemberRole: (member: CommunityMember, role: 'owner' | 'moderator' | 'member') => void;
   onCreateInvite: () => void;
-  t: (key: string) => string;
+  t: Translate;
 }
 
 export function CommunityMembersPanel({

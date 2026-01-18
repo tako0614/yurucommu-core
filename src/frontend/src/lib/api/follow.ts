@@ -8,7 +8,7 @@ export async function follow(targetApId: string): Promise<{ status: string }> {
     body: JSON.stringify({ target_ap_id: targetApId }),
   });
   if (!res.ok) throw new Error('Failed to follow');
-  return res.json();
+  return (await res.json()) as { status: string };
 }
 
 export async function unfollow(targetApId: string): Promise<void> {
@@ -22,7 +22,7 @@ export async function unfollow(targetApId: string): Promise<void> {
 
 export async function fetchFollowRequests(): Promise<Actor[]> {
   const res = await fetch('/api/follow/requests');
-  const data = await res.json();
+  const data = (await res.json()) as { requests?: Actor[] };
   return (data.requests || []).map(normalizeActor);
 }
 
@@ -44,7 +44,7 @@ export async function acceptFollowRequestsBatch(
     body: JSON.stringify({ requester_ap_ids: requesterApIds }),
   });
   if (!res.ok) throw new Error('Failed to accept follow requests');
-  return res.json();
+  return (await res.json()) as { results: { ap_id: string; success: boolean; error?: string }[]; accepted_count: number };
 }
 
 export async function rejectFollowRequest(requesterApId: string): Promise<void> {

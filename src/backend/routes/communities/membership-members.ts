@@ -105,7 +105,7 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
       const ownerCount = await c.env.DB.prepare(
         "SELECT COUNT(*) as count FROM community_members WHERE community_ap_id = ? AND role = 'owner'"
       ).bind(community.ap_id).first<CountRow>();
-      if (ownerCount?.count <= 1) {
+      if ((ownerCount?.count ?? 0) <= 1) {
         return c.json({ error: 'Cannot demote: you are the only owner' }, 400);
       }
     }
@@ -136,9 +136,9 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
       JOIN communities c ON cm.community_ap_id = c.ap_id
       WHERE c.ap_id = ? OR c.preferred_username = ?
       ORDER BY cm.role DESC, cm.joined_at ASC
-    `).bind(apId, identifier).all();
+    `).bind(apId, identifier).all<MemberListRow>();
 
-    const result = (members.results || []).map((m: MemberListRow) => ({
+    const result = (members.results || []).map((m) => ({
       ap_id: m.actor_ap_id,
       username: formatUsername(m.actor_ap_id),
       preferred_username: m.preferred_username,
@@ -271,7 +271,7 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
           const ownerCount = await c.env.DB.prepare(
             "SELECT COUNT(*) as count FROM community_members WHERE community_ap_id = ? AND role = 'owner'"
           ).bind(community.ap_id).first<CountRow>();
-          if (ownerCount?.count <= 1) {
+          if ((ownerCount?.count ?? 0) <= 1) {
             results.push({ ap_id: targetApId, success: false, error: 'Cannot demote: only owner' });
             continue;
           }

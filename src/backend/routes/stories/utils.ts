@@ -124,7 +124,7 @@ export async function getVoteCounts(db: D1Database, storyApId: string): Promise<
   `
     )
     .bind(storyApId)
-    .all();
+    .all<VoteRow>();
 
   const results: VoteResults = {};
   (votes.results || []).forEach((vote: VoteRow) => {

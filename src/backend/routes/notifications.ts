@@ -146,7 +146,7 @@ notifications.get('/', async (c) => {
   query += ` ORDER BY i.created_at DESC LIMIT ? OFFSET ?`;
   params.push(limit + 1, offset);
 
-  const result = await c.env.DB.prepare(query).bind(...params).all();
+  const result = await c.env.DB.prepare(query).bind(...params).all<NotificationRow>();
 
   // Check if there are more results
   const results = result.results || [];
