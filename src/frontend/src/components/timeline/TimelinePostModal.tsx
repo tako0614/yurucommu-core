@@ -80,7 +80,7 @@ export function TimelinePostModal({
               {uploadedMedia.length > 0 && (
                 <div className="flex flex-wrap gap-2 mt-2">
                   {uploadedMedia.map((media, idx) => (
-                    <div key={idx} className="relative">
+                    <div key={media.r2_key} className="relative">
                       <img src={media.preview} alt="" className="w-20 h-20 object-cover rounded-lg" />
                       <button
                         onClick={() => onRemoveMedia(idx)}

@@ -586,30 +586,34 @@ follow.get('/requests', async (c) => {
     orderBy: { createdAt: 'desc' },
   });
 
-  const result = await Promise.all(
-    follows.map(async (f) => {
-      const localActor = await prisma.actor.findUnique({
-        where: { apId: f.followerApId },
-        select: { preferredUsername: true, name: true, iconUrl: true },
-      });
-      const cachedActor = localActor
-        ? null
-        : await prisma.actorCache.findUnique({
-            where: { apId: f.followerApId },
-            select: { preferredUsername: true, name: true, iconUrl: true },
-          });
-      const actorInfo = localActor || cachedActor;
+  // Batch load actor info to avoid N+1 queries
+  const followerApIds = follows.map((f) => f.followerApId);
+  const [localActors, cachedActors] = await Promise.all([
+    prisma.actor.findMany({
+      where: { apId: { in: followerApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+    prisma.actorCache.findMany({
+      where: { apId: { in: followerApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+  ]);
 
-      return {
-        ap_id: f.followerApId,
-        username: formatUsername(f.followerApId),
-        preferred_username: actorInfo?.preferredUsername || null,
-        name: actorInfo?.name || null,
-        icon_url: actorInfo?.iconUrl || null,
-        created_at: f.createdAt,
-      };
-    })
-  );
+  const localActorMap = new Map(localActors.map((a) => [a.apId, a]));
+  const cachedActorMap = new Map(cachedActors.map((a) => [a.apId, a]));
+
+  const result = follows.map((f) => {
+    const actorInfo = localActorMap.get(f.followerApId) || cachedActorMap.get(f.followerApId);
+
+    return {
+      ap_id: f.followerApId,
+      username: formatUsername(f.followerApId),
+      preferred_username: actorInfo?.preferredUsername || null,
+      name: actorInfo?.name || null,
+      icon_url: actorInfo?.iconUrl || null,
+      created_at: f.createdAt,
+    };
+  });
 
   return c.json({ requests: result });
 });

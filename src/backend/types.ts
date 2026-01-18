@@ -19,6 +19,7 @@ export interface EnvVars {
   TAKOS_CLIENT_ID?: string;
   TAKOS_CLIENT_SECRET?: string;
   AUTH_MODE?: string;
+  ENCRYPTION_KEY?: string; // 32-byte hex key for encrypting sensitive data
 }
 
 /**

@@ -84,35 +84,38 @@ communities.get('/:identifier/messages', async (c) => {
     take: limit,
   });
 
-  // Get sender info for each message
-  const result = await Promise.all(
-    messages.reverse().map(async (msg) => {
-      const localActor = await prisma.actor.findUnique({
-        where: { apId: msg.attributedTo },
-        select: { preferredUsername: true, name: true, iconUrl: true },
-      });
-      const cachedActor = localActor
-        ? null
-        : await prisma.actorCache.findUnique({
-            where: { apId: msg.attributedTo },
-            select: { preferredUsername: true, name: true, iconUrl: true },
-          });
-      const senderInfo = localActor || cachedActor;
+  // Batch load sender info to avoid N+1 queries
+  const senderApIds = [...new Set(messages.map((msg) => msg.attributedTo))];
+  const [localActors, cachedActors] = await Promise.all([
+    prisma.actor.findMany({
+      where: { apId: { in: senderApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+    prisma.actorCache.findMany({
+      where: { apId: { in: senderApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+  ]);
 
-      return {
-        id: msg.apId,
-        sender: {
-          ap_id: msg.attributedTo,
-          username: formatUsername(msg.attributedTo),
-          preferred_username: senderInfo?.preferredUsername || null,
-          name: senderInfo?.name || null,
-          icon_url: senderInfo?.iconUrl || null,
-        },
-        content: msg.content,
-        created_at: msg.published,
-      };
-    })
-  );
+  const localActorMap = new Map(localActors.map((a) => [a.apId, a]));
+  const cachedActorMap = new Map(cachedActors.map((a) => [a.apId, a]));
+
+  const result = messages.reverse().map((msg) => {
+    const senderInfo = localActorMap.get(msg.attributedTo) || cachedActorMap.get(msg.attributedTo);
+
+    return {
+      id: msg.apId,
+      sender: {
+        ap_id: msg.attributedTo,
+        username: formatUsername(msg.attributedTo),
+        preferred_username: senderInfo?.preferredUsername || null,
+        name: senderInfo?.name || null,
+        icon_url: senderInfo?.iconUrl || null,
+      },
+      content: msg.content,
+      created_at: msg.published,
+    };
+  });
 
   return c.json({ messages: result });
 });

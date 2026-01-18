@@ -54,14 +54,14 @@ export function renderStoryOverlay(
         <div className="bg-black/60 backdrop-blur-sm rounded-xl p-3 w-full">
           <p className="text-white text-sm font-medium text-center mb-2">{overlay.name}</p>
           <div className="flex gap-2">
-            {overlay.oneOf.map((option, idx) => {
-              const voteCount = votes?.[idx] || 0;
+            {overlay.oneOf.map((option, optionIndex) => {
+              const voteCount = votes?.[optionIndex] || 0;
               const percentage = hasVotes && votesTotal ? Math.round((voteCount / votesTotal) * 100) : 0;
-              const isSelected = userVote === idx;
+              const isSelected = userVote === optionIndex;
 
               return (
                 <button
-                  key={idx}
+                  key={`${option.name}-${optionIndex}`}
                   className={`flex-1 relative overflow-hidden text-white text-sm py-2 px-3 rounded-lg transition-colors ${isSelected ? 'ring-2 ring-white' : ''} ${hasUserVoted ? 'cursor-default' : 'hover:bg-white/30'}`}
                   style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
                   onClick={async (e) => {
@@ -69,9 +69,9 @@ export function renderStoryOverlay(
                     if (hasUserVoted) return;
                     try {
                       if (onVote) {
-                        await onVote(storyApId, idx);
+                        await onVote(storyApId, optionIndex);
                       } else {
-                        await voteOnStory(storyApId, idx);
+                        await voteOnStory(storyApId, optionIndex);
                       }
                     } catch (err) {
                       console.error('Failed to vote:', err);

@@ -207,31 +207,51 @@ dm.get('/contacts', async (c) => {
     },
   });
 
-  // Get last message info for each community
-  const communitiesResult = await Promise.all(
-    communityMemberships.map(async (cm) => {
-      const lastMessage = await prisma.object.findFirst({
-        where: { audienceJson: { contains: cm.community.apId } },
-        orderBy: { published: 'desc' },
-        select: { content: true, attributedTo: true, published: true },
-      });
+  // Batch get last messages for all communities to avoid N+1
+  const communityApIds = communityMemberships.map((cm) => cm.community.apId);
+  const lastMessagesMap = new Map<string, { content: string; attributedTo: string; published: string }>();
 
-      return {
-        type: 'community' as const,
-        ap_id: cm.community.apId,
-        username: formatUsername(cm.community.apId),
-        preferred_username: cm.community.preferredUsername,
-        name: cm.community.name,
-        icon_url: cm.community.iconUrl,
-        member_count: cm.community.memberCount,
-        last_message: lastMessage?.content ? {
-          content: lastMessage.content,
-          is_mine: lastMessage.attributedTo === actor.ap_id,
-        } : null,
-        last_message_at: lastMessage?.published || null,
-      };
-    })
-  );
+  if (communityApIds.length > 0) {
+    // Fetch recent messages for all communities (get enough to ensure at least one per community)
+    const recentMessages = await prisma.object.findMany({
+      where: {
+        communityApId: { in: communityApIds },
+      },
+      orderBy: { published: 'desc' },
+      select: { communityApId: true, content: true, attributedTo: true, published: true },
+      take: communityApIds.length * 10,
+    });
+
+    // Keep only the latest message per community
+    for (const msg of recentMessages) {
+      if (msg.communityApId && !lastMessagesMap.has(msg.communityApId)) {
+        lastMessagesMap.set(msg.communityApId, {
+          content: msg.content,
+          attributedTo: msg.attributedTo,
+          published: msg.published,
+        });
+      }
+    }
+  }
+
+  // Map communities to result format
+  const communitiesResult = communityMemberships.map((cm) => {
+    const lastMessage = lastMessagesMap.get(cm.community.apId);
+    return {
+      type: 'community' as const,
+      ap_id: cm.community.apId,
+      username: formatUsername(cm.community.apId),
+      preferred_username: cm.community.preferredUsername,
+      name: cm.community.name,
+      icon_url: cm.community.iconUrl,
+      member_count: cm.community.memberCount,
+      last_message: lastMessage?.content ? {
+        content: lastMessage.content,
+        is_mine: lastMessage.attributedTo === actor.ap_id,
+      } : null,
+      last_message_at: lastMessage?.published || null,
+    };
+  });
 
   // Sort communities by last message at
   communitiesResult.sort((a, b) => {
@@ -241,6 +261,7 @@ dm.get('/contacts', async (c) => {
   });
 
   // Count pending requests: DMs from people we haven't replied to
+  // Get all incoming DM conversations
   const incomingDMs = await prisma.object.findMany({
     where: {
       visibility: 'direct',
@@ -251,18 +272,24 @@ dm.get('/contacts', async (c) => {
     distinct: ['conversation'],
   });
 
-  let requestCount = 0;
-  for (const dm of incomingDMs) {
-    if (!dm.conversation) continue;
-    // Check if we've replied in this conversation
-    const ourReply = await prisma.object.findFirst({
-      where: {
-        conversation: dm.conversation,
-        attributedTo: actor.ap_id,
-      },
-    });
-    if (!ourReply) requestCount++;
-  }
+  // Batch get all conversations where we've replied
+  const incomingConversations = incomingDMs
+    .map((dm) => dm.conversation)
+    .filter((c): c is string => c !== null);
+
+  const ourReplies = incomingConversations.length > 0
+    ? await prisma.object.findMany({
+        where: {
+          conversation: { in: incomingConversations },
+          attributedTo: actor.ap_id,
+        },
+        select: { conversation: true },
+        distinct: ['conversation'],
+      })
+    : [];
+
+  const repliedConversations = new Set(ourReplies.map((r) => r.conversation));
+  const requestCount = incomingConversations.filter((c) => !repliedConversations.has(c)).length;
 
   return c.json({
     mutual_followers: contactsResult,
@@ -294,6 +321,21 @@ dm.get('/requests', async (c) => {
     },
   });
 
+  // Batch get all conversations where we've replied to avoid N+1
+  const allConversations = [...new Set(incomingDMs.map((dm) => dm.conversation).filter((c): c is string => c !== null))];
+  const ourRepliesInConversations = allConversations.length > 0
+    ? await prisma.object.findMany({
+        where: {
+          conversation: { in: allConversations },
+          attributedTo: actor.ap_id,
+        },
+        select: { conversation: true },
+        distinct: ['conversation'],
+      })
+    : [];
+
+  const repliedConversationsSet = new Set(ourRepliesInConversations.map((r) => r.conversation));
+
   // Filter to only unreplied conversations
   const requests: Array<{
     id: string;
@@ -308,15 +350,8 @@ dm.get('/requests', async (c) => {
   for (const dm of incomingDMs) {
     if (!dm.conversation || seenConversations.has(dm.conversation)) continue;
 
-    // Check if we've replied in this conversation
-    const ourReply = await prisma.object.findFirst({
-      where: {
-        conversation: dm.conversation,
-        attributedTo: actor.ap_id,
-      },
-    });
-
-    if (!ourReply) {
+    // Check if we've replied in this conversation (using batched data)
+    if (!repliedConversationsSet.has(dm.conversation)) {
       seenConversations.add(dm.conversation);
       requests.push({
         id: dm.apId,

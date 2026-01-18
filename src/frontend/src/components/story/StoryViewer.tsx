@@ -421,8 +421,8 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
           {currentStory.overlays && containerSize.width > 0 && (
             <div className="absolute inset-0 pointer-events-none">
               <div className="pointer-events-auto">
-                {currentStory.overlays.map((overlay, idx) => (
-                  <div key={idx}>
+                {currentStory.overlays.map((overlay) => (
+                  <div key={`${overlay.type}-${overlay.position.x}-${overlay.position.y}`}>
                     {renderStoryOverlay(
                       overlay,
                       containerSize,

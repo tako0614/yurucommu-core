@@ -475,60 +475,59 @@ posts.get('/bookmarks', async (c) => {
     take: limit,
   });
 
-  // Get author info and interaction status for each post
-  const result = await Promise.all(
-    bookmarks.map(async (b) => {
-      const obj = b.object;
+  // Batch load author info to avoid N+1 queries
+  const authorApIds = [...new Set(bookmarks.map((b) => b.object.attributedTo))];
+  const [localActors, cachedActors] = await Promise.all([
+    prisma.actor.findMany({
+      where: { apId: { in: authorApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+    prisma.actorCache.findMany({
+      where: { apId: { in: authorApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+  ]);
 
-      // Get author info from actors or actor_cache
-      const localActor = await prisma.actor.findUnique({
-        where: { apId: obj.attributedTo },
-        select: { preferredUsername: true, name: true, iconUrl: true },
-      });
-      const cachedActor = localActor
-        ? null
-        : await prisma.actorCache.findUnique({
-            where: { apId: obj.attributedTo },
-            select: { preferredUsername: true, name: true, iconUrl: true },
-          });
-      const authorInfo = localActor || cachedActor;
+  const localActorMap = new Map(localActors.map((a) => [a.apId, a]));
+  const cachedActorMap = new Map(cachedActors.map((a) => [a.apId, a]));
 
-      // Check if liked
-      const liked = await prisma.like.findUnique({
-        where: {
-          actorApId_objectApId: {
-            actorApId: actor.ap_id,
-            objectApId: obj.apId,
-          },
-        },
-      });
+  // Batch load likes for all bookmarked posts
+  const postApIds = bookmarks.map((b) => b.object.apId);
+  const likes = await prisma.like.findMany({
+    where: { actorApId: actor.ap_id, objectApId: { in: postApIds } },
+    select: { objectApId: true },
+  });
+  const likedPostIds = new Set(likes.map((l) => l.objectApId));
 
-      return {
-        ap_id: obj.apId,
-        type: obj.type,
-        author: {
-          ap_id: obj.attributedTo,
-          username: formatUsername(obj.attributedTo),
-          preferred_username: authorInfo?.preferredUsername || null,
-          name: authorInfo?.name || null,
-          icon_url: authorInfo?.iconUrl || null,
-        },
-        content: obj.content,
-        summary: obj.summary,
-        attachments: safeJsonParse(obj.attachmentsJson, []),
-        in_reply_to: obj.inReplyTo,
-        visibility: obj.visibility,
-        community_ap_id: obj.communityApId,
-        like_count: obj.likeCount,
-        reply_count: obj.replyCount,
-        announce_count: obj.announceCount,
-        published: obj.published,
-        liked: !!liked,
-        bookmarked: true,
-        reposted: false,
-      };
-    })
-  );
+  const result = bookmarks.map((b) => {
+    const obj = b.object;
+    const authorInfo = localActorMap.get(obj.attributedTo) || cachedActorMap.get(obj.attributedTo);
+
+    return {
+      ap_id: obj.apId,
+      type: obj.type,
+      author: {
+        ap_id: obj.attributedTo,
+        username: formatUsername(obj.attributedTo),
+        preferred_username: authorInfo?.preferredUsername || null,
+        name: authorInfo?.name || null,
+        icon_url: authorInfo?.iconUrl || null,
+      },
+      content: obj.content,
+      summary: obj.summary,
+      attachments: safeJsonParse(obj.attachmentsJson, []),
+      in_reply_to: obj.inReplyTo,
+      visibility: obj.visibility,
+      community_ap_id: obj.communityApId,
+      like_count: obj.likeCount,
+      reply_count: obj.replyCount,
+      announce_count: obj.announceCount,
+      published: obj.published,
+      liked: likedPostIds.has(obj.apId),
+      bookmarked: true,
+      reposted: false,
+    };
+  });
 
   return c.json({ bookmarks: result });
 });

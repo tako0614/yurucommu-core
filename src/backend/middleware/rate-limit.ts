@@ -55,6 +55,53 @@ export const RateLimitConfigs = {
 };
 
 /**
+ * Extract client IP with proper validation
+ * Priority: CF-Connecting-IP (Cloudflare) > X-Forwarded-For (first IP) > fallback
+ */
+function getClientIP(c: Context<{ Bindings: Env; Variables: Variables }>): string {
+  // CF-Connecting-IP is the most reliable on Cloudflare (cannot be spoofed by client)
+  const cfIp = c.req.header('CF-Connecting-IP');
+  if (cfIp && isValidIP(cfIp)) {
+    return cfIp;
+  }
+
+  // X-Forwarded-For can be spoofed - only use the first IP (closest to client)
+  // and validate it's a valid IP format
+  const xff = c.req.header('X-Forwarded-For');
+  if (xff) {
+    const firstIp = xff.split(',')[0]?.trim();
+    if (firstIp && isValidIP(firstIp)) {
+      return firstIp;
+    }
+  }
+
+  // Fallback to X-Real-IP
+  const realIp = c.req.header('X-Real-IP');
+  if (realIp && isValidIP(realIp)) {
+    return realIp;
+  }
+
+  return 'unknown';
+}
+
+/**
+ * Validate IP address format (basic check)
+ */
+function isValidIP(ip: string): boolean {
+  // IPv4 pattern
+  const ipv4Pattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+  // IPv6 pattern (simplified)
+  const ipv6Pattern = /^[0-9a-fA-F:]+$/;
+
+  if (ipv4Pattern.test(ip)) {
+    const parts = ip.split('.').map(Number);
+    return parts.every(p => p >= 0 && p <= 255);
+  }
+
+  return ipv6Pattern.test(ip) && ip.includes(':');
+}
+
+/**
  * Create a rate limiting middleware
  */
 export function rateLimit(config: RateLimitConfig) {
@@ -63,7 +110,7 @@ export function rateLimit(config: RateLimitConfig) {
 
     // Get client identifier (IP or authenticated actor)
     const actor = c.get('actor');
-    const ip = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';
+    const ip = getClientIP(c);
     const clientId = actor?.ap_id || ip;
 
     const key = `${config.keyPrefix || ''}${clientId}`;
