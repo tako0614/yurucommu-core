@@ -195,20 +195,25 @@ communities.post('/:identifier/messages', async (c) => {
   });
 
   // Add to object_recipients for efficient querying
-  // Note: ObjectRecipient has a relation to Actor, but community is not an Actor
-  // We need to use raw query or adjust the schema. For now, use raw insert via D1
-  await c.env.DB.prepare(`
+  // Note: ObjectRecipient has a FK relation to Actor, but community is not an Actor
+  // Using $executeRaw to bypass FK constraint
+  await prisma.$executeRaw`
     INSERT INTO object_recipients (object_ap_id, recipient_ap_id, type, created_at)
-    VALUES (?, ?, 'audience', ?)
-  `).bind(objectApId, community.apId, now).run();
+    VALUES (${objectApId}, ${community.apId}, 'audience', ${now})
+  `;
 
   // Create Create activity
   const activityId = generateId();
-  const activityApId = `${baseUrl}/ap/activities/${activityId}`;
-  await c.env.DB.prepare(`
-    INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, to_json, published, local, raw_json)
-    VALUES (?, 'Create', ?, ?, ?, ?, 1, '{}')
-  `).bind(activityApId, actor.ap_id, objectApId, toJson, now).run();
+  const activityApIdVal = `${baseUrl}/ap/activities/${activityId}`;
+  await prisma.activity.create({
+    data: {
+      apId: activityApIdVal,
+      type: 'Create',
+      actorApId: actor.ap_id,
+      objectApId,
+      rawJson: JSON.stringify({ to: JSON.parse(toJson) }),
+    },
+  });
 
   // Update last_message_at
   await prisma.community.update({
@@ -267,11 +272,14 @@ communities.patch('/:identifier/messages/:messageId', async (c) => {
   }
 
   // Check message exists and belongs to community (via object_recipients)
-  const recipient = await c.env.DB.prepare(`
-    SELECT 1 FROM object_recipients WHERE object_ap_id = ? AND recipient_ap_id = ? AND type = 'audience'
-  `).bind(messageId, community.apId).first();
+  // Using $queryRaw since ObjectRecipient FK expects Actor, not Community
+  const recipients = await prisma.$queryRaw<Array<{ object_ap_id: string }>>`
+    SELECT object_ap_id FROM object_recipients
+    WHERE object_ap_id = ${messageId} AND recipient_ap_id = ${community.apId} AND type = 'audience'
+    LIMIT 1
+  `;
 
-  if (!recipient) {
+  if (recipients.length === 0) {
     return c.json({ error: 'Message not found' }, 404);
   }
 
@@ -327,11 +335,14 @@ communities.delete('/:identifier/messages/:messageId', async (c) => {
   }
 
   // Check message exists and belongs to community
-  const recipient = await c.env.DB.prepare(`
-    SELECT 1 FROM object_recipients WHERE object_ap_id = ? AND recipient_ap_id = ? AND type = 'audience'
-  `).bind(messageId, community.apId).first();
+  // Using $queryRaw since ObjectRecipient FK expects Actor, not Community
+  const recipientsForDelete = await prisma.$queryRaw<Array<{ object_ap_id: string }>>`
+    SELECT object_ap_id FROM object_recipients
+    WHERE object_ap_id = ${messageId} AND recipient_ap_id = ${community.apId} AND type = 'audience'
+    LIMIT 1
+  `;
 
-  if (!recipient) {
+  if (recipientsForDelete.length === 0) {
     return c.json({ error: 'Message not found' }, 404);
   }
 
@@ -361,8 +372,8 @@ communities.delete('/:identifier/messages/:messageId', async (c) => {
     return c.json({ error: 'Permission denied' }, 403);
   }
 
-  // Delete message - use raw query for object_recipients since it may not have Actor relation
-  await c.env.DB.prepare('DELETE FROM object_recipients WHERE object_ap_id = ?').bind(messageId).run();
+  // Delete message - use $executeRaw for object_recipients since FK expects Actor, not Community
+  await prisma.$executeRaw`DELETE FROM object_recipients WHERE object_ap_id = ${messageId}`;
   await prisma.object.delete({ where: { apId: messageId } });
 
   return c.json({ success: true });

@@ -277,10 +277,9 @@ export async function handleGroupCreate(
     },
   });
 
-  // Note: Using raw SQL to match original INSERT OR IGNORE behavior
-  // ObjectRecipient has FK to Actor, but community.apId may not be in actors table
-  await c.env.DB.prepare(`
+  // Using $executeRaw with INSERT OR IGNORE since ObjectRecipient FK expects Actor, not Community
+  await prisma.$executeRaw`
     INSERT OR IGNORE INTO object_recipients (object_ap_id, recipient_ap_id, type, created_at)
-    VALUES (?, ?, 'audience', ?)
-  `).bind(objectId, community.apId, now).run();
+    VALUES (${objectId}, ${community.apId}, 'audience', ${now})
+  `;
 }

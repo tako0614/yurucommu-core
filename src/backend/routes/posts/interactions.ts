@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
-import { generateId, objectApId, activityApId, isLocal } from '../../utils';
+import { generateId, objectApId, activityApId, isLocal, formatUsername, safeJsonParse } from '../../utils';
 import { MAX_POSTS_PAGE_LIMIT, formatPost, parseLimit, PostRow } from './utils';
 import { deliverActivity } from '../../lib/activitypub-helpers';
 
@@ -462,34 +462,73 @@ posts.get('/bookmarks', async (c) => {
   const limit = parseLimit(c.req.query('limit'), 20, MAX_POSTS_PAGE_LIMIT);
   const before = c.req.query('before');
 
-  // Get bookmarks with object details using raw query for complex joins
-  // Since Prisma doesn't easily support COALESCE across different tables in include,
-  // we use $queryRaw for this complex query
-  let query = `
-    SELECT o.*,
-           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
-           COALESCE(a.name, ac.name) as author_name,
-           COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
-           EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked
-    FROM objects o
-    LEFT JOIN actors a ON o.attributed_to = a.ap_id
-    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    INNER JOIN bookmarks b ON o.ap_id = b.object_ap_id
-    WHERE b.actor_ap_id = ?
-  `;
-  const params: Array<string | number | null> = [actor.ap_id, actor.ap_id];
+  // Get bookmarks with their objects
+  const bookmarks = await prisma.bookmark.findMany({
+    where: {
+      actorApId: actor.ap_id,
+      ...(before ? { createdAt: { lt: before } } : {}),
+    },
+    include: {
+      object: true,
+    },
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+  });
 
-  if (before) {
-    query += ` AND o.published < ?`;
-    params.push(before);
-  }
+  // Get author info and interaction status for each post
+  const result = await Promise.all(
+    bookmarks.map(async (b) => {
+      const obj = b.object;
 
-  query += ` ORDER BY b.created_at DESC LIMIT ?`;
-  params.push(limit);
+      // Get author info from actors or actor_cache
+      const localActor = await prisma.actor.findUnique({
+        where: { apId: obj.attributedTo },
+        select: { preferredUsername: true, name: true, iconUrl: true },
+      });
+      const cachedActor = localActor
+        ? null
+        : await prisma.actorCache.findUnique({
+            where: { apId: obj.attributedTo },
+            select: { preferredUsername: true, name: true, iconUrl: true },
+          });
+      const authorInfo = localActor || cachedActor;
 
-  const bookmarks = await c.env.DB.prepare(query).bind(...params).all<PostRow>();
+      // Check if liked
+      const liked = await prisma.like.findUnique({
+        where: {
+          actorApId_objectApId: {
+            actorApId: actor.ap_id,
+            objectApId: obj.apId,
+          },
+        },
+      });
 
-  const result = (bookmarks.results || []).map((p: PostRow) => formatPost(p, actor.ap_id));
+      return {
+        ap_id: obj.apId,
+        type: obj.type,
+        author: {
+          ap_id: obj.attributedTo,
+          username: formatUsername(obj.attributedTo),
+          preferred_username: authorInfo?.preferredUsername || null,
+          name: authorInfo?.name || null,
+          icon_url: authorInfo?.iconUrl || null,
+        },
+        content: obj.content,
+        summary: obj.summary,
+        attachments: safeJsonParse(obj.attachmentsJson, []),
+        in_reply_to: obj.inReplyTo,
+        visibility: obj.visibility,
+        community_ap_id: obj.communityApId,
+        like_count: obj.likeCount,
+        reply_count: obj.replyCount,
+        announce_count: obj.announceCount,
+        published: obj.published,
+        liked: !!liked,
+        bookmarked: true,
+        reposted: false,
+      };
+    })
+  );
 
   return c.json({ bookmarks: result });
 });
