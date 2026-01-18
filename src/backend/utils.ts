@@ -1,5 +1,54 @@
 // Utility functions for Yurucommu backend
 
+// Re-export error types and utilities from local lib
+export {
+  // Error codes
+  ErrorCodes,
+  type ErrorCode,
+  // Error classes
+  AppError,
+  BadRequestError,
+  AuthenticationError,
+  AuthorizationError,
+  NotFoundError,
+  ConflictError,
+  ValidationError,
+  RateLimitError,
+  InternalError,
+  ServiceUnavailableError,
+  // Utilities
+  isAppError,
+  normalizeError,
+  logError,
+  handleDatabaseError,
+  type ErrorResponse,
+  type ValidationErrorDetail,
+} from './lib/errors';
+
+// Re-export Hono error helpers for route handlers
+export {
+  badRequest,
+  unauthorized,
+  forbidden,
+  notFound,
+  conflict,
+  validationError,
+  validationErrorWithFields,
+  internalError,
+  serviceUnavailable,
+  rateLimited,
+  handleDbError,
+  throwBadRequest,
+  throwUnauthorized,
+  throwForbidden,
+  throwNotFound,
+  throwConflict,
+  throwValidation,
+  throwInternalError,
+  throwServiceUnavailable,
+  throwRateLimited,
+} from './middleware/error-handler';
+
 /**
  * Safely parse JSON with a fallback value on parse failure.
  * Returns the default value if json is null, undefined, or invalid JSON.

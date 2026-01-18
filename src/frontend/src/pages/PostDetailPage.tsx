@@ -366,4 +366,4 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
   );
 }
 
-
+export default PostDetailPage;

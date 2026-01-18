@@ -125,21 +125,47 @@ dm.get('/contacts', async (c) => {
   });
   const readStatusMap = new Map(readStatuses.map((r) => [r.conversationId, r.lastReadAt]));
 
-  // Calculate unread counts for each conversation
+  // Calculate unread counts for each conversation using batch query
   const conversationIds = Array.from(conversationMap.keys());
   const unreadCounts = new Map<string, number>();
 
+  // Initialize all conversations with 0 unread count
   for (const convId of conversationIds) {
-    const lastReadAt = readStatusMap.get(convId) || '1970-01-01T00:00:00Z';
-    const count = await prisma.object.count({
-      where: {
-        conversation: convId,
-        visibility: 'direct',
-        attributedTo: { not: actor.ap_id },
-        published: { gt: lastReadAt },
-      },
+    unreadCounts.set(convId, 0);
+  }
+
+  // Batch query to get unread messages for all conversations at once
+  if (conversationIds.length > 0) {
+    // Group conversations by their lastReadAt time for efficient querying
+    const lastReadAtMap = new Map<string, string[]>();
+    for (const convId of conversationIds) {
+      const lastReadAt = readStatusMap.get(convId) || '1970-01-01T00:00:00Z';
+      const convIds = lastReadAtMap.get(lastReadAt) || [];
+      convIds.push(convId);
+      lastReadAtMap.set(lastReadAt, convIds);
+    }
+
+    // For each group with the same lastReadAt, batch query unread counts
+    const countPromises = Array.from(lastReadAtMap.entries()).map(async ([lastReadAt, convIds]) => {
+      const unreadMessages = await prisma.object.groupBy({
+        by: ['conversation'],
+        where: {
+          conversation: { in: convIds },
+          visibility: 'direct',
+          attributedTo: { not: actor.ap_id },
+          published: { gt: lastReadAt },
+        },
+        _count: { apId: true },
+      });
+
+      for (const msg of unreadMessages) {
+        if (msg.conversation) {
+          unreadCounts.set(msg.conversation, msg._count.apId);
+        }
+      }
     });
-    unreadCounts.set(convId, count);
+
+    await Promise.all(countPromises);
   }
 
   // Get actor info for all other participants

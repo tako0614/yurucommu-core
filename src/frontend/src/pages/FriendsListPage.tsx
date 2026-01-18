@@ -182,3 +182,5 @@ export function FriendsListPage({ actor }: FriendsListPageProps) {
     </div>
   );
 }
+
+export default FriendsListPage;

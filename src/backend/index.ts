@@ -21,8 +21,15 @@ import takosProxyRoutes from './routes/takos-proxy';
 // Import middleware
 import { rateLimit, RateLimitConfigs } from './middleware/rate-limit';
 import { csrfProtection } from './middleware/csrf';
+import { createErrorMiddleware, notFoundHandler } from './middleware/error-handler';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// ============================================================
+// GLOBAL ERROR HANDLER
+// ============================================================
+
+app.onError(createErrorMiddleware());
 
 // ============================================================
 // SECURITY HEADERS
@@ -38,14 +45,23 @@ app.use('*', async (c, next) => {
 
   // Content Security Policy
   // Restricts sources for scripts, styles, and other resources
+  //
+  // CSP Security Notes:
+  // - 'unsafe-eval' for scripts: REQUIRED for FFmpeg WASM (@ffmpeg/ffmpeg) which uses eval() internally.
+  //   This is a known limitation of the library. If FFmpeg is removed, unsafe-eval should also be removed.
+  //   See: https://github.com/ffmpegwasm/ffmpeg.wasm/issues/263
+  // - 'unsafe-inline' for scripts: Required for FFmpeg WASM worker initialization.
+  // - 'unsafe-inline' for styles: Required for CSS-in-JS and dynamic style attributes.
+  //   Consider migrating to nonce-based CSP in the future.
+  // - unpkg.com: Required for loading FFmpeg WASM binaries from CDN.
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com",  // unpkg for FFmpeg
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "media-src 'self' data: blob:",
     "font-src 'self' data:",
-    "connect-src 'self' https://unpkg.com wss:",  // unpkg for FFmpeg, wss for WebSocket
+    "connect-src 'self' https://unpkg.com wss:",
     "worker-src 'self' blob:",
     "frame-ancestors 'none'",
     "form-action 'self'",
@@ -137,6 +153,10 @@ app.use('/api/auth/*', rateLimit(RateLimitConfigs.auth));
 app.use('/api/search/*', rateLimit(RateLimitConfigs.search));
 app.use('/api/media/*', rateLimit(RateLimitConfigs.mediaUpload));
 app.use('/api/dm/*', rateLimit(RateLimitConfigs.dm));
+
+// Apply post creation rate limit to prevent spam
+// This specifically targets POST requests to /api/posts (creating new posts)
+app.post('/api/posts', rateLimit(RateLimitConfigs.postCreate));
 
 // Rate limit for ActivityPub inbox (federation)
 app.use('/ap/*/inbox', rateLimit(RateLimitConfigs.inbox));

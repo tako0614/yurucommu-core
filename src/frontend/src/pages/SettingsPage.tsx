@@ -311,3 +311,5 @@ export function SettingsPage({ actor }: SettingsPageProps) {
     </div>
   );
 }
+
+export default SettingsPage;

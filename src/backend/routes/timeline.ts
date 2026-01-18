@@ -2,6 +2,7 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { formatUsername, safeJsonParse } from '../utils';
+import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
 
 const timeline = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -91,7 +92,12 @@ async function getBlockedAndMutedUsers(
 // Get public timeline
 // Supports both cursor (before) and offset pagination
 // Returns: posts, limit, offset (if used), has_more
-timeline.get('/', async (c) => {
+// Cached for 2 minutes for unauthenticated users
+timeline.get('/', withCache({
+  ttl: CacheTTL.PUBLIC_TIMELINE,
+  cacheTag: CacheTags.TIMELINE,
+  queryParamsToInclude: ['limit', 'offset', 'before', 'community'],
+}), async (c) => {
   const actor = c.get('actor');
   const prisma = c.get('prisma');
   const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);

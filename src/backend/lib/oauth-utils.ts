@@ -1,6 +1,30 @@
 /**
  * OAuth Utilities
  * PKCE, state generation, etc.
+ *
+ * OAuth State Expiration Strategy:
+ * ================================
+ * This module uses a dual-layer expiration approach for OAuth state tokens:
+ *
+ * 1. PRIMARY: KV TTL (expirationTtl: 600 seconds = 10 minutes)
+ *    - Cloudflare KV automatically deletes the key after 10 minutes
+ *    - This is the authoritative expiration mechanism
+ *    - Handles cleanup automatically, no background jobs needed
+ *
+ * 2. SECONDARY: Manual timestamp check in getOAuthState()
+ *    - Validates createdAt + 600000ms (10 minutes) hasn't passed
+ *    - Acts as a defense-in-depth measure
+ *    - Catches edge cases where KV TTL hasn't propagated yet
+ *    - Ensures consistent behavior even if KV caching delays TTL
+ *
+ * Why both?
+ * - KV TTL is eventually consistent and may have slight delays
+ * - Manual check provides immediate, deterministic expiration
+ * - Together they ensure state tokens cannot be reused after 10 minutes
+ *
+ * Security: The 10-minute window balances:
+ * - User experience (enough time to complete OAuth flow)
+ * - Security (limits replay attack window)
  */
 
 /**
@@ -35,17 +59,42 @@ export async function generateCodeChallenge(verifier: string): Promise<string> {
 
 /**
  * Base64 URL エンコード
+ * S28: Added input validation and proper error handling
  */
-export function base64UrlEncode(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
+export function base64UrlEncode(buffer: ArrayBuffer | null | undefined): string {
+  // S28: Input validation
+  if (buffer == null) {
+    throw new Error('base64UrlEncode: buffer cannot be null or undefined');
   }
-  return btoa(binary)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+
+  if (!(buffer instanceof ArrayBuffer)) {
+    throw new Error('base64UrlEncode: buffer must be an ArrayBuffer');
+  }
+
+  // S28: Handle empty buffer edge case
+  if (buffer.byteLength === 0) {
+    return '';
+  }
+
+  try {
+    const bytes = new Uint8Array(buffer);
+
+    // S28: Use chunked approach for large buffers to avoid stack overflow
+    const CHUNK_SIZE = 8192;
+    let binary = '';
+
+    for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+      const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.length));
+      binary += String.fromCharCode.apply(null, Array.from(chunk));
+    }
+
+    return btoa(binary)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  } catch (error) {
+    throw new Error(`base64UrlEncode: encoding failed - ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 /**
@@ -63,7 +112,9 @@ export async function saveOAuthState(
   data: OAuthState
 ): Promise<void> {
   await kv.put(`oauth:${state}`, JSON.stringify(data), {
-    expirationTtl: 600, // 10分
+    // PRIMARY expiration: KV TTL auto-deletes after 10 minutes
+    // This is the authoritative expiration mechanism
+    expirationTtl: 600, // 10 minutes in seconds
   });
 }
 
@@ -76,8 +127,11 @@ export async function getOAuthState(
 
   const data = JSON.parse(stored) as OAuthState;
 
-  // 有効期限チェック（10分）
-  if (Date.now() - data.createdAt > 600000) {
+  // SECONDARY expiration: Manual timestamp check (defense-in-depth)
+  // KV TTL is eventually consistent, so this ensures immediate rejection
+  // of expired states even if the KV deletion hasn't propagated yet
+  const STATE_TTL_MS = 600000; // 10 minutes in milliseconds (matches KV TTL)
+  if (Date.now() - data.createdAt > STATE_TTL_MS) {
     await kv.delete(`oauth:${state}`);
     return null;
   }

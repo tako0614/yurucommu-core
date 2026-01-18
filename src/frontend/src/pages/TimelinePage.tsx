@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useRef } from 'react';
+﻿import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Post, Actor, ActorStories } from '../types';
 import {
@@ -20,7 +20,12 @@ import {
   CommunityDetail,
 } from '../lib/api';
 import { useI18n } from '../lib/i18n';
-import { StoryBar, StoryViewer, StoryComposer } from '../components/story';
+import { StoryBar } from '../components/story';
+import { LoadingSpinner } from '../components/LoadingSpinner';
+
+// Lazy load heavy components
+const StoryViewer = lazy(() => import('../components/story/StoryViewer'));
+const StoryComposer = lazy(() => import('../components/story/StoryComposer'));
 import { InlineErrorBanner } from '../components/InlineErrorBanner';
 import { useInlineError } from '../hooks/useInlineError';
 import { TimelineHeader } from '../components/timeline/TimelineHeader';
@@ -374,22 +379,26 @@ export function TimelinePage({ actor }: TimelinePageProps) {
       )}
       {/* Story Viewer Modal */}
       {showStoryViewer && actorStories.length > 0 && (
-        <StoryViewer
-          actorStories={actorStories}
-          initialActorIndex={storyViewerActorIndex}
-          onClose={() => {
-            setShowStoryViewer(false);
-            loadStories(); // Refresh to update viewed status
-          }}
-        />
+        <Suspense fallback={<LoadingSpinner fullScreen={true} />}>
+          <StoryViewer
+            actorStories={actorStories}
+            initialActorIndex={storyViewerActorIndex}
+            onClose={() => {
+              setShowStoryViewer(false);
+              loadStories(); // Refresh to update viewed status
+            }}
+          />
+        </Suspense>
       )}
 
       {/* Story Composer Modal */}
       {showStoryComposer && (
-        <StoryComposer
-          onClose={() => setShowStoryComposer(false)}
-          onSuccess={handleStorySuccess}
-        />
+        <Suspense fallback={<LoadingSpinner fullScreen={true} />}>
+          <StoryComposer
+            onClose={() => setShowStoryComposer(false)}
+            onSuccess={handleStorySuccess}
+          />
+        </Suspense>
       )}
 
       <TimelineMobileMenu
@@ -478,3 +487,5 @@ export function TimelinePage({ actor }: TimelinePageProps) {
     </div>
   );
 }
+
+export default TimelinePage;

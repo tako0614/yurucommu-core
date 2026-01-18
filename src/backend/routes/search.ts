@@ -4,6 +4,29 @@ import { formatUsername, isSafeRemoteUrl, normalizeRemoteDomain } from '../utils
 
 const search = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+// Whitelist of allowed sort values for actors
+const ALLOWED_ACTOR_SORTS = ['relevance', 'followers', 'recent'] as const;
+type ActorSort = typeof ALLOWED_ACTOR_SORTS[number];
+
+// Whitelist of allowed sort values for posts
+const ALLOWED_POST_SORTS = ['recent', 'popular'] as const;
+type PostSort = typeof ALLOWED_POST_SORTS[number];
+
+// Validate sort parameter against whitelist
+function validateActorSort(sort: string | undefined): ActorSort {
+  if (sort && ALLOWED_ACTOR_SORTS.includes(sort as ActorSort)) {
+    return sort as ActorSort;
+  }
+  return 'relevance';
+}
+
+function validatePostSort(sort: string | undefined): PostSort {
+  if (sort && ALLOWED_POST_SORTS.includes(sort as PostSort)) {
+    return sort as PostSort;
+  }
+  return 'recent';
+}
+
 type WebFingerLink = {
   rel?: string;
   type?: string;
@@ -32,7 +55,7 @@ type RemoteActor = {
  */
 search.get('/actors', async (c) => {
   const query = c.req.query('q')?.trim();
-  const sort = c.req.query('sort') || 'relevance';
+  const sort = validateActorSort(c.req.query('sort'));
   if (!query) return c.json({ actors: [] });
 
   const prisma = c.get('prisma');
@@ -118,7 +141,7 @@ search.get('/actors', async (c) => {
 search.get('/posts', async (c) => {
   const actor = c.get('actor');
   const query = c.req.query('q')?.trim();
-  const sort = c.req.query('sort') || 'recent';
+  const sort = validatePostSort(c.req.query('sort'));
   if (!query) return c.json({ posts: [] });
 
   const prisma = c.get('prisma');
@@ -295,7 +318,7 @@ search.get('/remote', async (c) => {
 search.get('/hashtag/:tag', async (c) => {
   const actor = c.get('actor');
   const tag = c.req.param('tag')?.trim().replace(/^#/, '');
-  const sort = c.req.query('sort') || 'recent';
+  const sort = validatePostSort(c.req.query('sort'));
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100);
   const offset = parseInt(c.req.query('offset') || '0');
 

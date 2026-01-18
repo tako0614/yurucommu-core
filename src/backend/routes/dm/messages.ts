@@ -28,35 +28,42 @@ dm.get('/user/:encodedApId/messages', async (c) => {
 
   const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
 
-  // Build where clause
+  // Build where clause with database-level authorization
+  // Only return messages where the current actor is sender OR the toJson contains actor's ap_id
   const whereClause: {
     visibility: string;
     type: string;
     conversation: string;
     published?: { lt: string };
+    OR: Array<{ attributedTo: string } | { toJson: { contains: string } }>;
   } = {
     visibility: 'direct',
     type: 'Note',
-    conversation: conversationId
+    conversation: conversationId,
+    // Database-level authorization: only messages where actor is sender or recipient
+    OR: [
+      { attributedTo: actor.ap_id },
+      { toJson: { contains: actor.ap_id } }
+    ]
   };
 
   if (before) {
     whereClause.published = { lt: before };
   }
 
-  // Query messages - Prisma doesn't support complex json_extract in where, so we filter in code
+  // Query messages with authorization in the where clause
   const messages = await prisma.object.findMany({
     where: whereClause,
     orderBy: { published: 'desc' },
-    take: limit * 2 // Get extra to account for filtering
+    take: limit
   });
 
-  // Filter messages where actor is either sender or recipient
+  // Additional code-level validation for security in depth
   const filteredMessages = messages.filter((msg) => {
     if (msg.attributedTo === actor.ap_id) return true;
     const toRecipients = safeJsonParse<string[]>(msg.toJson, []);
     return toRecipients.includes(actor.ap_id);
-  }).slice(0, limit);
+  });
 
   // Get author info for all messages
   const authorApIds = Array.from(new Set(filteredMessages.map(m => m.attributedTo)));
@@ -384,35 +391,41 @@ dm.get('/conversations/:id/messages', async (c) => {
   const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
   const before = c.req.query('before');
 
-  // Build where clause
+  // Build where clause with database-level authorization
   const whereClause: {
     visibility: string;
     type: string;
     conversation: string;
     published?: { lt: string };
+    OR: Array<{ attributedTo: string } | { toJson: { contains: string } }>;
   } = {
     visibility: 'direct',
     type: 'Note',
-    conversation: conversationId
+    conversation: conversationId,
+    // Database-level authorization: only messages where actor is sender or recipient
+    OR: [
+      { attributedTo: actor.ap_id },
+      { toJson: { contains: actor.ap_id } }
+    ]
   };
 
   if (before) {
     whereClause.published = { lt: before };
   }
 
-  // Query messages
+  // Query messages with authorization in the where clause
   const messages = await prisma.object.findMany({
     where: whereClause,
     orderBy: { published: 'desc' },
-    take: limit * 2 // Get extra to account for filtering
+    take: limit
   });
 
-  // Filter messages where actor is either sender or recipient
+  // Additional code-level validation for security in depth
   const filteredMessages = messages.filter((msg) => {
     if (msg.attributedTo === actor.ap_id) return true;
     const toRecipients = safeJsonParse<string[]>(msg.toJson, []);
     return toRecipients.includes(actor.ap_id);
-  }).slice(0, limit);
+  });
 
   // Get author info for all messages
   const authorApIds = Array.from(new Set(filteredMessages.map(m => m.attributedTo)));

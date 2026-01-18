@@ -227,3 +227,4 @@ export function NotificationPage() {
   );
 }
 
+export default NotificationPage;

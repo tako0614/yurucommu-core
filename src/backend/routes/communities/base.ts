@@ -128,34 +128,36 @@ communities.post('/', async (c) => {
   // Generate key pair for ActivityPub
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
 
-  // Check if community name already exists
-  const existing = await prisma.community.findUnique({
-    where: { preferredUsername: name },
-  });
-  if (existing) {
-    return c.json({ error: 'Community name already taken' }, 409);
+  // Create community using insert-or-fail pattern to avoid race condition
+  // Database unique constraint on preferredUsername will reject duplicates
+  try {
+    await prisma.community.create({
+      data: {
+        apId,
+        preferredUsername: name,
+        name: body.display_name || name,
+        summary: body.summary || '',
+        inbox,
+        outbox,
+        followersUrl,
+        publicKeyPem,
+        privateKeyPem,
+        visibility: 'public',
+        joinPolicy: 'open',
+        postPolicy: 'members',
+        memberCount: 1,
+        createdBy: actor.ap_id,
+        createdAt: now,
+      },
+    });
+  } catch (error) {
+    // Handle unique constraint violation (P2002 is Prisma's unique constraint error code)
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+      return c.json({ error: 'Community name already taken' }, 409);
+    }
+    // Re-throw unexpected errors
+    throw error;
   }
-
-  // Create community
-  await prisma.community.create({
-    data: {
-      apId,
-      preferredUsername: name,
-      name: body.display_name || name,
-      summary: body.summary || '',
-      inbox,
-      outbox,
-      followersUrl,
-      publicKeyPem,
-      privateKeyPem,
-      visibility: 'public',
-      joinPolicy: 'open',
-      postPolicy: 'members',
-      memberCount: 1,
-      createdBy: actor.ap_id,
-      createdAt: now,
-    },
-  });
 
   // Add creator as member (owner role)
   await prisma.communityMember.create({

@@ -5,11 +5,38 @@
  * The encryption key should be set via ENCRYPTION_KEY environment variable.
  */
 
+// Validate hex string format
+function isValidHexString(hex: string, expectedLength?: number): boolean {
+  // Check format: only hex characters (0-9, a-f, A-F)
+  if (!/^[0-9a-fA-F]+$/.test(hex)) {
+    return false;
+  }
+  // Check length is even (each byte = 2 hex chars)
+  if (hex.length % 2 !== 0) {
+    return false;
+  }
+  // Check expected length if provided
+  if (expectedLength !== undefined && hex.length !== expectedLength) {
+    return false;
+  }
+  return true;
+}
+
 // Convert hex string to Uint8Array
 function hexToBytes(hex: string): Uint8Array {
+  // Validate hex string format before processing
+  if (!isValidHexString(hex)) {
+    throw new Error('Invalid hex string: must contain only hexadecimal characters (0-9, a-f, A-F) with even length');
+  }
+
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+    const byte = parseInt(hex.substring(i, i + 2), 16);
+    // Additional safety check (should never fail after validation, but defense in depth)
+    if (Number.isNaN(byte)) {
+      throw new Error(`Invalid hex character at position ${i}`);
+    }
+    bytes[i / 2] = byte;
   }
   return bytes;
 }
@@ -23,19 +50,30 @@ function bytesToHex(bytes: Uint8Array): string {
 
 // Get or generate encryption key
 async function getEncryptionKey(keyHex: string | undefined): Promise<CryptoKey | null> {
-  if (!keyHex || keyHex.length !== 64) {
-    // Key should be 32 bytes (64 hex chars) for AES-256
+  // Key should be 32 bytes (64 hex chars) for AES-256
+  if (!keyHex) {
     return null;
   }
 
-  const keyBytes = hexToBytes(keyHex);
-  return await crypto.subtle.importKey(
-    'raw',
-    keyBytes.buffer as ArrayBuffer,
-    { name: 'AES-GCM' },
-    false,
-    ['encrypt', 'decrypt']
-  );
+  // Validate hex format: must be exactly 64 hex characters
+  if (!isValidHexString(keyHex, 64)) {
+    console.error('Invalid encryption key format: must be exactly 64 hex characters (0-9, a-f, A-F)');
+    return null;
+  }
+
+  try {
+    const keyBytes = hexToBytes(keyHex);
+    return await crypto.subtle.importKey(
+      'raw',
+      keyBytes.buffer as ArrayBuffer,
+      { name: 'AES-GCM' },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  } catch (error) {
+    console.error('Failed to import encryption key:', error);
+    return null;
+  }
 }
 
 /**

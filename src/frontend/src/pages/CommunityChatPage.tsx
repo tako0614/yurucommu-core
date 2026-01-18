@@ -407,6 +407,8 @@ export function CommunityChatPage({ actor }: CommunityChatPageProps) {
   );
 }
 
+export default CommunityChatPage;
+
 
 
 

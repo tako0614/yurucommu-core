@@ -406,15 +406,42 @@ follow.post('/accept/batch', async (c) => {
   const prisma = c.get('prisma');
   const results: { ap_id: string; success: boolean; error?: string }[] = [];
 
+  // Batch fetch all pending follows at once
+  const pendingFollows = await prisma.follow.findMany({
+    where: {
+      followerApId: { in: body.requester_ap_ids },
+      followingApId: actor.ap_id,
+      status: 'pending',
+    },
+  });
+
+  const pendingFollowMap = new Map(pendingFollows.map((f) => [f.followerApId, f]));
+
+  // Batch fetch cached actors for remote followers
+  const remoteRequesterIds = body.requester_ap_ids.filter((id) => !isLocal(id, baseUrl));
+  const cachedActors = remoteRequesterIds.length > 0
+    ? await prisma.actorCache.findMany({
+        where: { apId: { in: remoteRequesterIds } },
+        select: { apId: true, inbox: true },
+      })
+    : [];
+  const cachedActorMap = new Map(cachedActors.map((a) => [a.apId, a]));
+
+  // Track counts to update
+  let followerCountIncrement = 0;
+  const localFollowerIds: string[] = [];
+  const activitiesToCreate: Array<{
+    apId: string;
+    type: string;
+    actorApId: string;
+    objectApId: string | undefined;
+    rawJson: string;
+    direction: string;
+  }> = [];
+
   for (const requesterApId of body.requester_ap_ids) {
     try {
-      const pendingFollow = await prisma.follow.findFirst({
-        where: {
-          followerApId: requesterApId,
-          followingApId: actor.ap_id,
-          status: 'pending',
-        },
-      });
+      const pendingFollow = pendingFollowMap.get(requesterApId);
 
       if (!pendingFollow) {
         results.push({ ap_id: requesterApId, success: false, error: 'No pending follow request' });
@@ -428,24 +455,15 @@ follow.post('/accept/batch', async (c) => {
         data: { status: 'accepted', acceptedAt: new Date().toISOString() },
       });
 
-      // Update counts
-      await prisma.actor.update({
-        where: { apId: actor.ap_id },
-        data: { followerCount: { increment: 1 } },
-      });
+      // Track count updates
+      followerCountIncrement++;
       if (isLocal(requesterApId, baseUrl)) {
-        await prisma.actor.update({
-          where: { apId: requesterApId },
-          data: { followingCount: { increment: 1 } },
-        });
+        localFollowerIds.push(requesterApId);
       }
 
       // Send Accept to remote
       if (!isLocal(requesterApId, baseUrl)) {
-        const cachedActor = await prisma.actorCache.findUnique({
-          where: { apId: requesterApId },
-          select: { inbox: true },
-        });
+        const cachedActor = cachedActorMap.get(requesterApId);
         if (cachedActor?.inbox) {
           const activityId = activityApId(baseUrl, generateId());
           const acceptActivity = {
@@ -468,15 +486,13 @@ follow.post('/accept/batch', async (c) => {
               body: JSON.stringify(acceptActivity),
             }).catch(() => {}); // Fire and forget for batch
 
-            await prisma.activity.create({
-              data: {
-                apId: activityId,
-                type: 'Accept',
-                actorApId: actor.ap_id,
-                objectApId: pendingFollow.activityApId || undefined,
-                rawJson: JSON.stringify(acceptActivity),
-                direction: 'outbound',
-              },
+            activitiesToCreate.push({
+              apId: activityId,
+              type: 'Accept',
+              actorApId: actor.ap_id,
+              objectApId: pendingFollow.activityApId || undefined,
+              rawJson: JSON.stringify(acceptActivity),
+              direction: 'outbound',
             });
           }
         }
@@ -486,6 +502,29 @@ follow.post('/accept/batch', async (c) => {
     } catch (e) {
       results.push({ ap_id: requesterApId, success: false, error: 'Internal error' });
     }
+  }
+
+  // Batch update counts - single update for actor's follower count
+  if (followerCountIncrement > 0) {
+    await prisma.actor.update({
+      where: { apId: actor.ap_id },
+      data: { followerCount: { increment: followerCountIncrement } },
+    });
+  }
+
+  // Batch update following counts for local followers
+  if (localFollowerIds.length > 0) {
+    await prisma.actor.updateMany({
+      where: { apId: { in: localFollowerIds } },
+      data: { followingCount: { increment: 1 } },
+    });
+  }
+
+  // Batch create activities
+  if (activitiesToCreate.length > 0) {
+    await prisma.activity.createMany({
+      data: activitiesToCreate,
+    });
   }
 
   return c.json({ results, accepted_count: results.filter(r => r.success).length });

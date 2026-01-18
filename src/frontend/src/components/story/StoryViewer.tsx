@@ -462,3 +462,4 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
   );
 }
 
+export default StoryViewer;
