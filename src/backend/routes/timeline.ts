@@ -5,28 +5,6 @@ import { formatUsername, safeJsonParse } from '../utils';
 
 const timeline = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-type TimelinePostRow = {
-  ap_id: string;
-  type: string;
-  attributed_to: string;
-  content: string;
-  summary: string | null;
-  attachments_json: string | null;
-  in_reply_to: string | null;
-  visibility: string;
-  community_ap_id?: string | null;
-  like_count: number;
-  reply_count: number;
-  announce_count: number;
-  published: string;
-  author_username: string | null;
-  author_name: string | null;
-  author_icon_url: string | null;
-  liked: number;
-  bookmarked: number;
-  reposted: number;
-};
-
 type Attachment = {
   type?: string;
   mediaType?: string;
@@ -34,11 +12,88 @@ type Attachment = {
   [key: string]: unknown;
 };
 
+// Helper to get author info from either local actors or actor cache
+async function getAuthorInfo(
+  prisma: ReturnType<typeof import('../lib/db').getPrismaD1>,
+  apId: string
+): Promise<{ preferredUsername: string | null; name: string | null; iconUrl: string | null }> {
+  const localActor = await prisma.actor.findUnique({
+    where: { apId },
+    select: { preferredUsername: true, name: true, iconUrl: true },
+  });
+  if (localActor) return localActor;
+
+  const cachedActor = await prisma.actorCache.findUnique({
+    where: { apId },
+    select: { preferredUsername: true, name: true, iconUrl: true },
+  });
+  return cachedActor || { preferredUsername: null, name: null, iconUrl: null };
+}
+
+// Helper to check interaction status
+async function getInteractionStatus(
+  prisma: ReturnType<typeof import('../lib/db').getPrismaD1>,
+  viewerApId: string,
+  objectApId: string
+): Promise<{ liked: boolean; bookmarked: boolean; reposted: boolean }> {
+  if (!viewerApId) {
+    return { liked: false, bookmarked: false, reposted: false };
+  }
+
+  const [likeExists, bookmarkExists, announceExists] = await Promise.all([
+    prisma.like.findUnique({
+      where: { actorApId_objectApId: { actorApId: viewerApId, objectApId } },
+      select: { actorApId: true },
+    }),
+    prisma.bookmark.findUnique({
+      where: { actorApId_objectApId: { actorApId: viewerApId, objectApId } },
+      select: { actorApId: true },
+    }),
+    prisma.announce.findUnique({
+      where: { actorApId_objectApId: { actorApId: viewerApId, objectApId } },
+      select: { actorApId: true },
+    }),
+  ]);
+
+  return {
+    liked: !!likeExists,
+    bookmarked: !!bookmarkExists,
+    reposted: !!announceExists,
+  };
+}
+
+// Helper to get blocked and muted users
+async function getBlockedAndMutedUsers(
+  prisma: ReturnType<typeof import('../lib/db').getPrismaD1>,
+  viewerApId: string
+): Promise<{ blockedApIds: string[]; mutedApIds: string[] }> {
+  if (!viewerApId) {
+    return { blockedApIds: [], mutedApIds: [] };
+  }
+
+  const [blocks, mutes] = await Promise.all([
+    prisma.block.findMany({
+      where: { blockerApId: viewerApId },
+      select: { blockedApId: true },
+    }),
+    prisma.mute.findMany({
+      where: { muterApId: viewerApId },
+      select: { mutedApId: true },
+    }),
+  ]);
+
+  return {
+    blockedApIds: blocks.map((b) => b.blockedApId),
+    mutedApIds: mutes.map((m) => m.mutedApId),
+  };
+}
+
 // Get public timeline
 // Supports both cursor (before) and offset pagination
 // Returns: posts, limit, offset (if used), has_more
 timeline.get('/', async (c) => {
   const actor = c.get('actor');
+  const prisma = c.get('prisma');
   const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
   const offset = parseInt(c.req.query('offset') || '0');
   const before = c.req.query('before');
@@ -46,75 +101,64 @@ timeline.get('/', async (c) => {
 
   const viewerApId = actor?.ap_id || '';
 
-  // Build WHERE clause for reuse
-  let whereClause = `o.type = 'Note' AND o.visibility = 'public' AND o.in_reply_to IS NULL
-      AND (o.audience_json IS NULL OR o.audience_json = '[]')
-      AND NOT EXISTS (
-        SELECT 1 FROM blocks b WHERE b.blocker_ap_id = ? AND b.blocked_ap_id = o.attributed_to
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM mutes m WHERE m.muter_ap_id = ? AND m.muted_ap_id = o.attributed_to
-      )`;
-  const whereParams: Array<string | number | null> = [viewerApId, viewerApId];
+  // Get blocked and muted users for filtering
+  const { blockedApIds, mutedApIds } = await getBlockedAndMutedUsers(prisma, viewerApId);
+  const excludedApIds = Array.from(new Set([...blockedApIds, ...mutedApIds]));
 
-  if (communityApId) {
-    whereClause += ` AND o.community_ap_id = ?`;
-    whereParams.push(communityApId);
-  }
-
-  if (before) {
-    whereClause += ` AND o.published < ?`;
-    whereParams.push(before);
-  }
-
-  let query = `
-    SELECT o.*,
-           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
-           COALESCE(a.name, ac.name) as author_name,
-           COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
-           EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked,
-           EXISTS(SELECT 1 FROM bookmarks b WHERE b.object_ap_id = o.ap_id AND b.actor_ap_id = ?) as bookmarked,
-           EXISTS(SELECT 1 FROM announces ann WHERE ann.object_ap_id = o.ap_id AND ann.actor_ap_id = ?) as reposted
-    FROM objects o
-    LEFT JOIN actors a ON o.attributed_to = a.ap_id
-    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    WHERE ${whereClause}
-    ORDER BY o.published DESC
-    LIMIT ? OFFSET ?
-  `;
-  const params: Array<string | number | null> = [viewerApId, viewerApId, viewerApId, ...whereParams, limit + 1, offset];
-
-  const posts = await c.env.DB.prepare(query).bind(...params).all<TimelinePostRow>();
+  // Build the where clause for objects
+  const posts = await prisma.object.findMany({
+    where: {
+      type: 'Note',
+      visibility: 'public',
+      inReplyTo: null,
+      audienceJson: '[]',
+      ...(excludedApIds.length > 0 ? { attributedTo: { notIn: excludedApIds } } : {}),
+      ...(communityApId ? { communityApId } : {}),
+      ...(before ? { published: { lt: before } } : {}),
+    },
+    orderBy: { published: 'desc' },
+    take: limit + 1,
+    skip: offset,
+  });
 
   // Check if there are more results
-  const results = posts.results || [];
-  const has_more = results.length > limit;
-  const actualResults = has_more ? results.slice(0, limit) : results;
+  const has_more = posts.length > limit;
+  const actualResults = has_more ? posts.slice(0, limit) : posts;
 
-  const result = actualResults.map((p) => ({
-    ap_id: p.ap_id,
-    type: p.type,
-    author: {
-      ap_id: p.attributed_to,
-      username: formatUsername(p.attributed_to),
-      preferred_username: p.author_username,
-      name: p.author_name,
-      icon_url: p.author_icon_url,
-    },
-    content: p.content,
-    summary: p.summary,
-    attachments: safeJsonParse<Attachment[]>(p.attachments_json, []),
-    in_reply_to: p.in_reply_to,
-    visibility: p.visibility,
-    community_ap_id: p.community_ap_id,
-    like_count: p.like_count,
-    reply_count: p.reply_count,
-    announce_count: p.announce_count,
-    published: p.published,
-    liked: !!p.liked,
-    bookmarked: !!p.bookmarked,
-    reposted: !!p.reposted,
-  }));
+  // Get author info and interaction status for each post
+  const result = await Promise.all(
+    actualResults.map(async (p) => {
+      const [author, interactions] = await Promise.all([
+        getAuthorInfo(prisma, p.attributedTo),
+        getInteractionStatus(prisma, viewerApId, p.apId),
+      ]);
+
+      return {
+        ap_id: p.apId,
+        type: p.type,
+        author: {
+          ap_id: p.attributedTo,
+          username: formatUsername(p.attributedTo),
+          preferred_username: author.preferredUsername,
+          name: author.name,
+          icon_url: author.iconUrl,
+        },
+        content: p.content,
+        summary: p.summary,
+        attachments: safeJsonParse<Attachment[]>(p.attachmentsJson, []),
+        in_reply_to: p.inReplyTo,
+        visibility: p.visibility,
+        community_ap_id: p.communityApId,
+        like_count: p.likeCount,
+        reply_count: p.replyCount,
+        announce_count: p.announceCount,
+        published: p.published,
+        liked: interactions.liked,
+        bookmarked: interactions.bookmarked,
+        reposted: interactions.reposted,
+      };
+    })
+  );
 
   return c.json({ posts: result, limit, offset, has_more });
 });
@@ -126,82 +170,96 @@ timeline.get('/following', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
+  const prisma = c.get('prisma');
   const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
   const offset = parseInt(c.req.query('offset') || '0');
   const before = c.req.query('before');
 
   const viewerApId = actor.ap_id;
 
-  // Build WHERE clause
-  let whereClause = `o.type = 'Note' AND o.in_reply_to IS NULL
-      AND (o.attributed_to IN (
-        SELECT following_ap_id FROM follows WHERE follower_ap_id = ? AND status = 'accepted'
-      ) OR o.attributed_to = ?)
-      AND (
-        o.attributed_to = ?
-        OR o.visibility IN ('public', 'unlisted', 'followers')
-      )
-      AND (o.audience_json IS NULL OR o.audience_json = '[]')
-      AND NOT EXISTS (
-        SELECT 1 FROM blocks b WHERE b.blocker_ap_id = ? AND b.blocked_ap_id = o.attributed_to
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM mutes m WHERE m.muter_ap_id = ? AND m.muted_ap_id = o.attributed_to
-      )`;
-  const whereParams: Array<string | number | null> = [viewerApId, viewerApId, viewerApId, viewerApId, viewerApId];
+  // Get blocked and muted users for filtering
+  const { blockedApIds, mutedApIds } = await getBlockedAndMutedUsers(prisma, viewerApId);
+  const excludedApIds = Array.from(new Set([...blockedApIds, ...mutedApIds]));
 
-  if (before) {
-    whereClause += ` AND o.published < ?`;
-    whereParams.push(before);
-  }
+  // Get the list of users the viewer is following
+  const follows = await prisma.follow.findMany({
+    where: { followerApId: viewerApId, status: 'accepted' },
+    select: { followingApId: true },
+  });
+  const followingApIds = follows.map((f) => f.followingApId);
 
-  let query = `
-    SELECT o.*,
-           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
-           COALESCE(a.name, ac.name) as author_name,
-           COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
-           EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked,
-           EXISTS(SELECT 1 FROM bookmarks b WHERE b.object_ap_id = o.ap_id AND b.actor_ap_id = ?) as bookmarked,
-           EXISTS(SELECT 1 FROM announces ann WHERE ann.object_ap_id = o.ap_id AND ann.actor_ap_id = ?) as reposted
-    FROM objects o
-    LEFT JOIN actors a ON o.attributed_to = a.ap_id
-    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    WHERE ${whereClause}
-    ORDER BY o.published DESC
-    LIMIT ? OFFSET ?
-  `;
-  const params: Array<string | number | null> = [viewerApId, viewerApId, viewerApId, ...whereParams, limit + 1, offset];
+  // Include own posts and followed users' posts
+  const allowedAuthors = [viewerApId, ...followingApIds];
 
-  const posts = await c.env.DB.prepare(query).bind(...params).all<TimelinePostRow>();
+  // Build the where clause for objects
+  // For own posts: all visibilities except direct
+  // For followed users: public, unlisted, or followers visibility
+  const posts = await prisma.object.findMany({
+    where: {
+      type: 'Note',
+      inReplyTo: null,
+      audienceJson: '[]',
+      attributedTo: { in: allowedAuthors },
+      ...(excludedApIds.length > 0 ? { NOT: { attributedTo: { in: excludedApIds } } } : {}),
+      ...(before ? { published: { lt: before } } : {}),
+      AND: [
+        {
+          OR: [
+            // Own posts (all except direct)
+            { attributedTo: viewerApId },
+            // Followed users' posts with appropriate visibility
+            {
+              AND: [
+                { attributedTo: { not: viewerApId } },
+                { visibility: { in: ['public', 'unlisted', 'followers'] } },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    orderBy: { published: 'desc' },
+    take: limit + 1,
+    skip: offset,
+  });
 
   // Check if there are more results
-  const results = posts.results || [];
-  const has_more = results.length > limit;
-  const actualResults = has_more ? results.slice(0, limit) : results;
+  const has_more = posts.length > limit;
+  const actualResults = has_more ? posts.slice(0, limit) : posts;
 
-  const result = actualResults.map((p: TimelinePostRow) => ({
-    ap_id: p.ap_id,
-    type: p.type,
-    author: {
-      ap_id: p.attributed_to,
-      username: formatUsername(p.attributed_to),
-      preferred_username: p.author_username,
-      name: p.author_name,
-      icon_url: p.author_icon_url,
-    },
-    content: p.content,
-    summary: p.summary,
-    attachments: safeJsonParse<Attachment[]>(p.attachments_json, []),
-    in_reply_to: p.in_reply_to,
-    visibility: p.visibility,
-    like_count: p.like_count,
-    reply_count: p.reply_count,
-    announce_count: p.announce_count,
-    published: p.published,
-    liked: !!p.liked,
-    bookmarked: !!p.bookmarked,
-    reposted: !!p.reposted,
-  }));
+  // Get author info and interaction status for each post
+  const result = await Promise.all(
+    actualResults.map(async (p) => {
+      const [author, interactions] = await Promise.all([
+        getAuthorInfo(prisma, p.attributedTo),
+        getInteractionStatus(prisma, viewerApId, p.apId),
+      ]);
+
+      return {
+        ap_id: p.apId,
+        type: p.type,
+        author: {
+          ap_id: p.attributedTo,
+          username: formatUsername(p.attributedTo),
+          preferred_username: author.preferredUsername,
+          name: author.name,
+          icon_url: author.iconUrl,
+        },
+        content: p.content,
+        summary: p.summary,
+        attachments: safeJsonParse<Attachment[]>(p.attachmentsJson, []),
+        in_reply_to: p.inReplyTo,
+        visibility: p.visibility,
+        like_count: p.likeCount,
+        reply_count: p.replyCount,
+        announce_count: p.announceCount,
+        published: p.published,
+        liked: interactions.liked,
+        bookmarked: interactions.bookmarked,
+        reposted: interactions.reposted,
+      };
+    })
+  );
 
   return c.json({ posts: result, limit, offset, has_more });
 });

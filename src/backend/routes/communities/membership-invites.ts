@@ -1,10 +1,8 @@
-﻿import type { Hono } from 'hono';
+import type { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { generateId, formatUsername } from '../../utils';
 import { managerRoles } from './utils';
 import {
-  CommunityMemberRow,
-  InviteRow,
   MembershipContext,
   fetchCommunityId,
 } from './membership-shared';
@@ -16,46 +14,63 @@ export function registerMembershipInviteRoutes(communities: Hono<{ Bindings: Env
     if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
     const identifier = c.req.param('identifier');
+    const prisma = c.get('prisma');
 
     const { community } = await fetchCommunityId(c, identifier);
     if (!community) {
       return c.json({ error: 'Community not found' }, 404);
     }
 
-    const member = await c.env.DB.prepare(
-      'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
+    const member = await prisma.communityMember.findUnique({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: actor.ap_id,
+        },
+      },
+    });
 
     if (!member || !managerRoles.has(member.role)) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const invites = await c.env.DB.prepare(`
-      SELECT i.id, i.invited_ap_id, i.invited_by_ap_id, i.created_at, i.expires_at, i.used_at, i.used_by_ap_id,
-             COALESCE(a.preferred_username, ac.preferred_username) as invited_by_username,
-             COALESCE(a.name, ac.name) as invited_by_name
-      FROM community_invites i
-      LEFT JOIN actors a ON i.invited_by_ap_id = a.ap_id
-      LEFT JOIN actor_cache ac ON i.invited_by_ap_id = ac.ap_id
-      WHERE i.community_ap_id = ?
-      ORDER BY i.created_at DESC
-    `).bind(community.ap_id).all<InviteRow>();
+    const invites = await prisma.communityInvite.findMany({
+      where: { communityApId: community.apId },
+      orderBy: { createdAt: 'desc' },
+    });
 
-    const result = (invites.results || []).map((inv: InviteRow) => ({
-      id: inv.id,
-      invited_ap_id: inv.invited_ap_id,
-      invited_by: {
-        ap_id: inv.invited_by_ap_id,
-        username: formatUsername(inv.invited_by_ap_id),
-        preferred_username: inv.invited_by_username,
-        name: inv.invited_by_name,
-      },
-      created_at: inv.created_at,
-      expires_at: inv.expires_at,
-      used_at: inv.used_at,
-      used_by_ap_id: inv.used_by_ap_id,
-      is_valid: !inv.used_at && (!inv.expires_at || new Date(inv.expires_at) > new Date()),
-    }));
+    // Get invited_by info for each invite
+    const result = await Promise.all(
+      invites.map(async (inv) => {
+        const localActor = await prisma.actor.findUnique({
+          where: { apId: inv.invitedByApId },
+          select: { preferredUsername: true, name: true },
+        });
+        const cachedActor = localActor
+          ? null
+          : await prisma.actorCache.findUnique({
+              where: { apId: inv.invitedByApId },
+              select: { preferredUsername: true, name: true },
+            });
+        const invitedByInfo = localActor || cachedActor;
+
+        return {
+          id: inv.id,
+          invited_ap_id: inv.invitedApId,
+          invited_by: {
+            ap_id: inv.invitedByApId,
+            username: formatUsername(inv.invitedByApId),
+            preferred_username: invitedByInfo?.preferredUsername || null,
+            name: invitedByInfo?.name || null,
+          },
+          created_at: inv.createdAt,
+          expires_at: inv.expiresAt,
+          used_at: inv.usedAt,
+          used_by_ap_id: inv.usedByApId,
+          is_valid: !inv.usedAt && (!inv.expiresAt || new Date(inv.expiresAt) > new Date()),
+        };
+      })
+    );
 
     return c.json({ invites: result });
   });
@@ -66,6 +81,7 @@ export function registerMembershipInviteRoutes(communities: Hono<{ Bindings: Env
     if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
     const identifier = c.req.param('identifier');
+    const prisma = c.get('prisma');
     let invitedApId: string | null = null;
     let expiresInHours: number | null = null;
     try {
@@ -82,9 +98,14 @@ export function registerMembershipInviteRoutes(communities: Hono<{ Bindings: Env
       return c.json({ error: 'Community not found' }, 404);
     }
 
-    const member = await c.env.DB.prepare(
-      'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
+    const member = await prisma.communityMember.findUnique({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: actor.ap_id,
+        },
+      },
+    });
 
     if (!member || !managerRoles.has(member.role)) {
       return c.json({ error: 'Forbidden' }, 403);
@@ -94,10 +115,16 @@ export function registerMembershipInviteRoutes(communities: Hono<{ Bindings: Env
     const now = new Date();
     const expiresAt = expiresInHours ? new Date(now.getTime() + expiresInHours * 60 * 60 * 1000).toISOString() : null;
 
-    await c.env.DB.prepare(`
-      INSERT INTO community_invites (id, community_ap_id, invited_by_ap_id, invited_ap_id, created_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).bind(inviteId, community.ap_id, actor.ap_id, invitedApId, now.toISOString(), expiresAt).run();
+    await prisma.communityInvite.create({
+      data: {
+        id: inviteId,
+        communityApId: community.apId,
+        invitedByApId: actor.ap_id,
+        invitedApId,
+        createdAt: now.toISOString(),
+        expiresAt,
+      },
+    });
 
     return c.json({ invite_id: inviteId, expires_at: expiresAt });
   });
@@ -109,29 +136,40 @@ export function registerMembershipInviteRoutes(communities: Hono<{ Bindings: Env
 
     const identifier = c.req.param('identifier');
     const inviteId = c.req.param('inviteId');
+    const prisma = c.get('prisma');
 
     const { community } = await fetchCommunityId(c, identifier);
     if (!community) {
       return c.json({ error: 'Community not found' }, 404);
     }
 
-    const member = await c.env.DB.prepare(
-      'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
+    const member = await prisma.communityMember.findUnique({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: actor.ap_id,
+        },
+      },
+    });
 
     if (!member || !managerRoles.has(member.role)) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const invite = await c.env.DB.prepare(
-      'SELECT id FROM community_invites WHERE id = ? AND community_ap_id = ?'
-    ).bind(inviteId, community.ap_id).first();
+    const invite = await prisma.communityInvite.findFirst({
+      where: {
+        id: inviteId,
+        communityApId: community.apId,
+      },
+    });
 
     if (!invite) {
       return c.json({ error: 'Invite not found' }, 404);
     }
 
-    await c.env.DB.prepare('DELETE FROM community_invites WHERE id = ?').bind(inviteId).run();
+    await prisma.communityInvite.delete({
+      where: { id: inviteId },
+    });
 
     return c.json({ success: true });
   });

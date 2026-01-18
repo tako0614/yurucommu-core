@@ -301,6 +301,7 @@ model Community {
   createdBy         String  @map("created_by")
   memberCount       Int     @default(0) @map("member_count")
   createdAt         String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  lastMessageAt     String? @map("last_message_at")
 
   // Relations
   members CommunityMember[]
@@ -324,6 +325,38 @@ model CommunityMember {
 
   @@id([communityApId, actorApId])
   @@map("community_members")
+}
+
+// ============================================================
+// COMMUNITY_JOIN_REQUESTS
+// ============================================================
+model CommunityJoinRequest {
+  communityApId String  @map("community_ap_id")
+  actorApId     String  @map("actor_ap_id")
+  status        String  @default("pending")
+  createdAt     String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  processedAt   String? @map("processed_at")
+
+  @@id([communityApId, actorApId])
+  @@index([communityApId, status])
+  @@map("community_join_requests")
+}
+
+// ============================================================
+// COMMUNITY_INVITES
+// ============================================================
+model CommunityInvite {
+  id            String  @id
+  communityApId String  @map("community_ap_id")
+  invitedByApId String  @map("invited_by_ap_id")
+  invitedApId   String? @map("invited_ap_id")
+  createdAt     String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  expiresAt     String? @map("expires_at")
+  usedAt        String? @map("used_at")
+  usedByApId    String? @map("used_by_ap_id")
+
+  @@index([communityApId])
+  @@map("community_invites")
 }
 
 // ============================================================
@@ -441,6 +474,19 @@ model StoryShare {
 }
 
 // ============================================================
+// NOTIFICATION_ARCHIVED
+// ============================================================
+model NotificationArchived {
+  actorApId    String @map("actor_ap_id")
+  activityApId String @map("activity_ap_id")
+  archivedAt   String @default(dbgenerated("datetime('now')")) @map("archived_at")
+
+  @@id([actorApId, activityApId])
+  @@index([actorApId])
+  @@map("notification_archived")
+}
+
+// ============================================================
 // INSTANCE_ACTOR
 // ============================================================
 model InstanceActor {
@@ -457,4 +503,44 @@ model InstanceActor {
   updatedAt         String @default(dbgenerated("datetime('now')")) @map("updated_at")
 
   @@map("instance_actor")
+}
+
+// ============================================================
+// DM_TYPING
+// ============================================================
+model DmTyping {
+  actorApId     String @map("actor_ap_id")
+  recipientApId String @map("recipient_ap_id")
+  lastTypedAt   String @map("last_typed_at")
+
+  @@id([actorApId, recipientApId])
+  @@index([recipientApId, lastTypedAt(sort: Desc)])
+  @@map("dm_typing")
+}
+
+// ============================================================
+// DM_READ_STATUS
+// ============================================================
+model DmReadStatus {
+  actorApId      String @map("actor_ap_id")
+  conversationId String @map("conversation_id")
+  lastReadAt     String @default(dbgenerated("datetime('now')")) @map("last_read_at")
+
+  @@id([actorApId, conversationId])
+  @@index([actorApId])
+  @@index([actorApId, lastReadAt(sort: Desc)])
+  @@map("dm_read_status")
+}
+
+// ============================================================
+// DM_ARCHIVED_CONVERSATIONS
+// ============================================================
+model DmArchivedConversation {
+  actorApId      String  @map("actor_ap_id")
+  conversationId String  @map("conversation_id")
+  archivedAt     String? @default(dbgenerated("datetime('now')")) @map("archived_at")
+
+  @@id([actorApId, conversationId])
+  @@index([actorApId])
+  @@map("dm_archived_conversations")
 }

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
 import type { Env, Variables, Actor } from './types';
+import { getPrismaD1 } from './lib/db';
 
 // Import route modules
 import authRoutes from './routes/auth';
@@ -22,12 +23,6 @@ import { rateLimit, RateLimitConfigs } from './middleware/rate-limit';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-type SessionActorRow = Actor & {
-  id: string;
-  member_id: string;
-  expires_at: string;
-};
-
 // ============================================================
 // COOP/COEP HEADERS (Required for FFmpeg WASM SharedArrayBuffer)
 // ============================================================
@@ -41,21 +36,58 @@ app.use('*', async (c, next) => {
 });
 
 // ============================================================
+// PRISMA MIDDLEWARE
+// ============================================================
+
+app.use('*', async (c, next) => {
+  // Use pre-created Prisma client if available (non-Cloudflare runtimes),
+  // otherwise create one with D1 adapter (Cloudflare Workers)
+  const prisma = c.env.PRISMA ?? getPrismaD1(c.env.DB);
+  c.set('prisma', prisma);
+  await next();
+});
+
+// ============================================================
 // AUTH MIDDLEWARE
 // ============================================================
 
 app.use('/api/*', async (c, next) => {
   const sessionId = getCookie(c, 'session');
   if (sessionId) {
-    // Sessions now store actor ap_id in member_id column (legacy compatibility)
-    const session = await c.env.DB.prepare(
-      `SELECT s.*, a.* FROM sessions s
-       JOIN actors a ON s.member_id = a.ap_id
-       WHERE s.id = ? AND s.expires_at > datetime('now')`
-    ).bind(sessionId).first<SessionActorRow>();
+    const prisma = c.get('prisma');
+    const session = await prisma.session.findFirst({
+      where: {
+        id: sessionId,
+        expiresAt: { gt: new Date().toISOString() },
+      },
+      include: { member: true },
+    });
 
     if (session) {
-      c.set('actor', session as Actor);
+      // Convert Prisma model to Actor type
+      const actor: Actor = {
+        ap_id: session.member.apId,
+        type: session.member.type,
+        preferred_username: session.member.preferredUsername,
+        name: session.member.name,
+        summary: session.member.summary,
+        icon_url: session.member.iconUrl,
+        header_url: session.member.headerUrl,
+        inbox: session.member.inbox,
+        outbox: session.member.outbox,
+        followers_url: session.member.followersUrl,
+        following_url: session.member.followingUrl,
+        public_key_pem: session.member.publicKeyPem,
+        private_key_pem: session.member.privateKeyPem,
+        takos_user_id: session.member.takosUserId,
+        follower_count: session.member.followerCount,
+        following_count: session.member.followingCount,
+        post_count: session.member.postCount,
+        is_private: session.member.isPrivate,
+        role: session.member.role as 'owner' | 'moderator' | 'member',
+        created_at: session.member.createdAt,
+      };
+      c.set('actor', actor);
     }
   }
   await next();

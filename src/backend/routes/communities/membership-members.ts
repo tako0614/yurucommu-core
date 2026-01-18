@@ -1,11 +1,8 @@
-﻿import type { Hono } from 'hono';
+import type { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { formatUsername } from '../../utils';
 import { managerRoles } from './utils';
 import {
-  CommunityMemberRow,
-  CountRow,
-  MemberListRow,
   MembershipContext,
   fetchCommunityId,
   resolveCommunityApId,
@@ -19,6 +16,7 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
 
     const identifier = c.req.param('identifier');
     const targetApId = decodeURIComponent(c.req.param('actorApId'));
+    const prisma = c.get('prisma');
 
     const { community } = await fetchCommunityId(c, identifier);
     if (!community) {
@@ -26,18 +24,28 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     }
 
     // Check if actor has permission to remove members
-    const actorMembership = await c.env.DB.prepare(
-      'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
+    const actorMembership = await prisma.communityMember.findUnique({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: actor.ap_id,
+        },
+      },
+    });
 
     if (!actorMembership || !managerRoles.has(actorMembership.role)) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
     // Check target membership
-    const targetMembership = await c.env.DB.prepare(
-      'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(community.ap_id, targetApId).first<CommunityMemberRow>();
+    const targetMembership = await prisma.communityMember.findUnique({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: targetApId,
+        },
+      },
+    });
 
     if (!targetMembership) {
       return c.json({ error: 'User is not a member' }, 404);
@@ -54,12 +62,20 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     }
 
     // Remove member
-    await c.env.DB.prepare('DELETE FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?')
-      .bind(community.ap_id, targetApId).run();
+    await prisma.communityMember.delete({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: targetApId,
+        },
+      },
+    });
 
     // Update member count
-    await c.env.DB.prepare('UPDATE communities SET member_count = member_count - 1 WHERE ap_id = ? AND member_count > 0')
-      .bind(community.ap_id).run();
+    await prisma.community.update({
+      where: { apId: community.apId },
+      data: { memberCount: { decrement: 1 } },
+    });
 
     return c.json({ success: true });
   });
@@ -71,6 +87,7 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
 
     const identifier = c.req.param('identifier');
     const targetApId = decodeURIComponent(c.req.param('actorApId'));
+    const prisma = c.get('prisma');
     const body = await c.req.json<{ role: 'owner' | 'moderator' | 'member' }>();
 
     if (!body.role || !['owner', 'moderator', 'member'].includes(body.role)) {
@@ -83,18 +100,28 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     }
 
     // Only owners can change roles
-    const actorMembership = await c.env.DB.prepare(
-      'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
+    const actorMembership = await prisma.communityMember.findUnique({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: actor.ap_id,
+        },
+      },
+    });
 
     if (!actorMembership || actorMembership.role !== 'owner') {
       return c.json({ error: 'Only owners can change member roles' }, 403);
     }
 
     // Check target membership
-    const targetMembership = await c.env.DB.prepare(
-      'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(community.ap_id, targetApId).first<CommunityMemberRow>();
+    const targetMembership = await prisma.communityMember.findUnique({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: targetApId,
+        },
+      },
+    });
 
     if (!targetMembership) {
       return c.json({ error: 'User is not a member' }, 404);
@@ -102,18 +129,27 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
 
     // Can't demote yourself if you're the last owner
     if (targetApId === actor.ap_id && targetMembership.role === 'owner' && body.role !== 'owner') {
-      const ownerCount = await c.env.DB.prepare(
-        "SELECT COUNT(*) as count FROM community_members WHERE community_ap_id = ? AND role = 'owner'"
-      ).bind(community.ap_id).first<CountRow>();
-      if ((ownerCount?.count ?? 0) <= 1) {
+      const ownerCount = await prisma.communityMember.count({
+        where: {
+          communityApId: community.apId,
+          role: 'owner',
+        },
+      });
+      if (ownerCount <= 1) {
         return c.json({ error: 'Cannot demote: you are the only owner' }, 400);
       }
     }
 
     // Update role
-    await c.env.DB.prepare(
-      'UPDATE community_members SET role = ? WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(body.role, community.ap_id, targetApId).run();
+    await prisma.communityMember.update({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: targetApId,
+        },
+      },
+      data: { role: body.role },
+    });
 
     return c.json({ success: true });
   });
@@ -121,32 +157,60 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
   // GET /api/communities/:identifier/members - List members
   communities.get('/:identifier/members', async (c: MembershipContext) => {
     const identifier = c.req.param('identifier');
+    const prisma = c.get('prisma');
     const baseUrl = c.env.APP_URL;
     const apId = resolveCommunityApId(baseUrl, identifier);
 
-    const members = await c.env.DB.prepare(`
-      SELECT cm.role, cm.joined_at,
-             COALESCE(a.ap_id, ac.ap_id) as actor_ap_id,
-             COALESCE(a.preferred_username, ac.preferred_username) as preferred_username,
-             COALESCE(a.name, ac.name) as name,
-             COALESCE(a.icon_url, ac.icon_url) as icon_url
-      FROM community_members cm
-      LEFT JOIN actors a ON cm.actor_ap_id = a.ap_id
-      LEFT JOIN actor_cache ac ON cm.actor_ap_id = ac.ap_id
-      JOIN communities c ON cm.community_ap_id = c.ap_id
-      WHERE c.ap_id = ? OR c.preferred_username = ?
-      ORDER BY cm.role DESC, cm.joined_at ASC
-    `).bind(apId, identifier).all<MemberListRow>();
+    // Get community first
+    const community = await prisma.community.findFirst({
+      where: {
+        OR: [
+          { apId },
+          { preferredUsername: identifier },
+        ],
+      },
+      select: { apId: true },
+    });
 
-    const result = (members.results || []).map((m) => ({
-      ap_id: m.actor_ap_id,
-      username: formatUsername(m.actor_ap_id),
-      preferred_username: m.preferred_username,
-      name: m.name,
-      icon_url: m.icon_url,
-      role: m.role,
-      joined_at: m.joined_at,
-    }));
+    if (!community) {
+      return c.json({ members: [] });
+    }
+
+    // Get members
+    const members = await prisma.communityMember.findMany({
+      where: { communityApId: community.apId },
+      orderBy: [
+        { role: 'desc' },
+        { joinedAt: 'asc' },
+      ],
+    });
+
+    // Get actor info for each member
+    const result = await Promise.all(
+      members.map(async (m) => {
+        const localActor = await prisma.actor.findUnique({
+          where: { apId: m.actorApId },
+          select: { preferredUsername: true, name: true, iconUrl: true },
+        });
+        const cachedActor = localActor
+          ? null
+          : await prisma.actorCache.findUnique({
+              where: { apId: m.actorApId },
+              select: { preferredUsername: true, name: true, iconUrl: true },
+            });
+        const actorInfo = localActor || cachedActor;
+
+        return {
+          ap_id: m.actorApId,
+          username: formatUsername(m.actorApId),
+          preferred_username: actorInfo?.preferredUsername || null,
+          name: actorInfo?.name || null,
+          icon_url: actorInfo?.iconUrl || null,
+          role: m.role,
+          joined_at: m.joinedAt,
+        };
+      })
+    );
 
     return c.json({ members: result });
   });
@@ -157,6 +221,7 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
     const identifier = c.req.param('identifier');
+    const prisma = c.get('prisma');
     const body = await c.req.json<{ actor_ap_ids: string[] }>();
 
     if (!body.actor_ap_ids || body.actor_ap_ids.length === 0) {
@@ -169,9 +234,14 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     }
 
     // Check permissions
-    const actorMembership = await c.env.DB.prepare(
-      'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
+    const actorMembership = await prisma.communityMember.findUnique({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: actor.ap_id,
+        },
+      },
+    });
 
     if (!actorMembership || !managerRoles.has(actorMembership.role)) {
       return c.json({ error: 'Permission denied' }, 403);
@@ -188,9 +258,14 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
         }
 
         // Check target membership
-        const targetMembership = await c.env.DB.prepare(
-          'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-        ).bind(community.ap_id, targetApId).first<CommunityMemberRow>();
+        const targetMembership = await prisma.communityMember.findUnique({
+          where: {
+            communityApId_actorApId: {
+              communityApId: community.apId,
+              actorApId: targetApId,
+            },
+          },
+        });
 
         if (!targetMembership) {
           results.push({ ap_id: targetApId, success: false, error: 'Not a member' });
@@ -204,11 +279,17 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
         }
 
         // Remove member
-        await c.env.DB.prepare('DELETE FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?')
-          .bind(community.ap_id, targetApId).run();
+        await prisma.communityMember.delete({
+          where: {
+            communityApId_actorApId: {
+              communityApId: community.apId,
+              actorApId: targetApId,
+            },
+          },
+        });
 
         results.push({ ap_id: targetApId, success: true });
-      } catch (e) {
+      } catch {
         results.push({ ap_id: targetApId, success: false, error: 'Internal error' });
       }
     }
@@ -216,8 +297,10 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     // Update member count
     const removedCount = results.filter((r) => r.success).length;
     if (removedCount > 0) {
-      await c.env.DB.prepare('UPDATE communities SET member_count = member_count - ? WHERE ap_id = ?')
-        .bind(removedCount, community.ap_id).run();
+      await prisma.community.update({
+        where: { apId: community.apId },
+        data: { memberCount: { decrement: removedCount } },
+      });
     }
 
     return c.json({ results, removed_count: removedCount });
@@ -229,6 +312,7 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
     const identifier = c.req.param('identifier');
+    const prisma = c.get('prisma');
     const body = await c.req.json<{ actor_ap_ids: string[]; role: 'owner' | 'moderator' | 'member' }>();
 
     if (!body.actor_ap_ids || body.actor_ap_ids.length === 0) {
@@ -244,9 +328,14 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     }
 
     // Only owners can change roles
-    const actorMembership = await c.env.DB.prepare(
-      'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
+    const actorMembership = await prisma.communityMember.findUnique({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: actor.ap_id,
+        },
+      },
+    });
 
     if (!actorMembership || actorMembership.role !== 'owner') {
       return c.json({ error: 'Only owners can change roles' }, 403);
@@ -257,9 +346,14 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     for (const targetApId of body.actor_ap_ids) {
       try {
         // Check target membership
-        const targetMembership = await c.env.DB.prepare(
-          'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-        ).bind(community.ap_id, targetApId).first<CommunityMemberRow>();
+        const targetMembership = await prisma.communityMember.findUnique({
+          where: {
+            communityApId_actorApId: {
+              communityApId: community.apId,
+              actorApId: targetApId,
+            },
+          },
+        });
 
         if (!targetMembership) {
           results.push({ ap_id: targetApId, success: false, error: 'Not a member' });
@@ -268,22 +362,31 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
 
         // Can't demote yourself if you're the last owner
         if (targetApId === actor.ap_id && targetMembership.role === 'owner' && body.role !== 'owner') {
-          const ownerCount = await c.env.DB.prepare(
-            "SELECT COUNT(*) as count FROM community_members WHERE community_ap_id = ? AND role = 'owner'"
-          ).bind(community.ap_id).first<CountRow>();
-          if ((ownerCount?.count ?? 0) <= 1) {
+          const ownerCount = await prisma.communityMember.count({
+            where: {
+              communityApId: community.apId,
+              role: 'owner',
+            },
+          });
+          if (ownerCount <= 1) {
             results.push({ ap_id: targetApId, success: false, error: 'Cannot demote: only owner' });
             continue;
           }
         }
 
         // Update role
-        await c.env.DB.prepare(
-          'UPDATE community_members SET role = ? WHERE community_ap_id = ? AND actor_ap_id = ?'
-        ).bind(body.role, community.ap_id, targetApId).run();
+        await prisma.communityMember.update({
+          where: {
+            communityApId_actorApId: {
+              communityApId: community.apId,
+              actorApId: targetApId,
+            },
+          },
+          data: { role: body.role },
+        });
 
         results.push({ ap_id: targetApId, success: true });
-      } catch (e) {
+      } catch {
         results.push({ ap_id: targetApId, success: false, error: 'Internal error' });
       }
     }
@@ -291,9 +394,3 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     return c.json({ results, updated_count: results.filter((r) => r.success).length });
   });
 }
-
-
-
-
-
-

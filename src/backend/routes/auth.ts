@@ -17,6 +17,7 @@ import {
   getOAuthState,
   deleteOAuthState,
 } from '../lib/oauth-utils';
+import type { PrismaClient } from '../../generated/prisma';
 
 const auth = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -50,13 +51,15 @@ auth.get('/me', async (c) => {
   let hasTakosAccess = false;
 
   if (sessionId) {
-    const session = await c.env.DB.prepare(
-      'SELECT provider, access_token FROM sessions WHERE id = ?'
-    ).bind(sessionId).first<{ provider: string | null; access_token: string | null }>();
+    const prisma = c.get('prisma');
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { provider: true, providerAccessToken: true },
+    });
 
     if (session) {
       provider = session.provider;
-      hasTakosAccess = session.provider === 'takos' && !!session.access_token;
+      hasTakosAccess = session.provider === 'takos' && !!session.providerAccessToken;
     }
   }
 
@@ -94,14 +97,18 @@ auth.post('/login', async (c) => {
     return c.json({ error: 'Invalid password' }, 401);
   }
 
-  // Single-user instance: find existing owner or create default
-  let actor = await c.env.DB.prepare("SELECT * FROM actors WHERE role = 'owner' LIMIT 1").first<Actor>();
+  const prisma = c.get('prisma');
 
-  if (!actor) {
-    actor = await createDefaultOwner(c.env, 'password:owner');
+  // Single-user instance: find existing owner or create default
+  let actorData = await prisma.actor.findFirst({
+    where: { role: 'owner' },
+  });
+
+  if (!actorData) {
+    actorData = await createDefaultOwner(prisma, c.env, 'password:owner');
   }
 
-  const sessionId = await createSession(c.env, actor.ap_id, null, null);
+  const sessionId = await createSession(prisma, actorData.apId, null, null);
   setSessionCookie(c, sessionId);
 
   return c.json({ success: true });
@@ -243,23 +250,24 @@ auth.get('/callback/:provider', async (c) => {
   }
 
   const providerUserId = `${providerId}:${userInfo.id}`;
+  const prisma = c.get('prisma');
 
   // Actor作成/更新
-  let actor = await c.env.DB.prepare(
-    'SELECT * FROM actors WHERE takos_user_id = ?'
-  ).bind(providerUserId).first<Actor>();
+  let actorData = await prisma.actor.findFirst({
+    where: { takosUserId: providerUserId },
+  });
 
-  if (!actor) {
-    actor = await createActorFromOAuth(c.env, userInfo, providerUserId);
+  if (!actorData) {
+    actorData = await createActorFromOAuth(prisma, c.env, userInfo, providerUserId);
   } else {
     // プロフィール更新
-    await updateActorFromOAuth(c.env, actor, userInfo);
+    await updateActorFromOAuth(prisma, actorData, userInfo);
   }
 
   // セッション作成
   const sessionId = await createSession(
-    c.env,
-    actor.ap_id,
+    prisma,
+    actorData.apId,
     providerId,
     providerId === 'takos' ? tokens : null
   );
@@ -276,7 +284,8 @@ auth.get('/callback/:provider', async (c) => {
 auth.post('/logout', async (c) => {
   const sessionId = getCookie(c, 'session');
   if (sessionId) {
-    await c.env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(sessionId).run();
+    const prisma = c.get('prisma');
+    await prisma.session.delete({ where: { id: sessionId } }).catch(() => {});
     deleteCookie(c, 'session');
   }
   return c.json({ success: true });
@@ -290,21 +299,24 @@ auth.get('/accounts', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Not authenticated' }, 401);
 
-  const accounts = await c.env.DB.prepare(`
-    SELECT ap_id, preferred_username, name, icon_url
-    FROM actors ORDER BY created_at ASC
-  `).all();
+  const prisma = c.get('prisma');
+  const accounts = await prisma.actor.findMany({
+    select: {
+      apId: true,
+      preferredUsername: true,
+      name: true,
+      iconUrl: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  });
 
   return c.json({
-    accounts: (accounts.results || []).map((a: unknown) => {
-      const account = a as { ap_id: string; preferred_username: string; name: string; icon_url: string };
-      return {
-        ap_id: account.ap_id,
-        preferred_username: account.preferred_username,
-        name: account.name,
-        icon_url: account.icon_url,
-      };
-    }),
+    accounts: accounts.map(a => ({
+      ap_id: a.apId,
+      preferred_username: a.preferredUsername,
+      name: a.name,
+      icon_url: a.iconUrl,
+    })),
     current_ap_id: actor.ap_id,
   });
 });
@@ -319,13 +331,18 @@ auth.post('/switch', async (c) => {
   const body = await c.req.json<{ ap_id: string }>();
   if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
 
-  const targetActor = await c.env.DB.prepare('SELECT ap_id FROM actors WHERE ap_id = ?')
-    .bind(body.ap_id).first();
+  const prisma = c.get('prisma');
+  const targetActor = await prisma.actor.findUnique({
+    where: { apId: body.ap_id },
+    select: { apId: true },
+  });
 
   if (!targetActor) return c.json({ error: 'Account not found' }, 404);
 
-  await c.env.DB.prepare('UPDATE sessions SET member_id = ? WHERE id = ?')
-    .bind(body.ap_id, sessionId).run();
+  await prisma.session.update({
+    where: { id: sessionId },
+    data: { memberId: body.ap_id },
+  });
 
   return c.json({ success: true });
 });
@@ -343,70 +360,85 @@ auth.post('/accounts', async (c) => {
 
   const baseUrl = c.env.APP_URL;
   const apId = actorApId(baseUrl, body.username);
+  const prisma = c.get('prisma');
 
-  const existing = await c.env.DB.prepare('SELECT ap_id FROM actors WHERE ap_id = ?')
-    .bind(apId).first();
+  const existing = await prisma.actor.findUnique({
+    where: { apId },
+    select: { apId: true },
+  });
 
   if (existing) return c.json({ error: 'Username already taken' }, 400);
 
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
-  await c.env.DB.prepare(`
-    INSERT INTO actors (ap_id, type, preferred_username, name, inbox, outbox, followers_url, following_url, public_key_pem, private_key_pem, takos_user_id, role)
-    VALUES (?, 'Person', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'member')
-  `).bind(
-    apId,
-    body.username,
-    body.name || body.username,
-    `${apId}/inbox`,
-    `${apId}/outbox`,
-    `${apId}/followers`,
-    `${apId}/following`,
-    publicKeyPem,
-    privateKeyPem,
-    `local:${body.username}`
-  ).run();
+  const newActor = await prisma.actor.create({
+    data: {
+      apId,
+      type: 'Person',
+      preferredUsername: body.username,
+      name: body.name || body.username,
+      inbox: `${apId}/inbox`,
+      outbox: `${apId}/outbox`,
+      followersUrl: `${apId}/followers`,
+      followingUrl: `${apId}/following`,
+      publicKeyPem,
+      privateKeyPem,
+      takosUserId: `local:${body.username}`,
+      role: 'member',
+    },
+    select: {
+      apId: true,
+      preferredUsername: true,
+      name: true,
+      iconUrl: true,
+    },
+  });
 
-  const newActor = await c.env.DB.prepare(`
-    SELECT ap_id, preferred_username, name, icon_url FROM actors WHERE ap_id = ?
-  `).bind(apId).first();
-
-  return c.json({ success: true, account: newActor });
+  return c.json({
+    success: true,
+    account: {
+      ap_id: newActor.apId,
+      preferred_username: newActor.preferredUsername,
+      name: newActor.name,
+      icon_url: newActor.iconUrl,
+    },
+  });
 });
 
 // ============================================
 // ヘルパー関数
 // ============================================
 
-async function createDefaultOwner(env: Env, takosUserId: string): Promise<Actor> {
+async function createDefaultOwner(prisma: PrismaClient, env: Env, takosUserId: string) {
   const baseUrl = env.APP_URL;
   const username = 'tako';
   const apId = actorApId(baseUrl, username);
 
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
-  await env.DB.prepare(`
-    INSERT INTO actors (ap_id, type, preferred_username, name, inbox, outbox, followers_url, following_url, public_key_pem, private_key_pem, takos_user_id, role)
-    VALUES (?, 'Person', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'owner')
-  `).bind(
-    apId,
-    username,
-    username,
-    `${apId}/inbox`,
-    `${apId}/outbox`,
-    `${apId}/followers`,
-    `${apId}/following`,
-    publicKeyPem,
-    privateKeyPem,
-    takosUserId
-  ).run();
 
-  return await env.DB.prepare('SELECT * FROM actors WHERE ap_id = ?').bind(apId).first<Actor>() as Actor;
+  return await prisma.actor.create({
+    data: {
+      apId,
+      type: 'Person',
+      preferredUsername: username,
+      name: username,
+      inbox: `${apId}/inbox`,
+      outbox: `${apId}/outbox`,
+      followersUrl: `${apId}/followers`,
+      followingUrl: `${apId}/following`,
+      publicKeyPem,
+      privateKeyPem,
+      takosUserId,
+      role: 'owner',
+    },
+  });
 }
 
 async function createActorFromOAuth(
+  prisma: PrismaClient,
   env: Env,
   userInfo: { id: string; name: string; email?: string; picture?: string; username?: string },
   providerUserId: string
-): Promise<Actor> {
+) {
   const baseUrl = env.APP_URL;
 
   // ユーザー名を生成（重複回避）
@@ -416,7 +448,10 @@ async function createActorFromOAuth(
 
   while (true) {
     const apId = actorApId(baseUrl, username);
-    const existing = await env.DB.prepare('SELECT ap_id FROM actors WHERE ap_id = ?').bind(apId).first();
+    const existing = await prisma.actor.findUnique({
+      where: { apId },
+      select: { apId: true },
+    });
     if (!existing) break;
     username = `${baseUsername}${counter}`;
     counter++;
@@ -426,42 +461,44 @@ async function createActorFromOAuth(
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
 
   // 最初のユーザーはownerに
-  const actorCount = await env.DB.prepare('SELECT COUNT(*) as count FROM actors').first<{ count: number }>();
-  const role = (actorCount?.count || 0) === 0 ? 'owner' : 'member';
+  const actorCount = await prisma.actor.count();
+  const role = actorCount === 0 ? 'owner' : 'member';
 
-  await env.DB.prepare(`
-    INSERT INTO actors (ap_id, type, preferred_username, name, icon_url, inbox, outbox, followers_url, following_url, public_key_pem, private_key_pem, takos_user_id, role)
-    VALUES (?, 'Person', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(
-    apId,
-    username,
-    userInfo.name,
-    userInfo.picture || null,
-    `${apId}/inbox`,
-    `${apId}/outbox`,
-    `${apId}/followers`,
-    `${apId}/following`,
-    publicKeyPem,
-    privateKeyPem,
-    providerUserId,
-    role
-  ).run();
-
-  return await env.DB.prepare('SELECT * FROM actors WHERE ap_id = ?').bind(apId).first<Actor>() as Actor;
+  return await prisma.actor.create({
+    data: {
+      apId,
+      type: 'Person',
+      preferredUsername: username,
+      name: userInfo.name,
+      iconUrl: userInfo.picture || null,
+      inbox: `${apId}/inbox`,
+      outbox: `${apId}/outbox`,
+      followersUrl: `${apId}/followers`,
+      followingUrl: `${apId}/following`,
+      publicKeyPem,
+      privateKeyPem,
+      takosUserId: providerUserId,
+      role,
+    },
+  });
 }
 
 async function updateActorFromOAuth(
-  env: Env,
-  actor: Actor,
+  prisma: PrismaClient,
+  actor: { apId: string },
   userInfo: { name: string; picture?: string }
 ): Promise<void> {
-  await env.DB.prepare(`
-    UPDATE actors SET name = ?, icon_url = COALESCE(?, icon_url) WHERE ap_id = ?
-  `).bind(userInfo.name, userInfo.picture || null, actor.ap_id).run();
+  await prisma.actor.update({
+    where: { apId: actor.apId },
+    data: {
+      name: userInfo.name,
+      iconUrl: userInfo.picture || undefined,
+    },
+  });
 }
 
 async function createSession(
-  env: Env,
+  prisma: PrismaClient,
   actorApId: string,
   provider: string | null,
   tokens: { access_token: string; refresh_token?: string; expires_in?: number } | null
@@ -472,19 +509,18 @@ async function createSession(
     ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
     : null;
 
-  await env.DB.prepare(`
-    INSERT INTO sessions (id, member_id, access_token, expires_at, provider, provider_access_token, provider_refresh_token, provider_token_expires_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(
-    sessionId,
-    actorApId,
-    sessionId, // legacy: access_token = sessionId
-    expiresAt,
-    provider,
-    tokens?.access_token || null,
-    tokens?.refresh_token || null,
-    tokenExpiresAt
-  ).run();
+  await prisma.session.create({
+    data: {
+      id: sessionId,
+      memberId: actorApId,
+      accessToken: sessionId, // legacy: access_token = sessionId
+      expiresAt,
+      provider,
+      providerAccessToken: tokens?.access_token || null,
+      providerRefreshToken: tokens?.refresh_token || null,
+      providerTokenExpiresAt: tokenExpiresAt,
+    },
+  });
 
   return sessionId;
 }

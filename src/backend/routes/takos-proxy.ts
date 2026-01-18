@@ -24,10 +24,17 @@ takosProxy.use('*', async (c, next) => {
     return c.json({ error: 'No session' }, 401);
   }
 
-  const session = await c.env.DB.prepare(`
-    SELECT id, provider, provider_access_token, provider_refresh_token, provider_token_expires_at
-    FROM sessions WHERE id = ?
-  `).bind(sessionId).first<TakosSession>();
+  const prisma = c.get('prisma');
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+    select: {
+      id: true,
+      provider: true,
+      providerAccessToken: true,
+      providerRefreshToken: true,
+      providerTokenExpiresAt: true,
+    },
+  });
 
   if (!session) {
     return c.json({ error: 'Session not found' }, 401);
@@ -37,7 +44,7 @@ takosProxy.use('*', async (c, next) => {
     return c.json({ error: 'Not logged in with Takos' }, 400);
   }
 
-  const client = await getTakosClient(c.env, session);
+  const client = await getTakosClient(c.env, prisma, session);
   if (!client) {
     return c.json({ error: 'Failed to create Takos client' }, 500);
   }

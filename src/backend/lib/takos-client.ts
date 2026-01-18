@@ -5,13 +5,14 @@
  */
 
 import type { Env } from '../types';
+import type { PrismaClient } from '../../generated/prisma';
 
 export interface TakosSession {
   id: string;
   provider: string | null;
-  provider_access_token: string | null;
-  provider_refresh_token: string | null;
-  provider_token_expires_at: string | null;
+  providerAccessToken: string | null;
+  providerRefreshToken: string | null;
+  providerTokenExpiresAt: string | null;
 }
 
 export interface TakosClient {
@@ -48,25 +49,26 @@ export interface TakosUser {
  */
 export async function getTakosClient(
   env: Env,
+  prisma: PrismaClient,
   session: TakosSession
 ): Promise<TakosClient | null> {
-  if (session.provider !== 'takos' || !session.provider_access_token) {
+  if (session.provider !== 'takos' || !session.providerAccessToken) {
     return null;
   }
 
-  let accessToken = session.provider_access_token;
+  let accessToken = session.providerAccessToken;
 
   // トークン有効期限チェック
-  if (session.provider_token_expires_at) {
-    const expiresAt = new Date(session.provider_token_expires_at);
+  if (session.providerTokenExpiresAt) {
+    const expiresAt = new Date(session.providerTokenExpiresAt);
     const now = new Date();
 
     // 5分前にリフレッシュ
     if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
-      if (session.provider_refresh_token) {
-        const newTokens = await refreshTakosToken(env, session.provider_refresh_token);
+      if (session.providerRefreshToken) {
+        const newTokens = await refreshTakosToken(env, session.providerRefreshToken);
         if (newTokens) {
-          await updateSessionTokens(env, session.id, newTokens);
+          await updateSessionTokens(prisma, session.id, newTokens);
           accessToken = newTokens.access_token;
         } else {
           return null;
@@ -152,24 +154,20 @@ async function refreshTakosToken(
  * セッションのトークンを更新
  */
 async function updateSessionTokens(
-  env: Env,
+  prisma: PrismaClient,
   sessionId: string,
   tokens: { access_token: string; refresh_token?: string; expires_in?: number }
 ): Promise<void> {
   const tokenExpiresAt = tokens.expires_in
     ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-    : null;
+    : undefined;
 
-  await env.DB.prepare(`
-    UPDATE sessions
-    SET provider_access_token = ?,
-        provider_refresh_token = COALESCE(?, provider_refresh_token),
-        provider_token_expires_at = ?
-    WHERE id = ?
-  `).bind(
-    tokens.access_token,
-    tokens.refresh_token || null,
-    tokenExpiresAt,
-    sessionId
-  ).run();
+  await prisma.session.update({
+    where: { id: sessionId },
+    data: {
+      providerAccessToken: tokens.access_token,
+      ...(tokens.refresh_token && { providerRefreshToken: tokens.refresh_token }),
+      ...(tokenExpiresAt && { providerTokenExpiresAt: tokenExpiresAt }),
+    },
+  });
 }

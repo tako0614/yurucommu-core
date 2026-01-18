@@ -1,13 +1,8 @@
-import type { D1Database } from '@cloudflare/workers-types';
+import type { PrismaClient } from '../../../generated/prisma';
 
 interface VoteResults {
   [optionIndex: number]: number;
 }
-
-type VoteRow = {
-  option_index: number;
-  count: number;
-};
 
 type OverlayPosition = {
   x: number;
@@ -44,91 +39,79 @@ type StoredStoryData = {
   overlays?: Overlay[];
 };
 
-export async function cleanupExpiredStories(db: D1Database): Promise<number> {
+export async function cleanupExpiredStories(prisma: PrismaClient): Promise<number> {
   const now = new Date().toISOString();
 
-  const expiredStories = await db
-    .prepare(
-      `
-    SELECT ap_id FROM objects
-    WHERE type = 'Story' AND end_time < ?
-  `
-    )
-    .bind(now)
-    .all();
+  // Get expired story IDs
+  const expiredStories = await prisma.object.findMany({
+    where: {
+      type: 'Story',
+      endTime: { lt: now },
+    },
+    select: {
+      apId: true,
+    },
+  });
 
-  if (!expiredStories.results || expiredStories.results.length === 0) {
+  if (expiredStories.length === 0) {
     return 0;
   }
 
-  await db
-    .prepare(
-      `
-    DELETE FROM story_votes
-    WHERE story_ap_id IN (
-      SELECT ap_id FROM objects
-      WHERE type = 'Story' AND end_time < ?
-    )
-  `
-    )
-    .bind(now)
-    .run();
+  const expiredApIds = expiredStories.map(s => s.apId);
 
-  await db
-    .prepare(
-      `
-    DELETE FROM likes
-    WHERE object_ap_id IN (
-      SELECT ap_id FROM objects
-      WHERE type = 'Story' AND end_time < ?
-    )
-  `
-    )
-    .bind(now)
-    .run();
+  // Delete story votes
+  await prisma.storyVote.deleteMany({
+    where: {
+      storyApId: { in: expiredApIds },
+    },
+  });
 
-  await db
-    .prepare(
-      `
-    DELETE FROM story_views
-    WHERE story_ap_id IN (
-      SELECT ap_id FROM objects
-      WHERE type = 'Story' AND end_time < ?
-    )
-  `
-    )
-    .bind(now)
-    .run();
+  // Delete story likes
+  await prisma.like.deleteMany({
+    where: {
+      objectApId: { in: expiredApIds },
+    },
+  });
 
-  const result = await db
-    .prepare(
-      `
-    DELETE FROM objects
-    WHERE type = 'Story' AND end_time < ?
-  `
-    )
-    .bind(now)
-    .run();
+  // Delete story views
+  await prisma.storyView.deleteMany({
+    where: {
+      storyApId: { in: expiredApIds },
+    },
+  });
 
-  return result.meta.changes || 0;
+  // Delete story shares
+  await prisma.storyShare.deleteMany({
+    where: {
+      storyApId: { in: expiredApIds },
+    },
+  });
+
+  // Delete expired stories
+  const result = await prisma.object.deleteMany({
+    where: {
+      type: 'Story',
+      endTime: { lt: now },
+    },
+  });
+
+  return result.count;
 }
 
-export async function getVoteCounts(db: D1Database, storyApId: string): Promise<VoteResults> {
-  const votes = await db
-    .prepare(
-      `
-    SELECT option_index, COUNT(*) as count
-    FROM story_votes
-    WHERE story_ap_id = ?
-    GROUP BY option_index
-  `
-    )
-    .bind(storyApId)
-    .all<VoteRow>();
+export async function getVoteCounts(prisma: PrismaClient, storyApId: string): Promise<VoteResults> {
+  const votes = await prisma.storyVote.groupBy({
+    by: ['optionIndex'],
+    where: {
+      storyApId,
+    },
+    _count: {
+      id: true,
+    },
+  });
 
   const results: VoteResults = {};
-  (votes.results || []).forEach((vote: VoteRow) => {
-    results[vote.option_index] = vote.count;
+  votes.forEach(vote => {
+    results[vote.optionIndex] = vote._count.id;
   });
   return results;
 }

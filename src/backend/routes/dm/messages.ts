@@ -1,4 +1,4 @@
-﻿// Direct Messages - AP Native
+// Direct Messages - AP Native
 // DMs are Note objects with visibility='direct' and to=[recipient]
 // Threading via conversation field
 
@@ -8,32 +8,6 @@ import { generateId, objectApId, activityApId, formatUsername, signRequest, isLo
 import { MAX_DM_CONTENT_LENGTH, MAX_DM_PAGE_LIMIT, getConversationId, parseLimit } from './utils';
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-type MessageRow = {
-  id: string;
-  sender_ap_id: string;
-  content: string;
-  created_at: string;
-  attachments_json?: string | null;
-  sender_preferred_username: string | null;
-  sender_name: string | null;
-  sender_icon_url: string | null;
-};
-
-type RecipientRow = {
-  ap_id: string;
-  inbox: string | null;
-};
-
-type DirectMessageRow = {
-  ap_id: string;
-  attributed_to: string;
-  conversation: string;
-};
-
-type OtherApIdRow = {
-  other_ap_id: string;
-};
 
 type Attachment = {
   type?: string;
@@ -45,6 +19,7 @@ type Attachment = {
 dm.get('/user/:encodedApId/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+  const prisma = c.get('prisma');
 
   const otherApId = decodeURIComponent(c.req.param('encodedApId'));
   const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
@@ -53,51 +28,75 @@ dm.get('/user/:encodedApId/messages', async (c) => {
 
   const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
 
-  // Query messages where the actor is either sender or recipient
-  let query = `
-    SELECT
-      o.ap_id as id,
-      o.attributed_to as sender_ap_id,
-      o.content,
-      o.published as created_at,
-      o.attachments_json,
-      COALESCE(a.preferred_username, ac.preferred_username) as sender_preferred_username,
-      COALESCE(a.name, ac.name) as sender_name,
-      COALESCE(a.icon_url, ac.icon_url) as sender_icon_url
-    FROM objects o
-    LEFT JOIN actors a ON o.attributed_to = a.ap_id
-    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    WHERE o.visibility = 'direct'
-      AND o.type = 'Note'
-      AND o.conversation = ?
-      AND (o.attributed_to = ? OR json_extract(o.to_json, '$[0]') = ?)
-  `;
-
-  const params: Array<string | number | null> = [conversationId, actor.ap_id, actor.ap_id];
+  // Build where clause
+  const whereClause: {
+    visibility: string;
+    type: string;
+    conversation: string;
+    published?: { lt: string };
+  } = {
+    visibility: 'direct',
+    type: 'Note',
+    conversation: conversationId
+  };
 
   if (before) {
-    query += ` AND o.published < ?`;
-    params.push(before);
+    whereClause.published = { lt: before };
   }
 
-  query += ` ORDER BY o.published DESC LIMIT ?`;
-  params.push(limit);
+  // Query messages - Prisma doesn't support complex json_extract in where, so we filter in code
+  const messages = await prisma.object.findMany({
+    where: whereClause,
+    orderBy: { published: 'desc' },
+    take: limit * 2 // Get extra to account for filtering
+  });
 
-  const messages = await c.env.DB.prepare(query).bind(...params).all<MessageRow>();
+  // Filter messages where actor is either sender or recipient
+  const filteredMessages = messages.filter((msg) => {
+    if (msg.attributedTo === actor.ap_id) return true;
+    const toRecipients = safeJsonParse<string[]>(msg.toJson, []);
+    return toRecipients.includes(actor.ap_id);
+  }).slice(0, limit);
 
-  const result = (messages.results || []).reverse().map((msg) => ({
-    id: msg.id,
-    sender: {
-      ap_id: msg.sender_ap_id,
-      username: formatUsername(msg.sender_ap_id),
-      preferred_username: msg.sender_preferred_username,
-      name: msg.sender_name,
-      icon_url: msg.sender_icon_url,
-    },
-    content: msg.content,
-    attachments: safeJsonParse<Attachment[]>(msg.attachments_json, []),
-    created_at: msg.created_at,
-  }));
+  // Get author info for all messages
+  const authorApIds = Array.from(new Set(filteredMessages.map(m => m.attributedTo)));
+
+  // Get local actors
+  const localActors = await prisma.actor.findMany({
+    where: { apId: { in: authorApIds } },
+    select: { apId: true, preferredUsername: true, name: true, iconUrl: true }
+  });
+  const localActorMap = new Map(localActors.map(a => [a.apId, a]));
+
+  // Get cached actors for remote users
+  const remoteApIds = authorApIds.filter(id => !localActorMap.has(id));
+  const cachedActors = remoteApIds.length > 0
+    ? await prisma.actorCache.findMany({
+        where: { apId: { in: remoteApIds } },
+        select: { apId: true, preferredUsername: true, name: true, iconUrl: true }
+      })
+    : [];
+  const cachedActorMap = new Map(cachedActors.map(a => [a.apId, a]));
+
+  const result = filteredMessages.reverse().map((msg) => {
+    const localActor = localActorMap.get(msg.attributedTo);
+    const cachedActor = cachedActorMap.get(msg.attributedTo);
+    const authorInfo = localActor || cachedActor;
+
+    return {
+      id: msg.apId,
+      sender: {
+        ap_id: msg.attributedTo,
+        username: formatUsername(msg.attributedTo),
+        preferred_username: authorInfo?.preferredUsername || null,
+        name: authorInfo?.name || null,
+        icon_url: authorInfo?.iconUrl || null,
+      },
+      content: msg.content,
+      attachments: safeJsonParse<Attachment[]>(msg.attachmentsJson, []),
+      created_at: msg.published,
+    };
+  });
 
   return c.json({ messages: result, conversation_id: conversationId });
 });
@@ -106,6 +105,7 @@ dm.get('/user/:encodedApId/messages', async (c) => {
 dm.post('/user/:encodedApId/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+  const prisma = c.get('prisma');
 
   const otherApId = decodeURIComponent(c.req.param('encodedApId'));
   const body = await c.req.json<{ content: string }>();
@@ -119,12 +119,20 @@ dm.post('/user/:encodedApId/messages', async (c) => {
     return c.json({ error: `Message too long (max ${MAX_DM_CONTENT_LENGTH} chars)` }, 400);
   }
 
-  // Verify other user exists
-  const otherActor = await c.env.DB.prepare(`
-    SELECT ap_id, inbox FROM actors WHERE ap_id = ?
-    UNION
-    SELECT ap_id, inbox FROM actor_cache WHERE ap_id = ?
-  `).bind(otherApId, otherApId).first<RecipientRow>();
+  // Verify other user exists (check both local actors and cached remote actors)
+  const localActor = await prisma.actor.findUnique({
+    where: { apId: otherApId },
+    select: { apId: true, inbox: true }
+  });
+
+  const cachedActor = !localActor
+    ? await prisma.actorCache.findUnique({
+        where: { apId: otherApId },
+        select: { apId: true, inbox: true }
+      })
+    : null;
+
+  const otherActor = localActor || cachedActor;
 
   if (!otherActor) {
     return c.json({ error: 'User not found' }, 404);
@@ -140,10 +148,20 @@ dm.post('/user/:encodedApId/messages', async (c) => {
   const ccJson = JSON.stringify([]);
 
   try {
-    await c.env.DB.prepare(`
-      INSERT INTO objects (ap_id, type, attributed_to, content, visibility, to_json, cc_json, conversation, published, is_local)
-      VALUES (?, 'Note', ?, ?, 'direct', ?, ?, ?, ?, 1)
-    `).bind(apId, actor.ap_id, content, toJson, ccJson, conversationId, now).run();
+    await prisma.object.create({
+      data: {
+        apId: apId,
+        type: 'Note',
+        attributedTo: actor.ap_id,
+        content: content,
+        visibility: 'direct',
+        toJson: toJson,
+        ccJson: ccJson,
+        conversation: conversationId,
+        published: now,
+        isLocal: 1
+      }
+    });
   } catch (e) {
     console.error('[DM] Failed to insert message:', e);
     return c.json({ error: 'Failed to send message' }, 500);
@@ -151,10 +169,28 @@ dm.post('/user/:encodedApId/messages', async (c) => {
 
   // Track recipient for efficient querying
   try {
-    await c.env.DB.prepare(`
-      INSERT OR IGNORE INTO object_recipients (object_ap_id, recipient_ap_id, type)
-      VALUES (?, ?, 'to')
-    `).bind(apId, otherApId).run();
+    // Check if recipient is a local actor (ObjectRecipient has FK to Actor)
+    const recipientIsLocal = await prisma.actor.findUnique({
+      where: { apId: otherApId },
+      select: { apId: true }
+    });
+
+    if (recipientIsLocal) {
+      await prisma.objectRecipient.upsert({
+        where: {
+          objectApId_recipientApId: {
+            objectApId: apId,
+            recipientApId: otherApId
+          }
+        },
+        create: {
+          objectApId: apId,
+          recipientApId: otherApId,
+          type: 'to'
+        },
+        update: {} // No update needed, just ensure it exists
+      });
+    }
   } catch (e) {
     console.error('[DM] Failed to track recipient:', e);
     // Non-critical error, continue
@@ -201,15 +237,23 @@ dm.post('/user/:encodedApId/messages', async (c) => {
   if (isLocal(otherApId, baseUrl)) {
     try {
       const activityId = activityApId(baseUrl, generateId());
-      await c.env.DB.prepare(`
-        INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-        VALUES (?, 'Create', ?, ?, ?, 'inbound')
-      `).bind(activityId, actor.ap_id, apId, JSON.stringify({ type: 'Create', actor: actor.ap_id, object: apId })).run();
+      await prisma.activity.create({
+        data: {
+          apId: activityId,
+          type: 'Create',
+          actorApId: actor.ap_id,
+          objectApId: apId,
+          rawJson: JSON.stringify({ type: 'Create', actor: actor.ap_id, object: apId }),
+          direction: 'inbound'
+        }
+      });
 
-      await c.env.DB.prepare(`
-        INSERT INTO inbox (actor_ap_id, activity_ap_id)
-        VALUES (?, ?)
-      `).bind(otherApId, activityId).run();
+      await prisma.inbox.create({
+        data: {
+          actorApId: otherApId,
+          activityApId: activityId
+        }
+      });
     } catch (e) {
       console.error('[DM] Failed to record inbox notification:', e);
       // Non-critical error, message was still created
@@ -237,6 +281,7 @@ dm.post('/user/:encodedApId/messages', async (c) => {
 dm.patch('/messages/:messageId', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+  const prisma = c.get('prisma');
 
   const messageId = c.req.param('messageId');
   const body = await c.req.json<{ content: string }>();
@@ -250,30 +295,38 @@ dm.patch('/messages/:messageId', async (c) => {
   }
 
   // Get the message
-  const message = await c.env.DB.prepare(`
-    SELECT ap_id, attributed_to, conversation FROM objects
-    WHERE ap_id = ? AND visibility = 'direct' AND type = 'Note'
-  `).bind(messageId).first<DirectMessageRow>();
+  const message = await prisma.object.findFirst({
+    where: {
+      apId: messageId,
+      visibility: 'direct',
+      type: 'Note'
+    },
+    select: { apId: true, attributedTo: true, conversation: true }
+  });
 
   if (!message) {
     return c.json({ error: 'Message not found' }, 404);
   }
 
   // Only sender can edit
-  if (message.attributed_to !== actor.ap_id) {
+  if (message.attributedTo !== actor.ap_id) {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
   const now = new Date().toISOString();
 
-  await c.env.DB.prepare(`
-    UPDATE objects SET content = ?, updated_at = ? WHERE ap_id = ?
-  `).bind(content, now, message.ap_id).run();
+  await prisma.object.update({
+    where: { apId: message.apId },
+    data: {
+      content: content,
+      updated: now
+    }
+  });
 
   return c.json({
     success: true,
     message: {
-      id: message.ap_id,
+      id: message.apId,
       content,
       updated_at: now,
     },
@@ -284,29 +337,38 @@ dm.patch('/messages/:messageId', async (c) => {
 dm.delete('/messages/:messageId', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+  const prisma = c.get('prisma');
 
   const messageId = c.req.param('messageId');
 
   // Get the message
-  const message = await c.env.DB.prepare(`
-    SELECT ap_id, attributed_to, conversation FROM objects
-    WHERE ap_id = ? AND visibility = 'direct' AND type = 'Note'
-  `).bind(messageId).first<DirectMessageRow>();
+  const message = await prisma.object.findFirst({
+    where: {
+      apId: messageId,
+      visibility: 'direct',
+      type: 'Note'
+    },
+    select: { apId: true, attributedTo: true, conversation: true }
+  });
 
   if (!message) {
     return c.json({ error: 'Message not found' }, 404);
   }
 
   // Only sender can delete
-  if (message.attributed_to !== actor.ap_id) {
+  if (message.attributedTo !== actor.ap_id) {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
   // Delete the message
-  await c.env.DB.prepare('DELETE FROM objects WHERE ap_id = ?').bind(message.ap_id).run();
+  await prisma.object.delete({
+    where: { apId: message.apId }
+  });
 
   // Clean up object_recipients
-  await c.env.DB.prepare('DELETE FROM object_recipients WHERE object_ap_id = ?').bind(message.ap_id).run();
+  await prisma.objectRecipient.deleteMany({
+    where: { objectApId: message.apId }
+  });
 
   return c.json({ success: true });
 });
@@ -316,54 +378,80 @@ dm.delete('/messages/:messageId', async (c) => {
 dm.get('/conversations/:id/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+  const prisma = c.get('prisma');
 
   const conversationId = c.req.param('id');
   const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
   const before = c.req.query('before');
 
-  let query = `
-    SELECT
-      o.ap_id as id,
-      o.attributed_to as sender_ap_id,
-      o.content,
-      o.published as created_at,
-      o.attachments_json,
-      COALESCE(a.preferred_username, ac.preferred_username) as sender_preferred_username,
-      COALESCE(a.name, ac.name) as sender_name,
-      COALESCE(a.icon_url, ac.icon_url) as sender_icon_url
-    FROM objects o
-    LEFT JOIN actors a ON o.attributed_to = a.ap_id
-    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    WHERE o.visibility = 'direct'
-      AND o.type = 'Note'
-      AND o.conversation = ?
-      AND (o.attributed_to = ? OR json_extract(o.to_json, '$[0]') = ?)
-  `;
-
-  const params: Array<string | number | null> = [conversationId, actor.ap_id, actor.ap_id];
+  // Build where clause
+  const whereClause: {
+    visibility: string;
+    type: string;
+    conversation: string;
+    published?: { lt: string };
+  } = {
+    visibility: 'direct',
+    type: 'Note',
+    conversation: conversationId
+  };
 
   if (before) {
-    query += ` AND o.published < ?`;
-    params.push(before);
+    whereClause.published = { lt: before };
   }
 
-  query += ` ORDER BY o.published DESC LIMIT ?`;
-  params.push(limit);
+  // Query messages
+  const messages = await prisma.object.findMany({
+    where: whereClause,
+    orderBy: { published: 'desc' },
+    take: limit * 2 // Get extra to account for filtering
+  });
 
-  const messages = await c.env.DB.prepare(query).bind(...params).all<MessageRow>();
+  // Filter messages where actor is either sender or recipient
+  const filteredMessages = messages.filter((msg) => {
+    if (msg.attributedTo === actor.ap_id) return true;
+    const toRecipients = safeJsonParse<string[]>(msg.toJson, []);
+    return toRecipients.includes(actor.ap_id);
+  }).slice(0, limit);
 
-  const result = (messages.results || []).reverse().map((msg) => ({
-    id: msg.id,
-    sender: {
-      ap_id: msg.sender_ap_id,
-      username: formatUsername(msg.sender_ap_id),
-      preferred_username: msg.sender_preferred_username,
-      name: msg.sender_name,
-      icon_url: msg.sender_icon_url,
-    },
-    content: msg.content,
-    created_at: msg.created_at,
-  }));
+  // Get author info for all messages
+  const authorApIds = Array.from(new Set(filteredMessages.map(m => m.attributedTo)));
+
+  // Get local actors
+  const localActors = await prisma.actor.findMany({
+    where: { apId: { in: authorApIds } },
+    select: { apId: true, preferredUsername: true, name: true, iconUrl: true }
+  });
+  const localActorMap = new Map(localActors.map(a => [a.apId, a]));
+
+  // Get cached actors for remote users
+  const remoteApIds = authorApIds.filter(id => !localActorMap.has(id));
+  const cachedActors = remoteApIds.length > 0
+    ? await prisma.actorCache.findMany({
+        where: { apId: { in: remoteApIds } },
+        select: { apId: true, preferredUsername: true, name: true, iconUrl: true }
+      })
+    : [];
+  const cachedActorMap = new Map(cachedActors.map(a => [a.apId, a]));
+
+  const result = filteredMessages.reverse().map((msg) => {
+    const localActor = localActorMap.get(msg.attributedTo);
+    const cachedActor = cachedActorMap.get(msg.attributedTo);
+    const authorInfo = localActor || cachedActor;
+
+    return {
+      id: msg.apId,
+      sender: {
+        ap_id: msg.attributedTo,
+        username: formatUsername(msg.attributedTo),
+        preferred_username: authorInfo?.preferredUsername || null,
+        name: authorInfo?.name || null,
+        icon_url: authorInfo?.iconUrl || null,
+      },
+      content: msg.content,
+      created_at: msg.published,
+    };
+  });
 
   return c.json({ messages: result });
 });
@@ -371,6 +459,7 @@ dm.get('/conversations/:id/messages', async (c) => {
 dm.post('/conversations/:id/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+  const prisma = c.get('prisma');
 
   const conversationId = c.req.param('id');
   const body = await c.req.json<{ content: string }>();
@@ -385,25 +474,44 @@ dm.post('/conversations/:id/messages', async (c) => {
   }
 
   // Find the other participant from the conversation
-  // Only match messages where the actor is either sender or recipient (authorization check)
-  const existingMsg = await c.env.DB.prepare(`
-    SELECT
-      CASE
-        WHEN attributed_to = ? THEN json_extract(to_json, '$[0]')
-        ELSE attributed_to
-      END as other_ap_id
-    FROM objects
-    WHERE conversation = ? AND visibility = 'direct'
-      AND (attributed_to = ? OR json_extract(to_json, '$[0]') = ?)
-    LIMIT 1
-  `).bind(actor.ap_id, conversationId, actor.ap_id, actor.ap_id).first<OtherApIdRow>();
+  // Get messages in this conversation where the actor is a participant
+  const existingMessages = await prisma.object.findMany({
+    where: {
+      conversation: conversationId,
+      visibility: 'direct'
+    },
+    select: {
+      attributedTo: true,
+      toJson: true
+    },
+    take: 10
+  });
 
-  if (!existingMsg?.other_ap_id) {
+  // Find the other participant
+  let otherApId: string | null = null;
+  for (const msg of existingMessages) {
+    if (msg.attributedTo === actor.ap_id) {
+      // Actor is sender, get recipient from toJson
+      const recipients = safeJsonParse<string[]>(msg.toJson, []);
+      if (recipients.length > 0) {
+        otherApId = recipients[0];
+        break;
+      }
+    } else {
+      // Actor might be recipient, check toJson
+      const recipients = safeJsonParse<string[]>(msg.toJson, []);
+      if (recipients.includes(actor.ap_id)) {
+        otherApId = msg.attributedTo;
+        break;
+      }
+    }
+  }
+
+  if (!otherApId) {
     // Either conversation doesn't exist or actor is not a participant
     return c.json({ error: 'Forbidden' }, 403);
   }
 
-  const otherApId = existingMsg.other_ap_id;
   const messageId = generateId();
   const apId = objectApId(baseUrl, messageId);
   const now = new Date().toISOString();
@@ -411,15 +519,47 @@ dm.post('/conversations/:id/messages', async (c) => {
   const toJson = JSON.stringify([otherApId]);
   const ccJson = JSON.stringify([]);
 
-  await c.env.DB.prepare(`
-    INSERT INTO objects (ap_id, type, attributed_to, content, visibility, to_json, cc_json, conversation, published, is_local)
-    VALUES (?, 'Note', ?, ?, 'direct', ?, ?, ?, ?, 1)
-  `).bind(apId, actor.ap_id, content, toJson, ccJson, conversationId, now).run();
+  await prisma.object.create({
+    data: {
+      apId: apId,
+      type: 'Note',
+      attributedTo: actor.ap_id,
+      content: content,
+      visibility: 'direct',
+      toJson: toJson,
+      ccJson: ccJson,
+      conversation: conversationId,
+      published: now,
+      isLocal: 1
+    }
+  });
 
-  await c.env.DB.prepare(`
-    INSERT OR IGNORE INTO object_recipients (object_ap_id, recipient_ap_id, type)
-    VALUES (?, ?, 'to')
-  `).bind(apId, otherApId).run();
+  // Track recipient if they're a local actor
+  try {
+    const recipientIsLocal = await prisma.actor.findUnique({
+      where: { apId: otherApId },
+      select: { apId: true }
+    });
+
+    if (recipientIsLocal) {
+      await prisma.objectRecipient.upsert({
+        where: {
+          objectApId_recipientApId: {
+            objectApId: apId,
+            recipientApId: otherApId
+          }
+        },
+        create: {
+          objectApId: apId,
+          recipientApId: otherApId,
+          type: 'to'
+        },
+        update: {}
+      });
+    }
+  } catch (e) {
+    console.error('[DM] Failed to track recipient:', e);
+  }
 
   return c.json({
     message: {

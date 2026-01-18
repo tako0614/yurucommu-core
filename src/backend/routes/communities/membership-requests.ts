@@ -1,10 +1,8 @@
-﻿import type { Hono } from 'hono';
+import type { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { formatUsername } from '../../utils';
 import { managerRoles } from './utils';
 import {
-  CommunityMemberRow,
-  JoinRequestRow,
   MembershipContext,
   fetchCommunityId,
 } from './membership-shared';
@@ -16,40 +14,59 @@ export function registerMembershipRequestRoutes(communities: Hono<{ Bindings: En
     if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
     const identifier = c.req.param('identifier');
+    const prisma = c.get('prisma');
 
     const { community } = await fetchCommunityId(c, identifier);
     if (!community) {
       return c.json({ error: 'Community not found' }, 404);
     }
 
-    const member = await c.env.DB.prepare(
-      'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
+    const member = await prisma.communityMember.findUnique({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: actor.ap_id,
+        },
+      },
+    });
 
     if (!member || !managerRoles.has(member.role)) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const requests = await c.env.DB.prepare(`
-      SELECT r.actor_ap_id, r.created_at,
-             COALESCE(a.preferred_username, ac.preferred_username) as preferred_username,
-             COALESCE(a.name, ac.name) as name,
-             COALESCE(a.icon_url, ac.icon_url) as icon_url
-      FROM community_join_requests r
-      LEFT JOIN actors a ON r.actor_ap_id = a.ap_id
-      LEFT JOIN actor_cache ac ON r.actor_ap_id = ac.ap_id
-      WHERE r.community_ap_id = ? AND r.status = 'pending'
-      ORDER BY r.created_at DESC
-    `).bind(community.ap_id).all<JoinRequestRow>();
+    const requests = await prisma.communityJoinRequest.findMany({
+      where: {
+        communityApId: community.apId,
+        status: 'pending',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
 
-    const result = (requests.results || []).map((r: JoinRequestRow) => ({
-      ap_id: r.actor_ap_id,
-      username: formatUsername(r.actor_ap_id),
-      preferred_username: r.preferred_username,
-      name: r.name,
-      icon_url: r.icon_url,
-      created_at: r.created_at,
-    }));
+    // Get actor info for each request
+    const result = await Promise.all(
+      requests.map(async (r) => {
+        const localActor = await prisma.actor.findUnique({
+          where: { apId: r.actorApId },
+          select: { preferredUsername: true, name: true, iconUrl: true },
+        });
+        const cachedActor = localActor
+          ? null
+          : await prisma.actorCache.findUnique({
+              where: { apId: r.actorApId },
+              select: { preferredUsername: true, name: true, iconUrl: true },
+            });
+        const actorInfo = localActor || cachedActor;
+
+        return {
+          ap_id: r.actorApId,
+          username: formatUsername(r.actorApId),
+          preferred_username: actorInfo?.preferredUsername || null,
+          name: actorInfo?.name || null,
+          icon_url: actorInfo?.iconUrl || null,
+          created_at: r.createdAt,
+        };
+      })
+    );
 
     return c.json({ requests: result });
   });
@@ -60,6 +77,7 @@ export function registerMembershipRequestRoutes(communities: Hono<{ Bindings: En
     if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
     const identifier = c.req.param('identifier');
+    const prisma = c.get('prisma');
     const body = await c.req.json<{ actor_ap_id: string }>();
 
     if (!body.actor_ap_id) {
@@ -71,43 +89,69 @@ export function registerMembershipRequestRoutes(communities: Hono<{ Bindings: En
       return c.json({ error: 'Community not found' }, 404);
     }
 
-    const member = await c.env.DB.prepare(
-      'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
+    const member = await prisma.communityMember.findUnique({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: actor.ap_id,
+        },
+      },
+    });
 
     if (!member || !managerRoles.has(member.role)) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const request = await c.env.DB.prepare(`
-      SELECT * FROM community_join_requests
-      WHERE community_ap_id = ? AND actor_ap_id = ? AND status = 'pending'
-    `).bind(community.ap_id, body.actor_ap_id).first<JoinRequestRow>();
+    const request = await prisma.communityJoinRequest.findFirst({
+      where: {
+        communityApId: community.apId,
+        actorApId: body.actor_ap_id,
+        status: 'pending',
+      },
+    });
 
     if (!request) {
       return c.json({ error: 'Join request not found' }, 404);
     }
 
-    const existingMember = await c.env.DB.prepare(
-      'SELECT 1 FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(community.ap_id, body.actor_ap_id).first();
+    const existingMember = await prisma.communityMember.findUnique({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: body.actor_ap_id,
+        },
+      },
+    });
 
     if (!existingMember) {
       const now = new Date().toISOString();
-      await c.env.DB.prepare(`
-        INSERT INTO community_members (community_ap_id, actor_ap_id, role, joined_at)
-        VALUES (?, ?, 'member', ?)
-      `).bind(community.ap_id, body.actor_ap_id, now).run();
+      await prisma.communityMember.create({
+        data: {
+          communityApId: community.apId,
+          actorApId: body.actor_ap_id,
+          role: 'member',
+          joinedAt: now,
+        },
+      });
 
-      await c.env.DB.prepare('UPDATE communities SET member_count = member_count + 1 WHERE ap_id = ?')
-        .bind(community.ap_id).run();
+      await prisma.community.update({
+        where: { apId: community.apId },
+        data: { memberCount: { increment: 1 } },
+      });
     }
 
-    await c.env.DB.prepare(`
-      UPDATE community_join_requests
-      SET status = 'accepted', processed_at = ?
-      WHERE community_ap_id = ? AND actor_ap_id = ?
-    `).bind(new Date().toISOString(), community.ap_id, body.actor_ap_id).run();
+    await prisma.communityJoinRequest.update({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: body.actor_ap_id,
+        },
+      },
+      data: {
+        status: 'accepted',
+        processedAt: new Date().toISOString(),
+      },
+    });
 
     return c.json({ success: true });
   });
@@ -118,6 +162,7 @@ export function registerMembershipRequestRoutes(communities: Hono<{ Bindings: En
     if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
     const identifier = c.req.param('identifier');
+    const prisma = c.get('prisma');
     const body = await c.req.json<{ actor_ap_id: string }>();
 
     if (!body.actor_ap_id) {
@@ -129,28 +174,43 @@ export function registerMembershipRequestRoutes(communities: Hono<{ Bindings: En
       return c.json({ error: 'Community not found' }, 404);
     }
 
-    const member = await c.env.DB.prepare(
-      'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRow>();
+    const member = await prisma.communityMember.findUnique({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: actor.ap_id,
+        },
+      },
+    });
 
     if (!member || !managerRoles.has(member.role)) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const request = await c.env.DB.prepare(`
-      SELECT * FROM community_join_requests
-      WHERE community_ap_id = ? AND actor_ap_id = ? AND status = 'pending'
-    `).bind(community.ap_id, body.actor_ap_id).first<JoinRequestRow>();
+    const request = await prisma.communityJoinRequest.findFirst({
+      where: {
+        communityApId: community.apId,
+        actorApId: body.actor_ap_id,
+        status: 'pending',
+      },
+    });
 
     if (!request) {
       return c.json({ error: 'Join request not found' }, 404);
     }
 
-    await c.env.DB.prepare(`
-      UPDATE community_join_requests
-      SET status = 'rejected', processed_at = ?
-      WHERE community_ap_id = ? AND actor_ap_id = ?
-    `).bind(new Date().toISOString(), community.ap_id, body.actor_ap_id).run();
+    await prisma.communityJoinRequest.update({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: body.actor_ap_id,
+        },
+      },
+      data: {
+        status: 'rejected',
+        processedAt: new Date().toISOString(),
+      },
+    });
 
     return c.json({ success: true });
   });

@@ -1,6 +1,7 @@
 // Types for Yurucommu backend
 
 import type { TakosClient } from './lib/takos-client';
+import type { PrismaClient } from '../generated/prisma';
 
 /**
  * Environment Variables (common across all runtimes)
@@ -26,17 +27,22 @@ export interface EnvVars {
  * Uses Cloudflare Workers API (DB, MEDIA, KV, ASSETS).
  * For non-Cloudflare runtimes (Node.js, Bun, Deno), the compatibility layers
  * in runtime/compat*.ts provide implementations that are cast to these types.
+ *
+ * PRISMA: Optional pre-created Prisma client for non-Cloudflare runtimes.
+ * If provided, the middleware will use this instead of creating a new one with D1 adapter.
  */
 export type Env = {
   DB: D1Database;
   MEDIA: R2Bucket;
   KV: KVNamespace;
   ASSETS: Fetcher;
+  PRISMA?: PrismaClient;
 } & EnvVars;
 
 export type Variables = {
   actor: Actor | null;
   takosClient: TakosClient | null;
+  prisma: PrismaClient;
 };
 
 // Local actor (Person)

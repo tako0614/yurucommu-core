@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
+import type { PrismaClient } from '../../generated/prisma';
 import { generateId } from '../utils';
 
 const media = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -90,36 +91,31 @@ media.post('/upload', async (c) => {
   }
 });
 
-// Helper types for media authorization
-type ObjectRow = {
-  ap_id: string;
-  attributed_to: string;
-  visibility: string;
-  to_json?: string | null;
-};
-
-type FollowRow = {
-  follower_ap_id: string;
-};
-
 // Check if user can access media based on associated object visibility
 async function checkMediaAuthorization(
-  db: D1Database,
+  prisma: PrismaClient,
   mediaUrl: string,
   currentActorApId: string | null
 ): Promise<{ allowed: boolean; reason?: string }> {
   // Find object(s) that reference this media URL
-  // Search in attachments_json which contains URLs like /media/{id}.{ext}
-  const objects = await db.prepare(`
-    SELECT ap_id, attributed_to, visibility, to_json
-    FROM objects
-    WHERE attachments_json LIKE ?
-    LIMIT 1
-  `).bind(`%${mediaUrl}%`).all<ObjectRow>();
+  // Search in attachmentsJson which contains URLs like /media/{id}.{ext}
+  const obj = await prisma.object.findFirst({
+    where: {
+      attachmentsJson: {
+        contains: mediaUrl,
+      },
+    },
+    select: {
+      apId: true,
+      attributedTo: true,
+      visibility: true,
+      toJson: true,
+    },
+  });
 
   // If media is not attached to any object, it may be orphaned or newly uploaded
   // For security, require authentication for unattached media
-  if (!objects.results || objects.results.length === 0) {
+  if (!obj) {
     // Media not attached to any object - require authentication as a precaution
     // This handles newly uploaded media that hasn't been attached to a post yet
     if (!currentActorApId) {
@@ -127,8 +123,6 @@ async function checkMediaAuthorization(
     }
     return { allowed: true };
   }
-
-  const obj = objects.results[0];
 
   // Public visibility - allow all
   if (obj.visibility === 'public' || obj.visibility === 'unlisted') {
@@ -141,16 +135,21 @@ async function checkMediaAuthorization(
   }
 
   // Author can always access their own media
-  if (obj.attributed_to === currentActorApId) {
+  if (obj.attributedTo === currentActorApId) {
     return { allowed: true };
   }
 
   // Followers-only visibility
   if (obj.visibility === 'followers') {
-    const follow = await db.prepare(`
-      SELECT follower_ap_id FROM follows
-      WHERE follower_ap_id = ? AND following_ap_id = ? AND status = 'accepted'
-    `).bind(currentActorApId, obj.attributed_to).first<FollowRow>();
+    const follow = await prisma.follow.findUnique({
+      where: {
+        followerApId_followingApId: {
+          followerApId: currentActorApId,
+          followingApId: obj.attributedTo,
+        },
+        status: 'accepted',
+      },
+    });
 
     if (follow) {
       return { allowed: true };
@@ -161,7 +160,7 @@ async function checkMediaAuthorization(
   // Direct messages - check if user is in recipients
   if (obj.visibility === 'direct') {
     try {
-      const recipients: string[] = JSON.parse(obj.to_json || '[]');
+      const recipients: string[] = JSON.parse(obj.toJson || '[]');
       if (recipients.includes(currentActorApId)) {
         return { allowed: true };
       }
@@ -192,9 +191,10 @@ media.get('/:id', async (c) => {
 
     // Authorization check
     const actor = c.get('actor');
+    const prisma = c.get('prisma');
     const mediaUrl = `/media/${id}`;
     const authResult = await checkMediaAuthorization(
-      c.env.DB,
+      prisma,
       mediaUrl,
       actor?.ap_id || null
     );

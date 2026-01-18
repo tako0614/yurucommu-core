@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import type { Env, Variables, Actor } from '../../types';
+import type { Env, Variables } from '../../types';
 import { activityApId, actorApId, generateId, isLocal, isSafeRemoteUrl } from '../../utils';
 import { getInstanceActor } from './utils';
 import type { Activity, RemoteActor } from './inbox-types';
@@ -59,16 +59,19 @@ async function fetchActorPublicKey(
     return null;
   }
 
+  const prisma = c.get('prisma');
+
   // Extract actor URL from keyId (usually format: "https://example.com/users/name#main-key")
   const actorUrl = keyId.includes('#') ? keyId.split('#')[0] : keyId;
 
   // Check cache first
-  const cached = await c.env.DB.prepare(
-    'SELECT public_key_pem FROM actor_cache WHERE ap_id = ?'
-  ).bind(actorUrl).first<{ public_key_pem: string }>();
+  const cached = await prisma.actorCache.findUnique({
+    where: { apId: actorUrl },
+    select: { publicKeyPem: true },
+  });
 
-  if (cached?.public_key_pem) {
-    return cached.public_key_pem;
+  if (cached?.publicKeyPem) {
+    return cached.publicKeyPem;
   }
 
   // Fetch actor document
@@ -90,20 +93,30 @@ async function fetchActorPublicKey(
 
     // Cache the actor for future requests
     if (actorData.id && actorData.inbox && isSafeRemoteUrl(actorData.id) && isSafeRemoteUrl(actorData.inbox)) {
-      await c.env.DB.prepare(`
-        INSERT OR REPLACE INTO actor_cache (ap_id, type, preferred_username, name, summary, icon_url, inbox, public_key_pem, raw_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(
-        actorData.id,
-        actorData.type,
-        actorData.preferredUsername,
-        actorData.name,
-        actorData.summary,
-        actorData.icon?.url,
-        actorData.inbox,
-        actorData.publicKey.publicKeyPem,
-        JSON.stringify(actorData)
-      ).run();
+      await prisma.actorCache.upsert({
+        where: { apId: actorData.id },
+        update: {
+          type: actorData.type || 'Person',
+          preferredUsername: actorData.preferredUsername,
+          name: actorData.name,
+          summary: actorData.summary,
+          iconUrl: actorData.icon?.url,
+          inbox: actorData.inbox,
+          publicKeyPem: actorData.publicKey.publicKeyPem,
+          rawJson: JSON.stringify(actorData),
+        },
+        create: {
+          apId: actorData.id,
+          type: actorData.type || 'Person',
+          preferredUsername: actorData.preferredUsername,
+          name: actorData.name,
+          summary: actorData.summary,
+          iconUrl: actorData.icon?.url,
+          inbox: actorData.inbox,
+          publicKeyPem: actorData.publicKey.publicKeyPem,
+          rawJson: JSON.stringify(actorData),
+        },
+      });
     }
 
     return actorData.publicKey.publicKeyPem;
@@ -209,6 +222,7 @@ async function verifyHttpSignature(
 const ap = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 ap.post('/ap/actor/inbox', async (c) => {
+  const prisma = c.get('prisma');
   const instanceActor = await getInstanceActor(c);
   const baseUrl = c.env.APP_URL;
 
@@ -248,10 +262,16 @@ ap.post('/ap/actor/inbox', async (c) => {
     return c.json({ error: 'Actor mismatch' }, 401);
   }
 
-  await c.env.DB.prepare(`
-    INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-    VALUES (?, ?, ?, ?, ?, 'inbound')
-  `).bind(activityId, activityType, actor, activityObjectId, JSON.stringify(activity)).run();
+  await prisma.activity.create({
+    data: {
+      apId: activityId,
+      type: activityType,
+      actorApId: actor,
+      objectApId: activityObjectId,
+      rawJson: JSON.stringify(activity),
+      direction: 'inbound',
+    },
+  });
 
   switch (activityType) {
     case 'Follow':
@@ -274,14 +294,15 @@ ap.post('/ap/actor/inbox', async (c) => {
 // ============================================================
 
 ap.post('/ap/users/:username/inbox', async (c) => {
+  const prisma = c.get('prisma');
   const username = c.req.param('username');
   const baseUrl = c.env.APP_URL;
   const apId = actorApId(baseUrl, username);
 
   // Get the recipient actor
-  const recipient = await c.env.DB.prepare(
-    'SELECT ap_id, private_key_pem FROM actors WHERE ap_id = ?'
-  ).bind(apId).first<Actor>();
+  const recipient = await prisma.actor.findUnique({
+    where: { apId },
+  });
 
   if (!recipient) return c.json({ error: 'Actor not found' }, 404);
 
@@ -322,14 +343,23 @@ ap.post('/ap/users/:username/inbox', async (c) => {
   }
 
   // Store activity
-  await c.env.DB.prepare(`
-    INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-    VALUES (?, ?, ?, ?, ?, 'inbound')
-  `).bind(activityId, activityType, actor, activityObjectId, JSON.stringify(activity)).run();
+  await prisma.activity.create({
+    data: {
+      apId: activityId,
+      type: activityType,
+      actorApId: actor,
+      objectApId: activityObjectId,
+      rawJson: JSON.stringify(activity),
+      direction: 'inbound',
+    },
+  });
 
   // Cache remote actor if not already cached
   if (!isLocal(actor, baseUrl)) {
-    const cached = await c.env.DB.prepare('SELECT ap_id FROM actor_cache WHERE ap_id = ?').bind(actor).first();
+    const cached = await prisma.actorCache.findUnique({
+      where: { apId: actor },
+      select: { apId: true },
+    });
     if (!cached) {
       try {
         if (!isSafeRemoteUrl(actor)) {
@@ -346,20 +376,19 @@ ap.post('/ap/users/:username/inbox', async (c) => {
               isSafeRemoteUrl(actorData.id) &&
               isSafeRemoteUrl(actorData.inbox)
             ) {
-              await c.env.DB.prepare(`
-                INSERT INTO actor_cache (ap_id, type, preferred_username, name, summary, icon_url, inbox, public_key_pem, raw_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-              `).bind(
-                actorData.id,
-                actorData.type,
-                actorData.preferredUsername,
-                actorData.name,
-                actorData.summary,
-                actorData.icon?.url,
-                actorData.inbox,
-                actorData.publicKey?.publicKeyPem,
-                JSON.stringify(actorData)
-              ).run();
+              await prisma.actorCache.create({
+                data: {
+                  apId: actorData.id,
+                  type: actorData.type || 'Person',
+                  preferredUsername: actorData.preferredUsername,
+                  name: actorData.name,
+                  summary: actorData.summary,
+                  iconUrl: actorData.icon?.url,
+                  inbox: actorData.inbox,
+                  publicKeyPem: actorData.publicKey?.publicKeyPem,
+                  rawJson: JSON.stringify(actorData),
+                },
+              });
             }
           }
         }

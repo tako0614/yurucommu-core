@@ -6,40 +6,6 @@ const search = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const HOSTNAME_PATTERN = /^[a-z0-9.-]+$/i;
 
-/**
- * Escape special characters in LIKE patterns to prevent SQL injection
- * Characters: % (any chars), _ (single char), \ (escape char)
- */
-function escapeLikePattern(str: string): string {
-  return str.replace(/[%_\\]/g, '\\$&');
-}
-
-type ActorSearchRow = {
-  ap_id: string;
-  preferred_username: string;
-  name: string | null;
-  icon_url: string | null;
-  summary: string | null;
-  follower_count: number;
-  created_at: string;
-};
-
-type SearchPostRow = {
-  ap_id: string;
-  attributed_to: string;
-  content: string;
-  published: string;
-  like_count: number;
-  author_username: string | null;
-  author_name: string | null;
-  author_icon_url: string | null;
-  liked: number;
-};
-
-type HashtagContentRow = {
-  content: string | null;
-};
-
 type WebFingerLink = {
   rel?: string;
   type?: string;
@@ -142,48 +108,77 @@ search.get('/actors', async (c) => {
   const sort = c.req.query('sort') || 'relevance';
   if (!query) return c.json({ actors: [] });
 
-  let orderBy = 'preferred_username ASC';
+  const prisma = c.get('prisma');
+  const lowerQuery = query.toLowerCase();
+
+  // Build orderBy based on sort parameter
+  let orderBy: { followerCount?: 'desc'; createdAt?: 'desc'; preferredUsername?: 'asc' };
   switch (sort) {
     case 'followers':
-      orderBy = 'follower_count DESC, preferred_username ASC';
+      orderBy = { followerCount: 'desc' };
       break;
     case 'recent':
-      orderBy = 'created_at DESC';
+      orderBy = { createdAt: 'desc' };
       break;
     case 'relevance':
     default:
-      // Relevance: exact match first, then prefix match, then contains
-      orderBy = `
-        CASE
-          WHEN LOWER(preferred_username) = LOWER(?) THEN 0
-          WHEN LOWER(preferred_username) LIKE LOWER(?) ESCAPE '\\' THEN 1
-          ELSE 2
-        END,
-        follower_count DESC
-      `.replace(/\s+/g, ' ');
+      // For relevance, we'll fetch and sort in memory
+      orderBy = { followerCount: 'desc' };
       break;
   }
 
-  const escapedQuery = escapeLikePattern(query);
-  const actors = sort === 'relevance'
-    ? await c.env.DB.prepare(`
-        SELECT ap_id, preferred_username, name, icon_url, summary, follower_count, created_at
-        FROM actors
-        WHERE preferred_username LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\'
-        ORDER BY ${orderBy}
-        LIMIT 20
-      `).bind(query, `${escapedQuery}%`, `%${escapedQuery}%`, `%${escapedQuery}%`).all<ActorSearchRow>()
-    : await c.env.DB.prepare(`
-        SELECT ap_id, preferred_username, name, icon_url, summary, follower_count, created_at
-        FROM actors
-        WHERE preferred_username LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\'
-        ORDER BY ${orderBy}
-        LIMIT 20
-      `).bind(`%${escapedQuery}%`, `%${escapedQuery}%`).all<ActorSearchRow>();
+  // Fetch actors that match the query
+  const actors = await prisma.actor.findMany({
+    where: {
+      OR: [
+        { preferredUsername: { contains: query } },
+        { name: { contains: query } },
+      ],
+    },
+    select: {
+      apId: true,
+      preferredUsername: true,
+      name: true,
+      iconUrl: true,
+      summary: true,
+      followerCount: true,
+      createdAt: true,
+    },
+    orderBy,
+    take: 20,
+  });
 
-  const result = (actors.results || []).map((a: ActorSearchRow) => ({
-    ...a,
-    username: formatUsername(a.ap_id),
+  // For relevance sorting, sort in memory
+  let sortedActors = actors;
+  if (sort === 'relevance') {
+    sortedActors = actors.sort((a, b) => {
+      const aUsername = a.preferredUsername.toLowerCase();
+      const bUsername = b.preferredUsername.toLowerCase();
+
+      // Exact match first
+      const aExact = aUsername === lowerQuery ? 0 : 1;
+      const bExact = bUsername === lowerQuery ? 0 : 1;
+      if (aExact !== bExact) return aExact - bExact;
+
+      // Prefix match second
+      const aPrefix = aUsername.startsWith(lowerQuery) ? 0 : 1;
+      const bPrefix = bUsername.startsWith(lowerQuery) ? 0 : 1;
+      if (aPrefix !== bPrefix) return aPrefix - bPrefix;
+
+      // Then by follower count
+      return b.followerCount - a.followerCount;
+    });
+  }
+
+  const result = sortedActors.map((a) => ({
+    ap_id: a.apId,
+    preferred_username: a.preferredUsername,
+    name: a.name,
+    icon_url: a.iconUrl,
+    summary: a.summary,
+    follower_count: a.followerCount,
+    created_at: a.createdAt,
+    username: formatUsername(a.apId),
   }));
 
   return c.json({ actors: result });
@@ -199,47 +194,82 @@ search.get('/posts', async (c) => {
   const sort = c.req.query('sort') || 'recent';
   if (!query) return c.json({ posts: [] });
 
-  let orderBy = 'o.published DESC';
+  const prisma = c.get('prisma');
+
+  // Build orderBy based on sort parameter
+  let orderBy: { likeCount?: 'desc'; published?: 'desc' }[];
   switch (sort) {
     case 'popular':
-      orderBy = 'o.like_count DESC, o.published DESC';
+      orderBy = [{ likeCount: 'desc' }, { published: 'desc' }];
       break;
     case 'recent':
     default:
-      orderBy = 'o.published DESC';
+      orderBy = [{ published: 'desc' }];
       break;
   }
 
-  const escapedQuery = escapeLikePattern(query);
-  const posts = await c.env.DB.prepare(`
-    SELECT o.*,
-           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
-           COALESCE(a.name, ac.name) as author_name,
-           COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
-           EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked
-    FROM objects o
-    LEFT JOIN actors a ON o.attributed_to = a.ap_id
-    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    WHERE o.content LIKE ? ESCAPE '\\' AND o.visibility = 'public'
-      AND (o.audience_json IS NULL OR o.audience_json = '[]')
-    ORDER BY ${orderBy}
-    LIMIT 50
-  `).bind(actor?.ap_id || '', `%${escapedQuery}%`).all<SearchPostRow>();
-
-  const result = (posts.results || []).map((p: SearchPostRow) => ({
-    ap_id: p.ap_id,
-    author: {
-      ap_id: p.attributed_to,
-      username: formatUsername(p.attributed_to),
-      preferred_username: p.author_username,
-      name: p.author_name,
-      icon_url: p.author_icon_url,
+  // Fetch posts that match the query
+  const posts = await prisma.object.findMany({
+    where: {
+      content: { contains: query },
+      visibility: 'public',
+      OR: [
+        { audienceJson: { equals: '[]' } },
+      ],
     },
-    content: p.content,
-    published: p.published,
-    like_count: p.like_count,
-    liked: !!p.liked,
-  }));
+    orderBy,
+    take: 50,
+  });
+
+  // Fetch author info and like status for each post
+  const result = await Promise.all(
+    posts.map(async (p) => {
+      // Try local actor first
+      const localAuthor = await prisma.actor.findUnique({
+        where: { apId: p.attributedTo },
+        select: { preferredUsername: true, name: true, iconUrl: true },
+      });
+
+      // Try cached actor if not local
+      const cachedAuthor = localAuthor
+        ? null
+        : await prisma.actorCache.findUnique({
+            where: { apId: p.attributedTo },
+            select: { preferredUsername: true, name: true, iconUrl: true },
+          });
+
+      const author = localAuthor || cachedAuthor;
+
+      // Check if current user has liked this post
+      let liked = false;
+      if (actor?.ap_id) {
+        const likeExists = await prisma.like.findUnique({
+          where: {
+            actorApId_objectApId: {
+              actorApId: actor.ap_id,
+              objectApId: p.apId,
+            },
+          },
+        });
+        liked = !!likeExists;
+      }
+
+      return {
+        ap_id: p.apId,
+        author: {
+          ap_id: p.attributedTo,
+          username: formatUsername(p.attributedTo),
+          preferred_username: author?.preferredUsername || null,
+          name: author?.name || null,
+          icon_url: author?.iconUrl || null,
+        },
+        content: p.content,
+        published: p.published,
+        like_count: p.likeCount,
+        liked,
+      };
+    })
+  );
 
   return c.json({ posts: result });
 });
@@ -264,49 +294,64 @@ search.get('/remote', async (c) => {
   try {
     // WebFinger lookup
     const webfingerUrl = `https://${safeDomain}/.well-known/webfinger?resource=acct:${username}@${safeDomain}`;
-    const wfRes = await fetch(webfingerUrl, { headers: { 'Accept': 'application/jrd+json' } });
+    const wfRes = await fetch(webfingerUrl, { headers: { Accept: 'application/jrd+json' } });
     if (!wfRes.ok) return c.json({ actors: [] });
 
-    const wfData = await wfRes.json() as WebFingerResponse;
+    const wfData = (await wfRes.json()) as WebFingerResponse;
     const actorLink = wfData.links?.find((l) => l.rel === 'self' && l.type === 'application/activity+json');
     if (!actorLink?.href) return c.json({ actors: [] });
     if (!isSafeRemoteUrl(actorLink.href)) return c.json({ actors: [] });
 
     // Fetch actor
     const actorRes = await fetch(actorLink.href, {
-      headers: { 'Accept': 'application/activity+json, application/ld+json' }
+      headers: { Accept: 'application/activity+json, application/ld+json' },
     });
     if (!actorRes.ok) return c.json({ actors: [] });
 
-    const actorData = await actorRes.json() as RemoteActor;
+    const actorData = (await actorRes.json()) as RemoteActor;
 
-    // Cache the actor
-    await c.env.DB.prepare(`
-      INSERT OR REPLACE INTO actor_cache (ap_id, type, preferred_username, name, summary, icon_url, inbox, outbox, public_key_id, public_key_pem, raw_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      actorData.id,
-      actorData.type,
-      actorData.preferredUsername,
-      actorData.name,
-      actorData.summary,
-      actorData.icon?.url,
-      actorData.inbox,
-      actorData.outbox,
-      actorData.publicKey?.id,
-      actorData.publicKey?.publicKeyPem,
-      JSON.stringify(actorData)
-    ).run();
+    // Cache the actor using Prisma upsert
+    const prisma = c.get('prisma');
+    await prisma.actorCache.upsert({
+      where: { apId: actorData.id },
+      create: {
+        apId: actorData.id,
+        type: actorData.type || 'Person',
+        preferredUsername: actorData.preferredUsername || null,
+        name: actorData.name || null,
+        summary: actorData.summary || null,
+        iconUrl: actorData.icon?.url || null,
+        inbox: actorData.inbox || '',
+        outbox: actorData.outbox || null,
+        publicKeyId: actorData.publicKey?.id || null,
+        publicKeyPem: actorData.publicKey?.publicKeyPem || null,
+        rawJson: JSON.stringify(actorData),
+      },
+      update: {
+        type: actorData.type || 'Person',
+        preferredUsername: actorData.preferredUsername || null,
+        name: actorData.name || null,
+        summary: actorData.summary || null,
+        iconUrl: actorData.icon?.url || null,
+        inbox: actorData.inbox || '',
+        outbox: actorData.outbox || null,
+        publicKeyId: actorData.publicKey?.id || null,
+        publicKeyPem: actorData.publicKey?.publicKeyPem || null,
+        rawJson: JSON.stringify(actorData),
+      },
+    });
 
     return c.json({
-      actors: [{
-        ap_id: actorData.id,
-        username: `${actorData.preferredUsername}@${safeDomain}`,
-        preferred_username: actorData.preferredUsername,
-        name: actorData.name,
-        summary: actorData.summary,
-        icon_url: actorData.icon?.url,
-      }]
+      actors: [
+        {
+          ap_id: actorData.id,
+          username: `${actorData.preferredUsername}@${safeDomain}`,
+          preferred_username: actorData.preferredUsername,
+          name: actorData.name,
+          summary: actorData.summary,
+          icon_url: actorData.icon?.url,
+        },
+      ],
     });
   } catch (e) {
     console.error('Remote search failed:', e);
@@ -327,61 +372,96 @@ search.get('/hashtag/:tag', async (c) => {
 
   if (!tag) return c.json({ posts: [], total: 0 });
 
-  let orderBy = 'o.published DESC';
+  const prisma = c.get('prisma');
+  const hashtagPattern = `#${tag}`;
+
+  // Build orderBy based on sort parameter
+  let orderBy: { likeCount?: 'desc'; published?: 'desc' }[];
   switch (sort) {
     case 'popular':
-      orderBy = 'o.like_count DESC, o.published DESC';
+      orderBy = [{ likeCount: 'desc' }, { published: 'desc' }];
       break;
     case 'recent':
     default:
-      orderBy = 'o.published DESC';
+      orderBy = [{ published: 'desc' }];
       break;
   }
 
-  // Search for #tag in content (case-insensitive)
-  const escapedTag = escapeLikePattern(tag);
-  const hashtagPattern = `#${escapedTag}`;
-
-  const countResult = await c.env.DB.prepare(`
-    SELECT COUNT(*) as total FROM objects o
-    WHERE o.content LIKE ? ESCAPE '\\' AND o.visibility = 'public'
-  `).bind(`%${hashtagPattern}%`).first<{ total: number }>();
-
-  const posts = await c.env.DB.prepare(`
-    SELECT o.*,
-           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
-           COALESCE(a.name, ac.name) as author_name,
-           COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
-           EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked
-    FROM objects o
-    LEFT JOIN actors a ON o.attributed_to = a.ap_id
-    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    WHERE o.content LIKE ? ESCAPE '\\' AND o.visibility = 'public'
-    ORDER BY ${orderBy}
-    LIMIT ? OFFSET ?
-  `).bind(actor?.ap_id || '', `%${hashtagPattern}%`, limit, offset).all<SearchPostRow>();
-
-  const result = (posts.results || []).map((p: SearchPostRow) => ({
-    ap_id: p.ap_id,
-    author: {
-      ap_id: p.attributed_to,
-      username: formatUsername(p.attributed_to),
-      preferred_username: p.author_username,
-      name: p.author_name,
-      icon_url: p.author_icon_url,
+  // Count total matching posts
+  const total = await prisma.object.count({
+    where: {
+      content: { contains: hashtagPattern },
+      visibility: 'public',
     },
-    content: p.content,
-    published: p.published,
-    like_count: p.like_count,
-    liked: !!p.liked,
-  }));
+  });
+
+  // Fetch posts that contain the hashtag
+  const posts = await prisma.object.findMany({
+    where: {
+      content: { contains: hashtagPattern },
+      visibility: 'public',
+    },
+    orderBy,
+    skip: offset,
+    take: limit,
+  });
+
+  // Fetch author info and like status for each post
+  const result = await Promise.all(
+    posts.map(async (p) => {
+      // Try local actor first
+      const localAuthor = await prisma.actor.findUnique({
+        where: { apId: p.attributedTo },
+        select: { preferredUsername: true, name: true, iconUrl: true },
+      });
+
+      // Try cached actor if not local
+      const cachedAuthor = localAuthor
+        ? null
+        : await prisma.actorCache.findUnique({
+            where: { apId: p.attributedTo },
+            select: { preferredUsername: true, name: true, iconUrl: true },
+          });
+
+      const author = localAuthor || cachedAuthor;
+
+      // Check if current user has liked this post
+      let liked = false;
+      if (actor?.ap_id) {
+        const likeExists = await prisma.like.findUnique({
+          where: {
+            actorApId_objectApId: {
+              actorApId: actor.ap_id,
+              objectApId: p.apId,
+            },
+          },
+        });
+        liked = !!likeExists;
+      }
+
+      return {
+        ap_id: p.apId,
+        author: {
+          ap_id: p.attributedTo,
+          username: formatUsername(p.attributedTo),
+          preferred_username: author?.preferredUsername || null,
+          name: author?.name || null,
+          icon_url: author?.iconUrl || null,
+        },
+        content: p.content,
+        published: p.published,
+        like_count: p.likeCount,
+        liked,
+      };
+    })
+  );
 
   return c.json({
     posts: result,
-    total: countResult?.total || 0,
+    total,
     limit,
     offset,
-    has_more: offset + result.length < (countResult?.total || 0),
+    has_more: offset + result.length < total,
   });
 });
 
@@ -395,25 +475,29 @@ search.get('/hashtags/trending', async (c) => {
 
   const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-  // Extract hashtags from recent public posts and count them
-  // This is a simple approach - for large scale, a separate hashtag table would be better
-  const posts = await c.env.DB.prepare(`
-    SELECT content FROM objects
-    WHERE visibility = 'public' AND published > ?
-    ORDER BY published DESC
-    LIMIT 1000
-  `).bind(sinceDate).all();
+  const prisma = c.get('prisma');
+
+  // Fetch recent public posts
+  const posts = await prisma.object.findMany({
+    where: {
+      visibility: 'public',
+      published: { gt: sinceDate },
+    },
+    select: { content: true },
+    orderBy: { published: 'desc' },
+    take: 1000,
+  });
 
   // Extract and count hashtags
   const hashtagCounts: Record<string, number> = {};
   const hashtagRegex = /#([a-zA-Z0-9_\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]+)/g;
 
-  for (const post of (posts.results || []) as HashtagContentRow[]) {
+  for (const post of posts) {
     const content = post.content || '';
     let match;
     while ((match = hashtagRegex.exec(content)) !== null) {
-      const tag = match[1].toLowerCase();
-      hashtagCounts[tag] = (hashtagCounts[tag] || 0) + 1;
+      const tagName = match[1].toLowerCase();
+      hashtagCounts[tagName] = (hashtagCounts[tagName] || 0) + 1;
     }
   }
 
@@ -421,7 +505,7 @@ search.get('/hashtags/trending', async (c) => {
   const trending = Object.entries(hashtagCounts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
-    .map(([tag, count]) => ({ tag, count }));
+    .map(([tagName, count]) => ({ tag: tagName, count }));
 
   return c.json({ trending });
 });
