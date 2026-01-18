@@ -6,12 +6,21 @@
   "scripts": {
     "dev": "wrangler dev",
     "dev:frontend": "vite --config src/frontend/vite.config.ts",
+    "dev:node": "tsx watch src/backend/server.ts",
+    "dev:bun": "bun run src/backend/server-bun.ts",
+    "dev:deno": "deno run --allow-net --allow-read --allow-write --allow-env src/backend/server-deno.ts",
+    "start:node": "tsx src/backend/server.ts",
+    "start:bun": "bun run src/backend/server-bun.ts",
+    "start:deno": "deno run --allow-net --allow-read --allow-write --allow-env src/backend/server-deno.ts",
+    "start:workerd": "wrangler dev --local",
     "build": "vite build --config src/frontend/vite.config.ts",
-    "deploy": "vite build --config src/frontend/vite.config.ts && wrangler deploy"
+    "deploy": "vite build --config src/frontend/vite.config.ts && wrangler deploy",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
+    "@hono/node-server": "^1.13.0",
     "hono": "^4.6.0",
     "html5-qrcode": "^2.3.8",
     "qrcode.react": "^4.2.0",
@@ -19,13 +28,19 @@
     "react-dom": "^18.3.0",
     "react-router-dom": "^7.12.0"
   },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.0.0"
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241127.0",
     "@tailwindcss/vite": "^4.1.18",
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.0.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
     "tailwindcss": "^4.1.18",
+    "tsx": "^4.0.0",
     "typescript": "^5.7.0",
     "vite": "^6.0.0",
     "wrangler": "^3.95.0"

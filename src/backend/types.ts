@@ -2,33 +2,37 @@
 
 import type { TakosClient } from './lib/takos-client';
 
+/**
+ * Environment Variables (common across all runtimes)
+ */
+export interface EnvVars {
+  APP_URL: string;
+
+  // 認証設定（自由に組み合わせ可能）
+  AUTH_PASSWORD?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  X_CLIENT_ID?: string;
+  X_CLIENT_SECRET?: string;
+  TAKOS_URL?: string;
+  TAKOS_CLIENT_ID?: string;
+  TAKOS_CLIENT_SECRET?: string;
+  AUTH_MODE?: string;
+}
+
+/**
+ * Application Environment
+ *
+ * Uses Cloudflare Workers API (DB, MEDIA, KV, ASSETS).
+ * For non-Cloudflare runtimes (Node.js, Bun, Deno), the compatibility layers
+ * in runtime/compat*.ts provide implementations that are cast to these types.
+ */
 export type Env = {
   DB: D1Database;
   MEDIA: R2Bucket;
   KV: KVNamespace;
   ASSETS: Fetcher;
-  APP_URL: string;
-
-  // 認証設定（自由に組み合わせ可能）
-  // パスワード認証
-  AUTH_PASSWORD?: string;
-
-  // Google OAuth
-  GOOGLE_CLIENT_ID?: string;
-  GOOGLE_CLIENT_SECRET?: string;
-
-  // X (Twitter) OAuth
-  X_CLIENT_ID?: string;
-  X_CLIENT_SECRET?: string;
-
-  // Takos OAuth
-  TAKOS_URL?: string;
-  TAKOS_CLIENT_ID?: string;
-  TAKOS_CLIENT_SECRET?: string;
-
-  // 非推奨（後方互換性）
-  AUTH_MODE?: string;
-};
+} & EnvVars;
 
 export type Variables = {
   actor: Actor | null;
