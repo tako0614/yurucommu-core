@@ -1,5 +1,5 @@
-﻿import { Hono } from 'hono';
-import type { Env, Variables, Actor } from '../types';
+import { Hono } from 'hono';
+import type { Env, Variables } from '../types';
 import { actorApId, getDomain } from '../utils';
 import { INSTANCE_ACTOR_USERNAME, MAX_ROOM_STREAM_LIMIT, getInstanceActor, parseLimit, roomApId } from './activitypub/utils';
 import inboxRoutes from './activitypub/inbox';
@@ -7,33 +7,11 @@ import outboxRoutes from './activitypub/outbox';
 
 const ap = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-type ActorIdRow = {
-  ap_id: string;
-  preferred_username: string;
-};
-
-type RoomRow = {
-  preferred_username: string;
-  name: string;
-  summary: string | null;
-};
-
-type CommunityRow = {
-  ap_id: string;
-  preferred_username: string;
-};
-
-type RoomStreamRow = {
-  ap_id: string;
-  attributed_to: string;
-  content: string;
-  published: string;
-};
-
 // WebFinger - Actor Discovery
 // ============================================================
 
 ap.get('/.well-known/webfinger', async (c) => {
+  const prisma = c.get('prisma');
   const resource = c.req.query('resource');
   if (!resource) return c.json({ error: 'resource parameter required' }, 400);
 
@@ -75,12 +53,12 @@ ap.get('/.well-known/webfinger', async (c) => {
     const instanceActor = await getInstanceActor(c);
     return c.json({
       subject: `acct:${INSTANCE_ACTOR_USERNAME}@${domain}`,
-      aliases: [instanceActor.ap_id],
+      aliases: [instanceActor.apId],
       links: [
         {
           rel: 'self',
           type: 'application/activity+json',
-          href: instanceActor.ap_id,
+          href: instanceActor.apId,
         },
         {
           rel: 'http://webfinger.net/rel/profile-page',
@@ -92,20 +70,21 @@ ap.get('/.well-known/webfinger', async (c) => {
   }
 
   // Look up actor
-  const actor = await c.env.DB.prepare(
-    'SELECT ap_id, preferred_username FROM actors WHERE preferred_username = ?'
-  ).bind(username).first<ActorIdRow>();
+  const actor = await prisma.actor.findUnique({
+    where: { preferredUsername: username },
+    select: { apId: true, preferredUsername: true },
+  });
 
   if (!actor) return c.json({ error: 'Actor not found' }, 404);
 
   return c.json({
     subject: `acct:${username}@${domain}`,
-    aliases: [actor.ap_id],
+    aliases: [actor.apId],
     links: [
       {
         rel: 'self',
         type: 'application/activity+json',
-        href: actor.ap_id,
+        href: actor.apId,
       },
       {
         rel: 'http://webfinger.net/rel/profile-page',
@@ -122,16 +101,33 @@ ap.get('/.well-known/webfinger', async (c) => {
 // ============================================================
 
 ap.get('/ap/users/:username', async (c) => {
+  const prisma = c.get('prisma');
   const username = c.req.param('username');
   const baseUrl = c.env.APP_URL;
   const apId = actorApId(baseUrl, username);
 
-  const actor = await c.env.DB.prepare(`
-    SELECT ap_id, type, preferred_username, name, summary, icon_url, header_url,
-           inbox, outbox, followers_url, following_url, public_key_pem,
-           follower_count, following_count, post_count, is_private, created_at
-    FROM actors WHERE ap_id = ?
-  `).bind(apId).first<Actor>();
+  const actor = await prisma.actor.findUnique({
+    where: { apId },
+    select: {
+      apId: true,
+      type: true,
+      preferredUsername: true,
+      name: true,
+      summary: true,
+      iconUrl: true,
+      headerUrl: true,
+      inbox: true,
+      outbox: true,
+      followersUrl: true,
+      followingUrl: true,
+      publicKeyPem: true,
+      followerCount: true,
+      followingCount: true,
+      postCount: true,
+      isPrivate: true,
+      createdAt: true,
+    },
+  });
 
   if (!actor) return c.json({ error: 'Actor not found' }, 404);
 
@@ -141,25 +137,25 @@ ap.get('/ap/users/:username', async (c) => {
       'https://www.w3.org/ns/activitystreams',
       'https://w3id.org/security/v1',
     ],
-    id: actor.ap_id,
+    id: actor.apId,
     type: actor.type,
-    preferredUsername: actor.preferred_username,
+    preferredUsername: actor.preferredUsername,
     name: actor.name,
     summary: actor.summary,
     url: `${baseUrl}/users/${username}`,
-    icon: actor.icon_url ? { type: 'Image', url: actor.icon_url } : undefined,
-    image: actor.header_url ? { type: 'Image', url: actor.header_url } : undefined,
+    icon: actor.iconUrl ? { type: 'Image', url: actor.iconUrl } : undefined,
+    image: actor.headerUrl ? { type: 'Image', url: actor.headerUrl } : undefined,
     inbox: actor.inbox,
     outbox: actor.outbox,
-    followers: actor.followers_url,
-    following: actor.following_url,
+    followers: actor.followersUrl,
+    following: actor.followingUrl,
     publicKey: {
-      id: `${actor.ap_id}#main-key`,
-      owner: actor.ap_id,
-      publicKeyPem: actor.public_key_pem,
+      id: `${actor.apId}#main-key`,
+      owner: actor.apId,
+      publicKeyPem: actor.publicKeyPem,
     },
-    discoverable: !actor.is_private,
-    published: actor.created_at,
+    discoverable: !actor.isPrivate,
+    published: actor.createdAt,
   };
 
   // Remove undefined fields
@@ -194,9 +190,9 @@ ap.get('/ap/actor', async (c) => {
         visibility: 'apc:visibility',
       },
     ],
-    id: instanceActor.ap_id,
+    id: instanceActor.apId,
     type: 'Group',
-    preferredUsername: instanceActor.preferred_username,
+    preferredUsername: instanceActor.preferredUsername,
     name: instanceActor.name || 'Yurucommu',
     summary: instanceActor.summary || '',
     inbox: `${baseUrl}/ap/actor/inbox`,
@@ -204,13 +200,13 @@ ap.get('/ap/actor', async (c) => {
     followers: `${baseUrl}/ap/actor/followers`,
     following: `${baseUrl}/ap/actor/following`,
     publicKey: {
-      id: `${instanceActor.ap_id}#main-key`,
-      owner: instanceActor.ap_id,
-      publicKeyPem: instanceActor.public_key_pem,
+      id: `${instanceActor.apId}#main-key`,
+      owner: instanceActor.apId,
+      publicKeyPem: instanceActor.publicKeyPem,
     },
     rooms: `${baseUrl}/ap/rooms`,
-    joinPolicy: instanceActor.join_policy || 'open',
-    postingPolicy: instanceActor.posting_policy || 'members',
+    joinPolicy: instanceActor.joinPolicy || 'open',
+    postingPolicy: instanceActor.postingPolicy || 'members',
     visibility: instanceActor.visibility || 'public',
   };
 
@@ -223,15 +219,20 @@ ap.get('/ap/actor', async (c) => {
 // ============================================================
 
 ap.get('/ap/rooms', async (c) => {
+  const prisma = c.get('prisma');
   const baseUrl = c.env.APP_URL;
-  const rooms = await c.env.DB.prepare(`
-    SELECT preferred_username, name, summary
-    FROM communities
-    ORDER BY created_at ASC
-  `).all<RoomRow>();
 
-  const items = (rooms.results || []).map((room) => ({
-    id: roomApId(baseUrl, room.preferred_username),
+  const rooms = await prisma.community.findMany({
+    select: {
+      preferredUsername: true,
+      name: true,
+      summary: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const items = rooms.map((room) => ({
+    id: roomApId(baseUrl, room.preferredUsername),
     type: 'Room',
     name: room.name,
     summary: room.summary || '',
@@ -247,69 +248,86 @@ ap.get('/ap/rooms', async (c) => {
 });
 
 ap.get('/ap/rooms/:roomId', async (c) => {
+  const prisma = c.get('prisma');
   const baseUrl = c.env.APP_URL;
   const roomId = c.req.param('roomId');
 
-  const room = await c.env.DB.prepare(`
-    SELECT preferred_username, name, summary
-    FROM communities
-    WHERE preferred_username = ? OR ap_id = ?
-  `).bind(roomId, roomId).first<RoomRow>();
+  const room = await prisma.community.findFirst({
+    where: {
+      OR: [
+        { preferredUsername: roomId },
+        { apId: roomId },
+      ],
+    },
+    select: {
+      preferredUsername: true,
+      name: true,
+      summary: true,
+    },
+  });
 
   if (!room) return c.json({ error: 'Room not found' }, 404);
 
   return c.json({
     '@context': 'https://www.w3.org/ns/activitystreams',
-    id: roomApId(baseUrl, room.preferred_username),
+    id: roomApId(baseUrl, room.preferredUsername),
     type: 'Room',
     name: room.name,
     summary: room.summary || '',
-    stream: `${roomApId(baseUrl, room.preferred_username)}/stream`,
+    stream: `${roomApId(baseUrl, room.preferredUsername)}/stream`,
   });
 });
 
 ap.get('/ap/rooms/:roomId/stream', async (c) => {
+  const prisma = c.get('prisma');
   const baseUrl = c.env.APP_URL;
   const roomId = c.req.param('roomId');
   const limit = parseLimit(c.req.query('limit'), 20, MAX_ROOM_STREAM_LIMIT);
   const before = c.req.query('before');
 
-  const community = await c.env.DB.prepare(`
-    SELECT ap_id, preferred_username
-    FROM communities
-    WHERE preferred_username = ? OR ap_id = ?
-  `).bind(roomId, roomId).first<CommunityRow>();
+  const community = await prisma.community.findFirst({
+    where: {
+      OR: [
+        { preferredUsername: roomId },
+        { apId: roomId },
+      ],
+    },
+    select: {
+      apId: true,
+      preferredUsername: true,
+    },
+  });
 
   if (!community) return c.json({ error: 'Room not found' }, 404);
 
-  let query = `
-    SELECT o.ap_id, o.attributed_to, o.content, o.published
-    FROM objects o
-    WHERE o.type = 'Note' AND o.community_ap_id = ?
-  `;
-  const params: Array<string | number | null> = [community.ap_id];
+  const objects = await prisma.object.findMany({
+    where: {
+      type: 'Note',
+      communityApId: community.apId,
+      ...(before ? { published: { lt: before } } : {}),
+    },
+    select: {
+      apId: true,
+      attributedTo: true,
+      content: true,
+      published: true,
+    },
+    orderBy: { published: 'desc' },
+    take: limit,
+  });
 
-  if (before) {
-    query += ' AND o.published < ?';
-    params.push(before);
-  }
-
-  query += ' ORDER BY o.published DESC LIMIT ?';
-  params.push(limit);
-
-  const objects = await c.env.DB.prepare(query).bind(...params).all<RoomStreamRow>();
-  const items = (objects.results || []).map((o) => ({
-    id: o.ap_id,
+  const items = objects.map((o) => ({
+    id: o.apId,
     type: 'Note',
-    attributedTo: o.attributed_to,
+    attributedTo: o.attributedTo,
     content: o.content,
     published: o.published,
-    room: roomApId(baseUrl, community.preferred_username),
+    room: roomApId(baseUrl, community.preferredUsername),
   }));
 
   return c.json({
     '@context': 'https://www.w3.org/ns/activitystreams',
-    id: `${roomApId(baseUrl, community.preferred_username)}/stream`,
+    id: `${roomApId(baseUrl, community.preferredUsername)}/stream`,
     type: 'OrderedCollection',
     totalItems: items.length,
     orderedItems: items,

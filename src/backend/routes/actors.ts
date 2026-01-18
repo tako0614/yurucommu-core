@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { deleteCookie } from 'hono/cookie';
-import type { Actor, ActorCache, Env, Variables } from '../types';
+import type { Actor, Env, Variables } from '../types';
 import { actorApId, getDomain, formatUsername, parseLimit } from '../utils';
 
 const actors = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -9,79 +9,6 @@ const MAX_ACTOR_POSTS_LIMIT = 100;
 const MAX_PROFILE_NAME_LENGTH = 50;
 const MAX_PROFILE_SUMMARY_LENGTH = 500;
 const MAX_PROFILE_URL_LENGTH = 2000;
-
-type ActorListRow = Pick<
-  Actor,
-  'ap_id' | 'preferred_username' | 'name' | 'summary' | 'icon_url' | 'role' | 'follower_count' | 'following_count' | 'post_count' | 'created_at'
->;
-
-type ActorProfileRow = Pick<
-  Actor,
-  'ap_id' | 'preferred_username' | 'name' | 'summary' | 'icon_url' | 'header_url' | 'role' | 'follower_count' | 'following_count' | 'post_count' | 'is_private' | 'created_at'
->;
-
-type BlockedRow = {
-  blocked_ap_id: string;
-  preferred_username: string | null;
-  name: string | null;
-  icon_url: string | null;
-  summary: string | null;
-};
-
-type MutedRow = {
-  muted_ap_id: string;
-  preferred_username: string | null;
-  name: string | null;
-  icon_url: string | null;
-  summary: string | null;
-};
-
-type FollowerRow = {
-  follower_ap_id: string;
-  preferred_username: string | null;
-  name: string | null;
-  icon_url: string | null;
-  summary: string | null;
-};
-
-type FollowingRow = {
-  following_ap_id: string;
-  preferred_username: string | null;
-  name: string | null;
-  icon_url: string | null;
-  summary: string | null;
-};
-
-type ActorPostRow = {
-  ap_id: string;
-  type: string;
-  attributed_to: string;
-  content: string;
-  summary: string | null;
-  attachments_json: string | null;
-  in_reply_to: string | null;
-  visibility: string;
-  community_ap_id: string | null;
-  like_count: number;
-  reply_count: number;
-  announce_count: number;
-  published: string;
-  author_username: string | null;
-  author_name: string | null;
-  author_icon_url: string | null;
-  liked: number;
-  bookmarked: number;
-  reposted: number;
-};
-
-type CountRow = {
-  total: number;
-};
-
-type FollowStatusRow = {
-  is_following: number;
-  is_followed_by: number;
-};
 
 function isValidHttpUrl(value: string): boolean {
   try {
@@ -94,7 +21,7 @@ function isValidHttpUrl(value: string): boolean {
 
 // Helper to resolve identifier to AP ID
 async function resolveActorApId(
-  c: { env: Env },
+  c: { env: Env; get: (key: 'prisma') => ReturnType<typeof import('../lib/db').getPrismaD1> },
   identifier: string
 ): Promise<string | null> {
   const baseUrl = c.env.APP_URL;
@@ -117,10 +44,15 @@ async function resolveActorApId(
       return actorApId(baseUrl, username);
     }
 
-    const cached = await c.env.DB.prepare(
-      'SELECT ap_id FROM actor_cache WHERE preferred_username = ? AND ap_id LIKE ?'
-    ).bind(username, `%${domain}%`).first<{ ap_id: string }>();
-    return cached?.ap_id || null;
+    const prisma = c.get('prisma');
+    const cached = await prisma.actorCache.findFirst({
+      where: {
+        preferredUsername: username,
+        apId: { contains: domain },
+      },
+      select: { apId: true },
+    });
+    return cached?.apId || null;
   }
 
   return actorApId(baseUrl, identifier);
@@ -128,17 +60,38 @@ async function resolveActorApId(
 
 // Get all local actors
 actors.get('/', async (c) => {
-  const result = await c.env.DB.prepare(`
-    SELECT ap_id, preferred_username, name, summary, icon_url, role, follower_count, following_count, post_count, created_at
-    FROM actors ORDER BY created_at ASC
-  `).all<ActorListRow>();
+  const prisma = c.get('prisma');
+  const actorsList = await prisma.actor.findMany({
+    select: {
+      apId: true,
+      preferredUsername: true,
+      name: true,
+      summary: true,
+      iconUrl: true,
+      role: true,
+      followerCount: true,
+      followingCount: true,
+      postCount: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  });
 
-  const actorsList = (result.results || []).map((a) => ({
-    ...a,
-    username: formatUsername(a.ap_id),
-  }));
-
-  return c.json({ actors: actorsList });
+  return c.json({
+    actors: actorsList.map((a) => ({
+      ap_id: a.apId,
+      preferred_username: a.preferredUsername,
+      name: a.name,
+      summary: a.summary,
+      icon_url: a.iconUrl,
+      role: a.role,
+      follower_count: a.followerCount,
+      following_count: a.followingCount,
+      post_count: a.postCount,
+      created_at: a.createdAt,
+      username: formatUsername(a.apId),
+    })),
+  });
 });
 
 // Get blocked users for current actor
@@ -146,29 +99,45 @@ actors.get('/me/blocked', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const result = await c.env.DB.prepare(`
-    SELECT b.blocked_ap_id,
-           COALESCE(a.preferred_username, ac.preferred_username) as preferred_username,
-           COALESCE(a.name, ac.name) as name,
-           COALESCE(a.icon_url, ac.icon_url) as icon_url,
-           COALESCE(a.summary, ac.summary) as summary
-    FROM blocks b
-    LEFT JOIN actors a ON b.blocked_ap_id = a.ap_id
-    LEFT JOIN actor_cache ac ON b.blocked_ap_id = ac.ap_id
-    WHERE b.blocker_ap_id = ?
-    ORDER BY b.created_at DESC
-  `).bind(actor.ap_id).all<BlockedRow>();
+  const prisma = c.get('prisma');
+  const blocks = await prisma.block.findMany({
+    where: { blockerApId: actor.ap_id },
+    orderBy: { createdAt: 'desc' },
+  });
 
-  const blocked = (result.results || []).map((u) => ({
-    ap_id: u.blocked_ap_id,
-    username: formatUsername(u.blocked_ap_id),
-    preferred_username: u.preferred_username,
-    name: u.name,
-    icon_url: u.icon_url,
-    summary: u.summary,
-  }));
+  // Get actor info for each blocked user
+  const blockedList = await Promise.all(
+    blocks.map(async (b) => {
+      const localActor = await prisma.actor.findUnique({
+        where: { apId: b.blockedApId },
+        select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
+      });
+      if (localActor) {
+        return {
+          ap_id: b.blockedApId,
+          username: formatUsername(b.blockedApId),
+          preferred_username: localActor.preferredUsername,
+          name: localActor.name,
+          icon_url: localActor.iconUrl,
+          summary: localActor.summary,
+        };
+      }
+      const cachedActor = await prisma.actorCache.findUnique({
+        where: { apId: b.blockedApId },
+        select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
+      });
+      return {
+        ap_id: b.blockedApId,
+        username: formatUsername(b.blockedApId),
+        preferred_username: cachedActor?.preferredUsername || null,
+        name: cachedActor?.name || null,
+        icon_url: cachedActor?.iconUrl || null,
+        summary: cachedActor?.summary || null,
+      };
+    })
+  );
 
-  return c.json({ blocked });
+  return c.json({ blocked: blockedList });
 });
 
 // Block a user
@@ -180,10 +149,14 @@ actors.post('/me/blocked', async (c) => {
   if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
   if (body.ap_id === actor.ap_id) return c.json({ error: 'Cannot block yourself' }, 400);
 
-  await c.env.DB.prepare(`
-    INSERT OR IGNORE INTO blocks (blocker_ap_id, blocked_ap_id)
-    VALUES (?, ?)
-  `).bind(actor.ap_id, body.ap_id).run();
+  const prisma = c.get('prisma');
+  await prisma.block.upsert({
+    where: {
+      blockerApId_blockedApId: { blockerApId: actor.ap_id, blockedApId: body.ap_id },
+    },
+    create: { blockerApId: actor.ap_id, blockedApId: body.ap_id },
+    update: {},
+  });
 
   return c.json({ success: true });
 });
@@ -196,9 +169,12 @@ actors.delete('/me/blocked', async (c) => {
   const body = await c.req.json<{ ap_id: string }>();
   if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
 
-  await c.env.DB.prepare(`
-    DELETE FROM blocks WHERE blocker_ap_id = ? AND blocked_ap_id = ?
-  `).bind(actor.ap_id, body.ap_id).run();
+  const prisma = c.get('prisma');
+  await prisma.block.delete({
+    where: {
+      blockerApId_blockedApId: { blockerApId: actor.ap_id, blockedApId: body.ap_id },
+    },
+  }).catch(() => {});
 
   return c.json({ success: true });
 });
@@ -208,29 +184,44 @@ actors.get('/me/muted', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const result = await c.env.DB.prepare(`
-    SELECT m.muted_ap_id,
-           COALESCE(a.preferred_username, ac.preferred_username) as preferred_username,
-           COALESCE(a.name, ac.name) as name,
-           COALESCE(a.icon_url, ac.icon_url) as icon_url,
-           COALESCE(a.summary, ac.summary) as summary
-    FROM mutes m
-    LEFT JOIN actors a ON m.muted_ap_id = a.ap_id
-    LEFT JOIN actor_cache ac ON m.muted_ap_id = ac.ap_id
-    WHERE m.muter_ap_id = ?
-    ORDER BY m.created_at DESC
-  `).bind(actor.ap_id).all<MutedRow>();
+  const prisma = c.get('prisma');
+  const mutes = await prisma.mute.findMany({
+    where: { muterApId: actor.ap_id },
+    orderBy: { createdAt: 'desc' },
+  });
 
-  const muted = (result.results || []).map((u) => ({
-    ap_id: u.muted_ap_id,
-    username: formatUsername(u.muted_ap_id),
-    preferred_username: u.preferred_username,
-    name: u.name,
-    icon_url: u.icon_url,
-    summary: u.summary,
-  }));
+  const mutedList = await Promise.all(
+    mutes.map(async (m) => {
+      const localActor = await prisma.actor.findUnique({
+        where: { apId: m.mutedApId },
+        select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
+      });
+      if (localActor) {
+        return {
+          ap_id: m.mutedApId,
+          username: formatUsername(m.mutedApId),
+          preferred_username: localActor.preferredUsername,
+          name: localActor.name,
+          icon_url: localActor.iconUrl,
+          summary: localActor.summary,
+        };
+      }
+      const cachedActor = await prisma.actorCache.findUnique({
+        where: { apId: m.mutedApId },
+        select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
+      });
+      return {
+        ap_id: m.mutedApId,
+        username: formatUsername(m.mutedApId),
+        preferred_username: cachedActor?.preferredUsername || null,
+        name: cachedActor?.name || null,
+        icon_url: cachedActor?.iconUrl || null,
+        summary: cachedActor?.summary || null,
+      };
+    })
+  );
 
-  return c.json({ muted });
+  return c.json({ muted: mutedList });
 });
 
 // Mute a user
@@ -242,10 +233,14 @@ actors.post('/me/muted', async (c) => {
   if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
   if (body.ap_id === actor.ap_id) return c.json({ error: 'Cannot mute yourself' }, 400);
 
-  await c.env.DB.prepare(`
-    INSERT OR IGNORE INTO mutes (muter_ap_id, muted_ap_id)
-    VALUES (?, ?)
-  `).bind(actor.ap_id, body.ap_id).run();
+  const prisma = c.get('prisma');
+  await prisma.mute.upsert({
+    where: {
+      muterApId_mutedApId: { muterApId: actor.ap_id, mutedApId: body.ap_id },
+    },
+    create: { muterApId: actor.ap_id, mutedApId: body.ap_id },
+    update: {},
+  });
 
   return c.json({ success: true });
 });
@@ -258,9 +253,12 @@ actors.delete('/me/muted', async (c) => {
   const body = await c.req.json<{ ap_id: string }>();
   if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
 
-  await c.env.DB.prepare(`
-    DELETE FROM mutes WHERE muter_ap_id = ? AND muted_ap_id = ?
-  `).bind(actor.ap_id, body.ap_id).run();
+  const prisma = c.get('prisma');
+  await prisma.mute.delete({
+    where: {
+      muterApId_mutedApId: { muterApId: actor.ap_id, mutedApId: body.ap_id },
+    },
+  }).catch(() => {});
 
   return c.json({ success: true });
 });
@@ -270,62 +268,69 @@ actors.post('/me/delete', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const actorApId = actor.ap_id;
+  const actorApIdVal = actor.ap_id;
+  const prisma = c.get('prisma');
 
   // Remove sessions
-  await c.env.DB.prepare('DELETE FROM sessions WHERE member_id = ?').bind(actorApId).run();
+  await prisma.session.deleteMany({ where: { memberId: actorApIdVal } });
   deleteCookie(c, 'session');
 
   // Remove follow relationships
-  await c.env.DB.prepare('DELETE FROM follows WHERE follower_ap_id = ? OR following_ap_id = ?')
-    .bind(actorApId, actorApId).run();
+  await prisma.follow.deleteMany({
+    where: { OR: [{ followerApId: actorApIdVal }, { followingApId: actorApIdVal }] },
+  });
 
   // Remove blocks/mutes
-  await c.env.DB.prepare('DELETE FROM blocks WHERE blocker_ap_id = ? OR blocked_ap_id = ?')
-    .bind(actorApId, actorApId).run();
-  await c.env.DB.prepare('DELETE FROM mutes WHERE muter_ap_id = ? OR muted_ap_id = ?')
-    .bind(actorApId, actorApId).run();
-  await c.env.DB.prepare('DELETE FROM dm_typing WHERE actor_ap_id = ? OR recipient_ap_id = ?')
-    .bind(actorApId, actorApId).run();
+  await prisma.block.deleteMany({
+    where: { OR: [{ blockerApId: actorApIdVal }, { blockedApId: actorApIdVal }] },
+  });
+  await prisma.mute.deleteMany({
+    where: { OR: [{ muterApId: actorApIdVal }, { mutedApId: actorApIdVal }] },
+  });
 
   // Remove likes/bookmarks/announces
-  await c.env.DB.prepare('DELETE FROM likes WHERE actor_ap_id = ?').bind(actorApId).run();
-  await c.env.DB.prepare('DELETE FROM bookmarks WHERE actor_ap_id = ?').bind(actorApId).run();
-  await c.env.DB.prepare('DELETE FROM announces WHERE actor_ap_id = ?').bind(actorApId).run();
+  await prisma.like.deleteMany({ where: { actorApId: actorApIdVal } });
+  await prisma.bookmark.deleteMany({ where: { actorApId: actorApIdVal } });
+  await prisma.announce.deleteMany({ where: { actorApId: actorApIdVal } });
 
   // Remove inbox entries
-  await c.env.DB.prepare('DELETE FROM inbox WHERE actor_ap_id = ?').bind(actorApId).run();
+  await prisma.inbox.deleteMany({ where: { actorApId: actorApIdVal } });
 
-  // Remove community memberships and adjust member counts
-  await c.env.DB.prepare(`
-    UPDATE communities
-    SET member_count = member_count - 1
-    WHERE ap_id IN (SELECT community_ap_id FROM community_members WHERE actor_ap_id = ?)
-      AND member_count > 0
-  `).bind(actorApId).run();
-  await c.env.DB.prepare('DELETE FROM community_members WHERE actor_ap_id = ?').bind(actorApId).run();
+  // Remove community memberships
+  const memberships = await prisma.communityMember.findMany({
+    where: { actorApId: actorApIdVal },
+    select: { communityApId: true },
+  });
+  for (const m of memberships) {
+    await prisma.community.update({
+      where: { apId: m.communityApId },
+      data: { memberCount: { decrement: 1 } },
+    }).catch(() => {});
+  }
+  await prisma.communityMember.deleteMany({ where: { actorApId: actorApIdVal } });
 
-  // Remove object recipients and activities related to the actor
-  await c.env.DB.prepare('DELETE FROM object_recipients WHERE recipient_ap_id = ?')
-    .bind(actorApId).run();
-  await c.env.DB.prepare('DELETE FROM activities WHERE actor_ap_id = ?')
-    .bind(actorApId).run();
+  // Remove object recipients and activities
+  await prisma.objectRecipient.deleteMany({ where: { recipientApId: actorApIdVal } });
+  await prisma.activity.deleteMany({ where: { actorApId: actorApIdVal } });
 
-  // Remove objects authored by the actor (posts, stories, DMs)
-  await c.env.DB.prepare('DELETE FROM likes WHERE object_ap_id IN (SELECT ap_id FROM objects WHERE attributed_to = ?)')
-    .bind(actorApId).run();
-  await c.env.DB.prepare('DELETE FROM announces WHERE object_ap_id IN (SELECT ap_id FROM objects WHERE attributed_to = ?)')
-    .bind(actorApId).run();
-  await c.env.DB.prepare('DELETE FROM bookmarks WHERE object_ap_id IN (SELECT ap_id FROM objects WHERE attributed_to = ?)')
-    .bind(actorApId).run();
-  await c.env.DB.prepare('DELETE FROM story_votes WHERE story_ap_id IN (SELECT ap_id FROM objects WHERE attributed_to = ?)')
-    .bind(actorApId).run();
-  await c.env.DB.prepare('DELETE FROM story_views WHERE story_ap_id IN (SELECT ap_id FROM objects WHERE attributed_to = ?)')
-    .bind(actorApId).run();
-  await c.env.DB.prepare('DELETE FROM objects WHERE attributed_to = ?').bind(actorApId).run();
+  // Get objects authored by the actor
+  const authoredObjects = await prisma.object.findMany({
+    where: { attributedTo: actorApIdVal },
+    select: { apId: true },
+  });
+  const objectIds = authoredObjects.map((o) => o.apId);
+
+  if (objectIds.length > 0) {
+    await prisma.like.deleteMany({ where: { objectApId: { in: objectIds } } });
+    await prisma.announce.deleteMany({ where: { objectApId: { in: objectIds } } });
+    await prisma.bookmark.deleteMany({ where: { objectApId: { in: objectIds } } });
+    await prisma.storyVote.deleteMany({ where: { storyApId: { in: objectIds } } });
+    await prisma.storyView.deleteMany({ where: { storyApId: { in: objectIds } } });
+  }
+  await prisma.object.deleteMany({ where: { attributedTo: actorApIdVal } });
 
   // Finally remove actor
-  await c.env.DB.prepare('DELETE FROM actors WHERE ap_id = ?').bind(actorApId).run();
+  await prisma.actor.delete({ where: { apId: actorApIdVal } });
 
   return c.json({ success: true });
 });
@@ -337,11 +342,19 @@ actors.get('/:identifier/posts', async (c) => {
   const apId = await resolveActorApId(c, identifier);
   if (!apId) return c.json({ error: 'Actor not found' }, 404);
 
+  const prisma = c.get('prisma');
+
   // Ensure actor exists (local or cached)
-  const actorExists = await c.env.DB.prepare('SELECT ap_id FROM actors WHERE ap_id = ?')
-    .bind(apId).first<{ ap_id: string }>();
-  const cachedExists = actorExists ? null : await c.env.DB.prepare('SELECT ap_id FROM actor_cache WHERE ap_id = ?')
-    .bind(apId).first<{ ap_id: string }>();
+  const actorExists = await prisma.actor.findUnique({
+    where: { apId },
+    select: { apId: true },
+  });
+  const cachedExists = actorExists
+    ? null
+    : await prisma.actorCache.findUnique({
+        where: { apId },
+        select: { apId: true },
+      });
   if (!actorExists && !cachedExists) {
     return c.json({ error: 'Actor not found' }, 404);
   }
@@ -349,62 +362,82 @@ actors.get('/:identifier/posts', async (c) => {
   const limit = parseLimit(c.req.query('limit'), 20, MAX_ACTOR_POSTS_LIMIT);
   const before = c.req.query('before');
 
-  let query = `
-    SELECT o.*,
-           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
-           COALESCE(a.name, ac.name) as author_name,
-           COALESCE(a.icon_url, ac.icon_url) as author_icon_url,
-           EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked,
-           EXISTS(SELECT 1 FROM bookmarks b WHERE b.object_ap_id = o.ap_id AND b.actor_ap_id = ?) as bookmarked,
-           EXISTS(SELECT 1 FROM announces ann WHERE ann.object_ap_id = o.ap_id AND ann.actor_ap_id = ?) as reposted
-    FROM objects o
-    LEFT JOIN actors a ON o.attributed_to = a.ap_id
-    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    WHERE o.type = 'Note'
-      AND o.in_reply_to IS NULL
-      AND o.visibility != 'direct'
-      AND o.attributed_to = ?
-  `;
-  const params: Array<string | number | null> = [currentActor?.ap_id || '', currentActor?.ap_id || '', currentActor?.ap_id || '', apId];
+  const isOwnProfile = currentActor && currentActor.ap_id === apId;
 
-  if (!currentActor || currentActor.ap_id !== apId) {
-    query += ` AND o.visibility = 'public'`;
-  }
-
-  if (before) {
-    query += ` AND o.published < ?`;
-    params.push(before);
-  }
-
-  query += ` ORDER BY o.published DESC LIMIT ?`;
-  params.push(limit);
-
-  const posts = await c.env.DB.prepare(query).bind(...params).all<ActorPostRow>();
-
-  const result = (posts.results || []).map((p) => ({
-    ap_id: p.ap_id,
-    type: p.type,
-    author: {
-      ap_id: p.attributed_to,
-      username: formatUsername(p.attributed_to),
-      preferred_username: p.author_username,
-      name: p.author_name,
-      icon_url: p.author_icon_url,
+  const posts = await prisma.object.findMany({
+    where: {
+      type: 'Note',
+      inReplyTo: null,
+      visibility: isOwnProfile ? { not: 'direct' } : 'public',
+      attributedTo: apId,
+      ...(before ? { published: { lt: before } } : {}),
     },
-    content: p.content,
-    summary: p.summary,
-    attachments: JSON.parse(p.attachments_json || '[]'),
-    in_reply_to: p.in_reply_to,
-    visibility: p.visibility,
-    community_ap_id: p.community_ap_id,
-    like_count: p.like_count,
-    reply_count: p.reply_count,
-    announce_count: p.announce_count,
-    published: p.published,
-    liked: !!p.liked,
-    bookmarked: !!p.bookmarked,
-    reposted: !!p.reposted,
-  }));
+    orderBy: { published: 'desc' },
+    take: limit,
+  });
+
+  // Get author info and interaction status for each post
+  const result = await Promise.all(
+    posts.map(async (p) => {
+      const localAuthor = await prisma.actor.findUnique({
+        where: { apId: p.attributedTo },
+        select: { preferredUsername: true, name: true, iconUrl: true },
+      });
+      const cachedAuthor = localAuthor
+        ? null
+        : await prisma.actorCache.findUnique({
+            where: { apId: p.attributedTo },
+            select: { preferredUsername: true, name: true, iconUrl: true },
+          });
+      const author = localAuthor || cachedAuthor;
+
+      let liked = false;
+      let bookmarked = false;
+      let reposted = false;
+
+      if (currentActor) {
+        const likeExists = await prisma.like.findUnique({
+          where: { actorApId_objectApId: { actorApId: currentActor.ap_id, objectApId: p.apId } },
+        });
+        liked = !!likeExists;
+
+        const bookmarkExists = await prisma.bookmark.findUnique({
+          where: { actorApId_objectApId: { actorApId: currentActor.ap_id, objectApId: p.apId } },
+        });
+        bookmarked = !!bookmarkExists;
+
+        const announceExists = await prisma.announce.findUnique({
+          where: { actorApId_objectApId: { actorApId: currentActor.ap_id, objectApId: p.apId } },
+        });
+        reposted = !!announceExists;
+      }
+
+      return {
+        ap_id: p.apId,
+        type: p.type,
+        author: {
+          ap_id: p.attributedTo,
+          username: formatUsername(p.attributedTo),
+          preferred_username: author?.preferredUsername || null,
+          name: author?.name || null,
+          icon_url: author?.iconUrl || null,
+        },
+        content: p.content,
+        summary: p.summary,
+        attachments: JSON.parse(p.attachmentsJson || '[]'),
+        in_reply_to: p.inReplyTo,
+        visibility: p.visibility,
+        community_ap_id: p.communityApId,
+        like_count: p.likeCount,
+        reply_count: p.replyCount,
+        announce_count: p.announceCount,
+        published: p.published,
+        liked,
+        bookmarked,
+        reposted,
+      };
+    })
+  );
 
   return c.json({ posts: result });
 });
@@ -414,6 +447,7 @@ actors.get('/:identifier', async (c) => {
   const currentActor = c.get('actor');
   const identifier = c.req.param('identifier');
   const baseUrl = c.env.APP_URL;
+  const prisma = c.get('prisma');
 
   // Check if identifier is a full AP ID or just username
   let apId: string;
@@ -438,10 +472,23 @@ actors.get('/:identifier', async (c) => {
         apId = actorApId(baseUrl, username);
       } else {
         // Remote actor - check cache
-        const cached = await c.env.DB.prepare('SELECT * FROM actor_cache WHERE preferred_username = ? AND ap_id LIKE ?')
-          .bind(username, `%${domain}%`).first<{ ap_id: string }>();
+        const cached = await prisma.actorCache.findFirst({
+          where: {
+            preferredUsername: username,
+            apId: { contains: domain },
+          },
+        });
         if (cached) {
-          return c.json({ actor: { ...cached, username: formatUsername(cached.ap_id as string) } });
+          return c.json({
+            actor: {
+              ap_id: cached.apId,
+              preferred_username: cached.preferredUsername,
+              name: cached.name,
+              summary: cached.summary,
+              icon_url: cached.iconUrl,
+              username: formatUsername(cached.apId),
+            },
+          });
         }
         return c.json({ error: 'Actor not found' }, 404);
       }
@@ -451,16 +498,41 @@ actors.get('/:identifier', async (c) => {
   }
 
   // Try local actors first
-  let actor: ActorProfileRow | ActorCache | null = await c.env.DB.prepare(`
-    SELECT ap_id, preferred_username, name, summary, icon_url, header_url, role,
-           follower_count, following_count, post_count, is_private, created_at
-    FROM actors WHERE ap_id = ?
-  `).bind(apId).first<ActorProfileRow>();
+  const localActor = await prisma.actor.findUnique({
+    where: { apId },
+    select: {
+      apId: true,
+      preferredUsername: true,
+      name: true,
+      summary: true,
+      iconUrl: true,
+      headerUrl: true,
+      role: true,
+      followerCount: true,
+      followingCount: true,
+      postCount: true,
+      isPrivate: true,
+      createdAt: true,
+    },
+  });
 
-  if (!actor) {
+  if (!localActor) {
     // Try actor cache (remote)
-    actor = await c.env.DB.prepare('SELECT * FROM actor_cache WHERE ap_id = ?').bind(apId).first<ActorCache>();
-    if (!actor) return c.json({ error: 'Actor not found' }, 404);
+    const cachedActor = await prisma.actorCache.findUnique({ where: { apId } });
+    if (!cachedActor) return c.json({ error: 'Actor not found' }, 404);
+
+    return c.json({
+      actor: {
+        ap_id: cachedActor.apId,
+        preferred_username: cachedActor.preferredUsername,
+        name: cachedActor.name,
+        summary: cachedActor.summary,
+        icon_url: cachedActor.iconUrl,
+        username: formatUsername(cachedActor.apId),
+        is_following: false,
+        is_followed_by: false,
+      },
+    });
   }
 
   // Check follow status if logged in
@@ -468,25 +540,35 @@ actors.get('/:identifier', async (c) => {
   let is_followed_by = false;
 
   if (currentActor && currentActor.ap_id !== apId) {
-    const followStatus = await c.env.DB.prepare(`
-      SELECT
-        EXISTS(SELECT 1 FROM follows WHERE follower_ap_id = ? AND following_ap_id = ? AND status = 'accepted') as is_following,
-        EXISTS(SELECT 1 FROM follows WHERE follower_ap_id = ? AND following_ap_id = ? AND status = 'accepted') as is_followed_by
-    `).bind(currentActor.ap_id, apId, apId, currentActor.ap_id).first<FollowStatusRow>();
+    const followingStatus = await prisma.follow.findFirst({
+      where: { followerApId: currentActor.ap_id, followingApId: apId, status: 'accepted' },
+    });
+    is_following = !!followingStatus;
 
-    if (followStatus) {
-      is_following = !!followStatus.is_following;
-      is_followed_by = !!followStatus.is_followed_by;
-    }
+    const followedByStatus = await prisma.follow.findFirst({
+      where: { followerApId: apId, followingApId: currentActor.ap_id, status: 'accepted' },
+    });
+    is_followed_by = !!followedByStatus;
   }
 
   return c.json({
     actor: {
-      ...actor,
-      username: formatUsername(actor.ap_id),
+      ap_id: localActor.apId,
+      preferred_username: localActor.preferredUsername,
+      name: localActor.name,
+      summary: localActor.summary,
+      icon_url: localActor.iconUrl,
+      header_url: localActor.headerUrl,
+      role: localActor.role,
+      follower_count: localActor.followerCount,
+      following_count: localActor.followingCount,
+      post_count: localActor.postCount,
+      is_private: localActor.isPrivate,
+      created_at: localActor.createdAt,
+      username: formatUsername(localActor.apId),
       is_following,
       is_followed_by,
-    }
+    },
   });
 });
 
@@ -495,26 +577,29 @@ actors.put('/me', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const body = await c.req.json<{ name?: string; summary?: string; icon_url?: string; header_url?: string; is_private?: boolean }>();
+  const body = await c.req.json<{
+    name?: string;
+    summary?: string;
+    icon_url?: string;
+    header_url?: string;
+    is_private?: boolean;
+  }>();
 
-  const updates: string[] = [];
-  const values: Array<string | number | null> = [];
+  const updates: Record<string, string | number | null> = {};
 
   if (body.name !== undefined) {
     const name = body.name.trim();
     if (name.length > MAX_PROFILE_NAME_LENGTH) {
       return c.json({ error: `Name too long (max ${MAX_PROFILE_NAME_LENGTH} chars)` }, 400);
     }
-    updates.push('name = ?');
-    values.push(name);
+    updates.name = name;
   }
   if (body.summary !== undefined) {
     const summary = body.summary.trim();
     if (summary.length > MAX_PROFILE_SUMMARY_LENGTH) {
       return c.json({ error: `Summary too long (max ${MAX_PROFILE_SUMMARY_LENGTH} chars)` }, 400);
     }
-    updates.push('summary = ?');
-    values.push(summary.length > 0 ? summary : null);
+    updates.summary = summary.length > 0 ? summary : null;
   }
   if (body.icon_url !== undefined) {
     const iconUrl = body.icon_url.trim();
@@ -524,8 +609,7 @@ actors.put('/me', async (c) => {
     if (iconUrl.length > 0 && !isValidHttpUrl(iconUrl)) {
       return c.json({ error: 'Invalid icon_url' }, 400);
     }
-    updates.push('icon_url = ?');
-    values.push(iconUrl.length > 0 ? iconUrl : null);
+    updates.iconUrl = iconUrl.length > 0 ? iconUrl : null;
   }
   if (body.header_url !== undefined) {
     const headerUrl = body.header_url.trim();
@@ -535,17 +619,21 @@ actors.put('/me', async (c) => {
     if (headerUrl.length > 0 && !isValidHttpUrl(headerUrl)) {
       return c.json({ error: 'Invalid header_url' }, 400);
     }
-    updates.push('header_url = ?');
-    values.push(headerUrl.length > 0 ? headerUrl : null);
+    updates.headerUrl = headerUrl.length > 0 ? headerUrl : null;
   }
-  if (body.is_private !== undefined) { updates.push('is_private = ?'); values.push(body.is_private ? 1 : 0); }
+  if (body.is_private !== undefined) {
+    updates.isPrivate = body.is_private ? 1 : 0;
+  }
 
-  if (updates.length === 0) return c.json({ error: 'No fields to update' }, 400);
+  if (Object.keys(updates).length === 0) {
+    return c.json({ error: 'No fields to update' }, 400);
+  }
 
-  updates.push("updated_at = datetime('now')");
-  values.push(actor.ap_id);
-
-  await c.env.DB.prepare(`UPDATE actors SET ${updates.join(', ')} WHERE ap_id = ?`).bind(...values).run();
+  const prisma = c.get('prisma');
+  await prisma.actor.update({
+    where: { apId: actor.ap_id },
+    data: updates,
+  });
 
   return c.json({ success: true });
 });
@@ -558,39 +646,49 @@ actors.get('/:identifier/followers', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100);
   const offset = parseInt(c.req.query('offset') || '0');
 
-  const followers = await c.env.DB.prepare(`
-    SELECT f.follower_ap_id, f.created_at,
-           COALESCE(a.preferred_username, ac.preferred_username) as preferred_username,
-           COALESCE(a.name, ac.name) as name,
-           COALESCE(a.icon_url, ac.icon_url) as icon_url,
-           COALESCE(a.summary, ac.summary) as summary
-    FROM follows f
-    LEFT JOIN actors a ON f.follower_ap_id = a.ap_id
-    LEFT JOIN actor_cache ac ON f.follower_ap_id = ac.ap_id
-    WHERE f.following_ap_id = ? AND f.status = 'accepted'
-    ORDER BY f.created_at DESC
-    LIMIT ? OFFSET ?
-  `).bind(apId, limit, offset).all<FollowerRow>();
+  const prisma = c.get('prisma');
 
-  const countResult = await c.env.DB.prepare(
-    "SELECT COUNT(*) as total FROM follows WHERE following_ap_id = ? AND status = 'accepted'"
-  ).bind(apId).first<CountRow>();
+  const follows = await prisma.follow.findMany({
+    where: { followingApId: apId, status: 'accepted' },
+    orderBy: { createdAt: 'desc' },
+    skip: offset,
+    take: limit,
+  });
 
-  const result = (followers.results || []).map((f) => ({
-    ap_id: f.follower_ap_id,
-    username: formatUsername(f.follower_ap_id),
-    preferred_username: f.preferred_username,
-    name: f.name,
-    icon_url: f.icon_url,
-    summary: f.summary,
-  }));
+  const total = await prisma.follow.count({
+    where: { followingApId: apId, status: 'accepted' },
+  });
+
+  const followers = await Promise.all(
+    follows.map(async (f) => {
+      const localActor = await prisma.actor.findUnique({
+        where: { apId: f.followerApId },
+        select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
+      });
+      const cachedActor = localActor
+        ? null
+        : await prisma.actorCache.findUnique({
+            where: { apId: f.followerApId },
+            select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
+          });
+      const actor = localActor || cachedActor;
+      return {
+        ap_id: f.followerApId,
+        username: formatUsername(f.followerApId),
+        preferred_username: actor?.preferredUsername || null,
+        name: actor?.name || null,
+        icon_url: actor?.iconUrl || null,
+        summary: actor?.summary || null,
+      };
+    })
+  );
 
   return c.json({
-    followers: result,
-    total: countResult?.total || 0,
+    followers,
+    total,
     limit,
     offset,
-    has_more: offset + result.length < (countResult?.total || 0),
+    has_more: offset + followers.length < total,
   });
 });
 
@@ -602,39 +700,49 @@ actors.get('/:identifier/following', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100);
   const offset = parseInt(c.req.query('offset') || '0');
 
-  const following = await c.env.DB.prepare(`
-    SELECT f.following_ap_id, f.created_at,
-           COALESCE(a.preferred_username, ac.preferred_username) as preferred_username,
-           COALESCE(a.name, ac.name) as name,
-           COALESCE(a.icon_url, ac.icon_url) as icon_url,
-           COALESCE(a.summary, ac.summary) as summary
-    FROM follows f
-    LEFT JOIN actors a ON f.following_ap_id = a.ap_id
-    LEFT JOIN actor_cache ac ON f.following_ap_id = ac.ap_id
-    WHERE f.follower_ap_id = ? AND f.status = 'accepted'
-    ORDER BY f.created_at DESC
-    LIMIT ? OFFSET ?
-  `).bind(apId, limit, offset).all<FollowingRow>();
+  const prisma = c.get('prisma');
 
-  const countResult = await c.env.DB.prepare(
-    "SELECT COUNT(*) as total FROM follows WHERE follower_ap_id = ? AND status = 'accepted'"
-  ).bind(apId).first<CountRow>();
+  const follows = await prisma.follow.findMany({
+    where: { followerApId: apId, status: 'accepted' },
+    orderBy: { createdAt: 'desc' },
+    skip: offset,
+    take: limit,
+  });
 
-  const result = (following.results || []).map((f) => ({
-    ap_id: f.following_ap_id,
-    username: formatUsername(f.following_ap_id),
-    preferred_username: f.preferred_username,
-    name: f.name,
-    icon_url: f.icon_url,
-    summary: f.summary,
-  }));
+  const total = await prisma.follow.count({
+    where: { followerApId: apId, status: 'accepted' },
+  });
+
+  const following = await Promise.all(
+    follows.map(async (f) => {
+      const localActor = await prisma.actor.findUnique({
+        where: { apId: f.followingApId },
+        select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
+      });
+      const cachedActor = localActor
+        ? null
+        : await prisma.actorCache.findUnique({
+            where: { apId: f.followingApId },
+            select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
+          });
+      const actor = localActor || cachedActor;
+      return {
+        ap_id: f.followingApId,
+        username: formatUsername(f.followingApId),
+        preferred_username: actor?.preferredUsername || null,
+        name: actor?.name || null,
+        icon_url: actor?.iconUrl || null,
+        summary: actor?.summary || null,
+      };
+    })
+  );
 
   return c.json({
-    following: result,
-    total: countResult?.total || 0,
+    following,
+    total,
     limit,
     offset,
-    has_more: offset + result.length < (countResult?.total || 0),
+    has_more: offset + following.length < total,
   });
 });
 

@@ -2,36 +2,38 @@
 // Provides utilities for delivering activities to followers
 
 import type { Env, Actor } from '../types';
+import type { PrismaClient } from '../../generated/prisma';
 import { generateId, activityApId, isLocal, signRequest, isSafeRemoteUrl } from '../utils';
 
 /**
  * Actor information needed to send an activity
  */
 interface SenderActor {
-  ap_id: string;
-  private_key_pem: string;
+  apId: string;
+  privateKeyPem: string;
 }
 
 /**
  * Deliver an activity to a specific recipient's inbox
  * Handles: actor cache lookup, URL safety check, signing, and delivery
  *
- * @param db - D1Database instance
- * @param senderActor - Actor sending the activity (needs ap_id and private_key_pem)
+ * @param prisma - PrismaClient instance
+ * @param senderActor - Actor sending the activity (needs apId and privateKeyPem)
  * @param recipientApId - AP ID of the recipient to look up in actor_cache
  * @param activity - The activity object to deliver
  * @returns Promise<boolean> - true if delivery succeeded, false otherwise
  */
 export async function deliverActivity(
-  db: D1Database,
+  prisma: PrismaClient,
   senderActor: SenderActor,
   recipientApId: string,
   activity: object
 ): Promise<boolean> {
   try {
-    const cachedActor = await db.prepare(
-      'SELECT inbox FROM actor_cache WHERE ap_id = ?'
-    ).bind(recipientApId).first<{ inbox: string | null }>();
+    const cachedActor = await prisma.actorCache.findUnique({
+      where: { apId: recipientApId },
+      select: { inbox: true },
+    });
 
     if (!cachedActor?.inbox) {
       return false;
@@ -42,9 +44,9 @@ export async function deliverActivity(
       return false;
     }
 
-    const keyId = `${senderActor.ap_id}#main-key`;
+    const keyId = `${senderActor.apId}#main-key`;
     const body = JSON.stringify(activity);
-    const headers = await signRequest(senderActor.private_key_pem, keyId, 'POST', cachedActor.inbox, body);
+    const headers = await signRequest(senderActor.privateKeyPem, keyId, 'POST', cachedActor.inbox, body);
 
     const response = await fetch(cachedActor.inbox, {
       method: 'POST',
@@ -61,8 +63,8 @@ export async function deliverActivity(
 
 // Story data from database after transformation
 interface StoryData {
-  ap_id: string;
-  attributed_to: string;
+  apId: string;
+  attributedTo: string;
   attachment: {
     type: string;
     mediaType: string;
@@ -71,7 +73,7 @@ interface StoryData {
   };
   displayDuration: string;
   overlays?: unknown[];
-  end_time: string;
+  endTime: string;
   published: string;
 }
 
@@ -95,11 +97,11 @@ export function storyToActivityPub(story: StoryData, actor: Actor, baseUrl: stri
         'position': 'story:position'
       }
     ],
-    'id': story.ap_id,
+    'id': story.apId,
     'type': ['Story', 'Note'],
     'attributedTo': actor.ap_id,
     'published': story.published,
-    'endTime': story.end_time,
+    'endTime': story.endTime,
     'to': [`${actor.ap_id}/followers`],
     'attachment': [{
       'type': story.attachment.type,
@@ -117,25 +119,36 @@ export function storyToActivityPub(story: StoryData, actor: Actor, baseUrl: stri
 export async function deliverToFollowers(
   activity: object,
   actor: Actor,
-  env: Env
+  env: Env,
+  prisma: PrismaClient
 ): Promise<void> {
   const baseUrl = env.APP_URL;
 
   // Get all accepted followers
-  const followers = await env.DB.prepare(`
-    SELECT DISTINCT f.follower_ap_id
-    FROM follows f
-    WHERE f.following_ap_id = ? AND f.status = 'accepted'
-  `).bind(actor.ap_id).all();
+  const followers = await prisma.follow.findMany({
+    where: {
+      followingApId: actor.ap_id,
+      status: 'accepted',
+    },
+    select: {
+      followerApId: true,
+    },
+    distinct: ['followerApId'],
+  });
 
   // Filter to remote followers only
-  const remoteFollowers = (followers.results || []).filter(
-    (f) => !isLocal((f as { follower_ap_id: string }).follower_ap_id, baseUrl)
-  ) as Array<{ follower_ap_id: string }>;
+  const remoteFollowers = followers.filter(
+    (f) => !isLocal(f.followerApId, baseUrl)
+  );
 
   // Deliver to each remote follower's inbox using the centralized delivery function
+  const senderActor: SenderActor = {
+    apId: actor.ap_id,
+    privateKeyPem: actor.private_key_pem,
+  };
+
   for (const follower of remoteFollowers) {
-    await deliverActivity(env.DB, actor, follower.follower_ap_id, activity);
+    await deliverActivity(prisma, senderActor, follower.followerApId, activity);
   }
 }
 
@@ -145,7 +158,8 @@ export async function deliverToFollowers(
 export async function sendCreateStoryActivity(
   story: StoryData,
   actor: Actor,
-  env: Env
+  env: Env,
+  prisma: PrismaClient
 ): Promise<void> {
   const baseUrl = env.APP_URL;
   const storyObject = storyToActivityPub(story, actor, baseUrl);
@@ -162,13 +176,19 @@ export async function sendCreateStoryActivity(
   };
 
   // Deliver to followers
-  await deliverToFollowers(activity, actor, env);
+  await deliverToFollowers(activity, actor, env, prisma);
 
   // Store outbound activity
-  await env.DB.prepare(`
-    INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-    VALUES (?, 'Create', ?, ?, ?, 'outbound')
-  `).bind(activityId, actor.ap_id, story.ap_id, JSON.stringify(activity)).run();
+  await prisma.activity.create({
+    data: {
+      apId: activityId,
+      type: 'Create',
+      actorApId: actor.ap_id,
+      objectApId: story.apId,
+      rawJson: JSON.stringify(activity),
+      direction: 'outbound',
+    },
+  });
 }
 
 /**
@@ -177,7 +197,8 @@ export async function sendCreateStoryActivity(
 export async function sendDeleteStoryActivity(
   storyApId: string,
   actor: Actor,
-  env: Env
+  env: Env,
+  prisma: PrismaClient
 ): Promise<void> {
   const baseUrl = env.APP_URL;
   const activityId = activityApId(baseUrl, generateId());
@@ -192,11 +213,17 @@ export async function sendDeleteStoryActivity(
   };
 
   // Deliver to followers
-  await deliverToFollowers(activity, actor, env);
+  await deliverToFollowers(activity, actor, env, prisma);
 
   // Store outbound activity
-  await env.DB.prepare(`
-    INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-    VALUES (?, 'Delete', ?, ?, ?, 'outbound')
-  `).bind(activityId, actor.ap_id, storyApId, JSON.stringify(activity)).run();
+  await prisma.activity.create({
+    data: {
+      apId: activityId,
+      type: 'Delete',
+      actorApId: actor.ap_id,
+      objectApId: storyApId,
+      rawJson: JSON.stringify(activity),
+      direction: 'outbound',
+    },
+  });
 }

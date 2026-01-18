@@ -599,11 +599,16 @@ export async function createNodeEnv(config: {
   const kv = new KVCompatNamespace();
   const assets = config.assetsPath ? await AssetsCompatFetcher.create(config.assetsPath) : undefined;
 
+  // Create Prisma client with libsql adapter for Node.js
+  const { getPrismaSQLite } = await import('../lib/db');
+  const prisma = await getPrismaSQLite(config.databasePath || './data/yurucommu.db');
+
   return {
     DB: db as unknown as D1Database,
     MEDIA: storage as unknown as R2Bucket,
     KV: kv as unknown as KVNamespace,
     ASSETS: assets as unknown as Fetcher,
+    PRISMA: prisma,
     APP_URL: config.APP_URL,
     AUTH_PASSWORD: config.AUTH_PASSWORD,
     GOOGLE_CLIENT_ID: config.GOOGLE_CLIENT_ID,

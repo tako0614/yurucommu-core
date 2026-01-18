@@ -1,4 +1,4 @@
-﻿import { Hono } from 'hono';
+import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { generateId, objectApId, activityApId, formatUsername, isLocal, safeJsonParse } from '../../utils';
 import { MAX_POST_CONTENT_LENGTH, MAX_POST_SUMMARY_LENGTH, MAX_POSTS_PAGE_LIMIT, extractMentions, formatPost, normalizeVisibility, parseLimit, PostRow } from './utils';
@@ -22,27 +22,6 @@ type CreatePostBody = {
   community_ap_id?: string;
 };
 
-type CommunityPolicyRow = {
-  ap_id: string;
-  post_policy: string | null;
-};
-
-type CommunityMemberRoleRow = {
-  role: 'owner' | 'moderator' | 'member';
-};
-
-type ApIdRow = {
-  ap_id: string;
-};
-
-type AttributedToRow = {
-  attributed_to: string;
-};
-
-type FollowerRow = {
-  follower_ap_id: string;
-};
-
 type PostDetailRow = PostRow & {
   to_json?: string | null;
   bookmarked?: number;
@@ -52,6 +31,7 @@ type PostDetailRow = PostRow & {
 posts.post('/', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+  const prisma = c.get('prisma');
 
   const body = await c.req.json<CreatePostBody>();
 
@@ -71,22 +51,34 @@ posts.post('/', async (c) => {
   const visibility = normalizeVisibility(body.visibility);
   let communityId: string | null = null;
   if (body.community_ap_id) {
-    const community = await c.env.DB.prepare(
-      'SELECT ap_id, post_policy FROM communities WHERE ap_id = ? OR preferred_username = ?'
-    ).bind(body.community_ap_id, body.community_ap_id).first<CommunityPolicyRow>();
+    const community = await prisma.community.findFirst({
+      where: {
+        OR: [
+          { apId: body.community_ap_id },
+          { preferredUsername: body.community_ap_id }
+        ]
+      },
+      select: { apId: true, postPolicy: true }
+    });
 
     if (!community) {
       return c.json({ error: 'Community not found' }, 404);
     }
 
-    communityId = community.ap_id;
+    communityId = community.apId;
 
-    const membership = await c.env.DB.prepare(
-      'SELECT role FROM community_members WHERE community_ap_id = ? AND actor_ap_id = ?'
-    ).bind(community.ap_id, actor.ap_id).first<CommunityMemberRoleRow>();
+    const membership = await prisma.communityMember.findUnique({
+      where: {
+        communityApId_actorApId: {
+          communityApId: community.apId,
+          actorApId: actor.ap_id
+        }
+      },
+      select: { role: true }
+    });
 
-    const policy = community.post_policy || 'members';
-    const role = membership?.role;
+    const policy = community.postPolicy || 'members';
+    const role = membership?.role as 'owner' | 'moderator' | 'member' | undefined;
     const isManager = role === 'owner' || role === 'moderator';
 
     if (policy !== 'anyone' && !membership) {
@@ -107,20 +99,21 @@ posts.post('/', async (c) => {
 
   // Insert the post
   try {
-    await c.env.DB.prepare(`
-      INSERT INTO objects (ap_id, type, attributed_to, content, summary, attachments_json, in_reply_to, visibility, community_ap_id, published, is_local)
-      VALUES (?, 'Note', ?, ?, ?, ?, ?, ?, ?, ?, 1)
-    `).bind(
-      apId,
-      actor.ap_id,
-      content,
-      summary || null,
-      JSON.stringify(body.attachments || []),
-      body.in_reply_to || null,
-      visibility,
-      communityId,
-      now
-    ).run();
+    await prisma.object.create({
+      data: {
+        apId: apId,
+        type: 'Note',
+        attributedTo: actor.ap_id,
+        content: content,
+        summary: summary || null,
+        attachmentsJson: JSON.stringify(body.attachments || []),
+        inReplyTo: body.in_reply_to || null,
+        visibility: visibility,
+        communityApId: communityId,
+        published: now,
+        isLocal: 1
+      }
+    });
   } catch (e) {
     console.error('[Posts] Failed to insert post:', e);
     return c.json({ error: 'Failed to create post' }, 500);
@@ -128,7 +121,10 @@ posts.post('/', async (c) => {
 
   // Update author's post count
   try {
-    await c.env.DB.prepare('UPDATE actors SET post_count = post_count + 1 WHERE ap_id = ?').bind(actor.ap_id).run();
+    await prisma.actor.update({
+      where: { apId: actor.ap_id },
+      data: { postCount: { increment: 1 } }
+    });
   } catch (e) {
     console.error('[Posts] Failed to update post count:', e);
     // Non-critical error, continue
@@ -137,7 +133,10 @@ posts.post('/', async (c) => {
   // If replying to someone, update reply count
   if (body.in_reply_to) {
     try {
-      await c.env.DB.prepare('UPDATE objects SET reply_count = reply_count + 1 WHERE ap_id = ?').bind(body.in_reply_to).run();
+      await prisma.object.update({
+        where: { apId: body.in_reply_to },
+        data: { replyCount: { increment: 1 } }
+      });
     } catch (e) {
       console.error('[Posts] Failed to update reply count:', e);
       // Non-critical error, continue
@@ -145,20 +144,39 @@ posts.post('/', async (c) => {
 
     // Add to inbox of the post author being replied to (AP Native notification)
     try {
-      const parentPost = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(body.in_reply_to).first<AttributedToRow>();
-      if (parentPost && parentPost.attributed_to !== actor.ap_id && isLocal(parentPost.attributed_to, baseUrl)) {
+      const parentPost = await prisma.object.findUnique({
+        where: { apId: body.in_reply_to },
+        select: { attributedTo: true }
+      });
+      if (parentPost && parentPost.attributedTo !== actor.ap_id && isLocal(parentPost.attributedTo, baseUrl)) {
         // Create activity for the inbox
         const replyActivityId = activityApId(baseUrl, generateId());
-        await c.env.DB.prepare(`
-          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, published, local)
-          VALUES (?, 'Create', ?, ?, ?, 1)
-        `).bind(replyActivityId, actor.ap_id, apId, now).run();
+        await prisma.activity.create({
+          data: {
+            apId: replyActivityId,
+            type: 'Create',
+            actorApId: actor.ap_id,
+            objectApId: apId,
+            rawJson: JSON.stringify({
+              '@context': 'https://www.w3.org/ns/activitystreams',
+              id: replyActivityId,
+              type: 'Create',
+              actor: actor.ap_id,
+              object: apId
+            }),
+            createdAt: now
+          }
+        });
 
         // Add to recipient's inbox
-        await c.env.DB.prepare(`
-          INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
-          VALUES (?, ?, 0, ?)
-        `).bind(parentPost.attributed_to, replyActivityId, now).run();
+        await prisma.inbox.create({
+          data: {
+            actorApId: parentPost.attributedTo,
+            activityApId: replyActivityId,
+            read: 0,
+            createdAt: now
+          }
+        });
       }
     } catch (e) {
       console.error('[Posts] Failed to create reply notification:', e);
@@ -175,37 +193,61 @@ posts.post('/', async (c) => {
       if (mention.includes('@')) {
         // Remote mention @username@domain - lookup in actor_cache
         const [username, domain] = mention.split('@');
-        const cached = await c.env.DB.prepare(
-          `SELECT ap_id FROM actor_cache WHERE preferred_username = ? AND ap_id LIKE ?`
-        ).bind(username, `%${domain}%`).first<ApIdRow>();
-        if (cached) mentionedActorApId = cached.ap_id;
+        const cached = await prisma.actorCache.findFirst({
+          where: {
+            preferredUsername: username,
+            apId: { contains: domain }
+          },
+          select: { apId: true }
+        });
+        if (cached) mentionedActorApId = cached.apId;
       } else {
         // Local mention @username
-        const localActor = await c.env.DB.prepare(
-          `SELECT ap_id FROM actors WHERE preferred_username = ?`
-        ).bind(mention).first<ApIdRow>();
-        if (localActor) mentionedActorApId = localActor.ap_id;
+        const localActor = await prisma.actor.findUnique({
+          where: { preferredUsername: mention },
+          select: { apId: true }
+        });
+        if (localActor) mentionedActorApId = localActor.apId;
       }
 
       // Skip if not found, is self, or already notified as reply recipient
       if (!mentionedActorApId || mentionedActorApId === actor.ap_id) continue;
       if (body.in_reply_to) {
-        const parentPost = await c.env.DB.prepare('SELECT attributed_to FROM objects WHERE ap_id = ?').bind(body.in_reply_to).first<AttributedToRow>();
-        if (parentPost?.attributed_to === mentionedActorApId) continue; // Already notified via reply
+        const parentPost = await prisma.object.findUnique({
+          where: { apId: body.in_reply_to },
+          select: { attributedTo: true }
+        });
+        if (parentPost?.attributedTo === mentionedActorApId) continue; // Already notified via reply
       }
 
       // Create mention activity if local
       if (isLocal(mentionedActorApId, baseUrl)) {
         const mentionActivityId = activityApId(baseUrl, generateId());
-        await c.env.DB.prepare(`
-          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, published, local)
-          VALUES (?, 'Create', ?, ?, ?, 1)
-        `).bind(mentionActivityId, actor.ap_id, apId, now).run();
+        await prisma.activity.create({
+          data: {
+            apId: mentionActivityId,
+            type: 'Create',
+            actorApId: actor.ap_id,
+            objectApId: apId,
+            rawJson: JSON.stringify({
+              '@context': 'https://www.w3.org/ns/activitystreams',
+              id: mentionActivityId,
+              type: 'Create',
+              actor: actor.ap_id,
+              object: apId
+            }),
+            createdAt: now
+          }
+        });
 
-        await c.env.DB.prepare(`
-          INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
-          VALUES (?, ?, 0, ?)
-        `).bind(mentionedActorApId, mentionActivityId, now).run();
+        await prisma.inbox.create({
+          data: {
+            actorApId: mentionedActorApId,
+            activityApId: mentionActivityId,
+            read: 0,
+            createdAt: now
+          }
+        });
       }
     } catch (e) {
       console.error(`Failed to process mention ${mention}:`, e);
@@ -214,11 +256,14 @@ posts.post('/', async (c) => {
 
   // Federate to followers if visibility is public
   if (visibility !== 'direct') {
-    const followers = await c.env.DB.prepare(`
-      SELECT DISTINCT f.follower_ap_id
-      FROM follows f
-      WHERE f.following_ap_id = ? AND f.status = 'accepted'
-    `).bind(actor.ap_id).all<FollowerRow>();
+    const followers = await prisma.follow.findMany({
+      where: {
+        followingApId: actor.ap_id,
+        status: 'accepted'
+      },
+      select: { followerApId: true },
+      distinct: ['followerApId']
+    });
 
     const createActivity = {
       '@context': 'https://www.w3.org/ns/activitystreams',
@@ -239,16 +284,22 @@ posts.post('/', async (c) => {
     };
 
     // Send to remote followers
-    const remoteFollowers = (followers.results || []).filter((f: FollowerRow) => !isLocal(f.follower_ap_id, baseUrl));
+    const remoteFollowers = followers.filter((f) => !isLocal(f.followerApId, baseUrl));
     for (const follower of remoteFollowers) {
-      await deliverActivity(c.env.DB, actor, follower.follower_ap_id, createActivity);
+      await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, follower.followerApId, createActivity);
     }
 
     // Store activity
-    await c.env.DB.prepare(`
-      INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-      VALUES (?, 'Create', ?, ?, ?, 'outbound')
-    `).bind(createActivity.id, actor.ap_id, apId, JSON.stringify(createActivity)).run();
+    await prisma.activity.create({
+      data: {
+        apId: createActivity.id,
+        type: 'Create',
+        actorApId: actor.ap_id,
+        objectApId: apId,
+        rawJson: JSON.stringify(createActivity),
+        direction: 'outbound'
+      }
+    });
   }
 
   return c.json({
@@ -279,31 +330,87 @@ posts.get('/:id', async (c) => {
   const currentActor = c.get('actor');
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
+  const prisma = c.get('prisma');
 
-  // Try to find the post
-  let post = await c.env.DB.prepare(`
-    SELECT o.*,
-           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
-           COALESCE(a.name, ac.name) as author_name,
-           COALESCE(a.icon_url, ac.icon_url) as author_icon_url
-           ${currentActor ? ', EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked, EXISTS(SELECT 1 FROM bookmarks b WHERE b.object_ap_id = o.ap_id AND b.actor_ap_id = ?) as bookmarked' : ''}
-    FROM objects o
-    LEFT JOIN actors a ON o.attributed_to = a.ap_id
-    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    WHERE o.ap_id = ? OR o.ap_id = ?
-  `).bind(...(currentActor ? [currentActor.ap_id, currentActor.ap_id] : []), objectApId(baseUrl, postId), postId).first<PostDetailRow>();
+  // Try to find the post with author info
+  const postApId = objectApId(baseUrl, postId);
+  const post = await prisma.object.findFirst({
+    where: {
+      OR: [
+        { apId: postApId },
+        { apId: postId }
+      ]
+    },
+    include: {
+      author: {
+        select: {
+          preferredUsername: true,
+          name: true,
+          iconUrl: true
+        }
+      }
+    }
+  });
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
+
+  // Try to get cached actor info if author is remote
+  let authorUsername: string | null | undefined = post.author?.preferredUsername;
+  let authorName: string | null | undefined = post.author?.name;
+  let authorIconUrl: string | null | undefined = post.author?.iconUrl;
+
+  if (!authorUsername) {
+    const cachedActor = await prisma.actorCache.findUnique({
+      where: { apId: post.attributedTo },
+      select: { preferredUsername: true, name: true, iconUrl: true }
+    });
+    if (cachedActor) {
+      authorUsername = cachedActor.preferredUsername;
+      authorName = cachedActor.name;
+      authorIconUrl = cachedActor.iconUrl;
+    }
+  }
+
+  // Check liked and bookmarked status
+  let liked = false;
+  let bookmarked = false;
+  if (currentActor) {
+    const likeExists = await prisma.like.findUnique({
+      where: {
+        actorApId_objectApId: {
+          actorApId: currentActor.ap_id,
+          objectApId: post.apId
+        }
+      }
+    });
+    liked = !!likeExists;
+
+    const bookmarkExists = await prisma.bookmark.findUnique({
+      where: {
+        actorApId_objectApId: {
+          actorApId: currentActor.ap_id,
+          objectApId: post.apId
+        }
+      }
+    });
+    bookmarked = !!bookmarkExists;
+  }
 
   // Check visibility
   if (post.visibility === 'followers') {
     if (!currentActor) {
       return c.json({ error: 'Post not found' }, 404);
     }
-    if (currentActor.ap_id !== post.attributed_to) {
-      const follows = await c.env.DB.prepare(
-        'SELECT 1 FROM follows WHERE follower_ap_id = ? AND following_ap_id = ? AND status = ?'
-      ).bind(currentActor.ap_id, post.attributed_to, 'accepted').first();
+    if (currentActor.ap_id !== post.attributedTo) {
+      const follows = await prisma.follow.findUnique({
+        where: {
+          followerApId_followingApId: {
+            followerApId: currentActor.ap_id,
+            followingApId: post.attributedTo
+          },
+          status: 'accepted'
+        }
+      });
       if (!follows) {
         return c.json({ error: 'Post not found' }, 404);
       }
@@ -314,15 +421,38 @@ posts.get('/:id', async (c) => {
     if (!currentActor) {
       return c.json({ error: 'Post not found' }, 404);
     }
-    if (currentActor.ap_id !== post.attributed_to) {
-      const recipients = safeJsonParse<string[]>(post.to_json, []);
+    if (currentActor.ap_id !== post.attributedTo) {
+      const recipients = safeJsonParse<string[]>(post.toJson, []);
       if (!recipients.includes(currentActor.ap_id)) {
         return c.json({ error: 'Post not found' }, 404);
       }
     }
   }
 
-  return c.json({ post: formatPost(post, currentActor?.ap_id) });
+  // Build PostRow-compatible object for formatPost
+  const postRow: PostDetailRow = {
+    ap_id: post.apId,
+    type: post.type,
+    attributed_to: post.attributedTo,
+    author_username: authorUsername || null,
+    author_name: authorName || null,
+    author_icon_url: authorIconUrl || null,
+    content: post.content,
+    summary: post.summary,
+    attachments_json: post.attachmentsJson,
+    in_reply_to: post.inReplyTo,
+    visibility: post.visibility,
+    community_ap_id: post.communityApId,
+    like_count: post.likeCount,
+    reply_count: post.replyCount,
+    announce_count: post.announceCount,
+    published: post.published,
+    liked: liked ? 1 : 0,
+    bookmarked: bookmarked ? 1 : 0,
+    to_json: post.toJson
+  };
+
+  return c.json({ post: formatPost(postRow, currentActor?.ap_id) });
 });
 
 // Get post replies
@@ -332,38 +462,116 @@ posts.get('/:id/replies', async (c) => {
   const baseUrl = c.env.APP_URL;
   const limit = parseLimit(c.req.query('limit'), 20, MAX_POSTS_PAGE_LIMIT);
   const before = c.req.query('before');
+  const prisma = c.get('prisma');
 
   // Verify post exists
-  const parentPost = await c.env.DB.prepare('SELECT ap_id FROM objects WHERE ap_id = ? OR ap_id = ?')
-    .bind(objectApId(baseUrl, postId), postId).first<ApIdRow>();
+  const postApId = objectApId(baseUrl, postId);
+  const parentPost = await prisma.object.findFirst({
+    where: {
+      OR: [
+        { apId: postApId },
+        { apId: postId }
+      ]
+    },
+    select: { apId: true }
+  });
 
   if (!parentPost) return c.json({ error: 'Post not found' }, 404);
 
-  let query = `
-    SELECT o.*,
-           COALESCE(a.preferred_username, ac.preferred_username) as author_username,
-           COALESCE(a.name, ac.name) as author_name,
-           COALESCE(a.icon_url, ac.icon_url) as author_icon_url
-           ${currentActor ? ', EXISTS(SELECT 1 FROM likes l WHERE l.object_ap_id = o.ap_id AND l.actor_ap_id = ?) as liked, EXISTS(SELECT 1 FROM bookmarks b WHERE b.object_ap_id = o.ap_id AND b.actor_ap_id = ?) as bookmarked' : ''}
-    FROM objects o
-    LEFT JOIN actors a ON o.attributed_to = a.ap_id
-    LEFT JOIN actor_cache ac ON o.attributed_to = ac.ap_id
-    WHERE o.in_reply_to = ?
-  `;
-  const params: Array<string | number | null> = currentActor ? [currentActor.ap_id, currentActor.ap_id] : [];
-  params.push(parentPost.ap_id);
+  // Build where clause
+  const whereClause: {
+    inReplyTo: string;
+    published?: { lt: string };
+  } = {
+    inReplyTo: parentPost.apId
+  };
 
   if (before) {
-    query += ` AND o.published < ?`;
-    params.push(before);
+    whereClause.published = { lt: before };
   }
 
-  query += ` ORDER BY o.published DESC LIMIT ?`;
-  params.push(limit);
+  // Get replies
+  const replies = await prisma.object.findMany({
+    where: whereClause,
+    include: {
+      author: {
+        select: {
+          preferredUsername: true,
+          name: true,
+          iconUrl: true
+        }
+      }
+    },
+    orderBy: { published: 'desc' },
+    take: limit
+  });
 
-  const replies = await c.env.DB.prepare(query).bind(...params).all<PostRow>();
+  // Process replies to match PostRow format
+  const result = await Promise.all(replies.map(async (reply) => {
+    // Get author info (from local actor or cache)
+    let authorUsername: string | null | undefined = reply.author?.preferredUsername;
+    let authorName: string | null | undefined = reply.author?.name;
+    let authorIconUrl: string | null | undefined = reply.author?.iconUrl;
 
-  const result = (replies.results || []).map((r) => formatPost(r, currentActor?.ap_id));
+    if (!authorUsername) {
+      const cachedActor = await prisma.actorCache.findUnique({
+        where: { apId: reply.attributedTo },
+        select: { preferredUsername: true, name: true, iconUrl: true }
+      });
+      if (cachedActor) {
+        authorUsername = cachedActor.preferredUsername;
+        authorName = cachedActor.name;
+        authorIconUrl = cachedActor.iconUrl;
+      }
+    }
+
+    // Check liked and bookmarked status
+    let liked = false;
+    let bookmarked = false;
+    if (currentActor) {
+      const likeExists = await prisma.like.findUnique({
+        where: {
+          actorApId_objectApId: {
+            actorApId: currentActor.ap_id,
+            objectApId: reply.apId
+          }
+        }
+      });
+      liked = !!likeExists;
+
+      const bookmarkExists = await prisma.bookmark.findUnique({
+        where: {
+          actorApId_objectApId: {
+            actorApId: currentActor.ap_id,
+            objectApId: reply.apId
+          }
+        }
+      });
+      bookmarked = !!bookmarkExists;
+    }
+
+    const postRow: PostRow = {
+      ap_id: reply.apId,
+      type: reply.type,
+      attributed_to: reply.attributedTo,
+      author_username: authorUsername || null,
+      author_name: authorName || null,
+      author_icon_url: authorIconUrl || null,
+      content: reply.content,
+      summary: reply.summary,
+      attachments_json: reply.attachmentsJson,
+      in_reply_to: reply.inReplyTo,
+      visibility: reply.visibility,
+      community_ap_id: reply.communityApId,
+      like_count: reply.likeCount,
+      reply_count: reply.replyCount,
+      announce_count: reply.announceCount,
+      published: reply.published,
+      liked: liked ? 1 : 0
+    };
+
+    return formatPost(postRow, currentActor?.ap_id);
+  }));
 
   return c.json({ replies: result });
 });
@@ -376,15 +584,23 @@ posts.patch('/:id', async (c) => {
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
   const body = await c.req.json<{ content?: string; summary?: string }>();
+  const prisma = c.get('prisma');
 
   // Get the post
-  const post = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? OR ap_id = ?')
-    .bind(objectApId(baseUrl, postId), postId).first<PostDetailRow>();
+  const postApId = objectApId(baseUrl, postId);
+  const post = await prisma.object.findFirst({
+    where: {
+      OR: [
+        { apId: postApId },
+        { apId: postId }
+      ]
+    }
+  });
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
   // Only author can edit
-  if (post.attributed_to !== actor.ap_id) {
+  if (post.attributedTo !== actor.ap_id) {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
@@ -411,34 +627,42 @@ posts.patch('/:id', async (c) => {
   const nextSummary = body.summary !== undefined ? trimmedSummary || null : post.summary;
 
   const now = new Date().toISOString();
-  const updates: string[] = [];
-  const params: Array<string | number | null> = [];
+
+  // Build update data
+  const updateData: {
+    content?: string;
+    summary?: string | null;
+    updated: string;
+  } = {
+    updated: now
+  };
 
   if (body.content !== undefined) {
-    updates.push('content = ?');
-    params.push(trimmedContent ?? null);
+    updateData.content = trimmedContent;
   }
   if (body.summary !== undefined) {
-    updates.push('summary = ?');
-    params.push(trimmedSummary || null);
+    updateData.summary = trimmedSummary || null;
   }
-  updates.push('updated_at = ?');
-  params.push(now);
 
-  if (updates.length === 1) {
+  if (Object.keys(updateData).length === 1) {
+    // Only updated timestamp, no real changes
     return c.json({ error: 'No changes provided' }, 400);
   }
 
-  params.push(post.ap_id);
-
-  await c.env.DB.prepare(`UPDATE objects SET ${updates.join(', ')} WHERE ap_id = ?`).bind(...params).run();
+  await prisma.object.update({
+    where: { apId: post.apId },
+    data: updateData
+  });
 
   // Send Update activity to followers
-  const followers = await c.env.DB.prepare(`
-    SELECT DISTINCT f.follower_ap_id
-    FROM follows f
-    WHERE f.following_ap_id = ? AND f.status = 'accepted'
-  `).bind(actor.ap_id).all<FollowerRow>();
+  const followers = await prisma.follow.findMany({
+    where: {
+      followingApId: actor.ap_id,
+      status: 'accepted'
+    },
+    select: { followerApId: true },
+    distinct: ['followerApId']
+  });
 
   const updateActivity = {
     '@context': 'https://www.w3.org/ns/activitystreams',
@@ -446,7 +670,7 @@ posts.patch('/:id', async (c) => {
     type: 'Update',
     actor: actor.ap_id,
     object: {
-      id: post.ap_id,
+      id: post.apId,
       type: 'Note',
       attributedTo: actor.ap_id,
       content: nextContent,
@@ -456,21 +680,27 @@ posts.patch('/:id', async (c) => {
   };
 
   // Send to remote followers
-  const remoteFollowers = (followers.results || []).filter((f: FollowerRow) => !isLocal(f.follower_ap_id, baseUrl));
+  const remoteFollowers = followers.filter((f) => !isLocal(f.followerApId, baseUrl));
   for (const follower of remoteFollowers) {
-    await deliverActivity(c.env.DB, actor, follower.follower_ap_id, updateActivity);
+    await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, follower.followerApId, updateActivity);
   }
 
   // Store activity
-  await c.env.DB.prepare(`
-    INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-    VALUES (?, 'Update', ?, ?, ?, 'outbound')
-  `).bind(updateActivity.id, actor.ap_id, post.ap_id, JSON.stringify(updateActivity)).run();
+  await prisma.activity.create({
+    data: {
+      apId: updateActivity.id,
+      type: 'Update',
+      actorApId: actor.ap_id,
+      objectApId: post.apId,
+      rawJson: JSON.stringify(updateActivity),
+      direction: 'outbound'
+    }
+  });
 
   return c.json({
     success: true,
     post: {
-      ap_id: post.ap_id,
+      ap_id: post.apId,
       content: nextContent,
       summary: nextSummary,
       updated_at: now,
@@ -485,50 +715,75 @@ posts.delete('/:id', async (c) => {
 
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
+  const prisma = c.get('prisma');
 
   // Get the post
-  const post = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? OR ap_id = ?')
-    .bind(objectApId(baseUrl, postId), postId).first<PostDetailRow>();
+  const postApId = objectApId(baseUrl, postId);
+  const post = await prisma.object.findFirst({
+    where: {
+      OR: [
+        { apId: postApId },
+        { apId: postId }
+      ]
+    }
+  });
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
   // Only author can delete
-  if (post.attributed_to !== actor.ap_id) {
+  if (post.attributedTo !== actor.ap_id) {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
   // Delete the post
-  await c.env.DB.prepare('DELETE FROM objects WHERE ap_id = ?').bind(post.ap_id).run();
+  await prisma.object.delete({
+    where: { apId: post.apId }
+  });
 
   // Update author's post count
-  await c.env.DB.prepare('UPDATE actors SET post_count = post_count - 1 WHERE ap_id = ? AND post_count > 0')
-    .bind(actor.ap_id).run();
+  await prisma.actor.update({
+    where: { apId: actor.ap_id },
+    data: {
+      postCount: { decrement: 1 }
+    }
+  });
 
   // If this was a reply, update parent's reply count
-  if (post.in_reply_to) {
-    await c.env.DB.prepare('UPDATE objects SET reply_count = reply_count - 1 WHERE ap_id = ? AND reply_count > 0')
-      .bind(post.in_reply_to).run();
+  if (post.inReplyTo) {
+    try {
+      await prisma.object.update({
+        where: { apId: post.inReplyTo },
+        data: {
+          replyCount: { decrement: 1 }
+        }
+      });
+    } catch (e) {
+      // Parent post may not exist, ignore error
+    }
   }
 
   // Send Delete activity to followers
-  const followers = await c.env.DB.prepare(`
-    SELECT DISTINCT f.follower_ap_id
-    FROM follows f
-    WHERE f.following_ap_id = ? AND f.status = 'accepted'
-  `).bind(actor.ap_id).all<FollowerRow>();
+  const followers = await prisma.follow.findMany({
+    where: {
+      followingApId: actor.ap_id,
+      status: 'accepted'
+    },
+    select: { followerApId: true },
+    distinct: ['followerApId']
+  });
 
   const deleteActivity = {
     '@context': 'https://www.w3.org/ns/activitystreams',
     id: activityApId(baseUrl, generateId()),
     type: 'Delete',
     actor: actor.ap_id,
-    object: post.ap_id,
+    object: post.apId,
   };
 
   // Send to remote followers
-  const remoteFollowers = (followers.results || []).filter((f: FollowerRow) => !isLocal(f.follower_ap_id, baseUrl));
+  const remoteFollowers = followers.filter((f) => !isLocal(f.followerApId, baseUrl));
   for (const follower of remoteFollowers) {
-    await deliverActivity(c.env.DB, actor, follower.follower_ap_id, deleteActivity);
+    await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, follower.followerApId, deleteActivity);
   }
 
   return c.json({ success: true });

@@ -1,29 +1,8 @@
 import { Hono } from 'hono';
-import type { Env, Variables, ActorCache } from '../types';
+import type { Env, Variables } from '../types';
 import { generateId, activityApId, isLocal, formatUsername, signRequest, isSafeRemoteUrl } from '../utils';
 
 const follow = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-type ActorPrivacyRow = {
-  is_private: number;
-};
-
-type FollowRow = {
-  status: string;
-  activity_ap_id: string;
-};
-
-type ActorCacheInboxRow = {
-  inbox: string | null;
-};
-
-type FollowRequestRow = {
-  follower_ap_id: string;
-  preferred_username: string | null;
-  name: string | null;
-  icon_url: string | null;
-  created_at: string;
-};
 
 type RemoteActor = {
   id: string;
@@ -48,11 +27,14 @@ follow.post('/', async (c) => {
 
   const baseUrl = c.env.APP_URL;
   const targetApId = body.target_ap_id;
+  const prisma = c.get('prisma');
 
   // Check if already following
-  const existing = await c.env.DB.prepare(
-    'SELECT * FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?'
-  ).bind(actor.ap_id, targetApId).first();
+  const existing = await prisma.follow.findUnique({
+    where: {
+      followerApId_followingApId: { followerApId: actor.ap_id, followingApId: targetApId },
+    },
+  });
 
   if (existing) return c.json({ error: 'Already following or pending' }, 400);
 
@@ -61,40 +43,71 @@ follow.post('/', async (c) => {
 
   if (isLocalTarget) {
     // Local target - check if they require approval
-    const target = await c.env.DB.prepare('SELECT is_private FROM actors WHERE ap_id = ?').bind(targetApId).first<ActorPrivacyRow>();
+    const target = await prisma.actor.findUnique({
+      where: { apId: targetApId },
+      select: { isPrivate: true },
+    });
     if (!target) return c.json({ error: 'Target actor not found' }, 404);
 
-    const status = target.is_private ? 'pending' : 'accepted';
+    const status = target.isPrivate ? 'pending' : 'accepted';
     const activityId = activityApId(baseUrl, generateId());
+    const now = new Date().toISOString();
 
-    await c.env.DB.prepare(`
-      INSERT INTO follows (follower_ap_id, following_ap_id, status, activity_ap_id, accepted_at)
-      VALUES (?, ?, ?, ?, ${status === 'accepted' ? "datetime('now')" : 'NULL'})
-    `).bind(actor.ap_id, targetApId, status, activityId).run();
+    await prisma.follow.create({
+      data: {
+        followerApId: actor.ap_id,
+        followingApId: targetApId,
+        status,
+        activityApId: activityId,
+        acceptedAt: status === 'accepted' ? now : null,
+      },
+    });
 
     // Update counts if accepted
     if (status === 'accepted') {
-      await c.env.DB.prepare('UPDATE actors SET following_count = following_count + 1 WHERE ap_id = ?').bind(actor.ap_id).run();
-      await c.env.DB.prepare('UPDATE actors SET follower_count = follower_count + 1 WHERE ap_id = ?').bind(targetApId).run();
+      await prisma.actor.update({
+        where: { apId: actor.ap_id },
+        data: { followingCount: { increment: 1 } },
+      });
+      await prisma.actor.update({
+        where: { apId: targetApId },
+        data: { followerCount: { increment: 1 } },
+      });
     }
 
     // Store Follow activity and add to inbox (AP Native notification)
-    const now = new Date().toISOString();
-    await c.env.DB.prepare(`
-      INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, published, local)
-      VALUES (?, 'Follow', ?, ?, ?, 1)
-    `).bind(activityId, actor.ap_id, targetApId, now).run();
+    await prisma.activity.create({
+      data: {
+        apId: activityId,
+        type: 'Follow',
+        actorApId: actor.ap_id,
+        objectApId: targetApId,
+        rawJson: JSON.stringify({
+          '@context': 'https://www.w3.org/ns/activitystreams',
+          id: activityId,
+          type: 'Follow',
+          actor: actor.ap_id,
+          object: targetApId,
+        }),
+        direction: 'local',
+      },
+    });
 
-    await c.env.DB.prepare(`
-      INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
-      VALUES (?, ?, 0, ?)
-    `).bind(targetApId, activityId, now).run();
+    await prisma.inbox.create({
+      data: {
+        actorApId: targetApId,
+        activityApId: activityId,
+        read: 0,
+      },
+    });
 
     return c.json({ success: true, status });
   } else {
     // Remote target - send Follow activity
     // First, ensure we have cached the remote actor
-    let cachedActor = await c.env.DB.prepare('SELECT * FROM actor_cache WHERE ap_id = ?').bind(targetApId).first<ActorCache>();
+    let cachedActor = await prisma.actorCache.findUnique({
+      where: { apId: targetApId },
+    });
 
     if (!cachedActor) {
       // Fetch remote actor
@@ -116,24 +129,22 @@ follow.post('/', async (c) => {
         ) {
           return c.json({ error: 'Invalid remote actor data' }, 400);
         }
-        await c.env.DB.prepare(`
-          INSERT INTO actor_cache (ap_id, type, preferred_username, name, summary, icon_url, inbox, outbox, public_key_id, public_key_pem, raw_json)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(
-          actorData.id,
-          actorData.type,
-          actorData.preferredUsername,
-          actorData.name,
-          actorData.summary,
-          actorData.icon?.url,
-          actorData.inbox,
-          actorData.outbox,
-          actorData.publicKey?.id,
-          actorData.publicKey?.publicKeyPem,
-          JSON.stringify(actorData)
-        ).run();
 
-        cachedActor = await c.env.DB.prepare('SELECT * FROM actor_cache WHERE ap_id = ?').bind(targetApId).first<ActorCache>();
+        cachedActor = await prisma.actorCache.create({
+          data: {
+            apId: actorData.id,
+            type: actorData.type || 'Person',
+            preferredUsername: actorData.preferredUsername || null,
+            name: actorData.name || null,
+            summary: actorData.summary || null,
+            iconUrl: actorData.icon?.url || null,
+            inbox: actorData.inbox,
+            outbox: actorData.outbox || null,
+            publicKeyId: actorData.publicKey?.id || null,
+            publicKeyPem: actorData.publicKey?.publicKeyPem || null,
+            rawJson: JSON.stringify(actorData),
+          },
+        });
       } catch (e) {
         return c.json({ error: 'Failed to fetch remote actor' }, 400);
       }
@@ -145,10 +156,14 @@ follow.post('/', async (c) => {
 
     // Create pending follow
     const activityId = activityApId(baseUrl, generateId());
-    await c.env.DB.prepare(`
-      INSERT INTO follows (follower_ap_id, following_ap_id, status, activity_ap_id)
-      VALUES (?, ?, 'pending', ?)
-    `).bind(actor.ap_id, targetApId, activityId).run();
+    await prisma.follow.create({
+      data: {
+        followerApId: actor.ap_id,
+        followingApId: targetApId,
+        status: 'pending',
+        activityApId: activityId,
+      },
+    });
 
     // Send Follow activity
     const followActivity = {
@@ -160,10 +175,10 @@ follow.post('/', async (c) => {
     };
 
     const keyId = `${actor.ap_id}#main-key`;
-    const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor!.inbox, JSON.stringify(followActivity));
+    const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(followActivity));
 
     try {
-      await fetch(cachedActor!.inbox, {
+      await fetch(cachedActor.inbox, {
         method: 'POST',
         headers: {
           ...headers,
@@ -176,10 +191,16 @@ follow.post('/', async (c) => {
     }
 
     // Store activity
-    await c.env.DB.prepare(`
-      INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-      VALUES (?, 'Follow', ?, ?, ?, 'outbound')
-    `).bind(activityId, actor.ap_id, targetApId, JSON.stringify(followActivity)).run();
+    await prisma.activity.create({
+      data: {
+        apId: activityId,
+        type: 'Follow',
+        actorApId: actor.ap_id,
+        objectApId: targetApId,
+        rawJson: JSON.stringify(followActivity),
+        direction: 'outbound',
+      },
+    });
 
     return c.json({ success: true, status: 'pending' });
   }
@@ -195,31 +216,44 @@ follow.delete('/', async (c) => {
 
   const baseUrl = c.env.APP_URL;
   const targetApId = body.target_ap_id;
+  const prisma = c.get('prisma');
 
-  const existingFollow = await c.env.DB.prepare(
-    'SELECT * FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?'
-  ).bind(actor.ap_id, targetApId).first<FollowRow>();
+  const existingFollow = await prisma.follow.findUnique({
+    where: {
+      followerApId_followingApId: { followerApId: actor.ap_id, followingApId: targetApId },
+    },
+  });
 
   if (!existingFollow) return c.json({ error: 'Not following' }, 400);
 
   // Delete the follow
-  await c.env.DB.prepare('DELETE FROM follows WHERE follower_ap_id = ? AND following_ap_id = ?')
-    .bind(actor.ap_id, targetApId).run();
+  await prisma.follow.delete({
+    where: {
+      followerApId_followingApId: { followerApId: actor.ap_id, followingApId: targetApId },
+    },
+  });
 
   // Update counts if was accepted
   if (existingFollow.status === 'accepted') {
-    await c.env.DB.prepare('UPDATE actors SET following_count = following_count - 1 WHERE ap_id = ? AND following_count > 0')
-      .bind(actor.ap_id).run();
+    await prisma.actor.update({
+      where: { apId: actor.ap_id },
+      data: { followingCount: { decrement: 1 } },
+    }).catch(() => {});
 
     if (isLocal(targetApId, baseUrl)) {
-      await c.env.DB.prepare('UPDATE actors SET follower_count = follower_count - 1 WHERE ap_id = ? AND follower_count > 0')
-        .bind(targetApId).run();
+      await prisma.actor.update({
+        where: { apId: targetApId },
+        data: { followerCount: { decrement: 1 } },
+      }).catch(() => {});
     }
   }
 
   // Send Undo Follow to remote
   if (!isLocal(targetApId, baseUrl)) {
-    const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(targetApId).first<ActorCacheInboxRow>();
+    const cachedActor = await prisma.actorCache.findUnique({
+      where: { apId: targetApId },
+      select: { inbox: true },
+    });
     if (cachedActor?.inbox) {
       if (isSafeRemoteUrl(cachedActor.inbox)) {
         const activityId = activityApId(baseUrl, generateId());
@@ -249,10 +283,16 @@ follow.delete('/', async (c) => {
         }
 
         // Store activity
-        await c.env.DB.prepare(`
-          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-          VALUES (?, 'Undo', ?, ?, ?, 'outbound')
-        `).bind(activityId, actor.ap_id, targetApId, JSON.stringify(undoActivity)).run();
+        await prisma.activity.create({
+          data: {
+            apId: activityId,
+            type: 'Undo',
+            actorApId: actor.ap_id,
+            objectApId: targetApId,
+            rawJson: JSON.stringify(undoActivity),
+            direction: 'outbound',
+          },
+        });
       } else {
         console.warn(`[Follow] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
       }
@@ -270,28 +310,43 @@ follow.post('/accept', async (c) => {
   const body = await c.req.json<{ requester_ap_id: string }>();
   if (!body.requester_ap_id) return c.json({ error: 'requester_ap_id required' }, 400);
 
-  const pendingFollow = await c.env.DB.prepare(
-    'SELECT * FROM follows WHERE follower_ap_id = ? AND following_ap_id = ? AND status = ?'
-  ).bind(body.requester_ap_id, actor.ap_id, 'pending').first<FollowRow>();
+  const prisma = c.get('prisma');
+
+  const pendingFollow = await prisma.follow.findFirst({
+    where: {
+      followerApId: body.requester_ap_id,
+      followingApId: actor.ap_id,
+      status: 'pending',
+    },
+  });
 
   if (!pendingFollow) return c.json({ error: 'No pending follow request' }, 404);
 
-  await c.env.DB.prepare(`
-    UPDATE follows SET status = 'accepted', accepted_at = datetime('now')
-    WHERE follower_ap_id = ? AND following_ap_id = ?
-  `).bind(body.requester_ap_id, actor.ap_id).run();
+  await prisma.follow.update({
+    where: {
+      followerApId_followingApId: { followerApId: body.requester_ap_id, followingApId: actor.ap_id },
+    },
+    data: { status: 'accepted', acceptedAt: new Date().toISOString() },
+  });
 
   // Update counts
-  await c.env.DB.prepare('UPDATE actors SET follower_count = follower_count + 1 WHERE ap_id = ?').bind(actor.ap_id).run();
+  await prisma.actor.update({
+    where: { apId: actor.ap_id },
+    data: { followerCount: { increment: 1 } },
+  });
   if (isLocal(body.requester_ap_id, c.env.APP_URL)) {
-    await c.env.DB.prepare('UPDATE actors SET following_count = following_count + 1 WHERE ap_id = ?').bind(body.requester_ap_id).run();
+    await prisma.actor.update({
+      where: { apId: body.requester_ap_id },
+      data: { followingCount: { increment: 1 } },
+    });
   }
-
-  // Note: inbox already has the Follow activity, no need to update (it remains as Follow notification)
 
   // Send Accept to remote
   if (!isLocal(body.requester_ap_id, c.env.APP_URL)) {
-    const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(body.requester_ap_id).first<ActorCacheInboxRow>();
+    const cachedActor = await prisma.actorCache.findUnique({
+      where: { apId: body.requester_ap_id },
+      select: { inbox: true },
+    });
     if (cachedActor?.inbox) {
       const baseUrl = c.env.APP_URL;
       const activityId = activityApId(baseUrl, generateId());
@@ -300,7 +355,7 @@ follow.post('/accept', async (c) => {
         id: activityId,
         type: 'Accept',
         actor: actor.ap_id,
-        object: pendingFollow.activity_ap_id,
+        object: pendingFollow.activityApId,
       };
 
       const keyId = `${actor.ap_id}#main-key`;
@@ -321,10 +376,16 @@ follow.post('/accept', async (c) => {
       }
 
       // Store activity
-      await c.env.DB.prepare(`
-        INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-        VALUES (?, 'Accept', ?, ?, ?, 'outbound')
-      `).bind(activityId, actor.ap_id, pendingFollow.activity_ap_id, JSON.stringify(acceptActivity)).run();
+      await prisma.activity.create({
+        data: {
+          apId: activityId,
+          type: 'Accept',
+          actorApId: actor.ap_id,
+          objectApId: pendingFollow.activityApId || undefined,
+          rawJson: JSON.stringify(acceptActivity),
+          direction: 'outbound',
+        },
+      });
     }
   }
 
@@ -342,62 +403,84 @@ follow.post('/accept/batch', async (c) => {
   }
 
   const baseUrl = c.env.APP_URL;
+  const prisma = c.get('prisma');
   const results: { ap_id: string; success: boolean; error?: string }[] = [];
 
   for (const requesterApId of body.requester_ap_ids) {
     try {
-      const pendingFollow = await c.env.DB.prepare(
-        'SELECT * FROM follows WHERE follower_ap_id = ? AND following_ap_id = ? AND status = ?'
-      ).bind(requesterApId, actor.ap_id, 'pending').first<FollowRow>();
+      const pendingFollow = await prisma.follow.findFirst({
+        where: {
+          followerApId: requesterApId,
+          followingApId: actor.ap_id,
+          status: 'pending',
+        },
+      });
 
       if (!pendingFollow) {
         results.push({ ap_id: requesterApId, success: false, error: 'No pending follow request' });
         continue;
       }
 
-      await c.env.DB.prepare(`
-        UPDATE follows SET status = 'accepted', accepted_at = datetime('now')
-        WHERE follower_ap_id = ? AND following_ap_id = ?
-      `).bind(requesterApId, actor.ap_id).run();
+      await prisma.follow.update({
+        where: {
+          followerApId_followingApId: { followerApId: requesterApId, followingApId: actor.ap_id },
+        },
+        data: { status: 'accepted', acceptedAt: new Date().toISOString() },
+      });
 
       // Update counts
-      await c.env.DB.prepare('UPDATE actors SET follower_count = follower_count + 1 WHERE ap_id = ?').bind(actor.ap_id).run();
+      await prisma.actor.update({
+        where: { apId: actor.ap_id },
+        data: { followerCount: { increment: 1 } },
+      });
       if (isLocal(requesterApId, baseUrl)) {
-        await c.env.DB.prepare('UPDATE actors SET following_count = following_count + 1 WHERE ap_id = ?').bind(requesterApId).run();
+        await prisma.actor.update({
+          where: { apId: requesterApId },
+          data: { followingCount: { increment: 1 } },
+        });
       }
 
       // Send Accept to remote
-  if (!isLocal(requesterApId, baseUrl)) {
-    const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?').bind(requesterApId).first<ActorCacheInboxRow>();
-    if (cachedActor?.inbox) {
-      const activityId = activityApId(baseUrl, generateId());
-      const acceptActivity = {
-        '@context': 'https://www.w3.org/ns/activitystreams',
-        id: activityId,
-        type: 'Accept',
-        actor: actor.ap_id,
-        object: pendingFollow.activity_ap_id,
-      };
+      if (!isLocal(requesterApId, baseUrl)) {
+        const cachedActor = await prisma.actorCache.findUnique({
+          where: { apId: requesterApId },
+          select: { inbox: true },
+        });
+        if (cachedActor?.inbox) {
+          const activityId = activityApId(baseUrl, generateId());
+          const acceptActivity = {
+            '@context': 'https://www.w3.org/ns/activitystreams',
+            id: activityId,
+            type: 'Accept',
+            actor: actor.ap_id,
+            object: pendingFollow.activityApId,
+          };
 
-      const keyId = `${actor.ap_id}#main-key`;
-      if (!isSafeRemoteUrl(cachedActor.inbox)) {
-        console.warn(`[Follow] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
-      } else {
-        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(acceptActivity));
+          const keyId = `${actor.ap_id}#main-key`;
+          if (!isSafeRemoteUrl(cachedActor.inbox)) {
+            console.warn(`[Follow] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
+          } else {
+            const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(acceptActivity));
 
-        fetch(cachedActor.inbox, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(acceptActivity),
-        }).catch(() => {}); // Fire and forget for batch
+            fetch(cachedActor.inbox, {
+              method: 'POST',
+              headers: { ...headers, 'Content-Type': 'application/activity+json' },
+              body: JSON.stringify(acceptActivity),
+            }).catch(() => {}); // Fire and forget for batch
 
-        await c.env.DB.prepare(`
-          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-          VALUES (?, 'Accept', ?, ?, ?, 'outbound')
-        `).bind(activityId, actor.ap_id, pendingFollow.activity_ap_id, JSON.stringify(acceptActivity)).run();
+            await prisma.activity.create({
+              data: {
+                apId: activityId,
+                type: 'Accept',
+                actorApId: actor.ap_id,
+                objectApId: pendingFollow.activityApId || undefined,
+                rawJson: JSON.stringify(acceptActivity),
+                direction: 'outbound',
+              },
+            });
+          }
+        }
       }
-    }
-  }
 
       results.push({ ap_id: requesterApId, success: true });
     } catch (e) {
@@ -416,24 +499,37 @@ follow.post('/reject', async (c) => {
   const body = await c.req.json<{ requester_ap_id: string }>();
   if (!body.requester_ap_id) return c.json({ error: 'requester_ap_id required' }, 400);
 
-  const pendingFollow = await c.env.DB.prepare(
-    'SELECT * FROM follows WHERE follower_ap_id = ? AND following_ap_id = ? AND status = ?'
-  ).bind(body.requester_ap_id, actor.ap_id, 'pending').first<FollowRow>();
+  const prisma = c.get('prisma');
+
+  const pendingFollow = await prisma.follow.findFirst({
+    where: {
+      followerApId: body.requester_ap_id,
+      followingApId: actor.ap_id,
+      status: 'pending',
+    },
+  });
 
   if (!pendingFollow) return c.json({ error: 'No pending follow request' }, 404);
 
-  await c.env.DB.prepare(`
-    UPDATE follows SET status = 'rejected'
-    WHERE follower_ap_id = ? AND following_ap_id = ?
-  `).bind(body.requester_ap_id, actor.ap_id).run();
+  await prisma.follow.update({
+    where: {
+      followerApId_followingApId: { followerApId: body.requester_ap_id, followingApId: actor.ap_id },
+    },
+    data: { status: 'rejected' },
+  });
 
-  await c.env.DB.prepare(`
-    UPDATE inbox SET read = 1 WHERE actor_ap_id = ? AND activity_ap_id = ?
-  `).bind(actor.ap_id, pendingFollow.activity_ap_id).run();
+  if (pendingFollow.activityApId) {
+    await prisma.inbox.updateMany({
+      where: { actorApId: actor.ap_id, activityApId: pendingFollow.activityApId },
+      data: { read: 1 },
+    });
+  }
 
   if (!isLocal(body.requester_ap_id, c.env.APP_URL)) {
-    const cachedActor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?')
-      .bind(body.requester_ap_id).first<ActorCacheInboxRow>();
+    const cachedActor = await prisma.actorCache.findUnique({
+      where: { apId: body.requester_ap_id },
+      select: { inbox: true },
+    });
     if (cachedActor?.inbox) {
       if (!isSafeRemoteUrl(cachedActor.inbox)) {
         console.warn(`[Follow] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
@@ -446,7 +542,7 @@ follow.post('/reject', async (c) => {
         id: activityId,
         type: 'Reject',
         actor: actor.ap_id,
-        object: pendingFollow.activity_ap_id,
+        object: pendingFollow.activityApId,
       };
 
       const keyId = `${actor.ap_id}#main-key`;
@@ -462,10 +558,16 @@ follow.post('/reject', async (c) => {
         console.error('Failed to send Reject:', e);
       }
 
-      await c.env.DB.prepare(`
-        INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-        VALUES (?, 'Reject', ?, ?, ?, 'outbound')
-      `).bind(activityId, actor.ap_id, pendingFollow.activity_ap_id, JSON.stringify(rejectActivity)).run();
+      await prisma.activity.create({
+        data: {
+          apId: activityId,
+          type: 'Reject',
+          actorApId: actor.ap_id,
+          objectApId: pendingFollow.activityApId || undefined,
+          rawJson: JSON.stringify(rejectActivity),
+          direction: 'outbound',
+        },
+      });
     }
   }
 
@@ -477,26 +579,37 @@ follow.get('/requests', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const requests = await c.env.DB.prepare(`
-    SELECT f.follower_ap_id, f.created_at,
-           COALESCE(a.preferred_username, ac.preferred_username) as preferred_username,
-           COALESCE(a.name, ac.name) as name,
-           COALESCE(a.icon_url, ac.icon_url) as icon_url
-    FROM follows f
-    LEFT JOIN actors a ON f.follower_ap_id = a.ap_id
-    LEFT JOIN actor_cache ac ON f.follower_ap_id = ac.ap_id
-    WHERE f.following_ap_id = ? AND f.status = 'pending'
-    ORDER BY f.created_at DESC
-  `).bind(actor.ap_id).all<FollowRequestRow>();
+  const prisma = c.get('prisma');
 
-  const result = (requests.results || []).map((r) => ({
-    ap_id: r.follower_ap_id,
-    username: formatUsername(r.follower_ap_id),
-    preferred_username: r.preferred_username,
-    name: r.name,
-    icon_url: r.icon_url,
-    created_at: r.created_at,
-  }));
+  const follows = await prisma.follow.findMany({
+    where: { followingApId: actor.ap_id, status: 'pending' },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const result = await Promise.all(
+    follows.map(async (f) => {
+      const localActor = await prisma.actor.findUnique({
+        where: { apId: f.followerApId },
+        select: { preferredUsername: true, name: true, iconUrl: true },
+      });
+      const cachedActor = localActor
+        ? null
+        : await prisma.actorCache.findUnique({
+            where: { apId: f.followerApId },
+            select: { preferredUsername: true, name: true, iconUrl: true },
+          });
+      const actorInfo = localActor || cachedActor;
+
+      return {
+        ap_id: f.followerApId,
+        username: formatUsername(f.followerApId),
+        preferred_username: actorInfo?.preferredUsername || null,
+        name: actorInfo?.name || null,
+        icon_url: actorInfo?.iconUrl || null,
+        created_at: f.createdAt,
+      };
+    })
+  );
 
   return c.json({ requests: result });
 });

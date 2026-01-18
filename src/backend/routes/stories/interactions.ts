@@ -1,5 +1,5 @@
-﻿import { Hono } from 'hono';
-import type { Env, Variables, APObject } from '../../types';
+import { Hono } from 'hono';
+import type { Env, Variables } from '../../types';
 import { generateId, objectApId, activityApId, isLocal, signRequest, isSafeRemoteUrl } from '../../utils';
 import { getVoteCounts } from './utils';
 
@@ -14,47 +14,47 @@ type StoryData = {
   overlays?: StoryOverlay[];
 };
 
-type ActorCacheInboxRow = {
-  inbox: string | null;
-};
-
-type LikeRow = {
-  activity_ap_id: string | null;
-};
-
-type StoryShareCountRow = {
-  share_count: number | null;
-};
-
 // Mark story as viewed
 stories.post('/view', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
+  const prisma = c.get('prisma');
   const body = await c.req.json<{ ap_id: string }>();
   if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
   const apId = body.ap_id;
 
   // Check if story exists
-  const story = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? AND type = ?')
-    .bind(apId, 'Story').first<APObject>();
+  const story = await prisma.object.findFirst({
+    where: {
+      apId,
+      type: 'Story',
+    },
+  });
 
   if (!story) return c.json({ error: 'Story not found' }, 404);
 
-  // Check if already viewed
-  const existing = await c.env.DB.prepare(
-    'SELECT * FROM story_views WHERE story_ap_id = ? AND actor_ap_id = ?'
-  ).bind(apId, actor.ap_id).first();
-
-  if (existing) return c.json({ success: true });
-
-  // Insert view record
+  // Check if already viewed - use upsert to handle race conditions
   const now = new Date().toISOString();
 
-  await c.env.DB.prepare(`
-    INSERT INTO story_views (actor_ap_id, story_ap_id, viewed_at)
-    VALUES (?, ?, ?)
-  `).bind(actor.ap_id, apId, now).run();
+  try {
+    await prisma.storyView.upsert({
+      where: {
+        actorApId_storyApId: {
+          actorApId: actor.ap_id,
+          storyApId: apId,
+        },
+      },
+      update: {}, // No update needed if it already exists
+      create: {
+        actorApId: actor.ap_id,
+        storyApId: apId,
+        viewedAt: now,
+      },
+    });
+  } catch (e) {
+    // Ignore duplicate key errors
+  }
 
   return c.json({ success: true });
 });
@@ -64,6 +64,7 @@ stories.post('/vote', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
+  const prisma = c.get('prisma');
   const body = await c.req.json<{ ap_id: string; option_index: number }>();
   if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
   const apId = body.ap_id;
@@ -73,24 +74,28 @@ stories.post('/vote', async (c) => {
   }
 
   // Check if story exists
-  const story = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? AND type = ?')
-    .bind(apId, 'Story').first<APObject>();
+  const story = await prisma.object.findFirst({
+    where: {
+      apId,
+      type: 'Story',
+    },
+  });
 
   if (!story) return c.json({ error: 'Story not found' }, 404);
 
   // Check if user is trying to vote on their own story
-  if (story.attributed_to === actor.ap_id) {
+  if (story.attributedTo === actor.ap_id) {
     return c.json({ error: 'Cannot vote on your own story' }, 403);
   }
 
   // Check if story is still active (not expired)
   const now = new Date().toISOString();
-  if (story.end_time && story.end_time < now) {
+  if (story.endTime && story.endTime < now) {
     return c.json({ error: 'Story has expired' }, 410); // 410 Gone
   }
 
   // Get story data and validate option_index range
-  const storyData = JSON.parse(story.attachments_json || '{}') as StoryData;
+  const storyData = JSON.parse(story.attachmentsJson || '{}') as StoryData;
   const questionOverlays = (storyData.overlays || []).filter((o: StoryOverlay) => o.type === 'Question');
 
   if (questionOverlays.length === 0) {
@@ -104,26 +109,38 @@ stories.post('/vote', async (c) => {
   }
 
   // Check if user already voted
-  const existingVote = await c.env.DB.prepare(
-    'SELECT * FROM story_votes WHERE story_ap_id = ? AND actor_ap_id = ?'
-  ).bind(apId, actor.ap_id).first();
+  const existingVote = await prisma.storyVote.findFirst({
+    where: {
+      storyApId: apId,
+      actorApId: actor.ap_id,
+    },
+  });
 
   if (existingVote) {
     // Update existing vote
-    await c.env.DB.prepare(
-      'UPDATE story_votes SET option_index = ?, created_at = ? WHERE story_ap_id = ? AND actor_ap_id = ?'
-    ).bind(body.option_index, now, apId, actor.ap_id).run();
+    await prisma.storyVote.update({
+      where: { id: existingVote.id },
+      data: {
+        optionIndex: body.option_index,
+        createdAt: now,
+      },
+    });
   } else {
     // Insert new vote
     const voteId = generateId();
-    await c.env.DB.prepare(`
-      INSERT INTO story_votes (id, story_ap_id, actor_ap_id, option_index, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).bind(voteId, apId, actor.ap_id, body.option_index, now).run();
+    await prisma.storyVote.create({
+      data: {
+        id: voteId,
+        storyApId: apId,
+        actorApId: actor.ap_id,
+        optionIndex: body.option_index,
+        createdAt: now,
+      },
+    });
   }
 
   // Get updated vote counts
-  const votes = await getVoteCounts(c.env.DB, apId);
+  const votes = await getVoteCounts(prisma, apId);
   const total = Object.values(votes).reduce((sum: number, count: number) => sum + count, 0);
 
   return c.json({ success: true, votes, total, user_vote: body.option_index });
@@ -134,34 +151,50 @@ stories.post('/:id/like', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
+  const prisma = c.get('prisma');
   const storyId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
   const apId = storyId.startsWith('http') ? storyId : objectApId(baseUrl, storyId);
 
-  const story = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? AND type = ?')
-    .bind(apId, 'Story').first<APObject>();
+  const story = await prisma.object.findFirst({
+    where: {
+      apId,
+      type: 'Story',
+    },
+  });
 
   if (!story) return c.json({ error: 'Story not found' }, 404);
 
-  const existing = await c.env.DB.prepare(
-    'SELECT * FROM likes WHERE object_ap_id = ? AND actor_ap_id = ?'
-  ).bind(apId, actor.ap_id).first();
+  const existing = await prisma.like.findUnique({
+    where: {
+      actorApId_objectApId: {
+        actorApId: actor.ap_id,
+        objectApId: apId,
+      },
+    },
+  });
 
   if (existing) {
-    return c.json({ success: true, liked: true, like_count: story.like_count });
+    return c.json({ success: true, liked: true, like_count: story.likeCount });
   }
 
   const likeId = generateId();
   const likeActivityApId = activityApId(baseUrl, likeId);
   const now = new Date().toISOString();
 
-  await c.env.DB.prepare(`
-    INSERT INTO likes (object_ap_id, actor_ap_id, activity_ap_id)
-    VALUES (?, ?, ?)
-  `).bind(apId, actor.ap_id, likeActivityApId).run();
+  await prisma.like.create({
+    data: {
+      actorApId: actor.ap_id,
+      objectApId: apId,
+      activityApId: likeActivityApId,
+      createdAt: now,
+    },
+  });
 
-  await c.env.DB.prepare('UPDATE objects SET like_count = like_count + 1 WHERE ap_id = ?')
-    .bind(apId).run();
+  await prisma.object.update({
+    where: { apId },
+    data: { likeCount: { increment: 1 } },
+  });
 
   const likeActivityRaw = {
     '@context': 'https://www.w3.org/ns/activitystreams',
@@ -171,22 +204,34 @@ stories.post('/:id/like', async (c) => {
     object: apId,
   };
 
-  await c.env.DB.prepare(`
-    INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, published, local)
-    VALUES (?, 'Like', ?, ?, ?, ?, 1)
-  `).bind(likeActivityApId, actor.ap_id, apId, JSON.stringify(likeActivityRaw), now).run();
+  await prisma.activity.create({
+    data: {
+      apId: likeActivityApId,
+      type: 'Like',
+      actorApId: actor.ap_id,
+      objectApId: apId,
+      rawJson: JSON.stringify(likeActivityRaw),
+      createdAt: now,
+    },
+  });
 
-  if (story.attributed_to !== actor.ap_id && isLocal(story.attributed_to, baseUrl)) {
-    await c.env.DB.prepare(`
-      INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
-      VALUES (?, ?, 0, ?)
-    `).bind(story.attributed_to, likeActivityApId, now).run();
+  if (story.attributedTo !== actor.ap_id && isLocal(story.attributedTo, baseUrl)) {
+    await prisma.inbox.create({
+      data: {
+        actorApId: story.attributedTo,
+        activityApId: likeActivityApId,
+        read: 0,
+        createdAt: now,
+      },
+    });
   }
 
   if (!isLocal(apId, baseUrl)) {
     try {
-      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?')
-        .bind(story.attributed_to).first<ActorCacheInboxRow>();
+      const postAuthor = await prisma.actorCache.findUnique({
+        where: { apId: story.attributedTo },
+        select: { inbox: true },
+      });
       if (postAuthor?.inbox) {
         if (!isSafeRemoteUrl(postAuthor.inbox)) {
           console.warn(`[Stories] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
@@ -206,7 +251,7 @@ stories.post('/:id/like', async (c) => {
     }
   }
 
-  return c.json({ success: true, liked: true, like_count: story.like_count + 1 });
+  return c.json({ success: true, liked: true, like_count: story.likeCount + 1 });
 });
 
 // Unlike a story
@@ -214,38 +259,60 @@ stories.delete('/:id/like', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
+  const prisma = c.get('prisma');
   const storyId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
   const apId = storyId.startsWith('http') ? storyId : objectApId(baseUrl, storyId);
 
-  const story = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? AND type = ?')
-    .bind(apId, 'Story').first<APObject>();
+  const story = await prisma.object.findFirst({
+    where: {
+      apId,
+      type: 'Story',
+    },
+  });
 
   if (!story) return c.json({ error: 'Story not found' }, 404);
 
-  const like = await c.env.DB.prepare(
-    'SELECT * FROM likes WHERE object_ap_id = ? AND actor_ap_id = ?'
-  ).bind(apId, actor.ap_id).first<LikeRow>();
+  const like = await prisma.like.findUnique({
+    where: {
+      actorApId_objectApId: {
+        actorApId: actor.ap_id,
+        objectApId: apId,
+      },
+    },
+  });
 
   if (!like) return c.json({ error: 'Not liked' }, 400);
 
-  await c.env.DB.prepare('DELETE FROM likes WHERE object_ap_id = ? AND actor_ap_id = ?')
-    .bind(apId, actor.ap_id).run();
+  await prisma.like.delete({
+    where: {
+      actorApId_objectApId: {
+        actorApId: actor.ap_id,
+        objectApId: apId,
+      },
+    },
+  });
 
-  await c.env.DB.prepare('UPDATE objects SET like_count = like_count - 1 WHERE ap_id = ? AND like_count > 0')
-    .bind(apId).run();
+  await prisma.object.update({
+    where: { apId },
+    data: {
+      likeCount: { decrement: 1 },
+    },
+  });
 
   if (!isLocal(apId, baseUrl)) {
     try {
-      const postAuthor = await c.env.DB.prepare('SELECT inbox FROM actor_cache WHERE ap_id = ?')
-        .bind(story.attributed_to).first<ActorCacheInboxRow>();
+      const postAuthor = await prisma.actorCache.findUnique({
+        where: { apId: story.attributedTo },
+        select: { inbox: true },
+      });
       if (postAuthor?.inbox) {
         if (!isSafeRemoteUrl(postAuthor.inbox)) {
           console.warn(`[Stories] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
           return c.json({ success: true, liked: false });
         }
-        const undoObject = like.activity_ap_id
-          ? like.activity_ap_id
+        const undoObject = like.activityApId
+          ? like.activityApId
           : {
             type: 'Like',
             actor: actor.ap_id,
@@ -268,17 +335,23 @@ stories.delete('/:id/like', async (c) => {
           body: JSON.stringify(undoLikeActivity),
         });
 
-        await c.env.DB.prepare(`
-          INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-          VALUES (?, 'Undo', ?, ?, ?, 'outbound')
-        `).bind(undoLikeActivity.id, actor.ap_id, apId, JSON.stringify(undoLikeActivity)).run();
+        await prisma.activity.create({
+          data: {
+            apId: undoLikeActivity.id,
+            type: 'Undo',
+            actorApId: actor.ap_id,
+            objectApId: apId,
+            rawJson: JSON.stringify(undoLikeActivity),
+            direction: 'outbound',
+          },
+        });
       }
     } catch (e) {
       console.error('Failed to send Undo Like for story:', e);
     }
   }
 
-  return c.json({ success: true, liked: false, like_count: Math.max(0, story.like_count - 1) });
+  return c.json({ success: true, liked: false, like_count: Math.max(0, story.likeCount - 1) });
 });
 
 // Share a story (track that user shared it)
@@ -286,77 +359,110 @@ stories.post('/:id/share', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
+  const prisma = c.get('prisma');
   const storyId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
   const apId = storyId.startsWith('http') ? storyId : objectApId(baseUrl, storyId);
 
-  const story = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? AND type = ?')
-    .bind(apId, 'Story').first<APObject>();
+  const story = await prisma.object.findFirst({
+    where: {
+      apId,
+      type: 'Story',
+    },
+  });
 
   if (!story) return c.json({ error: 'Story not found' }, 404);
 
   // Check if already shared
-  const existing = await c.env.DB.prepare(
-    'SELECT * FROM story_shares WHERE story_ap_id = ? AND actor_ap_id = ?'
-  ).bind(apId, actor.ap_id).first();
+  const existing = await prisma.storyShare.findFirst({
+    where: {
+      storyApId: apId,
+      actorApId: actor.ap_id,
+    },
+  });
 
   if (existing) {
-    return c.json({ success: true, shared: true, share_count: story.share_count || 0 });
+    return c.json({ success: true, shared: true, share_count: story.shareCount || 0 });
   }
 
   const shareId = generateId();
   const now = new Date().toISOString();
 
-  await c.env.DB.prepare(`
-    INSERT INTO story_shares (id, story_ap_id, actor_ap_id, shared_at)
-    VALUES (?, ?, ?, ?)
-  `).bind(shareId, apId, actor.ap_id, now).run();
+  await prisma.storyShare.create({
+    data: {
+      id: shareId,
+      storyApId: apId,
+      actorApId: actor.ap_id,
+      sharedAt: now,
+    },
+  });
 
-  await c.env.DB.prepare('UPDATE objects SET share_count = COALESCE(share_count, 0) + 1 WHERE ap_id = ?')
-    .bind(apId).run();
+  await prisma.object.update({
+    where: { apId },
+    data: { shareCount: { increment: 1 } },
+  });
 
-  return c.json({ success: true, shared: true, share_count: (story.share_count || 0) + 1 });
+  return c.json({ success: true, shared: true, share_count: (story.shareCount || 0) + 1 });
 });
 
 // Get share count for a story
 stories.get('/:id/shares', async (c) => {
+  const prisma = c.get('prisma');
   const storyId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
   const apId = storyId.startsWith('http') ? storyId : objectApId(baseUrl, storyId);
 
-  const story = await c.env.DB.prepare('SELECT share_count FROM objects WHERE ap_id = ? AND type = ?')
-    .bind(apId, 'Story').first<StoryShareCountRow>();
+  const story = await prisma.object.findFirst({
+    where: {
+      apId,
+      type: 'Story',
+    },
+    select: {
+      shareCount: true,
+    },
+  });
 
   if (!story) return c.json({ error: 'Story not found' }, 404);
 
-  return c.json({ share_count: story.share_count || 0 });
+  return c.json({ share_count: story.shareCount || 0 });
 });
 
 // Get votes for a story
 stories.get('/:id/votes', async (c) => {
+  const prisma = c.get('prisma');
   const storyId = c.req.param('id');
   const actor = c.get('actor');
   const baseUrl = c.env.APP_URL;
   const apId = objectApId(baseUrl, storyId);
 
   // Check if story exists
-  const story = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? AND type = ?')
-    .bind(apId, 'Story').first<APObject>();
+  const story = await prisma.object.findFirst({
+    where: {
+      apId,
+      type: 'Story',
+    },
+  });
 
   if (!story) return c.json({ error: 'Story not found' }, 404);
 
   // Get vote counts
-  const votes = await getVoteCounts(c.env.DB, apId);
+  const votes = await getVoteCounts(prisma, apId);
   const total = Object.values(votes).reduce((sum, count) => sum + count, 0);
 
   // Get user's vote if authenticated
   let user_vote: number | undefined;
   if (actor) {
-    const userVote = await c.env.DB.prepare(
-      'SELECT option_index FROM story_votes WHERE story_ap_id = ? AND actor_ap_id = ?'
-    ).bind(apId, actor.ap_id).first<{ option_index: number }>();
+    const userVote = await prisma.storyVote.findFirst({
+      where: {
+        storyApId: apId,
+        actorApId: actor.ap_id,
+      },
+      select: {
+        optionIndex: true,
+      },
+    });
     if (userVote) {
-      user_vote = userVote.option_index;
+      user_vote = userVote.optionIndex;
     }
   }
 

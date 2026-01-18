@@ -1,54 +1,60 @@
-﻿import { Hono } from 'hono';
-import type { Env, Variables, APObject } from '../../types';
+import { Hono } from 'hono';
+import type { Env, Variables } from '../../types';
 import { generateId, objectApId, activityApId, isLocal } from '../../utils';
 import { MAX_POSTS_PAGE_LIMIT, formatPost, parseLimit, PostRow } from './utils';
 import { deliverActivity } from '../../lib/activitypub-helpers';
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-type LikeRow = {
-  activity_ap_id: string | null;
-};
-
-type AnnounceRow = {
-  activity_ap_id: string | null;
-};
-
-type PostIdRow = {
-  ap_id: string;
-};
-
 // Like post
 posts.post('/:id/like', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
+  const prisma = c.get('prisma');
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
 
   // Get the post
-  const post = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? OR ap_id = ?')
-    .bind(objectApId(baseUrl, postId), postId).first<APObject>();
+  const post = await prisma.object.findFirst({
+    where: {
+      OR: [
+        { apId: objectApId(baseUrl, postId) },
+        { apId: postId }
+      ]
+    }
+  });
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
   // Check if already liked
-  const existingLike = await c.env.DB.prepare(
-    'SELECT * FROM likes WHERE object_ap_id = ? AND actor_ap_id = ?'
-  ).bind(post.ap_id, actor.ap_id).first();
+  const existingLike = await prisma.like.findUnique({
+    where: {
+      actorApId_objectApId: {
+        actorApId: actor.ap_id,
+        objectApId: post.apId
+      }
+    }
+  });
 
   if (existingLike) return c.json({ error: 'Already liked' }, 400);
 
   // Create like
   const likeId = generateId();
   const likeActivityApId = activityApId(baseUrl, likeId);
-  await c.env.DB.prepare(`
-    INSERT INTO likes (object_ap_id, actor_ap_id, activity_ap_id)
-    VALUES (?, ?, ?)
-  `).bind(post.ap_id, actor.ap_id, likeActivityApId).run();
+  await prisma.like.create({
+    data: {
+      actorApId: actor.ap_id,
+      objectApId: post.apId,
+      activityApId: likeActivityApId
+    }
+  });
 
   // Update like count
-  await c.env.DB.prepare('UPDATE objects SET like_count = like_count + 1 WHERE ap_id = ?').bind(post.ap_id).run();
+  await prisma.object.update({
+    where: { apId: post.apId },
+    data: { likeCount: { increment: 1 } }
+  });
 
   // Store Like activity
   const likeActivityRaw = {
@@ -56,24 +62,35 @@ posts.post('/:id/like', async (c) => {
     id: likeActivityApId,
     type: 'Like',
     actor: actor.ap_id,
-    object: post.ap_id,
+    object: post.apId,
   };
-  await c.env.DB.prepare(`
-    INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, published, local)
-    VALUES (?, 'Like', ?, ?, ?, ?, 1)
-  `).bind(likeActivityApId, actor.ap_id, post.ap_id, JSON.stringify(likeActivityRaw), new Date().toISOString()).run();
+  const now = new Date().toISOString();
+  await prisma.activity.create({
+    data: {
+      apId: likeActivityApId,
+      type: 'Like',
+      actorApId: actor.ap_id,
+      objectApId: post.apId,
+      rawJson: JSON.stringify(likeActivityRaw),
+      createdAt: now
+    }
+  });
 
   // Add to inbox of post author if local (AP Native notification)
-  if (post.attributed_to !== actor.ap_id && isLocal(post.attributed_to, baseUrl)) {
-    await c.env.DB.prepare(`
-      INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
-      VALUES (?, ?, 0, ?)
-    `).bind(post.attributed_to, likeActivityApId, new Date().toISOString()).run();
+  if (post.attributedTo !== actor.ap_id && isLocal(post.attributedTo, baseUrl)) {
+    await prisma.inbox.create({
+      data: {
+        actorApId: post.attributedTo,
+        activityApId: likeActivityApId,
+        read: 0,
+        createdAt: now
+      }
+    });
   }
 
   // Send Like activity to remote post author
-  if (!isLocal(post.ap_id, baseUrl)) {
-    await deliverActivity(c.env.DB, actor, post.attributed_to, likeActivityRaw);
+  if (!isLocal(post.apId, baseUrl)) {
+    await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, post.attributedTo, likeActivityRaw);
   }
 
   return c.json({ success: true, liked: true });
@@ -84,38 +101,61 @@ posts.delete('/:id/like', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
+  const prisma = c.get('prisma');
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
 
   // Get the post
-  const post = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? OR ap_id = ?')
-    .bind(objectApId(baseUrl, postId), postId).first<APObject>();
+  const post = await prisma.object.findFirst({
+    where: {
+      OR: [
+        { apId: objectApId(baseUrl, postId) },
+        { apId: postId }
+      ]
+    }
+  });
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
   // Get the like
-  const like = await c.env.DB.prepare(
-    'SELECT * FROM likes WHERE object_ap_id = ? AND actor_ap_id = ?'
-  ).bind(post.ap_id, actor.ap_id).first<LikeRow>();
+  const like = await prisma.like.findUnique({
+    where: {
+      actorApId_objectApId: {
+        actorApId: actor.ap_id,
+        objectApId: post.apId
+      }
+    }
+  });
 
   if (!like) return c.json({ error: 'Not liked' }, 400);
 
   // Delete the like
-  await c.env.DB.prepare('DELETE FROM likes WHERE object_ap_id = ? AND actor_ap_id = ?')
-    .bind(post.ap_id, actor.ap_id).run();
+  await prisma.like.delete({
+    where: {
+      actorApId_objectApId: {
+        actorApId: actor.ap_id,
+        objectApId: post.apId
+      }
+    }
+  });
 
   // Update like count
-  await c.env.DB.prepare('UPDATE objects SET like_count = like_count - 1 WHERE ap_id = ? AND like_count > 0')
-    .bind(post.ap_id).run();
+  await prisma.object.updateMany({
+    where: {
+      apId: post.apId,
+      likeCount: { gt: 0 }
+    },
+    data: { likeCount: { decrement: 1 } }
+  });
 
   // Send Undo Like if post is remote
-  if (!isLocal(post.ap_id, baseUrl)) {
-    const undoObject = like.activity_ap_id
-      ? like.activity_ap_id
+  if (!isLocal(post.apId, baseUrl)) {
+    const undoObject = like.activityApId
+      ? like.activityApId
       : {
         type: 'Like',
         actor: actor.ap_id,
-        object: post.ap_id,
+        object: post.apId,
       };
     const undoLikeActivity = {
       '@context': 'https://www.w3.org/ns/activitystreams',
@@ -125,13 +165,19 @@ posts.delete('/:id/like', async (c) => {
       object: undoObject,
     };
 
-    const delivered = await deliverActivity(c.env.DB, actor, post.attributed_to, undoLikeActivity);
+    const delivered = await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, post.attributedTo, undoLikeActivity);
     if (delivered) {
       // Store activity
-      await c.env.DB.prepare(`
-        INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-        VALUES (?, 'Undo', ?, ?, ?, 'outbound')
-      `).bind(undoLikeActivity.id, actor.ap_id, post.ap_id, JSON.stringify(undoLikeActivity)).run();
+      await prisma.activity.create({
+        data: {
+          apId: undoLikeActivity.id,
+          type: 'Undo',
+          actorApId: actor.ap_id,
+          objectApId: post.apId,
+          rawJson: JSON.stringify(undoLikeActivity),
+          direction: 'outbound'
+        }
+      });
     }
   }
 
@@ -143,32 +189,50 @@ posts.post('/:id/repost', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
+  const prisma = c.get('prisma');
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
 
   // Get the post
-  const post = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? OR ap_id = ?')
-    .bind(objectApId(baseUrl, postId), postId).first<APObject>();
+  const post = await prisma.object.findFirst({
+    where: {
+      OR: [
+        { apId: objectApId(baseUrl, postId) },
+        { apId: postId }
+      ]
+    }
+  });
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
   // Check if already reposted
-  const existingRepost = await c.env.DB.prepare(
-    'SELECT * FROM announces WHERE object_ap_id = ? AND actor_ap_id = ?'
-  ).bind(post.ap_id, actor.ap_id).first();
+  const existingRepost = await prisma.announce.findUnique({
+    where: {
+      actorApId_objectApId: {
+        actorApId: actor.ap_id,
+        objectApId: post.apId
+      }
+    }
+  });
 
   if (existingRepost) return c.json({ error: 'Already reposted' }, 400);
 
   // Create repost
   const announceId = generateId();
   const announceActivityApId = activityApId(baseUrl, announceId);
-  await c.env.DB.prepare(`
-    INSERT INTO announces (object_ap_id, actor_ap_id, activity_ap_id)
-    VALUES (?, ?, ?)
-  `).bind(post.ap_id, actor.ap_id, announceActivityApId).run();
+  await prisma.announce.create({
+    data: {
+      actorApId: actor.ap_id,
+      objectApId: post.apId,
+      activityApId: announceActivityApId
+    }
+  });
 
   // Update announce count
-  await c.env.DB.prepare('UPDATE objects SET announce_count = announce_count + 1 WHERE ap_id = ?').bind(post.ap_id).run();
+  await prisma.object.update({
+    where: { apId: post.apId },
+    data: { announceCount: { increment: 1 } }
+  });
 
   // Store Announce activity
   const announceActivityRaw = {
@@ -176,27 +240,37 @@ posts.post('/:id/repost', async (c) => {
     id: announceActivityApId,
     type: 'Announce',
     actor: actor.ap_id,
-    object: post.ap_id,
+    object: post.apId,
     to: ['https://www.w3.org/ns/activitystreams#Public'],
     cc: [actor.ap_id + '/followers'],
   };
   const now = new Date().toISOString();
-  await c.env.DB.prepare(`
-    INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, published, local)
-    VALUES (?, 'Announce', ?, ?, ?, ?, 1)
-  `).bind(announceActivityApId, actor.ap_id, post.ap_id, JSON.stringify(announceActivityRaw), now).run();
+  await prisma.activity.create({
+    data: {
+      apId: announceActivityApId,
+      type: 'Announce',
+      actorApId: actor.ap_id,
+      objectApId: post.apId,
+      rawJson: JSON.stringify(announceActivityRaw),
+      createdAt: now
+    }
+  });
 
   // Add to inbox of post author if local (AP Native notification)
-  if (post.attributed_to !== actor.ap_id && isLocal(post.attributed_to, baseUrl)) {
-    await c.env.DB.prepare(`
-      INSERT INTO inbox (actor_ap_id, activity_ap_id, read, created_at)
-      VALUES (?, ?, 0, ?)
-    `).bind(post.attributed_to, announceActivityApId, now).run();
+  if (post.attributedTo !== actor.ap_id && isLocal(post.attributedTo, baseUrl)) {
+    await prisma.inbox.create({
+      data: {
+        actorApId: post.attributedTo,
+        activityApId: announceActivityApId,
+        read: 0,
+        createdAt: now
+      }
+    });
   }
 
   // Send Announce activity to remote post author
-  if (!isLocal(post.ap_id, baseUrl)) {
-    await deliverActivity(c.env.DB, actor, post.attributed_to, announceActivityRaw);
+  if (!isLocal(post.apId, baseUrl)) {
+    await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, post.attributedTo, announceActivityRaw);
   }
 
   return c.json({ success: true, reposted: true });
@@ -207,32 +281,55 @@ posts.delete('/:id/repost', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
+  const prisma = c.get('prisma');
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
 
   // Get the post
-  const post = await c.env.DB.prepare('SELECT * FROM objects WHERE ap_id = ? OR ap_id = ?')
-    .bind(objectApId(baseUrl, postId), postId).first<APObject>();
+  const post = await prisma.object.findFirst({
+    where: {
+      OR: [
+        { apId: objectApId(baseUrl, postId) },
+        { apId: postId }
+      ]
+    }
+  });
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
   // Get the announce
-  const announce = await c.env.DB.prepare(
-    'SELECT * FROM announces WHERE object_ap_id = ? AND actor_ap_id = ?'
-  ).bind(post.ap_id, actor.ap_id).first<AnnounceRow>();
+  const announce = await prisma.announce.findUnique({
+    where: {
+      actorApId_objectApId: {
+        actorApId: actor.ap_id,
+        objectApId: post.apId
+      }
+    }
+  });
 
   if (!announce) return c.json({ error: 'Not reposted' }, 400);
 
   // Delete the announce
-  await c.env.DB.prepare('DELETE FROM announces WHERE object_ap_id = ? AND actor_ap_id = ?')
-    .bind(post.ap_id, actor.ap_id).run();
+  await prisma.announce.delete({
+    where: {
+      actorApId_objectApId: {
+        actorApId: actor.ap_id,
+        objectApId: post.apId
+      }
+    }
+  });
 
   // Update announce count
-  await c.env.DB.prepare('UPDATE objects SET announce_count = announce_count - 1 WHERE ap_id = ? AND announce_count > 0')
-    .bind(post.ap_id).run();
+  await prisma.object.updateMany({
+    where: {
+      apId: post.apId,
+      announceCount: { gt: 0 }
+    },
+    data: { announceCount: { decrement: 1 } }
+  });
 
   // Send Undo Announce if post is remote
-  if (!isLocal(post.ap_id, baseUrl)) {
+  if (!isLocal(post.apId, baseUrl)) {
     const undoAnnounceActivity = {
       '@context': 'https://www.w3.org/ns/activitystreams',
       id: activityApId(baseUrl, generateId()),
@@ -241,17 +338,23 @@ posts.delete('/:id/repost', async (c) => {
       object: {
         type: 'Announce',
         actor: actor.ap_id,
-        object: post.ap_id,
+        object: post.apId,
       },
     };
 
-    const delivered = await deliverActivity(c.env.DB, actor, post.attributed_to, undoAnnounceActivity);
+    const delivered = await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, post.attributedTo, undoAnnounceActivity);
     if (delivered) {
       // Store activity
-      await c.env.DB.prepare(`
-        INSERT INTO activities (ap_id, type, actor_ap_id, object_ap_id, raw_json, direction)
-        VALUES (?, 'Undo', ?, ?, ?, 'outbound')
-      `).bind(undoAnnounceActivity.id, actor.ap_id, post.ap_id, JSON.stringify(undoAnnounceActivity)).run();
+      await prisma.activity.create({
+        data: {
+          apId: undoAnnounceActivity.id,
+          type: 'Undo',
+          actorApId: actor.ap_id,
+          objectApId: post.apId,
+          rawJson: JSON.stringify(undoAnnounceActivity),
+          direction: 'outbound'
+        }
+      });
     }
   }
 
@@ -263,28 +366,42 @@ posts.post('/:id/bookmark', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
+  const prisma = c.get('prisma');
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
 
   // Get the post
-  const post = await c.env.DB.prepare('SELECT ap_id FROM objects WHERE ap_id = ? OR ap_id = ?')
-    .bind(objectApId(baseUrl, postId), postId).first<PostIdRow>();
+  const post = await prisma.object.findFirst({
+    where: {
+      OR: [
+        { apId: objectApId(baseUrl, postId) },
+        { apId: postId }
+      ]
+    },
+    select: { apId: true }
+  });
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
   // Check if already bookmarked
-  const existingBookmark = await c.env.DB.prepare(
-    'SELECT * FROM bookmarks WHERE object_ap_id = ? AND actor_ap_id = ?'
-  ).bind(post.ap_id, actor.ap_id).first();
+  const existingBookmark = await prisma.bookmark.findUnique({
+    where: {
+      actorApId_objectApId: {
+        actorApId: actor.ap_id,
+        objectApId: post.apId
+      }
+    }
+  });
 
   if (existingBookmark) return c.json({ error: 'Already bookmarked' }, 400);
 
   // Create bookmark
-  const bookmarkId = generateId();
-  await c.env.DB.prepare(`
-    INSERT INTO bookmarks (id, object_ap_id, actor_ap_id)
-    VALUES (?, ?, ?)
-  `).bind(bookmarkId, post.ap_id, actor.ap_id).run();
+  await prisma.bookmark.create({
+    data: {
+      actorApId: actor.ap_id,
+      objectApId: post.apId
+    }
+  });
 
   return c.json({ success: true, bookmarked: true });
 });
@@ -294,25 +411,44 @@ posts.delete('/:id/bookmark', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
+  const prisma = c.get('prisma');
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
 
   // Get the post
-  const post = await c.env.DB.prepare('SELECT ap_id FROM objects WHERE ap_id = ? OR ap_id = ?')
-    .bind(objectApId(baseUrl, postId), postId).first<PostIdRow>();
+  const post = await prisma.object.findFirst({
+    where: {
+      OR: [
+        { apId: objectApId(baseUrl, postId) },
+        { apId: postId }
+      ]
+    },
+    select: { apId: true }
+  });
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
   // Get the bookmark
-  const bookmark = await c.env.DB.prepare(
-    'SELECT * FROM bookmarks WHERE object_ap_id = ? AND actor_ap_id = ?'
-  ).bind(post.ap_id, actor.ap_id).first<{ id: string }>();
+  const bookmark = await prisma.bookmark.findUnique({
+    where: {
+      actorApId_objectApId: {
+        actorApId: actor.ap_id,
+        objectApId: post.apId
+      }
+    }
+  });
 
   if (!bookmark) return c.json({ error: 'Not bookmarked' }, 400);
 
   // Delete the bookmark
-  await c.env.DB.prepare('DELETE FROM bookmarks WHERE object_ap_id = ? AND actor_ap_id = ?')
-    .bind(post.ap_id, actor.ap_id).run();
+  await prisma.bookmark.delete({
+    where: {
+      actorApId_objectApId: {
+        actorApId: actor.ap_id,
+        objectApId: post.apId
+      }
+    }
+  });
 
   return c.json({ success: true, bookmarked: false });
 });
@@ -322,9 +458,13 @@ posts.get('/bookmarks', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
+  const prisma = c.get('prisma');
   const limit = parseLimit(c.req.query('limit'), 20, MAX_POSTS_PAGE_LIMIT);
   const before = c.req.query('before');
 
+  // Get bookmarks with object details using raw query for complex joins
+  // Since Prisma doesn't easily support COALESCE across different tables in include,
+  // we use $queryRaw for this complex query
   let query = `
     SELECT o.*,
            COALESCE(a.preferred_username, ac.preferred_username) as author_username,
