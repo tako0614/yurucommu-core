@@ -1,0 +1,460 @@
+// Yurucommu Database Schema
+// Prisma with SQLite/D1 support for multi-runtime
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ============================================================
+// ACTORS (Local accounts - Person type)
+// ============================================================
+model Actor {
+  apId              String  @id @map("ap_id")
+  type              String  @default("Person")
+  preferredUsername String  @unique @map("preferred_username")
+  name              String?
+  summary           String?
+  iconUrl           String? @map("icon_url")
+  headerUrl         String? @map("header_url")
+  inbox             String
+  outbox            String
+  followersUrl      String  @map("followers_url")
+  followingUrl      String  @map("following_url")
+  publicKeyPem      String  @map("public_key_pem")
+  privateKeyPem     String  @map("private_key_pem")
+  takosUserId       String? @unique @map("takos_user_id")
+  followerCount     Int     @default(0) @map("follower_count")
+  followingCount    Int     @default(0) @map("following_count")
+  postCount         Int     @default(0) @map("post_count")
+  isPrivate         Int     @default(0) @map("is_private")
+  role              String  @default("member")
+  createdAt         String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  updatedAt         String  @default(dbgenerated("datetime('now')")) @map("updated_at")
+
+  // Relations
+  sessions             Session[]
+  objectsAuthored      Object[]           @relation("AuthoredObjects")
+  followsAsFollower    Follow[]           @relation("FollowerFollows")
+  followsAsFollowing   Follow[]           @relation("FollowingFollows")
+  likes                Like[]
+  announces            Announce[]
+  bookmarks            Bookmark[]
+  blocksAsBlocker      Block[]            @relation("BlockerBlocks")
+  blocksAsBlocked      Block[]            @relation("BlockedBlocks")
+  mutesAsMuter         Mute[]             @relation("MuterMutes")
+  mutesAsMuted         Mute[]             @relation("MutedMutes")
+  activities           Activity[]
+  storyViews           StoryView[]
+  storyVotes           StoryVote[]
+  storyShares          StoryShare[]
+  communityMemberships CommunityMember[]
+  inboxItems           Inbox[]
+  objectRecipients     ObjectRecipient[]
+
+  @@index([preferredUsername])
+  @@index([takosUserId])
+  @@map("actors")
+}
+
+// ============================================================
+// ACTOR_CACHE (Remote actors - cached from federation)
+// ============================================================
+model ActorCache {
+  apId              String  @id @map("ap_id")
+  type              String  @default("Person")
+  preferredUsername String? @map("preferred_username")
+  name              String?
+  summary           String?
+  iconUrl           String? @map("icon_url")
+  inbox             String
+  outbox            String?
+  followersUrl      String? @map("followers_url")
+  followingUrl      String? @map("following_url")
+  sharedInbox       String? @map("shared_inbox")
+  publicKeyId       String? @map("public_key_id")
+  publicKeyPem      String? @map("public_key_pem")
+  rawJson           String  @map("raw_json")
+  lastFetchedAt     String  @default(dbgenerated("datetime('now')")) @map("last_fetched_at")
+  createdAt         String  @default(dbgenerated("datetime('now')")) @map("created_at")
+
+  @@map("actor_cache")
+}
+
+// ============================================================
+// OBJECTS (All AP objects - Note, Article, etc.)
+// ============================================================
+model Object {
+  apId          String  @id @map("ap_id")
+  type          String  @default("Note")
+  attributedTo  String  @map("attributed_to")
+  content       String  @default("")
+  summary       String?
+  attachmentsJson String @default("[]") @map("attachments_json")
+  inReplyTo     String? @map("in_reply_to")
+  conversation  String?
+  visibility    String  @default("public")
+  toJson        String  @default("[]") @map("to_json")
+  ccJson        String  @default("[]") @map("cc_json")
+  audienceJson  String  @default("[]") @map("audience_json")
+  communityApId String? @map("community_ap_id")
+  endTime       String? @map("end_time")
+  likeCount     Int     @default(0) @map("like_count")
+  replyCount    Int     @default(0) @map("reply_count")
+  announceCount Int     @default(0) @map("announce_count")
+  shareCount    Int     @default(0) @map("share_count")
+  published     String  @default(dbgenerated("datetime('now')"))
+  updated       String?
+  isLocal       Int     @default(1) @map("is_local")
+  rawJson       String? @map("raw_json")
+
+  // Relations
+  author       Actor      @relation("AuthoredObjects", fields: [attributedTo], references: [apId])
+  community    Community? @relation(fields: [communityApId], references: [apId])
+  likes        Like[]
+  announces    Announce[]
+  bookmarks    Bookmark[]
+  storyViews   StoryView[]
+  storyVotes   StoryVote[]
+  storyShares  StoryShare[]
+  recipients   ObjectRecipient[]
+
+  @@index([attributedTo])
+  @@index([inReplyTo])
+  @@index([communityApId])
+  @@index([published(sort: Desc)])
+  @@index([visibility])
+  @@index([endTime])
+  @@map("objects")
+}
+
+// ============================================================
+// FOLLOWS
+// ============================================================
+model Follow {
+  followerApId  String  @map("follower_ap_id")
+  followingApId String  @map("following_ap_id")
+  status        String  @default("pending")
+  activityApId  String? @map("activity_ap_id")
+  createdAt     String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  acceptedAt    String? @map("accepted_at")
+
+  // Relations
+  follower  Actor @relation("FollowerFollows", fields: [followerApId], references: [apId])
+  following Actor @relation("FollowingFollows", fields: [followingApId], references: [apId])
+
+  @@id([followerApId, followingApId])
+  @@index([followerApId, status])
+  @@index([followingApId, status])
+  @@map("follows")
+}
+
+// ============================================================
+// LIKES
+// ============================================================
+model Like {
+  actorApId    String  @map("actor_ap_id")
+  objectApId   String  @map("object_ap_id")
+  activityApId String? @map("activity_ap_id")
+  createdAt    String  @default(dbgenerated("datetime('now')")) @map("created_at")
+
+  // Relations
+  actor  Actor  @relation(fields: [actorApId], references: [apId])
+  object Object @relation(fields: [objectApId], references: [apId])
+
+  @@id([actorApId, objectApId])
+  @@index([objectApId])
+  @@index([actorApId])
+  @@map("likes")
+}
+
+// ============================================================
+// ANNOUNCES (Reposts/Boosts)
+// ============================================================
+model Announce {
+  actorApId    String  @map("actor_ap_id")
+  objectApId   String  @map("object_ap_id")
+  activityApId String? @map("activity_ap_id")
+  createdAt    String  @default(dbgenerated("datetime('now')")) @map("created_at")
+
+  // Relations
+  actor  Actor  @relation(fields: [actorApId], references: [apId])
+  object Object @relation(fields: [objectApId], references: [apId])
+
+  @@id([actorApId, objectApId])
+  @@index([objectApId])
+  @@map("announces")
+}
+
+// ============================================================
+// BOOKMARKS
+// ============================================================
+model Bookmark {
+  actorApId  String @map("actor_ap_id")
+  objectApId String @map("object_ap_id")
+  createdAt  String @default(dbgenerated("datetime('now')")) @map("created_at")
+
+  // Relations
+  actor  Actor  @relation(fields: [actorApId], references: [apId])
+  object Object @relation(fields: [objectApId], references: [apId])
+
+  @@id([actorApId, objectApId])
+  @@map("bookmarks")
+}
+
+// ============================================================
+// BLOCKS
+// ============================================================
+model Block {
+  blockerApId String @map("blocker_ap_id")
+  blockedApId String @map("blocked_ap_id")
+  createdAt   String @default(dbgenerated("datetime('now')")) @map("created_at")
+
+  // Relations
+  blocker Actor @relation("BlockerBlocks", fields: [blockerApId], references: [apId])
+  blocked Actor @relation("BlockedBlocks", fields: [blockedApId], references: [apId])
+
+  @@id([blockerApId, blockedApId])
+  @@map("blocks")
+}
+
+// ============================================================
+// MUTES
+// ============================================================
+model Mute {
+  muterApId String @map("muter_ap_id")
+  mutedApId String @map("muted_ap_id")
+  createdAt String @default(dbgenerated("datetime('now')")) @map("created_at")
+
+  // Relations
+  muter Actor @relation("MuterMutes", fields: [muterApId], references: [apId])
+  muted Actor @relation("MutedMutes", fields: [mutedApId], references: [apId])
+
+  @@id([muterApId, mutedApId])
+  @@map("mutes")
+}
+
+// ============================================================
+// ACTIVITIES
+// ============================================================
+model Activity {
+  apId       String  @id @map("ap_id")
+  type       String
+  actorApId  String  @map("actor_ap_id")
+  objectApId String? @map("object_ap_id")
+  objectJson String? @map("object_json")
+  targetApId String? @map("target_ap_id")
+  rawJson    String  @map("raw_json")
+  direction  String?
+  processed  Int     @default(0)
+  createdAt  String  @default(dbgenerated("datetime('now')")) @map("created_at")
+
+  // Relations
+  actor      Actor   @relation(fields: [actorApId], references: [apId])
+  inboxItems Inbox[]
+
+  @@index([actorApId])
+  @@index([objectApId])
+  @@index([direction, processed])
+  @@map("activities")
+}
+
+// ============================================================
+// DELIVERY_QUEUE
+// ============================================================
+model DeliveryQueue {
+  id            String  @id
+  activityApId  String  @map("activity_ap_id")
+  inboxUrl      String  @map("inbox_url")
+  attempts      Int     @default(0)
+  lastAttemptAt String? @map("last_attempt_at")
+  nextAttemptAt String  @default(dbgenerated("datetime('now')")) @map("next_attempt_at")
+  error         String?
+  createdAt     String  @default(dbgenerated("datetime('now')")) @map("created_at")
+
+  @@index([nextAttemptAt])
+  @@map("delivery_queue")
+}
+
+// ============================================================
+// COMMUNITIES
+// ============================================================
+model Community {
+  apId              String  @id @map("ap_id")
+  type              String  @default("Group")
+  preferredUsername String  @unique @map("preferred_username")
+  name              String
+  summary           String?
+  iconUrl           String? @map("icon_url")
+  inbox             String
+  outbox            String
+  followersUrl      String  @map("followers_url")
+  visibility        String  @default("public")
+  joinPolicy        String  @default("open") @map("join_policy")
+  postPolicy        String  @default("members") @map("post_policy")
+  publicKeyPem      String  @map("public_key_pem")
+  privateKeyPem     String  @map("private_key_pem")
+  createdBy         String  @map("created_by")
+  memberCount       Int     @default(0) @map("member_count")
+  createdAt         String  @default(dbgenerated("datetime('now')")) @map("created_at")
+
+  // Relations
+  members CommunityMember[]
+  objects Object[]
+
+  @@map("communities")
+}
+
+// ============================================================
+// COMMUNITY_MEMBERS
+// ============================================================
+model CommunityMember {
+  communityApId String @map("community_ap_id")
+  actorApId     String @map("actor_ap_id")
+  role          String @default("member")
+  joinedAt      String @default(dbgenerated("datetime('now')")) @map("joined_at")
+
+  // Relations
+  community Community @relation(fields: [communityApId], references: [apId])
+  actor     Actor     @relation(fields: [actorApId], references: [apId])
+
+  @@id([communityApId, actorApId])
+  @@map("community_members")
+}
+
+// ============================================================
+// OBJECT_RECIPIENTS
+// ============================================================
+model ObjectRecipient {
+  objectApId    String @map("object_ap_id")
+  recipientApId String @map("recipient_ap_id")
+  type          String
+  createdAt     String @default(dbgenerated("datetime('now')")) @map("created_at")
+
+  // Relations
+  object    Object @relation(fields: [objectApId], references: [apId])
+  recipient Actor  @relation(fields: [recipientApId], references: [apId])
+
+  @@id([objectApId, recipientApId])
+  @@index([recipientApId, createdAt(sort: Desc)])
+  @@map("object_recipients")
+}
+
+// ============================================================
+// INBOX
+// ============================================================
+model Inbox {
+  actorApId    String @map("actor_ap_id")
+  activityApId String @map("activity_ap_id")
+  read         Int    @default(0)
+  createdAt    String @default(dbgenerated("datetime('now')")) @map("created_at")
+
+  // Relations
+  actor    Actor    @relation(fields: [actorApId], references: [apId])
+  activity Activity @relation(fields: [activityApId], references: [apId])
+
+  @@id([actorApId, activityApId])
+  @@index([actorApId, read, createdAt(sort: Desc)])
+  @@map("inbox")
+}
+
+// ============================================================
+// SESSIONS
+// ============================================================
+model Session {
+  id                     String  @id
+  memberId               String  @map("member_id")
+  accessToken            String  @map("access_token")
+  refreshToken           String? @map("refresh_token")
+  expiresAt              String  @map("expires_at")
+  createdAt              String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  provider               String?
+  providerAccessToken    String? @map("provider_access_token")
+  providerRefreshToken   String? @map("provider_refresh_token")
+  providerTokenExpiresAt String? @map("provider_token_expires_at")
+
+  // Relations
+  member Actor @relation(fields: [memberId], references: [apId])
+
+  @@index([memberId])
+  @@index([provider])
+  @@map("sessions")
+}
+
+// ============================================================
+// STORY_VIEWS
+// ============================================================
+model StoryView {
+  actorApId String @map("actor_ap_id")
+  storyApId String @map("story_ap_id")
+  viewedAt  String @default(dbgenerated("datetime('now')")) @map("viewed_at")
+
+  // Relations
+  actor Actor  @relation(fields: [actorApId], references: [apId])
+  story Object @relation(fields: [storyApId], references: [apId])
+
+  @@id([actorApId, storyApId])
+  @@index([actorApId])
+  @@map("story_views")
+}
+
+// ============================================================
+// STORY_VOTES
+// ============================================================
+model StoryVote {
+  id          String @id
+  storyApId   String @map("story_ap_id")
+  actorApId   String @map("actor_ap_id")
+  optionIndex Int    @map("option_index")
+  createdAt   String @default(dbgenerated("datetime('now')")) @map("created_at")
+
+  // Relations
+  actor Actor  @relation(fields: [actorApId], references: [apId])
+  story Object @relation(fields: [storyApId], references: [apId])
+
+  @@unique([storyApId, actorApId])
+  @@index([storyApId])
+  @@map("story_votes")
+}
+
+// ============================================================
+// STORY_SHARES
+// ============================================================
+model StoryShare {
+  id        String @id
+  storyApId String @map("story_ap_id")
+  actorApId String @map("actor_ap_id")
+  sharedAt  String @default(dbgenerated("datetime('now')")) @map("shared_at")
+
+  // Relations
+  actor Actor  @relation(fields: [actorApId], references: [apId])
+  story Object @relation(fields: [storyApId], references: [apId])
+
+  @@unique([storyApId, actorApId])
+  @@index([storyApId])
+  @@index([actorApId])
+  @@map("story_shares")
+}
+
+// ============================================================
+// INSTANCE_ACTOR
+// ============================================================
+model InstanceActor {
+  apId              String @id @map("ap_id")
+  preferredUsername String @map("preferred_username")
+  name              String?
+  summary           String?
+  publicKeyPem      String @map("public_key_pem")
+  privateKeyPem     String @map("private_key_pem")
+  joinPolicy        String @default("open") @map("join_policy")
+  postingPolicy     String @default("members") @map("posting_policy")
+  visibility        String @default("public")
+  createdAt         String @default(dbgenerated("datetime('now')")) @map("created_at")
+  updatedAt         String @default(dbgenerated("datetime('now')")) @map("updated_at")
+
+  @@map("instance_actor")
+}
