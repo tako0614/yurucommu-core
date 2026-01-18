@@ -78,13 +78,38 @@ interface StoryData {
 }
 
 /**
+ * S28: Safely build URL by joining base and path
+ * Uses URL constructor for proper handling of path separators
+ */
+function safeUrlJoin(baseUrl: string, path: string): string {
+  // If path is already absolute URL, return as-is
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
+
+  try {
+    // Validate baseUrl format
+    const base = new URL(baseUrl);
+
+    // Normalize: remove trailing slash from base, ensure path has leading slash
+    const normalizedBase = base.origin + base.pathname.replace(/\/+$/, '');
+    const normalizedPath = path.startsWith('/') ? path : '/' + path;
+
+    return normalizedBase + normalizedPath;
+  } catch (error) {
+    // If URL parsing fails, fall back to simple concatenation with safety checks
+    const cleanBase = baseUrl.replace(/\/+$/, '');
+    const cleanPath = path.startsWith('/') ? path : '/' + path;
+    return cleanBase + cleanPath;
+  }
+}
+
+/**
  * Convert a Story to ActivityPub format
  */
 export function storyToActivityPub(story: StoryData, actor: Actor, baseUrl: string): object {
-  // Build full attachment URL
-  const attachmentUrl = story.attachment.url.startsWith('http')
-    ? story.attachment.url
-    : `${baseUrl}${story.attachment.url}`;
+  // S28: Build full attachment URL using safe URL joining
+  const attachmentUrl = safeUrlJoin(baseUrl, story.attachment.url);
 
   return {
     '@context': [

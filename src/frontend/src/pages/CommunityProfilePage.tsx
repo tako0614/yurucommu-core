@@ -406,3 +406,5 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
     </div>
   );
 }
+
+export default CommunityProfilePage;

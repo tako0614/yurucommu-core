@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { deleteCookie } from 'hono/cookie';
 import type { Actor, Env, Variables } from '../types';
 import { actorApId, getDomain, formatUsername, parseLimit } from '../utils';
+import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
 
 const actors = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -59,7 +60,11 @@ async function resolveActorApId(
 }
 
 // Get all local actors
-actors.get('/', async (c) => {
+// Cached for 5 minutes (public endpoint)
+actors.get('/', withCache({
+  ttl: CacheTTL.ACTOR_PROFILE,
+  cacheTag: CacheTags.ACTOR,
+}), async (c) => {
   const prisma = c.get('prisma');
   const actorsList = await prisma.actor.findMany({
     select: {
@@ -296,11 +301,13 @@ actors.post('/me/delete', async (c) => {
         where: { actorApId: actorApIdVal },
         select: { communityApId: true },
       });
-      for (const m of memberships) {
-        await tx.community.update({
-          where: { apId: m.communityApId },
+      // Batch update community member counts instead of updating one by one
+      const communityApIds = memberships.map((m) => m.communityApId);
+      if (communityApIds.length > 0) {
+        await tx.community.updateMany({
+          where: { apId: { in: communityApIds } },
           data: { memberCount: { decrement: 1 } },
-        }).catch(() => {});
+        });
       }
       await tx.communityMember.deleteMany({ where: { actorApId: actorApIdVal } });
 

@@ -12,6 +12,38 @@
 import type { R2Bucket } from '@cloudflare/workers-types';
 
 /**
+ * S28: Sanitize parsed JSON to prevent prototype pollution
+ * Removes __proto__ and constructor properties recursively
+ */
+function sanitizeJson<T>(obj: T): T {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(item => sanitizeJson(item)) as T;
+  }
+
+  const sanitized: Record<string, unknown> = {};
+  for (const key of Object.keys(obj as Record<string, unknown>)) {
+    // S28: Skip dangerous prototype pollution keys
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue;
+    }
+    sanitized[key] = sanitizeJson((obj as Record<string, unknown>)[key]);
+  }
+  return sanitized as T;
+}
+
+/**
+ * S28: Safe JSON.parse wrapper that sanitizes output to prevent prototype pollution
+ */
+function safeJsonParse<T>(json: string): T {
+  const parsed = JSON.parse(json) as T;
+  return sanitizeJson(parsed);
+}
+
+/**
  * Storage object returned from get()
  */
 export interface StorageObject {
@@ -256,7 +288,8 @@ export async function getS3Storage(config: S3Config): Promise<Storage> {
           },
           json: async <T>() => {
             bodyUsed = true;
-            return JSON.parse(new TextDecoder().decode(bodyBytes)) as T;
+            // S28: Use safeJsonParse to prevent prototype pollution
+            return safeJsonParse<T>(new TextDecoder().decode(bodyBytes));
           },
           size: response.ContentLength || 0,
           etag: response.ETag,
@@ -412,7 +445,8 @@ export async function getFilesystemStorage(config: FilesystemConfig): Promise<St
 
         try {
           const metaContent = await fs.readFile(metaPath, 'utf-8');
-          metadata = JSON.parse(metaContent);
+          // S28: Use safeJsonParse to prevent prototype pollution
+          metadata = safeJsonParse(metaContent);
         } catch {
           // No metadata file
         }
@@ -442,7 +476,8 @@ export async function getFilesystemStorage(config: FilesystemConfig): Promise<St
           },
           json: async <T>() => {
             bodyUsed = true;
-            return JSON.parse(content.toString('utf-8')) as T;
+            // S28: Use safeJsonParse to prevent prototype pollution
+            return safeJsonParse<T>(content.toString('utf-8'));
           },
           size: content.length,
           httpMetadata: metadata.httpMetadata,
@@ -521,7 +556,8 @@ export async function getFilesystemStorage(config: FilesystemConfig): Promise<St
 
         try {
           const metaContent = await fs.readFile(metaPath, 'utf-8');
-          metadata = JSON.parse(metaContent);
+          // S28: Use safeJsonParse to prevent prototype pollution
+          metadata = safeJsonParse(metaContent);
         } catch {
           // No metadata file
         }

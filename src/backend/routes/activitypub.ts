@@ -4,13 +4,19 @@ import { actorApId, getDomain } from '../utils';
 import { INSTANCE_ACTOR_USERNAME, MAX_ROOM_STREAM_LIMIT, getInstanceActor, parseLimit, roomApId } from './activitypub/utils';
 import inboxRoutes from './activitypub/inbox';
 import outboxRoutes from './activitypub/outbox';
+import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
 
 const ap = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // WebFinger - Actor Discovery
 // ============================================================
+// Cached for 1 hour (rarely changes, important for federation)
 
-ap.get('/.well-known/webfinger', async (c) => {
+ap.get('/.well-known/webfinger', withCache({
+  ttl: CacheTTL.WEBFINGER,
+  cacheTag: CacheTags.WEBFINGER,
+  queryParamsToInclude: ['resource'],
+}), async (c) => {
   const prisma = c.get('prisma');
   const resource = c.req.query('resource');
   if (!resource) return c.json({ error: 'resource parameter required' }, 400);
@@ -99,8 +105,12 @@ ap.get('/.well-known/webfinger', async (c) => {
 
 // Actor Profile Endpoint
 // ============================================================
+// Cached for 10 minutes (ActivityPub actor JSON)
 
-ap.get('/ap/users/:username', async (c) => {
+ap.get('/ap/users/:username', withCache({
+  ttl: CacheTTL.ACTIVITYPUB_ACTOR,
+  cacheTag: CacheTags.ACTOR,
+}), async (c) => {
   const prisma = c.get('prisma');
   const username = c.req.param('username');
   const baseUrl = c.env.APP_URL;
@@ -173,8 +183,12 @@ ap.get('/ap/users/:username', async (c) => {
 
 // Group Actor (Instance Community)
 // ============================================================
+// Cached for 10 minutes
 
-ap.get('/ap/actor', async (c) => {
+ap.get('/ap/actor', withCache({
+  ttl: CacheTTL.ACTIVITYPUB_ACTOR,
+  cacheTag: CacheTags.COMMUNITY,
+}), async (c) => {
   const baseUrl = c.env.APP_URL;
   const instanceActor = await getInstanceActor(c);
 
@@ -217,8 +231,12 @@ ap.get('/ap/actor', async (c) => {
 
 // Rooms (Communities)
 // ============================================================
+// Cached for 5 minutes
 
-ap.get('/ap/rooms', async (c) => {
+ap.get('/ap/rooms', withCache({
+  ttl: CacheTTL.COMMUNITY,
+  cacheTag: CacheTags.COMMUNITY,
+}), async (c) => {
   const prisma = c.get('prisma');
   const baseUrl = c.env.APP_URL;
 

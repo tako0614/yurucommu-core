@@ -353,4 +353,4 @@ export function GroupsPage({ actor }: GroupsPageProps) {
   );
 }
 
-
+export default GroupsPage;

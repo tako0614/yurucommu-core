@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Actor } from '../types';
 import {
@@ -12,6 +12,51 @@ import {
 import { useI18n } from '../lib/i18n';
 import { DMChatPanel } from '../components/dm/DMChatPanel';
 import { DMContactItem } from '../components/dm/DMContactItem';
+
+/**
+ * Validate and decode contactId URL parameter
+ * ActivityPub IDs are typically URLs like https://example.com/users/username
+ * Returns null if the contactId is invalid
+ */
+function validateAndDecodeContactId(contactId: string | undefined): string | null {
+  if (!contactId) return null;
+
+  try {
+    const decoded = decodeURIComponent(contactId);
+
+    // ActivityPub ID validation:
+    // 1. Must be a valid URL format (for remote actors)
+    // 2. Or a local identifier pattern
+    // Max length check to prevent DoS
+    if (decoded.length > 2048) {
+      console.warn('ContactId too long:', decoded.length);
+      return null;
+    }
+
+    // Check if it's a valid URL (ActivityPub IDs are typically URLs)
+    try {
+      const url = new URL(decoded);
+      // Only allow http and https protocols
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        console.warn('Invalid protocol in contactId:', url.protocol);
+        return null;
+      }
+      return decoded;
+    } catch {
+      // Not a URL, check if it matches local identifier pattern
+      // Local IDs might be simple strings without special characters
+      // Allow alphanumeric, hyphens, underscores, and dots
+      if (/^[\w\-.@]+$/.test(decoded)) {
+        return decoded;
+      }
+      console.warn('Invalid contactId format:', decoded);
+      return null;
+    }
+  } catch (e) {
+    console.warn('Failed to decode contactId:', e);
+    return null;
+  }
+}
 
 interface DMPageProps {
   actor: Actor;
@@ -63,7 +108,7 @@ function RequestItem({ request, onAccept, onReject }: RequestItemProps) {
 type TabType = 'all' | 'friends' | 'communities' | 'requests';
 
 export function DMPage({ actor }: DMPageProps) {
-  const { contactId } = useParams<{ contactId?: string }>();
+  const { contactId: rawContactId } = useParams<{ contactId?: string }>();
   const navigate = useNavigate();
   const [contacts, setContacts] = useState<DMContact[]>([]);
   const [communities, setCommunities] = useState<DMContact[]>([]);
@@ -77,10 +122,20 @@ export function DMPage({ actor }: DMPageProps) {
   const tabContainerRef = useRef<HTMLDivElement>(null);
   const { t } = useI18n();
 
+  // Validate and decode contactId
+  const validContactId = useMemo(
+    () => validateAndDecodeContactId(rawContactId),
+    [rawContactId]
+  );
+
   // Touch handling for swipe
   const touchStartX = useRef<number>(0);
   const touchEndX = useRef<number>(0);
 
+  // Memoize error message to prevent unnecessary re-renders
+  const errorMessage = useMemo(() => t('common.error'), [t]);
+
+  // Load contacts - no dependencies on contactId to prevent reloading
   const loadContacts = useCallback(async () => {
     setListError(null);
     try {
@@ -88,21 +143,15 @@ export function DMPage({ actor }: DMPageProps) {
       setContacts(data.mutual_followers);
       setCommunities(data.communities);
       setRequestCount(data.request_count);
-
-      // Select contact from URL param
-      if (contactId) {
-        const decodedId = decodeURIComponent(contactId);
-        const allContacts = [...data.mutual_followers, ...data.communities];
-        const contact = allContacts.find(c => c.ap_id === decodedId);
-        setSelectedContact(contact || null);
-      }
+      return data;
     } catch (e) {
       console.error('Failed to load contacts:', e);
-      setListError(t('common.error'));
+      setListError(errorMessage);
+      return null;
     } finally {
       setLoading(false);
     }
-  }, [contactId, t]);
+  }, [errorMessage]);
 
   const loadRequests = useCallback(async () => {
     setListError(null);
@@ -111,31 +160,61 @@ export function DMPage({ actor }: DMPageProps) {
       setRequests(data);
     } catch (e) {
       console.error('Failed to load requests:', e);
-      setListError(t('common.error'));
+      setListError(errorMessage);
     }
-  }, [t]);
+  }, [errorMessage]);
 
+  // Initial load of contacts
   useEffect(() => {
-    loadContacts();
-  }, [loadContacts]);
+    let isMounted = true;
 
+    const initLoad = async () => {
+      const data = await loadContacts();
+
+      // Select contact from URL param after initial load
+      if (isMounted && data && validContactId) {
+        const allContacts = [...data.mutual_followers, ...data.communities];
+        const contact = allContacts.find(c => c.ap_id === validContactId);
+        setSelectedContact(contact || null);
+      }
+    };
+
+    initLoad();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [loadContacts, validContactId]);
+
+  // Handle contact selection when URL changes (after initial load)
+  useEffect(() => {
+    if (!loading && validContactId) {
+      const allContacts = [...contacts, ...communities];
+      const contact = allContacts.find(c => c.ap_id === validContactId);
+      setSelectedContact(contact || null);
+    } else if (!validContactId) {
+      setSelectedContact(null);
+    }
+  }, [validContactId, loading, contacts, communities]);
+
+  // Load requests when tab changes to requests
   useEffect(() => {
     if (activeTab === 'requests') {
       loadRequests();
     }
   }, [activeTab, loadRequests]);
 
-  const handleSelectContact = (contact: DMContact) => {
+  const handleSelectContact = useCallback((contact: DMContact) => {
     setSelectedContact(contact);
     navigate(`/dm/${encodeURIComponent(contact.ap_id)}`);
-  };
+  }, [navigate]);
 
-  const handleBack = () => {
+  const handleBack = useCallback(() => {
     setSelectedContact(null);
     navigate('/dm');
-  };
+  }, [navigate]);
 
-  const handleAcceptRequest = async (senderApId: string) => {
+  const handleAcceptRequest = useCallback(async (senderApId: string) => {
     try {
       await acceptDMRequest(senderApId);
       setRequests(prev => prev.filter(r => r.sender.ap_id !== senderApId));
@@ -143,32 +222,33 @@ export function DMPage({ actor }: DMPageProps) {
       loadContacts(); // Reload contacts to show new contact
     } catch (e) {
       console.error('Failed to accept request:', e);
-      setListError(t('common.error'));
+      setListError(errorMessage);
     }
-  };
+  }, [loadContacts, errorMessage]);
 
-  const handleRejectRequest = async (senderApId: string) => {
+  const handleRejectRequest = useCallback(async (senderApId: string) => {
     try {
       await rejectDMRequest(senderApId);
       setRequests(prev => prev.filter(r => r.sender.ap_id !== senderApId));
       setRequestCount(prev => Math.max(0, prev - 1));
     } catch (e) {
       console.error('Failed to reject request:', e);
-      setListError(t('common.error'));
+      setListError(errorMessage);
     }
-  };
+  }, [errorMessage]);
 
   // Swipe handlers
-  const tabs: TabType[] = ['all', 'friends', 'communities', 'requests'];
-  const handleTouchStart = (e: React.TouchEvent) => {
+  const tabs: TabType[] = useMemo(() => ['all', 'friends', 'communities', 'requests'], []);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
-  };
+  }, []);
 
-  const handleTouchMove = (e: React.TouchEvent) => {
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
     touchEndX.current = e.touches[0].clientX;
-  };
+  }, []);
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd = useCallback(() => {
     const diff = touchStartX.current - touchEndX.current;
     const threshold = 50;
     const currentIndex = tabs.indexOf(activeTab);
@@ -180,12 +260,12 @@ export function DMPage({ actor }: DMPageProps) {
         setActiveTab(tabs[currentIndex - 1]);
       }
     }
-  };
+  }, [tabs, activeTab]);
 
   const showChat = selectedContact !== null;
 
-  // Get current tab's content with search filter
-  const getCurrentContent = () => {
+  // Get current tab's content with search filter - memoized to prevent unnecessary recalculations
+  const currentContacts = useMemo(() => {
     let result: DMContact[] = [];
     switch (activeTab) {
       case 'all':
@@ -215,10 +295,18 @@ export function DMPage({ actor }: DMPageProps) {
     }
 
     return result;
-  };
-
-  const currentContacts = getCurrentContent();
+  }, [activeTab, contacts, communities, searchQuery]);
   const tabIndex = tabs.indexOf(activeTab);
+
+  // Memoize onRead handler
+  const handleRead = useCallback(() => {
+    // Clear unread count locally for this contact
+    if (selectedContact?.type === 'user') {
+      setContacts(prev => prev.map(c =>
+        c.ap_id === selectedContact.ap_id ? { ...c, unread_count: 0 } : c
+      ));
+    }
+  }, [selectedContact]);
 
   return (
     <div className="flex flex-col h-full">
@@ -228,14 +316,7 @@ export function DMPage({ actor }: DMPageProps) {
           contact={selectedContact}
           actor={actor}
           onBack={handleBack}
-          onRead={() => {
-            // Clear unread count locally for this contact
-            if (selectedContact.type === 'user') {
-              setContacts(prev => prev.map(c =>
-                c.ap_id === selectedContact.ap_id ? { ...c, unread_count: 0 } : c
-              ));
-            }
-          }}
+          onRead={handleRead}
         />
       ) : (
         <>
@@ -415,4 +496,4 @@ export function DMPage({ actor }: DMPageProps) {
   );
 }
 
-
+export default DMPage;

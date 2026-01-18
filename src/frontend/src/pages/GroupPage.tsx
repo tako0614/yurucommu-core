@@ -481,3 +481,5 @@ export function GroupPage({ actor }: GroupPageProps) {
   );
 }
 
+export default GroupPage;
+

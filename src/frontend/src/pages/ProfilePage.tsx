@@ -302,3 +302,5 @@ export function ProfilePage({ actor }: ProfilePageProps) {
   );
 }
 
+export default ProfilePage;
+

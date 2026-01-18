@@ -20,6 +20,33 @@ import {
 } from '../lib/oauth-utils';
 import type { PrismaClient } from '../../generated/prisma';
 
+/**
+ * Constant-time string comparison to prevent timing attacks
+ * Always compares the full length to avoid leaking information about the password
+ */
+function timingSafeEqual(a: string, b: string): boolean {
+  const encoder = new TextEncoder();
+  const aBytes = encoder.encode(a);
+  const bBytes = encoder.encode(b);
+
+  // Always compare using the maximum length to ensure constant-time
+  // regardless of input lengths (prevents length-based timing attacks)
+  const maxLen = Math.max(aBytes.length, bBytes.length);
+
+  // Start with length comparison result (1 if different, 0 if same)
+  let result = aBytes.length === bBytes.length ? 0 : 1;
+
+  for (let i = 0; i < maxLen; i++) {
+    // Use 0 as fallback for shorter string to ensure constant-time comparison
+    const aByte = i < aBytes.length ? aBytes[i] : 0;
+    const bByte = i < bBytes.length ? bBytes[i] : 0;
+    // XOR bytes and OR into result - any difference sets bits in result
+    result |= aByte ^ bByte;
+  }
+
+  return result === 0;
+}
+
 const auth = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // ============================================
@@ -94,11 +121,19 @@ auth.post('/login', async (c) => {
   }
 
   const body = await c.req.json<{ password: string }>();
-  if (body.password !== c.env.AUTH_PASSWORD) {
+  // Use constant-time comparison to prevent timing attacks
+  if (!timingSafeEqual(body.password || '', c.env.AUTH_PASSWORD || '')) {
     return c.json({ error: 'Invalid password' }, 401);
   }
 
   const prisma = c.get('prisma');
+
+  // Session fixation prevention: Delete any existing session before creating new one
+  const existingSessionId = getCookie(c, 'session');
+  if (existingSessionId) {
+    await prisma.session.delete({ where: { id: existingSessionId } }).catch(() => {});
+    deleteCookie(c, 'session');
+  }
 
   // Single-user instance: find existing owner or create default
   let actorData = await prisma.actor.findFirst({
@@ -109,6 +144,7 @@ auth.post('/login', async (c) => {
     actorData = await createDefaultOwner(prisma, c.env, 'password:owner');
   }
 
+  // Generate new session with fresh ID (session rotation)
   const sessionId = await createSession(prisma, actorData.apId, null, null, c.env.ENCRYPTION_KEY);
   setSessionCookie(c, sessionId);
 
@@ -273,7 +309,14 @@ auth.get('/callback/:provider', async (c) => {
     await updateActorFromOAuth(prisma, actorData, userInfo);
   }
 
-  // セッション作成
+  // Session fixation prevention: Delete any existing session before creating new one
+  const existingSessionId = getCookie(c, 'session');
+  if (existingSessionId) {
+    await prisma.session.delete({ where: { id: existingSessionId } }).catch(() => {});
+    deleteCookie(c, 'session');
+  }
+
+  // セッション作成 (new session with fresh ID - session rotation)
   const sessionId = await createSession(
     prisma,
     actorData.apId,

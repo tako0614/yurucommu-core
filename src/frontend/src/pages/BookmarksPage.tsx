@@ -122,3 +122,5 @@ export function BookmarksPage({ actor }: BookmarksPageProps) {
     </div>
   );
 }
+
+export default BookmarksPage;

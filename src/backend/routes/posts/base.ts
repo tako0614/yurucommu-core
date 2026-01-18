@@ -186,45 +186,88 @@ posts.post('/', async (c) => {
 
   // Process mentions and create notifications
   const mentions = extractMentions(content);
-  for (const mention of mentions) {
-    try {
-      let mentionedActorApId: string | null = null;
+  if (mentions.length > 0) {
+    // Batch lookup for local and remote mentions to avoid N+1 queries
+    const localMentions = mentions.filter((m) => !m.includes('@'));
+    const remoteMentions = mentions.filter((m) => m.includes('@'));
 
-      if (mention.includes('@')) {
-        // Remote mention @username@domain - lookup in actor_cache
-        const [username, domain] = mention.split('@');
-        const cached = await prisma.actorCache.findFirst({
+    // Batch fetch local actors
+    const localActors = localMentions.length > 0
+      ? await prisma.actor.findMany({
+          where: { preferredUsername: { in: localMentions } },
+          select: { apId: true, preferredUsername: true },
+        })
+      : [];
+    const localActorMap = new Map(localActors.map((a) => [a.preferredUsername, a.apId]));
+
+    // Batch fetch cached actors for remote mentions
+    // Note: We need to check each remote mention individually as they have username@domain format
+    // But we can batch fetch all cached actors and filter client-side
+    const cachedActors = remoteMentions.length > 0
+      ? await prisma.actorCache.findMany({
           where: {
-            preferredUsername: username,
-            apId: { contains: domain }
+            preferredUsername: { in: remoteMentions.map((m) => m.split('@')[0]) },
           },
-          select: { apId: true }
-        });
-        if (cached) mentionedActorApId = cached.apId;
-      } else {
-        // Local mention @username
-        const localActor = await prisma.actor.findUnique({
-          where: { preferredUsername: mention },
-          select: { apId: true }
-        });
-        if (localActor) mentionedActorApId = localActor.apId;
-      }
+          select: { apId: true, preferredUsername: true },
+        })
+      : [];
 
-      // Skip if not found, is self, or already notified as reply recipient
-      if (!mentionedActorApId || mentionedActorApId === actor.ap_id) continue;
-      if (body.in_reply_to) {
-        const parentPost = await prisma.object.findUnique({
-          where: { apId: body.in_reply_to },
-          select: { attributedTo: true }
-        });
-        if (parentPost?.attributedTo === mentionedActorApId) continue; // Already notified via reply
+    // Build remote actor map (username@domain -> apId)
+    const remoteActorMap = new Map<string, string>();
+    for (const mention of remoteMentions) {
+      const [username, domain] = mention.split('@');
+      const matching = cachedActors.find(
+        (a) => a.preferredUsername === username && a.apId.includes(domain)
+      );
+      if (matching) {
+        remoteActorMap.set(mention, matching.apId);
       }
+    }
 
-      // Create mention activity if local
-      if (isLocal(mentionedActorApId, baseUrl)) {
-        const mentionActivityId = activityApId(baseUrl, generateId());
-        await prisma.activity.create({
-          data: {
+    // Get parent post author if replying (for deduplication)
+    let parentAuthor: string | null = null;
+    if (body.in_reply_to) {
+      const parentPost = await prisma.object.findUnique({
+        where: { apId: body.in_reply_to },
+        select: { attributedTo: true },
+      });
+      parentAuthor = parentPost?.attributedTo || null;
+    }
+
+    // Collect activities and inbox entries to batch create
+    const activitiesToCreate: Array<{
+      apId: string;
+      type: string;
+      actorApId: string;
+      objectApId: string;
+      rawJson: string;
+      createdAt: string;
+    }> = [];
+    const inboxEntriesToCreate: Array<{
+      actorApId: string;
+      activityApId: string;
+      read: number;
+      createdAt: string;
+    }> = [];
+
+    for (const mention of mentions) {
+      try {
+        let mentionedActorApId: string | null = null;
+
+        if (mention.includes('@')) {
+          mentionedActorApId = remoteActorMap.get(mention) || null;
+        } else {
+          mentionedActorApId = localActorMap.get(mention) || null;
+        }
+
+        // Skip if not found, is self, or already notified as reply recipient
+        if (!mentionedActorApId || mentionedActorApId === actor.ap_id) continue;
+        if (parentAuthor === mentionedActorApId) continue; // Already notified via reply
+
+        // Create mention activity if local
+        if (isLocal(mentionedActorApId, baseUrl)) {
+          const mentionActivityId = activityApId(baseUrl, generateId());
+          activitiesToCreate.push({
             apId: mentionActivityId,
             type: 'Create',
             actorApId: actor.ap_id,
@@ -234,23 +277,29 @@ posts.post('/', async (c) => {
               id: mentionActivityId,
               type: 'Create',
               actor: actor.ap_id,
-              object: apId
+              object: apId,
             }),
-            createdAt: now
-          }
-        });
+            createdAt: now,
+          });
 
-        await prisma.inbox.create({
-          data: {
+          inboxEntriesToCreate.push({
             actorApId: mentionedActorApId,
             activityApId: mentionActivityId,
             read: 0,
-            createdAt: now
-          }
-        });
+            createdAt: now,
+          });
+        }
+      } catch (e) {
+        console.error(`Failed to process mention ${mention}:`, e);
       }
-    } catch (e) {
-      console.error(`Failed to process mention ${mention}:`, e);
+    }
+
+    // Batch create activities and inbox entries
+    if (activitiesToCreate.length > 0) {
+      await prisma.activity.createMany({ data: activitiesToCreate });
+    }
+    if (inboxEntriesToCreate.length > 0) {
+      await prisma.inbox.createMany({ data: inboxEntriesToCreate });
     }
   }
 

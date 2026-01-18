@@ -576,3 +576,19 @@ model DmArchivedConversation {
   @@index([actorApId])
   @@map("dm_archived_conversations")
 }
+
+// ============================================================
+// MEDIA_UPLOADS (Track media file ownership)
+// ============================================================
+model MediaUpload {
+  id            String  @id
+  r2Key         String  @unique @map("r2_key")
+  uploaderApId  String  @map("uploader_ap_id")
+  contentType   String  @map("content_type")
+  size          Int
+  createdAt     String  @default(dbgenerated("datetime('now')")) @map("created_at")
+
+  @@index([uploaderApId])
+  @@index([r2Key])
+  @@map("media_uploads")
+}
