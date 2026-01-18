@@ -86,8 +86,9 @@ media.post('/upload', async (c) => {
       id,
     });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return c.json({ error: 'Upload failed', details: errorMessage }, 500);
+    // Log error internally but don't expose details to client
+    console.error('Media upload failed:', error instanceof Error ? error.message : 'Unknown error');
+    return c.json({ error: 'Upload failed' }, 500);
   }
 });
 

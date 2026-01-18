@@ -34,7 +34,7 @@ export function TimelinePostItem({
             {post.author.name || post.author.username}
           </Link>
           <span className="text-neutral-500 truncate">@{post.author.username}</span>
-          <span className="text-neutral-500">ÅE</span>
+          <span className="text-neutral-500">ÔøΩE</span>
           <span className="text-neutral-500 text-sm">{formatRelativeTime(post.published)}</span>
         </div>
         <Link to={`/post/${encodeURIComponent(post.ap_id)}`} className="block">
@@ -45,8 +45,8 @@ export function TimelinePostItem({
                 post.attachments.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
               }`}
             >
-              {post.attachments.map((m, idx) => (
-                <img key={idx} src={`/media/${m.r2_key}`} alt="" className="w-full object-cover max-h-96" />
+              {post.attachments.map((m) => (
+                <img key={m.r2_key} src={`/media/${m.r2_key}`} alt="" className="w-full object-cover max-h-96" />
               ))}
             </div>
           )}

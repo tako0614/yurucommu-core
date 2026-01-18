@@ -105,37 +105,33 @@ actors.get('/me/blocked', async (c) => {
     orderBy: { createdAt: 'desc' },
   });
 
-  // Get actor info for each blocked user
-  const blockedList = await Promise.all(
-    blocks.map(async (b) => {
-      const localActor = await prisma.actor.findUnique({
-        where: { apId: b.blockedApId },
-        select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
-      });
-      if (localActor) {
-        return {
-          ap_id: b.blockedApId,
-          username: formatUsername(b.blockedApId),
-          preferred_username: localActor.preferredUsername,
-          name: localActor.name,
-          icon_url: localActor.iconUrl,
-          summary: localActor.summary,
-        };
-      }
-      const cachedActor = await prisma.actorCache.findUnique({
-        where: { apId: b.blockedApId },
-        select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
-      });
-      return {
-        ap_id: b.blockedApId,
-        username: formatUsername(b.blockedApId),
-        preferred_username: cachedActor?.preferredUsername || null,
-        name: cachedActor?.name || null,
-        icon_url: cachedActor?.iconUrl || null,
-        summary: cachedActor?.summary || null,
-      };
-    })
-  );
+  // Batch load actor info to avoid N+1 queries
+  const blockedApIds = blocks.map((b) => b.blockedApId);
+  const [localActors, cachedActors] = await Promise.all([
+    prisma.actor.findMany({
+      where: { apId: { in: blockedApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true, summary: true },
+    }),
+    prisma.actorCache.findMany({
+      where: { apId: { in: blockedApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true, summary: true },
+    }),
+  ]);
+
+  const localActorMap = new Map(localActors.map((a) => [a.apId, a]));
+  const cachedActorMap = new Map(cachedActors.map((a) => [a.apId, a]));
+
+  const blockedList = blocks.map((b) => {
+    const actorInfo = localActorMap.get(b.blockedApId) || cachedActorMap.get(b.blockedApId);
+    return {
+      ap_id: b.blockedApId,
+      username: formatUsername(b.blockedApId),
+      preferred_username: actorInfo?.preferredUsername || null,
+      name: actorInfo?.name || null,
+      icon_url: actorInfo?.iconUrl || null,
+      summary: actorInfo?.summary || null,
+    };
+  });
 
   return c.json({ blocked: blockedList });
 });
@@ -190,36 +186,33 @@ actors.get('/me/muted', async (c) => {
     orderBy: { createdAt: 'desc' },
   });
 
-  const mutedList = await Promise.all(
-    mutes.map(async (m) => {
-      const localActor = await prisma.actor.findUnique({
-        where: { apId: m.mutedApId },
-        select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
-      });
-      if (localActor) {
-        return {
-          ap_id: m.mutedApId,
-          username: formatUsername(m.mutedApId),
-          preferred_username: localActor.preferredUsername,
-          name: localActor.name,
-          icon_url: localActor.iconUrl,
-          summary: localActor.summary,
-        };
-      }
-      const cachedActor = await prisma.actorCache.findUnique({
-        where: { apId: m.mutedApId },
-        select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
-      });
-      return {
-        ap_id: m.mutedApId,
-        username: formatUsername(m.mutedApId),
-        preferred_username: cachedActor?.preferredUsername || null,
-        name: cachedActor?.name || null,
-        icon_url: cachedActor?.iconUrl || null,
-        summary: cachedActor?.summary || null,
-      };
-    })
-  );
+  // Batch load actor info to avoid N+1 queries
+  const mutedApIds = mutes.map((m) => m.mutedApId);
+  const [localActors, cachedActors] = await Promise.all([
+    prisma.actor.findMany({
+      where: { apId: { in: mutedApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true, summary: true },
+    }),
+    prisma.actorCache.findMany({
+      where: { apId: { in: mutedApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true, summary: true },
+    }),
+  ]);
+
+  const localActorMap = new Map(localActors.map((a) => [a.apId, a]));
+  const cachedActorMap = new Map(cachedActors.map((a) => [a.apId, a]));
+
+  const mutedList = mutes.map((m) => {
+    const actorInfo = localActorMap.get(m.mutedApId) || cachedActorMap.get(m.mutedApId);
+    return {
+      ap_id: m.mutedApId,
+      username: formatUsername(m.mutedApId),
+      preferred_username: actorInfo?.preferredUsername || null,
+      name: actorInfo?.name || null,
+      icon_url: actorInfo?.iconUrl || null,
+      summary: actorInfo?.summary || null,
+    };
+  });
 
   return c.json({ muted: mutedList });
 });
@@ -271,68 +264,78 @@ actors.post('/me/delete', async (c) => {
   const actorApIdVal = actor.ap_id;
   const prisma = c.get('prisma');
 
-  // Remove sessions
-  await prisma.session.deleteMany({ where: { memberId: actorApIdVal } });
-  deleteCookie(c, 'session');
+  try {
+    // Use transaction to ensure all deletions succeed or none do
+    await prisma.$transaction(async (tx) => {
+      // Remove sessions
+      await tx.session.deleteMany({ where: { memberId: actorApIdVal } });
 
-  // Remove follow relationships
-  await prisma.follow.deleteMany({
-    where: { OR: [{ followerApId: actorApIdVal }, { followingApId: actorApIdVal }] },
-  });
+      // Remove follow relationships
+      await tx.follow.deleteMany({
+        where: { OR: [{ followerApId: actorApIdVal }, { followingApId: actorApIdVal }] },
+      });
 
-  // Remove blocks/mutes
-  await prisma.block.deleteMany({
-    where: { OR: [{ blockerApId: actorApIdVal }, { blockedApId: actorApIdVal }] },
-  });
-  await prisma.mute.deleteMany({
-    where: { OR: [{ muterApId: actorApIdVal }, { mutedApId: actorApIdVal }] },
-  });
+      // Remove blocks/mutes
+      await tx.block.deleteMany({
+        where: { OR: [{ blockerApId: actorApIdVal }, { blockedApId: actorApIdVal }] },
+      });
+      await tx.mute.deleteMany({
+        where: { OR: [{ muterApId: actorApIdVal }, { mutedApId: actorApIdVal }] },
+      });
 
-  // Remove likes/bookmarks/announces
-  await prisma.like.deleteMany({ where: { actorApId: actorApIdVal } });
-  await prisma.bookmark.deleteMany({ where: { actorApId: actorApIdVal } });
-  await prisma.announce.deleteMany({ where: { actorApId: actorApIdVal } });
+      // Remove likes/bookmarks/announces
+      await tx.like.deleteMany({ where: { actorApId: actorApIdVal } });
+      await tx.bookmark.deleteMany({ where: { actorApId: actorApIdVal } });
+      await tx.announce.deleteMany({ where: { actorApId: actorApIdVal } });
 
-  // Remove inbox entries
-  await prisma.inbox.deleteMany({ where: { actorApId: actorApIdVal } });
+      // Remove inbox entries
+      await tx.inbox.deleteMany({ where: { actorApId: actorApIdVal } });
 
-  // Remove community memberships
-  const memberships = await prisma.communityMember.findMany({
-    where: { actorApId: actorApIdVal },
-    select: { communityApId: true },
-  });
-  for (const m of memberships) {
-    await prisma.community.update({
-      where: { apId: m.communityApId },
-      data: { memberCount: { decrement: 1 } },
-    }).catch(() => {});
+      // Remove community memberships
+      const memberships = await tx.communityMember.findMany({
+        where: { actorApId: actorApIdVal },
+        select: { communityApId: true },
+      });
+      for (const m of memberships) {
+        await tx.community.update({
+          where: { apId: m.communityApId },
+          data: { memberCount: { decrement: 1 } },
+        }).catch(() => {});
+      }
+      await tx.communityMember.deleteMany({ where: { actorApId: actorApIdVal } });
+
+      // Remove object recipients and activities
+      await tx.objectRecipient.deleteMany({ where: { recipientApId: actorApIdVal } });
+      await tx.activity.deleteMany({ where: { actorApId: actorApIdVal } });
+
+      // Get objects authored by the actor
+      const authoredObjects = await tx.object.findMany({
+        where: { attributedTo: actorApIdVal },
+        select: { apId: true },
+      });
+      const objectIds = authoredObjects.map((o) => o.apId);
+
+      if (objectIds.length > 0) {
+        await tx.like.deleteMany({ where: { objectApId: { in: objectIds } } });
+        await tx.announce.deleteMany({ where: { objectApId: { in: objectIds } } });
+        await tx.bookmark.deleteMany({ where: { objectApId: { in: objectIds } } });
+        await tx.storyVote.deleteMany({ where: { storyApId: { in: objectIds } } });
+        await tx.storyView.deleteMany({ where: { storyApId: { in: objectIds } } });
+      }
+      await tx.object.deleteMany({ where: { attributedTo: actorApIdVal } });
+
+      // Finally remove actor
+      await tx.actor.delete({ where: { apId: actorApIdVal } });
+    });
+
+    // Clear session cookie after successful deletion
+    deleteCookie(c, 'session');
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Account deletion failed:', error instanceof Error ? error.message : 'Unknown error');
+    return c.json({ error: 'Account deletion failed' }, 500);
   }
-  await prisma.communityMember.deleteMany({ where: { actorApId: actorApIdVal } });
-
-  // Remove object recipients and activities
-  await prisma.objectRecipient.deleteMany({ where: { recipientApId: actorApIdVal } });
-  await prisma.activity.deleteMany({ where: { actorApId: actorApIdVal } });
-
-  // Get objects authored by the actor
-  const authoredObjects = await prisma.object.findMany({
-    where: { attributedTo: actorApIdVal },
-    select: { apId: true },
-  });
-  const objectIds = authoredObjects.map((o) => o.apId);
-
-  if (objectIds.length > 0) {
-    await prisma.like.deleteMany({ where: { objectApId: { in: objectIds } } });
-    await prisma.announce.deleteMany({ where: { objectApId: { in: objectIds } } });
-    await prisma.bookmark.deleteMany({ where: { objectApId: { in: objectIds } } });
-    await prisma.storyVote.deleteMany({ where: { storyApId: { in: objectIds } } });
-    await prisma.storyView.deleteMany({ where: { storyApId: { in: objectIds } } });
-  }
-  await prisma.object.deleteMany({ where: { attributedTo: actorApIdVal } });
-
-  // Finally remove actor
-  await prisma.actor.delete({ where: { apId: actorApIdVal } });
-
-  return c.json({ success: true });
 });
 
 // Get posts for a specific actor
@@ -376,68 +379,78 @@ actors.get('/:identifier/posts', async (c) => {
     take: limit,
   });
 
-  // Get author info and interaction status for each post
-  const result = await Promise.all(
-    posts.map(async (p) => {
-      const localAuthor = await prisma.actor.findUnique({
-        where: { apId: p.attributedTo },
-        select: { preferredUsername: true, name: true, iconUrl: true },
-      });
-      const cachedAuthor = localAuthor
-        ? null
-        : await prisma.actorCache.findUnique({
-            where: { apId: p.attributedTo },
-            select: { preferredUsername: true, name: true, iconUrl: true },
-          });
-      const author = localAuthor || cachedAuthor;
+  // Batch load author info to avoid N+1 queries
+  const authorApIds = [...new Set(posts.map((p) => p.attributedTo))];
+  const [localAuthors, cachedAuthors] = await Promise.all([
+    prisma.actor.findMany({
+      where: { apId: { in: authorApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+    prisma.actorCache.findMany({
+      where: { apId: { in: authorApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+  ]);
 
-      let liked = false;
-      let bookmarked = false;
-      let reposted = false;
+  const localAuthorMap = new Map(localAuthors.map((a) => [a.apId, a]));
+  const cachedAuthorMap = new Map(cachedAuthors.map((a) => [a.apId, a]));
 
-      if (currentActor) {
-        const likeExists = await prisma.like.findUnique({
-          where: { actorApId_objectApId: { actorApId: currentActor.ap_id, objectApId: p.apId } },
-        });
-        liked = !!likeExists;
+  // Batch load interaction status if user is logged in
+  const postApIds = posts.map((p) => p.apId);
+  const likedPostIds = new Set<string>();
+  const bookmarkedPostIds = new Set<string>();
+  const repostedPostIds = new Set<string>();
 
-        const bookmarkExists = await prisma.bookmark.findUnique({
-          where: { actorApId_objectApId: { actorApId: currentActor.ap_id, objectApId: p.apId } },
-        });
-        bookmarked = !!bookmarkExists;
+  if (currentActor) {
+    const [likes, bookmarks, announces] = await Promise.all([
+      prisma.like.findMany({
+        where: { actorApId: currentActor.ap_id, objectApId: { in: postApIds } },
+        select: { objectApId: true },
+      }),
+      prisma.bookmark.findMany({
+        where: { actorApId: currentActor.ap_id, objectApId: { in: postApIds } },
+        select: { objectApId: true },
+      }),
+      prisma.announce.findMany({
+        where: { actorApId: currentActor.ap_id, objectApId: { in: postApIds } },
+        select: { objectApId: true },
+      }),
+    ]);
 
-        const announceExists = await prisma.announce.findUnique({
-          where: { actorApId_objectApId: { actorApId: currentActor.ap_id, objectApId: p.apId } },
-        });
-        reposted = !!announceExists;
-      }
+    likes.forEach((l) => likedPostIds.add(l.objectApId));
+    bookmarks.forEach((b) => bookmarkedPostIds.add(b.objectApId));
+    announces.forEach((a) => repostedPostIds.add(a.objectApId));
+  }
 
-      return {
-        ap_id: p.apId,
-        type: p.type,
-        author: {
-          ap_id: p.attributedTo,
-          username: formatUsername(p.attributedTo),
-          preferred_username: author?.preferredUsername || null,
-          name: author?.name || null,
-          icon_url: author?.iconUrl || null,
-        },
-        content: p.content,
-        summary: p.summary,
-        attachments: JSON.parse(p.attachmentsJson || '[]'),
-        in_reply_to: p.inReplyTo,
-        visibility: p.visibility,
-        community_ap_id: p.communityApId,
-        like_count: p.likeCount,
-        reply_count: p.replyCount,
-        announce_count: p.announceCount,
-        published: p.published,
-        liked,
-        bookmarked,
-        reposted,
-      };
-    })
-  );
+  // Map posts to result format
+  const result = posts.map((p) => {
+    const author = localAuthorMap.get(p.attributedTo) || cachedAuthorMap.get(p.attributedTo);
+
+    return {
+      ap_id: p.apId,
+      type: p.type,
+      author: {
+        ap_id: p.attributedTo,
+        username: formatUsername(p.attributedTo),
+        preferred_username: author?.preferredUsername || null,
+        name: author?.name || null,
+        icon_url: author?.iconUrl || null,
+      },
+      content: p.content,
+      summary: p.summary,
+      attachments: JSON.parse(p.attachmentsJson || '[]'),
+      in_reply_to: p.inReplyTo,
+      visibility: p.visibility,
+      community_ap_id: p.communityApId,
+      like_count: p.likeCount,
+      reply_count: p.replyCount,
+      announce_count: p.announceCount,
+      published: p.published,
+      liked: likedPostIds.has(p.apId),
+      bookmarked: bookmarkedPostIds.has(p.apId),
+      reposted: repostedPostIds.has(p.apId),
+    };
+  });
 
   return c.json({ posts: result });
 });
@@ -659,29 +672,33 @@ actors.get('/:identifier/followers', async (c) => {
     where: { followingApId: apId, status: 'accepted' },
   });
 
-  const followers = await Promise.all(
-    follows.map(async (f) => {
-      const localActor = await prisma.actor.findUnique({
-        where: { apId: f.followerApId },
-        select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
-      });
-      const cachedActor = localActor
-        ? null
-        : await prisma.actorCache.findUnique({
-            where: { apId: f.followerApId },
-            select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
-          });
-      const actor = localActor || cachedActor;
-      return {
-        ap_id: f.followerApId,
-        username: formatUsername(f.followerApId),
-        preferred_username: actor?.preferredUsername || null,
-        name: actor?.name || null,
-        icon_url: actor?.iconUrl || null,
-        summary: actor?.summary || null,
-      };
-    })
-  );
+  // Batch load actor info to avoid N+1 queries
+  const followerApIds = follows.map((f) => f.followerApId);
+  const [localActors, cachedActors] = await Promise.all([
+    prisma.actor.findMany({
+      where: { apId: { in: followerApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true, summary: true },
+    }),
+    prisma.actorCache.findMany({
+      where: { apId: { in: followerApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true, summary: true },
+    }),
+  ]);
+
+  const localActorMap = new Map(localActors.map((a) => [a.apId, a]));
+  const cachedActorMap = new Map(cachedActors.map((a) => [a.apId, a]));
+
+  const followers = follows.map((f) => {
+    const actorInfo = localActorMap.get(f.followerApId) || cachedActorMap.get(f.followerApId);
+    return {
+      ap_id: f.followerApId,
+      username: formatUsername(f.followerApId),
+      preferred_username: actorInfo?.preferredUsername || null,
+      name: actorInfo?.name || null,
+      icon_url: actorInfo?.iconUrl || null,
+      summary: actorInfo?.summary || null,
+    };
+  });
 
   return c.json({
     followers,
@@ -713,29 +730,33 @@ actors.get('/:identifier/following', async (c) => {
     where: { followerApId: apId, status: 'accepted' },
   });
 
-  const following = await Promise.all(
-    follows.map(async (f) => {
-      const localActor = await prisma.actor.findUnique({
-        where: { apId: f.followingApId },
-        select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
-      });
-      const cachedActor = localActor
-        ? null
-        : await prisma.actorCache.findUnique({
-            where: { apId: f.followingApId },
-            select: { preferredUsername: true, name: true, iconUrl: true, summary: true },
-          });
-      const actor = localActor || cachedActor;
-      return {
-        ap_id: f.followingApId,
-        username: formatUsername(f.followingApId),
-        preferred_username: actor?.preferredUsername || null,
-        name: actor?.name || null,
-        icon_url: actor?.iconUrl || null,
-        summary: actor?.summary || null,
-      };
-    })
-  );
+  // Batch load actor info to avoid N+1 queries
+  const followingApIds = follows.map((f) => f.followingApId);
+  const [localActors, cachedActors] = await Promise.all([
+    prisma.actor.findMany({
+      where: { apId: { in: followingApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true, summary: true },
+    }),
+    prisma.actorCache.findMany({
+      where: { apId: { in: followingApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true, summary: true },
+    }),
+  ]);
+
+  const localActorMap = new Map(localActors.map((a) => [a.apId, a]));
+  const cachedActorMap = new Map(cachedActors.map((a) => [a.apId, a]));
+
+  const following = follows.map((f) => {
+    const actorInfo = localActorMap.get(f.followingApId) || cachedActorMap.get(f.followingApId);
+    return {
+      ap_id: f.followingApId,
+      username: formatUsername(f.followingApId),
+      preferred_username: actorInfo?.preferredUsername || null,
+      name: actorInfo?.name || null,
+      icon_url: actorInfo?.iconUrl || null,
+      summary: actorInfo?.summary || null,
+    };
+  });
 
   return c.json({
     following,

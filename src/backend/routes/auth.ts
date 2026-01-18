@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { Env, Variables, Actor } from '../types';
 import { generateId, actorApId, formatUsername, generateKeyPair } from '../utils';
+import { encrypt } from '../lib/crypto';
 import {
   getAuthConfig,
   getProvider,
@@ -108,7 +109,7 @@ auth.post('/login', async (c) => {
     actorData = await createDefaultOwner(prisma, c.env, 'password:owner');
   }
 
-  const sessionId = await createSession(prisma, actorData.apId, null, null);
+  const sessionId = await createSession(prisma, actorData.apId, null, null, c.env.ENCRYPTION_KEY);
   setSessionCookie(c, sessionId);
 
   return c.json({ success: true });
@@ -170,7 +171,15 @@ auth.get('/callback/:provider', async (c) => {
 
   if (error) {
     console.error('OAuth error:', error, errorDescription);
-    return c.redirect(`/?error=${encodeURIComponent(error)}`);
+    // Validate error is a known OAuth error type to prevent injection
+    const knownErrors = [
+      'access_denied', 'invalid_request', 'unauthorized_client',
+      'unsupported_response_type', 'invalid_scope', 'server_error',
+      'temporarily_unavailable', 'interaction_required', 'login_required',
+      'consent_required'
+    ];
+    const safeError = knownErrors.includes(error) ? error : 'oauth_error';
+    return c.redirect(`/?error=${safeError}`);
   }
 
   if (!code || !state) {
@@ -269,7 +278,8 @@ auth.get('/callback/:provider', async (c) => {
     prisma,
     actorData.apId,
     providerId,
-    providerId === 'takos' ? tokens : null
+    providerId === 'takos' ? tokens : null,
+    c.env.ENCRYPTION_KEY
   );
 
   setSessionCookie(c, sessionId);
@@ -501,12 +511,21 @@ async function createSession(
   prisma: PrismaClient,
   actorApId: string,
   provider: string | null,
-  tokens: { access_token: string; refresh_token?: string; expires_in?: number } | null
+  tokens: { access_token: string; refresh_token?: string; expires_in?: number } | null,
+  encryptionKey?: string
 ): Promise<string> {
   const sessionId = generateId();
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
   const tokenExpiresAt = tokens?.expires_in
     ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+    : null;
+
+  // Encrypt OAuth tokens before storing
+  const encryptedAccessToken = tokens?.access_token
+    ? await encrypt(tokens.access_token, encryptionKey)
+    : null;
+  const encryptedRefreshToken = tokens?.refresh_token
+    ? await encrypt(tokens.refresh_token, encryptionKey)
     : null;
 
   await prisma.session.create({
@@ -516,8 +535,8 @@ async function createSession(
       accessToken: sessionId, // legacy: access_token = sessionId
       expiresAt,
       provider,
-      providerAccessToken: tokens?.access_token || null,
-      providerRefreshToken: tokens?.refresh_token || null,
+      providerAccessToken: encryptedAccessToken,
+      providerRefreshToken: encryptedRefreshToken,
       providerTokenExpiresAt: tokenExpiresAt,
     },
   });

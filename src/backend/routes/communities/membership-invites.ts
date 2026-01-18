@@ -39,38 +39,41 @@ export function registerMembershipInviteRoutes(communities: Hono<{ Bindings: Env
       orderBy: { createdAt: 'desc' },
     });
 
-    // Get invited_by info for each invite
-    const result = await Promise.all(
-      invites.map(async (inv) => {
-        const localActor = await prisma.actor.findUnique({
-          where: { apId: inv.invitedByApId },
-          select: { preferredUsername: true, name: true },
-        });
-        const cachedActor = localActor
-          ? null
-          : await prisma.actorCache.findUnique({
-              where: { apId: inv.invitedByApId },
-              select: { preferredUsername: true, name: true },
-            });
-        const invitedByInfo = localActor || cachedActor;
+    // Batch load invited_by info to avoid N+1 queries
+    const invitedByApIds = [...new Set(invites.map((inv) => inv.invitedByApId))];
+    const [localActors, cachedActors] = await Promise.all([
+      prisma.actor.findMany({
+        where: { apId: { in: invitedByApIds } },
+        select: { apId: true, preferredUsername: true, name: true },
+      }),
+      prisma.actorCache.findMany({
+        where: { apId: { in: invitedByApIds } },
+        select: { apId: true, preferredUsername: true, name: true },
+      }),
+    ]);
 
-        return {
-          id: inv.id,
-          invited_ap_id: inv.invitedApId,
-          invited_by: {
-            ap_id: inv.invitedByApId,
-            username: formatUsername(inv.invitedByApId),
-            preferred_username: invitedByInfo?.preferredUsername || null,
-            name: invitedByInfo?.name || null,
-          },
-          created_at: inv.createdAt,
-          expires_at: inv.expiresAt,
-          used_at: inv.usedAt,
-          used_by_ap_id: inv.usedByApId,
-          is_valid: !inv.usedAt && (!inv.expiresAt || new Date(inv.expiresAt) > new Date()),
-        };
-      })
-    );
+    const localActorMap = new Map(localActors.map((a) => [a.apId, a]));
+    const cachedActorMap = new Map(cachedActors.map((a) => [a.apId, a]));
+
+    const result = invites.map((inv) => {
+      const invitedByInfo = localActorMap.get(inv.invitedByApId) || cachedActorMap.get(inv.invitedByApId);
+
+      return {
+        id: inv.id,
+        invited_ap_id: inv.invitedApId,
+        invited_by: {
+          ap_id: inv.invitedByApId,
+          username: formatUsername(inv.invitedByApId),
+          preferred_username: invitedByInfo?.preferredUsername || null,
+          name: invitedByInfo?.name || null,
+        },
+        created_at: inv.createdAt,
+        expires_at: inv.expiresAt,
+        used_at: inv.usedAt,
+        used_by_ap_id: inv.usedByApId,
+        is_valid: !inv.usedAt && (!inv.expiresAt || new Date(inv.expiresAt) > new Date()),
+      };
+    });
 
     return c.json({ invites: result });
   });

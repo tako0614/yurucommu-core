@@ -6,6 +6,10 @@
 
 import type { Env } from '../types';
 import type { PrismaClient } from '../../generated/prisma';
+import { decrypt, encrypt } from './crypto';
+
+// Token refresh lock to prevent race conditions
+const refreshLocks = new Map<string, Promise<{ access_token: string; refresh_token?: string; expires_in?: number } | null>>();
 
 export interface TakosSession {
   id: string;
@@ -56,7 +60,11 @@ export async function getTakosClient(
     return null;
   }
 
-  let accessToken = session.providerAccessToken;
+  // Decrypt the stored tokens
+  let accessToken = await decrypt(session.providerAccessToken, env.ENCRYPTION_KEY);
+  const refreshToken = session.providerRefreshToken
+    ? await decrypt(session.providerRefreshToken, env.ENCRYPTION_KEY)
+    : null;
 
   // トークン有効期限チェック
   if (session.providerTokenExpiresAt) {
@@ -65,13 +73,35 @@ export async function getTakosClient(
 
     // 5分前にリフレッシュ
     if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
-      if (session.providerRefreshToken) {
-        const newTokens = await refreshTakosToken(env, session.providerRefreshToken);
-        if (newTokens) {
-          await updateSessionTokens(prisma, session.id, newTokens);
-          accessToken = newTokens.access_token;
+      if (refreshToken) {
+        // Use lock to prevent concurrent refresh requests
+        const lockKey = session.id;
+        let refreshPromise = refreshLocks.get(lockKey);
+
+        if (!refreshPromise) {
+          // No refresh in progress, start one
+          refreshPromise = refreshTakosToken(env, refreshToken);
+          refreshLocks.set(lockKey, refreshPromise);
+
+          try {
+            const newTokens = await refreshPromise;
+            if (newTokens) {
+              await updateSessionTokens(prisma, session.id, newTokens, env.ENCRYPTION_KEY);
+              accessToken = newTokens.access_token;
+            } else {
+              return null;
+            }
+          } finally {
+            refreshLocks.delete(lockKey);
+          }
         } else {
-          return null;
+          // Refresh in progress, wait for it
+          const newTokens = await refreshPromise;
+          if (newTokens) {
+            accessToken = newTokens.access_token;
+          } else {
+            return null;
+          }
         }
       } else {
         return null;
@@ -156,17 +186,24 @@ async function refreshTakosToken(
 async function updateSessionTokens(
   prisma: PrismaClient,
   sessionId: string,
-  tokens: { access_token: string; refresh_token?: string; expires_in?: number }
+  tokens: { access_token: string; refresh_token?: string; expires_in?: number },
+  encryptionKey?: string
 ): Promise<void> {
   const tokenExpiresAt = tokens.expires_in
     ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
     : undefined;
 
+  // Encrypt tokens before storing
+  const encryptedAccessToken = await encrypt(tokens.access_token, encryptionKey);
+  const encryptedRefreshToken = tokens.refresh_token
+    ? await encrypt(tokens.refresh_token, encryptionKey)
+    : undefined;
+
   await prisma.session.update({
     where: { id: sessionId },
     data: {
-      providerAccessToken: tokens.access_token,
-      ...(tokens.refresh_token && { providerRefreshToken: tokens.refresh_token }),
+      providerAccessToken: encryptedAccessToken,
+      ...(encryptedRefreshToken && { providerRefreshToken: encryptedRefreshToken }),
       ...(tokenExpiresAt && { providerTokenExpiresAt: tokenExpiresAt }),
     },
   });

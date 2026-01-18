@@ -223,7 +223,7 @@ export function PostDetailPage({ actor }: PostDetailPageProps) {
             }`}>
               {post.attachments.map((m, idx) => (
                 <img
-                  key={idx}
+                  key={m.r2_key}
                   src={`/media/${m.r2_key}`}
                   alt=""
                   className={`w-full object-cover ${

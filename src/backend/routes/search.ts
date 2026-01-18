@@ -1,10 +1,8 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { formatUsername } from '../utils';
+import { formatUsername, isSafeRemoteUrl, normalizeRemoteDomain } from '../utils';
 
 const search = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const HOSTNAME_PATTERN = /^[a-z0-9.-]+$/i;
 
 type WebFingerLink = {
   rel?: string;
@@ -27,77 +25,6 @@ type RemoteActor = {
   outbox?: string;
   publicKey?: { id?: string; publicKeyPem?: string };
 };
-
-function parseIPv4(hostname: string): number[] | null {
-  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return null;
-  const parts = hostname.split('.').map((part) => Number(part));
-  if (parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)) return null;
-  return parts;
-}
-
-function isPrivateIPv4(hostname: string): boolean {
-  const parts = parseIPv4(hostname);
-  if (!parts) return false;
-  const [a, b, c] = parts;
-  if (a === 0 || a === 10 || a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  if (a === 192 && b === 0 && c === 0) return true;
-  if (a === 192 && b === 0 && c === 2) return true;
-  if (a === 198 && (b === 18 || b === 19)) return true;
-  if (a === 198 && b === 51 && c === 100) return true;
-  if (a === 203 && b === 0 && c === 113) return true;
-  if (a >= 224) return true;
-  return false;
-}
-
-function isBlockedHostname(hostname: string): boolean {
-  const lower = hostname.toLowerCase();
-  if (
-    lower === 'localhost' ||
-    lower.endsWith('.localhost') ||
-    lower.endsWith('.local') ||
-    lower.endsWith('.localdomain') ||
-    lower.endsWith('.internal')
-  ) {
-    return true;
-  }
-  if (lower.includes(':')) return true;
-  if (isPrivateIPv4(lower)) return true;
-  return false;
-}
-
-function normalizeRemoteDomain(domain: string): string | null {
-  const trimmed = domain.trim();
-  if (!trimmed) return null;
-  try {
-    const parsed = new URL(`https://${trimmed}`);
-    if (parsed.username || parsed.password) return null;
-    if (parsed.pathname !== '/' || parsed.search || parsed.hash) return null;
-    const hostname = parsed.hostname;
-    if (!HOSTNAME_PATTERN.test(hostname)) return null;
-    if (!hostname.includes('.')) return null;
-    if (isBlockedHostname(hostname)) return null;
-    return parsed.host;
-  } catch {
-    return null;
-  }
-}
-
-function isSafeRemoteUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    if (parsed.username || parsed.password) return false;
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
-    if (!HOSTNAME_PATTERN.test(parsed.hostname)) return false;
-    if (isBlockedHostname(parsed.hostname)) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Search local actors by username or name
@@ -221,55 +148,57 @@ search.get('/posts', async (c) => {
     take: 50,
   });
 
-  // Fetch author info and like status for each post
-  const result = await Promise.all(
-    posts.map(async (p) => {
-      // Try local actor first
-      const localAuthor = await prisma.actor.findUnique({
-        where: { apId: p.attributedTo },
-        select: { preferredUsername: true, name: true, iconUrl: true },
-      });
+  // Batch load author info to avoid N+1 queries
+  const authorApIds = [...new Set(posts.map((p) => p.attributedTo))];
 
-      // Try cached actor if not local
-      const cachedAuthor = localAuthor
-        ? null
-        : await prisma.actorCache.findUnique({
-            where: { apId: p.attributedTo },
-            select: { preferredUsername: true, name: true, iconUrl: true },
-          });
+  const [localAuthors, cachedAuthors] = await Promise.all([
+    prisma.actor.findMany({
+      where: { apId: { in: authorApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+    prisma.actorCache.findMany({
+      where: { apId: { in: authorApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+  ]);
 
-      const author = localAuthor || cachedAuthor;
+  // Create lookup maps
+  const localAuthorMap = new Map(localAuthors.map((a) => [a.apId, a]));
+  const cachedAuthorMap = new Map(cachedAuthors.map((a) => [a.apId, a]));
 
-      // Check if current user has liked this post
-      let liked = false;
-      if (actor?.ap_id) {
-        const likeExists = await prisma.like.findUnique({
-          where: {
-            actorApId_objectApId: {
-              actorApId: actor.ap_id,
-              objectApId: p.apId,
-            },
-          },
-        });
-        liked = !!likeExists;
-      }
+  // Batch load likes if user is logged in
+  const likedPostIds = new Set<string>();
+  if (actor?.ap_id) {
+    const postApIds = posts.map((p) => p.apId);
+    const likes = await prisma.like.findMany({
+      where: {
+        actorApId: actor.ap_id,
+        objectApId: { in: postApIds },
+      },
+      select: { objectApId: true },
+    });
+    likes.forEach((l) => likedPostIds.add(l.objectApId));
+  }
 
-      return {
-        ap_id: p.apId,
-        author: {
-          ap_id: p.attributedTo,
-          username: formatUsername(p.attributedTo),
-          preferred_username: author?.preferredUsername || null,
-          name: author?.name || null,
-          icon_url: author?.iconUrl || null,
-        },
-        content: p.content,
-        published: p.published,
-        like_count: p.likeCount,
-        liked,
-      };
-    })
-  );
+  // Map posts to result format
+  const result = posts.map((p) => {
+    const author = localAuthorMap.get(p.attributedTo) || cachedAuthorMap.get(p.attributedTo);
+
+    return {
+      ap_id: p.apId,
+      author: {
+        ap_id: p.attributedTo,
+        username: formatUsername(p.attributedTo),
+        preferred_username: author?.preferredUsername || null,
+        name: author?.name || null,
+        icon_url: author?.iconUrl || null,
+      },
+      content: p.content,
+      published: p.published,
+      like_count: p.likeCount,
+      liked: likedPostIds.has(p.apId),
+    };
+  });
 
   return c.json({ posts: result });
 });
@@ -406,55 +335,55 @@ search.get('/hashtag/:tag', async (c) => {
     take: limit,
   });
 
-  // Fetch author info and like status for each post
-  const result = await Promise.all(
-    posts.map(async (p) => {
-      // Try local actor first
-      const localAuthor = await prisma.actor.findUnique({
-        where: { apId: p.attributedTo },
-        select: { preferredUsername: true, name: true, iconUrl: true },
-      });
+  // Batch load author info to avoid N+1 queries
+  const authorApIds = [...new Set(posts.map((p) => p.attributedTo))];
+  const [localAuthors, cachedAuthors] = await Promise.all([
+    prisma.actor.findMany({
+      where: { apId: { in: authorApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+    prisma.actorCache.findMany({
+      where: { apId: { in: authorApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+  ]);
 
-      // Try cached actor if not local
-      const cachedAuthor = localAuthor
-        ? null
-        : await prisma.actorCache.findUnique({
-            where: { apId: p.attributedTo },
-            select: { preferredUsername: true, name: true, iconUrl: true },
-          });
+  const localAuthorMap = new Map(localAuthors.map((a) => [a.apId, a]));
+  const cachedAuthorMap = new Map(cachedAuthors.map((a) => [a.apId, a]));
 
-      const author = localAuthor || cachedAuthor;
+  // Batch load likes if user is logged in
+  const likedPostIds = new Set<string>();
+  if (actor?.ap_id) {
+    const postApIds = posts.map((p) => p.apId);
+    const likes = await prisma.like.findMany({
+      where: {
+        actorApId: actor.ap_id,
+        objectApId: { in: postApIds },
+      },
+      select: { objectApId: true },
+    });
+    likes.forEach((l) => likedPostIds.add(l.objectApId));
+  }
 
-      // Check if current user has liked this post
-      let liked = false;
-      if (actor?.ap_id) {
-        const likeExists = await prisma.like.findUnique({
-          where: {
-            actorApId_objectApId: {
-              actorApId: actor.ap_id,
-              objectApId: p.apId,
-            },
-          },
-        });
-        liked = !!likeExists;
-      }
+  // Map posts to result format
+  const result = posts.map((p) => {
+    const author = localAuthorMap.get(p.attributedTo) || cachedAuthorMap.get(p.attributedTo);
 
-      return {
-        ap_id: p.apId,
-        author: {
-          ap_id: p.attributedTo,
-          username: formatUsername(p.attributedTo),
-          preferred_username: author?.preferredUsername || null,
-          name: author?.name || null,
-          icon_url: author?.iconUrl || null,
-        },
-        content: p.content,
-        published: p.published,
-        like_count: p.likeCount,
-        liked,
-      };
-    })
-  );
+    return {
+      ap_id: p.apId,
+      author: {
+        ap_id: p.attributedTo,
+        username: formatUsername(p.attributedTo),
+        preferred_username: author?.preferredUsername || null,
+        name: author?.name || null,
+        icon_url: author?.iconUrl || null,
+      },
+      content: p.content,
+      published: p.published,
+      like_count: p.likeCount,
+      liked: likedPostIds.has(p.apId),
+    };
+  });
 
   return c.json({
     posts: result,

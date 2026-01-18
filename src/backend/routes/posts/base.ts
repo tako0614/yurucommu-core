@@ -506,18 +506,46 @@ posts.get('/:id/replies', async (c) => {
     take: limit
   });
 
+  // Batch load cached authors for replies without local author
+  const repliesWithoutAuthor = replies.filter((r) => !r.author);
+  const cachedAuthorApIds = [...new Set(repliesWithoutAuthor.map((r) => r.attributedTo))];
+  const cachedAuthors = cachedAuthorApIds.length > 0
+    ? await prisma.actorCache.findMany({
+        where: { apId: { in: cachedAuthorApIds } },
+        select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+      })
+    : [];
+  const cachedAuthorMap = new Map(cachedAuthors.map((a) => [a.apId, a]));
+
+  // Batch load likes and bookmarks if user is logged in
+  const replyApIds = replies.map((r) => r.apId);
+  const likedReplyIds = new Set<string>();
+  const bookmarkedReplyIds = new Set<string>();
+
+  if (currentActor) {
+    const [likes, bookmarks] = await Promise.all([
+      prisma.like.findMany({
+        where: { actorApId: currentActor.ap_id, objectApId: { in: replyApIds } },
+        select: { objectApId: true },
+      }),
+      prisma.bookmark.findMany({
+        where: { actorApId: currentActor.ap_id, objectApId: { in: replyApIds } },
+        select: { objectApId: true },
+      }),
+    ]);
+    likes.forEach((l) => likedReplyIds.add(l.objectApId));
+    bookmarks.forEach((b) => bookmarkedReplyIds.add(b.objectApId));
+  }
+
   // Process replies to match PostRow format
-  const result = await Promise.all(replies.map(async (reply) => {
+  const result = replies.map((reply) => {
     // Get author info (from local actor or cache)
     let authorUsername: string | null | undefined = reply.author?.preferredUsername;
     let authorName: string | null | undefined = reply.author?.name;
     let authorIconUrl: string | null | undefined = reply.author?.iconUrl;
 
     if (!authorUsername) {
-      const cachedActor = await prisma.actorCache.findUnique({
-        where: { apId: reply.attributedTo },
-        select: { preferredUsername: true, name: true, iconUrl: true }
-      });
+      const cachedActor = cachedAuthorMap.get(reply.attributedTo);
       if (cachedActor) {
         authorUsername = cachedActor.preferredUsername;
         authorName = cachedActor.name;
@@ -525,30 +553,8 @@ posts.get('/:id/replies', async (c) => {
       }
     }
 
-    // Check liked and bookmarked status
-    let liked = false;
-    let bookmarked = false;
-    if (currentActor) {
-      const likeExists = await prisma.like.findUnique({
-        where: {
-          actorApId_objectApId: {
-            actorApId: currentActor.ap_id,
-            objectApId: reply.apId
-          }
-        }
-      });
-      liked = !!likeExists;
-
-      const bookmarkExists = await prisma.bookmark.findUnique({
-        where: {
-          actorApId_objectApId: {
-            actorApId: currentActor.ap_id,
-            objectApId: reply.apId
-          }
-        }
-      });
-      bookmarked = !!bookmarkExists;
-    }
+    const liked = likedReplyIds.has(reply.apId);
+    const bookmarked = bookmarkedReplyIds.has(reply.apId);
 
     const postRow: PostRow = {
       ap_id: reply.apId,
@@ -571,7 +577,7 @@ posts.get('/:id/replies', async (c) => {
     };
 
     return formatPost(postRow, currentActor?.ap_id);
-  }));
+  });
 
   return c.json({ replies: result });
 });

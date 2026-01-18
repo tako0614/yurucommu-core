@@ -37,24 +37,26 @@ model Actor {
   updatedAt         String  @default(dbgenerated("datetime('now')")) @map("updated_at")
 
   // Relations
-  sessions             Session[]
-  objectsAuthored      Object[]           @relation("AuthoredObjects")
-  followsAsFollower    Follow[]           @relation("FollowerFollows")
-  followsAsFollowing   Follow[]           @relation("FollowingFollows")
-  likes                Like[]
-  announces            Announce[]
-  bookmarks            Bookmark[]
-  blocksAsBlocker      Block[]            @relation("BlockerBlocks")
-  blocksAsBlocked      Block[]            @relation("BlockedBlocks")
-  mutesAsMuter         Mute[]             @relation("MuterMutes")
-  mutesAsMuted         Mute[]             @relation("MutedMutes")
-  activities           Activity[]
-  storyViews           StoryView[]
-  storyVotes           StoryVote[]
-  storyShares          StoryShare[]
-  communityMemberships CommunityMember[]
-  inboxItems           Inbox[]
-  objectRecipients     ObjectRecipient[]
+  sessions              Session[]
+  objectsAuthored       Object[]               @relation("AuthoredObjects")
+  followsAsFollower     Follow[]               @relation("FollowerFollows")
+  followsAsFollowing    Follow[]               @relation("FollowingFollows")
+  likes                 Like[]
+  announces             Announce[]
+  bookmarks             Bookmark[]
+  blocksAsBlocker       Block[]                @relation("BlockerBlocks")
+  blocksAsBlocked       Block[]                @relation("BlockedBlocks")
+  mutesAsMuter          Mute[]                 @relation("MuterMutes")
+  mutesAsMuted          Mute[]                 @relation("MutedMutes")
+  activities            Activity[]
+  storyViews            StoryView[]
+  storyVotes            StoryVote[]
+  storyShares           StoryShare[]
+  communityMemberships  CommunityMember[]
+  communityJoinRequests CommunityJoinRequest[]
+  communityInvites      CommunityInvite[]      @relation("InvitedByActor")
+  inboxItems            Inbox[]
+  objectRecipients      ObjectRecipient[]
 
   @@index([preferredUsername])
   @@index([takosUserId])
@@ -113,8 +115,8 @@ model Object {
   rawJson       String? @map("raw_json")
 
   // Relations
-  author       Actor      @relation("AuthoredObjects", fields: [attributedTo], references: [apId])
-  community    Community? @relation(fields: [communityApId], references: [apId])
+  author       Actor      @relation("AuthoredObjects", fields: [attributedTo], references: [apId], onDelete: Cascade)
+  community    Community? @relation(fields: [communityApId], references: [apId], onDelete: SetNull)
   likes        Like[]
   announces    Announce[]
   bookmarks    Bookmark[]
@@ -122,6 +124,7 @@ model Object {
   storyVotes   StoryVote[]
   storyShares  StoryShare[]
   recipients   ObjectRecipient[]
+  activities   Activity[]
 
   @@index([attributedTo])
   @@index([inReplyTo])
@@ -129,6 +132,10 @@ model Object {
   @@index([published(sort: Desc)])
   @@index([visibility])
   @@index([endTime])
+  // Compound indexes for common query patterns
+  @@index([attributedTo, published(sort: Desc)])
+  @@index([visibility, published(sort: Desc)])
+  @@index([type, visibility, published(sort: Desc)])
   @@map("objects")
 }
 
@@ -144,8 +151,8 @@ model Follow {
   acceptedAt    String? @map("accepted_at")
 
   // Relations
-  follower  Actor @relation("FollowerFollows", fields: [followerApId], references: [apId])
-  following Actor @relation("FollowingFollows", fields: [followingApId], references: [apId])
+  follower  Actor @relation("FollowerFollows", fields: [followerApId], references: [apId], onDelete: Cascade)
+  following Actor @relation("FollowingFollows", fields: [followingApId], references: [apId], onDelete: Cascade)
 
   @@id([followerApId, followingApId])
   @@index([followerApId, status])
@@ -163,8 +170,8 @@ model Like {
   createdAt    String  @default(dbgenerated("datetime('now')")) @map("created_at")
 
   // Relations
-  actor  Actor  @relation(fields: [actorApId], references: [apId])
-  object Object @relation(fields: [objectApId], references: [apId])
+  actor  Actor  @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
+  object Object @relation(fields: [objectApId], references: [apId], onDelete: Cascade)
 
   @@id([actorApId, objectApId])
   @@index([objectApId])
@@ -182,11 +189,12 @@ model Announce {
   createdAt    String  @default(dbgenerated("datetime('now')")) @map("created_at")
 
   // Relations
-  actor  Actor  @relation(fields: [actorApId], references: [apId])
-  object Object @relation(fields: [objectApId], references: [apId])
+  actor  Actor  @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
+  object Object @relation(fields: [objectApId], references: [apId], onDelete: Cascade)
 
   @@id([actorApId, objectApId])
   @@index([objectApId])
+  @@index([actorApId])
   @@map("announces")
 }
 
@@ -199,10 +207,11 @@ model Bookmark {
   createdAt  String @default(dbgenerated("datetime('now')")) @map("created_at")
 
   // Relations
-  actor  Actor  @relation(fields: [actorApId], references: [apId])
-  object Object @relation(fields: [objectApId], references: [apId])
+  actor  Actor  @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
+  object Object @relation(fields: [objectApId], references: [apId], onDelete: Cascade)
 
   @@id([actorApId, objectApId])
+  @@index([actorApId])
   @@map("bookmarks")
 }
 
@@ -215,10 +224,12 @@ model Block {
   createdAt   String @default(dbgenerated("datetime('now')")) @map("created_at")
 
   // Relations
-  blocker Actor @relation("BlockerBlocks", fields: [blockerApId], references: [apId])
-  blocked Actor @relation("BlockedBlocks", fields: [blockedApId], references: [apId])
+  blocker Actor @relation("BlockerBlocks", fields: [blockerApId], references: [apId], onDelete: Cascade)
+  blocked Actor @relation("BlockedBlocks", fields: [blockedApId], references: [apId], onDelete: Cascade)
 
   @@id([blockerApId, blockedApId])
+  @@index([blockerApId])
+  @@index([blockedApId])
   @@map("blocks")
 }
 
@@ -231,10 +242,12 @@ model Mute {
   createdAt String @default(dbgenerated("datetime('now')")) @map("created_at")
 
   // Relations
-  muter Actor @relation("MuterMutes", fields: [muterApId], references: [apId])
-  muted Actor @relation("MutedMutes", fields: [mutedApId], references: [apId])
+  muter Actor @relation("MuterMutes", fields: [muterApId], references: [apId], onDelete: Cascade)
+  muted Actor @relation("MutedMutes", fields: [mutedApId], references: [apId], onDelete: Cascade)
 
   @@id([muterApId, mutedApId])
+  @@index([muterApId])
+  @@index([mutedApId])
   @@map("mutes")
 }
 
@@ -254,11 +267,13 @@ model Activity {
   createdAt  String  @default(dbgenerated("datetime('now')")) @map("created_at")
 
   // Relations
-  actor      Actor   @relation(fields: [actorApId], references: [apId])
+  actor      Actor    @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
+  object     Object?  @relation(fields: [objectApId], references: [apId], onDelete: SetNull)
   inboxItems Inbox[]
 
   @@index([actorApId])
   @@index([objectApId])
+  @@index([type, createdAt(sort: Desc)])
   @@index([direction, processed])
   @@map("activities")
 }
@@ -304,8 +319,10 @@ model Community {
   lastMessageAt     String? @map("last_message_at")
 
   // Relations
-  members CommunityMember[]
-  objects Object[]
+  members      CommunityMember[]
+  objects      Object[]
+  joinRequests CommunityJoinRequest[]
+  invites      CommunityInvite[]
 
   @@map("communities")
 }
@@ -320,10 +337,11 @@ model CommunityMember {
   joinedAt      String @default(dbgenerated("datetime('now')")) @map("joined_at")
 
   // Relations
-  community Community @relation(fields: [communityApId], references: [apId])
-  actor     Actor     @relation(fields: [actorApId], references: [apId])
+  community Community @relation(fields: [communityApId], references: [apId], onDelete: Cascade)
+  actor     Actor     @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
 
   @@id([communityApId, actorApId])
+  @@index([actorApId])
   @@map("community_members")
 }
 
@@ -337,8 +355,13 @@ model CommunityJoinRequest {
   createdAt     String  @default(dbgenerated("datetime('now')")) @map("created_at")
   processedAt   String? @map("processed_at")
 
+  // Relations
+  community Community @relation(fields: [communityApId], references: [apId], onDelete: Cascade)
+  actor     Actor     @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
+
   @@id([communityApId, actorApId])
   @@index([communityApId, status])
+  @@index([actorApId])
   @@map("community_join_requests")
 }
 
@@ -355,7 +378,12 @@ model CommunityInvite {
   usedAt        String? @map("used_at")
   usedByApId    String? @map("used_by_ap_id")
 
+  // Relations
+  community Community @relation(fields: [communityApId], references: [apId], onDelete: Cascade)
+  invitedBy Actor     @relation("InvitedByActor", fields: [invitedByApId], references: [apId], onDelete: Cascade)
+
   @@index([communityApId])
+  @@index([invitedByApId])
   @@map("community_invites")
 }
 
@@ -369,8 +397,8 @@ model ObjectRecipient {
   createdAt     String @default(dbgenerated("datetime('now')")) @map("created_at")
 
   // Relations
-  object    Object @relation(fields: [objectApId], references: [apId])
-  recipient Actor  @relation(fields: [recipientApId], references: [apId])
+  object    Object @relation(fields: [objectApId], references: [apId], onDelete: Cascade)
+  recipient Actor  @relation(fields: [recipientApId], references: [apId], onDelete: Cascade)
 
   @@id([objectApId, recipientApId])
   @@index([recipientApId, createdAt(sort: Desc)])
@@ -387,11 +415,12 @@ model Inbox {
   createdAt    String @default(dbgenerated("datetime('now')")) @map("created_at")
 
   // Relations
-  actor    Actor    @relation(fields: [actorApId], references: [apId])
-  activity Activity @relation(fields: [activityApId], references: [apId])
+  actor    Actor    @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
+  activity Activity @relation(fields: [activityApId], references: [apId], onDelete: Cascade)
 
   @@id([actorApId, activityApId])
   @@index([actorApId, read, createdAt(sort: Desc)])
+  @@index([activityApId])
   @@map("inbox")
 }
 
@@ -411,10 +440,11 @@ model Session {
   providerTokenExpiresAt String? @map("provider_token_expires_at")
 
   // Relations
-  member Actor @relation(fields: [memberId], references: [apId])
+  member Actor @relation(fields: [memberId], references: [apId], onDelete: Cascade)
 
   @@index([memberId])
   @@index([provider])
+  @@index([expiresAt])
   @@map("sessions")
 }
 
@@ -427,11 +457,12 @@ model StoryView {
   viewedAt  String @default(dbgenerated("datetime('now')")) @map("viewed_at")
 
   // Relations
-  actor Actor  @relation(fields: [actorApId], references: [apId])
-  story Object @relation(fields: [storyApId], references: [apId])
+  actor Actor  @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
+  story Object @relation(fields: [storyApId], references: [apId], onDelete: Cascade)
 
   @@id([actorApId, storyApId])
   @@index([actorApId])
+  @@index([storyApId])
   @@map("story_views")
 }
 
@@ -446,11 +477,12 @@ model StoryVote {
   createdAt   String @default(dbgenerated("datetime('now')")) @map("created_at")
 
   // Relations
-  actor Actor  @relation(fields: [actorApId], references: [apId])
-  story Object @relation(fields: [storyApId], references: [apId])
+  actor Actor  @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
+  story Object @relation(fields: [storyApId], references: [apId], onDelete: Cascade)
 
   @@unique([storyApId, actorApId])
   @@index([storyApId])
+  @@index([actorApId])
   @@map("story_votes")
 }
 
@@ -464,8 +496,8 @@ model StoryShare {
   sharedAt  String @default(dbgenerated("datetime('now')")) @map("shared_at")
 
   // Relations
-  actor Actor  @relation(fields: [actorApId], references: [apId])
-  story Object @relation(fields: [storyApId], references: [apId])
+  actor Actor  @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
+  story Object @relation(fields: [storyApId], references: [apId], onDelete: Cascade)
 
   @@unique([storyApId, actorApId])
   @@index([storyApId])

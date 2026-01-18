@@ -367,14 +367,18 @@ export async function composeVideoStory(
       // Read duration from input video metadata using ffprobe-like approach
       // For now, estimate from file or use default
       const video = document.createElement('video');
-      video.src = URL.createObjectURL(videoFile);
+      const objectUrl = URL.createObjectURL(videoFile);
+      video.src = objectUrl;
       await new Promise<void>((resolve) => {
         video.onloadedmetadata = () => {
           duration = Math.min(video.duration, 60);
-          URL.revokeObjectURL(video.src);
+          URL.revokeObjectURL(objectUrl);
           resolve();
         };
-        video.onerror = () => resolve();
+        video.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          resolve();
+        };
       });
     } catch {
       // Use default
@@ -422,13 +426,17 @@ export async function composeVideoStory(
 export async function getVideoDuration(file: File): Promise<number> {
   return new Promise((resolve) => {
     const video = document.createElement('video');
-    video.src = URL.createObjectURL(file);
+    const objectUrl = URL.createObjectURL(file);
+    video.src = objectUrl;
     video.onloadedmetadata = () => {
       const duration = video.duration;
-      URL.revokeObjectURL(video.src);
+      URL.revokeObjectURL(objectUrl);
       resolve(Math.min(duration, 60));
     };
-    video.onerror = () => resolve(5);
+    video.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(5);
+    };
   });
 }
 

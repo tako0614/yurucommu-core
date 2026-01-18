@@ -20,19 +20,44 @@ import takosProxyRoutes from './routes/takos-proxy';
 
 // Import middleware
 import { rateLimit, RateLimitConfigs } from './middleware/rate-limit';
+import { csrfProtection } from './middleware/csrf';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // ============================================================
-// COOP/COEP HEADERS (Required for FFmpeg WASM SharedArrayBuffer)
+// SECURITY HEADERS
 // ============================================================
 
 app.use('*', async (c, next) => {
   await next();
-  // These headers enable SharedArrayBuffer for FFmpeg WASM
+
+  // COOP/COEP Headers (Required for FFmpeg WASM SharedArrayBuffer)
   // Using 'credentialless' instead of 'require-corp' to allow cross-origin resources
   c.header('Cross-Origin-Opener-Policy', 'same-origin');
   c.header('Cross-Origin-Embedder-Policy', 'credentialless');
+
+  // Content Security Policy
+  // Restricts sources for scripts, styles, and other resources
+  const csp = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com",  // unpkg for FFmpeg
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self' https://unpkg.com wss:",  // unpkg for FFmpeg, wss for WebSocket
+    "worker-src 'self' blob:",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    "base-uri 'self'",
+  ].join('; ');
+  c.header('Content-Security-Policy', csp);
+
+  // Additional security headers
+  c.header('X-Content-Type-Options', 'nosniff');
+  c.header('X-Frame-Options', 'DENY');
+  c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 });
 
 // ============================================================
@@ -92,6 +117,13 @@ app.use('/api/*', async (c, next) => {
   }
   await next();
 });
+
+// ============================================================
+// CSRF PROTECTION
+// ============================================================
+
+// Apply CSRF protection to API routes (checks Origin header for state-changing requests)
+app.use('/api/*', csrfProtection());
 
 // ============================================================
 // RATE LIMITING

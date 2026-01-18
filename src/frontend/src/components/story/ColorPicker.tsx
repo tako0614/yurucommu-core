@@ -120,9 +120,9 @@ export function GradientPicker({ colors, angle, onChange, label }: GradientPicke
 
       {/* Preset gradients */}
       <div className="grid grid-cols-4 gap-2">
-        {GRADIENT_PRESETS.map((preset, i) => (
+        {GRADIENT_PRESETS.map((preset) => (
           <button
-            key={i}
+            key={preset.colors.join('-')}
             onClick={() => onChange(preset.colors, preset.angle)}
             className={`w-full aspect-square rounded-lg border-2 transition-all ${
               JSON.stringify(colors) === JSON.stringify(preset.colors)

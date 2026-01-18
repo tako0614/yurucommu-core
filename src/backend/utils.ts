@@ -89,7 +89,7 @@ function isPrivateIPv4(hostname: string): boolean {
   return false;
 }
 
-function isBlockedHostname(hostname: string): boolean {
+export function isBlockedHostname(hostname: string): boolean {
   const lower = hostname.toLowerCase();
   if (
     lower === 'localhost' ||
@@ -100,6 +100,8 @@ function isBlockedHostname(hostname: string): boolean {
   ) {
     return true;
   }
+  // Block colons to prevent port specification attacks
+  if (lower.includes(':')) return true;
   if (isPrivateIPv4(lower)) return true;
   return false;
 }
@@ -115,6 +117,27 @@ export function isSafeRemoteUrl(url: string): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Normalize a remote domain for safe use
+ * Returns the normalized host or null if invalid
+ */
+export function normalizeRemoteDomain(domain: string): string | null {
+  const trimmed = domain.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(`https://${trimmed}`);
+    if (parsed.username || parsed.password) return null;
+    if (parsed.pathname !== '/' || parsed.search || parsed.hash) return null;
+    const hostname = parsed.hostname;
+    if (!HOSTNAME_PATTERN.test(hostname)) return null;
+    if (!hostname.includes('.')) return null;
+    if (isBlockedHostname(hostname)) return null;
+    return parsed.host;
+  } catch {
+    return null;
   }
 }
 

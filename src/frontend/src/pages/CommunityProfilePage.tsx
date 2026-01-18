@@ -55,6 +55,15 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
   const [uploadingIcon, setUploadingIcon] = useState(false);
   const [iconPreview, setIconPreview] = useState<string | null>(null);
 
+  // Cleanup iconPreview ObjectURL on unmount
+  useEffect(() => {
+    return () => {
+      if (iconPreview) {
+        URL.revokeObjectURL(iconPreview);
+      }
+    };
+  }, [iconPreview]);
+
   useEffect(() => {
     if (name) {
       loadCommunity();
@@ -219,6 +228,10 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
     try {
       const result = await uploadMedia(file);
       setSettingsForm(prev => ({ ...prev, icon_url: result.url }));
+      // Revoke old ObjectURL before creating a new one
+      if (iconPreview) {
+        URL.revokeObjectURL(iconPreview);
+      }
       setIconPreview(URL.createObjectURL(file));
     } catch (err) {
       setSettingsError('アイコンのアップロードに失敗しました');
@@ -248,7 +261,11 @@ export function CommunityProfilePage({ actor }: CommunityProfilePageProps) {
         join_policy: normalizedSettings.join_policy ?? prev.join_policy,
         post_policy: normalizedSettings.post_policy ?? prev.post_policy,
       } : null);
-      setIconPreview(null); // Clear preview after successful save
+      // Cleanup ObjectURL and clear preview after successful save
+      if (iconPreview) {
+        URL.revokeObjectURL(iconPreview);
+      }
+      setIconPreview(null);
     } catch (e) {
       setSettingsError('Failed to save settings');
     } finally {

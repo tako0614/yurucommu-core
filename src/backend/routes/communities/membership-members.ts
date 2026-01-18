@@ -185,32 +185,35 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
       ],
     });
 
-    // Get actor info for each member
-    const result = await Promise.all(
-      members.map(async (m) => {
-        const localActor = await prisma.actor.findUnique({
-          where: { apId: m.actorApId },
-          select: { preferredUsername: true, name: true, iconUrl: true },
-        });
-        const cachedActor = localActor
-          ? null
-          : await prisma.actorCache.findUnique({
-              where: { apId: m.actorApId },
-              select: { preferredUsername: true, name: true, iconUrl: true },
-            });
-        const actorInfo = localActor || cachedActor;
+    // Batch load actor info to avoid N+1 queries
+    const memberApIds = members.map((m) => m.actorApId);
+    const [localActors, cachedActors] = await Promise.all([
+      prisma.actor.findMany({
+        where: { apId: { in: memberApIds } },
+        select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+      }),
+      prisma.actorCache.findMany({
+        where: { apId: { in: memberApIds } },
+        select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+      }),
+    ]);
 
-        return {
-          ap_id: m.actorApId,
-          username: formatUsername(m.actorApId),
-          preferred_username: actorInfo?.preferredUsername || null,
-          name: actorInfo?.name || null,
-          icon_url: actorInfo?.iconUrl || null,
-          role: m.role,
-          joined_at: m.joinedAt,
-        };
-      })
-    );
+    const localActorMap = new Map(localActors.map((a) => [a.apId, a]));
+    const cachedActorMap = new Map(cachedActors.map((a) => [a.apId, a]));
+
+    const result = members.map((m) => {
+      const actorInfo = localActorMap.get(m.actorApId) || cachedActorMap.get(m.actorApId);
+
+      return {
+        ap_id: m.actorApId,
+        username: formatUsername(m.actorApId),
+        preferred_username: actorInfo?.preferredUsername || null,
+        name: actorInfo?.name || null,
+        icon_url: actorInfo?.iconUrl || null,
+        role: m.role,
+        joined_at: m.joinedAt,
+      };
+    });
 
     return c.json({ members: result });
   });
