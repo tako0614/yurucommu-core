@@ -68,7 +68,7 @@ export function getAuthConfig(env: Env): AuthConfig {
       icon: '/icons/takos.svg',
       authorizeUrl: `${env.TAKOS_URL}/oauth/authorize`,
       tokenUrl: `${env.TAKOS_URL}/oauth/token`,
-      userInfoUrl: `${env.TAKOS_URL}/me`,
+      userInfoUrl: `${env.TAKOS_URL}/oauth/userinfo`,
       scopes: ['openid', 'profile', 'email', 'workspaces:read', 'repos:read'],
       supportsPkce: true,
       apiBaseUrl: env.TAKOS_URL,
