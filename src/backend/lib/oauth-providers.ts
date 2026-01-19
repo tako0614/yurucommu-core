@@ -76,7 +76,8 @@ export function getAuthConfig(env: Env): AuthConfig {
   }
 
   return {
-    passwordEnabled: !!env.AUTH_PASSWORD,
+    // AUTH_PASSWORD_HASH (secure) or AUTH_PASSWORD (legacy)
+    passwordEnabled: !!(env.AUTH_PASSWORD_HASH || env.AUTH_PASSWORD),
     providers,
   };
 }

@@ -38,20 +38,20 @@ interface RateLimitConfig {
 
 // Default configurations for different endpoint types
 export const RateLimitConfigs = {
-  // General API: 100 requests per minute
-  general: { windowMs: 60000, maxRequests: 100 },
-  // Auth endpoints: 10 requests per minute (prevent brute force)
-  auth: { windowMs: 60000, maxRequests: 10, keyPrefix: 'auth:' },
-  // Post creation: 30 per minute
-  postCreate: { windowMs: 60000, maxRequests: 30, keyPrefix: 'post:' },
-  // Search: 30 per minute
-  search: { windowMs: 60000, maxRequests: 30, keyPrefix: 'search:' },
-  // Media upload: 20 per minute
-  mediaUpload: { windowMs: 60000, maxRequests: 20, keyPrefix: 'media:' },
-  // DM: 60 per minute
-  dm: { windowMs: 60000, maxRequests: 60, keyPrefix: 'dm:' },
-  // Federation inbox: 200 per minute (need to accept activities from other servers)
-  inbox: { windowMs: 60000, maxRequests: 200, keyPrefix: 'inbox:' },
+  // General API: 10,000 requests per minute
+  general: { windowMs: 60000, maxRequests: 10000 },
+  // Auth endpoints: 1,000 requests per minute (prevent brute force)
+  auth: { windowMs: 60000, maxRequests: 1000, keyPrefix: 'auth:' },
+  // Post creation: 3,000 per minute
+  postCreate: { windowMs: 60000, maxRequests: 3000, keyPrefix: 'post:' },
+  // Search: 3,000 per minute
+  search: { windowMs: 60000, maxRequests: 3000, keyPrefix: 'search:' },
+  // Media upload: 2,000 per minute
+  mediaUpload: { windowMs: 60000, maxRequests: 2000, keyPrefix: 'media:' },
+  // DM: 6,000 per minute
+  dm: { windowMs: 60000, maxRequests: 6000, keyPrefix: 'dm:' },
+  // Federation inbox: 20,000 per minute (need to accept activities from other servers)
+  inbox: { windowMs: 60000, maxRequests: 20000, keyPrefix: 'inbox:' },
 };
 
 /**

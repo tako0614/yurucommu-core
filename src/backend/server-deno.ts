@@ -456,6 +456,8 @@ async function main() {
     assetsPath: ASSETS_PATH,
     APP_URL,
     // @ts-expect-error - Deno API
+    AUTH_PASSWORD_HASH: Deno.env.get('AUTH_PASSWORD_HASH'),
+    // @ts-expect-error - Deno API
     AUTH_PASSWORD: Deno.env.get('AUTH_PASSWORD'),
     // @ts-expect-error - Deno API
     GOOGLE_CLIENT_ID: Deno.env.get('GOOGLE_CLIENT_ID'),
