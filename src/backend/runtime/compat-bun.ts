@@ -558,6 +558,7 @@ export async function createBunEnv(config: {
   storagePath?: string;
   assetsPath?: string;
   APP_URL: string;
+  AUTH_PASSWORD_HASH?: string;
   AUTH_PASSWORD?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
@@ -583,6 +584,7 @@ export async function createBunEnv(config: {
     ASSETS: assets as unknown as Fetcher,
     PRISMA: prisma,
     APP_URL: config.APP_URL,
+    AUTH_PASSWORD_HASH: config.AUTH_PASSWORD_HASH,
     AUTH_PASSWORD: config.AUTH_PASSWORD,
     GOOGLE_CLIENT_ID: config.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: config.GOOGLE_CLIENT_SECRET,

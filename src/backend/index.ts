@@ -54,17 +54,19 @@ app.use('*', async (c, next) => {
   // - 'unsafe-inline' for styles: Required for CSS-in-JS and dynamic style attributes.
   //   Consider migrating to nonce-based CSP in the future.
   // - unpkg.com: Required for loading FFmpeg WASM binaries from CDN.
+  // - takos.jp: Required for OAuth authentication and API calls to takos platform.
+  const takosUrl = c.env.TAKOS_URL || 'https://takos.jp';
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://static.cloudflareinsights.com",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "media-src 'self' data: blob:",
     "font-src 'self' data:",
-    "connect-src 'self' https://unpkg.com wss:",
+    `connect-src 'self' https://unpkg.com wss: ${takosUrl}`,
     "worker-src 'self' blob:",
     "frame-ancestors 'none'",
-    "form-action 'self'",
+    `form-action 'self' ${takosUrl}`,
     "base-uri 'self'",
   ].join('; ');
   c.header('Content-Security-Policy', csp);

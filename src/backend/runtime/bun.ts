@@ -411,6 +411,7 @@ export function createBunRuntime(config: {
   assetsPath?: string;
   envVars: {
     APP_URL: string;
+    AUTH_PASSWORD_HASH?: string;
     AUTH_PASSWORD?: string;
     GOOGLE_CLIENT_ID?: string;
     GOOGLE_CLIENT_SECRET?: string;

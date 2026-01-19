@@ -48,6 +48,7 @@ async function main() {
     storagePath: STORAGE_PATH,
     assetsPath: ASSETS_PATH,
     APP_URL,
+    AUTH_PASSWORD_HASH: process.env.AUTH_PASSWORD_HASH,
     AUTH_PASSWORD: process.env.AUTH_PASSWORD,
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,

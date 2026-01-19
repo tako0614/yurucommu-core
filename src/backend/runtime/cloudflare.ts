@@ -255,6 +255,7 @@ export function createCloudflareRuntime(env: {
   KV?: KVNamespace;
   ASSETS?: Fetcher;
   APP_URL: string;
+  AUTH_PASSWORD_HASH?: string;
   AUTH_PASSWORD?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
@@ -271,6 +272,7 @@ export function createCloudflareRuntime(env: {
     kv: env.KV ? new CloudflareKV(env.KV) : undefined,
     assets: env.ASSETS ? new CloudflareAssets(env.ASSETS) : undefined,
     APP_URL: env.APP_URL,
+    AUTH_PASSWORD_HASH: env.AUTH_PASSWORD_HASH,
     AUTH_PASSWORD: env.AUTH_PASSWORD,
     GOOGLE_CLIENT_ID: env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET,

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { Env, Variables, Actor } from '../types';
 import { generateId, actorApId, formatUsername, generateKeyPair } from '../utils';
-import { encrypt } from '../lib/crypto';
+import { encrypt, verifyPassword } from '../lib/crypto';
 import {
   getAuthConfig,
   getProvider,
@@ -121,8 +121,26 @@ auth.post('/login', async (c) => {
   }
 
   const body = await c.req.json<{ password: string }>();
-  // Use constant-time comparison to prevent timing attacks
-  if (!timingSafeEqual(body.password || '', c.env.AUTH_PASSWORD || '')) {
+  const password = body.password || '';
+
+  // Verify password using PBKDF2 hash (AUTH_PASSWORD_HASH)
+  // Falls back to legacy plain comparison (AUTH_PASSWORD) with warning
+  let isValid = false;
+
+  if (c.env.AUTH_PASSWORD_HASH) {
+    // Secure: PBKDF2-hashed password
+    isValid = await verifyPassword(password, c.env.AUTH_PASSWORD_HASH);
+  } else if (c.env.AUTH_PASSWORD) {
+    // Legacy: plain text comparison (deprecated, will be removed)
+    console.warn(
+      '[SECURITY WARNING] AUTH_PASSWORD is deprecated. ' +
+      'Use AUTH_PASSWORD_HASH with PBKDF2-hashed password instead. ' +
+      'See docs for migration guide.'
+    );
+    isValid = timingSafeEqual(password, c.env.AUTH_PASSWORD);
+  }
+
+  if (!isValid) {
     return c.json({ error: 'Invalid password' }, 401);
   }
 
@@ -267,6 +285,13 @@ auth.get('/callback/:provider', async (c) => {
     delete tokenBody.client_secret;
   }
 
+  console.log('Token exchange request:', {
+    url: provider.tokenUrl,
+    clientId,
+    redirectUri,
+    hasCodeVerifier: !!tokenBody.code_verifier,
+  });
+
   const tokenRes = await fetch(provider.tokenUrl, {
     method: 'POST',
     headers: tokenHeaders,
@@ -275,7 +300,12 @@ auth.get('/callback/:provider', async (c) => {
 
   if (!tokenRes.ok) {
     const errText = await tokenRes.text();
-    console.error('Token exchange failed:', errText);
+    console.error('Token exchange failed:', {
+      status: tokenRes.status,
+      statusText: tokenRes.statusText,
+      body: errText,
+      url: provider.tokenUrl,
+    });
     return c.redirect('/?error=token_exchange_failed');
   }
 

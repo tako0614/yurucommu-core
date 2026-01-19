@@ -164,3 +164,119 @@ export function generateEncryptionKey(): string {
   const key = crypto.getRandomValues(new Uint8Array(32));
   return bytesToHex(key);
 }
+
+// ============================================
+// Password Hashing with PBKDF2
+// ============================================
+
+const PBKDF2_ITERATIONS = 600000; // OWASP 2023 recommendation for SHA-256
+const SALT_LENGTH = 32; // 256-bit salt
+const HASH_LENGTH = 32; // 256-bit derived key
+
+/**
+ * Hash a password using PBKDF2-SHA256
+ * Returns format: salt:hash (both hex encoded)
+ *
+ * Use this to generate AUTH_PASSWORD_HASH:
+ *   const hash = await hashPassword('your-password');
+ *   // Set AUTH_PASSWORD_HASH=<hash> in environment
+ */
+export async function hashPassword(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const passwordData = encoder.encode(password);
+
+  // Generate random salt
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
+
+  // Import password as key material
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    passwordData.buffer as ArrayBuffer,
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+
+  // Derive key using PBKDF2
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: salt.buffer as ArrayBuffer,
+      iterations: PBKDF2_ITERATIONS,
+      hash: 'SHA-256',
+    },
+    keyMaterial,
+    HASH_LENGTH * 8 // bits
+  );
+
+  const hash = new Uint8Array(derivedBits);
+  return `${bytesToHex(salt)}:${bytesToHex(hash)}`;
+}
+
+/**
+ * Verify a password against a stored hash
+ *
+ * @param password - The password to verify
+ * @param storedHash - The stored hash in format: salt:hash (hex encoded)
+ * @returns true if password matches, false otherwise
+ */
+export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
+  // Check format
+  if (!storedHash.includes(':')) {
+    return false;
+  }
+
+  const [saltHex, expectedHashHex] = storedHash.split(':');
+  if (!saltHex || !expectedHashHex) {
+    return false;
+  }
+
+  // Validate hex format
+  if (!isValidHexString(saltHex) || !isValidHexString(expectedHashHex)) {
+    return false;
+  }
+
+  try {
+    const encoder = new TextEncoder();
+    const passwordData = encoder.encode(password);
+    const salt = hexToBytes(saltHex);
+    const expectedHash = hexToBytes(expectedHashHex);
+
+    // Import password as key material
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw',
+      passwordData.buffer as ArrayBuffer,
+      'PBKDF2',
+      false,
+      ['deriveBits']
+    );
+
+    // Derive key using same parameters
+    const derivedBits = await crypto.subtle.deriveBits(
+      {
+        name: 'PBKDF2',
+        salt: salt.buffer as ArrayBuffer,
+        iterations: PBKDF2_ITERATIONS,
+        hash: 'SHA-256',
+      },
+      keyMaterial,
+      expectedHash.length * 8 // Match stored hash length
+    );
+
+    const computedHash = new Uint8Array(derivedBits);
+
+    // Constant-time comparison
+    if (computedHash.length !== expectedHash.length) {
+      return false;
+    }
+
+    let result = 0;
+    for (let i = 0; i < computedHash.length; i++) {
+      result |= computedHash[i] ^ expectedHash[i];
+    }
+
+    return result === 0;
+  } catch {
+    return false;
+  }
+}
