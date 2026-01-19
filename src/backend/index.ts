@@ -219,6 +219,15 @@ app.route('/', activitypubRoutes);
 // ============================================================
 
 app.all('*', async (c) => {
+  // Check if ASSETS binding is available
+  if (!c.env.ASSETS) {
+    // Return a friendly error for missing static assets
+    return c.json({
+      error: 'Static assets not configured',
+      message: 'This instance is running in API-only mode. Frontend assets are not available.',
+      hint: 'Access /api/* endpoints for API functionality.',
+    }, 503);
+  }
   return c.env.ASSETS.fetch(c.req.raw);
 });
 
