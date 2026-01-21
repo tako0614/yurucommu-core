@@ -362,6 +362,10 @@ notifications.delete('/archive', async (c) => {
 });
 
 // Archive all notifications
+// P07: Reduced cap from 5000 to 1000 and batch process inserts
+const ARCHIVE_ALL_CAP = 1000;
+const ARCHIVE_BATCH_SIZE = 100;
+
 notifications.post('/archive/all', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
@@ -369,25 +373,49 @@ notifications.post('/archive/all', async (c) => {
   const prisma = c.get('prisma');
   const now = new Date().toISOString();
 
-  // Get all activity IDs from inbox
+  // P07: Get already archived IDs to filter them out before inserting
+  const alreadyArchived = await prisma.notificationArchived.findMany({
+    where: { actorApId: actor.ap_id },
+    select: { activityApId: true },
+    take: ARCHIVE_ALL_CAP,
+  });
+  const alreadyArchivedIds = new Set(alreadyArchived.map(a => a.activityApId));
+
+  // Get activity IDs from inbox (reduced cap for safety)
   const inboxItems = await prisma.inbox.findMany({
     where: { actorApId: actor.ap_id },
     select: { activityApId: true },
+    take: ARCHIVE_ALL_CAP,
   });
 
+  // Filter out already archived items
+  const toArchive = inboxItems.filter(item => !alreadyArchivedIds.has(item.activityApId));
+
   let archivedCount = 0;
-  for (const item of inboxItems) {
+
+  // P07: Batch process inserts to avoid N+1
+  for (let i = 0; i < toArchive.length; i += ARCHIVE_BATCH_SIZE) {
+    const batch = toArchive.slice(i, i + ARCHIVE_BATCH_SIZE);
+    const batchData = batch.map(item => ({
+      actorApId: actor.ap_id,
+      activityApId: item.activityApId,
+      archivedAt: now,
+    }));
+
     try {
-      await prisma.notificationArchived.create({
-        data: {
-          actorApId: actor.ap_id,
-          activityApId: item.activityApId,
-          archivedAt: now,
-        },
+      // Use createMany for batch insert
+      const result = await prisma.notificationArchived.createMany({
+        data: batchData,
       });
-      archivedCount++;
-    } catch {
-      // Ignore duplicate key errors (already archived)
+      archivedCount += result.count;
+    } catch (e) {
+      // Unique constraint errors are expected for duplicates, ignore them
+      // For other errors, log and continue
+      const error = e as { code?: string };
+      if (error.code !== 'P2002') {
+        console.error('[Notifications] Batch archive error:', e);
+      }
+      // Continue with other batches even if one fails
     }
   }
 

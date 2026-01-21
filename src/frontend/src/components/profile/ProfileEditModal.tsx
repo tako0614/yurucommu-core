@@ -33,7 +33,7 @@ export function ProfileEditModal({
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-neutral-900 rounded-2xl w-full max-w-md">
+      <div role="dialog" aria-modal="true" aria-labelledby="profile-edit-title" className="bg-neutral-900 rounded-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
           <div className="flex items-center gap-4">
             <button
@@ -43,7 +43,7 @@ export function ProfileEditModal({
             >
               <CloseIcon />
             </button>
-            <h2 className="text-lg font-bold">{t('profile.editProfile')}</h2>
+            <h2 id="profile-edit-title" className="text-lg font-bold">{t('profile.editProfile')}</h2>
           </div>
           <button
             onClick={onSave}
@@ -55,8 +55,9 @@ export function ProfileEditModal({
         </div>
         <div className="p-4 space-y-4">
           <div>
-            <label className="block text-sm text-neutral-400 mb-1">Name</label>
+            <label htmlFor="profile-edit-name" className="block text-sm text-neutral-400 mb-1">Name</label>
             <input
+              id="profile-edit-name"
               type="text"
               value={editName}
               onChange={onChangeName}
@@ -65,8 +66,9 @@ export function ProfileEditModal({
             />
           </div>
           <div>
-            <label className="block text-sm text-neutral-400 mb-1">Bio</label>
+            <label htmlFor="profile-edit-bio" className="block text-sm text-neutral-400 mb-1">Bio</label>
             <textarea
+              id="profile-edit-bio"
               value={editSummary}
               onChange={onChangeSummary}
               placeholder="Tell us about yourself"

@@ -19,6 +19,7 @@ export function useStoryVideo({
 }: UseStoryVideoOptions) {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
+  const videoPreviewRef = useRef<string | null>(null);
   const [videoDuration, setVideoDuration] = useState<number>(5);
   const [savedBackground, setSavedBackground] = useState<BackgroundFill | null>(null);
   const [videoScale, setVideoScale] = useState(1);
@@ -28,6 +29,20 @@ export function useStoryVideo({
   const [ffmpegLoading, setFfmpegLoading] = useState(false);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Keep ref in sync for cleanup on unmount
+  useEffect(() => {
+    videoPreviewRef.current = videoPreview;
+  }, [videoPreview]);
+
+  // Cleanup video preview URL on unmount
+  useEffect(() => {
+    return () => {
+      if (videoPreviewRef.current) {
+        URL.revokeObjectURL(videoPreviewRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!videoFile) return;

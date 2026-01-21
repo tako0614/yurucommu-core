@@ -360,10 +360,14 @@ async function handleCloudflareCache(
     headers,
   });
 
-  // Store in cache
+  // Store in cache with error handling
   const ctx = c.executionCtx;
   if (ctx && typeof ctx.waitUntil === 'function') {
-    ctx.waitUntil(cache.put(fullCacheKey, responseToCache.clone()));
+    ctx.waitUntil(
+      cache.put(fullCacheKey, responseToCache.clone()).catch(err => {
+        console.error('Failed to store response in cache:', err);
+      })
+    );
   }
 
   c.res = responseToCache;

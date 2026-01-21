@@ -127,6 +127,11 @@ async function fetchActorPublicKey(
 }
 
 /**
+ * Maximum allowed clock skew for HTTP signature validation (5 minutes)
+ */
+const MAX_SIGNATURE_AGE_MS = 5 * 60 * 1000;
+
+/**
  * Verify HTTP Signature on incoming ActivityPub request
  */
 async function verifyHttpSignature(
@@ -141,6 +146,25 @@ async function verifyHttpSignature(
   const parsed = parseSignatureHeader(signatureHeader);
   if (!parsed) {
     return { valid: false, error: 'Invalid Signature header format' };
+  }
+
+  // Validate Date header timestamp (CRITICAL: prevents replay attacks)
+  const dateHeader = c.req.header('date');
+  if (dateHeader) {
+    const requestDate = new Date(dateHeader);
+    if (isNaN(requestDate.getTime())) {
+      return { valid: false, error: 'Invalid Date header format' };
+    }
+    const now = Date.now();
+    const requestTime = requestDate.getTime();
+    const timeDiff = Math.abs(now - requestTime);
+    if (timeDiff > MAX_SIGNATURE_AGE_MS) {
+      console.warn(`[HTTP Signature] Request too old/new: ${timeDiff}ms difference`);
+      return { valid: false, error: 'Request timestamp outside acceptable window' };
+    }
+  } else if (parsed.headers.includes('date')) {
+    // Date header is required in the signature but missing from request
+    return { valid: false, error: 'Missing Date header required by signature' };
   }
 
   // Only support rsa-sha256
@@ -257,9 +281,39 @@ ap.post('/ap/actor/inbox', async (c) => {
   const signingActorUrl = signatureResult.keyId?.includes('#')
     ? signatureResult.keyId.split('#')[0]
     : signatureResult.keyId;
-  if (signingActorUrl !== actor) {
+
+  // Check actor mismatch with improved key delegation handling
+  let actorMismatch = signingActorUrl !== actor;
+  if (actorMismatch && signingActorUrl && actor) {
+    try {
+      const signingDomain = new URL(signingActorUrl).hostname;
+      const actorDomain = new URL(actor).hostname;
+      // Allow key delegation from same domain (server signing for its users)
+      if (signingDomain === actorDomain) {
+        console.info(`[ActivityPub] Accepting key delegation: signing key ${signingActorUrl} for actor ${actor} (same domain: ${signingDomain})`);
+        actorMismatch = false;
+      }
+    } catch {
+      // Invalid URL, treat as mismatch
+    }
+  }
+  if (actorMismatch) {
     console.warn(`[ActivityPub] Actor mismatch: activity actor ${actor} does not match signing key ${signingActorUrl}`);
     return c.json({ error: 'Actor mismatch' }, 401);
+  }
+
+  // Check for duplicate activity before storing
+  const existingActivity = await prisma.activity.findUnique({
+    where: { apId: activityId },
+    select: { apId: true, rawJson: true },
+  });
+  if (existingActivity) {
+    const existingRaw = existingActivity.rawJson;
+    const newRaw = JSON.stringify(activity);
+    if (existingRaw !== newRaw) {
+      console.warn(`[ActivityPub] Duplicate activity ${activityId} received with different content`);
+    }
+    return c.json({ success: true });
   }
 
   await prisma.activity.create({
@@ -337,9 +391,42 @@ ap.post('/ap/users/:username/inbox', async (c) => {
   const signingActorUrl = signatureResult.keyId?.includes('#')
     ? signatureResult.keyId.split('#')[0]
     : signatureResult.keyId;
-  if (signingActorUrl !== actor) {
+
+  // Check actor mismatch with improved key delegation handling
+  // Allow if: 1) exact match, or 2) signing key is from same domain (server signing on behalf of actor)
+  let actorMismatch = signingActorUrl !== actor;
+  if (actorMismatch && signingActorUrl && actor) {
+    try {
+      const signingDomain = new URL(signingActorUrl).hostname;
+      const actorDomain = new URL(actor).hostname;
+      // Allow key delegation from same domain (server signing for its users)
+      if (signingDomain === actorDomain) {
+        console.info(`[ActivityPub] Accepting key delegation: signing key ${signingActorUrl} for actor ${actor} (same domain: ${signingDomain})`);
+        actorMismatch = false;
+      }
+    } catch {
+      // Invalid URL, treat as mismatch
+    }
+  }
+  if (actorMismatch) {
     console.warn(`[ActivityPub] Actor mismatch: activity actor ${actor} does not match signing key ${signingActorUrl}`);
     return c.json({ error: 'Actor mismatch' }, 401);
+  }
+
+  // Check for duplicate activity before storing
+  const existingActivity = await prisma.activity.findUnique({
+    where: { apId: activityId },
+    select: { apId: true, rawJson: true },
+  });
+  if (existingActivity) {
+    // Log if duplicate has different content (potential attack or resend)
+    const existingRaw = existingActivity.rawJson;
+    const newRaw = JSON.stringify(activity);
+    if (existingRaw !== newRaw) {
+      console.warn(`[ActivityPub] Duplicate activity ${activityId} received with different content. Original: ${existingRaw.substring(0, 200)}... New: ${newRaw.substring(0, 200)}...`);
+    }
+    // Return success to not leak information about whether we have this activity
+    return c.json({ success: true });
   }
 
   // Store activity
@@ -370,7 +457,11 @@ ap.post('/ap/users/:username/inbox', async (c) => {
           });
           if (res.ok) {
             const actorData = await res.json() as RemoteActor;
-            if (
+            // HIGH #11: Verify fetched actor ID matches the fetch URL
+            if (actorData?.id !== actor) {
+              console.warn(`[ActivityPub] Actor ID mismatch: fetched ${actor} but got id ${actorData?.id}`);
+              // Don't cache mismatched actor data
+            } else if (
               actorData?.id &&
               actorData?.inbox &&
               isSafeRemoteUrl(actorData.id) &&

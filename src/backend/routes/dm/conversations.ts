@@ -56,7 +56,8 @@ dm.get('/contacts', async (c) => {
   });
   const archivedSet = new Set(archivedConversations.map((a) => a.conversationId));
 
-  // Get all DM conversations for this actor
+  // Get DM conversations for this actor with limit to prevent DoS
+  // We fetch enough messages to get unique conversations but cap for safety
   const dmObjects = await prisma.object.findMany({
     where: {
       visibility: 'direct',
@@ -75,6 +76,7 @@ dm.get('/contacts', async (c) => {
       published: true,
       content: true,
     },
+    take: 2000, // Enough to cover many conversations while preventing unbounded results
   });
 
   // Group by conversation and get other participant
@@ -97,7 +99,9 @@ dm.get('/contacts', async (c) => {
       try {
         const toArray = JSON.parse(obj.toJson);
         otherApId = toArray[0];
-      } catch {
+      } catch (err) {
+        // MEDIUM FIX: Log JSON parse error for debugging
+        console.warn('[DM] Failed to parse toJson for contact:', err, { conversation: obj.conversation });
         continue;
       }
     } else {
@@ -330,7 +334,7 @@ dm.get('/requests', async (c) => {
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
   const prisma = c.get('prisma');
 
-  // Get all incoming DMs where we haven't replied
+  // Get incoming DMs where we haven't replied (with limit to prevent DoS)
   const incomingDMs = await prisma.object.findMany({
     where: {
       visibility: 'direct',
@@ -345,6 +349,7 @@ dm.get('/requests', async (c) => {
       published: true,
       conversation: true,
     },
+    take: 1000, // Cap for safety while covering typical usage
   });
 
   // Batch get all conversations where we've replied to avoid N+1
@@ -737,7 +742,7 @@ dm.get('/archived', async (c) => {
 
   const archivedSet = new Set(archivedConversations.map((a) => a.conversationId));
 
-  // Get all DM conversations for this actor
+  // Get all DM conversations for this actor (with limit)
   const dmObjects = await prisma.object.findMany({
     where: {
       visibility: 'direct',
@@ -755,6 +760,7 @@ dm.get('/archived', async (c) => {
       toJson: true,
       published: true,
     },
+    take: 2000, // Cap for safety
   });
 
   // Group by conversation and get other participant (only archived ones)
@@ -774,7 +780,9 @@ dm.get('/archived', async (c) => {
       try {
         const toArray = JSON.parse(obj.toJson);
         otherApId = toArray[0];
-      } catch {
+      } catch (err) {
+        // MEDIUM FIX: Log JSON parse error for debugging
+        console.warn('[DM] Failed to parse toJson for archived:', err, { conversation: obj.conversation });
         continue;
       }
     } else {

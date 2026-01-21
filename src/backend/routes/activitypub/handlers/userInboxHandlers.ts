@@ -8,6 +8,7 @@ import {
   isSafeRemoteUrl,
   objectApId,
   signRequest,
+  fetchWithTimeout,
 } from '../../../utils';
 import {
   Activity,
@@ -28,27 +29,22 @@ export async function handleFollow(
 ) {
   const prisma = c.get('prisma');
 
-  // Check if follow already exists
-  const existing = await prisma.follow.findUnique({
-    where: {
-      followerApId_followingApId: {
-        followerApId: actor,
-        followingApId: recipient.apId,
-      },
-    },
-  });
-
-  if (existing) return;
-
   const activityId = activity.id || activityApId(baseUrl, generateId());
 
   // Determine if we need to approve
   const status = recipient.isPrivate ? 'pending' : 'accepted';
   const now = new Date().toISOString();
 
-  // Create follow record
-  await prisma.follow.create({
-    data: {
+  // Use upsert to atomically create or update follow record (prevents race condition)
+  const result = await prisma.follow.upsert({
+    where: {
+      followerApId_followingApId: {
+        followerApId: actor,
+        followingApId: recipient.apId,
+      },
+    },
+    update: {}, // No update if already exists
+    create: {
       followerApId: actor,
       followingApId: recipient.apId,
       status,
@@ -56,6 +52,13 @@ export async function handleFollow(
       acceptedAt: status === 'accepted' ? now : null,
     },
   });
+
+  // If this was an existing follow, the createdAt will be in the past
+  // Only proceed with count updates and notifications for new follows
+  const isNewFollow = result.activityApId === activityId;
+
+  // Only update counts and send notifications for new follows
+  if (!isNewFollow) return;
 
   // Update counts if accepted
   if (status === 'accepted') {
@@ -117,10 +120,11 @@ export async function handleFollow(
       );
 
       try {
-        await fetch(cachedActor.inbox, {
+        await fetchWithTimeout(cachedActor.inbox, {
           method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/activity+json' },
           body: JSON.stringify(acceptActivity),
+          timeout: 15000, // 15 second timeout for ActivityPub federation
         });
       } catch (e) {
         console.error('Failed to send Accept:', e);
@@ -154,31 +158,43 @@ export async function handleAccept(c: ActivityContext, activity: Activity) {
 
   if (!follow) return;
 
+  // Skip if already accepted (idempotency)
+  if (follow.status === 'accepted') {
+    return;
+  }
+
   const now = new Date().toISOString();
 
-  // Update follow status to accepted
-  await prisma.follow.update({
-    where: {
-      followerApId_followingApId: {
-        followerApId: follow.followerApId,
-        followingApId: follow.followingApId,
-      },
-    },
-    data: {
-      status: 'accepted',
-      acceptedAt: now,
-    },
-  });
+  // HIGH #16: Use transaction for atomic follow update and count updates
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Update follow status to accepted
+      await tx.follow.update({
+        where: {
+          followerApId_followingApId: {
+            followerApId: follow.followerApId,
+            followingApId: follow.followingApId,
+          },
+        },
+        data: {
+          status: 'accepted',
+          acceptedAt: now,
+        },
+      });
 
-  // Update counts
-  await prisma.actor.update({
-    where: { apId: follow.followerApId },
-    data: { followingCount: { increment: 1 } },
-  });
-  await prisma.actor.update({
-    where: { apId: follow.followingApId },
-    data: { followerCount: { increment: 1 } },
-  });
+      // Update counts atomically
+      await tx.actor.update({
+        where: { apId: follow.followerApId },
+        data: { followingCount: { increment: 1 } },
+      });
+      await tx.actor.update({
+        where: { apId: follow.followingApId },
+        data: { followerCount: { increment: 1 } },
+      });
+    });
+  } catch (e) {
+    console.error('[ActivityPub] Transaction error in handleAccept:', e);
+  }
 }
 
 // Handle Undo activity
@@ -403,26 +419,25 @@ export async function handleLike(
 
   const activityId = activity.id || activityApId(baseUrl, generateId());
 
-  // Check if already liked
-  const existing = await prisma.like.findUnique({
+  // Use upsert to atomically create or update like record (prevents race condition)
+  const result = await prisma.like.upsert({
     where: {
       actorApId_objectApId: {
         actorApId: actor,
         objectApId: objectId,
       },
     },
-  });
-
-  if (existing) return;
-
-  // Create like record
-  await prisma.like.create({
-    data: {
+    update: {}, // No update if already exists
+    create: {
       actorApId: actor,
       objectApId: objectId,
       activityApId: activityId,
     },
   });
+
+  // Only proceed with count updates and notifications for new likes
+  const isNewLike = result.activityApId === activityId;
+  if (!isNewLike) return;
 
   // Update like count on object
   await prisma.object.update({
@@ -662,6 +677,13 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
+  // Get activity actor
+  const actorId = typeof activity.actor === 'string' ? activity.actor : null;
+  if (!actorId) {
+    console.warn(`[ActivityPub] Delete activity missing actor`);
+    return;
+  }
+
   // Get object before deletion
   const delObj = await prisma.object.findUnique({
     where: { apId: objectId },
@@ -669,6 +691,12 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
   });
 
   if (!delObj) return;
+
+  // HIGH #10: Verify actor owns the object before deleting
+  if (delObj.attributedTo !== actorId) {
+    console.warn(`[ActivityPub] Delete rejected: actor ${actorId} does not own object ${objectId} (owned by ${delObj.attributedTo})`);
+    return;
+  }
 
   // If it's a Story, also delete related votes and views
   if (delObj.type === 'Story') {
@@ -716,26 +744,25 @@ export async function handleAnnounce(
 
   const activityId = activity.id || activityApId(baseUrl, generateId());
 
-  // Check if already announced
-  const existing = await prisma.announce.findUnique({
+  // Use upsert to atomically create or update announce record (prevents race condition)
+  const result = await prisma.announce.upsert({
     where: {
       actorApId_objectApId: {
         actorApId: actor,
         objectApId: objectId,
       },
     },
-  });
-
-  if (existing) return;
-
-  // Create announce record
-  await prisma.announce.create({
-    data: {
+    update: {}, // No update if already exists
+    create: {
       actorApId: actor,
       objectApId: objectId,
       activityApId: activityId,
     },
   });
+
+  // Only proceed with count updates and notifications for new announces
+  const isNewAnnounce = result.activityApId === activityId;
+  if (!isNewAnnounce) return;
 
   // Update announce count on object
   await prisma.object.update({

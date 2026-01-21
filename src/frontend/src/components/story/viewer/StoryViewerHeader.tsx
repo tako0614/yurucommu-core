@@ -43,6 +43,7 @@ export function StoryViewerHeader({
         {isVideo && (
           <button
             onClick={onToggleMute}
+            aria-label={isMuted ? "Unmute video" : "Mute video"}
             className="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
           >
             {isMuted ? <MutedIcon /> : <UnmutedIcon />}

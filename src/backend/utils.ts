@@ -57,7 +57,9 @@ export function safeJsonParse<T>(json: string | null | undefined, defaultValue: 
   if (!json) return defaultValue;
   try {
     return JSON.parse(json) as T;
-  } catch {
+  } catch (err) {
+    // MEDIUM FIX: Log the error for debugging
+    console.warn('[Utils] safeJsonParse failed:', err);
     return defaultValue;
   }
 }
@@ -232,4 +234,40 @@ export async function signRequest(privateKeyPem: string, keyId: string, method: 
   if (digest) headers['Digest'] = digest;
 
   return headers;
+}
+
+// Default timeout for external HTTP requests (30 seconds)
+const DEFAULT_FETCH_TIMEOUT_MS = 30000;
+
+/**
+ * Fetch with timeout support
+ * Wraps the standard fetch API with AbortController for timeout handling
+ *
+ * @param url - URL to fetch
+ * @param options - Fetch options with optional timeout
+ * @returns Response or throws on timeout/error
+ */
+export async function fetchWithTimeout(
+  url: string,
+  options: RequestInit & { timeout?: number } = {}
+): Promise<Response> {
+  const { timeout = DEFAULT_FETCH_TIMEOUT_MS, ...fetchOptions } = options;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(url, {
+      ...fetchOptions,
+      signal: controller.signal,
+    });
+    return response;
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeout / 1000} seconds: ${url}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }

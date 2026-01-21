@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { generateId, objectApId, activityApId, formatUsername, isLocal, safeJsonParse } from '../../utils';
 import { MAX_POST_CONTENT_LENGTH, MAX_POST_SUMMARY_LENGTH, MAX_POSTS_PAGE_LIMIT, extractMentions, formatPost, normalizeVisibility, parseLimit, PostRow } from './utils';
-import { deliverActivity } from '../../lib/activitypub-helpers';
+import { deliverActivity, deliverActivityToMany } from '../../lib/activitypub-helpers';
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -314,28 +314,72 @@ posts.post('/', async (c) => {
       distinct: ['followerApId']
     });
 
+    // Build to/cc fields based on visibility
+    const followersUrl = `${actor.ap_id}/followers`;
+    const publicUrl = 'https://www.w3.org/ns/activitystreams#Public';
+    let toField: string[];
+    let ccField: string[];
+
+    if (visibility === 'public') {
+      toField = [publicUrl];
+      ccField = [followersUrl];
+    } else if (visibility === 'unlisted') {
+      toField = [followersUrl];
+      ccField = [publicUrl];
+    } else if (visibility === 'followers') {
+      toField = [followersUrl];
+      ccField = [];
+    } else {
+      // direct - would need specific recipients, for now use empty
+      toField = [];
+      ccField = [];
+    }
+
     const createActivity = {
       '@context': 'https://www.w3.org/ns/activitystreams',
       id: activityApId(baseUrl, generateId()),
       type: 'Create',
       actor: actor.ap_id,
+      published: now,
+      to: toField,
+      cc: ccField,
       object: {
+        '@context': 'https://www.w3.org/ns/activitystreams',
         id: apId,
         type: 'Note',
         attributedTo: actor.ap_id,
         content,
         summary: summary || null,
-        attachments: body.attachments || [],
+        attachment: body.attachments || [],
         inReplyTo: body.in_reply_to || null,
-        visibility,
         published: now,
+        to: toField,
+        cc: ccField,
       },
     };
 
-    // Send to remote followers
+    // Send to remote followers (non-blocking background delivery)
     const remoteFollowers = followers.filter((f) => !isLocal(f.followerApId, baseUrl));
-    for (const follower of remoteFollowers) {
-      await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, follower.followerApId, createActivity);
+
+    // Schedule delivery in background - don't await to avoid blocking the response
+    // Use Promise.allSettled to ensure all deliveries are attempted even if some fail
+    if (remoteFollowers.length > 0) {
+      const senderActor = { apId: actor.ap_id, privateKeyPem: actor.private_key_pem };
+      Promise.allSettled(
+        remoteFollowers.map((follower) =>
+          deliverActivity(prisma, senderActor, follower.followerApId, createActivity)
+            .then((success) => {
+              if (!success) {
+                console.warn(`[Posts] Background delivery failed to ${follower.followerApId}`);
+              }
+            })
+            .catch((err) => {
+              console.error(`[Posts] Background delivery error to ${follower.followerApId}:`, err);
+            })
+        )
+      ).catch((err) => {
+        console.error('[Posts] Background delivery batch error:', err);
+      });
     }
 
     // Store activity
@@ -734,11 +778,10 @@ posts.patch('/:id', async (c) => {
     },
   };
 
-  // Send to remote followers
+  // P07: Send to remote followers in parallel with concurrency limit
   const remoteFollowers = followers.filter((f) => !isLocal(f.followerApId, baseUrl));
-  for (const follower of remoteFollowers) {
-    await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, follower.followerApId, updateActivity);
-  }
+  const senderActor = { apId: actor.ap_id, privateKeyPem: actor.private_key_pem };
+  await deliverActivityToMany(prisma, senderActor, remoteFollowers.map(f => f.followerApId), updateActivity);
 
   // Store activity
   await prisma.activity.create({
@@ -812,8 +855,9 @@ posts.delete('/:id', async (c) => {
           replyCount: { decrement: 1 }
         }
       });
-    } catch (e) {
-      // Parent post may not exist, ignore error
+    } catch (err) {
+      // HIGH FIX: Log the error - parent post may not exist, but we should still log for debugging
+      console.warn('[Posts] Failed to decrement parent reply count (parent may not exist):', err);
     }
   }
 
@@ -835,11 +879,10 @@ posts.delete('/:id', async (c) => {
     object: post.apId,
   };
 
-  // Send to remote followers
+  // P07: Send to remote followers in parallel with concurrency limit
   const remoteFollowers = followers.filter((f) => !isLocal(f.followerApId, baseUrl));
-  for (const follower of remoteFollowers) {
-    await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, follower.followerApId, deleteActivity);
-  }
+  const senderActorDelete = { apId: actor.ap_id, privateKeyPem: actor.private_key_pem };
+  await deliverActivityToMany(prisma, senderActorDelete, remoteFollowers.map(f => f.followerApId), deleteActivity);
 
   return c.json({ success: true });
 });

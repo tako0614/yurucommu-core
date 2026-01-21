@@ -1,6 +1,6 @@
 name = "yurucommu"
 main = "src/backend/index.ts"
-compatibility_date = "2024-12-01"
+compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
 [vars]
@@ -44,9 +44,12 @@ binding = "MEDIA"
 bucket_name = "yurucommu-media"
 
 # KV Namespace (for OAuth state, sessions, etc.)
+# IMPORTANT: The 'id' below is a PLACEHOLDER and MUST be replaced with an actual KV namespace ID.
+# Create your KV namespace first: wrangler kv:namespace create "yurucommu-kv"
+# Then replace the 'id' value with the ID from the command output.
 [[kv_namespaces]]
 binding = "KV"
-id = "yurucommu-kv"  # Replace with actual KV namespace ID after creation
+id = "yurucommu-kv"  # <<< REPLACE THIS with actual KV namespace ID from 'wrangler kv:namespace create'
 
 # Static assets
 [assets]
@@ -75,9 +78,10 @@ migrations_dir = "migrations"
 binding = "MEDIA"
 bucket_name = "yurucommu-media"
 
+# IMPORTANT: Same as above - replace 'id' with actual KV namespace ID for test environment
 [[env.test.kv_namespaces]]
 binding = "KV"
-id = "yurucommu-kv"  # Replace with actual KV namespace ID
+id = "yurucommu-kv"  # <<< REPLACE THIS with actual KV namespace ID from 'wrangler kv:namespace create'
 
 [[env.test.routes]]
 pattern = "test.yurucommu.com/*"

@@ -39,24 +39,9 @@ posts.post('/:id/like', async (c) => {
 
   if (existingLike) return c.json({ error: 'Already liked' }, 400);
 
-  // Create like
+  // Create like, update count, and store activity atomically
   const likeId = generateId();
   const likeActivityApId = activityApId(baseUrl, likeId);
-  await prisma.like.create({
-    data: {
-      actorApId: actor.ap_id,
-      objectApId: post.apId,
-      activityApId: likeActivityApId
-    }
-  });
-
-  // Update like count
-  await prisma.object.update({
-    where: { apId: post.apId },
-    data: { likeCount: { increment: 1 } }
-  });
-
-  // Store Like activity
   const likeActivityRaw = {
     '@context': 'https://www.w3.org/ns/activitystreams',
     id: likeActivityApId,
@@ -65,30 +50,52 @@ posts.post('/:id/like', async (c) => {
     object: post.apId,
   };
   const now = new Date().toISOString();
-  await prisma.activity.create({
-    data: {
-      apId: likeActivityApId,
-      type: 'Like',
-      actorApId: actor.ap_id,
-      objectApId: post.apId,
-      rawJson: JSON.stringify(likeActivityRaw),
-      createdAt: now
-    }
-  });
 
-  // Add to inbox of post author if local (AP Native notification)
-  if (post.attributedTo !== actor.ap_id && isLocal(post.attributedTo, baseUrl)) {
-    await prisma.inbox.create({
+  // Use transaction to ensure atomicity of like creation, count update, and activity storage
+  const shouldNotifyLocal = post.attributedTo !== actor.ap_id && isLocal(post.attributedTo, baseUrl);
+
+  await prisma.$transaction(async (tx) => {
+    // Create like
+    await tx.like.create({
       data: {
-        actorApId: post.attributedTo,
-        activityApId: likeActivityApId,
-        read: 0,
+        actorApId: actor.ap_id,
+        objectApId: post.apId,
+        activityApId: likeActivityApId
+      }
+    });
+
+    // Update like count
+    await tx.object.update({
+      where: { apId: post.apId },
+      data: { likeCount: { increment: 1 } }
+    });
+
+    // Store Like activity
+    await tx.activity.create({
+      data: {
+        apId: likeActivityApId,
+        type: 'Like',
+        actorApId: actor.ap_id,
+        objectApId: post.apId,
+        rawJson: JSON.stringify(likeActivityRaw),
         createdAt: now
       }
     });
-  }
 
-  // Send Like activity to remote post author
+    // Add to inbox of post author if local (AP Native notification)
+    if (shouldNotifyLocal) {
+      await tx.inbox.create({
+        data: {
+          actorApId: post.attributedTo,
+          activityApId: likeActivityApId,
+          read: 0,
+          createdAt: now
+        }
+      });
+    }
+  });
+
+  // Send Like activity to remote post author (outside transaction - delivery is best-effort)
   if (!isLocal(post.apId, baseUrl)) {
     await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, post.attributedTo, likeActivityRaw);
   }
@@ -129,26 +136,29 @@ posts.delete('/:id/like', async (c) => {
 
   if (!like) return c.json({ error: 'Not liked' }, 400);
 
-  // Delete the like
-  await prisma.like.delete({
-    where: {
-      actorApId_objectApId: {
-        actorApId: actor.ap_id,
-        objectApId: post.apId
+  // Use transaction to ensure atomicity of like deletion and count update
+  await prisma.$transaction(async (tx) => {
+    // Delete the like
+    await tx.like.delete({
+      where: {
+        actorApId_objectApId: {
+          actorApId: actor.ap_id,
+          objectApId: post.apId
+        }
       }
-    }
+    });
+
+    // Update like count
+    await tx.object.updateMany({
+      where: {
+        apId: post.apId,
+        likeCount: { gt: 0 }
+      },
+      data: { likeCount: { decrement: 1 } }
+    });
   });
 
-  // Update like count
-  await prisma.object.updateMany({
-    where: {
-      apId: post.apId,
-      likeCount: { gt: 0 }
-    },
-    data: { likeCount: { decrement: 1 } }
-  });
-
-  // Send Undo Like if post is remote
+  // Send Undo Like if post is remote (outside transaction - delivery is best-effort)
   if (!isLocal(post.apId, baseUrl)) {
     const undoObject = like.activityApId
       ? like.activityApId
@@ -167,7 +177,7 @@ posts.delete('/:id/like', async (c) => {
 
     const delivered = await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, post.attributedTo, undoLikeActivity);
     if (delivered) {
-      // Store activity
+      // Store activity (best-effort, outside main transaction)
       await prisma.activity.create({
         data: {
           apId: undoLikeActivity.id,
@@ -217,24 +227,9 @@ posts.post('/:id/repost', async (c) => {
 
   if (existingRepost) return c.json({ error: 'Already reposted' }, 400);
 
-  // Create repost
+  // Create repost, update count, and store activity atomically
   const announceId = generateId();
   const announceActivityApId = activityApId(baseUrl, announceId);
-  await prisma.announce.create({
-    data: {
-      actorApId: actor.ap_id,
-      objectApId: post.apId,
-      activityApId: announceActivityApId
-    }
-  });
-
-  // Update announce count
-  await prisma.object.update({
-    where: { apId: post.apId },
-    data: { announceCount: { increment: 1 } }
-  });
-
-  // Store Announce activity
   const announceActivityRaw = {
     '@context': 'https://www.w3.org/ns/activitystreams',
     id: announceActivityApId,
@@ -245,30 +240,52 @@ posts.post('/:id/repost', async (c) => {
     cc: [actor.ap_id + '/followers'],
   };
   const now = new Date().toISOString();
-  await prisma.activity.create({
-    data: {
-      apId: announceActivityApId,
-      type: 'Announce',
-      actorApId: actor.ap_id,
-      objectApId: post.apId,
-      rawJson: JSON.stringify(announceActivityRaw),
-      createdAt: now
-    }
-  });
 
-  // Add to inbox of post author if local (AP Native notification)
-  if (post.attributedTo !== actor.ap_id && isLocal(post.attributedTo, baseUrl)) {
-    await prisma.inbox.create({
+  // Use transaction to ensure atomicity of announce creation, count update, and activity storage
+  const shouldNotifyLocal = post.attributedTo !== actor.ap_id && isLocal(post.attributedTo, baseUrl);
+
+  await prisma.$transaction(async (tx) => {
+    // Create repost
+    await tx.announce.create({
       data: {
-        actorApId: post.attributedTo,
-        activityApId: announceActivityApId,
-        read: 0,
+        actorApId: actor.ap_id,
+        objectApId: post.apId,
+        activityApId: announceActivityApId
+      }
+    });
+
+    // Update announce count
+    await tx.object.update({
+      where: { apId: post.apId },
+      data: { announceCount: { increment: 1 } }
+    });
+
+    // Store Announce activity
+    await tx.activity.create({
+      data: {
+        apId: announceActivityApId,
+        type: 'Announce',
+        actorApId: actor.ap_id,
+        objectApId: post.apId,
+        rawJson: JSON.stringify(announceActivityRaw),
         createdAt: now
       }
     });
-  }
 
-  // Send Announce activity to remote post author
+    // Add to inbox of post author if local (AP Native notification)
+    if (shouldNotifyLocal) {
+      await tx.inbox.create({
+        data: {
+          actorApId: post.attributedTo,
+          activityApId: announceActivityApId,
+          read: 0,
+          createdAt: now
+        }
+      });
+    }
+  });
+
+  // Send Announce activity to remote post author (outside transaction - delivery is best-effort)
   if (!isLocal(post.apId, baseUrl)) {
     await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, post.attributedTo, announceActivityRaw);
   }
@@ -309,26 +326,29 @@ posts.delete('/:id/repost', async (c) => {
 
   if (!announce) return c.json({ error: 'Not reposted' }, 400);
 
-  // Delete the announce
-  await prisma.announce.delete({
-    where: {
-      actorApId_objectApId: {
-        actorApId: actor.ap_id,
-        objectApId: post.apId
+  // Use transaction to ensure atomicity of announce deletion and count update
+  await prisma.$transaction(async (tx) => {
+    // Delete the announce
+    await tx.announce.delete({
+      where: {
+        actorApId_objectApId: {
+          actorApId: actor.ap_id,
+          objectApId: post.apId
+        }
       }
-    }
+    });
+
+    // Update announce count
+    await tx.object.updateMany({
+      where: {
+        apId: post.apId,
+        announceCount: { gt: 0 }
+      },
+      data: { announceCount: { decrement: 1 } }
+    });
   });
 
-  // Update announce count
-  await prisma.object.updateMany({
-    where: {
-      apId: post.apId,
-      announceCount: { gt: 0 }
-    },
-    data: { announceCount: { decrement: 1 } }
-  });
-
-  // Send Undo Announce if post is remote
+  // Send Undo Announce if post is remote (outside transaction - delivery is best-effort)
   if (!isLocal(post.apId, baseUrl)) {
     const undoAnnounceActivity = {
       '@context': 'https://www.w3.org/ns/activitystreams',
@@ -344,7 +364,7 @@ posts.delete('/:id/repost', async (c) => {
 
     const delivered = await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, post.attributedTo, undoAnnounceActivity);
     if (delivered) {
-      // Store activity
+      // Store activity (best-effort, outside main transaction)
       await prisma.activity.create({
         data: {
           apId: undoAnnounceActivity.id,

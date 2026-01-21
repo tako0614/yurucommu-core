@@ -2,6 +2,9 @@ import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { generateId, activityApId, isLocal, formatUsername, signRequest, isSafeRemoteUrl } from '../utils';
 
+// P07: Network timeout for remote requests (10 seconds)
+const REMOTE_FETCH_TIMEOUT_MS = 10000;
+
 const follow = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 type RemoteActor = {
@@ -53,53 +56,74 @@ follow.post('/', async (c) => {
     const activityId = activityApId(baseUrl, generateId());
     const now = new Date().toISOString();
 
-    await prisma.follow.create({
-      data: {
-        followerApId: actor.ap_id,
-        followingApId: targetApId,
-        status,
-        activityApId: activityId,
-        acceptedAt: status === 'accepted' ? now : null,
-      },
-    });
+    // P07: Wrap in transaction to prevent race condition with concurrent follow requests
+    try {
+      await prisma.$transaction(async (tx) => {
+        // Re-check in transaction to prevent race condition
+        const existingInTx = await tx.follow.findUnique({
+          where: {
+            followerApId_followingApId: { followerApId: actor.ap_id, followingApId: targetApId },
+          },
+        });
+        if (existingInTx) {
+          throw new Error('ALREADY_FOLLOWING');
+        }
 
-    // Update counts if accepted
-    if (status === 'accepted') {
-      await prisma.actor.update({
-        where: { apId: actor.ap_id },
-        data: { followingCount: { increment: 1 } },
+        await tx.follow.create({
+          data: {
+            followerApId: actor.ap_id,
+            followingApId: targetApId,
+            status,
+            activityApId: activityId,
+            acceptedAt: status === 'accepted' ? now : null,
+          },
+        });
+
+        // Update counts if accepted (atomically)
+        if (status === 'accepted') {
+          await tx.actor.update({
+            where: { apId: actor.ap_id },
+            data: { followingCount: { increment: 1 } },
+          });
+          await tx.actor.update({
+            where: { apId: targetApId },
+            data: { followerCount: { increment: 1 } },
+          });
+        }
+
+        // Store Follow activity and add to inbox (AP Native notification)
+        await tx.activity.create({
+          data: {
+            apId: activityId,
+            type: 'Follow',
+            actorApId: actor.ap_id,
+            objectApId: targetApId,
+            rawJson: JSON.stringify({
+              '@context': 'https://www.w3.org/ns/activitystreams',
+              id: activityId,
+              type: 'Follow',
+              actor: actor.ap_id,
+              object: targetApId,
+              published: now,
+            }),
+            direction: 'local',
+          },
+        });
+
+        await tx.inbox.create({
+          data: {
+            actorApId: targetApId,
+            activityApId: activityId,
+            read: 0,
+          },
+        });
       });
-      await prisma.actor.update({
-        where: { apId: targetApId },
-        data: { followerCount: { increment: 1 } },
-      });
+    } catch (e) {
+      if (e instanceof Error && e.message === 'ALREADY_FOLLOWING') {
+        return c.json({ error: 'Already following or pending' }, 400);
+      }
+      throw e;
     }
-
-    // Store Follow activity and add to inbox (AP Native notification)
-    await prisma.activity.create({
-      data: {
-        apId: activityId,
-        type: 'Follow',
-        actorApId: actor.ap_id,
-        objectApId: targetApId,
-        rawJson: JSON.stringify({
-          '@context': 'https://www.w3.org/ns/activitystreams',
-          id: activityId,
-          type: 'Follow',
-          actor: actor.ap_id,
-          object: targetApId,
-        }),
-        direction: 'local',
-      },
-    });
-
-    await prisma.inbox.create({
-      data: {
-        actorApId: targetApId,
-        activityApId: activityId,
-        read: 0,
-      },
-    });
 
     return c.json({ success: true, status });
   } else {
@@ -115,9 +139,18 @@ follow.post('/', async (c) => {
         if (!isSafeRemoteUrl(targetApId)) {
           return c.json({ error: 'Invalid target_ap_id' }, 400);
         }
-        const res = await fetch(targetApId, {
-          headers: { 'Accept': 'application/activity+json, application/ld+json' }
-        });
+        // P07: Add timeout using AbortController
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), REMOTE_FETCH_TIMEOUT_MS);
+        let res: Response;
+        try {
+          res = await fetch(targetApId, {
+            headers: { 'Accept': 'application/activity+json, application/ld+json' },
+            signal: controller.signal
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
         if (!res.ok) return c.json({ error: 'Could not fetch remote actor' }, 400);
 
         const actorData = await res.json() as RemoteActor;
@@ -172,20 +205,29 @@ follow.post('/', async (c) => {
       type: 'Follow',
       actor: actor.ap_id,
       object: targetApId,
+      published: new Date().toISOString(),
     };
 
     const keyId = `${actor.ap_id}#main-key`;
     const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(followActivity));
 
+    // P07: Add timeout for activity delivery
     try {
-      await fetch(cachedActor.inbox, {
-        method: 'POST',
-        headers: {
-          ...headers,
-          'Content-Type': 'application/activity+json',
-        },
-        body: JSON.stringify(followActivity),
-      });
+      const deliveryController = new AbortController();
+      const deliveryTimeoutId = setTimeout(() => deliveryController.abort(), REMOTE_FETCH_TIMEOUT_MS);
+      try {
+        await fetch(cachedActor.inbox, {
+          method: 'POST',
+          headers: {
+            ...headers,
+            'Content-Type': 'application/activity+json',
+          },
+          body: JSON.stringify(followActivity),
+          signal: deliveryController.signal
+        });
+      } finally {
+        clearTimeout(deliveryTimeoutId);
+      }
     } catch (e) {
       console.error('Failed to send Follow activity:', e);
     }
@@ -262,6 +304,7 @@ follow.delete('/', async (c) => {
           id: activityId,
           type: 'Undo',
           actor: actor.ap_id,
+          published: new Date().toISOString(),
           object: {
             type: 'Follow',
             actor: actor.ap_id,
@@ -272,12 +315,20 @@ follow.delete('/', async (c) => {
         const keyId = `${actor.ap_id}#main-key`;
         const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(undoActivity));
 
+        // P07: Add timeout for activity delivery
         try {
-          await fetch(cachedActor.inbox, {
-            method: 'POST',
-            headers: { ...headers, 'Content-Type': 'application/activity+json' },
-            body: JSON.stringify(undoActivity),
-          });
+          const undoController = new AbortController();
+          const undoTimeoutId = setTimeout(() => undoController.abort(), REMOTE_FETCH_TIMEOUT_MS);
+          try {
+            await fetch(cachedActor.inbox, {
+              method: 'POST',
+              headers: { ...headers, 'Content-Type': 'application/activity+json' },
+              body: JSON.stringify(undoActivity),
+              signal: undoController.signal,
+            });
+          } finally {
+            clearTimeout(undoTimeoutId);
+          }
         } catch (e) {
           console.error('Failed to send Undo Follow:', e);
         }
@@ -312,34 +363,47 @@ follow.post('/accept', async (c) => {
 
   const prisma = c.get('prisma');
 
-  const pendingFollow = await prisma.follow.findFirst({
-    where: {
-      followerApId: body.requester_ap_id,
-      followingApId: actor.ap_id,
-      status: 'pending',
-    },
-  });
+  // P07: Wrap in transaction to prevent race condition where two accepts could increment counts twice
+  let pendingFollow: Awaited<ReturnType<typeof prisma.follow.findFirst>>;
+  try {
+    pendingFollow = await prisma.$transaction(async (tx) => {
+      const follow = await tx.follow.findFirst({
+        where: {
+          followerApId: body.requester_ap_id,
+          followingApId: actor.ap_id,
+          status: 'pending',
+        },
+      });
+
+      if (!follow) return null;
+
+      await tx.follow.update({
+        where: {
+          followerApId_followingApId: { followerApId: body.requester_ap_id, followingApId: actor.ap_id },
+        },
+        data: { status: 'accepted', acceptedAt: new Date().toISOString() },
+      });
+
+      // Update counts atomically
+      await tx.actor.update({
+        where: { apId: actor.ap_id },
+        data: { followerCount: { increment: 1 } },
+      });
+      if (isLocal(body.requester_ap_id, c.env.APP_URL)) {
+        await tx.actor.update({
+          where: { apId: body.requester_ap_id },
+          data: { followingCount: { increment: 1 } },
+        });
+      }
+
+      return follow;
+    });
+  } catch (e) {
+    console.error('[Follow] Transaction error in accept:', e);
+    return c.json({ error: 'Internal error' }, 500);
+  }
 
   if (!pendingFollow) return c.json({ error: 'No pending follow request' }, 404);
-
-  await prisma.follow.update({
-    where: {
-      followerApId_followingApId: { followerApId: body.requester_ap_id, followingApId: actor.ap_id },
-    },
-    data: { status: 'accepted', acceptedAt: new Date().toISOString() },
-  });
-
-  // Update counts
-  await prisma.actor.update({
-    where: { apId: actor.ap_id },
-    data: { followerCount: { increment: 1 } },
-  });
-  if (isLocal(body.requester_ap_id, c.env.APP_URL)) {
-    await prisma.actor.update({
-      where: { apId: body.requester_ap_id },
-      data: { followingCount: { increment: 1 } },
-    });
-  }
 
   // Send Accept to remote
   if (!isLocal(body.requester_ap_id, c.env.APP_URL)) {
@@ -356,6 +420,7 @@ follow.post('/accept', async (c) => {
         type: 'Accept',
         actor: actor.ap_id,
         object: pendingFollow.activityApId,
+        published: new Date().toISOString(),
       };
 
       const keyId = `${actor.ap_id}#main-key`;
@@ -365,12 +430,20 @@ follow.post('/accept', async (c) => {
       }
       const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(acceptActivity));
 
+      // P07: Add timeout for activity delivery
       try {
-        await fetch(cachedActor.inbox, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(acceptActivity),
-        });
+        const acceptController = new AbortController();
+        const acceptTimeoutId = setTimeout(() => acceptController.abort(), REMOTE_FETCH_TIMEOUT_MS);
+        try {
+          await fetch(cachedActor.inbox, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/activity+json' },
+            body: JSON.stringify(acceptActivity),
+            signal: acceptController.signal,
+          });
+        } finally {
+          clearTimeout(acceptTimeoutId);
+        }
       } catch (e) {
         console.error('Failed to send Accept:', e);
       }
@@ -392,6 +465,9 @@ follow.post('/accept', async (c) => {
   return c.json({ success: true });
 });
 
+// P07: Maximum batch size for follow accept to prevent DoS
+const MAX_BATCH_ACCEPT_SIZE = 100;
+
 // Batch accept follow requests
 follow.post('/accept/batch', async (c) => {
   const actor = c.get('actor');
@@ -400,6 +476,11 @@ follow.post('/accept/batch', async (c) => {
   const body = await c.req.json<{ requester_ap_ids: string[] }>();
   if (!body.requester_ap_ids || !Array.isArray(body.requester_ap_ids) || body.requester_ap_ids.length === 0) {
     return c.json({ error: 'requester_ap_ids array required' }, 400);
+  }
+
+  // P07: Enforce size limit on batch accept
+  if (body.requester_ap_ids.length > MAX_BATCH_ACCEPT_SIZE) {
+    return c.json({ error: `Batch size exceeds maximum of ${MAX_BATCH_ACCEPT_SIZE}` }, 400);
   }
 
   const baseUrl = c.env.APP_URL;
@@ -472,6 +553,7 @@ follow.post('/accept/batch', async (c) => {
             type: 'Accept',
             actor: actor.ap_id,
             object: pendingFollow.activityApId,
+            published: new Date().toISOString(),
           };
 
           const keyId = `${actor.ap_id}#main-key`;
@@ -480,11 +562,14 @@ follow.post('/accept/batch', async (c) => {
           } else {
             const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(acceptActivity));
 
+            // Log failures instead of silently swallowing them
             fetch(cachedActor.inbox, {
               method: 'POST',
               headers: { ...headers, 'Content-Type': 'application/activity+json' },
               body: JSON.stringify(acceptActivity),
-            }).catch(() => {}); // Fire and forget for batch
+            }).catch((err) => {
+              console.error(`[Follow] Batch Accept delivery failed to ${cachedActor.inbox}:`, err);
+            });
 
             activitiesToCreate.push({
               apId: activityId,
@@ -582,17 +667,26 @@ follow.post('/reject', async (c) => {
         type: 'Reject',
         actor: actor.ap_id,
         object: pendingFollow.activityApId,
+        published: new Date().toISOString(),
       };
 
       const keyId = `${actor.ap_id}#main-key`;
       const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(rejectActivity));
 
+      // P07: Add timeout for activity delivery
       try {
-        await fetch(cachedActor.inbox, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(rejectActivity),
-        });
+        const rejectController = new AbortController();
+        const rejectTimeoutId = setTimeout(() => rejectController.abort(), REMOTE_FETCH_TIMEOUT_MS);
+        try {
+          await fetch(cachedActor.inbox, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/activity+json' },
+            body: JSON.stringify(rejectActivity),
+            signal: rejectController.signal,
+          });
+        } finally {
+          clearTimeout(rejectTimeoutId);
+        }
       } catch (e) {
         console.error('Failed to send Reject:', e);
       }
@@ -619,10 +713,14 @@ follow.get('/requests', async (c) => {
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const prisma = c.get('prisma');
+  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500);
+  const offset = parseInt(c.req.query('offset') || '0');
 
   const follows = await prisma.follow.findMany({
     where: { followingApId: actor.ap_id, status: 'pending' },
     orderBy: { createdAt: 'desc' },
+    take: limit,
+    skip: offset,
   });
 
   // Batch load actor info to avoid N+1 queries

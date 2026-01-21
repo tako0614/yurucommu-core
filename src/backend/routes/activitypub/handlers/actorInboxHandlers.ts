@@ -7,6 +7,7 @@ import {
   isSafeRemoteUrl,
   objectApId,
   signRequest,
+  fetchWithTimeout,
 } from '../../../utils';
 import type { InstanceActorResult } from '../utils';
 import {
@@ -150,10 +151,11 @@ export async function handleGroupFollow(
     );
 
     try {
-      await fetch(inboxUrl, {
+      await fetchWithTimeout(inboxUrl, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/activity+json' },
         body: JSON.stringify(responseActivity),
+        timeout: 15000, // 15 second timeout for ActivityPub federation
       });
     } catch (e) {
       console.error(`Failed to send ${responseType}:`, e);

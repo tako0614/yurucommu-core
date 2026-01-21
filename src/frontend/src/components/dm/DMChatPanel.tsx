@@ -32,33 +32,50 @@ export function DMChatPanel({ contact, actor, onBack, onRead }: DMChatPanelProps
   const lastTypingSentRef = useRef(0);
   const { t } = useI18n();
 
-  const loadMessages = useCallback(async () => {
-    setErrorMessage(null);
-    try {
-      if (contact.type === 'community') {
-        const data = await fetchCommunityMessages(contact.ap_id);
-        setMessages(data);
-      } else {
-        const { messages } = await fetchUserDMMessages(contact.ap_id);
-        setMessages(messages);
-        try {
-          await markDMAsRead(contact.ap_id);
-          onRead?.();
-        } catch {
-          // Ignore read marking errors.
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadMessages = async () => {
+      setErrorMessage(null);
+      setLoading(true);
+      try {
+        if (contact.type === 'community') {
+          const data = await fetchCommunityMessages(contact.ap_id);
+          if (!cancelled) {
+            setMessages(data);
+          }
+        } else {
+          const { messages: loadedMessages } = await fetchUserDMMessages(contact.ap_id);
+          if (!cancelled) {
+            setMessages(loadedMessages);
+          }
+          try {
+            await markDMAsRead(contact.ap_id);
+            if (!cancelled) {
+              onRead?.();
+            }
+          } catch {
+            // Ignore read marking errors.
+          }
+        }
+      } catch (e) {
+        if (!cancelled) {
+          console.error('Failed to load messages:', e);
+          setErrorMessage(t('common.error'));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
         }
       }
-    } catch (e) {
-      console.error('Failed to load messages:', e);
-      setErrorMessage(t('common.error'));
-    } finally {
-      setLoading(false);
-    }
-  }, [contact.ap_id, contact.type, onRead, t]);
+    };
 
-  useEffect(() => {
     loadMessages();
-  }, [loadMessages]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [contact.ap_id, contact.type, onRead, t]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
