@@ -257,7 +257,13 @@ ap.get('/ap/rooms', withCache({
   }));
 
   return c.json({
-    '@context': 'https://www.w3.org/ns/activitystreams',
+    '@context': [
+      'https://www.w3.org/ns/activitystreams',
+      {
+        'apc': 'https://yurucommu.com/ns/apc#',
+        'Room': 'apc:Room',
+      },
+    ],
     id: `${baseUrl}/ap/rooms`,
     type: 'OrderedCollection',
     totalItems: items.length,
@@ -287,7 +293,14 @@ ap.get('/ap/rooms/:roomId', async (c) => {
   if (!room) return c.json({ error: 'Room not found' }, 404);
 
   return c.json({
-    '@context': 'https://www.w3.org/ns/activitystreams',
+    '@context': [
+      'https://www.w3.org/ns/activitystreams',
+      {
+        'apc': 'https://yurucommu.com/ns/apc#',
+        'Room': 'apc:Room',
+        'stream': { '@id': 'apc:stream', '@type': '@id' },
+      },
+    ],
     id: roomApId(baseUrl, room.preferredUsername),
     type: 'Room',
     name: room.name,

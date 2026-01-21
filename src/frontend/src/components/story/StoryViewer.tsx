@@ -24,6 +24,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
   const [storyIndex, setStoryIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
+  const isPausedRef = useRef(false);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [videoReady, setVideoReady] = useState(false);
   const [mediaError, setMediaError] = useState(false);
@@ -81,6 +82,11 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
   // Check if current story is a video
   const isVideo = currentStory?.attachment?.mediaType?.startsWith('video/') ?? false;
 
+  // Keep ref in sync with state for use in interval callback
+  useEffect(() => {
+    isPausedRef.current = isPaused;
+  }, [isPaused]);
+
   // Auto-advance timer (for images only, videos use onEnded)
   const startTimer = useCallback(() => {
     if (!currentStory || isVideo) return;
@@ -92,9 +98,9 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
     if (timerRef.current) clearTimeout(timerRef.current);
     if (progressTimerRef.current) clearInterval(progressTimerRef.current);
 
-    // Progress update
+    // Progress update - use ref to avoid stale closure
     progressTimerRef.current = setInterval(() => {
-      if (isPaused) return;
+      if (isPausedRef.current) return;
       const elapsed = Date.now() - startTime;
       setProgress(Math.min((elapsed / duration) * 100, 100));
     }, 50);
@@ -104,7 +110,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
       if (progressTimerRef.current) clearInterval(progressTimerRef.current);
       goNext();
     }, duration);
-  }, [currentStory, isPaused, isVideo]);
+  }, [currentStory, isVideo]);
 
   useEffect(() => {
     if (!isPaused && !isVideo) {

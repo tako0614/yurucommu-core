@@ -356,12 +356,14 @@ ap.get('/ap/objects/:id', async (c) => {
     ].filter(Boolean),
     attachment: attachments.length > 0 ? attachments : undefined,
     likes: {
+      id: `${obj.apId}/likes`,
       type: 'Collection',
-      count: obj.likeCount,
+      totalItems: obj.likeCount,
     },
     replies: {
+      id: `${obj.apId}/replies`,
       type: 'Collection',
-      count: obj.replyCount,
+      totalItems: obj.replyCount,
     },
   };
 

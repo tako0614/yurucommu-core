@@ -37,29 +37,42 @@ export function NotificationPage() {
   const [pendingAction, setPendingAction] = useState<Record<string, boolean>>({});
   const [filter, setFilter] = useState<FilterType>('all');
 
-  const loadNotifications = useCallback(async (typeFilter: FilterType) => {
-    setLoading(true);
-    try {
-      const data = await fetchNotifications({ type: typeFilter === 'all' ? undefined : typeFilter });
-      setNotifications(data);
-
-      // Mark unread as read
-      const unread = data.filter(n => !n.read);
-      if (unread.length > 0) {
-        await markNotificationsRead(unread.map(n => n.id));
-        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-      }
-    } catch (e) {
-      console.error('Failed to load notifications:', e);
-      setError(t('common.error'));
-    } finally {
-      setLoading(false);
-    }
-  }, [setError, t]);
-
   useEffect(() => {
-    loadNotifications(filter);
-  }, [loadNotifications, filter]);
+    let cancelled = false;
+
+    const loadNotifications = async () => {
+      setLoading(true);
+      try {
+        const data = await fetchNotifications({ type: filter === 'all' ? undefined : filter });
+        if (cancelled) return;
+        setNotifications(data);
+
+        // Mark unread as read
+        const unread = data.filter(n => !n.read);
+        if (unread.length > 0) {
+          await markNotificationsRead(unread.map(n => n.id));
+          if (!cancelled) {
+            setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+          }
+        }
+      } catch (e) {
+        if (!cancelled) {
+          console.error('Failed to load notifications:', e);
+          setError(t('common.error'));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadNotifications();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filter, setError, t]);
 
   const handleFollowRequest = async (notification: Notification, action: 'accept' | 'reject') => {
     if (pendingAction[notification.id]) return;

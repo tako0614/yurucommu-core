@@ -76,9 +76,10 @@ export function TextEditorModal({
   // Focus input when modal opens
   useEffect(() => {
     if (isOpen && inputRef.current) {
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         inputRef.current?.focus();
       }, 100);
+      return () => clearTimeout(timeoutId);
     }
   }, [isOpen]);
 

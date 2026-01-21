@@ -9,15 +9,19 @@ const communities = new Hono<{ Bindings: Env; Variables: Variables }>();
 communities.get('/', async (c) => {
   const actor = c.get('actor');
   const prisma = c.get('prisma');
+  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500);
+  const offset = parseInt(c.req.query('offset') || '0');
 
   const actorApIdVal = actor?.ap_id || '';
 
-  // Get all communities
+  // Get all communities with pagination
   const communitiesList = await prisma.community.findMany({
     orderBy: [
       { lastMessageAt: { sort: 'desc', nulls: 'last' } },
       { createdAt: 'asc' },
     ],
+    take: limit,
+    skip: offset,
   });
 
   // Batch load membership and join request status for current actor to avoid N+1
@@ -128,27 +132,41 @@ communities.post('/', async (c) => {
   // Generate key pair for ActivityPub
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
 
-  // Create community using insert-or-fail pattern to avoid race condition
-  // Database unique constraint on preferredUsername will reject duplicates
+  // P07: Create community and member in a transaction to prevent race condition
+  // This ensures both operations succeed or both fail (no orphan communities)
   try {
-    await prisma.community.create({
-      data: {
-        apId,
-        preferredUsername: name,
-        name: body.display_name || name,
-        summary: body.summary || '',
-        inbox,
-        outbox,
-        followersUrl,
-        publicKeyPem,
-        privateKeyPem,
-        visibility: 'public',
-        joinPolicy: 'open',
-        postPolicy: 'members',
-        memberCount: 1,
-        createdBy: actor.ap_id,
-        createdAt: now,
-      },
+    await prisma.$transaction(async (tx) => {
+      // Create community using insert-or-fail pattern to avoid race condition
+      // Database unique constraint on preferredUsername will reject duplicates
+      await tx.community.create({
+        data: {
+          apId,
+          preferredUsername: name,
+          name: body.display_name || name,
+          summary: body.summary || '',
+          inbox,
+          outbox,
+          followersUrl,
+          publicKeyPem,
+          privateKeyPem,
+          visibility: 'public',
+          joinPolicy: 'open',
+          postPolicy: 'members',
+          memberCount: 1,
+          createdBy: actor.ap_id,
+          createdAt: now,
+        },
+      });
+
+      // Add creator as member (owner role)
+      await tx.communityMember.create({
+        data: {
+          communityApId: apId,
+          actorApId: actor.ap_id,
+          role: 'owner',
+          joinedAt: now,
+        },
+      });
     });
   } catch (error) {
     // Handle unique constraint violation (P2002 is Prisma's unique constraint error code)
@@ -158,16 +176,6 @@ communities.post('/', async (c) => {
     // Re-throw unexpected errors
     throw error;
   }
-
-  // Add creator as member (owner role)
-  await prisma.communityMember.create({
-    data: {
-      communityApId: apId,
-      actorApId: actor.ap_id,
-      role: 'owner',
-      joinedAt: now,
-    },
-  });
 
   return c.json({
     community: {

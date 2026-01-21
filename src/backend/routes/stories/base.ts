@@ -564,8 +564,14 @@ stories.post('/delete', async (c) => {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
-  // Send Delete(Story) activity to followers before deleting (async, don't block response)
-  sendDeleteStoryActivity(apId, actor, c.env, prisma).catch(console.error);
+  // Send Delete(Story) activity to followers before deleting
+  // Must await to ensure federation completes before local deletion
+  try {
+    await sendDeleteStoryActivity(apId, actor, c.env, prisma);
+  } catch (err) {
+    console.error('Failed to send Delete activity for story:', err);
+    // Continue with deletion even if federation fails
+  }
 
   // Delete story votes first
   await prisma.storyVote.deleteMany({

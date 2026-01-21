@@ -55,6 +55,9 @@ export function TimelinePage({ actor }: TimelinePageProps) {
   const [posting, setPosting] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('following');
   const [uploadedMedia, setUploadedMedia] = useState<UploadedMedia[]>([]);
+  const uploadedMediaRef = useRef<UploadedMedia[]>([]);
+  // Keep ref in sync with state for cleanup
+  uploadedMediaRef.current = uploadedMedia;
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -124,28 +127,20 @@ export function TimelinePage({ actor }: TimelinePageProps) {
     setUploadError(null);
   };
 
-  useEffect(() => {
-    fetchCommunities()
-      .then(setCommunities)
-      .catch((err) => {
-        console.error('Failed to load communities:', err);
-        setError(t('common.error'));
-      });
-    loadStories();
-  }, []);
-
   // Cleanup object URLs on unmount to prevent memory leaks
+  // Uses ref to access current value on unmount (empty deps means cleanup runs once on unmount)
   useEffect(() => {
     return () => {
-      uploadedMedia.forEach(media => {
+      // Access current value via ref since this runs on unmount only
+      uploadedMediaRef.current.forEach(media => {
         if (media.preview) {
           URL.revokeObjectURL(media.preview);
         }
       });
     };
-  }, [uploadedMedia]);
+  }, []); // Empty deps - cleanup runs only on unmount with latest ref value
 
-  const loadStories = async () => {
+  const loadStories = useCallback(async () => {
     try {
       const data = await fetchStories();
       setActorStories(data);
@@ -155,7 +150,17 @@ export function TimelinePage({ actor }: TimelinePageProps) {
     } finally {
       setStoriesLoading(false);
     }
-  };
+  }, [t, setError]);
+
+  useEffect(() => {
+    fetchCommunities()
+      .then(setCommunities)
+      .catch((err) => {
+        console.error('Failed to load communities:', err);
+        setError(t('common.error'));
+      });
+    loadStories();
+  }, [t, setError, loadStories]);
 
   const handleStoryClick = (stories: ActorStories, index: number) => {
     // Find the actual index in the actorStories array
@@ -173,26 +178,6 @@ export function TimelinePage({ actor }: TimelinePageProps) {
   const handleStorySuccess = () => {
     loadStories();
   };
-
-  const loadTimeline = useCallback(async () => {
-    setLoading(true);
-    setHasMore(true);
-    try {
-      let loadedPosts: Post[];
-      if (activeTab === 'following') {
-        loadedPosts = await fetchFollowingTimeline({ limit: 20 });
-      } else {
-        loadedPosts = await fetchTimeline({ limit: 20, community: activeTab });
-      }
-      setPosts(loadedPosts);
-      setHasMore(loadedPosts.length >= 20);
-    } catch (e) {
-      console.error('Failed to load timeline:', e);
-      setError(t('common.error'));
-    } finally {
-      setLoading(false);
-    }
-  }, [activeTab]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore || posts.length === 0) return;
@@ -215,11 +200,43 @@ export function TimelinePage({ actor }: TimelinePageProps) {
     } finally {
       setLoadingMore(false);
     }
-  }, [activeTab, loadingMore, hasMore, posts]);
+  }, [activeTab, loadingMore, hasMore, posts, t, setError]);
 
   useEffect(() => {
-    loadTimeline();
-  }, [loadTimeline]);
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      setHasMore(true);
+      try {
+        let loadedPosts: Post[];
+        if (activeTab === 'following') {
+          loadedPosts = await fetchFollowingTimeline({ limit: 20 });
+        } else {
+          loadedPosts = await fetchTimeline({ limit: 20, community: activeTab });
+        }
+        if (!cancelled) {
+          setPosts(loadedPosts);
+          setHasMore(loadedPosts.length >= 20);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          console.error('Failed to load timeline:', e);
+          setError(t('common.error'));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, t, setError]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;

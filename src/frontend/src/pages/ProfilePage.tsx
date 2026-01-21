@@ -104,7 +104,7 @@ export function ProfilePage({ actor }: ProfilePageProps) {
     } finally {
       setLoading(false);
     }
-  }, [targetActorId]);
+  }, [targetActorId, t, setError]);
 
   useEffect(() => {
     setLoading(true);

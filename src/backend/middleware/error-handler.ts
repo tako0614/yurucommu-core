@@ -47,6 +47,11 @@ export function createErrorMiddleware(
   const { includeStack = false, logger = logError, transformError } = options;
 
   return (err: Error, c: Context): Response => {
+    // MEDIUM FIX: Generate correlation ID for error tracking
+    const correlationId = c.req.header('x-request-id') ||
+      c.req.header('CF-Ray') ||
+      crypto.randomUUID();
+
     // Transform error if transformer provided
     let appError: AppError;
     if (transformError) {
@@ -54,8 +59,9 @@ export function createErrorMiddleware(
     } else if (isAppError(err)) {
       appError = err;
     } else {
-      // Log non-operational errors with full details
+      // Log non-operational errors with full details and correlation ID
       logger(err, {
+        correlationId,
         path: c.req.path,
         method: c.req.method,
         requestId: c.req.header('x-request-id'),
@@ -65,6 +71,9 @@ export function createErrorMiddleware(
 
     // Build response
     const response = appError.toResponse();
+
+    // MEDIUM FIX: Add correlation ID to error response for debugging
+    (response.error as Record<string, unknown>).correlation_id = correlationId;
 
     // Add stack trace in development mode
     if (includeStack && appError.stack) {

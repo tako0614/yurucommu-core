@@ -35,6 +35,7 @@ model Actor {
   role              String  @default("member")
   createdAt         String  @default(dbgenerated("datetime('now')")) @map("created_at")
   updatedAt         String  @default(dbgenerated("datetime('now')")) @map("updated_at")
+  deletedAt         String? @map("deleted_at")
 
   // Relations
   sessions              Session[]
@@ -60,6 +61,7 @@ model Actor {
 
   @@index([preferredUsername])
   @@index([takosUserId])
+  @@index([deletedAt])
   @@map("actors")
 }
 
@@ -91,40 +93,41 @@ model ActorCache {
 // OBJECTS (All AP objects - Note, Article, etc.)
 // ============================================================
 model Object {
-  apId          String  @id @map("ap_id")
-  type          String  @default("Note")
-  attributedTo  String  @map("attributed_to")
-  content       String  @default("")
-  summary       String?
-  attachmentsJson String @default("[]") @map("attachments_json")
-  inReplyTo     String? @map("in_reply_to")
-  conversation  String?
-  visibility    String  @default("public")
-  toJson        String  @default("[]") @map("to_json")
-  ccJson        String  @default("[]") @map("cc_json")
-  audienceJson  String  @default("[]") @map("audience_json")
-  communityApId String? @map("community_ap_id")
-  endTime       String? @map("end_time")
-  likeCount     Int     @default(0) @map("like_count")
-  replyCount    Int     @default(0) @map("reply_count")
-  announceCount Int     @default(0) @map("announce_count")
-  shareCount    Int     @default(0) @map("share_count")
-  published     String  @default(dbgenerated("datetime('now')"))
-  updated       String?
-  isLocal       Int     @default(1) @map("is_local")
-  rawJson       String? @map("raw_json")
+  apId            String  @id @map("ap_id")
+  type            String  @default("Note")
+  attributedTo    String  @map("attributed_to")
+  content         String  @default("")
+  summary         String?
+  attachmentsJson String  @default("[]") @map("attachments_json")
+  inReplyTo       String? @map("in_reply_to")
+  conversation    String?
+  visibility      String  @default("public")
+  toJson          String  @default("[]") @map("to_json")
+  ccJson          String  @default("[]") @map("cc_json")
+  audienceJson    String  @default("[]") @map("audience_json")
+  communityApId   String? @map("community_ap_id")
+  endTime         String? @map("end_time")
+  likeCount       Int     @default(0) @map("like_count")
+  replyCount      Int     @default(0) @map("reply_count")
+  announceCount   Int     @default(0) @map("announce_count")
+  shareCount      Int     @default(0) @map("share_count")
+  published       String  @default(dbgenerated("datetime('now')"))
+  updated         String?
+  isLocal         Int     @default(1) @map("is_local")
+  rawJson         String? @map("raw_json")
+  deletedAt       String? @map("deleted_at")
 
   // Relations
-  author       Actor      @relation("AuthoredObjects", fields: [attributedTo], references: [apId], onDelete: Cascade)
-  community    Community? @relation(fields: [communityApId], references: [apId], onDelete: SetNull)
-  likes        Like[]
-  announces    Announce[]
-  bookmarks    Bookmark[]
-  storyViews   StoryView[]
-  storyVotes   StoryVote[]
-  storyShares  StoryShare[]
-  recipients   ObjectRecipient[]
-  activities   Activity[]
+  author      Actor             @relation("AuthoredObjects", fields: [attributedTo], references: [apId], onDelete: Cascade)
+  community   Community?        @relation(fields: [communityApId], references: [apId], onDelete: SetNull)
+  likes       Like[]
+  announces   Announce[]
+  bookmarks   Bookmark[]
+  storyViews  StoryView[]
+  storyVotes  StoryVote[]
+  storyShares StoryShare[]
+  recipients  ObjectRecipient[]
+  activities  Activity[]
 
   @@index([attributedTo])
   @@index([inReplyTo])
@@ -132,10 +135,14 @@ model Object {
   @@index([published(sort: Desc)])
   @@index([visibility])
   @@index([endTime])
+  @@index([deletedAt])
   // Compound indexes for common query patterns
   @@index([attributedTo, published(sort: Desc)])
   @@index([visibility, published(sort: Desc)])
   @@index([type, visibility, published(sort: Desc)])
+  @@index([conversation])
+  @@index([communityApId, published(sort: Desc)])
+  @@index([isLocal])
   @@map("objects")
 }
 
@@ -157,6 +164,8 @@ model Follow {
   @@id([followerApId, followingApId])
   @@index([followerApId, status])
   @@index([followingApId, status])
+  @@index([followingApId, createdAt(sort: Desc)])
+  @@index([activityApId])
   @@map("follows")
 }
 
@@ -176,6 +185,7 @@ model Like {
   @@id([actorApId, objectApId])
   @@index([objectApId])
   @@index([actorApId])
+  @@index([actorApId, objectApId])
   @@map("likes")
 }
 
@@ -195,6 +205,7 @@ model Announce {
   @@id([actorApId, objectApId])
   @@index([objectApId])
   @@index([actorApId])
+  @@index([actorApId, objectApId])
   @@map("announces")
 }
 
@@ -219,9 +230,10 @@ model Bookmark {
 // BLOCKS
 // ============================================================
 model Block {
-  blockerApId String @map("blocker_ap_id")
-  blockedApId String @map("blocked_ap_id")
-  createdAt   String @default(dbgenerated("datetime('now')")) @map("created_at")
+  blockerApId String  @map("blocker_ap_id")
+  blockedApId String  @map("blocked_ap_id")
+  createdAt   String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  updatedAt   String? @default(dbgenerated("datetime('now')")) @map("updated_at")
 
   // Relations
   blocker Actor @relation("BlockerBlocks", fields: [blockerApId], references: [apId], onDelete: Cascade)
@@ -237,9 +249,10 @@ model Block {
 // MUTES
 // ============================================================
 model Mute {
-  muterApId String @map("muter_ap_id")
-  mutedApId String @map("muted_ap_id")
-  createdAt String @default(dbgenerated("datetime('now')")) @map("created_at")
+  muterApId String  @map("muter_ap_id")
+  mutedApId String  @map("muted_ap_id")
+  createdAt String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  updatedAt String? @default(dbgenerated("datetime('now')")) @map("updated_at")
 
   // Relations
   muter Actor @relation("MuterMutes", fields: [muterApId], references: [apId], onDelete: Cascade)
@@ -267,14 +280,16 @@ model Activity {
   createdAt  String  @default(dbgenerated("datetime('now')")) @map("created_at")
 
   // Relations
-  actor      Actor    @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
-  object     Object?  @relation(fields: [objectApId], references: [apId], onDelete: SetNull)
+  actor      Actor   @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
+  object     Object? @relation(fields: [objectApId], references: [apId], onDelete: SetNull)
   inboxItems Inbox[]
 
   @@index([actorApId])
   @@index([objectApId])
+  @@index([type])
   @@index([type, createdAt(sort: Desc)])
   @@index([direction, processed])
+  @@index([direction, processed, createdAt])
   @@map("activities")
 }
 
@@ -317,6 +332,7 @@ model Community {
   memberCount       Int     @default(0) @map("member_count")
   createdAt         String  @default(dbgenerated("datetime('now')")) @map("created_at")
   lastMessageAt     String? @map("last_message_at")
+  deletedAt         String? @map("deleted_at")
 
   // Relations
   members      CommunityMember[]
@@ -324,6 +340,8 @@ model Community {
   joinRequests CommunityJoinRequest[]
   invites      CommunityInvite[]
 
+  @@index([deletedAt])
+  @@index([visibility])
   @@map("communities")
 }
 
@@ -331,10 +349,11 @@ model Community {
 // COMMUNITY_MEMBERS
 // ============================================================
 model CommunityMember {
-  communityApId String @map("community_ap_id")
-  actorApId     String @map("actor_ap_id")
-  role          String @default("member")
-  joinedAt      String @default(dbgenerated("datetime('now')")) @map("joined_at")
+  communityApId String  @map("community_ap_id")
+  actorApId     String  @map("actor_ap_id")
+  role          String  @default("member")
+  joinedAt      String  @default(dbgenerated("datetime('now')")) @map("joined_at")
+  updatedAt     String? @default(dbgenerated("datetime('now')")) @map("updated_at")
 
   // Relations
   community Community @relation(fields: [communityApId], references: [apId], onDelete: Cascade)
@@ -522,17 +541,17 @@ model NotificationArchived {
 // INSTANCE_ACTOR
 // ============================================================
 model InstanceActor {
-  apId              String @id @map("ap_id")
-  preferredUsername String @map("preferred_username")
+  apId              String  @id @map("ap_id")
+  preferredUsername String  @map("preferred_username")
   name              String?
   summary           String?
-  publicKeyPem      String @map("public_key_pem")
-  privateKeyPem     String @map("private_key_pem")
-  joinPolicy        String @default("open") @map("join_policy")
-  postingPolicy     String @default("members") @map("posting_policy")
-  visibility        String @default("public")
-  createdAt         String @default(dbgenerated("datetime('now')")) @map("created_at")
-  updatedAt         String @default(dbgenerated("datetime('now')")) @map("updated_at")
+  publicKeyPem      String  @map("public_key_pem")
+  privateKeyPem     String  @map("private_key_pem")
+  joinPolicy        String  @default("open") @map("join_policy")
+  postingPolicy     String  @default("members") @map("posting_policy")
+  visibility        String  @default("public")
+  createdAt         String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  updatedAt         String  @default(dbgenerated("datetime('now')")) @map("updated_at")
 
   @@map("instance_actor")
 }
@@ -581,12 +600,12 @@ model DmArchivedConversation {
 // MEDIA_UPLOADS (Track media file ownership)
 // ============================================================
 model MediaUpload {
-  id            String  @id
-  r2Key         String  @unique @map("r2_key")
-  uploaderApId  String  @map("uploader_ap_id")
-  contentType   String  @map("content_type")
-  size          Int
-  createdAt     String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  id           String @id
+  r2Key        String @unique @map("r2_key")
+  uploaderApId String @map("uploader_ap_id")
+  contentType  String @map("content_type")
+  size         Int
+  createdAt    String @default(dbgenerated("datetime('now')")) @map("created_at")
 
   @@index([uploaderApId])
   @@index([r2Key])

@@ -13,53 +13,74 @@ type Attachment = {
   [key: string]: unknown;
 };
 
-// Helper to get author info from either local actors or actor cache
-async function getAuthorInfo(
+// Batch helper to get author info from either local actors or actor cache
+// This avoids N+1 queries by fetching all authors at once
+async function batchGetAuthorInfo(
   prisma: ReturnType<typeof import('../lib/db').getPrismaD1>,
-  apId: string
-): Promise<{ preferredUsername: string | null; name: string | null; iconUrl: string | null }> {
-  const localActor = await prisma.actor.findUnique({
-    where: { apId },
-    select: { preferredUsername: true, name: true, iconUrl: true },
-  });
-  if (localActor) return localActor;
-
-  const cachedActor = await prisma.actorCache.findUnique({
-    where: { apId },
-    select: { preferredUsername: true, name: true, iconUrl: true },
-  });
-  return cachedActor || { preferredUsername: null, name: null, iconUrl: null };
-}
-
-// Helper to check interaction status
-async function getInteractionStatus(
-  prisma: ReturnType<typeof import('../lib/db').getPrismaD1>,
-  viewerApId: string,
-  objectApId: string
-): Promise<{ liked: boolean; bookmarked: boolean; reposted: boolean }> {
-  if (!viewerApId) {
-    return { liked: false, bookmarked: false, reposted: false };
+  apIds: string[]
+): Promise<Map<string, { preferredUsername: string | null; name: string | null; iconUrl: string | null }>> {
+  if (apIds.length === 0) {
+    return new Map();
   }
 
-  const [likeExists, bookmarkExists, announceExists] = await Promise.all([
-    prisma.like.findUnique({
-      where: { actorApId_objectApId: { actorApId: viewerApId, objectApId } },
-      select: { actorApId: true },
+  const uniqueApIds = [...new Set(apIds)];
+
+  const [localActors, cachedActors] = await Promise.all([
+    prisma.actor.findMany({
+      where: { apId: { in: uniqueApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
     }),
-    prisma.bookmark.findUnique({
-      where: { actorApId_objectApId: { actorApId: viewerApId, objectApId } },
-      select: { actorApId: true },
+    prisma.actorCache.findMany({
+      where: { apId: { in: uniqueApIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
     }),
-    prisma.announce.findUnique({
-      where: { actorApId_objectApId: { actorApId: viewerApId, objectApId } },
-      select: { actorApId: true },
+  ]);
+
+  const result = new Map<string, { preferredUsername: string | null; name: string | null; iconUrl: string | null }>();
+
+  // Add cached actors first
+  for (const a of cachedActors) {
+    result.set(a.apId, { preferredUsername: a.preferredUsername, name: a.name, iconUrl: a.iconUrl });
+  }
+
+  // Local actors override cached
+  for (const a of localActors) {
+    result.set(a.apId, { preferredUsername: a.preferredUsername, name: a.name, iconUrl: a.iconUrl });
+  }
+
+  return result;
+}
+
+// Batch helper to check interaction status for multiple objects
+// This avoids N+1 queries by fetching all interactions at once
+async function batchGetInteractionStatus(
+  prisma: ReturnType<typeof import('../lib/db').getPrismaD1>,
+  viewerApId: string,
+  objectApIds: string[]
+): Promise<{ likedSet: Set<string>; bookmarkedSet: Set<string>; repostedSet: Set<string> }> {
+  if (!viewerApId || objectApIds.length === 0) {
+    return { likedSet: new Set(), bookmarkedSet: new Set(), repostedSet: new Set() };
+  }
+
+  const [likes, bookmarks, announces] = await Promise.all([
+    prisma.like.findMany({
+      where: { actorApId: viewerApId, objectApId: { in: objectApIds } },
+      select: { objectApId: true },
+    }),
+    prisma.bookmark.findMany({
+      where: { actorApId: viewerApId, objectApId: { in: objectApIds } },
+      select: { objectApId: true },
+    }),
+    prisma.announce.findMany({
+      where: { actorApId: viewerApId, objectApId: { in: objectApIds } },
+      select: { objectApId: true },
     }),
   ]);
 
   return {
-    liked: !!likeExists,
-    bookmarked: !!bookmarkExists,
-    reposted: !!announceExists,
+    likedSet: new Set(likes.map((l) => l.objectApId)),
+    bookmarkedSet: new Set(bookmarks.map((b) => b.objectApId)),
+    repostedSet: new Set(announces.map((a) => a.objectApId)),
   };
 }
 
@@ -131,40 +152,44 @@ timeline.get('/', withCache({
   const has_more = posts.length > limit;
   const actualResults = has_more ? posts.slice(0, limit) : posts;
 
-  // Get author info and interaction status for each post
-  const result = await Promise.all(
-    actualResults.map(async (p) => {
-      const [author, interactions] = await Promise.all([
-        getAuthorInfo(prisma, p.attributedTo),
-        getInteractionStatus(prisma, viewerApId, p.apId),
-      ]);
+  // Batch fetch author info and interaction status to avoid N+1 queries
+  const authorApIds = actualResults.map((p) => p.attributedTo);
+  const postApIds = actualResults.map((p) => p.apId);
 
-      return {
-        ap_id: p.apId,
-        type: p.type,
-        author: {
-          ap_id: p.attributedTo,
-          username: formatUsername(p.attributedTo),
-          preferred_username: author.preferredUsername,
-          name: author.name,
-          icon_url: author.iconUrl,
-        },
-        content: p.content,
-        summary: p.summary,
-        attachments: safeJsonParse<Attachment[]>(p.attachmentsJson, []),
-        in_reply_to: p.inReplyTo,
-        visibility: p.visibility,
-        community_ap_id: p.communityApId,
-        like_count: p.likeCount,
-        reply_count: p.replyCount,
-        announce_count: p.announceCount,
-        published: p.published,
-        liked: interactions.liked,
-        bookmarked: interactions.bookmarked,
-        reposted: interactions.reposted,
-      };
-    })
-  );
+  const [authorMap, interactions] = await Promise.all([
+    batchGetAuthorInfo(prisma, authorApIds),
+    batchGetInteractionStatus(prisma, viewerApId, postApIds),
+  ]);
+
+  // Map posts to result format
+  const result = actualResults.map((p) => {
+    const author = authorMap.get(p.attributedTo) || { preferredUsername: null, name: null, iconUrl: null };
+
+    return {
+      ap_id: p.apId,
+      type: p.type,
+      author: {
+        ap_id: p.attributedTo,
+        username: formatUsername(p.attributedTo),
+        preferred_username: author.preferredUsername,
+        name: author.name,
+        icon_url: author.iconUrl,
+      },
+      content: p.content,
+      summary: p.summary,
+      attachments: safeJsonParse<Attachment[]>(p.attachmentsJson, []),
+      in_reply_to: p.inReplyTo,
+      visibility: p.visibility,
+      community_ap_id: p.communityApId,
+      like_count: p.likeCount,
+      reply_count: p.replyCount,
+      announce_count: p.announceCount,
+      published: p.published,
+      liked: interactions.likedSet.has(p.apId),
+      bookmarked: interactions.bookmarkedSet.has(p.apId),
+      reposted: interactions.repostedSet.has(p.apId),
+    };
+  });
 
   return c.json({ posts: result, limit, offset, has_more });
 });
@@ -233,39 +258,43 @@ timeline.get('/following', async (c) => {
   const has_more = posts.length > limit;
   const actualResults = has_more ? posts.slice(0, limit) : posts;
 
-  // Get author info and interaction status for each post
-  const result = await Promise.all(
-    actualResults.map(async (p) => {
-      const [author, interactions] = await Promise.all([
-        getAuthorInfo(prisma, p.attributedTo),
-        getInteractionStatus(prisma, viewerApId, p.apId),
-      ]);
+  // Batch fetch author info and interaction status to avoid N+1 queries
+  const authorApIds = actualResults.map((p) => p.attributedTo);
+  const postApIds = actualResults.map((p) => p.apId);
 
-      return {
-        ap_id: p.apId,
-        type: p.type,
-        author: {
-          ap_id: p.attributedTo,
-          username: formatUsername(p.attributedTo),
-          preferred_username: author.preferredUsername,
-          name: author.name,
-          icon_url: author.iconUrl,
-        },
-        content: p.content,
-        summary: p.summary,
-        attachments: safeJsonParse<Attachment[]>(p.attachmentsJson, []),
-        in_reply_to: p.inReplyTo,
-        visibility: p.visibility,
-        like_count: p.likeCount,
-        reply_count: p.replyCount,
-        announce_count: p.announceCount,
-        published: p.published,
-        liked: interactions.liked,
-        bookmarked: interactions.bookmarked,
-        reposted: interactions.reposted,
-      };
-    })
-  );
+  const [authorMap, interactions] = await Promise.all([
+    batchGetAuthorInfo(prisma, authorApIds),
+    batchGetInteractionStatus(prisma, viewerApId, postApIds),
+  ]);
+
+  // Map posts to result format
+  const result = actualResults.map((p) => {
+    const author = authorMap.get(p.attributedTo) || { preferredUsername: null, name: null, iconUrl: null };
+
+    return {
+      ap_id: p.apId,
+      type: p.type,
+      author: {
+        ap_id: p.attributedTo,
+        username: formatUsername(p.attributedTo),
+        preferred_username: author.preferredUsername,
+        name: author.name,
+        icon_url: author.iconUrl,
+      },
+      content: p.content,
+      summary: p.summary,
+      attachments: safeJsonParse<Attachment[]>(p.attachmentsJson, []),
+      in_reply_to: p.inReplyTo,
+      visibility: p.visibility,
+      like_count: p.likeCount,
+      reply_count: p.replyCount,
+      announce_count: p.announceCount,
+      published: p.published,
+      liked: interactions.likedSet.has(p.apId),
+      bookmarked: interactions.bookmarkedSet.has(p.apId),
+      reposted: interactions.repostedSet.has(p.apId),
+    };
+  });
 
   return c.json({ posts: result, limit, offset, has_more });
 });

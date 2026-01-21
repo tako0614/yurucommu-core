@@ -3,7 +3,7 @@
 
 import type { Env, Actor } from '../types';
 import type { PrismaClient } from '../../generated/prisma';
-import { generateId, activityApId, isLocal, signRequest, isSafeRemoteUrl } from '../utils';
+import { generateId, activityApId, isLocal, signRequest, isSafeRemoteUrl, fetchWithTimeout } from '../utils';
 
 /**
  * Actor information needed to send an activity
@@ -14,8 +14,35 @@ interface SenderActor {
 }
 
 /**
+ * Retry configuration for activity delivery
+ */
+const DELIVERY_RETRY_CONFIG = {
+  maxAttempts: 3,
+  baseDelayMs: 1000, // 1 second initial delay
+  maxDelayMs: 30000, // 30 seconds max delay
+};
+
+// P07: Concurrency limit for parallel activity delivery
+const DELIVERY_CONCURRENCY_LIMIT = 10;
+
+/**
+ * Calculate exponential backoff delay
+ */
+function calculateBackoffDelay(attempt: number): number {
+  const delay = DELIVERY_RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt);
+  return Math.min(delay, DELIVERY_RETRY_CONFIG.maxDelayMs);
+}
+
+/**
+ * Sleep for a specified duration
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
  * Deliver an activity to a specific recipient's inbox
- * Handles: actor cache lookup, URL safety check, signing, and delivery
+ * Handles: actor cache lookup, URL safety check, signing, and delivery with retry
  *
  * @param prisma - PrismaClient instance
  * @param senderActor - Actor sending the activity (needs apId and privateKeyPem)
@@ -36,6 +63,7 @@ export async function deliverActivity(
     });
 
     if (!cachedActor?.inbox) {
+      console.warn(`[deliverActivity] No inbox found for ${recipientApId}`);
       return false;
     }
 
@@ -46,15 +74,47 @@ export async function deliverActivity(
 
     const keyId = `${senderActor.apId}#main-key`;
     const body = JSON.stringify(activity);
-    const headers = await signRequest(senderActor.privateKeyPem, keyId, 'POST', cachedActor.inbox, body);
 
-    const response = await fetch(cachedActor.inbox, {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/activity+json' },
-      body,
-    });
+    // Retry logic with exponential backoff
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < DELIVERY_RETRY_CONFIG.maxAttempts; attempt++) {
+      try {
+        const headers = await signRequest(senderActor.privateKeyPem, keyId, 'POST', cachedActor.inbox, body);
 
-    return response.ok;
+        const response = await fetchWithTimeout(cachedActor.inbox, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/activity+json' },
+          body,
+          timeout: 15000, // 15 second timeout for ActivityPub federation
+        });
+
+        if (response.ok) {
+          return true;
+        }
+
+        // Non-retryable status codes (4xx client errors, except rate limiting)
+        if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+          console.warn(`[deliverActivity] Delivery failed with non-retryable status ${response.status} to ${recipientApId}`);
+          return false;
+        }
+
+        // Retryable error (5xx server error or 429 rate limit)
+        console.warn(`[deliverActivity] Delivery attempt ${attempt + 1}/${DELIVERY_RETRY_CONFIG.maxAttempts} failed with status ${response.status} to ${recipientApId}`);
+        lastError = new Error(`HTTP ${response.status}`);
+      } catch (e) {
+        lastError = e instanceof Error ? e : new Error(String(e));
+        console.warn(`[deliverActivity] Delivery attempt ${attempt + 1}/${DELIVERY_RETRY_CONFIG.maxAttempts} failed to ${recipientApId}:`, e);
+      }
+
+      // Wait before retry (unless it's the last attempt)
+      if (attempt < DELIVERY_RETRY_CONFIG.maxAttempts - 1) {
+        const delay = calculateBackoffDelay(attempt);
+        await sleep(delay);
+      }
+    }
+
+    console.error(`[deliverActivity] All ${DELIVERY_RETRY_CONFIG.maxAttempts} delivery attempts failed to ${recipientApId}:`, lastError);
+    return false;
   } catch (e) {
     console.error(`[deliverActivity] Failed to deliver to ${recipientApId}:`, e);
     return false;
@@ -166,15 +226,49 @@ export async function deliverToFollowers(
     (f) => !isLocal(f.followerApId, baseUrl)
   );
 
-  // Deliver to each remote follower's inbox using the centralized delivery function
+  // P07: Deliver to remote followers in parallel with concurrency limit
   const senderActor: SenderActor = {
     apId: actor.ap_id,
     privateKeyPem: actor.private_key_pem,
   };
 
-  for (const follower of remoteFollowers) {
-    await deliverActivity(prisma, senderActor, follower.followerApId, activity);
+  await deliverActivityToMany(prisma, senderActor, remoteFollowers.map(f => f.followerApId), activity);
+}
+
+/**
+ * P07: Deliver an activity to multiple recipients in parallel with concurrency limit
+ * Uses Promise.allSettled for resilience (one failure doesn't stop others)
+ */
+export async function deliverActivityToMany(
+  prisma: PrismaClient,
+  senderActor: SenderActor,
+  recipientApIds: string[],
+  activity: object
+): Promise<{ successes: number; failures: number }> {
+  if (recipientApIds.length === 0) {
+    return { successes: 0, failures: 0 };
   }
+
+  let successes = 0;
+  let failures = 0;
+
+  // Process in batches to limit concurrency
+  for (let i = 0; i < recipientApIds.length; i += DELIVERY_CONCURRENCY_LIMIT) {
+    const batch = recipientApIds.slice(i, i + DELIVERY_CONCURRENCY_LIMIT);
+    const results = await Promise.allSettled(
+      batch.map(recipientApId => deliverActivity(prisma, senderActor, recipientApId, activity))
+    );
+
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value) {
+        successes++;
+      } else {
+        failures++;
+      }
+    }
+  }
+
+  return { successes, failures };
 }
 
 /**

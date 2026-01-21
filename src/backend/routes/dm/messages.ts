@@ -154,19 +154,68 @@ dm.post('/user/:encodedApId/messages', async (c) => {
   const toJson = JSON.stringify([otherApId]);
   const ccJson = JSON.stringify([]);
 
+  // Check if recipient is a local actor before transaction
+  const recipientIsLocal = await prisma.actor.findUnique({
+    where: { apId: otherApId },
+    select: { apId: true }
+  });
+  const isRecipientLocal = !!recipientIsLocal;
+  const activityId = isRecipientLocal ? activityApId(baseUrl, generateId()) : null;
+
   try {
-    await prisma.object.create({
-      data: {
-        apId: apId,
-        type: 'Note',
-        attributedTo: actor.ap_id,
-        content: content,
-        visibility: 'direct',
-        toJson: toJson,
-        ccJson: ccJson,
-        conversation: conversationId,
-        published: now,
-        isLocal: 1
+    // Use transaction to ensure atomicity of message creation and related records
+    await prisma.$transaction(async (tx) => {
+      // Create the message object
+      await tx.object.create({
+        data: {
+          apId: apId,
+          type: 'Note',
+          attributedTo: actor.ap_id,
+          content: content,
+          visibility: 'direct',
+          toJson: toJson,
+          ccJson: ccJson,
+          conversation: conversationId,
+          published: now,
+          isLocal: 1
+        }
+      });
+
+      // Track recipient for efficient querying (if local)
+      if (isRecipientLocal) {
+        await tx.objectRecipient.upsert({
+          where: {
+            objectApId_recipientApId: {
+              objectApId: apId,
+              recipientApId: otherApId
+            }
+          },
+          create: {
+            objectApId: apId,
+            recipientApId: otherApId,
+            type: 'to'
+          },
+          update: {} // No update needed, just ensure it exists
+        });
+
+        // Record activity and inbox for the recipient
+        await tx.activity.create({
+          data: {
+            apId: activityId!,
+            type: 'Create',
+            actorApId: actor.ap_id,
+            objectApId: apId,
+            rawJson: JSON.stringify({ type: 'Create', actor: actor.ap_id, object: apId }),
+            direction: 'inbound'
+          }
+        });
+
+        await tx.inbox.create({
+          data: {
+            actorApId: otherApId,
+            activityApId: activityId!
+          }
+        });
       }
     });
   } catch (e) {
@@ -174,36 +223,7 @@ dm.post('/user/:encodedApId/messages', async (c) => {
     return c.json({ error: 'Failed to send message' }, 500);
   }
 
-  // Track recipient for efficient querying
-  try {
-    // Check if recipient is a local actor (ObjectRecipient has FK to Actor)
-    const recipientIsLocal = await prisma.actor.findUnique({
-      where: { apId: otherApId },
-      select: { apId: true }
-    });
-
-    if (recipientIsLocal) {
-      await prisma.objectRecipient.upsert({
-        where: {
-          objectApId_recipientApId: {
-            objectApId: apId,
-            recipientApId: otherApId
-          }
-        },
-        create: {
-          objectApId: apId,
-          recipientApId: otherApId,
-          type: 'to'
-        },
-        update: {} // No update needed, just ensure it exists
-      });
-    }
-  } catch (e) {
-    console.error('[DM] Failed to track recipient:', e);
-    // Non-critical error, continue
-  }
-
-  // Send to recipient's inbox if they're remote
+  // Send to recipient's inbox if they're remote (outside transaction - delivery is best-effort)
   if (!isLocal(otherApId, baseUrl) && otherActor.inbox) {
     try {
       if (!isSafeRemoteUrl(otherActor.inbox)) {
@@ -237,33 +257,6 @@ dm.post('/user/:encodedApId/messages', async (c) => {
       }
     } catch (e) {
       console.error('Failed to deliver DM:', e);
-    }
-  }
-
-  // Record in inbox for the recipient (if local)
-  if (isLocal(otherApId, baseUrl)) {
-    try {
-      const activityId = activityApId(baseUrl, generateId());
-      await prisma.activity.create({
-        data: {
-          apId: activityId,
-          type: 'Create',
-          actorApId: actor.ap_id,
-          objectApId: apId,
-          rawJson: JSON.stringify({ type: 'Create', actor: actor.ap_id, object: apId }),
-          direction: 'inbound'
-        }
-      });
-
-      await prisma.inbox.create({
-        data: {
-          actorApId: otherApId,
-          activityApId: activityId
-        }
-      });
-    } catch (e) {
-      console.error('[DM] Failed to record inbox notification:', e);
-      // Non-critical error, message was still created
     }
   }
 
@@ -367,14 +360,17 @@ dm.delete('/messages/:messageId', async (c) => {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
-  // Delete the message
-  await prisma.object.delete({
-    where: { apId: message.apId }
-  });
+  // Use transaction to ensure atomicity of message and recipients deletion
+  await prisma.$transaction(async (tx) => {
+    // Clean up object_recipients first (due to FK constraint)
+    await tx.objectRecipient.deleteMany({
+      where: { objectApId: message.apId }
+    });
 
-  // Clean up object_recipients
-  await prisma.objectRecipient.deleteMany({
-    where: { objectApId: message.apId }
+    // Delete the message
+    await tx.object.delete({
+      where: { apId: message.apId }
+    });
   });
 
   return c.json({ success: true });
@@ -532,30 +528,33 @@ dm.post('/conversations/:id/messages', async (c) => {
   const toJson = JSON.stringify([otherApId]);
   const ccJson = JSON.stringify([]);
 
-  await prisma.object.create({
-    data: {
-      apId: apId,
-      type: 'Note',
-      attributedTo: actor.ap_id,
-      content: content,
-      visibility: 'direct',
-      toJson: toJson,
-      ccJson: ccJson,
-      conversation: conversationId,
-      published: now,
-      isLocal: 1
-    }
+  // Check if recipient is a local actor before transaction
+  const recipientIsLocal = await prisma.actor.findUnique({
+    where: { apId: otherApId },
+    select: { apId: true }
   });
+  const isRecipientLocal = !!recipientIsLocal;
 
-  // Track recipient if they're a local actor
-  try {
-    const recipientIsLocal = await prisma.actor.findUnique({
-      where: { apId: otherApId },
-      select: { apId: true }
+  // Use transaction to ensure atomicity of message creation and recipient tracking
+  await prisma.$transaction(async (tx) => {
+    await tx.object.create({
+      data: {
+        apId: apId,
+        type: 'Note',
+        attributedTo: actor.ap_id,
+        content: content,
+        visibility: 'direct',
+        toJson: toJson,
+        ccJson: ccJson,
+        conversation: conversationId,
+        published: now,
+        isLocal: 1
+      }
     });
 
-    if (recipientIsLocal) {
-      await prisma.objectRecipient.upsert({
+    // Track recipient if they're a local actor
+    if (isRecipientLocal) {
+      await tx.objectRecipient.upsert({
         where: {
           objectApId_recipientApId: {
             objectApId: apId,
@@ -570,9 +569,7 @@ dm.post('/conversations/:id/messages', async (c) => {
         update: {}
       });
     }
-  } catch (e) {
-    console.error('[DM] Failed to track recipient:', e);
-  }
+  });
 
   return c.json({
     message: {

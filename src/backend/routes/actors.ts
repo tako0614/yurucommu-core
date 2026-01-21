@@ -66,6 +66,9 @@ actors.get('/', withCache({
   cacheTag: CacheTags.ACTOR,
 }), async (c) => {
   const prisma = c.get('prisma');
+  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500);
+  const offset = parseInt(c.req.query('offset') || '0');
+
   const actorsList = await prisma.actor.findMany({
     select: {
       apId: true,
@@ -80,6 +83,8 @@ actors.get('/', withCache({
       createdAt: true,
     },
     orderBy: { createdAt: 'asc' },
+    take: limit,
+    skip: offset,
   });
 
   return c.json({
@@ -105,9 +110,14 @@ actors.get('/me/blocked', async (c) => {
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const prisma = c.get('prisma');
+  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500);
+  const offset = parseInt(c.req.query('offset') || '0');
+
   const blocks = await prisma.block.findMany({
     where: { blockerApId: actor.ap_id },
     orderBy: { createdAt: 'desc' },
+    take: limit,
+    skip: offset,
   });
 
   // Batch load actor info to avoid N+1 queries
@@ -186,9 +196,14 @@ actors.get('/me/muted', async (c) => {
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const prisma = c.get('prisma');
+  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500);
+  const offset = parseInt(c.req.query('offset') || '0');
+
   const mutes = await prisma.mute.findMany({
     where: { muterApId: actor.ap_id },
     orderBy: { createdAt: 'desc' },
+    take: limit,
+    skip: offset,
   });
 
   // Batch load actor info to avoid N+1 queries
