@@ -49,7 +49,7 @@ bucket_name = "yurucommu-media"
 # Then replace the 'id' value with the ID from the command output.
 [[kv_namespaces]]
 binding = "KV"
-id = "yurucommu-kv"  # <<< REPLACE THIS with actual KV namespace ID from 'wrangler kv:namespace create'
+id = "3d9183725f9544abbc0113ae51b71ca1"
 
 # Static assets
 [assets]
@@ -78,10 +78,9 @@ migrations_dir = "migrations"
 binding = "MEDIA"
 bucket_name = "yurucommu-media"
 
-# IMPORTANT: Same as above - replace 'id' with actual KV namespace ID for test environment
 [[env.test.kv_namespaces]]
 binding = "KV"
-id = "yurucommu-kv"  # <<< REPLACE THIS with actual KV namespace ID from 'wrangler kv:namespace create'
+id = "3d9183725f9544abbc0113ae51b71ca1"
 
 [[env.test.routes]]
 pattern = "test.yurucommu.com/*"
