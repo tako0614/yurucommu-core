@@ -220,17 +220,85 @@ app.route('/', activitypubRoutes);
 // FALLBACK TO STATIC ASSETS
 // ============================================================
 
+// MIME type mapping for common file extensions
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.eot': 'application/vnd.ms-fontobject',
+  '.webp': 'image/webp',
+  '.wasm': 'application/wasm',
+};
+
+function getMimeType(path: string): string {
+  const ext = path.slice(path.lastIndexOf('.')).toLowerCase();
+  return MIME_TYPES[ext] || 'application/octet-stream';
+}
+
 app.all('*', async (c) => {
-  // Check if ASSETS binding is available
-  if (!c.env.ASSETS) {
-    // Return a friendly error for missing static assets
-    return c.json({
-      error: 'Static assets not configured',
-      message: 'This instance is running in API-only mode. Frontend assets are not available.',
-      hint: 'Access /api/* endpoints for API functionality.',
-    }, 503);
+  // Check if ASSETS binding is available (Cloudflare Workers Assets)
+  if (c.env.ASSETS) {
+    return c.env.ASSETS.fetch(c.req.raw);
   }
-  return c.env.ASSETS.fetch(c.req.raw);
+
+  // Fallback: Try to serve from STORAGE R2 bucket (for WFP deployments)
+  // Assets are stored under _assets/ prefix in STORAGE bucket
+  const storage = (c.env as { STORAGE?: R2Bucket }).STORAGE;
+  if (storage) {
+    const url = new URL(c.req.url);
+    let assetPath = url.pathname;
+
+    // Normalize path
+    if (assetPath === '/' || assetPath === '') {
+      assetPath = '/index.html';
+    }
+
+    // Remove leading slash and add _assets prefix
+    const r2Key = `_assets${assetPath}`;
+
+    try {
+      const object = await storage.get(r2Key);
+      if (object) {
+        const headers = new Headers();
+        headers.set('Content-Type', getMimeType(assetPath));
+        headers.set('Cache-Control', assetPath.includes('/assets/') ? 'public, max-age=31536000, immutable' : 'public, max-age=3600');
+        if (object.httpEtag) {
+          headers.set('ETag', object.httpEtag);
+        }
+        return new Response(object.body, { headers });
+      }
+
+      // SPA fallback: return index.html for non-file paths
+      if (!assetPath.includes('.')) {
+        const indexObject = await storage.get('_assets/index.html');
+        if (indexObject) {
+          const headers = new Headers();
+          headers.set('Content-Type', 'text/html; charset=utf-8');
+          headers.set('Cache-Control', 'no-cache');
+          return new Response(indexObject.body, { headers });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to serve asset from R2:', err);
+    }
+  }
+
+  // No assets available
+  return c.json({
+    error: 'Static assets not configured',
+    message: 'This instance is running in API-only mode. Frontend assets are not available.',
+    hint: 'Access /api/* endpoints for API functionality.',
+  }, 503);
 });
 
 export default app;
