@@ -125,7 +125,7 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
 
   // Navigation functions (defined first for dependency order)
   const goNext = useCallback(() => {
-    if (!currentActorStories) return;
+    if (!currentActorStories?.stories) return;
 
     const currentStoriesLen = currentActorStories.stories.length;
 

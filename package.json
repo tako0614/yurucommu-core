@@ -21,7 +21,9 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "takopack:build": "npm run build:bundle && takopack build",
+    "takopack:validate": "takopack validate"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.971.0",
@@ -45,6 +47,7 @@
     "better-sqlite3": "^11.0.0"
   },
   "devDependencies": {
+    "takopack": "workspace:*",
     "@cloudflare/workers-types": "^4.20241127.0",
     "@tailwindcss/vite": "^4.1.18",
     "@types/better-sqlite3": "^7.6.0",
