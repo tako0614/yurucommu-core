@@ -17,6 +17,7 @@ import dmRoutes from './routes/dm';
 import mediaRoutes from './routes/media';
 import activitypubRoutes from './routes/activitypub';
 import takosProxyRoutes from './routes/takos-proxy';
+import takosToolsRoutes from './routes/takos-tools';
 
 // Import middleware
 import { rateLimit, RateLimitConfigs } from './middleware/rate-limit';
@@ -212,6 +213,9 @@ app.route('/media', mediaRoutes);
 
 // Takos API proxy (for users logged in with Takos)
 app.route('/api/takos', takosProxyRoutes);
+
+// Takos tools endpoint (for AI agent integration via takopack)
+app.route('/.takos/tools', takosToolsRoutes);
 
 // ActivityPub routes (WebFinger, actor endpoints, inbox/outbox)
 app.route('/', activitypubRoutes);
