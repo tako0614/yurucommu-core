@@ -1,9 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  /** ホスティングモードかどうか */
-  readonly VITE_HOSTED_MODE?: string;
-  /** API Base URL (ホスティングモード時) */
+  /** Optional API base URL for external integrations */
   readonly VITE_API_URL?: string;
 }
 
