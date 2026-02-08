@@ -421,6 +421,9 @@ export function createBunRuntime(config: {
     TAKOS_CLIENT_ID?: string;
     TAKOS_CLIENT_SECRET?: string;
     AUTH_MODE?: string;
+    EMBED_PARENT_ORIGIN?: string;
+    EMBED_AUTH_JWT_SECRET?: string;
+    EMBED_AUTH_ISSUER?: string;
   };
 }): RuntimeEnv {
   const { MemoryKV } = require('./node');

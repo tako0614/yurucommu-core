@@ -265,6 +265,9 @@ export function createCloudflareRuntime(env: {
   TAKOS_CLIENT_ID?: string;
   TAKOS_CLIENT_SECRET?: string;
   AUTH_MODE?: string;
+  EMBED_PARENT_ORIGIN?: string;
+  EMBED_AUTH_JWT_SECRET?: string;
+  EMBED_AUTH_ISSUER?: string;
 }) {
   return {
     db: new CloudflareDatabase(env.DB),
@@ -282,5 +285,8 @@ export function createCloudflareRuntime(env: {
     TAKOS_CLIENT_ID: env.TAKOS_CLIENT_ID,
     TAKOS_CLIENT_SECRET: env.TAKOS_CLIENT_SECRET,
     AUTH_MODE: env.AUTH_MODE,
+    EMBED_PARENT_ORIGIN: env.EMBED_PARENT_ORIGIN,
+    EMBED_AUTH_JWT_SECRET: env.EMBED_AUTH_JWT_SECRET,
+    EMBED_AUTH_ISSUER: env.EMBED_AUTH_ISSUER,
   };
 }

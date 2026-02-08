@@ -131,6 +131,17 @@ const translations = {
     'common.confirm': '確認',
     'common.delete': '削除',
     'common.edit': '編集',
+
+    // Setup (Hosted mode)
+    'setup.title': 'ユーザー名を設定',
+    'setup.description': 'あなたの@ユーザー名を決めてください',
+    'setup.usernameFormatError': 'ユーザー名は3-30文字の英小文字、数字、アンダースコアのみ',
+    'setup.usernameTakenError': 'このユーザー名は既に使用されています',
+    'setup.profileUrl': 'プロフィール',
+    'setup.startButton': '始める',
+
+    // Auth
+    'auth.loginOrSignup': 'ログイン / サインアップ',
   },
   en: {
     // Navigation
@@ -260,6 +271,17 @@ const translations = {
     'common.confirm': 'Confirm',
     'common.delete': 'Delete',
     'common.edit': 'Edit',
+
+    // Setup (Hosted mode)
+    'setup.title': 'Set Your Username',
+    'setup.description': 'Choose your @username',
+    'setup.usernameFormatError': 'Username must be 3-30 characters, lowercase letters, numbers, and underscores only',
+    'setup.usernameTakenError': 'This username is already taken',
+    'setup.profileUrl': 'Profile',
+    'setup.startButton': 'Get Started',
+
+    // Auth
+    'auth.loginOrSignup': 'Login / Sign Up',
   },
 } as const;
 

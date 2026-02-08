@@ -26,6 +26,15 @@ import { createErrorMiddleware, notFoundHandler } from './middleware/error-handl
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+function normalizeOrigin(value?: string): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
 // ============================================================
 // GLOBAL ERROR HANDLER
 // ============================================================
@@ -57,6 +66,8 @@ app.use('*', async (c, next) => {
   // - unpkg.com: Required for loading FFmpeg WASM binaries from CDN.
   // - takos.jp: Required for OAuth authentication and API calls to takos platform.
   const takosUrl = c.env.TAKOS_URL || 'https://takos.jp';
+  const embedOrigin = normalizeOrigin(c.env.EMBED_PARENT_ORIGIN);
+  const frameAncestors = embedOrigin ? `'self' ${embedOrigin}` : `'none'`;
   const csp = [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://static.cloudflareinsights.com",
@@ -66,7 +77,7 @@ app.use('*', async (c, next) => {
     "font-src 'self' data:",
     `connect-src 'self' https://unpkg.com wss: ${takosUrl}`,
     "worker-src 'self' blob:",
-    "frame-ancestors 'none'",
+    `frame-ancestors ${frameAncestors}`,
     `form-action 'self' ${takosUrl}`,
     "base-uri 'self'",
   ].join('; ');
@@ -74,7 +85,9 @@ app.use('*', async (c, next) => {
 
   // Additional security headers
   c.header('X-Content-Type-Options', 'nosniff');
-  c.header('X-Frame-Options', 'DENY');
+  if (!embedOrigin) {
+    c.header('X-Frame-Options', 'DENY');
+  }
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
   c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 });
@@ -219,6 +232,101 @@ app.route('/.takos/tools', takosToolsRoutes);
 
 // ActivityPub routes (WebFinger, actor endpoints, inbox/outbox)
 app.route('/', activitypubRoutes);
+
+// ============================================================
+// IFRAME EMBED ENTRYPOINTS
+// ============================================================
+
+app.get('/embed', (c) => {
+  const parentOrigin = normalizeOrigin(c.env.EMBED_PARENT_ORIGIN);
+  if (!parentOrigin) {
+    return c.text('Embedding disabled', 404);
+  }
+
+  const html = `<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Yurucommu</title>
+    <style>
+      html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #0a0a0a; color: #e5e5e5; font-family: system-ui, sans-serif; }
+      .wrap { display: flex; align-items: center; justify-content: center; height: 100%; text-align: center; }
+      .msg { font-size: 14px; opacity: 0.8; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap"><div class="msg">認証中...</div></div>
+    <script>
+      (function() {
+        const parentOrigin = ${JSON.stringify(parentOrigin)};
+        try {
+          window.parent.postMessage({ type: 'yurucommu:ready' }, parentOrigin);
+        } catch {}
+
+        window.addEventListener('message', async (event) => {
+          if (!event || event.origin !== parentOrigin) return;
+          const data = event.data || {};
+          if (data.type !== 'yurucommu:session' || !data.token) return;
+          try {
+            const res = await fetch('/api/auth/iframe-login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ session_token: data.token })
+            });
+            if (res.ok) {
+              location.replace('/');
+            } else {
+              document.querySelector('.msg').textContent = '認証に失敗しました。';
+            }
+          } catch {
+            document.querySelector('.msg').textContent = '認証に失敗しました。';
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>`;
+
+  return c.html(html);
+});
+
+app.get('/return', (c) => {
+  const parentOrigin = normalizeOrigin(c.env.EMBED_PARENT_ORIGIN);
+  if (!parentOrigin) {
+    return c.text('Not Found', 404);
+  }
+
+  const html = `<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Return</title>
+    <style>
+      html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #0a0a0a; color: #e5e5e5; font-family: system-ui, sans-serif; }
+      .wrap { display: flex; align-items: center; justify-content: center; height: 100%; text-align: center; }
+      .msg { font-size: 14px; opacity: 0.8; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap"><div class="msg">ホスト画面へ戻ります...</div></div>
+    <script>
+      (function() {
+        const parentOrigin = ${JSON.stringify(parentOrigin)};
+        try {
+          window.parent.postMessage({ type: 'yurucommu:return' }, parentOrigin);
+        } catch {}
+        setTimeout(() => {
+          try { window.top.location.href = parentOrigin; } catch {}
+        }, 300);
+      })();
+    </script>
+  </body>
+</html>`;
+
+  return c.html(html);
+});
 
 // ============================================================
 // FALLBACK TO STATIC ASSETS

@@ -111,6 +111,69 @@ auth.get('/me', async (c) => {
 });
 
 // ============================================
+// IFRAME SSO (self-host)
+// ============================================
+
+auth.post('/iframe-login', async (c) => {
+  let body: { session_token?: string } | null = null;
+  try {
+    body = await c.req.json<{ session_token?: string }>();
+  } catch {
+    body = null;
+  }
+
+  const sessionToken = body?.session_token;
+  if (!sessionToken) {
+    return c.json({ error: 'session_token required' }, 400);
+  }
+
+  if (!c.env.EMBED_AUTH_JWT_SECRET) {
+    return c.json({ error: 'Embedding auth not configured' }, 503);
+  }
+
+  const expectedAud = normalizeOrigin(c.env.EMBED_PARENT_ORIGIN);
+  const payload = await verifyEmbedJwt(sessionToken, c.env.EMBED_AUTH_JWT_SECRET, {
+    expectedAud: expectedAud || undefined,
+    expectedIss: c.env.EMBED_AUTH_ISSUER,
+  });
+  if (!payload) {
+    return c.json({ error: 'Invalid token' }, 401);
+  }
+
+  const prisma = c.get('prisma');
+  const externalId = payload.sub;
+  let actorData = await prisma.actor.findFirst({
+    where: { takosUserId: externalId },
+  });
+
+  const userInfo = {
+    id: payload.sub,
+    name: payload.name || payload.username || payload.email || 'user',
+    email: payload.email || undefined,
+    picture: payload.avatar_url || undefined,
+    username: payload.username || undefined,
+  };
+
+  if (!actorData) {
+    actorData = await createActorFromOAuth(prisma, c.env, userInfo, externalId);
+  } else {
+    await updateActorFromOAuth(prisma, actorData, userInfo);
+  }
+
+  // Session fixation prevention: Delete any existing session before creating new one
+  const existingSessionId = getCookie(c, 'session');
+  if (existingSessionId) {
+    await prisma.session.delete({ where: { id: existingSessionId } }).catch(() => {});
+    deleteCookie(c, 'session');
+  }
+
+  const sessionId = await createSession(prisma, actorData.apId, 'embed', null, c.env.ENCRYPTION_KEY);
+  setSessionCookie(c, sessionId);
+
+  return c.json({ success: true });
+});
+
+// ============================================
 // パスワード認証
 // ============================================
 
@@ -324,13 +387,28 @@ auth.get('/callback/:provider', async (c) => {
     return c.redirect('/?error=user_info_failed');
   }
 
-  const providerUserId = `${providerId}:${userInfo.id}`;
+  const providerUserId = providerId === 'takos'
+    ? userInfo.id
+    : `${providerId}:${userInfo.id}`;
   const prisma = c.get('prisma');
 
   // Actor作成/更新
   let actorData = await prisma.actor.findFirst({
     where: { takosUserId: providerUserId },
   });
+
+  if (!actorData && providerId === 'takos') {
+    const legacyId = `takos:${userInfo.id}`;
+    const legacyActor = await prisma.actor.findFirst({
+      where: { takosUserId: legacyId },
+    });
+    if (legacyActor) {
+      actorData = await prisma.actor.update({
+        where: { apId: legacyActor.apId },
+        data: { takosUserId: providerUserId },
+      });
+    }
+  }
 
   if (!actorData) {
     actorData = await createActorFromOAuth(prisma, c.env, userInfo, providerUserId);
@@ -625,6 +703,100 @@ function setSessionCookie(c: { header: (name: string, value: string) => void }, 
     path: '/',
     maxAge: 30 * 24 * 60 * 60,
   });
+}
+
+// ============================================
+// Embed JWT verification (self-host iframe SSO)
+// ============================================
+
+type EmbedJwtPayload = {
+  sub: string;
+  email?: string;
+  name?: string;
+  username?: string;
+  avatar_url?: string;
+  aud?: string | string[];
+  iss?: string;
+  iat?: number;
+  exp?: number;
+};
+
+type EmbedJwtVerifyOptions = {
+  expectedAud?: string;
+  expectedIss?: string;
+};
+
+function normalizeOrigin(value?: string): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function audienceMatches(aud: string | string[] | undefined, expected: string): boolean {
+  if (!aud) return false;
+  if (Array.isArray(aud)) {
+    return aud.includes(expected);
+  }
+  return aud === expected;
+}
+
+function base64UrlDecode(str: string): ArrayBuffer {
+  let padded = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (padded.length % 4) {
+    padded += '=';
+  }
+  const binary = atob(padded);
+  const buffer = new ArrayBuffer(binary.length);
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return buffer;
+}
+
+async function verifySignature(data: string, signature: BufferSource, secret: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['verify']
+  );
+  return crypto.subtle.verify('HMAC', key, signature, encoder.encode(data));
+}
+
+async function verifyEmbedJwt(
+  token: string,
+  secret: string,
+  options?: EmbedJwtVerifyOptions
+): Promise<EmbedJwtPayload | null> {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const [headerB64, payloadB64, signatureB64] = parts;
+    const data = `${headerB64}.${payloadB64}`;
+    const signature = base64UrlDecode(signatureB64);
+    const isValid = await verifySignature(data, signature, secret);
+    if (!isValid) return null;
+    const payloadJson = new TextDecoder().decode(base64UrlDecode(payloadB64));
+    const payload = JSON.parse(payloadJson) as EmbedJwtPayload;
+    if (!payload.sub) return null;
+    if (options?.expectedAud) {
+      if (!audienceMatches(payload.aud, options.expectedAud)) return null;
+    }
+    if (options?.expectedIss && payload.iss !== options.expectedIss) return null;
+    if (payload.exp) {
+      const now = Math.floor(Date.now() / 1000);
+      if (payload.exp < now) return null;
+    }
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 export default auth;
