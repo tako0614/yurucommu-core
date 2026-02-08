@@ -25,11 +25,6 @@ TAKOS_URL = "https://takos.jp"
 # TAKOS_CLIENT_ID = "xxx"  # Set via wrangler secret put
 # TAKOS_CLIENT_SECRET = "xxx"  # Set via wrangler secret put
 
-# Embed (iframe) SSO:
-# EMBED_PARENT_ORIGIN = "https://your-host.example"  # Set via wrangler secret put
-# EMBED_AUTH_JWT_SECRET = "your-embed-jwt-secret"    # Set via wrangler secret put
-# EMBED_AUTH_ISSUER = "your-issuer"                  # Optional; require matching iss
-
 # Secrets (set via wrangler secret put):
 # - AUTH_PASSWORD (optional)
 # - GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET (optional)

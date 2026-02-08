@@ -555,9 +555,6 @@ export async function createNodeRuntime(config: {
     DISCORD_CLIENT_SECRET?: string;
     GITHUB_CLIENT_ID?: string;
     GITHUB_CLIENT_SECRET?: string;
-    EMBED_PARENT_ORIGIN?: string;
-    EMBED_AUTH_JWT_SECRET?: string;
-    EMBED_AUTH_ISSUER?: string;
   };
 }): Promise<RuntimeEnv> {
   const database = await NodeDatabase.create(config.databasePath || ':memory:');
