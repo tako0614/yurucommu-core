@@ -19,6 +19,10 @@ import {
   deleteAccount,
   AccountInfo,
 } from '../lib/api';
+import { clearTenantUrl, clearTenantToken } from '../lib/api/fetch';
+
+const IS_HOSTED = import.meta.env.VITE_HOSTED_MODE === 'true';
+const AUTH_BASE_URL = import.meta.env.VITE_AUTH_URL || '';
 
 interface SettingsPageProps {
   actor: Actor;
@@ -32,6 +36,7 @@ export function SettingsPage({ actor }: SettingsPageProps) {
   const [mutedUsers, setMutedUsers] = useState<Actor[]>([]);
   const [loading, setLoading] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState('');
+  const [isEmbedded, setIsEmbedded] = useState(false);
 
   // Account switching
   const [accounts, setAccounts] = useState<AccountInfo[]>([]);
@@ -43,6 +48,33 @@ export function SettingsPage({ actor }: SettingsPageProps) {
   const normalizedUsername = newUsername.trim();
   const isUsernameValid = normalizedUsername.length > 0 && usernamePattern.test(normalizedUsername);
   const [switching, setSwitching] = useState(false);
+
+  const handleLogout = async () => {
+    if (IS_HOSTED) {
+      const token = localStorage.getItem('session_token');
+      if (token) {
+        try {
+          await fetch(`${AUTH_BASE_URL}/api/auth/logout`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+        } catch {
+          // Ignore errors - we're logging out anyway
+        }
+      }
+      localStorage.removeItem('session_token');
+      clearTenantToken();
+      clearTenantUrl();
+    } else {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      } catch {
+        // Ignore errors
+      }
+    }
+    // Redirect to home to trigger re-auth
+    window.location.href = '/';
+  };
 
   const resetCreateAccount = () => {
     setShowCreateAccount(false);
@@ -60,6 +92,12 @@ export function SettingsPage({ actor }: SettingsPageProps) {
   };
 
   useEffect(() => {
+    try {
+      setIsEmbedded(window.self !== window.top);
+    } catch {
+      setIsEmbedded(true);
+    }
+
     if (activeSection === 'blocked') {
       setLoading(true);
       fetchBlockedUsers()
@@ -292,13 +330,24 @@ export function SettingsPage({ actor }: SettingsPageProps) {
             </div>
             <ChevronRightIcon />
           </button>
-          <a
-            href="/api/auth/logout"
+          {isEmbedded && (
+            <button
+              onClick={() => {
+                window.location.href = '/return';
+              }}
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+            >
+              <span>Back to Host</span>
+              <ChevronRightIcon />
+            </button>
+          )}
+          <button
+            onClick={handleLogout}
             className="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
           >
             <span>Logout</span>
             <ChevronRightIcon />
-          </a>
+          </button>
           <button
             onClick={() => setActiveSection('delete')}
             className="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50 text-red-500"

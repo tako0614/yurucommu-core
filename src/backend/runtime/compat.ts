@@ -594,6 +594,9 @@ export async function createNodeEnv(config: {
   TAKOS_URL?: string;
   TAKOS_CLIENT_ID?: string;
   TAKOS_CLIENT_SECRET?: string;
+  EMBED_PARENT_ORIGIN?: string;
+  EMBED_AUTH_JWT_SECRET?: string;
+  EMBED_AUTH_ISSUER?: string;
 }) {
   const db = await D1CompatDatabase.create(config.databasePath || './data/yurucommu.db');
   const storage = config.storagePath ? await R2CompatBucket.create(config.storagePath) : undefined;
@@ -620,6 +623,9 @@ export async function createNodeEnv(config: {
     TAKOS_URL: config.TAKOS_URL,
     TAKOS_CLIENT_ID: config.TAKOS_CLIENT_ID,
     TAKOS_CLIENT_SECRET: config.TAKOS_CLIENT_SECRET,
+    EMBED_PARENT_ORIGIN: config.EMBED_PARENT_ORIGIN,
+    EMBED_AUTH_JWT_SECRET: config.EMBED_AUTH_JWT_SECRET,
+    EMBED_AUTH_ISSUER: config.EMBED_AUTH_ISSUER,
   };
 }
 

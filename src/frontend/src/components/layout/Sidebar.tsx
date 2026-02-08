@@ -1,10 +1,15 @@
 import { NavLink } from 'react-router-dom';
 import { Actor } from '../../types';
+import type { HostedInstance } from '../../hooks/useAuth';
 import { useI18n } from '../../lib/i18n';
 import { useUnreadCount } from '../../hooks/useUnreadCount';
+import { UserAvatar } from '../UserAvatar';
 
 interface SidebarProps {
   actor: Actor;
+  currentInstance?: HostedInstance | null;
+  showInstanceSwitcher?: boolean;
+  onOpenInstanceSwitcher?: () => void;
 }
 
 const HomeIcon = () => (
@@ -50,7 +55,45 @@ const SettingsIcon = () => (
   </svg>
 );
 
-export function Sidebar({ actor }: SidebarProps) {
+function getStatusLabel(status: string): string {
+  switch (status) {
+    case 'active':
+      return '稼働中';
+    case 'provisioning':
+      return '作成中';
+    case 'pending':
+      return '準備中';
+    case 'failed':
+      return '失敗';
+    case 'missing':
+      return '削除済み';
+    default:
+      return status;
+  }
+}
+
+function getStatusClass(status: string): string {
+  switch (status) {
+    case 'active':
+      return 'bg-green-500/20 text-green-300';
+    case 'provisioning':
+    case 'pending':
+      return 'bg-blue-500/20 text-blue-300';
+    case 'failed':
+      return 'bg-red-500/20 text-red-300';
+    case 'missing':
+      return 'bg-amber-500/20 text-amber-300';
+    default:
+      return 'bg-neutral-700 text-neutral-200';
+  }
+}
+
+export function Sidebar({
+  actor,
+  currentInstance,
+  showInstanceSwitcher,
+  onOpenInstanceSwitcher,
+}: SidebarProps) {
   const { t } = useI18n();
   const unreadCount = useUnreadCount();
 
@@ -100,6 +143,36 @@ export function Sidebar({ actor }: SidebarProps) {
           })}
         </div>
       </nav>
+      {showInstanceSwitcher && currentInstance && onOpenInstanceSwitcher && (
+        <div className="px-4 pb-6">
+          <div className="mt-4 border-t border-neutral-900 pt-4">
+            <button
+              onClick={onOpenInstanceSwitcher}
+              className="w-full text-left px-3 py-2 rounded-xl bg-neutral-900/40 hover:bg-neutral-900/70 transition-colors"
+            >
+              <div className="text-xs text-neutral-500 mb-2">インスタンス</div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-3 min-w-0">
+                  <UserAvatar
+                    avatarUrl={actor.icon_url}
+                    name={actor.name || actor.username}
+                    size={32}
+                  />
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">
+                      {currentInstance.subdomain}.yurucommu.com
+                    </div>
+                    <div className="text-xs text-neutral-500 truncate">@{actor.username}</div>
+                  </div>
+                </div>
+                <span className={`text-xs px-2 py-1 rounded-full ${getStatusClass(currentInstance.status)}`}>
+                  {getStatusLabel(currentInstance.status)}
+                </span>
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

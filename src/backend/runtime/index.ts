@@ -34,6 +34,9 @@ export interface RuntimeConfig {
     TAKOS_CLIENT_ID?: string;
     TAKOS_CLIENT_SECRET?: string;
     AUTH_MODE?: string;
+    EMBED_PARENT_ORIGIN?: string;
+    EMBED_AUTH_JWT_SECRET?: string;
+    EMBED_AUTH_ISSUER?: string;
   };
 }
 
@@ -42,13 +45,13 @@ export interface RuntimeConfig {
  */
 export function detectRuntime(): RuntimeType {
   // Check for Cloudflare Workers
-  // @ts-expect-error - caches is a global in Cloudflare Workers
+  // @ts-ignore - caches is a global in Cloudflare Workers
   if (typeof caches !== 'undefined' && typeof caches.default !== 'undefined') {
     return 'cloudflare';
   }
 
   // Check for Deno
-  // @ts-expect-error - Deno is a global in Deno
+  // @ts-ignore - Deno is a global in Deno
   if (typeof Deno !== 'undefined') {
     return 'deno';
   }
