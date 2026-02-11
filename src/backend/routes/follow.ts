@@ -277,16 +277,24 @@ follow.delete('/', async (c) => {
 
   // Update counts if was accepted
   if (existingFollow.status === 'accepted') {
-    await prisma.actor.update({
-      where: { apId: actor.ap_id },
-      data: { followingCount: { decrement: 1 } },
-    }).catch(() => {});
+    try {
+      await prisma.actor.update({
+        where: { apId: actor.ap_id },
+        data: { followingCount: { decrement: 1 } },
+      });
+    } catch (err) {
+      console.warn(`[Follow] Failed to decrement followingCount for ${actor.ap_id}`, err);
+    }
 
     if (isLocal(targetApId, baseUrl)) {
-      await prisma.actor.update({
-        where: { apId: targetApId },
-        data: { followerCount: { decrement: 1 } },
-      }).catch(() => {});
+      try {
+        await prisma.actor.update({
+          where: { apId: targetApId },
+          data: { followerCount: { decrement: 1 } },
+        });
+      } catch (err) {
+        console.warn(`[Follow] Failed to decrement followerCount for ${targetApId}`, err);
+      }
     }
   }
 

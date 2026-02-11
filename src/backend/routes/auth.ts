@@ -47,6 +47,23 @@ function timingSafeEqual(a: string, b: string): boolean {
   return result === 0;
 }
 
+function isPrismaNotFoundError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: string }).code === 'P2025';
+}
+
+async function deleteSessionSafely(prisma: PrismaClient, sessionId: string, context: string): Promise<void> {
+  try {
+    await prisma.session.delete({ where: { id: sessionId } });
+  } catch (err) {
+    if (!isPrismaNotFoundError(err)) {
+      console.warn(`[Auth] Failed to delete session during ${context}`, err);
+    }
+  }
+}
+
 const auth = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // ============================================
@@ -149,7 +166,7 @@ auth.post('/login', async (c) => {
   // Session fixation prevention: Delete any existing session before creating new one
   const existingSessionId = getCookie(c, 'session');
   if (existingSessionId) {
-    await prisma.session.delete({ where: { id: existingSessionId } }).catch(() => {});
+    await deleteSessionSafely(prisma, existingSessionId, 'password login rotation');
     deleteCookie(c, 'session');
   }
 
@@ -357,7 +374,7 @@ auth.get('/callback/:provider', async (c) => {
   // Session fixation prevention: Delete any existing session before creating new one
   const existingSessionId = getCookie(c, 'session');
   if (existingSessionId) {
-    await prisma.session.delete({ where: { id: existingSessionId } }).catch(() => {});
+    await deleteSessionSafely(prisma, existingSessionId, 'oauth login rotation');
     deleteCookie(c, 'session');
   }
 
@@ -383,7 +400,7 @@ auth.post('/logout', async (c) => {
   const sessionId = getCookie(c, 'session');
   if (sessionId) {
     const prisma = c.get('prisma');
-    await prisma.session.delete({ where: { id: sessionId } }).catch(() => {});
+    await deleteSessionSafely(prisma, sessionId, 'logout');
     deleteCookie(c, 'session');
   }
   return c.json({ success: true });
