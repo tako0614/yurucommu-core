@@ -59,7 +59,9 @@ stories.get('/', async (c) => {
   // Probabilistic cleanup: 1% chance to run cleanup on each request
   if (Math.random() < 0.01) {
     // Run cleanup in background (don't await)
-    cleanupExpiredStories(prisma).catch(() => {});
+    cleanupExpiredStories(prisma).catch((err) => {
+      console.warn('[Stories] Failed to cleanup expired stories', err);
+    });
   }
 
   // Get followed user IDs

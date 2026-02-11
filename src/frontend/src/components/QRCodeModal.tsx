@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { Actor } from '../types';
@@ -33,6 +33,19 @@ export function QRCodeModal({ actor, onClose }: QRCodeModalProps) {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const scannerContainerRef = useRef<HTMLDivElement>(null);
 
+  const stopScannerSafely = useCallback(async () => {
+    if (!scannerRef.current) return;
+
+    try {
+      await scannerRef.current.stop();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.toLowerCase().includes('not running')) {
+        console.warn('Failed to stop QR scanner:', err);
+      }
+    }
+  }, []);
+
   // Generate QR URL - include username for ActivityPub lookup
   const currentDomain = window.location.host;
   const qrUrl = `${window.location.origin}/profile/${encodeURIComponent(actor.ap_id)}#${actor.preferred_username}`;
@@ -40,21 +53,19 @@ export function QRCodeModal({ actor, onClose }: QRCodeModalProps) {
   // Stop scanner when component unmounts or tab changes
   useEffect(() => {
     return () => {
-      if (scannerRef.current) {
-        scannerRef.current.stop().catch(() => {});
-      }
+      void stopScannerSafely();
     };
-  }, []);
+  }, [stopScannerSafely]);
 
   // Start/stop scanner when tab changes
   useEffect(() => {
     if (tab === 'scan' && !scanning && !scanResult) {
       startScanner();
     } else if (tab !== 'scan' && scannerRef.current) {
-      scannerRef.current.stop().catch(() => {});
+      void stopScannerSafely();
       setScanning(false);
     }
-  }, [tab]);
+  }, [tab, stopScannerSafely]);
 
   const startScanner = async () => {
     if (!scannerContainerRef.current) return;

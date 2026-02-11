@@ -35,7 +35,7 @@ TAKOS_URL = "https://takos.jp"
 [[d1_databases]]
 binding = "DB"
 database_name = "yurucommu-db"
-database_id = "054f575a-1fa1-497a-9b27-3682d0155e23"
+database_id = "REPLACE_WITH_DATABASE_ID"
 migrations_dir = "migrations"
 
 # R2 Bucket
@@ -44,12 +44,11 @@ binding = "MEDIA"
 bucket_name = "yurucommu-media"
 
 # KV Namespace (for OAuth state, sessions, etc.)
-# IMPORTANT: The 'id' below is a PLACEHOLDER and MUST be replaced with an actual KV namespace ID.
 # Create your KV namespace first: wrangler kv:namespace create "yurucommu-kv"
 # Then replace the 'id' value with the ID from the command output.
 [[kv_namespaces]]
 binding = "KV"
-id = "3d9183725f9544abbc0113ae51b71ca1"
+id = "REPLACE_WITH_KV_ID"
 
 # Static assets
 [assets]
@@ -71,7 +70,7 @@ vars = { TAKOS_URL = "https://takos.jp", APP_URL = "https://test.yurucommu.com" 
 [[env.test.d1_databases]]
 binding = "DB"
 database_name = "yurucommu-db"
-database_id = "054f575a-1fa1-497a-9b27-3682d0155e23"
+database_id = "REPLACE_WITH_DATABASE_ID"
 migrations_dir = "migrations"
 
 [[env.test.r2_buckets]]
@@ -80,7 +79,7 @@ bucket_name = "yurucommu-media"
 
 [[env.test.kv_namespaces]]
 binding = "KV"
-id = "3d9183725f9544abbc0113ae51b71ca1"
+id = "REPLACE_WITH_KV_ID"
 
 [[env.test.routes]]
 pattern = "test.yurucommu.com/*"

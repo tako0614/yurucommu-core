@@ -20,6 +20,13 @@ function isValidHttpUrl(value: string): boolean {
   }
 }
 
+function isPrismaNotFoundError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: string }).code === 'P2025';
+}
+
 // Helper to resolve identifier to AP ID
 async function resolveActorApId(
   c: { env: Env; get: (key: 'prisma') => ReturnType<typeof import('../lib/db').getPrismaD1> },
@@ -181,11 +188,17 @@ actors.delete('/me/blocked', async (c) => {
   if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
 
   const prisma = c.get('prisma');
-  await prisma.block.delete({
-    where: {
-      blockerApId_blockedApId: { blockerApId: actor.ap_id, blockedApId: body.ap_id },
-    },
-  }).catch(() => {});
+  try {
+    await prisma.block.delete({
+      where: {
+        blockerApId_blockedApId: { blockerApId: actor.ap_id, blockedApId: body.ap_id },
+      },
+    });
+  } catch (err) {
+    if (!isPrismaNotFoundError(err)) {
+      console.warn('[Actors] Failed to delete block relation', err);
+    }
+  }
 
   return c.json({ success: true });
 });
@@ -267,11 +280,17 @@ actors.delete('/me/muted', async (c) => {
   if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
 
   const prisma = c.get('prisma');
-  await prisma.mute.delete({
-    where: {
-      muterApId_mutedApId: { muterApId: actor.ap_id, mutedApId: body.ap_id },
-    },
-  }).catch(() => {});
+  try {
+    await prisma.mute.delete({
+      where: {
+        muterApId_mutedApId: { muterApId: actor.ap_id, mutedApId: body.ap_id },
+      },
+    });
+  } catch (err) {
+    if (!isPrismaNotFoundError(err)) {
+      console.warn('[Actors] Failed to delete mute relation', err);
+    }
+  }
 
   return c.json({ success: true });
 });
