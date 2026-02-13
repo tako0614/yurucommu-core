@@ -11,6 +11,7 @@ pnpm-debug.log*
 # Build outputs
 dist/
 dist-wrangler/
+dist-*/
 build/
 coverage/
 

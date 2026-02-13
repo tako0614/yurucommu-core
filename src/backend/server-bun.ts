@@ -20,7 +20,7 @@
  */
 
 import { createBunEnv, runMigrations, D1CompatDatabase } from './runtime/compat-bun';
-import app from './index';
+import { createYurucommuBackendApp } from './public';
 import { existsSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 
@@ -33,6 +33,7 @@ const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
 
 async function main() {
   console.log('🚀 Starting Yurucommu server (Bun mode)...');
+  const app = createYurucommuBackendApp();
 
   // Ensure data directory exists
   const dataDir = dirname(DATABASE_PATH);

@@ -22,7 +22,7 @@
 
 import { serve } from '@hono/node-server';
 import { createNodeEnv, runMigrations, D1CompatDatabase } from './runtime/compat';
-import app from './index';
+import { createYurucommuBackendApp } from './public';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -35,6 +35,7 @@ const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
 
 async function main() {
   console.log('🚀 Starting Yurucommu server (Node.js mode)...');
+  const app = createYurucommuBackendApp();
 
   // Ensure data directory exists
   const dataDir = path.dirname(DATABASE_PATH);
