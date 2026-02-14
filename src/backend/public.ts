@@ -5,6 +5,7 @@ export {
   type YurucommuBackendPluginV1,
   type CreateYurucommuBackendAppOptionsV1,
 } from './index';
+export { default } from './index';
 export { default as app } from './index';
 export {
   getPrismaD1,
@@ -14,4 +15,4 @@ export {
   PrismaClient,
 } from './lib/db';
 export type { D1Database } from '@cloudflare/workers-types';
-export type * from '../../generated/prisma';
+export type * from '../generated/prisma';

@@ -1,0 +1,18 @@
+name = "yurucommu-site"
+main = "src/site-worker.ts"
+compatibility_date = "2025-01-01"
+
+[assets]
+directory = "./site"
+binding = "ASSETS"
+run_worker_first = false
+not_found_handling = "single-page-application"
+
+[[routes]]
+pattern = "yurucommu.com/*"
+zone_name = "yurucommu.com"
+
+[[routes]]
+pattern = "www.yurucommu.com/*"
+zone_name = "yurucommu.com"
+

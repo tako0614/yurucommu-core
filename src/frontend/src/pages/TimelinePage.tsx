@@ -32,6 +32,7 @@ import { TimelineHeader } from '../components/timeline/TimelineHeader';
 import { TimelineMobileMenu } from '../components/timeline/TimelineMobileMenu';
 import { TimelinePostItem } from '../components/timeline/TimelinePostItem';
 import { TimelinePostModal } from '../components/timeline/TimelinePostModal';
+import { PluginSlot } from '../components/PluginSlot';
 import type { UploadedMedia } from '../components/timeline/types';
 
 interface TimelinePageProps {
@@ -457,15 +458,19 @@ export function TimelinePage({ actor }: TimelinePageProps) {
           <div className="p-8 text-center text-neutral-500">{t('timeline.empty')}</div>
         ) : (
           <>
-            {posts.map((post) => (
-              <TimelinePostItem
-                key={post.ap_id}
-                post={post}
-                onReply={() => navigate(`/post/${encodeURIComponent(post.ap_id)}`)}
-                onRepost={handleRepost}
-                onLike={handleLike}
-                onBookmark={handleBookmark}
-              />
+            {posts.map((post, index) => (
+              <div key={post.ap_id}>
+                <TimelinePostItem
+                  post={post}
+                  onReply={() => navigate(`/post/${encodeURIComponent(post.ap_id)}`)}
+                  onRepost={handleRepost}
+                  onLike={handleLike}
+                  onBookmark={handleBookmark}
+                />
+                {(index === 2 || (index > 2 && (index - 2) % 8 === 0)) && (
+                  <PluginSlot name="timeline.between-posts" />
+                )}
+              </div>
             ))}            {loadingMore && <div className="p-4 text-center text-neutral-500">{t('common.loading')}</div>}
             {!hasMore && posts.length > 0 && <div className="p-4 text-center text-neutral-600 text-sm">これ以上の投稿はありません</div>}
           </>

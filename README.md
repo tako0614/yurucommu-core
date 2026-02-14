@@ -78,10 +78,10 @@ npm run deploy
 
 ### ウェブサイト (yurucommu.com)
 
-Cloudflare Pages にデプロイ:
+Cloudflare Workers (assets) にデプロイ:
 
 ```bash
-wrangler pages deploy site --project-name yurucommu-site --branch main
+wrangler deploy --config wrangler.site.toml
 ```
 
 ## ライセンス

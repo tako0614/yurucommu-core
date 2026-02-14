@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom';
 import { Actor } from '../../types';
 import { Sidebar } from './Sidebar';
 import { BottomNav } from './BottomNav';
+import { RightSidebar } from './RightSidebar';
 
 interface AppLayoutProps {
   actor: Actor;
@@ -14,7 +15,9 @@ export function AppLayout({ actor }: AppLayoutProps) {
       <main className="flex-1 flex flex-col min-h-screen pb-14 md:pb-0 overflow-hidden border-x border-neutral-900 max-w-2xl">
         <Outlet />
       </main>
-      <div className="hidden lg:block w-80 bg-black shrink-0" />
+      <div className="hidden lg:block w-80 bg-black shrink-0">
+        <RightSidebar actor={actor} />
+      </div>
       <BottomNav />
     </div>
   );

@@ -15,6 +15,8 @@ import {
   type InstanceHealth,
   type AuthCheckResult,
   type LoginResult,
+  type SlotName,
+  type SlotEntry,
 } from './lib/plugin';
 
 export type {
@@ -29,6 +31,8 @@ export type {
   InstanceHealth,
   AuthCheckResult,
   LoginResult,
+  SlotName,
+  SlotEntry,
 };
 
 export interface BootstrapMountOptionsV1 {
