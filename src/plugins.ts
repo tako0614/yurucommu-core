@@ -22,4 +22,6 @@ export type {
   YurucommuFrontendPluginV1,
   BootstrapMountOptionsV1,
   BootstrapYurucommuFrontendOptionsV1,
+  SlotName,
+  SlotEntry,
 } from './frontend/src/public';

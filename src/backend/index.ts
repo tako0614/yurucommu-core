@@ -17,6 +17,7 @@ import mediaRoutes from './routes/media';
 import activitypubRoutes from './routes/activitypub';
 import takosProxyRoutes from './routes/takos-proxy';
 import takosToolsRoutes from './routes/takos-tools';
+import recommendationsRoutes from './routes/recommendations';
 
 import { rateLimit, RateLimitConfigs } from './middleware/rate-limit';
 import { csrfProtection } from './middleware/csrf';
@@ -178,6 +179,7 @@ function mountCoreRoutes(app: YurucommuApp): void {
   app.route('/media', mediaRoutes);
   app.route('/api/takos', takosProxyRoutes);
   app.route('/.takos/tools', takosToolsRoutes);
+  app.route('/api/recommendations', recommendationsRoutes);
   app.route('/', activitypubRoutes);
 }
 

@@ -1,6 +1,14 @@
+import type { ComponentType } from 'react';
 import type { Actor } from '../types';
 
 export const YURUCOMMU_FRONTEND_PLUGIN_API_VERSION = 1 as const;
+
+export type SlotName = 'timeline.between-posts' | 'right-sidebar.below-recommendations' | (string & {});
+
+export interface SlotEntry {
+  component: ComponentType<Record<string, unknown>>;
+  priority?: number;
+}
 
 export type DeploymentMode = 'hosted' | 'self-hosted';
 
@@ -86,6 +94,7 @@ export interface YurucommuFrontendPluginV1 {
   setup?: (ctx: FrontendPluginContextV1) => void;
   createAuthStrategy?: () => AuthStrategy;
   createApiTransport?: () => ApiTransport;
+  getSlotEntries?: () => Record<string, SlotEntry[]>;
 }
 
 const EMPTY_RESULT: AuthCheckResult = {
@@ -163,6 +172,7 @@ let activePlugins: YurucommuFrontendPluginV1[] = [];
 let pluginSetupDone = false;
 let cachedStrategy: AuthStrategy | null = null;
 let cachedTransport: ApiTransport | null = null;
+let cachedSlots: Map<string, ComponentType<Record<string, unknown>>[]> | null = null;
 
 function ensurePluginVersion(plugin: YurucommuFrontendPluginV1): void {
   if (plugin.apiVersion !== YURUCOMMU_FRONTEND_PLUGIN_API_VERSION) {
@@ -190,6 +200,7 @@ export function registerYurucommuFrontendPlugin(plugin: YurucommuFrontendPluginV
   pluginSetupDone = false;
   cachedStrategy = null;
   cachedTransport = null;
+  cachedSlots = null;
 }
 
 export function setYurucommuFrontendPlugins(plugins: YurucommuFrontendPluginV1[]): void {
@@ -204,6 +215,7 @@ export function clearYurucommuFrontendPlugin(): void {
   pluginSetupDone = false;
   cachedStrategy = null;
   cachedTransport = null;
+  cachedSlots = null;
 }
 
 export function getAuthStrategy(): AuthStrategy {
@@ -230,4 +242,31 @@ export function getApiTransport(): ApiTransport {
   }
   cachedTransport = transport ?? new DefaultSelfHostedTransport();
   return cachedTransport;
+}
+
+function buildSlotCache(): Map<string, ComponentType<Record<string, unknown>>[]> {
+  ensurePluginSetup();
+  const map = new Map<string, SlotEntry[]>();
+  for (const plugin of activePlugins) {
+    const entries = plugin.getSlotEntries?.();
+    if (!entries) continue;
+    for (const [slotName, slotEntries] of Object.entries(entries)) {
+      const existing = map.get(slotName) ?? [];
+      existing.push(...slotEntries);
+      map.set(slotName, existing);
+    }
+  }
+  const result = new Map<string, ComponentType<Record<string, unknown>>[]>();
+  for (const [name, entries] of map) {
+    entries.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+    result.set(name, entries.map(e => e.component));
+  }
+  return result;
+}
+
+export function getSlotComponents(slotName: string): ComponentType<Record<string, unknown>>[] {
+  if (!cachedSlots) {
+    cachedSlots = buildSlotCache();
+  }
+  return cachedSlots.get(slotName) ?? [];
 }

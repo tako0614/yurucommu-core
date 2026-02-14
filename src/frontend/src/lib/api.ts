@@ -8,3 +8,4 @@ export * from './api/notifications';
 export * from './api/search';
 export * from './api/media';
 export * from './api/stories';
+export * from './api/recommendations';
