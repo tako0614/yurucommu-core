@@ -4,84 +4,17 @@ import {
   activityApId,
   generateId,
   isLocal,
-  isSafeRemoteUrl,
   objectApId,
-  signRequest,
-  fetchWithTimeout,
 } from '../../../utils';
+import { enqueueDeliveryToActor } from '../../../lib/delivery/queue';
 import type { InstanceActorResult } from '../utils';
 import {
   Activity,
-  RemoteActor,
   getActivityObject,
   getActivityObjectId,
 } from '../inbox-types';
 
 type ActivityContext = Context<{ Bindings: Env; Variables: Variables }>;
-
-async function fetchRemoteInbox(c: ActivityContext, actorApIdStr: string): Promise<string | null> {
-  const prisma = c.get('prisma');
-
-  const cached = await prisma.actorCache.findUnique({
-    where: { apId: actorApIdStr },
-    select: { inbox: true },
-  });
-
-  if (cached?.inbox) {
-    if (!isSafeRemoteUrl(cached.inbox)) {
-      console.warn(`[ActivityPub] Blocked unsafe inbox URL: ${cached.inbox}`);
-      return null;
-    }
-    return cached.inbox;
-  }
-
-  try {
-    if (!isSafeRemoteUrl(actorApIdStr)) {
-      console.warn(`[ActivityPub] Blocked unsafe actor fetch: ${actorApIdStr}`);
-      return null;
-    }
-    const res = await fetch(actorApIdStr, {
-      headers: { 'Accept': 'application/activity+json, application/ld+json' }
-    });
-    if (!res.ok) return null;
-    const actorData = await res.json() as RemoteActor;
-    if (!actorData?.inbox || !isSafeRemoteUrl(actorData.inbox)) return null;
-
-    await prisma.actorCache.upsert({
-      where: { apId: actorData.id },
-      update: {
-        type: actorData.type || 'Person',
-        preferredUsername: actorData.preferredUsername,
-        name: actorData.name,
-        summary: actorData.summary,
-        iconUrl: actorData.icon?.url,
-        inbox: actorData.inbox,
-        outbox: actorData.outbox,
-        publicKeyId: actorData.publicKey?.id,
-        publicKeyPem: actorData.publicKey?.publicKeyPem,
-        rawJson: JSON.stringify(actorData),
-      },
-      create: {
-        apId: actorData.id,
-        type: actorData.type || 'Person',
-        preferredUsername: actorData.preferredUsername,
-        name: actorData.name,
-        summary: actorData.summary,
-        iconUrl: actorData.icon?.url,
-        inbox: actorData.inbox,
-        outbox: actorData.outbox,
-        publicKeyId: actorData.publicKey?.id,
-        publicKeyPem: actorData.publicKey?.publicKeyPem,
-        rawJson: JSON.stringify(actorData),
-      },
-    });
-
-    return actorData.inbox;
-  } catch (e) {
-    console.error('Failed to fetch remote actor:', e);
-    return null;
-  }
-}
 
 export async function handleGroupFollow(
   c: ActivityContext,
@@ -124,13 +57,6 @@ export async function handleGroupFollow(
   if (isLocal(actorApIdStr, baseUrl)) return;
 
   if (status === 'accepted' || status === 'rejected') {
-    const inboxUrl = await fetchRemoteInbox(c, actorApIdStr);
-    if (!inboxUrl) return;
-    if (!isSafeRemoteUrl(inboxUrl)) {
-      console.warn(`[ActivityPub] Blocked unsafe inbox URL: ${inboxUrl}`);
-      return;
-    }
-
     const responseType = status === 'accepted' ? 'Accept' : 'Reject';
     const responseId = activityApId(baseUrl, generateId());
     const responseActivity = {
@@ -140,26 +66,6 @@ export async function handleGroupFollow(
       actor: instanceActor.apId,
       object: activityId,
     };
-
-    const keyId = `${instanceActor.apId}#main-key`;
-    const headers = await signRequest(
-      instanceActor.privateKeyPem,
-      keyId,
-      'POST',
-      inboxUrl,
-      JSON.stringify(responseActivity)
-    );
-
-    try {
-      await fetchWithTimeout(inboxUrl, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/activity+json' },
-        body: JSON.stringify(responseActivity),
-        timeout: 15000, // 15 second timeout for ActivityPub federation
-      });
-    } catch (e) {
-      console.error(`Failed to send ${responseType}:`, e);
-    }
 
     await prisma.activity.create({
       data: {
@@ -171,6 +77,9 @@ export async function handleGroupFollow(
         direction: 'outbound',
       },
     });
+
+    // Outbound delivery must be async (no remote POST in request path).
+    await enqueueDeliveryToActor(c.env, responseId, actorApIdStr);
   }
 }
 

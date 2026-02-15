@@ -21,6 +21,7 @@ export type Activity = {
   type?: string;
   actor?: string;
   object?: string | ActivityObject;
+  target?: string | ActivityObject;
   room?: string;
 };
 

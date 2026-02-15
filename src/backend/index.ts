@@ -22,6 +22,9 @@ import recommendationsRoutes from './routes/recommendations';
 import { rateLimit, RateLimitConfigs } from './middleware/rate-limit';
 import { csrfProtection } from './middleware/csrf';
 import { createErrorMiddleware } from './middleware/error-handler';
+import type { MessageBatch } from '@cloudflare/workers-types';
+import type { DeliveryQueueMessageV1, DeliveryDlqMessageV1 } from './lib/delivery/types';
+import { handleDeliveryDlqBatch, handleDeliveryQueueBatch } from './lib/delivery/queue';
 
 type YurucommuApp = Hono<{ Bindings: Env; Variables: Variables }>;
 
@@ -267,4 +270,22 @@ export function createYurucommuBackendApp(options: CreateYurucommuBackendAppOpti
 
 const app = createYurucommuBackendApp();
 
-export default app;
+export const backendApp = app;
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return app.fetch(request, env, ctx);
+  },
+
+  async queue(batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>, env: Env): Promise<void> {
+    if (batch.queue === 'yurucommu-delivery') {
+      return handleDeliveryQueueBatch(batch as MessageBatch<DeliveryQueueMessageV1>, env);
+    }
+    if (batch.queue === 'yurucommu-delivery-dlq') {
+      return handleDeliveryDlqBatch(batch as MessageBatch<DeliveryDlqMessageV1>, env);
+    }
+
+    console.warn('[Queue] Unknown queue:', batch.queue);
+    batch.ackAll();
+  },
+};

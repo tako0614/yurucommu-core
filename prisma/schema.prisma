@@ -300,14 +300,36 @@ model DeliveryQueue {
   id            String  @id
   activityApId  String  @map("activity_ap_id")
   inboxUrl      String  @map("inbox_url")
+  status        String  @default("pending")
   attempts      Int     @default(0)
   lastAttemptAt String? @map("last_attempt_at")
+  processingStartedAt String? @map("processing_started_at")
   nextAttemptAt String  @default(dbgenerated("datetime('now')")) @map("next_attempt_at")
+  deliveredAt   String? @map("delivered_at")
   error         String?
   createdAt     String  @default(dbgenerated("datetime('now')")) @map("created_at")
 
   @@index([nextAttemptAt])
+  @@index([status, nextAttemptAt])
   @@map("delivery_queue")
+}
+
+// ============================================================
+// DELIVERY_CIRCUIT (Circuit breaker state per endpoint)
+// ============================================================
+model DeliveryCircuit {
+  endpoint              String @id
+  state                 String @default("closed")
+  consecutiveFailures   Int    @default(0) @map("consecutive_failures")
+  recentOutcomesJson    String @default("[]") @map("recent_outcomes_json")
+  openUntil             String? @map("open_until")
+  halfOpenProbeAttempts Int    @default(0) @map("half_open_probe_attempts")
+  halfOpenProbeSuccesses Int   @default(0) @map("half_open_probe_successes")
+  createdAt             String @default(dbgenerated("datetime('now')")) @map("created_at")
+  updatedAt             String @default(dbgenerated("datetime('now')")) @map("updated_at")
+
+  @@index([state, updatedAt])
+  @@map("delivery_circuit")
 }
 
 // ============================================================

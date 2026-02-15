@@ -19,6 +19,8 @@
  *   TAKOS_URL/CLIENT_ID/SECRET - Takos OAuth
  */
 
+import { DenoStorage } from './runtime/deno.ts';
+
 // @ts-expect-error - Deno runtime
 const PORT = parseInt(Deno.env.get('PORT') || '3000', 10);
 // @ts-expect-error - Deno runtime
@@ -357,10 +359,13 @@ async function createDenoEnv(config: {
   const db = await D1CompatDatabase.create(config.databasePath || './data/yurucommu.db');
   const kv = new KVCompatNamespace();
   const assets = config.assetsPath ? new AssetsCompatFetcher(config.assetsPath) : undefined;
+  const media = await DenoStorage.create(config.storagePath || './data/storage');
 
   return {
     DB: db as unknown,
-    MEDIA: undefined, // Storage not implemented in Deno entry point for simplicity
+    // Provide a local filesystem-backed R2Bucket compatible interface.
+    // This enables `/api/media/*` and `/media/*` in Deno runtime.
+    MEDIA: media as unknown,
     KV: kv as unknown,
     ASSETS: assets as unknown,
     APP_URL: config.APP_URL,

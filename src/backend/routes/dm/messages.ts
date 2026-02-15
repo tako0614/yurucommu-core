@@ -4,8 +4,9 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
-import { generateId, objectApId, activityApId, formatUsername, signRequest, isLocal, isSafeRemoteUrl, safeJsonParse } from '../../utils';
+import { generateId, objectApId, activityApId, formatUsername, isLocal, safeJsonParse } from '../../utils';
 import { MAX_DM_CONTENT_LENGTH, MAX_DM_PAGE_LIMIT, getConversationId, parseLimit } from './utils';
+import { enqueueDeliveryToActor } from '../../lib/delivery/queue';
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -154,13 +155,27 @@ dm.post('/user/:encodedApId/messages', async (c) => {
   const toJson = JSON.stringify([otherApId]);
   const ccJson = JSON.stringify([]);
 
-  // Check if recipient is a local actor before transaction
-  const recipientIsLocal = await prisma.actor.findUnique({
-    where: { apId: otherApId },
-    select: { apId: true }
-  });
-  const isRecipientLocal = !!recipientIsLocal;
-  const activityId = isRecipientLocal ? activityApId(baseUrl, generateId()) : null;
+  const isRecipientLocal = !!localActor;
+  const localActivityId = isRecipientLocal ? activityApId(baseUrl, generateId()) : null;
+  const remoteActivityId = !isRecipientLocal ? activityApId(baseUrl, generateId()) : null;
+  const remoteCreateActivity = remoteActivityId
+    ? {
+        '@context': 'https://www.w3.org/ns/activitystreams',
+        id: remoteActivityId,
+        type: 'Create',
+        actor: actor.ap_id,
+        to: [otherApId],
+        object: {
+          id: apId,
+          type: 'Note',
+          attributedTo: actor.ap_id,
+          to: [otherApId],
+          content,
+          published: now,
+          conversation: conversationId,
+        },
+      }
+    : null;
 
   try {
     // Use transaction to ensure atomicity of message creation and related records
@@ -201,7 +216,7 @@ dm.post('/user/:encodedApId/messages', async (c) => {
         // Record activity and inbox for the recipient
         await tx.activity.create({
           data: {
-            apId: activityId!,
+            apId: localActivityId!,
             type: 'Create',
             actorApId: actor.ap_id,
             objectApId: apId,
@@ -213,8 +228,20 @@ dm.post('/user/:encodedApId/messages', async (c) => {
         await tx.inbox.create({
           data: {
             actorApId: otherApId,
-            activityApId: activityId!
+            activityApId: localActivityId!
           }
+        });
+      } else if (remoteActivityId && remoteCreateActivity) {
+        // Persist outbound activity; delivery happens asynchronously via queue.
+        await tx.activity.create({
+          data: {
+            apId: remoteActivityId,
+            type: 'Create',
+            actorApId: actor.ap_id,
+            objectApId: apId,
+            rawJson: JSON.stringify(remoteCreateActivity),
+            direction: 'outbound',
+          },
         });
       }
     });
@@ -223,41 +250,9 @@ dm.post('/user/:encodedApId/messages', async (c) => {
     return c.json({ error: 'Failed to send message' }, 500);
   }
 
-  // Send to recipient's inbox if they're remote (outside transaction - delivery is best-effort)
-  if (!isLocal(otherApId, baseUrl) && otherActor.inbox) {
-    try {
-      if (!isSafeRemoteUrl(otherActor.inbox)) {
-        console.warn(`[DM] Blocked unsafe inbox URL: ${otherActor.inbox}`);
-      } else {
-        const createActivity = {
-          '@context': 'https://www.w3.org/ns/activitystreams',
-          id: activityApId(baseUrl, generateId()),
-          type: 'Create',
-          actor: actor.ap_id,
-          to: [otherApId],
-          object: {
-            id: apId,
-            type: 'Note',
-            attributedTo: actor.ap_id,
-            to: [otherApId],
-            content,
-            published: now,
-            conversation: conversationId,
-          },
-        };
-
-        const keyId = `${actor.ap_id}#main-key`;
-        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', otherActor.inbox, JSON.stringify(createActivity));
-
-        await fetch(otherActor.inbox, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(createActivity),
-        });
-      }
-    } catch (e) {
-      console.error('Failed to deliver DM:', e);
-    }
+  // Remote delivery must be async (no remote POST in request path).
+  if (!isLocal(otherApId, baseUrl) && remoteActivityId) {
+    await enqueueDeliveryToActor(c.env, remoteActivityId, otherApId);
   }
 
   return c.json({

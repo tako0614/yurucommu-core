@@ -2,6 +2,7 @@
 
 import type { TakosClient } from './lib/takos-client';
 import type { PrismaClient } from '../generated/prisma';
+import type { DeliveryQueueMessageV1, DeliveryDlqMessageV1 } from './lib/delivery/types';
 
 /**
  * Environment Variables (common across all runtimes)
@@ -44,6 +45,8 @@ export type Env = {
   // Optional: Takos OAuth exchange service binding (for same-zone/WFP deployments)
   TAKOS_OAUTH_EXCHANGE?: Fetcher;
   PRISMA?: PrismaClient;
+  DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1>;
+  DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1>;
 } & EnvVars;
 
 export type Variables = {

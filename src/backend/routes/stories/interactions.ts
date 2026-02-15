@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
-import { generateId, objectApId, activityApId, isLocal, signRequest, isSafeRemoteUrl } from '../../utils';
+import { generateId, objectApId, activityApId, isLocal } from '../../utils';
 import { getVoteCounts } from './utils';
+import { enqueueDeliveryToActor } from '../../lib/delivery/queue';
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -228,26 +229,9 @@ stories.post('/:id/like', async (c) => {
 
   if (!isLocal(apId, baseUrl)) {
     try {
-      const postAuthor = await prisma.actorCache.findUnique({
-        where: { apId: story.attributedTo },
-        select: { inbox: true },
-      });
-      if (postAuthor?.inbox) {
-        if (!isSafeRemoteUrl(postAuthor.inbox)) {
-          console.warn(`[Stories] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
-        } else {
-          const keyId = `${actor.ap_id}#main-key`;
-          const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(likeActivityRaw));
-
-          await fetch(postAuthor.inbox, {
-            method: 'POST',
-            headers: { ...headers, 'Content-Type': 'application/activity+json' },
-            body: JSON.stringify(likeActivityRaw),
-          });
-        }
-      }
+      await enqueueDeliveryToActor(c.env, likeActivityApId, story.attributedTo);
     } catch (e) {
-      console.error('Failed to send Like activity for story:', e);
+      console.error('[Stories] Failed to enqueue Like activity for story:', e);
     }
   }
 
@@ -301,53 +285,39 @@ stories.delete('/:id/like', async (c) => {
   });
 
   if (!isLocal(apId, baseUrl)) {
+    const undoObject = like.activityApId
+      ? like.activityApId
+      : {
+        type: 'Like',
+        actor: actor.ap_id,
+        object: apId,
+      };
+    const undoLikeActivity = {
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      id: activityApId(baseUrl, generateId()),
+      type: 'Undo',
+      actor: actor.ap_id,
+      object: undoObject,
+    };
+
+    // Store activity first (queue consumer loads rawJson by activityId).
+    await prisma.activity.upsert({
+      where: { apId: undoLikeActivity.id },
+      update: {},
+      create: {
+        apId: undoLikeActivity.id,
+        type: 'Undo',
+        actorApId: actor.ap_id,
+        objectApId: apId,
+        rawJson: JSON.stringify(undoLikeActivity),
+        direction: 'outbound',
+      },
+    });
+
     try {
-      const postAuthor = await prisma.actorCache.findUnique({
-        where: { apId: story.attributedTo },
-        select: { inbox: true },
-      });
-      if (postAuthor?.inbox) {
-        if (!isSafeRemoteUrl(postAuthor.inbox)) {
-          console.warn(`[Stories] Blocked unsafe inbox URL: ${postAuthor.inbox}`);
-          return c.json({ success: true, liked: false });
-        }
-        const undoObject = like.activityApId
-          ? like.activityApId
-          : {
-            type: 'Like',
-            actor: actor.ap_id,
-            object: apId,
-          };
-        const undoLikeActivity = {
-          '@context': 'https://www.w3.org/ns/activitystreams',
-          id: activityApId(baseUrl, generateId()),
-          type: 'Undo',
-          actor: actor.ap_id,
-          object: undoObject,
-        };
-
-        const keyId = `${actor.ap_id}#main-key`;
-        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', postAuthor.inbox, JSON.stringify(undoLikeActivity));
-
-        await fetch(postAuthor.inbox, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(undoLikeActivity),
-        });
-
-        await prisma.activity.create({
-          data: {
-            apId: undoLikeActivity.id,
-            type: 'Undo',
-            actorApId: actor.ap_id,
-            objectApId: apId,
-            rawJson: JSON.stringify(undoLikeActivity),
-            direction: 'outbound',
-          },
-        });
-      }
+      await enqueueDeliveryToActor(c.env, undoLikeActivity.id, story.attributedTo);
     } catch (e) {
-      console.error('Failed to send Undo Like for story:', e);
+      console.error('[Stories] Failed to enqueue Undo Like for story:', e);
     }
   }
 

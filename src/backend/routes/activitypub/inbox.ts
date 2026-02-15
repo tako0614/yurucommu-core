@@ -8,11 +8,16 @@ import { getActivityObjectId } from './inbox-types';
 import { handleGroupCreate, handleGroupFollow, handleGroupUndo } from './handlers/actorInboxHandlers';
 import {
   handleAccept,
+  handleAdd,
   handleAnnounce,
+  handleBlock,
   handleCreate,
   handleDelete,
+  handleFlag,
   handleFollow,
+  handleMove,
   handleLike,
+  handleRemove,
   handleReject,
   handleUndo,
   handleUpdate,
@@ -519,11 +524,19 @@ ap.post('/ap/users/:username/inbox', async (c) => {
       await handleReject(c, activity);
       break;
     case 'Add':
+      await handleAdd(c, activity, recipient, actor);
+      break;
     case 'Remove':
+      await handleRemove(c, activity, recipient, actor);
+      break;
     case 'Block':
+      await handleBlock(c, activity, recipient, actor);
+      break;
     case 'Flag':
+      await handleFlag(c, activity, actor);
+      break;
     case 'Move':
-      // Known but unsupported activity types - silently acknowledge
+      await handleMove(c, activity, actor);
       break;
     default:
       // Log unknown activity types for debugging (production: remove or use proper logging)
