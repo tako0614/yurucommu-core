@@ -76,7 +76,7 @@ Cloudflare Workers にデプロイ:
 npm run deploy
 ```
 
-### ウェブサイト (yurucommu.com)
+### ウェブサイト (www.yurucommu.com)
 
 Cloudflare Workers (assets) にデプロイ:
 
