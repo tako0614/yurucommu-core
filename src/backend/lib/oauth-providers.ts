@@ -61,17 +61,20 @@ export function getAuthConfig(env: Env): AuthConfig {
   }
 
   // Takos OAuth
-  if (env.TAKOS_URL && env.TAKOS_CLIENT_ID && env.TAKOS_CLIENT_SECRET) {
+  const takosUrl = env.TAKOS_URL;
+  const takosClientId = env.TAKOS_CLIENT_ID || env.CLIENT_ID;
+  const takosClientSecret = env.TAKOS_CLIENT_SECRET || env.CLIENT_SECRET;
+  if (takosUrl && takosClientId && takosClientSecret) {
     providers.push({
       id: 'takos',
       name: 'Takos',
       icon: '/icons/takos.svg',
-      authorizeUrl: `${env.TAKOS_URL}/oauth/authorize`,
-      tokenUrl: `${env.TAKOS_URL}/oauth/token`,
-      userInfoUrl: `${env.TAKOS_URL}/oauth/userinfo`,
+      authorizeUrl: `${takosUrl}/oauth/authorize`,
+      tokenUrl: `${takosUrl}/oauth/token`,
+      userInfoUrl: `${takosUrl}/oauth/userinfo`,
       scopes: ['openid', 'profile', 'email', 'workspaces:read', 'repos:read'],
       supportsPkce: true,
-      apiBaseUrl: env.TAKOS_URL,
+      apiBaseUrl: takosUrl,
     });
   }
 
@@ -100,7 +103,7 @@ export function getClientId(env: Env, providerId: string): string {
     case 'x':
       return env.X_CLIENT_ID || '';
     case 'takos':
-      return env.TAKOS_CLIENT_ID || '';
+      return env.TAKOS_CLIENT_ID || env.CLIENT_ID || '';
     default:
       return '';
   }
@@ -116,7 +119,7 @@ export function getClientSecret(env: Env, providerId: string): string {
     case 'x':
       return env.X_CLIENT_SECRET || '';
     case 'takos':
-      return env.TAKOS_CLIENT_SECRET || '';
+      return env.TAKOS_CLIENT_SECRET || env.CLIENT_SECRET || '';
     default:
       return '';
   }

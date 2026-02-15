@@ -19,6 +19,9 @@ export interface EnvVars {
   TAKOS_URL?: string;
   TAKOS_CLIENT_ID?: string;
   TAKOS_CLIENT_SECRET?: string;
+  // Takopack OAuth autoEnv compatibility (CLIENT_ID/CLIENT_SECRET)
+  CLIENT_ID?: string;
+  CLIENT_SECRET?: string;
   AUTH_MODE?: string;
   ENCRYPTION_KEY?: string; // 32-byte hex key for encrypting sensitive data
 }
@@ -38,6 +41,8 @@ export type Env = {
   MEDIA: R2Bucket;
   KV: KVNamespace;
   ASSETS: Fetcher;
+  // Optional: Takos OAuth exchange service binding (for same-zone/WFP deployments)
+  TAKOS_OAUTH_EXCHANGE?: Fetcher;
   PRISMA?: PrismaClient;
 } & EnvVars;
 
