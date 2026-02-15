@@ -25,6 +25,11 @@ export interface EnvVars {
   CLIENT_SECRET?: string;
   AUTH_MODE?: string;
   ENCRYPTION_KEY?: string; // 32-byte hex key for encrypting sensitive data
+
+  // Shadow delivery probes (staging-only). Comma-separated hosts.
+  DELIVERY_SHADOW_PROBE_HOSTS?: string;
+  // 0.0-1.0 sampling rate for probes (default: 1.0)
+  DELIVERY_SHADOW_PROBE_SAMPLE_RATE?: string;
 }
 
 /**
