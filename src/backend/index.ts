@@ -148,9 +148,54 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
     await next();
   });
 
+  // Takos tools endpoints may be called from the browser (same-origin) and rely on
+  // the same session cookie auth as the rest of the API.
+  app.use('/.takos/tools/*', async (c, next) => {
+    const sessionId = getCookie(c, 'session');
+    if (sessionId) {
+      const prisma = c.get('prisma');
+      const session = await prisma.session.findFirst({
+        where: {
+          id: sessionId,
+          expiresAt: { gt: new Date().toISOString() },
+        },
+        include: { member: true },
+      });
+
+      if (session) {
+        const actor: Actor = {
+          ap_id: session.member.apId,
+          type: session.member.type,
+          preferred_username: session.member.preferredUsername,
+          name: session.member.name,
+          summary: session.member.summary,
+          icon_url: session.member.iconUrl,
+          header_url: session.member.headerUrl,
+          inbox: session.member.inbox,
+          outbox: session.member.outbox,
+          followers_url: session.member.followersUrl,
+          following_url: session.member.followingUrl,
+          public_key_pem: session.member.publicKeyPem,
+          private_key_pem: session.member.privateKeyPem,
+          takos_user_id: session.member.takosUserId,
+          follower_count: session.member.followerCount,
+          following_count: session.member.followingCount,
+          post_count: session.member.postCount,
+          is_private: session.member.isPrivate,
+          role: session.member.role as 'owner' | 'moderator' | 'member',
+          created_at: session.member.createdAt,
+        };
+        c.set('actor', actor);
+      }
+    }
+    await next();
+  });
+
   app.use('/api/*', csrfProtection());
+  app.use('/.takos/tools/*', csrfProtection());
 
   app.use('/api/*', rateLimit(RateLimitConfigs.general));
+  app.use('/.takos/tools/*', rateLimit(RateLimitConfigs.general));
   app.use('/api/auth/*', rateLimit(RateLimitConfigs.auth));
   app.use('/api/search/*', rateLimit(RateLimitConfigs.search));
   app.use('/api/media/*', rateLimit(RateLimitConfigs.mediaUpload));

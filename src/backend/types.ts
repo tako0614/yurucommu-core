@@ -10,6 +10,10 @@ import type { DeliveryQueueMessageV1, DeliveryDlqMessageV1 } from './lib/deliver
 export interface EnvVars {
   APP_URL: string;
 
+  // Takos-specific endpoints are opt-in (fail-close by default).
+  ENABLE_TAKOS_PROXY?: string;
+  ENABLE_TAKOS_TOOLS?: string;
+
   // 認証設定（自由に組み合わせ可能）
   AUTH_PASSWORD_HASH?: string; // PBKDF2-hashed password (recommended)
   AUTH_PASSWORD?: string; // Legacy plain text (deprecated)

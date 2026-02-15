@@ -7,9 +7,18 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { formatUsername } from '../utils';
+import { activityApId, formatUsername, generateId, objectApId, safeJsonParse } from '../utils';
+import { getConversationId } from './dm/utils';
 
 const takosTools = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// Feature flag gate (fail-close).
+takosTools.use('*', async (c, next) => {
+  if (c.env.ENABLE_TAKOS_TOOLS !== 'true') {
+    return c.notFound();
+  }
+  await next();
+});
 
 interface ToolRequest {
   input: Record<string, unknown>;
@@ -54,13 +63,14 @@ takosTools.post('/:name', async (c) => {
           return c.json({ success: true, data: { actors: [] } });
         }
 
-        const actors = await prisma.actor.findMany({
-          where: {
-            OR: [
-              { preferredUsername: { contains: query } },
-              { name: { contains: query } },
-            ],
-          },
+	        const actors = await prisma.actor.findMany({
+	          where: {
+	            isPrivate: 0,
+	            OR: [
+	              { preferredUsername: { contains: query } },
+	              { name: { contains: query } },
+	            ],
+	          },
           select: {
             apId: true,
             preferredUsername: true,
@@ -152,26 +162,42 @@ takosTools.post('/:name', async (c) => {
         return c.json({ success: true, data: { trending } });
       }
 
-      case 'yurucommu_get_user_profile': {
-        const username = String(input.username || '').trim();
+	      case 'yurucommu_get_user_profile': {
+	        const username = String(input.username || '').trim();
 
-        if (!username) {
-          return c.json({ success: false, error: 'Username is required' }, 400);
-        }
+	        if (!username) {
+	          return c.json({ success: false, error: 'Username is required' }, 400);
+	        }
 
-        const actorRecord = await prisma.actor.findFirst({
-          where: { preferredUsername: username },
-        });
+	        const actorRecord = await prisma.actor.findFirst({
+	          where: { preferredUsername: username },
+	          select: {
+	            apId: true,
+	            preferredUsername: true,
+	            name: true,
+	            iconUrl: true,
+	            summary: true,
+	            followerCount: true,
+	            followingCount: true,
+	            postCount: true,
+	            isPrivate: true,
+	          },
+	        });
 
-        if (!actorRecord) {
-          return c.json({ success: false, error: 'User not found' }, 404);
-        }
+	        if (!actorRecord) {
+	          return c.json({ success: false, error: 'User not found' }, 404);
+	        }
 
-        return c.json({
-          success: true,
-          data: {
-            ap_id: actorRecord.apId,
-            username: formatUsername(actorRecord.apId),
+	        // Fail-close for private accounts (allow self lookup only).
+	        if (actorRecord.isPrivate && actor?.ap_id !== actorRecord.apId) {
+	          return c.json({ success: false, error: 'User not found' }, 404);
+	        }
+
+	        return c.json({
+	          success: true,
+	          data: {
+	            ap_id: actorRecord.apId,
+	            username: formatUsername(actorRecord.apId),
             preferred_username: actorRecord.preferredUsername,
             name: actorRecord.name,
             icon_url: actorRecord.iconUrl,
@@ -601,40 +627,79 @@ takosTools.post('/:name', async (c) => {
 
         const target = await prisma.actor.findFirst({
           where: { preferredUsername: recipient },
+          select: { apId: true },
         });
 
         if (!target) {
           return c.json({ success: false, error: 'Recipient not found' }, 404);
         }
 
-        // Create DM as a direct visibility post
-        const postId = crypto.randomUUID();
+        const baseUrl = c.env.APP_URL;
         const now = new Date().toISOString();
-        const apId = `${c.env.APP_URL}/ap/notes/${postId}`;
+        const messageId = generateId();
+        const apId = objectApId(baseUrl, messageId);
+        const conversationId = getConversationId(baseUrl, actor.ap_id, target.apId);
+        const toJson = JSON.stringify([target.apId]);
+        const ccJson = JSON.stringify([]);
+        const activityId = activityApId(baseUrl, generateId());
 
-        await prisma.object.create({
-          data: {
-            apId,
-            type: 'Note',
-            attributedTo: actor.ap_id,
-            content,
-            summary: null,
-            attachmentsJson: '[]',
-            inReplyTo: null,
-            visibility: 'direct',
-            audienceJson: JSON.stringify([target.apId]),
-            likeCount: 0,
-            replyCount: 0,
-            announceCount: 0,
-            shareCount: 0,
-            published: now,
-            isLocal: 1,
-          },
+        // Keep behavior aligned with the main DM API (create message + recipient tracking + inbox entry).
+        await prisma.$transaction(async (tx) => {
+          await tx.object.create({
+            data: {
+              apId,
+              type: 'Note',
+              attributedTo: actor.ap_id,
+              content,
+              summary: null,
+              attachmentsJson: '[]',
+              inReplyTo: null,
+              conversation: conversationId,
+              visibility: 'direct',
+              toJson,
+              ccJson,
+              published: now,
+              isLocal: 1,
+            },
+          });
+
+          await tx.objectRecipient.upsert({
+            where: {
+              objectApId_recipientApId: {
+                objectApId: apId,
+                recipientApId: target.apId,
+              },
+            },
+            create: {
+              objectApId: apId,
+              recipientApId: target.apId,
+              type: 'to',
+            },
+            update: {},
+          });
+
+          await tx.activity.create({
+            data: {
+              apId: activityId,
+              type: 'Create',
+              actorApId: actor.ap_id,
+              objectApId: apId,
+              rawJson: JSON.stringify({ type: 'Create', actor: actor.ap_id, object: apId }),
+              direction: 'inbound',
+            },
+          });
+
+          await tx.inbox.create({
+            data: {
+              actorApId: target.apId,
+              activityApId: activityId,
+            },
+          });
         });
 
         return c.json({
           success: true,
-          data: { message_id: apId },
+          data: { message_id: apId, conversation_id: conversationId },
         });
       }
 
@@ -645,27 +710,42 @@ takosTools.post('/:name', async (c) => {
 
         const limit = Math.min(Number(input.limit) || 20, 50);
 
-        // Get direct messages involving the current user
         const dms = await prisma.object.findMany({
           where: {
             visibility: 'direct',
+            type: 'Note',
+            conversation: { not: null },
             OR: [
               { attributedTo: actor.ap_id },
-              { audienceJson: { contains: actor.ap_id } },
+              { recipients: { some: { recipientApId: actor.ap_id } } },
             ],
           },
           orderBy: { published: 'desc' },
-          take: 100,
+          select: {
+            attributedTo: true,
+            toJson: true,
+            published: true,
+            content: true,
+          },
+          take: 2000,
         });
 
         // Group by conversation partner
         const threads: Record<string, { partner: string; lastMessage: string; lastDate: string }> = {};
 
         for (const dm of dms) {
-          const audience = JSON.parse(dm.audienceJson || '[]') as string[];
-          const partner = dm.attributedTo === actor.ap_id
-            ? audience[0]
-            : dm.attributedTo;
+          let partner: string | null = null;
+          if (dm.attributedTo === actor.ap_id) {
+            const toRecipients = safeJsonParse<string[]>(dm.toJson, []);
+            partner = toRecipients[0] || null;
+          } else {
+            // Defense in depth: verify we're actually a recipient.
+            const toRecipients = safeJsonParse<string[]>(dm.toJson, []);
+            if (!toRecipients.includes(actor.ap_id)) {
+              continue;
+            }
+            partner = dm.attributedTo;
+          }
 
           if (partner && !threads[partner]) {
             threads[partner] = {
@@ -689,24 +769,27 @@ takosTools.post('/:name', async (c) => {
           return c.json({ success: false, error: 'Authentication required' }, 401);
         }
 
-        const threadId = String(input.thread_id || '').trim(); // thread_id is the partner's ap_id
+        const threadId = String(input.thread_id || '').trim(); // partner ap_id
         const limit = Math.min(Number(input.limit) || 50, 100);
 
         if (!threadId) {
           return c.json({ success: false, error: 'Thread ID is required' }, 400);
         }
 
+        const baseUrl = c.env.APP_URL;
+        const conversationId = getConversationId(baseUrl, actor.ap_id, threadId);
+
         const messages = await prisma.object.findMany({
           where: {
             visibility: 'direct',
+            type: 'Note',
+            conversation: conversationId,
             OR: [
               {
                 attributedTo: actor.ap_id,
-                audienceJson: { contains: threadId },
               },
               {
-                attributedTo: threadId,
-                audienceJson: { contains: actor.ap_id },
+                recipients: { some: { recipientApId: actor.ap_id } },
               },
             ],
           },
@@ -714,15 +797,22 @@ takosTools.post('/:name', async (c) => {
           take: limit,
         });
 
+        const filtered = messages.filter((m) => {
+          if (m.attributedTo === actor.ap_id) return true;
+          const toRecipients = safeJsonParse<string[]>(m.toJson, []);
+          return toRecipients.includes(actor.ap_id);
+        });
+
         return c.json({
           success: true,
           data: {
-            messages: messages.map(m => ({
+            messages: filtered.map(m => ({
               ap_id: m.apId,
               content: m.content,
               from: m.attributedTo,
               published: m.published,
             })),
+            conversation_id: conversationId,
           },
         });
       }
