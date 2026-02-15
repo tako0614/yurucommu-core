@@ -296,6 +296,15 @@ auth.get('/callback/:provider', async (c) => {
     'Content-Type': 'application/x-www-form-urlencoded',
   };
 
+  const usingTakosExchangeBinding = providerId === 'takos' && !!c.env.TAKOS_OAUTH_EXCHANGE;
+  if (usingTakosExchangeBinding) {
+    // Preserve the caller IP for rate limiting/audit on the Takos side (service binding calls may not have CF-Connecting-IP).
+    const clientIp = c.req.header('CF-Connecting-IP');
+    if (clientIp) {
+      tokenHeaders['X-Forwarded-For'] = clientIp;
+    }
+  }
+
   if (providerId === 'x') {
     const credentials = btoa(`${clientId}:${clientSecret}`);
     tokenHeaders['Authorization'] = `Basic ${credentials}`;
@@ -303,17 +312,24 @@ auth.get('/callback/:provider', async (c) => {
   }
 
   console.log('Token exchange request:', {
-    url: provider.tokenUrl,
+    url: usingTakosExchangeBinding ? 'https://internal/oauth/token' : provider.tokenUrl,
+    via: usingTakosExchangeBinding ? 'service_binding' : 'fetch',
     clientId,
     redirectUri,
     hasCodeVerifier: !!tokenBody.code_verifier,
   });
 
-  const tokenRes = await fetch(provider.tokenUrl, {
-    method: 'POST',
-    headers: tokenHeaders,
-    body: new URLSearchParams(tokenBody),
-  });
+  const tokenRes = usingTakosExchangeBinding
+    ? await c.env.TAKOS_OAUTH_EXCHANGE!.fetch('https://internal/oauth/token', {
+      method: 'POST',
+      headers: tokenHeaders,
+      body: new URLSearchParams(tokenBody),
+    })
+    : await fetch(provider.tokenUrl, {
+      method: 'POST',
+      headers: tokenHeaders,
+      body: new URLSearchParams(tokenBody),
+    });
 
   if (!tokenRes.ok) {
     const errText = await tokenRes.text();
@@ -335,7 +351,33 @@ auth.get('/callback/:provider', async (c) => {
   // ユーザー情報取得
   let userInfo;
   try {
-    userInfo = await fetchUserInfo(provider, tokens.access_token);
+    if (providerId === 'takos' && c.env.TAKOS_OAUTH_EXCHANGE) {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${tokens.access_token}`,
+      };
+      const clientIp = c.req.header('CF-Connecting-IP');
+      if (clientIp) {
+        headers['X-Forwarded-For'] = clientIp;
+      }
+
+      const res = await c.env.TAKOS_OAUTH_EXCHANGE.fetch('https://internal/oauth/userinfo', { headers });
+      if (!res.ok) {
+        throw new Error(`Failed to fetch takos user info: ${res.status}`);
+      }
+      const data = await res.json() as { user?: { id: string; name: string; email?: string; picture?: string } };
+      if (!data.user?.id || !data.user?.name) {
+        throw new Error('Invalid takos user info payload');
+      }
+
+      userInfo = {
+        id: data.user.id,
+        name: data.user.name,
+        email: data.user.email,
+        picture: data.user.picture,
+      };
+    } else {
+      userInfo = await fetchUserInfo(provider, tokens.access_token);
+    }
   } catch (err) {
     console.error('Failed to fetch user info:', err);
     return c.redirect('/?error=user_info_failed');

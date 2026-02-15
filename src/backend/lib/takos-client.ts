@@ -152,21 +152,30 @@ async function refreshTakosToken(
   env: Env,
   refreshToken: string
 ): Promise<{ access_token: string; refresh_token?: string; expires_in?: number } | null> {
-  if (!env.TAKOS_URL || !env.TAKOS_CLIENT_ID || !env.TAKOS_CLIENT_SECRET) {
+  const clientId = env.TAKOS_CLIENT_ID || env.CLIENT_ID;
+  const clientSecret = env.TAKOS_CLIENT_SECRET || env.CLIENT_SECRET;
+  const usingTakosExchangeBinding = !!env.TAKOS_OAUTH_EXCHANGE;
+
+  if ((!env.TAKOS_URL && !usingTakosExchangeBinding) || !clientId || !clientSecret) {
     return null;
   }
 
   try {
-    const res = await fetch(`${env.TAKOS_URL}/oauth/token`, {
+    const url = usingTakosExchangeBinding ? 'https://internal/oauth/token' : `${env.TAKOS_URL}/oauth/token`;
+    const init: RequestInit = {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
-        client_id: env.TAKOS_CLIENT_ID,
-        client_secret: env.TAKOS_CLIENT_SECRET,
+        client_id: clientId,
+        client_secret: clientSecret,
       }),
-    });
+    };
+
+    const res = usingTakosExchangeBinding
+      ? await env.TAKOS_OAUTH_EXCHANGE!.fetch(url, init)
+      : await fetch(url, init);
 
     if (!res.ok) {
       console.error('Failed to refresh takos token:', await res.text());
