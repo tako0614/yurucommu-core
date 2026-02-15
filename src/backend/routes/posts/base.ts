@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { generateId, objectApId, activityApId, formatUsername, isLocal, safeJsonParse } from '../../utils';
 import { MAX_POST_CONTENT_LENGTH, MAX_POST_SUMMARY_LENGTH, MAX_POSTS_PAGE_LIMIT, extractMentions, formatPost, normalizeVisibility, parseLimit, PostRow } from './utils';
-import { deliverActivity, deliverActivityToMany } from '../../lib/activitypub-helpers';
+import { enqueueFanoutToFollowers } from '../../lib/delivery/queue';
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -305,15 +305,6 @@ posts.post('/', async (c) => {
 
   // Federate to followers if visibility is public
   if (visibility !== 'direct') {
-    const followers = await prisma.follow.findMany({
-      where: {
-        followingApId: actor.ap_id,
-        status: 'accepted'
-      },
-      select: { followerApId: true },
-      distinct: ['followerApId']
-    });
-
     // Build to/cc fields based on visibility
     const followersUrl = `${actor.ap_id}/followers`;
     const publicUrl = 'https://www.w3.org/ns/activitystreams#Public';
@@ -358,30 +349,6 @@ posts.post('/', async (c) => {
       },
     };
 
-    // Send to remote followers (non-blocking background delivery)
-    const remoteFollowers = followers.filter((f) => !isLocal(f.followerApId, baseUrl));
-
-    // Schedule delivery in background - don't await to avoid blocking the response
-    // Use Promise.allSettled to ensure all deliveries are attempted even if some fail
-    if (remoteFollowers.length > 0) {
-      const senderActor = { apId: actor.ap_id, privateKeyPem: actor.private_key_pem };
-      Promise.allSettled(
-        remoteFollowers.map((follower) =>
-          deliverActivity(prisma, senderActor, follower.followerApId, createActivity)
-            .then((success) => {
-              if (!success) {
-                console.warn(`[Posts] Background delivery failed to ${follower.followerApId}`);
-              }
-            })
-            .catch((err) => {
-              console.error(`[Posts] Background delivery error to ${follower.followerApId}:`, err);
-            })
-        )
-      ).catch((err) => {
-        console.error('[Posts] Background delivery batch error:', err);
-      });
-    }
-
     // Store activity
     await prisma.activity.create({
       data: {
@@ -393,6 +360,14 @@ posts.post('/', async (c) => {
         direction: 'outbound'
       }
     });
+
+    // Phase 2: Async federation delivery (Queue-based)
+    try {
+      await enqueueFanoutToFollowers(c.env, createActivity.id, actor.ap_id);
+    } catch (err) {
+      // Best-effort: post creation must succeed even if federation enqueue fails.
+      console.error('[Posts] Failed to enqueue federation fanout:', err);
+    }
   }
 
   return c.json({
@@ -754,15 +729,6 @@ posts.patch('/:id', async (c) => {
   });
 
   // Send Update activity to followers
-  const followers = await prisma.follow.findMany({
-    where: {
-      followingApId: actor.ap_id,
-      status: 'accepted'
-    },
-    select: { followerApId: true },
-    distinct: ['followerApId']
-  });
-
   const updateActivity = {
     '@context': 'https://www.w3.org/ns/activitystreams',
     id: activityApId(baseUrl, generateId()),
@@ -778,11 +744,6 @@ posts.patch('/:id', async (c) => {
     },
   };
 
-  // P07: Send to remote followers in parallel with concurrency limit
-  const remoteFollowers = followers.filter((f) => !isLocal(f.followerApId, baseUrl));
-  const senderActor = { apId: actor.ap_id, privateKeyPem: actor.private_key_pem };
-  await deliverActivityToMany(prisma, senderActor, remoteFollowers.map(f => f.followerApId), updateActivity);
-
   // Store activity
   await prisma.activity.create({
     data: {
@@ -794,6 +755,13 @@ posts.patch('/:id', async (c) => {
       direction: 'outbound'
     }
   });
+
+  // Phase 2: Async federation delivery (Queue-based)
+  try {
+    await enqueueFanoutToFollowers(c.env, updateActivity.id, actor.ap_id);
+  } catch (err) {
+    console.error('[Posts] Failed to enqueue Update federation fanout:', err);
+  }
 
   return c.json({
     success: true,
@@ -862,15 +830,6 @@ posts.delete('/:id', async (c) => {
   }
 
   // Send Delete activity to followers
-  const followers = await prisma.follow.findMany({
-    where: {
-      followingApId: actor.ap_id,
-      status: 'accepted'
-    },
-    select: { followerApId: true },
-    distinct: ['followerApId']
-  });
-
   const deleteActivity = {
     '@context': 'https://www.w3.org/ns/activitystreams',
     id: activityApId(baseUrl, generateId()),
@@ -879,10 +838,22 @@ posts.delete('/:id', async (c) => {
     object: post.apId,
   };
 
-  // P07: Send to remote followers in parallel with concurrency limit
-  const remoteFollowers = followers.filter((f) => !isLocal(f.followerApId, baseUrl));
-  const senderActorDelete = { apId: actor.ap_id, privateKeyPem: actor.private_key_pem };
-  await deliverActivityToMany(prisma, senderActorDelete, remoteFollowers.map(f => f.followerApId), deleteActivity);
+  await prisma.activity.create({
+    data: {
+      apId: deleteActivity.id,
+      type: 'Delete',
+      actorApId: actor.ap_id,
+      objectApId: post.apId,
+      rawJson: JSON.stringify(deleteActivity),
+      direction: 'outbound',
+    },
+  });
+
+  try {
+    await enqueueFanoutToFollowers(c.env, deleteActivity.id, actor.ap_id);
+  } catch (err) {
+    console.error('[Posts] Failed to enqueue Delete federation fanout:', err);
+  }
 
   return c.json({ success: true });
 });

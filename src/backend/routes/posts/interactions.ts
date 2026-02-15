@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { generateId, objectApId, activityApId, isLocal, formatUsername, safeJsonParse } from '../../utils';
 import { MAX_POSTS_PAGE_LIMIT, formatPost, parseLimit, PostRow } from './utils';
-import { deliverActivity } from '../../lib/activitypub-helpers';
+import { enqueueDeliveryToActor } from '../../lib/delivery/queue';
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -97,7 +97,11 @@ posts.post('/:id/like', async (c) => {
 
   // Send Like activity to remote post author (outside transaction - delivery is best-effort)
   if (!isLocal(post.apId, baseUrl)) {
-    await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, post.attributedTo, likeActivityRaw);
+    try {
+      await enqueueDeliveryToActor(c.env, likeActivityApId, post.attributedTo);
+    } catch (err) {
+      console.error('[Posts] Failed to enqueue Like delivery:', err);
+    }
   }
 
   return c.json({ success: true, liked: true });
@@ -175,19 +179,24 @@ posts.delete('/:id/like', async (c) => {
       object: undoObject,
     };
 
-    const delivered = await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, post.attributedTo, undoLikeActivity);
-    if (delivered) {
-      // Store activity (best-effort, outside main transaction)
-      await prisma.activity.create({
-        data: {
-          apId: undoLikeActivity.id,
-          type: 'Undo',
-          actorApId: actor.ap_id,
-          objectApId: post.apId,
-          rawJson: JSON.stringify(undoLikeActivity),
-          direction: 'outbound'
-        }
-      });
+    // Store activity first (queue consumer loads rawJson by activityId).
+    await prisma.activity.upsert({
+      where: { apId: undoLikeActivity.id },
+      update: {},
+      create: {
+        apId: undoLikeActivity.id,
+        type: 'Undo',
+        actorApId: actor.ap_id,
+        objectApId: post.apId,
+        rawJson: JSON.stringify(undoLikeActivity),
+        direction: 'outbound',
+      },
+    });
+
+    try {
+      await enqueueDeliveryToActor(c.env, undoLikeActivity.id, post.attributedTo);
+    } catch (err) {
+      console.error('[Posts] Failed to enqueue Undo Like delivery:', err);
     }
   }
 
@@ -287,7 +296,11 @@ posts.post('/:id/repost', async (c) => {
 
   // Send Announce activity to remote post author (outside transaction - delivery is best-effort)
   if (!isLocal(post.apId, baseUrl)) {
-    await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, post.attributedTo, announceActivityRaw);
+    try {
+      await enqueueDeliveryToActor(c.env, announceActivityApId, post.attributedTo);
+    } catch (err) {
+      console.error('[Posts] Failed to enqueue Announce delivery:', err);
+    }
   }
 
   return c.json({ success: true, reposted: true });
@@ -362,19 +375,23 @@ posts.delete('/:id/repost', async (c) => {
       },
     };
 
-    const delivered = await deliverActivity(prisma, { apId: actor.ap_id, privateKeyPem: actor.private_key_pem }, post.attributedTo, undoAnnounceActivity);
-    if (delivered) {
-      // Store activity (best-effort, outside main transaction)
-      await prisma.activity.create({
-        data: {
-          apId: undoAnnounceActivity.id,
-          type: 'Undo',
-          actorApId: actor.ap_id,
-          objectApId: post.apId,
-          rawJson: JSON.stringify(undoAnnounceActivity),
-          direction: 'outbound'
-        }
-      });
+    await prisma.activity.upsert({
+      where: { apId: undoAnnounceActivity.id },
+      update: {},
+      create: {
+        apId: undoAnnounceActivity.id,
+        type: 'Undo',
+        actorApId: actor.ap_id,
+        objectApId: post.apId,
+        rawJson: JSON.stringify(undoAnnounceActivity),
+        direction: 'outbound',
+      },
+    });
+
+    try {
+      await enqueueDeliveryToActor(c.env, undoAnnounceActivity.id, post.attributedTo);
+    } catch (err) {
+      console.error('[Posts] Failed to enqueue Undo Announce delivery:', err);
     }
   }
 

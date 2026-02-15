@@ -7,9 +7,9 @@ import {
   isLocal,
   isSafeRemoteUrl,
   objectApId,
-  signRequest,
   fetchWithTimeout,
 } from '../../../utils';
+import { enqueueDeliveryToActor } from '../../../lib/delivery/queue';
 import {
   Activity,
   StoryOverlay,
@@ -91,57 +91,31 @@ export async function handleFollow(
   });
 
   // Send Accept response
-  if (!isLocal(actor, baseUrl)) {
-    const cachedActor = await prisma.actorCache.findUnique({
-      where: { apId: actor },
-      select: { inbox: true },
-    });
-    if (cachedActor?.inbox) {
-      if (!isSafeRemoteUrl(cachedActor.inbox)) {
-        console.warn(`[ActivityPub] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
-        return;
-      }
-      const acceptId = activityApId(baseUrl, generateId());
-      const acceptActivity = {
-        '@context': 'https://www.w3.org/ns/activitystreams',
-        id: acceptId,
+  // If the recipient requires approval, do NOT auto-accept.
+  if (status === 'accepted' && !isLocal(actor, baseUrl)) {
+    const acceptId = activityApId(baseUrl, generateId());
+    const acceptActivity = {
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      id: acceptId,
+      type: 'Accept',
+      actor: recipient.apId,
+      object: activityId,
+    };
+
+    // Store accept activity before enqueue.
+    await prisma.activity.create({
+      data: {
+        apId: acceptId,
         type: 'Accept',
-        actor: recipient.apId,
-        object: activityId,
-      };
+        actorApId: recipient.apId,
+        objectApId: activityId,
+        rawJson: JSON.stringify(acceptActivity),
+        direction: 'outbound',
+      },
+    });
 
-      const keyId = `${recipient.apId}#main-key`;
-      const headers = await signRequest(
-        recipient.privateKeyPem,
-        keyId,
-        'POST',
-        cachedActor.inbox,
-        JSON.stringify(acceptActivity)
-      );
-
-      try {
-        await fetchWithTimeout(cachedActor.inbox, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/activity+json' },
-          body: JSON.stringify(acceptActivity),
-          timeout: 15000, // 15 second timeout for ActivityPub federation
-        });
-      } catch (e) {
-        console.error('Failed to send Accept:', e);
-      }
-
-      // Store accept activity
-      await prisma.activity.create({
-        data: {
-          apId: acceptId,
-          type: 'Accept',
-          actorApId: recipient.apId,
-          objectApId: activityId,
-          rawJson: JSON.stringify(acceptActivity),
-          direction: 'outbound',
-        },
-      });
-    }
+    // Outbound delivery must be async (no remote POST in request path).
+    await enqueueDeliveryToActor(c.env, acceptId, actor);
   }
 }
 
@@ -854,4 +828,291 @@ export async function handleReject(c: ActivityContext, activity: Activity) {
       },
     },
   });
+}
+
+function getActivityTargetId(activity: Activity): string | null {
+  const target = activity.target;
+  if (!target) return null;
+  if (typeof target === 'string') return target;
+  return target.id || null;
+}
+
+function normalizeCollectionTarget(targetId: string): string {
+  // Common pattern: Group followers collection.
+  if (targetId.endsWith('/followers')) {
+    return targetId.slice(0, -'/followers'.length);
+  }
+  return targetId;
+}
+
+// Handle Add activity (collection add; used by some servers for membership)
+export async function handleAdd(
+  c: ActivityContext,
+  activity: Activity,
+  recipient: PrismaActor,
+  actor: string
+) {
+  const prisma = c.get('prisma');
+  const objectId = getActivityObjectId(activity);
+  if (!objectId) return;
+
+  // Only apply Add that targets the inbox recipient (defense-in-depth).
+  if (objectId !== recipient.apId) return;
+
+  const targetId = getActivityTargetId(activity);
+  const followingApId = normalizeCollectionTarget(targetId || actor);
+  if (!followingApId) return;
+
+  const now = new Date().toISOString();
+  await prisma.follow.upsert({
+    where: {
+      followerApId_followingApId: {
+        followerApId: recipient.apId,
+        followingApId,
+      },
+    },
+    update: {
+      status: 'accepted',
+      acceptedAt: now,
+      activityApId: activity.id || undefined,
+    },
+    create: {
+      followerApId: recipient.apId,
+      followingApId,
+      status: 'accepted',
+      activityApId: activity.id || null,
+      acceptedAt: now,
+    },
+  });
+}
+
+// Handle Remove activity (collection remove; used for expulsion/ban)
+export async function handleRemove(
+  c: ActivityContext,
+  activity: Activity,
+  recipient: PrismaActor,
+  actor: string
+) {
+  const prisma = c.get('prisma');
+  const objectId = getActivityObjectId(activity);
+  if (!objectId) return;
+
+  // Only apply Remove that targets the inbox recipient.
+  if (objectId !== recipient.apId) return;
+
+  const targetId = getActivityTargetId(activity);
+  const followingApId = normalizeCollectionTarget(targetId || actor);
+  if (!followingApId) return;
+
+  await prisma.follow.deleteMany({
+    where: {
+      followerApId: recipient.apId,
+      followingApId,
+    },
+  });
+}
+
+// Handle Block activity (remote actor blocks the recipient)
+export async function handleBlock(
+  c: ActivityContext,
+  activity: Activity,
+  recipient: PrismaActor,
+  actor: string
+) {
+  const prisma = c.get('prisma');
+  const blockedId = getActivityObjectId(activity);
+  if (!blockedId) return;
+
+  // Only act when the recipient is being blocked.
+  if (blockedId !== recipient.apId) return;
+
+  // Best-effort: sever follow relations in both directions.
+  await prisma.follow.deleteMany({
+    where: {
+      OR: [
+        { followerApId: recipient.apId, followingApId: actor },
+        { followerApId: actor, followingApId: recipient.apId },
+      ],
+    },
+  });
+}
+
+// Handle Flag activity (report)
+export async function handleFlag(_c: ActivityContext, activity: Activity, actor: string) {
+  const objectId = getActivityObjectId(activity);
+  const targetId = getActivityTargetId(activity);
+  // No moderation subsystem yet: record is already stored in activities; log for operators.
+  console.warn('[ActivityPub] Flag received:', {
+    actor,
+    object: objectId,
+    target: targetId,
+    id: activity.id || null,
+  });
+}
+
+// Handle Move activity (account migration)
+export async function handleMove(c: ActivityContext, activity: Activity, actor: string) {
+  const prisma = c.get('prisma');
+  const oldActorApId = getActivityObjectId(activity);
+  const newActorApId = getActivityTargetId(activity);
+  if (!oldActorApId || !newActorApId) return;
+
+  // Only accept self-move. Signature verification already ensures the request is signed,
+  // but we also require Move.object to match Move.actor (defense-in-depth).
+  if (oldActorApId !== actor) return;
+
+  if (!isSafeRemoteUrl(newActorApId)) {
+    console.warn(`[ActivityPub] Blocked unsafe Move target: ${newActorApId}`);
+    return;
+  }
+
+  // Refresh/cache the new actor document (best-effort).
+  type RemoteActorDoc = {
+    id: string;
+    type?: string;
+    preferredUsername?: string;
+    name?: string;
+    summary?: string;
+    icon?: { url?: string };
+    inbox?: string;
+    outbox?: string;
+    publicKey?: { id?: string; publicKeyPem?: string };
+    endpoints?: { sharedInbox?: string };
+  };
+
+  try {
+    const res = await fetchWithTimeout(newActorApId, {
+      headers: { 'Accept': 'application/activity+json, application/ld+json' },
+      timeout: 15000,
+    });
+    if (res.ok) {
+      const actorData = await res.json() as RemoteActorDoc;
+      if (
+        actorData?.id === newActorApId &&
+        actorData?.inbox &&
+        isSafeRemoteUrl(actorData.inbox)
+      ) {
+        await prisma.actorCache.upsert({
+          where: { apId: actorData.id },
+          update: {
+            type: actorData.type || 'Person',
+            preferredUsername: actorData.preferredUsername || null,
+            name: actorData.name || null,
+            summary: actorData.summary || null,
+            iconUrl: actorData.icon?.url || null,
+            inbox: actorData.inbox,
+            outbox: actorData.outbox || null,
+            sharedInbox: actorData.endpoints?.sharedInbox || null,
+            publicKeyId: actorData.publicKey?.id || null,
+            publicKeyPem: actorData.publicKey?.publicKeyPem || null,
+            rawJson: JSON.stringify(actorData),
+            lastFetchedAt: new Date().toISOString(),
+          },
+          create: {
+            apId: actorData.id,
+            type: actorData.type || 'Person',
+            preferredUsername: actorData.preferredUsername || null,
+            name: actorData.name || null,
+            summary: actorData.summary || null,
+            iconUrl: actorData.icon?.url || null,
+            inbox: actorData.inbox,
+            outbox: actorData.outbox || null,
+            sharedInbox: actorData.endpoints?.sharedInbox || null,
+            publicKeyId: actorData.publicKey?.id || null,
+            publicKeyPem: actorData.publicKey?.publicKeyPem || null,
+            rawJson: JSON.stringify(actorData),
+            lastFetchedAt: new Date().toISOString(),
+          },
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('[ActivityPub] Failed to refresh Move target actor cache:', e);
+  }
+
+  // Rewrite follow graph references from old -> new (best-effort).
+  // We use delete+create to avoid primary key update pitfalls and handle duplicates.
+  const followerRows = await prisma.follow.findMany({
+    where: { followerApId: oldActorApId },
+    select: {
+      followingApId: true,
+      status: true,
+      activityApId: true,
+      createdAt: true,
+      acceptedAt: true,
+    },
+  });
+  for (const row of followerRows) {
+    const exists = await prisma.follow.findUnique({
+      where: {
+        followerApId_followingApId: {
+          followerApId: newActorApId,
+          followingApId: row.followingApId,
+        },
+      },
+      select: { followerApId: true },
+    });
+    if (!exists) {
+      await prisma.follow.create({
+        data: {
+          followerApId: newActorApId,
+          followingApId: row.followingApId,
+          status: row.status,
+          activityApId: row.activityApId,
+          createdAt: row.createdAt,
+          acceptedAt: row.acceptedAt,
+        },
+      });
+    }
+    await prisma.follow.delete({
+      where: {
+        followerApId_followingApId: {
+          followerApId: oldActorApId,
+          followingApId: row.followingApId,
+        },
+      },
+    });
+  }
+
+  const followingRows = await prisma.follow.findMany({
+    where: { followingApId: oldActorApId },
+    select: {
+      followerApId: true,
+      status: true,
+      activityApId: true,
+      createdAt: true,
+      acceptedAt: true,
+    },
+  });
+  for (const row of followingRows) {
+    const exists = await prisma.follow.findUnique({
+      where: {
+        followerApId_followingApId: {
+          followerApId: row.followerApId,
+          followingApId: newActorApId,
+        },
+      },
+      select: { followerApId: true },
+    });
+    if (!exists) {
+      await prisma.follow.create({
+        data: {
+          followerApId: row.followerApId,
+          followingApId: newActorApId,
+          status: row.status,
+          activityApId: row.activityApId,
+          createdAt: row.createdAt,
+          acceptedAt: row.acceptedAt,
+        },
+      });
+    }
+    await prisma.follow.delete({
+      where: {
+        followerApId_followingApId: {
+          followerApId: row.followerApId,
+          followingApId: oldActorApId,
+        },
+      },
+    });
+  }
 }

@@ -38,6 +38,28 @@ database_name = "yurucommu-db"
 database_id = "REPLACE_WITH_DATABASE_ID"
 migrations_dir = "migrations"
 
+# Queue for federation delivery (async)
+[[queues.producers]]
+queue = "yurucommu-delivery"
+binding = "DELIVERY_QUEUE"
+
+[[queues.consumers]]
+queue = "yurucommu-delivery"
+max_batch_size = 10
+max_batch_timeout = 1
+max_retries = 3
+
+# Dead letter queue (application-level dead letters + reconciliation scheduling)
+[[queues.producers]]
+queue = "yurucommu-delivery-dlq"
+binding = "DELIVERY_DLQ"
+
+[[queues.consumers]]
+queue = "yurucommu-delivery-dlq"
+max_batch_size = 10
+max_batch_timeout = 60
+max_retries = 1
+
 # R2 Bucket
 [[r2_buckets]]
 binding = "MEDIA"

@@ -150,10 +150,10 @@ export class MockR2Object {
 
   constructor(
     readonly key: string,
-    private body: ArrayBuffer,
+    private _body: ArrayBuffer,
     readonly customMetadata: Record<string, string>
   ) {
-    this.size = body.byteLength;
+    this.size = _body.byteLength;
     this.etag = 'mock-etag';
     this.uploaded = new Date();
   }

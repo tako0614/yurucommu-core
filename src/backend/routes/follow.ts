@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { generateId, activityApId, isLocal, formatUsername, signRequest, isSafeRemoteUrl } from '../utils';
+import { generateId, activityApId, isLocal, formatUsername, isSafeRemoteUrl } from '../utils';
+import { enqueueDeliveryToActor } from '../lib/delivery/queue';
 
 // P07: Network timeout for remote requests (10 seconds)
 const REMOTE_FETCH_TIMEOUT_MS = 10000;
@@ -16,6 +17,9 @@ type RemoteActor = {
   icon?: { url?: string };
   inbox?: string;
   outbox?: string;
+  followers?: string;
+  following?: string;
+  endpoints?: { sharedInbox?: string };
   publicKey?: { id?: string; publicKeyPem?: string };
 };
 
@@ -129,6 +133,10 @@ follow.post('/', async (c) => {
   } else {
     // Remote target - send Follow activity
     // First, ensure we have cached the remote actor
+    if (!isSafeRemoteUrl(targetApId)) {
+      return c.json({ error: 'Invalid target_ap_id' }, 400);
+    }
+
     let cachedActor = await prisma.actorCache.findUnique({
       where: { apId: targetApId },
     });
@@ -136,9 +144,6 @@ follow.post('/', async (c) => {
     if (!cachedActor) {
       // Fetch remote actor
       try {
-        if (!isSafeRemoteUrl(targetApId)) {
-          return c.json({ error: 'Invalid target_ap_id' }, 400);
-        }
         // P07: Add timeout using AbortController
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), REMOTE_FETCH_TIMEOUT_MS);
@@ -173,9 +178,13 @@ follow.post('/', async (c) => {
             iconUrl: actorData.icon?.url || null,
             inbox: actorData.inbox,
             outbox: actorData.outbox || null,
+            followersUrl: actorData.followers || null,
+            followingUrl: actorData.following || null,
+            sharedInbox: actorData.endpoints?.sharedInbox || null,
             publicKeyId: actorData.publicKey?.id || null,
             publicKeyPem: actorData.publicKey?.publicKeyPem || null,
             rawJson: JSON.stringify(actorData),
+            lastFetchedAt: new Date().toISOString(),
           },
         });
       } catch (e) {
@@ -187,62 +196,48 @@ follow.post('/', async (c) => {
       return c.json({ error: 'Invalid inbox URL' }, 400);
     }
 
-    // Create pending follow
     const activityId = activityApId(baseUrl, generateId());
-    await prisma.follow.create({
-      data: {
-        followerApId: actor.ap_id,
-        followingApId: targetApId,
-        status: 'pending',
-        activityApId: activityId,
-      },
-    });
-
-    // Send Follow activity
+    const now = new Date().toISOString();
     const followActivity = {
       '@context': 'https://www.w3.org/ns/activitystreams',
       id: activityId,
       type: 'Follow',
       actor: actor.ap_id,
       object: targetApId,
-      published: new Date().toISOString(),
+      published: now,
     };
 
-    const keyId = `${actor.ap_id}#main-key`;
-    const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(followActivity));
-
-    // P07: Add timeout for activity delivery
     try {
-      const deliveryController = new AbortController();
-      const deliveryTimeoutId = setTimeout(() => deliveryController.abort(), REMOTE_FETCH_TIMEOUT_MS);
-      try {
-        await fetch(cachedActor.inbox, {
-          method: 'POST',
-          headers: {
-            ...headers,
-            'Content-Type': 'application/activity+json',
+      await prisma.$transaction(async (tx) => {
+        // Create pending follow
+        await tx.follow.create({
+          data: {
+            followerApId: actor.ap_id,
+            followingApId: targetApId,
+            status: 'pending',
+            activityApId: activityId,
           },
-          body: JSON.stringify(followActivity),
-          signal: deliveryController.signal
         });
-      } finally {
-        clearTimeout(deliveryTimeoutId);
-      }
+
+        // Store activity (delivery happens asynchronously via queue worker)
+        await tx.activity.create({
+          data: {
+            apId: activityId,
+            type: 'Follow',
+            actorApId: actor.ap_id,
+            objectApId: targetApId,
+            rawJson: JSON.stringify(followActivity),
+            direction: 'outbound',
+          },
+        });
+      });
     } catch (e) {
-      console.error('Failed to send Follow activity:', e);
+      console.error('[Follow] Failed to create remote follow:', e);
+      return c.json({ error: 'Failed to follow remote actor' }, 500);
     }
 
-    // Store activity
-    await prisma.activity.create({
-      data: {
-        apId: activityId,
-        type: 'Follow',
-        actorApId: actor.ap_id,
-        objectApId: targetApId,
-        rawJson: JSON.stringify(followActivity),
-        direction: 'outbound',
-      },
-    });
+    // Enqueue delivery (MUST NOT do remote POST in request path).
+    await enqueueDeliveryToActor(c.env, activityId, targetApId);
 
     return c.json({ success: true, status: 'pending' });
   }
@@ -300,62 +295,32 @@ follow.delete('/', async (c) => {
 
   // Send Undo Follow to remote
   if (!isLocal(targetApId, baseUrl)) {
-    const cachedActor = await prisma.actorCache.findUnique({
-      where: { apId: targetApId },
-      select: { inbox: true },
+    const activityId = activityApId(baseUrl, generateId());
+    const undoActivity = {
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      id: activityId,
+      type: 'Undo',
+      actor: actor.ap_id,
+      published: new Date().toISOString(),
+      object: {
+        type: 'Follow',
+        actor: actor.ap_id,
+        object: targetApId,
+      },
+    };
+
+    await prisma.activity.create({
+      data: {
+        apId: activityId,
+        type: 'Undo',
+        actorApId: actor.ap_id,
+        objectApId: targetApId,
+        rawJson: JSON.stringify(undoActivity),
+        direction: 'outbound',
+      },
     });
-    if (cachedActor?.inbox) {
-      if (isSafeRemoteUrl(cachedActor.inbox)) {
-        const activityId = activityApId(baseUrl, generateId());
-        const undoActivity = {
-          '@context': 'https://www.w3.org/ns/activitystreams',
-          id: activityId,
-          type: 'Undo',
-          actor: actor.ap_id,
-          published: new Date().toISOString(),
-          object: {
-            type: 'Follow',
-            actor: actor.ap_id,
-            object: targetApId,
-          },
-        };
 
-        const keyId = `${actor.ap_id}#main-key`;
-        const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(undoActivity));
-
-        // P07: Add timeout for activity delivery
-        try {
-          const undoController = new AbortController();
-          const undoTimeoutId = setTimeout(() => undoController.abort(), REMOTE_FETCH_TIMEOUT_MS);
-          try {
-            await fetch(cachedActor.inbox, {
-              method: 'POST',
-              headers: { ...headers, 'Content-Type': 'application/activity+json' },
-              body: JSON.stringify(undoActivity),
-              signal: undoController.signal,
-            });
-          } finally {
-            clearTimeout(undoTimeoutId);
-          }
-        } catch (e) {
-          console.error('Failed to send Undo Follow:', e);
-        }
-
-        // Store activity
-        await prisma.activity.create({
-          data: {
-            apId: activityId,
-            type: 'Undo',
-            actorApId: actor.ap_id,
-            objectApId: targetApId,
-            rawJson: JSON.stringify(undoActivity),
-            direction: 'outbound',
-          },
-        });
-      } else {
-        console.warn(`[Follow] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
-      }
-    }
+    await enqueueDeliveryToActor(c.env, activityId, targetApId);
   }
 
   return c.json({ success: true });
@@ -415,59 +380,29 @@ follow.post('/accept', async (c) => {
 
   // Send Accept to remote
   if (!isLocal(body.requester_ap_id, c.env.APP_URL)) {
-    const cachedActor = await prisma.actorCache.findUnique({
-      where: { apId: body.requester_ap_id },
-      select: { inbox: true },
-    });
-    if (cachedActor?.inbox) {
-      const baseUrl = c.env.APP_URL;
-      const activityId = activityApId(baseUrl, generateId());
-      const acceptActivity = {
-        '@context': 'https://www.w3.org/ns/activitystreams',
-        id: activityId,
+    const baseUrl = c.env.APP_URL;
+    const activityId = activityApId(baseUrl, generateId());
+    const acceptActivity = {
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      id: activityId,
+      type: 'Accept',
+      actor: actor.ap_id,
+      object: pendingFollow.activityApId,
+      published: new Date().toISOString(),
+    };
+
+    await prisma.activity.create({
+      data: {
+        apId: activityId,
         type: 'Accept',
-        actor: actor.ap_id,
-        object: pendingFollow.activityApId,
-        published: new Date().toISOString(),
-      };
+        actorApId: actor.ap_id,
+        objectApId: pendingFollow.activityApId || undefined,
+        rawJson: JSON.stringify(acceptActivity),
+        direction: 'outbound',
+      },
+    });
 
-      const keyId = `${actor.ap_id}#main-key`;
-      if (!isSafeRemoteUrl(cachedActor.inbox)) {
-        console.warn(`[Follow] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
-        return c.json({ success: true });
-      }
-      const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(acceptActivity));
-
-      // P07: Add timeout for activity delivery
-      try {
-        const acceptController = new AbortController();
-        const acceptTimeoutId = setTimeout(() => acceptController.abort(), REMOTE_FETCH_TIMEOUT_MS);
-        try {
-          await fetch(cachedActor.inbox, {
-            method: 'POST',
-            headers: { ...headers, 'Content-Type': 'application/activity+json' },
-            body: JSON.stringify(acceptActivity),
-            signal: acceptController.signal,
-          });
-        } finally {
-          clearTimeout(acceptTimeoutId);
-        }
-      } catch (e) {
-        console.error('Failed to send Accept:', e);
-      }
-
-      // Store activity
-      await prisma.activity.create({
-        data: {
-          apId: activityId,
-          type: 'Accept',
-          actorApId: actor.ap_id,
-          objectApId: pendingFollow.activityApId || undefined,
-          rawJson: JSON.stringify(acceptActivity),
-          direction: 'outbound',
-        },
-      });
-    }
+    await enqueueDeliveryToActor(c.env, activityId, body.requester_ap_id);
   }
 
   return c.json({ success: true });
@@ -506,16 +441,6 @@ follow.post('/accept/batch', async (c) => {
 
   const pendingFollowMap = new Map(pendingFollows.map((f) => [f.followerApId, f]));
 
-  // Batch fetch cached actors for remote followers
-  const remoteRequesterIds = body.requester_ap_ids.filter((id) => !isLocal(id, baseUrl));
-  const cachedActors = remoteRequesterIds.length > 0
-    ? await prisma.actorCache.findMany({
-        where: { apId: { in: remoteRequesterIds } },
-        select: { apId: true, inbox: true },
-      })
-    : [];
-  const cachedActorMap = new Map(cachedActors.map((a) => [a.apId, a]));
-
   // Track counts to update
   let followerCountIncrement = 0;
   const localFollowerIds: string[] = [];
@@ -527,6 +452,7 @@ follow.post('/accept/batch', async (c) => {
     rawJson: string;
     direction: string;
   }> = [];
+  const remoteEnqueues: Array<{ activityId: string; recipientApId: string }> = [];
 
   for (const requesterApId of body.requester_ap_ids) {
     try {
@@ -552,8 +478,9 @@ follow.post('/accept/batch', async (c) => {
 
       // Send Accept to remote
       if (!isLocal(requesterApId, baseUrl)) {
-        const cachedActor = cachedActorMap.get(requesterApId);
-        if (cachedActor?.inbox) {
+        if (!isSafeRemoteUrl(requesterApId)) {
+          console.warn(`[Follow] Blocked unsafe remote actor: ${requesterApId}`);
+        } else {
           const activityId = activityApId(baseUrl, generateId());
           const acceptActivity = {
             '@context': 'https://www.w3.org/ns/activitystreams',
@@ -564,30 +491,15 @@ follow.post('/accept/batch', async (c) => {
             published: new Date().toISOString(),
           };
 
-          const keyId = `${actor.ap_id}#main-key`;
-          if (!isSafeRemoteUrl(cachedActor.inbox)) {
-            console.warn(`[Follow] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
-          } else {
-            const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(acceptActivity));
-
-            // Log failures instead of silently swallowing them
-            fetch(cachedActor.inbox, {
-              method: 'POST',
-              headers: { ...headers, 'Content-Type': 'application/activity+json' },
-              body: JSON.stringify(acceptActivity),
-            }).catch((err) => {
-              console.error(`[Follow] Batch Accept delivery failed to ${cachedActor.inbox}:`, err);
-            });
-
-            activitiesToCreate.push({
-              apId: activityId,
-              type: 'Accept',
-              actorApId: actor.ap_id,
-              objectApId: pendingFollow.activityApId || undefined,
-              rawJson: JSON.stringify(acceptActivity),
-              direction: 'outbound',
-            });
-          }
+          activitiesToCreate.push({
+            apId: activityId,
+            type: 'Accept',
+            actorApId: actor.ap_id,
+            objectApId: pendingFollow.activityApId || undefined,
+            rawJson: JSON.stringify(acceptActivity),
+            direction: 'outbound',
+          });
+          remoteEnqueues.push({ activityId, recipientApId: requesterApId });
         }
       }
 
@@ -618,6 +530,11 @@ follow.post('/accept/batch', async (c) => {
     await prisma.activity.createMany({
       data: activitiesToCreate,
     });
+  }
+
+  // Enqueue delivery after activities are persisted.
+  if (remoteEnqueues.length > 0) {
+    await Promise.allSettled(remoteEnqueues.map((e) => enqueueDeliveryToActor(c.env, e.activityId, e.recipientApId)));
   }
 
   return c.json({ results, accepted_count: results.filter(r => r.success).length });
@@ -658,58 +575,29 @@ follow.post('/reject', async (c) => {
   }
 
   if (!isLocal(body.requester_ap_id, c.env.APP_URL)) {
-    const cachedActor = await prisma.actorCache.findUnique({
-      where: { apId: body.requester_ap_id },
-      select: { inbox: true },
-    });
-    if (cachedActor?.inbox) {
-      if (!isSafeRemoteUrl(cachedActor.inbox)) {
-        console.warn(`[Follow] Blocked unsafe inbox URL: ${cachedActor.inbox}`);
-        return c.json({ success: true });
-      }
-      const baseUrl = c.env.APP_URL;
-      const activityId = activityApId(baseUrl, generateId());
-      const rejectActivity = {
-        '@context': 'https://www.w3.org/ns/activitystreams',
-        id: activityId,
+    const baseUrl = c.env.APP_URL;
+    const activityId = activityApId(baseUrl, generateId());
+    const rejectActivity = {
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      id: activityId,
+      type: 'Reject',
+      actor: actor.ap_id,
+      object: pendingFollow.activityApId,
+      published: new Date().toISOString(),
+    };
+
+    await prisma.activity.create({
+      data: {
+        apId: activityId,
         type: 'Reject',
-        actor: actor.ap_id,
-        object: pendingFollow.activityApId,
-        published: new Date().toISOString(),
-      };
+        actorApId: actor.ap_id,
+        objectApId: pendingFollow.activityApId || undefined,
+        rawJson: JSON.stringify(rejectActivity),
+        direction: 'outbound',
+      },
+    });
 
-      const keyId = `${actor.ap_id}#main-key`;
-      const headers = await signRequest(actor.private_key_pem, keyId, 'POST', cachedActor.inbox, JSON.stringify(rejectActivity));
-
-      // P07: Add timeout for activity delivery
-      try {
-        const rejectController = new AbortController();
-        const rejectTimeoutId = setTimeout(() => rejectController.abort(), REMOTE_FETCH_TIMEOUT_MS);
-        try {
-          await fetch(cachedActor.inbox, {
-            method: 'POST',
-            headers: { ...headers, 'Content-Type': 'application/activity+json' },
-            body: JSON.stringify(rejectActivity),
-            signal: rejectController.signal,
-          });
-        } finally {
-          clearTimeout(rejectTimeoutId);
-        }
-      } catch (e) {
-        console.error('Failed to send Reject:', e);
-      }
-
-      await prisma.activity.create({
-        data: {
-          apId: activityId,
-          type: 'Reject',
-          actorApId: actor.ap_id,
-          objectApId: pendingFollow.activityApId || undefined,
-          rawJson: JSON.stringify(rejectActivity),
-          direction: 'outbound',
-        },
-      });
-    }
+    await enqueueDeliveryToActor(c.env, activityId, body.requester_ap_id);
   }
 
   return c.json({ success: true });
