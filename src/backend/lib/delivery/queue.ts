@@ -89,6 +89,86 @@ function queueAvailable(env: Env): env is Env & { DELIVERY_QUEUE: Queue<Delivery
   return Boolean((env as unknown as { DELIVERY_QUEUE?: unknown }).DELIVERY_QUEUE) && Boolean((env as unknown as { DELIVERY_DLQ?: unknown }).DELIVERY_DLQ);
 }
 
+function parseCommaSeparated(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+function parseSampleRate(value: string | undefined): number {
+  if (!value) return 1.0;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 1.0;
+  return Math.max(0, Math.min(1, n));
+}
+
+async function maybeShadowProbeInbox(
+  prisma: PrismaClient,
+  env: Env,
+  params: {
+    activityId: string;
+    sharedInboxEndpoint: string;
+    endpointHost: string;
+    sender: { apId: string; privateKeyPem: string };
+    body: string;
+  }
+): Promise<void> {
+  const allowedHosts = parseCommaSeparated(env.DELIVERY_SHADOW_PROBE_HOSTS);
+  if (allowedHosts.length === 0) return;
+  if (!allowedHosts.includes(params.endpointHost)) return;
+
+  const sampleRate = parseSampleRate(env.DELIVERY_SHADOW_PROBE_SAMPLE_RATE);
+  if (sampleRate <= 0) return;
+  if (sampleRate < 1 && Math.random() > sampleRate) return;
+
+  // Find a representative actor inbox for this sharedInbox. This is a shadow probe only and
+  // must be restricted to a controlled/staging host to avoid duplicate side effects.
+  const rep = await prisma.actorCache.findFirst({
+    where: { sharedInbox: params.sharedInboxEndpoint },
+    select: { apId: true, inbox: true },
+  });
+  const inbox = rep?.inbox;
+  if (!inbox || !isSafeRemoteUrl(inbox)) return;
+
+  const inboxHost = safeEndpointHost(inbox);
+  const keyId = `${params.sender.apId}#main-key`;
+
+  const startedAt = Date.now();
+  let response: Response | null = null;
+  let error: unknown = null;
+  try {
+    const headers = await signRequest(params.sender.privateKeyPem, keyId, 'POST', inbox, params.body);
+    response = await fetchWithTimeout(inbox, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/activity+json',
+        'X-Yurucommu-Shadow-Probe': '1',
+      },
+      body: params.body,
+      timeout: DELIVERY_HTTP_TIMEOUT_MS,
+    });
+  } catch (e) {
+    error = e;
+  }
+  const latencyMs = Date.now() - startedAt;
+
+  emitMetric('delivery_shadow_probe_inbox_latency_ms', latencyMs, {
+    endpoint_host: params.endpointHost,
+    inbox_host: inboxHost ?? 'unknown',
+    ok: response?.ok ?? false,
+    status: response?.status ?? null,
+  });
+  emitMetric('delivery_shadow_probe_inbox_ok', response?.ok ? 1 : 0, {
+    endpoint_host: params.endpointHost,
+    inbox_host: inboxHost ?? 'unknown',
+    status: response?.status ?? null,
+    error: error instanceof Error ? error.message : null,
+  });
+}
+
 export async function enqueueFanoutToFollowers(env: Env, activityId: string, followeeApId: string): Promise<void> {
   if (!queueAvailable(env)) {
     console.warn('[DeliveryQueue] Missing DELIVERY_QUEUE/DELIVERY_DLQ bindings. Skipping enqueueFanoutToFollowers.');
@@ -658,6 +738,23 @@ async function processDeliverEndpoint(
       });
       emitMetric('delivery_success', 1, { endpoint_host: host });
       await recordCircuitSuccess(prisma, endpoint);
+
+      // Phase 1 shadow (staging-only): optional inbox probe for sharedInbox endpoints.
+      // This must never affect delivery job outcome.
+      if (job.attempts === 0) {
+        try {
+          await maybeShadowProbeInbox(prisma, env, {
+            activityId: job.activityApId,
+            sharedInboxEndpoint: endpoint,
+            endpointHost: host,
+            sender,
+            body,
+          });
+        } catch (e) {
+          console.warn('[DeliveryQueue] shadow probe failed:', e);
+        }
+      }
+
       message.ack();
       return;
     }
