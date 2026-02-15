@@ -12,6 +12,14 @@ import { getTakosClient, type TakosSession } from '../lib/takos-client';
 
 const takosProxy = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+// Feature flag gate (fail-close).
+takosProxy.use('*', async (c, next) => {
+  if (c.env.ENABLE_TAKOS_PROXY !== 'true') {
+    return c.notFound();
+  }
+  await next();
+});
+
 // 認証ミドルウェア
 takosProxy.use('*', async (c, next) => {
   const actor = c.get('actor');
@@ -29,6 +37,8 @@ takosProxy.use('*', async (c, next) => {
     where: { id: sessionId },
     select: {
       id: true,
+      memberId: true,
+      expiresAt: true,
       provider: true,
       providerAccessToken: true,
       providerRefreshToken: true,
@@ -38,6 +48,14 @@ takosProxy.use('*', async (c, next) => {
 
   if (!session) {
     return c.json({ error: 'Session not found' }, 401);
+  }
+
+  // Session must belong to the current actor and be unexpired.
+  if (session.memberId !== actor.ap_id) {
+    return c.json({ error: 'Session mismatch' }, 401);
+  }
+  if (session.expiresAt <= new Date().toISOString()) {
+    return c.json({ error: 'Session expired' }, 401);
   }
 
   if (session.provider !== 'takos') {
