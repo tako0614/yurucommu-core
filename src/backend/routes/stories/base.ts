@@ -1,11 +1,11 @@
 // Story routes for Yurucommu backend
 // v2: 1 Story = 1 Media (Instagram style)
 import { Hono } from 'hono';
-import type { Env, Variables, APObject } from '../../types';
-import { generateId, objectApId, actorApId, formatUsername, activityApId, isLocal, signRequest, isSafeRemoteUrl } from '../../utils';
-import { sendCreateStoryActivity, sendDeleteStoryActivity } from '../../lib/activitypub-helpers';
+import type { Env, Variables } from '../../types';
+import { generateId, objectApId, actorApId, formatUsername, activityApId } from '../../utils';
+import { storyToActivityPub } from '../../lib/activitypub-helpers';
 import { cleanupExpiredStories, transformStoryData, validateOverlays } from './utils';
-import type { PrismaClient } from '../../../generated/prisma';
+import { enqueueFanoutToFollowers } from '../../lib/delivery/queue';
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -528,7 +528,8 @@ stories.post('/', async (c) => {
   };
 
   // Send Create(Story) activity to followers (async, don't block response)
-  sendCreateStoryActivity(
+  const createActivityId = activityApId(baseUrl, generateId());
+  const storyObject = storyToActivityPub(
     {
       apId: apId,
       attributedTo: actor.ap_id,
@@ -539,9 +540,29 @@ stories.post('/', async (c) => {
       published: now,
     },
     actor,
-    c.env,
-    prisma
-  ).catch(console.error);
+    baseUrl
+  );
+  const createActivity = {
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    id: createActivityId,
+    type: 'Create',
+    actor: actor.ap_id,
+    published: now,
+    to: [`${actor.ap_id}/followers`],
+    object: storyObject,
+  };
+
+  await prisma.activity.create({
+    data: {
+      apId: createActivityId,
+      type: 'Create',
+      actorApId: actor.ap_id,
+      objectApId: apId,
+      rawJson: JSON.stringify(createActivity),
+      direction: 'outbound',
+    },
+  });
+  await enqueueFanoutToFollowers(c.env, createActivityId, actor.ap_id);
 
   return c.json({ story }, 201);
 });
@@ -566,14 +587,29 @@ stories.post('/delete', async (c) => {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
-  // Send Delete(Story) activity to followers before deleting
-  // Must await to ensure federation completes before local deletion
-  try {
-    await sendDeleteStoryActivity(apId, actor, c.env, prisma);
-  } catch (err) {
-    console.error('Failed to send Delete activity for story:', err);
-    // Continue with deletion even if federation fails
-  }
+  // Enqueue Delete(Story) activity to followers before deleting.
+  // Outbound delivery MUST NOT run in request path; enqueue is the sync boundary.
+  const baseUrl = c.env.APP_URL;
+  const deleteActivityId = activityApId(baseUrl, generateId());
+  const deleteActivity = {
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    id: deleteActivityId,
+    type: 'Delete',
+    actor: actor.ap_id,
+    to: ['https://www.w3.org/ns/activitystreams#Public'],
+    object: apId,
+  };
+  await prisma.activity.create({
+    data: {
+      apId: deleteActivityId,
+      type: 'Delete',
+      actorApId: actor.ap_id,
+      objectApId: apId,
+      rawJson: JSON.stringify(deleteActivity),
+      direction: 'outbound',
+    },
+  });
+  await enqueueFanoutToFollowers(c.env, deleteActivityId, actor.ap_id);
 
   // Delete story votes first
   await prisma.storyVote.deleteMany({
