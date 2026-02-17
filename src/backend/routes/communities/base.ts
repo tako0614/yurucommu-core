@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
-import { communityApId, generateKeyPair } from '../../utils';
+import { communityApId, generateKeyPair, parseLimit, parseOffset } from '../../utils';
 import { managerRoles } from './utils';
 
 const communities = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -9,8 +9,8 @@ const communities = new Hono<{ Bindings: Env; Variables: Variables }>();
 communities.get('/', async (c) => {
   const actor = c.get('actor');
   const prisma = c.get('prisma');
-  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500);
-  const offset = parseInt(c.req.query('offset') || '0');
+  const limit = parseLimit(c.req.query('limit'), 100, 500);
+  const offset = parseOffset(c.req.query('offset'), 0, 10000);
 
   const actorApIdVal = actor?.ap_id || '';
 

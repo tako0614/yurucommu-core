@@ -4,7 +4,7 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
-import { formatUsername } from '../../utils';
+import { formatUsername, safeJsonParse } from '../../utils';
 import { getConversationId, resolveConversationId } from './utils';
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -96,14 +96,8 @@ dm.get('/contacts', async (c) => {
     let otherApId: string;
     if (obj.attributedTo === actor.ap_id) {
       // We sent this - other is the recipient
-      try {
-        const toArray = JSON.parse(obj.toJson);
-        otherApId = toArray[0];
-      } catch (err) {
-        // MEDIUM FIX: Log JSON parse error for debugging
-        console.warn('[DM] Failed to parse toJson for contact:', err, { conversation: obj.conversation });
-        continue;
-      }
+      const toArray = safeJsonParse<string[]>(obj.toJson, []);
+      otherApId = toArray[0] || '';
     } else {
       // We received this - other is the sender
       otherApId = obj.attributedTo;
@@ -777,14 +771,8 @@ dm.get('/archived', async (c) => {
     // Determine the other participant
     let otherApId: string;
     if (obj.attributedTo === actor.ap_id) {
-      try {
-        const toArray = JSON.parse(obj.toJson);
-        otherApId = toArray[0];
-      } catch (err) {
-        // MEDIUM FIX: Log JSON parse error for debugging
-        console.warn('[DM] Failed to parse toJson for archived:', err, { conversation: obj.conversation });
-        continue;
-      }
+      const toArray = safeJsonParse<string[]>(obj.toJson, []);
+      otherApId = toArray[0] || '';
     } else {
       otherApId = obj.attributedTo;
     }

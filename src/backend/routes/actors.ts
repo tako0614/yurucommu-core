@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { deleteCookie } from 'hono/cookie';
 import type { Actor, Env, Variables } from '../types';
-import { actorApId, getDomain, formatUsername, parseLimit } from '../utils';
+import { actorApId, getDomain, formatUsername, parseLimit, parseOffset, safeJsonParse } from '../utils';
 import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
 
 const actors = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -73,8 +73,8 @@ actors.get('/', withCache({
   cacheTag: CacheTags.ACTOR,
 }), async (c) => {
   const prisma = c.get('prisma');
-  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500);
-  const offset = parseInt(c.req.query('offset') || '0');
+  const limit = parseLimit(c.req.query('limit'), 100, 500);
+  const offset = parseOffset(c.req.query('offset'), 0, 10000);
 
   const actorsList = await prisma.actor.findMany({
     select: {
@@ -117,8 +117,8 @@ actors.get('/me/blocked', async (c) => {
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const prisma = c.get('prisma');
-  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500);
-  const offset = parseInt(c.req.query('offset') || '0');
+  const limit = parseLimit(c.req.query('limit'), 100, 500);
+  const offset = parseOffset(c.req.query('offset'), 0, 10000);
 
   const blocks = await prisma.block.findMany({
     where: { blockerApId: actor.ap_id },
@@ -209,8 +209,8 @@ actors.get('/me/muted', async (c) => {
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const prisma = c.get('prisma');
-  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500);
-  const offset = parseInt(c.req.query('offset') || '0');
+  const limit = parseLimit(c.req.query('limit'), 100, 500);
+  const offset = parseOffset(c.req.query('offset'), 0, 10000);
 
   const mutes = await prisma.mute.findMany({
     where: { muterApId: actor.ap_id },
@@ -479,7 +479,7 @@ actors.get('/:identifier/posts', async (c) => {
       },
       content: p.content,
       summary: p.summary,
-      attachments: JSON.parse(p.attachmentsJson || '[]'),
+      attachments: safeJsonParse(p.attachmentsJson, []),
       in_reply_to: p.inReplyTo,
       visibility: p.visibility,
       community_ap_id: p.communityApId,
@@ -697,8 +697,8 @@ actors.get('/:identifier/followers', async (c) => {
   const identifier = c.req.param('identifier');
   const baseUrl = c.env.APP_URL;
   const apId = identifier.startsWith('http') ? identifier : actorApId(baseUrl, identifier);
-  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100);
-  const offset = parseInt(c.req.query('offset') || '0');
+  const limit = parseLimit(c.req.query('limit'), 50, 100);
+  const offset = parseOffset(c.req.query('offset'), 0, 10000);
 
   const prisma = c.get('prisma');
 
@@ -755,8 +755,8 @@ actors.get('/:identifier/following', async (c) => {
   const identifier = c.req.param('identifier');
   const baseUrl = c.env.APP_URL;
   const apId = identifier.startsWith('http') ? identifier : actorApId(baseUrl, identifier);
-  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100);
-  const offset = parseInt(c.req.query('offset') || '0');
+  const limit = parseLimit(c.req.query('limit'), 50, 100);
+  const offset = parseOffset(c.req.query('offset'), 0, 10000);
 
   const prisma = c.get('prisma');
 

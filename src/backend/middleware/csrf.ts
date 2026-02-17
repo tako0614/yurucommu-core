@@ -46,29 +46,9 @@ export function csrfProtection() {
     const refererHeader = c.req.header('Referer');
     const requestOrigin = originHeader || getOrigin(refererHeader ?? null);
 
-    // If no Origin/Referer header present
+    // Origin/Referer is mandatory for state-changing requests.
     if (!requestOrigin) {
-      // Check for X-Requested-With header (commonly sent by JavaScript frameworks)
-      // This provides defense against simple CSRF attacks since cross-origin
-      // requests cannot set custom headers without CORS preflight
-      const xRequestedWith = c.req.header('X-Requested-With');
-      if (xRequestedWith) {
-        // Custom header present - this is likely a legitimate AJAX request
-        // Cross-origin requests cannot set custom headers without CORS approval
-        return next();
-      }
-
-      // Check Content-Type for JSON - browsers don't allow cross-origin JSON POSTs
-      // without CORS preflight
-      const contentType = c.req.header('Content-Type');
-      if (contentType && contentType.includes('application/json')) {
-        // JSON content type requires CORS preflight for cross-origin requests
-        return next();
-      }
-
-      // No Origin, no custom headers, and not JSON - reject for safety
-      // This blocks simple form-based CSRF attacks
-      console.warn('CSRF check failed: missing Origin header and no CSRF-safe indicators');
+      console.warn('CSRF check failed: missing Origin/Referer header');
       return c.json({ error: 'CSRF validation failed: missing Origin header' }, 403);
     }
 

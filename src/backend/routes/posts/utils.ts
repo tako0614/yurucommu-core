@@ -1,4 +1,4 @@
-import { formatUsername, parseLimit } from '../../utils';
+import { formatUsername, parseLimit, safeJsonParse } from '../../utils';
 
 export { parseLimit };
 
@@ -72,7 +72,7 @@ export function formatPost(p: PostRow, currentActorApId?: string): FormattedPost
     },
     content: p.content,
     summary: p.summary,
-    attachments: JSON.parse(p.attachments_json || '[]'),
+    attachments: safeJsonParse(p.attachments_json, []),
     in_reply_to: p.in_reply_to,
     visibility: p.visibility,
     community_ap_id: p.community_ap_id,

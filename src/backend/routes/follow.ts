@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { generateId, activityApId, isLocal, formatUsername, isSafeRemoteUrl } from '../utils';
+import { generateId, activityApId, isLocal, formatUsername, isSafeRemoteUrl, parseLimit, parseOffset } from '../utils';
 import { enqueueDeliveryToActor } from '../lib/delivery/queue';
 
 // P07: Network timeout for remote requests (10 seconds)
@@ -609,8 +609,8 @@ follow.get('/requests', async (c) => {
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const prisma = c.get('prisma');
-  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500);
-  const offset = parseInt(c.req.query('offset') || '0');
+  const limit = parseLimit(c.req.query('limit'), 100, 500);
+  const offset = parseOffset(c.req.query('offset'), 0, 10000);
 
   const follows = await prisma.follow.findMany({
     where: { followingApId: actor.ap_id, status: 'pending' },

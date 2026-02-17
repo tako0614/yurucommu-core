@@ -1,4 +1,5 @@
 import type { PrismaClient } from '../../../generated/prisma';
+import { safeJsonParse } from '../../utils';
 
 interface VoteResults {
   [optionIndex: number]: number;
@@ -176,7 +177,7 @@ export function transformStoryData(attachmentsJson: string): {
   displayDuration: string;
   overlays?: Overlay[];
 } {
-  const stored = JSON.parse(attachmentsJson || '{}') as StoredStoryData;
+  const stored = safeJsonParse<StoredStoryData>(attachmentsJson, {});
   const r2Key = stored.attachment?.r2_key;
   const contentType = stored.attachment?.content_type || 'image/jpeg';
   const externalUrl = stored.attachment?.url;
