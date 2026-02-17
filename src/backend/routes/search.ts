@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { formatUsername, isSafeRemoteUrl, normalizeRemoteDomain } from '../utils';
+import { formatUsername, isSafeRemoteUrl, normalizeRemoteDomain, parseLimit, parseOffset } from '../utils';
 
 const search = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -319,8 +319,8 @@ search.get('/hashtag/:tag', async (c) => {
   const actor = c.get('actor');
   const tag = c.req.param('tag')?.trim().replace(/^#/, '');
   const sort = validatePostSort(c.req.query('sort'));
-  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100);
-  const offset = parseInt(c.req.query('offset') || '0');
+  const limit = parseLimit(c.req.query('limit'), 50, 100);
+  const offset = parseOffset(c.req.query('offset'), 0, 10000);
 
   if (!tag) return c.json({ posts: [], total: 0 });
 
@@ -422,8 +422,8 @@ search.get('/hashtag/:tag', async (c) => {
  * GET /api/search/hashtags/trending?limit=10&days=7
  */
 search.get('/hashtags/trending', async (c) => {
-  const limit = Math.min(parseInt(c.req.query('limit') || '10'), 50);
-  const days = Math.min(parseInt(c.req.query('days') || '7'), 30);
+  const limit = parseLimit(c.req.query('limit'), 10, 50);
+  const days = parseLimit(c.req.query('days'), 7, 30);
 
   const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 

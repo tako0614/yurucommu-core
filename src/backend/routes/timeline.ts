@@ -1,7 +1,7 @@
 // Timeline routes for Yurucommu backend
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { formatUsername, safeJsonParse } from '../utils';
+import { formatUsername, parseLimit, parseOffset, safeJsonParse } from '../utils';
 import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
 
 const timeline = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -121,8 +121,8 @@ timeline.get('/', withCache({
 }), async (c) => {
   const actor = c.get('actor');
   const prisma = c.get('prisma');
-  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
-  const offset = parseInt(c.req.query('offset') || '0');
+  const limit = parseLimit(c.req.query('limit'), 20, 100);
+  const offset = parseOffset(c.req.query('offset'), 0, 10000);
   const before = c.req.query('before');
   const communityApId = c.req.query('community');
 
@@ -202,8 +202,8 @@ timeline.get('/following', async (c) => {
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const prisma = c.get('prisma');
-  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
-  const offset = parseInt(c.req.query('offset') || '0');
+  const limit = parseLimit(c.req.query('limit'), 20, 100);
+  const offset = parseOffset(c.req.query('offset'), 0, 10000);
   const before = c.req.query('before');
 
   const viewerApId = actor.ap_id;

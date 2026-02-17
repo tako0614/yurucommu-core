@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import type { PrismaClient } from '../../generated/prisma';
-import { generateId } from '../utils';
+import { generateId, safeJsonParse } from '../utils';
 
 const media = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -298,13 +298,9 @@ async function checkMediaAuthorization(
 
   // Direct messages - check if user is in recipients
   if (obj.visibility === 'direct') {
-    try {
-      const recipients: string[] = JSON.parse(obj.toJson || '[]');
-      if (recipients.includes(currentActorApId)) {
-        return { allowed: true };
-      }
-    } catch {
-      // Invalid JSON, deny access
+    const recipients = safeJsonParse<string[]>(obj.toJson, []);
+    if (recipients.includes(currentActorApId)) {
+      return { allowed: true };
     }
     return { allowed: false, reason: 'Not authorized' };
   }

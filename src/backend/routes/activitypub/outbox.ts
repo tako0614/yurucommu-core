@@ -1,15 +1,21 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
-import { actorApId, objectApId } from '../../utils';
+import { actorApId, objectApId, parseLimit, safeJsonParse } from '../../utils';
 import { getInstanceActor } from './utils';
 
 const ap = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+function parseOrderedItems(activities: Array<{ rawJson: string }>): unknown[] {
+  return activities
+    .map((activity) => safeJsonParse<unknown | null>(activity.rawJson, null))
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+}
 
 ap.get('/ap/actor/outbox', async (c) => {
   const prisma = c.get('prisma');
   const instanceActor = await getInstanceActor(c);
   const page = c.req.query('page');
-  const pageNum = page ? parseInt(page, 10) : 1;
+  const pageNum = parseLimit(page, 1, 100000);
   const limit = 20;
   const offset = (pageNum - 1) * limit;
 
@@ -39,7 +45,7 @@ ap.get('/ap/actor/outbox', async (c) => {
       id: `${outboxUrl}?page=${pageNum}`,
       type: 'OrderedCollectionPage',
       partOf: outboxUrl,
-      orderedItems: activities.map((a) => JSON.parse(a.rawJson)),
+      orderedItems: parseOrderedItems(activities),
     });
   }
 
@@ -56,7 +62,7 @@ ap.get('/ap/actor/followers', async (c) => {
   const prisma = c.get('prisma');
   const instanceActor = await getInstanceActor(c);
   const page = c.req.query('page');
-  const pageNum = page ? parseInt(page, 10) : 1;
+  const pageNum = parseLimit(page, 1, 100000);
   const limit = 50;
   const offset = (pageNum - 1) * limit;
 
@@ -131,7 +137,7 @@ ap.get('/ap/users/:username/outbox', async (c) => {
 
   // Paginate activities
   const page = c.req.query('page');
-  const pageNum = page ? parseInt(page, 10) : 1;
+  const pageNum = parseLimit(page, 1, 100000);
   const limit = 20;
   const offset = (pageNum - 1) * limit;
 
@@ -162,7 +168,7 @@ ap.get('/ap/users/:username/outbox', async (c) => {
       id: `${outboxUrl}?page=${pageNum}`,
       type: 'OrderedCollectionPage',
       partOf: outboxUrl,
-      orderedItems: activities.map((a) => JSON.parse(a.rawJson)),
+      orderedItems: parseOrderedItems(activities),
     });
   } else {
     // Return collection
@@ -195,7 +201,7 @@ ap.get('/ap/users/:username/followers', async (c) => {
 
   // Paginate followers
   const page = c.req.query('page');
-  const pageNum = page ? parseInt(page, 10) : 1;
+  const pageNum = parseLimit(page, 1, 100000);
   const limit = 50;
   const offset = (pageNum - 1) * limit;
 
@@ -257,7 +263,7 @@ ap.get('/ap/users/:username/following', async (c) => {
 
   // Paginate following
   const page = c.req.query('page');
-  const pageNum = page ? parseInt(page, 10) : 1;
+  const pageNum = parseLimit(page, 1, 100000);
   const limit = 50;
   const offset = (pageNum - 1) * limit;
 
@@ -330,13 +336,7 @@ ap.get('/ap/objects/:id', async (c) => {
 
   if (!obj) return c.json({ error: 'Object not found' }, 404);
 
-  // Parse attachments
-  let attachments: unknown[] = [];
-  try {
-    attachments = JSON.parse(obj.attachmentsJson);
-  } catch {
-    attachments = [];
-  }
+  const attachments = safeJsonParse<unknown[]>(obj.attachmentsJson, []);
 
   const objectResponse: Record<string, unknown> = {
     '@context': [

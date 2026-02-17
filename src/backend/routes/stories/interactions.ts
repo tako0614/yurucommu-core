@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
-import { generateId, objectApId, activityApId, isLocal } from '../../utils';
+import { generateId, objectApId, activityApId, isLocal, safeJsonParse } from '../../utils';
 import { getVoteCounts } from './utils';
 import { enqueueDeliveryToActor } from '../../lib/delivery/queue';
 
@@ -96,7 +96,7 @@ stories.post('/vote', async (c) => {
   }
 
   // Get story data and validate option_index range
-  const storyData = JSON.parse(story.attachmentsJson || '{}') as StoryData;
+  const storyData = safeJsonParse<StoryData>(story.attachmentsJson, {});
   const questionOverlays = (storyData.overlays || []).filter((o: StoryOverlay) => o.type === 'Question');
 
   if (questionOverlays.length === 0) {

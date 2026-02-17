@@ -7,7 +7,7 @@
 
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { activityApId, formatUsername, generateId, objectApId, safeJsonParse } from '../utils';
+import { activityApId, formatUsername, generateId, objectApId, parseLimit, safeJsonParse } from '../utils';
 import { getConversationId } from './dm/utils';
 
 const takosTools = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -34,6 +34,11 @@ interface ToolResponse {
   error?: string;
 }
 
+function parseToolLimit(value: unknown, fallback: number, max: number): number {
+  const normalized = value == null ? undefined : String(value);
+  return parseLimit(normalized, fallback, max);
+}
+
 /**
  * Execute a tool
  * POST /.takos/tools/:name
@@ -57,7 +62,7 @@ takosTools.post('/:name', async (c) => {
       // Search tools
       case 'yurucommu_search_users': {
         const query = String(input.query || '').trim();
-        const limit = Math.min(Number(input.limit) || 20, 50);
+        const limit = parseToolLimit(input.limit, 20, 50);
 
         if (!query) {
           return c.json({ success: true, data: { actors: [] } });
@@ -101,7 +106,7 @@ takosTools.post('/:name', async (c) => {
 
       case 'yurucommu_search_posts': {
         const query = String(input.query || '').trim();
-        const limit = Math.min(Number(input.limit) || 20, 50);
+        const limit = parseToolLimit(input.limit, 20, 50);
 
         if (!query) {
           return c.json({ success: true, data: { posts: [] } });
@@ -130,7 +135,7 @@ takosTools.post('/:name', async (c) => {
       }
 
       case 'yurucommu_get_trending': {
-        const limit = Math.min(Number(input.limit) || 10, 50);
+        const limit = parseToolLimit(input.limit, 10, 50);
         const sinceDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
         const posts = await prisma.object.findMany({
@@ -516,7 +521,7 @@ takosTools.post('/:name', async (c) => {
 
       case 'yurucommu_get_followers': {
         const username = String(input.username || '').trim();
-        const limit = Math.min(Number(input.limit) || 20, 50);
+        const limit = parseToolLimit(input.limit, 20, 50);
 
         if (!username) {
           return c.json({ success: false, error: 'Username is required' }, 400);
@@ -565,7 +570,7 @@ takosTools.post('/:name', async (c) => {
 
       case 'yurucommu_get_following': {
         const username = String(input.username || '').trim();
-        const limit = Math.min(Number(input.limit) || 20, 50);
+        const limit = parseToolLimit(input.limit, 20, 50);
 
         if (!username) {
           return c.json({ success: false, error: 'Username is required' }, 400);
@@ -708,7 +713,7 @@ takosTools.post('/:name', async (c) => {
           return c.json({ success: false, error: 'Authentication required' }, 401);
         }
 
-        const limit = Math.min(Number(input.limit) || 20, 50);
+        const limit = parseToolLimit(input.limit, 20, 50);
 
         const dms = await prisma.object.findMany({
           where: {
@@ -770,7 +775,7 @@ takosTools.post('/:name', async (c) => {
         }
 
         const threadId = String(input.thread_id || '').trim(); // partner ap_id
-        const limit = Math.min(Number(input.limit) || 50, 100);
+        const limit = parseToolLimit(input.limit, 50, 100);
 
         if (!threadId) {
           return c.json({ success: false, error: 'Thread ID is required' }, 400);
@@ -819,7 +824,7 @@ takosTools.post('/:name', async (c) => {
 
       // Timeline tools
       case 'yurucommu_get_timeline': {
-        const limit = Math.min(Number(input.limit) || 20, 50);
+        const limit = parseToolLimit(input.limit, 20, 50);
         const before = input.before ? String(input.before) : null;
 
         let whereClause: { visibility: string; published?: { lt: string } } = {
@@ -879,7 +884,7 @@ takosTools.post('/:name', async (c) => {
           return c.json({ success: false, error: 'Authentication required' }, 401);
         }
 
-        const limit = Math.min(Number(input.limit) || 20, 50);
+        const limit = parseToolLimit(input.limit, 20, 50);
         const unreadOnly = Boolean(input.unread_only);
 
         // Notifications are derived from inbox entries

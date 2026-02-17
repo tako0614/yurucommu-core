@@ -2,7 +2,7 @@
 // AP Native: Notifications are derived from inbox (activities addressed to the actor)
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { formatUsername } from '../utils';
+import { formatUsername, parseLimit, parseOffset } from '../utils';
 import type { PrismaClient, Prisma } from '../../generated/prisma';
 
 const notifications = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -71,8 +71,8 @@ notifications.get('/', async (c) => {
   const prisma = c.get('prisma');
   await cleanupArchivedNotifications(prisma, actor.ap_id);
 
-  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
-  const offset = parseInt(c.req.query('offset') || '0');
+  const limit = parseLimit(c.req.query('limit'), 20, 100);
+  const offset = parseOffset(c.req.query('offset'), 0, 10000);
   const before = c.req.query('before');
   const typeFilter = c.req.query('type'); // follow, like, announce, reply, mention
   const showArchived = c.req.query('archived') === 'true';

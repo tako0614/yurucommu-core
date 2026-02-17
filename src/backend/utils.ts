@@ -64,10 +64,23 @@ export function safeJsonParse<T>(json: string | null | undefined, defaultValue: 
   }
 }
 
-export function parseLimit(value: string | undefined, fallback: number, max: number): number {
+function parseBoundedInt(
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number
+): number {
   const parsed = parseInt(value || '', 10);
   if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(Math.max(parsed, 1), max);
+  return Math.min(Math.max(parsed, min), max);
+}
+
+export function parseLimit(value: string | undefined, fallback: number, max: number): number {
+  return parseBoundedInt(value, fallback, 1, max);
+}
+
+export function parseOffset(value: string | undefined, fallback: number, max: number): number {
+  return parseBoundedInt(value, fallback, 0, max);
 }
 
 export function generateId(): string {
