@@ -21,6 +21,7 @@ dm.get('/user/:encodedApId/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
   const prisma = c.get('prisma');
+  const actorApIdJson = JSON.stringify(actor.ap_id);
 
   const otherApId = decodeURIComponent(c.req.param('encodedApId'));
   const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
@@ -44,7 +45,7 @@ dm.get('/user/:encodedApId/messages', async (c) => {
     // Database-level authorization: only messages where actor is sender or recipient
     OR: [
       { attributedTo: actor.ap_id },
-      { toJson: { contains: actor.ap_id } }
+      { toJson: { contains: actorApIdJson } }
     ]
   };
 
@@ -377,6 +378,7 @@ dm.get('/conversations/:id/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
   const prisma = c.get('prisma');
+  const actorApIdJson = JSON.stringify(actor.ap_id);
 
   const conversationId = c.req.param('id');
   const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
@@ -396,7 +398,7 @@ dm.get('/conversations/:id/messages', async (c) => {
     // Database-level authorization: only messages where actor is sender or recipient
     OR: [
       { attributedTo: actor.ap_id },
-      { toJson: { contains: actor.ap_id } }
+      { toJson: { contains: actorApIdJson } }
     ]
   };
 

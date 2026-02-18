@@ -18,6 +18,9 @@ export async function resolveConversationId(
   actorApId: string,
   otherApId: string
 ): Promise<string> {
+  const actorApIdJson = JSON.stringify(actorApId);
+  const otherApIdJson = JSON.stringify(otherApId);
+
   // Find existing conversation between these two actors
   const existing = await prisma.object.findFirst({
     where: {
@@ -27,11 +30,11 @@ export async function resolveConversationId(
       OR: [
         {
           attributedTo: actorApId,
-          toJson: { contains: otherApId },
+          toJson: { contains: otherApIdJson },
         },
         {
           attributedTo: otherApId,
-          toJson: { contains: actorApId },
+          toJson: { contains: actorApIdJson },
         },
       ],
     },

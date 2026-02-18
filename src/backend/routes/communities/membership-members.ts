@@ -1,6 +1,6 @@
 import type { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
-import { formatUsername } from '../../utils';
+import { formatUsername, parseLimit, parseOffset } from '../../utils';
 import { managerRoles } from './utils';
 import {
   MembershipContext,
@@ -61,20 +61,20 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
       return c.json({ error: 'Use /leave endpoint to leave the community' }, 400);
     }
 
-    // Remove member
-    await prisma.communityMember.delete({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: targetApId,
+    await prisma.$transaction(async (tx) => {
+      await tx.communityMember.delete({
+        where: {
+          communityApId_actorApId: {
+            communityApId: community.apId,
+            actorApId: targetApId,
+          },
         },
-      },
-    });
+      });
 
-    // Update member count
-    await prisma.community.update({
-      where: { apId: community.apId },
-      data: { memberCount: { decrement: 1 } },
+      await tx.community.update({
+        where: { apId: community.apId },
+        data: { memberCount: { decrement: 1 } },
+      });
     });
 
     return c.json({ success: true });
@@ -160,6 +160,8 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     const prisma = c.get('prisma');
     const baseUrl = c.env.APP_URL;
     const apId = resolveCommunityApId(baseUrl, identifier);
+    const limit = parseLimit(c.req.query('limit'), 100, 500);
+    const offset = parseOffset(c.req.query('offset'), 0, 10000);
 
     // Get community first
     const community = await prisma.community.findFirst({
@@ -183,6 +185,8 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
         { role: 'desc' },
         { joinedAt: 'asc' },
       ],
+      take: limit,
+      skip: offset,
     });
 
     // Batch load actor info to avoid N+1 queries
@@ -281,14 +285,20 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
           continue;
         }
 
-        // Remove member
-        await prisma.communityMember.delete({
-          where: {
-            communityApId_actorApId: {
-              communityApId: community.apId,
-              actorApId: targetApId,
+        await prisma.$transaction(async (tx) => {
+          await tx.communityMember.delete({
+            where: {
+              communityApId_actorApId: {
+                communityApId: community.apId,
+                actorApId: targetApId,
+              },
             },
-          },
+          });
+
+          await tx.community.update({
+            where: { apId: community.apId },
+            data: { memberCount: { decrement: 1 } },
+          });
         });
 
         results.push({ ap_id: targetApId, success: true });
@@ -297,15 +307,7 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
       }
     }
 
-    // Update member count
     const removedCount = results.filter((r) => r.success).length;
-    if (removedCount > 0) {
-      await prisma.community.update({
-        where: { apId: community.apId },
-        data: { memberCount: { decrement: removedCount } },
-      });
-    }
-
     return c.json({ results, removed_count: removedCount });
   });
 

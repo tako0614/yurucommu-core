@@ -13,6 +13,7 @@ dm.get('/contacts', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
   const prisma = c.get('prisma');
+  const actorApIdJson = JSON.stringify(actor.ap_id);
 
   // Clean up orphaned read status entries for conversations that no longer exist
   // Get all conversations this actor is involved in
@@ -23,7 +24,7 @@ dm.get('/contacts', async (c) => {
       conversation: { not: null },
       OR: [
         { attributedTo: actor.ap_id },
-        { toJson: { contains: actor.ap_id } },
+        { toJson: { contains: actorApIdJson } },
       ],
     },
     select: { conversation: true },
@@ -65,7 +66,7 @@ dm.get('/contacts', async (c) => {
       conversation: { not: null },
       OR: [
         { attributedTo: actor.ap_id },
-        { toJson: { contains: actor.ap_id } },
+        { toJson: { contains: actorApIdJson } },
       ],
     },
     orderBy: { published: 'desc' },
@@ -290,7 +291,7 @@ dm.get('/contacts', async (c) => {
     where: {
       visibility: 'direct',
       type: 'Note',
-      toJson: { contains: actor.ap_id },
+      toJson: { contains: actorApIdJson },
     },
     select: { conversation: true },
     distinct: ['conversation'],
@@ -327,13 +328,14 @@ dm.get('/requests', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
   const prisma = c.get('prisma');
+  const actorApIdJson = JSON.stringify(actor.ap_id);
 
   // Get incoming DMs where we haven't replied (with limit to prevent DoS)
   const incomingDMs = await prisma.object.findMany({
     where: {
       visibility: 'direct',
       type: 'Note',
-      toJson: { contains: actor.ap_id },
+      toJson: { contains: actorApIdJson },
     },
     orderBy: { published: 'desc' },
     select: {
@@ -723,6 +725,7 @@ dm.get('/archived', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
   const prisma = c.get('prisma');
+  const actorApIdJson = JSON.stringify(actor.ap_id);
 
   // Get archived conversation IDs
   const archivedConversations = await prisma.dmArchivedConversation.findMany({
@@ -744,7 +747,7 @@ dm.get('/archived', async (c) => {
       conversation: { not: null },
       OR: [
         { attributedTo: actor.ap_id },
-        { toJson: { contains: actor.ap_id } },
+        { toJson: { contains: actorApIdJson } },
       ],
     },
     orderBy: { published: 'desc' },
