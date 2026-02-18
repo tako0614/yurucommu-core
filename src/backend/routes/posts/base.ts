@@ -5,6 +5,7 @@ import { MAX_POST_CONTENT_LENGTH, MAX_POST_SUMMARY_LENGTH, MAX_POSTS_PAGE_LIMIT,
 import { enqueueFanoutToFollowers } from '../../lib/delivery/queue';
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
+const REPLY_TARGET_NOT_FOUND = 'REPLY_TARGET_NOT_FOUND';
 
 type PostAttachment = {
   type?: string;
@@ -96,92 +97,86 @@ posts.post('/', async (c) => {
   const postId = generateId();
   const apId = objectApId(baseUrl, postId);
   const now = new Date().toISOString();
+  let parentAuthor: string | null = null;
 
-  // Insert the post
   try {
-    await prisma.object.create({
-      data: {
-        apId: apId,
-        type: 'Note',
-        attributedTo: actor.ap_id,
-        content: content,
-        summary: summary || null,
-        attachmentsJson: JSON.stringify(body.attachments || []),
-        inReplyTo: body.in_reply_to || null,
-        visibility: visibility,
-        communityApId: communityId,
-        published: now,
-        isLocal: 1
-      }
-    });
-  } catch (e) {
-    console.error('[Posts] Failed to insert post:', e);
-    return c.json({ error: 'Failed to create post' }, 500);
-  }
-
-  // Update author's post count
-  try {
-    await prisma.actor.update({
-      where: { apId: actor.ap_id },
-      data: { postCount: { increment: 1 } }
-    });
-  } catch (e) {
-    console.error('[Posts] Failed to update post count:', e);
-    // Non-critical error, continue
-  }
-
-  // If replying to someone, update reply count
-  if (body.in_reply_to) {
-    try {
-      await prisma.object.update({
-        where: { apId: body.in_reply_to },
-        data: { replyCount: { increment: 1 } }
+    await prisma.$transaction(async (tx) => {
+      await tx.object.create({
+        data: {
+          apId: apId,
+          type: 'Note',
+          attributedTo: actor.ap_id,
+          content: content,
+          summary: summary || null,
+          attachmentsJson: JSON.stringify(body.attachments || []),
+          inReplyTo: body.in_reply_to || null,
+          visibility: visibility,
+          communityApId: communityId,
+          published: now,
+          isLocal: 1
+        }
       });
-    } catch (e) {
-      console.error('[Posts] Failed to update reply count:', e);
-      // Non-critical error, continue
-    }
 
-    // Add to inbox of the post author being replied to (AP Native notification)
-    try {
-      const parentPost = await prisma.object.findUnique({
-        where: { apId: body.in_reply_to },
-        select: { attributedTo: true }
+      await tx.actor.update({
+        where: { apId: actor.ap_id },
+        data: { postCount: { increment: 1 } }
       });
-      if (parentPost && parentPost.attributedTo !== actor.ap_id && isLocal(parentPost.attributedTo, baseUrl)) {
-        // Create activity for the inbox
-        const replyActivityId = activityApId(baseUrl, generateId());
-        await prisma.activity.create({
-          data: {
-            apId: replyActivityId,
-            type: 'Create',
-            actorApId: actor.ap_id,
-            objectApId: apId,
-            rawJson: JSON.stringify({
-              '@context': 'https://www.w3.org/ns/activitystreams',
-              id: replyActivityId,
+
+      if (body.in_reply_to) {
+        const parentPost = await tx.object.findUnique({
+          where: { apId: body.in_reply_to },
+          select: { attributedTo: true }
+        });
+
+        if (!parentPost) {
+          throw new Error(REPLY_TARGET_NOT_FOUND);
+        }
+
+        parentAuthor = parentPost.attributedTo;
+
+        await tx.object.update({
+          where: { apId: body.in_reply_to },
+          data: { replyCount: { increment: 1 } }
+        });
+
+        if (parentPost.attributedTo !== actor.ap_id && isLocal(parentPost.attributedTo, baseUrl)) {
+          // Create activity for the inbox
+          const replyActivityId = activityApId(baseUrl, generateId());
+          await tx.activity.create({
+            data: {
+              apId: replyActivityId,
               type: 'Create',
-              actor: actor.ap_id,
-              object: apId
-            }),
-            createdAt: now
-          }
-        });
+              actorApId: actor.ap_id,
+              objectApId: apId,
+              rawJson: JSON.stringify({
+                '@context': 'https://www.w3.org/ns/activitystreams',
+                id: replyActivityId,
+                type: 'Create',
+                actor: actor.ap_id,
+                object: apId
+              }),
+              createdAt: now
+            }
+          });
 
-        // Add to recipient's inbox
-        await prisma.inbox.create({
-          data: {
-            actorApId: parentPost.attributedTo,
-            activityApId: replyActivityId,
-            read: 0,
-            createdAt: now
-          }
-        });
+          // Add to recipient's inbox
+          await tx.inbox.create({
+            data: {
+              actorApId: parentPost.attributedTo,
+              activityApId: replyActivityId,
+              read: 0,
+              createdAt: now
+            }
+          });
+        }
       }
-    } catch (e) {
-      console.error('[Posts] Failed to create reply notification:', e);
-      // Non-critical error, continue
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === REPLY_TARGET_NOT_FOUND) {
+      return c.json({ error: 'Reply target not found' }, 404);
     }
+    console.error('[Posts] Failed to create post transaction:', e);
+    return c.json({ error: 'Failed to create post' }, 500);
   }
 
   // Process mentions and create notifications
@@ -222,16 +217,6 @@ posts.post('/', async (c) => {
       if (matching) {
         remoteActorMap.set(mention, matching.apId);
       }
-    }
-
-    // Get parent post author if replying (for deduplication)
-    let parentAuthor: string | null = null;
-    if (body.in_reply_to) {
-      const parentPost = await prisma.object.findUnique({
-        where: { apId: body.in_reply_to },
-        select: { attributedTo: true },
-      });
-      parentAuthor = parentPost?.attributedTo || null;
     }
 
     // Collect activities and inbox entries to batch create
