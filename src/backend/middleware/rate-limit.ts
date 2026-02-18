@@ -1,32 +1,94 @@
 // Rate limiting middleware for Yurucommu backend
-// Uses in-memory Map for simple rate limiting (per-worker instance)
-// For distributed rate limiting, use KV or Durable Objects
+// Uses KV-backed distributed store (with in-memory fallback on KV failure).
 
 import { Context, Next } from 'hono';
 import type { Env, Variables } from '../types';
+import { getClientIP } from '../lib/client-ip';
 
 interface RateLimitEntry {
   count: number;
   resetAt: number;
 }
 
-// Store rate limit data in memory (per-worker instance)
-// For production scale, consider using Cloudflare KV or Durable Objects
-const rateLimitStore = new Map<string, RateLimitEntry>();
+const RATE_LIMIT_KV_PREFIX = 'rate-limit:v1';
+const fallbackRateLimitStore = new Map<string, RateLimitEntry>();
+const statusCache = new Map<string, RateLimitEntry>();
 
-// Clean up expired entries periodically
-const CLEANUP_INTERVAL = 60000; // 1 minute
-let lastCleanup = Date.now();
+let hasWarnedKvFailure = false;
 
-function cleanupExpired(): void {
-  const now = Date.now();
-  if (now - lastCleanup < CLEANUP_INTERVAL) return;
+function getRateLimitStorageKey(key: string): string {
+  return `${RATE_LIMIT_KV_PREFIX}:${encodeURIComponent(key)}`;
+}
 
-  lastCleanup = now;
-  for (const [key, entry] of rateLimitStore.entries()) {
-    if (entry.resetAt < now) {
-      rateLimitStore.delete(key);
+function parseRateLimitEntry(raw: string | null, now: number): RateLimitEntry | null {
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<RateLimitEntry>;
+    if (typeof parsed.count !== 'number' || typeof parsed.resetAt !== 'number') {
+      return null;
     }
+    if (parsed.resetAt <= now) {
+      return null;
+    }
+    return {
+      count: parsed.count,
+      resetAt: parsed.resetAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function consumeLocalFallback(key: string, windowMs: number, now: number): RateLimitEntry {
+  const existing = fallbackRateLimitStore.get(key);
+  if (!existing || existing.resetAt <= now) {
+    const created = { count: 1, resetAt: now + windowMs };
+    fallbackRateLimitStore.set(key, created);
+    return created;
+  }
+
+  const next = { ...existing, count: existing.count + 1 };
+  fallbackRateLimitStore.set(key, next);
+  return next;
+}
+
+async function consumeDistributed(
+  kv: KVNamespace,
+  key: string,
+  windowMs: number,
+  now: number
+): Promise<RateLimitEntry> {
+  const storageKey = getRateLimitStorageKey(key);
+  const current = parseRateLimitEntry(await kv.get(storageKey), now);
+
+  const next: RateLimitEntry = current
+    ? { count: current.count + 1, resetAt: current.resetAt }
+    : { count: 1, resetAt: now + windowMs };
+
+  const expirationTtl = Math.max(1, Math.ceil((next.resetAt - now) / 1000) + 5);
+  await kv.put(storageKey, JSON.stringify(next), { expirationTtl });
+  return next;
+}
+
+async function consumeRateLimit(
+  kv: KVNamespace | undefined,
+  key: string,
+  windowMs: number,
+  now: number
+): Promise<RateLimitEntry> {
+  if (!kv) {
+    return consumeLocalFallback(key, windowMs, now);
+  }
+
+  try {
+    return await consumeDistributed(kv, key, windowMs, now);
+  } catch (err) {
+    if (!hasWarnedKvFailure) {
+      hasWarnedKvFailure = true;
+      console.warn('[RateLimit] KV unavailable, falling back to in-memory limiter', err);
+    }
+    return consumeLocalFallback(key, windowMs, now);
   }
 }
 
@@ -40,8 +102,8 @@ interface RateLimitConfig {
 export const RateLimitConfigs = {
   // General API: 10,000 requests per minute
   general: { windowMs: 60000, maxRequests: 10000 },
-  // Auth endpoints: 1,000 requests per minute (prevent brute force)
-  auth: { windowMs: 60000, maxRequests: 1000, keyPrefix: 'auth:' },
+  // Auth endpoints: 20 requests per minute
+  auth: { windowMs: 60000, maxRequests: 20, keyPrefix: 'auth:' },
   // Post creation: 3,000 per minute
   postCreate: { windowMs: 60000, maxRequests: 3000, keyPrefix: 'post:' },
   // Search: 3,000 per minute
@@ -55,59 +117,10 @@ export const RateLimitConfigs = {
 };
 
 /**
- * Extract client IP with proper validation
- * Priority: CF-Connecting-IP (Cloudflare) > X-Forwarded-For (first IP) > fallback
- */
-function getClientIP(c: Context<{ Bindings: Env; Variables: Variables }>): string {
-  // CF-Connecting-IP is the most reliable on Cloudflare (cannot be spoofed by client)
-  const cfIp = c.req.header('CF-Connecting-IP');
-  if (cfIp && isValidIP(cfIp)) {
-    return cfIp;
-  }
-
-  // X-Forwarded-For can be spoofed - only use the first IP (closest to client)
-  // and validate it's a valid IP format
-  const xff = c.req.header('X-Forwarded-For');
-  if (xff) {
-    const firstIp = xff.split(',')[0]?.trim();
-    if (firstIp && isValidIP(firstIp)) {
-      return firstIp;
-    }
-  }
-
-  // Fallback to X-Real-IP
-  const realIp = c.req.header('X-Real-IP');
-  if (realIp && isValidIP(realIp)) {
-    return realIp;
-  }
-
-  return 'unknown';
-}
-
-/**
- * Validate IP address format (basic check)
- */
-function isValidIP(ip: string): boolean {
-  // IPv4 pattern
-  const ipv4Pattern = /^(\d{1,3}\.){3}\d{1,3}$/;
-  // IPv6 pattern (simplified)
-  const ipv6Pattern = /^[0-9a-fA-F:]+$/;
-
-  if (ipv4Pattern.test(ip)) {
-    const parts = ip.split('.').map(Number);
-    return parts.every(p => p >= 0 && p <= 255);
-  }
-
-  return ipv6Pattern.test(ip) && ip.includes(':');
-}
-
-/**
  * Create a rate limiting middleware
  */
 export function rateLimit(config: RateLimitConfig) {
   return async (c: Context<{ Bindings: Env; Variables: Variables }>, next: Next) => {
-    cleanupExpired();
-
     // Get client identifier (IP or authenticated actor)
     const actor = c.get('actor');
     const ip = getClientIP(c);
@@ -115,19 +128,8 @@ export function rateLimit(config: RateLimitConfig) {
 
     const key = `${config.keyPrefix || ''}${clientId}`;
     const now = Date.now();
-
-    let entry = rateLimitStore.get(key);
-
-    // If no entry or expired, create new one
-    if (!entry || entry.resetAt < now) {
-      entry = {
-        count: 1,
-        resetAt: now + config.windowMs,
-      };
-      rateLimitStore.set(key, entry);
-    } else {
-      entry.count++;
-    }
+    const entry = await consumeRateLimit(c.env.KV, key, config.windowMs, now);
+    statusCache.set(key, entry);
 
     // Set rate limit headers
     const remaining = Math.max(0, config.maxRequests - entry.count);
@@ -157,5 +159,5 @@ export function rateLimit(config: RateLimitConfig) {
  */
 export function getRateLimitStatus(clientId: string, keyPrefix?: string): RateLimitEntry | null {
   const key = `${keyPrefix || ''}${clientId}`;
-  return rateLimitStore.get(key) || null;
+  return statusCache.get(key) || fallbackRateLimitStore.get(key) || null;
 }
