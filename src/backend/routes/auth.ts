@@ -18,6 +18,12 @@ import {
   getOAuthState,
   deleteOAuthState,
 } from '../lib/oauth-utils';
+import {
+  clearLoginLockout,
+  getLoginLockoutStatus,
+  recordFailedLoginAttempt,
+} from '../lib/auth-lockout';
+import { getClientIP } from '../lib/client-ip';
 import type { PrismaClient } from '../../generated/prisma';
 
 /**
@@ -137,6 +143,18 @@ auth.post('/login', async (c) => {
     return c.json({ error: 'Password auth not enabled' }, 400);
   }
 
+  const clientIp = getClientIP(c);
+  const lockoutKey = `password:${clientIp}`;
+
+  const lockoutStatus = await getLoginLockoutStatus(c.env.KV, lockoutKey);
+  if (lockoutStatus.locked) {
+    c.header('Retry-After', String(lockoutStatus.retryAfterSeconds));
+    return c.json({
+      error: 'Too many failed login attempts. Please try again later.',
+      retry_after: lockoutStatus.retryAfterSeconds,
+    }, 429);
+  }
+
   const body = await c.req.json<{ password: string }>();
   const password = body.password || '';
 
@@ -158,6 +176,14 @@ auth.post('/login', async (c) => {
   }
 
   if (!isValid) {
+    const failedStatus = await recordFailedLoginAttempt(c.env.KV, lockoutKey);
+    if (failedStatus.locked) {
+      c.header('Retry-After', String(failedStatus.retryAfterSeconds));
+      return c.json({
+        error: 'Too many failed login attempts. Please try again later.',
+        retry_after: failedStatus.retryAfterSeconds,
+      }, 429);
+    }
     return c.json({ error: 'Invalid password' }, 401);
   }
 
@@ -182,6 +208,7 @@ auth.post('/login', async (c) => {
   // Generate new session with fresh ID (session rotation)
   const sessionId = await createSession(prisma, actorData.apId, null, null, c.env.ENCRYPTION_KEY);
   setSessionCookie(c, sessionId);
+  await clearLoginLockout(c.env.KV, lockoutKey);
 
   return c.json({ success: true });
 });

@@ -1,0 +1,144 @@
+import { Hono } from 'hono';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import authRoutes from './auth';
+import { LOGIN_LOCKOUT_CONFIG } from '../lib/auth-lockout';
+
+class MockKVNamespace {
+  private store = new Map<string, { value: string; expiration?: number }>();
+
+  async get(key: string): Promise<string | null> {
+    const record = this.store.get(key);
+    if (!record) return null;
+    if (record.expiration && record.expiration <= Date.now() / 1000) {
+      this.store.delete(key);
+      return null;
+    }
+    return record.value;
+  }
+
+  async put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void> {
+    const expiration = options?.expirationTtl
+      ? Math.floor(Date.now() / 1000) + options.expirationTtl
+      : undefined;
+    this.store.set(key, { value, expiration });
+  }
+
+  async delete(key: string): Promise<void> {
+    this.store.delete(key);
+  }
+}
+
+async function request(
+  app: Hono,
+  env: Record<string, unknown>,
+  path: string,
+  body: unknown,
+  headers: Record<string, string>
+) {
+  const res = await app.fetch(new Request(`https://test.local${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  }), env);
+
+  const text = await res.text();
+  let json: unknown = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = text;
+  }
+  return { res, body: json };
+}
+
+function createAuthTestApp(envOverrides: Record<string, unknown> = {}) {
+  const env = {
+    KV: new MockKVNamespace(),
+    AUTH_PASSWORD: 'correct-password',
+    APP_URL: 'https://test.yurucommu.com',
+    ...envOverrides,
+  };
+
+  const app = new Hono();
+  app.use('/api/auth/*', async (c, next) => {
+    (c as unknown as { set: (key: string, value: unknown) => void }).set('prisma', {
+      actor: {
+        findFirst: vi.fn().mockResolvedValue({
+          apId: 'https://test.yurucommu.com/ap/users/tako',
+        }),
+      },
+      session: {
+        create: vi.fn().mockResolvedValue({}),
+        delete: vi.fn().mockResolvedValue({}),
+      },
+    });
+    await next();
+  });
+  app.route('/api/auth', authRoutes);
+
+  return { app, env };
+}
+
+describe('auth login lockout', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-02-18T00:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('locks out after 5 failed login attempts', async () => {
+    const { app, env } = createAuthTestApp();
+    const headers = { 'CF-Connecting-IP': '198.51.100.24' };
+
+    for (let i = 0; i < 4; i++) {
+      const { res } = await request(app, env, '/api/auth/login', { password: 'wrong-password' }, headers);
+      expect(res.status).toBe(401);
+    }
+
+    const { res: lockoutRes } = await request(app, env, '/api/auth/login', { password: 'wrong-password' }, headers);
+    expect(lockoutRes.status).toBe(429);
+    expect(lockoutRes.headers.get('Retry-After')).not.toBeNull();
+
+    const { res: blockedRes } = await request(app, env, '/api/auth/login', { password: 'correct-password' }, headers);
+    expect(blockedRes.status).toBe(429);
+  });
+
+  it('clears lockout state after successful login', async () => {
+    const { app, env } = createAuthTestApp();
+    const headers = { 'CF-Connecting-IP': '198.51.100.25' };
+
+    for (let i = 0; i < 4; i++) {
+      const { res } = await request(app, env, '/api/auth/login', { password: 'wrong-password' }, headers);
+      expect(res.status).toBe(401);
+    }
+
+    const { res: successRes } = await request(app, env, '/api/auth/login', { password: 'correct-password' }, headers);
+    expect(successRes.status).toBe(200);
+
+    const { res: retryRes } = await request(app, env, '/api/auth/login', { password: 'wrong-password' }, headers);
+    expect(retryRes.status).toBe(401);
+  });
+
+  it('allows retries again after lockout window passes', async () => {
+    const { app, env } = createAuthTestApp();
+    const headers = { 'CF-Connecting-IP': '198.51.100.26' };
+
+    for (let i = 0; i < LOGIN_LOCKOUT_CONFIG.maxFailedAttempts; i++) {
+      await request(app, env, '/api/auth/login', { password: 'wrong-password' }, headers);
+    }
+
+    const { res: lockedRes } = await request(app, env, '/api/auth/login', { password: 'wrong-password' }, headers);
+    expect(lockedRes.status).toBe(429);
+
+    vi.advanceTimersByTime(LOGIN_LOCKOUT_CONFIG.lockoutMs + 1_000);
+
+    const { res: postWindowRes } = await request(app, env, '/api/auth/login', { password: 'wrong-password' }, headers);
+    expect(postWindowRes.status).toBe(401);
+  });
+});
