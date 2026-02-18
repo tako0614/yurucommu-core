@@ -263,35 +263,30 @@ follow.delete('/', async (c) => {
 
   if (!existingFollow) return c.json({ error: 'Not following' }, 400);
 
-  // Delete the follow
-  await prisma.follow.delete({
-    where: {
-      followerApId_followingApId: { followerApId: actor.ap_id, followingApId: targetApId },
-    },
-  });
+  const shouldDecrementCounts = existingFollow.status === 'accepted';
+  const shouldDecrementTargetFollower = shouldDecrementCounts && isLocal(targetApId, baseUrl);
 
-  // Update counts if was accepted
-  if (existingFollow.status === 'accepted') {
-    try {
-      await prisma.actor.update({
-        where: { apId: actor.ap_id },
-        data: { followingCount: { decrement: 1 } },
+  await prisma.$transaction(async (tx) => {
+    await tx.follow.delete({
+      where: {
+        followerApId_followingApId: { followerApId: actor.ap_id, followingApId: targetApId },
+      },
+    });
+
+    if (!shouldDecrementCounts) return;
+
+    await tx.actor.update({
+      where: { apId: actor.ap_id },
+      data: { followingCount: { decrement: 1 } },
+    });
+
+    if (shouldDecrementTargetFollower) {
+      await tx.actor.update({
+        where: { apId: targetApId },
+        data: { followerCount: { decrement: 1 } },
       });
-    } catch (err) {
-      console.warn(`[Follow] Failed to decrement followingCount for ${actor.ap_id}`, err);
     }
-
-    if (isLocal(targetApId, baseUrl)) {
-      try {
-        await prisma.actor.update({
-          where: { apId: targetApId },
-          data: { followerCount: { decrement: 1 } },
-        });
-      } catch (err) {
-        console.warn(`[Follow] Failed to decrement followerCount for ${targetApId}`, err);
-      }
-    }
-  }
+  });
 
   // Send Undo Follow to remote
   if (!isLocal(targetApId, baseUrl)) {

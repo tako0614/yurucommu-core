@@ -309,6 +309,7 @@ model DeliveryQueue {
   error         String?
   createdAt     String  @default(dbgenerated("datetime('now')")) @map("created_at")
 
+  @@index([activityApId])
   @@index([nextAttemptAt])
   @@index([status, nextAttemptAt])
   @@map("delivery_queue")
@@ -383,6 +384,7 @@ model CommunityMember {
 
   @@id([communityApId, actorApId])
   @@index([actorApId])
+  @@index([communityApId, role, joinedAt])
   @@map("community_members")
 }
 
@@ -471,7 +473,7 @@ model Inbox {
 model Session {
   id                     String  @id
   memberId               String  @map("member_id")
-  accessToken            String  @map("access_token")
+  accessToken            String  @unique @map("access_token")
   refreshToken           String? @map("refresh_token")
   expiresAt              String  @map("expires_at")
   createdAt              String  @default(dbgenerated("datetime('now')")) @map("created_at")
@@ -556,6 +558,7 @@ model NotificationArchived {
 
   @@id([actorApId, activityApId])
   @@index([actorApId])
+  @@index([actorApId, archivedAt])
   @@map("notification_archived")
 }
 

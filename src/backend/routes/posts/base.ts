@@ -786,32 +786,31 @@ posts.delete('/:id', async (c) => {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
-  // Delete the post
-  await prisma.object.delete({
-    where: { apId: post.apId }
+  const parentUpdated = await prisma.$transaction(async (tx) => {
+    await tx.object.delete({
+      where: { apId: post.apId }
+    });
+
+    await tx.actor.update({
+      where: { apId: actor.ap_id },
+      data: {
+        postCount: { decrement: 1 }
+      }
+    });
+
+    if (!post.inReplyTo) return true;
+
+    const updateResult = await tx.object.updateMany({
+      where: { apId: post.inReplyTo },
+      data: {
+        replyCount: { decrement: 1 }
+      }
+    });
+    return updateResult.count > 0;
   });
 
-  // Update author's post count
-  await prisma.actor.update({
-    where: { apId: actor.ap_id },
-    data: {
-      postCount: { decrement: 1 }
-    }
-  });
-
-  // If this was a reply, update parent's reply count
-  if (post.inReplyTo) {
-    try {
-      await prisma.object.update({
-        where: { apId: post.inReplyTo },
-        data: {
-          replyCount: { decrement: 1 }
-        }
-      });
-    } catch (err) {
-      // HIGH FIX: Log the error - parent post may not exist, but we should still log for debugging
-      console.warn('[Posts] Failed to decrement parent reply count (parent may not exist):', err);
-    }
+  if (post.inReplyTo && !parentUpdated) {
+    console.warn('[Posts] Failed to decrement parent reply count (parent may not exist)');
   }
 
   // Send Delete activity to followers
