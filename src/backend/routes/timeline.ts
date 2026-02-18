@@ -5,6 +5,7 @@ import { formatUsername, parseLimit, parseOffset, safeJsonParse } from '../utils
 import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
 
 const timeline = new Hono<{ Bindings: Env; Variables: Variables }>();
+const MAX_BLOCK_MUTE_FILTER_ENTRIES = 1000;
 
 type Attachment = {
   type?: string;
@@ -97,10 +98,12 @@ async function getBlockedAndMutedUsers(
     prisma.block.findMany({
       where: { blockerApId: viewerApId },
       select: { blockedApId: true },
+      take: MAX_BLOCK_MUTE_FILTER_ENTRIES,
     }),
     prisma.mute.findMany({
       where: { muterApId: viewerApId },
       select: { mutedApId: true },
+      take: MAX_BLOCK_MUTE_FILTER_ENTRIES,
     }),
   ]);
 

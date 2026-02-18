@@ -15,13 +15,93 @@ import type { D1Database } from '@cloudflare/workers-types';
 
 // Singleton instance for non-Cloudflare runtimes
 let prismaClient: PrismaClient | null = null;
+function withDeletedAtFilter<TArgs extends { where?: unknown }>(args: TArgs): TArgs {
+  const where = (args.where ?? {}) as Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(where, 'deletedAt')) {
+    return args;
+  }
+
+  return {
+    ...args,
+    where: {
+      AND: [where, { deletedAt: null }],
+    },
+  };
+}
+
+function withSoftDeleteMiddleware(prisma: PrismaClient): PrismaClient {
+  return prisma.$extends({
+    query: {
+      actor: {
+        async findUnique({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+        async findUniqueOrThrow({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+        async findFirst({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+        async findFirstOrThrow({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+        async findMany({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+        async count({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+      },
+      object: {
+        async findUnique({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+        async findUniqueOrThrow({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+        async findFirst({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+        async findFirstOrThrow({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+        async findMany({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+        async count({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+      },
+      community: {
+        async findUnique({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+        async findUniqueOrThrow({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+        async findFirst({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+        async findFirstOrThrow({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+        async findMany({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+        async count({ args, query }) {
+          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+        },
+      },
+    },
+  }) as PrismaClient;
+}
 
 /**
  * Get or create a Prisma client for Cloudflare D1
  */
 export function getPrismaD1(d1: D1Database): PrismaClient {
   const adapter = new PrismaD1(d1);
-  return new PrismaClient({ adapter });
+  return withSoftDeleteMiddleware(new PrismaClient({ adapter }));
 }
 
 /**
@@ -38,7 +118,7 @@ export async function getPrismaSQLite(databasePath: string): Promise<PrismaClien
   const adapter = new PrismaLibSql({
     url: `file:${databasePath}`,
   });
-  prismaClient = new PrismaClient({ adapter });
+  prismaClient = withSoftDeleteMiddleware(new PrismaClient({ adapter }));
 
   return prismaClient;
 }
