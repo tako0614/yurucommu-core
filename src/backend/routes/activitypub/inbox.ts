@@ -177,6 +177,11 @@ async function verifyHttpSignature(
     return { valid: false, error: `Unsupported algorithm: ${parsed.algorithm}` };
   }
 
+  // Require method/path binding to prevent replay across methods.
+  if (!parsed.headers.includes('(request-target)')) {
+    return { valid: false, error: '(request-target) must be signed' };
+  }
+
   // Build the signature string from headers
   const url = new URL(c.req.url);
   const signatureParts: string[] = [];
@@ -466,6 +471,8 @@ ap.post('/ap/users/:username/inbox', async (c) => {
             if (actorData?.id !== actor) {
               console.warn(`[ActivityPub] Actor ID mismatch: fetched ${actor} but got id ${actorData?.id}`);
               // Don't cache mismatched actor data
+            } else if (!actorData?.publicKey?.publicKeyPem) {
+              console.warn(`[ActivityPub] Skipping actor cache for ${actor}: missing public key`);
             } else if (
               actorData?.id &&
               actorData?.inbox &&
@@ -481,7 +488,7 @@ ap.post('/ap/users/:username/inbox', async (c) => {
                   summary: actorData.summary,
                   iconUrl: actorData.icon?.url,
                   inbox: actorData.inbox,
-                  publicKeyPem: actorData.publicKey?.publicKeyPem,
+                  publicKeyPem: actorData.publicKey.publicKeyPem,
                   rawJson: JSON.stringify(actorData),
                 },
               });
