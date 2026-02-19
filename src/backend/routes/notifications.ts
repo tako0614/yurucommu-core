@@ -8,6 +8,17 @@ import type { PrismaClient, Prisma } from '../../generated/prisma';
 const notifications = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const ARCHIVE_RETENTION_DAYS = 90;
+const ARCHIVED_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+const MAX_ARCHIVE_BATCH_SIZE = 100;
+const ARCHIVE_CREATE_BATCH_SIZE = 100;
+const archivedCleanupTimestamps = new Map<string, number>();
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: string }).code === 'P2002';
+}
 
 async function cleanupArchivedNotifications(prisma: PrismaClient, actorApId: string): Promise<void> {
   const retentionDate = new Date();
@@ -44,6 +55,16 @@ async function cleanupArchivedNotifications(prisma: PrismaClient, actorApId: str
   }
 }
 
+async function maybeCleanupArchivedNotifications(prisma: PrismaClient, actorApId: string): Promise<void> {
+  const now = Date.now();
+  const lastRun = archivedCleanupTimestamps.get(actorApId) ?? 0;
+  if (now - lastRun < ARCHIVED_CLEANUP_INTERVAL_MS) {
+    return;
+  }
+  archivedCleanupTimestamps.set(actorApId, now);
+  await cleanupArchivedNotifications(prisma, actorApId);
+}
+
 // Map activity types to notification types
 function activityToNotificationType(activityType: string, hasInReplyTo: boolean, followStatus?: string | null): string | null {
   switch (activityType) {
@@ -69,7 +90,7 @@ notifications.get('/', async (c) => {
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const prisma = c.get('prisma');
-  await cleanupArchivedNotifications(prisma, actor.ap_id);
+  await maybeCleanupArchivedNotifications(prisma, actor.ap_id);
 
   const limit = parseLimit(c.req.query('limit'), 20, 100);
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
@@ -119,7 +140,7 @@ notifications.get('/', async (c) => {
       activity: true,
     },
     orderBy: { createdAt: 'desc' },
-    take: limit * 5, // Fetch more to account for filtering
+    take: limit + 1,
   });
 
   // Get all unique actor IDs and object IDs for batch fetching
@@ -260,7 +281,7 @@ notifications.get('/unread/count', async (c) => {
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const prisma = c.get('prisma');
-  await cleanupArchivedNotifications(prisma, actor.ap_id);
+  await maybeCleanupArchivedNotifications(prisma, actor.ap_id);
 
   const unreadCount = await prisma.inbox.count({
     where: {
@@ -315,25 +336,57 @@ notifications.post('/archive', async (c) => {
 
   const prisma = c.get('prisma');
   const body = await c.req.json<{ ids: string[] }>();
-  if (!body.ids || body.ids.length === 0) {
+  if (
+    !body.ids
+    || !Array.isArray(body.ids)
+    || body.ids.length === 0
+    || body.ids.some((id) => typeof id !== 'string' || id.trim().length === 0)
+  ) {
     return c.json({ error: 'ids array is required' }, 400);
+  }
+  if (body.ids.length > MAX_ARCHIVE_BATCH_SIZE) {
+    return c.json({ error: `Batch size exceeds maximum of ${MAX_ARCHIVE_BATCH_SIZE}` }, 400);
   }
 
   const now = new Date().toISOString();
-  let archivedCount = 0;
+  const uniqueIds = [...new Set(body.ids.map((id) => id.trim()))];
+  const alreadyArchived = await prisma.notificationArchived.findMany({
+    where: {
+      actorApId: actor.ap_id,
+      activityApId: { in: uniqueIds },
+    },
+    select: { activityApId: true },
+  });
+  const alreadyArchivedSet = new Set(alreadyArchived.map((row) => row.activityApId));
+  const toArchive = uniqueIds.filter((id) => !alreadyArchivedSet.has(id));
 
-  for (const id of body.ids) {
+  let archivedCount = 0;
+  for (let i = 0; i < toArchive.length; i += ARCHIVE_CREATE_BATCH_SIZE) {
+    const batch = toArchive.slice(i, i + ARCHIVE_CREATE_BATCH_SIZE);
+    const data = batch.map((id) => ({
+      actorApId: actor.ap_id,
+      activityApId: id,
+      archivedAt: now,
+    }));
+
     try {
-      await prisma.notificationArchived.create({
-        data: {
-          actorApId: actor.ap_id,
-          activityApId: id,
-          archivedAt: now,
-        },
-      });
-      archivedCount++;
-    } catch {
-      // Ignore duplicate key errors (already archived)
+      const result = await prisma.notificationArchived.createMany({ data });
+      archivedCount += result.count;
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) {
+        throw error;
+      }
+      // If a race introduced duplicates between read and write, insert one-by-one.
+      for (const row of data) {
+        try {
+          await prisma.notificationArchived.create({ data: row });
+          archivedCount++;
+        } catch (innerError) {
+          if (!isUniqueConstraintError(innerError)) {
+            throw innerError;
+          }
+        }
+      }
     }
   }
 

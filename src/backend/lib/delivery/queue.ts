@@ -85,6 +85,13 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function isUniqueConstraintError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: string }).code === 'P2002';
+}
+
 function queueAvailable(env: Env): env is Env & { DELIVERY_QUEUE: Queue<DeliveryQueueMessageV1>; DELIVERY_DLQ: Queue<DeliveryDlqMessageV1> } {
   return Boolean((env as unknown as { DELIVERY_QUEUE?: unknown }).DELIVERY_QUEUE) && Boolean((env as unknown as { DELIVERY_DLQ?: unknown }).DELIVERY_DLQ);
 }
@@ -333,19 +340,33 @@ async function fetchAndCacheRemoteActor(prisma: PrismaClient, actorApId: string)
 }
 
 async function upsertDeliveryJob(prisma: PrismaClient, jobId: string, activityId: string, endpoint: string): Promise<void> {
-  await prisma.deliveryQueue.upsert({
-    where: { id: jobId },
-    update: {
-      inboxUrl: endpoint,
-      activityApId: activityId,
-    },
-    create: {
+  try {
+    await prisma.deliveryQueue.create({
+      data: {
+        id: jobId,
+        inboxUrl: endpoint,
+        activityApId: activityId,
+        attempts: 0,
+        nextAttemptAt: nowIso(),
+        status: 'pending',
+      },
+    });
+    return;
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) {
+      throw error;
+    }
+  }
+
+  // Guard against overwriting in-flight or completed jobs.
+  await prisma.deliveryQueue.updateMany({
+    where: {
       id: jobId,
+      status: { notIn: ['processing', 'delivered'] },
+    },
+    data: {
       inboxUrl: endpoint,
       activityApId: activityId,
-      attempts: 0,
-      nextAttemptAt: nowIso(),
-      status: 'pending',
     },
   });
 }
@@ -564,12 +585,11 @@ async function processReconcileJob(prisma: PrismaClient, env: Env, msg: { jobId:
     return;
   }
 
-  // Reset and re-enqueue.
+  // Re-enqueue without resetting attempts to preserve total delivery budget.
   await prisma.deliveryQueue.update({
     where: { id: msg.jobId },
     data: {
       status: 'pending',
-      attempts: 0,
       error: null,
       lastAttemptAt: null,
       processingStartedAt: null,
@@ -804,13 +824,13 @@ async function processDeliverEndpoint(
     }
 
     // Retryable failure.
-    const nextAttempts = job.attempts + 1;
+    // Increment attempts atomically to avoid concurrent read-modify-write races.
+    const nextAttempts = await incrementDeliveryAttempts(prisma, job.id);
     if (nextAttempts >= DELIVERY_MAX_ATTEMPTS) {
       await prisma.deliveryQueue.update({
         where: { id: job.id },
         data: {
           status: 'dead_letter',
-          attempts: nextAttempts,
           error: errorMessage,
           lastAttemptAt: nowIso(),
           processingStartedAt: null,
@@ -841,7 +861,6 @@ async function processDeliverEndpoint(
       where: { id: job.id },
       data: {
         status: 'retry_wait',
-        attempts: nextAttempts,
         error: errorMessage,
         lastAttemptAt: nowIso(),
         processingStartedAt: null,
@@ -878,6 +897,17 @@ async function runWithConcurrency<T>(
   }
 
   await Promise.all(workers);
+}
+
+async function incrementDeliveryAttempts(prisma: PrismaClient, jobId: string): Promise<number> {
+  const updated = await prisma.deliveryQueue.update({
+    where: { id: jobId },
+    data: {
+      attempts: { increment: 1 },
+    },
+    select: { attempts: true },
+  });
+  return updated.attempts;
 }
 
 export async function handleDeliveryQueueBatch(

@@ -304,7 +304,9 @@ actors.post('/me/delete', async (c) => {
   const prisma = c.get('prisma');
 
   try {
-    // Use transaction to ensure all deletions succeed or none do
+    // Phase 1: remove dependent records in a transaction.
+    // Actor/object hard delete is executed after this block to avoid D1 batch-order ambiguity
+    // with `prevent_actor_hard_delete` trigger checks.
     await prisma.$transaction(async (tx) => {
       // Remove sessions
       await tx.session.deleteMany({ where: { memberId: actorApIdVal } });
@@ -363,11 +365,11 @@ actors.post('/me/delete', async (c) => {
         await tx.storyVote.deleteMany({ where: { storyApId: { in: objectIds } } });
         await tx.storyView.deleteMany({ where: { storyApId: { in: objectIds } } });
       }
-      await tx.object.deleteMany({ where: { attributedTo: actorApIdVal } });
-
-      // Finally remove actor
-      await tx.actor.delete({ where: { apId: actorApIdVal } });
     });
+
+    // Phase 2: explicit ordered hard-delete to satisfy trigger expectations.
+    await prisma.object.deleteMany({ where: { attributedTo: actorApIdVal } });
+    await prisma.actor.delete({ where: { apId: actorApIdVal } });
 
     // Clear session cookie after successful deletion
     deleteCookie(c, 'session');

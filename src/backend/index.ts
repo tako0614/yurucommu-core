@@ -70,6 +70,11 @@ function getMimeType(path: string): string {
   return MIME_TYPES[ext] || 'application/octet-stream';
 }
 
+function isExpired(expiresAt: string): boolean {
+  const expiresMs = Date.parse(expiresAt);
+  return !Number.isFinite(expiresMs) || expiresMs <= Date.now();
+}
+
 function applyGlobalMiddleware(app: YurucommuApp): void {
   app.onError(createErrorMiddleware());
 
@@ -111,15 +116,12 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
     const sessionId = getCookie(c, 'session');
     if (sessionId) {
       const prisma = c.get('prisma');
-      const session = await prisma.session.findFirst({
-        where: {
-          id: sessionId,
-          expiresAt: { gt: new Date().toISOString() },
-        },
+      const session = await prisma.session.findUnique({
+        where: { id: sessionId },
         include: { member: true },
       });
 
-      if (session) {
+      if (session && !isExpired(session.expiresAt)) {
         const actor: Actor = {
           ap_id: session.member.apId,
           type: session.member.type,
@@ -154,15 +156,12 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
     const sessionId = getCookie(c, 'session');
     if (sessionId) {
       const prisma = c.get('prisma');
-      const session = await prisma.session.findFirst({
-        where: {
-          id: sessionId,
-          expiresAt: { gt: new Date().toISOString() },
-        },
+      const session = await prisma.session.findUnique({
+        where: { id: sessionId },
         include: { member: true },
       });
 
-      if (session) {
+      if (session && !isExpired(session.expiresAt)) {
         const actor: Actor = {
           ap_id: session.member.apId,
           type: session.member.type,

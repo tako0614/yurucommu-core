@@ -28,15 +28,72 @@ type PostDetailRow = PostRow & {
   bookmarked?: number;
 };
 
+type MentionFailure = {
+  mention: string;
+  stage: 'resolve' | 'persist_activity' | 'persist_inbox';
+  reason: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function parseJsonObject(
+  c: { req: { json: () => Promise<unknown> } }
+): Promise<Record<string, unknown> | null> {
+  try {
+    const body = await c.req.json();
+    if (!isRecord(body)) return null;
+    return body;
+  } catch {
+    return null;
+  }
+}
+
 // Create post
 posts.post('/', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
   const prisma = c.get('prisma');
 
-  const body = await c.req.json<CreatePostBody>();
+  const rawBody = await parseJsonObject(c);
+  if (!rawBody) {
+    return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+  }
 
-  const content = body.content?.trim();
+  if (typeof rawBody.content !== 'string') {
+    return c.json({ error: 'content must be a string', code: 'BAD_REQUEST' }, 400);
+  }
+
+  if (rawBody.summary !== undefined && rawBody.summary !== null && typeof rawBody.summary !== 'string') {
+    return c.json({ error: 'summary must be a string', code: 'BAD_REQUEST' }, 400);
+  }
+  if (rawBody.visibility !== undefined && rawBody.visibility !== null && typeof rawBody.visibility !== 'string') {
+    return c.json({ error: 'visibility must be a string', code: 'BAD_REQUEST' }, 400);
+  }
+  if (rawBody.in_reply_to !== undefined && rawBody.in_reply_to !== null && typeof rawBody.in_reply_to !== 'string') {
+    return c.json({ error: 'in_reply_to must be a string', code: 'BAD_REQUEST' }, 400);
+  }
+  if (rawBody.community_ap_id !== undefined && rawBody.community_ap_id !== null && typeof rawBody.community_ap_id !== 'string') {
+    return c.json({ error: 'community_ap_id must be a string', code: 'BAD_REQUEST' }, 400);
+  }
+  if (rawBody.attachments !== undefined && !Array.isArray(rawBody.attachments)) {
+    return c.json({ error: 'attachments must be an array', code: 'BAD_REQUEST' }, 400);
+  }
+  if (Array.isArray(rawBody.attachments) && rawBody.attachments.some((a) => !isRecord(a))) {
+    return c.json({ error: 'attachments must be objects', code: 'BAD_REQUEST' }, 400);
+  }
+
+  const body: CreatePostBody = {
+    content: rawBody.content,
+    summary: typeof rawBody.summary === 'string' ? rawBody.summary : undefined,
+    attachments: Array.isArray(rawBody.attachments) ? rawBody.attachments as PostAttachment[] : undefined,
+    in_reply_to: typeof rawBody.in_reply_to === 'string' ? rawBody.in_reply_to : undefined,
+    visibility: typeof rawBody.visibility === 'string' ? rawBody.visibility : undefined,
+    community_ap_id: typeof rawBody.community_ap_id === 'string' ? rawBody.community_ap_id : undefined,
+  };
+
+  const content = body.content.trim();
   const summary = body.summary?.trim();
 
   if (!content) {
@@ -181,6 +238,7 @@ posts.post('/', async (c) => {
 
   // Process mentions and create notifications
   const mentions = extractMentions(content);
+  const mentionFailures: MentionFailure[] = [];
   if (mentions.length > 0) {
     // Batch lookup for local and remote mentions to avoid N+1 queries
     const localMentions = mentions.filter((m) => !m.includes('@'));
@@ -276,15 +334,38 @@ posts.post('/', async (c) => {
         }
       } catch (e) {
         console.error(`Failed to process mention ${mention}:`, e);
+        mentionFailures.push({
+          mention,
+          stage: 'resolve',
+          reason: 'mention_processing_failed',
+        });
       }
     }
 
     // Batch create activities and inbox entries
     if (activitiesToCreate.length > 0) {
-      await prisma.activity.createMany({ data: activitiesToCreate });
+      try {
+        await prisma.activity.createMany({ data: activitiesToCreate });
+      } catch (e) {
+        console.error('[Posts] Failed to persist mention activities:', e);
+        mentionFailures.push({
+          mention: '__batch__',
+          stage: 'persist_activity',
+          reason: 'mention_activity_persist_failed',
+        });
+      }
     }
     if (inboxEntriesToCreate.length > 0) {
-      await prisma.inbox.createMany({ data: inboxEntriesToCreate });
+      try {
+        await prisma.inbox.createMany({ data: inboxEntriesToCreate });
+      } catch (e) {
+        console.error('[Posts] Failed to persist mention inbox entries:', e);
+        mentionFailures.push({
+          mention: '__batch__',
+          stage: 'persist_inbox',
+          reason: 'mention_inbox_persist_failed',
+        });
+      }
     }
   }
 
@@ -375,6 +456,14 @@ posts.post('/', async (c) => {
     announce_count: 0,
     liked: false,
     bookmarked: false,
+    ...(mentionFailures.length > 0
+      ? {
+          mention_processing: {
+            failed_count: mentionFailures.length,
+            failures: mentionFailures,
+          },
+        }
+      : {}),
   });
 });
 
@@ -642,7 +731,29 @@ posts.patch('/:id', async (c) => {
 
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
-  const body = await c.req.json<{ content?: string; summary?: string }>();
+  const rawBody = await parseJsonObject(c);
+  if (!rawBody) {
+    return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+  }
+  if (
+    rawBody.content !== undefined
+    && rawBody.content !== null
+    && typeof rawBody.content !== 'string'
+  ) {
+    return c.json({ error: 'content must be a string', code: 'BAD_REQUEST' }, 400);
+  }
+  if (
+    rawBody.summary !== undefined
+    && rawBody.summary !== null
+    && typeof rawBody.summary !== 'string'
+  ) {
+    return c.json({ error: 'summary must be a string', code: 'BAD_REQUEST' }, 400);
+  }
+
+  const body: { content?: string; summary?: string } = {
+    content: typeof rawBody.content === 'string' ? rawBody.content : undefined,
+    summary: typeof rawBody.summary === 'string' ? rawBody.summary : undefined,
+  };
   const prisma = c.get('prisma');
 
   // Get the post

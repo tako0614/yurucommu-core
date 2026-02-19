@@ -5,6 +5,17 @@ import { managerRoles } from './utils';
 
 const communities = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+function isValidCommunityIconUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.startsWith('/media/')) return true;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 // GET /api/communities - List all communities
 communities.get('/', async (c) => {
   const actor = c.get('actor');
@@ -341,7 +352,17 @@ communities.patch('/:identifier/settings', async (c) => {
     updates.summary = body.summary;
   }
   if (body.icon_url !== undefined) {
-    updates.iconUrl = body.icon_url;
+    if (body.icon_url === null) {
+      updates.iconUrl = null;
+    } else if (typeof body.icon_url !== 'string') {
+      return c.json({ error: 'Invalid icon_url' }, 400);
+    } else if (body.icon_url.trim().length === 0) {
+      updates.iconUrl = null;
+    } else if (!isValidCommunityIconUrl(body.icon_url)) {
+      return c.json({ error: 'Invalid icon_url scheme' }, 400);
+    } else {
+      updates.iconUrl = body.icon_url.trim();
+    }
   }
   if (body.visibility !== undefined) {
     if (!['public', 'private'].includes(body.visibility)) {

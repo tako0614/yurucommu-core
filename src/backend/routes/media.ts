@@ -222,7 +222,7 @@ async function checkMediaAuthorization(
   mediaUrl: string,
   currentActorApId: string | null,
   r2Key: string
-): Promise<{ allowed: boolean; reason?: string }> {
+): Promise<{ allowed: boolean; reason?: string; isPublic: boolean }> {
   // Find object(s) that reference this media URL
   // Search in attachmentsJson which contains URLs like /media/{id}.{ext}
   const obj = await prisma.object.findFirst({
@@ -244,7 +244,7 @@ async function checkMediaAuthorization(
   if (!obj) {
     // Media not attached to any object - require authentication
     if (!currentActorApId) {
-      return { allowed: false, reason: 'Authentication required' };
+      return { allowed: false, reason: 'Authentication required', isPublic: false };
     }
 
     // Check if this user uploaded the media by looking up the upload record
@@ -257,25 +257,25 @@ async function checkMediaAuthorization(
 
     if (!uploadRecord) {
       // User is not the uploader of this unattached media
-      return { allowed: false, reason: 'Not authorized to access this media' };
+      return { allowed: false, reason: 'Not authorized to access this media', isPublic: false };
     }
 
-    return { allowed: true };
+    return { allowed: true, isPublic: false };
   }
 
   // Public visibility - allow all
   if (obj.visibility === 'public' || obj.visibility === 'unlisted') {
-    return { allowed: true };
+    return { allowed: true, isPublic: true };
   }
 
   // For non-public content, require authentication
   if (!currentActorApId) {
-    return { allowed: false, reason: 'Authentication required' };
+    return { allowed: false, reason: 'Authentication required', isPublic: false };
   }
 
   // Author can always access their own media
   if (obj.attributedTo === currentActorApId) {
-    return { allowed: true };
+    return { allowed: true, isPublic: false };
   }
 
   // Followers-only visibility
@@ -291,22 +291,22 @@ async function checkMediaAuthorization(
     });
 
     if (follow) {
-      return { allowed: true };
+      return { allowed: true, isPublic: false };
     }
-    return { allowed: false, reason: 'Not authorized' };
+    return { allowed: false, reason: 'Not authorized', isPublic: false };
   }
 
   // Direct messages - check if user is in recipients
   if (obj.visibility === 'direct') {
     const recipients = safeJsonParse<string[]>(obj.toJson, []);
     if (recipients.includes(currentActorApId)) {
-      return { allowed: true };
+      return { allowed: true, isPublic: false };
     }
-    return { allowed: false, reason: 'Not authorized' };
+    return { allowed: false, reason: 'Not authorized', isPublic: false };
   }
 
   // Unknown visibility - deny by default
-  return { allowed: false, reason: 'Not authorized' };
+  return { allowed: false, reason: 'Not authorized', isPublic: false };
 }
 
 // GET /media/* - Serve media files from R2 with cache headers
@@ -357,22 +357,25 @@ media.get('/:id', async (c) => {
     // Get content type from metadata
     const contentType = object.httpMetadata?.contentType || 'application/octet-stream';
 
-    // Determine cache duration based on content type and visibility
-    // Private content should have shorter cache and private cache control
-    let cacheControl = 'public, max-age=31536000'; // 1 year for immutable content
+    // Determine cache duration based on content type and visibility.
+    // Non-public media must not be publicly cacheable.
+    const cacheScope = authResult.isPublic ? 'public' : 'private';
+    let cacheControl = `${cacheScope}, max-age=31536000`; // 1 year for immutable content
     if (contentType.startsWith('video/')) {
-      cacheControl = 'public, max-age=604800'; // 1 week for videos
+      cacheControl = `${cacheScope}, max-age=604800`; // 1 week for videos
     }
+
+    const etag = object.httpEtag || object.etag;
 
     // Return file with cache headers
     return c.body(object.body, 200, {
       'Content-Type': contentType,
       'Cache-Control': cacheControl,
-      'ETag': object.httpMetadata?.contentType || 'true',
+      ...(etag ? { 'ETag': etag } : {}),
     });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return c.json({ error: 'Failed to fetch media', details: errorMessage }, 500);
+    console.error('Media fetch failed:', error instanceof Error ? error.message : 'Unknown error');
+    return c.json({ error: 'Failed to fetch media' }, 500);
   }
 });
 

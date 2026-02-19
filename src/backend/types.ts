@@ -17,6 +17,7 @@ export interface EnvVars {
   // 認証設定（自由に組み合わせ可能）
   AUTH_PASSWORD_HASH?: string; // PBKDF2-hashed password (recommended)
   AUTH_PASSWORD?: string; // Legacy plain text (deprecated)
+  ALLOW_PLAINTEXT_AUTH?: string; // Explicit opt-in for AUTH_PASSWORD fallback
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   X_CLIENT_ID?: string;

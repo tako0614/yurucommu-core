@@ -31,6 +31,7 @@ export interface AuthConfig {
  */
 export function getAuthConfig(env: Env): AuthConfig {
   const providers: OAuthProvider[] = [];
+  const allowPlaintextAuth = env.ALLOW_PLAINTEXT_AUTH === 'true';
 
   // Google OAuth
   if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
@@ -79,8 +80,8 @@ export function getAuthConfig(env: Env): AuthConfig {
   }
 
   return {
-    // AUTH_PASSWORD_HASH (secure) or AUTH_PASSWORD (legacy)
-    passwordEnabled: !!(env.AUTH_PASSWORD_HASH || env.AUTH_PASSWORD),
+    // AUTH_PASSWORD is only accepted when explicit fallback flag is enabled.
+    passwordEnabled: !!(env.AUTH_PASSWORD_HASH || (allowPlaintextAuth && env.AUTH_PASSWORD)),
     providers,
   };
 }

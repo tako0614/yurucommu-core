@@ -23,17 +23,55 @@ type RemoteActor = {
   publicKey?: { id?: string; publicKeyPem?: string };
 };
 
+async function parseJsonObject(
+  c: { req: { json: () => Promise<unknown> } }
+): Promise<Record<string, unknown> | null> {
+  try {
+    const body = await c.req.json();
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return null;
+    }
+    return body as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function parseNonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function parseStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const parsed = value
+    .map((v) => parseNonEmptyString(v))
+    .filter((v): v is string => v !== null);
+  if (parsed.length !== value.length) return null;
+  return parsed;
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: string }).code === 'P2002';
+}
+
 // Follow an actor (handles local and remote)
 follow.post('/', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const body = await c.req.json<{ target_ap_id: string }>();
-  if (!body.target_ap_id) return c.json({ error: 'target_ap_id required' }, 400);
-  if (body.target_ap_id === actor.ap_id) return c.json({ error: 'Cannot follow yourself' }, 400);
+  const body = await parseJsonObject(c);
+  if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+
+  const targetApId = parseNonEmptyString(body.target_ap_id);
+  if (!targetApId) return c.json({ error: 'target_ap_id required', code: 'BAD_REQUEST' }, 400);
+  if (targetApId === actor.ap_id) return c.json({ error: 'Cannot follow yourself' }, 400);
 
   const baseUrl = c.env.APP_URL;
-  const targetApId = body.target_ap_id;
   const prisma = c.get('prisma');
 
   // Check if already following
@@ -63,16 +101,6 @@ follow.post('/', async (c) => {
     // P07: Wrap in transaction to prevent race condition with concurrent follow requests
     try {
       await prisma.$transaction(async (tx) => {
-        // Re-check in transaction to prevent race condition
-        const existingInTx = await tx.follow.findUnique({
-          where: {
-            followerApId_followingApId: { followerApId: actor.ap_id, followingApId: targetApId },
-          },
-        });
-        if (existingInTx) {
-          throw new Error('ALREADY_FOLLOWING');
-        }
-
         await tx.follow.create({
           data: {
             followerApId: actor.ap_id,
@@ -122,11 +150,11 @@ follow.post('/', async (c) => {
           },
         });
       });
-    } catch (e) {
-      if (e instanceof Error && e.message === 'ALREADY_FOLLOWING') {
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
         return c.json({ error: 'Already following or pending' }, 400);
       }
-      throw e;
+      throw error;
     }
 
     return c.json({ success: true, status });
@@ -248,11 +276,13 @@ follow.delete('/', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const body = await c.req.json<{ target_ap_id: string }>();
-  if (!body.target_ap_id) return c.json({ error: 'target_ap_id required' }, 400);
+  const body = await parseJsonObject(c);
+  if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+
+  const targetApId = parseNonEmptyString(body.target_ap_id);
+  if (!targetApId) return c.json({ error: 'target_ap_id required', code: 'BAD_REQUEST' }, 400);
 
   const baseUrl = c.env.APP_URL;
-  const targetApId = body.target_ap_id;
   const prisma = c.get('prisma');
 
   const existingFollow = await prisma.follow.findUnique({
@@ -326,8 +356,11 @@ follow.post('/accept', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const body = await c.req.json<{ requester_ap_id: string }>();
-  if (!body.requester_ap_id) return c.json({ error: 'requester_ap_id required' }, 400);
+  const body = await parseJsonObject(c);
+  if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+
+  const requesterApId = parseNonEmptyString(body.requester_ap_id);
+  if (!requesterApId) return c.json({ error: 'requester_ap_id required', code: 'BAD_REQUEST' }, 400);
 
   const prisma = c.get('prisma');
 
@@ -336,8 +369,8 @@ follow.post('/accept', async (c) => {
   try {
     pendingFollow = await prisma.$transaction(async (tx) => {
       const follow = await tx.follow.findFirst({
-        where: {
-          followerApId: body.requester_ap_id,
+          where: {
+          followerApId: requesterApId,
           followingApId: actor.ap_id,
           status: 'pending',
         },
@@ -346,8 +379,8 @@ follow.post('/accept', async (c) => {
       if (!follow) return null;
 
       await tx.follow.update({
-        where: {
-          followerApId_followingApId: { followerApId: body.requester_ap_id, followingApId: actor.ap_id },
+          where: {
+          followerApId_followingApId: { followerApId: requesterApId, followingApId: actor.ap_id },
         },
         data: { status: 'accepted', acceptedAt: new Date().toISOString() },
       });
@@ -357,9 +390,9 @@ follow.post('/accept', async (c) => {
         where: { apId: actor.ap_id },
         data: { followerCount: { increment: 1 } },
       });
-      if (isLocal(body.requester_ap_id, c.env.APP_URL)) {
+      if (isLocal(requesterApId, c.env.APP_URL)) {
         await tx.actor.update({
-          where: { apId: body.requester_ap_id },
+          where: { apId: requesterApId },
           data: { followingCount: { increment: 1 } },
         });
       }
@@ -374,7 +407,7 @@ follow.post('/accept', async (c) => {
   if (!pendingFollow) return c.json({ error: 'No pending follow request' }, 404);
 
   // Send Accept to remote
-  if (!isLocal(body.requester_ap_id, c.env.APP_URL)) {
+  if (!isLocal(requesterApId, c.env.APP_URL)) {
     const baseUrl = c.env.APP_URL;
     const activityId = activityApId(baseUrl, generateId());
     const acceptActivity = {
@@ -397,7 +430,7 @@ follow.post('/accept', async (c) => {
       },
     });
 
-    await enqueueDeliveryToActor(c.env, activityId, body.requester_ap_id);
+    await enqueueDeliveryToActor(c.env, activityId, requesterApId);
   }
 
   return c.json({ success: true });
@@ -411,13 +444,16 @@ follow.post('/accept/batch', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const body = await c.req.json<{ requester_ap_ids: string[] }>();
-  if (!body.requester_ap_ids || !Array.isArray(body.requester_ap_ids) || body.requester_ap_ids.length === 0) {
-    return c.json({ error: 'requester_ap_ids array required' }, 400);
+  const body = await parseJsonObject(c);
+  if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+
+  const requesterApIds = parseStringArray(body.requester_ap_ids);
+  if (!requesterApIds || requesterApIds.length === 0) {
+    return c.json({ error: 'requester_ap_ids array required', code: 'BAD_REQUEST' }, 400);
   }
 
   // P07: Enforce size limit on batch accept
-  if (body.requester_ap_ids.length > MAX_BATCH_ACCEPT_SIZE) {
+  if (requesterApIds.length > MAX_BATCH_ACCEPT_SIZE) {
     return c.json({ error: `Batch size exceeds maximum of ${MAX_BATCH_ACCEPT_SIZE}` }, 400);
   }
 
@@ -428,7 +464,7 @@ follow.post('/accept/batch', async (c) => {
   // Batch fetch all pending follows at once
   const pendingFollows = await prisma.follow.findMany({
     where: {
-      followerApId: { in: body.requester_ap_ids },
+      followerApId: { in: requesterApIds },
       followingApId: actor.ap_id,
       status: 'pending',
     },
@@ -449,7 +485,7 @@ follow.post('/accept/batch', async (c) => {
   }> = [];
   const remoteEnqueues: Array<{ activityId: string; recipientApId: string }> = [];
 
-  for (const requesterApId of body.requester_ap_ids) {
+  for (const requesterApId of requesterApIds) {
     try {
       const pendingFollow = pendingFollowMap.get(requesterApId);
 
@@ -540,14 +576,17 @@ follow.post('/reject', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const body = await c.req.json<{ requester_ap_id: string }>();
-  if (!body.requester_ap_id) return c.json({ error: 'requester_ap_id required' }, 400);
+  const body = await parseJsonObject(c);
+  if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+
+  const requesterApId = parseNonEmptyString(body.requester_ap_id);
+  if (!requesterApId) return c.json({ error: 'requester_ap_id required', code: 'BAD_REQUEST' }, 400);
 
   const prisma = c.get('prisma');
 
   const pendingFollow = await prisma.follow.findFirst({
     where: {
-      followerApId: body.requester_ap_id,
+      followerApId: requesterApId,
       followingApId: actor.ap_id,
       status: 'pending',
     },
@@ -556,8 +595,8 @@ follow.post('/reject', async (c) => {
   if (!pendingFollow) return c.json({ error: 'No pending follow request' }, 404);
 
   await prisma.follow.update({
-    where: {
-      followerApId_followingApId: { followerApId: body.requester_ap_id, followingApId: actor.ap_id },
+      where: {
+      followerApId_followingApId: { followerApId: requesterApId, followingApId: actor.ap_id },
     },
     data: { status: 'rejected' },
   });
@@ -569,7 +608,7 @@ follow.post('/reject', async (c) => {
     });
   }
 
-  if (!isLocal(body.requester_ap_id, c.env.APP_URL)) {
+  if (!isLocal(requesterApId, c.env.APP_URL)) {
     const baseUrl = c.env.APP_URL;
     const activityId = activityApId(baseUrl, generateId());
     const rejectActivity = {
@@ -592,7 +631,7 @@ follow.post('/reject', async (c) => {
       },
     });
 
-    await enqueueDeliveryToActor(c.env, activityId, body.requester_ap_id);
+    await enqueueDeliveryToActor(c.env, activityId, requesterApId);
   }
 
   return c.json({ success: true });

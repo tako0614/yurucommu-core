@@ -35,6 +35,48 @@ async function requestJson(
 }
 
 describe('issue067/068 hardening routes', () => {
+  it('local follow handles duplicate create via unique constraint', async () => {
+    const actorApId = 'https://example.com/ap/users/alice';
+    const targetApId = 'https://example.com/ap/users/bob';
+
+    const tx = {
+      follow: { create: vi.fn().mockRejectedValue({ code: 'P2002' }) },
+      actor: { update: vi.fn().mockResolvedValue({}) },
+      activity: { create: vi.fn().mockResolvedValue({}) },
+      inbox: { create: vi.fn().mockResolvedValue({}) },
+    };
+
+    const prisma = {
+      follow: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
+      actor: {
+        findUnique: vi.fn().mockResolvedValue({ isPrivate: 0 }),
+      },
+      $transaction: vi.fn(async (cb: (txArg: any) => Promise<unknown>) => cb(tx)),
+    };
+
+    const app = createApp(prisma, { ap_id: actorApId });
+    app.route('/api/follow', followRoutes);
+
+    const { res, body } = await requestJson(
+      app,
+      '/api/follow',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_ap_id: targetApId }),
+      }
+    );
+
+    expect(res.status).toBe(400);
+    expect(body).toMatchObject({ error: 'Already following or pending' });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.follow.create).toHaveBeenCalledTimes(1);
+    expect(tx.activity.create).not.toHaveBeenCalled();
+    expect(tx.inbox.create).not.toHaveBeenCalled();
+  });
+
   it('unfollow uses a transaction for delete + counter updates', async () => {
     const actorApId = 'https://example.com/ap/users/alice';
     const targetApId = 'https://example.com/ap/users/bob';

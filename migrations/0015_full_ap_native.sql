@@ -6,6 +6,173 @@
 -- DROP NON-AP TABLES
 -- ============================================================
 
+-- Archive legacy local-only messaging/notification data before dropping tables.
+CREATE TABLE IF NOT EXISTS dm_conversations_archive (
+  id TEXT PRIMARY KEY,
+  participant1_ap_id TEXT NOT NULL,
+  participant2_ap_id TEXT NOT NULL,
+  last_message_at TEXT,
+  created_at TEXT,
+  archived_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS dm_messages_archive (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  sender_ap_id TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TEXT,
+  archived_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS dm_contacts_archive (
+  owner_ap_id TEXT NOT NULL,
+  contact_ap_id TEXT NOT NULL,
+  added_reason TEXT NOT NULL,
+  created_at TEXT,
+  archived_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (owner_ap_id, contact_ap_id)
+);
+
+CREATE TABLE IF NOT EXISTS dm_requests_archive (
+  id TEXT PRIMARY KEY,
+  recipient_ap_id TEXT NOT NULL,
+  sender_ap_id TEXT NOT NULL,
+  content TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT,
+  updated_at TEXT,
+  archived_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS community_messages_archive (
+  id TEXT PRIMARY KEY,
+  community_ap_id TEXT NOT NULL,
+  sender_ap_id TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TEXT,
+  archived_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS notifications_archive (
+  id TEXT PRIMARY KEY,
+  recipient_ap_id TEXT NOT NULL,
+  actor_ap_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  object_ap_id TEXT,
+  read INTEGER,
+  created_at TEXT,
+  archived_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT OR IGNORE INTO dm_conversations_archive (
+  id,
+  participant1_ap_id,
+  participant2_ap_id,
+  last_message_at,
+  created_at,
+  archived_at
+)
+SELECT
+  id,
+  participant1_ap_id,
+  participant2_ap_id,
+  last_message_at,
+  created_at,
+  datetime('now')
+FROM dm_conversations;
+
+INSERT OR IGNORE INTO dm_messages_archive (
+  id,
+  conversation_id,
+  sender_ap_id,
+  content,
+  created_at,
+  archived_at
+)
+SELECT
+  id,
+  conversation_id,
+  sender_ap_id,
+  content,
+  created_at,
+  datetime('now')
+FROM dm_messages;
+
+INSERT OR IGNORE INTO dm_contacts_archive (
+  owner_ap_id,
+  contact_ap_id,
+  added_reason,
+  created_at,
+  archived_at
+)
+SELECT
+  owner_ap_id,
+  contact_ap_id,
+  added_reason,
+  created_at,
+  datetime('now')
+FROM dm_contacts;
+
+INSERT OR IGNORE INTO dm_requests_archive (
+  id,
+  recipient_ap_id,
+  sender_ap_id,
+  content,
+  status,
+  created_at,
+  updated_at,
+  archived_at
+)
+SELECT
+  id,
+  recipient_ap_id,
+  sender_ap_id,
+  content,
+  status,
+  created_at,
+  updated_at,
+  datetime('now')
+FROM dm_requests;
+
+INSERT OR IGNORE INTO community_messages_archive (
+  id,
+  community_ap_id,
+  sender_ap_id,
+  content,
+  created_at,
+  archived_at
+)
+SELECT
+  id,
+  community_ap_id,
+  sender_ap_id,
+  content,
+  created_at,
+  datetime('now')
+FROM community_messages;
+
+INSERT OR IGNORE INTO notifications_archive (
+  id,
+  recipient_ap_id,
+  actor_ap_id,
+  type,
+  object_ap_id,
+  read,
+  created_at,
+  archived_at
+)
+SELECT
+  id,
+  recipient_ap_id,
+  actor_ap_id,
+  type,
+  object_ap_id,
+  read,
+  created_at,
+  datetime('now')
+FROM notifications;
+
 -- DM tables - replaced by direct addressing on objects
 DROP TABLE IF EXISTS dm_messages;
 DROP TABLE IF EXISTS dm_conversations;

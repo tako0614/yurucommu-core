@@ -63,6 +63,10 @@ async function getEncryptionKey(keyHex: string | undefined): Promise<CryptoKey |
 
   try {
     const keyBytes = hexToBytes(keyHex);
+    if (keyBytes.byteLength !== 32) {
+      console.error('Invalid encryption key length: must decode to exactly 32 bytes');
+      return null;
+    }
     return await crypto.subtle.importKey(
       'raw',
       keyBytes.buffer as ArrayBuffer,
