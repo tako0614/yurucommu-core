@@ -323,7 +323,7 @@ ap.post('/ap/actor/inbox', async (c) => {
     if (existingRaw !== newRaw) {
       console.warn(`[ActivityPub] Duplicate activity ${activityId} received with different content`);
     }
-    return c.json({ success: true });
+    return c.body(null, 202);
   }
 
   await prisma.activity.create({
@@ -351,7 +351,7 @@ ap.post('/ap/actor/inbox', async (c) => {
       // Unhandled activity types are silently ignored
   }
 
-  return c.json({ success: true });
+  return c.body(null, 202);
 });
 
 // Inbox - Receive Activities
@@ -436,7 +436,7 @@ ap.post('/ap/users/:username/inbox', async (c) => {
       console.warn(`[ActivityPub] Duplicate activity ${activityId} received with different content. Original: ${existingRaw.substring(0, 200)}... New: ${newRaw.substring(0, 200)}...`);
     }
     // Return success to not leak information about whether we have this activity
-    return c.json({ success: true });
+    return c.body(null, 202);
   }
 
   // Store activity
@@ -552,7 +552,7 @@ ap.post('/ap/users/:username/inbox', async (c) => {
       }
   }
 
-  return c.json({ success: true });
+  return c.body(null, 202);
 });
 
 export default ap;

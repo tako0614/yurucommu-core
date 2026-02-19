@@ -8,6 +8,8 @@ import {
   resolveCommunityApId,
 } from './membership-shared';
 
+const MAX_MEMBER_BATCH_SIZE = 100;
+
 export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env; Variables: Variables }>) {
   // DELETE /api/communities/:identifier/members/:actorApId - Remove a member
   communities.delete('/:identifier/members/:actorApId', async (c: MembershipContext) => {
@@ -231,8 +233,16 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     const prisma = c.get('prisma');
     const body = await c.req.json<{ actor_ap_ids: string[] }>();
 
-    if (!body.actor_ap_ids || body.actor_ap_ids.length === 0) {
+    if (
+      !body.actor_ap_ids
+      || body.actor_ap_ids.length === 0
+      || !Array.isArray(body.actor_ap_ids)
+      || body.actor_ap_ids.some((id) => typeof id !== 'string' || id.trim().length === 0)
+    ) {
       return c.json({ error: 'actor_ap_ids array is required' }, 400);
+    }
+    if (body.actor_ap_ids.length > MAX_MEMBER_BATCH_SIZE) {
+      return c.json({ error: `Batch size exceeds maximum of ${MAX_MEMBER_BATCH_SIZE}` }, 400);
     }
 
     const { community } = await fetchCommunityId(c, identifier);
@@ -320,8 +330,16 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     const prisma = c.get('prisma');
     const body = await c.req.json<{ actor_ap_ids: string[]; role: 'owner' | 'moderator' | 'member' }>();
 
-    if (!body.actor_ap_ids || body.actor_ap_ids.length === 0) {
+    if (
+      !body.actor_ap_ids
+      || body.actor_ap_ids.length === 0
+      || !Array.isArray(body.actor_ap_ids)
+      || body.actor_ap_ids.some((id) => typeof id !== 'string' || id.trim().length === 0)
+    ) {
       return c.json({ error: 'actor_ap_ids array is required' }, 400);
+    }
+    if (body.actor_ap_ids.length > MAX_MEMBER_BATCH_SIZE) {
+      return c.json({ error: `Batch size exceeds maximum of ${MAX_MEMBER_BATCH_SIZE}` }, 400);
     }
     if (!body.role || !['owner', 'moderator', 'member'].includes(body.role)) {
       return c.json({ error: 'Valid role is required' }, 400);

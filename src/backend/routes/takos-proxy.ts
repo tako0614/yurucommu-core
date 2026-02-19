@@ -12,6 +12,11 @@ import { getTakosClient, type TakosSession } from '../lib/takos-client';
 
 const takosProxy = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+function isExpired(expiresAt: string): boolean {
+  const expiresMs = Date.parse(expiresAt);
+  return !Number.isFinite(expiresMs) || expiresMs <= Date.now();
+}
+
 // Feature flag gate (fail-close).
 takosProxy.use('*', async (c, next) => {
   if (c.env.ENABLE_TAKOS_PROXY !== 'true') {
@@ -54,7 +59,7 @@ takosProxy.use('*', async (c, next) => {
   if (session.memberId !== actor.ap_id) {
     return c.json({ error: 'Session mismatch' }, 401);
   }
-  if (session.expiresAt <= new Date().toISOString()) {
+  if (isExpired(session.expiresAt)) {
     return c.json({ error: 'Session expired' }, 401);
   }
 

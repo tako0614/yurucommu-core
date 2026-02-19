@@ -5,6 +5,13 @@ import {
   fetchCommunityDetails,
 } from './membership-shared';
 
+function isUniqueConstraintError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: string }).code === 'P2002';
+}
+
 export function registerMembershipJoinRoutes(communities: Hono<{ Bindings: Env; Variables: Variables }>) {
   // POST /api/communities/:identifier/join - Join a community
   communities.post('/:identifier/join', async (c: MembershipContext) => {
@@ -72,67 +79,112 @@ export function registerMembershipJoinRoutes(communities: Hono<{ Bindings: Env; 
         return c.json({ error: 'Invite required', status: 'invite_required' }, 403);
       }
 
-      const invite = await prisma.communityInvite.findFirst({
-        where: {
-          id: inviteId,
-          communityApId: community.apId,
-          usedAt: null,
-          OR: [
-            { expiresAt: null },
-            { expiresAt: { gt: new Date().toISOString() } },
-          ],
-        },
-      });
+      try {
+        const result = await prisma.$transaction(async (tx) => {
+          const invite = await tx.communityInvite.findFirst({
+            where: {
+              id: inviteId,
+              communityApId: community.apId,
+              usedAt: null,
+              OR: [
+                { expiresAt: null },
+                { expiresAt: { gt: now } },
+              ],
+            },
+          });
 
-      if (!invite) {
-        return c.json({ error: 'Invalid or expired invite', status: 'invite_required' }, 403);
+          if (!invite) {
+            return { status: 'invalid_invite' as const };
+          }
+          if (invite.invitedApId && invite.invitedApId !== actor.ap_id) {
+            return { status: 'invite_wrong_account' as const };
+          }
+
+          await tx.communityMember.create({
+            data: {
+              communityApId: community.apId,
+              actorApId: actor.ap_id,
+              role: 'member',
+              joinedAt: now,
+            },
+          });
+
+          await tx.community.update({
+            where: { apId: community.apId },
+            data: { memberCount: { increment: 1 } },
+          });
+
+          const claimed = await tx.communityInvite.updateMany({
+            where: {
+              id: inviteId,
+              communityApId: community.apId,
+              usedAt: null,
+              OR: [
+                { expiresAt: null },
+                { expiresAt: { gt: now } },
+              ],
+              AND: [
+                {
+                  OR: [
+                    { invitedApId: null },
+                    { invitedApId: actor.ap_id },
+                  ],
+                },
+              ],
+            },
+            data: {
+              usedByApId: actor.ap_id,
+              usedAt: now,
+            },
+          });
+          if (claimed.count !== 1) {
+            throw new Error('INVITE_CLAIM_FAILED');
+          }
+
+          return { status: 'joined' as const };
+        });
+
+        if (result.status === 'invalid_invite') {
+          return c.json({ error: 'Invalid or expired invite', status: 'invite_required' }, 403);
+        }
+        if (result.status === 'invite_wrong_account') {
+          return c.json({ error: 'Invite not for this account', status: 'invite_required' }, 403);
+        }
+        return c.json({ success: true, status: 'joined' });
+      } catch (error) {
+        if (isUniqueConstraintError(error)) {
+          return c.json({ error: 'Already a member' }, 409);
+        }
+        console.error('[Communities] Failed to join with invite:', error);
+        return c.json({ error: 'Failed to join community' }, 500);
       }
-
-      if (invite.invitedApId && invite.invitedApId !== actor.ap_id) {
-        return c.json({ error: 'Invite not for this account', status: 'invite_required' }, 403);
-      }
-
-      await prisma.communityMember.create({
-        data: {
-          communityApId: community.apId,
-          actorApId: actor.ap_id,
-          role: 'member',
-          joinedAt: now,
-        },
-      });
-
-      await prisma.community.update({
-        where: { apId: community.apId },
-        data: { memberCount: { increment: 1 } },
-      });
-
-      await prisma.communityInvite.update({
-        where: { id: inviteId },
-        data: {
-          usedByApId: actor.ap_id,
-          usedAt: now,
-        },
-      });
-
-      return c.json({ success: true, status: 'joined' });
     }
 
     // Open join
-    await prisma.communityMember.create({
-      data: {
-        communityApId: community.apId,
-        actorApId: actor.ap_id,
-        role: 'member',
-        joinedAt: now,
-      },
-    });
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.communityMember.create({
+          data: {
+            communityApId: community.apId,
+            actorApId: actor.ap_id,
+            role: 'member',
+            joinedAt: now,
+          },
+        });
 
-    await prisma.community.update({
-      where: { apId: community.apId },
-      data: { memberCount: { increment: 1 } },
-    });
-
-    return c.json({ success: true, status: 'joined' });
+        await tx.community.update({
+          where: { apId: community.apId },
+          data: { memberCount: { increment: 1 } },
+        });
+      });
+      return c.json({ success: true, status: 'joined' });
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        return c.json({ error: 'Already a member' }, 409);
+      }
+      console.error('[Communities] Failed to join community:', error);
+      return c.json({ error: 'Failed to join community' }, 500);
+    }
   });
 
   // POST /api/communities/:identifier/leave - Leave a community

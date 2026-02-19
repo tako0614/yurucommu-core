@@ -60,6 +60,26 @@ function isPrismaNotFoundError(error: unknown): boolean {
     && (error as { code?: string }).code === 'P2025';
 }
 
+async function parseJsonObject(
+  c: { req: { json: () => Promise<unknown> } }
+): Promise<Record<string, unknown> | null> {
+  try {
+    const body = await c.req.json();
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return null;
+    }
+    return body as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function nonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 async function deleteSessionSafely(prisma: PrismaClient, sessionId: string, context: string): Promise<void> {
   try {
     await prisma.session.delete({ where: { id: sessionId } });
@@ -155,17 +175,24 @@ auth.post('/login', async (c) => {
     }, 429);
   }
 
-  const body = await c.req.json<{ password: string }>();
-  const password = body.password || '';
+  const body = await parseJsonObject(c);
+  if (!body) {
+    return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+  }
 
-  // Verify password using PBKDF2 hash (AUTH_PASSWORD_HASH)
-  // Falls back to legacy plain comparison (AUTH_PASSWORD) with warning
+  const password = nonEmptyString(body.password);
+  if (!password) {
+    return c.json({ error: 'password is required', code: 'BAD_REQUEST' }, 400);
+  }
+
+  // Verify password using PBKDF2 hash (AUTH_PASSWORD_HASH).
+  // Legacy plaintext fallback requires explicit ALLOW_PLAINTEXT_AUTH=true.
   let isValid = false;
 
   if (c.env.AUTH_PASSWORD_HASH) {
     // Secure: PBKDF2-hashed password
     isValid = await verifyPassword(password, c.env.AUTH_PASSWORD_HASH);
-  } else if (c.env.AUTH_PASSWORD) {
+  } else if (c.env.AUTH_PASSWORD && c.env.ALLOW_PLAINTEXT_AUTH === 'true') {
     // Legacy: plain text comparison (deprecated, will be removed)
     console.warn(
       '[SECURITY WARNING] AUTH_PASSWORD is deprecated. ' +
@@ -512,12 +539,15 @@ auth.post('/switch', async (c) => {
   const sessionId = getCookie(c, 'session');
   if (!sessionId) return c.json({ error: 'No session' }, 401);
 
-  const body = await c.req.json<{ ap_id: string }>();
-  if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
+  const body = await parseJsonObject(c);
+  if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+
+  const targetApId = nonEmptyString(body.ap_id);
+  if (!targetApId) return c.json({ error: 'ap_id required', code: 'BAD_REQUEST' }, 400);
 
   const prisma = c.get('prisma');
   const targetActor = await prisma.actor.findUnique({
-    where: { apId: body.ap_id },
+    where: { apId: targetApId },
     select: { apId: true },
   });
 
@@ -525,7 +555,7 @@ auth.post('/switch', async (c) => {
 
   await prisma.session.update({
     where: { id: sessionId },
-    data: { memberId: body.ap_id },
+    data: { memberId: targetApId },
   });
 
   return c.json({ success: true });
@@ -535,15 +565,26 @@ auth.post('/accounts', async (c) => {
   const currentActor = c.get('actor');
   if (!currentActor) return c.json({ error: 'Not authenticated' }, 401);
 
-  const body = await c.req.json<{ username: string; name?: string }>();
-  if (!body.username) return c.json({ error: 'username required' }, 400);
+  const body = await parseJsonObject(c);
+  if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
 
-  if (!/^[a-zA-Z0-9_]+$/.test(body.username)) {
+  const username = nonEmptyString(body.username);
+  if (!username) return c.json({ error: 'username required', code: 'BAD_REQUEST' }, 400);
+  if (!/^[a-zA-Z0-9_]+$/.test(username)) {
     return c.json({ error: 'Invalid username. Use only letters, numbers, and underscores.' }, 400);
   }
 
+  const name = body.name === undefined
+    ? undefined
+    : typeof body.name === 'string'
+      ? body.name
+      : null;
+  if (name === null) {
+    return c.json({ error: 'name must be a string', code: 'BAD_REQUEST' }, 400);
+  }
+
   const baseUrl = c.env.APP_URL;
-  const apId = actorApId(baseUrl, body.username);
+  const apId = actorApId(baseUrl, username);
   const prisma = c.get('prisma');
 
   const existing = await prisma.actor.findUnique({
@@ -558,15 +599,15 @@ auth.post('/accounts', async (c) => {
     data: {
       apId,
       type: 'Person',
-      preferredUsername: body.username,
-      name: body.name || body.username,
+      preferredUsername: username,
+      name: name || username,
       inbox: `${apId}/inbox`,
       outbox: `${apId}/outbox`,
       followersUrl: `${apId}/followers`,
       followingUrl: `${apId}/following`,
       publicKeyPem,
       privateKeyPem,
-      takosUserId: `local:${body.username}`,
+      takosUserId: `local:${username}`,
       role: 'member',
     },
     select: {

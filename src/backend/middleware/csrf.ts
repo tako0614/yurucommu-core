@@ -48,7 +48,7 @@ export function csrfProtection() {
 
     // Origin/Referer is mandatory for state-changing requests.
     if (!requestOrigin) {
-      console.warn('CSRF check failed: missing Origin/Referer header');
+      console.warn('CSRF check failed');
       return c.json({ error: 'CSRF validation failed: missing Origin header' }, 403);
     }
 
@@ -61,7 +61,7 @@ export function csrfProtection() {
         return next();
       }
 
-      console.warn(`CSRF check failed: expected ${expectedOrigin}, got ${requestOrigin}`);
+      console.warn('CSRF check failed');
       return c.json({ error: 'CSRF validation failed' }, 403);
     }
 
