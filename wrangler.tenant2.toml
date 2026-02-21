@@ -4,7 +4,7 @@ compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
 [vars]
-TAKOS_URL = "https://takos.jp"
+TAKOS_URL = "https://test.takos.jp"
 APP_URL = "https://test.yurucommu.com"
 AUTH_MODE = "password"
 
