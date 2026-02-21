@@ -87,7 +87,7 @@ zone_name = "yurucommu.com"
 # Test environment
 [env.test]
 name = "yurucommu-test"
-vars = { TAKOS_URL = "https://takos.jp", APP_URL = "https://test.yurucommu.com" }
+vars = { TAKOS_URL = "https://test.takos.jp", APP_URL = "https://test.yurucommu.com" }
 
 [[env.test.d1_databases]]
 binding = "DB"
