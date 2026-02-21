@@ -1,6 +1,6 @@
 name = "yurucommu-2"
 main = "src/backend/index.ts"
-compatibility_date = "2024-12-01"
+compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
 [vars]
@@ -24,6 +24,33 @@ migrations_dir = "migrations"
 [[r2_buckets]]
 binding = "MEDIA"
 bucket_name = "yurucommu-media-2"
+
+# KV Namespace (OAuth state, sessions)
+[[kv_namespaces]]
+binding = "KV"
+id = "5fb8a5d02e554f73a2390ff789390fd8"
+
+# Queue for federation delivery (async)
+[[queues.producers]]
+queue = "yurucommu-delivery-2"
+binding = "DELIVERY_QUEUE"
+
+[[queues.consumers]]
+queue = "yurucommu-delivery-2"
+max_batch_size = 10
+max_batch_timeout = 1
+max_retries = 3
+
+# Dead letter queue
+[[queues.producers]]
+queue = "yurucommu-delivery-dlq-2"
+binding = "DELIVERY_DLQ"
+
+[[queues.consumers]]
+queue = "yurucommu-delivery-dlq-2"
+max_batch_size = 10
+max_batch_timeout = 60
+max_retries = 1
 
 # Static assets
 [assets]
