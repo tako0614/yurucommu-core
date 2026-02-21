@@ -63,6 +63,7 @@ export type Variables = {
   actor: Actor | null;
   takosClient: TakosClient | null;
   prisma: PrismaClient;
+  oauthToken?: { sub: string; scope: string; client_id: string };
 };
 
 // Local actor (Person)
