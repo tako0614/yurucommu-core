@@ -17,7 +17,7 @@ AUTH_MODE = "password"
 [[d1_databases]]
 binding = "DB"
 database_name = "yurucommu-db-2"
-database_id = "1314c6a4-2bda-4ea1-8d90-0f09a3cdb4a5"
+database_id = "001874df-4810-419d-baff-7fc047f1d380"
 migrations_dir = "migrations"
 
 # R2 Bucket
