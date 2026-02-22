@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { Env, Variables } from '../types';
 import { actorApId, getDomain } from '../utils';
 import { INSTANCE_ACTOR_USERNAME, MAX_ROOM_STREAM_LIMIT, getInstanceActor, parseLimit, roomApId } from './activitypub/utils';
@@ -6,11 +7,66 @@ import inboxRoutes from './activitypub/inbox';
 import outboxRoutes from './activitypub/outbox';
 import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
 
+type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
+
 const ap = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-// WebFinger - Actor Discovery
-// ============================================================
-// Cached for 1 hour (rarely changes, important for federation)
+// ---------------------------------------------------------------------------
+// Shared constants and helpers
+// ---------------------------------------------------------------------------
+
+const AP_CONTENT_TYPE = 'application/activity+json';
+
+const AP_CONTEXT = [
+  'https://www.w3.org/ns/activitystreams',
+  'https://w3id.org/security/v1',
+] as const;
+
+const APC_ROOM_CONTEXT = {
+  apc: 'https://yurucommu.com/ns/apc#',
+  Room: 'apc:Room',
+} as const;
+
+/** Build a standard WebFinger JRD response. */
+function buildWebFingerResponse(
+  username: string,
+  domain: string,
+  apId: string,
+  profileHref: string,
+): Record<string, unknown> {
+  return {
+    subject: `acct:${username}@${domain}`,
+    aliases: [apId],
+    links: [
+      { rel: 'self', type: AP_CONTENT_TYPE, href: apId },
+      { rel: 'http://webfinger.net/rel/profile-page', type: 'text/html', href: profileHref },
+    ],
+  };
+}
+
+/** Build an ActivityPub public-key block for an actor. */
+function buildPublicKey(actorApId: string, publicKeyPem: string): Record<string, string> {
+  return {
+    id: `${actorApId}#main-key`,
+    owner: actorApId,
+    publicKeyPem,
+  };
+}
+
+/** Return an activity+json Response via Hono context. */
+function activityJson(c: HonoContext, body: Record<string, unknown>): Response {
+  c.header('Content-Type', AP_CONTENT_TYPE);
+  return c.json(body);
+}
+
+/** Prisma where-clause to find a community by slug or apId. */
+function communityWhereClause(roomId: string): { OR: Array<Record<string, string>> } {
+  return { OR: [{ preferredUsername: roomId }, { apId: roomId }] };
+}
+
+// ---------------------------------------------------------------------------
+// WebFinger - Actor Discovery (cached 1 hour)
+// ---------------------------------------------------------------------------
 
 ap.get('/.well-known/webfinger', withCache({
   ttl: CacheTTL.WEBFINGER,
@@ -50,32 +106,20 @@ ap.get('/.well-known/webfinger', withCache({
   const baseUrl = c.env.APP_URL;
   const currentDomain = getDomain(baseUrl);
 
-  // Only respond for local domain
   if (domain !== currentDomain) {
     return c.json({ error: 'Actor not found' }, 404);
   }
 
   if (username === INSTANCE_ACTOR_USERNAME) {
     const instanceActor = await getInstanceActor(c);
-    return c.json({
-      subject: `acct:${INSTANCE_ACTOR_USERNAME}@${domain}`,
-      aliases: [instanceActor.apId],
-      links: [
-        {
-          rel: 'self',
-          type: 'application/activity+json',
-          href: instanceActor.apId,
-        },
-        {
-          rel: 'http://webfinger.net/rel/profile-page',
-          type: 'text/html',
-          href: `${baseUrl}/groups`,
-        },
-      ],
-    });
+    return c.json(buildWebFingerResponse(
+      INSTANCE_ACTOR_USERNAME,
+      domain,
+      instanceActor.apId,
+      `${baseUrl}/groups`,
+    ));
   }
 
-  // Look up actor
   const actor = await prisma.actor.findUnique({
     where: { preferredUsername: username },
     select: { apId: true, preferredUsername: true },
@@ -83,29 +127,17 @@ ap.get('/.well-known/webfinger', withCache({
 
   if (!actor) return c.json({ error: 'Actor not found' }, 404);
 
-  return c.json({
-    subject: `acct:${username}@${domain}`,
-    aliases: [actor.apId],
-    links: [
-      {
-        rel: 'self',
-        type: 'application/activity+json',
-        href: actor.apId,
-      },
-      {
-        rel: 'http://webfinger.net/rel/profile-page',
-        type: 'text/html',
-        href: `${baseUrl}/users/${username}`,
-      },
-    ],
-  });
+  return c.json(buildWebFingerResponse(
+    username,
+    domain,
+    actor.apId,
+    `${baseUrl}/users/${username}`,
+  ));
 });
 
-// ============================================================
-
-// Actor Profile Endpoint
-// ============================================================
-// Cached for 10 minutes (ActivityPub actor JSON)
+// ---------------------------------------------------------------------------
+// Actor Profile Endpoint (cached 10 minutes)
+// ---------------------------------------------------------------------------
 
 ap.get('/ap/users/:username', withCache({
   ttl: CacheTTL.ACTIVITYPUB_ACTOR,
@@ -141,12 +173,8 @@ ap.get('/ap/users/:username', withCache({
 
   if (!actor) return c.json({ error: 'Actor not found' }, 404);
 
-  // Build AP JSON-LD response
   const actorResponse: Record<string, unknown> = {
-    '@context': [
-      'https://www.w3.org/ns/activitystreams',
-      'https://w3id.org/security/v1',
-    ],
+    '@context': AP_CONTEXT,
     id: actor.apId,
     type: actor.type,
     preferredUsername: actor.preferredUsername,
@@ -159,31 +187,24 @@ ap.get('/ap/users/:username', withCache({
     outbox: actor.outbox,
     followers: actor.followersUrl,
     following: actor.followingUrl,
-    publicKey: {
-      id: `${actor.apId}#main-key`,
-      owner: actor.apId,
-      publicKeyPem: actor.publicKeyPem,
-    },
+    publicKey: buildPublicKey(actor.apId, actor.publicKeyPem),
     discoverable: !actor.isPrivate,
     published: actor.createdAt,
   };
 
   // Remove undefined fields
-  Object.keys(actorResponse).forEach((key) => {
+  for (const key of Object.keys(actorResponse)) {
     if (actorResponse[key] === undefined) {
       delete actorResponse[key];
     }
-  });
+  }
 
-  c.header('Content-Type', 'application/activity+json');
-  return c.json(actorResponse);
+  return activityJson(c, actorResponse);
 });
 
-// ============================================================
-
-// Group Actor (Instance Community)
-// ============================================================
-// Cached for 10 minutes
+// ---------------------------------------------------------------------------
+// Group Actor / Instance Community (cached 10 minutes)
+// ---------------------------------------------------------------------------
 
 ap.get('/ap/actor', withCache({
   ttl: CacheTTL.ACTIVITYPUB_ACTOR,
@@ -194,8 +215,7 @@ ap.get('/ap/actor', withCache({
 
   const actorResponse = {
     '@context': [
-      'https://www.w3.org/ns/activitystreams',
-      'https://w3id.org/security/v1',
+      ...AP_CONTEXT,
       {
         apc: 'https://yurucommu.com/ns/apc#',
         rooms: { '@id': 'apc:rooms', '@type': '@id' },
@@ -213,25 +233,19 @@ ap.get('/ap/actor', withCache({
     outbox: `${baseUrl}/ap/actor/outbox`,
     followers: `${baseUrl}/ap/actor/followers`,
     following: `${baseUrl}/ap/actor/following`,
-    publicKey: {
-      id: `${instanceActor.apId}#main-key`,
-      owner: instanceActor.apId,
-      publicKeyPem: instanceActor.publicKeyPem,
-    },
+    publicKey: buildPublicKey(instanceActor.apId, instanceActor.publicKeyPem),
     rooms: `${baseUrl}/ap/rooms`,
     joinPolicy: instanceActor.joinPolicy || 'open',
     postingPolicy: instanceActor.postingPolicy || 'members',
     visibility: instanceActor.visibility || 'public',
   };
 
-  c.header('Content-Type', 'application/activity+json');
-  return c.json(actorResponse);
+  return activityJson(c, actorResponse);
 });
 
-
-// Rooms (Communities)
-// ============================================================
-// Cached for 5 minutes
+// ---------------------------------------------------------------------------
+// Rooms (Communities) (cached 5 minutes)
+// ---------------------------------------------------------------------------
 
 ap.get('/ap/rooms', withCache({
   ttl: CacheTTL.COMMUNITY,
@@ -241,11 +255,7 @@ ap.get('/ap/rooms', withCache({
   const baseUrl = c.env.APP_URL;
 
   const rooms = await prisma.community.findMany({
-    select: {
-      preferredUsername: true,
-      name: true,
-      summary: true,
-    },
+    select: { preferredUsername: true, name: true, summary: true },
     orderBy: { createdAt: 'asc' },
   });
 
@@ -257,13 +267,7 @@ ap.get('/ap/rooms', withCache({
   }));
 
   return c.json({
-    '@context': [
-      'https://www.w3.org/ns/activitystreams',
-      {
-        'apc': 'https://yurucommu.com/ns/apc#',
-        'Room': 'apc:Room',
-      },
-    ],
+    '@context': ['https://www.w3.org/ns/activitystreams', APC_ROOM_CONTEXT],
     id: `${baseUrl}/ap/rooms`,
     type: 'OrderedCollection',
     totalItems: items.length,
@@ -277,35 +281,24 @@ ap.get('/ap/rooms/:roomId', async (c) => {
   const roomId = c.req.param('roomId');
 
   const room = await prisma.community.findFirst({
-    where: {
-      OR: [
-        { preferredUsername: roomId },
-        { apId: roomId },
-      ],
-    },
-    select: {
-      preferredUsername: true,
-      name: true,
-      summary: true,
-    },
+    where: communityWhereClause(roomId),
+    select: { preferredUsername: true, name: true, summary: true },
   });
 
   if (!room) return c.json({ error: 'Room not found' }, 404);
 
+  const roomUrl = roomApId(baseUrl, room.preferredUsername);
+
   return c.json({
     '@context': [
       'https://www.w3.org/ns/activitystreams',
-      {
-        'apc': 'https://yurucommu.com/ns/apc#',
-        'Room': 'apc:Room',
-        'stream': { '@id': 'apc:stream', '@type': '@id' },
-      },
+      { ...APC_ROOM_CONTEXT, stream: { '@id': 'apc:stream', '@type': '@id' } },
     ],
-    id: roomApId(baseUrl, room.preferredUsername),
+    id: roomUrl,
     type: 'Room',
     name: room.name,
     summary: room.summary || '',
-    stream: `${roomApId(baseUrl, room.preferredUsername)}/stream`,
+    stream: `${roomUrl}/stream`,
   });
 });
 
@@ -317,16 +310,8 @@ ap.get('/ap/rooms/:roomId/stream', async (c) => {
   const before = c.req.query('before');
 
   const community = await prisma.community.findFirst({
-    where: {
-      OR: [
-        { preferredUsername: roomId },
-        { apId: roomId },
-      ],
-    },
-    select: {
-      apId: true,
-      preferredUsername: true,
-    },
+    where: communityWhereClause(roomId),
+    select: { apId: true, preferredUsername: true },
   });
 
   if (!community) return c.json({ error: 'Room not found' }, 404);
@@ -337,15 +322,12 @@ ap.get('/ap/rooms/:roomId/stream', async (c) => {
       communityApId: community.apId,
       ...(before ? { published: { lt: before } } : {}),
     },
-    select: {
-      apId: true,
-      attributedTo: true,
-      content: true,
-      published: true,
-    },
+    select: { apId: true, attributedTo: true, content: true, published: true },
     orderBy: { published: 'desc' },
     take: limit,
   });
+
+  const communityRoomUrl = roomApId(baseUrl, community.preferredUsername);
 
   const items = objects.map((o) => ({
     id: o.apId,
@@ -353,18 +335,19 @@ ap.get('/ap/rooms/:roomId/stream', async (c) => {
     attributedTo: o.attributedTo,
     content: o.content,
     published: o.published,
-    room: roomApId(baseUrl, community.preferredUsername),
+    room: communityRoomUrl,
   }));
 
   return c.json({
     '@context': 'https://www.w3.org/ns/activitystreams',
-    id: `${roomApId(baseUrl, community.preferredUsername)}/stream`,
+    id: `${communityRoomUrl}/stream`,
     type: 'OrderedCollection',
     totalItems: items.length,
     orderedItems: items,
   });
 });
-// ============================================================
+
+// ---------------------------------------------------------------------------
 
 ap.route('/', inboxRoutes);
 ap.route('/', outboxRoutes);
