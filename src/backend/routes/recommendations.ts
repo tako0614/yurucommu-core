@@ -2,8 +2,33 @@ import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { formatUsername } from '../utils';
 import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
+import type { PrismaClient } from '../../generated/prisma';
 
 const recommendations = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+type ActorInfo = { apId: string; preferredUsername: string | null; name: string | null; iconUrl: string | null };
+
+/** Build a merged actor lookup map (local actors take priority over cached). */
+async function buildActorMap(
+  prisma: PrismaClient,
+  apIds: string[],
+): Promise<Map<string, ActorInfo>> {
+  const [localActors, cachedActors] = await Promise.all([
+    prisma.actor.findMany({
+      where: { apId: { in: apIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+    prisma.actorCache.findMany({
+      where: { apId: { in: apIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+  ]);
+
+  const map = new Map<string, ActorInfo>();
+  for (const a of cachedActors) map.set(a.apId, a);
+  for (const a of localActors) map.set(a.apId, a);
+  return map;
+}
 
 /**
  * GET /api/recommendations/users
@@ -17,19 +42,11 @@ recommendations.get(
   withCache({ ttl: CacheTTL.ACTOR_PROFILE, varyByActor: true, cacheTag: CacheTags.ACTOR }),
   async (c) => {
     const actor = c.get('actor');
-    if (!actor) {
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
     const prisma = c.get('prisma');
     const myApId = actor.ap_id;
 
-    // Friends-of-friends query:
-    // Find users followed by people I follow, excluding:
-    // - myself
-    // - users I already follow (accepted or pending)
-    // - users I've blocked
-    // - users I've muted
     const candidates = await prisma.$queryRaw<
       Array<{ ap_id: string; mutual_count: number }>
     >`
@@ -54,40 +71,24 @@ recommendations.get(
       LIMIT 5
     `;
 
-    if (candidates.length === 0) {
-      return c.json({ users: [] });
-    }
+    if (candidates.length === 0) return c.json({ users: [] });
 
-    // Batch load actor info from both Actor and ActorCache tables
-    const apIds = candidates.map((r) => r.ap_id);
-    const [localActors, cachedActors] = await Promise.all([
-      prisma.actor.findMany({
-        where: { apId: { in: apIds } },
-        select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-      }),
-      prisma.actorCache.findMany({
-        where: { apId: { in: apIds } },
-        select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-      }),
-    ]);
-
-    const localMap = new Map(localActors.map((a) => [a.apId, a]));
-    const cachedMap = new Map(cachedActors.map((a) => [a.apId, a]));
+    const actorMap = await buildActorMap(prisma, candidates.map(r => r.ap_id));
 
     const users = candidates.map((row) => {
-      const info = localMap.get(row.ap_id) || cachedMap.get(row.ap_id);
+      const info = actorMap.get(row.ap_id);
       return {
         ap_id: row.ap_id,
-        preferred_username: info?.preferredUsername || null,
-        name: info?.name || null,
-        icon_url: info?.iconUrl || null,
+        preferred_username: info?.preferredUsername ?? null,
+        name: info?.name ?? null,
+        icon_url: info?.iconUrl ?? null,
         username: formatUsername(row.ap_id),
         mutual_count: Number(row.mutual_count),
       };
     });
 
     return c.json({ users });
-  }
+  },
 );
 
 export default recommendations;

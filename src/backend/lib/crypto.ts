@@ -5,26 +5,14 @@
  * The encryption key should be set via ENCRYPTION_KEY environment variable.
  */
 
-// Validate hex string format
 function isValidHexString(hex: string, expectedLength?: number): boolean {
-  // Check format: only hex characters (0-9, a-f, A-F)
-  if (!/^[0-9a-fA-F]+$/.test(hex)) {
-    return false;
-  }
-  // Check length is even (each byte = 2 hex chars)
-  if (hex.length % 2 !== 0) {
-    return false;
-  }
-  // Check expected length if provided
-  if (expectedLength !== undefined && hex.length !== expectedLength) {
-    return false;
-  }
+  if (!/^[0-9a-fA-F]+$/.test(hex)) return false;
+  if (hex.length % 2 !== 0) return false;
+  if (expectedLength !== undefined && hex.length !== expectedLength) return false;
   return true;
 }
 
-// Convert hex string to Uint8Array
 function hexToBytes(hex: string): Uint8Array {
-  // Validate hex string format before processing
   if (!isValidHexString(hex)) {
     throw new Error('Invalid hex string: must contain only hexadecimal characters (0-9, a-f, A-F) with even length');
   }
@@ -32,7 +20,6 @@ function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < hex.length; i += 2) {
     const byte = parseInt(hex.substring(i, i + 2), 16);
-    // Additional safety check (should never fail after validation, but defense in depth)
     if (Number.isNaN(byte)) {
       throw new Error(`Invalid hex character at position ${i}`);
     }
@@ -41,21 +28,15 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes;
 }
 
-// Convert Uint8Array to hex string
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
 
-// Get or generate encryption key
 async function getEncryptionKey(keyHex: string | undefined): Promise<CryptoKey | null> {
-  // Key should be 32 bytes (64 hex chars) for AES-256
-  if (!keyHex) {
-    return null;
-  }
+  if (!keyHex) return null;
 
-  // Validate hex format: must be exactly 64 hex characters
   if (!isValidHexString(keyHex, 64)) {
     console.error('Invalid encryption key format: must be exactly 64 hex characters (0-9, a-f, A-F)');
     return null;
@@ -80,25 +61,25 @@ async function getEncryptionKey(keyHex: string | undefined): Promise<CryptoKey |
   }
 }
 
+async function requireEncryptionKey(keyHex: string | undefined, errorMessage: string): Promise<CryptoKey> {
+  const key = await getEncryptionKey(keyHex);
+  if (!key) throw new Error(errorMessage);
+  return key;
+}
+
 /**
- * Encrypt a string value using AES-GCM
+ * Encrypt a string value using AES-GCM.
  * Returns format: iv:ciphertext (both hex encoded)
- *
- * @throws Error if ENCRYPTION_KEY is not configured (required for security)
  */
 export async function encrypt(plaintext: string, encryptionKey: string | undefined): Promise<string> {
-  const key = await getEncryptionKey(encryptionKey);
-  if (!key) {
-    throw new Error(
-      'ENCRYPTION_KEY is not configured or invalid. ' +
-      'A 32-byte (64 hex character) key is required to encrypt sensitive data. ' +
-      'Generate one with: openssl rand -hex 32'
-    );
-  }
+  const key = await requireEncryptionKey(encryptionKey,
+    'ENCRYPTION_KEY is not configured or invalid. ' +
+    'A 32-byte (64 hex character) key is required to encrypt sensitive data. ' +
+    'Generate one with: openssl rand -hex 32'
+  );
 
-  const iv = crypto.getRandomValues(new Uint8Array(12)); // 96-bit IV for GCM
-  const encoder = new TextEncoder();
-  const data = encoder.encode(plaintext);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = new TextEncoder().encode(plaintext);
 
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv: iv.buffer as ArrayBuffer },
@@ -106,29 +87,20 @@ export async function encrypt(plaintext: string, encryptionKey: string | undefin
     data.buffer as ArrayBuffer
   );
 
-  // Format: iv:ciphertext (hex encoded)
   return `${bytesToHex(iv)}:${bytesToHex(new Uint8Array(ciphertext))}`;
 }
 
 /**
- * Decrypt a string value encrypted with encrypt()
+ * Decrypt a string value encrypted with encrypt().
  * Expects format: iv:ciphertext (both hex encoded)
- *
- * @throws Error if ENCRYPTION_KEY is not configured
- * @throws Error if encrypted data is not in expected format (legacy unencrypted data)
  */
 export async function decrypt(encrypted: string, encryptionKey: string | undefined): Promise<string> {
-  const key = await getEncryptionKey(encryptionKey);
-  if (!key) {
-    throw new Error(
-      'ENCRYPTION_KEY is not configured or invalid. ' +
-      'Cannot decrypt data without the encryption key.'
-    );
-  }
+  const key = await requireEncryptionKey(encryptionKey,
+    'ENCRYPTION_KEY is not configured or invalid. ' +
+    'Cannot decrypt data without the encryption key.'
+  );
 
-  // Check if this looks like encrypted data (iv:ciphertext format)
   if (!encrypted.includes(':')) {
-    // Legacy unencrypted data - throw error to force migration
     throw new Error(
       'Data appears to be unencrypted (legacy format). ' +
       'Please re-authenticate to encrypt your tokens.'
@@ -150,10 +122,8 @@ export async function decrypt(encrypted: string, encryptionKey: string | undefin
       ciphertext.buffer as ArrayBuffer
     );
 
-    const decoder = new TextDecoder();
-    return decoder.decode(decrypted);
-  } catch (error) {
-    // Decryption failed - could be wrong key or corrupted data
+    return new TextDecoder().decode(decrypted);
+  } catch {
     throw new Error(
       'Failed to decrypt data. The encryption key may be incorrect or the data is corrupted.'
     );
@@ -169,39 +139,24 @@ export function generateEncryptionKey(): string {
   return bytesToHex(key);
 }
 
-// ============================================
-// Password Hashing with PBKDF2
-// ============================================
+// PBKDF2 password hashing
 
 const PBKDF2_ITERATIONS = 600000; // OWASP 2023 recommendation for SHA-256
-const SALT_LENGTH = 32; // 256-bit salt
-const HASH_LENGTH = 32; // 256-bit derived key
+const SALT_LENGTH = 32;
+const HASH_LENGTH = 32;
 
 /**
- * Hash a password using PBKDF2-SHA256
- * Returns format: salt:hash (both hex encoded)
- *
- * Use this to generate AUTH_PASSWORD_HASH:
- *   const hash = await hashPassword('your-password');
- *   // Set AUTH_PASSWORD_HASH=<hash> in environment
+ * Derive bits from a password and salt using PBKDF2-SHA256.
  */
-export async function hashPassword(password: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const passwordData = encoder.encode(password);
-
-  // Generate random salt
-  const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
-
-  // Import password as key material
+async function derivePasswordBits(password: string, salt: Uint8Array, hashLengthBytes: number): Promise<Uint8Array> {
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
-    passwordData.buffer as ArrayBuffer,
+    new TextEncoder().encode(password).buffer as ArrayBuffer,
     'PBKDF2',
     false,
     ['deriveBits']
   );
 
-  // Derive key using PBKDF2
   const derivedBits = await crypto.subtle.deriveBits(
     {
       name: 'PBKDF2',
@@ -210,76 +165,49 @@ export async function hashPassword(password: string): Promise<string> {
       hash: 'SHA-256',
     },
     keyMaterial,
-    HASH_LENGTH * 8 // bits
+    hashLengthBytes * 8
   );
 
-  const hash = new Uint8Array(derivedBits);
+  return new Uint8Array(derivedBits);
+}
+
+/**
+ * Constant-time comparison of two byte arrays.
+ */
+function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a[i] ^ b[i];
+  }
+  return result === 0;
+}
+
+/**
+ * Hash a password using PBKDF2-SHA256.
+ * Returns format: salt:hash (both hex encoded)
+ */
+export async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
+  const hash = await derivePasswordBits(password, salt, HASH_LENGTH);
   return `${bytesToHex(salt)}:${bytesToHex(hash)}`;
 }
 
 /**
- * Verify a password against a stored hash
- *
- * @param password - The password to verify
- * @param storedHash - The stored hash in format: salt:hash (hex encoded)
- * @returns true if password matches, false otherwise
+ * Verify a password against a stored hash (salt:hash, hex encoded).
  */
 export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
-  // Check format
-  if (!storedHash.includes(':')) {
-    return false;
-  }
+  if (!storedHash.includes(':')) return false;
 
   const [saltHex, expectedHashHex] = storedHash.split(':');
-  if (!saltHex || !expectedHashHex) {
-    return false;
-  }
-
-  // Validate hex format
-  if (!isValidHexString(saltHex) || !isValidHexString(expectedHashHex)) {
-    return false;
-  }
+  if (!saltHex || !expectedHashHex) return false;
+  if (!isValidHexString(saltHex) || !isValidHexString(expectedHashHex)) return false;
 
   try {
-    const encoder = new TextEncoder();
-    const passwordData = encoder.encode(password);
     const salt = hexToBytes(saltHex);
     const expectedHash = hexToBytes(expectedHashHex);
-
-    // Import password as key material
-    const keyMaterial = await crypto.subtle.importKey(
-      'raw',
-      passwordData.buffer as ArrayBuffer,
-      'PBKDF2',
-      false,
-      ['deriveBits']
-    );
-
-    // Derive key using same parameters
-    const derivedBits = await crypto.subtle.deriveBits(
-      {
-        name: 'PBKDF2',
-        salt: salt.buffer as ArrayBuffer,
-        iterations: PBKDF2_ITERATIONS,
-        hash: 'SHA-256',
-      },
-      keyMaterial,
-      expectedHash.length * 8 // Match stored hash length
-    );
-
-    const computedHash = new Uint8Array(derivedBits);
-
-    // Constant-time comparison
-    if (computedHash.length !== expectedHash.length) {
-      return false;
-    }
-
-    let result = 0;
-    for (let i = 0; i < computedHash.length; i++) {
-      result |= computedHash[i] ^ expectedHash[i];
-    }
-
-    return result === 0;
+    const computedHash = await derivePasswordBits(password, salt, expectedHash.length);
+    return timingSafeEqual(computedHash, expectedHash);
   } catch {
     return false;
   }

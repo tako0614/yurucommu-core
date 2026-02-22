@@ -1,9 +1,16 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { Env, Variables } from '../../types';
 import { actorApId, objectApId, parseLimit, safeJsonParse } from '../../utils';
 import { getInstanceActor } from './utils';
 
+type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
+
 const ap = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function parseOrderedItems(activities: Array<{ rawJson: string }>): unknown[] {
   return activities
@@ -11,51 +18,70 @@ function parseOrderedItems(activities: Array<{ rawJson: string }>): unknown[] {
     .filter((item): item is NonNullable<typeof item> => item !== null);
 }
 
+/**
+ * Respond with an OrderedCollection or OrderedCollectionPage depending on
+ * whether a `page` query parameter is present. Avoids duplicating the
+ * ActivityStreams JSON-LD envelope across every collection endpoint.
+ */
+function orderedCollectionResponse(
+  c: HonoContext,
+  collectionUrl: string,
+  page: string | undefined,
+  pageNum: number,
+  totalItems: number,
+  orderedItems: unknown[]
+): Response {
+  if (page) {
+    return c.json({
+      '@context': 'https://www.w3.org/ns/activitystreams',
+      id: `${collectionUrl}?page=${pageNum}`,
+      type: 'OrderedCollectionPage',
+      partOf: collectionUrl,
+      orderedItems,
+    });
+  }
+
+  return c.json({
+    '@context': 'https://www.w3.org/ns/activitystreams',
+    id: collectionUrl,
+    type: 'OrderedCollection',
+    totalItems,
+    first: `${collectionUrl}?page=1`,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Instance actor collections
+// ---------------------------------------------------------------------------
+
 ap.get('/ap/actor/outbox', async (c) => {
   const prisma = c.get('prisma');
   const instanceActor = await getInstanceActor(c);
   const page = c.req.query('page');
   const pageNum = parseLimit(page, 1, 100000);
   const limit = 20;
-  const offset = (pageNum - 1) * limit;
 
-  const activities = await prisma.activity.findMany({
-    where: {
-      actorApId: instanceActor.apId,
-      direction: 'outbound',
-    },
-    select: { rawJson: true },
-    orderBy: { createdAt: 'desc' },
-    take: limit,
-    skip: offset,
-  });
+  const where = { actorApId: instanceActor.apId, direction: 'outbound' as const };
 
-  const totalCount = await prisma.activity.count({
-    where: {
-      actorApId: instanceActor.apId,
-      direction: 'outbound',
-    },
-  });
+  const [activities, totalCount] = await Promise.all([
+    prisma.activity.findMany({
+      where,
+      select: { rawJson: true },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: (pageNum - 1) * limit,
+    }),
+    prisma.activity.count({ where }),
+  ]);
 
-  const outboxUrl = `${instanceActor.apId}/outbox`;
-
-  if (page) {
-    return c.json({
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      id: `${outboxUrl}?page=${pageNum}`,
-      type: 'OrderedCollectionPage',
-      partOf: outboxUrl,
-      orderedItems: parseOrderedItems(activities),
-    });
-  }
-
-  return c.json({
-    '@context': 'https://www.w3.org/ns/activitystreams',
-    id: outboxUrl,
-    type: 'OrderedCollection',
-    totalItems: totalCount,
-    first: `${outboxUrl}?page=1`,
-  });
+  return orderedCollectionResponse(
+    c,
+    `${instanceActor.apId}/outbox`,
+    page,
+    pageNum,
+    totalCount,
+    parseOrderedItems(activities)
+  );
 });
 
 ap.get('/ap/actor/followers', async (c) => {
@@ -64,50 +90,34 @@ ap.get('/ap/actor/followers', async (c) => {
   const page = c.req.query('page');
   const pageNum = parseLimit(page, 1, 100000);
   const limit = 50;
-  const offset = (pageNum - 1) * limit;
 
-  const followers = await prisma.follow.findMany({
-    where: {
-      followingApId: instanceActor.apId,
-      status: 'accepted',
-    },
-    select: { followerApId: true },
-    orderBy: { acceptedAt: 'desc' },
-    take: limit,
-    skip: offset,
-  });
+  const where = { followingApId: instanceActor.apId, status: 'accepted' as const };
 
-  const totalCount = await prisma.follow.count({
-    where: {
-      followingApId: instanceActor.apId,
-      status: 'accepted',
-    },
-  });
+  const [followers, totalCount] = await Promise.all([
+    prisma.follow.findMany({
+      where,
+      select: { followerApId: true },
+      orderBy: { acceptedAt: 'desc' },
+      take: limit,
+      skip: (pageNum - 1) * limit,
+    }),
+    prisma.follow.count({ where }),
+  ]);
 
-  const followersUrl = `${instanceActor.apId}/followers`;
-
-  if (page) {
-    return c.json({
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      id: `${followersUrl}?page=${pageNum}`,
-      type: 'OrderedCollectionPage',
-      partOf: followersUrl,
-      orderedItems: followers.map((f) => f.followerApId),
-    });
-  }
-
-  return c.json({
-    '@context': 'https://www.w3.org/ns/activitystreams',
-    id: followersUrl,
-    type: 'OrderedCollection',
-    totalItems: totalCount,
-    first: `${followersUrl}?page=1`,
-  });
+  return orderedCollectionResponse(
+    c,
+    `${instanceActor.apId}/followers`,
+    page,
+    pageNum,
+    totalCount,
+    followers.map((f) => f.followerApId)
+  );
 });
 
 ap.get('/ap/actor/following', async (c) => {
   const instanceActor = await getInstanceActor(c);
   const followingUrl = `${instanceActor.apId}/following`;
+
   return c.json({
     '@context': 'https://www.w3.org/ns/activitystreams',
     id: followingUrl,
@@ -117,204 +127,132 @@ ap.get('/ap/actor/following', async (c) => {
   });
 });
 
-// ============================================================
-
-// Outbox - Outgoing Activities Collection
-// ============================================================
+// ---------------------------------------------------------------------------
+// User collections
+// ---------------------------------------------------------------------------
 
 ap.get('/ap/users/:username/outbox', async (c) => {
   const prisma = c.get('prisma');
   const username = c.req.param('username');
-  const baseUrl = c.env.APP_URL;
-  const apId = actorApId(baseUrl, username);
+  const apId = actorApId(c.env.APP_URL, username);
 
   const actor = await prisma.actor.findUnique({
     where: { apId },
     select: { apId: true },
   });
-
   if (!actor) return c.json({ error: 'Actor not found' }, 404);
 
-  // Paginate activities
   const page = c.req.query('page');
   const pageNum = parseLimit(page, 1, 100000);
   const limit = 20;
-  const offset = (pageNum - 1) * limit;
 
-  const activities = await prisma.activity.findMany({
-    where: {
-      actorApId: apId,
-      direction: 'outbound',
-    },
-    select: { rawJson: true },
-    orderBy: { createdAt: 'desc' },
-    take: limit,
-    skip: offset,
-  });
+  const where = { actorApId: apId, direction: 'outbound' as const };
 
-  const totalCount = await prisma.activity.count({
-    where: {
-      actorApId: apId,
-      direction: 'outbound',
-    },
-  });
+  const [activities, totalCount] = await Promise.all([
+    prisma.activity.findMany({
+      where,
+      select: { rawJson: true },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: (pageNum - 1) * limit,
+    }),
+    prisma.activity.count({ where }),
+  ]);
 
-  const outboxUrl = `${apId}/outbox`;
-
-  if (page) {
-    // Return items for specific page
-    return c.json({
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      id: `${outboxUrl}?page=${pageNum}`,
-      type: 'OrderedCollectionPage',
-      partOf: outboxUrl,
-      orderedItems: parseOrderedItems(activities),
-    });
-  } else {
-    // Return collection
-    return c.json({
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      id: outboxUrl,
-      type: 'OrderedCollection',
-      totalItems: totalCount,
-      first: `${outboxUrl}?page=1`,
-    });
-  }
+  return orderedCollectionResponse(
+    c,
+    `${apId}/outbox`,
+    page,
+    pageNum,
+    totalCount,
+    parseOrderedItems(activities)
+  );
 });
-
-// ============================================================
-// Followers Collection
-// ============================================================
 
 ap.get('/ap/users/:username/followers', async (c) => {
   const prisma = c.get('prisma');
   const username = c.req.param('username');
-  const baseUrl = c.env.APP_URL;
-  const apId = actorApId(baseUrl, username);
+  const apId = actorApId(c.env.APP_URL, username);
 
   const actor = await prisma.actor.findUnique({
     where: { apId },
     select: { apId: true, isPrivate: true },
   });
-
   if (!actor) return c.json({ error: 'Actor not found' }, 404);
 
-  // Paginate followers
   const page = c.req.query('page');
   const pageNum = parseLimit(page, 1, 100000);
   const limit = 50;
-  const offset = (pageNum - 1) * limit;
 
-  const followers = await prisma.follow.findMany({
-    where: {
-      followingApId: apId,
-      status: 'accepted',
-    },
-    select: { followerApId: true },
-    orderBy: { acceptedAt: 'desc' },
-    take: limit,
-    skip: offset,
-  });
+  const where = { followingApId: apId, status: 'accepted' as const };
 
-  const totalCount = await prisma.follow.count({
-    where: {
-      followingApId: apId,
-      status: 'accepted',
-    },
-  });
+  const [followers, totalCount] = await Promise.all([
+    prisma.follow.findMany({
+      where,
+      select: { followerApId: true },
+      orderBy: { acceptedAt: 'desc' },
+      take: limit,
+      skip: (pageNum - 1) * limit,
+    }),
+    prisma.follow.count({ where }),
+  ]);
 
-  const followersUrl = `${apId}/followers`;
-
-  if (page) {
-    return c.json({
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      id: `${followersUrl}?page=${pageNum}`,
-      type: 'OrderedCollectionPage',
-      partOf: followersUrl,
-      orderedItems: actor.isPrivate ? [] : followers.map((f) => f.followerApId),
-    });
-  } else {
-    return c.json({
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      id: followersUrl,
-      type: 'OrderedCollection',
-      totalItems: totalCount,
-      first: `${followersUrl}?page=1`,
-    });
-  }
+  return orderedCollectionResponse(
+    c,
+    `${apId}/followers`,
+    page,
+    pageNum,
+    totalCount,
+    actor.isPrivate ? [] : followers.map((f) => f.followerApId)
+  );
 });
-
-// ============================================================
-// Following Collection
-// ============================================================
 
 ap.get('/ap/users/:username/following', async (c) => {
   const prisma = c.get('prisma');
   const username = c.req.param('username');
-  const baseUrl = c.env.APP_URL;
-  const apId = actorApId(baseUrl, username);
+  const apId = actorApId(c.env.APP_URL, username);
 
   const actor = await prisma.actor.findUnique({
     where: { apId },
     select: { apId: true },
   });
-
   if (!actor) return c.json({ error: 'Actor not found' }, 404);
 
-  // Paginate following
   const page = c.req.query('page');
   const pageNum = parseLimit(page, 1, 100000);
   const limit = 50;
-  const offset = (pageNum - 1) * limit;
 
-  const following = await prisma.follow.findMany({
-    where: {
-      followerApId: apId,
-      status: 'accepted',
-    },
-    select: { followingApId: true },
-    orderBy: { acceptedAt: 'desc' },
-    take: limit,
-    skip: offset,
-  });
+  const where = { followerApId: apId, status: 'accepted' as const };
 
-  const totalCount = await prisma.follow.count({
-    where: {
-      followerApId: apId,
-      status: 'accepted',
-    },
-  });
+  const [following, totalCount] = await Promise.all([
+    prisma.follow.findMany({
+      where,
+      select: { followingApId: true },
+      orderBy: { acceptedAt: 'desc' },
+      take: limit,
+      skip: (pageNum - 1) * limit,
+    }),
+    prisma.follow.count({ where }),
+  ]);
 
-  const followingUrl = `${apId}/following`;
-
-  if (page) {
-    return c.json({
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      id: `${followingUrl}?page=${pageNum}`,
-      type: 'OrderedCollectionPage',
-      partOf: followingUrl,
-      orderedItems: following.map((f) => f.followingApId),
-    });
-  } else {
-    return c.json({
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      id: followingUrl,
-      type: 'OrderedCollection',
-      totalItems: totalCount,
-      first: `${followingUrl}?page=1`,
-    });
-  }
+  return orderedCollectionResponse(
+    c,
+    `${apId}/following`,
+    page,
+    pageNum,
+    totalCount,
+    following.map((f) => f.followingApId)
+  );
 });
 
-// ============================================================
-// Object Endpoint - Note/Post
-// ============================================================
+// ---------------------------------------------------------------------------
+// Object endpoint
+// ---------------------------------------------------------------------------
 
 ap.get('/ap/objects/:id', async (c) => {
   const prisma = c.get('prisma');
   const id = c.req.param('id');
-  const baseUrl = c.env.APP_URL;
-  const objApId = objectApId(baseUrl, id);
+  const objApId = objectApId(c.env.APP_URL, id);
 
   const obj = await prisma.object.findUnique({
     where: { apId: objApId },
@@ -333,10 +271,14 @@ ap.get('/ap/objects/:id', async (c) => {
       announceCount: true,
     },
   });
-
   if (!obj) return c.json({ error: 'Object not found' }, 404);
 
   const attachments = safeJsonParse<unknown[]>(obj.attachmentsJson, []);
+
+  const to = [
+    obj.visibility === 'public' ? 'https://www.w3.org/ns/activitystreams#Public' : undefined,
+    `${obj.attributedTo}/followers`,
+  ].filter(Boolean);
 
   const objectResponse: Record<string, unknown> = {
     '@context': [
@@ -350,10 +292,7 @@ ap.get('/ap/objects/:id', async (c) => {
     summary: obj.summary,
     inReplyTo: obj.inReplyTo,
     published: obj.published,
-    to: [
-      obj.visibility === 'public' ? 'https://www.w3.org/ns/activitystreams#Public' : undefined,
-      `${obj.attributedTo}/followers`,
-    ].filter(Boolean),
+    to,
     attachment: attachments.length > 0 ? attachments : undefined,
     likes: {
       id: `${obj.apId}/likes`,
@@ -367,12 +306,11 @@ ap.get('/ap/objects/:id', async (c) => {
     },
   };
 
-  // Remove undefined fields
-  Object.keys(objectResponse).forEach((key) => {
+  for (const key of Object.keys(objectResponse)) {
     if (objectResponse[key] === undefined) {
       delete objectResponse[key];
     }
-  });
+  }
 
   c.header('Content-Type', 'application/activity+json');
   return c.json(objectResponse);

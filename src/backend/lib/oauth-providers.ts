@@ -95,35 +95,36 @@ export function getProvider(env: Env, providerId: string): OAuthProvider | null 
 }
 
 /**
+ * プロバイダーIDからクライアント認証情報を取得
+ */
+export function getClientCredentials(env: Env, providerId: string): { clientId: string; clientSecret: string } {
+  switch (providerId) {
+    case 'google':
+      return { clientId: env.GOOGLE_CLIENT_ID || '', clientSecret: env.GOOGLE_CLIENT_SECRET || '' };
+    case 'x':
+      return { clientId: env.X_CLIENT_ID || '', clientSecret: env.X_CLIENT_SECRET || '' };
+    case 'takos':
+      return {
+        clientId: env.TAKOS_CLIENT_ID || env.CLIENT_ID || '',
+        clientSecret: env.TAKOS_CLIENT_SECRET || env.CLIENT_SECRET || '',
+      };
+    default:
+      return { clientId: '', clientSecret: '' };
+  }
+}
+
+/**
  * プロバイダーIDからクライアントIDを取得
  */
 export function getClientId(env: Env, providerId: string): string {
-  switch (providerId) {
-    case 'google':
-      return env.GOOGLE_CLIENT_ID || '';
-    case 'x':
-      return env.X_CLIENT_ID || '';
-    case 'takos':
-      return env.TAKOS_CLIENT_ID || env.CLIENT_ID || '';
-    default:
-      return '';
-  }
+  return getClientCredentials(env, providerId).clientId;
 }
 
 /**
  * プロバイダーIDからクライアントシークレットを取得
  */
 export function getClientSecret(env: Env, providerId: string): string {
-  switch (providerId) {
-    case 'google':
-      return env.GOOGLE_CLIENT_SECRET || '';
-    case 'x':
-      return env.X_CLIENT_SECRET || '';
-    case 'takos':
-      return env.TAKOS_CLIENT_SECRET || env.CLIENT_SECRET || '';
-    default:
-      return '';
-  }
+  return getClientCredentials(env, providerId).clientSecret;
 }
 
 /**
@@ -141,51 +142,31 @@ export async function fetchUserInfo(
   provider: OAuthProvider,
   accessToken: string
 ): Promise<NormalizedUserInfo> {
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${accessToken}`,
-  };
+  const url = provider.id === 'x'
+    ? `${provider.userInfoUrl}?user.fields=profile_image_url`
+    : provider.userInfoUrl;
 
-  // X requires specific fields
-  let url = provider.userInfoUrl;
-  if (provider.id === 'x') {
-    url += '?user.fields=profile_image_url';
-  }
-
-  const res = await fetch(url, { headers });
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
   if (!res.ok) {
     throw new Error(`Failed to fetch user info: ${res.status}`);
   }
 
   const data = await res.json() as Record<string, unknown>;
 
-  // 正規化
   switch (provider.id) {
     case 'google': {
       const g = data as { id: string; name: string; email: string; picture: string };
-      return {
-        id: g.id,
-        name: g.name,
-        email: g.email,
-        picture: g.picture,
-      };
+      return { id: g.id, name: g.name, email: g.email, picture: g.picture };
     }
     case 'x': {
       const x = data as { data: { id: string; name: string; username: string; profile_image_url?: string } };
-      return {
-        id: x.data.id,
-        name: x.data.name,
-        username: x.data.username,
-        picture: x.data.profile_image_url,
-      };
+      return { id: x.data.id, name: x.data.name, username: x.data.username, picture: x.data.profile_image_url };
     }
     case 'takos': {
       const t = data as { user: { id: string; name: string; email: string; picture?: string } };
-      return {
-        id: t.user.id,
-        name: t.user.name,
-        email: t.user.email,
-        picture: t.user.picture,
-      };
+      return { id: t.user.id, name: t.user.name, email: t.user.email, picture: t.user.picture };
     }
     default:
       throw new Error(`Unknown provider: ${provider.id}`);

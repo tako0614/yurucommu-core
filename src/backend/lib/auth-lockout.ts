@@ -23,26 +23,29 @@ function getLockoutStorageKey(clientKey: string): string {
   return `${LOCKOUT_KEY_PREFIX}:${encodeURIComponent(clientKey)}`;
 }
 
+function isValidRecord(v: Partial<LoginLockoutRecord>): v is LoginLockoutRecord {
+  return (
+    typeof v.failedAttempts === 'number'
+    && typeof v.firstFailedAt === 'number'
+    && (v.lockoutUntil === null || typeof v.lockoutUntil === 'number')
+  );
+}
+
 function parseLockoutRecord(raw: string | null): LoginLockoutRecord | null {
   if (!raw) return null;
 
   try {
     const parsed = JSON.parse(raw) as Partial<LoginLockoutRecord>;
-    if (
-      typeof parsed.failedAttempts !== 'number'
-      || typeof parsed.firstFailedAt !== 'number'
-      || (parsed.lockoutUntil !== null && typeof parsed.lockoutUntil !== 'number')
-    ) {
-      return null;
-    }
-    return {
-      failedAttempts: parsed.failedAttempts,
-      firstFailedAt: parsed.firstFailedAt,
-      lockoutUntil: parsed.lockoutUntil,
-    };
+    return isValidRecord(parsed) ? parsed : null;
   } catch {
     return null;
   }
+}
+
+function isRecordExpired(record: LoginLockoutRecord, now: number): boolean {
+  if (record.lockoutUntil !== null && record.lockoutUntil <= now) return true;
+  if (now - record.firstFailedAt > LOGIN_LOCKOUT_CONFIG.trackingWindowMs) return true;
+  return false;
 }
 
 function normalizeLockoutRecord(
@@ -50,28 +53,19 @@ function normalizeLockoutRecord(
   now: number
 ): LoginLockoutRecord | null {
   if (!record) return null;
-
-  if (record.lockoutUntil && record.lockoutUntil <= now) {
-    return null;
-  }
-
-  if (now - record.firstFailedAt > LOGIN_LOCKOUT_CONFIG.trackingWindowMs) {
-    return null;
-  }
-
-  return record;
+  return isRecordExpired(record, now) ? null : record;
 }
 
-function toStatus(record: LoginLockoutRecord | null, now: number): LoginLockoutStatus {
-  if (!record) {
-    return {
-      locked: false,
-      failedAttempts: 0,
-      retryAfterSeconds: 0,
-    };
-  }
+const UNLOCKED_STATUS: LoginLockoutStatus = {
+  locked: false,
+  failedAttempts: 0,
+  retryAfterSeconds: 0,
+};
 
-  const locked = !!record.lockoutUntil && record.lockoutUntil > now;
+function toStatus(record: LoginLockoutRecord | null, now: number): LoginLockoutStatus {
+  if (!record) return UNLOCKED_STATUS;
+
+  const locked = record.lockoutUntil !== null && record.lockoutUntil > now;
   return {
     locked,
     failedAttempts: record.failedAttempts,
@@ -157,16 +151,17 @@ export async function recordFailedLoginAttempt(
   const storageKey = getLockoutStorageKey(clientKey);
   const existing = await readRecord(kv, storageKey, now);
 
-  if (existing?.lockoutUntil && existing.lockoutUntil > now) {
+  // Already locked out -- return current status without extending
+  if (existing?.lockoutUntil !== null && existing?.lockoutUntil !== undefined && existing.lockoutUntil > now) {
     return toStatus(existing, now);
   }
 
-  const nextAttempts = existing ? existing.failedAttempts + 1 : 1;
-  const firstFailedAt = existing ? existing.firstFailedAt : now;
-  const shouldLock = nextAttempts >= LOGIN_LOCKOUT_CONFIG.maxFailedAttempts;
+  const failedAttempts = (existing?.failedAttempts ?? 0) + 1;
+  const firstFailedAt = existing?.firstFailedAt ?? now;
+  const shouldLock = failedAttempts >= LOGIN_LOCKOUT_CONFIG.maxFailedAttempts;
 
   const next: LoginLockoutRecord = {
-    failedAttempts: nextAttempts,
+    failedAttempts,
     firstFailedAt,
     lockoutUntil: shouldLock ? now + LOGIN_LOCKOUT_CONFIG.lockoutMs : null,
   };

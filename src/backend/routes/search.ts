@@ -1,19 +1,21 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
 import { formatUsername, isSafeRemoteUrl, normalizeRemoteDomain, parseLimit, parseOffset, fetchWithTimeout } from '../utils';
+import type { PrismaClient } from '../../generated/prisma';
 
 const search = new Hono<{ Bindings: Env; Variables: Variables }>();
 const REMOTE_FETCH_TIMEOUT_MS = 10000;
 
-// Whitelist of allowed sort values for actors
+// ---------------------------------------------------------------------------
+// Sort validation
+// ---------------------------------------------------------------------------
+
 const ALLOWED_ACTOR_SORTS = ['relevance', 'followers', 'recent'] as const;
 type ActorSort = typeof ALLOWED_ACTOR_SORTS[number];
 
-// Whitelist of allowed sort values for posts
 const ALLOWED_POST_SORTS = ['recent', 'popular'] as const;
 type PostSort = typeof ALLOWED_POST_SORTS[number];
 
-// Validate sort parameter against whitelist
 function validateActorSort(sort: string | undefined): ActorSort {
   if (sort && ALLOWED_ACTOR_SORTS.includes(sort as ActorSort)) {
     return sort as ActorSort;
@@ -27,6 +29,10 @@ function validatePostSort(sort: string | undefined): PostSort {
   }
   return 'recent';
 }
+
+// ---------------------------------------------------------------------------
+// Shared types
+// ---------------------------------------------------------------------------
 
 type WebFingerLink = {
   rel?: string;
@@ -50,19 +56,105 @@ type RemoteActor = {
   publicKey?: { id?: string; publicKeyPem?: string };
 };
 
+type ActorInfo = { apId: string; preferredUsername: string | null; name: string | null; iconUrl: string | null };
+
+// ---------------------------------------------------------------------------
+// Shared helpers (file-local, not exported)
+// ---------------------------------------------------------------------------
+
+/** Build orderBy clause for post queries. */
+function postOrderBy(sort: PostSort): Array<{ likeCount?: 'desc'; published?: 'desc' }> {
+  if (sort === 'popular') return [{ likeCount: 'desc' }, { published: 'desc' }];
+  return [{ published: 'desc' }];
+}
+
+/** Build a merged author lookup map (local actors take priority over cached). */
+async function buildAuthorMap(
+  prisma: PrismaClient,
+  apIds: string[],
+): Promise<Map<string, ActorInfo>> {
+  const [localAuthors, cachedAuthors] = await Promise.all([
+    prisma.actor.findMany({
+      where: { apId: { in: apIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+    prisma.actorCache.findMany({
+      where: { apId: { in: apIds } },
+      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+    }),
+  ]);
+
+  const map = new Map<string, ActorInfo>();
+  // Insert cached first so local actors override them
+  for (const a of cachedAuthors) map.set(a.apId, a);
+  for (const a of localAuthors) map.set(a.apId, a);
+  return map;
+}
+
+/** Load the set of post AP IDs that a given actor has liked. */
+async function loadLikedPostIds(
+  prisma: PrismaClient,
+  actorApId: string | undefined,
+  postApIds: string[],
+): Promise<Set<string>> {
+  if (!actorApId || postApIds.length === 0) return new Set();
+
+  const likes = await prisma.like.findMany({
+    where: {
+      actorApId,
+      objectApId: { in: postApIds },
+    },
+    select: { objectApId: true },
+  });
+  return new Set(likes.map(l => l.objectApId));
+}
+
+/** Map a raw post + author map + liked set into the API response shape. */
+function formatPost(
+  post: { apId: string; attributedTo: string; content: string; published: string | null; likeCount: number },
+  authorMap: Map<string, ActorInfo>,
+  likedPostIds: Set<string>,
+): {
+  ap_id: string;
+  author: { ap_id: string; username: string; preferred_username: string | null; name: string | null; icon_url: string | null };
+  content: string;
+  published: string | null;
+  like_count: number;
+  liked: boolean;
+} {
+  const author = authorMap.get(post.attributedTo);
+  return {
+    ap_id: post.apId,
+    author: {
+      ap_id: post.attributedTo,
+      username: formatUsername(post.attributedTo),
+      preferred_username: author?.preferredUsername ?? null,
+      name: author?.name ?? null,
+      icon_url: author?.iconUrl ?? null,
+    },
+    content: post.content,
+    published: post.published,
+    like_count: post.likeCount,
+    liked: likedPostIds.has(post.apId),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Routes
+// ---------------------------------------------------------------------------
+
 /**
  * Search local actors by username or name
  * GET /api/search/actors?q=query&sort=relevance|followers|recent
  */
 search.get('/actors', async (c) => {
   const query = c.req.query('q')?.trim();
-  const sort = validateActorSort(c.req.query('sort'));
   if (!query) return c.json({ actors: [] });
 
   const prisma = c.get('prisma');
+  const sort = validateActorSort(c.req.query('sort'));
   const lowerQuery = query.toLowerCase();
 
-  // Build orderBy based on sort parameter
   let orderBy: { followerCount?: 'desc'; createdAt?: 'desc'; preferredUsername?: 'asc' };
   switch (sort) {
     case 'followers':
@@ -73,12 +165,10 @@ search.get('/actors', async (c) => {
       break;
     case 'relevance':
     default:
-      // For relevance, we'll fetch and sort in memory
       orderBy = { followerCount: 'desc' };
       break;
   }
 
-  // Fetch actors that match the query
   const actors = await prisma.actor.findMany({
     where: {
       OR: [
@@ -99,24 +189,20 @@ search.get('/actors', async (c) => {
     take: 20,
   });
 
-  // For relevance sorting, sort in memory
   let sortedActors = actors;
   if (sort === 'relevance') {
     sortedActors = actors.sort((a, b) => {
       const aUsername = a.preferredUsername.toLowerCase();
       const bUsername = b.preferredUsername.toLowerCase();
 
-      // Exact match first
       const aExact = aUsername === lowerQuery ? 0 : 1;
       const bExact = bUsername === lowerQuery ? 0 : 1;
       if (aExact !== bExact) return aExact - bExact;
 
-      // Prefix match second
       const aPrefix = aUsername.startsWith(lowerQuery) ? 0 : 1;
       const bPrefix = bUsername.startsWith(lowerQuery) ? 0 : 1;
       if (aPrefix !== bPrefix) return aPrefix - bPrefix;
 
-      // Then by follower count
       return b.followerCount - a.followerCount;
     });
   }
@@ -140,103 +226,41 @@ search.get('/actors', async (c) => {
  * GET /api/search/posts?q=query&sort=recent|popular
  */
 search.get('/posts', async (c) => {
-  const actor = c.get('actor');
   const query = c.req.query('q')?.trim();
-  const sort = validatePostSort(c.req.query('sort'));
   if (!query) return c.json({ posts: [] });
 
+  const actor = c.get('actor');
   const prisma = c.get('prisma');
+  const sort = validatePostSort(c.req.query('sort'));
 
-  // Build orderBy based on sort parameter
-  let orderBy: { likeCount?: 'desc'; published?: 'desc' }[];
-  switch (sort) {
-    case 'popular':
-      orderBy = [{ likeCount: 'desc' }, { published: 'desc' }];
-      break;
-    case 'recent':
-    default:
-      orderBy = [{ published: 'desc' }];
-      break;
-  }
-
-  // Fetch posts that match the query
   const posts = await prisma.object.findMany({
     where: {
       content: { contains: query },
       visibility: 'public',
-      OR: [
-        { audienceJson: { equals: '[]' } },
-      ],
+      OR: [{ audienceJson: { equals: '[]' } }],
     },
-    orderBy,
+    orderBy: postOrderBy(sort),
     take: 50,
   });
 
-  // Batch load author info to avoid N+1 queries
   const authorApIds = [...new Set(posts.map((p) => p.attributedTo))];
-
-  const [localAuthors, cachedAuthors] = await Promise.all([
-    prisma.actor.findMany({
-      where: { apId: { in: authorApIds } },
-      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-    }),
-    prisma.actorCache.findMany({
-      where: { apId: { in: authorApIds } },
-      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-    }),
+  const [authorMap, likedPostIds] = await Promise.all([
+    buildAuthorMap(prisma, authorApIds),
+    loadLikedPostIds(prisma, actor?.ap_id, posts.map(p => p.apId)),
   ]);
 
-  // Create lookup maps
-  const localAuthorMap = new Map(localAuthors.map((a) => [a.apId, a]));
-  const cachedAuthorMap = new Map(cachedAuthors.map((a) => [a.apId, a]));
-
-  // Batch load likes if user is logged in
-  const likedPostIds = new Set<string>();
-  if (actor?.ap_id) {
-    const postApIds = posts.map((p) => p.apId);
-    const likes = await prisma.like.findMany({
-      where: {
-        actorApId: actor.ap_id,
-        objectApId: { in: postApIds },
-      },
-      select: { objectApId: true },
-    });
-    likes.forEach((l) => likedPostIds.add(l.objectApId));
-  }
-
-  // Map posts to result format
-  const result = posts.map((p) => {
-    const author = localAuthorMap.get(p.attributedTo) || cachedAuthorMap.get(p.attributedTo);
-
-    return {
-      ap_id: p.apId,
-      author: {
-        ap_id: p.attributedTo,
-        username: formatUsername(p.attributedTo),
-        preferred_username: author?.preferredUsername || null,
-        name: author?.name || null,
-        icon_url: author?.iconUrl || null,
-      },
-      content: p.content,
-      published: p.published,
-      like_count: p.likeCount,
-      liked: likedPostIds.has(p.apId),
-    };
-  });
-
+  const result = posts.map((p) => formatPost(p, authorMap, likedPostIds));
   return c.json({ posts: result });
 });
 
 /**
  * Search remote actors via WebFinger
- * Parses @user@domain format, fetches and caches actor
  * GET /api/search/remote?q=@user@domain
  */
 search.get('/remote', async (c) => {
   const query = c.req.query('q')?.trim();
   if (!query) return c.json({ actors: [] });
 
-  // Parse @user@domain format
   const match = query.match(/^@?([^@]+)@([^@]+)$/);
   if (!match) return c.json({ actors: [] });
 
@@ -255,10 +279,9 @@ search.get('/remote', async (c) => {
 
     const wfData = (await wfRes.json()) as WebFingerResponse;
     const actorLink = wfData.links?.find((l) => l.rel === 'self' && l.type === 'application/activity+json');
-    if (!actorLink?.href) return c.json({ actors: [] });
-    if (!isSafeRemoteUrl(actorLink.href)) return c.json({ actors: [] });
+    if (!actorLink?.href || !isSafeRemoteUrl(actorLink.href)) return c.json({ actors: [] });
 
-    // Fetch actor
+    // Fetch actor profile
     const actorRes = await fetchWithTimeout(actorLink.href, {
       headers: { Accept: 'application/activity+json, application/ld+json' },
       timeout: REMOTE_FETCH_TIMEOUT_MS,
@@ -267,35 +290,25 @@ search.get('/remote', async (c) => {
 
     const actorData = (await actorRes.json()) as RemoteActor;
 
-    // Cache the actor using Prisma upsert
+    // Cache the actor (upsert with shared field set)
     const prisma = c.get('prisma');
+    const cacheFields = {
+      type: actorData.type || 'Person',
+      preferredUsername: actorData.preferredUsername || null,
+      name: actorData.name || null,
+      summary: actorData.summary || null,
+      iconUrl: actorData.icon?.url || null,
+      inbox: actorData.inbox || '',
+      outbox: actorData.outbox || null,
+      publicKeyId: actorData.publicKey?.id || null,
+      publicKeyPem: actorData.publicKey?.publicKeyPem || null,
+      rawJson: JSON.stringify(actorData),
+    };
+
     await prisma.actorCache.upsert({
       where: { apId: actorData.id },
-      create: {
-        apId: actorData.id,
-        type: actorData.type || 'Person',
-        preferredUsername: actorData.preferredUsername || null,
-        name: actorData.name || null,
-        summary: actorData.summary || null,
-        iconUrl: actorData.icon?.url || null,
-        inbox: actorData.inbox || '',
-        outbox: actorData.outbox || null,
-        publicKeyId: actorData.publicKey?.id || null,
-        publicKeyPem: actorData.publicKey?.publicKeyPem || null,
-        rawJson: JSON.stringify(actorData),
-      },
-      update: {
-        type: actorData.type || 'Person',
-        preferredUsername: actorData.preferredUsername || null,
-        name: actorData.name || null,
-        summary: actorData.summary || null,
-        iconUrl: actorData.icon?.url || null,
-        inbox: actorData.inbox || '',
-        outbox: actorData.outbox || null,
-        publicKeyId: actorData.publicKey?.id || null,
-        publicKeyPem: actorData.publicKey?.publicKeyPem || null,
-        rawJson: JSON.stringify(actorData),
-      },
+      create: { apId: actorData.id, ...cacheFields },
+      update: cacheFields,
     });
 
     return c.json({
@@ -321,97 +334,38 @@ search.get('/remote', async (c) => {
  * GET /api/search/hashtag/:tag?sort=recent|popular
  */
 search.get('/hashtag/:tag', async (c) => {
-  const actor = c.get('actor');
   const tag = c.req.param('tag')?.trim().replace(/^#/, '');
+  if (!tag) return c.json({ posts: [], total: 0 });
+
+  const actor = c.get('actor');
+  const prisma = c.get('prisma');
   const sort = validatePostSort(c.req.query('sort'));
   const limit = parseLimit(c.req.query('limit'), 50, 100);
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
-
-  if (!tag) return c.json({ posts: [], total: 0 });
-
-  const prisma = c.get('prisma');
   const hashtagPattern = `#${tag}`;
 
-  // Build orderBy based on sort parameter
-  let orderBy: { likeCount?: 'desc'; published?: 'desc' }[];
-  switch (sort) {
-    case 'popular':
-      orderBy = [{ likeCount: 'desc' }, { published: 'desc' }];
-      break;
-    case 'recent':
-    default:
-      orderBy = [{ published: 'desc' }];
-      break;
-  }
+  const postWhere = {
+    content: { contains: hashtagPattern },
+    visibility: 'public' as const,
+  };
 
-  // Count total matching posts
-  const total = await prisma.object.count({
-    where: {
-      content: { contains: hashtagPattern },
-      visibility: 'public',
-    },
-  });
-
-  // Fetch posts that contain the hashtag
-  const posts = await prisma.object.findMany({
-    where: {
-      content: { contains: hashtagPattern },
-      visibility: 'public',
-    },
-    orderBy,
-    skip: offset,
-    take: limit,
-  });
-
-  // Batch load author info to avoid N+1 queries
-  const authorApIds = [...new Set(posts.map((p) => p.attributedTo))];
-  const [localAuthors, cachedAuthors] = await Promise.all([
-    prisma.actor.findMany({
-      where: { apId: { in: authorApIds } },
-      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-    }),
-    prisma.actorCache.findMany({
-      where: { apId: { in: authorApIds } },
-      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+  const [total, posts] = await Promise.all([
+    prisma.object.count({ where: postWhere }),
+    prisma.object.findMany({
+      where: postWhere,
+      orderBy: postOrderBy(sort),
+      skip: offset,
+      take: limit,
     }),
   ]);
 
-  const localAuthorMap = new Map(localAuthors.map((a) => [a.apId, a]));
-  const cachedAuthorMap = new Map(cachedAuthors.map((a) => [a.apId, a]));
+  const authorApIds = [...new Set(posts.map((p) => p.attributedTo))];
+  const [authorMap, likedPostIds] = await Promise.all([
+    buildAuthorMap(prisma, authorApIds),
+    loadLikedPostIds(prisma, actor?.ap_id, posts.map(p => p.apId)),
+  ]);
 
-  // Batch load likes if user is logged in
-  const likedPostIds = new Set<string>();
-  if (actor?.ap_id) {
-    const postApIds = posts.map((p) => p.apId);
-    const likes = await prisma.like.findMany({
-      where: {
-        actorApId: actor.ap_id,
-        objectApId: { in: postApIds },
-      },
-      select: { objectApId: true },
-    });
-    likes.forEach((l) => likedPostIds.add(l.objectApId));
-  }
-
-  // Map posts to result format
-  const result = posts.map((p) => {
-    const author = localAuthorMap.get(p.attributedTo) || cachedAuthorMap.get(p.attributedTo);
-
-    return {
-      ap_id: p.apId,
-      author: {
-        ap_id: p.attributedTo,
-        username: formatUsername(p.attributedTo),
-        preferred_username: author?.preferredUsername || null,
-        name: author?.name || null,
-        icon_url: author?.iconUrl || null,
-      },
-      content: p.content,
-      published: p.published,
-      like_count: p.likeCount,
-      liked: likedPostIds.has(p.apId),
-    };
-  });
+  const result = posts.map((p) => formatPost(p, authorMap, likedPostIds));
 
   return c.json({
     posts: result,
@@ -429,12 +383,10 @@ search.get('/hashtag/:tag', async (c) => {
 search.get('/hashtags/trending', async (c) => {
   const limit = parseLimit(c.req.query('limit'), 10, 50);
   const days = parseLimit(c.req.query('days'), 7, 30);
-
   const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
   const prisma = c.get('prisma');
 
-  // Fetch recent public posts
   const posts = await prisma.object.findMany({
     where: {
       visibility: 'public',
@@ -458,7 +410,6 @@ search.get('/hashtags/trending', async (c) => {
     }
   }
 
-  // Sort by count and take top N
   const trending = Object.entries(hashtagCounts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)

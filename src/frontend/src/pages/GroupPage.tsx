@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Actor, Post } from '../types';
-import { CommunityDetail, fetchCommunities, fetchFollowing, follow, searchActors, searchPosts, likePost, unlikePost } from '../lib/api';
+import { CommunityDetail, fetchCommunities, fetchFollowing, follow, searchActors, searchPosts, searchRemote, likePost, unlikePost } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { formatRelativeTime } from '../lib/datetime';
 import { UserAvatar } from '../components/UserAvatar';
@@ -14,6 +14,8 @@ import { HeartIcon, ReplyIcon, BookmarkIcon, RepostIcon } from '../components/ic
 interface GroupPageProps {
   actor: Actor;
 }
+
+const REMOTE_ACTOR_QUERY_PATTERN = /^@?[^@\s]+@[^@\s]+$/;
 
 const CloseIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -178,15 +180,28 @@ export function GroupPage({ actor }: GroupPageProps) {
   }, [searchParams, setSearchParams]);
 
   const performSearch = async (query: string) => {
-    if (!query.trim()) return;
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) return;
+
+    const shouldSearchRemote = REMOTE_ACTOR_QUERY_PATTERN.test(trimmedQuery);
+
     setSearching(true);
     setSearched(true);
     try {
-      const [usersRes, postsRes] = await Promise.all([
-        searchActors(query.trim()),
-        searchPosts(query.trim()),
+      const [usersRes, postsRes, remoteUsersRes] = await Promise.all([
+        searchActors(trimmedQuery),
+        searchPosts(trimmedQuery),
+        shouldSearchRemote ? searchRemote(trimmedQuery) : Promise.resolve([] as Actor[]),
       ]);
-      setSearchUsersResult(usersRes);
+
+      const mergedUsers = [...usersRes];
+      for (const remoteUser of remoteUsersRes) {
+        if (!mergedUsers.some((u) => u.ap_id === remoteUser.ap_id)) {
+          mergedUsers.push(remoteUser);
+        }
+      }
+
+      setSearchUsersResult(mergedUsers);
       setSearchPostsResult(postsRes);
     } catch (e) {
       console.error('Search failed:', e);
@@ -194,10 +209,6 @@ export function GroupPage({ actor }: GroupPageProps) {
     } finally {
       setSearching(false);
     }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') performSearch(searchQuery);
   };
 
   const clearSearch = () => {
@@ -260,22 +271,38 @@ export function GroupPage({ actor }: GroupPageProps) {
       <header className="sticky top-0 bg-black/80 backdrop-blur-sm z-10">
         <div className="px-4 py-3">
           <div className="flex items-center gap-3">
-            <div className="flex-1 flex items-center gap-2 bg-neutral-900 rounded-lg px-3 py-2">
-              <SearchIcon />
+            <form
+              className="flex-1 flex items-center gap-2 bg-neutral-900 rounded-lg px-3 py-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                performSearch(searchQuery);
+              }}
+            >
+              <button
+                type="submit"
+                aria-label="Search"
+                className="text-neutral-500 hover:text-white transition-colors"
+              >
+                <SearchIcon />
+              </button>
               <input
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                onKeyDown={handleKeyDown}
                 placeholder="Search"
                 className="flex-1 bg-transparent outline-none text-white placeholder-neutral-500 text-sm"
               />
               {searchQuery && (
-                <button onClick={clearSearch} aria-label="Clear search" className="text-neutral-500 hover:text-white">
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  aria-label="Clear search"
+                  className="text-neutral-500 hover:text-white"
+                >
                   <CloseIcon />
                 </button>
               )}
-            </div>
+            </form>
             <button
               onClick={() => setShowQRModal(true)}
               aria-label="Open QR code"
@@ -482,4 +509,3 @@ export function GroupPage({ actor }: GroupPageProps) {
 }
 
 export default GroupPage;
-

@@ -49,14 +49,11 @@ export type FormattedPost = {
   liked: boolean;
 };
 
+const MENTION_REGEX = /@([a-zA-Z0-9_]+(?:@[a-zA-Z0-9.-]+)?)/g;
+
 export function extractMentions(content: string): string[] {
-  const mentionRegex = /@([a-zA-Z0-9_]+(?:@[a-zA-Z0-9.-]+)?)/g;
-  const mentions: string[] = [];
-  let match;
-  while ((match = mentionRegex.exec(content)) !== null) {
-    mentions.push(match[1]);
-  }
-  return [...new Set(mentions)];
+  const matches = Array.from(content.matchAll(MENTION_REGEX), (m) => m[1]);
+  return [...new Set(matches)];
 }
 
 export function formatPost(p: PostRow, currentActorApId?: string): FormattedPost {
@@ -84,8 +81,12 @@ export function formatPost(p: PostRow, currentActorApId?: string): FormattedPost
   };
 }
 
+const VALID_VISIBILITIES = new Set(['public', 'unlisted', 'followers', 'direct'] as const);
+
 export function normalizeVisibility(value?: string): 'public' | 'unlisted' | 'followers' | 'direct' {
   if (value === 'private' || value === 'followers_only') return 'followers';
-  if (value === 'public' || value === 'unlisted' || value === 'followers' || value === 'direct') return value;
+  if (VALID_VISIBILITIES.has(value as 'public' | 'unlisted' | 'followers' | 'direct')) {
+    return value as 'public' | 'unlisted' | 'followers' | 'direct';
+  }
   return 'public';
 }

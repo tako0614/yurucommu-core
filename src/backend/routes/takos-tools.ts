@@ -10,7 +10,10 @@ import type { Env, Variables } from '../types';
 import { activityApId, formatUsername, generateId, objectApId, parseLimit, safeJsonParse } from '../utils';
 import { getConversationId } from './dm/utils';
 
-const takosTools = new Hono<{ Bindings: Env; Variables: Variables }>();
+type HonoEnv = { Bindings: Env; Variables: Variables };
+type Input = Record<string, unknown>;
+
+const takosTools = new Hono<HonoEnv>();
 
 // Feature flag gate (fail-close).
 takosTools.use('*', async (c, next) => {
@@ -34,15 +37,59 @@ interface ToolResponse {
   error?: string;
 }
 
-function parseToolLimit(value: unknown, fallback: number, max: number): number {
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function toolLimit(value: unknown, fallback: number, max: number): number {
   const normalized = value == null ? undefined : String(value);
   return parseLimit(normalized, fallback, max);
 }
 
-/**
- * Execute a tool
- * POST /.takos/tools/:name
- */
+function requireString(input: Input, key: string): string {
+  return String(input[key] || '').trim();
+}
+
+function errAuth(): ToolResponse {
+  return { success: false, error: 'Authentication required' };
+}
+
+function errRequired(field: string): ToolResponse {
+  return { success: false, error: `${field} is required` };
+}
+
+function errNotFound(entity: string): ToolResponse {
+  return { success: false, error: `${entity} not found` };
+}
+
+interface ActorSummary {
+  apId: string;
+  preferredUsername: string;
+  name: string | null;
+  iconUrl: string | null;
+}
+
+function formatActorSummary(a: ActorSummary): Record<string, unknown> {
+  return {
+    ap_id: a.apId,
+    username: formatUsername(a.apId),
+    preferred_username: a.preferredUsername,
+    name: a.name,
+    icon_url: a.iconUrl,
+  };
+}
+
+const ACTOR_SUMMARY_SELECT = {
+  apId: true,
+  preferredUsername: true,
+  name: true,
+  iconUrl: true,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Route
+// ---------------------------------------------------------------------------
+
 takosTools.post('/:name', async (c) => {
   const toolName = c.req.param('name');
   const actor = c.get('actor');
@@ -59,28 +106,26 @@ takosTools.post('/:name', async (c) => {
 
   try {
     switch (toolName) {
-      // Search tools
+      // ------ Search tools ------
+
       case 'yurucommu_search_users': {
-        const query = String(input.query || '').trim();
-        const limit = parseToolLimit(input.limit, 20, 50);
+        const query = requireString(input, 'query');
+        const limit = toolLimit(input.limit, 20, 50);
 
         if (!query) {
           return c.json({ success: true, data: { actors: [] } });
         }
 
-	        const actors = await prisma.actor.findMany({
-	          where: {
-	            isPrivate: 0,
-	            OR: [
-	              { preferredUsername: { contains: query } },
-	              { name: { contains: query } },
-	            ],
-	          },
+        const actors = await prisma.actor.findMany({
+          where: {
+            isPrivate: 0,
+            OR: [
+              { preferredUsername: { contains: query } },
+              { name: { contains: query } },
+            ],
+          },
           select: {
-            apId: true,
-            preferredUsername: true,
-            name: true,
-            iconUrl: true,
+            ...ACTOR_SUMMARY_SELECT,
             summary: true,
             followerCount: true,
           },
@@ -92,11 +137,7 @@ takosTools.post('/:name', async (c) => {
           success: true,
           data: {
             actors: actors.map(a => ({
-              ap_id: a.apId,
-              username: formatUsername(a.apId),
-              preferred_username: a.preferredUsername,
-              name: a.name,
-              icon_url: a.iconUrl,
+              ...formatActorSummary(a),
               summary: a.summary,
               follower_count: a.followerCount,
             })),
@@ -105,8 +146,8 @@ takosTools.post('/:name', async (c) => {
       }
 
       case 'yurucommu_search_posts': {
-        const query = String(input.query || '').trim();
-        const limit = parseToolLimit(input.limit, 20, 50);
+        const query = requireString(input, 'query');
+        const limit = toolLimit(input.limit, 20, 50);
 
         if (!query) {
           return c.json({ success: true, data: { posts: [] } });
@@ -135,7 +176,7 @@ takosTools.post('/:name', async (c) => {
       }
 
       case 'yurucommu_get_trending': {
-        const limit = parseToolLimit(input.limit, 10, 50);
+        const limit = toolLimit(input.limit, 10, 50);
         const sinceDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
         const posts = await prisma.object.findMany({
@@ -167,45 +208,37 @@ takosTools.post('/:name', async (c) => {
         return c.json({ success: true, data: { trending } });
       }
 
-	      case 'yurucommu_get_user_profile': {
-	        const username = String(input.username || '').trim();
+      case 'yurucommu_get_user_profile': {
+        const username = requireString(input, 'username');
+        if (!username) {
+          return c.json(errRequired('Username'), 400);
+        }
 
-	        if (!username) {
-	          return c.json({ success: false, error: 'Username is required' }, 400);
-	        }
+        const actorRecord = await prisma.actor.findFirst({
+          where: { preferredUsername: username },
+          select: {
+            ...ACTOR_SUMMARY_SELECT,
+            summary: true,
+            followerCount: true,
+            followingCount: true,
+            postCount: true,
+            isPrivate: true,
+          },
+        });
 
-	        const actorRecord = await prisma.actor.findFirst({
-	          where: { preferredUsername: username },
-	          select: {
-	            apId: true,
-	            preferredUsername: true,
-	            name: true,
-	            iconUrl: true,
-	            summary: true,
-	            followerCount: true,
-	            followingCount: true,
-	            postCount: true,
-	            isPrivate: true,
-	          },
-	        });
+        if (!actorRecord) {
+          return c.json(errNotFound('User'), 404);
+        }
 
-	        if (!actorRecord) {
-	          return c.json({ success: false, error: 'User not found' }, 404);
-	        }
+        // Fail-close for private accounts (allow self lookup only).
+        if (actorRecord.isPrivate && actor?.ap_id !== actorRecord.apId) {
+          return c.json(errNotFound('User'), 404);
+        }
 
-	        // Fail-close for private accounts (allow self lookup only).
-	        if (actorRecord.isPrivate && actor?.ap_id !== actorRecord.apId) {
-	          return c.json({ success: false, error: 'User not found' }, 404);
-	        }
-
-	        return c.json({
-	          success: true,
-	          data: {
-	            ap_id: actorRecord.apId,
-	            username: formatUsername(actorRecord.apId),
-            preferred_username: actorRecord.preferredUsername,
-            name: actorRecord.name,
-            icon_url: actorRecord.iconUrl,
+        return c.json({
+          success: true,
+          data: {
+            ...formatActorSummary(actorRecord),
             summary: actorRecord.summary,
             follower_count: actorRecord.followerCount,
             following_count: actorRecord.followingCount,
@@ -214,21 +247,19 @@ takosTools.post('/:name', async (c) => {
         });
       }
 
-      // Post tools
-      case 'yurucommu_create_post': {
-        if (!actor) {
-          return c.json({ success: false, error: 'Authentication required' }, 401);
-        }
+      // ------ Post tools ------
 
-        const content = String(input.content || '').trim();
+      case 'yurucommu_create_post': {
+        if (!actor) return c.json(errAuth(), 401);
+
+        const content = requireString(input, 'content');
         const visibility = String(input.visibility || 'public');
         const inReplyTo = input.in_reply_to ? String(input.in_reply_to) : null;
 
         if (!content) {
-          return c.json({ success: false, error: 'Content is required' }, 400);
+          return c.json(errRequired('Content'), 400);
         }
 
-        // Create the post
         const postId = crypto.randomUUID();
         const now = new Date().toISOString();
         const apId = `${c.env.APP_URL}/ap/notes/${postId}`;
@@ -252,7 +283,6 @@ takosTools.post('/:name', async (c) => {
           },
         });
 
-        // Update post count
         await prisma.actor.update({
           where: { apId: actor.ap_id },
           data: { postCount: { increment: 1 } },
@@ -260,36 +290,27 @@ takosTools.post('/:name', async (c) => {
 
         return c.json({
           success: true,
-          data: {
-            post_id: postId,
-            ap_id: apId,
-          },
+          data: { post_id: postId, ap_id: apId },
         });
       }
 
       case 'yurucommu_delete_post': {
-        if (!actor) {
-          return c.json({ success: false, error: 'Authentication required' }, 401);
-        }
+        if (!actor) return c.json(errAuth(), 401);
 
-        const postId = String(input.post_id || '').trim();
-
+        const postId = requireString(input, 'post_id');
         if (!postId) {
-          return c.json({ success: false, error: 'Post ID is required' }, 400);
+          return c.json(errRequired('Post ID'), 400);
         }
 
-        // postId is treated as apId
         const post = await prisma.object.findFirst({
           where: { apId: postId, attributedTo: actor.ap_id },
         });
-
         if (!post) {
-          return c.json({ success: false, error: 'Post not found or not authorized' }, 404);
+          return c.json({ success: false, error: 'Post not found or not authorized' } as ToolResponse, 404);
         }
 
         await prisma.object.delete({ where: { apId: postId } });
 
-        // Update post count
         await prisma.actor.update({
           where: { apId: actor.ap_id },
           data: { postCount: { decrement: 1 } },
@@ -299,52 +320,41 @@ takosTools.post('/:name', async (c) => {
       }
 
       case 'yurucommu_like_post': {
-        if (!actor) {
-          return c.json({ success: false, error: 'Authentication required' }, 401);
-        }
+        if (!actor) return c.json(errAuth(), 401);
 
-        const postId = String(input.post_id || '').trim();
+        const postId = requireString(input, 'post_id');
         const like = Boolean(input.like);
 
         if (!postId) {
-          return c.json({ success: false, error: 'Post ID is required' }, 400);
+          return c.json(errRequired('Post ID'), 400);
         }
 
-        // postId is treated as apId
         const post = await prisma.object.findFirst({
           where: { apId: postId },
         });
-
         if (!post) {
-          return c.json({ success: false, error: 'Post not found' }, 404);
+          return c.json(errNotFound('Post'), 404);
         }
 
+        const compositeKey = {
+          actorApId_objectApId: {
+            actorApId: actor.ap_id,
+            objectApId: post.apId,
+          },
+        };
+
         if (like) {
-          // Add like (upsert using composite key)
           await prisma.like.upsert({
-            where: {
-              actorApId_objectApId: {
-                actorApId: actor.ap_id,
-                objectApId: post.apId,
-              },
-            },
-            create: {
-              actorApId: actor.ap_id,
-              objectApId: post.apId,
-            },
+            where: compositeKey,
+            create: { actorApId: actor.ap_id, objectApId: post.apId },
             update: {},
           });
         } else {
-          // Remove like
           await prisma.like.deleteMany({
-            where: {
-              actorApId: actor.ap_id,
-              objectApId: post.apId,
-            },
+            where: { actorApId: actor.ap_id, objectApId: post.apId },
           });
         }
 
-        // Update like count
         const likeCount = await prisma.like.count({
           where: { objectApId: post.apId },
         });
@@ -358,97 +368,86 @@ takosTools.post('/:name', async (c) => {
       }
 
       case 'yurucommu_bookmark_post': {
-        if (!actor) {
-          return c.json({ success: false, error: 'Authentication required' }, 401);
-        }
+        if (!actor) return c.json(errAuth(), 401);
 
-        const postId = String(input.post_id || '').trim();
+        const postId = requireString(input, 'post_id');
         const bookmark = Boolean(input.bookmark);
 
         if (!postId) {
-          return c.json({ success: false, error: 'Post ID is required' }, 400);
+          return c.json(errRequired('Post ID'), 400);
         }
 
-        // postId is treated as apId
         const post = await prisma.object.findFirst({
           where: { apId: postId },
         });
-
         if (!post) {
-          return c.json({ success: false, error: 'Post not found' }, 404);
+          return c.json(errNotFound('Post'), 404);
         }
+
+        const compositeKey = {
+          actorApId_objectApId: {
+            actorApId: actor.ap_id,
+            objectApId: post.apId,
+          },
+        };
 
         if (bookmark) {
           await prisma.bookmark.upsert({
-            where: {
-              actorApId_objectApId: {
-                actorApId: actor.ap_id,
-                objectApId: post.apId,
-              },
-            },
-            create: {
-              actorApId: actor.ap_id,
-              objectApId: post.apId,
-            },
+            where: compositeKey,
+            create: { actorApId: actor.ap_id, objectApId: post.apId },
             update: {},
           });
         } else {
           await prisma.bookmark.deleteMany({
-            where: {
-              actorApId: actor.ap_id,
-              objectApId: post.apId,
-            },
+            where: { actorApId: actor.ap_id, objectApId: post.apId },
           });
         }
 
         return c.json({ success: true, data: { bookmarked: bookmark } });
       }
 
-      // Follow tools
+      // ------ Follow tools ------
+
       case 'yurucommu_follow_user': {
-        if (!actor) {
-          return c.json({ success: false, error: 'Authentication required' }, 401);
-        }
+        if (!actor) return c.json(errAuth(), 401);
 
-        const username = String(input.username || '').trim();
-
+        const username = requireString(input, 'username');
         if (!username) {
-          return c.json({ success: false, error: 'Username is required' }, 400);
+          return c.json(errRequired('Username'), 400);
         }
 
         const target = await prisma.actor.findFirst({
           where: { preferredUsername: username },
         });
-
         if (!target) {
-          return c.json({ success: false, error: 'User not found' }, 404);
+          return c.json(errNotFound('User'), 404);
         }
 
         if (target.apId === actor.ap_id) {
-          return c.json({ success: false, error: 'Cannot follow yourself' }, 400);
+          return c.json({ success: false, error: 'Cannot follow yourself' } as ToolResponse, 400);
         }
 
-        // Check if already following
-        const existingFollow = await prisma.follow.findUnique({
-          where: {
-            followerApId_followingApId: {
-              followerApId: actor.ap_id,
-              followingApId: target.apId,
-            },
+        const followKey = {
+          followerApId_followingApId: {
+            followerApId: actor.ap_id,
+            followingApId: target.apId,
           },
-        });
+        };
+
+        const existingFollow = await prisma.follow.findUnique({ where: followKey });
 
         if (!existingFollow) {
+          const status = target.isPrivate ? 'pending' : 'accepted';
+
           await prisma.follow.create({
             data: {
               followerApId: actor.ap_id,
               followingApId: target.apId,
-              status: target.isPrivate ? 'pending' : 'accepted',
+              status,
             },
           });
 
-          // Update counts if auto-accepted
-          if (!target.isPrivate) {
+          if (status === 'accepted') {
             await prisma.actor.update({
               where: { apId: actor.ap_id },
               data: { followingCount: { increment: 1 } },
@@ -467,42 +466,31 @@ takosTools.post('/:name', async (c) => {
       }
 
       case 'yurucommu_unfollow_user': {
-        if (!actor) {
-          return c.json({ success: false, error: 'Authentication required' }, 401);
-        }
+        if (!actor) return c.json(errAuth(), 401);
 
-        const username = String(input.username || '').trim();
-
+        const username = requireString(input, 'username');
         if (!username) {
-          return c.json({ success: false, error: 'Username is required' }, 400);
+          return c.json(errRequired('Username'), 400);
         }
 
         const target = await prisma.actor.findFirst({
           where: { preferredUsername: username },
         });
-
         if (!target) {
-          return c.json({ success: false, error: 'User not found' }, 404);
+          return c.json(errNotFound('User'), 404);
         }
 
-        const follow = await prisma.follow.findUnique({
-          where: {
-            followerApId_followingApId: {
-              followerApId: actor.ap_id,
-              followingApId: target.apId,
-            },
+        const followKey = {
+          followerApId_followingApId: {
+            followerApId: actor.ap_id,
+            followingApId: target.apId,
           },
-        });
+        };
+
+        const follow = await prisma.follow.findUnique({ where: followKey });
 
         if (follow) {
-          await prisma.follow.delete({
-            where: {
-              followerApId_followingApId: {
-                followerApId: actor.ap_id,
-                followingApId: target.apId,
-              },
-            },
-          });
+          await prisma.follow.delete({ where: followKey });
 
           if (follow.status === 'accepted') {
             await prisma.actor.update({
@@ -520,123 +508,85 @@ takosTools.post('/:name', async (c) => {
       }
 
       case 'yurucommu_get_followers': {
-        const username = String(input.username || '').trim();
-        const limit = parseToolLimit(input.limit, 20, 50);
+        const username = requireString(input, 'username');
+        const limit = toolLimit(input.limit, 20, 50);
 
         if (!username) {
-          return c.json({ success: false, error: 'Username is required' }, 400);
+          return c.json(errRequired('Username'), 400);
         }
 
         const target = await prisma.actor.findFirst({
           where: { preferredUsername: username },
         });
-
         if (!target) {
-          return c.json({ success: false, error: 'User not found' }, 404);
+          return c.json(errNotFound('User'), 404);
         }
 
         const follows = await prisma.follow.findMany({
-          where: {
-            followingApId: target.apId,
-            status: 'accepted',
-          },
+          where: { followingApId: target.apId, status: 'accepted' },
           take: limit,
         });
 
-        const followerIds = follows.map(f => f.followerApId);
         const followers = await prisma.actor.findMany({
-          where: { apId: { in: followerIds } },
-          select: {
-            apId: true,
-            preferredUsername: true,
-            name: true,
-            iconUrl: true,
-          },
+          where: { apId: { in: follows.map(f => f.followerApId) } },
+          select: ACTOR_SUMMARY_SELECT,
         });
 
         return c.json({
           success: true,
-          data: {
-            followers: followers.map(f => ({
-              ap_id: f.apId,
-              username: formatUsername(f.apId),
-              preferred_username: f.preferredUsername,
-              name: f.name,
-              icon_url: f.iconUrl,
-            })),
-          },
+          data: { followers: followers.map(formatActorSummary) },
         });
       }
 
       case 'yurucommu_get_following': {
-        const username = String(input.username || '').trim();
-        const limit = parseToolLimit(input.limit, 20, 50);
+        const username = requireString(input, 'username');
+        const limit = toolLimit(input.limit, 20, 50);
 
         if (!username) {
-          return c.json({ success: false, error: 'Username is required' }, 400);
+          return c.json(errRequired('Username'), 400);
         }
 
         const target = await prisma.actor.findFirst({
           where: { preferredUsername: username },
         });
-
         if (!target) {
-          return c.json({ success: false, error: 'User not found' }, 404);
+          return c.json(errNotFound('User'), 404);
         }
 
         const follows = await prisma.follow.findMany({
-          where: {
-            followerApId: target.apId,
-            status: 'accepted',
-          },
+          where: { followerApId: target.apId, status: 'accepted' },
           take: limit,
         });
 
-        const followingIds = follows.map(f => f.followingApId);
         const following = await prisma.actor.findMany({
-          where: { apId: { in: followingIds } },
-          select: {
-            apId: true,
-            preferredUsername: true,
-            name: true,
-            iconUrl: true,
-          },
+          where: { apId: { in: follows.map(f => f.followingApId) } },
+          select: ACTOR_SUMMARY_SELECT,
         });
 
         return c.json({
           success: true,
-          data: {
-            following: following.map(f => ({
-              ap_id: f.apId,
-              username: formatUsername(f.apId),
-              preferred_username: f.preferredUsername,
-              name: f.name,
-              icon_url: f.iconUrl,
-            })),
-          },
+          data: { following: following.map(formatActorSummary) },
         });
       }
 
-      // DM tools
-      case 'yurucommu_send_dm': {
-        if (!actor) {
-          return c.json({ success: false, error: 'Authentication required' }, 401);
-        }
+      // ------ DM tools ------
 
-        const recipient = String(input.recipient || '').trim();
-        const content = String(input.content || '').trim();
+      case 'yurucommu_send_dm': {
+        if (!actor) return c.json(errAuth(), 401);
+
+        const recipient = requireString(input, 'recipient');
+        const content = requireString(input, 'content');
 
         if (!recipient || !content) {
-          return c.json({ success: false, error: 'Recipient and content are required' }, 400);
+          return c.json(errRequired('Recipient and content'), 400);
         }
 
         const target = await prisma.actor.findFirst({
           where: { preferredUsername: recipient },
           select: { apId: true },
         });
-
         if (!target) {
-          return c.json({ success: false, error: 'Recipient not found' }, 404);
+          return c.json(errNotFound('Recipient'), 404);
         }
 
         const baseUrl = c.env.APP_URL;
@@ -709,11 +659,9 @@ takosTools.post('/:name', async (c) => {
       }
 
       case 'yurucommu_get_dm_threads': {
-        if (!actor) {
-          return c.json({ success: false, error: 'Authentication required' }, 401);
-        }
+        if (!actor) return c.json(errAuth(), 401);
 
-        const limit = parseToolLimit(input.limit, 20, 50);
+        const limit = toolLimit(input.limit, 20, 50);
 
         const dms = await prisma.object.findMany({
           where: {
@@ -739,16 +687,14 @@ takosTools.post('/:name', async (c) => {
         const threads: Record<string, { partner: string; lastMessage: string; lastDate: string }> = {};
 
         for (const dm of dms) {
+          const toRecipients = safeJsonParse<string[]>(dm.toJson, []);
+
           let partner: string | null = null;
           if (dm.attributedTo === actor.ap_id) {
-            const toRecipients = safeJsonParse<string[]>(dm.toJson, []);
             partner = toRecipients[0] || null;
           } else {
             // Defense in depth: verify we're actually a recipient.
-            const toRecipients = safeJsonParse<string[]>(dm.toJson, []);
-            if (!toRecipients.includes(actor.ap_id)) {
-              continue;
-            }
+            if (!toRecipients.includes(actor.ap_id)) continue;
             partner = dm.attributedTo;
           }
 
@@ -761,24 +707,20 @@ takosTools.post('/:name', async (c) => {
           }
         }
 
-        const threadList = Object.values(threads).slice(0, limit);
-
         return c.json({
           success: true,
-          data: { threads: threadList },
+          data: { threads: Object.values(threads).slice(0, limit) },
         });
       }
 
       case 'yurucommu_get_dm_messages': {
-        if (!actor) {
-          return c.json({ success: false, error: 'Authentication required' }, 401);
-        }
+        if (!actor) return c.json(errAuth(), 401);
 
-        const threadId = String(input.thread_id || '').trim(); // partner ap_id
-        const limit = parseToolLimit(input.limit, 50, 100);
+        const threadId = requireString(input, 'thread_id');
+        const limit = toolLimit(input.limit, 50, 100);
 
         if (!threadId) {
-          return c.json({ success: false, error: 'Thread ID is required' }, 400);
+          return c.json(errRequired('Thread ID'), 400);
         }
 
         const baseUrl = c.env.APP_URL;
@@ -790,12 +732,8 @@ takosTools.post('/:name', async (c) => {
             type: 'Note',
             conversation: conversationId,
             OR: [
-              {
-                attributedTo: actor.ap_id,
-              },
-              {
-                recipients: { some: { recipientApId: actor.ap_id } },
-              },
+              { attributedTo: actor.ap_id },
+              { recipients: { some: { recipientApId: actor.ap_id } } },
             ],
           },
           orderBy: { published: 'desc' },
@@ -822,35 +760,25 @@ takosTools.post('/:name', async (c) => {
         });
       }
 
-      // Timeline tools
+      // ------ Timeline tools ------
+
       case 'yurucommu_get_timeline': {
-        const limit = parseToolLimit(input.limit, 20, 50);
+        const limit = toolLimit(input.limit, 20, 50);
         const before = input.before ? String(input.before) : null;
 
-        let whereClause: { visibility: string; published?: { lt: string } } = {
-          visibility: 'public',
-        };
-
-        if (before) {
-          whereClause.published = { lt: before };
-        }
-
         const posts = await prisma.object.findMany({
-          where: whereClause,
+          where: {
+            visibility: 'public',
+            ...(before ? { published: { lt: before } } : {}),
+          },
           orderBy: { published: 'desc' },
           take: limit,
         });
 
-        // Load author info
         const authorIds = [...new Set(posts.map(p => p.attributedTo))];
         const authors = await prisma.actor.findMany({
           where: { apId: { in: authorIds } },
-          select: {
-            apId: true,
-            preferredUsername: true,
-            name: true,
-            iconUrl: true,
-          },
+          select: ACTOR_SUMMARY_SELECT,
         });
 
         const authorMap = new Map(authors.map(a => [a.apId, a]));
@@ -865,13 +793,7 @@ takosTools.post('/:name', async (c) => {
                 content: p.content,
                 published: p.published,
                 like_count: p.likeCount,
-                author: author ? {
-                  ap_id: author.apId,
-                  username: formatUsername(author.apId),
-                  preferred_username: author.preferredUsername,
-                  name: author.name,
-                  icon_url: author.iconUrl,
-                } : null,
+                author: author ? formatActorSummary(author) : null,
               };
             }),
             next_cursor: posts.length > 0 ? posts[posts.length - 1].published : null,
@@ -880,14 +802,11 @@ takosTools.post('/:name', async (c) => {
       }
 
       case 'yurucommu_get_notifications': {
-        if (!actor) {
-          return c.json({ success: false, error: 'Authentication required' }, 401);
-        }
+        if (!actor) return c.json(errAuth(), 401);
 
-        const limit = parseToolLimit(input.limit, 20, 50);
+        const limit = toolLimit(input.limit, 20, 50);
         const unreadOnly = Boolean(input.unread_only);
 
-        // Notifications are derived from inbox entries
         const inboxEntries = await prisma.inbox.findMany({
           where: {
             actorApId: actor.ap_id,
@@ -897,9 +816,7 @@ takosTools.post('/:name', async (c) => {
               type: { in: ['Follow', 'Like', 'Announce', 'Create'] },
             },
           },
-          include: {
-            activity: true,
-          },
+          include: { activity: true },
           orderBy: { createdAt: 'desc' },
           take: limit,
         });

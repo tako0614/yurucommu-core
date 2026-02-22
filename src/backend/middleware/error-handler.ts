@@ -1,12 +1,6 @@
-/**
- * Hono Error Middleware for Yurucommu
- *
- * Provides consistent error handling for Hono-based applications.
- * Use this middleware to catch and format errors consistently.
- */
-
 import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
+
 import {
   AppError,
   AuthenticationError,
@@ -26,9 +20,6 @@ import {
   type ValidationErrorDetail,
 } from '../lib/errors';
 
-/**
- * Error middleware options
- */
 export interface ErrorMiddlewareOptions {
   /** Include stack traces in responses (only for development) */
   includeStack?: boolean;
@@ -36,6 +27,32 @@ export interface ErrorMiddlewareOptions {
   logger?: (error: unknown, context?: Record<string, unknown>) => void;
   /** Custom error transformer */
   transformError?: (error: unknown) => AppError;
+}
+
+function getCorrelationId(c: Context): string {
+  return c.req.header('x-request-id') ?? c.req.header('CF-Ray') ?? crypto.randomUUID();
+}
+
+/**
+ * Resolve the incoming error to an AppError, logging unknown errors.
+ */
+function resolveAppError(
+  err: Error,
+  c: Context,
+  correlationId: string,
+  logger: ErrorMiddlewareOptions['logger'],
+  transformError: ErrorMiddlewareOptions['transformError']
+): AppError {
+  if (transformError) return transformError(err);
+  if (isAppError(err)) return err;
+
+  logger?.(err, {
+    correlationId,
+    path: c.req.path,
+    method: c.req.method,
+    requestId: c.req.header('x-request-id'),
+  });
+  return new InternalError('An unexpected error occurred');
 }
 
 /**
@@ -47,40 +64,17 @@ export function createErrorMiddleware(
   const { includeStack = false, logger = logError, transformError } = options;
 
   return (err: Error, c: Context): Response => {
-    // MEDIUM FIX: Generate correlation ID for error tracking
-    const correlationId = c.req.header('x-request-id') ||
-      c.req.header('CF-Ray') ||
-      crypto.randomUUID();
+    const correlationId = getCorrelationId(c);
+    const appError = resolveAppError(err, c, correlationId, logger, transformError);
 
-    // Transform error if transformer provided
-    let appError: AppError;
-    if (transformError) {
-      appError = transformError(err);
-    } else if (isAppError(err)) {
-      appError = err;
-    } else {
-      // Log non-operational errors with full details and correlation ID
-      logger(err, {
-        correlationId,
-        path: c.req.path,
-        method: c.req.method,
-        requestId: c.req.header('x-request-id'),
-      });
-      appError = new InternalError('An unexpected error occurred');
-    }
-
-    // Build response
     const response = appError.toResponse();
+    const errorBody = response.error as Record<string, unknown>;
+    errorBody.correlation_id = correlationId;
 
-    // MEDIUM FIX: Add correlation ID to error response for debugging
-    (response.error as Record<string, unknown>).correlation_id = correlationId;
-
-    // Add stack trace in development mode
     if (includeStack && appError.stack) {
-      (response.error as Record<string, unknown>).stack = appError.stack;
+      errorBody.stack = appError.stack;
     }
 
-    // Set special headers for rate limiting
     if (appError instanceof RateLimitError && appError.retryAfter) {
       c.header('Retry-After', String(appError.retryAfter));
     }
@@ -89,22 +83,13 @@ export function createErrorMiddleware(
   };
 }
 
-/**
- * Not found handler for Hono
- */
 export function notFoundHandler(c: Context): Response {
   const error = new NotFoundError('Route');
   return c.json(error.toResponse(), 404);
 }
 
-// ============================================================================
-// Helper functions for route handlers
-// These provide a convenient API for returning errors from route handlers
-// ============================================================================
+// --- Route handler helpers ---
 
-/**
- * Create standardized error response
- */
 export function errorResponse(
   c: Context,
   status: number,
@@ -122,9 +107,6 @@ export function errorResponse(
   return c.json(body, status as ContentfulStatusCode);
 }
 
-/**
- * 400 Bad Request
- */
 export function badRequest(
   c: Context,
   message: string,
@@ -133,9 +115,6 @@ export function badRequest(
   return errorResponse(c, 400, message, ErrorCodes.BAD_REQUEST, details);
 }
 
-/**
- * 401 Unauthorized
- */
 export function unauthorized(
   c: Context,
   message = 'Authentication required'
@@ -143,23 +122,14 @@ export function unauthorized(
   return errorResponse(c, 401, message, ErrorCodes.UNAUTHORIZED);
 }
 
-/**
- * 403 Forbidden
- */
 export function forbidden(c: Context, message = 'Access denied'): Response {
   return errorResponse(c, 403, message, ErrorCodes.FORBIDDEN);
 }
 
-/**
- * 404 Not Found
- */
 export function notFound(c: Context, resource = 'Resource'): Response {
   return errorResponse(c, 404, `${resource} not found`, ErrorCodes.NOT_FOUND);
 }
 
-/**
- * 409 Conflict
- */
 export function conflict(
   c: Context,
   message: string,
@@ -168,9 +138,6 @@ export function conflict(
   return errorResponse(c, 409, message, ErrorCodes.CONFLICT, details);
 }
 
-/**
- * 422 Validation Error
- */
 export function validationError(
   c: Context,
   message: string,
@@ -179,9 +146,6 @@ export function validationError(
   return errorResponse(c, 422, message, ErrorCodes.VALIDATION_ERROR, details);
 }
 
-/**
- * 422 Validation Error with field details
- */
 export function validationErrorWithFields(
   c: Context,
   message: string,
@@ -190,9 +154,6 @@ export function validationErrorWithFields(
   return errorResponse(c, 422, message, ErrorCodes.VALIDATION_ERROR, { fields });
 }
 
-/**
- * 500 Internal Server Error
- */
 export function internalError(
   c: Context,
   message = 'Internal server error'
@@ -200,9 +161,6 @@ export function internalError(
   return errorResponse(c, 500, message, ErrorCodes.INTERNAL_ERROR);
 }
 
-/**
- * 503 Service Unavailable
- */
 export function serviceUnavailable(
   c: Context,
   message = 'Service temporarily unavailable'
@@ -210,9 +168,6 @@ export function serviceUnavailable(
   return errorResponse(c, 503, message, ErrorCodes.SERVICE_UNAVAILABLE);
 }
 
-/**
- * 429 Rate Limited
- */
 export function rateLimited(c: Context, retryAfter?: number): Response {
   if (retryAfter) {
     c.header('Retry-After', String(retryAfter));
@@ -220,9 +175,6 @@ export function rateLimited(c: Context, retryAfter?: number): Response {
   return errorResponse(c, 429, 'Rate limit exceeded', ErrorCodes.RATE_LIMITED);
 }
 
-/**
- * Handle database constraint errors
- */
 export function handleDbError(
   c: Context,
   err: unknown,
@@ -244,10 +196,8 @@ export function handleDbError(
   return internalError(c, 'Database operation failed');
 }
 
-/**
- * Throw an AppError - useful for async route handlers
- * The error will be caught by the error middleware
- */
+// --- Throw helpers for async route handlers (caught by error middleware) ---
+
 export function throwBadRequest(message: string, details?: unknown): never {
   throw new BadRequestError(message, details);
 }

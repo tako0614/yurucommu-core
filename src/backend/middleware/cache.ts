@@ -15,7 +15,6 @@
 import type { Context, MiddlewareHandler, Next } from 'hono';
 import type { Env, Variables } from '../types';
 
-// Cloudflare Workers Cache API extension
 declare global {
   interface CacheStorage {
     default: Cache;
@@ -25,6 +24,9 @@ declare global {
 // ============================================================================
 // Types
 // ============================================================================
+
+type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
+type HonoMiddleware = MiddlewareHandler<{ Bindings: Env; Variables: Variables }>;
 
 export interface CacheConfig {
   /** Time-to-live in seconds */
@@ -40,10 +42,9 @@ export interface CacheConfig {
   /** Whether to vary cache by authenticated actor */
   varyByActor?: boolean;
   /** Custom cache key generator */
-  cacheKeyGenerator?: (c: Context<{ Bindings: Env; Variables: Variables }>) => string;
+  cacheKeyGenerator?: (c: HonoContext) => string;
 }
 
-// Predefined TTL configurations
 export const CacheTTL = {
   /** Public timeline (2 minutes) - frequently updated */
   PUBLIC_TIMELINE: 120,
@@ -61,7 +62,6 @@ export const CacheTTL = {
   SEARCH: 60,
 } as const;
 
-// Cache tags for grouping
 export const CacheTags = {
   TIMELINE: 'timeline',
   ACTOR: 'actor',
@@ -96,7 +96,6 @@ class LRUCache {
     const entry = this.cache.get(key);
     if (!entry) return undefined;
 
-    // Check if expired
     if (Date.now() > entry.expiresAt) {
       this.cache.delete(key);
       return undefined;
@@ -110,7 +109,6 @@ class LRUCache {
   }
 
   set(key: string, entry: CacheEntry): void {
-    // Remove oldest entries if at capacity
     while (this.cache.size >= this.maxSize) {
       const firstKey = this.cache.keys().next().value;
       if (firstKey) {
@@ -127,8 +125,7 @@ class LRUCache {
 
   deleteByTag(tag: string): number {
     let deleted = 0;
-    const entries = Array.from(this.cache.entries());
-    for (const [key, entry] of entries) {
+    for (const [key, entry] of this.cache) {
       if (entry.tag === tag) {
         this.cache.delete(key);
         deleted++;
@@ -141,11 +138,9 @@ class LRUCache {
     this.cache.clear();
   }
 
-  // Cleanup expired entries
   cleanup(): void {
     const now = Date.now();
-    const entries = Array.from(this.cache.entries());
-    for (const [key, entry] of entries) {
+    for (const [key, entry] of this.cache) {
       if (now > entry.expiresAt) {
         this.cache.delete(key);
       }
@@ -153,10 +148,8 @@ class LRUCache {
   }
 }
 
-// Singleton cache instance for in-memory caching
 const memoryCache = new LRUCache(1000);
 
-// Periodic cleanup (every 5 minutes)
 const CLEANUP_INTERVAL = 5 * 60 * 1000;
 let lastCleanup = Date.now();
 
@@ -169,14 +162,10 @@ function maybeCleanup(): void {
 }
 
 // ============================================================================
-// Cache Key Generation
+// Shared Helpers
 // ============================================================================
 
-function generateCacheKey(
-  c: Context<{ Bindings: Env; Variables: Variables }>,
-  config: CacheConfig
-): string {
-  // Use custom generator if provided
+function generateCacheKey(c: HonoContext, config: CacheConfig): string {
   if (config.cacheKeyGenerator) {
     return config.cacheKeyGenerator(c);
   }
@@ -184,7 +173,6 @@ function generateCacheKey(
   const url = new URL(c.req.url);
   let cacheKey = url.pathname;
 
-  // Include query params if configured
   if (config.includeQueryParams !== false) {
     const params = new URLSearchParams();
 
@@ -208,34 +196,76 @@ function generateCacheKey(
     }
   }
 
-  // Vary by actor if configured
   if (config.varyByActor) {
     const actor = c.get('actor');
-    if (actor) {
-      cacheKey += `#actor:${actor.ap_id}`;
-    } else {
-      cacheKey += '#actor:anonymous';
-    }
+    cacheKey += actor ? `#actor:${actor.ap_id}` : '#actor:anonymous';
   }
 
   return cacheKey;
 }
 
 async function generateETag(body: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(body);
+  const data = new TextEncoder().encode(body);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   return `"${hashHex.substring(0, 16)}"`;
 }
 
-// ============================================================================
-// Runtime Detection
-// ============================================================================
+function buildCacheControl(config: CacheConfig): string {
+  let value = `public, max-age=${config.ttl}`;
+  if (config.staleWhileRevalidate) {
+    value += `, stale-while-revalidate=${config.staleWhileRevalidate}`;
+  }
+  return value;
+}
+
+/**
+ * Check If-None-Match and If-Modified-Since conditional request headers.
+ * Returns true if the client's cached copy is still fresh (caller should respond 304).
+ */
+function isConditionalHit(
+  c: HonoContext,
+  etag: string | null,
+  lastModified: string | null,
+): boolean {
+  const ifNoneMatch = c.req.header('If-None-Match');
+  if (ifNoneMatch && etag && ifNoneMatch === etag) {
+    return true;
+  }
+
+  const ifModifiedSince = c.req.header('If-Modified-Since');
+  if (ifModifiedSince && lastModified) {
+    if (new Date(ifModifiedSince) >= new Date(lastModified)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Apply standard cache headers to a Headers object.
+ * Mutates `headers` in place and returns it for chaining convenience.
+ */
+function applyCacheHeaders(
+  headers: Headers,
+  config: CacheConfig,
+  etag: string,
+  lastModified: string,
+  cacheStatus: 'HIT' | 'MISS',
+): Headers {
+  headers.set('Cache-Control', buildCacheControl(config));
+  headers.set('ETag', etag);
+  headers.set('Last-Modified', lastModified);
+  headers.set('X-Cache', cacheStatus);
+  if (config.cacheTag) {
+    headers.set('Cache-Tag', config.cacheTag);
+  }
+  return headers;
+}
 
 function isCloudflareWorkers(): boolean {
-  // Check for caches.default which is Cloudflare-specific
   return typeof caches !== 'undefined' && 'default' in caches;
 }
 
@@ -256,70 +286,47 @@ function isCloudflareWorkers(): boolean {
  *   cacheTag: CacheTags.ACTOR,
  * }), handler);
  */
-export function withCache(
-  config: CacheConfig
-): MiddlewareHandler<{ Bindings: Env; Variables: Variables }> {
+export function withCache(config: CacheConfig): HonoMiddleware {
   return async (c, next) => {
-    // Only cache GET requests
     if (c.req.method !== 'GET') {
       await next();
       return;
     }
 
-    // Skip caching for authenticated requests if not varying by actor
-    if (!config.varyByActor) {
-      const actor = c.get('actor');
-      if (actor) {
-        await next();
-        return;
-      }
+    if (!config.varyByActor && c.get('actor')) {
+      await next();
+      return;
     }
 
     const cacheKey = generateCacheKey(c, config);
 
     if (isCloudflareWorkers()) {
       return handleCloudflareCache(c, next, cacheKey, config);
-    } else {
-      return handleMemoryCache(c, next, cacheKey, config);
     }
+    return handleMemoryCache(c, next, cacheKey, config);
   };
 }
 
-/**
- * Handle caching using Cloudflare Cache API
- */
 async function handleCloudflareCache(
-  c: Context<{ Bindings: Env; Variables: Variables }>,
+  c: HonoContext,
   next: Next,
   cacheKey: string,
-  config: CacheConfig
+  config: CacheConfig,
 ): Promise<Response | void> {
   const cache = caches.default;
   const url = new URL(c.req.url);
   const fullCacheKey = new Request(`${url.origin}/_cache${cacheKey}`);
 
-  // Try to get from cache
   const cachedResponse = await cache.match(fullCacheKey);
 
   if (cachedResponse) {
-    // Handle conditional requests
-    const ifNoneMatch = c.req.header('If-None-Match');
     const etag = cachedResponse.headers.get('ETag');
-    if (ifNoneMatch && etag && ifNoneMatch === etag) {
+    const lastModified = cachedResponse.headers.get('Last-Modified');
+
+    if (isConditionalHit(c, etag, lastModified)) {
       return c.body(null, 304);
     }
 
-    const ifModifiedSince = c.req.header('If-Modified-Since');
-    const lastModified = cachedResponse.headers.get('Last-Modified');
-    if (ifModifiedSince && lastModified) {
-      const ifModifiedDate = new Date(ifModifiedSince);
-      const lastModifiedDate = new Date(lastModified);
-      if (ifModifiedDate >= lastModifiedDate) {
-        return c.body(null, 304);
-      }
-    }
-
-    // Return cached response with X-Cache header
     const headers = new Headers(cachedResponse.headers);
     headers.set('X-Cache', 'HIT');
     return new Response(cachedResponse.body, {
@@ -328,39 +335,24 @@ async function handleCloudflareCache(
     });
   }
 
-  // Execute handler
   await next();
 
-  // Only cache successful responses
   if (c.res.status !== 200) {
     return;
   }
 
-  // Prepare cached response
   const responseBody = await c.res.text();
   const etag = await generateETag(responseBody);
-  const now = new Date();
-
-  let cacheControl = `public, max-age=${config.ttl}`;
-  if (config.staleWhileRevalidate) {
-    cacheControl += `, stale-while-revalidate=${config.staleWhileRevalidate}`;
-  }
+  const lastModified = new Date().toUTCString();
 
   const headers = new Headers(c.res.headers);
-  headers.set('Cache-Control', cacheControl);
-  headers.set('ETag', etag);
-  headers.set('Last-Modified', now.toUTCString());
-  headers.set('X-Cache', 'MISS');
-  if (config.cacheTag) {
-    headers.set('Cache-Tag', config.cacheTag);
-  }
+  applyCacheHeaders(headers, config, etag, lastModified, 'MISS');
 
   const responseToCache = new Response(responseBody, {
     status: 200,
     headers,
   });
 
-  // Store in cache with error handling
   const ctx = c.executionCtx;
   if (ctx && typeof ctx.waitUntil === 'function') {
     ctx.waitUntil(
@@ -373,37 +365,21 @@ async function handleCloudflareCache(
   c.res = responseToCache;
 }
 
-/**
- * Handle caching using in-memory LRU cache
- */
 async function handleMemoryCache(
-  c: Context<{ Bindings: Env; Variables: Variables }>,
+  c: HonoContext,
   next: Next,
   cacheKey: string,
-  config: CacheConfig
+  config: CacheConfig,
 ): Promise<Response | void> {
   maybeCleanup();
 
-  // Try to get from cache
   const cached = memoryCache.get(cacheKey);
 
   if (cached) {
-    // Handle conditional requests
-    const ifNoneMatch = c.req.header('If-None-Match');
-    if (ifNoneMatch && ifNoneMatch === cached.etag) {
+    if (isConditionalHit(c, cached.etag, cached.lastModified)) {
       return c.body(null, 304);
     }
 
-    const ifModifiedSince = c.req.header('If-Modified-Since');
-    if (ifModifiedSince) {
-      const ifModifiedDate = new Date(ifModifiedSince);
-      const lastModifiedDate = new Date(cached.lastModified);
-      if (ifModifiedDate >= lastModifiedDate) {
-        return c.body(null, 304);
-      }
-    }
-
-    // Return cached response
     const headers = new Headers(cached.headers);
     headers.set('X-Cache', 'HIT');
     return new Response(cached.body, {
@@ -412,34 +388,19 @@ async function handleMemoryCache(
     });
   }
 
-  // Execute handler
   await next();
 
-  // Only cache successful responses
   if (c.res.status !== 200) {
     return;
   }
 
-  // Prepare cached entry
   const responseBody = await c.res.text();
   const etag = await generateETag(responseBody);
-  const now = new Date();
-
-  let cacheControl = `public, max-age=${config.ttl}`;
-  if (config.staleWhileRevalidate) {
-    cacheControl += `, stale-while-revalidate=${config.staleWhileRevalidate}`;
-  }
+  const lastModified = new Date().toUTCString();
 
   const headers = new Headers(c.res.headers);
-  headers.set('Cache-Control', cacheControl);
-  headers.set('ETag', etag);
-  headers.set('Last-Modified', now.toUTCString());
-  headers.set('X-Cache', 'MISS');
-  if (config.cacheTag) {
-    headers.set('Cache-Tag', config.cacheTag);
-  }
+  applyCacheHeaders(headers, config, etag, lastModified, 'MISS');
 
-  // Store in memory cache
   const headersObj: Record<string, string> = {};
   headers.forEach((value, key) => {
     headersObj[key] = value;
@@ -451,7 +412,7 @@ async function handleMemoryCache(
     status: 200,
     expiresAt: Date.now() + config.ttl * 1000,
     etag,
-    lastModified: now.toUTCString(),
+    lastModified,
     tag: config.cacheTag,
   });
 
@@ -472,15 +433,12 @@ export async function invalidateCache(patterns: string[]): Promise<void> {
   if (isCloudflareWorkers()) {
     const cache = caches.default;
     await Promise.all(
-      patterns.map(pattern => {
-        // For Cloudflare, we need the full URL
-        // This requires knowing the origin, which we may not have here
-        // In practice, call this from middleware where you have access to c.req.url
-        return cache.delete(new Request(pattern));
-      })
+      patterns.map(pattern =>
+        // Requires the full URL; in practice, call from middleware with access to c.req.url
+        cache.delete(new Request(pattern))
+      )
     );
   } else {
-    // For memory cache, delete by exact key
     for (const pattern of patterns) {
       memoryCache.delete(pattern);
     }
@@ -488,14 +446,14 @@ export async function invalidateCache(patterns: string[]): Promise<void> {
 }
 
 /**
- * Invalidate all cache entries with a specific tag
+ * Invalidate all cache entries with a specific tag.
+ * Tag-based purging is only supported for the in-memory cache;
+ * Cloudflare Cache API would need the Cloudflare REST API for this.
  */
 export function invalidateCacheByTag(tag: string): number {
   if (!isCloudflareWorkers()) {
     return memoryCache.deleteByTag(tag);
   }
-  // Cloudflare Cache API doesn't support tag-based purging in Workers
-  // Would need to use Cloudflare API for that
   return 0;
 }
 
@@ -505,13 +463,10 @@ export function invalidateCacheByTag(tag: string): number {
  * @example
  * posts.post('/', invalidateCacheOnMutation([CacheTags.TIMELINE, CacheTags.ACTOR]), handler);
  */
-export function invalidateCacheOnMutation(
-  tags: string[]
-): MiddlewareHandler<{ Bindings: Env; Variables: Variables }> {
+export function invalidateCacheOnMutation(tags: string[]): HonoMiddleware {
   return async (c, next) => {
     await next();
 
-    // Only invalidate on successful mutations
     if (c.res.status >= 200 && c.res.status < 300) {
       for (const tag of tags) {
         invalidateCacheByTag(tag);
@@ -525,12 +480,10 @@ export function invalidateCacheOnMutation(
 // ============================================================================
 
 /**
- * Add cache headers without storing in cache
- * Useful for CDN or browser caching
+ * Add cache headers without storing in cache.
+ * Useful for CDN or browser caching.
  */
-export function withCacheHeaders(
-  config: CacheConfig
-): MiddlewareHandler<{ Bindings: Env; Variables: Variables }> {
+export function withCacheHeaders(config: CacheConfig): HonoMiddleware {
   return async (c, next) => {
     await next();
 
@@ -538,18 +491,14 @@ export function withCacheHeaders(
       return;
     }
 
-    let cacheControl = `public, max-age=${config.ttl}`;
-    if (config.staleWhileRevalidate) {
-      cacheControl += `, stale-while-revalidate=${config.staleWhileRevalidate}`;
-    }
-
     const body = await c.res.text();
     const etag = await generateETag(body);
+    const lastModified = new Date().toUTCString();
 
     const headers = new Headers(c.res.headers);
-    headers.set('Cache-Control', cacheControl);
+    headers.set('Cache-Control', buildCacheControl(config));
     headers.set('ETag', etag);
-    headers.set('Last-Modified', new Date().toUTCString());
+    headers.set('Last-Modified', lastModified);
 
     c.res = new Response(body, {
       status: c.res.status,
@@ -561,7 +510,7 @@ export function withCacheHeaders(
 /**
  * No-cache middleware
  */
-export const noCache: MiddlewareHandler<{ Bindings: Env; Variables: Variables }> = async (c, next) => {
+export const noCache: HonoMiddleware = async (c, next) => {
   await next();
 
   const headers = new Headers(c.res.headers);

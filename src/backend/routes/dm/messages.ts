@@ -17,95 +17,151 @@ type Attachment = {
   [key: string]: unknown;
 };
 
-dm.get('/user/:encodedApId/messages', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const prisma = c.get('prisma');
-  const actorApIdJson = JSON.stringify(actor.ap_id);
+// --- Shared helpers (file-local) ---
 
-  const otherApId = decodeURIComponent(c.req.param('encodedApId'));
-  const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
-  const before = c.req.query('before');
-  const baseUrl = c.env.APP_URL;
+const ACTOR_INFO_SELECT = {
+  apId: true,
+  preferredUsername: true,
+  name: true,
+  iconUrl: true,
+} as const;
 
-  const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
+type ActorInfo = { apId: string; preferredUsername: string | null; name: string | null; iconUrl: string | null };
 
-  // Build where clause with database-level authorization
-  // Only return messages where the current actor is sender OR the toJson contains actor's ap_id
-  const whereClause: {
-    visibility: string;
-    type: string;
-    conversation: string;
-    published?: { lt: string };
-    OR: Array<{ attributedTo: string } | { toJson: { contains: string } }>;
-  } = {
+/** Validate trimmed DM content; returns the trimmed string or an error response. */
+function validateContent(raw: string | undefined): string | { error: string; status: 400 } {
+  const content = raw?.trim();
+  if (!content) return { error: 'Message content is required', status: 400 };
+  if (content.length > MAX_DM_CONTENT_LENGTH) {
+    return { error: `Message too long (max ${MAX_DM_CONTENT_LENGTH} chars)`, status: 400 };
+  }
+  return content;
+}
+
+/** Fetch direct messages the actor is authorized to see, filtered by conversation. */
+async function fetchAuthorizedMessages(
+  prisma: any,
+  actorApId: string,
+  conversationId: string,
+  limit: number,
+  before: string | undefined,
+): Promise<Array<any>> {
+  const actorApIdJson = JSON.stringify(actorApId);
+
+  const whereClause: Record<string, unknown> = {
     visibility: 'direct',
     type: 'Note',
     conversation: conversationId,
-    // Database-level authorization: only messages where actor is sender or recipient
     OR: [
-      { attributedTo: actor.ap_id },
-      { toJson: { contains: actorApIdJson } }
-    ]
+      { attributedTo: actorApId },
+      { toJson: { contains: actorApIdJson } },
+    ],
   };
 
   if (before) {
     whereClause.published = { lt: before };
   }
 
-  // Query messages with authorization in the where clause
   const messages = await prisma.object.findMany({
     where: whereClause,
     orderBy: { published: 'desc' },
-    take: limit
+    take: limit,
   });
 
-  // Additional code-level validation for security in depth
-  const filteredMessages = messages.filter((msg) => {
-    if (msg.attributedTo === actor.ap_id) return true;
+  // Defence-in-depth: re-validate authorization at the code level
+  return messages.filter((msg: any) => {
+    if (msg.attributedTo === actorApId) return true;
     const toRecipients = safeJsonParse<string[]>(msg.toJson, []);
-    return toRecipients.includes(actor.ap_id);
+    return toRecipients.includes(actorApId);
   });
+}
 
-  // Get author info for all messages
-  const authorApIds = Array.from(new Set(filteredMessages.map(m => m.attributedTo)));
-
-  // Get local actors
-  const localActors = await prisma.actor.findMany({
+/** Build a map from ap_id -> actor info, checking local actors then cached actors. */
+async function resolveAuthorInfoMap(
+  prisma: any,
+  authorApIds: string[],
+): Promise<Map<string, ActorInfo>> {
+  const localActors: ActorInfo[] = await prisma.actor.findMany({
     where: { apId: { in: authorApIds } },
-    select: { apId: true, preferredUsername: true, name: true, iconUrl: true }
+    select: ACTOR_INFO_SELECT,
   });
-  const localActorMap = new Map(localActors.map(a => [a.apId, a]));
+  const localMap = new Map(localActors.map((a) => [a.apId, a]));
 
-  // Get cached actors for remote users
-  const remoteApIds = authorApIds.filter(id => !localActorMap.has(id));
-  const cachedActors = remoteApIds.length > 0
-    ? await prisma.actorCache.findMany({
-        where: { apId: { in: remoteApIds } },
-        select: { apId: true, preferredUsername: true, name: true, iconUrl: true }
-      })
-    : [];
-  const cachedActorMap = new Map(cachedActors.map(a => [a.apId, a]));
+  const remoteApIds = authorApIds.filter((id) => !localMap.has(id));
+  if (remoteApIds.length > 0) {
+    const cached: ActorInfo[] = await prisma.actorCache.findMany({
+      where: { apId: { in: remoteApIds } },
+      select: ACTOR_INFO_SELECT,
+    });
+    for (const a of cached) {
+      localMap.set(a.apId, a);
+    }
+  }
 
-  const result = filteredMessages.reverse().map((msg) => {
-    const localActor = localActorMap.get(msg.attributedTo);
-    const cachedActor = cachedActorMap.get(msg.attributedTo);
-    const authorInfo = localActor || cachedActor;
+  return localMap;
+}
 
+/** Map raw DB message rows to the API response shape (chronological order). */
+function formatMessages(
+  messages: any[],
+  authorMap: Map<string, ActorInfo>,
+): Array<{
+  id: string;
+  sender: { ap_id: string; username: string; preferred_username: string | null; name: string | null; icon_url: string | null };
+  content: string | null;
+  attachments?: Attachment[];
+  created_at: string | null;
+}> {
+  return messages.reverse().map((msg) => {
+    const info = authorMap.get(msg.attributedTo);
     return {
       id: msg.apId,
       sender: {
         ap_id: msg.attributedTo,
         username: formatUsername(msg.attributedTo),
-        preferred_username: authorInfo?.preferredUsername || null,
-        name: authorInfo?.name || null,
-        icon_url: authorInfo?.iconUrl || null,
+        preferred_username: info?.preferredUsername || null,
+        name: info?.name || null,
+        icon_url: info?.iconUrl || null,
       },
       content: msg.content,
       attachments: safeJsonParse<Attachment[]>(msg.attachmentsJson, []),
       created_at: msg.published,
     };
   });
+}
+
+/** Look up a direct-message Note that the actor owns (for edit/delete). */
+async function findOwnedDmMessage(
+  prisma: any,
+  messageId: string,
+  actorApId: string,
+): Promise<{ apId: string; attributedTo: string; conversation: string | null } | { error: string; status: 403 | 404 }> {
+  const message = await prisma.object.findFirst({
+    where: { apId: messageId, visibility: 'direct', type: 'Note' },
+    select: { apId: true, attributedTo: true, conversation: true },
+  });
+  if (!message) return { error: 'Message not found', status: 404 };
+  if (message.attributedTo !== actorApId) return { error: 'Forbidden', status: 403 };
+  return message;
+}
+
+// --- Route handlers ---
+
+dm.get('/user/:encodedApId/messages', async (c) => {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
+  const prisma = c.get('prisma');
+  const otherApId = decodeURIComponent(c.req.param('encodedApId'));
+  const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
+  const before = c.req.query('before');
+  const baseUrl = c.env.APP_URL;
+  const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
+
+  const filteredMessages = await fetchAuthorizedMessages(prisma, actor.ap_id, conversationId, limit, before);
+  const authorApIds = [...new Set(filteredMessages.map((m: any) => m.attributedTo))];
+  const authorMap = await resolveAuthorInfoMap(prisma, authorApIds);
+  const result = formatMessages(filteredMessages, authorMap);
 
   return c.json({ messages: result, conversation_id: conversationId });
 });
@@ -114,45 +170,38 @@ dm.get('/user/:encodedApId/messages', async (c) => {
 dm.post('/user/:encodedApId/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const prisma = c.get('prisma');
 
+  const prisma = c.get('prisma');
   const otherApId = decodeURIComponent(c.req.param('encodedApId'));
   const body = await c.req.json<{ content: string }>();
   const baseUrl = c.env.APP_URL;
 
-  const content = body.content?.trim();
-  if (!content) {
-    return c.json({ error: 'Message content is required' }, 400);
+  const contentOrError = validateContent(body.content);
+  if (typeof contentOrError !== 'string') {
+    return c.json({ error: contentOrError.error }, contentOrError.status);
   }
-  if (content.length > MAX_DM_CONTENT_LENGTH) {
-    return c.json({ error: `Message too long (max ${MAX_DM_CONTENT_LENGTH} chars)` }, 400);
-  }
+  const content = contentOrError;
 
   // Verify other user exists (check both local actors and cached remote actors)
   const localActor = await prisma.actor.findUnique({
     where: { apId: otherApId },
-    select: { apId: true, inbox: true }
+    select: { apId: true, inbox: true },
   });
-
   const cachedActor = !localActor
     ? await prisma.actorCache.findUnique({
         where: { apId: otherApId },
-        select: { apId: true, inbox: true }
+        select: { apId: true, inbox: true },
       })
     : null;
 
   const otherActor = localActor || cachedActor;
-
-  if (!otherActor) {
-    return c.json({ error: 'User not found' }, 404);
-  }
+  if (!otherActor) return c.json({ error: 'User not found' }, 404);
 
   const messageId = generateId();
   const apId = objectApId(baseUrl, messageId);
   const now = new Date().toISOString();
   const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
 
-  // Create Note object with direct visibility
   const toJson = JSON.stringify([otherApId]);
   const ccJson = JSON.stringify([]);
 
@@ -179,42 +228,29 @@ dm.post('/user/:encodedApId/messages', async (c) => {
     : null;
 
   try {
-    // Use transaction to ensure atomicity of message creation and related records
-    await prisma.$transaction(async (tx) => {
-      // Create the message object
+    await prisma.$transaction(async (tx: any) => {
       await tx.object.create({
         data: {
-          apId: apId,
+          apId,
           type: 'Note',
           attributedTo: actor.ap_id,
-          content: content,
+          content,
           visibility: 'direct',
-          toJson: toJson,
-          ccJson: ccJson,
+          toJson,
+          ccJson,
           conversation: conversationId,
           published: now,
-          isLocal: 1
-        }
+          isLocal: 1,
+        },
       });
 
-      // Track recipient for efficient querying (if local)
       if (isRecipientLocal) {
         await tx.objectRecipient.upsert({
-          where: {
-            objectApId_recipientApId: {
-              objectApId: apId,
-              recipientApId: otherApId
-            }
-          },
-          create: {
-            objectApId: apId,
-            recipientApId: otherApId,
-            type: 'to'
-          },
-          update: {} // No update needed, just ensure it exists
+          where: { objectApId_recipientApId: { objectApId: apId, recipientApId: otherApId } },
+          create: { objectApId: apId, recipientApId: otherApId, type: 'to' },
+          update: {},
         });
 
-        // Record activity and inbox for the recipient
         await tx.activity.create({
           data: {
             apId: localActivityId!,
@@ -222,18 +258,14 @@ dm.post('/user/:encodedApId/messages', async (c) => {
             actorApId: actor.ap_id,
             objectApId: apId,
             rawJson: JSON.stringify({ type: 'Create', actor: actor.ap_id, object: apId }),
-            direction: 'inbound'
-          }
+            direction: 'inbound',
+          },
         });
 
         await tx.inbox.create({
-          data: {
-            actorApId: otherApId,
-            activityApId: localActivityId!
-          }
+          data: { actorApId: otherApId, activityApId: localActivityId! },
         });
       } else if (remoteActivityId && remoteCreateActivity) {
-        // Persist outbound activity; delivery happens asynchronously via queue.
         await tx.activity.create({
           data: {
             apId: remoteActivityId,
@@ -251,7 +283,6 @@ dm.post('/user/:encodedApId/messages', async (c) => {
     return c.json({ error: 'Failed to send message' }, 500);
   }
 
-  // Remote delivery must be async (no remote POST in request path).
   if (!isLocal(otherApId, baseUrl) && remoteActivityId) {
     await enqueueDeliveryToActor(c.env, remoteActivityId, otherApId);
   }
@@ -277,55 +308,31 @@ dm.post('/user/:encodedApId/messages', async (c) => {
 dm.patch('/messages/:messageId', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const prisma = c.get('prisma');
 
-  const messageId = c.req.param('messageId');
+  const prisma = c.get('prisma');
   const body = await c.req.json<{ content: string }>();
 
-  const content = body.content?.trim();
-  if (!content) {
-    return c.json({ error: 'Content is required' }, 400);
+  const contentOrError = validateContent(body.content);
+  if (typeof contentOrError !== 'string') {
+    return c.json({ error: contentOrError.error }, contentOrError.status);
   }
-  if (content.length > MAX_DM_CONTENT_LENGTH) {
-    return c.json({ error: `Message too long (max ${MAX_DM_CONTENT_LENGTH} chars)` }, 400);
-  }
+  const content = contentOrError;
 
-  // Get the message
-  const message = await prisma.object.findFirst({
-    where: {
-      apId: messageId,
-      visibility: 'direct',
-      type: 'Note'
-    },
-    select: { apId: true, attributedTo: true, conversation: true }
-  });
-
-  if (!message) {
-    return c.json({ error: 'Message not found' }, 404);
+  const messageOrError = await findOwnedDmMessage(prisma, c.req.param('messageId'), actor.ap_id);
+  if ('error' in messageOrError) {
+    return c.json({ error: messageOrError.error }, messageOrError.status);
   }
-
-  // Only sender can edit
-  if (message.attributedTo !== actor.ap_id) {
-    return c.json({ error: 'Forbidden' }, 403);
-  }
+  const message = messageOrError;
 
   const now = new Date().toISOString();
-
   await prisma.object.update({
     where: { apId: message.apId },
-    data: {
-      content: content,
-      updated: now
-    }
+    data: { content, updated: now },
   });
 
   return c.json({
     success: true,
-    message: {
-      id: message.apId,
-      content,
-      updated_at: now,
-    },
+    message: { id: message.apId, content, updated_at: now },
   });
 });
 
@@ -333,40 +340,18 @@ dm.patch('/messages/:messageId', async (c) => {
 dm.delete('/messages/:messageId', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+
   const prisma = c.get('prisma');
 
-  const messageId = c.req.param('messageId');
-
-  // Get the message
-  const message = await prisma.object.findFirst({
-    where: {
-      apId: messageId,
-      visibility: 'direct',
-      type: 'Note'
-    },
-    select: { apId: true, attributedTo: true, conversation: true }
-  });
-
-  if (!message) {
-    return c.json({ error: 'Message not found' }, 404);
+  const messageOrError = await findOwnedDmMessage(prisma, c.req.param('messageId'), actor.ap_id);
+  if ('error' in messageOrError) {
+    return c.json({ error: messageOrError.error }, messageOrError.status);
   }
+  const message = messageOrError;
 
-  // Only sender can delete
-  if (message.attributedTo !== actor.ap_id) {
-    return c.json({ error: 'Forbidden' }, 403);
-  }
-
-  // Use transaction to ensure atomicity of message and recipients deletion
-  await prisma.$transaction(async (tx) => {
-    // Clean up object_recipients first (due to FK constraint)
-    await tx.objectRecipient.deleteMany({
-      where: { objectApId: message.apId }
-    });
-
-    // Delete the message
-    await tx.object.delete({
-      where: { apId: message.apId }
-    });
+  await prisma.$transaction(async (tx: any) => {
+    await tx.objectRecipient.deleteMany({ where: { objectApId: message.apId } });
+    await tx.object.delete({ where: { apId: message.apId } });
   });
 
   return c.json({ success: true });
@@ -377,87 +362,16 @@ dm.delete('/messages/:messageId', async (c) => {
 dm.get('/conversations/:id/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const prisma = c.get('prisma');
-  const actorApIdJson = JSON.stringify(actor.ap_id);
 
+  const prisma = c.get('prisma');
   const conversationId = c.req.param('id');
   const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
   const before = c.req.query('before');
 
-  // Build where clause with database-level authorization
-  const whereClause: {
-    visibility: string;
-    type: string;
-    conversation: string;
-    published?: { lt: string };
-    OR: Array<{ attributedTo: string } | { toJson: { contains: string } }>;
-  } = {
-    visibility: 'direct',
-    type: 'Note',
-    conversation: conversationId,
-    // Database-level authorization: only messages where actor is sender or recipient
-    OR: [
-      { attributedTo: actor.ap_id },
-      { toJson: { contains: actorApIdJson } }
-    ]
-  };
-
-  if (before) {
-    whereClause.published = { lt: before };
-  }
-
-  // Query messages with authorization in the where clause
-  const messages = await prisma.object.findMany({
-    where: whereClause,
-    orderBy: { published: 'desc' },
-    take: limit
-  });
-
-  // Additional code-level validation for security in depth
-  const filteredMessages = messages.filter((msg) => {
-    if (msg.attributedTo === actor.ap_id) return true;
-    const toRecipients = safeJsonParse<string[]>(msg.toJson, []);
-    return toRecipients.includes(actor.ap_id);
-  });
-
-  // Get author info for all messages
-  const authorApIds = Array.from(new Set(filteredMessages.map(m => m.attributedTo)));
-
-  // Get local actors
-  const localActors = await prisma.actor.findMany({
-    where: { apId: { in: authorApIds } },
-    select: { apId: true, preferredUsername: true, name: true, iconUrl: true }
-  });
-  const localActorMap = new Map(localActors.map(a => [a.apId, a]));
-
-  // Get cached actors for remote users
-  const remoteApIds = authorApIds.filter(id => !localActorMap.has(id));
-  const cachedActors = remoteApIds.length > 0
-    ? await prisma.actorCache.findMany({
-        where: { apId: { in: remoteApIds } },
-        select: { apId: true, preferredUsername: true, name: true, iconUrl: true }
-      })
-    : [];
-  const cachedActorMap = new Map(cachedActors.map(a => [a.apId, a]));
-
-  const result = filteredMessages.reverse().map((msg) => {
-    const localActor = localActorMap.get(msg.attributedTo);
-    const cachedActor = cachedActorMap.get(msg.attributedTo);
-    const authorInfo = localActor || cachedActor;
-
-    return {
-      id: msg.apId,
-      sender: {
-        ap_id: msg.attributedTo,
-        username: formatUsername(msg.attributedTo),
-        preferred_username: authorInfo?.preferredUsername || null,
-        name: authorInfo?.name || null,
-        icon_url: authorInfo?.iconUrl || null,
-      },
-      content: msg.content,
-      created_at: msg.published,
-    };
-  });
+  const filteredMessages = await fetchAuthorizedMessages(prisma, actor.ap_id, conversationId, limit, before);
+  const authorApIds = [...new Set(filteredMessages.map((m: any) => m.attributedTo))];
+  const authorMap = await resolveAuthorInfoMap(prisma, authorApIds);
+  const result = formatMessages(filteredMessages, authorMap);
 
   return c.json({ messages: result });
 });
@@ -465,105 +379,70 @@ dm.get('/conversations/:id/messages', async (c) => {
 dm.post('/conversations/:id/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const prisma = c.get('prisma');
 
+  const prisma = c.get('prisma');
   const conversationId = c.req.param('id');
   const body = await c.req.json<{ content: string }>();
   const baseUrl = c.env.APP_URL;
 
-  const content = body.content?.trim();
-  if (!content) {
-    return c.json({ error: 'Message content is required' }, 400);
+  const contentOrError = validateContent(body.content);
+  if (typeof contentOrError !== 'string') {
+    return c.json({ error: contentOrError.error }, contentOrError.status);
   }
-  if (content.length > MAX_DM_CONTENT_LENGTH) {
-    return c.json({ error: `Message too long (max ${MAX_DM_CONTENT_LENGTH} chars)` }, 400);
-  }
+  const content = contentOrError;
 
-  // Find the other participant from the conversation
-  // Get messages in this conversation where the actor is a participant
+  // Find the other participant from existing messages in this conversation
   const existingMessages = await prisma.object.findMany({
-    where: {
-      conversation: conversationId,
-      visibility: 'direct'
-    },
-    select: {
-      attributedTo: true,
-      toJson: true
-    },
-    take: 10
+    where: { conversation: conversationId, visibility: 'direct' },
+    select: { attributedTo: true, toJson: true },
+    take: 10,
   });
 
-  // Find the other participant
   let otherApId: string | null = null;
   for (const msg of existingMessages) {
+    const recipients = safeJsonParse<string[]>(msg.toJson, []);
     if (msg.attributedTo === actor.ap_id) {
-      // Actor is sender, get recipient from toJson
-      const recipients = safeJsonParse<string[]>(msg.toJson, []);
-      if (recipients.length > 0) {
-        otherApId = recipients[0];
-        break;
-      }
-    } else {
-      // Actor might be recipient, check toJson
-      const recipients = safeJsonParse<string[]>(msg.toJson, []);
-      if (recipients.includes(actor.ap_id)) {
-        otherApId = msg.attributedTo;
-        break;
-      }
+      if (recipients.length > 0) { otherApId = recipients[0]; break; }
+    } else if (recipients.includes(actor.ap_id)) {
+      otherApId = msg.attributedTo; break;
     }
   }
 
-  if (!otherApId) {
-    // Either conversation doesn't exist or actor is not a participant
-    return c.json({ error: 'Forbidden' }, 403);
-  }
+  if (!otherApId) return c.json({ error: 'Forbidden' }, 403);
 
   const messageId = generateId();
   const apId = objectApId(baseUrl, messageId);
   const now = new Date().toISOString();
-
   const toJson = JSON.stringify([otherApId]);
   const ccJson = JSON.stringify([]);
 
-  // Check if recipient is a local actor before transaction
   const recipientIsLocal = await prisma.actor.findUnique({
     where: { apId: otherApId },
-    select: { apId: true }
+    select: { apId: true },
   });
   const isRecipientLocal = !!recipientIsLocal;
 
-  // Use transaction to ensure atomicity of message creation and recipient tracking
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     await tx.object.create({
       data: {
-        apId: apId,
+        apId,
         type: 'Note',
         attributedTo: actor.ap_id,
-        content: content,
+        content,
         visibility: 'direct',
-        toJson: toJson,
-        ccJson: ccJson,
+        toJson,
+        ccJson,
         conversation: conversationId,
         published: now,
-        isLocal: 1
-      }
+        isLocal: 1,
+      },
     });
 
-    // Track recipient if they're a local actor
     if (isRecipientLocal) {
       await tx.objectRecipient.upsert({
-        where: {
-          objectApId_recipientApId: {
-            objectApId: apId,
-            recipientApId: otherApId
-          }
-        },
-        create: {
-          objectApId: apId,
-          recipientApId: otherApId,
-          type: 'to'
-        },
-        update: {}
+        where: { objectApId_recipientApId: { objectApId: apId, recipientApId: otherApId } },
+        create: { objectApId: apId, recipientApId: otherApId, type: 'to' },
+        update: {},
       });
     }
   });
@@ -580,7 +459,7 @@ dm.post('/conversations/:id/messages', async (c) => {
       },
       content,
       created_at: now,
-    }
+    },
   }, 201);
 });
 
