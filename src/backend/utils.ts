@@ -391,7 +391,12 @@ export async function fetchWithTimeout(
     const response = await fetch(url, {
       ...fetchOptions,
       signal: controller.signal,
+      redirect: 'manual', // Prevent redirect-based SSRF bypassing DNS safety checks
     });
+    // Reject redirects to prevent SSRF via open redirects on remote servers
+    if (response.status >= 300 && response.status < 400) {
+      throw new Error(`Redirect not allowed from remote URL: ${url} -> ${response.headers.get('location')}`);
+    }
     return response;
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {

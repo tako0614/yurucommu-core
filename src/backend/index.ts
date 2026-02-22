@@ -88,7 +88,8 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
     const takosUrl = c.env.TAKOS_URL || 'https://takos.jp';
     const csp = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://static.cloudflareinsights.com",
+      // TODO: Replace 'unsafe-inline' with nonce-based CSP when framework supports it
+      "script-src 'self' 'unsafe-inline' https://unpkg.com https://static.cloudflareinsights.com",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "media-src 'self' data: blob:",
