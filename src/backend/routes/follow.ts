@@ -1,15 +1,14 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { Env, Variables } from '../types';
 import { generateId, activityApId, isLocal, formatUsername, isSafeRemoteUrl, parseLimit, parseOffset, fetchWithTimeout } from '../utils';
 import { enqueueDeliveryToActor } from '../lib/delivery/queue';
 
-// P07: Network timeout for remote requests (10 seconds)
 const REMOTE_FETCH_TIMEOUT_MS = 10000;
-
-// P07: Maximum batch size for follow accept to prevent DoS
 const MAX_BATCH_ACCEPT_SIZE = 100;
 
-const follow = new Hono<{ Bindings: Env; Variables: Variables }>();
+type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
+type AppPrismaClient = Variables['prisma'];
 
 type RemoteActor = {
   id: string;
@@ -26,12 +25,14 @@ type RemoteActor = {
   publicKey?: { id?: string; publicKeyPem?: string };
 };
 
+const follow = new Hono<{ Bindings: Env; Variables: Variables }>();
+
 // ---------------------------------------------------------------------------
-// Shared helpers (file-local)
+// Helpers
 // ---------------------------------------------------------------------------
 
 async function parseJsonObject(
-  c: { req: { json: () => Promise<unknown> } }
+  c: { req: { json: () => Promise<unknown> } },
 ): Promise<Record<string, unknown> | null> {
   try {
     const body = await c.req.json();
@@ -66,78 +67,128 @@ function isUniqueConstraintError(error: unknown): boolean {
     && (error as { code?: string }).code === 'P2002';
 }
 
-/** Builds the Prisma compound-key object used by every follow lookup. */
 function followKey(followerApId: string, followingApId: string) {
   return { followerApId_followingApId: { followerApId, followingApId } } as const;
 }
 
-/** Builds a standard ActivityPub activity JSON envelope. */
 function buildApActivity(
   type: string,
-  actorApId: string,
+  actorId: string,
   object: unknown,
-  activityId: string,
+  id: string,
 ): Record<string, unknown> {
   return {
     '@context': 'https://www.w3.org/ns/activitystreams',
-    id: activityId,
+    id,
     type,
-    actor: actorApId,
+    actor: actorId,
     object,
     published: new Date().toISOString(),
   };
 }
 
-type PrismaClient = ReturnType<typeof import('hono').Context.prototype.get<'prisma'>>;
+type RequestContext = {
+  actor: { ap_id: string };
+  body: Record<string, unknown>;
+  baseUrl: string;
+  prisma: AppPrismaClient;
+};
+
+/**
+ * Extracts the authenticated actor and parsed JSON body from a request.
+ * Returns a Response on auth or parse failure, or the extracted context on success.
+ */
+async function requireActorAndBody(c: HonoContext): Promise<RequestContext | Response> {
+  const actor = c.get('actor');
+  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+  const body = await parseJsonObject(c);
+  if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+  return { actor, body, baseUrl: c.env.APP_URL, prisma: c.get('prisma') };
+}
+
+function isResponse(value: RequestContext | Response): value is Response {
+  return value instanceof Response;
+}
 
 /**
  * Creates an outbound AP activity record and enqueues it for delivery.
- * Used by unfollow (Undo), accept, and reject flows.
  */
 async function createAndDeliverActivity(
   env: Env,
-  prisma: PrismaClient,
+  prisma: AppPrismaClient,
   baseUrl: string,
   type: string,
-  actorApId: string,
+  actorId: string,
   object: unknown,
   recipientApId: string,
   objectApId?: string | null,
 ): Promise<void> {
-  const activityId = activityApId(baseUrl, generateId());
-  const activity = buildApActivity(type, actorApId, object, activityId);
+  const id = activityApId(baseUrl, generateId());
+  const activity = buildApActivity(type, actorId, object, id);
 
   await prisma.activity.create({
     data: {
-      apId: activityId,
+      apId: id,
       type,
-      actorApId,
+      actorApId: actorId,
       objectApId: objectApId || undefined,
       rawJson: JSON.stringify(activity),
       direction: 'outbound',
     },
   });
 
-  await enqueueDeliveryToActor(env, activityId, recipientApId);
+  await enqueueDeliveryToActor(env, id, recipientApId);
+}
+
+/**
+ * Delivers an Accept or Reject activity to a remote requester.
+ * No-op if the requester is local.
+ */
+async function deliverResponseIfRemote(
+  env: Env,
+  prisma: AppPrismaClient,
+  baseUrl: string,
+  type: 'Accept' | 'Reject',
+  actorId: string,
+  requesterApId: string,
+  originalActivityApId: string | null,
+): Promise<void> {
+  if (isLocal(requesterApId, baseUrl)) return;
+  await createAndDeliverActivity(
+    env, prisma, baseUrl, type, actorId,
+    originalActivityApId, requesterApId, originalActivityApId,
+  );
+}
+
+/**
+ * Finds a pending follow request where `requesterApId` is trying to follow `targetApId`.
+ */
+async function findPendingFollow(
+  prisma: AppPrismaClient,
+  requesterApId: string,
+  targetApId: string,
+) {
+  return prisma.follow.findFirst({
+    where: {
+      followerApId: requesterApId,
+      followingApId: targetApId,
+      status: 'pending',
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
-// POST / — Follow an actor (local or remote)
+// POST / -- Follow an actor (local or remote)
 // ---------------------------------------------------------------------------
 
 follow.post('/', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-
-  const body = await parseJsonObject(c);
-  if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+  const ctx = await requireActorAndBody(c);
+  if (isResponse(ctx)) return ctx;
+  const { actor, body, baseUrl, prisma } = ctx;
 
   const targetApId = parseNonEmptyString(body.target_ap_id);
   if (!targetApId) return c.json({ error: 'target_ap_id required', code: 'BAD_REQUEST' }, 400);
   if (targetApId === actor.ap_id) return c.json({ error: 'Cannot follow yourself' }, 400);
-
-  const baseUrl = c.env.APP_URL;
-  const prisma = c.get('prisma');
 
   const existing = await prisma.follow.findUnique({
     where: followKey(actor.ap_id, targetApId),
@@ -151,8 +202,8 @@ follow.post('/', async (c) => {
 });
 
 async function handleLocalFollow(
-  c: import('hono').Context<{ Bindings: Env; Variables: Variables }>,
-  prisma: PrismaClient,
+  c: HonoContext,
+  prisma: AppPrismaClient,
   baseUrl: string,
   actor: { ap_id: string },
   targetApId: string,
@@ -166,9 +217,7 @@ async function handleLocalFollow(
   const status = target.isPrivate ? 'pending' : 'accepted';
   const id = activityApId(baseUrl, generateId());
   const now = new Date().toISOString();
-
   const followActivity = buildApActivity('Follow', actor.ap_id, targetApId, id);
-  followActivity.published = now;
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -223,8 +272,8 @@ async function handleLocalFollow(
 }
 
 async function handleRemoteFollow(
-  c: import('hono').Context<{ Bindings: Env; Variables: Variables }>,
-  prisma: PrismaClient,
+  c: HonoContext,
+  prisma: AppPrismaClient,
   baseUrl: string,
   actor: { ap_id: string },
   targetApId: string,
@@ -318,21 +367,16 @@ async function handleRemoteFollow(
 }
 
 // ---------------------------------------------------------------------------
-// DELETE / — Unfollow
+// DELETE / -- Unfollow
 // ---------------------------------------------------------------------------
 
 follow.delete('/', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-
-  const body = await parseJsonObject(c);
-  if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+  const ctx = await requireActorAndBody(c);
+  if (isResponse(ctx)) return ctx;
+  const { actor, body, baseUrl, prisma } = ctx;
 
   const targetApId = parseNonEmptyString(body.target_ap_id);
   if (!targetApId) return c.json({ error: 'target_ap_id required', code: 'BAD_REQUEST' }, 400);
-
-  const baseUrl = c.env.APP_URL;
-  const prisma = c.get('prisma');
 
   const existingFollow = await prisma.follow.findUnique({
     where: followKey(actor.ap_id, targetApId),
@@ -373,24 +417,19 @@ follow.delete('/', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /accept — Accept a single follow request
+// POST /accept -- Accept a single follow request
 // ---------------------------------------------------------------------------
 
 follow.post('/accept', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-
-  const body = await parseJsonObject(c);
-  if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+  const ctx = await requireActorAndBody(c);
+  if (isResponse(ctx)) return ctx;
+  const { actor, body, baseUrl, prisma } = ctx;
 
   const requesterApId = parseNonEmptyString(body.requester_ap_id);
   if (!requesterApId) return c.json({ error: 'requester_ap_id required', code: 'BAD_REQUEST' }, 400);
 
-  const baseUrl = c.env.APP_URL;
-  const prisma = c.get('prisma');
-
-  // P07: Wrap in transaction to prevent race condition where two accepts could increment counts twice
-  let pendingFollow: Awaited<ReturnType<typeof prisma.follow.findFirst>>;
+  // Wrap in transaction to prevent race condition where two accepts could increment counts twice
+  let pendingFollow: Awaited<ReturnType<typeof findPendingFollow>>;
   try {
     pendingFollow = await prisma.$transaction(async (tx) => {
       const found = await tx.follow.findFirst({
@@ -428,26 +467,22 @@ follow.post('/accept', async (c) => {
 
   if (!pendingFollow) return c.json({ error: 'No pending follow request' }, 404);
 
-  if (!isLocal(requesterApId, baseUrl)) {
-    await createAndDeliverActivity(
-      c.env, prisma, baseUrl, 'Accept', actor.ap_id,
-      pendingFollow.activityApId, requesterApId, pendingFollow.activityApId,
-    );
-  }
+  await deliverResponseIfRemote(
+    c.env, prisma, baseUrl, 'Accept', actor.ap_id,
+    requesterApId, pendingFollow.activityApId,
+  );
 
   return c.json({ success: true });
 });
 
 // ---------------------------------------------------------------------------
-// POST /accept/batch — Batch accept follow requests
+// POST /accept/batch -- Batch accept follow requests
 // ---------------------------------------------------------------------------
 
 follow.post('/accept/batch', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-
-  const body = await parseJsonObject(c);
-  if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+  const ctx = await requireActorAndBody(c);
+  if (isResponse(ctx)) return ctx;
+  const { actor, body, baseUrl, prisma } = ctx;
 
   const requesterApIds = parseStringArray(body.requester_ap_ids);
   if (!requesterApIds || requesterApIds.length === 0) {
@@ -457,10 +492,6 @@ follow.post('/accept/batch', async (c) => {
     return c.json({ error: `Batch size exceeds maximum of ${MAX_BATCH_ACCEPT_SIZE}` }, 400);
   }
 
-  const baseUrl = c.env.APP_URL;
-  const prisma = c.get('prisma');
-  const results: { ap_id: string; success: boolean; error?: string }[] = [];
-
   const pendingFollows = await prisma.follow.findMany({
     where: {
       followerApId: { in: requesterApIds },
@@ -468,9 +499,9 @@ follow.post('/accept/batch', async (c) => {
       status: 'pending',
     },
   });
-
   const pendingFollowMap = new Map(pendingFollows.map((f) => [f.followerApId, f]));
 
+  const results: { ap_id: string; success: boolean; error?: string }[] = [];
   let followerCountIncrement = 0;
   const localFollowerIds: string[] = [];
   const activitiesToCreate: Array<{
@@ -523,7 +554,6 @@ follow.post('/accept/batch', async (c) => {
     }
   }
 
-  // Batch update counts
   if (followerCountIncrement > 0) {
     await prisma.actor.update({
       where: { apId: actor.ap_id },
@@ -537,12 +567,10 @@ follow.post('/accept/batch', async (c) => {
     });
   }
 
-  // Batch create activities
   if (activitiesToCreate.length > 0) {
     await prisma.activity.createMany({ data: activitiesToCreate });
   }
 
-  // Enqueue delivery after activities are persisted
   if (remoteEnqueues.length > 0) {
     await Promise.allSettled(
       remoteEnqueues.map((e) => enqueueDeliveryToActor(c.env, e.activityId, e.recipientApId)),
@@ -553,29 +581,18 @@ follow.post('/accept/batch', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /reject — Reject a follow request
+// POST /reject -- Reject a follow request
 // ---------------------------------------------------------------------------
 
 follow.post('/reject', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-
-  const body = await parseJsonObject(c);
-  if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+  const ctx = await requireActorAndBody(c);
+  if (isResponse(ctx)) return ctx;
+  const { actor, body, baseUrl, prisma } = ctx;
 
   const requesterApId = parseNonEmptyString(body.requester_ap_id);
   if (!requesterApId) return c.json({ error: 'requester_ap_id required', code: 'BAD_REQUEST' }, 400);
 
-  const baseUrl = c.env.APP_URL;
-  const prisma = c.get('prisma');
-
-  const pendingFollow = await prisma.follow.findFirst({
-    where: {
-      followerApId: requesterApId,
-      followingApId: actor.ap_id,
-      status: 'pending',
-    },
-  });
+  const pendingFollow = await findPendingFollow(prisma, requesterApId, actor.ap_id);
   if (!pendingFollow) return c.json({ error: 'No pending follow request' }, 404);
 
   await prisma.follow.update({
@@ -590,18 +607,16 @@ follow.post('/reject', async (c) => {
     });
   }
 
-  if (!isLocal(requesterApId, baseUrl)) {
-    await createAndDeliverActivity(
-      c.env, prisma, baseUrl, 'Reject', actor.ap_id,
-      pendingFollow.activityApId, requesterApId, pendingFollow.activityApId,
-    );
-  }
+  await deliverResponseIfRemote(
+    c.env, prisma, baseUrl, 'Reject', actor.ap_id,
+    requesterApId, pendingFollow.activityApId,
+  );
 
   return c.json({ success: true });
 });
 
 // ---------------------------------------------------------------------------
-// GET /requests — Pending follow requests
+// GET /requests -- Pending follow requests
 // ---------------------------------------------------------------------------
 
 follow.get('/requests', async (c) => {
@@ -631,11 +646,12 @@ follow.get('/requests', async (c) => {
     }),
   ]);
 
-  const localActorMap = new Map(localActors.map((a) => [a.apId, a]));
-  const cachedActorMap = new Map(cachedActors.map((a) => [a.apId, a]));
+  const actorInfoMap = new Map<string, { preferredUsername: string | null; name: string | null; iconUrl: string | null }>();
+  for (const a of cachedActors) actorInfoMap.set(a.apId, a);
+  for (const a of localActors) actorInfoMap.set(a.apId, a);
 
   const result = follows.map((f) => {
-    const actorInfo = localActorMap.get(f.followerApId) || cachedActorMap.get(f.followerApId);
+    const actorInfo = actorInfoMap.get(f.followerApId);
     return {
       ap_id: f.followerApId,
       username: formatUsername(f.followerApId),

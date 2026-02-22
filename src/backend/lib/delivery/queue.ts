@@ -8,7 +8,10 @@ import { planEndpointsFromActorCache } from './planner';
 import { checkCircuit, recordCircuitFailure, recordCircuitSuccess } from './circuit';
 import {
   DELIVERY_QUEUE_MESSAGE_VERSION,
+  type DeliveryFanoutFollowersMessageV1,
+  type DeliveryResolveActorMessageV1,
   type DeliveryDeliverEndpointMessageV1,
+  type DeliveryReconcileJobMessageV1,
   type DeliveryQueueMessageV1,
   type DeliveryDlqMessageV1,
   isDeliveryQueueMessageV1,
@@ -17,17 +20,19 @@ import {
 import {
   computeDeliveryJobId,
   computeRetryDelaySeconds,
+  DELIVERY_ENDPOINT_CACHE_TTL_MS,
   DELIVERY_MAX_ATTEMPTS,
   safeEndpointHost,
   safeParseIsoTimeMs,
 } from './utils';
 
 const DELIVERY_HTTP_TIMEOUT_MS = 8000;
-
-// Bulkhead: per-domain concurrent delivery limit (Phase 3)
+const STALE_PROCESSING_MS = 2 * 60 * 1000;
+const EPOCH_ISO = '1970-01-01T00:00:00.000Z';
 const BULKHEAD_PER_DOMAIN = 3;
-// Global concurrency for delivery execution within a single batch.
 const BULKHEAD_GLOBAL_CONCURRENCY = 10;
+const MAX_RECONCILE_ATTEMPTS = 5;
+const TERMINAL_JOB_STATUSES: readonly string[] = ['delivered', 'dead_letter', 'failed'];
 
 class Semaphore {
   private available: number;
@@ -92,14 +97,41 @@ function isUniqueConstraintError(error: unknown): boolean {
     && (error as { code?: string }).code === 'P2002';
 }
 
+type TimedFetchResult = {
+  response: Response | null;
+  error: unknown;
+  latencyMs: number;
+};
+
+async function timedFetch(url: string, init: RequestInit & { timeout: number }): Promise<TimedFetchResult> {
+  const startedAt = Date.now();
+  let response: Response | null = null;
+  let error: unknown = null;
+  try {
+    response = await fetchWithTimeout(url, init);
+  } catch (e) {
+    error = e;
+  }
+  return { response, error, latencyMs: Date.now() - startedAt };
+}
+
 function buildErrorMessage(response: Response | null, error: unknown): string {
   if (response) return `HTTP ${response.status}`;
   if (error instanceof Error) return error.message;
   return 'delivery_error';
 }
 
-function queueAvailable(env: Env): env is Env & { DELIVERY_QUEUE: Queue<DeliveryQueueMessageV1>; DELIVERY_DLQ: Queue<DeliveryDlqMessageV1> } {
+type QueueEnv = Env & { DELIVERY_QUEUE: Queue<DeliveryQueueMessageV1>; DELIVERY_DLQ: Queue<DeliveryDlqMessageV1> };
+
+function queueAvailable(env: Env): env is QueueEnv {
   return Boolean((env as unknown as { DELIVERY_QUEUE?: unknown }).DELIVERY_QUEUE) && Boolean((env as unknown as { DELIVERY_DLQ?: unknown }).DELIVERY_DLQ);
+}
+
+function requireQueue(env: Env, label: string, message: Message<DeliveryQueueMessageV1>): env is QueueEnv {
+  if (queueAvailable(env)) return true;
+  console.warn(`[DeliveryQueue] Missing DELIVERY_QUEUE/DELIVERY_DLQ bindings. Dropping ${label} job.`);
+  message.ack();
+  return false;
 }
 
 function parseCommaSeparated(value: string | undefined): string[] {
@@ -147,26 +179,18 @@ async function maybeShadowProbeInbox(
 
   const inboxHost = safeEndpointHost(inbox);
   const keyId = `${params.sender.apId}#main-key`;
+  const headers = await signRequest(params.sender.privateKeyPem, keyId, 'POST', inbox, params.body);
 
-  const startedAt = Date.now();
-  let response: Response | null = null;
-  let error: unknown = null;
-  try {
-    const headers = await signRequest(params.sender.privateKeyPem, keyId, 'POST', inbox, params.body);
-    response = await fetchWithTimeout(inbox, {
-      method: 'POST',
-      headers: {
-        ...headers,
-        'Content-Type': 'application/activity+json',
-        'X-Yurucommu-Shadow-Probe': '1',
-      },
-      body: params.body,
-      timeout: DELIVERY_HTTP_TIMEOUT_MS,
-    });
-  } catch (e) {
-    error = e;
-  }
-  const latencyMs = Date.now() - startedAt;
+  const { response, error, latencyMs } = await timedFetch(inbox, {
+    method: 'POST',
+    headers: {
+      ...headers,
+      'Content-Type': 'application/activity+json',
+      'X-Yurucommu-Shadow-Probe': '1',
+    },
+    body: params.body,
+    timeout: DELIVERY_HTTP_TIMEOUT_MS,
+  });
 
   emitMetric('delivery_shadow_probe_inbox_latency_ms', latencyMs, {
     endpoint_host: params.endpointHost,
@@ -182,41 +206,16 @@ async function maybeShadowProbeInbox(
   });
 }
 
-export async function enqueueFanoutToFollowers(env: Env, activityId: string, followeeApId: string): Promise<void> {
-  if (!queueAvailable(env)) {
-    console.warn('[DeliveryQueue] Missing DELIVERY_QUEUE/DELIVERY_DLQ bindings. Skipping enqueueFanoutToFollowers.');
-    return;
-  }
-
-  const msg: DeliveryQueueMessageV1 = {
-    version: DELIVERY_QUEUE_MESSAGE_VERSION,
-    type: 'fanout_followers',
-    activityId,
-    followeeApId,
-    scheduledAt: nowIso(),
-  };
-  await env.DELIVERY_QUEUE.send(msg);
-}
-
-export async function enqueueDeliveryToActor(env: Env, activityId: string, recipientActorApId: string): Promise<void> {
-  if (!queueAvailable(env)) {
-    console.warn('[DeliveryQueue] Missing DELIVERY_QUEUE/DELIVERY_DLQ bindings. Skipping enqueueDeliveryToActor.');
-    return;
-  }
-
-  const msg: DeliveryQueueMessageV1 = {
-    version: DELIVERY_QUEUE_MESSAGE_VERSION,
-    type: 'resolve_actor',
-    activityId,
-    recipientActorApId,
-    scheduledAt: nowIso(),
-  };
-  await env.DELIVERY_QUEUE.send(msg);
-}
+// --- Queue message builders & senders ---
 
 async function sendQueueMessage(env: Env, body: DeliveryQueueMessageV1, delaySeconds?: number): Promise<void> {
   if (!queueAvailable(env)) return;
   await env.DELIVERY_QUEUE.send(body, delaySeconds ? { delaySeconds } : undefined);
+}
+
+async function sendDlqMessage(env: Env, payload: DeliveryDlqMessageV1): Promise<void> {
+  if (!queueAvailable(env)) return;
+  await env.DELIVERY_DLQ.send(payload);
 }
 
 function buildDeliverEndpointMessage(jobId: string): DeliveryQueueMessageV1 {
@@ -231,9 +230,20 @@ function buildReconcileJobMessage(jobId: string, reconcileAttempt: number): Deli
   return { version: DELIVERY_QUEUE_MESSAGE_VERSION, type: 'reconcile_job', jobId, reconcileAttempt, scheduledAt: nowIso() };
 }
 
-async function sendDlqMessage(env: Env, payload: DeliveryDlqMessageV1): Promise<void> {
-  if (!queueAvailable(env)) return;
-  await env.DELIVERY_DLQ.send(payload);
+// --- Public enqueue entry points ---
+
+export async function enqueueFanoutToFollowers(env: Env, activityId: string, followeeApId: string): Promise<void> {
+  await sendQueueMessage(env, {
+    version: DELIVERY_QUEUE_MESSAGE_VERSION,
+    type: 'fanout_followers',
+    activityId,
+    followeeApId,
+    scheduledAt: nowIso(),
+  });
+}
+
+export async function enqueueDeliveryToActor(env: Env, activityId: string, recipientActorApId: string): Promise<void> {
+  await sendQueueMessage(env, buildResolveActorMessage(activityId, recipientActorApId));
 }
 
 async function failJob(
@@ -259,24 +269,14 @@ async function resolveSigningActor(
   prisma: PrismaClient,
   actorApId: string
 ): Promise<{ apId: string; privateKeyPem: string } | null> {
-  const person = await prisma.actor.findUnique({
-    where: { apId: actorApId },
-    select: { apId: true, privateKeyPem: true },
-  });
-  if (person?.privateKeyPem) return { apId: person.apId, privateKeyPem: person.privateKeyPem };
-
-  const group = await prisma.community.findUnique({
-    where: { apId: actorApId },
-    select: { apId: true, privateKeyPem: true },
-  });
-  if (group?.privateKeyPem) return { apId: group.apId, privateKeyPem: group.privateKeyPem };
-
-  const instanceActor = await prisma.instanceActor.findUnique({
-    where: { apId: actorApId },
-    select: { apId: true, privateKeyPem: true },
-  });
-  if (instanceActor?.privateKeyPem) return { apId: instanceActor.apId, privateKeyPem: instanceActor.privateKeyPem };
-
+  const tables = [prisma.actor, prisma.community, prisma.instanceActor] as const;
+  for (const table of tables) {
+    const row = await (table as { findUnique: typeof prisma.actor.findUnique }).findUnique({
+      where: { apId: actorApId },
+      select: { apId: true, privateKeyPem: true },
+    });
+    if (row?.privateKeyPem) return { apId: row.apId, privateKeyPem: row.privateKeyPem };
+  }
   return null;
 }
 
@@ -427,7 +427,7 @@ async function enqueueResolveForEndpointActors(
   return enqueued;
 }
 
-async function processFanoutFollowers(prisma: PrismaClient, env: Env, msg: { activityId: string; followeeApId: string }, message: Message<DeliveryQueueMessageV1>): Promise<void> {
+async function processFanoutFollowers(prisma: PrismaClient, env: Env, msg: DeliveryFanoutFollowersMessageV1, message: Message<DeliveryQueueMessageV1>): Promise<void> {
   const baseUrl = env.APP_URL;
 
   const followers = await prisma.follow.findMany({
@@ -449,13 +449,8 @@ async function processFanoutFollowers(prisma: PrismaClient, env: Env, msg: { act
     },
   });
 
-  if (!queueAvailable(env)) {
-    console.warn('[DeliveryQueue] Missing DELIVERY_QUEUE/DELIVERY_DLQ bindings. Dropping fanout job.');
-    message.ack();
-    return;
-  }
+  if (!requireQueue(env, 'fanout', message)) return;
 
-  // Enqueue endpoint delivery jobs.
   const deliverRequests: Array<{ body: DeliveryQueueMessageV1 }> = [];
   for (const group of planned.groups) {
     const jobId = await computeDeliveryJobId(msg.activityId, group.endpoint);
@@ -463,35 +458,25 @@ async function processFanoutFollowers(prisma: PrismaClient, env: Env, msg: { act
     deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
   }
 
-  // Enqueue resolve jobs for unknown/stale recipients (refresh actor_cache via network).
   const resolveRequests = planned.unknownRecipients.map((apId) => ({
     body: buildResolveActorMessage(msg.activityId, apId),
   }));
 
-  if (deliverRequests.length > 0) {
-    await env.DELIVERY_QUEUE.sendBatch(deliverRequests);
-  }
-  if (resolveRequests.length > 0) {
-    await env.DELIVERY_QUEUE.sendBatch(resolveRequests);
-  }
+  if (deliverRequests.length > 0) await env.DELIVERY_QUEUE.sendBatch(deliverRequests);
+  if (resolveRequests.length > 0) await env.DELIVERY_QUEUE.sendBatch(resolveRequests);
 
   message.ack();
 }
 
-async function processResolveActor(prisma: PrismaClient, env: Env, msg: { activityId: string; recipientActorApId: string }, message: Message<DeliveryQueueMessageV1>): Promise<void> {
-  if (!queueAvailable(env)) {
-    console.warn('[DeliveryQueue] Missing DELIVERY_QUEUE/DELIVERY_DLQ bindings. Dropping resolve_actor job.');
-    message.ack();
-    return;
-  }
+async function processResolveActor(prisma: PrismaClient, env: Env, msg: DeliveryResolveActorMessageV1, message: Message<DeliveryQueueMessageV1>): Promise<void> {
+  if (!requireQueue(env, 'resolve_actor', message)) return;
 
-  // Refresh actor_cache if missing or stale.
   const cached = await prisma.actorCache.findUnique({
     where: { apId: msg.recipientActorApId },
     select: { apId: true, inbox: true, sharedInbox: true, lastFetchedAt: true },
   });
   const lastFetchedMs = safeParseIsoTimeMs(cached?.lastFetchedAt);
-  const stale = lastFetchedMs === null || Date.now() - lastFetchedMs > 24 * 60 * 60 * 1000;
+  const stale = lastFetchedMs === null || Date.now() - lastFetchedMs > DELIVERY_ENDPOINT_CACHE_TTL_MS;
   if (!cached || stale) {
     try {
       await fetchAndCacheRemoteActor(prisma, msg.recipientActorApId);
@@ -521,14 +506,9 @@ async function processResolveActor(prisma: PrismaClient, env: Env, msg: { activi
   message.ack();
 }
 
-async function processReconcileJob(prisma: PrismaClient, env: Env, msg: { jobId: string; reconcileAttempt: number }, message: Message<DeliveryQueueMessageV1>): Promise<void> {
-  if (!queueAvailable(env)) {
-    console.warn('[DeliveryQueue] Missing DELIVERY_QUEUE/DELIVERY_DLQ bindings. Dropping reconcile job.');
-    message.ack();
-    return;
-  }
+async function processReconcileJob(prisma: PrismaClient, env: Env, msg: DeliveryReconcileJobMessageV1, message: Message<DeliveryQueueMessageV1>): Promise<void> {
+  if (!requireQueue(env, 'reconcile', message)) return;
 
-  const MAX_RECONCILE_ATTEMPTS = 5;
   if (msg.reconcileAttempt > MAX_RECONCILE_ATTEMPTS) {
     message.ack();
     return;
@@ -536,24 +516,14 @@ async function processReconcileJob(prisma: PrismaClient, env: Env, msg: { jobId:
 
   const job = await prisma.deliveryQueue.findUnique({
     where: { id: msg.jobId },
-    select: {
-      id: true,
-      status: true,
-      activityApId: true,
-      inboxUrl: true,
-    },
+    select: { id: true, status: true },
   });
-  if (!job) {
+
+  if (!job || job.status === 'delivered') {
     message.ack();
     return;
   }
 
-  if (job.status === 'delivered') {
-    message.ack();
-    return;
-  }
-
-  // Re-enqueue without resetting attempts to preserve total delivery budget.
   await prisma.deliveryQueue.update({
     where: { id: msg.jobId },
     data: {
@@ -572,15 +542,11 @@ async function processReconcileJob(prisma: PrismaClient, env: Env, msg: { jobId:
 async function processDeliverEndpoint(
   prisma: PrismaClient,
   env: Env,
-  msg: { jobId: string; scheduledAt: string },
+  msg: DeliveryDeliverEndpointMessageV1,
   message: Message<DeliveryQueueMessageV1>,
   bulkhead: Bulkhead
 ): Promise<void> {
-  if (!queueAvailable(env)) {
-    console.warn('[DeliveryQueue] Missing DELIVERY_QUEUE/DELIVERY_DLQ bindings. Dropping deliver job.');
-    message.ack();
-    return;
-  }
+  if (!requireQueue(env, 'deliver_endpoint', message)) return;
 
   const job = await prisma.deliveryQueue.findUnique({
     where: { id: msg.jobId },
@@ -594,12 +560,8 @@ async function processDeliverEndpoint(
       processingStartedAt: true,
     },
   });
-  if (!job) {
-    message.ack();
-    return;
-  }
 
-  if (job.status === 'delivered' || job.status === 'dead_letter' || job.status === 'failed') {
+  if (!job || TERMINAL_JOB_STATUSES.includes(job.status)) {
     message.ack();
     return;
   }
@@ -621,10 +583,8 @@ async function processDeliverEndpoint(
     return;
   }
 
-  // Avoid duplicate execution (stale processing recovery).
   if (job.status === 'processing') {
     const startedMs = safeParseIsoTimeMs(job.processingStartedAt);
-    const STALE_PROCESSING_MS = 2 * 60 * 1000;
     if (startedMs !== null && Date.now() - startedMs < STALE_PROCESSING_MS) {
       await sendQueueMessage(env, buildDeliverEndpointMessage(job.id), 30);
       message.ack();
@@ -678,22 +638,13 @@ async function processDeliverEndpoint(
     const keyId = `${sender.apId}#main-key`;
     const headers = await signRequest(sender.privateKeyPem, keyId, 'POST', endpoint, body);
 
-    const startedAt = Date.now();
-    let response: Response | null = null;
-    let error: unknown = null;
-    try {
-      response = await fetchWithTimeout(endpoint, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/activity+json' },
-        body,
-        timeout: DELIVERY_HTTP_TIMEOUT_MS,
-      });
-    } catch (e) {
-      error = e;
-    }
-    const latencyMs = Date.now() - startedAt;
+    const { response, error, latencyMs } = await timedFetch(endpoint, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/activity+json' },
+      body,
+      timeout: DELIVERY_HTTP_TIMEOUT_MS,
+    });
 
-    // Per-attempt latency point.
     emitMetric('delivery_latency_ms', latencyMs, {
       endpoint_host: host,
       ok: response?.ok ?? false,
@@ -701,13 +652,14 @@ async function processDeliverEndpoint(
     });
 
     if (response?.ok) {
+      const now = nowIso();
       await prisma.deliveryQueue.update({
         where: { id: job.id },
         data: {
           status: 'delivered',
-          deliveredAt: nowIso(),
+          deliveredAt: now,
           error: null,
-          lastAttemptAt: nowIso(),
+          lastAttemptAt: now,
           processingStartedAt: null,
         },
       });
@@ -743,11 +695,11 @@ async function processDeliverEndpoint(
         await enqueueResolveForEndpointActors(prisma, env, job.activityApId, endpoint);
         await prisma.actorCache.updateMany({
           where: { sharedInbox: endpoint },
-          data: { sharedInbox: null, lastFetchedAt: '1970-01-01T00:00:00.000Z' },
+          data: { sharedInbox: null, lastFetchedAt: EPOCH_ISO },
         });
         await prisma.actorCache.updateMany({
           where: { inbox: endpoint },
-          data: { lastFetchedAt: '1970-01-01T00:00:00.000Z' },
+          data: { lastFetchedAt: EPOCH_ISO },
         });
       } catch (e) {
         console.warn('[DeliveryQueue] endpoint invalidation failed:', e);
@@ -768,9 +720,10 @@ async function processDeliverEndpoint(
     await recordCircuitFailure(prisma, endpoint);
 
     if (nextAttempts >= DELIVERY_MAX_ATTEMPTS) {
+      const now = nowIso();
       await prisma.deliveryQueue.update({
         where: { id: job.id },
-        data: { status: 'dead_letter', error: errorMessage, lastAttemptAt: nowIso(), processingStartedAt: null },
+        data: { status: 'dead_letter', error: errorMessage, lastAttemptAt: now, processingStartedAt: null },
       });
       emitMetric('delivery_dead_letter', 1, { endpoint_host: host });
 
@@ -782,7 +735,7 @@ async function processDeliverEndpoint(
         endpoint,
         attempts: nextAttempts,
         lastError: errorMessage,
-        deadLetteredAt: nowIso(),
+        deadLetteredAt: now,
       });
 
       message.ack();
@@ -859,18 +812,21 @@ export async function handleDeliveryQueueBatch(
     }
 
     try {
-      if (body.type === 'fanout_followers') {
-        await processFanoutFollowers(prisma, env, { activityId: body.activityId, followeeApId: body.followeeApId }, message);
-      } else if (body.type === 'resolve_actor') {
-        await processResolveActor(prisma, env, { activityId: body.activityId, recipientActorApId: body.recipientActorApId }, message);
-      } else if (body.type === 'reconcile_job') {
-        await processReconcileJob(prisma, env, { jobId: body.jobId, reconcileAttempt: body.reconcileAttempt }, message);
-      } else {
-        message.ack();
+      switch (body.type) {
+        case 'fanout_followers':
+          await processFanoutFollowers(prisma, env, body, message);
+          break;
+        case 'resolve_actor':
+          await processResolveActor(prisma, env, body, message);
+          break;
+        case 'reconcile_job':
+          await processReconcileJob(prisma, env, body, message);
+          break;
+        default:
+          message.ack();
       }
     } catch (e) {
       console.error('[DeliveryQueue] Non-delivery message failed:', e);
-      // Let queue config handle retry of planner/resolver (best-effort).
       message.retry({ delaySeconds: 60 });
     }
   }
@@ -878,9 +834,8 @@ export async function handleDeliveryQueueBatch(
   // Deliver endpoint messages with bulkhead+concurrency.
   const deliveryMessages = batch.messages.filter((m) => isDeliveryQueueMessageV1(m.body) && m.body.type === 'deliver_endpoint') as Array<Message<DeliveryQueueMessageV1>>;
   await runWithConcurrency(deliveryMessages, BULKHEAD_GLOBAL_CONCURRENCY, async (m) => {
-    const body = m.body as DeliveryDeliverEndpointMessageV1;
     try {
-      await processDeliverEndpoint(prisma, env, { jobId: body.jobId, scheduledAt: body.scheduledAt }, m, bulkhead);
+      await processDeliverEndpoint(prisma, env, m.body as DeliveryDeliverEndpointMessageV1, m, bulkhead);
     } catch (e) {
       console.error('[DeliveryQueue] deliver_endpoint failed:', e);
       m.retry({ delaySeconds: 60 });

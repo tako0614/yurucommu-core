@@ -35,9 +35,7 @@ function inferContentType(path: string): string {
   return MIME_TYPES[ext] ?? 'application/octet-stream';
 }
 
-// ============================================================
-// Deploy API  (mounted at /api/apps)
-// ============================================================
+// Deploy API (mounted at /api/apps)
 
 export const appsApiRoutes = new Hono<AppEnv>();
 
@@ -113,9 +111,7 @@ appsApiRoutes.post('/:name/deploy', requireBearerAuth('apps:deploy'), async (c) 
   return c.json({ url: deployedUrl, files: results.length });
 });
 
-// ============================================================
-// Serve routes  (mounted at /hosted)
-// ============================================================
+// Serve routes (mounted at /hosted)
 
 export const appsServeRoutes = new Hono<AppEnv>();
 

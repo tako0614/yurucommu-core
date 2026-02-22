@@ -215,16 +215,11 @@ export class CloudflareKV implements IKeyValueStore {
     list_complete: boolean;
     cursor?: string;
   }> {
-    const result = await this.kv.list(options) as {
+    return this.kv.list(options) as Promise<{
       keys: Array<{ name: string; expiration?: number; metadata?: unknown }>;
       list_complete: boolean;
       cursor?: string;
-    };
-    return {
-      keys: result.keys,
-      list_complete: result.list_complete,
-      cursor: result.cursor,
-    };
+    }>;
   }
 }
 
@@ -260,21 +255,24 @@ export function createCloudflareRuntime(env: {
   TAKOS_CLIENT_SECRET?: string;
   AUTH_MODE?: string;
 }) {
+  const {
+    DB, MEDIA, KV, ASSETS,
+    APP_URL, AUTH_PASSWORD_HASH, AUTH_PASSWORD,
+    GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+    X_CLIENT_ID, X_CLIENT_SECRET,
+    TAKOS_URL, TAKOS_CLIENT_ID, TAKOS_CLIENT_SECRET,
+    AUTH_MODE,
+  } = env;
+
   return {
-    db: new CloudflareDatabase(env.DB),
-    storage: env.MEDIA ? new CloudflareStorage(env.MEDIA) : undefined,
-    kv: env.KV ? new CloudflareKV(env.KV) : undefined,
-    assets: env.ASSETS ? new CloudflareAssets(env.ASSETS) : undefined,
-    APP_URL: env.APP_URL,
-    AUTH_PASSWORD_HASH: env.AUTH_PASSWORD_HASH,
-    AUTH_PASSWORD: env.AUTH_PASSWORD,
-    GOOGLE_CLIENT_ID: env.GOOGLE_CLIENT_ID,
-    GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET,
-    X_CLIENT_ID: env.X_CLIENT_ID,
-    X_CLIENT_SECRET: env.X_CLIENT_SECRET,
-    TAKOS_URL: env.TAKOS_URL,
-    TAKOS_CLIENT_ID: env.TAKOS_CLIENT_ID,
-    TAKOS_CLIENT_SECRET: env.TAKOS_CLIENT_SECRET,
-    AUTH_MODE: env.AUTH_MODE,
+    db: new CloudflareDatabase(DB),
+    storage: MEDIA ? new CloudflareStorage(MEDIA) : undefined,
+    kv: KV ? new CloudflareKV(KV) : undefined,
+    assets: ASSETS ? new CloudflareAssets(ASSETS) : undefined,
+    APP_URL, AUTH_PASSWORD_HASH, AUTH_PASSWORD,
+    GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+    X_CLIENT_ID, X_CLIENT_SECRET,
+    TAKOS_URL, TAKOS_CLIENT_ID, TAKOS_CLIENT_SECRET,
+    AUTH_MODE,
   };
 }

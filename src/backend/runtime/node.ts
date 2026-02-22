@@ -27,9 +27,68 @@ let Database: DatabaseConstructor | null = null;
 let fs: typeof import('fs/promises') | null = null;
 let path: typeof import('path') | null = null;
 
+const DEFAULT_LIST_LIMIT = 1000;
+const META_SUFFIX = '.meta.json';
+const FALLBACK_MIME = 'application/octet-stream';
+
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html',
+  '.css': 'text/css',
+  '.js': 'application/javascript',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+};
+
+function getMimeType(ext: string): string {
+  return MIME_TYPES[ext] || FALLBACK_MIME;
+}
+
+function nowSeconds(): number {
+  return Date.now() / 1000;
+}
+
+/** Drain a ReadableStream into chunks suitable for Buffer.concat. */
+async function drainStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array[]> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  return chunks;
+}
+
+/** Compute expiration timestamp from options. */
+function resolveExpiration(options?: { expiration?: number; expirationTtl?: number }): number | undefined {
+  if (options?.expiration) return options.expiration;
+  if (options?.expirationTtl) return Math.floor(nowSeconds()) + options.expirationTtl;
+  return undefined;
+}
+
+/** Build a paginated list result with truncation. */
+function paginateList<T>(items: T[], limit: number): { items: T[]; complete: boolean; cursor?: string } {
+  const complete = items.length <= limit;
+  return {
+    items: items.slice(0, limit),
+    complete,
+    cursor: complete ? undefined : String(limit),
+  };
+}
+
 async function loadNodeModules() {
   if (!Database) {
-    // Dynamic import with esModuleInterop
     const sqlite = await import('better-sqlite3');
     Database = (sqlite as unknown as { default: DatabaseConstructor }).default ?? sqlite as unknown as DatabaseConstructor;
   }
@@ -137,6 +196,9 @@ class NodePreparedStatement implements PreparedStatement {
   }
 }
 
+/** Parsed storage metadata shape. */
+type StorageMeta = { httpMetadata?: ObjectMetadata['httpMetadata']; customMetadata?: Record<string, string> };
+
 /**
  * Node.js Filesystem Storage Adapter
  */
@@ -158,7 +220,17 @@ export class NodeStorage implements IObjectStorage {
   }
 
   private getMetaPath(key: string): string {
-    return path!.join(this.basePath, `${key}.meta.json`);
+    return path!.join(this.basePath, `${key}${META_SUFFIX}`);
+  }
+
+  /** Read and parse the .meta.json sidecar, returning empty object on failure. */
+  private async loadMeta(key: string): Promise<StorageMeta> {
+    try {
+      const raw = await fs!.readFile(this.getMetaPath(key), 'utf-8');
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
   }
 
   async put(
@@ -170,35 +242,23 @@ export class NodeStorage implements IObjectStorage {
     }
   ): Promise<void> {
     const filePath = this.getFilePath(key);
-    const metaPath = this.getMetaPath(key);
 
-    // Ensure directory exists
     await fs!.mkdir(path!.dirname(filePath), { recursive: true });
 
-    // Write file content
     let content: Buffer;
     if (typeof value === 'string') {
       content = Buffer.from(value, 'utf-8');
     } else if (value instanceof ArrayBuffer) {
       content = Buffer.from(value);
     } else {
-      // ReadableStream
-      const chunks: Uint8Array[] = [];
-      const reader = value.getReader();
-      while (true) {
-        const { done, value: chunk } = await reader.read();
-        if (done) break;
-        chunks.push(chunk);
-      }
-      content = Buffer.concat(chunks);
+      content = Buffer.concat(await drainStream(value));
     }
 
     await fs!.writeFile(filePath, content);
 
-    // Write metadata
     if (options?.httpMetadata || options?.customMetadata) {
       await fs!.writeFile(
-        metaPath,
+        this.getMetaPath(key),
         JSON.stringify({
           httpMetadata: options.httpMetadata,
           customMetadata: options.customMetadata,
@@ -208,19 +268,9 @@ export class NodeStorage implements IObjectStorage {
   }
 
   async get(key: string): Promise<StorageObject | null> {
-    const filePath = this.getFilePath(key);
-    const metaPath = this.getMetaPath(key);
-
     try {
-      const content = await fs!.readFile(filePath);
-      let metadata: { httpMetadata?: ObjectMetadata['httpMetadata']; customMetadata?: Record<string, string> } = {};
-
-      try {
-        const metaContent = await fs!.readFile(metaPath, 'utf-8');
-        metadata = JSON.parse(metaContent);
-      } catch {
-        // No metadata file
-      }
+      const content = await fs!.readFile(this.getFilePath(key));
+      const metadata = await this.loadMeta(key);
 
       let bodyUsed = false;
       const arrayBuffer = content.buffer.slice(
@@ -260,17 +310,12 @@ export class NodeStorage implements IObjectStorage {
   async delete(key: string | string[]): Promise<void> {
     const keys = Array.isArray(key) ? key : [key];
     for (const k of keys) {
-      const filePath = this.getFilePath(k);
-      const metaPath = this.getMetaPath(k);
-      try {
-        await fs!.unlink(filePath);
-      } catch {
-        // Ignore if not exists
-      }
-      try {
-        await fs!.unlink(metaPath);
-      } catch {
-        // Ignore if not exists
+      for (const filePath of [this.getFilePath(k), this.getMetaPath(k)]) {
+        try {
+          await fs!.unlink(filePath);
+        } catch {
+          // Ignore if not exists
+        }
       }
     }
   }
@@ -292,7 +337,7 @@ export class NodeStorage implements IObjectStorage {
 
           if (entry.isDirectory()) {
             await readDir(fullPath, key);
-          } else if (!entry.name.endsWith('.meta.json')) {
+          } else if (!entry.name.endsWith(META_SUFFIX)) {
             if (!options?.prefix || key.startsWith(options.prefix)) {
               const stats = await fs!.stat(fullPath);
               objects.push({
@@ -310,32 +355,20 @@ export class NodeStorage implements IObjectStorage {
 
     await readDir(this.basePath);
 
-    // Apply limit
-    const limit = options?.limit ?? 1000;
+    const limit = options?.limit ?? DEFAULT_LIST_LIMIT;
     const truncated = objects.length > limit;
-    const results = objects.slice(0, limit);
 
     return {
-      objects: results,
+      objects: objects.slice(0, limit),
       truncated,
       cursor: truncated ? String(limit) : undefined,
     };
   }
 
   async head(key: string): Promise<ObjectMetadata | null> {
-    const filePath = this.getFilePath(key);
-    const metaPath = this.getMetaPath(key);
-
     try {
-      const stats = await fs!.stat(filePath);
-      let metadata: { httpMetadata?: ObjectMetadata['httpMetadata']; customMetadata?: Record<string, string> } = {};
-
-      try {
-        const metaContent = await fs!.readFile(metaPath, 'utf-8');
-        metadata = JSON.parse(metaContent);
-      } catch {
-        // No metadata file
-      }
+      const stats = await fs!.stat(this.getFilePath(key));
+      const metadata = await this.loadMeta(key);
 
       return {
         contentLength: stats.size,
@@ -361,19 +394,14 @@ export class MemoryKV implements IKeyValueStore {
     const entry = this.store.get(key);
     if (!entry) return null;
 
-    // Check expiration
-    if (entry.expiration && entry.expiration < Date.now() / 1000) {
+    if (entry.expiration && entry.expiration < nowSeconds()) {
       this.store.delete(key);
       return null;
     }
 
     const type = options?.type ?? 'text';
-    if (type === 'json') {
-      return JSON.parse(entry.value);
-    }
-    if (type === 'arrayBuffer') {
-      return new TextEncoder().encode(entry.value).buffer;
-    }
+    if (type === 'json') return JSON.parse(entry.value);
+    if (type === 'arrayBuffer') return new TextEncoder().encode(entry.value).buffer;
     return entry.value;
   }
 
@@ -392,26 +420,12 @@ export class MemoryKV implements IKeyValueStore {
     } else if (value instanceof ArrayBuffer) {
       strValue = new TextDecoder().decode(value);
     } else {
-      const reader = value.getReader();
-      const chunks: Uint8Array[] = [];
-      while (true) {
-        const { done, value: chunk } = await reader.read();
-        if (done) break;
-        chunks.push(chunk);
-      }
-      strValue = new TextDecoder().decode(Buffer.concat(chunks));
-    }
-
-    let expiration: number | undefined;
-    if (options?.expiration) {
-      expiration = options.expiration;
-    } else if (options?.expirationTtl) {
-      expiration = Math.floor(Date.now() / 1000) + options.expirationTtl;
+      strValue = new TextDecoder().decode(Buffer.concat(await drainStream(value)));
     }
 
     this.store.set(key, {
       value: strValue,
-      expiration,
+      expiration: resolveExpiration(options),
       metadata: options?.metadata,
     });
   }
@@ -430,18 +444,11 @@ export class MemoryKV implements IKeyValueStore {
     cursor?: string;
   }> {
     const keys: Array<{ name: string; expiration?: number; metadata?: unknown }> = [];
-    const now = Date.now() / 1000;
+    const now = nowSeconds();
 
     for (const [name, entry] of this.store.entries()) {
-      // Skip expired entries
-      if (entry.expiration && entry.expiration < now) {
-        continue;
-      }
-
-      // Apply prefix filter
-      if (options?.prefix && !name.startsWith(options.prefix)) {
-        continue;
-      }
+      if (entry.expiration && entry.expiration < now) continue;
+      if (options?.prefix && !name.startsWith(options.prefix)) continue;
 
       keys.push({
         name,
@@ -450,14 +457,8 @@ export class MemoryKV implements IKeyValueStore {
       });
     }
 
-    const limit = options?.limit ?? 1000;
-    const list_complete = keys.length <= limit;
-
-    return {
-      keys: keys.slice(0, limit),
-      list_complete,
-      cursor: list_complete ? undefined : String(limit),
-    };
+    const { items, complete, cursor } = paginateList(keys, options?.limit ?? DEFAULT_LIST_LIMIT);
+    return { keys: items, list_complete: complete, cursor };
   }
 }
 
@@ -518,28 +519,6 @@ export class NodeAssets implements IStaticAssets {
   }
 }
 
-function getMimeType(ext: string): string {
-  const mimeTypes: Record<string, string> = {
-    '.html': 'text/html',
-    '.css': 'text/css',
-    '.js': 'application/javascript',
-    '.json': 'application/json',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.svg': 'image/svg+xml',
-    '.webp': 'image/webp',
-    '.ico': 'image/x-icon',
-    '.woff': 'font/woff',
-    '.woff2': 'font/woff2',
-    '.ttf': 'font/ttf',
-    '.mp4': 'video/mp4',
-    '.webm': 'video/webm',
-  };
-  return mimeTypes[ext] || 'application/octet-stream';
-}
-
 /**
  * Create runtime environment for Node.js
  */
@@ -557,10 +536,8 @@ export async function createNodeRuntime(config: {
     GITHUB_CLIENT_SECRET?: string;
   };
 }): Promise<RuntimeEnv> {
-  const database = await NodeDatabase.create(config.databasePath || ':memory:');
-
   return {
-    db: database,
+    db: await NodeDatabase.create(config.databasePath || ':memory:'),
     storage: config.storagePath ? await NodeStorage.create(config.storagePath) : undefined,
     kv: new MemoryKV(),
     assets: config.assetsPath ? await NodeAssets.create(config.assetsPath) : undefined,

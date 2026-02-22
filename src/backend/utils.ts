@@ -1,6 +1,3 @@
-// Utility functions for Yurucommu backend
-
-// Re-export error types and utilities from local lib
 export {
   // Error codes
   ErrorCodes,
@@ -25,7 +22,6 @@ export {
   type ValidationErrorDetail,
 } from './lib/errors';
 
-// Re-export Hono error helpers for route handlers
 export {
   badRequest,
   unauthorized,
@@ -49,10 +45,6 @@ export {
   throwRateLimited,
 } from './middleware/error-handler';
 
-/**
- * Safely parse JSON with a fallback value on parse failure.
- * Returns the default value if json is null, undefined, or invalid JSON.
- */
 export function safeJsonParse<T>(json: string | null | undefined, defaultValue: T): T {
   if (!json) return defaultValue;
   try {
@@ -89,7 +81,6 @@ export function generateId(): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Generate AP IRI for local resources
 export function actorApId(baseUrl: string, username: string): string {
   return `${baseUrl}/ap/users/${username}`;
 }
@@ -106,17 +97,14 @@ export function communityApId(baseUrl: string, name: string): string {
   return `${baseUrl}/ap/groups/${name}`;
 }
 
-// Extract domain from AP IRI
 export function getDomain(apId: string): string {
   return new URL(apId).host;
 }
 
-// Check if AP IRI is local
 export function isLocal(apId: string, baseUrl: string): boolean {
   return apId.startsWith(baseUrl);
 }
 
-// Format username with domain for display
 export function formatUsername(apId: string): string {
   const url = new URL(apId);
   const match = apId.match(/\/users\/([^\/]+)$/);
@@ -154,18 +142,17 @@ function isPrivateIPv4(hostname: string): boolean {
   return false;
 }
 
+const PRIVATE_IPV6_EXACT = ['::1', '0:0:0:0:0:0:0:1', '::', '0:0:0:0:0:0:0:0'];
+const PRIVATE_IPV6_PREFIXES = ['fc', 'fd', 'fe8', 'fe9', 'fea', 'feb', 'ff'];
+
 function isPrivateIPv6(ipv6Raw: string): boolean {
   const ipv6 = ipv6Raw.toLowerCase().replace(/^\[|\]$/g, '');
-  if (ipv6 === '::1' || ipv6 === '0:0:0:0:0:0:0:1') return true;
-  if (ipv6 === '::' || ipv6 === '0:0:0:0:0:0:0:0') return true;
-  if (ipv6.startsWith('fc') || ipv6.startsWith('fd')) return true;
-  if (ipv6.startsWith('fe8') || ipv6.startsWith('fe9') || ipv6.startsWith('fea') || ipv6.startsWith('feb')) return true;
-  if (ipv6.startsWith('ff')) return true;
+
+  if (PRIVATE_IPV6_EXACT.includes(ipv6)) return true;
+  if (PRIVATE_IPV6_PREFIXES.some((prefix) => ipv6.startsWith(prefix))) return true;
 
   const mappedIpv4 = ipv6.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
-  if (mappedIpv4) {
-    return isPrivateIPv4(mappedIpv4[1]);
-  }
+  if (mappedIpv4) return isPrivateIPv4(mappedIpv4[1]);
 
   return false;
 }
@@ -181,19 +168,13 @@ function normalizeHostname(hostname: string): string {
   return normalized.endsWith('.') ? normalized.slice(0, -1) : normalized;
 }
 
+const BLOCKED_HOSTNAME_SUFFIXES = ['.localhost', '.local', '.localdomain', '.internal'];
+
 export function isBlockedHostname(hostname: string): boolean {
   const lower = normalizeHostname(hostname);
-  if (
-    lower === 'localhost' ||
-    lower.endsWith('.localhost') ||
-    lower.endsWith('.local') ||
-    lower.endsWith('.localdomain') ||
-    lower.endsWith('.internal')
-  ) {
-    return true;
-  }
-  if (isPrivateIpAddress(lower)) return true;
-  return false;
+  if (lower === 'localhost') return true;
+  if (BLOCKED_HOSTNAME_SUFFIXES.some((suffix) => lower.endsWith(suffix))) return true;
+  return isPrivateIpAddress(lower);
 }
 
 export function isSafeRemoteUrl(url: string): boolean {
@@ -210,10 +191,6 @@ export function isSafeRemoteUrl(url: string): boolean {
   }
 }
 
-/**
- * Normalize a remote domain for safe use
- * Returns the normalized host or null if invalid
- */
 export function normalizeRemoteDomain(domain: string): string | null {
   const trimmed = domain.trim();
   if (!trimmed) return null;
@@ -268,23 +245,14 @@ export async function resolveRemoteHostnameIPs(hostname: string): Promise<string
       dohResolve(normalized, 'CNAME'),
     ]);
 
-    for (const answer of aAnswers) {
-      if (answer.type === 1) {
-        ips.add(answer.data);
-      }
-    }
-
-    for (const answer of aaaaAnswers) {
-      if (answer.type === 28) {
-        ips.add(answer.data);
-      }
+    // type 1 = A record, type 28 = AAAA record
+    for (const answer of [...aAnswers, ...aaaaAnswers]) {
+      if (answer.type === 1 || answer.type === 28) ips.add(answer.data);
     }
 
     for (const answer of cnameAnswers) {
-      if (answer.type === 5) {
-        // eslint-disable-next-line no-await-in-loop
-        await walk(answer.data, depth + 1);
-      }
+      // eslint-disable-next-line no-await-in-loop
+      if (answer.type === 5) await walk(answer.data, depth + 1);
     }
   }
 
@@ -297,12 +265,9 @@ export async function assertSafeRemoteUrlResolved(url: string): Promise<void> {
     throw new Error(`Unsafe remote URL: ${url}`);
   }
 
-  const parsed = new URL(url);
-  const hostname = normalizeHostname(parsed.hostname);
-  if (isBlockedHostname(hostname)) {
-    throw new Error(`Blocked hostname: ${hostname}`);
-  }
-
+  // isSafeRemoteUrl already validated the hostname is not blocked,
+  // so we only need to verify resolved IPs are not private.
+  const hostname = normalizeHostname(new URL(url).hostname);
   const resolvedIps = await resolveRemoteHostnameIPs(hostname);
   if (resolvedIps.length === 0) {
     throw new Error(`Failed to resolve hostname: ${hostname}`);
@@ -315,39 +280,51 @@ export async function assertSafeRemoteUrlResolved(url: string): Promise<void> {
   }
 }
 
-// RSA key generation
+const RSA_ALGORITHM = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' };
+
+function bufferToBase64(buffer: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+}
+
+function wrapPem(label: string, base64: string): string {
+  const lines = base64.match(/.{1,64}/g)?.join('\n') ?? base64;
+  return `-----BEGIN ${label}-----\n${lines}\n-----END ${label}-----`;
+}
+
 export async function generateKeyPair(): Promise<{ publicKeyPem: string; privateKeyPem: string }> {
   const keyPair = await crypto.subtle.generateKey(
-    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    { ...RSA_ALGORITHM, modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]) },
     true,
     ['sign', 'verify']
   );
 
-  const publicKey = await crypto.subtle.exportKey('spki', keyPair.publicKey);
-  const privateKey = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
+  const [publicKey, privateKey] = await Promise.all([
+    crypto.subtle.exportKey('spki', keyPair.publicKey),
+    crypto.subtle.exportKey('pkcs8', keyPair.privateKey),
+  ]);
 
-  const publicKeyPem = `-----BEGIN PUBLIC KEY-----\n${btoa(String.fromCharCode(...new Uint8Array(publicKey))).match(/.{1,64}/g)?.join('\n')}\n-----END PUBLIC KEY-----`;
-  const privateKeyPem = `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCharCode(...new Uint8Array(privateKey))).match(/.{1,64}/g)?.join('\n')}\n-----END PRIVATE KEY-----`;
-
-  return { publicKeyPem, privateKeyPem };
+  return {
+    publicKeyPem: wrapPem('PUBLIC KEY', bufferToBase64(publicKey)),
+    privateKeyPem: wrapPem('PRIVATE KEY', bufferToBase64(privateKey)),
+  };
 }
 
-// HTTP Signature
 export async function signRequest(privateKeyPem: string, keyId: string, method: string, url: string, body?: string): Promise<Record<string, string>> {
   const urlObj = new URL(url);
   const date = new Date().toUTCString();
-  const digest = body ? `SHA-256=${btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body)))))}` : undefined;
+  const digest = body
+    ? `SHA-256=${bufferToBase64(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body)))}`
+    : undefined;
 
   const signedHeaders = digest ? '(request-target) host date digest' : '(request-target) host date';
-  const signatureString = digest
-    ? `(request-target): ${method.toLowerCase()} ${urlObj.pathname}\nhost: ${urlObj.host}\ndate: ${date}\ndigest: ${digest}`
-    : `(request-target): ${method.toLowerCase()} ${urlObj.pathname}\nhost: ${urlObj.host}\ndate: ${date}`;
+  let signatureString = `(request-target): ${method.toLowerCase()} ${urlObj.pathname}\nhost: ${urlObj.host}\ndate: ${date}`;
+  if (digest) signatureString += `\ndigest: ${digest}`;
 
   const pemContents = privateKeyPem.replace(/-----[^-]+-----/g, '').replace(/\s/g, '');
-  const binaryKey = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
-  const cryptoKey = await crypto.subtle.importKey('pkcs8', binaryKey, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const binaryKey = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
+  const cryptoKey = await crypto.subtle.importKey('pkcs8', binaryKey, RSA_ALGORITHM, false, ['sign']);
   const signatureBuffer = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, new TextEncoder().encode(signatureString));
-  const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+  const signature = bufferToBase64(signatureBuffer);
 
   const headers: Record<string, string> = {
     'Date': date,
@@ -359,17 +336,8 @@ export async function signRequest(privateKeyPem: string, keyId: string, method: 
   return headers;
 }
 
-// Default timeout for external HTTP requests (30 seconds)
-const DEFAULT_FETCH_TIMEOUT_MS = 30000;
+const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
 
-/**
- * Fetch with timeout support
- * Wraps the standard fetch API with AbortController for timeout handling
- *
- * @param url - URL to fetch
- * @param options - Fetch options with optional timeout
- * @returns Response or throws on timeout/error
- */
 export async function fetchWithTimeout(
   url: string,
   options: RequestInit & { timeout?: number; skipSafetyCheck?: boolean } = {}
