@@ -154,6 +154,11 @@ async function verifyHttpSignature(
     return { valid: false, error: 'Invalid Signature header format' };
   }
 
+  // Require 'date' header in signature to prevent replay attacks
+  if (!parsed.headers.includes('date')) {
+    return { valid: false, error: 'date header must be included in signature' };
+  }
+
   // Validate Date header timestamp (CRITICAL: prevents replay attacks)
   const dateHeader = c.req.header('date');
   if (dateHeader) {
@@ -168,8 +173,7 @@ async function verifyHttpSignature(
       console.warn(`[HTTP Signature] Request too old/new: ${timeDiff}ms difference`);
       return { valid: false, error: 'Request timestamp outside acceptable window' };
     }
-  } else if (parsed.headers.includes('date')) {
-    // Date header is required in the signature but missing from request
+  } else {
     return { valid: false, error: 'Missing Date header required by signature' };
   }
 
@@ -201,7 +205,12 @@ async function verifyHttpSignature(
 
   const signatureString = signatureParts.join('\n');
 
-  // Verify digest if present
+  // Require 'digest' header in signature to ensure body integrity
+  if (!parsed.headers.includes('digest')) {
+    return { valid: false, error: 'digest header must be included in signature to ensure body integrity' };
+  }
+
+  // Verify digest
   if (parsed.headers.includes('digest')) {
     const digestHeader = c.req.header('digest');
     if (!digestHeader) {
@@ -260,6 +269,12 @@ ap.post('/ap/actor/inbox', async (c) => {
   const prisma = c.get('prisma');
   const instanceActor = await getInstanceActor(c);
   const baseUrl = c.env.APP_URL;
+
+  // Reject oversized payloads before reading body (DoS prevention)
+  const contentLength = parseInt(c.req.header('content-length') || '0');
+  if (contentLength > 512 * 1024) {
+    return c.json({ error: 'Payload too large' }, 413);
+  }
 
   // Get raw body for signature verification
   const body = await c.req.text();
@@ -370,6 +385,12 @@ ap.post('/ap/users/:username/inbox', async (c) => {
   });
 
   if (!recipient) return c.json({ error: 'Actor not found' }, 404);
+
+  // Reject oversized payloads before reading body (DoS prevention)
+  const contentLength = parseInt(c.req.header('content-length') || '0');
+  if (contentLength > 512 * 1024) {
+    return c.json({ error: 'Payload too large' }, 413);
+  }
 
   // Get raw body for signature verification
   const body = await c.req.text();

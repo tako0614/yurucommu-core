@@ -194,7 +194,7 @@ ap.get('/ap/users/:username/followers', async (c) => {
 
   const actor = await prisma.actor.findUnique({
     where: { apId },
-    select: { apId: true },
+    select: { apId: true, isPrivate: true },
   });
 
   if (!actor) return c.json({ error: 'Actor not found' }, 404);
@@ -231,7 +231,7 @@ ap.get('/ap/users/:username/followers', async (c) => {
       id: `${followersUrl}?page=${pageNum}`,
       type: 'OrderedCollectionPage',
       partOf: followersUrl,
-      orderedItems: followers.map((f) => f.followerApId),
+      orderedItems: actor.isPrivate ? [] : followers.map((f) => f.followerApId),
     });
   } else {
     return c.json({

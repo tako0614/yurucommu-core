@@ -197,10 +197,15 @@ export async function handleUndo(
   if (!objectType && objectId) {
     const originalActivity = await prisma.activity.findUnique({
       where: { apId: objectId },
-      select: { type: true, objectApId: true },
+      select: { type: true, objectApId: true, actorApId: true },
     });
 
     if (originalActivity) {
+      // Verify the Undo actor matches the original activity actor (prevent cross-actor Undo)
+      if (originalActivity.actorApId && originalActivity.actorApId !== actor) {
+        console.warn(`[ActivityPub] Undo actor mismatch: ${actor} tried to undo activity by ${originalActivity.actorApId}`);
+        return;
+      }
       // Handle based on original activity type
       if (originalActivity.type === 'Follow') {
         const follow = await prisma.follow.findFirst({
