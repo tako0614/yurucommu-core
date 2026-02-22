@@ -16,6 +16,13 @@ import {
 
 type ActivityContext = Context<{ Bindings: Env; Variables: Variables }>;
 
+const AS_CONTEXT = 'https://www.w3.org/ns/activitystreams';
+
+const JOIN_POLICY_STATUS: Record<string, 'accepted' | 'pending' | 'rejected'> = {
+  approval: 'pending',
+  invite: 'rejected',
+};
+
 export async function handleGroupFollow(
   c: ActivityContext,
   _activity: Activity,
@@ -25,29 +32,22 @@ export async function handleGroupFollow(
   activityId: string
 ) {
   const prisma = c.get('prisma');
+  const followerKey = {
+    followerApId: actorApIdStr,
+    followingApId: instanceActor.apId,
+  };
 
   const existing = await prisma.follow.findUnique({
-    where: {
-      followerApId_followingApId: {
-        followerApId: actorApIdStr,
-        followingApId: instanceActor.apId,
-      },
-    },
+    where: { followerApId_followingApId: followerKey },
   });
   if (existing) return;
 
-  let status: 'accepted' | 'pending' | 'rejected' = 'accepted';
-  if (instanceActor.joinPolicy === 'approval') {
-    status = 'pending';
-  } else if (instanceActor.joinPolicy === 'invite') {
-    status = 'rejected';
-  }
+  const status = JOIN_POLICY_STATUS[instanceActor.joinPolicy ?? ''] ?? 'accepted';
 
   const now = new Date().toISOString();
   await prisma.follow.create({
     data: {
-      followerApId: actorApIdStr,
-      followingApId: instanceActor.apId,
+      ...followerKey,
       status,
       activityApId: activityId,
       acceptedAt: status === 'accepted' ? now : null,
@@ -55,32 +55,31 @@ export async function handleGroupFollow(
   });
 
   if (isLocal(actorApIdStr, baseUrl)) return;
+  if (status === 'pending') return;
 
-  if (status === 'accepted' || status === 'rejected') {
-    const responseType = status === 'accepted' ? 'Accept' : 'Reject';
-    const responseId = activityApId(baseUrl, generateId());
-    const responseActivity = {
-      '@context': 'https://www.w3.org/ns/activitystreams',
-      id: responseId,
+  const responseType = status === 'accepted' ? 'Accept' : 'Reject';
+  const responseId = activityApId(baseUrl, generateId());
+  const responseActivity = {
+    '@context': AS_CONTEXT,
+    id: responseId,
+    type: responseType,
+    actor: instanceActor.apId,
+    object: activityId,
+  };
+
+  await prisma.activity.create({
+    data: {
+      apId: responseId,
       type: responseType,
-      actor: instanceActor.apId,
-      object: activityId,
-    };
+      actorApId: instanceActor.apId,
+      objectApId: activityId,
+      rawJson: JSON.stringify(responseActivity),
+      direction: 'outbound',
+    },
+  });
 
-    await prisma.activity.create({
-      data: {
-        apId: responseId,
-        type: responseType,
-        actorApId: instanceActor.apId,
-        objectApId: activityId,
-        rawJson: JSON.stringify(responseActivity),
-        direction: 'outbound',
-      },
-    });
-
-    // Outbound delivery must be async (no remote POST in request path).
-    await enqueueDeliveryToActor(c.env, responseId, actorApIdStr);
-  }
+  // Outbound delivery must be async (no remote POST in request path).
+  await enqueueDeliveryToActor(c.env, responseId, actorApIdStr);
 }
 
 export async function handleGroupUndo(
@@ -92,6 +91,7 @@ export async function handleGroupUndo(
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
+  // Try exact match by activity AP ID first.
   const follow = await prisma.follow.findFirst({
     where: {
       activityApId: objectId,
@@ -111,14 +111,15 @@ export async function handleGroupUndo(
     return;
   }
 
-  if (getActivityObject(activity)?.type === 'Follow') {
-    await prisma.follow.deleteMany({
-      where: {
-        followerApId: activity.actor,
-        followingApId: instanceActor.apId,
-      },
-    });
-  }
+  // Fallback: if the undone object is a Follow, delete by actor pair.
+  if (getActivityObject(activity)?.type !== 'Follow') return;
+
+  await prisma.follow.deleteMany({
+    where: {
+      followerApId: activity.actor,
+      followingApId: instanceActor.apId,
+    },
+  });
 }
 
 export async function handleGroupCreate(

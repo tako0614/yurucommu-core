@@ -6,16 +6,21 @@
  */
 
 /**
+ * Shared metadata for query/run results
+ */
+export interface ResultMeta {
+  changes?: number;
+  last_row_id?: number;
+  duration?: number;
+}
+
+/**
  * Database query result
  */
 export interface QueryResult<T = unknown> {
   results: T[];
   success: boolean;
-  meta?: {
-    changes?: number;
-    last_row_id?: number;
-    duration?: number;
-  };
+  meta?: ResultMeta;
 }
 
 /**
@@ -28,10 +33,7 @@ export type FirstResult<T> = T | null;
  */
 export interface RunResult {
   success: boolean;
-  meta?: {
-    changes?: number;
-    last_row_id?: number;
-  };
+  meta?: Pick<ResultMeta, 'changes' | 'last_row_id'>;
 }
 
 /**
@@ -186,33 +188,4 @@ export interface RuntimeEnv {
   TAKOS_CLIENT_ID?: string;
   TAKOS_CLIENT_SECRET?: string;
   AUTH_MODE?: string;
-}
-
-/**
- * Runtime type identifier
- */
-export type RuntimeType = 'cloudflare' | 'node' | 'bun' | 'deno';
-
-/**
- * Runtime configuration
- */
-export interface RuntimeConfig {
-  type: RuntimeType;
-  database?: {
-    type: 'sqlite' | 'postgres' | 'mysql' | 'd1';
-    connectionString?: string;
-    filename?: string;
-  };
-  storage?: {
-    type: 'r2' | 'filesystem' | 's3';
-    basePath?: string;
-    bucket?: string;
-    endpoint?: string;
-    accessKey?: string;
-    secretKey?: string;
-  };
-  kv?: {
-    type: 'cloudflare-kv' | 'redis' | 'memory';
-    url?: string;
-  };
 }

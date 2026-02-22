@@ -62,6 +62,10 @@ function errNotFound(entity: string): ToolResponse {
   return { success: false, error: `${entity} not found` };
 }
 
+function ok(data: unknown): ToolResponse {
+  return { success: true, data };
+}
+
 interface ActorSummary {
   apId: string;
   preferredUsername: string;
@@ -85,6 +89,91 @@ const ACTOR_SUMMARY_SELECT = {
   name: true,
   iconUrl: true,
 } as const;
+
+function followCompositeKey(followerApId: string, followingApId: string) {
+  return { followerApId_followingApId: { followerApId, followingApId } };
+}
+
+// Build the shared Prisma where-clause for DM queries (threads & messages).
+function dmVisibilityFilter(actorApId: string, conversation: unknown) {
+  return {
+    visibility: 'direct',
+    type: 'Note',
+    conversation,
+    OR: [
+      { attributedTo: actorApId },
+      { recipients: { some: { recipientApId: actorApId } } },
+    ],
+  };
+}
+
+// Determine the conversation partner from a DM object. Returns null when
+// the current actor is not a verified participant (defense in depth).
+function resolveDmPartner(
+  dm: { attributedTo: string; toJson: string | null },
+  actorApId: string,
+): string | null {
+  const toRecipients = safeJsonParse<string[]>(dm.toJson, []);
+
+  if (dm.attributedTo === actorApId) {
+    return toRecipients[0] || null;
+  }
+
+  // Defense in depth: verify we're actually a recipient.
+  if (!toRecipients.includes(actorApId)) return null;
+  return dm.attributedTo;
+}
+
+// Toggle a many-to-one relation (like, bookmark) on a post.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- prisma model delegates vary per table
+async function togglePostRelation(
+  model: any,
+  actorApId: string,
+  objectApId: string,
+  active: boolean,
+): Promise<void> {
+  const compositeKey = {
+    actorApId_objectApId: { actorApId, objectApId },
+  };
+
+  if (active) {
+    await model.upsert({
+      where: compositeKey,
+      create: { actorApId, objectApId },
+      update: {},
+    });
+  } else {
+    await model.deleteMany({
+      where: { actorApId, objectApId },
+    });
+  }
+}
+
+// Fetch a follow-direction list for a given actor (followers or following).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- prisma instance
+async function fetchFollowList(
+  prisma: any,
+  targetApId: string,
+  direction: 'followers' | 'following',
+  limit: number,
+): Promise<ActorSummary[]> {
+  const isFollowers = direction === 'followers';
+  const follows = await prisma.follow.findMany({
+    where: {
+      [isFollowers ? 'followingApId' : 'followerApId']: targetApId,
+      status: 'accepted',
+    },
+    take: limit,
+  });
+
+  const relatedIds = follows.map((f: any) => isFollowers ? f.followerApId : f.followingApId);
+  if (relatedIds.length === 0) return [];
+
+  return prisma.actor.findMany({
+    where: { apId: { in: relatedIds } },
+    select: ACTOR_SUMMARY_SELECT,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Route
@@ -112,9 +201,7 @@ takosTools.post('/:name', async (c) => {
         const query = requireString(input, 'query');
         const limit = toolLimit(input.limit, 20, 50);
 
-        if (!query) {
-          return c.json({ success: true, data: { actors: [] } });
-        }
+        if (!query) return c.json(ok({ actors: [] }));
 
         const actors = await prisma.actor.findMany({
           where: {
@@ -133,25 +220,20 @@ takosTools.post('/:name', async (c) => {
           take: limit,
         });
 
-        return c.json({
-          success: true,
-          data: {
-            actors: actors.map(a => ({
-              ...formatActorSummary(a),
-              summary: a.summary,
-              follower_count: a.followerCount,
-            })),
-          },
-        });
+        return c.json(ok({
+          actors: actors.map(a => ({
+            ...formatActorSummary(a),
+            summary: a.summary,
+            follower_count: a.followerCount,
+          })),
+        }));
       }
 
       case 'yurucommu_search_posts': {
         const query = requireString(input, 'query');
         const limit = toolLimit(input.limit, 20, 50);
 
-        if (!query) {
-          return c.json({ success: true, data: { posts: [] } });
-        }
+        if (!query) return c.json(ok({ posts: [] }));
 
         const posts = await prisma.object.findMany({
           where: {
@@ -162,17 +244,14 @@ takosTools.post('/:name', async (c) => {
           take: limit,
         });
 
-        return c.json({
-          success: true,
-          data: {
-            posts: posts.map(p => ({
-              ap_id: p.apId,
-              content: p.content,
-              published: p.published,
-              like_count: p.likeCount,
-            })),
-          },
-        });
+        return c.json(ok({
+          posts: posts.map(p => ({
+            ap_id: p.apId,
+            content: p.content,
+            published: p.published,
+            like_count: p.likeCount,
+          })),
+        }));
       }
 
       case 'yurucommu_get_trending': {
@@ -205,14 +284,12 @@ takosTools.post('/:name', async (c) => {
           .slice(0, limit)
           .map(([tag, count]) => ({ tag, count }));
 
-        return c.json({ success: true, data: { trending } });
+        return c.json(ok({ trending }));
       }
 
       case 'yurucommu_get_user_profile': {
         const username = requireString(input, 'username');
-        if (!username) {
-          return c.json(errRequired('Username'), 400);
-        }
+        if (!username) return c.json(errRequired('Username'), 400);
 
         const actorRecord = await prisma.actor.findFirst({
           where: { preferredUsername: username },
@@ -226,25 +303,20 @@ takosTools.post('/:name', async (c) => {
           },
         });
 
-        if (!actorRecord) {
-          return c.json(errNotFound('User'), 404);
-        }
+        if (!actorRecord) return c.json(errNotFound('User'), 404);
 
         // Fail-close for private accounts (allow self lookup only).
         if (actorRecord.isPrivate && actor?.ap_id !== actorRecord.apId) {
           return c.json(errNotFound('User'), 404);
         }
 
-        return c.json({
-          success: true,
-          data: {
-            ...formatActorSummary(actorRecord),
-            summary: actorRecord.summary,
-            follower_count: actorRecord.followerCount,
-            following_count: actorRecord.followingCount,
-            post_count: actorRecord.postCount,
-          },
-        });
+        return c.json(ok({
+          ...formatActorSummary(actorRecord),
+          summary: actorRecord.summary,
+          follower_count: actorRecord.followerCount,
+          following_count: actorRecord.followingCount,
+          post_count: actorRecord.postCount,
+        }));
       }
 
       // ------ Post tools ------
@@ -256,9 +328,7 @@ takosTools.post('/:name', async (c) => {
         const visibility = String(input.visibility || 'public');
         const inReplyTo = input.in_reply_to ? String(input.in_reply_to) : null;
 
-        if (!content) {
-          return c.json(errRequired('Content'), 400);
-        }
+        if (!content) return c.json(errRequired('Content'), 400);
 
         const postId = crypto.randomUUID();
         const now = new Date().toISOString();
@@ -288,19 +358,14 @@ takosTools.post('/:name', async (c) => {
           data: { postCount: { increment: 1 } },
         });
 
-        return c.json({
-          success: true,
-          data: { post_id: postId, ap_id: apId },
-        });
+        return c.json(ok({ post_id: postId, ap_id: apId }));
       }
 
       case 'yurucommu_delete_post': {
         if (!actor) return c.json(errAuth(), 401);
 
         const postId = requireString(input, 'post_id');
-        if (!postId) {
-          return c.json(errRequired('Post ID'), 400);
-        }
+        if (!postId) return c.json(errRequired('Post ID'), 400);
 
         const post = await prisma.object.findFirst({
           where: { apId: postId, attributedTo: actor.ap_id },
@@ -310,13 +375,12 @@ takosTools.post('/:name', async (c) => {
         }
 
         await prisma.object.delete({ where: { apId: postId } });
-
         await prisma.actor.update({
           where: { apId: actor.ap_id },
           data: { postCount: { decrement: 1 } },
         });
 
-        return c.json({ success: true, data: { deleted: true } });
+        return c.json(ok({ deleted: true }));
       }
 
       case 'yurucommu_like_post': {
@@ -325,46 +389,17 @@ takosTools.post('/:name', async (c) => {
         const postId = requireString(input, 'post_id');
         const like = Boolean(input.like);
 
-        if (!postId) {
-          return c.json(errRequired('Post ID'), 400);
-        }
+        if (!postId) return c.json(errRequired('Post ID'), 400);
 
-        const post = await prisma.object.findFirst({
-          where: { apId: postId },
-        });
-        if (!post) {
-          return c.json(errNotFound('Post'), 404);
-        }
+        const post = await prisma.object.findFirst({ where: { apId: postId } });
+        if (!post) return c.json(errNotFound('Post'), 404);
 
-        const compositeKey = {
-          actorApId_objectApId: {
-            actorApId: actor.ap_id,
-            objectApId: post.apId,
-          },
-        };
+        await togglePostRelation(prisma.like, actor.ap_id, post.apId, like);
 
-        if (like) {
-          await prisma.like.upsert({
-            where: compositeKey,
-            create: { actorApId: actor.ap_id, objectApId: post.apId },
-            update: {},
-          });
-        } else {
-          await prisma.like.deleteMany({
-            where: { actorApId: actor.ap_id, objectApId: post.apId },
-          });
-        }
+        const likeCount = await prisma.like.count({ where: { objectApId: post.apId } });
+        await prisma.object.update({ where: { apId: postId }, data: { likeCount } });
 
-        const likeCount = await prisma.like.count({
-          where: { objectApId: post.apId },
-        });
-
-        await prisma.object.update({
-          where: { apId: postId },
-          data: { likeCount },
-        });
-
-        return c.json({ success: true, data: { liked: like, like_count: likeCount } });
+        return c.json(ok({ liked: like, like_count: likeCount }));
       }
 
       case 'yurucommu_bookmark_post': {
@@ -373,37 +408,14 @@ takosTools.post('/:name', async (c) => {
         const postId = requireString(input, 'post_id');
         const bookmark = Boolean(input.bookmark);
 
-        if (!postId) {
-          return c.json(errRequired('Post ID'), 400);
-        }
+        if (!postId) return c.json(errRequired('Post ID'), 400);
 
-        const post = await prisma.object.findFirst({
-          where: { apId: postId },
-        });
-        if (!post) {
-          return c.json(errNotFound('Post'), 404);
-        }
+        const post = await prisma.object.findFirst({ where: { apId: postId } });
+        if (!post) return c.json(errNotFound('Post'), 404);
 
-        const compositeKey = {
-          actorApId_objectApId: {
-            actorApId: actor.ap_id,
-            objectApId: post.apId,
-          },
-        };
+        await togglePostRelation(prisma.bookmark, actor.ap_id, post.apId, bookmark);
 
-        if (bookmark) {
-          await prisma.bookmark.upsert({
-            where: compositeKey,
-            create: { actorApId: actor.ap_id, objectApId: post.apId },
-            update: {},
-          });
-        } else {
-          await prisma.bookmark.deleteMany({
-            where: { actorApId: actor.ap_id, objectApId: post.apId },
-          });
-        }
-
-        return c.json({ success: true, data: { bookmarked: bookmark } });
+        return c.json(ok({ bookmarked: bookmark }));
       }
 
       // ------ Follow tools ------
@@ -412,39 +424,23 @@ takosTools.post('/:name', async (c) => {
         if (!actor) return c.json(errAuth(), 401);
 
         const username = requireString(input, 'username');
-        if (!username) {
-          return c.json(errRequired('Username'), 400);
-        }
+        if (!username) return c.json(errRequired('Username'), 400);
 
-        const target = await prisma.actor.findFirst({
-          where: { preferredUsername: username },
-        });
-        if (!target) {
-          return c.json(errNotFound('User'), 404);
-        }
+        const target = await prisma.actor.findFirst({ where: { preferredUsername: username } });
+        if (!target) return c.json(errNotFound('User'), 404);
 
         if (target.apId === actor.ap_id) {
           return c.json({ success: false, error: 'Cannot follow yourself' } as ToolResponse, 400);
         }
 
-        const followKey = {
-          followerApId_followingApId: {
-            followerApId: actor.ap_id,
-            followingApId: target.apId,
-          },
-        };
-
+        const followKey = followCompositeKey(actor.ap_id, target.apId);
         const existingFollow = await prisma.follow.findUnique({ where: followKey });
 
         if (!existingFollow) {
           const status = target.isPrivate ? 'pending' : 'accepted';
 
           await prisma.follow.create({
-            data: {
-              followerApId: actor.ap_id,
-              followingApId: target.apId,
-              status,
-            },
+            data: { followerApId: actor.ap_id, followingApId: target.apId, status },
           });
 
           if (status === 'accepted') {
@@ -459,34 +455,22 @@ takosTools.post('/:name', async (c) => {
           }
         }
 
-        return c.json({
-          success: true,
-          data: { following: true, status: target.isPrivate ? 'pending' : 'accepted' },
-        });
+        return c.json(ok({
+          following: true,
+          status: target.isPrivate ? 'pending' : 'accepted',
+        }));
       }
 
       case 'yurucommu_unfollow_user': {
         if (!actor) return c.json(errAuth(), 401);
 
         const username = requireString(input, 'username');
-        if (!username) {
-          return c.json(errRequired('Username'), 400);
-        }
+        if (!username) return c.json(errRequired('Username'), 400);
 
-        const target = await prisma.actor.findFirst({
-          where: { preferredUsername: username },
-        });
-        if (!target) {
-          return c.json(errNotFound('User'), 404);
-        }
+        const target = await prisma.actor.findFirst({ where: { preferredUsername: username } });
+        if (!target) return c.json(errNotFound('User'), 404);
 
-        const followKey = {
-          followerApId_followingApId: {
-            followerApId: actor.ap_id,
-            followingApId: target.apId,
-          },
-        };
-
+        const followKey = followCompositeKey(actor.ap_id, target.apId);
         const follow = await prisma.follow.findUnique({ where: followKey });
 
         if (follow) {
@@ -504,69 +488,23 @@ takosTools.post('/:name', async (c) => {
           }
         }
 
-        return c.json({ success: true, data: { unfollowed: true } });
+        return c.json(ok({ unfollowed: true }));
       }
 
-      case 'yurucommu_get_followers': {
-        const username = requireString(input, 'username');
-        const limit = toolLimit(input.limit, 20, 50);
-
-        if (!username) {
-          return c.json(errRequired('Username'), 400);
-        }
-
-        const target = await prisma.actor.findFirst({
-          where: { preferredUsername: username },
-        });
-        if (!target) {
-          return c.json(errNotFound('User'), 404);
-        }
-
-        const follows = await prisma.follow.findMany({
-          where: { followingApId: target.apId, status: 'accepted' },
-          take: limit,
-        });
-
-        const followers = await prisma.actor.findMany({
-          where: { apId: { in: follows.map(f => f.followerApId) } },
-          select: ACTOR_SUMMARY_SELECT,
-        });
-
-        return c.json({
-          success: true,
-          data: { followers: followers.map(formatActorSummary) },
-        });
-      }
-
+      case 'yurucommu_get_followers':
       case 'yurucommu_get_following': {
         const username = requireString(input, 'username');
         const limit = toolLimit(input.limit, 20, 50);
 
-        if (!username) {
-          return c.json(errRequired('Username'), 400);
-        }
+        if (!username) return c.json(errRequired('Username'), 400);
 
-        const target = await prisma.actor.findFirst({
-          where: { preferredUsername: username },
-        });
-        if (!target) {
-          return c.json(errNotFound('User'), 404);
-        }
+        const target = await prisma.actor.findFirst({ where: { preferredUsername: username } });
+        if (!target) return c.json(errNotFound('User'), 404);
 
-        const follows = await prisma.follow.findMany({
-          where: { followerApId: target.apId, status: 'accepted' },
-          take: limit,
-        });
+        const direction = toolName === 'yurucommu_get_followers' ? 'followers' : 'following';
+        const actors = await fetchFollowList(prisma, target.apId, direction, limit);
 
-        const following = await prisma.actor.findMany({
-          where: { apId: { in: follows.map(f => f.followingApId) } },
-          select: ACTOR_SUMMARY_SELECT,
-        });
-
-        return c.json({
-          success: true,
-          data: { following: following.map(formatActorSummary) },
-        });
+        return c.json(ok({ [direction]: actors.map(formatActorSummary) }));
       }
 
       // ------ DM tools ------
@@ -576,18 +514,13 @@ takosTools.post('/:name', async (c) => {
 
         const recipient = requireString(input, 'recipient');
         const content = requireString(input, 'content');
-
-        if (!recipient || !content) {
-          return c.json(errRequired('Recipient and content'), 400);
-        }
+        if (!recipient || !content) return c.json(errRequired('Recipient and content'), 400);
 
         const target = await prisma.actor.findFirst({
           where: { preferredUsername: recipient },
           select: { apId: true },
         });
-        if (!target) {
-          return c.json(errNotFound('Recipient'), 404);
-        }
+        if (!target) return c.json(errNotFound('Recipient'), 404);
 
         const baseUrl = c.env.APP_URL;
         const now = new Date().toISOString();
@@ -599,45 +532,25 @@ takosTools.post('/:name', async (c) => {
         const activityId = activityApId(baseUrl, generateId());
 
         // Keep behavior aligned with the main DM API (create message + recipient tracking + inbox entry).
-        await prisma.$transaction(async (tx) => {
+        await prisma.$transaction(async (tx: any) => {
           await tx.object.create({
             data: {
-              apId,
-              type: 'Note',
-              attributedTo: actor.ap_id,
-              content,
-              summary: null,
-              attachmentsJson: '[]',
-              inReplyTo: null,
-              conversation: conversationId,
-              visibility: 'direct',
-              toJson,
-              ccJson,
-              published: now,
-              isLocal: 1,
+              apId, type: 'Note', attributedTo: actor.ap_id, content,
+              summary: null, attachmentsJson: '[]', inReplyTo: null,
+              conversation: conversationId, visibility: 'direct',
+              toJson, ccJson, published: now, isLocal: 1,
             },
           });
 
           await tx.objectRecipient.upsert({
-            where: {
-              objectApId_recipientApId: {
-                objectApId: apId,
-                recipientApId: target.apId,
-              },
-            },
-            create: {
-              objectApId: apId,
-              recipientApId: target.apId,
-              type: 'to',
-            },
+            where: { objectApId_recipientApId: { objectApId: apId, recipientApId: target.apId } },
+            create: { objectApId: apId, recipientApId: target.apId, type: 'to' },
             update: {},
           });
 
           await tx.activity.create({
             data: {
-              apId: activityId,
-              type: 'Create',
-              actorApId: actor.ap_id,
+              apId: activityId, type: 'Create', actorApId: actor.ap_id,
               objectApId: apId,
               rawJson: JSON.stringify({ type: 'Create', actor: actor.ap_id, object: apId }),
               direction: 'inbound',
@@ -645,17 +558,11 @@ takosTools.post('/:name', async (c) => {
           });
 
           await tx.inbox.create({
-            data: {
-              actorApId: target.apId,
-              activityApId: activityId,
-            },
+            data: { actorApId: target.apId, activityApId: activityId },
           });
         });
 
-        return c.json({
-          success: true,
-          data: { message_id: apId, conversation_id: conversationId },
-        });
+        return c.json(ok({ message_id: apId, conversation_id: conversationId }));
       }
 
       case 'yurucommu_get_dm_threads': {
@@ -664,22 +571,9 @@ takosTools.post('/:name', async (c) => {
         const limit = toolLimit(input.limit, 20, 50);
 
         const dms = await prisma.object.findMany({
-          where: {
-            visibility: 'direct',
-            type: 'Note',
-            conversation: { not: null },
-            OR: [
-              { attributedTo: actor.ap_id },
-              { recipients: { some: { recipientApId: actor.ap_id } } },
-            ],
-          },
+          where: dmVisibilityFilter(actor.ap_id, { not: null }),
           orderBy: { published: 'desc' },
-          select: {
-            attributedTo: true,
-            toJson: true,
-            published: true,
-            content: true,
-          },
+          select: { attributedTo: true, toJson: true, published: true, content: true },
           take: 2000,
         });
 
@@ -687,17 +581,7 @@ takosTools.post('/:name', async (c) => {
         const threads: Record<string, { partner: string; lastMessage: string; lastDate: string }> = {};
 
         for (const dm of dms) {
-          const toRecipients = safeJsonParse<string[]>(dm.toJson, []);
-
-          let partner: string | null = null;
-          if (dm.attributedTo === actor.ap_id) {
-            partner = toRecipients[0] || null;
-          } else {
-            // Defense in depth: verify we're actually a recipient.
-            if (!toRecipients.includes(actor.ap_id)) continue;
-            partner = dm.attributedTo;
-          }
-
+          const partner = resolveDmPartner(dm, actor.ap_id);
           if (partner && !threads[partner]) {
             threads[partner] = {
               partner,
@@ -707,10 +591,7 @@ takosTools.post('/:name', async (c) => {
           }
         }
 
-        return c.json({
-          success: true,
-          data: { threads: Object.values(threads).slice(0, limit) },
-        });
+        return c.json(ok({ threads: Object.values(threads).slice(0, limit) }));
       }
 
       case 'yurucommu_get_dm_messages': {
@@ -718,46 +599,31 @@ takosTools.post('/:name', async (c) => {
 
         const threadId = requireString(input, 'thread_id');
         const limit = toolLimit(input.limit, 50, 100);
-
-        if (!threadId) {
-          return c.json(errRequired('Thread ID'), 400);
-        }
+        if (!threadId) return c.json(errRequired('Thread ID'), 400);
 
         const baseUrl = c.env.APP_URL;
         const conversationId = getConversationId(baseUrl, actor.ap_id, threadId);
 
         const messages = await prisma.object.findMany({
-          where: {
-            visibility: 'direct',
-            type: 'Note',
-            conversation: conversationId,
-            OR: [
-              { attributedTo: actor.ap_id },
-              { recipients: { some: { recipientApId: actor.ap_id } } },
-            ],
-          },
+          where: dmVisibilityFilter(actor.ap_id, conversationId),
           orderBy: { published: 'desc' },
           take: limit,
         });
 
-        const filtered = messages.filter((m) => {
+        const filtered = messages.filter((m: any) => {
           if (m.attributedTo === actor.ap_id) return true;
-          const toRecipients = safeJsonParse<string[]>(m.toJson, []);
-          return toRecipients.includes(actor.ap_id);
+          return safeJsonParse<string[]>(m.toJson, []).includes(actor.ap_id);
         });
 
-        return c.json({
-          success: true,
-          data: {
-            messages: filtered.map(m => ({
-              ap_id: m.apId,
-              content: m.content,
-              from: m.attributedTo,
-              published: m.published,
-            })),
-            conversation_id: conversationId,
-          },
-        });
+        return c.json(ok({
+          messages: filtered.map((m: any) => ({
+            ap_id: m.apId,
+            content: m.content,
+            from: m.attributedTo,
+            published: m.published,
+          })),
+          conversation_id: conversationId,
+        }));
       }
 
       // ------ Timeline tools ------
@@ -783,22 +649,19 @@ takosTools.post('/:name', async (c) => {
 
         const authorMap = new Map(authors.map(a => [a.apId, a]));
 
-        return c.json({
-          success: true,
-          data: {
-            posts: posts.map(p => {
-              const author = authorMap.get(p.attributedTo);
-              return {
-                ap_id: p.apId,
-                content: p.content,
-                published: p.published,
-                like_count: p.likeCount,
-                author: author ? formatActorSummary(author) : null,
-              };
-            }),
-            next_cursor: posts.length > 0 ? posts[posts.length - 1].published : null,
-          },
-        });
+        return c.json(ok({
+          posts: posts.map(p => {
+            const author = authorMap.get(p.attributedTo);
+            return {
+              ap_id: p.apId,
+              content: p.content,
+              published: p.published,
+              like_count: p.likeCount,
+              author: author ? formatActorSummary(author) : null,
+            };
+          }),
+          next_cursor: posts.length > 0 ? posts[posts.length - 1].published : null,
+        }));
       }
 
       case 'yurucommu_get_notifications': {
@@ -821,19 +684,16 @@ takosTools.post('/:name', async (c) => {
           take: limit,
         });
 
-        return c.json({
-          success: true,
-          data: {
-            notifications: inboxEntries.map(entry => ({
-              id: entry.activityApId,
-              type: entry.activity.type.toLowerCase(),
-              from_actor: entry.activity.actorApId,
-              object: entry.activity.objectApId,
-              read: !!entry.read,
-              created_at: entry.createdAt,
-            })),
-          },
-        });
+        return c.json(ok({
+          notifications: inboxEntries.map(entry => ({
+            id: entry.activityApId,
+            type: entry.activity.type.toLowerCase(),
+            from_actor: entry.activity.actorApId,
+            object: entry.activity.objectApId,
+            read: !!entry.read,
+            created_at: entry.createdAt,
+          })),
+        }));
       }
 
       default:

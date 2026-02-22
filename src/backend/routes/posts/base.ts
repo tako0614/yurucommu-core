@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { PrismaClient } from '../../generated/prisma';
 import type { Env, Variables } from '../../types';
 import { generateId, objectApId, activityApId, formatUsername, isLocal, safeJsonParse } from '../../utils';
 import { MAX_POST_CONTENT_LENGTH, MAX_POST_SUMMARY_LENGTH, MAX_POSTS_PAGE_LIMIT, extractMentions, formatPost, normalizeVisibility, parseLimit, PostRow } from './utils';
@@ -40,6 +41,25 @@ type AuthorInfo = {
   iconUrl: string | null;
 };
 
+/** Shape returned by Prisma when using AUTHOR_INCLUDE. */
+type PostWithAuthor = {
+  apId: string;
+  type: string;
+  attributedTo: string;
+  content: string;
+  summary: string | null;
+  attachmentsJson: string | null;
+  inReplyTo: string | null;
+  visibility: string;
+  communityApId: string | null;
+  likeCount: number;
+  replyCount: number;
+  announceCount: number;
+  published: string;
+  toJson?: string | null;
+  author: AuthorInfo | null;
+};
+
 // --- Inline helpers ---
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -60,9 +80,7 @@ async function parseJsonObject(
 
 /** Require an authenticated actor or return a 401 response. */
 function requireActor(c: { get: (key: 'actor') => Variables['actor'] }): Variables['actor'] {
-  const actor = c.get('actor');
-  if (!actor) return null;
-  return actor;
+  return c.get('actor');
 }
 
 /** Shared Prisma `include` for loading a post's local author info. */
@@ -111,6 +129,23 @@ function resolveAuthor(
   const cached = cachedAuthorMap?.get(attributedTo);
   if (cached) return cached;
   return { preferredUsername: null, name: null, iconUrl: null };
+}
+
+/**
+ * Resolve author info with an async fallback to actorCache.
+ * Used for single-post lookups where a batch-loaded map is unavailable.
+ */
+async function resolveAuthorWithCache(
+  localAuthor: AuthorInfo | null | undefined,
+  attributedTo: string,
+  prisma: PrismaClient,
+): Promise<AuthorInfo> {
+  if (localAuthor?.preferredUsername) return localAuthor;
+  const cached = await prisma.actorCache.findUnique({
+    where: { apId: attributedTo },
+    select: { preferredUsername: true, name: true, iconUrl: true },
+  });
+  return cached ?? { preferredUsername: null, name: null, iconUrl: null };
 }
 
 /** Convert a Prisma object row + resolved author into a PostRow for formatPost. */
@@ -170,6 +205,72 @@ function buildAddressing(visibility: string, followersUrl: string): { to: string
     default:
       return { to: [], cc: [] };
   }
+}
+
+/** Batch-load liked and bookmarked object IDs for a set of posts. */
+async function loadInteractionFlags(
+  prisma: PrismaClient,
+  actorApId: string | undefined,
+  objectApIds: string[],
+): Promise<{ likedIds: Set<string>; bookmarkedIds: Set<string> }> {
+  if (!actorApId || objectApIds.length === 0) {
+    return { likedIds: new Set(), bookmarkedIds: new Set() };
+  }
+  const [likes, bookmarks] = await Promise.all([
+    prisma.like.findMany({
+      where: { actorApId, objectApId: { in: objectApIds } },
+      select: { objectApId: true },
+    }),
+    prisma.bookmark.findMany({
+      where: { actorApId, objectApId: { in: objectApIds } },
+      select: { objectApId: true },
+    }),
+  ]);
+  return {
+    likedIds: new Set(likes.map((l) => l.objectApId)),
+    bookmarkedIds: new Set(bookmarks.map((b) => b.objectApId)),
+  };
+}
+
+/** Persist an outbound ActivityPub activity and enqueue federation fanout. */
+async function persistAndFanout(
+  prisma: PrismaClient,
+  env: Env,
+  activity: { id: string; type: string; actor: string; [key: string]: unknown },
+  objectApId: string,
+): Promise<void> {
+  await prisma.activity.create({
+    data: {
+      apId: activity.id,
+      type: activity.type,
+      actorApId: activity.actor,
+      objectApId,
+      rawJson: JSON.stringify(activity),
+      direction: 'outbound',
+    },
+  });
+
+  try {
+    await enqueueFanoutToFollowers(env, activity.id, activity.actor);
+  } catch (err) {
+    console.error(`[Posts] Failed to enqueue ${activity.type} federation fanout:`, err);
+  }
+}
+
+/** Batch-load cached authors for posts without a local author join. */
+async function loadCachedAuthorMap(
+  prisma: PrismaClient,
+  posts: PostWithAuthor[],
+): Promise<Map<string, AuthorInfo>> {
+  const remoteAttributedTos = [...new Set(
+    posts.filter((p) => !p.author).map((p) => p.attributedTo)
+  )];
+  if (remoteAttributedTos.length === 0) return new Map();
+  const cachedAuthors = await prisma.actorCache.findMany({
+    where: { apId: { in: remoteAttributedTos } },
+    select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
+  });
+  return new Map(cachedAuthors.map((a) => [a.apId, a]));
 }
 
 // --- Route handlers ---
@@ -357,20 +458,21 @@ posts.post('/', async (c) => {
     const localMentions = mentions.filter((m) => !m.includes('@'));
     const remoteMentions = mentions.filter((m) => m.includes('@'));
 
-    const localActors = localMentions.length > 0
-      ? await prisma.actor.findMany({
-          where: { preferredUsername: { in: localMentions } },
-          select: { apId: true, preferredUsername: true },
-        })
-      : [];
+    const [localActors, cachedActors] = await Promise.all([
+      localMentions.length > 0
+        ? prisma.actor.findMany({
+            where: { preferredUsername: { in: localMentions } },
+            select: { apId: true, preferredUsername: true },
+          })
+        : [],
+      remoteMentions.length > 0
+        ? prisma.actorCache.findMany({
+            where: { preferredUsername: { in: remoteMentions.map((m) => m.split('@')[0]) } },
+            select: { apId: true, preferredUsername: true },
+          })
+        : [],
+    ]);
     const localActorMap = new Map(localActors.map((a) => [a.preferredUsername, a.apId]));
-
-    const cachedActors = remoteMentions.length > 0
-      ? await prisma.actorCache.findMany({
-          where: { preferredUsername: { in: remoteMentions.map((m) => m.split('@')[0]) } },
-          select: { apId: true, preferredUsername: true },
-        })
-      : [];
 
     const remoteActorMap = new Map<string, string>();
     for (const mention of remoteMentions) {
@@ -495,22 +597,7 @@ posts.post('/', async (c) => {
       },
     };
 
-    await prisma.activity.create({
-      data: {
-        apId: createActivity.id,
-        type: 'Create',
-        actorApId: actor.ap_id,
-        objectApId: apId,
-        rawJson: JSON.stringify(createActivity),
-        direction: 'outbound',
-      },
-    });
-
-    try {
-      await enqueueFanoutToFollowers(c.env, createActivity.id, actor.ap_id);
-    } catch (err) {
-      console.error('[Posts] Failed to enqueue federation fanout:', err);
-    }
+    await persistAndFanout(prisma, c.env, createActivity, apId);
   }
 
   return c.json({
@@ -558,41 +645,13 @@ posts.get('/:id', async (c) => {
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
-  // Resolve author from local actor or cache
-  let author = resolveAuthor(post.author, post.attributedTo);
-  if (!author.preferredUsername) {
-    const cachedActor = await prisma.actorCache.findUnique({
-      where: { apId: post.attributedTo },
-      select: { preferredUsername: true, name: true, iconUrl: true },
-    });
-    if (cachedActor) author = cachedActor;
-  }
-
-  // Check liked and bookmarked status
-  let liked = false;
-  let bookmarked = false;
-  if (currentActor) {
-    const [likeExists, bookmarkExists] = await Promise.all([
-      prisma.like.findUnique({
-        where: {
-          actorApId_objectApId: {
-            actorApId: currentActor.ap_id,
-            objectApId: post.apId,
-          },
-        },
-      }),
-      prisma.bookmark.findUnique({
-        where: {
-          actorApId_objectApId: {
-            actorApId: currentActor.ap_id,
-            objectApId: post.apId,
-          },
-        },
-      }),
-    ]);
-    liked = !!likeExists;
-    bookmarked = !!bookmarkExists;
-  }
+  // Resolve author and interaction flags in parallel
+  const [author, { likedIds, bookmarkedIds }] = await Promise.all([
+    resolveAuthorWithCache(post.author, post.attributedTo, prisma),
+    loadInteractionFlags(prisma, currentActor?.ap_id, [post.apId]),
+  ]);
+  const liked = likedIds.has(post.apId);
+  const bookmarked = bookmarkedIds.has(post.apId);
 
   // Check visibility - followers-only
   if (post.visibility === 'followers') {
@@ -663,37 +722,12 @@ posts.get('/:id/replies', async (c) => {
     take: limit,
   });
 
-  // Batch load cached authors for replies without a local author
-  const remoteAttributedTos = [...new Set(
-    replies.filter((r) => !r.author).map((r) => r.attributedTo)
-  )];
-  const cachedAuthors = remoteAttributedTos.length > 0
-    ? await prisma.actorCache.findMany({
-        where: { apId: { in: remoteAttributedTos } },
-        select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-      })
-    : [];
-  const cachedAuthorMap = new Map(cachedAuthors.map((a) => [a.apId, a]));
-
-  // Batch load likes and bookmarks for the current user
+  // Batch load cached authors and interaction flags in parallel
   const replyApIds = replies.map((r) => r.apId);
-  let likedIds = new Set<string>();
-  let bookmarkedIds = new Set<string>();
-
-  if (currentActor) {
-    const [likes, bookmarks] = await Promise.all([
-      prisma.like.findMany({
-        where: { actorApId: currentActor.ap_id, objectApId: { in: replyApIds } },
-        select: { objectApId: true },
-      }),
-      prisma.bookmark.findMany({
-        where: { actorApId: currentActor.ap_id, objectApId: { in: replyApIds } },
-        select: { objectApId: true },
-      }),
-    ]);
-    likedIds = new Set(likes.map((l) => l.objectApId));
-    bookmarkedIds = new Set(bookmarks.map((b) => b.objectApId));
-  }
+  const [cachedAuthorMap, { likedIds }] = await Promise.all([
+    loadCachedAuthorMap(prisma, replies),
+    loadInteractionFlags(prisma, currentActor?.ap_id, replyApIds),
+  ]);
 
   const result = replies.map((reply) => {
     const author = resolveAuthor(reply.author, reply.attributedTo, cachedAuthorMap);
@@ -732,7 +766,6 @@ posts.patch('/:id', async (c) => {
   const post = await prisma.object.findFirst({
     where: postWhereByIdOrApId(baseUrl, postId),
   });
-
   if (!post) return c.json({ error: 'Post not found' }, 404);
   if (post.attributedTo !== actor.ap_id) return c.json({ error: 'Forbidden' }, 403);
 
@@ -793,22 +826,7 @@ posts.patch('/:id', async (c) => {
     },
   };
 
-  await prisma.activity.create({
-    data: {
-      apId: updateActivity.id,
-      type: 'Update',
-      actorApId: actor.ap_id,
-      objectApId: post.apId,
-      rawJson: JSON.stringify(updateActivity),
-      direction: 'outbound',
-    },
-  });
-
-  try {
-    await enqueueFanoutToFollowers(c.env, updateActivity.id, actor.ap_id);
-  } catch (err) {
-    console.error('[Posts] Failed to enqueue Update federation fanout:', err);
-  }
+  await persistAndFanout(prisma, c.env, updateActivity, post.apId);
 
   return c.json({
     success: true,
@@ -866,22 +884,7 @@ posts.delete('/:id', async (c) => {
     object: post.apId,
   };
 
-  await prisma.activity.create({
-    data: {
-      apId: deleteActivity.id,
-      type: 'Delete',
-      actorApId: actor.ap_id,
-      objectApId: post.apId,
-      rawJson: JSON.stringify(deleteActivity),
-      direction: 'outbound',
-    },
-  });
-
-  try {
-    await enqueueFanoutToFollowers(c.env, deleteActivity.id, actor.ap_id);
-  } catch (err) {
-    console.error('[Posts] Failed to enqueue Delete federation fanout:', err);
-  }
+  await persistAndFanout(prisma, c.env, deleteActivity, post.apId);
 
   return c.json({ success: true });
 });

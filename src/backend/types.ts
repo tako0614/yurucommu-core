@@ -1,5 +1,3 @@
-// Types for Yurucommu backend
-
 import type { TakosClient } from './lib/takos-client';
 import type { PrismaClient } from '../generated/prisma';
 import type { DeliveryQueueMessageV1, DeliveryDlqMessageV1 } from './lib/delivery/types';

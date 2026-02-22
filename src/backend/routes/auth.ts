@@ -29,38 +29,29 @@ import type { PrismaClient } from '../../generated/prisma';
 /** Session lifetime: 30 days in seconds. */
 const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
+type OAuthTokens = { access_token: string; refresh_token?: string; expires_in?: number };
+
+type HonoContext = Parameters<typeof setCookie>[0] & { get(key: 'prisma'): PrismaClient };
+
 /**
- * Constant-time string comparison to prevent timing attacks
- * Always compares the full length to avoid leaking information about the password
+ * Constant-time string comparison to prevent timing attacks.
+ * Always compares the full length to avoid leaking information about the password.
  */
 function timingSafeEqual(a: string, b: string): boolean {
   const encoder = new TextEncoder();
   const aBytes = encoder.encode(a);
   const bBytes = encoder.encode(b);
 
-  // Always compare using the maximum length to ensure constant-time
-  // regardless of input lengths (prevents length-based timing attacks)
   const maxLen = Math.max(aBytes.length, bBytes.length);
-
-  // Start with length comparison result (1 if different, 0 if same)
   let result = aBytes.length === bBytes.length ? 0 : 1;
 
   for (let i = 0; i < maxLen; i++) {
-    // Use 0 as fallback for shorter string to ensure constant-time comparison
     const aByte = i < aBytes.length ? aBytes[i] : 0;
     const bByte = i < bBytes.length ? bBytes[i] : 0;
-    // XOR bytes and OR into result - any difference sets bits in result
     result |= aByte ^ bByte;
   }
 
   return result === 0;
-}
-
-function isPrismaNotFoundError(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && (error as { code?: string }).code === 'P2025';
 }
 
 async function parseJsonObject(
@@ -81,11 +72,27 @@ function nonEmptyString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function formatAccountResponse(a: { apId: string; preferredUsername: string; name: string | null; iconUrl: string | null }): {
+  ap_id: string;
+  preferred_username: string;
+  name: string | null;
+  icon_url: string | null;
+} {
+  return {
+    ap_id: a.apId,
+    preferred_username: a.preferredUsername,
+    name: a.name,
+    icon_url: a.iconUrl,
+  };
+}
+
 async function deleteSessionSafely(prisma: PrismaClient, sessionId: string, context: string): Promise<void> {
   try {
     await prisma.session.delete({ where: { id: sessionId } });
   } catch (err) {
-    if (!isPrismaNotFoundError(err)) {
+    const isNotFound = typeof err === 'object' && err !== null
+      && 'code' in err && (err as { code?: string }).code === 'P2025';
+    if (!isNotFound) {
       console.warn(`[Auth] Failed to delete session during ${context}`, err);
     }
   }
@@ -96,31 +103,58 @@ async function deleteSessionSafely(prisma: PrismaClient, sessionId: string, cont
  * Centralises session-rotation logic used by both password and OAuth login.
  */
 async function rotateSession(
-  c: Parameters<typeof setCookie>[0] & { get(key: 'prisma'): PrismaClient },
-  actorApId: string,
+  c: HonoContext,
+  memberApId: string,
   provider: string | null,
-  tokens: { access_token: string; refresh_token?: string; expires_in?: number } | null,
+  tokens: OAuthTokens | null,
   encryptionKey: string | undefined,
   rotationContext: string,
 ): Promise<string> {
   const prisma = c.get('prisma');
+
+  // Invalidate existing session
   const existingSessionId = getCookie(c, 'session');
   if (existingSessionId) {
     await deleteSessionSafely(prisma, existingSessionId, rotationContext);
     deleteCookie(c, 'session');
   }
-  const sessionId = await createSession(prisma, actorApId, provider, tokens, encryptionKey);
-  setSessionCookie(c, sessionId);
+
+  // Create new session with encrypted tokens
+  const sessionId = generateId();
+  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString();
+
+  await prisma.session.create({
+    data: {
+      id: sessionId,
+      memberId: memberApId,
+      accessToken: sessionId,
+      expiresAt,
+      provider,
+      providerAccessToken: tokens?.access_token
+        ? await encrypt(tokens.access_token, encryptionKey)
+        : null,
+      providerRefreshToken: tokens?.refresh_token
+        ? await encrypt(tokens.refresh_token, encryptionKey)
+        : null,
+      providerTokenExpiresAt: tokens?.expires_in
+        ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+        : null,
+    },
+  });
+
+  // Set cookie
+  setCookie(c, 'session', sessionId, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Lax',
+    path: '/',
+    maxAge: SESSION_MAX_AGE_SECONDS,
+  });
+
   return sessionId;
 }
 
-/** Builds the standard ActivityPub endpoint URLs for an actor. */
-function actorEndpoints(apId: string): {
-  inbox: string;
-  outbox: string;
-  followersUrl: string;
-  followingUrl: string;
-} {
+function actorEndpoints(apId: string) {
   return {
     inbox: `${apId}/inbox`,
     outbox: `${apId}/outbox`,
@@ -129,12 +163,217 @@ function actorEndpoints(apId: string): {
   };
 }
 
+/** Resolves a unique username by appending a counter on collision. */
+async function resolveUniqueUsername(
+  prisma: PrismaClient,
+  baseUrl: string,
+  baseUsername: string,
+): Promise<string> {
+  let username = baseUsername;
+  let counter = 1;
+  while (await prisma.actor.findUnique({ where: { apId: actorApId(baseUrl, username) }, select: { apId: true } })) {
+    username = `${baseUsername}${counter}`;
+    counter++;
+  }
+  return username;
+}
+
+async function createActor(
+  prisma: PrismaClient,
+  env: Env,
+  opts: {
+    username: string;
+    name: string;
+    iconUrl?: string | null;
+    takosUserId: string;
+    role: string;
+  },
+) {
+  const apId = actorApId(env.APP_URL, opts.username);
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+
+  return await prisma.actor.create({
+    data: {
+      apId,
+      type: 'Person',
+      preferredUsername: opts.username,
+      name: opts.name,
+      iconUrl: opts.iconUrl ?? null,
+      ...actorEndpoints(apId),
+      publicKeyPem,
+      privateKeyPem,
+      takosUserId: opts.takosUserId,
+      role: opts.role,
+    },
+  });
+}
+
+async function createActorFromOAuth(
+  prisma: PrismaClient,
+  env: Env,
+  userInfo: { id: string; name: string; email?: string; picture?: string; username?: string },
+  providerUserId: string,
+) {
+  const baseUsername = userInfo.username || userInfo.name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
+  const username = await resolveUniqueUsername(prisma, env.APP_URL, baseUsername);
+  const actorCount = await prisma.actor.count();
+
+  return await createActor(prisma, env, {
+    username,
+    name: userInfo.name,
+    iconUrl: userInfo.picture,
+    takosUserId: providerUserId,
+    role: actorCount === 0 ? 'owner' : 'member',
+  });
+}
+
+/** Fetches user info from the Takos OAuth exchange service binding. */
+async function fetchTakosUserInfo(
+  binding: { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> },
+  accessToken: string,
+  clientIp: string | undefined,
+): Promise<{ id: string; name: string; email?: string; picture?: string }> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
+  if (clientIp) headers['X-Forwarded-For'] = clientIp;
+
+  const res = await binding.fetch('https://internal/oauth/userinfo', { headers });
+  if (!res.ok) throw new Error(`Failed to fetch takos user info: ${res.status}`);
+
+  const data = await res.json() as { user?: { id: string; name: string; email?: string; picture?: string } };
+  if (!data.user?.id || !data.user?.name) throw new Error('Invalid takos user info payload');
+
+  return { id: data.user.id, name: data.user.name, email: data.user.email, picture: data.user.picture };
+}
+
+function lockoutErrorResponse(retryAfterSeconds: number): { error: string; retry_after: number } {
+  return {
+    error: 'Too many failed login attempts. Please try again later.',
+    retry_after: retryAfterSeconds,
+  };
+}
+
+/** Exchange an OAuth authorization code for tokens. Returns null on failure. */
+async function exchangeOAuthToken(
+  providerId: string,
+  code: string,
+  codeVerifier: string | undefined,
+  env: Env,
+  provider: { tokenUrl: string; supportsPkce: boolean },
+  clientIp: string | undefined,
+): Promise<OAuthTokens | null> {
+  const clientId = getClientId(env, providerId);
+  const clientSecret = getClientSecret(env, providerId);
+  const redirectUri = `${env.APP_URL}/api/auth/callback/${providerId}`;
+
+  const tokenBody: Record<string, string> = {
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri,
+    client_id: clientId,
+    client_secret: clientSecret,
+  };
+
+  if (provider.supportsPkce && codeVerifier) {
+    tokenBody.code_verifier = codeVerifier;
+  }
+
+  const tokenHeaders: Record<string, string> = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+  };
+
+  const usingBinding = providerId === 'takos' && !!env.TAKOS_OAUTH_EXCHANGE;
+  if (usingBinding && clientIp) {
+    tokenHeaders['X-Forwarded-For'] = clientIp;
+  }
+
+  if (providerId === 'x') {
+    tokenHeaders['Authorization'] = `Basic ${btoa(`${clientId}:${clientSecret}`)}`;
+    delete tokenBody.client_secret;
+  }
+
+  const tokenUrl = usingBinding ? 'https://internal/oauth/token' : provider.tokenUrl;
+  const requestInit: RequestInit = {
+    method: 'POST',
+    headers: tokenHeaders,
+    body: new URLSearchParams(tokenBody),
+  };
+
+  console.log('Token exchange request:', {
+    url: tokenUrl,
+    via: usingBinding ? 'service_binding' : 'fetch',
+    clientId,
+    redirectUri,
+    hasCodeVerifier: !!tokenBody.code_verifier,
+  });
+
+  const res = usingBinding
+    ? await env.TAKOS_OAUTH_EXCHANGE!.fetch(tokenUrl, requestInit)
+    : await fetch(tokenUrl, requestInit);
+
+  if (!res.ok) {
+    console.error('Token exchange failed:', {
+      status: res.status,
+      statusText: res.statusText,
+      body: await res.text(),
+      url: provider.tokenUrl,
+    });
+    return null;
+  }
+
+  return await res.json() as OAuthTokens;
+}
+
+/** Look up an existing actor by provider user ID (with legacy migration), or create a new one. */
+async function findOrCreateOAuthActor(
+  prisma: PrismaClient,
+  env: Env,
+  providerId: string,
+  userInfo: { id: string; name: string; email?: string; picture?: string; username?: string },
+) {
+  const providerUserId = providerId === 'takos' ? userInfo.id : `${providerId}:${userInfo.id}`;
+
+  let actorData = await prisma.actor.findFirst({
+    where: { takosUserId: providerUserId },
+  });
+
+  // Migrate legacy takos: prefixed IDs
+  if (!actorData && providerId === 'takos') {
+    const legacyActor = await prisma.actor.findFirst({
+      where: { takosUserId: `takos:${userInfo.id}` },
+    });
+    if (legacyActor) {
+      actorData = await prisma.actor.update({
+        where: { apId: legacyActor.apId },
+        data: { takosUserId: providerUserId },
+      });
+    }
+  }
+
+  if (!actorData) {
+    actorData = await createActorFromOAuth(prisma, env, userInfo, providerUserId);
+  } else {
+    await prisma.actor.update({
+      where: { apId: actorData.apId },
+      data: {
+        name: userInfo.name,
+        iconUrl: userInfo.picture || undefined,
+      },
+    });
+  }
+
+  return actorData;
+}
+
+const KNOWN_OAUTH_ERRORS = new Set([
+  'access_denied', 'invalid_request', 'unauthorized_client',
+  'unsupported_response_type', 'invalid_scope', 'server_error',
+  'temporarily_unavailable', 'interaction_required', 'login_required',
+  'consent_required',
+]);
+
 const auth = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-// ============================================
 // 認証設定取得
-// ============================================
-
 auth.get('/providers', async (c) => {
   const config = getAuthConfig(c.env);
   return c.json({
@@ -147,26 +386,20 @@ auth.get('/providers', async (c) => {
   });
 });
 
-// ============================================
 // 現在のユーザー情報
-// ============================================
-
 auth.get('/me', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Not authenticated' }, 401);
 
-  // セッションからプロバイダー情報を取得
   const sessionId = getCookie(c, 'session');
   let provider: string | null = null;
   let hasTakosAccess = false;
 
   if (sessionId) {
-    const prisma = c.get('prisma');
-    const session = await prisma.session.findUnique({
+    const session = await c.get('prisma').session.findUnique({
       where: { id: sessionId },
       select: { provider: true, providerAccessToken: true },
     });
-
     if (session) {
       provider = session.provider;
       hasTakosAccess = session.provider === 'takos' && !!session.providerAccessToken;
@@ -192,10 +425,7 @@ auth.get('/me', async (c) => {
   });
 });
 
-// ============================================
 // パスワード認証
-// ============================================
-
 auth.post('/login', async (c) => {
   const config = getAuthConfig(c.env);
   if (!config.passwordEnabled) {
@@ -208,10 +438,7 @@ auth.post('/login', async (c) => {
   const lockoutStatus = await getLoginLockoutStatus(c.env.KV, lockoutKey);
   if (lockoutStatus.locked) {
     c.header('Retry-After', String(lockoutStatus.retryAfterSeconds));
-    return c.json({
-      error: 'Too many failed login attempts. Please try again later.',
-      retry_after: lockoutStatus.retryAfterSeconds,
-    }, 429);
+    return c.json(lockoutErrorResponse(lockoutStatus.retryAfterSeconds), 429);
   }
 
   const body = await parseJsonObject(c);
@@ -229,10 +456,8 @@ auth.post('/login', async (c) => {
   let isValid = false;
 
   if (c.env.AUTH_PASSWORD_HASH) {
-    // Secure: PBKDF2-hashed password
     isValid = await verifyPassword(password, c.env.AUTH_PASSWORD_HASH);
   } else if (c.env.AUTH_PASSWORD && c.env.ALLOW_PLAINTEXT_AUTH === 'true') {
-    // Legacy: plain text comparison (deprecated, will be removed)
     console.warn(
       '[SECURITY WARNING] AUTH_PASSWORD is deprecated. ' +
       'Use AUTH_PASSWORD_HASH with PBKDF2-hashed password instead. ' +
@@ -245,10 +470,7 @@ auth.post('/login', async (c) => {
     const failedStatus = await recordFailedLoginAttempt(c.env.KV, lockoutKey);
     if (failedStatus.locked) {
       c.header('Retry-After', String(failedStatus.retryAfterSeconds));
-      return c.json({
-        error: 'Too many failed login attempts. Please try again later.',
-        retry_after: failedStatus.retryAfterSeconds,
-      }, 429);
+      return c.json(lockoutErrorResponse(failedStatus.retryAfterSeconds), 429);
     }
     return c.json({ error: 'Invalid password' }, 401);
   }
@@ -257,7 +479,12 @@ auth.post('/login', async (c) => {
 
   // Single-user instance: find existing owner or create default
   const actorData = await prisma.actor.findFirst({ where: { role: 'owner' } })
-    ?? await createDefaultOwner(prisma, c.env, 'password:owner');
+    ?? await createActor(prisma, c.env, {
+      username: 'tako',
+      name: 'tako',
+      takosUserId: 'password:owner',
+      role: 'owner',
+    });
 
   await rotateSession(c, actorData.apId, null, null, c.env.ENCRYPTION_KEY, 'password login rotation');
   await clearLoginLockout(c.env.KV, lockoutKey);
@@ -265,10 +492,7 @@ auth.post('/login', async (c) => {
   return c.json({ success: true });
 });
 
-// ============================================
 // OAuth: 認証開始
-// ============================================
-
 auth.get('/login/:provider', async (c) => {
   const providerId = c.req.param('provider');
   const provider = getProvider(c.env, providerId);
@@ -281,7 +505,6 @@ auth.get('/login/:provider', async (c) => {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
 
-  // state保存
   await saveOAuthState(c.env.KV, state, {
     provider: providerId,
     codeVerifier,
@@ -299,7 +522,6 @@ auth.get('/login/:provider', async (c) => {
     state,
   });
 
-  // PKCE対応
   if (provider.supportsPkce) {
     params.set('code_challenge', codeChallenge);
     params.set('code_challenge_method', 'S256');
@@ -308,163 +530,47 @@ auth.get('/login/:provider', async (c) => {
   return c.redirect(`${provider.authorizeUrl}?${params.toString()}`);
 });
 
-// ============================================
 // OAuth: コールバック
-// ============================================
-
 auth.get('/callback/:provider', async (c) => {
   const providerId = c.req.param('provider');
-  const code = c.req.query('code');
-  const state = c.req.query('state');
   const error = c.req.query('error');
-  const errorDescription = c.req.query('error_description');
 
   if (error) {
-    console.error('OAuth error:', error, errorDescription);
-    // Validate error is a known OAuth error type to prevent injection
-    const knownErrors = [
-      'access_denied', 'invalid_request', 'unauthorized_client',
-      'unsupported_response_type', 'invalid_scope', 'server_error',
-      'temporarily_unavailable', 'interaction_required', 'login_required',
-      'consent_required'
-    ];
-    const safeError = knownErrors.includes(error) ? error : 'oauth_error';
+    console.error('OAuth error:', error, c.req.query('error_description'));
+    const safeError = KNOWN_OAUTH_ERRORS.has(error) ? error : 'oauth_error';
     return c.redirect(`/?error=${safeError}`);
   }
 
+  const code = c.req.query('code');
+  const state = c.req.query('state');
   if (!code || !state) {
     return c.redirect('/?error=missing_params');
   }
 
-  // state検証
   const storedState = await getOAuthState(c.env.KV, state);
-  if (!storedState) {
-    return c.redirect('/?error=invalid_state');
-  }
-
-  if (storedState.provider !== providerId) {
-    return c.redirect('/?error=provider_mismatch');
-  }
-
+  if (!storedState) return c.redirect('/?error=invalid_state');
+  if (storedState.provider !== providerId) return c.redirect('/?error=provider_mismatch');
   await deleteOAuthState(c.env.KV, state);
 
   const provider = getProvider(c.env, providerId);
-  if (!provider) {
-    return c.redirect('/?error=unknown_provider');
-  }
+  if (!provider) return c.redirect('/?error=unknown_provider');
 
-  const clientId = getClientId(c.env, providerId);
-  const clientSecret = getClientSecret(c.env, providerId);
-  const redirectUri = `${c.env.APP_URL}/api/auth/callback/${providerId}`;
+  const clientIp = c.req.header('CF-Connecting-IP');
+  const tokens = await exchangeOAuthToken(providerId, code, storedState.codeVerifier, c.env, provider, clientIp);
+  if (!tokens) return c.redirect('/?error=token_exchange_failed');
 
-  // トークン交換
-  const tokenBody: Record<string, string> = {
-    grant_type: 'authorization_code',
-    code,
-    redirect_uri: redirectUri,
-    client_id: clientId,
-    client_secret: clientSecret,
-  };
-
-  if (provider.supportsPkce) {
-    tokenBody.code_verifier = storedState.codeVerifier;
-  }
-
-  // X requires Basic auth
-  const tokenHeaders: Record<string, string> = {
-    'Content-Type': 'application/x-www-form-urlencoded',
-  };
-
-  const usingTakosExchangeBinding = providerId === 'takos' && !!c.env.TAKOS_OAUTH_EXCHANGE;
-  if (usingTakosExchangeBinding) {
-    // Preserve the caller IP for rate limiting/audit on the Takos side (service binding calls may not have CF-Connecting-IP).
-    const clientIp = c.req.header('CF-Connecting-IP');
-    if (clientIp) {
-      tokenHeaders['X-Forwarded-For'] = clientIp;
-    }
-  }
-
-  if (providerId === 'x') {
-    const credentials = btoa(`${clientId}:${clientSecret}`);
-    tokenHeaders['Authorization'] = `Basic ${credentials}`;
-    delete tokenBody.client_secret;
-  }
-
-  const tokenUrl = usingTakosExchangeBinding ? 'https://internal/oauth/token' : provider.tokenUrl;
-  const tokenRequestInit: RequestInit = {
-    method: 'POST',
-    headers: tokenHeaders,
-    body: new URLSearchParams(tokenBody),
-  };
-
-  console.log('Token exchange request:', {
-    url: tokenUrl,
-    via: usingTakosExchangeBinding ? 'service_binding' : 'fetch',
-    clientId,
-    redirectUri,
-    hasCodeVerifier: !!tokenBody.code_verifier,
-  });
-
-  const tokenRes = usingTakosExchangeBinding
-    ? await c.env.TAKOS_OAUTH_EXCHANGE!.fetch(tokenUrl, tokenRequestInit)
-    : await fetch(tokenUrl, tokenRequestInit);
-
-  if (!tokenRes.ok) {
-    const errText = await tokenRes.text();
-    console.error('Token exchange failed:', {
-      status: tokenRes.status,
-      statusText: tokenRes.statusText,
-      body: errText,
-      url: provider.tokenUrl,
-    });
-    return c.redirect('/?error=token_exchange_failed');
-  }
-
-  const tokens = await tokenRes.json() as {
-    access_token: string;
-    refresh_token?: string;
-    expires_in?: number;
-  };
-
+  const usingBinding = providerId === 'takos' && !!c.env.TAKOS_OAUTH_EXCHANGE;
   let userInfo;
   try {
-    userInfo = usingTakosExchangeBinding
-      ? await fetchTakosUserInfo(c.env.TAKOS_OAUTH_EXCHANGE!, tokens.access_token, c.req.header('CF-Connecting-IP'))
+    userInfo = usingBinding
+      ? await fetchTakosUserInfo(c.env.TAKOS_OAUTH_EXCHANGE!, tokens.access_token, clientIp)
       : await fetchUserInfo(provider, tokens.access_token);
   } catch (err) {
     console.error('Failed to fetch user info:', err);
     return c.redirect('/?error=user_info_failed');
   }
 
-  const providerUserId = providerId === 'takos'
-    ? userInfo.id
-    : `${providerId}:${userInfo.id}`;
-  const prisma = c.get('prisma');
-
-  // Actor作成/更新
-  let actorData = await prisma.actor.findFirst({
-    where: { takosUserId: providerUserId },
-  });
-
-  if (!actorData && providerId === 'takos') {
-    const legacyId = `takos:${userInfo.id}`;
-    const legacyActor = await prisma.actor.findFirst({
-      where: { takosUserId: legacyId },
-    });
-    if (legacyActor) {
-      actorData = await prisma.actor.update({
-        where: { apId: legacyActor.apId },
-        data: { takosUserId: providerUserId },
-      });
-    }
-  }
-
-  if (!actorData) {
-    actorData = await createActorFromOAuth(prisma, c.env, userInfo, providerUserId);
-  } else {
-    // プロフィール更新
-    await updateActorFromOAuth(prisma, actorData, userInfo);
-  }
+  const actorData = await findOrCreateOAuthActor(c.get('prisma'), c.env, providerId, userInfo);
 
   await rotateSession(
     c,
@@ -478,46 +584,34 @@ auth.get('/callback/:provider', async (c) => {
   return c.redirect('/');
 });
 
-// ============================================
 // ログアウト
-// ============================================
-
 auth.post('/logout', async (c) => {
   const sessionId = getCookie(c, 'session');
   if (sessionId) {
-    const prisma = c.get('prisma');
-    await deleteSessionSafely(prisma, sessionId, 'logout');
+    await deleteSessionSafely(c.get('prisma'), sessionId, 'logout');
     deleteCookie(c, 'session');
   }
   return c.json({ success: true });
 });
 
-// ============================================
-// アカウント管理（既存機能維持）
-// ============================================
+const ACCOUNT_SELECT = {
+  apId: true,
+  preferredUsername: true,
+  name: true,
+  iconUrl: true,
+} as const;
 
 auth.get('/accounts', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Not authenticated' }, 401);
 
-  const prisma = c.get('prisma');
-  const accounts = await prisma.actor.findMany({
-    select: {
-      apId: true,
-      preferredUsername: true,
-      name: true,
-      iconUrl: true,
-    },
+  const accounts = await c.get('prisma').actor.findMany({
+    select: ACCOUNT_SELECT,
     orderBy: { createdAt: 'asc' },
   });
 
   return c.json({
-    accounts: accounts.map(a => ({
-      ap_id: a.apId,
-      preferred_username: a.preferredUsername,
-      name: a.name,
-      icon_url: a.iconUrl,
-    })),
+    accounts: accounts.map(formatAccountResponse),
     current_ap_id: actor.ap_id,
   });
 });
@@ -569,9 +663,8 @@ auth.post('/accounts', async (c) => {
   }
   const name: string | undefined = typeof body.name === 'string' ? body.name : undefined;
 
-  const baseUrl = c.env.APP_URL;
-  const apId = actorApId(baseUrl, username);
   const prisma = c.get('prisma');
+  const apId = actorApId(c.env.APP_URL, username);
 
   const existing = await prisma.actor.findUnique({
     where: { apId },
@@ -580,176 +673,17 @@ auth.post('/accounts', async (c) => {
 
   if (existing) return c.json({ error: 'Username already taken' }, 400);
 
-  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
-  const newActor = await prisma.actor.create({
-    data: {
-      apId,
-      type: 'Person',
-      preferredUsername: username,
-      name: name || username,
-      ...actorEndpoints(apId),
-      publicKeyPem,
-      privateKeyPem,
-      takosUserId: `local:${username}`,
-      role: 'member',
-    },
-    select: {
-      apId: true,
-      preferredUsername: true,
-      name: true,
-      iconUrl: true,
-    },
+  const newActor = await createActor(prisma, c.env, {
+    username,
+    name: name || username,
+    takosUserId: `local:${username}`,
+    role: 'member',
   });
 
   return c.json({
     success: true,
-    account: {
-      ap_id: newActor.apId,
-      preferred_username: newActor.preferredUsername,
-      name: newActor.name,
-      icon_url: newActor.iconUrl,
-    },
+    account: formatAccountResponse(newActor),
   });
 });
-
-// ============================================
-// ヘルパー関数
-// ============================================
-
-async function createDefaultOwner(prisma: PrismaClient, env: Env, takosUserId: string) {
-  const username = 'tako';
-  const apId = actorApId(env.APP_URL, username);
-  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
-
-  return await prisma.actor.create({
-    data: {
-      apId,
-      type: 'Person',
-      preferredUsername: username,
-      name: username,
-      ...actorEndpoints(apId),
-      publicKeyPem,
-      privateKeyPem,
-      takosUserId,
-      role: 'owner',
-    },
-  });
-}
-
-async function createActorFromOAuth(
-  prisma: PrismaClient,
-  env: Env,
-  userInfo: { id: string; name: string; email?: string; picture?: string; username?: string },
-  providerUserId: string
-) {
-  const baseUrl = env.APP_URL;
-  const baseUsername = userInfo.username || userInfo.name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
-
-  // Find an unused username (append counter on collision)
-  let username = baseUsername;
-  let counter = 1;
-  while (await prisma.actor.findUnique({ where: { apId: actorApId(baseUrl, username) }, select: { apId: true } })) {
-    username = `${baseUsername}${counter}`;
-    counter++;
-  }
-
-  const apId = actorApId(baseUrl, username);
-  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
-  const actorCount = await prisma.actor.count();
-
-  return await prisma.actor.create({
-    data: {
-      apId,
-      type: 'Person',
-      preferredUsername: username,
-      name: userInfo.name,
-      iconUrl: userInfo.picture || null,
-      ...actorEndpoints(apId),
-      publicKeyPem,
-      privateKeyPem,
-      takosUserId: providerUserId,
-      role: actorCount === 0 ? 'owner' : 'member',
-    },
-  });
-}
-
-/** Fetches user info from the Takos OAuth exchange service binding. */
-async function fetchTakosUserInfo(
-  binding: { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> },
-  accessToken: string,
-  clientIp: string | undefined,
-): Promise<{ id: string; name: string; email?: string; picture?: string }> {
-  const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
-  if (clientIp) headers['X-Forwarded-For'] = clientIp;
-
-  const res = await binding.fetch('https://internal/oauth/userinfo', { headers });
-  if (!res.ok) throw new Error(`Failed to fetch takos user info: ${res.status}`);
-
-  const data = await res.json() as { user?: { id: string; name: string; email?: string; picture?: string } };
-  if (!data.user?.id || !data.user?.name) throw new Error('Invalid takos user info payload');
-
-  return { id: data.user.id, name: data.user.name, email: data.user.email, picture: data.user.picture };
-}
-
-async function updateActorFromOAuth(
-  prisma: PrismaClient,
-  actor: { apId: string },
-  userInfo: { name: string; picture?: string }
-): Promise<void> {
-  await prisma.actor.update({
-    where: { apId: actor.apId },
-    data: {
-      name: userInfo.name,
-      iconUrl: userInfo.picture || undefined,
-    },
-  });
-}
-
-async function createSession(
-  prisma: PrismaClient,
-  actorApId: string,
-  provider: string | null,
-  tokens: { access_token: string; refresh_token?: string; expires_in?: number } | null,
-  encryptionKey?: string
-): Promise<string> {
-  const sessionId = generateId();
-  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString();
-  const tokenExpiresAt = tokens?.expires_in
-    ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-    : null;
-
-  // Encrypt OAuth tokens before storing
-  const encryptedAccessToken = tokens?.access_token
-    ? await encrypt(tokens.access_token, encryptionKey)
-    : null;
-  const encryptedRefreshToken = tokens?.refresh_token
-    ? await encrypt(tokens.refresh_token, encryptionKey)
-    : null;
-
-  await prisma.session.create({
-    data: {
-      id: sessionId,
-      memberId: actorApId,
-      accessToken: sessionId, // legacy: access_token = sessionId
-      expiresAt,
-      provider,
-      providerAccessToken: encryptedAccessToken,
-      providerRefreshToken: encryptedRefreshToken,
-      providerTokenExpiresAt: tokenExpiresAt,
-    },
-  });
-
-  return sessionId;
-}
-
-function setSessionCookie(c: { header: (name: string, value: string) => void }, sessionId: string): void {
-  setCookie(c as Parameters<typeof setCookie>[0], 'session', sessionId, {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'Lax',
-    path: '/',
-    maxAge: SESSION_MAX_AGE_SECONDS,
-  });
-}
 
 export default auth;

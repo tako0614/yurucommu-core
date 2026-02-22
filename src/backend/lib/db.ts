@@ -29,69 +29,27 @@ function withDeletedAtFilter<TArgs extends { where?: unknown }>(args: TArgs): TA
   };
 }
 
+const SOFT_DELETE_METHODS = [
+  'findUnique', 'findUniqueOrThrow', 'findFirst', 'findFirstOrThrow', 'findMany', 'count',
+] as const;
+
+function buildSoftDeleteHandlers(): Record<string, (ctx: { args: unknown; query: (args: unknown) => unknown }) => unknown> {
+  const handlers: Record<string, (ctx: { args: unknown; query: (args: unknown) => unknown }) => unknown> = {};
+  for (const method of SOFT_DELETE_METHODS) {
+    handlers[method] = ({ args, query }) =>
+      query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
+  }
+  return handlers;
+}
+
+const softDeleteHandlers = buildSoftDeleteHandlers();
+
 function withSoftDeleteMiddleware(prisma: PrismaClient): PrismaClient {
   return prisma.$extends({
     query: {
-      actor: {
-        async findUnique({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-        async findUniqueOrThrow({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-        async findFirst({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-        async findFirstOrThrow({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-        async findMany({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-        async count({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-      },
-      object: {
-        async findUnique({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-        async findUniqueOrThrow({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-        async findFirst({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-        async findFirstOrThrow({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-        async findMany({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-        async count({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-      },
-      community: {
-        async findUnique({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-        async findUniqueOrThrow({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-        async findFirst({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-        async findFirstOrThrow({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-        async findMany({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-        async count({ args, query }) {
-          return query(withDeletedAtFilter(args as { where?: unknown }) as typeof args);
-        },
-      },
+      actor: softDeleteHandlers,
+      object: softDeleteHandlers,
+      community: softDeleteHandlers,
     },
   }) as PrismaClient;
 }
@@ -112,7 +70,6 @@ export async function getPrismaSQLite(databasePath: string): Promise<PrismaClien
     return prismaClient;
   }
 
-  // For Node.js/Bun, we use the libsql adapter
   const { PrismaLibSql } = await import('@prisma/adapter-libsql');
 
   const adapter = new PrismaLibSql({
@@ -147,6 +104,5 @@ export async function disconnectPrisma(): Promise<void> {
   }
 }
 
-// Re-export types
 export { PrismaClient };
 export type * from '../../generated/prisma';

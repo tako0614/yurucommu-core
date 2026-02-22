@@ -21,6 +21,73 @@ import type {
   RuntimeEnv,
 } from './types';
 
+const DEFAULT_LIST_LIMIT = 1000;
+const META_SUFFIX = '.meta.json';
+const FALLBACK_MIME = 'application/octet-stream';
+
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html',
+  '.css': 'text/css',
+  '.js': 'application/javascript',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+};
+
+function getMimeType(ext: string): string {
+  return MIME_TYPES[ext] || FALLBACK_MIME;
+}
+
+function nowSeconds(): number {
+  return Date.now() / 1000;
+}
+
+/** Drain a ReadableStream into a single Uint8Array. */
+async function drainStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const combined = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return combined;
+}
+
+/** Compute expiration timestamp from options. */
+function resolveExpiration(options?: { expiration?: number; expirationTtl?: number }): number | undefined {
+  if (options?.expiration) return options.expiration;
+  if (options?.expirationTtl) return Math.floor(nowSeconds()) + options.expirationTtl;
+  return undefined;
+}
+
+/** Build a paginated list result with truncation. */
+function paginateList<T>(items: T[], limit: number): { items: T[]; complete: boolean; cursor?: string } {
+  const complete = items.length <= limit;
+  return {
+    items: items.slice(0, limit),
+    complete,
+    cursor: complete ? undefined : String(limit),
+  };
+}
+
 /**
  * In-Memory Key-Value Store Adapter (same as Node.js version)
  */
@@ -34,19 +101,14 @@ export class MemoryKV implements IKeyValueStore {
     const entry = this.store.get(key);
     if (!entry) return null;
 
-    // Check expiration
-    if (entry.expiration && entry.expiration < Date.now() / 1000) {
+    if (entry.expiration && entry.expiration < nowSeconds()) {
       this.store.delete(key);
       return null;
     }
 
     const type = options?.type ?? 'text';
-    if (type === 'json') {
-      return JSON.parse(entry.value);
-    }
-    if (type === 'arrayBuffer') {
-      return new TextEncoder().encode(entry.value).buffer;
-    }
+    if (type === 'json') return JSON.parse(entry.value);
+    if (type === 'arrayBuffer') return new TextEncoder().encode(entry.value).buffer;
     return entry.value;
   }
 
@@ -65,33 +127,12 @@ export class MemoryKV implements IKeyValueStore {
     } else if (value instanceof ArrayBuffer) {
       strValue = new TextDecoder().decode(value);
     } else {
-      const reader = value.getReader();
-      const chunks: Uint8Array[] = [];
-      while (true) {
-        const { done, value: chunk } = await reader.read();
-        if (done) break;
-        chunks.push(chunk);
-      }
-      const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-      const combined = new Uint8Array(totalLength);
-      let offset = 0;
-      for (const chunk of chunks) {
-        combined.set(chunk, offset);
-        offset += chunk.length;
-      }
-      strValue = new TextDecoder().decode(combined);
-    }
-
-    let expiration: number | undefined;
-    if (options?.expiration) {
-      expiration = options.expiration;
-    } else if (options?.expirationTtl) {
-      expiration = Math.floor(Date.now() / 1000) + options.expirationTtl;
+      strValue = new TextDecoder().decode(await drainStream(value));
     }
 
     this.store.set(key, {
       value: strValue,
-      expiration,
+      expiration: resolveExpiration(options),
       metadata: options?.metadata,
     });
   }
@@ -110,7 +151,7 @@ export class MemoryKV implements IKeyValueStore {
     cursor?: string;
   }> {
     const keys: Array<{ name: string; expiration?: number; metadata?: unknown }> = [];
-    const now = Date.now() / 1000;
+    const now = nowSeconds();
 
     for (const [name, entry] of this.store.entries()) {
       if (entry.expiration && entry.expiration < now) continue;
@@ -123,14 +164,8 @@ export class MemoryKV implements IKeyValueStore {
       });
     }
 
-    const limit = options?.limit ?? 1000;
-    const list_complete = keys.length <= limit;
-
-    return {
-      keys: keys.slice(0, limit),
-      list_complete,
-      cursor: list_complete ? undefined : String(limit),
-    };
+    const { items, complete, cursor } = paginateList(keys, options?.limit ?? DEFAULT_LIST_LIMIT);
+    return { keys: items, list_complete: complete, cursor };
   }
 }
 
@@ -248,6 +283,9 @@ class DenoPreparedStatement implements PreparedStatement {
   }
 }
 
+/** Parsed storage metadata shape. */
+type StorageMeta = { httpMetadata?: ObjectMetadata['httpMetadata']; customMetadata?: Record<string, string> };
+
 /**
  * Deno Filesystem Storage Adapter
  */
@@ -269,7 +307,18 @@ export class DenoStorage implements IObjectStorage {
   }
 
   private getMetaPath(key: string): string {
-    return `${this.basePath}/${key}.meta.json`;
+    return `${this.basePath}/${key}${META_SUFFIX}`;
+  }
+
+  /** Read and parse the .meta.json sidecar, returning empty object on failure. */
+  private async loadMeta(key: string): Promise<StorageMeta> {
+    try {
+      // @ts-expect-error - Deno API
+      const raw = await Deno.readTextFile(this.getMetaPath(key));
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
   }
 
   async put(
@@ -282,38 +331,22 @@ export class DenoStorage implements IObjectStorage {
   ): Promise<void> {
     const filePath = this.getFilePath(key);
 
-    // Ensure directory exists
     const dir = filePath.substring(0, filePath.lastIndexOf('/'));
     // @ts-expect-error - Deno API
     await Deno.mkdir(dir, { recursive: true });
 
-    // Convert value to Uint8Array
     let content: Uint8Array;
     if (typeof value === 'string') {
       content = new TextEncoder().encode(value);
     } else if (value instanceof ArrayBuffer) {
       content = new Uint8Array(value);
     } else {
-      const chunks: Uint8Array[] = [];
-      const reader = value.getReader();
-      while (true) {
-        const { done, value: chunk } = await reader.read();
-        if (done) break;
-        chunks.push(chunk);
-      }
-      const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-      content = new Uint8Array(totalLength);
-      let offset = 0;
-      for (const chunk of chunks) {
-        content.set(chunk, offset);
-        offset += chunk.length;
-      }
+      content = await drainStream(value);
     }
 
     // @ts-expect-error - Deno API
     await Deno.writeFile(filePath, content);
 
-    // Write metadata
     if (options?.httpMetadata || options?.customMetadata) {
       // @ts-expect-error - Deno API
       await Deno.writeTextFile(
@@ -327,21 +360,10 @@ export class DenoStorage implements IObjectStorage {
   }
 
   async get(key: string): Promise<StorageObject | null> {
-    const filePath = this.getFilePath(key);
-    const metaPath = this.getMetaPath(key);
-
     try {
       // @ts-expect-error - Deno API
-      const content = await Deno.readFile(filePath);
-      let metadata: { httpMetadata?: ObjectMetadata['httpMetadata']; customMetadata?: Record<string, string> } = {};
-
-      try {
-        // @ts-expect-error - Deno API
-        const metaContent = await Deno.readTextFile(metaPath);
-        metadata = JSON.parse(metaContent);
-      } catch {
-        // No metadata file
-      }
+      const content = await Deno.readFile(this.getFilePath(key));
+      const metadata = await this.loadMeta(key);
 
       let bodyUsed = false;
 
@@ -377,17 +399,13 @@ export class DenoStorage implements IObjectStorage {
   async delete(key: string | string[]): Promise<void> {
     const keys = Array.isArray(key) ? key : [key];
     for (const k of keys) {
-      try {
-        // @ts-expect-error - Deno API
-        await Deno.remove(this.getFilePath(k));
-      } catch {
-        // Ignore if not exists
-      }
-      try {
-        // @ts-expect-error - Deno API
-        await Deno.remove(this.getMetaPath(k));
-      } catch {
-        // Ignore if not exists
+      for (const filePath of [this.getFilePath(k), this.getMetaPath(k)]) {
+        try {
+          // @ts-expect-error - Deno API
+          await Deno.remove(filePath);
+        } catch {
+          // Ignore if not exists
+        }
       }
     }
   }
@@ -409,7 +427,7 @@ export class DenoStorage implements IObjectStorage {
 
           if (entry.isDirectory) {
             await readDirRecursive(fullPath, key);
-          } else if (!entry.name.endsWith('.meta.json')) {
+          } else if (!entry.name.endsWith(META_SUFFIX)) {
             if (!options?.prefix || key.startsWith(options.prefix)) {
               // @ts-expect-error - Deno API
               const stats = await Deno.stat(fullPath);
@@ -428,7 +446,7 @@ export class DenoStorage implements IObjectStorage {
 
     await readDirRecursive(this.basePath);
 
-    const limit = options?.limit ?? 1000;
+    const limit = options?.limit ?? DEFAULT_LIST_LIMIT;
     const truncated = objects.length > limit;
 
     return {
@@ -439,21 +457,10 @@ export class DenoStorage implements IObjectStorage {
   }
 
   async head(key: string): Promise<ObjectMetadata | null> {
-    const filePath = this.getFilePath(key);
-    const metaPath = this.getMetaPath(key);
-
     try {
       // @ts-expect-error - Deno API
-      const stats = await Deno.stat(filePath);
-      let metadata: { httpMetadata?: ObjectMetadata['httpMetadata']; customMetadata?: Record<string, string> } = {};
-
-      try {
-        // @ts-expect-error - Deno API
-        const metaContent = await Deno.readTextFile(metaPath);
-        metadata = JSON.parse(metaContent);
-      } catch {
-        // No metadata file
-      }
+      const stats = await Deno.stat(this.getFilePath(key));
+      const metadata = await this.loadMeta(key);
 
       return {
         contentLength: stats.size,
@@ -523,28 +530,6 @@ export class DenoAssets implements IStaticAssets {
       }
     }
   }
-}
-
-function getMimeType(ext: string): string {
-  const mimeTypes: Record<string, string> = {
-    '.html': 'text/html',
-    '.css': 'text/css',
-    '.js': 'application/javascript',
-    '.json': 'application/json',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.svg': 'image/svg+xml',
-    '.webp': 'image/webp',
-    '.ico': 'image/x-icon',
-    '.woff': 'font/woff',
-    '.woff2': 'font/woff2',
-    '.ttf': 'font/ttf',
-    '.mp4': 'video/mp4',
-    '.webm': 'video/webm',
-  };
-  return mimeTypes[ext] || 'application/octet-stream';
 }
 
 /**

@@ -1,8 +1,7 @@
 /**
  * Runtime Abstraction Layer
  *
- * This module provides a unified interface for different runtime environments.
- * Use the appropriate adapter based on your deployment target.
+ * Unified interface for different runtime environments.
  *
  * Supported runtimes:
  * - Cloudflare Workers / workerd (D1, R2, KV)
@@ -37,71 +36,45 @@ export interface RuntimeConfig {
   };
 }
 
-/**
- * Detect current runtime environment
- */
 export function detectRuntime(): RuntimeType {
-  // Check for Cloudflare Workers
-  // @ts-ignore - caches is a global in Cloudflare Workers
+  // @ts-ignore - caches.default is a Cloudflare Workers global
   if (typeof caches !== 'undefined' && typeof caches.default !== 'undefined') {
     return 'cloudflare';
   }
-
-  // Check for Deno
-  // @ts-ignore - Deno is a global in Deno
-  if (typeof Deno !== 'undefined') {
-    return 'deno';
-  }
-
-  // Check for Bun
-  // @ts-ignore - Bun is a global in Bun runtime
-  if (typeof Bun !== 'undefined') {
-    return 'bun';
-  }
-
-  // Default to Node.js
+  // @ts-ignore - Deno global
+  if (typeof Deno !== 'undefined') return 'deno';
+  // @ts-ignore - Bun global
+  if (typeof Bun !== 'undefined') return 'bun';
   return 'node';
 }
 
-/**
- * Type guard to check if we're in Cloudflare Workers environment
- */
 export function isCloudflareWorkers(): boolean {
   return detectRuntime() === 'cloudflare';
 }
 
-/**
- * Type guard to check if we're in Node.js environment
- */
 export function isNodeJS(): boolean {
   return detectRuntime() === 'node';
 }
 
-/**
- * Type guard to check if we're in Bun environment
- */
 export function isBun(): boolean {
   return detectRuntime() === 'bun';
 }
 
-/**
- * Type guard to check if we're in Deno environment
- */
 export function isDeno(): boolean {
   return detectRuntime() === 'deno';
 }
 
 /**
- * Create runtime environment based on detected or specified runtime
- * Dynamically imports the appropriate adapter to avoid bundling issues
+ * Create runtime environment based on detected or specified runtime.
+ * Dynamically imports the appropriate adapter to avoid bundling issues.
  */
 export async function createRuntime(
   config: RuntimeConfig,
   runtime?: RuntimeType
 ): Promise<RuntimeEnv> {
-  const detectedRuntime = runtime || detectRuntime();
+  const target = runtime ?? detectRuntime();
 
-  switch (detectedRuntime) {
+  switch (target) {
     case 'cloudflare':
       throw new Error('Cloudflare runtime should use createCloudflareRuntime with bindings');
 
@@ -111,38 +84,31 @@ export async function createRuntime(
     }
 
     case 'bun': {
-      // Dynamic import - only executed in Bun runtime
       // @ts-ignore - Bun-specific module
       const mod = await import('./bun');
       return mod.createBunRuntime(config);
     }
 
     case 'deno': {
-      // Dynamic import - only executed in Deno runtime
       // @ts-ignore - Deno-specific module
       const mod = await import('./deno');
       return mod.createDenoRuntime(config);
     }
 
     default:
-      throw new Error(`Unsupported runtime: ${detectedRuntime}`);
+      throw new Error(`Unsupported runtime: ${target}`);
   }
 }
 
 // Re-export individual runtime creators for direct use
 export async function createNodeRuntime(config: RuntimeConfig): Promise<RuntimeEnv> {
-  const { createNodeRuntime: create } = await import('./node');
-  return create(config);
+  return createRuntime(config, 'node');
 }
 
 export async function createBunRuntime(config: RuntimeConfig): Promise<RuntimeEnv> {
-  // @ts-ignore - Bun-specific module
-  const mod = await import('./bun');
-  return mod.createBunRuntime(config);
+  return createRuntime(config, 'bun');
 }
 
 export async function createDenoRuntime(config: RuntimeConfig): Promise<RuntimeEnv> {
-  // @ts-ignore - Deno-specific module
-  const mod = await import('./deno');
-  return mod.createDenoRuntime(config);
+  return createRuntime(config, 'deno');
 }

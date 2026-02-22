@@ -65,18 +65,8 @@ export async function planEndpointsFromActorCache(
 
   for (const apId of recipientActorApIds) {
     const row = byApId.get(apId);
-    if (!row) {
-      unknownRecipients.push(apId);
-      continue;
-    }
-
-    // Treat stale cache as unknown so we can refresh via resolve_actor jobs.
-    if (!isActorCacheFresh(row, nowMs)) {
-      unknownRecipients.push(apId);
-      continue;
-    }
-
-    const chosen = chooseEndpoint(row);
+    // Treat missing, stale, or unresolvable actors as unknown for resolve_actor jobs.
+    const chosen = row && isActorCacheFresh(row, nowMs) ? chooseEndpoint(row) : null;
     if (!chosen) {
       unknownRecipients.push(apId);
       continue;

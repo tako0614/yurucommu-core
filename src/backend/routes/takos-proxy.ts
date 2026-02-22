@@ -6,6 +6,7 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
 import type { Env, Variables } from '../types';
 import { getTakosClient, type TakosSession } from '../lib/takos-client';
@@ -76,52 +77,26 @@ takosProxy.use('*', async (c, next) => {
   await next();
 });
 
-// ワークスペース一覧
-takosProxy.get('/workspaces', async (c) => {
-  const client = c.get('takosClient');
-  if (!client) {
-    return c.json({ error: 'Takos client not available' }, 500);
-  }
+/** Proxy a TakosClient method, returning 500 on failure. */
+function proxyRoute<K extends 'getWorkspaces' | 'getRepos' | 'getUser'>(method: K) {
+  return async (c: Context<{ Bindings: Env; Variables: Variables }>) => {
+    const client = c.get('takosClient');
+    if (!client) {
+      return c.json({ error: 'Takos client not available' }, 500);
+    }
 
-  try {
-    const data = await client.getWorkspaces();
-    return c.json(data);
-  } catch (err) {
-    console.error('Failed to get workspaces:', err);
-    return c.json({ error: 'Failed to get workspaces' }, 500);
-  }
-});
+    try {
+      const data = await client[method]();
+      return c.json(data);
+    } catch (err) {
+      console.error(`Failed to ${method}:`, err);
+      return c.json({ error: `Failed to ${method}` }, 500);
+    }
+  };
+}
 
-// リポジトリ一覧
-takosProxy.get('/repos', async (c) => {
-  const client = c.get('takosClient');
-  if (!client) {
-    return c.json({ error: 'Takos client not available' }, 500);
-  }
-
-  try {
-    const data = await client.getRepos();
-    return c.json(data);
-  } catch (err) {
-    console.error('Failed to get repos:', err);
-    return c.json({ error: 'Failed to get repos' }, 500);
-  }
-});
-
-// ユーザー情報
-takosProxy.get('/user', async (c) => {
-  const client = c.get('takosClient');
-  if (!client) {
-    return c.json({ error: 'Takos client not available' }, 500);
-  }
-
-  try {
-    const data = await client.getUser();
-    return c.json(data);
-  } catch (err) {
-    console.error('Failed to get user:', err);
-    return c.json({ error: 'Failed to get user' }, 500);
-  }
-});
+takosProxy.get('/workspaces', proxyRoute('getWorkspaces'));
+takosProxy.get('/repos', proxyRoute('getRepos'));
+takosProxy.get('/user', proxyRoute('getUser'));
 
 export default takosProxy;
