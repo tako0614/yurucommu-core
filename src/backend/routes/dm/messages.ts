@@ -28,6 +28,14 @@ const ACTOR_INFO_SELECT = {
 
 type ActorInfo = { apId: string; preferredUsername: string | null; name: string | null; iconUrl: string | null };
 
+type SenderInfo = {
+  ap_id: string;
+  username: string;
+  preferred_username: string | null;
+  name: string | null;
+  icon_url: string | null;
+};
+
 /** Validate trimmed DM content; returns the trimmed string or an error response. */
 function validateContent(raw: string | undefined): string | { error: string; status: 400 } {
   const content = raw?.trim();
@@ -36,6 +44,17 @@ function validateContent(raw: string | undefined): string | { error: string; sta
     return { error: `Message too long (max ${MAX_DM_CONTENT_LENGTH} chars)`, status: 400 };
   }
   return content;
+}
+
+/** Build a sender info object from a current-session actor. */
+function buildSenderFromActor(actor: { ap_id: string; preferred_username: string | null; name: string | null; icon_url: string | null }): SenderInfo {
+  return {
+    ap_id: actor.ap_id,
+    username: formatUsername(actor.ap_id),
+    preferred_username: actor.preferred_username,
+    name: actor.name,
+    icon_url: actor.icon_url,
+  };
 }
 
 /** Fetch direct messages the actor is authorized to see, filtered by conversation. */
@@ -107,7 +126,7 @@ function formatMessages(
   authorMap: Map<string, ActorInfo>,
 ): Array<{
   id: string;
-  sender: { ap_id: string; username: string; preferred_username: string | null; name: string | null; icon_url: string | null };
+  sender: SenderInfo;
   content: string | null;
   attachments?: Attachment[];
   created_at: string | null;
@@ -130,6 +149,20 @@ function formatMessages(
   });
 }
 
+/** Fetch messages for a conversation, resolve authors, and format for API response. */
+async function fetchAndFormatMessages(
+  prisma: any,
+  actorApId: string,
+  conversationId: string,
+  limit: number,
+  before: string | undefined,
+): Promise<Array<any>> {
+  const messages = await fetchAuthorizedMessages(prisma, actorApId, conversationId, limit, before);
+  const authorApIds = [...new Set(messages.map((m: any) => m.attributedTo))];
+  const authorMap = await resolveAuthorInfoMap(prisma, authorApIds);
+  return formatMessages(messages, authorMap);
+}
+
 /** Look up a direct-message Note that the actor owns (for edit/delete). */
 async function findOwnedDmMessage(
   prisma: any,
@@ -145,6 +178,27 @@ async function findOwnedDmMessage(
   return message;
 }
 
+/** Create the DM Note object row in a transaction context. */
+async function createDmNote(
+  tx: any,
+  data: { apId: string; actorApId: string; content: string; toJson: string; conversationId: string; published: string },
+): Promise<void> {
+  await tx.object.create({
+    data: {
+      apId: data.apId,
+      type: 'Note',
+      attributedTo: data.actorApId,
+      content: data.content,
+      visibility: 'direct',
+      toJson: data.toJson,
+      ccJson: JSON.stringify([]),
+      conversation: data.conversationId,
+      published: data.published,
+      isLocal: 1,
+    },
+  });
+}
+
 // --- Route handlers ---
 
 dm.get('/user/:encodedApId/messages', async (c) => {
@@ -155,15 +209,10 @@ dm.get('/user/:encodedApId/messages', async (c) => {
   const otherApId = decodeURIComponent(c.req.param('encodedApId'));
   const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
   const before = c.req.query('before');
-  const baseUrl = c.env.APP_URL;
-  const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
+  const conversationId = getConversationId(c.env.APP_URL, actor.ap_id, otherApId);
 
-  const filteredMessages = await fetchAuthorizedMessages(prisma, actor.ap_id, conversationId, limit, before);
-  const authorApIds = [...new Set(filteredMessages.map((m: any) => m.attributedTo))];
-  const authorMap = await resolveAuthorInfoMap(prisma, authorApIds);
-  const result = formatMessages(filteredMessages, authorMap);
-
-  return c.json({ messages: result, conversation_id: conversationId });
+  const messages = await fetchAndFormatMessages(prisma, actor.ap_id, conversationId, limit, before);
+  return c.json({ messages, conversation_id: conversationId });
 });
 
 // Send message to a specific user (creates Note with direct visibility)
@@ -197,21 +246,17 @@ dm.post('/user/:encodedApId/messages', async (c) => {
   const otherActor = localActor || cachedActor;
   if (!otherActor) return c.json({ error: 'User not found' }, 404);
 
-  const messageId = generateId();
-  const apId = objectApId(baseUrl, messageId);
+  const apId = objectApId(baseUrl, generateId());
   const now = new Date().toISOString();
   const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
-
   const toJson = JSON.stringify([otherApId]);
-  const ccJson = JSON.stringify([]);
 
   const isRecipientLocal = !!localActor;
-  const localActivityId = isRecipientLocal ? activityApId(baseUrl, generateId()) : null;
-  const remoteActivityId = !isRecipientLocal ? activityApId(baseUrl, generateId()) : null;
-  const remoteCreateActivity = remoteActivityId
+  const deliveryActivityId = activityApId(baseUrl, generateId());
+  const remoteCreateActivity = !isRecipientLocal
     ? {
         '@context': 'https://www.w3.org/ns/activitystreams',
-        id: remoteActivityId,
+        id: deliveryActivityId,
         type: 'Create',
         actor: actor.ap_id,
         to: [otherApId],
@@ -229,20 +274,7 @@ dm.post('/user/:encodedApId/messages', async (c) => {
 
   try {
     await prisma.$transaction(async (tx: any) => {
-      await tx.object.create({
-        data: {
-          apId,
-          type: 'Note',
-          attributedTo: actor.ap_id,
-          content,
-          visibility: 'direct',
-          toJson,
-          ccJson,
-          conversation: conversationId,
-          published: now,
-          isLocal: 1,
-        },
-      });
+      await createDmNote(tx, { apId, actorApId: actor.ap_id, content, toJson, conversationId, published: now });
 
       if (isRecipientLocal) {
         await tx.objectRecipient.upsert({
@@ -253,7 +285,7 @@ dm.post('/user/:encodedApId/messages', async (c) => {
 
         await tx.activity.create({
           data: {
-            apId: localActivityId!,
+            apId: deliveryActivityId,
             type: 'Create',
             actorApId: actor.ap_id,
             objectApId: apId,
@@ -263,12 +295,12 @@ dm.post('/user/:encodedApId/messages', async (c) => {
         });
 
         await tx.inbox.create({
-          data: { actorApId: otherApId, activityApId: localActivityId! },
+          data: { actorApId: otherApId, activityApId: deliveryActivityId },
         });
-      } else if (remoteActivityId && remoteCreateActivity) {
+      } else {
         await tx.activity.create({
           data: {
-            apId: remoteActivityId,
+            apId: deliveryActivityId,
             type: 'Create',
             actorApId: actor.ap_id,
             objectApId: apId,
@@ -283,23 +315,12 @@ dm.post('/user/:encodedApId/messages', async (c) => {
     return c.json({ error: 'Failed to send message' }, 500);
   }
 
-  if (!isLocal(otherApId, baseUrl) && remoteActivityId) {
-    await enqueueDeliveryToActor(c.env, remoteActivityId, otherApId);
+  if (!isLocal(otherApId, baseUrl)) {
+    await enqueueDeliveryToActor(c.env, deliveryActivityId, otherApId);
   }
 
   return c.json({
-    message: {
-      id: apId,
-      sender: {
-        ap_id: actor.ap_id,
-        username: formatUsername(actor.ap_id),
-        preferred_username: actor.preferred_username,
-        name: actor.name,
-        icon_url: actor.icon_url,
-      },
-      content,
-      created_at: now,
-    },
+    message: { id: apId, sender: buildSenderFromActor(actor), content, created_at: now },
     conversation_id: conversationId,
   }, 201);
 });
@@ -368,12 +389,8 @@ dm.get('/conversations/:id/messages', async (c) => {
   const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
   const before = c.req.query('before');
 
-  const filteredMessages = await fetchAuthorizedMessages(prisma, actor.ap_id, conversationId, limit, before);
-  const authorApIds = [...new Set(filteredMessages.map((m: any) => m.attributedTo))];
-  const authorMap = await resolveAuthorInfoMap(prisma, authorApIds);
-  const result = formatMessages(filteredMessages, authorMap);
-
-  return c.json({ messages: result });
+  const messages = await fetchAndFormatMessages(prisma, actor.ap_id, conversationId, limit, before);
+  return c.json({ messages });
 });
 
 dm.post('/conversations/:id/messages', async (c) => {
@@ -410,33 +427,17 @@ dm.post('/conversations/:id/messages', async (c) => {
 
   if (!otherApId) return c.json({ error: 'Forbidden' }, 403);
 
-  const messageId = generateId();
-  const apId = objectApId(baseUrl, messageId);
+  const apId = objectApId(baseUrl, generateId());
   const now = new Date().toISOString();
   const toJson = JSON.stringify([otherApId]);
-  const ccJson = JSON.stringify([]);
 
-  const recipientIsLocal = await prisma.actor.findUnique({
+  const isRecipientLocal = !!(await prisma.actor.findUnique({
     where: { apId: otherApId },
     select: { apId: true },
-  });
-  const isRecipientLocal = !!recipientIsLocal;
+  }));
 
   await prisma.$transaction(async (tx: any) => {
-    await tx.object.create({
-      data: {
-        apId,
-        type: 'Note',
-        attributedTo: actor.ap_id,
-        content,
-        visibility: 'direct',
-        toJson,
-        ccJson,
-        conversation: conversationId,
-        published: now,
-        isLocal: 1,
-      },
-    });
+    await createDmNote(tx, { apId, actorApId: actor.ap_id, content, toJson, conversationId, published: now });
 
     if (isRecipientLocal) {
       await tx.objectRecipient.upsert({
@@ -448,21 +449,8 @@ dm.post('/conversations/:id/messages', async (c) => {
   });
 
   return c.json({
-    message: {
-      id: apId,
-      sender: {
-        ap_id: actor.ap_id,
-        username: formatUsername(actor.ap_id),
-        preferred_username: actor.preferred_username,
-        name: actor.name,
-        icon_url: actor.icon_url,
-      },
-      content,
-      created_at: now,
-    },
+    message: { id: apId, sender: buildSenderFromActor(actor), content, created_at: now },
   }, 201);
 });
-
-// Typing indicator (local only)
 
 export default dm;
