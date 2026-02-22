@@ -3,6 +3,7 @@ import type { Env, Variables } from '../../types';
 import {
   MembershipContext,
   fetchCommunityDetails,
+  memberKey,
 } from './membership-shared';
 
 function isUniqueConstraintError(error: unknown): boolean {
@@ -29,7 +30,6 @@ export function registerMembershipJoinRoutes(communities: Hono<{ Bindings: Env; 
       inviteId = undefined;
     }
 
-    // Check community exists
     const { community } = await fetchCommunityDetails(c, identifier);
     if (!community) {
       return c.json({ error: 'Community not found' }, 404);
@@ -37,12 +37,7 @@ export function registerMembershipJoinRoutes(communities: Hono<{ Bindings: Env; 
 
     // Check if already member
     const existing = await prisma.communityMember.findUnique({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: actor.ap_id,
-        },
-      },
+      where: memberKey(community.apId, actor.ap_id),
     });
     if (existing) {
       return c.json({ error: 'Already a member' }, 409);
@@ -52,12 +47,7 @@ export function registerMembershipJoinRoutes(communities: Hono<{ Bindings: Env; 
 
     if (community.joinPolicy === 'approval') {
       await prisma.communityJoinRequest.upsert({
-        where: {
-          communityApId_actorApId: {
-            communityApId: community.apId,
-            actorApId: actor.ap_id,
-          },
-        },
+        where: memberKey(community.apId, actor.ap_id),
         create: {
           communityApId: community.apId,
           actorApId: actor.ap_id,
@@ -195,20 +185,13 @@ export function registerMembershipJoinRoutes(communities: Hono<{ Bindings: Env; 
     const identifier = c.req.param('identifier');
     const prisma = c.get('prisma');
 
-    // Check community exists
     const { community } = await fetchCommunityDetails(c, identifier);
     if (!community) {
       return c.json({ error: 'Community not found' }, 404);
     }
 
-    // Check membership
     const membership = await prisma.communityMember.findUnique({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: actor.ap_id,
-        },
-      },
+      where: memberKey(community.apId, actor.ap_id),
     });
     if (!membership) {
       return c.json({ error: 'Not a member' }, 400);
@@ -217,30 +200,21 @@ export function registerMembershipJoinRoutes(communities: Hono<{ Bindings: Env; 
     // Don't allow the last owner to leave
     if (membership.role === 'owner') {
       const ownerCount = await prisma.communityMember.count({
-        where: {
-          communityApId: community.apId,
-          role: 'owner',
-        },
+        where: { communityApId: community.apId, role: 'owner' },
       });
       if (ownerCount <= 1) {
         return c.json({ error: 'Cannot leave: you are the only owner' }, 400);
       }
     }
 
-    // Remove member
-    await prisma.communityMember.delete({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: actor.ap_id,
-        },
-      },
-    });
-
-    // Update member count
-    await prisma.community.update({
-      where: { apId: community.apId },
-      data: { memberCount: { decrement: 1 } },
+    await prisma.$transaction(async (tx) => {
+      await tx.communityMember.delete({
+        where: memberKey(community.apId, actor.ap_id),
+      });
+      await tx.community.update({
+        where: { apId: community.apId },
+        data: { memberCount: { decrement: 1 } },
+      });
     });
 
     return c.json({ success: true });

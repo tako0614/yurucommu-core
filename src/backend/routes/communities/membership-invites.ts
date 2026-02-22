@@ -1,10 +1,11 @@
 import type { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { generateId, formatUsername } from '../../utils';
-import { managerRoles } from './utils';
 import {
   MembershipContext,
+  batchLoadActorInfo,
   fetchCommunityId,
+  requireManager,
 } from './membership-shared';
 
 export function registerMembershipInviteRoutes(communities: Hono<{ Bindings: Env; Variables: Variables }>) {
@@ -21,16 +22,8 @@ export function registerMembershipInviteRoutes(communities: Hono<{ Bindings: Env
       return c.json({ error: 'Community not found' }, 404);
     }
 
-    const member = await prisma.communityMember.findUnique({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: actor.ap_id,
-        },
-      },
-    });
-
-    if (!member || !managerRoles.has(member.role)) {
+    const manager = await requireManager(prisma, community.apId, actor.ap_id);
+    if (!manager) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
@@ -39,25 +32,11 @@ export function registerMembershipInviteRoutes(communities: Hono<{ Bindings: Env
       orderBy: { createdAt: 'desc' },
     });
 
-    // Batch load invited_by info to avoid N+1 queries
     const invitedByApIds = [...new Set(invites.map((inv) => inv.invitedByApId))];
-    const [localActors, cachedActors] = await Promise.all([
-      prisma.actor.findMany({
-        where: { apId: { in: invitedByApIds } },
-        select: { apId: true, preferredUsername: true, name: true },
-      }),
-      prisma.actorCache.findMany({
-        where: { apId: { in: invitedByApIds } },
-        select: { apId: true, preferredUsername: true, name: true },
-      }),
-    ]);
-
-    const localActorMap = new Map(localActors.map((a) => [a.apId, a]));
-    const cachedActorMap = new Map(cachedActors.map((a) => [a.apId, a]));
+    const actorInfoMap = await batchLoadActorInfo(prisma, invitedByApIds, false);
 
     const result = invites.map((inv) => {
-      const invitedByInfo = localActorMap.get(inv.invitedByApId) || cachedActorMap.get(inv.invitedByApId);
-
+      const invitedByInfo = actorInfoMap.get(inv.invitedByApId);
       return {
         id: inv.id,
         invited_ap_id: inv.invitedApId,
@@ -101,22 +80,16 @@ export function registerMembershipInviteRoutes(communities: Hono<{ Bindings: Env
       return c.json({ error: 'Community not found' }, 404);
     }
 
-    const member = await prisma.communityMember.findUnique({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: actor.ap_id,
-        },
-      },
-    });
-
-    if (!member || !managerRoles.has(member.role)) {
+    const manager = await requireManager(prisma, community.apId, actor.ap_id);
+    if (!manager) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
     const inviteId = generateId();
     const now = new Date();
-    const expiresAt = expiresInHours ? new Date(now.getTime() + expiresInHours * 60 * 60 * 1000).toISOString() : null;
+    const expiresAt = expiresInHours
+      ? new Date(now.getTime() + expiresInHours * 60 * 60 * 1000).toISOString()
+      : null;
 
     await prisma.communityInvite.create({
       data: {
@@ -146,33 +119,19 @@ export function registerMembershipInviteRoutes(communities: Hono<{ Bindings: Env
       return c.json({ error: 'Community not found' }, 404);
     }
 
-    const member = await prisma.communityMember.findUnique({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: actor.ap_id,
-        },
-      },
-    });
-
-    if (!member || !managerRoles.has(member.role)) {
+    const manager = await requireManager(prisma, community.apId, actor.ap_id);
+    if (!manager) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
     const invite = await prisma.communityInvite.findFirst({
-      where: {
-        id: inviteId,
-        communityApId: community.apId,
-      },
+      where: { id: inviteId, communityApId: community.apId },
     });
-
     if (!invite) {
       return c.json({ error: 'Invite not found' }, 404);
     }
 
-    await prisma.communityInvite.delete({
-      where: { id: inviteId },
-    });
+    await prisma.communityInvite.delete({ where: { id: inviteId } });
 
     return c.json({ success: true });
   });
