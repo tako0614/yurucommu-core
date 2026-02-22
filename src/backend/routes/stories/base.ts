@@ -107,6 +107,48 @@ function buildStoryResponse(
   };
 }
 
+/** Resolve remote author info for stories missing a joined author relation. */
+async function resolveRemoteAuthors(
+  prisma: any,
+  storiesData: Array<{ author?: unknown; attributedTo: string }>,
+): Promise<Record<string, { preferredUsername: string | null; name: string | null; iconUrl: string | null }>> {
+  const remoteIds = [...new Set(storiesData.filter((s) => !s.author).map((s) => s.attributedTo))];
+  return fetchActorCache(prisma, remoteIds);
+}
+
+/** Create an outbound activity record and enqueue fanout to followers. */
+async function createAndFanoutActivity(
+  prisma: any,
+  env: Env,
+  actorApIdStr: string,
+  objectApIdStr: string,
+  activity: Record<string, unknown>,
+): Promise<void> {
+  const id = activity.id as string;
+  await prisma.activity.create({
+    data: {
+      apId: id,
+      type: activity.type as string,
+      actorApId: actorApIdStr,
+      objectApId: objectApIdStr,
+      rawJson: JSON.stringify(activity),
+      direction: 'outbound',
+    },
+  });
+  await enqueueFanoutToFollowers(env, id, actorApIdStr);
+}
+
+/** Delete all related data for a story, then the story object itself. */
+async function deleteStoryAndRelatedData(prisma: any, apId: string): Promise<void> {
+  await Promise.all([
+    prisma.storyVote.deleteMany({ where: { storyApId: apId } }),
+    prisma.like.deleteMany({ where: { objectApId: apId } }),
+    prisma.storyView.deleteMany({ where: { storyApId: apId } }),
+    prisma.storyShare.deleteMany({ where: { storyApId: apId } }),
+  ]);
+  await prisma.object.delete({ where: { apId } });
+}
+
 // Get active stories from followed users and self (grouped by author)
 stories.get('/', async (c) => {
   const actor = c.get('actor');
@@ -159,11 +201,10 @@ stories.get('/', async (c) => {
   });
 
   const storyApIds = storiesData.map((s) => s.apId);
-  const { allVotes, userVotes } = await fetchBatchVotes(prisma, storyApIds, actor.ap_id);
-
-  // Resolve remote author info from cache
-  const remoteAuthorIds = [...new Set(storiesData.filter((s) => !s.author).map((s) => s.attributedTo))];
-  const actorCacheMap = await fetchActorCache(prisma, remoteAuthorIds);
+  const [{ allVotes, userVotes }, actorCacheMap] = await Promise.all([
+    fetchBatchVotes(prisma, storyApIds, actor.ap_id),
+    resolveRemoteAuthors(prisma, storiesData),
+  ]);
 
   // Group by author
   const grouped: Record<string, { actor: StoryAuthor; stories: StoryResponse[]; has_unviewed: boolean }> = {};
@@ -260,15 +301,10 @@ stories.get('/:actorId', async (c) => {
   });
 
   const storyApIds = userStories.map((s) => s.apId);
-  const { allVotes, userVotes } = await fetchBatchVotes(
-    prisma,
-    storyApIds,
-    actor?.ap_id,
-  );
-
-  // Resolve remote author info from cache
-  const remoteAuthorIds = [...new Set(userStories.filter((s) => !s.author).map((s) => s.attributedTo))];
-  const actorCacheMap = await fetchActorCache(prisma, remoteAuthorIds);
+  const [{ allVotes, userVotes }, actorCacheMap] = await Promise.all([
+    fetchBatchVotes(prisma, storyApIds, actor?.ap_id),
+    resolveRemoteAuthors(prisma, userStories),
+  ]);
 
   const result = userStories.map((s) => {
     const authorData = s.author || actorCacheMap[s.attributedTo];
@@ -307,8 +343,7 @@ stories.post('/', async (c) => {
   }
 
   const baseUrl = c.env.APP_URL;
-  const id = generateId();
-  const apId = objectApId(baseUrl, id);
+  const apId = objectApId(baseUrl, generateId());
   const now = new Date().toISOString();
   const endTime = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
@@ -342,14 +377,15 @@ stories.post('/', async (c) => {
   });
 
   const responseData = transformStoryData(attachmentsJson);
+  const authorInfo = buildAuthor(actor.ap_id, {
+    preferredUsername: actor.preferred_username,
+    name: actor.name,
+    iconUrl: actor.icon_url,
+  });
 
   const story = {
     ap_id: apId,
-    author: buildAuthor(actor.ap_id, {
-      preferredUsername: actor.preferred_username,
-      name: actor.name,
-      iconUrl: actor.icon_url,
-    }),
+    author: authorInfo,
     attachment: responseData.attachment,
     displayDuration: responseData.displayDuration,
     overlays: responseData.overlays,
@@ -360,8 +396,7 @@ stories.post('/', async (c) => {
     liked: false,
   };
 
-  // Send Create(Story) activity to followers (async, don't block response)
-  const createActivityId = activityApId(baseUrl, generateId());
+  // Send Create(Story) activity to followers
   const storyObject = storyToActivityPub(
     {
       apId,
@@ -375,27 +410,15 @@ stories.post('/', async (c) => {
     actor,
     baseUrl,
   );
-  const createActivity = {
+  await createAndFanoutActivity(prisma, c.env, actor.ap_id, apId, {
     '@context': 'https://www.w3.org/ns/activitystreams',
-    id: createActivityId,
+    id: activityApId(baseUrl, generateId()),
     type: 'Create',
     actor: actor.ap_id,
     published: now,
     to: [`${actor.ap_id}/followers`],
     object: storyObject,
-  };
-
-  await prisma.activity.create({
-    data: {
-      apId: createActivityId,
-      type: 'Create',
-      actorApId: actor.ap_id,
-      objectApId: apId,
-      rawJson: JSON.stringify(createActivity),
-      direction: 'outbound',
-    },
   });
-  await enqueueFanoutToFollowers(c.env, createActivityId, actor.ap_id);
 
   return c.json({ story }, 201);
 });
@@ -418,33 +441,16 @@ stories.post('/delete', async (c) => {
   // Enqueue Delete(Story) activity to followers before deleting.
   // Outbound delivery MUST NOT run in request path; enqueue is the sync boundary.
   const baseUrl = c.env.APP_URL;
-  const deleteActivityId = activityApId(baseUrl, generateId());
-  const deleteActivity = {
+  await createAndFanoutActivity(prisma, c.env, actor.ap_id, apId, {
     '@context': 'https://www.w3.org/ns/activitystreams',
-    id: deleteActivityId,
+    id: activityApId(baseUrl, generateId()),
     type: 'Delete',
     actor: actor.ap_id,
     to: ['https://www.w3.org/ns/activitystreams#Public'],
     object: apId,
-  };
-  await prisma.activity.create({
-    data: {
-      apId: deleteActivityId,
-      type: 'Delete',
-      actorApId: actor.ap_id,
-      objectApId: apId,
-      rawJson: JSON.stringify(deleteActivity),
-      direction: 'outbound',
-    },
   });
-  await enqueueFanoutToFollowers(c.env, deleteActivityId, actor.ap_id);
 
-  // Delete related data, then the story itself
-  await prisma.storyVote.deleteMany({ where: { storyApId: apId } });
-  await prisma.like.deleteMany({ where: { objectApId: apId } });
-  await prisma.storyView.deleteMany({ where: { storyApId: apId } });
-  await prisma.storyShare.deleteMany({ where: { storyApId: apId } });
-  await prisma.object.delete({ where: { apId } });
+  await deleteStoryAndRelatedData(prisma, apId);
 
   await prisma.actor.update({
     where: { apId: actor.ap_id },
