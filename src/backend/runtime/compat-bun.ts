@@ -6,6 +6,84 @@
  * so existing code can work without changes on Bun.
  */
 
+const { mkdir, unlink, readdir, stat, readFile } = await import('fs/promises');
+
+/**
+ * Drain a ReadableStream into a single Uint8Array.
+ */
+async function drainStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  const reader = stream.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
+/**
+ * Convert an arbitrary input value into a Uint8Array.
+ * Handles string, ArrayBuffer, ArrayBufferView, Blob, and ReadableStream.
+ */
+async function toUint8Array(
+  value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob
+): Promise<Uint8Array> {
+  if (typeof value === 'string') {
+    return new TextEncoder().encode(value);
+  }
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  }
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  if (value instanceof Blob) {
+    return new Uint8Array(await value.arrayBuffer());
+  }
+  return drainStream(value);
+}
+
+/**
+ * Read the JSON metadata sidecar for a storage key.
+ * Returns an empty object if the sidecar doesn't exist or can't be parsed.
+ */
+async function readMetadata(metaPath: string): Promise<{
+  httpMetadata?: { contentType?: string };
+  customMetadata?: Record<string, string>;
+  size?: number;
+  uploaded?: string;
+}> {
+  try {
+    const metaFile = Bun.file(metaPath);
+    if (await metaFile.exists()) {
+      return JSON.parse(await metaFile.text());
+    }
+  } catch {
+    // No metadata file or unreadable
+  }
+  return {};
+}
+
+/**
+ * Compute the expiration timestamp from KV put options.
+ */
+function resolveExpiration(options?: {
+  expirationTtl?: number;
+  expiration?: number;
+}): number | undefined {
+  if (options?.expiration) return options.expiration;
+  if (options?.expirationTtl) return Math.floor(Date.now() / 1000) + options.expirationTtl;
+  return undefined;
+}
+
 /**
  * D1Database-compatible SQLite implementation for Bun
  */
@@ -125,7 +203,6 @@ export class R2CompatBucket {
   }
 
   static async create(basePath: string): Promise<R2CompatBucket> {
-    const { mkdir } = await import('fs/promises');
     await mkdir(basePath, { recursive: true });
     return new R2CompatBucket(basePath);
   }
@@ -147,47 +224,15 @@ export class R2CompatBucket {
     }
   ): Promise<{ key: string }> {
     const filePath = this.getFilePath(key);
-    const metaPath = this.getMetaPath(key);
-
-    // Ensure directory exists
     const dir = filePath.substring(0, filePath.lastIndexOf('/'));
-    const { mkdir } = await import('fs/promises');
     await mkdir(dir, { recursive: true });
 
-    let content: Uint8Array;
-    if (typeof value === 'string') {
-      content = new TextEncoder().encode(value);
-    } else if (value instanceof ArrayBuffer) {
-      content = new Uint8Array(value);
-    } else if (ArrayBuffer.isView(value)) {
-      content = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-    } else if (value instanceof Blob) {
-      content = new Uint8Array(await value.arrayBuffer());
-    } else {
-      // ReadableStream
-      const chunks: Uint8Array[] = [];
-      const reader = value.getReader();
-      while (true) {
-        const { done, value: chunk } = await reader.read();
-        if (done) break;
-        chunks.push(chunk);
-      }
-      const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
-      content = new Uint8Array(totalLength);
-      let offset = 0;
-      for (const chunk of chunks) {
-        content.set(chunk, offset);
-        offset += chunk.length;
-      }
-    }
-
-    // @ts-expect-error - Bun runtime
+    const content = await toUint8Array(value);
     await Bun.write(filePath, content);
 
     if (options?.httpMetadata || options?.customMetadata) {
-      // @ts-expect-error - Bun runtime
       await Bun.write(
-        metaPath,
+        this.getMetaPath(key),
         JSON.stringify({
           httpMetadata: options.httpMetadata,
           customMetadata: options.customMetadata,
@@ -202,31 +247,13 @@ export class R2CompatBucket {
 
   async get(key: string): Promise<R2CompatObject | null> {
     const filePath = this.getFilePath(key);
-    const metaPath = this.getMetaPath(key);
 
     try {
-      // @ts-expect-error - Bun runtime
       const file = Bun.file(filePath);
       if (!(await file.exists())) return null;
 
       const content = new Uint8Array(await file.arrayBuffer());
-      let metadata: {
-        httpMetadata?: { contentType?: string };
-        customMetadata?: Record<string, string>;
-        size?: number;
-        uploaded?: string;
-      } = {};
-
-      try {
-        // @ts-expect-error - Bun runtime
-        const metaFile = Bun.file(metaPath);
-        if (await metaFile.exists()) {
-          metadata = JSON.parse(await metaFile.text());
-        }
-      } catch {
-        // No metadata file
-      }
-
+      const metadata = await readMetadata(this.getMetaPath(key));
       return new R2CompatObject(key, content, metadata);
     } catch {
       return null;
@@ -234,40 +261,21 @@ export class R2CompatBucket {
   }
 
   async delete(key: string | string[]): Promise<void> {
-    const { unlink } = await import('fs/promises');
     const keys = Array.isArray(key) ? key : [key];
     for (const k of keys) {
-      try {
-        await unlink(this.getFilePath(k));
-      } catch { /* ignore */ }
-      try {
-        await unlink(this.getMetaPath(k));
-      } catch { /* ignore */ }
+      try { await unlink(this.getFilePath(k)); } catch { /* ignore */ }
+      try { await unlink(this.getMetaPath(k)); } catch { /* ignore */ }
     }
   }
 
   async head(key: string): Promise<R2CompatObjectHead | null> {
     const filePath = this.getFilePath(key);
-    const metaPath = this.getMetaPath(key);
 
     try {
-      // @ts-expect-error - Bun runtime
       const file = Bun.file(filePath);
       if (!(await file.exists())) return null;
 
-      let metadata: {
-        httpMetadata?: { contentType?: string };
-        customMetadata?: Record<string, string>;
-      } = {};
-
-      try {
-        // @ts-expect-error - Bun runtime
-        const metaFile = Bun.file(metaPath);
-        if (await metaFile.exists()) {
-          metadata = JSON.parse(await metaFile.text());
-        }
-      } catch { /* ignore */ }
-
+      const metadata = await readMetadata(this.getMetaPath(key));
       return {
         key,
         size: file.size,
@@ -291,7 +299,6 @@ export class R2CompatBucket {
     cursor?: string;
     delimitedPrefixes?: string[];
   }> {
-    const { readdir, stat } = await import('fs/promises');
     const objects: Array<{ key: string; size: number; uploaded: Date }> = [];
 
     const readDirRecursive = async (dir: string, prefix: string = '') => {
@@ -397,14 +404,19 @@ export class KVCompatNamespace {
     metadata?: unknown;
   }>();
 
-  async get(key: string, options?: { type?: 'text' | 'json' | 'arrayBuffer' | 'stream' }): Promise<unknown> {
+  private getValid(key: string): { value: string | ArrayBuffer; metadata?: unknown } | null {
     const entry = this.store.get(key);
     if (!entry) return null;
-
     if (entry.expiration && entry.expiration < Date.now() / 1000) {
       this.store.delete(key);
       return null;
     }
+    return entry;
+  }
+
+  async get(key: string, options?: { type?: 'text' | 'json' | 'arrayBuffer' | 'stream' }): Promise<unknown> {
+    const entry = this.getValid(key);
+    if (!entry) return null;
 
     const type = options?.type ?? 'text';
     const value = entry.value;
@@ -428,39 +440,17 @@ export class KVCompatNamespace {
     }
   ): Promise<void> {
     let storedValue: string | ArrayBuffer;
-
     if (typeof value === 'string') {
       storedValue = value;
     } else if (value instanceof ArrayBuffer) {
       storedValue = value;
     } else {
-      const reader = value.getReader();
-      const chunks: Uint8Array[] = [];
-      while (true) {
-        const { done, value: chunk } = await reader.read();
-        if (done) break;
-        chunks.push(chunk);
-      }
-      const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
-      const result = new Uint8Array(totalLength);
-      let offset = 0;
-      for (const chunk of chunks) {
-        result.set(chunk, offset);
-        offset += chunk.length;
-      }
-      storedValue = result.buffer;
-    }
-
-    let expiration: number | undefined;
-    if (options?.expiration) {
-      expiration = options.expiration;
-    } else if (options?.expirationTtl) {
-      expiration = Math.floor(Date.now() / 1000) + options.expirationTtl;
+      storedValue = (await drainStream(value)).buffer;
     }
 
     this.store.set(key, {
       value: storedValue,
-      expiration,
+      expiration: resolveExpiration(options),
       metadata: options?.metadata,
     });
   }
@@ -521,12 +511,10 @@ export class AssetsCompatFetcher {
     }
 
     try {
-      // @ts-expect-error - Bun runtime
       let file = Bun.file(filePath);
 
       if (!(await file.exists())) {
         filePath = `${filePath}/index.html`;
-        // @ts-expect-error - Bun runtime
         file = Bun.file(filePath);
       }
 
@@ -535,7 +523,6 @@ export class AssetsCompatFetcher {
       }
 
       // SPA fallback
-      // @ts-expect-error - Bun runtime
       const indexFile = Bun.file(`${this.basePath}/index.html`);
       if (await indexFile.exists()) {
         return new Response(indexFile, {
@@ -600,8 +587,6 @@ export async function createBunEnv(config: {
  * Run migrations from SQL files
  */
 export async function runMigrations(db: D1CompatDatabase, migrationsDir: string): Promise<void> {
-  const { readdir, readFile } = await import('fs/promises');
-
   const entries = await readdir(migrationsDir, { withFileTypes: true });
   const sqlFiles = entries
     .filter((e) => e.isFile() && e.name.endsWith('.sql'))

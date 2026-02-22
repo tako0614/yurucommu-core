@@ -24,6 +24,57 @@ import type {
 // Re-export MemoryKV from node.ts as it works in Bun too
 export { MemoryKV } from './node';
 
+const { mkdir, unlink, readdir, stat } = await import('fs/promises');
+
+/**
+ * Drain a ReadableStream into a single Uint8Array.
+ */
+async function drainStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  const reader = stream.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
+/**
+ * Convert a put() value to Uint8Array.
+ */
+async function toUint8Array(value: ReadableStream | ArrayBuffer | string): Promise<Uint8Array> {
+  if (typeof value === 'string') return new TextEncoder().encode(value);
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  return drainStream(value);
+}
+
+/**
+ * Read the JSON metadata sidecar for a storage key.
+ * Returns an empty object if the sidecar doesn't exist or can't be parsed.
+ */
+async function readMetadata(metaPath: string): Promise<{
+  httpMetadata?: ObjectMetadata['httpMetadata'];
+  customMetadata?: Record<string, string>;
+}> {
+  try {
+    const metaFile = Bun.file(metaPath);
+    if (await metaFile.exists()) {
+      return JSON.parse(await metaFile.text());
+    }
+  } catch {
+    // No metadata file or unreadable
+  }
+  return {};
+}
+
 /**
  * Bun SQLite Database Adapter (using bun:sqlite)
  */
@@ -131,7 +182,6 @@ export class BunStorage implements IObjectStorage {
   }
 
   static async create(basePath: string): Promise<BunStorage> {
-    const { mkdir } = await import('fs/promises');
     await mkdir(basePath, { recursive: true });
     return new BunStorage(basePath);
   }
@@ -153,42 +203,13 @@ export class BunStorage implements IObjectStorage {
     }
   ): Promise<void> {
     const filePath = this.getFilePath(key);
-
-    // Ensure directory exists
     const dir = filePath.substring(0, filePath.lastIndexOf('/'));
-    const { mkdir } = await import('fs/promises');
     await mkdir(dir, { recursive: true });
 
-    // Convert value to appropriate format
-    let content: Uint8Array;
-    if (typeof value === 'string') {
-      content = new TextEncoder().encode(value);
-    } else if (value instanceof ArrayBuffer) {
-      content = new Uint8Array(value);
-    } else {
-      // ReadableStream
-      const chunks: Uint8Array[] = [];
-      const reader = value.getReader();
-      while (true) {
-        const { done, value: chunk } = await reader.read();
-        if (done) break;
-        chunks.push(chunk);
-      }
-      const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-      content = new Uint8Array(totalLength);
-      let offset = 0;
-      for (const chunk of chunks) {
-        content.set(chunk, offset);
-        offset += chunk.length;
-      }
-    }
-
-    // @ts-expect-error - Bun.write is available in Bun runtime
+    const content = await toUint8Array(value);
     await Bun.write(filePath, content);
 
-    // Write metadata
     if (options?.httpMetadata || options?.customMetadata) {
-      // @ts-expect-error - Bun.write is available in Bun runtime
       await Bun.write(
         this.getMetaPath(key),
         JSON.stringify({
@@ -201,25 +222,13 @@ export class BunStorage implements IObjectStorage {
 
   async get(key: string): Promise<StorageObject | null> {
     const filePath = this.getFilePath(key);
-    const metaPath = this.getMetaPath(key);
 
     try {
-      // @ts-expect-error - Bun.file is available in Bun runtime
       const file = Bun.file(filePath);
       if (!(await file.exists())) return null;
 
       const content = new Uint8Array(await file.arrayBuffer());
-      let metadata: { httpMetadata?: ObjectMetadata['httpMetadata']; customMetadata?: Record<string, string> } = {};
-
-      try {
-        // @ts-expect-error - Bun.file is available in Bun runtime
-        const metaFile = Bun.file(metaPath);
-        if (await metaFile.exists()) {
-          metadata = JSON.parse(await metaFile.text());
-        }
-      } catch {
-        // No metadata file
-      }
+      const metadata = await readMetadata(this.getMetaPath(key));
 
       let bodyUsed = false;
 
@@ -253,19 +262,10 @@ export class BunStorage implements IObjectStorage {
   }
 
   async delete(key: string | string[]): Promise<void> {
-    const { unlink } = await import('fs/promises');
     const keys = Array.isArray(key) ? key : [key];
     for (const k of keys) {
-      try {
-        await unlink(this.getFilePath(k));
-      } catch {
-        // Ignore if not exists
-      }
-      try {
-        await unlink(this.getMetaPath(k));
-      } catch {
-        // Ignore if not exists
-      }
+      try { await unlink(this.getFilePath(k)); } catch { /* ignore */ }
+      try { await unlink(this.getMetaPath(k)); } catch { /* ignore */ }
     }
   }
 
@@ -275,7 +275,6 @@ export class BunStorage implements IObjectStorage {
     cursor?: string;
     delimiter?: string;
   }): Promise<ListObjectsResult> {
-    const { readdir, stat } = await import('fs/promises');
     const objects: ListObjectsResult['objects'] = [];
 
     const readDirRecursive = async (dir: string, prefix: string = '') => {
@@ -317,25 +316,12 @@ export class BunStorage implements IObjectStorage {
 
   async head(key: string): Promise<ObjectMetadata | null> {
     const filePath = this.getFilePath(key);
-    const metaPath = this.getMetaPath(key);
 
     try {
-      // @ts-expect-error - Bun.file is available in Bun runtime
       const file = Bun.file(filePath);
       if (!(await file.exists())) return null;
 
-      let metadata: { httpMetadata?: ObjectMetadata['httpMetadata']; customMetadata?: Record<string, string> } = {};
-
-      try {
-        // @ts-expect-error - Bun.file is available in Bun runtime
-        const metaFile = Bun.file(metaPath);
-        if (await metaFile.exists()) {
-          metadata = JSON.parse(await metaFile.text());
-        }
-      } catch {
-        // No metadata file
-      }
-
+      const metadata = await readMetadata(this.getMetaPath(key));
       return {
         contentLength: file.size,
         httpMetadata: metadata.httpMetadata,
@@ -372,13 +358,11 @@ export class BunAssets implements IStaticAssets {
     }
 
     try {
-      // @ts-expect-error - Bun.file is available in Bun runtime
       let file = Bun.file(filePath);
 
       // If directory, try index.html
       if (!(await file.exists())) {
         filePath = `${filePath}/index.html`;
-        // @ts-expect-error - Bun.file is available in Bun runtime
         file = Bun.file(filePath);
       }
 
@@ -387,7 +371,6 @@ export class BunAssets implements IStaticAssets {
       }
 
       // SPA fallback - serve index.html for non-existent paths
-      // @ts-expect-error - Bun.file is available in Bun runtime
       const indexFile = Bun.file(`${this.basePath}/index.html`);
       if (await indexFile.exists()) {
         return new Response(indexFile, {
