@@ -12,7 +12,6 @@ const ARCHIVED_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const MAX_ARCHIVE_BATCH_SIZE = 100;
 const ARCHIVE_CREATE_BATCH_SIZE = 100;
 const ARCHIVE_ALL_CAP = 1000;
-const ARCHIVE_BATCH_SIZE = 100;
 const NOTIFICATION_ACTIVITY_TYPES = ['Follow', 'Like', 'Announce', 'Create'];
 const archivedCleanupTimestamps = new Map<string, number>();
 
@@ -227,23 +226,19 @@ notifications.get('/', async (c) => {
   const objectMap = new Map(objects.map(o => [o.apId, { content: o.content, inReplyTo: o.inReplyTo }]));
   const followMap = new Map(follows.filter(f => f.activityApId).map(f => [f.activityApId!, f.status]));
 
-  // Filter and transform inbox entries into notifications
-  type ProcessedEntry = {
-    activityApId: string;
-    read: number;
-    createdAt: string;
-    activityType: string;
-    actorApId: string;
-    objectApId: string | null;
-    followStatus: string | null;
-    actorInfo: ActorInfo | undefined;
-    objectContent: string | null;
-    inReplyTo: string | null;
-  };
-  const processedEntries: ProcessedEntry[] = [];
+  // Filter and transform inbox entries into notifications in a single pass
+  const notifications_list: Array<{
+    id: string;
+    type: string;
+    object_ap_id: string | null;
+    read: boolean;
+    created_at: string;
+    actor: { ap_id: string; username: string; preferred_username: string | null; name: string | null; icon_url: string | null };
+    object_content: string;
+  }> = [];
 
   for (const entry of inboxEntries) {
-    if (processedEntries.length > limit) break;
+    if (notifications_list.length > limit) break;
 
     const isArchived = archivedActivityIds.has(entry.activityApId);
     if (showArchived !== isArchived) continue;
@@ -255,41 +250,29 @@ notifications.get('/', async (c) => {
     if (typeFilter === 'reply' && entry.activity.type === 'Create' && !inReplyTo) continue;
     if (typeFilter === 'mention' && entry.activity.type === 'Create' && inReplyTo) continue;
 
-    processedEntries.push({
-      activityApId: entry.activityApId,
-      read: entry.read,
-      createdAt: entry.createdAt,
-      activityType: entry.activity.type,
-      actorApId: entry.activity.actorApId,
-      objectApId: entry.activity.objectApId,
-      followStatus: followMap.get(entry.activityApId) ?? null,
-      actorInfo: actorMap.get(entry.activity.actorApId),
-      objectContent: objectData?.content ?? null,
-      inReplyTo,
+    const followStatus = followMap.get(entry.activityApId) ?? null;
+    const notifType = activityToNotificationType(entry.activity.type, !!inReplyTo, followStatus);
+    const actorInfo = actorMap.get(entry.activity.actorApId);
+
+    notifications_list.push({
+      id: entry.activityApId,
+      type: notifType || entry.activity.type.toLowerCase(),
+      object_ap_id: entry.activity.objectApId,
+      read: !!entry.read,
+      created_at: entry.createdAt,
+      actor: {
+        ap_id: entry.activity.actorApId,
+        username: formatUsername(entry.activity.actorApId),
+        preferred_username: actorInfo?.preferredUsername ?? null,
+        name: actorInfo?.name ?? null,
+        icon_url: actorInfo?.iconUrl ?? null,
+      },
+      object_content: objectData?.content ?? '',
     });
   }
 
-  const has_more = processedEntries.length > limit;
-  const actualResults = has_more ? processedEntries.slice(0, limit) : processedEntries;
-
-  const notifications_list = actualResults.map((n) => {
-    const notifType = activityToNotificationType(n.activityType, !!n.inReplyTo, n.followStatus);
-    return {
-      id: n.activityApId,
-      type: notifType || n.activityType.toLowerCase(),
-      object_ap_id: n.objectApId,
-      read: !!n.read,
-      created_at: n.createdAt,
-      actor: {
-        ap_id: n.actorApId,
-        username: formatUsername(n.actorApId),
-        preferred_username: n.actorInfo?.preferredUsername ?? null,
-        name: n.actorInfo?.name ?? null,
-        icon_url: n.actorInfo?.iconUrl ?? null,
-      },
-      object_content: n.objectContent || '',
-    };
-  });
+  const has_more = notifications_list.length > limit;
+  if (has_more) notifications_list.length = limit;
 
   return c.json({ notifications: notifications_list, limit, offset, has_more });
 });
@@ -438,20 +421,7 @@ notifications.post('/archive/all', async (c) => {
     archivedAt: now,
   }));
 
-  let archived_count = 0;
-  for (let i = 0; i < rows.length; i += ARCHIVE_BATCH_SIZE) {
-    const batch = rows.slice(i, i + ARCHIVE_BATCH_SIZE);
-    try {
-      const result = await prisma.notificationArchived.createMany({ data: batch });
-      archived_count += result.count;
-    } catch (e) {
-      const error = e as { code?: string };
-      if (error.code !== 'P2002') {
-        console.error('[Notifications] Batch archive error:', e);
-      }
-    }
-  }
-
+  const archived_count = await batchArchiveInsert(prisma, rows, ARCHIVE_CREATE_BATCH_SIZE);
   return c.json({ success: true, archived_count });
 });
 
