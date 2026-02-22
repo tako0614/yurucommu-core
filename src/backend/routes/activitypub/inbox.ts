@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { Env, Variables } from '../../types';
-import { activityApId, actorApId, generateId, isLocal, isSafeRemoteUrl } from '../../utils';
+import { activityApId, actorApId, generateId, isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../../utils';
 import { getInstanceActor } from './utils';
 import type { Activity, RemoteActor } from './inbox-types';
 import { getActivityObjectId } from './inbox-types';
@@ -81,8 +81,9 @@ async function fetchActorPublicKey(
 
   // Fetch actor document
   try {
-    const res = await fetch(actorUrl, {
+    const res = await fetchWithTimeout(actorUrl, {
       headers: { 'Accept': 'application/activity+json, application/ld+json' },
+      timeout: 15000,
     });
 
     if (!res.ok) {
@@ -462,8 +463,9 @@ ap.post('/ap/users/:username/inbox', async (c) => {
         if (!isSafeRemoteUrl(actor)) {
           console.warn(`[ActivityPub] Blocked unsafe actor fetch: ${actor}`);
         } else {
-          const res = await fetch(actor, {
-            headers: { 'Accept': 'application/activity+json, application/ld+json' }
+          const res = await fetchWithTimeout(actor, {
+            headers: { 'Accept': 'application/activity+json, application/ld+json' },
+            timeout: 15000,
           });
           if (res.ok) {
             const actorData = await res.json() as RemoteActor;

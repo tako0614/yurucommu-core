@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { formatUsername, isSafeRemoteUrl, normalizeRemoteDomain, parseLimit, parseOffset } from '../utils';
+import { formatUsername, isSafeRemoteUrl, normalizeRemoteDomain, parseLimit, parseOffset, fetchWithTimeout } from '../utils';
 
 const search = new Hono<{ Bindings: Env; Variables: Variables }>();
+const REMOTE_FETCH_TIMEOUT_MS = 10000;
 
 // Whitelist of allowed sort values for actors
 const ALLOWED_ACTOR_SORTS = ['relevance', 'followers', 'recent'] as const;
@@ -246,7 +247,10 @@ search.get('/remote', async (c) => {
   try {
     // WebFinger lookup
     const webfingerUrl = `https://${safeDomain}/.well-known/webfinger?resource=acct:${username}@${safeDomain}`;
-    const wfRes = await fetch(webfingerUrl, { headers: { Accept: 'application/jrd+json' } });
+    const wfRes = await fetchWithTimeout(webfingerUrl, {
+      headers: { Accept: 'application/jrd+json' },
+      timeout: REMOTE_FETCH_TIMEOUT_MS,
+    });
     if (!wfRes.ok) return c.json({ actors: [] });
 
     const wfData = (await wfRes.json()) as WebFingerResponse;
@@ -255,8 +259,9 @@ search.get('/remote', async (c) => {
     if (!isSafeRemoteUrl(actorLink.href)) return c.json({ actors: [] });
 
     // Fetch actor
-    const actorRes = await fetch(actorLink.href, {
+    const actorRes = await fetchWithTimeout(actorLink.href, {
       headers: { Accept: 'application/activity+json, application/ld+json' },
+      timeout: REMOTE_FETCH_TIMEOUT_MS,
     });
     if (!actorRes.ok) return c.json({ actors: [] });
 

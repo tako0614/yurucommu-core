@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import { generateId, activityApId, isLocal, formatUsername, isSafeRemoteUrl, parseLimit, parseOffset } from '../utils';
+import { generateId, activityApId, isLocal, formatUsername, isSafeRemoteUrl, parseLimit, parseOffset, fetchWithTimeout } from '../utils';
 import { enqueueDeliveryToActor } from '../lib/delivery/queue';
 
 // P07: Network timeout for remote requests (10 seconds)
@@ -172,18 +172,10 @@ follow.post('/', async (c) => {
     if (!cachedActor) {
       // Fetch remote actor
       try {
-        // P07: Add timeout using AbortController
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), REMOTE_FETCH_TIMEOUT_MS);
-        let res: Response;
-        try {
-          res = await fetch(targetApId, {
-            headers: { 'Accept': 'application/activity+json, application/ld+json' },
-            signal: controller.signal
-          });
-        } finally {
-          clearTimeout(timeoutId);
-        }
+        const res = await fetchWithTimeout(targetApId, {
+          headers: { 'Accept': 'application/activity+json, application/ld+json' },
+          timeout: REMOTE_FETCH_TIMEOUT_MS,
+        });
         if (!res.ok) return c.json({ error: 'Could not fetch remote actor' }, 400);
 
         const actorData = await res.json() as RemoteActor;
