@@ -14,15 +14,16 @@ type Attachment = {
   [key: string]: unknown;
 };
 
+type AuthorInfo = { preferredUsername: string | null; name: string | null; iconUrl: string | null };
+const NULL_AUTHOR: AuthorInfo = { preferredUsername: null, name: null, iconUrl: null };
+
 // Batch helper to get author info from either local actors or actor cache
 // This avoids N+1 queries by fetching all authors at once
 async function batchGetAuthorInfo(
   prisma: ReturnType<typeof import('../lib/db').getPrismaD1>,
   apIds: string[]
-): Promise<Map<string, { preferredUsername: string | null; name: string | null; iconUrl: string | null }>> {
-  if (apIds.length === 0) {
-    return new Map();
-  }
+): Promise<Map<string, AuthorInfo>> {
+  if (apIds.length === 0) return new Map();
 
   const uniqueApIds = [...new Set(apIds)];
 
@@ -37,14 +38,12 @@ async function batchGetAuthorInfo(
     }),
   ]);
 
-  const result = new Map<string, { preferredUsername: string | null; name: string | null; iconUrl: string | null }>();
+  const result = new Map<string, AuthorInfo>();
 
-  // Add cached actors first
+  // Cached actors first; local actors override
   for (const a of cachedActors) {
     result.set(a.apId, { preferredUsername: a.preferredUsername, name: a.name, iconUrl: a.iconUrl });
   }
-
-  // Local actors override cached
   for (const a of localActors) {
     result.set(a.apId, { preferredUsername: a.preferredUsername, name: a.name, iconUrl: a.iconUrl });
   }
@@ -113,6 +112,67 @@ async function getBlockedAndMutedUsers(
   };
 }
 
+// Merge blocked + muted AP IDs into a single deduplicated exclusion list
+function buildExcludedApIds(blockedApIds: string[], mutedApIds: string[]): string[] {
+  return Array.from(new Set([...blockedApIds, ...mutedApIds]));
+}
+
+// Paginate a fetched-with-extra-1 result set and determine has_more
+function paginateResults<T>(rows: T[], limit: number): { results: T[]; has_more: boolean } {
+  const has_more = rows.length > limit;
+  return { results: has_more ? rows.slice(0, limit) : rows, has_more };
+}
+
+// Format a post row and its resolved author/interaction data into the API response shape
+function formatPost(
+  p: { apId: string; type: string; attributedTo: string; content: string; summary: string | null; attachmentsJson: string | null; inReplyTo: string | null; visibility: string; communityApId: string | null; likeCount: number; replyCount: number; announceCount: number; published: string | null },
+  authorMap: Map<string, AuthorInfo>,
+  interactions: { likedSet: Set<string>; bookmarkedSet: Set<string>; repostedSet: Set<string> },
+): Record<string, unknown> {
+  const author = authorMap.get(p.attributedTo) || NULL_AUTHOR;
+  return {
+    ap_id: p.apId,
+    type: p.type,
+    author: {
+      ap_id: p.attributedTo,
+      username: formatUsername(p.attributedTo),
+      preferred_username: author.preferredUsername,
+      name: author.name,
+      icon_url: author.iconUrl,
+    },
+    content: p.content,
+    summary: p.summary,
+    attachments: safeJsonParse<Attachment[]>(p.attachmentsJson, []),
+    in_reply_to: p.inReplyTo,
+    visibility: p.visibility,
+    community_ap_id: p.communityApId,
+    like_count: p.likeCount,
+    reply_count: p.replyCount,
+    announce_count: p.announceCount,
+    published: p.published,
+    liked: interactions.likedSet.has(p.apId),
+    bookmarked: interactions.bookmarkedSet.has(p.apId),
+    reposted: interactions.repostedSet.has(p.apId),
+  };
+}
+
+// Batch-resolve authors and interactions, then format posts for API response
+async function resolveAndFormatPosts(
+  prisma: ReturnType<typeof import('../lib/db').getPrismaD1>,
+  posts: Array<Parameters<typeof formatPost>[0]>,
+  viewerApId: string,
+): Promise<Record<string, unknown>[]> {
+  const authorApIds = posts.map((p) => p.attributedTo);
+  const postApIds = posts.map((p) => p.apId);
+
+  const [authorMap, interactions] = await Promise.all([
+    batchGetAuthorInfo(prisma, authorApIds),
+    batchGetInteractionStatus(prisma, viewerApId, postApIds),
+  ]);
+
+  return posts.map((p) => formatPost(p, authorMap, interactions));
+}
+
 // Get public timeline
 // Supports both cursor (before) and offset pagination
 // Returns: posts, limit, offset (if used), has_more
@@ -128,14 +188,11 @@ timeline.get('/', withCache({
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
   const before = c.req.query('before');
   const communityApId = c.req.query('community');
-
   const viewerApId = actor?.ap_id || '';
 
-  // Get blocked and muted users for filtering
   const { blockedApIds, mutedApIds } = await getBlockedAndMutedUsers(prisma, viewerApId);
-  const excludedApIds = Array.from(new Set([...blockedApIds, ...mutedApIds]));
+  const excludedApIds = buildExcludedApIds(blockedApIds, mutedApIds);
 
-  // Build the where clause for objects
   const posts = await prisma.object.findMany({
     where: {
       type: 'Note',
@@ -151,48 +208,8 @@ timeline.get('/', withCache({
     skip: offset,
   });
 
-  // Check if there are more results
-  const has_more = posts.length > limit;
-  const actualResults = has_more ? posts.slice(0, limit) : posts;
-
-  // Batch fetch author info and interaction status to avoid N+1 queries
-  const authorApIds = actualResults.map((p) => p.attributedTo);
-  const postApIds = actualResults.map((p) => p.apId);
-
-  const [authorMap, interactions] = await Promise.all([
-    batchGetAuthorInfo(prisma, authorApIds),
-    batchGetInteractionStatus(prisma, viewerApId, postApIds),
-  ]);
-
-  // Map posts to result format
-  const result = actualResults.map((p) => {
-    const author = authorMap.get(p.attributedTo) || { preferredUsername: null, name: null, iconUrl: null };
-
-    return {
-      ap_id: p.apId,
-      type: p.type,
-      author: {
-        ap_id: p.attributedTo,
-        username: formatUsername(p.attributedTo),
-        preferred_username: author.preferredUsername,
-        name: author.name,
-        icon_url: author.iconUrl,
-      },
-      content: p.content,
-      summary: p.summary,
-      attachments: safeJsonParse<Attachment[]>(p.attachmentsJson, []),
-      in_reply_to: p.inReplyTo,
-      visibility: p.visibility,
-      community_ap_id: p.communityApId,
-      like_count: p.likeCount,
-      reply_count: p.replyCount,
-      announce_count: p.announceCount,
-      published: p.published,
-      liked: interactions.likedSet.has(p.apId),
-      bookmarked: interactions.bookmarkedSet.has(p.apId),
-      reposted: interactions.repostedSet.has(p.apId),
-    };
-  });
+  const { results, has_more } = paginateResults(posts, limit);
+  const result = await resolveAndFormatPosts(prisma, results, viewerApId);
 
   return c.json({ posts: result, limit, offset, has_more });
 });
@@ -208,26 +225,22 @@ timeline.get('/following', async (c) => {
   const limit = parseLimit(c.req.query('limit'), 20, 100);
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
   const before = c.req.query('before');
-
   const viewerApId = actor.ap_id;
 
-  // Get blocked and muted users for filtering
-  const { blockedApIds, mutedApIds } = await getBlockedAndMutedUsers(prisma, viewerApId);
-  const excludedApIds = Array.from(new Set([...blockedApIds, ...mutedApIds]));
+  const [{ blockedApIds, mutedApIds }, follows] = await Promise.all([
+    getBlockedAndMutedUsers(prisma, viewerApId),
+    prisma.follow.findMany({
+      where: { followerApId: viewerApId, status: 'accepted' },
+      select: { followingApId: true },
+    }),
+  ]);
 
-  // Get the list of users the viewer is following
-  const follows = await prisma.follow.findMany({
-    where: { followerApId: viewerApId, status: 'accepted' },
-    select: { followingApId: true },
-  });
+  const excludedApIds = buildExcludedApIds(blockedApIds, mutedApIds);
   const followingApIds = follows.map((f) => f.followingApId);
-
-  // Include own posts and followed users' posts
   const allowedAuthors = [viewerApId, ...followingApIds];
 
-  // Build the where clause for objects
-  // For own posts: all visibilities except direct
-  // For followed users: public, unlisted, or followers visibility
+  // Own posts: all visibilities except direct
+  // Followed users' posts: public, unlisted, or followers visibility
   const posts = await prisma.object.findMany({
     where: {
       type: 'Note',
@@ -239,9 +252,7 @@ timeline.get('/following', async (c) => {
       AND: [
         {
           OR: [
-            // Own posts (all except direct)
             { attributedTo: viewerApId },
-            // Followed users' posts with appropriate visibility
             {
               AND: [
                 { attributedTo: { not: viewerApId } },
@@ -257,47 +268,8 @@ timeline.get('/following', async (c) => {
     skip: offset,
   });
 
-  // Check if there are more results
-  const has_more = posts.length > limit;
-  const actualResults = has_more ? posts.slice(0, limit) : posts;
-
-  // Batch fetch author info and interaction status to avoid N+1 queries
-  const authorApIds = actualResults.map((p) => p.attributedTo);
-  const postApIds = actualResults.map((p) => p.apId);
-
-  const [authorMap, interactions] = await Promise.all([
-    batchGetAuthorInfo(prisma, authorApIds),
-    batchGetInteractionStatus(prisma, viewerApId, postApIds),
-  ]);
-
-  // Map posts to result format
-  const result = actualResults.map((p) => {
-    const author = authorMap.get(p.attributedTo) || { preferredUsername: null, name: null, iconUrl: null };
-
-    return {
-      ap_id: p.apId,
-      type: p.type,
-      author: {
-        ap_id: p.attributedTo,
-        username: formatUsername(p.attributedTo),
-        preferred_username: author.preferredUsername,
-        name: author.name,
-        icon_url: author.iconUrl,
-      },
-      content: p.content,
-      summary: p.summary,
-      attachments: safeJsonParse<Attachment[]>(p.attachmentsJson, []),
-      in_reply_to: p.inReplyTo,
-      visibility: p.visibility,
-      like_count: p.likeCount,
-      reply_count: p.replyCount,
-      announce_count: p.announceCount,
-      published: p.published,
-      liked: interactions.likedSet.has(p.apId),
-      bookmarked: interactions.bookmarkedSet.has(p.apId),
-      reposted: interactions.repostedSet.has(p.apId),
-    };
-  });
+  const { results, has_more } = paginateResults(posts, limit);
+  const result = await resolveAndFormatPosts(prisma, results, viewerApId);
 
   return c.json({ posts: result, limit, offset, has_more });
 });

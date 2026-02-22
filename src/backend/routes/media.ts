@@ -5,12 +5,18 @@ import { generateId, safeJsonParse } from '../utils';
 
 const media = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-// Allowed MIME types for media upload
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown error';
+}
+
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm'];
 
-// File size limits
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
+
+// Cache durations for served media
+const CACHE_MAX_AGE_IMAGE = 31536000; // 1 year for immutable content
+const CACHE_MAX_AGE_VIDEO = 604800; // 1 week for videos
 
 // Magic bytes signatures for file type validation
 // These are the first bytes of valid files - used to verify actual content type
@@ -88,119 +94,78 @@ function validateMagicBytes(buffer: ArrayBuffer, mimeType: string): boolean {
   return false;
 }
 
-// Allowed file extensions (whitelist - no .bin for security)
-const ALLOWED_EXTENSIONS = ['jpg', 'png', 'gif', 'webp', 'mp4', 'webm'] as const;
-type AllowedExtension = typeof ALLOWED_EXTENSIONS[number];
+// MIME type to file extension mapping (acts as both whitelist and lookup)
+const MIME_TO_EXTENSION: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+};
 
-// Get file extension from MIME type (returns null for unsupported types)
-function getExtensionFromMimeType(mimeType: string): AllowedExtension | null {
-  const extensions: Record<string, AllowedExtension> = {
-    'image/jpeg': 'jpg',
-    'image/png': 'png',
-    'image/gif': 'gif',
-    'image/webp': 'webp',
-    'video/mp4': 'mp4',
-    'video/webm': 'webm',
-  };
-  return extensions[mimeType] || null;
+function getExtensionFromMimeType(mimeType: string): string | null {
+  return MIME_TO_EXTENSION[mimeType] || null;
 }
 
-// Validate filename to prevent path traversal and ensure only allowed extensions
+// Validate filename: lowercase hex ID + allowed extension, no path traversal
+const VALID_MEDIA_FILENAME = /^[a-f0-9]+\.(jpg|png|gif|webp|mp4|webm)$/;
+
 function isValidMediaFilename(filename: string): boolean {
-  // Must be: lowercase hex ID + . + allowed extension
-  // Pattern: only lowercase hex chars for ID, followed by dot, followed by allowed extension
-  const pattern = /^[a-f0-9]+\.(jpg|png|gif|webp|mp4|webm)$/;
-  if (!pattern.test(filename)) {
-    return false;
-  }
-
-  // Additional path traversal checks (defense in depth)
-  if (filename.includes('..') || filename.includes('/') || filename.includes('\\') || filename.includes('\x00')) {
-    return false;
-  }
-
+  if (!VALID_MEDIA_FILENAME.test(filename)) return false;
+  // Defense in depth: reject path traversal characters
+  if (filename.includes('..') || filename.includes('/') || filename.includes('\\') || filename.includes('\x00')) return false;
   return true;
 }
 
-// POST /api/media/upload - Upload media file to R2
+// Upload media file to R2
 media.post('/upload', async (c) => {
   try {
     const actor = c.get('actor');
-    if (!actor) {
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
+    if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
     const formData = await c.req.formData();
     const file = formData.get('file') as File;
-
-    if (!file) {
-      return c.json({ error: 'No file provided' }, 400);
-    }
+    if (!file) return c.json({ error: 'No file provided' }, 400);
 
     const contentType = file.type;
-
-    // Validate MIME type
     if (!ALLOWED_TYPES.includes(contentType)) {
-      return c.json({
-        error: 'Invalid file type',
-        allowed: ALLOWED_TYPES,
-      }, 400);
+      return c.json({ error: 'Invalid file type', allowed: ALLOWED_TYPES }, 400);
     }
 
-    // Check file size based on content type
     const isVideo = contentType.startsWith('video/');
     const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
-
     if (file.size > maxSize) {
       const maxMB = maxSize / 1024 / 1024;
-      return c.json({
-        error: `File too large. Maximum size is ${maxMB}MB for ${isVideo ? 'videos' : 'images'}`
-      }, 413);
+      return c.json({ error: `File too large. Maximum size is ${maxMB}MB for ${isVideo ? 'videos' : 'images'}` }, 413);
     }
 
-    // Get file buffer
     const arrayBuffer = await file.arrayBuffer();
 
-    // Validate actual file content using magic bytes
-    // Don't trust the client-provided Content-Type header
+    // Validate actual content against declared MIME type via magic bytes
     if (!validateMagicBytes(arrayBuffer, contentType)) {
-      return c.json({
-        error: 'File content does not match declared type',
-        hint: 'The file appears to be a different format than specified',
-      }, 400);
+      return c.json({ error: 'File content does not match declared type', hint: 'The file appears to be a different format than specified' }, 400);
     }
 
-    // Generate unique ID and extension
     const id = generateId();
     const ext = getExtensionFromMimeType(contentType);
-
-    // Security: Reject unsupported MIME types (should never happen after ALLOWED_TYPES check, but defense in depth)
-    if (!ext) {
-      return c.json({ error: 'Unsupported file type' }, 400);
-    }
+    // Defense in depth: reject if MIME type is somehow not in extension map
+    if (!ext) return c.json({ error: 'Unsupported file type' }, 400);
 
     const r2Key = `uploads/${id}.${ext}`;
 
-    // Upload to R2
-    await c.env.MEDIA.put(r2Key, arrayBuffer, {
-      httpMetadata: {
-        contentType: contentType,
-      },
+    const r2Upload = c.env.MEDIA.put(r2Key, arrayBuffer, {
+      httpMetadata: { contentType },
     });
 
-    // Record the upload for ownership tracking (security fix)
+    // Record ownership and upload to R2 in parallel
     const prisma = c.get('prisma');
-    await prisma.mediaUpload.create({
-      data: {
-        id,
-        r2Key,
-        uploaderApId: actor.ap_id,
-        contentType,
-        size: file.size,
-      },
+    const dbRecord = prisma.mediaUpload.create({
+      data: { id, r2Key, uploaderApId: actor.ap_id, contentType, size: file.size },
     });
 
-    // Generate public URL (assumes R2 public bucket or custom domain)
+    await Promise.all([r2Upload, dbRecord]);
+
     const url = `/media/${id}.${ext}`;
 
     return c.json({
@@ -211,10 +176,16 @@ media.post('/upload', async (c) => {
     });
   } catch (error) {
     // Log error internally but don't expose details to client
-    console.error('Media upload failed:', error instanceof Error ? error.message : 'Unknown error');
+    console.error('Media upload failed:', errorMessage(error));
     return c.json({ error: 'Upload failed' }, 500);
   }
 });
+
+type MediaAuthResult = { allowed: boolean; reason?: string; isPublic: boolean };
+const DENY_AUTH_REQUIRED: MediaAuthResult = { allowed: false, reason: 'Authentication required', isPublic: false };
+const DENY_NOT_AUTHORIZED: MediaAuthResult = { allowed: false, reason: 'Not authorized', isPublic: false };
+const ALLOW_PUBLIC: MediaAuthResult = { allowed: true, isPublic: true };
+const ALLOW_PRIVATE: MediaAuthResult = { allowed: true, isPublic: false };
 
 // Check if user can access media based on associated object visibility
 async function checkMediaAuthorization(
@@ -222,63 +193,32 @@ async function checkMediaAuthorization(
   mediaUrl: string,
   currentActorApId: string | null,
   r2Key: string
-): Promise<{ allowed: boolean; reason?: string; isPublic: boolean }> {
-  // Find object(s) that reference this media URL
-  // Search in attachmentsJson which contains URLs like /media/{id}.{ext}
+): Promise<MediaAuthResult> {
   const obj = await prisma.object.findFirst({
-    where: {
-      attachmentsJson: {
-        contains: mediaUrl,
-      },
-    },
-    select: {
-      apId: true,
-      attributedTo: true,
-      visibility: true,
-      toJson: true,
-    },
+    where: { attachmentsJson: { contains: mediaUrl } },
+    select: { apId: true, attributedTo: true, visibility: true, toJson: true },
   });
 
-  // If media is not attached to any object, it may be orphaned or newly uploaded
-  // SECURITY FIX: Only allow the uploader to access their own unattached media
+  // Unattached media: only the uploader may access
   if (!obj) {
-    // Media not attached to any object - require authentication
-    if (!currentActorApId) {
-      return { allowed: false, reason: 'Authentication required', isPublic: false };
-    }
+    if (!currentActorApId) return DENY_AUTH_REQUIRED;
 
-    // Check if this user uploaded the media by looking up the upload record
     const uploadRecord = await prisma.mediaUpload.findFirst({
-      where: {
-        r2Key: r2Key,
-        uploaderApId: currentActorApId,
-      },
+      where: { r2Key, uploaderApId: currentActorApId },
     });
-
-    if (!uploadRecord) {
-      // User is not the uploader of this unattached media
-      return { allowed: false, reason: 'Not authorized to access this media', isPublic: false };
-    }
-
-    return { allowed: true, isPublic: false };
+    return uploadRecord
+      ? ALLOW_PRIVATE
+      : { allowed: false, reason: 'Not authorized to access this media', isPublic: false };
   }
 
-  // Public visibility - allow all
-  if (obj.visibility === 'public' || obj.visibility === 'unlisted') {
-    return { allowed: true, isPublic: true };
-  }
+  if (obj.visibility === 'public' || obj.visibility === 'unlisted') return ALLOW_PUBLIC;
 
-  // For non-public content, require authentication
-  if (!currentActorApId) {
-    return { allowed: false, reason: 'Authentication required', isPublic: false };
-  }
+  // Non-public content requires authentication
+  if (!currentActorApId) return DENY_AUTH_REQUIRED;
 
   // Author can always access their own media
-  if (obj.attributedTo === currentActorApId) {
-    return { allowed: true, isPublic: false };
-  }
+  if (obj.attributedTo === currentActorApId) return ALLOW_PRIVATE;
 
-  // Followers-only visibility
   if (obj.visibility === 'followers') {
     const follow = await prisma.follow.findUnique({
       where: {
@@ -289,92 +229,49 @@ async function checkMediaAuthorization(
         status: 'accepted',
       },
     });
-
-    if (follow) {
-      return { allowed: true, isPublic: false };
-    }
-    return { allowed: false, reason: 'Not authorized', isPublic: false };
+    return follow ? ALLOW_PRIVATE : DENY_NOT_AUTHORIZED;
   }
 
-  // Direct messages - check if user is in recipients
   if (obj.visibility === 'direct') {
     const recipients = safeJsonParse<string[]>(obj.toJson, []);
-    if (recipients.includes(currentActorApId)) {
-      return { allowed: true, isPublic: false };
-    }
-    return { allowed: false, reason: 'Not authorized', isPublic: false };
+    return recipients.includes(currentActorApId) ? ALLOW_PRIVATE : DENY_NOT_AUTHORIZED;
   }
 
   // Unknown visibility - deny by default
-  return { allowed: false, reason: 'Not authorized', isPublic: false };
+  return DENY_NOT_AUTHORIZED;
 }
 
-// GET /media/* - Serve media files from R2 with cache headers
+// Serve media files from R2 with cache headers
 media.get('/:id', async (c) => {
   try {
     const id = c.req.param('id');
+    if (!id || !isValidMediaFilename(id)) return c.notFound();
 
-    if (!id) {
-      return c.notFound();
-    }
-
-    // Security: Validate filename format and prevent path traversal
-    // Only allow: lowercase hex ID + . + allowed extension (no .bin)
-    if (!isValidMediaFilename(id)) {
-      return c.notFound();
-    }
-
-    // Additional security: Ensure the resolved path stays within uploads directory
     const r2Key = `uploads/${id}`;
 
-    // Verify the key doesn't escape the uploads directory (defense in depth)
-    if (!r2Key.startsWith('uploads/') || r2Key.includes('..')) {
-      return c.notFound();
-    }
+    // Defense in depth: ensure resolved path stays within uploads/
+    if (!r2Key.startsWith('uploads/') || r2Key.includes('..')) return c.notFound();
 
-    // Authorization check
     const actor = c.get('actor');
     const prisma = c.get('prisma');
-    const mediaUrl = `/media/${id}`;
-    const authResult = await checkMediaAuthorization(
-      prisma,
-      mediaUrl,
-      actor?.ap_id || null,
-      r2Key
-    );
+    const authResult = await checkMediaAuthorization(prisma, `/media/${id}`, actor?.ap_id || null, r2Key);
+    if (!authResult.allowed) return c.json({ error: authResult.reason || 'Forbidden' }, 403);
 
-    if (!authResult.allowed) {
-      return c.json({ error: authResult.reason || 'Forbidden' }, 403);
-    }
-
-    // Fetch from R2
     const object = await c.env.MEDIA.get(r2Key);
+    if (!object) return c.notFound();
 
-    if (!object) {
-      return c.notFound();
-    }
-
-    // Get content type from metadata
     const contentType = object.httpMetadata?.contentType || 'application/octet-stream';
-
-    // Determine cache duration based on content type and visibility.
-    // Non-public media must not be publicly cacheable.
     const cacheScope = authResult.isPublic ? 'public' : 'private';
-    let cacheControl = `${cacheScope}, max-age=31536000`; // 1 year for immutable content
-    if (contentType.startsWith('video/')) {
-      cacheControl = `${cacheScope}, max-age=604800`; // 1 week for videos
-    }
-
+    const maxAge = contentType.startsWith('video/') ? CACHE_MAX_AGE_VIDEO : CACHE_MAX_AGE_IMAGE;
     const etag = object.httpEtag || object.etag;
 
-    // Return file with cache headers
     return c.body(object.body, 200, {
       'Content-Type': contentType,
-      'Cache-Control': cacheControl,
+      'Cache-Control': `${cacheScope}, max-age=${maxAge}`,
       ...(etag ? { 'ETag': etag } : {}),
     });
   } catch (error) {
-    console.error('Media fetch failed:', error instanceof Error ? error.message : 'Unknown error');
+    console.error('Media fetch failed:', errorMessage(error));
     return c.json({ error: 'Failed to fetch media' }, 500);
   }
 });
