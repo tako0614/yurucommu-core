@@ -92,6 +92,12 @@ function isUniqueConstraintError(error: unknown): boolean {
     && (error as { code?: string }).code === 'P2002';
 }
 
+function buildErrorMessage(response: Response | null, error: unknown): string {
+  if (response) return `HTTP ${response.status}`;
+  if (error instanceof Error) return error.message;
+  return 'delivery_error';
+}
+
 function queueAvailable(env: Env): env is Env & { DELIVERY_QUEUE: Queue<DeliveryQueueMessageV1>; DELIVERY_DLQ: Queue<DeliveryDlqMessageV1> } {
   return Boolean((env as unknown as { DELIVERY_QUEUE?: unknown }).DELIVERY_QUEUE) && Boolean((env as unknown as { DELIVERY_DLQ?: unknown }).DELIVERY_DLQ);
 }
@@ -208,44 +214,45 @@ export async function enqueueDeliveryToActor(env: Env, activityId: string, recip
   await env.DELIVERY_QUEUE.send(msg);
 }
 
-async function sendDeliverEndpointMessage(env: Env, jobId: string, delaySeconds: number): Promise<void> {
+async function sendQueueMessage(env: Env, body: DeliveryQueueMessageV1, delaySeconds?: number): Promise<void> {
   if (!queueAvailable(env)) return;
-  const msg: DeliveryQueueMessageV1 = {
-    version: DELIVERY_QUEUE_MESSAGE_VERSION,
-    type: 'deliver_endpoint',
-    jobId,
-    scheduledAt: nowIso(),
-  };
-  await env.DELIVERY_QUEUE.send(msg, { delaySeconds });
+  await env.DELIVERY_QUEUE.send(body, delaySeconds ? { delaySeconds } : undefined);
 }
 
-async function sendResolveActorMessage(env: Env, activityId: string, recipientActorApId: string, delaySeconds: number): Promise<void> {
-  if (!queueAvailable(env)) return;
-  const msg: DeliveryQueueMessageV1 = {
-    version: DELIVERY_QUEUE_MESSAGE_VERSION,
-    type: 'resolve_actor',
-    activityId,
-    recipientActorApId,
-    scheduledAt: nowIso(),
-  };
-  await env.DELIVERY_QUEUE.send(msg, { delaySeconds });
+function buildDeliverEndpointMessage(jobId: string): DeliveryQueueMessageV1 {
+  return { version: DELIVERY_QUEUE_MESSAGE_VERSION, type: 'deliver_endpoint', jobId, scheduledAt: nowIso() };
 }
 
-async function sendReconcileJobMessage(env: Env, jobId: string, reconcileAttempt: number, delaySeconds: number): Promise<void> {
-  if (!queueAvailable(env)) return;
-  const msg: DeliveryQueueMessageV1 = {
-    version: DELIVERY_QUEUE_MESSAGE_VERSION,
-    type: 'reconcile_job',
-    jobId,
-    reconcileAttempt,
-    scheduledAt: nowIso(),
-  };
-  await env.DELIVERY_QUEUE.send(msg, { delaySeconds });
+function buildResolveActorMessage(activityId: string, recipientActorApId: string): DeliveryQueueMessageV1 {
+  return { version: DELIVERY_QUEUE_MESSAGE_VERSION, type: 'resolve_actor', activityId, recipientActorApId, scheduledAt: nowIso() };
+}
+
+function buildReconcileJobMessage(jobId: string, reconcileAttempt: number): DeliveryQueueMessageV1 {
+  return { version: DELIVERY_QUEUE_MESSAGE_VERSION, type: 'reconcile_job', jobId, reconcileAttempt, scheduledAt: nowIso() };
 }
 
 async function sendDlqMessage(env: Env, payload: DeliveryDlqMessageV1): Promise<void> {
   if (!queueAvailable(env)) return;
   await env.DELIVERY_DLQ.send(payload);
+}
+
+async function failJob(
+  prisma: PrismaClient,
+  jobId: string,
+  error: string,
+  message: Message<DeliveryQueueMessageV1>
+): Promise<void> {
+  await prisma.deliveryQueue.update({
+    where: { id: jobId },
+    data: { status: 'failed', error, lastAttemptAt: nowIso(), processingStartedAt: null },
+  });
+  message.ack();
+}
+
+function resolvePreferredEndpoint(row: { inbox: string | null; sharedInbox: string | null } | null): string | null {
+  if (row?.sharedInbox && isSafeRemoteUrl(row.sharedInbox)) return row.sharedInbox;
+  if (row?.inbox && isSafeRemoteUrl(row.inbox)) return row.inbox;
+  return null;
 }
 
 async function resolveSigningActor(
@@ -301,41 +308,27 @@ async function fetchAndCacheRemoteActor(prisma: PrismaClient, actorApId: string)
   if (!data?.id || data.id !== actorApId) return;
   if (!data?.inbox || !isSafeRemoteUrl(data.inbox)) return;
 
+  const actorFields = {
+    type: data.type || 'Person',
+    preferredUsername: data.preferredUsername || null,
+    name: data.name || null,
+    summary: data.summary || null,
+    iconUrl: data.icon?.url || null,
+    inbox: data.inbox,
+    outbox: data.outbox || null,
+    followersUrl: data.followers || null,
+    followingUrl: data.following || null,
+    sharedInbox: data.endpoints?.sharedInbox || null,
+    publicKeyId: data.publicKey?.id || null,
+    publicKeyPem: data.publicKey?.publicKeyPem || null,
+    rawJson: JSON.stringify(data),
+    lastFetchedAt: nowIso(),
+  };
+
   await prisma.actorCache.upsert({
     where: { apId: data.id },
-    update: {
-      type: data.type || 'Person',
-      preferredUsername: data.preferredUsername || null,
-      name: data.name || null,
-      summary: data.summary || null,
-      iconUrl: data.icon?.url || null,
-      inbox: data.inbox,
-      outbox: data.outbox || null,
-      followersUrl: data.followers || null,
-      followingUrl: data.following || null,
-      sharedInbox: data.endpoints?.sharedInbox || null,
-      publicKeyId: data.publicKey?.id || null,
-      publicKeyPem: data.publicKey?.publicKeyPem || null,
-      rawJson: JSON.stringify(data),
-      lastFetchedAt: nowIso(),
-    },
-    create: {
-      apId: data.id,
-      type: data.type || 'Person',
-      preferredUsername: data.preferredUsername || null,
-      name: data.name || null,
-      summary: data.summary || null,
-      iconUrl: data.icon?.url || null,
-      inbox: data.inbox,
-      outbox: data.outbox || null,
-      followersUrl: data.followers || null,
-      followingUrl: data.following || null,
-      sharedInbox: data.endpoints?.sharedInbox || null,
-      publicKeyId: data.publicKey?.id || null,
-      publicKeyPem: data.publicKey?.publicKeyPem || null,
-      rawJson: JSON.stringify(data),
-      lastFetchedAt: nowIso(),
-    },
+    update: actorFields,
+    create: { apId: data.id, ...actorFields },
   });
 }
 
@@ -411,13 +404,7 @@ async function enqueueResolveForEndpointActors(
       if (slice.length === 0) continue;
 
       const requests = slice.map((recipientApId) => ({
-        body: {
-          version: DELIVERY_QUEUE_MESSAGE_VERSION,
-          type: 'resolve_actor',
-          activityId,
-          recipientActorApId: recipientApId,
-          scheduledAt: nowIso(),
-        } satisfies DeliveryQueueMessageV1,
+        body: buildResolveActorMessage(activityId, recipientApId),
       }));
 
       await env.DELIVERY_QUEUE.sendBatch(requests);
@@ -469,30 +456,16 @@ async function processFanoutFollowers(prisma: PrismaClient, env: Env, msg: { act
   }
 
   // Enqueue endpoint delivery jobs.
-  const deliverRequests: Array<{ body: DeliveryQueueMessageV1; delaySeconds?: number }> = [];
+  const deliverRequests: Array<{ body: DeliveryQueueMessageV1 }> = [];
   for (const group of planned.groups) {
-    const endpoint = group.endpoint;
-    const jobId = await computeDeliveryJobId(msg.activityId, endpoint);
-    await upsertDeliveryJob(prisma, jobId, msg.activityId, endpoint);
-    deliverRequests.push({
-      body: {
-        version: DELIVERY_QUEUE_MESSAGE_VERSION,
-        type: 'deliver_endpoint',
-        jobId,
-        scheduledAt: nowIso(),
-      },
-    });
+    const jobId = await computeDeliveryJobId(msg.activityId, group.endpoint);
+    await upsertDeliveryJob(prisma, jobId, msg.activityId, group.endpoint);
+    deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
   }
 
   // Enqueue resolve jobs for unknown/stale recipients (refresh actor_cache via network).
   const resolveRequests = planned.unknownRecipients.map((apId) => ({
-    body: {
-      version: DELIVERY_QUEUE_MESSAGE_VERSION,
-      type: 'resolve_actor',
-      activityId: msg.activityId,
-      recipientActorApId: apId,
-      scheduledAt: nowIso(),
-    } satisfies DeliveryQueueMessageV1,
+    body: buildResolveActorMessage(msg.activityId, apId),
   }));
 
   if (deliverRequests.length > 0) {
@@ -524,8 +497,7 @@ async function processResolveActor(prisma: PrismaClient, env: Env, msg: { activi
       await fetchAndCacheRemoteActor(prisma, msg.recipientActorApId);
     } catch (e) {
       console.warn('[DeliveryQueue] resolve_actor fetch failed:', e);
-      // Backoff a bit before retrying the actor resolution.
-      await sendResolveActorMessage(env, msg.activityId, msg.recipientActorApId, 60);
+      await sendQueueMessage(env, buildResolveActorMessage(msg.activityId, msg.recipientActorApId), 60);
       message.ack();
       return;
     }
@@ -535,11 +507,7 @@ async function processResolveActor(prisma: PrismaClient, env: Env, msg: { activi
     where: { apId: msg.recipientActorApId },
     select: { inbox: true, sharedInbox: true },
   });
-  const endpoint = row?.sharedInbox && isSafeRemoteUrl(row.sharedInbox)
-    ? row.sharedInbox
-    : row?.inbox && isSafeRemoteUrl(row.inbox)
-      ? row.inbox
-      : null;
+  const endpoint = resolvePreferredEndpoint(row);
 
   if (!endpoint) {
     console.warn('[DeliveryQueue] Could not resolve endpoint for actor:', msg.recipientActorApId);
@@ -549,7 +517,7 @@ async function processResolveActor(prisma: PrismaClient, env: Env, msg: { activi
 
   const jobId = await computeDeliveryJobId(msg.activityId, endpoint);
   await upsertDeliveryJob(prisma, jobId, msg.activityId, endpoint);
-  await sendDeliverEndpointMessage(env, jobId, 0);
+  await sendQueueMessage(env, buildDeliverEndpointMessage(jobId));
   message.ack();
 }
 
@@ -597,7 +565,7 @@ async function processReconcileJob(prisma: PrismaClient, env: Env, msg: { jobId:
     },
   });
 
-  await sendDeliverEndpointMessage(env, msg.jobId, 0);
+  await sendQueueMessage(env, buildDeliverEndpointMessage(msg.jobId));
   message.ack();
 }
 
@@ -648,7 +616,7 @@ async function processDeliverEndpoint(
   const nextAttemptMs = safeParseIsoTimeMs(job.nextAttemptAt);
   if (nextAttemptMs !== null && Date.now() < nextAttemptMs) {
     const deferSeconds = Math.max(1, Math.ceil((nextAttemptMs - Date.now()) / 1000));
-    await sendDeliverEndpointMessage(env, job.id, deferSeconds);
+    await sendQueueMessage(env, buildDeliverEndpointMessage(job.id), deferSeconds);
     message.ack();
     return;
   }
@@ -658,8 +626,7 @@ async function processDeliverEndpoint(
     const startedMs = safeParseIsoTimeMs(job.processingStartedAt);
     const STALE_PROCESSING_MS = 2 * 60 * 1000;
     if (startedMs !== null && Date.now() - startedMs < STALE_PROCESSING_MS) {
-      // Another worker is likely processing it; re-check later.
-      await sendDeliverEndpointMessage(env, job.id, 30);
+      await sendQueueMessage(env, buildDeliverEndpointMessage(job.id), 30);
       message.ack();
       return;
     }
@@ -668,11 +635,7 @@ async function processDeliverEndpoint(
   const endpoint = job.inboxUrl;
   const host = safeEndpointHost(endpoint);
   if (!host) {
-    await prisma.deliveryQueue.update({
-      where: { id: job.id },
-      data: { status: 'failed', error: 'invalid_endpoint', lastAttemptAt: nowIso() },
-    });
-    message.ack();
+    await failJob(prisma, job.id, 'invalid_endpoint', message);
     return;
   }
 
@@ -680,7 +643,7 @@ async function processDeliverEndpoint(
   const circuit = await checkCircuit(prisma, endpoint);
   if (!circuit.allow) {
     emitMetric('delivery_circuit_open_count', 1, { endpoint_host: host });
-    await sendDeliverEndpointMessage(env, job.id, circuit.deferSeconds);
+    await sendQueueMessage(env, buildDeliverEndpointMessage(job.id), circuit.deferSeconds);
     message.ack();
     return;
   }
@@ -701,21 +664,13 @@ async function processDeliverEndpoint(
       select: { rawJson: true, actorApId: true },
     });
     if (!activity) {
-      await prisma.deliveryQueue.update({
-        where: { id: job.id },
-        data: { status: 'failed', error: 'activity_not_found', lastAttemptAt: nowIso() },
-      });
-      message.ack();
+      await failJob(prisma, job.id, 'activity_not_found', message);
       return;
     }
 
     const sender = await resolveSigningActor(prisma, activity.actorApId);
     if (!sender) {
-      await prisma.deliveryQueue.update({
-        where: { id: job.id },
-        data: { status: 'failed', error: 'signing_actor_not_found', lastAttemptAt: nowIso() },
-      });
-      message.ack();
+      await failJob(prisma, job.id, 'signing_actor_not_found', message);
       return;
     }
 
@@ -780,18 +735,12 @@ async function processDeliverEndpoint(
     }
 
     const status = response?.status ?? null;
-    const errorMessage = response
-      ? `HTTP ${response.status}`
-      : error instanceof Error
-        ? error.message
-        : 'delivery_error';
+    const errorMessage = buildErrorMessage(response, error);
 
     // 404/410: expire endpoint cache immediately (contract).
     if (status === 404 || status === 410) {
       try {
-        // Move to re-resolution queue: re-fetch affected actors and re-plan endpoints.
         await enqueueResolveForEndpointActors(prisma, env, job.activityApId, endpoint);
-
         await prisma.actorCache.updateMany({
           where: { sharedInbox: endpoint },
           data: { sharedInbox: null, lastFetchedAt: '1970-01-01T00:00:00.000Z' },
@@ -808,36 +757,22 @@ async function processDeliverEndpoint(
     // Non-retryable 4xx (except 429) => permanent failure.
     const nonRetryable = status !== null && status >= 400 && status < 500 && status !== 429;
     if (nonRetryable) {
-      await prisma.deliveryQueue.update({
-        where: { id: job.id },
-        data: {
-          status: 'failed',
-          error: errorMessage,
-          lastAttemptAt: nowIso(),
-          processingStartedAt: null,
-        },
-      });
+      await failJob(prisma, job.id, errorMessage, message);
       emitMetric('delivery_success', 0, { endpoint_host: host, non_retryable: true, status });
       await recordCircuitFailure(prisma, endpoint);
-      message.ack();
       return;
     }
 
     // Retryable failure.
-    // Increment attempts atomically to avoid concurrent read-modify-write races.
     const nextAttempts = await incrementDeliveryAttempts(prisma, job.id);
+    await recordCircuitFailure(prisma, endpoint);
+
     if (nextAttempts >= DELIVERY_MAX_ATTEMPTS) {
       await prisma.deliveryQueue.update({
         where: { id: job.id },
-        data: {
-          status: 'dead_letter',
-          error: errorMessage,
-          lastAttemptAt: nowIso(),
-          processingStartedAt: null,
-        },
+        data: { status: 'dead_letter', error: errorMessage, lastAttemptAt: nowIso(), processingStartedAt: null },
       });
       emitMetric('delivery_dead_letter', 1, { endpoint_host: host });
-      await recordCircuitFailure(prisma, endpoint);
 
       await sendDlqMessage(env, {
         version: DELIVERY_QUEUE_MESSAGE_VERSION,
@@ -859,19 +794,11 @@ async function processDeliverEndpoint(
 
     await prisma.deliveryQueue.update({
       where: { id: job.id },
-      data: {
-        status: 'retry_wait',
-        error: errorMessage,
-        lastAttemptAt: nowIso(),
-        processingStartedAt: null,
-        nextAttemptAt,
-      },
+      data: { status: 'retry_wait', error: errorMessage, lastAttemptAt: nowIso(), processingStartedAt: null, nextAttemptAt },
     });
 
     emitMetric('delivery_success', 0, { endpoint_host: host, status: status ?? null });
-    await recordCircuitFailure(prisma, endpoint);
-
-    await sendDeliverEndpointMessage(env, job.id, delaySeconds);
+    await sendQueueMessage(env, buildDeliverEndpointMessage(job.id), delaySeconds);
     message.ack();
   } finally {
     bulkhead.release(host);
@@ -988,7 +915,7 @@ export async function handleDeliveryDlqBatch(
     // Phase 3: periodic reconciliation (best-effort).
     // Schedule a re-attempt after 6h. The reconcile job will reset and re-enqueue.
     try {
-      await sendReconcileJobMessage(env, body.jobId, 1, 6 * 60 * 60);
+      await sendQueueMessage(env, buildReconcileJobMessage(body.jobId, 1), 6 * 60 * 60);
     } catch (e) {
       console.warn('[DeliveryDLQ] Failed to schedule reconciliation:', e);
     }

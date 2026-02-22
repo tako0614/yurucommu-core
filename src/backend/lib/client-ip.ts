@@ -9,10 +9,8 @@ const IPV6_PATTERN = /^[0-9a-fA-F:]+$/;
  */
 export function isValidIP(ip: string): boolean {
   if (IPV4_PATTERN.test(ip)) {
-    const parts = ip.split('.').map(Number);
-    return parts.every((part) => part >= 0 && part <= 255);
+    return ip.split('.').map(Number).every((part) => part >= 0 && part <= 255);
   }
-
   return IPV6_PATTERN.test(ip) && ip.includes(':');
 }
 
@@ -23,22 +21,14 @@ export function isValidIP(ip: string): boolean {
 export function getClientIP(
   c: Context<{ Bindings: Env; Variables: Variables }>
 ): string {
-  const cfIp = c.req.header('CF-Connecting-IP');
-  if (cfIp && isValidIP(cfIp)) {
-    return cfIp;
-  }
+  const candidates = [
+    c.req.header('CF-Connecting-IP'),
+    c.req.header('X-Forwarded-For')?.split(',')[0]?.trim(),
+    c.req.header('X-Real-IP'),
+  ];
 
-  const xff = c.req.header('X-Forwarded-For');
-  if (xff) {
-    const firstIp = xff.split(',')[0]?.trim();
-    if (firstIp && isValidIP(firstIp)) {
-      return firstIp;
-    }
-  }
-
-  const realIp = c.req.header('X-Real-IP');
-  if (realIp && isValidIP(realIp)) {
-    return realIp;
+  for (const ip of candidates) {
+    if (ip && isValidIP(ip)) return ip;
   }
 
   return 'unknown';

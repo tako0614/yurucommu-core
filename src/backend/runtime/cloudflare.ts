@@ -26,8 +26,7 @@ export class CloudflareDatabase implements IDatabase {
   constructor(private db: D1Database) {}
 
   prepare(query: string): PreparedStatement {
-    const stmt = this.db.prepare(query);
-    return new CloudflarePreparedStatement(stmt);
+    return new CloudflarePreparedStatement(this.db.prepare(query));
   }
 
   async exec(query: string): Promise<void> {
@@ -36,9 +35,7 @@ export class CloudflareDatabase implements IDatabase {
 
   async batch<T = unknown>(statements: PreparedStatement[]): Promise<QueryResult<T>[]> {
     const d1Statements = statements.map((s) => {
-      if (s instanceof CloudflarePreparedStatement) {
-        return s.getD1Statement();
-      }
+      if (s instanceof CloudflarePreparedStatement) return s.getD1Statement();
       throw new Error('Invalid statement type for Cloudflare batch');
     });
 
@@ -67,9 +64,7 @@ class CloudflarePreparedStatement implements PreparedStatement {
   }
 
   async first<T = unknown>(colName?: string): Promise<FirstResult<T>> {
-    if (colName) {
-      return this.stmt.first<T>(colName);
-    }
+    if (colName) return this.stmt.first<T>(colName);
     return this.stmt.first<T>();
   }
 
@@ -109,7 +104,6 @@ export class CloudflareStorage implements IObjectStorage {
       customMetadata?: Record<string, string>;
     }
   ): Promise<void> {
-    // Cast value to match R2Bucket.put expectations
     await this.bucket.put(key, value as Parameters<R2Bucket['put']>[1], {
       httpMetadata: options?.httpMetadata,
       customMetadata: options?.customMetadata,
@@ -142,20 +136,23 @@ export class CloudflareStorage implements IObjectStorage {
     cursor?: string;
     delimiter?: string;
   }): Promise<ListObjectsResult> {
-    const result = await this.bucket.list(options);
-    // R2Objects type varies - use type assertion for cursor
-    const r2Result = result as { objects: typeof result.objects; truncated: boolean; cursor?: string; delimitedPrefixes?: string[] };
+    const result = await this.bucket.list(options) as {
+      objects: Array<{ key: string; size: number; uploaded: Date; etag: string; httpMetadata?: ObjectMetadata['httpMetadata'] }>;
+      truncated: boolean;
+      cursor?: string;
+      delimitedPrefixes?: string[];
+    };
     return {
-      objects: r2Result.objects.map((obj) => ({
+      objects: result.objects.map((obj) => ({
         key: obj.key,
         size: obj.size,
         uploaded: obj.uploaded,
         etag: obj.etag,
         httpMetadata: obj.httpMetadata,
       })),
-      truncated: r2Result.truncated,
-      cursor: r2Result.cursor,
-      delimitedPrefixes: r2Result.delimitedPrefixes,
+      truncated: result.truncated,
+      cursor: result.cursor,
+      delimitedPrefixes: result.delimitedPrefixes,
     };
   }
 
@@ -184,12 +181,8 @@ export class CloudflareKV implements IKeyValueStore {
   get(key: string, options: { type: 'arrayBuffer' }): Promise<ArrayBuffer | null>;
   async get(key: string, options?: { type?: 'text' | 'json' | 'arrayBuffer' }): Promise<string | ArrayBuffer | unknown | null> {
     const type = options?.type ?? 'text';
-    if (type === 'json') {
-      return this.kv.get(key, { type: 'json' });
-    }
-    if (type === 'arrayBuffer') {
-      return this.kv.get(key, { type: 'arrayBuffer' });
-    }
+    if (type === 'json') return this.kv.get(key, { type: 'json' });
+    if (type === 'arrayBuffer') return this.kv.get(key, { type: 'arrayBuffer' });
     return this.kv.get(key, { type: 'text' });
   }
 
@@ -222,13 +215,15 @@ export class CloudflareKV implements IKeyValueStore {
     list_complete: boolean;
     cursor?: string;
   }> {
-    const result = await this.kv.list(options);
-    // KVNamespaceListResult type varies - use type assertion
-    const kvResult = result as { keys: typeof result.keys; list_complete: boolean; cursor?: string };
+    const result = await this.kv.list(options) as {
+      keys: Array<{ name: string; expiration?: number; metadata?: unknown }>;
+      list_complete: boolean;
+      cursor?: string;
+    };
     return {
-      keys: kvResult.keys,
-      list_complete: kvResult.list_complete,
-      cursor: kvResult.cursor,
+      keys: result.keys,
+      list_complete: result.list_complete,
+      cursor: result.cursor,
     };
   }
 }
@@ -240,7 +235,6 @@ export class CloudflareAssets implements IStaticAssets {
   constructor(private assets: Fetcher) {}
 
   async fetch(request: Request): Promise<Response> {
-    // Cast to handle type differences between standard Request/Response and Cloudflare types
     const response = await this.assets.fetch(request as unknown as Parameters<Fetcher['fetch']>[0]);
     return response as unknown as Response;
   }

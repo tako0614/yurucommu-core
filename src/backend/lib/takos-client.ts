@@ -8,8 +8,14 @@ import type { Env } from '../types';
 import type { PrismaClient } from '../../generated/prisma';
 import { decrypt, encrypt } from './crypto';
 
-// Token refresh lock to prevent race conditions
-const refreshLocks = new Map<string, Promise<{ access_token: string; refresh_token?: string; expires_in?: number } | null>>();
+interface TokenResponse {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+}
+
+// Token refresh lock to prevent concurrent refresh for the same session
+const refreshLocks = new Map<string, Promise<TokenResponse | null>>();
 
 export interface TakosSession {
   id: string;
@@ -56,63 +62,31 @@ export async function getTakosClient(
   prisma: PrismaClient,
   session: TakosSession
 ): Promise<TakosClient | null> {
-  if (session.provider !== 'takos' || !session.providerAccessToken) {
-    return null;
-  }
+  if (session.provider !== 'takos' || !session.providerAccessToken) return null;
+  if (!env.TAKOS_URL) return null;
 
-  // Decrypt the stored tokens
   let accessToken = await decrypt(session.providerAccessToken, env.ENCRYPTION_KEY);
   const refreshToken = session.providerRefreshToken
     ? await decrypt(session.providerRefreshToken, env.ENCRYPTION_KEY)
     : null;
 
-  // トークン有効期限チェック
-  if (session.providerTokenExpiresAt) {
-    const expiresAt = new Date(session.providerTokenExpiresAt);
-    const now = new Date();
+  // トークン有効期限チェック（5分前にリフレッシュ）
+  const tokenExpired = session.providerTokenExpiresAt &&
+    new Date(session.providerTokenExpiresAt).getTime() - Date.now() < 5 * 60 * 1000;
 
-    // 5分前にリフレッシュ
-    if (expiresAt.getTime() - now.getTime() < 5 * 60 * 1000) {
-      if (refreshToken) {
-        // Use lock to prevent concurrent refresh requests
-        const lockKey = session.id;
-        let refreshPromise = refreshLocks.get(lockKey);
+  if (tokenExpired) {
+    if (!refreshToken) return null;
 
-        if (!refreshPromise) {
-          // No refresh in progress, start one
-          refreshPromise = refreshTakosToken(env, refreshToken);
-          refreshLocks.set(lockKey, refreshPromise);
+    const newTokens = await refreshWithLock(session.id, env, refreshToken);
+    if (!newTokens) return null;
 
-          try {
-            const newTokens = await refreshPromise;
-            if (newTokens) {
-              await updateSessionTokens(prisma, session.id, newTokens, env.ENCRYPTION_KEY);
-              accessToken = newTokens.access_token;
-            } else {
-              return null;
-            }
-          } finally {
-            refreshLocks.delete(lockKey);
-          }
-        } else {
-          // Refresh in progress, wait for it
-          const newTokens = await refreshPromise;
-          if (newTokens) {
-            accessToken = newTokens.access_token;
-          } else {
-            return null;
-          }
-        }
-      } else {
-        return null;
-      }
-    }
+    await updateSessionTokens(prisma, session.id, newTokens, env.ENCRYPTION_KEY);
+    accessToken = newTokens.access_token;
   }
 
   const baseUrl = env.TAKOS_URL;
-  if (!baseUrl) return null;
 
-  const takosFetch = async (path: string, options: RequestInit = {}) => {
+  async function takosFetch(path: string, options: RequestInit = {}): Promise<Response> {
     return fetch(`${baseUrl}${path}`, {
       ...options,
       headers: {
@@ -120,38 +94,46 @@ export async function getTakosClient(
         Authorization: `Bearer ${accessToken}`,
       },
     });
-  };
+  }
+
+  async function fetchOrThrow<T>(path: string, label: string): Promise<T> {
+    const res = await takosFetch(path);
+    if (!res.ok) throw new Error(`Failed to get ${label}: ${res.status}`);
+    return res.json();
+  }
 
   return {
     fetch: takosFetch,
-
-    async getWorkspaces() {
-      const res = await takosFetch('/workspaces');
-      if (!res.ok) throw new Error(`Failed to get workspaces: ${res.status}`);
-      return res.json();
-    },
-
-    async getRepos() {
-      const res = await takosFetch('/repos');
-      if (!res.ok) throw new Error(`Failed to get repos: ${res.status}`);
-      return res.json();
-    },
-
-    async getUser() {
-      const res = await takosFetch('/me');
-      if (!res.ok) throw new Error(`Failed to get user: ${res.status}`);
-      return res.json();
-    },
+    getWorkspaces: () => fetchOrThrow('/workspaces', 'workspaces'),
+    getRepos: () => fetchOrThrow('/repos', 'repos'),
+    getUser: () => fetchOrThrow('/me', 'user'),
   };
 }
 
 /**
- * Takosトークンをリフレッシュ
+ * Refresh with deduplication lock to prevent concurrent refresh requests for the same session.
  */
+async function refreshWithLock(
+  sessionId: string,
+  env: Env,
+  refreshToken: string
+): Promise<TokenResponse | null> {
+  const existing = refreshLocks.get(sessionId);
+  if (existing) return existing;
+
+  const promise = refreshTakosToken(env, refreshToken);
+  refreshLocks.set(sessionId, promise);
+  try {
+    return await promise;
+  } finally {
+    refreshLocks.delete(sessionId);
+  }
+}
+
 async function refreshTakosToken(
   env: Env,
   refreshToken: string
-): Promise<{ access_token: string; refresh_token?: string; expires_in?: number } | null> {
+): Promise<TokenResponse | null> {
   const clientId = env.TAKOS_CLIENT_ID || env.CLIENT_ID;
   const clientSecret = env.TAKOS_CLIENT_SECRET || env.CLIENT_SECRET;
   const usingTakosExchangeBinding = !!env.TAKOS_OAUTH_EXCHANGE;
@@ -195,7 +177,7 @@ async function refreshTakosToken(
 async function updateSessionTokens(
   prisma: PrismaClient,
   sessionId: string,
-  tokens: { access_token: string; refresh_token?: string; expires_in?: number },
+  tokens: TokenResponse,
   encryptionKey?: string
 ): Promise<void> {
   const tokenExpiresAt = tokens.expires_in

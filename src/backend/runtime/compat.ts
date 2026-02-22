@@ -12,9 +12,8 @@ let Database: DatabaseConstructor | null = null;
 let fs: typeof import('fs/promises') | null = null;
 let path: typeof import('path') | null = null;
 
-async function loadNodeModules() {
+async function loadNodeModules(): Promise<void> {
   if (!Database) {
-    // Dynamic import with esModuleInterop
     const sqlite = await import('better-sqlite3');
     Database = (sqlite as unknown as { default: DatabaseConstructor }).default ?? sqlite as unknown as DatabaseConstructor;
   }
@@ -23,6 +22,53 @@ async function loadNodeModules() {
   }
   if (!path) {
     path = await import('path');
+  }
+}
+
+/**
+ * Read a ReadableStream into a single Uint8Array.
+ */
+async function drainStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
+/**
+ * Convert various input types to a Buffer for filesystem storage.
+ */
+async function toBuffer(
+  value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob,
+): Promise<Buffer> {
+  if (typeof value === 'string') return Buffer.from(value, 'utf-8');
+  if (value instanceof ArrayBuffer) return Buffer.from(value);
+  if (ArrayBuffer.isView(value)) return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+  if (value instanceof Blob) return Buffer.from(await value.arrayBuffer());
+  // ReadableStream
+  return Buffer.from(await drainStream(value as ReadableStream<Uint8Array>));
+}
+
+/**
+ * Read and parse a JSON metadata sidecar file, returning an empty object on failure.
+ */
+async function readMetaFile<T extends object>(metaPath: string): Promise<T> {
+  try {
+    const content = await fs!.readFile(metaPath, 'utf-8');
+    return JSON.parse(content) as T;
+  } catch {
+    return {} as T;
   }
 }
 
@@ -76,7 +122,6 @@ export class D1CompatDatabase {
     return results;
   }
 
-  // For direct access if needed
   getRawDatabase(): import('better-sqlite3').Database {
     return this.db;
   }
@@ -135,6 +180,13 @@ export class D1CompatPreparedStatement {
   }
 }
 
+interface R2MetaFile {
+  httpMetadata?: { contentType?: string };
+  customMetadata?: Record<string, string>;
+  size?: number;
+  uploaded?: string;
+}
+
 /**
  * R2Bucket-compatible filesystem implementation
  */
@@ -168,36 +220,14 @@ export class R2CompatBucket {
     }
   ): Promise<{ key: string }> {
     const filePath = this.getFilePath(key);
-    const metaPath = this.getMetaPath(key);
-
     await fs!.mkdir(path!.dirname(filePath), { recursive: true });
 
-    let content: Buffer;
-    if (typeof value === 'string') {
-      content = Buffer.from(value, 'utf-8');
-    } else if (value instanceof ArrayBuffer) {
-      content = Buffer.from(value);
-    } else if (ArrayBuffer.isView(value)) {
-      content = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
-    } else if (value instanceof Blob) {
-      content = Buffer.from(await value.arrayBuffer());
-    } else {
-      // ReadableStream
-      const chunks: Uint8Array[] = [];
-      const reader = value.getReader();
-      while (true) {
-        const { done, value: chunk } = await reader.read();
-        if (done) break;
-        chunks.push(chunk);
-      }
-      content = Buffer.concat(chunks);
-    }
-
+    const content = await toBuffer(value);
     await fs!.writeFile(filePath, content);
 
     if (options?.httpMetadata || options?.customMetadata) {
       await fs!.writeFile(
-        metaPath,
+        this.getMetaPath(key),
         JSON.stringify({
           httpMetadata: options.httpMetadata,
           customMetadata: options.customMetadata,
@@ -211,25 +241,9 @@ export class R2CompatBucket {
   }
 
   async get(key: string): Promise<R2CompatObject | null> {
-    const filePath = this.getFilePath(key);
-    const metaPath = this.getMetaPath(key);
-
     try {
-      const content = await fs!.readFile(filePath);
-      let metadata: {
-        httpMetadata?: { contentType?: string };
-        customMetadata?: Record<string, string>;
-        size?: number;
-        uploaded?: string;
-      } = {};
-
-      try {
-        const metaContent = await fs!.readFile(metaPath, 'utf-8');
-        metadata = JSON.parse(metaContent);
-      } catch {
-        // No metadata file
-      }
-
+      const content = await fs!.readFile(this.getFilePath(key));
+      const metadata = await readMetaFile<R2MetaFile>(this.getMetaPath(key));
       return new R2CompatObject(key, content, metadata);
     } catch {
       return null;
@@ -239,30 +253,15 @@ export class R2CompatBucket {
   async delete(key: string | string[]): Promise<void> {
     const keys = Array.isArray(key) ? key : [key];
     for (const k of keys) {
-      try {
-        await fs!.unlink(this.getFilePath(k));
-      } catch { /* ignore */ }
-      try {
-        await fs!.unlink(this.getMetaPath(k));
-      } catch { /* ignore */ }
+      try { await fs!.unlink(this.getFilePath(k)); } catch { /* ignore */ }
+      try { await fs!.unlink(this.getMetaPath(k)); } catch { /* ignore */ }
     }
   }
 
   async head(key: string): Promise<R2CompatObjectHead | null> {
-    const filePath = this.getFilePath(key);
-    const metaPath = this.getMetaPath(key);
-
     try {
-      const stats = await fs!.stat(filePath);
-      let metadata: {
-        httpMetadata?: { contentType?: string };
-        customMetadata?: Record<string, string>;
-      } = {};
-
-      try {
-        const metaContent = await fs!.readFile(metaPath, 'utf-8');
-        metadata = JSON.parse(metaContent);
-      } catch { /* ignore */ }
+      const stats = await fs!.stat(this.getFilePath(key));
+      const metadata = await readMetaFile<R2MetaFile>(this.getMetaPath(key));
 
       return {
         key,
@@ -289,7 +288,7 @@ export class R2CompatBucket {
   }> {
     const objects: Array<{ key: string; size: number; uploaded: Date }> = [];
 
-    const readDir = async (dir: string, prefix: string = '') => {
+    const readDir = async (dir: string, prefix: string = ''): Promise<void> => {
       try {
         const entries = await fs!.readdir(dir, { withFileTypes: true });
         for (const entry of entries) {
@@ -334,16 +333,7 @@ class R2CompatObject {
   body: ReadableStream<Uint8Array>;
   bodyUsed = false;
 
-  constructor(
-    key: string,
-    content: Buffer,
-    metadata: {
-      httpMetadata?: { contentType?: string };
-      customMetadata?: Record<string, string>;
-      size?: number;
-      uploaded?: string;
-    }
-  ) {
+  constructor(key: string, content: Buffer, metadata: R2MetaFile) {
     this.key = key;
     this.content = content;
     this.httpMetadata = metadata.httpMetadata;
@@ -398,25 +388,30 @@ export class KVCompatNamespace {
     metadata?: unknown;
   }>();
 
-  async get(key: string, options?: { type?: 'text' | 'json' | 'arrayBuffer' | 'stream' }): Promise<unknown> {
+  private getEntry(key: string): { value: string | ArrayBuffer; metadata?: unknown } | null {
     const entry = this.store.get(key);
     if (!entry) return null;
-
     if (entry.expiration && entry.expiration < Date.now() / 1000) {
       this.store.delete(key);
       return null;
     }
+    return entry;
+  }
+
+  private decodeAsText(value: string | ArrayBuffer): string {
+    return typeof value === 'string' ? value : new TextDecoder().decode(value);
+  }
+
+  async get(key: string, options?: { type?: 'text' | 'json' | 'arrayBuffer' | 'stream' }): Promise<unknown> {
+    const entry = this.getEntry(key);
+    if (!entry) return null;
 
     const type = options?.type ?? 'text';
-    const value = entry.value;
-
-    if (type === 'json') {
-      return typeof value === 'string' ? JSON.parse(value) : JSON.parse(new TextDecoder().decode(value as ArrayBuffer));
-    }
+    if (type === 'json') return JSON.parse(this.decodeAsText(entry.value));
     if (type === 'arrayBuffer') {
-      return typeof value === 'string' ? new TextEncoder().encode(value).buffer : value;
+      return typeof entry.value === 'string' ? new TextEncoder().encode(entry.value).buffer : entry.value;
     }
-    return typeof value === 'string' ? value : new TextDecoder().decode(value as ArrayBuffer);
+    return this.decodeAsText(entry.value);
   }
 
   async put(
@@ -429,28 +424,10 @@ export class KVCompatNamespace {
     }
   ): Promise<void> {
     let storedValue: string | ArrayBuffer;
-
-    if (typeof value === 'string') {
-      storedValue = value;
-    } else if (value instanceof ArrayBuffer) {
+    if (typeof value === 'string' || value instanceof ArrayBuffer) {
       storedValue = value;
     } else {
-      // ReadableStream
-      const reader = value.getReader();
-      const chunks: Uint8Array[] = [];
-      while (true) {
-        const { done, value: chunk } = await reader.read();
-        if (done) break;
-        chunks.push(chunk);
-      }
-      const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
-      const result = new Uint8Array(totalLength);
-      let offset = 0;
-      for (const chunk of chunks) {
-        result.set(chunk, offset);
-        offset += chunk.length;
-      }
-      storedValue = result.buffer;
+      storedValue = (await drainStream(value as ReadableStream<Uint8Array>)).buffer as ArrayBuffer;
     }
 
     let expiration: number | undefined;
@@ -496,6 +473,30 @@ export class KVCompatNamespace {
       cursor: keys.length > limit ? String(limit) : undefined,
     };
   }
+}
+
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html',
+  '.css': 'text/css',
+  '.js': 'application/javascript',
+  '.mjs': 'application/javascript',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+};
+
+function getMimeType(ext: string): string {
+  return MIME_TYPES[ext] || 'application/octet-stream';
 }
 
 /**
@@ -554,29 +555,6 @@ export class AssetsCompatFetcher {
   }
 }
 
-function getMimeType(ext: string): string {
-  const mimeTypes: Record<string, string> = {
-    '.html': 'text/html',
-    '.css': 'text/css',
-    '.js': 'application/javascript',
-    '.mjs': 'application/javascript',
-    '.json': 'application/json',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.svg': 'image/svg+xml',
-    '.webp': 'image/webp',
-    '.ico': 'image/x-icon',
-    '.woff': 'font/woff',
-    '.woff2': 'font/woff2',
-    '.ttf': 'font/ttf',
-    '.mp4': 'video/mp4',
-    '.webm': 'video/webm',
-  };
-  return mimeTypes[ext] || 'application/octet-stream';
-}
-
 /**
  * Create Cloudflare-compatible environment from Node.js
  */
@@ -600,7 +578,6 @@ export async function createNodeEnv(config: {
   const kv = new KVCompatNamespace();
   const assets = config.assetsPath ? await AssetsCompatFetcher.create(config.assetsPath) : undefined;
 
-  // Create Prisma client with libsql adapter for Node.js
   const { getPrismaSQLite } = await import('../lib/db');
   const prisma = await getPrismaSQLite(config.databasePath || './data/yurucommu.db');
 
@@ -635,7 +612,6 @@ export async function runMigrations(db: D1CompatDatabase, migrationsDir: string)
     .map((e) => e.name)
     .sort();
 
-  // Create migrations tracking table
   db.getRawDatabase().exec(`
     CREATE TABLE IF NOT EXISTS _cf_migrations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -658,7 +634,6 @@ export async function runMigrations(db: D1CompatDatabase, migrationsDir: string)
     console.log(`Applying migration: ${file}`);
     const sql = await fs!.readFile(path!.join(migrationsDir, file), 'utf-8');
 
-    // Split by semicolons and execute each statement
     const statements = sql
       .split(';')
       .map((s) => s.trim())

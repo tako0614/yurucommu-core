@@ -1,9 +1,7 @@
-// Rate limiting middleware for Yurucommu backend
-// Uses KV-backed distributed store (with in-memory fallback on KV failure).
+import type { Context, Next } from 'hono';
 
-import { Context, Next } from 'hono';
-import type { Env, Variables } from '../types';
 import { getClientIP } from '../lib/client-ip';
+import type { Env, Variables } from '../types';
 
 interface RateLimitEntry {
   count: number;
@@ -20,21 +18,17 @@ function getRateLimitStorageKey(key: string): string {
   return `${RATE_LIMIT_KV_PREFIX}:${encodeURIComponent(key)}`;
 }
 
+function isValidEntry(v: Partial<RateLimitEntry>): v is RateLimitEntry {
+  return typeof v.count === 'number' && typeof v.resetAt === 'number';
+}
+
 function parseRateLimitEntry(raw: string | null, now: number): RateLimitEntry | null {
   if (!raw) return null;
 
   try {
     const parsed = JSON.parse(raw) as Partial<RateLimitEntry>;
-    if (typeof parsed.count !== 'number' || typeof parsed.resetAt !== 'number') {
-      return null;
-    }
-    if (parsed.resetAt <= now) {
-      return null;
-    }
-    return {
-      count: parsed.count,
-      resetAt: parsed.resetAt,
-    };
+    if (!isValidEntry(parsed) || parsed.resetAt <= now) return null;
+    return parsed;
   } catch {
     return null;
   }
@@ -93,28 +87,24 @@ async function consumeRateLimit(
 }
 
 interface RateLimitConfig {
-  windowMs: number;      // Time window in milliseconds
-  maxRequests: number;   // Max requests per window
-  keyPrefix?: string;    // Prefix for the key (to differentiate rate limit types)
+  windowMs: number;
+  maxRequests: number;
+  keyPrefix?: string;
 }
 
-// Default configurations for different endpoint types
+function buildKey(prefix: string | undefined, clientId: string): string {
+  return `${prefix ?? ''}${clientId}`;
+}
+
 export const RateLimitConfigs = {
-  // General API: 10,000 requests per minute
-  general: { windowMs: 60000, maxRequests: 10000 },
-  // Auth endpoints: 20 requests per minute
-  auth: { windowMs: 60000, maxRequests: 20, keyPrefix: 'auth:' },
-  // Post creation: 3,000 per minute
-  postCreate: { windowMs: 60000, maxRequests: 3000, keyPrefix: 'post:' },
-  // Search: 3,000 per minute
-  search: { windowMs: 60000, maxRequests: 3000, keyPrefix: 'search:' },
-  // Media upload: 2,000 per minute
-  mediaUpload: { windowMs: 60000, maxRequests: 2000, keyPrefix: 'media:' },
-  // DM: 6,000 per minute
-  dm: { windowMs: 60000, maxRequests: 6000, keyPrefix: 'dm:' },
-  // Federation inbox: 20,000 per minute (need to accept activities from other servers)
-  inbox: { windowMs: 60000, maxRequests: 20000, keyPrefix: 'inbox:' },
-};
+  general:     { windowMs: 60000, maxRequests: 10000 },
+  auth:        { windowMs: 60000, maxRequests: 20,    keyPrefix: 'auth:' },
+  postCreate:  { windowMs: 60000, maxRequests: 3000,  keyPrefix: 'post:' },
+  search:      { windowMs: 60000, maxRequests: 3000,  keyPrefix: 'search:' },
+  mediaUpload: { windowMs: 60000, maxRequests: 2000,  keyPrefix: 'media:' },
+  dm:          { windowMs: 60000, maxRequests: 6000,  keyPrefix: 'dm:' },
+  inbox:       { windowMs: 60000, maxRequests: 20000, keyPrefix: 'inbox:' },
+} as const satisfies Record<string, RateLimitConfig>;
 
 /**
  * Create a rate limiting middleware
@@ -126,7 +116,7 @@ export function rateLimit(config: RateLimitConfig) {
     const ip = getClientIP(c);
     const clientId = actor?.ap_id || ip;
 
-    const key = `${config.keyPrefix || ''}${clientId}`;
+    const key = buildKey(config.keyPrefix, clientId);
     const now = Date.now();
     const entry = await consumeRateLimit(c.env.KV, key, config.windowMs, now);
     statusCache.set(key, entry);
@@ -158,6 +148,6 @@ export function rateLimit(config: RateLimitConfig) {
  * Get current rate limit status for a client (useful for debugging/monitoring)
  */
 export function getRateLimitStatus(clientId: string, keyPrefix?: string): RateLimitEntry | null {
-  const key = `${keyPrefix || ''}${clientId}`;
-  return statusCache.get(key) || fallbackRateLimitStore.get(key) || null;
+  const key = buildKey(keyPrefix, clientId);
+  return statusCache.get(key) ?? fallbackRateLimitStore.get(key) ?? null;
 }

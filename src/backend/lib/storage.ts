@@ -11,9 +11,15 @@
 
 import type { R2Bucket } from '@cloudflare/workers-types';
 
+// ============================================================
+// Shared Helpers
+// ============================================================
+
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 /**
- * S28: Sanitize parsed JSON to prevent prototype pollution
- * Removes __proto__ and constructor properties recursively
+ * S28: Sanitize parsed JSON to prevent prototype pollution.
+ * Removes __proto__, constructor, and prototype properties recursively.
  */
 function sanitizeJson<T>(obj: T): T {
   if (obj === null || typeof obj !== 'object') {
@@ -24,28 +30,89 @@ function sanitizeJson<T>(obj: T): T {
     return obj.map(item => sanitizeJson(item)) as T;
   }
 
+  const record = obj as Record<string, unknown>;
   const sanitized: Record<string, unknown> = {};
-  for (const key of Object.keys(obj as Record<string, unknown>)) {
-    // S28: Skip dangerous prototype pollution keys
-    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
-      continue;
+  for (const key of Object.keys(record)) {
+    if (!DANGEROUS_KEYS.has(key)) {
+      sanitized[key] = sanitizeJson(record[key]);
     }
-    sanitized[key] = sanitizeJson((obj as Record<string, unknown>)[key]);
   }
   return sanitized as T;
 }
 
-/**
- * S28: Safe JSON.parse wrapper that sanitizes output to prevent prototype pollution
- */
+/** S28: Safe JSON.parse wrapper that sanitizes output to prevent prototype pollution. */
 function safeJsonParse<T>(json: string): T {
-  const parsed = JSON.parse(json) as T;
-  return sanitizeJson(parsed);
+  return sanitizeJson(JSON.parse(json) as T);
 }
 
-/**
- * Storage object returned from get()
- */
+/** Drain a ReadableStream into a single Uint8Array. */
+async function drainStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
+/** Check whether an error matches a given name (for S3/SDK error discrimination). */
+function isErrorWithName(error: unknown, name: string): boolean {
+  return typeof error === 'object' && error !== null && (error as { name?: string }).name === name;
+}
+
+/** Build a StorageObject from raw bytes, key, size, and optional metadata. */
+function buildStorageObject(
+  key: string,
+  bytes: Uint8Array,
+  size: number,
+  meta?: {
+    etag?: string;
+    httpMetadata?: StorageObject['httpMetadata'];
+    customMetadata?: Record<string, string>;
+  },
+): StorageObject {
+  let bodyUsed = false;
+  return {
+    key,
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.close();
+      },
+    }),
+    bodyUsed,
+    arrayBuffer: async () => {
+      bodyUsed = true;
+      return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    },
+    text: async () => {
+      bodyUsed = true;
+      return new TextDecoder().decode(bytes);
+    },
+    json: async <T>() => {
+      bodyUsed = true;
+      return safeJsonParse<T>(new TextDecoder().decode(bytes));
+    },
+    size,
+    etag: meta?.etag,
+    httpMetadata: meta?.httpMetadata,
+    customMetadata: meta?.customMetadata,
+  };
+}
+
+// ============================================================
+// Interfaces
+// ============================================================
+
 export interface StorageObject {
   key: string;
   body: ReadableStream<Uint8Array> | null;
@@ -63,9 +130,6 @@ export interface StorageObject {
   customMetadata?: Record<string, string>;
 }
 
-/**
- * Options for put()
- */
 export interface PutOptions {
   httpMetadata?: {
     contentType?: string;
@@ -75,9 +139,6 @@ export interface PutOptions {
   customMetadata?: Record<string, string>;
 }
 
-/**
- * Object info returned from list()
- */
 export interface ObjectInfo {
   key: string;
   size: number;
@@ -85,18 +146,12 @@ export interface ObjectInfo {
   etag?: string;
 }
 
-/**
- * Result from list()
- */
 export interface ListResult {
   objects: ObjectInfo[];
   truncated: boolean;
   cursor?: string;
 }
 
-/**
- * Unified storage interface (R2Bucket-compatible)
- */
 export interface Storage {
   put(key: string, value: ArrayBuffer | Uint8Array | string | ReadableStream, options?: PutOptions): Promise<void>;
   get(key: string): Promise<StorageObject | null>;
@@ -105,9 +160,6 @@ export interface Storage {
   head(key: string): Promise<{ size: number; etag?: string; httpMetadata?: PutOptions['httpMetadata'] } | null>;
 }
 
-/**
- * Configuration for S3-compatible storage
- */
 export interface S3Config {
   endpoint: string;
   bucket: string;
@@ -116,9 +168,6 @@ export interface S3Config {
   region?: string;
 }
 
-/**
- * Configuration for local filesystem storage
- */
 export interface FilesystemConfig {
   basePath: string;
 }
@@ -219,36 +268,28 @@ export async function getS3Storage(config: S3Config): Promise<Storage> {
 
   const bucket = config.bucket;
 
+  /** Convert any accepted put() value into a Uint8Array or string for the S3 SDK. */
+  async function toS3Body(value: ArrayBuffer | Uint8Array | string | ReadableStream): Promise<Uint8Array | string> {
+    if (value instanceof ReadableStream) return drainStream(value);
+    if (value instanceof ArrayBuffer) return new Uint8Array(value);
+    return value; // Uint8Array or string
+  }
+
+  /** Extract HTTP metadata from an S3 response into our standard shape. */
+  function extractHttpMetadata(response: { ContentType?: string; CacheControl?: string; ContentDisposition?: string }): StorageObject['httpMetadata'] {
+    return {
+      contentType: response.ContentType,
+      cacheControl: response.CacheControl,
+      contentDisposition: response.ContentDisposition,
+    };
+  }
+
   return {
     async put(key, value, options) {
-      let body: Uint8Array | string;
-      if (value instanceof ReadableStream) {
-        const reader = value.getReader();
-        const chunks: Uint8Array[] = [];
-        while (true) {
-          const { done, value: chunk } = await reader.read();
-          if (done) break;
-          chunks.push(chunk);
-        }
-        const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-        body = new Uint8Array(totalLength);
-        let offset = 0;
-        for (const chunk of chunks) {
-          body.set(chunk, offset);
-          offset += chunk.length;
-        }
-      } else if (value instanceof ArrayBuffer) {
-        body = new Uint8Array(value);
-      } else if (value instanceof Uint8Array) {
-        body = value;
-      } else {
-        body = value;
-      }
-
       await client.send(new PutObjectCommand({
         Bucket: bucket,
         Key: key,
-        Body: body,
+        Body: await toS3Body(value),
         ContentType: options?.httpMetadata?.contentType,
         CacheControl: options?.httpMetadata?.cacheControl,
         ContentDisposition: options?.httpMetadata?.contentDisposition,
@@ -262,48 +303,16 @@ export async function getS3Storage(config: S3Config): Promise<Storage> {
           Bucket: bucket,
           Key: key,
         }));
-
         if (!response.Body) return null;
 
-        // Convert to ArrayBuffer for consistent interface
         const bodyBytes = await response.Body.transformToByteArray();
-        let bodyUsed = false;
-
-        return {
-          key,
-          body: new ReadableStream({
-            start(controller) {
-              controller.enqueue(bodyBytes);
-              controller.close();
-            },
-          }),
-          bodyUsed,
-          arrayBuffer: async () => {
-            bodyUsed = true;
-            return bodyBytes.buffer as ArrayBuffer;
-          },
-          text: async () => {
-            bodyUsed = true;
-            return new TextDecoder().decode(bodyBytes);
-          },
-          json: async <T>() => {
-            bodyUsed = true;
-            // S28: Use safeJsonParse to prevent prototype pollution
-            return safeJsonParse<T>(new TextDecoder().decode(bodyBytes));
-          },
-          size: response.ContentLength || 0,
+        return buildStorageObject(key, bodyBytes, response.ContentLength || 0, {
           etag: response.ETag,
-          httpMetadata: {
-            contentType: response.ContentType,
-            cacheControl: response.CacheControl,
-            contentDisposition: response.ContentDisposition,
-          },
+          httpMetadata: extractHttpMetadata(response),
           customMetadata: response.Metadata,
-        };
+        });
       } catch (error: unknown) {
-        if ((error as { name?: string }).name === 'NoSuchKey') {
-          return null;
-        }
+        if (isErrorWithName(error, 'NoSuchKey')) return null;
         throw error;
       }
     },
@@ -356,16 +365,10 @@ export async function getS3Storage(config: S3Config): Promise<Storage> {
         return {
           size: response.ContentLength || 0,
           etag: response.ETag,
-          httpMetadata: {
-            contentType: response.ContentType,
-            cacheControl: response.CacheControl,
-            contentDisposition: response.ContentDisposition,
-          },
+          httpMetadata: extractHttpMetadata(response),
         };
       } catch (error: unknown) {
-        if ((error as { name?: string }).name === 'NotFound') {
-          return null;
-        }
+        if (isErrorWithName(error, 'NotFound')) return null;
         throw error;
       }
     },
@@ -385,45 +388,47 @@ export async function getFilesystemStorage(config: FilesystemConfig): Promise<St
 
   const basePath = config.basePath;
 
-  // Ensure base directory exists
   await fs.mkdir(basePath, { recursive: true });
 
-  const getFilePath = (key: string) => path.join(basePath, key);
-  const getMetaPath = (key: string) => path.join(basePath, `${key}.meta.json`);
+  function getFilePath(key: string): string { return path.join(basePath, key); }
+  function getMetaPath(key: string): string { return path.join(basePath, `${key}.meta.json`); }
+
+  /** Convert any accepted put() value into a Buffer for fs.writeFile. */
+  async function toBuffer(value: ArrayBuffer | Uint8Array | string | ReadableStream): Promise<Buffer> {
+    if (typeof value === 'string') return Buffer.from(value, 'utf-8');
+    if (value instanceof ReadableStream) return Buffer.from(await drainStream(value));
+    if (value instanceof ArrayBuffer) return Buffer.from(new Uint8Array(value));
+    return Buffer.from(value); // Uint8Array
+  }
+
+  /** Read and parse a .meta.json sidecar, returning {} if the file does not exist. */
+  async function readMetadata(metaPath: string): Promise<{
+    httpMetadata?: PutOptions['httpMetadata'];
+    customMetadata?: Record<string, string>;
+  }> {
+    try {
+      const raw = await fs.readFile(metaPath, 'utf-8');
+      return safeJsonParse(raw);
+    } catch {
+      return {};
+    }
+  }
+
+  /** Silently unlink a file, ignoring "not found" errors. */
+  async function silentUnlink(filePath: string): Promise<void> {
+    try { await fs.unlink(filePath); } catch { /* ignore */ }
+  }
 
   return {
     async put(key, value, options) {
       const filePath = getFilePath(key);
-      const metaPath = getMetaPath(key);
-
-      // Ensure directory exists
       await fs.mkdir(path.dirname(filePath), { recursive: true });
 
-      // Convert value to Buffer
-      let content: Buffer;
-      if (typeof value === 'string') {
-        content = Buffer.from(value, 'utf-8');
-      } else if (value instanceof ArrayBuffer) {
-        content = Buffer.from(value);
-      } else if (value instanceof Uint8Array) {
-        content = Buffer.from(value);
-      } else {
-        // ReadableStream
-        const chunks: Uint8Array[] = [];
-        const reader = value.getReader();
-        while (true) {
-          const { done, value: chunk } = await reader.read();
-          if (done) break;
-          chunks.push(chunk);
-        }
-        content = Buffer.concat(chunks);
-      }
-
+      const content = await toBuffer(value);
       await fs.writeFile(filePath, content);
 
-      // Write metadata
       if (options?.httpMetadata || options?.customMetadata) {
-        await fs.writeFile(metaPath, JSON.stringify({
+        await fs.writeFile(getMetaPath(key), JSON.stringify({
           httpMetadata: options.httpMetadata,
           customMetadata: options.customMetadata,
           size: content.length,
@@ -433,56 +438,15 @@ export async function getFilesystemStorage(config: FilesystemConfig): Promise<St
     },
 
     async get(key) {
-      const filePath = getFilePath(key);
-      const metaPath = getMetaPath(key);
-
       try {
-        const content = await fs.readFile(filePath);
-        let metadata: {
-          httpMetadata?: PutOptions['httpMetadata'];
-          customMetadata?: Record<string, string>;
-        } = {};
+        const content = await fs.readFile(getFilePath(key));
+        const metadata = await readMetadata(getMetaPath(key));
+        const bytes = new Uint8Array(content);
 
-        try {
-          const metaContent = await fs.readFile(metaPath, 'utf-8');
-          // S28: Use safeJsonParse to prevent prototype pollution
-          metadata = safeJsonParse(metaContent);
-        } catch {
-          // No metadata file
-        }
-
-        let bodyUsed = false;
-        const arrayBuffer = content.buffer.slice(
-          content.byteOffset,
-          content.byteOffset + content.byteLength
-        ) as ArrayBuffer;
-
-        return {
-          key,
-          body: new ReadableStream({
-            start(controller) {
-              controller.enqueue(new Uint8Array(content));
-              controller.close();
-            },
-          }),
-          bodyUsed,
-          arrayBuffer: async () => {
-            bodyUsed = true;
-            return arrayBuffer;
-          },
-          text: async () => {
-            bodyUsed = true;
-            return content.toString('utf-8');
-          },
-          json: async <T>() => {
-            bodyUsed = true;
-            // S28: Use safeJsonParse to prevent prototype pollution
-            return safeJsonParse<T>(content.toString('utf-8'));
-          },
-          size: content.length,
+        return buildStorageObject(key, bytes, content.length, {
           httpMetadata: metadata.httpMetadata,
           customMetadata: metadata.customMetadata,
-        };
+        });
       } catch {
         return null;
       }
@@ -491,23 +455,15 @@ export async function getFilesystemStorage(config: FilesystemConfig): Promise<St
     async delete(key) {
       const keys = Array.isArray(key) ? key : [key];
       for (const k of keys) {
-        try {
-          await fs.unlink(getFilePath(k));
-        } catch {
-          // Ignore if not exists
-        }
-        try {
-          await fs.unlink(getMetaPath(k));
-        } catch {
-          // Ignore if not exists
-        }
+        await silentUnlink(getFilePath(k));
+        await silentUnlink(getMetaPath(k));
       }
     },
 
     async list(options) {
       const objects: ObjectInfo[] = [];
 
-      const readDirRecursive = async (dir: string, prefix: string = '') => {
+      async function readDirRecursive(dir: string, prefix: string = ''): Promise<void> {
         try {
           const entries = await fs.readdir(dir, { withFileTypes: true });
           for (const entry of entries) {
@@ -516,21 +472,18 @@ export async function getFilesystemStorage(config: FilesystemConfig): Promise<St
 
             if (entry.isDirectory()) {
               await readDirRecursive(fullPath, key);
-            } else if (!entry.name.endsWith('.meta.json')) {
-              if (!options?.prefix || key.startsWith(options.prefix)) {
-                const stats = await fs.stat(fullPath);
-                objects.push({
-                  key,
-                  size: stats.size,
-                  uploaded: stats.mtime,
-                });
-              }
+              continue;
             }
+            if (entry.name.endsWith('.meta.json')) continue;
+            if (options?.prefix && !key.startsWith(options.prefix)) continue;
+
+            const stats = await fs.stat(fullPath);
+            objects.push({ key, size: stats.size, uploaded: stats.mtime });
           }
         } catch {
           // Directory doesn't exist
         }
-      };
+      }
 
       await readDirRecursive(basePath);
 
@@ -545,22 +498,9 @@ export async function getFilesystemStorage(config: FilesystemConfig): Promise<St
     },
 
     async head(key) {
-      const filePath = getFilePath(key);
-      const metaPath = getMetaPath(key);
-
       try {
-        const stats = await fs.stat(filePath);
-        let metadata: {
-          httpMetadata?: PutOptions['httpMetadata'];
-        } = {};
-
-        try {
-          const metaContent = await fs.readFile(metaPath, 'utf-8');
-          // S28: Use safeJsonParse to prevent prototype pollution
-          metadata = safeJsonParse(metaContent);
-        } catch {
-          // No metadata file
-        }
+        const stats = await fs.stat(getFilePath(key));
+        const metadata = await readMetadata(getMetaPath(key));
 
         return {
           size: stats.size,

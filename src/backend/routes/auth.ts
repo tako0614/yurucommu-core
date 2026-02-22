@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import type { Env, Variables, Actor } from '../types';
+import type { Env, Variables } from '../types';
 import { generateId, actorApId, formatUsername, generateKeyPair } from '../utils';
 import { encrypt, verifyPassword } from '../lib/crypto';
 import {
@@ -25,6 +25,9 @@ import {
 } from '../lib/auth-lockout';
 import { getClientIP } from '../lib/client-ip';
 import type { PrismaClient } from '../../generated/prisma';
+
+/** Session lifetime: 30 days in seconds. */
+const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
 /**
  * Constant-time string comparison to prevent timing attacks
@@ -61,13 +64,11 @@ function isPrismaNotFoundError(error: unknown): boolean {
 }
 
 async function parseJsonObject(
-  c: { req: { json: () => Promise<unknown> } }
+  c: { req: { json(): Promise<unknown> } }
 ): Promise<Record<string, unknown> | null> {
   try {
     const body = await c.req.json();
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return null;
-    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
     return body as Record<string, unknown>;
   } catch {
     return null;
@@ -88,6 +89,44 @@ async function deleteSessionSafely(prisma: PrismaClient, sessionId: string, cont
       console.warn(`[Auth] Failed to delete session during ${context}`, err);
     }
   }
+}
+
+/**
+ * Invalidates any existing session, creates a fresh one, and sets the cookie.
+ * Centralises session-rotation logic used by both password and OAuth login.
+ */
+async function rotateSession(
+  c: Parameters<typeof setCookie>[0] & { get(key: 'prisma'): PrismaClient },
+  actorApId: string,
+  provider: string | null,
+  tokens: { access_token: string; refresh_token?: string; expires_in?: number } | null,
+  encryptionKey: string | undefined,
+  rotationContext: string,
+): Promise<string> {
+  const prisma = c.get('prisma');
+  const existingSessionId = getCookie(c, 'session');
+  if (existingSessionId) {
+    await deleteSessionSafely(prisma, existingSessionId, rotationContext);
+    deleteCookie(c, 'session');
+  }
+  const sessionId = await createSession(prisma, actorApId, provider, tokens, encryptionKey);
+  setSessionCookie(c, sessionId);
+  return sessionId;
+}
+
+/** Builds the standard ActivityPub endpoint URLs for an actor. */
+function actorEndpoints(apId: string): {
+  inbox: string;
+  outbox: string;
+  followersUrl: string;
+  followingUrl: string;
+} {
+  return {
+    inbox: `${apId}/inbox`,
+    outbox: `${apId}/outbox`,
+    followersUrl: `${apId}/followers`,
+    followingUrl: `${apId}/following`,
+  };
 }
 
 const auth = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -216,25 +255,11 @@ auth.post('/login', async (c) => {
 
   const prisma = c.get('prisma');
 
-  // Session fixation prevention: Delete any existing session before creating new one
-  const existingSessionId = getCookie(c, 'session');
-  if (existingSessionId) {
-    await deleteSessionSafely(prisma, existingSessionId, 'password login rotation');
-    deleteCookie(c, 'session');
-  }
-
   // Single-user instance: find existing owner or create default
-  let actorData = await prisma.actor.findFirst({
-    where: { role: 'owner' },
-  });
+  const actorData = await prisma.actor.findFirst({ where: { role: 'owner' } })
+    ?? await createDefaultOwner(prisma, c.env, 'password:owner');
 
-  if (!actorData) {
-    actorData = await createDefaultOwner(prisma, c.env, 'password:owner');
-  }
-
-  // Generate new session with fresh ID (session rotation)
-  const sessionId = await createSession(prisma, actorData.apId, null, null, c.env.ENCRYPTION_KEY);
-  setSessionCookie(c, sessionId);
+  await rotateSession(c, actorData.apId, null, null, c.env.ENCRYPTION_KEY, 'password login rotation');
   await clearLoginLockout(c.env.KV, lockoutKey);
 
   return c.json({ success: true });
@@ -365,8 +390,15 @@ auth.get('/callback/:provider', async (c) => {
     delete tokenBody.client_secret;
   }
 
+  const tokenUrl = usingTakosExchangeBinding ? 'https://internal/oauth/token' : provider.tokenUrl;
+  const tokenRequestInit: RequestInit = {
+    method: 'POST',
+    headers: tokenHeaders,
+    body: new URLSearchParams(tokenBody),
+  };
+
   console.log('Token exchange request:', {
-    url: usingTakosExchangeBinding ? 'https://internal/oauth/token' : provider.tokenUrl,
+    url: tokenUrl,
     via: usingTakosExchangeBinding ? 'service_binding' : 'fetch',
     clientId,
     redirectUri,
@@ -374,16 +406,8 @@ auth.get('/callback/:provider', async (c) => {
   });
 
   const tokenRes = usingTakosExchangeBinding
-    ? await c.env.TAKOS_OAUTH_EXCHANGE!.fetch('https://internal/oauth/token', {
-      method: 'POST',
-      headers: tokenHeaders,
-      body: new URLSearchParams(tokenBody),
-    })
-    : await fetch(provider.tokenUrl, {
-      method: 'POST',
-      headers: tokenHeaders,
-      body: new URLSearchParams(tokenBody),
-    });
+    ? await c.env.TAKOS_OAUTH_EXCHANGE!.fetch(tokenUrl, tokenRequestInit)
+    : await fetch(tokenUrl, tokenRequestInit);
 
   if (!tokenRes.ok) {
     const errText = await tokenRes.text();
@@ -402,36 +426,11 @@ auth.get('/callback/:provider', async (c) => {
     expires_in?: number;
   };
 
-  // ユーザー情報取得
   let userInfo;
   try {
-    if (providerId === 'takos' && c.env.TAKOS_OAUTH_EXCHANGE) {
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${tokens.access_token}`,
-      };
-      const clientIp = c.req.header('CF-Connecting-IP');
-      if (clientIp) {
-        headers['X-Forwarded-For'] = clientIp;
-      }
-
-      const res = await c.env.TAKOS_OAUTH_EXCHANGE.fetch('https://internal/oauth/userinfo', { headers });
-      if (!res.ok) {
-        throw new Error(`Failed to fetch takos user info: ${res.status}`);
-      }
-      const data = await res.json() as { user?: { id: string; name: string; email?: string; picture?: string } };
-      if (!data.user?.id || !data.user?.name) {
-        throw new Error('Invalid takos user info payload');
-      }
-
-      userInfo = {
-        id: data.user.id,
-        name: data.user.name,
-        email: data.user.email,
-        picture: data.user.picture,
-      };
-    } else {
-      userInfo = await fetchUserInfo(provider, tokens.access_token);
-    }
+    userInfo = usingTakosExchangeBinding
+      ? await fetchTakosUserInfo(c.env.TAKOS_OAUTH_EXCHANGE!, tokens.access_token, c.req.header('CF-Connecting-IP'))
+      : await fetchUserInfo(provider, tokens.access_token);
   } catch (err) {
     console.error('Failed to fetch user info:', err);
     return c.redirect('/?error=user_info_failed');
@@ -467,23 +466,14 @@ auth.get('/callback/:provider', async (c) => {
     await updateActorFromOAuth(prisma, actorData, userInfo);
   }
 
-  // Session fixation prevention: Delete any existing session before creating new one
-  const existingSessionId = getCookie(c, 'session');
-  if (existingSessionId) {
-    await deleteSessionSafely(prisma, existingSessionId, 'oauth login rotation');
-    deleteCookie(c, 'session');
-  }
-
-  // セッション作成 (new session with fresh ID - session rotation)
-  const sessionId = await createSession(
-    prisma,
+  await rotateSession(
+    c,
     actorData.apId,
     providerId,
     providerId === 'takos' ? tokens : null,
-    c.env.ENCRYPTION_KEY
+    c.env.ENCRYPTION_KEY,
+    'oauth login rotation',
   );
-
-  setSessionCookie(c, sessionId);
 
   return c.redirect('/');
 });
@@ -574,14 +564,10 @@ auth.post('/accounts', async (c) => {
     return c.json({ error: 'Invalid username. Use only letters, numbers, and underscores.' }, 400);
   }
 
-  const name = body.name === undefined
-    ? undefined
-    : typeof body.name === 'string'
-      ? body.name
-      : null;
-  if (name === null) {
+  if (body.name !== undefined && typeof body.name !== 'string') {
     return c.json({ error: 'name must be a string', code: 'BAD_REQUEST' }, 400);
   }
+  const name: string | undefined = typeof body.name === 'string' ? body.name : undefined;
 
   const baseUrl = c.env.APP_URL;
   const apId = actorApId(baseUrl, username);
@@ -601,10 +587,7 @@ auth.post('/accounts', async (c) => {
       type: 'Person',
       preferredUsername: username,
       name: name || username,
-      inbox: `${apId}/inbox`,
-      outbox: `${apId}/outbox`,
-      followersUrl: `${apId}/followers`,
-      followingUrl: `${apId}/following`,
+      ...actorEndpoints(apId),
       publicKeyPem,
       privateKeyPem,
       takosUserId: `local:${username}`,
@@ -634,10 +617,8 @@ auth.post('/accounts', async (c) => {
 // ============================================
 
 async function createDefaultOwner(prisma: PrismaClient, env: Env, takosUserId: string) {
-  const baseUrl = env.APP_URL;
   const username = 'tako';
-  const apId = actorApId(baseUrl, username);
-
+  const apId = actorApId(env.APP_URL, username);
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
 
   return await prisma.actor.create({
@@ -646,10 +627,7 @@ async function createDefaultOwner(prisma: PrismaClient, env: Env, takosUserId: s
       type: 'Person',
       preferredUsername: username,
       name: username,
-      inbox: `${apId}/inbox`,
-      outbox: `${apId}/outbox`,
-      followersUrl: `${apId}/followers`,
-      followingUrl: `${apId}/following`,
+      ...actorEndpoints(apId),
       publicKeyPem,
       privateKeyPem,
       takosUserId,
@@ -665,29 +643,19 @@ async function createActorFromOAuth(
   providerUserId: string
 ) {
   const baseUrl = env.APP_URL;
+  const baseUsername = userInfo.username || userInfo.name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
 
-  // ユーザー名を生成（重複回避）
-  let baseUsername = userInfo.username || userInfo.name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
+  // Find an unused username (append counter on collision)
   let username = baseUsername;
   let counter = 1;
-
-  while (true) {
-    const apId = actorApId(baseUrl, username);
-    const existing = await prisma.actor.findUnique({
-      where: { apId },
-      select: { apId: true },
-    });
-    if (!existing) break;
+  while (await prisma.actor.findUnique({ where: { apId: actorApId(baseUrl, username) }, select: { apId: true } })) {
     username = `${baseUsername}${counter}`;
     counter++;
   }
 
   const apId = actorApId(baseUrl, username);
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
-
-  // 最初のユーザーはownerに
   const actorCount = await prisma.actor.count();
-  const role = actorCount === 0 ? 'owner' : 'member';
 
   return await prisma.actor.create({
     data: {
@@ -696,16 +664,31 @@ async function createActorFromOAuth(
       preferredUsername: username,
       name: userInfo.name,
       iconUrl: userInfo.picture || null,
-      inbox: `${apId}/inbox`,
-      outbox: `${apId}/outbox`,
-      followersUrl: `${apId}/followers`,
-      followingUrl: `${apId}/following`,
+      ...actorEndpoints(apId),
       publicKeyPem,
       privateKeyPem,
       takosUserId: providerUserId,
-      role,
+      role: actorCount === 0 ? 'owner' : 'member',
     },
   });
+}
+
+/** Fetches user info from the Takos OAuth exchange service binding. */
+async function fetchTakosUserInfo(
+  binding: { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> },
+  accessToken: string,
+  clientIp: string | undefined,
+): Promise<{ id: string; name: string; email?: string; picture?: string }> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
+  if (clientIp) headers['X-Forwarded-For'] = clientIp;
+
+  const res = await binding.fetch('https://internal/oauth/userinfo', { headers });
+  if (!res.ok) throw new Error(`Failed to fetch takos user info: ${res.status}`);
+
+  const data = await res.json() as { user?: { id: string; name: string; email?: string; picture?: string } };
+  if (!data.user?.id || !data.user?.name) throw new Error('Invalid takos user info payload');
+
+  return { id: data.user.id, name: data.user.name, email: data.user.email, picture: data.user.picture };
 }
 
 async function updateActorFromOAuth(
@@ -730,7 +713,7 @@ async function createSession(
   encryptionKey?: string
 ): Promise<string> {
   const sessionId = generateId();
-  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString();
   const tokenExpiresAt = tokens?.expires_in
     ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
     : null;
@@ -765,7 +748,7 @@ function setSessionCookie(c: { header: (name: string, value: string) => void }, 
     secure: true,
     sameSite: 'Lax',
     path: '/',
-    maxAge: 30 * 24 * 60 * 60,
+    maxAge: SESSION_MAX_AGE_SECONDS,
   });
 }
 

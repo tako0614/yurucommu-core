@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import type { Env, Variables } from '../../../types';
-import type { Actor as PrismaActor } from '../../../../generated/prisma';
+import type { PrismaClient, Actor as PrismaActor } from '../../../../generated/prisma';
 import {
   activityApId,
   generateId,
@@ -19,6 +19,16 @@ import {
 
 type ActivityContext = Context<{ Bindings: Env; Variables: Variables }>;
 
+/**
+ * Prisma transaction client type. Extracted from PrismaClient.$transaction callback parameter.
+ * Works for both the top-level PrismaClient and the tx parameter inside $transaction callbacks.
+ */
+type PrismaTx = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
+
+// ---------------------------------------------------------------------------
+// Inline helpers (not exported; reduce repetition within this file)
+// ---------------------------------------------------------------------------
+
 function isUniqueConstraintError(error: unknown): boolean {
   return (
     typeof error === 'object' &&
@@ -27,6 +37,90 @@ function isUniqueConstraintError(error: unknown): boolean {
     (error as { code?: string }).code === 'P2002'
   );
 }
+
+function isStoryType(type: string | string[] | undefined): boolean {
+  if (!type) return false;
+  return Array.isArray(type) ? type.includes('Story') : type === 'Story';
+}
+
+function getActivityTargetId(activity: Activity): string | null {
+  const target = activity.target;
+  if (!target) return null;
+  if (typeof target === 'string') return target;
+  return target.id || null;
+}
+
+function normalizeCollectionTarget(targetId: string): string {
+  // Common pattern: Group followers collection.
+  if (targetId.endsWith('/followers')) {
+    return targetId.slice(0, -'/followers'.length);
+  }
+  return targetId;
+}
+
+/** Upsert an activity record and create an inbox entry for a local actor. */
+async function upsertActivityAndNotify(
+  tx: PrismaTx,
+  activityId: string,
+  type: string,
+  actorApId: string,
+  objectApId: string,
+  rawActivity: Activity,
+  recipientApId: string
+): Promise<void> {
+  const now = new Date().toISOString();
+
+  await tx.activity.upsert({
+    where: { apId: activityId },
+    update: {},
+    create: {
+      apId: activityId,
+      type,
+      actorApId,
+      objectApId,
+      rawJson: JSON.stringify(rawActivity),
+    },
+  });
+
+  await tx.inbox.create({
+    data: {
+      actorApId: recipientApId,
+      activityApId: activityId,
+      read: 0,
+      createdAt: now,
+    },
+  });
+}
+
+/**
+ * Find a record by activityApId, then delete it using its compound key.
+ * Returns the deleted record (or null if not found).
+ */
+async function findAndDeleteByActivityId<
+  T extends { actorApId: string; objectApId: string },
+>(
+  tx: {
+    findFirst: (args: { where: { activityApId: string } }) => Promise<T | null>;
+    delete: (args: { where: { actorApId_objectApId: { actorApId: string; objectApId: string } } }) => Promise<T>;
+  },
+  activityApId: string
+): Promise<T | null> {
+  const record = await tx.findFirst({ where: { activityApId } });
+  if (!record) return null;
+  await tx.delete({
+    where: {
+      actorApId_objectApId: {
+        actorApId: record.actorApId,
+        objectApId: record.objectApId,
+      },
+    },
+  });
+  return record;
+}
+
+// ---------------------------------------------------------------------------
+// Exported handlers
+// ---------------------------------------------------------------------------
 
 // Handle Follow activity
 export async function handleFollow(
@@ -52,7 +146,7 @@ export async function handleFollow(
         followingApId: recipient.apId,
       },
     },
-    update: {}, // No update if already exists
+    update: {},
     create: {
       followerApId: actor,
       followingApId: recipient.apId,
@@ -62,11 +156,8 @@ export async function handleFollow(
     },
   });
 
-  // If this was an existing follow, the createdAt will be in the past
   // Only proceed with count updates and notifications for new follows
   const isNewFollow = result.activityApId === activityId;
-
-  // Only update counts and send notifications for new follows
   if (!isNewFollow) return;
 
   // Update counts if accepted
@@ -78,26 +169,9 @@ export async function handleFollow(
   }
 
   // Store activity and add to inbox (AP Native notification)
-  await prisma.activity.upsert({
-    where: { apId: activityId },
-    update: {},
-    create: {
-      apId: activityId,
-      type: 'Follow',
-      actorApId: actor,
-      objectApId: recipient.apId,
-      rawJson: JSON.stringify(activity),
-    },
-  });
-
-  await prisma.inbox.create({
-    data: {
-      actorApId: recipient.apId,
-      activityApId: activityId,
-      read: 0,
-      createdAt: now,
-    },
-  });
+  await upsertActivityAndNotify(
+    prisma, activityId, 'Follow', actor, recipient.apId, activity, recipient.apId
+  );
 
   // Send Accept response
   // If the recipient requires approval, do NOT auto-accept.
@@ -134,24 +208,18 @@ export async function handleAccept(c: ActivityContext, activity: Activity) {
   const followId = getActivityObjectId(activity);
   if (!followId) return;
 
-  // Find the follow by activity_ap_id
   const follow = await prisma.follow.findFirst({
     where: { activityApId: followId },
   });
-
   if (!follow) return;
 
   // Skip if already accepted (idempotency)
-  if (follow.status === 'accepted') {
-    return;
-  }
+  if (follow.status === 'accepted') return;
 
   const now = new Date().toISOString();
 
-  // HIGH #16: Use transaction for atomic follow update and count updates
   try {
     await prisma.$transaction(async (tx) => {
-      // Update follow status to accepted
       await tx.follow.update({
         where: {
           followerApId_followingApId: {
@@ -195,201 +263,192 @@ export async function handleUndo(
 
   // If object is just a string (activity ID), try to find the original activity
   if (!objectType && objectId) {
-    const originalActivity = await prisma.activity.findUnique({
-      where: { apId: objectId },
-      select: { type: true, objectApId: true, actorApId: true },
-    });
-
-    if (originalActivity) {
-      // Verify the Undo actor matches the original activity actor (prevent cross-actor Undo)
-      if (originalActivity.actorApId && originalActivity.actorApId !== actor) {
-        console.warn(`[ActivityPub] Undo actor mismatch: ${actor} tried to undo activity by ${originalActivity.actorApId}`);
-        return;
-      }
-      // Handle based on original activity type
-      if (originalActivity.type === 'Follow') {
-        const follow = await prisma.follow.findFirst({
-          where: { activityApId: objectId },
-        });
-        if (follow) {
-          await prisma.follow.delete({
-            where: {
-              followerApId_followingApId: {
-                followerApId: follow.followerApId,
-                followingApId: follow.followingApId,
-              },
-            },
-          });
-        }
-        await prisma.actor.update({
-          where: { apId: recipient.apId },
-          data: { followerCount: { decrement: 1 } },
-        });
-      } else if (originalActivity.type === 'Like' && originalActivity.objectApId) {
-        const like = await prisma.like.findFirst({
-          where: { activityApId: objectId },
-        });
-        if (like) {
-          await prisma.like.delete({
-            where: {
-              actorApId_objectApId: {
-                actorApId: like.actorApId,
-                objectApId: like.objectApId,
-              },
-            },
-          });
-        }
-        await prisma.object.update({
-          where: { apId: originalActivity.objectApId },
-          data: { likeCount: { decrement: 1 } },
-        });
-      } else if (originalActivity.type === 'Announce' && originalActivity.objectApId) {
-        const announce = await prisma.announce.findFirst({
-          where: { activityApId: objectId },
-        });
-        if (announce) {
-          await prisma.announce.delete({
-            where: {
-              actorApId_objectApId: {
-                actorApId: announce.actorApId,
-                objectApId: announce.objectApId,
-              },
-            },
-          });
-        }
-        await prisma.object.update({
-          where: { apId: originalActivity.objectApId },
-          data: { announceCount: { decrement: 1 } },
-        });
-      }
-      return;
-    }
+    const resolved = await resolveUndoByActivityId(prisma, objectId, actor, recipient);
+    if (resolved) return;
   }
 
   if (objectType === 'Follow') {
-    // Undo follow
-    if (objectId) {
-      // Try to find by activity_ap_id first
-      const follow = await prisma.follow.findFirst({
-        where: { activityApId: objectId },
-      });
-      if (follow) {
-        await prisma.follow.delete({
-          where: {
-            followerApId_followingApId: {
-              followerApId: follow.followerApId,
-              followingApId: follow.followingApId,
-            },
-          },
-        });
-      } else {
-        // Fallback: delete by actor pair
-        await prisma.follow.deleteMany({
-          where: {
-            followerApId: actor,
-            followingApId: recipient.apId,
-          },
-        });
-      }
-    } else {
-      await prisma.follow.deleteMany({
+    await undoFollow(prisma, objectId, actor, recipient);
+  } else if (objectType === 'Like') {
+    await undoLike(prisma, objectId, activityObject, actor, recipient);
+  } else if (objectType === 'Announce') {
+    await undoAnnounce(prisma, objectId, activityObject, actor);
+  }
+}
+
+/**
+ * When the Undo object is a bare ID string, look up the original activity
+ * and undo it based on its stored type.
+ * Returns true if handled (caller should return), false otherwise.
+ */
+async function resolveUndoByActivityId(
+  prisma: PrismaClient,
+  objectId: string,
+  actor: string,
+  recipient: PrismaActor
+): Promise<boolean> {
+  const originalActivity = await prisma.activity.findUnique({
+    where: { apId: objectId },
+    select: { type: true, objectApId: true, actorApId: true },
+  });
+  if (!originalActivity) return false;
+
+  // Verify the Undo actor matches the original activity actor (prevent cross-actor Undo)
+  if (originalActivity.actorApId && originalActivity.actorApId !== actor) {
+    console.warn(`[ActivityPub] Undo actor mismatch: ${actor} tried to undo activity by ${originalActivity.actorApId}`);
+    return true;
+  }
+
+  if (originalActivity.type === 'Follow') {
+    const follow = await prisma.follow.findFirst({
+      where: { activityApId: objectId },
+    });
+    if (follow) {
+      await prisma.follow.delete({
         where: {
-          followerApId: actor,
-          followingApId: recipient.apId,
+          followerApId_followingApId: {
+            followerApId: follow.followerApId,
+            followingApId: follow.followingApId,
+          },
         },
       });
     }
-
-    // Update counts
     await prisma.actor.update({
       where: { apId: recipient.apId },
       data: { followerCount: { decrement: 1 } },
     });
-  } else if (objectType === 'Like') {
-    // Undo like - find the original liked object from the Like activity
-    const likedObjectId = activityObject?.object;
-    if (likedObjectId) {
-      await prisma.like.deleteMany({
+    return true;
+  }
+
+  if (originalActivity.type === 'Like' && originalActivity.objectApId) {
+    await findAndDeleteByActivityId(prisma.like, objectId);
+    await prisma.object.update({
+      where: { apId: originalActivity.objectApId },
+      data: { likeCount: { decrement: 1 } },
+    });
+    return true;
+  }
+
+  if (originalActivity.type === 'Announce' && originalActivity.objectApId) {
+    await findAndDeleteByActivityId(prisma.announce, objectId);
+    await prisma.object.update({
+      where: { apId: originalActivity.objectApId },
+      data: { announceCount: { decrement: 1 } },
+    });
+    return true;
+  }
+
+  return true;
+}
+
+async function undoFollow(
+  prisma: PrismaClient,
+  objectId: string | null,
+  actor: string,
+  recipient: PrismaActor
+): Promise<void> {
+  if (objectId) {
+    const follow = await prisma.follow.findFirst({
+      where: { activityApId: objectId },
+    });
+    if (follow) {
+      await prisma.follow.delete({
         where: {
-          actorApId: actor,
-          objectApId: likedObjectId,
+          followerApId_followingApId: {
+            followerApId: follow.followerApId,
+            followingApId: follow.followingApId,
+          },
         },
       });
-
-      // Update like count
-      await prisma.object.update({
-        where: { apId: likedObjectId },
-        data: { likeCount: { decrement: 1 } },
+    } else {
+      // Fallback: delete by actor pair
+      await prisma.follow.deleteMany({
+        where: { followerApId: actor, followingApId: recipient.apId },
       });
-    } else if (objectId) {
-      // Fallback: try to find by activity_ap_id
-      const like = await prisma.like.findFirst({
-        where: { activityApId: objectId },
-      });
-      if (like) {
-        await prisma.like.delete({
-          where: {
-            actorApId_objectApId: {
-              actorApId: like.actorApId,
-              objectApId: like.objectApId,
-            },
-          },
-        });
-        await prisma.object.update({
-          where: { apId: like.objectApId },
-          data: { likeCount: { decrement: 1 } },
-        });
-      } else {
-        // Last resort: try to delete any like from this actor for the recipient's objects
-        const recipientObjects = await prisma.object.findMany({
-          where: { attributedTo: recipient.apId },
-          select: { apId: true },
-        });
-        const objectApIds = recipientObjects.map((o) => o.apId);
-        await prisma.like.deleteMany({
-          where: {
-            actorApId: actor,
-            objectApId: { in: objectApIds },
-          },
-        });
-      }
     }
-  } else if (objectType === 'Announce') {
-    // Undo announce (repost)
-    const announcedObjectId = activityObject?.object;
-    if (announcedObjectId) {
-      await prisma.announce.deleteMany({
-        where: {
-          actorApId: actor,
-          objectApId: announcedObjectId,
-        },
-      });
+  } else {
+    await prisma.follow.deleteMany({
+      where: { followerApId: actor, followingApId: recipient.apId },
+    });
+  }
 
-      // Update announce count
-      await prisma.object.update({
-        where: { apId: announcedObjectId },
-        data: { announceCount: { decrement: 1 } },
-      });
-    } else if (objectId) {
-      // Fallback: try to find by activity_ap_id
-      const announce = await prisma.announce.findFirst({
-        where: { activityApId: objectId },
-      });
-      if (announce) {
-        await prisma.announce.delete({
-          where: {
-            actorApId_objectApId: {
-              actorApId: announce.actorApId,
-              objectApId: announce.objectApId,
-            },
-          },
-        });
-        await prisma.object.update({
-          where: { apId: announce.objectApId },
-          data: { announceCount: { decrement: 1 } },
-        });
-      }
-    }
+  await prisma.actor.update({
+    where: { apId: recipient.apId },
+    data: { followerCount: { decrement: 1 } },
+  });
+}
+
+async function undoLike(
+  prisma: PrismaClient,
+  objectId: string | null,
+  activityObject: ReturnType<typeof getActivityObject>,
+  actor: string,
+  recipient: PrismaActor
+): Promise<void> {
+  const likedObjectId = activityObject?.object;
+
+  if (likedObjectId) {
+    await prisma.like.deleteMany({
+      where: { actorApId: actor, objectApId: likedObjectId },
+    });
+    await prisma.object.update({
+      where: { apId: likedObjectId },
+      data: { likeCount: { decrement: 1 } },
+    });
+    return;
+  }
+
+  if (!objectId) return;
+
+  // Fallback: try to find by activity_ap_id
+  const like = await findAndDeleteByActivityId(prisma.like, objectId);
+  if (like) {
+    await prisma.object.update({
+      where: { apId: like.objectApId },
+      data: { likeCount: { decrement: 1 } },
+    });
+    return;
+  }
+
+  // Last resort: try to delete any like from this actor for the recipient's objects
+  const recipientObjects = await prisma.object.findMany({
+    where: { attributedTo: recipient.apId },
+    select: { apId: true },
+  });
+  const objectApIds = recipientObjects.map((o) => o.apId);
+  await prisma.like.deleteMany({
+    where: { actorApId: actor, objectApId: { in: objectApIds } },
+  });
+}
+
+async function undoAnnounce(
+  prisma: PrismaClient,
+  objectId: string | null,
+  activityObject: ReturnType<typeof getActivityObject>,
+  actor: string
+): Promise<void> {
+  const announcedObjectId = activityObject?.object;
+
+  if (announcedObjectId) {
+    await prisma.announce.deleteMany({
+      where: { actorApId: actor, objectApId: announcedObjectId },
+    });
+    await prisma.object.update({
+      where: { apId: announcedObjectId },
+      data: { announceCount: { decrement: 1 } },
+    });
+    return;
+  }
+
+  if (!objectId) return;
+
+  // Fallback: try to find by activity_ap_id
+  const announce = await findAndDeleteByActivityId(prisma.announce, objectId);
+  if (announce) {
+    await prisma.object.update({
+      where: { apId: announce.objectApId },
+      data: { announceCount: { decrement: 1 } },
+    });
   }
 }
 
@@ -413,7 +472,6 @@ export async function handleLike(
   if (!likedObj) return;
 
   const shouldNotify = isLocal(likedObj.attributedTo, baseUrl);
-  const now = new Date().toISOString();
 
   const created = await prisma.$transaction(async (tx) => {
     try {
@@ -435,40 +493,15 @@ export async function handleLike(
     });
 
     if (shouldNotify) {
-      await tx.activity.upsert({
-        where: { apId: activityId },
-        update: {},
-        create: {
-          apId: activityId,
-          type: 'Like',
-          actorApId: actor,
-          objectApId: objectId,
-          rawJson: JSON.stringify(activity),
-        },
-      });
-
-      await tx.inbox.create({
-        data: {
-          actorApId: likedObj.attributedTo,
-          activityApId: activityId,
-          read: 0,
-          createdAt: now,
-        },
-      });
+      await upsertActivityAndNotify(
+        tx, activityId, 'Like', actor, objectId, activity, likedObj.attributedTo
+      );
     }
 
     return true;
   });
 
   if (!created) return;
-}
-
-function isStoryType(type: string | string[] | undefined): boolean {
-  if (!type) return false;
-  if (Array.isArray(type)) {
-    return type.includes('Story');
-  }
-  return type === 'Story';
 }
 
 // Handle Create activity
@@ -510,7 +543,6 @@ export async function handleCreate(
     : null;
   const shouldNotifyParent = !!(parentObj && isLocal(parentObj.attributedTo, baseUrl));
   const replyActivityId = shouldNotifyParent ? activity.id || activityApId(baseUrl, generateId()) : null;
-  const now = new Date().toISOString();
 
   const created = await prisma.$transaction(async (tx) => {
     try {
@@ -547,26 +579,9 @@ export async function handleCreate(
     }
 
     if (shouldNotifyParent && parentObj && replyActivityId) {
-      await tx.activity.upsert({
-        where: { apId: replyActivityId },
-        update: {},
-        create: {
-          apId: replyActivityId,
-          type: 'Create',
-          actorApId: actor,
-          objectApId: objectId,
-          rawJson: JSON.stringify(activity),
-        },
-      });
-
-      await tx.inbox.create({
-        data: {
-          actorApId: parentObj.attributedTo,
-          activityApId: replyActivityId,
-          read: 0,
-          createdAt: now,
-        },
-      });
+      await upsertActivityAndNotify(
+        tx, replyActivityId, 'Create', actor, objectId, activity, parentObj.attributedTo
+      );
     }
 
     return true;
@@ -596,7 +611,7 @@ export async function handleCreateStory(
   // attachment validation (required)
   if (!object.attachment) {
     console.error('Remote story has no attachment:', objectId);
-    return; // Ignore stories without attachment
+    return;
   }
 
   // Normalize attachment (handle array or single object)
@@ -611,19 +626,15 @@ export async function handleCreateStory(
   }
 
   // overlays validation (optional, validate if present)
-  let overlays: StoryOverlay[] | undefined = undefined;
-  if (object.overlays) {
-    if (!Array.isArray(object.overlays)) {
-      overlays = undefined; // Ignore invalid format
-    } else {
-      // Simple validation: position is required
-      const filtered = (object.overlays as StoryOverlay[]).filter((o: StoryOverlay) =>
+  let overlays: StoryOverlay[] | undefined;
+  if (Array.isArray(object.overlays)) {
+    const filtered = (object.overlays as StoryOverlay[]).filter(
+      (o: StoryOverlay) =>
         o && o.position &&
         typeof o.position.x === 'number' &&
         typeof o.position.y === 'number'
-      );
-      overlays = filtered.length > 0 ? filtered : undefined;
-    }
+    );
+    if (filtered.length > 0) overlays = filtered;
   }
 
   // Build attachments_json
@@ -636,13 +647,12 @@ export async function handleCreateStory(
       height: attachment.height || 1920,
     },
     displayDuration: (object as { displayDuration?: string }).displayDuration || 'PT5S',
-    overlays: overlays,
+    overlays,
   };
 
   const now = new Date().toISOString();
   const endTime = object.endTime || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
-  // DB save
   await prisma.object.create({
     data: {
       apId: objectId,
@@ -655,19 +665,6 @@ export async function handleCreateStory(
       isLocal: 0,
     },
   });
-
-  // Increment post count for actor in cache (ignore errors if actor not in cache)
-  try {
-    await prisma.actorCache.update({
-      where: { apId: actor },
-      data: {
-        // ActorCache doesn't have postCount field, so this is a no-op
-        // In the original code, this was also likely ineffective
-      },
-    });
-  } catch {
-    // Ignore if actor cache doesn't exist
-  }
 }
 
 // Handle Delete activity
@@ -676,47 +673,35 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
-  // Get activity actor
   const actorId = typeof activity.actor === 'string' ? activity.actor : null;
   if (!actorId) {
     console.warn(`[ActivityPub] Delete activity missing actor`);
     return;
   }
 
-  // Get object before deletion
   const delObj = await prisma.object.findUnique({
     where: { apId: objectId },
     select: { attributedTo: true, type: true, replyCount: true },
   });
-
   if (!delObj) return;
 
-  // HIGH #10: Verify actor owns the object before deleting
+  // Verify actor owns the object before deleting
   if (delObj.attributedTo !== actorId) {
     console.warn(`[ActivityPub] Delete rejected: actor ${actorId} does not own object ${objectId} (owned by ${delObj.attributedTo})`);
     return;
   }
 
   await prisma.$transaction(async (tx) => {
+    // Story-specific cleanup
     if (delObj.type === 'Story') {
-      await tx.storyVote.deleteMany({
-        where: { storyApId: objectId },
-      });
-      await tx.storyView.deleteMany({
-        where: { storyApId: objectId },
-      });
-      await tx.like.deleteMany({
-        where: { objectApId: objectId },
-      });
-    } else {
-      await tx.like.deleteMany({
-        where: { objectApId: objectId },
-      });
+      await tx.storyVote.deleteMany({ where: { storyApId: objectId } });
+      await tx.storyView.deleteMany({ where: { storyApId: objectId } });
     }
 
-    await tx.object.delete({
-      where: { apId: objectId },
-    });
+    // Common cleanup for all object types
+    await tx.like.deleteMany({ where: { objectApId: objectId } });
+
+    await tx.object.delete({ where: { apId: objectId } });
 
     await tx.actor.update({
       where: { apId: delObj.attributedTo },
@@ -747,7 +732,7 @@ export async function handleAnnounce(
         objectApId: objectId,
       },
     },
-    update: {}, // No update if already exists
+    update: {},
     create: {
       actorApId: actor,
       objectApId: objectId,
@@ -759,39 +744,20 @@ export async function handleAnnounce(
   const isNewAnnounce = result.activityApId === activityId;
   if (!isNewAnnounce) return;
 
-  // Update announce count on object
   await prisma.object.update({
     where: { apId: objectId },
     data: { announceCount: { increment: 1 } },
   });
 
-  // Store activity and add to inbox (AP Native notification)
+  // Store activity and add to inbox if the announced object belongs to a local actor
   const announcedObj = await prisma.object.findUnique({
     where: { apId: objectId },
     select: { attributedTo: true },
   });
   if (announcedObj && isLocal(announcedObj.attributedTo, baseUrl)) {
-    const now = new Date().toISOString();
-    await prisma.activity.upsert({
-      where: { apId: activityId },
-      update: {},
-      create: {
-        apId: activityId,
-        type: 'Announce',
-        actorApId: actor,
-        objectApId: objectId,
-        rawJson: JSON.stringify(activity),
-      },
-    });
-
-    await prisma.inbox.create({
-      data: {
-        actorApId: announcedObj.attributedTo,
-        activityApId: activityId,
-        read: 0,
-        createdAt: now,
-      },
-    });
+    await upsertActivityAndNotify(
+      prisma, activityId, 'Announce', actor, objectId, activity, announcedObj.attributedTo
+    );
   }
 }
 
@@ -809,7 +775,6 @@ export async function handleUpdate(c: ActivityContext, activity: Activity, actor
     where: { apId: objectId },
     select: { apId: true, attributedTo: true },
   });
-
   if (!existing || existing.attributedTo !== actor) return;
 
   // Update object content
@@ -833,14 +798,11 @@ export async function handleReject(c: ActivityContext, activity: Activity) {
   const followId = getActivityObjectId(activity);
   if (!followId) return;
 
-  // Find the follow by activity_ap_id and update status
   const follow = await prisma.follow.findFirst({
     where: { activityApId: followId },
   });
-
   if (!follow) return;
 
-  // Delete the follow record since it was rejected
   await prisma.follow.delete({
     where: {
       followerApId_followingApId: {
@@ -849,21 +811,6 @@ export async function handleReject(c: ActivityContext, activity: Activity) {
       },
     },
   });
-}
-
-function getActivityTargetId(activity: Activity): string | null {
-  const target = activity.target;
-  if (!target) return null;
-  if (typeof target === 'string') return target;
-  return target.id || null;
-}
-
-function normalizeCollectionTarget(targetId: string): string {
-  // Common pattern: Group followers collection.
-  if (targetId.endsWith('/followers')) {
-    return targetId.slice(0, -'/followers'.length);
-  }
-  return targetId;
 }
 
 // Handle Add activity (collection add; used by some servers for membership)
@@ -989,90 +936,17 @@ export async function handleMove(c: ActivityContext, activity: Activity, actor: 
   }
 
   // Refresh/cache the new actor document (best-effort).
-  type RemoteActorDoc = {
-    id: string;
-    type?: string;
-    preferredUsername?: string;
-    name?: string;
-    summary?: string;
-    icon?: { url?: string };
-    inbox?: string;
-    outbox?: string;
-    publicKey?: { id?: string; publicKeyPem?: string };
-    endpoints?: { sharedInbox?: string };
-  };
-
-  try {
-    const res = await fetchWithTimeout(newActorApId, {
-      headers: { 'Accept': 'application/activity+json, application/ld+json' },
-      timeout: 15000,
-    });
-    if (res.ok) {
-      const actorData = await res.json() as RemoteActorDoc;
-      if (
-        actorData?.id === newActorApId &&
-        actorData?.inbox &&
-        isSafeRemoteUrl(actorData.inbox)
-      ) {
-        await prisma.actorCache.upsert({
-          where: { apId: actorData.id },
-          update: {
-            type: actorData.type || 'Person',
-            preferredUsername: actorData.preferredUsername || null,
-            name: actorData.name || null,
-            summary: actorData.summary || null,
-            iconUrl: actorData.icon?.url || null,
-            inbox: actorData.inbox,
-            outbox: actorData.outbox || null,
-            sharedInbox: actorData.endpoints?.sharedInbox || null,
-            publicKeyId: actorData.publicKey?.id || null,
-            publicKeyPem: actorData.publicKey?.publicKeyPem || null,
-            rawJson: JSON.stringify(actorData),
-            lastFetchedAt: new Date().toISOString(),
-          },
-          create: {
-            apId: actorData.id,
-            type: actorData.type || 'Person',
-            preferredUsername: actorData.preferredUsername || null,
-            name: actorData.name || null,
-            summary: actorData.summary || null,
-            iconUrl: actorData.icon?.url || null,
-            inbox: actorData.inbox,
-            outbox: actorData.outbox || null,
-            sharedInbox: actorData.endpoints?.sharedInbox || null,
-            publicKeyId: actorData.publicKey?.id || null,
-            publicKeyPem: actorData.publicKey?.publicKeyPem || null,
-            rawJson: JSON.stringify(actorData),
-            lastFetchedAt: new Date().toISOString(),
-          },
-        });
-      }
-    }
-  } catch (e) {
-    console.warn('[ActivityPub] Failed to refresh Move target actor cache:', e);
-  }
+  await refreshActorCache(prisma, newActorApId);
 
   // Rewrite follow graph references from old -> new in batches.
   const followerRows = await prisma.follow.findMany({
     where: { followerApId: oldActorApId },
-    select: {
-      followingApId: true,
-      status: true,
-      activityApId: true,
-      createdAt: true,
-      acceptedAt: true,
-    },
+    select: { followingApId: true, status: true, activityApId: true, createdAt: true, acceptedAt: true },
   });
 
   const followingRows = await prisma.follow.findMany({
     where: { followingApId: oldActorApId },
-    select: {
-      followerApId: true,
-      status: true,
-      activityApId: true,
-      createdAt: true,
-      acceptedAt: true,
-    },
+    select: { followerApId: true, status: true, activityApId: true, createdAt: true, acceptedAt: true },
   });
 
   const followerTargets = followerRows.map((row) => row.followingApId);
@@ -1080,19 +954,13 @@ export async function handleMove(c: ActivityContext, activity: Activity, actor: 
 
   const existingFollowerPairs = followerTargets.length > 0
     ? await prisma.follow.findMany({
-        where: {
-          followerApId: newActorApId,
-          followingApId: { in: followerTargets },
-        },
+        where: { followerApId: newActorApId, followingApId: { in: followerTargets } },
         select: { followingApId: true },
       })
     : [];
   const existingFollowingPairs = followingSources.length > 0
     ? await prisma.follow.findMany({
-        where: {
-          followerApId: { in: followingSources },
-          followingApId: newActorApId,
-        },
+        where: { followerApId: { in: followingSources }, followingApId: newActorApId },
         select: { followerApId: true },
       })
     : [];
@@ -1123,27 +991,69 @@ export async function handleMove(c: ActivityContext, activity: Activity, actor: 
 
   await prisma.$transaction(async (tx) => {
     if (followerRewrites.length > 0) {
-      await tx.follow.createMany({
-        data: followerRewrites,
-      });
+      await tx.follow.createMany({ data: followerRewrites });
     }
-
     if (followerRows.length > 0) {
-      await tx.follow.deleteMany({
-        where: { followerApId: oldActorApId },
-      });
+      await tx.follow.deleteMany({ where: { followerApId: oldActorApId } });
     }
-
     if (followingRewrites.length > 0) {
-      await tx.follow.createMany({
-        data: followingRewrites,
-      });
+      await tx.follow.createMany({ data: followingRewrites });
     }
-
     if (followingRows.length > 0) {
-      await tx.follow.deleteMany({
-        where: { followingApId: oldActorApId },
-      });
+      await tx.follow.deleteMany({ where: { followingApId: oldActorApId } });
     }
   });
+}
+
+/** Fetch a remote actor document and cache it locally. Best-effort (errors are logged, not thrown). */
+async function refreshActorCache(
+  prisma: PrismaClient,
+  actorApId: string
+): Promise<void> {
+  type RemoteActorDoc = {
+    id: string;
+    type?: string;
+    preferredUsername?: string;
+    name?: string;
+    summary?: string;
+    icon?: { url?: string };
+    inbox?: string;
+    outbox?: string;
+    publicKey?: { id?: string; publicKeyPem?: string };
+    endpoints?: { sharedInbox?: string };
+  };
+
+  try {
+    const res = await fetchWithTimeout(actorApId, {
+      headers: { 'Accept': 'application/activity+json, application/ld+json' },
+      timeout: 15000,
+    });
+    if (!res.ok) return;
+
+    const data = await res.json() as RemoteActorDoc;
+    if (!data?.id || data.id !== actorApId || !data.inbox || !isSafeRemoteUrl(data.inbox)) return;
+
+    const cacheFields = {
+      type: data.type || 'Person',
+      preferredUsername: data.preferredUsername || null,
+      name: data.name || null,
+      summary: data.summary || null,
+      iconUrl: data.icon?.url || null,
+      inbox: data.inbox,
+      outbox: data.outbox || null,
+      sharedInbox: data.endpoints?.sharedInbox || null,
+      publicKeyId: data.publicKey?.id || null,
+      publicKeyPem: data.publicKey?.publicKeyPem || null,
+      rawJson: JSON.stringify(data),
+      lastFetchedAt: new Date().toISOString(),
+    };
+
+    await prisma.actorCache.upsert({
+      where: { apId: data.id },
+      update: cacheFields,
+      create: { apId: data.id, ...cacheFields },
+    });
+  } catch (e) {
+    console.warn('[ActivityPub] Failed to refresh Move target actor cache:', e);
+  }
 }

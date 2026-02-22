@@ -1,50 +1,36 @@
 /**
- * OAuth Utilities
- * PKCE, state generation, etc.
+ * OAuth Utilities -- PKCE, state generation, and KV-backed state storage.
  *
- * OAuth State Expiration Strategy:
- * ================================
- * This module uses a dual-layer expiration approach for OAuth state tokens:
- *
- * 1. PRIMARY: KV TTL (expirationTtl: 600 seconds = 10 minutes)
- *    - Cloudflare KV automatically deletes the key after 10 minutes
- *    - This is the authoritative expiration mechanism
- *    - Handles cleanup automatically, no background jobs needed
- *
- * 2. SECONDARY: Manual timestamp check in getOAuthState()
- *    - Validates createdAt + 600000ms (10 minutes) hasn't passed
- *    - Acts as a defense-in-depth measure
- *    - Catches edge cases where KV TTL hasn't propagated yet
- *    - Ensures consistent behavior even if KV caching delays TTL
- *
- * Why both?
- * - KV TTL is eventually consistent and may have slight delays
- * - Manual check provides immediate, deterministic expiration
- * - Together they ensure state tokens cannot be reused after 10 minutes
- *
- * Security: The 10-minute window balances:
- * - User experience (enough time to complete OAuth flow)
- * - Security (limits replay attack window)
+ * State tokens use dual-layer expiration:
+ *   1. KV TTL (600 s) -- authoritative, auto-deletes the key.
+ *   2. Manual createdAt check in getOAuthState() -- defense-in-depth
+ *      against KV eventual-consistency delays.
  */
 
+const ALPHANUMERIC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+const PKCE_CHARSET = ALPHANUMERIC + '-._~';
+const OAUTH_KV_PREFIX = 'oauth:';
+const STATE_TTL_SECONDS = 600;
+const STATE_TTL_MS = STATE_TTL_SECONDS * 1000;
+
 /**
- * ランダムなIDを生成
+ * Generate a cryptographically random string from the given alphabet.
  */
+function randomString(length: number, alphabet: string): string {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
+}
+
 export function generateId(length = 21): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const array = new Uint8Array(length);
-  crypto.getRandomValues(array);
-  return Array.from(array, (byte) => chars[byte % chars.length]).join('');
+  return randomString(length, ALPHANUMERIC);
 }
 
 /**
- * PKCE code_verifier を生成 (43-128文字)
+ * Generate a PKCE code_verifier (64 characters from the unreserved charset).
  */
 export function generateCodeVerifier(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-  const array = new Uint8Array(64);
-  crypto.getRandomValues(array);
-  return Array.from(array, (byte) => chars[byte % chars.length]).join('');
+  return randomString(64, PKCE_CHARSET);
 }
 
 /**
@@ -58,52 +44,42 @@ export async function generateCodeChallenge(verifier: string): Promise<string> {
 }
 
 /**
- * Base64 URL エンコード
- * S28: Added input validation and proper error handling
+ * Base64-URL-encode an ArrayBuffer (RFC 4648 section 5, no padding).
+ * Uses chunked conversion to avoid stack overflow on large buffers.
  */
 export function base64UrlEncode(buffer: ArrayBuffer | null | undefined): string {
-  // S28: Input validation
   if (buffer == null) {
     throw new Error('base64UrlEncode: buffer cannot be null or undefined');
   }
-
   if (!(buffer instanceof ArrayBuffer)) {
     throw new Error('base64UrlEncode: buffer must be an ArrayBuffer');
   }
-
-  // S28: Handle empty buffer edge case
   if (buffer.byteLength === 0) {
     return '';
   }
 
-  try {
-    const bytes = new Uint8Array(buffer);
-
-    // S28: Use chunked approach for large buffers to avoid stack overflow
-    const CHUNK_SIZE = 8192;
-    let binary = '';
-
-    for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
-      const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.length));
-      binary += String.fromCharCode.apply(null, Array.from(chunk));
-    }
-
-    return btoa(binary)
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-  } catch (error) {
-    throw new Error(`base64UrlEncode: encoding failed - ${error instanceof Error ? error.message : String(error)}`);
+  const bytes = new Uint8Array(buffer);
+  const CHUNK_SIZE = 8192;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.length));
+    binary += String.fromCharCode.apply(null, Array.from(chunk));
   }
+
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
 }
 
-/**
- * OAuth state を保存 (KV)
- */
 export interface OAuthState {
   provider: string;
   codeVerifier: string;
   createdAt: number;
+}
+
+function oauthKey(state: string): string {
+  return `${OAUTH_KV_PREFIX}${state}`;
 }
 
 export async function saveOAuthState(
@@ -111,10 +87,8 @@ export async function saveOAuthState(
   state: string,
   data: OAuthState
 ): Promise<void> {
-  await kv.put(`oauth:${state}`, JSON.stringify(data), {
-    // PRIMARY expiration: KV TTL auto-deletes after 10 minutes
-    // This is the authoritative expiration mechanism
-    expirationTtl: 600, // 10 minutes in seconds
+  await kv.put(oauthKey(state), JSON.stringify(data), {
+    expirationTtl: STATE_TTL_SECONDS,
   });
 }
 
@@ -122,17 +96,14 @@ export async function getOAuthState(
   kv: KVNamespace,
   state: string
 ): Promise<OAuthState | null> {
-  const stored = await kv.get(`oauth:${state}`);
+  const stored = await kv.get(oauthKey(state));
   if (!stored) return null;
 
   const data = JSON.parse(stored) as OAuthState;
 
-  // SECONDARY expiration: Manual timestamp check (defense-in-depth)
-  // KV TTL is eventually consistent, so this ensures immediate rejection
-  // of expired states even if the KV deletion hasn't propagated yet
-  const STATE_TTL_MS = 600000; // 10 minutes in milliseconds (matches KV TTL)
+  // Defense-in-depth: reject expired states even if KV TTL hasn't propagated
   if (Date.now() - data.createdAt > STATE_TTL_MS) {
-    await kv.delete(`oauth:${state}`);
+    await kv.delete(oauthKey(state));
     return null;
   }
 
@@ -143,5 +114,5 @@ export async function deleteOAuthState(
   kv: KVNamespace,
   state: string
 ): Promise<void> {
-  await kv.delete(`oauth:${state}`);
+  await kv.delete(oauthKey(state));
 }

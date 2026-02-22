@@ -5,6 +5,7 @@ export type CircuitState = 'closed' | 'open' | 'half_open';
 
 const OPEN_DURATION_MS = 5 * 60 * 1000;
 const HALF_OPEN_PROBES = 3;
+const RECENT_WINDOW_SIZE = 20;
 
 type CircuitRow = {
   endpoint: string;
@@ -16,56 +17,77 @@ type CircuitRow = {
   halfOpenProbeSuccesses: number;
 };
 
-function parseRecent(json: string): number[] {
+const CIRCUIT_SELECT = {
+  endpoint: true,
+  state: true,
+  consecutiveFailures: true,
+  recentOutcomesJson: true,
+  openUntil: true,
+  halfOpenProbeAttempts: true,
+  halfOpenProbeSuccesses: true,
+} as const;
+
+const INITIAL_CIRCUIT_DATA = {
+  state: 'closed' as const,
+  consecutiveFailures: 0,
+  recentOutcomesJson: '[]',
+  openUntil: null,
+  halfOpenProbeAttempts: 0,
+  halfOpenProbeSuccesses: 0,
+};
+
+function parseRecentOutcomes(json: string): number[] {
   try {
     const parsed = JSON.parse(json) as unknown;
     if (!Array.isArray(parsed)) return [];
     return parsed
       .map((v) => (v === 1 ? 1 : 0))
-      .slice(-20);
+      .slice(-RECENT_WINDOW_SIZE);
   } catch {
     return [];
   }
 }
 
-function serializeRecent(values: number[]): string {
-  return JSON.stringify(values.slice(-20));
+function serializeRecentOutcomes(values: number[]): string {
+  return JSON.stringify(values.slice(-RECENT_WINDOW_SIZE));
+}
+
+/**
+ * Loads the circuit row for an endpoint and appends an outcome (0=success, 1=failure).
+ * Returns the row and the updated recent-outcomes array ready for persistence.
+ */
+async function loadCircuitWithOutcome(
+  prisma: PrismaClient,
+  endpoint: string,
+  outcome: 0 | 1
+): Promise<{ circuit: CircuitRow; recent: number[] }> {
+  const circuit = await getOrCreateCircuit(prisma, endpoint);
+  const recent = parseRecentOutcomes(circuit.recentOutcomesJson);
+  recent.push(outcome);
+  return { circuit, recent };
+}
+
+function buildOpenData(recent: number[], consecutiveFailures: number): object {
+  return {
+    state: 'open' as const,
+    consecutiveFailures,
+    recentOutcomesJson: serializeRecentOutcomes(recent),
+    openUntil: new Date(Date.now() + OPEN_DURATION_MS).toISOString(),
+    halfOpenProbeAttempts: 0,
+    halfOpenProbeSuccesses: 0,
+  };
 }
 
 async function getOrCreateCircuit(prisma: PrismaClient, endpoint: string): Promise<CircuitRow> {
   const existing = await prisma.deliveryCircuit.findUnique({
     where: { endpoint },
-    select: {
-      endpoint: true,
-      state: true,
-      consecutiveFailures: true,
-      recentOutcomesJson: true,
-      openUntil: true,
-      halfOpenProbeAttempts: true,
-      halfOpenProbeSuccesses: true,
-    },
+    select: CIRCUIT_SELECT,
   });
   if (existing) return existing as CircuitRow;
 
   const created = await prisma.deliveryCircuit.create({
-    data: {
-      endpoint,
-      state: 'closed',
-      consecutiveFailures: 0,
-      recentOutcomesJson: '[]',
-      openUntil: null,
-      halfOpenProbeAttempts: 0,
-      halfOpenProbeSuccesses: 0,
-    },
-    select: {
-      endpoint: true,
-      state: true,
-      consecutiveFailures: true,
-      recentOutcomesJson: true,
-      openUntil: true,
-      halfOpenProbeAttempts: true,
-      halfOpenProbeSuccesses: true,
-    },
+    data: { endpoint, ...INITIAL_CIRCUIT_DATA },
+    select: CIRCUIT_SELECT,
   });
   return created as CircuitRow;
 }
@@ -108,100 +130,70 @@ export async function checkCircuit(
 }
 
 export async function recordCircuitSuccess(prisma: PrismaClient, endpoint: string): Promise<void> {
-  const circuit = await getOrCreateCircuit(prisma, endpoint);
-  const recent = parseRecent(circuit.recentOutcomesJson);
-  recent.push(0);
+  const { circuit, recent } = await loadCircuitWithOutcome(prisma, endpoint, 0);
+  const serialized = serializeRecentOutcomes(recent);
 
   if (circuit.state === 'half_open') {
     const nextAttempts = circuit.halfOpenProbeAttempts + 1;
     const nextSuccesses = circuit.halfOpenProbeSuccesses + 1;
 
-    if (nextAttempts >= HALF_OPEN_PROBES) {
-      // Close only if all probes succeeded.
-      if (nextSuccesses >= HALF_OPEN_PROBES) {
-        await prisma.deliveryCircuit.update({
-          where: { endpoint },
-          data: {
-            state: 'closed',
-            consecutiveFailures: 0,
-            recentOutcomesJson: serializeRecent(recent),
-            openUntil: null,
-            halfOpenProbeAttempts: 0,
-            halfOpenProbeSuccesses: 0,
-          },
-        });
-        return;
-      }
-    }
+    // Close only if all probes succeeded.
+    const allProbesSucceeded = nextAttempts >= HALF_OPEN_PROBES && nextSuccesses >= HALF_OPEN_PROBES;
 
     await prisma.deliveryCircuit.update({
       where: { endpoint },
-      data: {
-        consecutiveFailures: 0,
-        recentOutcomesJson: serializeRecent(recent),
-        halfOpenProbeAttempts: nextAttempts,
-        halfOpenProbeSuccesses: nextSuccesses,
-      },
+      data: allProbesSucceeded
+        ? { ...INITIAL_CIRCUIT_DATA, recentOutcomesJson: serialized }
+        : {
+            consecutiveFailures: 0,
+            recentOutcomesJson: serialized,
+            halfOpenProbeAttempts: nextAttempts,
+            halfOpenProbeSuccesses: nextSuccesses,
+          },
     });
     return;
   }
 
   await prisma.deliveryCircuit.update({
     where: { endpoint },
-    data: {
-      consecutiveFailures: 0,
-      recentOutcomesJson: serializeRecent(recent),
-    },
+    data: { consecutiveFailures: 0, recentOutcomesJson: serialized },
   });
 }
 
 export async function recordCircuitFailure(prisma: PrismaClient, endpoint: string): Promise<void> {
-  const nowIso = new Date().toISOString();
-  const circuit = await getOrCreateCircuit(prisma, endpoint);
-  const recent = parseRecent(circuit.recentOutcomesJson);
-  recent.push(1);
+  const { circuit, recent } = await loadCircuitWithOutcome(prisma, endpoint, 1);
 
   // Half-open failure: immediately re-open.
   if (circuit.state === 'half_open') {
-    const openUntil = new Date(Date.now() + OPEN_DURATION_MS).toISOString();
     await prisma.deliveryCircuit.update({
       where: { endpoint },
-      data: {
-        state: 'open',
-        consecutiveFailures: 5,
-        recentOutcomesJson: serializeRecent(recent),
-        openUntil,
-        halfOpenProbeAttempts: 0,
-        halfOpenProbeSuccesses: 0,
-      },
+      data: buildOpenData(recent, 5),
     });
     return;
   }
 
   const consecutiveFailures = circuit.consecutiveFailures + 1;
-  const window = recent.slice(-20);
+  const window = recent.slice(-RECENT_WINDOW_SIZE);
   const failures = window.reduce((sum, v) => sum + (v === 1 ? 1 : 0), 0);
-  const failureRate = window.length === 20 ? failures / 20 : 0;
+  const failureRate = window.length === RECENT_WINDOW_SIZE ? failures / RECENT_WINDOW_SIZE : 0;
 
   // Open conditions (contract):
   // - 5 consecutive failures OR
   // - >=60% failures over the last 20 attempts.
-  const shouldOpen = consecutiveFailures >= 5 || (window.length === 20 && failureRate >= 0.6);
+  const shouldOpen = consecutiveFailures >= 5 || (window.length === RECENT_WINDOW_SIZE && failureRate >= 0.6);
 
   if (shouldOpen) {
-    const openUntil = new Date(Date.now() + OPEN_DURATION_MS).toISOString();
     await prisma.deliveryCircuit.update({
       where: { endpoint },
-      data: {
-        state: 'open',
-        consecutiveFailures,
-        recentOutcomesJson: serializeRecent(recent),
-        openUntil,
-        halfOpenProbeAttempts: 0,
-        halfOpenProbeSuccesses: 0,
-      },
+      data: buildOpenData(recent, consecutiveFailures),
     });
-    console.warn('[DeliveryCircuit] OPEN', { endpoint, at: nowIso, consecutiveFailures, failures, window: window.length });
+    console.warn('[DeliveryCircuit] OPEN', {
+      endpoint,
+      at: new Date().toISOString(),
+      consecutiveFailures,
+      failures,
+      window: window.length,
+    });
     return;
   }
 
@@ -209,7 +201,7 @@ export async function recordCircuitFailure(prisma: PrismaClient, endpoint: strin
     where: { endpoint },
     data: {
       consecutiveFailures,
-      recentOutcomesJson: serializeRecent(recent),
+      recentOutcomesJson: serializeRecentOutcomes(recent),
     },
   });
 }

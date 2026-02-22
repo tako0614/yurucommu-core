@@ -4,7 +4,15 @@ import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { generateId, objectApId, actorApId, formatUsername, activityApId } from '../../utils';
 import { storyToActivityPub } from '../../lib/activitypub-helpers';
-import { cleanupExpiredStories, transformStoryData, validateOverlays } from './utils';
+import {
+  cleanupExpiredStories,
+  transformStoryData,
+  validateOverlays,
+  fetchBlockedAndMutedIds,
+  fetchBatchVotes,
+  fetchActorCache,
+  sumVotes,
+} from './utils';
 import { enqueueFanoutToFollowers } from '../../lib/delivery/queue';
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -47,18 +55,68 @@ type StoryCreateBody = {
   overlays?: unknown[];
 };
 
+/** Build a StoryAuthor from available data sources. */
+function buildAuthor(
+  apId: string,
+  data: { preferredUsername?: string | null; name?: string | null; iconUrl?: string | null } | null | undefined,
+): StoryAuthor {
+  return {
+    ap_id: apId,
+    username: formatUsername(apId),
+    preferred_username: data?.preferredUsername || null,
+    name: data?.name || null,
+    icon_url: data?.iconUrl || null,
+  };
+}
+
+/** Build a StoryResponse from a story object row and pre-fetched data. */
+function buildStoryResponse(
+  s: {
+    apId: string;
+    attributedTo: string;
+    attachmentsJson: string;
+    endTime: string | null;
+    published: string;
+    likeCount: number;
+    shareCount: number | null;
+    storyViews?: { actorApId: string }[];
+    likes?: { actorApId: string }[];
+  },
+  author: StoryAuthor,
+  allVotes: Record<string, VoteResults>,
+  userVotes: Record<string, number>,
+): StoryResponse {
+  const storyData = transformStoryData(s.attachmentsJson);
+  const storyVotes = allVotes[s.apId] || {};
+
+  return {
+    ap_id: s.apId,
+    author,
+    attachment: storyData.attachment,
+    displayDuration: storyData.displayDuration,
+    overlays: storyData.overlays,
+    end_time: s.endTime || '',
+    published: s.published,
+    viewed: (s.storyViews?.length ?? 0) > 0,
+    like_count: s.likeCount,
+    share_count: s.shareCount || 0,
+    liked: (s.likes?.length ?? 0) > 0,
+    votes: storyVotes,
+    votes_total: sumVotes(storyVotes),
+    user_vote: userVotes[s.apId],
+  };
+}
+
 // Get active stories from followed users and self (grouped by author)
 stories.get('/', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const prisma = c.get('prisma');
-  const baseUrl = c.env.APP_URL;
   const now = new Date().toISOString();
 
-  // Probabilistic cleanup: 1% chance to run cleanup on each request
+  // Probabilistic cleanup: 1% chance per request
   if (Math.random() < 0.01) {
-    // Run cleanup in background (don't await)
     cleanupExpiredStories(prisma).catch((err) => {
       console.warn('[Stories] Failed to cleanup expired stories', err);
     });
@@ -66,37 +124,13 @@ stories.get('/', async (c) => {
 
   // Get followed user IDs
   const follows = await prisma.follow.findMany({
-    where: {
-      followerApId: actor.ap_id,
-      status: 'accepted',
-    },
-    select: {
-      followingApId: true,
-    },
+    where: { followerApId: actor.ap_id, status: 'accepted' },
+    select: { followingApId: true },
   });
-  const followedIds = follows.map(f => f.followingApId);
+  const followedIds = follows.map((f) => f.followingApId);
   followedIds.push(actor.ap_id); // Include self
 
-  // Get blocked and muted user IDs
-  const blocks = await prisma.block.findMany({
-    where: {
-      blockerApId: actor.ap_id,
-    },
-    select: {
-      blockedApId: true,
-    },
-  });
-  const blockedIds = blocks.map(b => b.blockedApId);
-
-  const mutes = await prisma.mute.findMany({
-    where: {
-      muterApId: actor.ap_id,
-    },
-    select: {
-      mutedApId: true,
-    },
-  });
-  const mutedIds = mutes.map(m => m.mutedApId);
+  const { blockedIds, mutedIds } = await fetchBlockedAndMutedIds(prisma, actor.ap_id);
 
   // Get stories from followed users (excluding blocked/muted)
   const storiesData = await prisma.object.findMany({
@@ -110,12 +144,7 @@ stories.get('/', async (c) => {
     },
     include: {
       author: {
-        select: {
-          apId: true,
-          preferredUsername: true,
-          name: true,
-          iconUrl: true,
-        },
+        select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
       },
       storyViews: {
         where: { actorApId: actor.ap_id },
@@ -126,90 +155,27 @@ stories.get('/', async (c) => {
         select: { actorApId: true },
       },
     },
-    orderBy: [
-      { endTime: 'desc' },
-    ],
+    orderBy: [{ endTime: 'desc' }],
   });
 
-  // Get all story ap_ids for batch vote query
-  const storyApIds = storiesData.map(s => s.apId);
+  const storyApIds = storiesData.map((s) => s.apId);
+  const { allVotes, userVotes } = await fetchBatchVotes(prisma, storyApIds, actor.ap_id);
 
-  // Batch query for all votes
-  let allVotes: Record<string, VoteResults> = {};
-  let userVotes: Record<string, number> = {};
-
-  if (storyApIds.length > 0) {
-    // Get vote counts grouped by story and option
-    const votes = await prisma.storyVote.groupBy({
-      by: ['storyApId', 'optionIndex'],
-      where: {
-        storyApId: { in: storyApIds },
-      },
-      _count: {
-        id: true,
-      },
-    });
-
-    votes.forEach(v => {
-      if (!allVotes[v.storyApId]) {
-        allVotes[v.storyApId] = {};
-      }
-      allVotes[v.storyApId][v.optionIndex] = v._count.id;
-    });
-
-    // Get user's own votes
-    const userVotesData = await prisma.storyVote.findMany({
-      where: {
-        storyApId: { in: storyApIds },
-        actorApId: actor.ap_id,
-      },
-      select: {
-        storyApId: true,
-        optionIndex: true,
-      },
-    });
-
-    userVotesData.forEach(v => {
-      userVotes[v.storyApId] = v.optionIndex;
-    });
-  }
-
-  // Try to get author info from actor_cache for remote authors
-  const remoteAuthorIds = [...new Set(storiesData.filter(s => !s.author).map(s => s.attributedTo))];
-  let actorCacheMap: Record<string, { preferredUsername: string | null; name: string | null; iconUrl: string | null }> = {};
-
-  if (remoteAuthorIds.length > 0) {
-    const cachedActors = await prisma.actorCache.findMany({
-      where: { apId: { in: remoteAuthorIds } },
-      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-    });
-    cachedActors.forEach(a => {
-      actorCacheMap[a.apId] = { preferredUsername: a.preferredUsername, name: a.name, iconUrl: a.iconUrl };
-    });
-  }
+  // Resolve remote author info from cache
+  const remoteAuthorIds = [...new Set(storiesData.filter((s) => !s.author).map((s) => s.attributedTo))];
+  const actorCacheMap = await fetchActorCache(prisma, remoteAuthorIds);
 
   // Group by author
   const grouped: Record<string, { actor: StoryAuthor; stories: StoryResponse[]; has_unviewed: boolean }> = {};
   const authorOrder: string[] = [];
 
-  storiesData.forEach(s => {
+  for (const s of storiesData) {
     const authorApId = s.attributedTo;
     const authorData = s.author || actorCacheMap[authorApId];
-    const authorInfo: StoryAuthor = {
-      ap_id: authorApId,
-      username: formatUsername(authorApId),
-      preferred_username: authorData?.preferredUsername || null,
-      name: authorData?.name || null,
-      icon_url: authorData?.iconUrl || null,
-    };
+    const authorInfo = buildAuthor(authorApId, authorData);
 
     if (!grouped[authorApId]) {
-      grouped[authorApId] = {
-        actor: authorInfo,
-        stories: [],
-        has_unviewed: false,
-      };
-      // Add self first, then others
+      grouped[authorApId] = { actor: authorInfo, stories: [], has_unviewed: false };
       if (authorApId === actor.ap_id) {
         authorOrder.unshift(authorApId);
       } else {
@@ -217,61 +183,30 @@ stories.get('/', async (c) => {
       }
     }
 
-    const isViewed = s.storyViews.length > 0;
-    if (!isViewed) {
-      grouped[authorApId].has_unviewed = true;
-    }
-
-    // Transform to new format
-    const storyData = transformStoryData(s.attachmentsJson);
-
-    // Calculate vote totals
-    const storyVotes = allVotes[s.apId] || {};
-    const total = Object.values(storyVotes).reduce((sum: number, count: number) => sum + count, 0);
-
-    grouped[authorApId].stories.push({
-      ap_id: s.apId,
-      author: authorInfo,
-      attachment: storyData.attachment,
-      displayDuration: storyData.displayDuration,
-      overlays: storyData.overlays,
-      end_time: s.endTime || '',
-      published: s.published,
-      viewed: isViewed,
-      like_count: s.likeCount,
-      share_count: s.shareCount || 0,
-      liked: s.likes.length > 0,
-      votes: storyVotes,
-      votes_total: total,
-      user_vote: userVotes[s.apId],
-    });
-  });
+    const response = buildStoryResponse(s, authorInfo, allVotes, userVotes);
+    if (!response.viewed) grouped[authorApId].has_unviewed = true;
+    grouped[authorApId].stories.push(response);
+  }
 
   // Sort stories within each group: unviewed first, then by end_time desc
-  Object.keys(grouped).forEach(authorApId => {
-    grouped[authorApId].stories.sort((a, b) => {
-      // Unviewed first
+  for (const group of Object.values(grouped)) {
+    group.stories.sort((a, b) => {
       if (!a.viewed && b.viewed) return -1;
       if (a.viewed && !b.viewed) return 1;
-      // Then by end_time desc
       return b.end_time.localeCompare(a.end_time);
     });
-  });
+  }
 
-  // Sort author groups: those with unviewed stories first
+  // Sort author groups: self first, then those with unviewed stories
   authorOrder.sort((a, b) => {
-    // Self always first
     if (a === actor.ap_id) return -1;
     if (b === actor.ap_id) return 1;
-    // Then unviewed first
     if (grouped[a].has_unviewed && !grouped[b].has_unviewed) return -1;
     if (!grouped[a].has_unviewed && grouped[b].has_unviewed) return 1;
     return 0;
   });
 
-  const result = authorOrder.map(apId => grouped[apId]);
-
-  return c.json({ actor_stories: result });
+  return c.json({ actor_stories: authorOrder.map((apId) => grouped[apId]) });
 });
 
 // Cleanup expired stories (admin/scheduled endpoint)
@@ -287,38 +222,20 @@ stories.get('/:actorId', async (c) => {
   const targetActorId = c.req.param('actorId');
   const actor = c.get('actor');
   const prisma = c.get('prisma');
-
   const baseUrl = c.env.APP_URL;
   const now = new Date().toISOString();
 
   // Find the actor by username or full ap_id
-  let targetApId = targetActorId;
-  if (!targetActorId.startsWith('http')) {
-    // It's a username, convert to ap_id
-    targetApId = actorApId(baseUrl, targetActorId);
-  }
+  const targetApId = targetActorId.startsWith('http')
+    ? targetActorId
+    : actorApId(baseUrl, targetActorId);
 
-  // Get blocked and muted user IDs (if authenticated)
-  let blockedIds: string[] = [];
-  let mutedIds: string[] = [];
-
+  // Check blocked/muted (if authenticated)
   if (actor) {
-    const blocks = await prisma.block.findMany({
-      where: { blockerApId: actor.ap_id },
-      select: { blockedApId: true },
-    });
-    blockedIds = blocks.map(b => b.blockedApId);
-
-    const mutes = await prisma.mute.findMany({
-      where: { muterApId: actor.ap_id },
-      select: { mutedApId: true },
-    });
-    mutedIds = mutes.map(m => m.mutedApId);
-  }
-
-  // Check if target is blocked/muted
-  if (blockedIds.includes(targetApId) || mutedIds.includes(targetApId)) {
-    return c.json({ stories: [] });
+    const { blockedIds, mutedIds } = await fetchBlockedAndMutedIds(prisma, actor.ap_id);
+    if (blockedIds.includes(targetApId) || mutedIds.includes(targetApId)) {
+      return c.json({ stories: [] });
+    }
   }
 
   // Get stories for the target user
@@ -330,117 +247,41 @@ stories.get('/:actorId', async (c) => {
     },
     include: {
       author: {
-        select: {
-          apId: true,
-          preferredUsername: true,
-          name: true,
-          iconUrl: true,
-        },
+        select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
       },
-      storyViews: actor ? {
-        where: { actorApId: actor.ap_id },
-        select: { actorApId: true },
-      } : false,
-      likes: actor ? {
-        where: { actorApId: actor.ap_id },
-        select: { actorApId: true },
-      } : false,
+      storyViews: actor
+        ? { where: { actorApId: actor.ap_id }, select: { actorApId: true } }
+        : false,
+      likes: actor
+        ? { where: { actorApId: actor.ap_id }, select: { actorApId: true } }
+        : false,
     },
     orderBy: { published: 'desc' },
   });
 
-  // Get all story ap_ids for batch vote query
-  const storyApIds = userStories.map(s => s.apId);
+  const storyApIds = userStories.map((s) => s.apId);
+  const { allVotes, userVotes } = await fetchBatchVotes(
+    prisma,
+    storyApIds,
+    actor?.ap_id,
+  );
 
-  // Batch query for all votes
-  let allVotes: Record<string, VoteResults> = {};
-  let userVotes: Record<string, number> = {};
+  // Resolve remote author info from cache
+  const remoteAuthorIds = [...new Set(userStories.filter((s) => !s.author).map((s) => s.attributedTo))];
+  const actorCacheMap = await fetchActorCache(prisma, remoteAuthorIds);
 
-  if (storyApIds.length > 0) {
-    // Get vote counts grouped by story and option
-    const votes = await prisma.storyVote.groupBy({
-      by: ['storyApId', 'optionIndex'],
-      where: {
-        storyApId: { in: storyApIds },
-      },
-      _count: {
-        id: true,
-      },
-    });
-
-    votes.forEach(v => {
-      if (!allVotes[v.storyApId]) {
-        allVotes[v.storyApId] = {};
-      }
-      allVotes[v.storyApId][v.optionIndex] = v._count.id;
-    });
-
-    // Get user's own votes (if authenticated)
-    if (actor) {
-      const userVotesData = await prisma.storyVote.findMany({
-        where: {
-          storyApId: { in: storyApIds },
-          actorApId: actor.ap_id,
-        },
-        select: {
-          storyApId: true,
-          optionIndex: true,
-        },
-      });
-
-      userVotesData.forEach(v => {
-        userVotes[v.storyApId] = v.optionIndex;
-      });
-    }
-  }
-
-  // Try to get author info from actor_cache for remote authors
-  const remoteAuthorIds = [...new Set(userStories.filter(s => !s.author).map(s => s.attributedTo))];
-  let actorCacheMap: Record<string, { preferredUsername: string | null; name: string | null; iconUrl: string | null }> = {};
-
-  if (remoteAuthorIds.length > 0) {
-    const cachedActors = await prisma.actorCache.findMany({
-      where: { apId: { in: remoteAuthorIds } },
-      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-    });
-    cachedActors.forEach(a => {
-      actorCacheMap[a.apId] = { preferredUsername: a.preferredUsername, name: a.name, iconUrl: a.iconUrl };
-    });
-  }
-
-  const result = userStories.map(s => {
-    const storyData = transformStoryData(s.attachmentsJson);
+  const result = userStories.map((s) => {
     const authorData = s.author || actorCacheMap[s.attributedTo];
-
-    // Calculate vote totals
-    const storyVotes = allVotes[s.apId] || {};
-    const total = Object.values(storyVotes).reduce((sum: number, count: number) => sum + count, 0);
-
+    const author = buildAuthor(s.attributedTo, authorData);
     const storyViews = (s.storyViews as { actorApId: string }[] | undefined) || [];
     const likes = (s.likes as { actorApId: string }[] | undefined) || [];
 
-    return {
-      ap_id: s.apId,
-      author: {
-        ap_id: s.attributedTo,
-        username: formatUsername(s.attributedTo),
-        preferred_username: authorData?.preferredUsername || null,
-        name: authorData?.name || null,
-        icon_url: authorData?.iconUrl || null,
-      },
-      attachment: storyData.attachment,
-      displayDuration: storyData.displayDuration,
-      overlays: storyData.overlays,
-      end_time: s.endTime || '',
-      published: s.published,
-      viewed: storyViews.length > 0,
-      like_count: s.likeCount,
-      share_count: s.shareCount || 0,
-      liked: likes.length > 0,
-      votes: storyVotes,
-      votes_total: total,
-      user_vote: userVotes[s.apId],
-    };
+    return buildStoryResponse(
+      { ...s, storyViews, likes },
+      author,
+      allVotes,
+      userVotes,
+    );
   });
 
   return c.json({ stories: result });
@@ -458,7 +299,6 @@ stories.post('/', async (c) => {
     return c.json({ error: 'attachment with r2_key required' }, 400);
   }
 
-  // Validate overlays if provided
   if (body.overlays && body.overlays.length > 0) {
     const validation = validateOverlays(body.overlays);
     if (!validation.valid) {
@@ -470,11 +310,8 @@ stories.post('/', async (c) => {
   const id = generateId();
   const apId = objectApId(baseUrl, id);
   const now = new Date().toISOString();
-
-  // Set expiration to 24 hours from now
   const endTime = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
-  // Store in new format with width/height
   const storyData = {
     attachment: {
       ...body.attachment,
@@ -499,24 +336,20 @@ stories.post('/', async (c) => {
     },
   });
 
-  // Update post count
   await prisma.actor.update({
     where: { apId: actor.ap_id },
     data: { postCount: { increment: 1 } },
   });
 
-  // Transform for response
   const responseData = transformStoryData(attachmentsJson);
 
   const story = {
     ap_id: apId,
-    author: {
-      ap_id: actor.ap_id,
-      username: formatUsername(actor.ap_id),
-      preferred_username: actor.preferred_username,
+    author: buildAuthor(actor.ap_id, {
+      preferredUsername: actor.preferred_username,
       name: actor.name,
-      icon_url: actor.icon_url,
-    },
+      iconUrl: actor.icon_url,
+    }),
     attachment: responseData.attachment,
     displayDuration: responseData.displayDuration,
     overlays: responseData.overlays,
@@ -531,16 +364,16 @@ stories.post('/', async (c) => {
   const createActivityId = activityApId(baseUrl, generateId());
   const storyObject = storyToActivityPub(
     {
-      apId: apId,
+      apId,
       attributedTo: actor.ap_id,
       attachment: responseData.attachment,
       displayDuration: responseData.displayDuration,
       overlays: responseData.overlays,
-      endTime: endTime,
+      endTime,
       published: now,
     },
     actor,
-    baseUrl
+    baseUrl,
   );
   const createActivity = {
     '@context': 'https://www.w3.org/ns/activitystreams',
@@ -578,14 +411,9 @@ stories.post('/delete', async (c) => {
   const apId = body.ap_id;
 
   // Verify ownership
-  const story = await prisma.object.findUnique({
-    where: { apId },
-  });
-
+  const story = await prisma.object.findUnique({ where: { apId } });
   if (!story) return c.json({ error: 'Story not found' }, 404);
-  if (story.attributedTo !== actor.ap_id) {
-    return c.json({ error: 'Forbidden' }, 403);
-  }
+  if (story.attributedTo !== actor.ap_id) return c.json({ error: 'Forbidden' }, 403);
 
   // Enqueue Delete(Story) activity to followers before deleting.
   // Outbound delivery MUST NOT run in request path; enqueue is the sync boundary.
@@ -611,41 +439,19 @@ stories.post('/delete', async (c) => {
   });
   await enqueueFanoutToFollowers(c.env, deleteActivityId, actor.ap_id);
 
-  // Delete story votes first
-  await prisma.storyVote.deleteMany({
-    where: { storyApId: apId },
-  });
+  // Delete related data, then the story itself
+  await prisma.storyVote.deleteMany({ where: { storyApId: apId } });
+  await prisma.like.deleteMany({ where: { objectApId: apId } });
+  await prisma.storyView.deleteMany({ where: { storyApId: apId } });
+  await prisma.storyShare.deleteMany({ where: { storyApId: apId } });
+  await prisma.object.delete({ where: { apId } });
 
-  // Delete story likes
-  await prisma.like.deleteMany({
-    where: { objectApId: apId },
-  });
-
-  // Delete story views
-  await prisma.storyView.deleteMany({
-    where: { storyApId: apId },
-  });
-
-  // Delete story shares
-  await prisma.storyShare.deleteMany({
-    where: { storyApId: apId },
-  });
-
-  // Delete story
-  await prisma.object.delete({
-    where: { apId },
-  });
-
-  // Update post count
   await prisma.actor.update({
     where: { apId: actor.ap_id },
-    data: {
-      postCount: { decrement: 1 },
-    },
+    data: { postCount: { decrement: 1 } },
   });
 
   return c.json({ success: true });
 });
-
 
 export default stories;

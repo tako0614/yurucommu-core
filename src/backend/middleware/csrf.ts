@@ -1,12 +1,9 @@
-// CSRF protection middleware for Yurucommu backend
-// Uses Origin/Referer header validation for state-changing requests
+import type { Context, Next } from 'hono';
 
-import { Context, Next } from 'hono';
 import type { Env, Variables } from '../types';
 
-/**
- * Extract the origin from a URL
- */
+const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'DELETE', 'PATCH']);
+
 function getOrigin(url: string | null): string | null {
   if (!url) return null;
   try {
@@ -17,50 +14,37 @@ function getOrigin(url: string | null): string | null {
   }
 }
 
+function isActivityPubInbox(path: string): boolean {
+  return path.includes('/inbox') && path.includes('/ap/');
+}
+
+function isDevLocalhost(appUrl: string | undefined): boolean {
+  return !!appUrl && (appUrl.includes('localhost') || appUrl.includes('127.0.0.1'));
+}
+
 /**
- * CSRF protection middleware
- * Validates Origin header for state-changing requests (POST, PUT, DELETE, PATCH)
- *
- * SameSite=Lax cookies provide primary protection, but this adds defense-in-depth
+ * CSRF protection middleware.
+ * Validates Origin/Referer for state-changing requests as defense-in-depth
+ * alongside SameSite=Lax cookies.
  */
 export function csrfProtection() {
   return async (c: Context<{ Bindings: Env; Variables: Variables }>, next: Next) => {
-    // Only check state-changing methods
-    const method = c.req.method.toUpperCase();
-    if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
-      return next();
-    }
+    if (!STATE_CHANGING_METHODS.has(c.req.method.toUpperCase())) return next();
+    if (isActivityPubInbox(c.req.path)) return next();
 
-    // Skip CSRF check for ActivityPub inbox endpoints (they use HTTP Signatures)
-    const path = c.req.path;
-    if (path.includes('/inbox') && path.includes('/ap/')) {
-      return next();
-    }
-
-    // Get the expected origin from APP_URL
     const appUrl = c.env.APP_URL;
     const expectedOrigin = getOrigin(appUrl);
 
-    // Get the request origin (prefer Origin header, fall back to Referer)
-    const originHeader = c.req.header('Origin');
-    const refererHeader = c.req.header('Referer');
-    const requestOrigin = originHeader || getOrigin(refererHeader ?? null);
-
-    // Origin/Referer is mandatory for state-changing requests.
+    const requestOrigin = c.req.header('Origin') || getOrigin(c.req.header('Referer') ?? null);
     if (!requestOrigin) {
       console.warn('CSRF check failed');
       return c.json({ error: 'CSRF validation failed: missing Origin header' }, 403);
     }
 
-    // Validate the origin
     if (requestOrigin !== expectedOrigin) {
-      // Check if it's a development environment with different ports
-      const isDev = appUrl?.includes('localhost') || appUrl?.includes('127.0.0.1');
-      if (isDev && requestOrigin?.includes('localhost')) {
-        // Allow cross-port requests in development
+      if (isDevLocalhost(appUrl) && requestOrigin.includes('localhost')) {
         return next();
       }
-
       console.warn('CSRF check failed');
       return c.json({ error: 'CSRF validation failed' }, 403);
     }
