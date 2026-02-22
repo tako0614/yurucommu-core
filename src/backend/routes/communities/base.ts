@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { communityApId, generateKeyPair, parseLimit, parseOffset } from '../../utils';
-import { managerRoles } from './utils';
+import { fetchCommunityId, memberKey, requireManager } from './membership-shared';
 
 const communities = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -16,6 +16,27 @@ function isValidCommunityIconUrl(value: string): boolean {
   }
 }
 
+const RESERVED_NAMES = new Set([
+  'admin', 'administrator', 'system', 'root', 'moderator', 'mod',
+  'community', 'communities', 'group', 'groups', 'user', 'users',
+  'api', 'ap', 'activitypub', 'webfinger', 'well_known',
+  'settings', 'config', 'configuration', 'help', 'support',
+  'about', 'terms', 'privacy', 'legal', 'dmca', 'copyright',
+  'login', 'logout', 'register', 'signup', 'signin', 'auth',
+  'null', 'undefined', 'true', 'false', 'test', 'demo',
+]);
+
+function validateCommunityName(name: string | undefined): string | null {
+  if (!name || name.trim().length < 2) return 'Name must be at least 2 characters';
+  const trimmed = name.trim();
+  if (trimmed.length > 32) return 'Name must be at most 32 characters';
+  if (!/^[a-zA-Z0-9_]+$/.test(trimmed)) return 'Name can only contain letters, numbers, and underscores';
+  if (RESERVED_NAMES.has(trimmed.toLowerCase())) return 'This name is reserved';
+  if (/^\d+$/.test(trimmed)) return 'Name cannot be all numbers';
+  if (trimmed.startsWith('_') || trimmed.endsWith('_')) return 'Name cannot start or end with underscore';
+  return null;
+}
+
 // GET /api/communities - List all communities
 communities.get('/', async (c) => {
   const actor = c.get('actor');
@@ -25,7 +46,6 @@ communities.get('/', async (c) => {
 
   const actorApIdVal = actor?.ap_id || '';
 
-  // Get all communities with pagination
   const communitiesList = await prisma.community.findMany({
     orderBy: [
       { lastMessageAt: { sort: 'desc', nulls: 'last' } },
@@ -52,11 +72,10 @@ communities.get('/', async (c) => {
       }),
     ]);
 
-    memberships.forEach((m) => membershipSet.add(m.communityApId));
-    joinRequests.forEach((r) => pendingRequestSet.add(r.communityApId));
+    for (const m of memberships) membershipSet.add(m.communityApId);
+    for (const r of joinRequests) pendingRequestSet.add(r.communityApId);
   }
 
-  // Map communities to result format
   const result = communitiesList.map((community) => {
     const isMember = membershipSet.has(community.apId);
     const joinStatus = !isMember && pendingRequestSet.has(community.apId) ? 'pending' : null;
@@ -95,65 +114,29 @@ communities.post('/', async (c) => {
   }>();
 
   const name = body.name?.trim();
-  if (!name || name.length < 2) {
-    return c.json({ error: 'Name must be at least 2 characters' }, 400);
-  }
+  const nameError = validateCommunityName(name);
+  if (nameError) return c.json({ error: nameError }, 400);
 
-  // Maximum length
-  if (name.length > 32) {
-    return c.json({ error: 'Name must be at most 32 characters' }, 400);
-  }
-
-  // Validate name format (alphanumeric and underscores only)
-  if (!/^[a-zA-Z0-9_]+$/.test(name)) {
-    return c.json({ error: 'Name can only contain letters, numbers, and underscores' }, 400);
-  }
-
-  // Reserved names that cannot be used for communities
-  const reservedNames = [
-    'admin', 'administrator', 'system', 'root', 'moderator', 'mod',
-    'community', 'communities', 'group', 'groups', 'user', 'users',
-    'api', 'ap', 'activitypub', 'webfinger', 'well_known',
-    'settings', 'config', 'configuration', 'help', 'support',
-    'about', 'terms', 'privacy', 'legal', 'dmca', 'copyright',
-    'login', 'logout', 'register', 'signup', 'signin', 'auth',
-    'null', 'undefined', 'true', 'false', 'test', 'demo',
-  ];
-  if (reservedNames.includes(name.toLowerCase())) {
-    return c.json({ error: 'This name is reserved' }, 400);
-  }
-
-  // Prevent confusing names (all numbers, leading/trailing underscores)
-  if (/^\d+$/.test(name)) {
-    return c.json({ error: 'Name cannot be all numbers' }, 400);
-  }
-  if (name.startsWith('_') || name.endsWith('_')) {
-    return c.json({ error: 'Name cannot start or end with underscore' }, 400);
-  }
-
+  // name is guaranteed non-null after validateCommunityName passes
+  const validName = name!;
   const baseUrl = c.env.APP_URL;
-  const apId = communityApId(baseUrl, name);
+  const apId = communityApId(baseUrl, validName);
   const now = new Date().toISOString();
 
-  // Generate AP endpoints
   const inbox = `${apId}/inbox`;
   const outbox = `${apId}/outbox`;
   const followersUrl = `${apId}/followers`;
 
-  // Generate key pair for ActivityPub
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
 
-  // P07: Create community and member in a transaction to prevent race condition
-  // This ensures both operations succeed or both fail (no orphan communities)
+  // Create community and member in a transaction to prevent race condition
   try {
     await prisma.$transaction(async (tx) => {
-      // Create community using insert-or-fail pattern to avoid race condition
-      // Database unique constraint on preferredUsername will reject duplicates
       await tx.community.create({
         data: {
           apId,
-          preferredUsername: name,
-          name: body.display_name || name,
+          preferredUsername: validName,
+          name: body.display_name || validName,
           summary: body.summary || '',
           inbox,
           outbox,
@@ -169,7 +152,6 @@ communities.post('/', async (c) => {
         },
       });
 
-      // Add creator as member (owner role)
       await tx.communityMember.create({
         data: {
           communityApId: apId,
@@ -180,11 +162,9 @@ communities.post('/', async (c) => {
       });
     });
   } catch (error) {
-    // Handle unique constraint violation (P2002 is Prisma's unique constraint error code)
     if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
       return c.json({ error: 'Community name already taken' }, 409);
     }
-    // Re-throw unexpected errors
     throw error;
   }
 
@@ -212,15 +192,8 @@ communities.get('/:identifier', async (c) => {
   const prisma = c.get('prisma');
   const baseUrl = c.env.APP_URL;
 
-  // Check if identifier is a full AP ID or just a name/username
-  let apId: string;
-  if (identifier.startsWith('http')) {
-    apId = identifier;
-  } else {
-    apId = communityApId(baseUrl, identifier);
-  }
+  const apId = identifier.startsWith('http') ? identifier : communityApId(baseUrl, identifier);
 
-  // Try to fetch the community by apId or preferredUsername
   const community = await prisma.community.findFirst({
     where: {
       OR: [
@@ -241,24 +214,14 @@ communities.get('/:identifier', async (c) => {
 
   if (actor) {
     const membership = await prisma.communityMember.findUnique({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: actor.ap_id,
-        },
-      },
+      where: memberKey(community.apId, actor.ap_id),
     });
     if (membership) {
       isMember = true;
       memberRole = membership.role;
     } else {
       const joinRequest = await prisma.communityJoinRequest.findUnique({
-        where: {
-          communityApId_actorApId: {
-            communityApId: community.apId,
-            actorApId: actor.ap_id,
-          },
-        },
+        where: memberKey(community.apId, actor.ap_id),
       });
       if (joinRequest?.status === 'pending') {
         joinStatus = 'pending';
@@ -266,15 +229,10 @@ communities.get('/:identifier', async (c) => {
     }
   }
 
-  // Get member count (for verification)
-  const memberCountResult = await prisma.communityMember.count({
-    where: { communityApId: community.apId },
-  });
-
-  // Get posts in this community
-  const postsCount = await prisma.object.count({
-    where: { communityApId: community.apId },
-  });
+  const [memberCountResult, postsCount] = await Promise.all([
+    prisma.communityMember.count({ where: { communityApId: community.apId } }),
+    prisma.object.count({ where: { communityApId: community.apId } }),
+  ]);
 
   return c.json({
     community: {
@@ -304,33 +262,14 @@ communities.patch('/:identifier/settings', async (c) => {
 
   const identifier = c.req.param('identifier');
   const prisma = c.get('prisma');
-  const baseUrl = c.env.APP_URL;
-  const apId = identifier.startsWith('http') ? identifier : communityApId(baseUrl, identifier);
 
-  const community = await prisma.community.findFirst({
-    where: {
-      OR: [
-        { apId },
-        { preferredUsername: identifier },
-      ],
-    },
-    select: { apId: true },
-  });
-
+  const { community } = await fetchCommunityId(c, identifier);
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
   }
 
-  const member = await prisma.communityMember.findUnique({
-    where: {
-      communityApId_actorApId: {
-        communityApId: community.apId,
-        actorApId: actor.ap_id,
-      },
-    },
-  });
-
-  if (!member || !managerRoles.has(member.role)) {
+  const manager = await requireManager(prisma, community.apId, actor.ap_id);
+  if (!manager) {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
@@ -352,12 +291,10 @@ communities.patch('/:identifier/settings', async (c) => {
     updates.summary = body.summary;
   }
   if (body.icon_url !== undefined) {
-    if (body.icon_url === null) {
+    if (body.icon_url === null || (typeof body.icon_url === 'string' && body.icon_url.trim().length === 0)) {
       updates.iconUrl = null;
     } else if (typeof body.icon_url !== 'string') {
       return c.json({ error: 'Invalid icon_url' }, 400);
-    } else if (body.icon_url.trim().length === 0) {
-      updates.iconUrl = null;
     } else if (!isValidCommunityIconUrl(body.icon_url)) {
       return c.json({ error: 'Invalid icon_url scheme' }, 400);
     } else {

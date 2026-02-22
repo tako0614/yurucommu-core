@@ -2,10 +2,38 @@ import { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { communityApId, generateId, formatUsername } from '../../utils';
 import { MAX_COMMUNITY_MESSAGE_LENGTH, MAX_COMMUNITY_MESSAGES_LIMIT, managerRoles } from './utils';
+import { batchLoadActorInfo, fetchCommunityId, memberKey } from './membership-shared';
 
 const communities = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-// GET /api/communities/:name/messages - Get chat messages (AP Native: uses objects with audience)
+/** Resolve identifier to apId for community lookup. */
+function resolveApId(baseUrl: string, identifier: string): string {
+  return identifier.startsWith('http') ? identifier : communityApId(baseUrl, identifier);
+}
+
+/** Shared WHERE clause for community lookup by identifier. */
+function communityWhere(apId: string, identifier: string) {
+  return { OR: [{ apId }, { preferredUsername: identifier }] };
+}
+
+/**
+ * Enforce post policy against the actor's membership and role.
+ * Returns an error message string if denied, or null if allowed.
+ */
+function checkPostPolicy(
+  policy: string,
+  membership: { role: string } | null,
+): string | null {
+  const role = membership?.role;
+  const isManager = role === 'owner' || role === 'moderator';
+
+  if (policy !== 'anyone' && !membership) return 'Not a community member';
+  if (policy === 'mods' && !isManager) return 'Moderator role required';
+  if (policy === 'owners' && role !== 'owner') return 'Owner role required';
+  return null;
+}
+
+// GET /api/communities/:name/messages - Get chat messages
 communities.get('/:identifier/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
@@ -13,67 +41,40 @@ communities.get('/:identifier/messages', async (c) => {
   const identifier = c.req.param('identifier');
   const prisma = c.get('prisma');
   const baseUrl = c.env.APP_URL;
-  const apId = identifier.startsWith('http') ? identifier : communityApId(baseUrl, identifier);
+  const apId = resolveApId(baseUrl, identifier);
   const rawLimit = parseInt(c.req.query('limit') || '50', 10);
   const limit = Number.isFinite(rawLimit)
     ? Math.min(Math.max(rawLimit, 1), MAX_COMMUNITY_MESSAGES_LIMIT)
     : 50;
   const before = c.req.query('before');
 
-  // Get community
   const community = await prisma.community.findFirst({
-    where: {
-      OR: [
-        { apId },
-        { preferredUsername: identifier },
-      ],
-    },
+    where: communityWhere(apId, identifier),
   });
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
   }
 
-  // Check membership
   const membership = await prisma.communityMember.findUnique({
-    where: {
-      communityApId_actorApId: {
-        communityApId: community.apId,
-        actorApId: actor.ap_id,
-      },
-    },
+    where: memberKey(community.apId, actor.ap_id),
   });
 
-  const policy = community.postPolicy || 'members';
-  const role = membership?.role;
-  const isManager = role === 'owner' || role === 'moderator';
-
-  if (policy !== 'anyone' && !membership) {
-    return c.json({ error: 'Not a community member' }, 403);
-  }
-  if (policy === 'mods' && !isManager) {
-    return c.json({ error: 'Moderator role required' }, 403);
-  }
-  if (policy === 'owners' && role !== 'owner') {
-    return c.json({ error: 'Owner role required' }, 403);
+  const policyError = checkPostPolicy(community.postPolicy || 'members', membership);
+  if (policyError) {
+    return c.json({ error: policyError }, 403);
   }
 
   // Query objects addressed to this community (via object_recipients)
-  // First get the object_ap_ids from object_recipients with type 'audience'
   const recipients = await prisma.objectRecipient.findMany({
-    where: {
-      recipientApId: community.apId,
-      type: 'audience',
-    },
+    where: { recipientApId: community.apId, type: 'audience' },
     select: { objectApId: true },
   });
 
   const objectApIds = recipients.map((r) => r.objectApId);
-
   if (objectApIds.length === 0) {
     return c.json({ messages: [] });
   }
 
-  // Query objects that are Notes and addressed to this community
   const messages = await prisma.object.findMany({
     where: {
       apId: { in: objectApIds },
@@ -84,25 +85,11 @@ communities.get('/:identifier/messages', async (c) => {
     take: limit,
   });
 
-  // Batch load sender info to avoid N+1 queries
   const senderApIds = [...new Set(messages.map((msg) => msg.attributedTo))];
-  const [localActors, cachedActors] = await Promise.all([
-    prisma.actor.findMany({
-      where: { apId: { in: senderApIds } },
-      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-    }),
-    prisma.actorCache.findMany({
-      where: { apId: { in: senderApIds } },
-      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-    }),
-  ]);
-
-  const localActorMap = new Map(localActors.map((a) => [a.apId, a]));
-  const cachedActorMap = new Map(cachedActors.map((a) => [a.apId, a]));
+  const actorInfoMap = await batchLoadActorInfo(prisma, senderApIds);
 
   const result = messages.reverse().map((msg) => {
-    const senderInfo = localActorMap.get(msg.attributedTo) || cachedActorMap.get(msg.attributedTo);
-
+    const senderInfo = actorInfoMap.get(msg.attributedTo);
     return {
       id: msg.apId,
       sender: {
@@ -120,7 +107,7 @@ communities.get('/:identifier/messages', async (c) => {
   return c.json({ messages: result });
 });
 
-// POST /api/communities/:name/messages - Send a chat message (AP Native: creates Note addressed to Group)
+// POST /api/communities/:name/messages - Send a chat message
 communities.post('/:identifier/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
@@ -128,7 +115,7 @@ communities.post('/:identifier/messages', async (c) => {
   const identifier = c.req.param('identifier');
   const prisma = c.get('prisma');
   const baseUrl = c.env.APP_URL;
-  const apId = identifier.startsWith('http') ? identifier : communityApId(baseUrl, identifier);
+  const apId = resolveApId(baseUrl, identifier);
   const body = await c.req.json<{ content: string }>();
 
   const content = body.content?.trim();
@@ -139,47 +126,26 @@ communities.post('/:identifier/messages', async (c) => {
     return c.json({ error: `Message too long (max ${MAX_COMMUNITY_MESSAGE_LENGTH} chars)` }, 400);
   }
 
-  // Check community exists and user is member
   const community = await prisma.community.findFirst({
-    where: {
-      OR: [
-        { apId },
-        { preferredUsername: identifier },
-      ],
-    },
+    where: communityWhere(apId, identifier),
   });
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
   }
 
   const membership = await prisma.communityMember.findUnique({
-    where: {
-      communityApId_actorApId: {
-        communityApId: community.apId,
-        actorApId: actor.ap_id,
-      },
-    },
+    where: memberKey(community.apId, actor.ap_id),
   });
 
-  const policy = community.postPolicy || 'members';
-  const role = membership?.role;
-  const isManager = role === 'owner' || role === 'moderator';
-
-  if (policy !== 'anyone' && !membership) {
-    return c.json({ error: 'Not a member' }, 403);
-  }
-  if (policy === 'mods' && !isManager) {
-    return c.json({ error: 'Moderator role required' }, 403);
-  }
-  if (policy === 'owners' && role !== 'owner') {
-    return c.json({ error: 'Owner role required' }, 403);
+  const policyError = checkPostPolicy(community.postPolicy || 'members', membership);
+  if (policyError) {
+    return c.json({ error: policyError === 'Not a community member' ? 'Not a member' : policyError }, 403);
   }
 
   const objectId = generateId();
   const objectApId = `${baseUrl}/ap/objects/${objectId}`;
   const now = new Date().toISOString();
 
-  // Create Note object addressed to the Group (AP native)
   const toJson = JSON.stringify([community.apId]);
   const audienceJson = JSON.stringify([community.apId]);
 
@@ -197,15 +163,12 @@ communities.post('/:identifier/messages', async (c) => {
     },
   });
 
-  // Add to object_recipients for efficient querying
-  // Note: ObjectRecipient has a FK relation to Actor, but community is not an Actor
-  // Using $executeRaw to bypass FK constraint
+  // Using $executeRaw to bypass FK constraint (ObjectRecipient FK expects Actor, not Community)
   await prisma.$executeRaw`
     INSERT INTO object_recipients (object_ap_id, recipient_ap_id, type, created_at)
     VALUES (${objectApId}, ${community.apId}, 'audience', ${now})
   `;
 
-  // Create Create activity
   const activityId = generateId();
   const activityApIdVal = `${baseUrl}/ap/activities/${activityId}`;
   await prisma.activity.create({
@@ -218,7 +181,6 @@ communities.post('/:identifier/messages', async (c) => {
     },
   });
 
-  // Update last_message_at
   await prisma.community.update({
     where: { apId: community.apId },
     data: { lastMessageAt: now },
@@ -248,10 +210,13 @@ communities.patch('/:identifier/messages/:messageId', async (c) => {
   const identifier = c.req.param('identifier');
   const messageId = decodeURIComponent(c.req.param('messageId'));
   const prisma = c.get('prisma');
-  const baseUrl = c.env.APP_URL;
-  const apId = identifier.startsWith('http') ? identifier : communityApId(baseUrl, identifier);
-  const body = await c.req.json<{ content: string }>();
 
+  const { community } = await fetchCommunityId(c, identifier);
+  if (!community) {
+    return c.json({ error: 'Community not found' }, 404);
+  }
+
+  const body = await c.req.json<{ content: string }>();
   const content = body.content?.trim();
   if (!content) {
     return c.json({ error: 'Message content is required' }, 400);
@@ -260,28 +225,12 @@ communities.patch('/:identifier/messages/:messageId', async (c) => {
     return c.json({ error: `Message too long (max ${MAX_COMMUNITY_MESSAGE_LENGTH} chars)` }, 400);
   }
 
-  // Check community exists
-  const community = await prisma.community.findFirst({
-    where: {
-      OR: [
-        { apId },
-        { preferredUsername: identifier },
-      ],
-    },
-    select: { apId: true },
-  });
-  if (!community) {
-    return c.json({ error: 'Community not found' }, 404);
-  }
-
-  // Check message exists and belongs to community (via object_recipients)
-  // Using $queryRaw since ObjectRecipient FK expects Actor, not Community
+  // Check message exists and belongs to community (using $queryRaw since ObjectRecipient FK expects Actor)
   const recipients = await prisma.$queryRaw<Array<{ object_ap_id: string }>>`
     SELECT object_ap_id FROM object_recipients
     WHERE object_ap_id = ${messageId} AND recipient_ap_id = ${community.apId} AND type = 'audience'
     LIMIT 1
   `;
-
   if (recipients.length === 0) {
     return c.json({ error: 'Message not found' }, 404);
   }
@@ -290,23 +239,17 @@ communities.patch('/:identifier/messages/:messageId', async (c) => {
     where: { apId: messageId },
     select: { apId: true, attributedTo: true },
   });
-
   if (!message) {
     return c.json({ error: 'Message not found' }, 404);
   }
 
-  // Only author can edit
   if (message.attributedTo !== actor.ap_id) {
     return c.json({ error: 'Only the author can edit this message' }, 403);
   }
 
-  // Update message
   await prisma.object.update({
     where: { apId: messageId },
-    data: {
-      content,
-      updated: new Date().toISOString(),
-    },
+    data: { content, updated: new Date().toISOString() },
   });
 
   return c.json({ success: true });
@@ -320,31 +263,18 @@ communities.delete('/:identifier/messages/:messageId', async (c) => {
   const identifier = c.req.param('identifier');
   const messageId = decodeURIComponent(c.req.param('messageId'));
   const prisma = c.get('prisma');
-  const baseUrl = c.env.APP_URL;
-  const apId = identifier.startsWith('http') ? identifier : communityApId(baseUrl, identifier);
 
-  // Check community exists
-  const community = await prisma.community.findFirst({
-    where: {
-      OR: [
-        { apId },
-        { preferredUsername: identifier },
-      ],
-    },
-    select: { apId: true },
-  });
+  const { community } = await fetchCommunityId(c, identifier);
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
   }
 
   // Check message exists and belongs to community
-  // Using $queryRaw since ObjectRecipient FK expects Actor, not Community
   const recipientsForDelete = await prisma.$queryRaw<Array<{ object_ap_id: string }>>`
     SELECT object_ap_id FROM object_recipients
     WHERE object_ap_id = ${messageId} AND recipient_ap_id = ${community.apId} AND type = 'audience'
     LIMIT 1
   `;
-
   if (recipientsForDelete.length === 0) {
     return c.json({ error: 'Message not found' }, 404);
   }
@@ -353,19 +283,13 @@ communities.delete('/:identifier/messages/:messageId', async (c) => {
     where: { apId: messageId },
     select: { apId: true, attributedTo: true },
   });
-
   if (!message) {
     return c.json({ error: 'Message not found' }, 404);
   }
 
   // Check permission: author can delete, or moderator/owner can delete any
   const membership = await prisma.communityMember.findUnique({
-    where: {
-      communityApId_actorApId: {
-        communityApId: community.apId,
-        actorApId: actor.ap_id,
-      },
-    },
+    where: memberKey(community.apId, actor.ap_id),
   });
 
   const isAuthor = message.attributedTo === actor.ap_id;
@@ -375,7 +299,6 @@ communities.delete('/:identifier/messages/:messageId', async (c) => {
     return c.json({ error: 'Permission denied' }, 403);
   }
 
-  // Delete message - use $executeRaw for object_recipients since FK expects Actor, not Community
   await prisma.$executeRaw`DELETE FROM object_recipients WHERE object_ap_id = ${messageId}`;
   await prisma.object.delete({ where: { apId: messageId } });
 

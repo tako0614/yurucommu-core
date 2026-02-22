@@ -1,14 +1,23 @@
 import type { Hono } from 'hono';
 import type { Env, Variables } from '../../types';
 import { formatUsername, parseLimit, parseOffset } from '../../utils';
-import { managerRoles } from './utils';
 import {
   MembershipContext,
+  batchLoadActorInfo,
   fetchCommunityId,
+  memberKey,
+  requireManager,
   resolveCommunityApId,
 } from './membership-shared';
 
 const MAX_MEMBER_BATCH_SIZE = 100;
+
+function validateBatchApIds(ids: unknown): string | null {
+  if (!Array.isArray(ids) || ids.length === 0) return 'actor_ap_ids array is required';
+  if (ids.some((id) => typeof id !== 'string' || id.trim().length === 0)) return 'actor_ap_ids array is required';
+  if (ids.length > MAX_MEMBER_BATCH_SIZE) return `Batch size exceeds maximum of ${MAX_MEMBER_BATCH_SIZE}`;
+  return null;
+}
 
 export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env; Variables: Variables }>) {
   // DELETE /api/communities/:identifier/members/:actorApId - Remove a member
@@ -25,54 +34,30 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
       return c.json({ error: 'Community not found' }, 404);
     }
 
-    // Check if actor has permission to remove members
-    const actorMembership = await prisma.communityMember.findUnique({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: actor.ap_id,
-        },
-      },
-    });
-
-    if (!actorMembership || !managerRoles.has(actorMembership.role)) {
+    const actorMembership = await requireManager(prisma, community.apId, actor.ap_id);
+    if (!actorMembership) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    // Check target membership
-    const targetMembership = await prisma.communityMember.findUnique({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: targetApId,
-        },
-      },
-    });
-
-    if (!targetMembership) {
-      return c.json({ error: 'User is not a member' }, 404);
-    }
-
-    // Owners can only be removed by other owners
-    if (targetMembership.role === 'owner' && actorMembership.role !== 'owner') {
-      return c.json({ error: 'Only owners can remove other owners' }, 403);
-    }
-
-    // Can't remove yourself this way (use /leave instead)
     if (targetApId === actor.ap_id) {
       return c.json({ error: 'Use /leave endpoint to leave the community' }, 400);
     }
 
+    const targetMembership = await prisma.communityMember.findUnique({
+      where: memberKey(community.apId, targetApId),
+    });
+    if (!targetMembership) {
+      return c.json({ error: 'User is not a member' }, 404);
+    }
+
+    if (targetMembership.role === 'owner' && actorMembership.role !== 'owner') {
+      return c.json({ error: 'Only owners can remove other owners' }, 403);
+    }
+
     await prisma.$transaction(async (tx) => {
       await tx.communityMember.delete({
-        where: {
-          communityApId_actorApId: {
-            communityApId: community.apId,
-            actorApId: targetApId,
-          },
-        },
+        where: memberKey(community.apId, targetApId),
       });
-
       await tx.community.update({
         where: { apId: community.apId },
         data: { memberCount: { decrement: 1 } },
@@ -103,28 +88,15 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
 
     // Only owners can change roles
     const actorMembership = await prisma.communityMember.findUnique({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: actor.ap_id,
-        },
-      },
+      where: memberKey(community.apId, actor.ap_id),
     });
-
     if (!actorMembership || actorMembership.role !== 'owner') {
       return c.json({ error: 'Only owners can change member roles' }, 403);
     }
 
-    // Check target membership
     const targetMembership = await prisma.communityMember.findUnique({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: targetApId,
-        },
-      },
+      where: memberKey(community.apId, targetApId),
     });
-
     if (!targetMembership) {
       return c.json({ error: 'User is not a member' }, 404);
     }
@@ -132,24 +104,15 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     // Can't demote yourself if you're the last owner
     if (targetApId === actor.ap_id && targetMembership.role === 'owner' && body.role !== 'owner') {
       const ownerCount = await prisma.communityMember.count({
-        where: {
-          communityApId: community.apId,
-          role: 'owner',
-        },
+        where: { communityApId: community.apId, role: 'owner' },
       });
       if (ownerCount <= 1) {
         return c.json({ error: 'Cannot demote: you are the only owner' }, 400);
       }
     }
 
-    // Update role
     await prisma.communityMember.update({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: targetApId,
-        },
-      },
+      where: memberKey(community.apId, targetApId),
       data: { role: body.role },
     });
 
@@ -165,51 +128,26 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     const limit = parseLimit(c.req.query('limit'), 100, 500);
     const offset = parseOffset(c.req.query('offset'), 0, 10000);
 
-    // Get community first
     const community = await prisma.community.findFirst({
-      where: {
-        OR: [
-          { apId },
-          { preferredUsername: identifier },
-        ],
-      },
+      where: { OR: [{ apId }, { preferredUsername: identifier }] },
       select: { apId: true },
     });
-
     if (!community) {
       return c.json({ members: [] });
     }
 
-    // Get members
     const members = await prisma.communityMember.findMany({
       where: { communityApId: community.apId },
-      orderBy: [
-        { role: 'desc' },
-        { joinedAt: 'asc' },
-      ],
+      orderBy: [{ role: 'desc' }, { joinedAt: 'asc' }],
       take: limit,
       skip: offset,
     });
 
-    // Batch load actor info to avoid N+1 queries
     const memberApIds = members.map((m) => m.actorApId);
-    const [localActors, cachedActors] = await Promise.all([
-      prisma.actor.findMany({
-        where: { apId: { in: memberApIds } },
-        select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-      }),
-      prisma.actorCache.findMany({
-        where: { apId: { in: memberApIds } },
-        select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-      }),
-    ]);
-
-    const localActorMap = new Map(localActors.map((a) => [a.apId, a]));
-    const cachedActorMap = new Map(cachedActors.map((a) => [a.apId, a]));
+    const actorInfoMap = await batchLoadActorInfo(prisma, memberApIds);
 
     const result = members.map((m) => {
-      const actorInfo = localActorMap.get(m.actorApId) || cachedActorMap.get(m.actorApId);
-
+      const actorInfo = actorInfoMap.get(m.actorApId);
       return {
         ap_id: m.actorApId,
         username: formatUsername(m.actorApId),
@@ -233,34 +171,16 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     const prisma = c.get('prisma');
     const body = await c.req.json<{ actor_ap_ids: string[] }>();
 
-    if (
-      !body.actor_ap_ids
-      || body.actor_ap_ids.length === 0
-      || !Array.isArray(body.actor_ap_ids)
-      || body.actor_ap_ids.some((id) => typeof id !== 'string' || id.trim().length === 0)
-    ) {
-      return c.json({ error: 'actor_ap_ids array is required' }, 400);
-    }
-    if (body.actor_ap_ids.length > MAX_MEMBER_BATCH_SIZE) {
-      return c.json({ error: `Batch size exceeds maximum of ${MAX_MEMBER_BATCH_SIZE}` }, 400);
-    }
+    const validationError = validateBatchApIds(body.actor_ap_ids);
+    if (validationError) return c.json({ error: validationError }, 400);
 
     const { community } = await fetchCommunityId(c, identifier);
     if (!community) {
       return c.json({ error: 'Community not found' }, 404);
     }
 
-    // Check permissions
-    const actorMembership = await prisma.communityMember.findUnique({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: actor.ap_id,
-        },
-      },
-    });
-
-    if (!actorMembership || !managerRoles.has(actorMembership.role)) {
+    const actorMembership = await requireManager(prisma, community.apId, actor.ap_id);
+    if (!actorMembership) {
       return c.json({ error: 'Permission denied' }, 403);
     }
 
@@ -268,28 +188,19 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
 
     for (const targetApId of body.actor_ap_ids) {
       try {
-        // Can't remove yourself via batch
         if (targetApId === actor.ap_id) {
           results.push({ ap_id: targetApId, success: false, error: 'Cannot remove yourself' });
           continue;
         }
 
-        // Check target membership
         const targetMembership = await prisma.communityMember.findUnique({
-          where: {
-            communityApId_actorApId: {
-              communityApId: community.apId,
-              actorApId: targetApId,
-            },
-          },
+          where: memberKey(community.apId, targetApId),
         });
-
         if (!targetMembership) {
           results.push({ ap_id: targetApId, success: false, error: 'Not a member' });
           continue;
         }
 
-        // Non-owners can't remove owners
         if (actorMembership.role !== 'owner' && targetMembership.role === 'owner') {
           results.push({ ap_id: targetApId, success: false, error: 'Cannot remove owner' });
           continue;
@@ -297,14 +208,8 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
 
         await prisma.$transaction(async (tx) => {
           await tx.communityMember.delete({
-            where: {
-              communityApId_actorApId: {
-                communityApId: community.apId,
-                actorApId: targetApId,
-              },
-            },
+            where: memberKey(community.apId, targetApId),
           });
-
           await tx.community.update({
             where: { apId: community.apId },
             data: { memberCount: { decrement: 1 } },
@@ -330,17 +235,9 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
     const prisma = c.get('prisma');
     const body = await c.req.json<{ actor_ap_ids: string[]; role: 'owner' | 'moderator' | 'member' }>();
 
-    if (
-      !body.actor_ap_ids
-      || body.actor_ap_ids.length === 0
-      || !Array.isArray(body.actor_ap_ids)
-      || body.actor_ap_ids.some((id) => typeof id !== 'string' || id.trim().length === 0)
-    ) {
-      return c.json({ error: 'actor_ap_ids array is required' }, 400);
-    }
-    if (body.actor_ap_ids.length > MAX_MEMBER_BATCH_SIZE) {
-      return c.json({ error: `Batch size exceeds maximum of ${MAX_MEMBER_BATCH_SIZE}` }, 400);
-    }
+    const validationError = validateBatchApIds(body.actor_ap_ids);
+    if (validationError) return c.json({ error: validationError }, 400);
+
     if (!body.role || !['owner', 'moderator', 'member'].includes(body.role)) {
       return c.json({ error: 'Valid role is required' }, 400);
     }
@@ -352,14 +249,8 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
 
     // Only owners can change roles
     const actorMembership = await prisma.communityMember.findUnique({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: actor.ap_id,
-        },
-      },
+      where: memberKey(community.apId, actor.ap_id),
     });
-
     if (!actorMembership || actorMembership.role !== 'owner') {
       return c.json({ error: 'Only owners can change roles' }, 403);
     }
@@ -368,16 +259,9 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
 
     for (const targetApId of body.actor_ap_ids) {
       try {
-        // Check target membership
         const targetMembership = await prisma.communityMember.findUnique({
-          where: {
-            communityApId_actorApId: {
-              communityApId: community.apId,
-              actorApId: targetApId,
-            },
-          },
+          where: memberKey(community.apId, targetApId),
         });
-
         if (!targetMembership) {
           results.push({ ap_id: targetApId, success: false, error: 'Not a member' });
           continue;
@@ -386,10 +270,7 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
         // Can't demote yourself if you're the last owner
         if (targetApId === actor.ap_id && targetMembership.role === 'owner' && body.role !== 'owner') {
           const ownerCount = await prisma.communityMember.count({
-            where: {
-              communityApId: community.apId,
-              role: 'owner',
-            },
+            where: { communityApId: community.apId, role: 'owner' },
           });
           if (ownerCount <= 1) {
             results.push({ ap_id: targetApId, success: false, error: 'Cannot demote: only owner' });
@@ -397,14 +278,8 @@ export function registerMembershipMemberRoutes(communities: Hono<{ Bindings: Env
           }
         }
 
-        // Update role
         await prisma.communityMember.update({
-          where: {
-            communityApId_actorApId: {
-              communityApId: community.apId,
-              actorApId: targetApId,
-            },
-          },
+          where: memberKey(community.apId, targetApId),
           data: { role: body.role },
         });
 
