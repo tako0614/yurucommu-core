@@ -16,18 +16,9 @@ type ActorSort = typeof ALLOWED_ACTOR_SORTS[number];
 const ALLOWED_POST_SORTS = ['recent', 'popular'] as const;
 type PostSort = typeof ALLOWED_POST_SORTS[number];
 
-function validateActorSort(sort: string | undefined): ActorSort {
-  if (sort && ALLOWED_ACTOR_SORTS.includes(sort as ActorSort)) {
-    return sort as ActorSort;
-  }
-  return 'relevance';
-}
-
-function validatePostSort(sort: string | undefined): PostSort {
-  if (sort && ALLOWED_POST_SORTS.includes(sort as PostSort)) {
-    return sort as PostSort;
-  }
-  return 'recent';
+function validateSort<T extends string>(value: string | undefined, allowed: readonly T[], fallback: T): T {
+  if (value && (allowed as readonly string[]).includes(value)) return value as T;
+  return fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,9 +100,11 @@ async function loadLikedPostIds(
   return new Set(likes.map(l => l.objectApId));
 }
 
+type PostRow = { apId: string; attributedTo: string; content: string; published: string | null; likeCount: number };
+
 /** Map a raw post + author map + liked set into the API response shape. */
 function formatPost(
-  post: { apId: string; attributedTo: string; content: string; published: string | null; likeCount: number },
+  post: PostRow,
   authorMap: Map<string, ActorInfo>,
   likedPostIds: Set<string>,
 ): {
@@ -139,6 +132,23 @@ function formatPost(
   };
 }
 
+/** Enrich posts with author info and like status, returning formatted API results. */
+async function enrichPosts(
+  prisma: PrismaClient,
+  posts: PostRow[],
+  actorApId: string | undefined,
+): Promise<ReturnType<typeof formatPost>[]> {
+  if (posts.length === 0) return [];
+
+  const authorApIds = [...new Set(posts.map((p) => p.attributedTo))];
+  const [authorMap, likedPostIds] = await Promise.all([
+    buildAuthorMap(prisma, authorApIds),
+    loadLikedPostIds(prisma, actorApId, posts.map(p => p.apId)),
+  ]);
+
+  return posts.map((p) => formatPost(p, authorMap, likedPostIds));
+}
+
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
@@ -152,22 +162,12 @@ search.get('/actors', async (c) => {
   if (!query) return c.json({ actors: [] });
 
   const prisma = c.get('prisma');
-  const sort = validateActorSort(c.req.query('sort'));
+  const sort = validateSort(c.req.query('sort'), ALLOWED_ACTOR_SORTS, 'relevance');
   const lowerQuery = query.toLowerCase();
 
-  let orderBy: { followerCount?: 'desc'; createdAt?: 'desc'; preferredUsername?: 'asc' };
-  switch (sort) {
-    case 'followers':
-      orderBy = { followerCount: 'desc' };
-      break;
-    case 'recent':
-      orderBy = { createdAt: 'desc' };
-      break;
-    case 'relevance':
-    default:
-      orderBy = { followerCount: 'desc' };
-      break;
-  }
+  const orderBy = sort === 'recent'
+    ? { createdAt: 'desc' as const }
+    : { followerCount: 'desc' as const };
 
   const actors = await prisma.actor.findMany({
     where: {
@@ -189,9 +189,8 @@ search.get('/actors', async (c) => {
     take: 20,
   });
 
-  let sortedActors = actors;
   if (sort === 'relevance') {
-    sortedActors = actors.sort((a, b) => {
+    actors.sort((a, b) => {
       const aUsername = a.preferredUsername.toLowerCase();
       const bUsername = b.preferredUsername.toLowerCase();
 
@@ -207,7 +206,7 @@ search.get('/actors', async (c) => {
     });
   }
 
-  const result = sortedActors.map((a) => ({
+  const result = actors.map((a) => ({
     ap_id: a.apId,
     preferred_username: a.preferredUsername,
     name: a.name,
@@ -231,7 +230,7 @@ search.get('/posts', async (c) => {
 
   const actor = c.get('actor');
   const prisma = c.get('prisma');
-  const sort = validatePostSort(c.req.query('sort'));
+  const sort = validateSort(c.req.query('sort'), ALLOWED_POST_SORTS, 'recent');
 
   const posts = await prisma.object.findMany({
     where: {
@@ -243,14 +242,7 @@ search.get('/posts', async (c) => {
     take: 50,
   });
 
-  const authorApIds = [...new Set(posts.map((p) => p.attributedTo))];
-  const [authorMap, likedPostIds] = await Promise.all([
-    buildAuthorMap(prisma, authorApIds),
-    loadLikedPostIds(prisma, actor?.ap_id, posts.map(p => p.apId)),
-  ]);
-
-  const result = posts.map((p) => formatPost(p, authorMap, likedPostIds));
-  return c.json({ posts: result });
+  return c.json({ posts: await enrichPosts(prisma, posts, actor?.ap_id) });
 });
 
 /**
@@ -339,7 +331,7 @@ search.get('/hashtag/:tag', async (c) => {
 
   const actor = c.get('actor');
   const prisma = c.get('prisma');
-  const sort = validatePostSort(c.req.query('sort'));
+  const sort = validateSort(c.req.query('sort'), ALLOWED_POST_SORTS, 'recent');
   const limit = parseLimit(c.req.query('limit'), 50, 100);
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
   const hashtagPattern = `#${tag}`;
@@ -359,13 +351,7 @@ search.get('/hashtag/:tag', async (c) => {
     }),
   ]);
 
-  const authorApIds = [...new Set(posts.map((p) => p.attributedTo))];
-  const [authorMap, likedPostIds] = await Promise.all([
-    buildAuthorMap(prisma, authorApIds),
-    loadLikedPostIds(prisma, actor?.ap_id, posts.map(p => p.apId)),
-  ]);
-
-  const result = posts.map((p) => formatPost(p, authorMap, likedPostIds));
+  const result = await enrichPosts(prisma, posts, actor?.ap_id);
 
   return c.json({
     posts: result,
