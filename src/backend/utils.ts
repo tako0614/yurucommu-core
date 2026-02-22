@@ -127,6 +127,7 @@ export function formatUsername(apId: string): string {
 }
 
 const HOSTNAME_PATTERN = /^[a-z0-9.-]+$/i;
+const DOH_ENDPOINT = 'https://cloudflare-dns.com/dns-query';
 
 function parseIPv4(hostname: string): number[] | null {
   if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return null;
@@ -153,8 +154,35 @@ function isPrivateIPv4(hostname: string): boolean {
   return false;
 }
 
+function isPrivateIPv6(ipv6Raw: string): boolean {
+  const ipv6 = ipv6Raw.toLowerCase().replace(/^\[|\]$/g, '');
+  if (ipv6 === '::1' || ipv6 === '0:0:0:0:0:0:0:1') return true;
+  if (ipv6 === '::' || ipv6 === '0:0:0:0:0:0:0:0') return true;
+  if (ipv6.startsWith('fc') || ipv6.startsWith('fd')) return true;
+  if (ipv6.startsWith('fe8') || ipv6.startsWith('fe9') || ipv6.startsWith('fea') || ipv6.startsWith('feb')) return true;
+  if (ipv6.startsWith('ff')) return true;
+
+  const mappedIpv4 = ipv6.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (mappedIpv4) {
+    return isPrivateIPv4(mappedIpv4[1]);
+  }
+
+  return false;
+}
+
+export function isPrivateIpAddress(host: string): boolean {
+  if (isPrivateIPv4(host)) return true;
+  if (host.includes(':')) return isPrivateIPv6(host);
+  return false;
+}
+
+function normalizeHostname(hostname: string): string {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized.endsWith('.') ? normalized.slice(0, -1) : normalized;
+}
+
 export function isBlockedHostname(hostname: string): boolean {
-  const lower = hostname.toLowerCase();
+  const lower = normalizeHostname(hostname);
   if (
     lower === 'localhost' ||
     lower.endsWith('.localhost') ||
@@ -164,9 +192,7 @@ export function isBlockedHostname(hostname: string): boolean {
   ) {
     return true;
   }
-  // Block colons to prevent port specification attacks
-  if (lower.includes(':')) return true;
-  if (isPrivateIPv4(lower)) return true;
+  if (isPrivateIpAddress(lower)) return true;
   return false;
 }
 
@@ -202,6 +228,90 @@ export function normalizeRemoteDomain(domain: string): string | null {
     return parsed.host;
   } catch {
     return null;
+  }
+}
+
+async function dohResolve(hostname: string, type: 'A' | 'AAAA' | 'CNAME'): Promise<Array<{ type: number; data: string }>> {
+  const response = await fetch(`${DOH_ENDPOINT}?name=${encodeURIComponent(hostname)}&type=${type}`, {
+    headers: { Accept: 'application/dns-json' },
+    redirect: 'manual',
+  });
+
+  if (!response.ok) {
+    throw new Error(`DoH lookup failed (${response.status})`);
+  }
+
+  const json = await response.json() as {
+    Answer?: Array<{ type?: number; data?: string }>;
+  };
+
+  return (json.Answer ?? [])
+    .filter((answer): answer is { type: number; data: string } => typeof answer.type === 'number' && typeof answer.data === 'string');
+}
+
+export async function resolveRemoteHostnameIPs(hostname: string): Promise<string[]> {
+  const visited = new Set<string>();
+  const ips = new Set<string>();
+
+  async function walk(name: string, depth: number): Promise<void> {
+    if (depth > 10) {
+      throw new Error('DNS resolution exceeded max depth');
+    }
+
+    const normalized = normalizeHostname(name);
+    if (visited.has(normalized)) return;
+    visited.add(normalized);
+
+    const [aAnswers, aaaaAnswers, cnameAnswers] = await Promise.all([
+      dohResolve(normalized, 'A'),
+      dohResolve(normalized, 'AAAA'),
+      dohResolve(normalized, 'CNAME'),
+    ]);
+
+    for (const answer of aAnswers) {
+      if (answer.type === 1) {
+        ips.add(answer.data);
+      }
+    }
+
+    for (const answer of aaaaAnswers) {
+      if (answer.type === 28) {
+        ips.add(answer.data);
+      }
+    }
+
+    for (const answer of cnameAnswers) {
+      if (answer.type === 5) {
+        // eslint-disable-next-line no-await-in-loop
+        await walk(answer.data, depth + 1);
+      }
+    }
+  }
+
+  await walk(hostname, 0);
+  return Array.from(ips);
+}
+
+export async function assertSafeRemoteUrlResolved(url: string): Promise<void> {
+  if (!isSafeRemoteUrl(url)) {
+    throw new Error(`Unsafe remote URL: ${url}`);
+  }
+
+  const parsed = new URL(url);
+  const hostname = normalizeHostname(parsed.hostname);
+  if (isBlockedHostname(hostname)) {
+    throw new Error(`Blocked hostname: ${hostname}`);
+  }
+
+  const resolvedIps = await resolveRemoteHostnameIPs(hostname);
+  if (resolvedIps.length === 0) {
+    throw new Error(`Failed to resolve hostname: ${hostname}`);
+  }
+
+  for (const ip of resolvedIps) {
+    if (isPrivateIpAddress(ip)) {
+      throw new Error(`Hostname ${hostname} resolved to private IP ${ip}`);
+    }
   }
 }
 
@@ -262,9 +372,17 @@ const DEFAULT_FETCH_TIMEOUT_MS = 30000;
  */
 export async function fetchWithTimeout(
   url: string,
-  options: RequestInit & { timeout?: number } = {}
+  options: RequestInit & { timeout?: number; skipSafetyCheck?: boolean } = {}
 ): Promise<Response> {
-  const { timeout = DEFAULT_FETCH_TIMEOUT_MS, ...fetchOptions } = options;
+  const {
+    timeout = DEFAULT_FETCH_TIMEOUT_MS,
+    skipSafetyCheck = false,
+    ...fetchOptions
+  } = options;
+
+  if (!skipSafetyCheck) {
+    await assertSafeRemoteUrlResolved(url);
+  }
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
