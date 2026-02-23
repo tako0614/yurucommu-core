@@ -36,6 +36,7 @@ model Actor {
   createdAt         String  @default(dbgenerated("datetime('now')")) @map("created_at")
   updatedAt         String  @default(dbgenerated("datetime('now')")) @map("updated_at")
   deletedAt         String? @map("deleted_at")
+  ownerActorApId    String? @map("owner_actor_ap_id")
 
   // Relations
   sessions              Session[]

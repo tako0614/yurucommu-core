@@ -14,6 +14,7 @@ import {
   generateId as generateOAuthId,
   generateCodeVerifier,
   generateCodeChallenge,
+  generateNonce,
   saveOAuthState,
   getOAuthState,
   deleteOAuthState,
@@ -187,6 +188,7 @@ async function createActor(
     iconUrl?: string | null;
     takosUserId: string;
     role: string;
+    ownerActorApId?: string | null;
   },
 ) {
   const apId = actorApId(env.APP_URL, opts.username);
@@ -204,6 +206,7 @@ async function createActor(
       privateKeyPem,
       takosUserId: opts.takosUserId,
       role: opts.role,
+      ownerActorApId: opts.ownerActorApId ?? null,
     },
   });
 }
@@ -505,10 +508,20 @@ auth.get('/login/:provider', async (c) => {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = await generateCodeChallenge(codeVerifier);
 
+  const nonce = generateNonce();
   await saveOAuthState(c.env.KV, state, {
     provider: providerId,
     codeVerifier,
     createdAt: Date.now(),
+    nonce,
+  });
+  // Bind OAuth state to this browser session to prevent login CSRF (Issue 107).
+  setCookie(c, "oauth_nonce", nonce, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+    path: "/",
+    maxAge: 600,
   });
 
   const clientId = getClientId(c.env, providerId);
@@ -550,7 +563,17 @@ auth.get('/callback/:provider', async (c) => {
   const storedState = await getOAuthState(c.env.KV, state);
   if (!storedState) return c.redirect('/?error=invalid_state');
   if (storedState.provider !== providerId) return c.redirect('/?error=provider_mismatch');
+  // Verify browser-session binding nonce to prevent login CSRF (Issue 107).
+  if (storedState.nonce) {
+    const cookieNonce = getCookie(c, 'oauth_nonce');
+    if (!cookieNonce || cookieNonce !== storedState.nonce) {
+      await deleteOAuthState(c.env.KV, state);
+      deleteCookie(c, 'oauth_nonce');
+      return c.redirect('/?error=csrf_check_failed');
+    }
+  }
   await deleteOAuthState(c.env.KV, state);
+  deleteCookie(c, 'oauth_nonce');
 
   const provider = getProvider(c.env, providerId);
   if (!provider) return c.redirect('/?error=unknown_provider');
@@ -605,7 +628,24 @@ auth.get('/accounts', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Not authenticated' }, 401);
 
-  const accounts = await c.get('prisma').actor.findMany({
+  const prisma = c.get('prisma');
+
+  // Find the root owner ap_id: current actor may be a sub-account.
+  // ownerActorApId is set on actors created via POST /accounts; root actors have null.
+  const currentActorRecord = await prisma.actor.findUnique({
+    where: { apId: actor.ap_id },
+    select: { ownerActorApId: true },
+  });
+  const rootOwnerApId = currentActorRecord?.ownerActorApId ?? actor.ap_id;
+
+  // Return only the root actor and any sub-accounts they own (Issue 106).
+  const accounts = await prisma.actor.findMany({
+    where: {
+      OR: [
+        { apId: rootOwnerApId },
+        { ownerActorApId: rootOwnerApId },
+      ],
+    },
     select: ACCOUNT_SELECT,
     orderBy: { createdAt: 'asc' },
   });
@@ -630,12 +670,25 @@ auth.post('/switch', async (c) => {
   if (!targetApId) return c.json({ error: 'ap_id required', code: 'BAD_REQUEST' }, 400);
 
   const prisma = c.get('prisma');
+
+  // Resolve the root owner of the current session to enforce ownership (Issue 106).
+  const currentActorRecord = await prisma.actor.findUnique({
+    where: { apId: currentActor.ap_id },
+    select: { ownerActorApId: true },
+  });
+  const rootOwnerApId = currentActorRecord?.ownerActorApId ?? currentActor.ap_id;
+
   const targetActor = await prisma.actor.findUnique({
     where: { apId: targetApId },
-    select: { apId: true },
+    select: { apId: true, ownerActorApId: true },
   });
 
   if (!targetActor) return c.json({ error: 'Account not found' }, 404);
+
+  // Only allow switching to the root account or its own sub-accounts.
+  const isAllowed = targetActor.apId === rootOwnerApId ||
+    targetActor.ownerActorApId === rootOwnerApId;
+  if (!isAllowed) return c.json({ error: 'Forbidden' }, 403);
 
   await prisma.session.update({
     where: { id: sessionId },
@@ -673,11 +726,19 @@ auth.post('/accounts', async (c) => {
 
   if (existing) return c.json({ error: 'Username already taken' }, 400);
 
+  // Resolve root owner to set ownership link on the sub-account (Issue 106).
+  const creatorRecord = await prisma.actor.findUnique({
+    where: { apId: currentActor.ap_id },
+    select: { ownerActorApId: true },
+  });
+  const rootOwnerApId = creatorRecord?.ownerActorApId ?? currentActor.ap_id;
+
   const newActor = await createActor(prisma, c.env, {
     username,
     name: name || username,
     takosUserId: `local:${username}`,
     role: 'member',
+    ownerActorApId: rootOwnerApId,
   });
 
   return c.json({

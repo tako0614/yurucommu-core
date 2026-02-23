@@ -250,14 +250,6 @@ stories.get('/', async (c) => {
   return c.json({ actor_stories: authorOrder.map((apId) => grouped[apId]) });
 });
 
-// Cleanup expired stories (admin/scheduled endpoint)
-// Must be defined before /:actorId to avoid route conflict
-stories.post('/cleanup', async (c) => {
-  const prisma = c.get('prisma');
-  const deleted = await cleanupExpiredStories(prisma);
-  return c.json({ deleted });
-});
-
 // Get stories for a specific user
 stories.get('/:actorId', async (c) => {
   const targetActorId = c.req.param('actorId');

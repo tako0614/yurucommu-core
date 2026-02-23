@@ -34,6 +34,13 @@ export function generateCodeVerifier(): string {
 }
 
 /**
+ * Generate a random nonce for OAuth CSRF browser-session binding (32 chars).
+ */
+export function generateNonce(): string {
+  return randomString(32, ALPHANUMERIC);
+}
+
+/**
  * PKCE code_challenge を生成 (S256)
  */
 export async function generateCodeChallenge(verifier: string): Promise<string> {
@@ -76,6 +83,12 @@ export interface OAuthState {
   provider: string;
   codeVerifier: string;
   createdAt: number;
+  /**
+   * Browser-session binding nonce for login CSRF protection (Issue 107).
+   * Set as a short-lived HttpOnly cookie on the initiating browser and stored
+   * here so the callback handler can verify both values match.
+   */
+  nonce?: string;
 }
 
 function oauthKey(state: string): string {
