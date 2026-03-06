@@ -123,6 +123,10 @@ const translations = {
     'notifications.joinAccepted': 'がグループへの参加を承認しました',
     'notifications.invite': 'がグループに招待しました',
 
+    // Search
+    'search.trending': 'トレンド',
+    'search.noResults': '結果がありません',
+
     // Common
     'common.loading': '読み込み中...',
     'common.error': 'エラーが発生しました',
@@ -262,6 +266,10 @@ const translations = {
     'notifications.joinRequest': ' requested to join the group',
     'notifications.joinAccepted': ' accepted your join request',
     'notifications.invite': ' invited you to a group',
+
+    // Search
+    'search.trending': 'Trending',
+    'search.noResults': 'No results found',
 
     // Common
     'common.loading': 'Loading...',
