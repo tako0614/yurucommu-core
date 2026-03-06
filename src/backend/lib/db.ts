@@ -15,6 +15,9 @@ import type { D1Database } from '@cloudflare/workers-types';
 
 // Singleton instance for non-Cloudflare runtimes
 let prismaClient: PrismaClient | null = null;
+// For findUnique/findUniqueOrThrow, Prisma requires unique key fields at the
+// top level of `where`. Wrapping them in AND breaks the unique-input contract.
+// So we merge deletedAt directly into the existing where object instead.
 function withDeletedAtFilter<TArgs extends { where?: unknown }>(args: TArgs): TArgs {
   const where = (args.where ?? {}) as Record<string, unknown>;
   if (Object.prototype.hasOwnProperty.call(where, 'deletedAt')) {
@@ -24,7 +27,8 @@ function withDeletedAtFilter<TArgs extends { where?: unknown }>(args: TArgs): TA
   return {
     ...args,
     where: {
-      AND: [where, { deletedAt: null }],
+      ...where,
+      deletedAt: null,
     },
   };
 }

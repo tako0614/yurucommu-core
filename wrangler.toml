@@ -4,7 +4,7 @@ compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
 [vars]
-APP_URL = "https://app.yurucommu.com"
+APP_URL = "https://test.yurucommu.com"
 
 # Authentication Configuration
 # Set any combination of the following to enable different auth methods:
@@ -35,7 +35,7 @@ TAKOS_URL = "https://takos.jp"
 [[d1_databases]]
 binding = "DB"
 database_name = "yurucommu-db"
-database_id = "REPLACE_WITH_DATABASE_ID"
+database_id = "3ad92a66-b4e2-41cc-8145-46f407b1718e"
 migrations_dir = "migrations"
 
 # Queue for federation delivery (async)
@@ -70,7 +70,7 @@ bucket_name = "yurucommu-media"
 # Then replace the 'id' value with the ID from the command output.
 [[kv_namespaces]]
 binding = "KV"
-id = "REPLACE_WITH_KV_ID"
+id = "0513678273f2494385b4ab33cb9d8b22"
 
 # Static assets
 [assets]
@@ -81,28 +81,6 @@ not_found_handling = "single-page-application"
 
 # Route
 [[routes]]
-pattern = "app.yurucommu.com/*"
-zone_name = "yurucommu.com"
-
-# Test environment
-[env.test]
-name = "yurucommu-test"
-vars = { TAKOS_URL = "https://test.takos.jp", APP_URL = "https://test.yurucommu.com" }
-
-[[env.test.d1_databases]]
-binding = "DB"
-database_name = "yurucommu-db"
-database_id = "REPLACE_WITH_DATABASE_ID"
-migrations_dir = "migrations"
-
-[[env.test.r2_buckets]]
-binding = "MEDIA"
-bucket_name = "yurucommu-media"
-
-[[env.test.kv_namespaces]]
-binding = "KV"
-id = "REPLACE_WITH_KV_ID"
-
-[[env.test.routes]]
 pattern = "test.yurucommu.com/*"
 zone_name = "yurucommu.com"
+
