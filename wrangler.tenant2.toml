@@ -5,7 +5,7 @@ compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
 [vars]
 TAKOS_URL = "https://test.takos.jp"
-APP_URL = "https://test.yurucommu.com"
+APP_URL = "https://test2.yurucommu.com"
 AUTH_MODE = "password"
 
 # Secrets (set via wrangler secret put):
@@ -60,5 +60,5 @@ run_worker_first = true
 
 # Route - Using test subdomain
 [[routes]]
-pattern = "test.yurucommu.com/*"
+pattern = "test2.yurucommu.com/*"
 zone_name = "yurucommu.com"
