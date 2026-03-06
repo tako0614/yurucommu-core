@@ -1,6 +1,5 @@
 import { NavLink } from 'react-router-dom';
 import { useI18n } from '../../lib/i18n';
-import { useUnreadCount } from '../../hooks/useUnreadCount';
 
 // SVG Icons
 const HomeIcon = ({ active }: { active: boolean }) => (
@@ -9,9 +8,9 @@ const HomeIcon = ({ active }: { active: boolean }) => (
   </svg>
 );
 
-const GroupIcon = ({ active }: { active: boolean }) => (
+const SearchIcon = ({ active }: { active: boolean }) => (
   <svg className="w-6 h-6" fill={active ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
   </svg>
 );
 
@@ -35,21 +34,16 @@ const ProfileIcon = ({ active }: { active: boolean }) => (
 
 export function BottomNav() {
   const { t } = useI18n();
-  const unreadCount = useUnreadCount();
-
   const navItems = [
     { to: '/', icon: HomeIcon, label: t('nav.home') },
-    { to: '/groups', icon: GroupIcon, label: t('nav.groups') },
     { to: '/dm', icon: MessageIcon, label: t('nav.messages') },
-    { to: '/notifications', icon: BellIcon, label: t('nav.notifications') },
+    { to: '/search', icon: SearchIcon, label: t('nav.search') },
     { to: '/profile', icon: ProfileIcon, label: t('nav.profile') },
   ];
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 h-14 bg-black border-t border-neutral-900 flex items-center justify-around z-50">
-      {navItems.map(({ to, icon: Icon }) => {
-        const showBadge = to === '/notifications' && unreadCount > 0;
-        return (
+      {navItems.map(({ to, icon: Icon }) => (
         <NavLink
           key={to}
           to={to}
@@ -60,19 +54,9 @@ export function BottomNav() {
             }`
           }
         >
-          {({ isActive }) => (
-            <div className="relative">
-              <Icon active={isActive} />
-              {showBadge && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 text-[10px] leading-[18px] text-center rounded-full bg-red-500 text-white">
-                  {unreadCount > 99 ? '99+' : unreadCount}
-                </span>
-              )}
-            </div>
-          )}
+          {({ isActive }) => <Icon active={isActive} />}
         </NavLink>
-        );
-      })}
+      ))}
     </nav>
   );
 }

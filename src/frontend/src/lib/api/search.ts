@@ -19,3 +19,9 @@ export async function searchPosts(query: string): Promise<Post[]> {
   const data = (await res.json()) as { posts?: Post[] };
   return (data.posts || []).map(normalizePost);
 }
+
+export async function fetchTrendingHashtags(limit = 10): Promise<{ tag: string; count: number }[]> {
+  const res = await apiFetch(`/api/search/hashtags/trending?limit=${limit}`);
+  const data = (await res.json()) as { trending?: { tag: string; count: number }[] };
+  return data.trending || [];
+}

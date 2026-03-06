@@ -20,6 +20,7 @@ const BookmarksPage = lazy(() => import('./pages/BookmarksPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const FriendsListPage = lazy(() => import('./pages/FriendsListPage'));
 const CommunityProfilePage = lazy(() => import('./pages/CommunityProfilePage'));
+const SearchPage = lazy(() => import('./pages/SearchPage'));
 
 function AppContent() {
   const { actor, loading, loginError, login } = useAuth();
@@ -49,6 +50,7 @@ function AppContent() {
         <Routes>
           <Route element={<AppLayout actor={actor} />}>
             <Route path="/" element={<TimelinePage actor={actor} />} />
+            <Route path="/search" element={<SearchPage actor={actor} />} />
             <Route path="/groups" element={<GroupPage actor={actor} />} />
             <Route path="/friends" element={<FriendsListPage actor={actor} />} />
             <Route path="/friends/list" element={<FriendsListPage actor={actor} />} />
