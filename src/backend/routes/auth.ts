@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { Env, Variables } from '../types';
 import { generateId, actorApId, formatUsername, generateKeyPair } from '../utils';
@@ -6,8 +7,7 @@ import { encrypt, verifyPassword } from '../lib/crypto';
 import {
   getAuthConfig,
   getProvider,
-  getClientId,
-  getClientSecret,
+  getClientCredentials,
   fetchUserInfo,
 } from '../lib/oauth-providers';
 import {
@@ -25,14 +25,16 @@ import {
   recordFailedLoginAttempt,
 } from '../lib/auth-lockout';
 import { getClientIP } from '../lib/client-ip';
-import type { PrismaClient } from '../../generated/prisma';
+import type { Database } from '../../db';
+import { eq, and, or, count, desc, asc, sql, inArray, isNull } from 'drizzle-orm';
+import { actors, sessions } from '../../db';
 
 /** Session lifetime: 30 days in seconds. */
 const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
 type OAuthTokens = { access_token: string; refresh_token?: string; expires_in?: number };
 
-type HonoContext = Parameters<typeof setCookie>[0] & { get(key: 'prisma'): PrismaClient };
+type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 /**
  * Constant-time string comparison to prevent timing attacks.
@@ -87,15 +89,11 @@ function formatAccountResponse(a: { apId: string; preferredUsername: string; nam
   };
 }
 
-async function deleteSessionSafely(prisma: PrismaClient, sessionId: string, context: string): Promise<void> {
+async function deleteSessionSafely(db: Database, sessionId: string, context: string): Promise<void> {
   try {
-    await prisma.session.delete({ where: { id: sessionId } });
+    await db.delete(sessions).where(eq(sessions.id, sessionId));
   } catch (err) {
-    const isNotFound = typeof err === 'object' && err !== null
-      && 'code' in err && (err as { code?: string }).code === 'P2025';
-    if (!isNotFound) {
-      console.warn(`[Auth] Failed to delete session during ${context}`, err);
-    }
+    console.warn(`[Auth] Failed to delete session during ${context}`, err);
   }
 }
 
@@ -111,12 +109,12 @@ async function rotateSession(
   encryptionKey: string | undefined,
   rotationContext: string,
 ): Promise<string> {
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
   // Invalidate existing session
   const existingSessionId = getCookie(c, 'session');
   if (existingSessionId) {
-    await deleteSessionSafely(prisma, existingSessionId, rotationContext);
+    await deleteSessionSafely(db, existingSessionId, rotationContext);
     deleteCookie(c, 'session');
   }
 
@@ -124,23 +122,21 @@ async function rotateSession(
   const sessionId = generateId();
   const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString();
 
-  await prisma.session.create({
-    data: {
-      id: sessionId,
-      memberId: memberApId,
-      accessToken: sessionId,
-      expiresAt,
-      provider,
-      providerAccessToken: tokens?.access_token
-        ? await encrypt(tokens.access_token, encryptionKey)
-        : null,
-      providerRefreshToken: tokens?.refresh_token
-        ? await encrypt(tokens.refresh_token, encryptionKey)
-        : null,
-      providerTokenExpiresAt: tokens?.expires_in
-        ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-        : null,
-    },
+  await db.insert(sessions).values({
+    id: sessionId,
+    memberId: memberApId,
+    accessToken: sessionId,
+    expiresAt,
+    provider,
+    providerAccessToken: tokens?.access_token
+      ? await encrypt(tokens.access_token, encryptionKey)
+      : null,
+    providerRefreshToken: tokens?.refresh_token
+      ? await encrypt(tokens.refresh_token, encryptionKey)
+      : null,
+    providerTokenExpiresAt: tokens?.expires_in
+      ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+      : null,
   });
 
   // Set cookie
@@ -166,13 +162,13 @@ function actorEndpoints(apId: string) {
 
 /** Resolves a unique username by appending a counter on collision. */
 async function resolveUniqueUsername(
-  prisma: PrismaClient,
+  db: Database,
   baseUrl: string,
   baseUsername: string,
 ): Promise<string> {
   let username = baseUsername;
   let counter = 1;
-  while (await prisma.actor.findUnique({ where: { apId: actorApId(baseUrl, username) }, select: { apId: true } })) {
+  while (await db.select({ apId: actors.apId }).from(actors).where(eq(actors.apId, actorApId(baseUrl, username))).get()) {
     username = `${baseUsername}${counter}`;
     counter++;
   }
@@ -180,7 +176,7 @@ async function resolveUniqueUsername(
 }
 
 async function createActor(
-  prisma: PrismaClient,
+  db: Database,
   env: Env,
   opts: {
     username: string;
@@ -194,34 +190,33 @@ async function createActor(
   const apId = actorApId(env.APP_URL, opts.username);
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
 
-  return await prisma.actor.create({
-    data: {
-      apId,
-      type: 'Person',
-      preferredUsername: opts.username,
-      name: opts.name,
-      iconUrl: opts.iconUrl ?? null,
-      ...actorEndpoints(apId),
-      publicKeyPem,
-      privateKeyPem,
-      takosUserId: opts.takosUserId,
-      role: opts.role,
-      ownerActorApId: opts.ownerActorApId ?? null,
-    },
-  });
+  return await db.insert(actors).values({
+    apId,
+    type: 'Person',
+    preferredUsername: opts.username,
+    name: opts.name,
+    iconUrl: opts.iconUrl ?? null,
+    ...actorEndpoints(apId),
+    publicKeyPem,
+    privateKeyPem,
+    takosUserId: opts.takosUserId,
+    role: opts.role,
+    ownerActorApId: opts.ownerActorApId ?? null,
+  }).returning().get();
 }
 
 async function createActorFromOAuth(
-  prisma: PrismaClient,
+  db: Database,
   env: Env,
   userInfo: { id: string; name: string; email?: string; picture?: string; username?: string },
   providerUserId: string,
 ) {
   const baseUsername = userInfo.username || userInfo.name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
-  const username = await resolveUniqueUsername(prisma, env.APP_URL, baseUsername);
-  const actorCount = await prisma.actor.count();
+  const username = await resolveUniqueUsername(db, env.APP_URL, baseUsername);
+  const result = await db.select({ count: count() }).from(actors).get();
+  const actorCount = result?.count ?? 0;
 
-  return await createActor(prisma, env, {
+  return await createActor(db, env, {
     username,
     name: userInfo.name,
     iconUrl: userInfo.picture,
@@ -264,8 +259,7 @@ async function exchangeOAuthToken(
   provider: { tokenUrl: string; supportsPkce: boolean },
   clientIp: string | undefined,
 ): Promise<OAuthTokens | null> {
-  const clientId = getClientId(env, providerId);
-  const clientSecret = getClientSecret(env, providerId);
+  const { clientId, clientSecret } = getClientCredentials(env, providerId);
   const redirectUri = `${env.APP_URL}/api/auth/callback/${providerId}`;
 
   const tokenBody: Record<string, string> = {
@@ -328,40 +322,36 @@ async function exchangeOAuthToken(
 
 /** Look up an existing actor by provider user ID (with legacy migration), or create a new one. */
 async function findOrCreateOAuthActor(
-  prisma: PrismaClient,
+  db: Database,
   env: Env,
   providerId: string,
   userInfo: { id: string; name: string; email?: string; picture?: string; username?: string },
 ) {
   const providerUserId = providerId === 'takos' ? userInfo.id : `${providerId}:${userInfo.id}`;
 
-  let actorData = await prisma.actor.findFirst({
-    where: { takosUserId: providerUserId },
-  });
+  let actorData = await db.select().from(actors).where(eq(actors.takosUserId, providerUserId)).get();
 
   // Migrate legacy takos: prefixed IDs
   if (!actorData && providerId === 'takos') {
-    const legacyActor = await prisma.actor.findFirst({
-      where: { takosUserId: `takos:${userInfo.id}` },
-    });
+    const legacyActor = await db.select().from(actors).where(eq(actors.takosUserId, `takos:${userInfo.id}`)).get();
     if (legacyActor) {
-      actorData = await prisma.actor.update({
-        where: { apId: legacyActor.apId },
-        data: { takosUserId: providerUserId },
-      });
+      actorData = await db.update(actors)
+        .set({ takosUserId: providerUserId })
+        .where(eq(actors.apId, legacyActor.apId))
+        .returning().get();
     }
   }
 
   if (!actorData) {
-    actorData = await createActorFromOAuth(prisma, env, userInfo, providerUserId);
+    actorData = await createActorFromOAuth(db, env, userInfo, providerUserId);
   } else {
-    await prisma.actor.update({
-      where: { apId: actorData.apId },
-      data: {
+    await db.update(actors)
+      .set({
         name: userInfo.name,
-        iconUrl: userInfo.picture || undefined,
-      },
-    });
+        ...(userInfo.picture ? { iconUrl: userInfo.picture } : {}),
+      })
+      .where(eq(actors.apId, actorData.apId))
+      .run();
   }
 
   return actorData;
@@ -399,10 +389,11 @@ auth.get('/me', async (c) => {
   let hasTakosAccess = false;
 
   if (sessionId) {
-    const session = await c.get('prisma').session.findUnique({
-      where: { id: sessionId },
-      select: { provider: true, providerAccessToken: true },
-    });
+    const db = c.get('prisma');
+    const session = await db.select({
+      provider: sessions.provider,
+      providerAccessToken: sessions.providerAccessToken,
+    }).from(sessions).where(eq(sessions.id, sessionId)).get();
     if (session) {
       provider = session.provider;
       hasTakosAccess = session.provider === 'takos' && !!session.providerAccessToken;
@@ -478,11 +469,11 @@ auth.post('/login', async (c) => {
     return c.json({ error: 'Invalid password' }, 401);
   }
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
   // Single-user instance: find existing owner or create default
-  const actorData = await prisma.actor.findFirst({ where: { role: 'owner' } })
-    ?? await createActor(prisma, c.env, {
+  const actorData = await db.select().from(actors).where(eq(actors.role, 'owner')).get()
+    ?? await createActor(db, c.env, {
       username: 'tako',
       name: 'tako',
       takosUserId: 'password:owner',
@@ -524,7 +515,7 @@ auth.get('/login/:provider', async (c) => {
     maxAge: 600,
   });
 
-  const clientId = getClientId(c.env, providerId);
+  const { clientId } = getClientCredentials(c.env, providerId);
   const redirectUri = `${c.env.APP_URL}/api/auth/callback/${providerId}`;
 
   const params = new URLSearchParams({
@@ -594,6 +585,7 @@ auth.get('/callback/:provider', async (c) => {
   }
 
   const actorData = await findOrCreateOAuthActor(c.get('prisma'), c.env, providerId, userInfo);
+  if (!actorData) return c.redirect('/?error=actor_creation_failed');
 
   await rotateSession(
     c,
@@ -617,38 +609,31 @@ auth.post('/logout', async (c) => {
   return c.json({ success: true });
 });
 
-const ACCOUNT_SELECT = {
-  apId: true,
-  preferredUsername: true,
-  name: true,
-  iconUrl: true,
-} as const;
-
 auth.get('/accounts', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Not authenticated' }, 401);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
   // Find the root owner ap_id: current actor may be a sub-account.
   // ownerActorApId is set on actors created via POST /accounts; root actors have null.
-  const currentActorRecord = await prisma.actor.findUnique({
-    where: { apId: actor.ap_id },
-    select: { ownerActorApId: true },
-  });
+  const currentActorRecord = await db.select({ ownerActorApId: actors.ownerActorApId })
+    .from(actors)
+    .where(eq(actors.apId, actor.ap_id))
+    .get();
   const rootOwnerApId = currentActorRecord?.ownerActorApId ?? actor.ap_id;
 
   // Return only the root actor and any sub-accounts they own (Issue 106).
-  const accounts = await prisma.actor.findMany({
-    where: {
-      OR: [
-        { apId: rootOwnerApId },
-        { ownerActorApId: rootOwnerApId },
-      ],
-    },
-    select: ACCOUNT_SELECT,
-    orderBy: { createdAt: 'asc' },
-  });
+  const accounts = await db.select({
+    apId: actors.apId,
+    preferredUsername: actors.preferredUsername,
+    name: actors.name,
+    iconUrl: actors.iconUrl,
+  })
+    .from(actors)
+    .where(or(eq(actors.apId, rootOwnerApId), eq(actors.ownerActorApId, rootOwnerApId)))
+    .orderBy(asc(actors.createdAt))
+    .all();
 
   return c.json({
     accounts: accounts.map(formatAccountResponse),
@@ -669,19 +654,19 @@ auth.post('/switch', async (c) => {
   const targetApId = nonEmptyString(body.ap_id);
   if (!targetApId) return c.json({ error: 'ap_id required', code: 'BAD_REQUEST' }, 400);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
   // Resolve the root owner of the current session to enforce ownership (Issue 106).
-  const currentActorRecord = await prisma.actor.findUnique({
-    where: { apId: currentActor.ap_id },
-    select: { ownerActorApId: true },
-  });
+  const currentActorRecord = await db.select({ ownerActorApId: actors.ownerActorApId })
+    .from(actors)
+    .where(eq(actors.apId, currentActor.ap_id))
+    .get();
   const rootOwnerApId = currentActorRecord?.ownerActorApId ?? currentActor.ap_id;
 
-  const targetActor = await prisma.actor.findUnique({
-    where: { apId: targetApId },
-    select: { apId: true, ownerActorApId: true },
-  });
+  const targetActor = await db.select({ apId: actors.apId, ownerActorApId: actors.ownerActorApId })
+    .from(actors)
+    .where(eq(actors.apId, targetApId))
+    .get();
 
   if (!targetActor) return c.json({ error: 'Account not found' }, 404);
 
@@ -690,10 +675,10 @@ auth.post('/switch', async (c) => {
     targetActor.ownerActorApId === rootOwnerApId;
   if (!isAllowed) return c.json({ error: 'Forbidden' }, 403);
 
-  await prisma.session.update({
-    where: { id: sessionId },
-    data: { memberId: targetApId },
-  });
+  await db.update(sessions)
+    .set({ memberId: targetApId })
+    .where(eq(sessions.id, sessionId))
+    .run();
 
   return c.json({ success: true });
 });
@@ -716,24 +701,24 @@ auth.post('/accounts', async (c) => {
   }
   const name: string | undefined = typeof body.name === 'string' ? body.name : undefined;
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const apId = actorApId(c.env.APP_URL, username);
 
-  const existing = await prisma.actor.findUnique({
-    where: { apId },
-    select: { apId: true },
-  });
+  const existing = await db.select({ apId: actors.apId })
+    .from(actors)
+    .where(eq(actors.apId, apId))
+    .get();
 
   if (existing) return c.json({ error: 'Username already taken' }, 400);
 
   // Resolve root owner to set ownership link on the sub-account (Issue 106).
-  const creatorRecord = await prisma.actor.findUnique({
-    where: { apId: currentActor.ap_id },
-    select: { ownerActorApId: true },
-  });
+  const creatorRecord = await db.select({ ownerActorApId: actors.ownerActorApId })
+    .from(actors)
+    .where(eq(actors.apId, currentActor.ap_id))
+    .get();
   const rootOwnerApId = creatorRecord?.ownerActorApId ?? currentActor.ap_id;
 
-  const newActor = await createActor(prisma, c.env, {
+  const newActor = await createActor(db, c.env, {
     username,
     name: name || username,
     takosUserId: `local:${username}`,
