@@ -31,7 +31,6 @@ export interface AuthConfig {
  */
 export function getAuthConfig(env: Env): AuthConfig {
   const providers: OAuthProvider[] = [];
-  const allowPlaintextAuth = env.ALLOW_PLAINTEXT_AUTH === 'true';
 
   // Google OAuth
   if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
@@ -80,8 +79,7 @@ export function getAuthConfig(env: Env): AuthConfig {
   }
 
   return {
-    // AUTH_PASSWORD is only accepted when explicit fallback flag is enabled.
-    passwordEnabled: !!(env.AUTH_PASSWORD_HASH || (allowPlaintextAuth && env.AUTH_PASSWORD)),
+    passwordEnabled: !!env.AUTH_PASSWORD_HASH,
     providers,
   };
 }
@@ -111,20 +109,6 @@ export function getClientCredentials(env: Env, providerId: string): { clientId: 
     default:
       return { clientId: '', clientSecret: '' };
   }
-}
-
-/**
- * プロバイダーIDからクライアントIDを取得
- */
-export function getClientId(env: Env, providerId: string): string {
-  return getClientCredentials(env, providerId).clientId;
-}
-
-/**
- * プロバイダーIDからクライアントシークレットを取得
- */
-export function getClientSecret(env: Env, providerId: string): string {
-  return getClientCredentials(env, providerId).clientSecret;
 }
 
 /**

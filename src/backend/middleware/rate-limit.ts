@@ -10,7 +10,6 @@ interface RateLimitEntry {
 
 const RATE_LIMIT_KV_PREFIX = 'rate-limit:v1';
 const fallbackRateLimitStore = new Map<string, RateLimitEntry>();
-const statusCache = new Map<string, RateLimitEntry>();
 
 let hasWarnedKvFailure = false;
 
@@ -60,7 +59,7 @@ async function consumeDistributed(
     ? { count: current.count + 1, resetAt: current.resetAt }
     : { count: 1, resetAt: now + windowMs };
 
-  const expirationTtl = Math.max(1, Math.ceil((next.resetAt - now) / 1000) + 5);
+  const expirationTtl = Math.max(60, Math.ceil((next.resetAt - now) / 1000) + 5);
   await kv.put(storageKey, JSON.stringify(next), { expirationTtl });
   return next;
 }
@@ -119,7 +118,6 @@ export function rateLimit(config: RateLimitConfig) {
     const key = buildKey(config.keyPrefix, clientId);
     const now = Date.now();
     const entry = await consumeRateLimit(c.env.KV, key, config.windowMs, now);
-    statusCache.set(key, entry);
 
     // Set rate limit headers
     const remaining = Math.max(0, config.maxRequests - entry.count);
@@ -144,10 +142,3 @@ export function rateLimit(config: RateLimitConfig) {
   };
 }
 
-/**
- * Get current rate limit status for a client (useful for debugging/monitoring)
- */
-export function getRateLimitStatus(clientId: string, keyPrefix?: string): RateLimitEntry | null {
-  const key = buildKey(keyPrefix, clientId);
-  return statusCache.get(key) ?? fallbackRateLimitStore.get(key) ?? null;
-}

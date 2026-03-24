@@ -1,297 +1,63 @@
 import { Hono } from 'hono';
-import type { Context } from 'hono';
 import { deleteCookie } from 'hono/cookie';
-import type { PrismaClient } from '../../generated/prisma';
-import type { Actor, Env, Variables } from '../types';
-import { actorApId, getDomain, formatUsername, parseLimit, parseOffset, safeJsonParse } from '../utils';
+import { eq, and, or, inArray, isNull, ne, lt, desc, asc, sql } from 'drizzle-orm';
+import {
+  actors, actorCache, objects, follows, likes, bookmarks, announces,
+  blocks, mutes, sessions, activities, inbox, communityMembers, communities,
+  objectRecipients, storyVotes, storyViews, notDeleted,
+} from '../../db';
+import type { Env, Variables } from '../types';
+import { formatUsername, parseLimit, parseOffset, safeJsonParse } from '../utils';
 import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
+import {
+  isValidHttpUrl,
+  loadActorInfoMap,
+  loadPostInteractions,
+  resolveActorApId,
+  actorExists,
+  requireActor,
+  listRelation,
+  createRelation,
+  deleteRelation,
+  listFollowRelation,
+  MAX_ACTOR_POSTS_LIMIT,
+  MAX_PROFILE_NAME_LENGTH,
+  MAX_PROFILE_SUMMARY_LENGTH,
+  MAX_PROFILE_URL_LENGTH,
+} from './actors-helpers';
 
-// Hono context with our app's bindings and variables
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AppContext = Context<{ Bindings: Env; Variables: Variables }, any>;
-
-const actors = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const MAX_ACTOR_POSTS_LIMIT = 100;
-const MAX_PROFILE_NAME_LENGTH = 50;
-const MAX_PROFILE_SUMMARY_LENGTH = 500;
-const MAX_PROFILE_URL_LENGTH = 2000;
-
-// Shared select shape used by batch-loading helpers (blocked, muted, followers, following)
-const ACTOR_INFO_SELECT = {
-  apId: true,
-  preferredUsername: true,
-  name: true,
-  iconUrl: true,
-  summary: true,
-} as const;
-
-// Minimal select for author info on posts
-const AUTHOR_INFO_SELECT = {
-  apId: true,
-  preferredUsername: true,
-  name: true,
-  iconUrl: true,
-} as const;
-
-type ActorInfo = { apId: string; preferredUsername: string | null; name: string | null; iconUrl: string | null; summary?: string | null };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function isValidHttpUrl(value: string): boolean {
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
-function isPrismaNotFoundError(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && (error as { code?: string }).code === 'P2025';
-}
-
-/**
- * Batch-load actor info from both local and cached tables, returning a
- * single lookup map keyed by apId.  Local actors take precedence.
- */
-async function loadActorInfoMap(
-  prisma: PrismaClient,
-  apIds: string[],
-  select: typeof ACTOR_INFO_SELECT | typeof AUTHOR_INFO_SELECT = ACTOR_INFO_SELECT,
-): Promise<Map<string, ActorInfo>> {
-  if (apIds.length === 0) return new Map();
-
-  const [local, cached] = await Promise.all([
-    prisma.actor.findMany({ where: { apId: { in: apIds } }, select }),
-    prisma.actorCache.findMany({ where: { apId: { in: apIds } }, select }),
-  ]);
-
-  const map = new Map<string, ActorInfo>();
-  for (const a of cached) map.set(a.apId, a);
-  for (const a of local) map.set(a.apId, a); // local wins
-  return map;
-}
-
-/**
- * Format a looked-up actor into the common JSON shape used by blocked/muted/followers/following lists.
- */
-function formatActorSummary(apId: string, info: ActorInfo | undefined): {
-  ap_id: string;
-  username: string;
-  preferred_username: string | null;
-  name: string | null;
-  icon_url: string | null;
-  summary: string | null;
-} {
-  return {
-    ap_id: apId,
-    username: formatUsername(apId),
-    preferred_username: info?.preferredUsername || null,
-    name: info?.name || null,
-    icon_url: info?.iconUrl || null,
-    summary: info?.summary ?? null,
-  };
-}
-
-/**
- * Resolve an identifier (AP ID, @user@domain, or bare username) to an AP ID string.
- * Returns null when the identifier cannot be resolved.
- */
-async function resolveActorApId(
-  prisma: PrismaClient,
-  baseUrl: string,
-  identifier: string,
-): Promise<string | null> {
-  if (identifier.startsWith('http')) return identifier;
-
-  if (!identifier.includes('@')) return actorApId(baseUrl, identifier);
-
-  const stripped = identifier.replace(/^@/, '');
-  const parts = stripped.split('@');
-  const username = parts[0];
-  if (!username) return null;
-
-  if (parts.length === 1) return actorApId(baseUrl, username);
-
-  const domain = parts.slice(1).join('@');
-  if (!domain) return null;
-  if (domain === getDomain(baseUrl)) return actorApId(baseUrl, username);
-
-  const cached = await prisma.actorCache.findFirst({
-    where: { preferredUsername: username, apId: { contains: domain } },
-    select: { apId: true },
-  });
-  return cached?.apId || null;
-}
-
-/**
- * Check that an actor exists in either the local or cached table.
- */
-async function actorExists(prisma: PrismaClient, apId: string): Promise<boolean> {
-  const [local, cached] = await Promise.all([
-    prisma.actor.findUnique({ where: { apId }, select: { apId: true } }),
-    prisma.actorCache.findUnique({ where: { apId }, select: { apId: true } }),
-  ]);
-  return !!(local || cached);
-}
-
-/**
- * Require the current actor from context.  Returns the actor or a 401 Response.
- */
-function requireActor(c: AppContext): Actor | Response {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  return actor;
-}
-
-/**
- * Batch-load interaction status (liked, bookmarked, reposted) for the given
- * post AP IDs.  Returns empty sets when the actor is not logged in.
- */
-async function loadPostInteractions(
-  prisma: PrismaClient,
-  actorApIdVal: string | null,
-  postApIds: string[],
-): Promise<{ likedIds: Set<string>; bookmarkedIds: Set<string>; repostedIds: Set<string> }> {
-  if (!actorApIdVal || postApIds.length === 0) {
-    return { likedIds: new Set(), bookmarkedIds: new Set(), repostedIds: new Set() };
-  }
-
-  const [likes, bookmarks, announces] = await Promise.all([
-    prisma.like.findMany({
-      where: { actorApId: actorApIdVal, objectApId: { in: postApIds } },
-      select: { objectApId: true },
-    }),
-    prisma.bookmark.findMany({
-      where: { actorApId: actorApIdVal, objectApId: { in: postApIds } },
-      select: { objectApId: true },
-    }),
-    prisma.announce.findMany({
-      where: { actorApId: actorApIdVal, objectApId: { in: postApIds } },
-      select: { objectApId: true },
-    }),
-  ]);
-
-  return {
-    likedIds: new Set(likes.map((l) => l.objectApId)),
-    bookmarkedIds: new Set(bookmarks.map((b) => b.objectApId)),
-    repostedIds: new Set(announces.map((a) => a.objectApId)),
-  };
-}
-
-/**
- * Generic list handler for relation lists (blocked, muted).
- * Fetches paginated relations, batch-loads actor info, and returns formatted summaries.
- */
-async function listRelation<T extends { [K in ApIdKey]: string }, ApIdKey extends string>(
-  c: AppContext,
-  findMany: (prisma: PrismaClient, actorApIdVal: string, limit: number, offset: number) => Promise<T[]>,
-  apIdKey: ApIdKey,
-  responseKey: string,
-): Promise<Response> {
-  const result = requireActor(c);
-  if (result instanceof Response) return result;
-  const actor = result;
-
-  const prisma = c.get('prisma');
-  const limit = parseLimit(c.req.query('limit'), 100, 500);
-  const offset = parseOffset(c.req.query('offset'), 0, 10000);
-
-  const rows = await findMany(prisma, actor.ap_id, limit, offset);
-  const targetApIds = rows.map((r) => r[apIdKey]);
-  const infoMap = await loadActorInfoMap(prisma, targetApIds);
-
-  return c.json({
-    [responseKey]: rows.map((r) => formatActorSummary(r[apIdKey], infoMap.get(r[apIdKey]))),
-  });
-}
-
-/**
- * Generic create handler for relation upserts (block, mute).
- */
-async function createRelation(
-  c: AppContext,
-  verb: string,
-  upsert: (prisma: PrismaClient, actorApIdVal: string, targetApId: string) => Promise<unknown>,
-): Promise<Response> {
-  const result = requireActor(c);
-  if (result instanceof Response) return result;
-  const actor = result;
-
-  const body = await c.req.json<{ ap_id: string }>();
-  if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
-  if (body.ap_id === actor.ap_id) return c.json({ error: `Cannot ${verb} yourself` }, 400);
-
-  const prisma = c.get('prisma');
-  await upsert(prisma, actor.ap_id, body.ap_id);
-
-  return c.json({ success: true });
-}
-
-/**
- * Generic delete handler for relation removals (unblock, unmute).
- * Silently ignores Prisma not-found errors.
- */
-async function deleteRelation(
-  c: AppContext,
-  label: string,
-  remove: (prisma: PrismaClient, actorApIdVal: string, targetApId: string) => Promise<unknown>,
-): Promise<Response> {
-  const result = requireActor(c);
-  if (result instanceof Response) return result;
-  const actor = result;
-
-  const body = await c.req.json<{ ap_id: string }>();
-  if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
-
-  const prisma = c.get('prisma');
-  try {
-    await remove(prisma, actor.ap_id, body.ap_id);
-  } catch (err) {
-    if (!isPrismaNotFoundError(err)) {
-      console.warn(`[Actors] Failed to delete ${label} relation`, err);
-    }
-  }
-
-  return c.json({ success: true });
-}
+const actorsRoute = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 
 // Get all local actors (cached 5 minutes)
-actors.get('/', withCache({
+actorsRoute.get('/', withCache({
   ttl: CacheTTL.ACTOR_PROFILE,
   cacheTag: CacheTags.ACTOR,
 }), async (c) => {
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const limit = parseLimit(c.req.query('limit'), 100, 500);
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
 
-  const actorsList = await prisma.actor.findMany({
-    select: {
-      apId: true,
-      preferredUsername: true,
-      name: true,
-      summary: true,
-      iconUrl: true,
-      role: true,
-      followerCount: true,
-      followingCount: true,
-      postCount: true,
-      createdAt: true,
-    },
-    orderBy: { createdAt: 'asc' },
-    take: limit,
-    skip: offset,
-  });
+  const actorsList = await db.select({
+    apId: actors.apId,
+    preferredUsername: actors.preferredUsername,
+    name: actors.name,
+    summary: actors.summary,
+    iconUrl: actors.iconUrl,
+    role: actors.role,
+    followerCount: actors.followerCount,
+    followingCount: actors.followingCount,
+    postCount: actors.postCount,
+    createdAt: actors.createdAt,
+  })
+    .from(actors)
+    .where(notDeleted(actors))
+    .orderBy(asc(actors.createdAt))
+    .limit(limit)
+    .offset(offset);
 
   return c.json({
     actors: actorsList.map((a) => ({
@@ -311,130 +77,119 @@ actors.get('/', withCache({
 });
 
 // Get blocked users for current actor
-actors.get('/me/blocked', async (c) => {
-  return listRelation(c, (prisma, actorId, limit, offset) =>
-    prisma.block.findMany({
-      where: { blockerApId: actorId },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      skip: offset,
-    }), 'blockedApId', 'blocked');
+actorsRoute.get('/me/blocked', async (c) => {
+  return listRelation(c, (db, actorId, limit, offset) =>
+    db.select({
+      blockedApId: blocks.blockedApId,
+      createdAt: blocks.createdAt,
+    })
+      .from(blocks)
+      .where(eq(blocks.blockerApId, actorId))
+      .orderBy(desc(blocks.createdAt))
+      .limit(limit)
+      .offset(offset),
+  'blockedApId', 'blocked');
 });
 
 // Block a user
-actors.post('/me/blocked', async (c) => {
-  return createRelation(c, 'block', (prisma, actorId, targetId) =>
-    prisma.block.upsert({
-      where: { blockerApId_blockedApId: { blockerApId: actorId, blockedApId: targetId } },
-      create: { blockerApId: actorId, blockedApId: targetId },
-      update: {},
-    }));
+actorsRoute.post('/me/blocked', async (c) => {
+  return createRelation(c, 'block', (db, actorId, targetId) =>
+    db.insert(blocks).values({ blockerApId: actorId, blockedApId: targetId }).onConflictDoNothing());
 });
 
 // Unblock a user
-actors.delete('/me/blocked', async (c) => {
-  return deleteRelation(c, 'block', (prisma, actorId, targetId) =>
-    prisma.block.delete({
-      where: { blockerApId_blockedApId: { blockerApId: actorId, blockedApId: targetId } },
-    }));
+actorsRoute.delete('/me/blocked', async (c) => {
+  return deleteRelation(c, 'block', (db, actorId, targetId) =>
+    db.delete(blocks).where(and(eq(blocks.blockerApId, actorId), eq(blocks.blockedApId, targetId))));
 });
 
 // Get muted users for current actor
-actors.get('/me/muted', async (c) => {
-  return listRelation(c, (prisma, actorId, limit, offset) =>
-    prisma.mute.findMany({
-      where: { muterApId: actorId },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      skip: offset,
-    }), 'mutedApId', 'muted');
+actorsRoute.get('/me/muted', async (c) => {
+  return listRelation(c, (db, actorId, limit, offset) =>
+    db.select({
+      mutedApId: mutes.mutedApId,
+      createdAt: mutes.createdAt,
+    })
+      .from(mutes)
+      .where(eq(mutes.muterApId, actorId))
+      .orderBy(desc(mutes.createdAt))
+      .limit(limit)
+      .offset(offset),
+  'mutedApId', 'muted');
 });
 
 // Mute a user
-actors.post('/me/muted', async (c) => {
-  return createRelation(c, 'mute', (prisma, actorId, targetId) =>
-    prisma.mute.upsert({
-      where: { muterApId_mutedApId: { muterApId: actorId, mutedApId: targetId } },
-      create: { muterApId: actorId, mutedApId: targetId },
-      update: {},
-    }));
+actorsRoute.post('/me/muted', async (c) => {
+  return createRelation(c, 'mute', (db, actorId, targetId) =>
+    db.insert(mutes).values({ muterApId: actorId, mutedApId: targetId }).onConflictDoNothing());
 });
 
 // Unmute a user
-actors.delete('/me/muted', async (c) => {
-  return deleteRelation(c, 'mute', (prisma, actorId, targetId) =>
-    prisma.mute.delete({
-      where: { muterApId_mutedApId: { muterApId: actorId, mutedApId: targetId } },
-    }));
+actorsRoute.delete('/me/muted', async (c) => {
+  return deleteRelation(c, 'mute', (db, actorId, targetId) =>
+    db.delete(mutes).where(and(eq(mutes.muterApId, actorId), eq(mutes.mutedApId, targetId))));
 });
 
 // Delete own account (local only)
-actors.post('/me/delete', async (c) => {
+actorsRoute.post('/me/delete', async (c) => {
   const result = requireActor(c);
   if (result instanceof Response) return result;
   const actor = result;
 
   const actorApIdVal = actor.ap_id;
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
   try {
-    // Phase 1: remove dependent records in a transaction.
-    // Actor/object hard delete is executed after this block to avoid D1 batch-order ambiguity
-    // with `prevent_actor_hard_delete` trigger checks.
-    await prisma.$transaction(async (tx) => {
-      await tx.session.deleteMany({ where: { memberId: actorApIdVal } });
+    // Phase 1: remove dependent records sequentially.
+    await db.delete(sessions).where(eq(sessions.memberId, actorApIdVal));
 
-      await tx.follow.deleteMany({
-        where: { OR: [{ followerApId: actorApIdVal }, { followingApId: actorApIdVal }] },
-      });
+    await db.delete(follows).where(
+      or(eq(follows.followerApId, actorApIdVal), eq(follows.followingApId, actorApIdVal)),
+    );
 
-      await tx.block.deleteMany({
-        where: { OR: [{ blockerApId: actorApIdVal }, { blockedApId: actorApIdVal }] },
-      });
-      await tx.mute.deleteMany({
-        where: { OR: [{ muterApId: actorApIdVal }, { mutedApId: actorApIdVal }] },
-      });
+    await db.delete(blocks).where(
+      or(eq(blocks.blockerApId, actorApIdVal), eq(blocks.blockedApId, actorApIdVal)),
+    );
+    await db.delete(mutes).where(
+      or(eq(mutes.muterApId, actorApIdVal), eq(mutes.mutedApId, actorApIdVal)),
+    );
 
-      await tx.like.deleteMany({ where: { actorApId: actorApIdVal } });
-      await tx.bookmark.deleteMany({ where: { actorApId: actorApIdVal } });
-      await tx.announce.deleteMany({ where: { actorApId: actorApIdVal } });
+    await db.delete(likes).where(eq(likes.actorApId, actorApIdVal));
+    await db.delete(bookmarks).where(eq(bookmarks.actorApId, actorApIdVal));
+    await db.delete(announces).where(eq(announces.actorApId, actorApIdVal));
 
-      await tx.inbox.deleteMany({ where: { actorApId: actorApIdVal } });
+    await db.delete(inbox).where(eq(inbox.actorApId, actorApIdVal));
 
-      const memberships = await tx.communityMember.findMany({
-        where: { actorApId: actorApIdVal },
-        select: { communityApId: true },
-      });
-      const communityApIds = memberships.map((m) => m.communityApId);
-      if (communityApIds.length > 0) {
-        await tx.community.updateMany({
-          where: { apId: { in: communityApIds } },
-          data: { memberCount: { decrement: 1 } },
-        });
-      }
-      await tx.communityMember.deleteMany({ where: { actorApId: actorApIdVal } });
+    const memberships = await db.select({ communityApId: communityMembers.communityApId })
+      .from(communityMembers)
+      .where(eq(communityMembers.actorApId, actorApIdVal));
+    const communityApIds = memberships.map((m) => m.communityApId);
+    if (communityApIds.length > 0) {
+      await db.update(communities)
+        .set({ memberCount: sql`${communities.memberCount} - 1` })
+        .where(inArray(communities.apId, communityApIds));
+    }
+    await db.delete(communityMembers).where(eq(communityMembers.actorApId, actorApIdVal));
 
-      await tx.objectRecipient.deleteMany({ where: { recipientApId: actorApIdVal } });
-      await tx.activity.deleteMany({ where: { actorApId: actorApIdVal } });
+    await db.delete(objectRecipients).where(eq(objectRecipients.recipientApId, actorApIdVal));
+    await db.delete(activities).where(eq(activities.actorApId, actorApIdVal));
 
-      const authoredObjects = await tx.object.findMany({
-        where: { attributedTo: actorApIdVal },
-        select: { apId: true },
-      });
-      const objectIds = authoredObjects.map((o) => o.apId);
+    const authoredObjects = await db.select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.attributedTo, actorApIdVal));
+    const objectIds = authoredObjects.map((o) => o.apId);
 
-      if (objectIds.length > 0) {
-        await tx.like.deleteMany({ where: { objectApId: { in: objectIds } } });
-        await tx.announce.deleteMany({ where: { objectApId: { in: objectIds } } });
-        await tx.bookmark.deleteMany({ where: { objectApId: { in: objectIds } } });
-        await tx.storyVote.deleteMany({ where: { storyApId: { in: objectIds } } });
-        await tx.storyView.deleteMany({ where: { storyApId: { in: objectIds } } });
-      }
-    });
+    if (objectIds.length > 0) {
+      await db.delete(likes).where(inArray(likes.objectApId, objectIds));
+      await db.delete(announces).where(inArray(announces.objectApId, objectIds));
+      await db.delete(bookmarks).where(inArray(bookmarks.objectApId, objectIds));
+      await db.delete(storyVotes).where(inArray(storyVotes.storyApId, objectIds));
+      await db.delete(storyViews).where(inArray(storyViews.storyApId, objectIds));
+    }
 
     // Phase 2: explicit ordered hard-delete to satisfy trigger expectations.
-    await prisma.object.deleteMany({ where: { attributedTo: actorApIdVal } });
-    await prisma.actor.delete({ where: { apId: actorApIdVal } });
+    await db.delete(objects).where(eq(objects.attributedTo, actorApIdVal));
+    await db.delete(actors).where(eq(actors.apId, actorApIdVal));
 
     deleteCookie(c, 'session');
 
@@ -446,15 +201,15 @@ actors.post('/me/delete', async (c) => {
 });
 
 // Get posts for a specific actor
-actors.get('/:identifier/posts', async (c) => {
+actorsRoute.get('/:identifier/posts', async (c) => {
   const currentActor = c.get('actor');
   const identifier = c.req.param('identifier');
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
-  const apId = await resolveActorApId(prisma, c.env.APP_URL, identifier);
+  const apId = await resolveActorApId(db, c.env.APP_URL, identifier);
   if (!apId) return c.json({ error: 'Actor not found' }, 404);
 
-  if (!await actorExists(prisma, apId)) {
+  if (!await actorExists(db, apId)) {
     return c.json({ error: 'Actor not found' }, 404);
   }
 
@@ -462,24 +217,28 @@ actors.get('/:identifier/posts', async (c) => {
   const before = c.req.query('before');
   const isOwnProfile = currentActor && currentActor.ap_id === apId;
 
-  const posts = await prisma.object.findMany({
-    where: {
-      type: 'Note',
-      inReplyTo: null,
-      visibility: isOwnProfile ? { not: 'direct' } : 'public',
-      attributedTo: apId,
-      ...(before ? { published: { lt: before } } : {}),
-    },
-    orderBy: { published: 'desc' },
-    take: limit,
-  });
+  const conditions = [
+    eq(objects.type, 'Note'),
+    isNull(objects.inReplyTo),
+    eq(objects.attributedTo, apId),
+  ];
+  if (isOwnProfile) {
+    conditions.push(ne(objects.visibility, 'direct'));
+  } else {
+    conditions.push(eq(objects.visibility, 'public'));
+  }
+  if (before) {
+    conditions.push(lt(objects.published, before));
+  }
+
+  const posts = await db.select().from(objects).where(and(...conditions)).orderBy(desc(objects.published)).limit(limit);
 
   const postApIds = posts.map((p) => p.apId);
   const authorApIds = [...new Set(posts.map((p) => p.attributedTo))];
 
   const [authorMap, interactions] = await Promise.all([
-    loadActorInfoMap(prisma, authorApIds, AUTHOR_INFO_SELECT),
-    loadPostInteractions(prisma, currentActor?.ap_id ?? null, postApIds),
+    loadActorInfoMap(db, authorApIds, 'author'),
+    loadPostInteractions(db, currentActor?.ap_id ?? null, postApIds),
   ]);
 
   const resultList = posts.map((p) => {
@@ -514,38 +273,38 @@ actors.get('/:identifier/posts', async (c) => {
 });
 
 // Get actor by AP ID or username
-actors.get('/:identifier', async (c) => {
+actorsRoute.get('/:identifier', async (c) => {
   const currentActor = c.get('actor');
   const identifier = c.req.param('identifier');
   const baseUrl = c.env.APP_URL;
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
   // For @user@remote-domain, we may need to return cached data directly
   // (resolveActorApId only returns an apId when the cache has a match)
-  const apId = await resolveActorApId(prisma, baseUrl, identifier);
+  const apId = await resolveActorApId(db, baseUrl, identifier);
   if (!apId) return c.json({ error: 'Actor not found' }, 404);
 
   // Try local actor first
-  const localActor = await prisma.actor.findUnique({
-    where: { apId },
-    select: {
-      apId: true,
-      preferredUsername: true,
-      name: true,
-      summary: true,
-      iconUrl: true,
-      headerUrl: true,
-      role: true,
-      followerCount: true,
-      followingCount: true,
-      postCount: true,
-      isPrivate: true,
-      createdAt: true,
-    },
-  });
+  const localActor = await db.select({
+    apId: actors.apId,
+    preferredUsername: actors.preferredUsername,
+    name: actors.name,
+    summary: actors.summary,
+    iconUrl: actors.iconUrl,
+    headerUrl: actors.headerUrl,
+    role: actors.role,
+    followerCount: actors.followerCount,
+    followingCount: actors.followingCount,
+    postCount: actors.postCount,
+    isPrivate: actors.isPrivate,
+    createdAt: actors.createdAt,
+  })
+    .from(actors)
+    .where(eq(actors.apId, apId))
+    .get();
 
   if (!localActor) {
-    const cachedActor = await prisma.actorCache.findUnique({ where: { apId } });
+    const cachedActor = await db.select().from(actorCache).where(eq(actorCache.apId, apId)).get();
     if (!cachedActor) return c.json({ error: 'Actor not found' }, 404);
 
     return c.json({
@@ -568,12 +327,22 @@ actors.get('/:identifier', async (c) => {
 
   if (currentActor && currentActor.ap_id !== apId) {
     const [followingStatus, followedByStatus] = await Promise.all([
-      prisma.follow.findFirst({
-        where: { followerApId: currentActor.ap_id, followingApId: apId, status: 'accepted' },
-      }),
-      prisma.follow.findFirst({
-        where: { followerApId: apId, followingApId: currentActor.ap_id, status: 'accepted' },
-      }),
+      db.select({ followerApId: follows.followerApId })
+        .from(follows)
+        .where(and(
+          eq(follows.followerApId, currentActor.ap_id),
+          eq(follows.followingApId, apId),
+          eq(follows.status, 'accepted'),
+        ))
+        .get(),
+      db.select({ followerApId: follows.followerApId })
+        .from(follows)
+        .where(and(
+          eq(follows.followerApId, apId),
+          eq(follows.followingApId, currentActor.ap_id),
+          eq(follows.status, 'accepted'),
+        ))
+        .get(),
     ]);
     is_following = !!followingStatus;
     is_followed_by = !!followedByStatus;
@@ -601,7 +370,7 @@ actors.get('/:identifier', async (c) => {
 });
 
 // Update own profile
-actors.put('/me', async (c) => {
+actorsRoute.put('/me', async (c) => {
   const result = requireActor(c);
   if (result instanceof Response) return result;
   const actor = result;
@@ -654,61 +423,16 @@ actors.put('/me', async (c) => {
     return c.json({ error: 'No fields to update' }, 400);
   }
 
-  const prisma = c.get('prisma');
-  await prisma.actor.update({
-    where: { apId: actor.ap_id },
-    data: updates,
-  });
+  const db = c.get('prisma');
+  await db.update(actors).set(updates).where(eq(actors.apId, actor.ap_id));
 
   return c.json({ success: true });
 });
 
-// Shared handler for followers / following lists
-async function listFollowRelation(
-  c: AppContext,
-  direction: 'followers' | 'following',
-): Promise<Response> {
-  const identifier = c.req.param('identifier');
-  const apId = await resolveActorApId(c.get('prisma'), c.env.APP_URL, identifier);
-  if (!apId) return c.json({ error: 'Actor not found' }, 404);
-
-  const limit = parseLimit(c.req.query('limit'), 50, 100);
-  const offset = parseOffset(c.req.query('offset'), 0, 10000);
-  const prisma = c.get('prisma');
-
-  const isFollowers = direction === 'followers';
-  const where = isFollowers
-    ? { followingApId: apId, status: 'accepted' as const }
-    : { followerApId: apId, status: 'accepted' as const };
-
-  const [follows, total] = await Promise.all([
-    prisma.follow.findMany({ where, orderBy: { createdAt: 'desc' }, skip: offset, take: limit }),
-    prisma.follow.count({ where }),
-  ]);
-
-  const extractApId = isFollowers
-    ? (f: { followerApId: string }) => f.followerApId
-    : (f: { followingApId: string }) => f.followingApId;
-  const targetApIds = follows.map(extractApId);
-  const infoMap = await loadActorInfoMap(prisma, targetApIds);
-  const items = follows.map((f) => {
-    const id = extractApId(f);
-    return formatActorSummary(id, infoMap.get(id));
-  });
-
-  return c.json({
-    [direction]: items,
-    total,
-    limit,
-    offset,
-    has_more: offset + items.length < total,
-  });
-}
-
 // Get actor's followers
-actors.get('/:identifier/followers', async (c) => listFollowRelation(c, 'followers'));
+actorsRoute.get('/:identifier/followers', async (c) => listFollowRelation(c, 'followers'));
 
 // Get actor's following
-actors.get('/:identifier/following', async (c) => listFollowRelation(c, 'following'));
+actorsRoute.get('/:identifier/following', async (c) => listFollowRelation(c, 'following'));
 
-export default actors;
+export default actorsRoute;

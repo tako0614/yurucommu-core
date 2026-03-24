@@ -7,7 +7,7 @@ const IPV6_PATTERN = /^[0-9a-fA-F:]+$/;
 /**
  * Validate IP address format (basic check).
  */
-export function isValidIP(ip: string): boolean {
+function isValidIP(ip: string): boolean {
   if (IPV4_PATTERN.test(ip)) {
     return ip.split('.').map(Number).every((part) => part >= 0 && part <= 255);
   }

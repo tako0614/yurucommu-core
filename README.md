@@ -86,4 +86,9 @@ wrangler deploy --config wrangler.site.toml
 
 ## ライセンス
 
-MIT
+GNU AGPL v3。詳細は `LICENSE` を参照してください。
+
+## 貢献とセキュリティ
+
+- contribution の基本方針は `CONTRIBUTING.md`
+- 脆弱性報告の扱いは `SECURITY.md`

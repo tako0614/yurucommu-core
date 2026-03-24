@@ -7,7 +7,7 @@ export default defineConfig({
     // Frontend tests should use jsdom when needed
     environment: 'node',
     // Include test files
-    include: ['src/**/*.test.ts', 'test/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'web/src/**/*.test.ts', 'web/src/**/*.test.tsx', 'test/**/*.test.ts'],
     // Exclude node_modules and generated files
     exclude: ['node_modules', 'src/generated/**'],
     // Setup files for test utilities and mocks
@@ -27,12 +27,14 @@ export default defineConfig({
         lines: 50,
       },
       // Include source files
-      include: ['src/backend/**/*.ts', 'src/frontend/src/**/*.ts'],
+      include: ['src/backend/**/*.ts', 'web/src/**/*.ts', 'web/src/**/*.tsx'],
       exclude: [
         'src/**/*.test.ts',
+        'web/src/**/*.test.ts',
+        'web/src/**/*.test.tsx',
         'src/**/*.d.ts',
         'src/generated/**',
-        'src/frontend/vite.config.ts',
+        'web/vite.config.ts',
       ],
     },
     // Pool configuration for parallel testing
@@ -44,7 +46,7 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@backend': path.resolve(__dirname, './src/backend'),
-      '@frontend': path.resolve(__dirname, './src/frontend/src'),
+      '@frontend': path.resolve(__dirname, './web/src'),
       '@test': path.resolve(__dirname, './test'),
     },
   },

@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
+import { eq, and, or, count, asc, desc, sql, inArray, isNull } from 'drizzle-orm';
+import { communities, communityMembers, communityJoinRequests, objects } from '../../../db';
 import type { Env, Variables } from '../../types';
 import { communityApId, generateKeyPair, parseLimit, parseOffset } from '../../utils';
-import { fetchCommunityId, memberKey, requireManager } from './membership-shared';
+import { fetchCommunityId, memberWhere, requireManager } from './membership-shared';
 
-const communities = new Hono<{ Bindings: Env; Variables: Variables }>();
+const communitiesRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 function isValidCommunityIconUrl(value: string): boolean {
   const trimmed = value.trim();
@@ -38,22 +40,22 @@ function validateCommunityName(name: string | undefined): string | null {
 }
 
 // GET /api/communities - List all communities
-communities.get('/', async (c) => {
+communitiesRouter.get('/', async (c) => {
   const actor = c.get('actor');
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const limit = parseLimit(c.req.query('limit'), 100, 500);
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
 
   const actorApIdVal = actor?.ap_id || '';
 
-  const communitiesList = await prisma.community.findMany({
-    orderBy: [
-      { lastMessageAt: { sort: 'desc', nulls: 'last' } },
-      { createdAt: 'asc' },
-    ],
-    take: limit,
-    skip: offset,
-  });
+  const communitiesList = await db.select().from(communities)
+    .orderBy(
+      sql`CASE WHEN ${communities.lastMessageAt} IS NULL THEN 1 ELSE 0 END`,
+      desc(communities.lastMessageAt),
+      asc(communities.createdAt),
+    )
+    .limit(limit)
+    .offset(offset);
 
   // Batch load membership and join request status for current actor to avoid N+1
   const communityApIds = communitiesList.map((c) => c.apId);
@@ -62,14 +64,19 @@ communities.get('/', async (c) => {
 
   if (actorApIdVal && communityApIds.length > 0) {
     const [memberships, joinRequests] = await Promise.all([
-      prisma.communityMember.findMany({
-        where: { actorApId: actorApIdVal, communityApId: { in: communityApIds } },
-        select: { communityApId: true },
-      }),
-      prisma.communityJoinRequest.findMany({
-        where: { actorApId: actorApIdVal, communityApId: { in: communityApIds }, status: 'pending' },
-        select: { communityApId: true },
-      }),
+      db.select({ communityApId: communityMembers.communityApId })
+        .from(communityMembers)
+        .where(and(
+          eq(communityMembers.actorApId, actorApIdVal),
+          inArray(communityMembers.communityApId, communityApIds),
+        )),
+      db.select({ communityApId: communityJoinRequests.communityApId })
+        .from(communityJoinRequests)
+        .where(and(
+          eq(communityJoinRequests.actorApId, actorApIdVal),
+          inArray(communityJoinRequests.communityApId, communityApIds),
+          eq(communityJoinRequests.status, 'pending'),
+        )),
     ]);
 
     for (const m of memberships) membershipSet.add(m.communityApId);
@@ -101,11 +108,11 @@ communities.get('/', async (c) => {
 });
 
 // POST /api/communities - Create a new community
-communities.post('/', async (c) => {
+communitiesRouter.post('/', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
   const body = await c.req.json<{
     name: string;
@@ -123,46 +130,41 @@ communities.post('/', async (c) => {
   const apId = communityApId(baseUrl, validName);
   const now = new Date().toISOString();
 
-  const inbox = `${apId}/inbox`;
+  const inboxUrl = `${apId}/inbox`;
   const outbox = `${apId}/outbox`;
   const followersUrl = `${apId}/followers`;
 
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
 
-  // Create community and member in a transaction to prevent race condition
+  // Create community and member (D1 doesn't support interactive transactions, so sequential ops)
   try {
-    await prisma.$transaction(async (tx) => {
-      await tx.community.create({
-        data: {
-          apId,
-          preferredUsername: validName,
-          name: body.display_name || validName,
-          summary: body.summary || '',
-          inbox,
-          outbox,
-          followersUrl,
-          publicKeyPem,
-          privateKeyPem,
-          visibility: 'public',
-          joinPolicy: 'open',
-          postPolicy: 'members',
-          memberCount: 1,
-          createdBy: actor.ap_id,
-          createdAt: now,
-        },
-      });
+    await db.insert(communities).values({
+      apId,
+      preferredUsername: validName,
+      name: body.display_name || validName,
+      summary: body.summary || '',
+      inbox: inboxUrl,
+      outbox,
+      followersUrl,
+      publicKeyPem,
+      privateKeyPem,
+      visibility: 'public',
+      joinPolicy: 'open',
+      postPolicy: 'members',
+      memberCount: 1,
+      createdBy: actor.ap_id,
+      createdAt: now,
+    });
 
-      await tx.communityMember.create({
-        data: {
-          communityApId: apId,
-          actorApId: actor.ap_id,
-          role: 'owner',
-          joinedAt: now,
-        },
-      });
+    await db.insert(communityMembers).values({
+      communityApId: apId,
+      actorApId: actor.ap_id,
+      role: 'owner',
+      joinedAt: now,
     });
   } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+    // SQLite UNIQUE constraint error
+    if (error && typeof error === 'object' && 'message' in error && typeof (error as { message: string }).message === 'string' && (error as { message: string }).message.includes('UNIQUE constraint failed')) {
       return c.json({ error: 'Community name already taken' }, 409);
     }
     throw error;
@@ -186,22 +188,17 @@ communities.post('/', async (c) => {
 });
 
 // GET /api/communities/:name - Get community by name or ap_id
-communities.get('/:identifier', async (c) => {
+communitiesRouter.get('/:identifier', async (c) => {
   const identifier = c.req.param('identifier');
   const actor = c.get('actor');
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const baseUrl = c.env.APP_URL;
 
   const apId = identifier.startsWith('http') ? identifier : communityApId(baseUrl, identifier);
 
-  const community = await prisma.community.findFirst({
-    where: {
-      OR: [
-        { apId },
-        { preferredUsername: identifier },
-      ],
-    },
-  });
+  const community = await db.select().from(communities)
+    .where(or(eq(communities.apId, apId), eq(communities.preferredUsername, identifier)))
+    .get();
 
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
@@ -213,25 +210,32 @@ communities.get('/:identifier', async (c) => {
   let joinStatus: string | null = null;
 
   if (actor) {
-    const membership = await prisma.communityMember.findUnique({
-      where: memberKey(community.apId, actor.ap_id),
-    });
+    const membership = await db.select().from(communityMembers)
+      .where(memberWhere(community.apId, actor.ap_id))
+      .get();
     if (membership) {
       isMember = true;
       memberRole = membership.role;
     } else {
-      const joinRequest = await prisma.communityJoinRequest.findUnique({
-        where: memberKey(community.apId, actor.ap_id),
-      });
+      const joinRequest = await db.select().from(communityJoinRequests)
+        .where(and(
+          eq(communityJoinRequests.communityApId, community.apId),
+          eq(communityJoinRequests.actorApId, actor.ap_id),
+        ))
+        .get();
       if (joinRequest?.status === 'pending') {
         joinStatus = 'pending';
       }
     }
   }
 
-  const [memberCountResult, postsCount] = await Promise.all([
-    prisma.communityMember.count({ where: { communityApId: community.apId } }),
-    prisma.object.count({ where: { communityApId: community.apId } }),
+  const [memberCountResult, postsCountResult] = await Promise.all([
+    db.select({ count: count() }).from(communityMembers)
+      .where(eq(communityMembers.communityApId, community.apId))
+      .get(),
+    db.select({ count: count() }).from(objects)
+      .where(eq(objects.communityApId, community.apId))
+      .get(),
   ]);
 
   return c.json({
@@ -244,8 +248,8 @@ communities.get('/:identifier', async (c) => {
       visibility: community.visibility,
       join_policy: community.joinPolicy,
       post_policy: community.postPolicy,
-      member_count: memberCountResult || community.memberCount || 0,
-      post_count: postsCount || 0,
+      member_count: memberCountResult?.count || community.memberCount || 0,
+      post_count: postsCountResult?.count || 0,
       created_by: community.createdBy,
       created_at: community.createdAt,
       is_member: isMember,
@@ -256,19 +260,19 @@ communities.get('/:identifier', async (c) => {
 });
 
 // PATCH /api/communities/:identifier/settings - Update community settings
-communities.patch('/:identifier/settings', async (c) => {
+communitiesRouter.patch('/:identifier/settings', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const identifier = c.req.param('identifier');
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
   const { community } = await fetchCommunityId(c, identifier);
   if (!community) {
     return c.json({ error: 'Community not found' }, 404);
   }
 
-  const manager = await requireManager(prisma, community.apId, actor.ap_id);
+  const manager = await requireManager(db, community.apId, actor.ap_id);
   if (!manager) {
     return c.json({ error: 'Forbidden' }, 403);
   }
@@ -324,13 +328,12 @@ communities.patch('/:identifier/settings', async (c) => {
     return c.json({ error: 'No fields to update' }, 400);
   }
 
-  await prisma.community.update({
-    where: { apId: community.apId },
-    data: updates,
-  });
+  await db.update(communities)
+    .set(updates)
+    .where(eq(communities.apId, community.apId));
 
   return c.json({ success: true });
 });
 
 
-export default communities;
+export default communitiesRouter;

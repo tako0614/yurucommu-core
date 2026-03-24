@@ -33,8 +33,8 @@ model Actor {
   postCount         Int     @default(0) @map("post_count")
   isPrivate         Int     @default(0) @map("is_private")
   role              String  @default("member")
-  createdAt         String  @default(dbgenerated("datetime('now')")) @map("created_at")
-  updatedAt         String  @default(dbgenerated("datetime('now')")) @map("updated_at")
+  createdAt         String  @default("") @map("created_at")
+  updatedAt         String  @default("") @map("updated_at")
   deletedAt         String? @map("deleted_at")
   ownerActorApId    String? @map("owner_actor_ap_id")
 
@@ -84,8 +84,8 @@ model ActorCache {
   publicKeyId       String? @map("public_key_id")
   publicKeyPem      String? @map("public_key_pem")
   rawJson           String  @map("raw_json")
-  lastFetchedAt     String  @default(dbgenerated("datetime('now')")) @map("last_fetched_at")
-  createdAt         String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  lastFetchedAt     String  @default("") @map("last_fetched_at")
+  createdAt         String  @default("") @map("created_at")
 
   @@map("actor_cache")
 }
@@ -112,7 +112,7 @@ model Object {
   replyCount      Int     @default(0) @map("reply_count")
   announceCount   Int     @default(0) @map("announce_count")
   shareCount      Int     @default(0) @map("share_count")
-  published       String  @default(dbgenerated("datetime('now')"))
+  published       String  @default("")
   updated         String?
   isLocal         Int     @default(1) @map("is_local")
   rawJson         String? @map("raw_json")
@@ -155,7 +155,7 @@ model Follow {
   followingApId String  @map("following_ap_id")
   status        String  @default("pending")
   activityApId  String? @map("activity_ap_id")
-  createdAt     String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  createdAt     String  @default("") @map("created_at")
   acceptedAt    String? @map("accepted_at")
 
   // Relations
@@ -177,7 +177,7 @@ model Like {
   actorApId    String  @map("actor_ap_id")
   objectApId   String  @map("object_ap_id")
   activityApId String? @map("activity_ap_id")
-  createdAt    String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  createdAt    String  @default("") @map("created_at")
 
   // Relations
   actor  Actor  @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
@@ -197,7 +197,7 @@ model Announce {
   actorApId    String  @map("actor_ap_id")
   objectApId   String  @map("object_ap_id")
   activityApId String? @map("activity_ap_id")
-  createdAt    String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  createdAt    String  @default("") @map("created_at")
 
   // Relations
   actor  Actor  @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
@@ -216,7 +216,7 @@ model Announce {
 model Bookmark {
   actorApId  String @map("actor_ap_id")
   objectApId String @map("object_ap_id")
-  createdAt  String @default(dbgenerated("datetime('now')")) @map("created_at")
+  createdAt  String @default("") @map("created_at")
 
   // Relations
   actor  Actor  @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
@@ -233,8 +233,8 @@ model Bookmark {
 model Block {
   blockerApId String  @map("blocker_ap_id")
   blockedApId String  @map("blocked_ap_id")
-  createdAt   String  @default(dbgenerated("datetime('now')")) @map("created_at")
-  updatedAt   String? @default(dbgenerated("datetime('now')")) @map("updated_at")
+  createdAt   String  @default("") @map("created_at")
+  updatedAt   String? @default("") @map("updated_at")
 
   // Relations
   blocker Actor @relation("BlockerBlocks", fields: [blockerApId], references: [apId], onDelete: Cascade)
@@ -252,8 +252,8 @@ model Block {
 model Mute {
   muterApId String  @map("muter_ap_id")
   mutedApId String  @map("muted_ap_id")
-  createdAt String  @default(dbgenerated("datetime('now')")) @map("created_at")
-  updatedAt String? @default(dbgenerated("datetime('now')")) @map("updated_at")
+  createdAt String  @default("") @map("created_at")
+  updatedAt String? @default("") @map("updated_at")
 
   // Relations
   muter Actor @relation("MuterMutes", fields: [muterApId], references: [apId], onDelete: Cascade)
@@ -278,7 +278,7 @@ model Activity {
   rawJson    String  @map("raw_json")
   direction  String?
   processed  Int     @default(0)
-  createdAt  String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  createdAt  String  @default("") @map("created_at")
 
   // Relations
   actor      Actor   @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
@@ -305,10 +305,10 @@ model DeliveryQueue {
   attempts      Int     @default(0)
   lastAttemptAt String? @map("last_attempt_at")
   processingStartedAt String? @map("processing_started_at")
-  nextAttemptAt String  @default(dbgenerated("datetime('now')")) @map("next_attempt_at")
+  nextAttemptAt String  @default("") @map("next_attempt_at")
   deliveredAt   String? @map("delivered_at")
   error         String?
-  createdAt     String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  createdAt     String  @default("") @map("created_at")
 
   @@index([activityApId])
   @@index([nextAttemptAt])
@@ -327,8 +327,8 @@ model DeliveryCircuit {
   openUntil             String? @map("open_until")
   halfOpenProbeAttempts Int    @default(0) @map("half_open_probe_attempts")
   halfOpenProbeSuccesses Int   @default(0) @map("half_open_probe_successes")
-  createdAt             String @default(dbgenerated("datetime('now')")) @map("created_at")
-  updatedAt             String @default(dbgenerated("datetime('now')")) @map("updated_at")
+  createdAt             String @default("") @map("created_at")
+  updatedAt             String @default("") @map("updated_at")
 
   @@index([state, updatedAt])
   @@map("delivery_circuit")
@@ -354,7 +354,7 @@ model Community {
   privateKeyPem     String  @map("private_key_pem")
   createdBy         String  @map("created_by")
   memberCount       Int     @default(0) @map("member_count")
-  createdAt         String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  createdAt         String  @default("") @map("created_at")
   lastMessageAt     String? @map("last_message_at")
   deletedAt         String? @map("deleted_at")
 
@@ -376,8 +376,8 @@ model CommunityMember {
   communityApId String  @map("community_ap_id")
   actorApId     String  @map("actor_ap_id")
   role          String  @default("member")
-  joinedAt      String  @default(dbgenerated("datetime('now')")) @map("joined_at")
-  updatedAt     String? @default(dbgenerated("datetime('now')")) @map("updated_at")
+  joinedAt      String  @default("") @map("joined_at")
+  updatedAt     String? @default("") @map("updated_at")
 
   // Relations
   community Community @relation(fields: [communityApId], references: [apId], onDelete: Cascade)
@@ -396,7 +396,7 @@ model CommunityJoinRequest {
   communityApId String  @map("community_ap_id")
   actorApId     String  @map("actor_ap_id")
   status        String  @default("pending")
-  createdAt     String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  createdAt     String  @default("") @map("created_at")
   processedAt   String? @map("processed_at")
 
   // Relations
@@ -417,7 +417,7 @@ model CommunityInvite {
   communityApId String  @map("community_ap_id")
   invitedByApId String  @map("invited_by_ap_id")
   invitedApId   String? @map("invited_ap_id")
-  createdAt     String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  createdAt     String  @default("") @map("created_at")
   expiresAt     String? @map("expires_at")
   usedAt        String? @map("used_at")
   usedByApId    String? @map("used_by_ap_id")
@@ -438,7 +438,7 @@ model ObjectRecipient {
   objectApId    String @map("object_ap_id")
   recipientApId String @map("recipient_ap_id")
   type          String
-  createdAt     String @default(dbgenerated("datetime('now')")) @map("created_at")
+  createdAt     String @default("") @map("created_at")
 
   // Relations
   object    Object @relation(fields: [objectApId], references: [apId], onDelete: Cascade)
@@ -456,7 +456,7 @@ model Inbox {
   actorApId    String @map("actor_ap_id")
   activityApId String @map("activity_ap_id")
   read         Int    @default(0)
-  createdAt    String @default(dbgenerated("datetime('now')")) @map("created_at")
+  createdAt    String @default("") @map("created_at")
 
   // Relations
   actor    Actor    @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
@@ -477,7 +477,7 @@ model Session {
   accessToken            String  @unique @map("access_token")
   refreshToken           String? @map("refresh_token")
   expiresAt              String  @map("expires_at")
-  createdAt              String  @default(dbgenerated("datetime('now')")) @map("created_at")
+  createdAt              String  @default("") @map("created_at")
   provider               String?
   providerAccessToken    String? @map("provider_access_token")
   providerRefreshToken   String? @map("provider_refresh_token")
@@ -498,7 +498,7 @@ model Session {
 model StoryView {
   actorApId String @map("actor_ap_id")
   storyApId String @map("story_ap_id")
-  viewedAt  String @default(dbgenerated("datetime('now')")) @map("viewed_at")
+  viewedAt  String @default("") @map("viewed_at")
 
   // Relations
   actor Actor  @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
@@ -518,7 +518,7 @@ model StoryVote {
   storyApId   String @map("story_ap_id")
   actorApId   String @map("actor_ap_id")
   optionIndex Int    @map("option_index")
-  createdAt   String @default(dbgenerated("datetime('now')")) @map("created_at")
+  createdAt   String @default("") @map("created_at")
 
   // Relations
   actor Actor  @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
@@ -537,7 +537,7 @@ model StoryShare {
   id        String @id
   storyApId String @map("story_ap_id")
   actorApId String @map("actor_ap_id")
-  sharedAt  String @default(dbgenerated("datetime('now')")) @map("shared_at")
+  sharedAt  String @default("") @map("shared_at")
 
   // Relations
   actor Actor  @relation(fields: [actorApId], references: [apId], onDelete: Cascade)
@@ -555,7 +555,7 @@ model StoryShare {
 model NotificationArchived {
   actorApId    String @map("actor_ap_id")
   activityApId String @map("activity_ap_id")
-  archivedAt   String @default(dbgenerated("datetime('now')")) @map("archived_at")
+  archivedAt   String @default("") @map("archived_at")
 
   @@id([actorApId, activityApId])
   @@index([actorApId])
@@ -576,8 +576,8 @@ model InstanceActor {
   joinPolicy        String  @default("open") @map("join_policy")
   postingPolicy     String  @default("members") @map("posting_policy")
   visibility        String  @default("public")
-  createdAt         String  @default(dbgenerated("datetime('now')")) @map("created_at")
-  updatedAt         String  @default(dbgenerated("datetime('now')")) @map("updated_at")
+  createdAt         String  @default("") @map("created_at")
+  updatedAt         String  @default("") @map("updated_at")
 
   @@map("instance_actor")
 }
@@ -601,7 +601,7 @@ model DmTyping {
 model DmReadStatus {
   actorApId      String @map("actor_ap_id")
   conversationId String @map("conversation_id")
-  lastReadAt     String @default(dbgenerated("datetime('now')")) @map("last_read_at")
+  lastReadAt     String @default("") @map("last_read_at")
 
   @@id([actorApId, conversationId])
   @@index([actorApId])
@@ -615,7 +615,7 @@ model DmReadStatus {
 model DmArchivedConversation {
   actorApId      String  @map("actor_ap_id")
   conversationId String  @map("conversation_id")
-  archivedAt     String? @default(dbgenerated("datetime('now')")) @map("archived_at")
+  archivedAt     String? @default("") @map("archived_at")
 
   @@id([actorApId, conversationId])
   @@index([actorApId])
@@ -631,9 +631,10 @@ model MediaUpload {
   uploaderApId String @map("uploader_ap_id")
   contentType  String @map("content_type")
   size         Int
-  createdAt    String @default(dbgenerated("datetime('now')")) @map("created_at")
+  createdAt    String @default("") @map("created_at")
 
   @@index([uploaderApId])
   @@index([r2Key])
+
   @@map("media_uploads")
 }

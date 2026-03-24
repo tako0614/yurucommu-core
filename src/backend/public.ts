@@ -8,11 +8,8 @@ export {
 export { default } from './index';
 export { default as app } from './index';
 export {
-  getPrismaD1,
-  getPrismaSQLite,
-  createPrismaClient,
-  disconnectPrisma,
-  PrismaClient,
-} from './lib/db';
+  getDb,
+  getDbSQLite,
+  type Database,
+} from '../db';
 export type { D1Database } from '@cloudflare/workers-types';
-export type * from '../generated/prisma';

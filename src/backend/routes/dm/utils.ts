@@ -1,10 +1,9 @@
-import type { PrismaClient } from '../../../generated/prisma';
-import { parseLimit } from '../../utils';
+import { eq, and, or, desc, isNotNull, like } from 'drizzle-orm';
+import type { Database } from '../../../db';
+import { objects } from '../../../db';
 
 export const MAX_DM_CONTENT_LENGTH = 5000;
 export const MAX_DM_PAGE_LIMIT = 100;
-
-export { parseLimit };
 
 export function getConversationId(baseUrl: string, ap1: string, ap2: string): string {
   const [p1, p2] = [ap1, ap2].sort();
@@ -13,7 +12,7 @@ export function getConversationId(baseUrl: string, ap1: string, ap2: string): st
 }
 
 export async function resolveConversationId(
-  prisma: PrismaClient,
+  db: Database,
   baseUrl: string,
   actorApId: string,
   otherApId: string
@@ -22,25 +21,28 @@ export async function resolveConversationId(
   const otherApIdJson = JSON.stringify(otherApId);
 
   // Find existing conversation between these two actors
-  const existing = await prisma.object.findFirst({
-    where: {
-      visibility: 'direct',
-      type: 'Note',
-      conversation: { not: null },
-      OR: [
-        {
-          attributedTo: actorApId,
-          toJson: { contains: otherApIdJson },
-        },
-        {
-          attributedTo: otherApId,
-          toJson: { contains: actorApIdJson },
-        },
-      ],
-    },
-    orderBy: { published: 'desc' },
-    select: { conversation: true },
-  });
+  const existing = await db.select({ conversation: objects.conversation })
+    .from(objects)
+    .where(
+      and(
+        eq(objects.visibility, 'direct'),
+        eq(objects.type, 'Note'),
+        isNotNull(objects.conversation),
+        or(
+          and(
+            eq(objects.attributedTo, actorApId),
+            like(objects.toJson, `%${otherApIdJson}%`),
+          ),
+          and(
+            eq(objects.attributedTo, otherApId),
+            like(objects.toJson, `%${actorApIdJson}%`),
+          ),
+        ),
+      ),
+    )
+    .orderBy(desc(objects.published))
+    .limit(1)
+    .get();
 
   return existing?.conversation || getConversationId(baseUrl, actorApId, otherApId);
 }

@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck - This file is Deno-specific and should be type-checked by Deno's TypeScript
 /**
  * Deno Runtime Adapters
@@ -542,7 +543,6 @@ export async function createDenoRuntime(config: {
   envVars: {
     APP_URL: string;
     AUTH_PASSWORD_HASH?: string;
-    AUTH_PASSWORD?: string;
     GOOGLE_CLIENT_ID?: string;
     GOOGLE_CLIENT_SECRET?: string;
     X_CLIENT_ID?: string;

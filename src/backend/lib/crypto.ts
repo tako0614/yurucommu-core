@@ -130,18 +130,9 @@ export async function decrypt(encrypted: string, encryptionKey: string | undefin
   }
 }
 
-/**
- * Generate a new encryption key (32 bytes / 256 bits)
- * Run this once to generate a key for ENCRYPTION_KEY env var
- */
-export function generateEncryptionKey(): string {
-  const key = crypto.getRandomValues(new Uint8Array(32));
-  return bytesToHex(key);
-}
-
 // PBKDF2 password hashing
 
-const PBKDF2_ITERATIONS = 600000; // OWASP 2023 recommendation for SHA-256
+const PBKDF2_ITERATIONS = 100000; // Cloudflare Workers caps deriveBits at 100k iterations
 const SALT_LENGTH = 32;
 const HASH_LENGTH = 32;
 

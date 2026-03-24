@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck - This file is Deno-specific and should be type-checked by Deno's TypeScript
 /**
  * Deno Server Entry Point
@@ -13,7 +14,7 @@
  *   STORAGE_PATH     - File storage path (default: ./data/storage)
  *   ASSETS_PATH      - Static assets path (default: ./dist)
  *   APP_URL          - Application URL (default: http://localhost:3000)
- *   AUTH_PASSWORD    - Optional password authentication
+ *   AUTH_PASSWORD_HASH - PBKDF2-hashed password authentication
  *   GOOGLE_CLIENT_ID/SECRET - Google OAuth
  *   X_CLIENT_ID/SECRET - X (Twitter) OAuth
  *   TAKOS_URL/CLIENT_ID/SECRET - Takos OAuth
@@ -328,7 +329,6 @@ class AssetsCompatFetcher {
 /** Env var keys that are passed through from Deno.env to the Hono env. */
 const ENV_PASSTHROUGH_KEYS = [
   'AUTH_PASSWORD_HASH',
-  'AUTH_PASSWORD',
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
   'X_CLIENT_ID',

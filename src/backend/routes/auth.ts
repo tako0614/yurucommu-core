@@ -1,9 +1,8 @@
 import { Hono } from 'hono';
-import type { Context } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { Env, Variables } from '../types';
-import { generateId, actorApId, formatUsername, generateKeyPair } from '../utils';
-import { encrypt, verifyPassword } from '../lib/crypto';
+import { actorApId, formatUsername } from '../utils';
+import { verifyPassword } from '../lib/crypto';
 import {
   getAuthConfig,
   getProvider,
@@ -25,337 +24,20 @@ import {
   recordFailedLoginAttempt,
 } from '../lib/auth-lockout';
 import { getClientIP } from '../lib/client-ip';
-import type { Database } from '../../db';
-import { eq, and, or, count, desc, asc, sql, inArray, isNull } from 'drizzle-orm';
+import { eq, or, asc } from 'drizzle-orm';
 import { actors, sessions } from '../../db';
-
-/** Session lifetime: 30 days in seconds. */
-const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
-
-type OAuthTokens = { access_token: string; refresh_token?: string; expires_in?: number };
-
-type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
-
-/**
- * Constant-time string comparison to prevent timing attacks.
- * Always compares the full length to avoid leaking information about the password.
- */
-function timingSafeEqual(a: string, b: string): boolean {
-  const encoder = new TextEncoder();
-  const aBytes = encoder.encode(a);
-  const bBytes = encoder.encode(b);
-
-  const maxLen = Math.max(aBytes.length, bBytes.length);
-  let result = aBytes.length === bBytes.length ? 0 : 1;
-
-  for (let i = 0; i < maxLen; i++) {
-    const aByte = i < aBytes.length ? aBytes[i] : 0;
-    const bByte = i < bBytes.length ? bBytes[i] : 0;
-    result |= aByte ^ bByte;
-  }
-
-  return result === 0;
-}
-
-async function parseJsonObject(
-  c: { req: { json(): Promise<unknown> } }
-): Promise<Record<string, unknown> | null> {
-  try {
-    const body = await c.req.json();
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
-    return body as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-function nonEmptyString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function formatAccountResponse(a: { apId: string; preferredUsername: string; name: string | null; iconUrl: string | null }): {
-  ap_id: string;
-  preferred_username: string;
-  name: string | null;
-  icon_url: string | null;
-} {
-  return {
-    ap_id: a.apId,
-    preferred_username: a.preferredUsername,
-    name: a.name,
-    icon_url: a.iconUrl,
-  };
-}
-
-async function deleteSessionSafely(db: Database, sessionId: string, context: string): Promise<void> {
-  try {
-    await db.delete(sessions).where(eq(sessions.id, sessionId));
-  } catch (err) {
-    console.warn(`[Auth] Failed to delete session during ${context}`, err);
-  }
-}
-
-/**
- * Invalidates any existing session, creates a fresh one, and sets the cookie.
- * Centralises session-rotation logic used by both password and OAuth login.
- */
-async function rotateSession(
-  c: HonoContext,
-  memberApId: string,
-  provider: string | null,
-  tokens: OAuthTokens | null,
-  encryptionKey: string | undefined,
-  rotationContext: string,
-): Promise<string> {
-  const db = c.get('prisma');
-
-  // Invalidate existing session
-  const existingSessionId = getCookie(c, 'session');
-  if (existingSessionId) {
-    await deleteSessionSafely(db, existingSessionId, rotationContext);
-    deleteCookie(c, 'session');
-  }
-
-  // Create new session with encrypted tokens
-  const sessionId = generateId();
-  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString();
-
-  await db.insert(sessions).values({
-    id: sessionId,
-    memberId: memberApId,
-    accessToken: sessionId,
-    expiresAt,
-    provider,
-    providerAccessToken: tokens?.access_token
-      ? await encrypt(tokens.access_token, encryptionKey)
-      : null,
-    providerRefreshToken: tokens?.refresh_token
-      ? await encrypt(tokens.refresh_token, encryptionKey)
-      : null,
-    providerTokenExpiresAt: tokens?.expires_in
-      ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-      : null,
-  });
-
-  // Set cookie
-  setCookie(c, 'session', sessionId, {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'Lax',
-    path: '/',
-    maxAge: SESSION_MAX_AGE_SECONDS,
-  });
-
-  return sessionId;
-}
-
-function actorEndpoints(apId: string) {
-  return {
-    inbox: `${apId}/inbox`,
-    outbox: `${apId}/outbox`,
-    followersUrl: `${apId}/followers`,
-    followingUrl: `${apId}/following`,
-  };
-}
-
-/** Resolves a unique username by appending a counter on collision. */
-async function resolveUniqueUsername(
-  db: Database,
-  baseUrl: string,
-  baseUsername: string,
-): Promise<string> {
-  let username = baseUsername;
-  let counter = 1;
-  while (await db.select({ apId: actors.apId }).from(actors).where(eq(actors.apId, actorApId(baseUrl, username))).get()) {
-    username = `${baseUsername}${counter}`;
-    counter++;
-  }
-  return username;
-}
-
-async function createActor(
-  db: Database,
-  env: Env,
-  opts: {
-    username: string;
-    name: string;
-    iconUrl?: string | null;
-    takosUserId: string;
-    role: string;
-    ownerActorApId?: string | null;
-  },
-) {
-  const apId = actorApId(env.APP_URL, opts.username);
-  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
-
-  return await db.insert(actors).values({
-    apId,
-    type: 'Person',
-    preferredUsername: opts.username,
-    name: opts.name,
-    iconUrl: opts.iconUrl ?? null,
-    ...actorEndpoints(apId),
-    publicKeyPem,
-    privateKeyPem,
-    takosUserId: opts.takosUserId,
-    role: opts.role,
-    ownerActorApId: opts.ownerActorApId ?? null,
-  }).returning().get();
-}
-
-async function createActorFromOAuth(
-  db: Database,
-  env: Env,
-  userInfo: { id: string; name: string; email?: string; picture?: string; username?: string },
-  providerUserId: string,
-) {
-  const baseUsername = userInfo.username || userInfo.name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
-  const username = await resolveUniqueUsername(db, env.APP_URL, baseUsername);
-  const result = await db.select({ count: count() }).from(actors).get();
-  const actorCount = result?.count ?? 0;
-
-  return await createActor(db, env, {
-    username,
-    name: userInfo.name,
-    iconUrl: userInfo.picture,
-    takosUserId: providerUserId,
-    role: actorCount === 0 ? 'owner' : 'member',
-  });
-}
-
-/** Fetches user info from the Takos OAuth exchange service binding. */
-async function fetchTakosUserInfo(
-  binding: { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> },
-  accessToken: string,
-  clientIp: string | undefined,
-): Promise<{ id: string; name: string; email?: string; picture?: string }> {
-  const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
-  if (clientIp) headers['X-Forwarded-For'] = clientIp;
-
-  const res = await binding.fetch('https://internal/oauth/userinfo', { headers });
-  if (!res.ok) throw new Error(`Failed to fetch takos user info: ${res.status}`);
-
-  const data = await res.json() as { user?: { id: string; name: string; email?: string; picture?: string } };
-  if (!data.user?.id || !data.user?.name) throw new Error('Invalid takos user info payload');
-
-  return { id: data.user.id, name: data.user.name, email: data.user.email, picture: data.user.picture };
-}
-
-function lockoutErrorResponse(retryAfterSeconds: number): { error: string; retry_after: number } {
-  return {
-    error: 'Too many failed login attempts. Please try again later.',
-    retry_after: retryAfterSeconds,
-  };
-}
-
-/** Exchange an OAuth authorization code for tokens. Returns null on failure. */
-async function exchangeOAuthToken(
-  providerId: string,
-  code: string,
-  codeVerifier: string | undefined,
-  env: Env,
-  provider: { tokenUrl: string; supportsPkce: boolean },
-  clientIp: string | undefined,
-): Promise<OAuthTokens | null> {
-  const { clientId, clientSecret } = getClientCredentials(env, providerId);
-  const redirectUri = `${env.APP_URL}/api/auth/callback/${providerId}`;
-
-  const tokenBody: Record<string, string> = {
-    grant_type: 'authorization_code',
-    code,
-    redirect_uri: redirectUri,
-    client_id: clientId,
-    client_secret: clientSecret,
-  };
-
-  if (provider.supportsPkce && codeVerifier) {
-    tokenBody.code_verifier = codeVerifier;
-  }
-
-  const tokenHeaders: Record<string, string> = {
-    'Content-Type': 'application/x-www-form-urlencoded',
-  };
-
-  const usingBinding = providerId === 'takos' && !!env.TAKOS_OAUTH_EXCHANGE;
-  if (usingBinding && clientIp) {
-    tokenHeaders['X-Forwarded-For'] = clientIp;
-  }
-
-  if (providerId === 'x') {
-    tokenHeaders['Authorization'] = `Basic ${btoa(`${clientId}:${clientSecret}`)}`;
-    delete tokenBody.client_secret;
-  }
-
-  const tokenUrl = usingBinding ? 'https://internal/oauth/token' : provider.tokenUrl;
-  const requestInit: RequestInit = {
-    method: 'POST',
-    headers: tokenHeaders,
-    body: new URLSearchParams(tokenBody),
-  };
-
-  console.log('Token exchange request:', {
-    url: tokenUrl,
-    via: usingBinding ? 'service_binding' : 'fetch',
-    clientId,
-    redirectUri,
-    hasCodeVerifier: !!tokenBody.code_verifier,
-  });
-
-  const res = usingBinding
-    ? await env.TAKOS_OAUTH_EXCHANGE!.fetch(tokenUrl, requestInit)
-    : await fetch(tokenUrl, requestInit);
-
-  if (!res.ok) {
-    console.error('Token exchange failed:', {
-      status: res.status,
-      statusText: res.statusText,
-      body: await res.text(),
-      url: provider.tokenUrl,
-    });
-    return null;
-  }
-
-  return await res.json() as OAuthTokens;
-}
-
-/** Look up an existing actor by provider user ID (with legacy migration), or create a new one. */
-async function findOrCreateOAuthActor(
-  db: Database,
-  env: Env,
-  providerId: string,
-  userInfo: { id: string; name: string; email?: string; picture?: string; username?: string },
-) {
-  const providerUserId = providerId === 'takos' ? userInfo.id : `${providerId}:${userInfo.id}`;
-
-  let actorData = await db.select().from(actors).where(eq(actors.takosUserId, providerUserId)).get();
-
-  // Migrate legacy takos: prefixed IDs
-  if (!actorData && providerId === 'takos') {
-    const legacyActor = await db.select().from(actors).where(eq(actors.takosUserId, `takos:${userInfo.id}`)).get();
-    if (legacyActor) {
-      actorData = await db.update(actors)
-        .set({ takosUserId: providerUserId })
-        .where(eq(actors.apId, legacyActor.apId))
-        .returning().get();
-    }
-  }
-
-  if (!actorData) {
-    actorData = await createActorFromOAuth(db, env, userInfo, providerUserId);
-  } else {
-    await db.update(actors)
-      .set({
-        name: userInfo.name,
-        ...(userInfo.picture ? { iconUrl: userInfo.picture } : {}),
-      })
-      .where(eq(actors.apId, actorData.apId))
-      .run();
-  }
-
-  return actorData;
-}
+import {
+  parseJsonObject,
+  nonEmptyString,
+  formatAccountResponse,
+  deleteSessionSafely,
+  rotateSession,
+  createActor,
+  fetchTakosUserInfo,
+  lockoutErrorResponse,
+  exchangeOAuthToken,
+  findOrCreateOAuthActor,
+} from './auth-helpers';
 
 const KNOWN_OAUTH_ERRORS = new Set([
   'access_denied', 'invalid_request', 'unauthorized_client',
@@ -446,18 +128,10 @@ auth.post('/login', async (c) => {
   }
 
   // Verify password using PBKDF2 hash (AUTH_PASSWORD_HASH).
-  // Legacy plaintext fallback requires explicit ALLOW_PLAINTEXT_AUTH=true.
   let isValid = false;
 
   if (c.env.AUTH_PASSWORD_HASH) {
     isValid = await verifyPassword(password, c.env.AUTH_PASSWORD_HASH);
-  } else if (c.env.AUTH_PASSWORD && c.env.ALLOW_PLAINTEXT_AUTH === 'true') {
-    console.warn(
-      '[SECURITY WARNING] AUTH_PASSWORD is deprecated. ' +
-      'Use AUTH_PASSWORD_HASH with PBKDF2-hashed password instead. ' +
-      'See docs for migration guide.'
-    );
-    isValid = timingSafeEqual(password, c.env.AUTH_PASSWORD);
   }
 
   if (!isValid) {
@@ -569,15 +243,13 @@ auth.get('/callback/:provider', async (c) => {
   const provider = getProvider(c.env, providerId);
   if (!provider) return c.redirect('/?error=unknown_provider');
 
-  const clientIp = c.req.header('CF-Connecting-IP');
-  const tokens = await exchangeOAuthToken(providerId, code, storedState.codeVerifier, c.env, provider, clientIp);
+  const tokens = await exchangeOAuthToken(providerId, code, storedState.codeVerifier, c.env, provider);
   if (!tokens) return c.redirect('/?error=token_exchange_failed');
 
-  const usingBinding = providerId === 'takos' && !!c.env.TAKOS_OAUTH_EXCHANGE;
   let userInfo;
   try {
-    userInfo = usingBinding
-      ? await fetchTakosUserInfo(c.env.TAKOS_OAUTH_EXCHANGE!, tokens.access_token, clientIp)
+    userInfo = providerId === 'takos'
+      ? await fetchTakosUserInfo(c.env.TAKOS_URL || 'https://takos.jp', tokens.access_token)
       : await fetchUserInfo(provider, tokens.access_token);
   } catch (err) {
     console.error('Failed to fetch user info:', err);

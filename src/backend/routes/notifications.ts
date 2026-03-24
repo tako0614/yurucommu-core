@@ -1,9 +1,12 @@
 // Notifications routes for Yurucommu backend
 // AP Native: Notifications are derived from inbox (activities addressed to the actor)
 import { Hono } from 'hono';
+import { eq, and, ne, lt, count, desc, inArray } from 'drizzle-orm';
 import type { Env, Variables } from '../types';
 import { formatUsername, parseLimit, parseOffset } from '../utils';
-import type { PrismaClient, Prisma } from '../../generated/prisma';
+import type { Database } from '../../db';
+import { inbox as inboxTable, activities, notificationArchived, objects, follows } from '../../db';
+import { batchLoadActorInfo } from './communities/membership-shared';
 
 const notifications = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -15,15 +18,6 @@ const ARCHIVE_ALL_CAP = 1000;
 const NOTIFICATION_ACTIVITY_TYPES = ['Follow', 'Like', 'Announce', 'Create'];
 const archivedCleanupTimestamps = new Map<string, number>();
 
-type ActorInfo = { preferredUsername: string | null; name: string | null; iconUrl: string | null };
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && (error as { code?: string }).code === 'P2002';
-}
-
 /** Require authenticated actor or return 401. */
 function requireActor(c: { get(key: 'actor'): { ap_id: string } | null }): { ap_id: string } | null {
   return c.get('actor');
@@ -34,7 +28,7 @@ function requireActor(c: { get(key: 'actor'): { ap_id: string } | null }): { ap_
  * Returns the number of rows actually inserted.
  */
 async function batchArchiveInsert(
-  prisma: PrismaClient,
+  db: Database,
   rows: Array<{ actorApId: string; activityApId: string; archivedAt: string }>,
   batchSize: number,
 ): Promise<number> {
@@ -42,70 +36,48 @@ async function batchArchiveInsert(
 
   for (let i = 0; i < rows.length; i += batchSize) {
     const batch = rows.slice(i, i + batchSize);
-
-    try {
-      const result = await prisma.notificationArchived.createMany({ data: batch });
-      inserted += result.count;
-    } catch (error) {
-      if (!isUniqueConstraintError(error)) {
-        throw error;
-      }
-      // Race-condition duplicates: fall back to row-by-row insert
-      for (const row of batch) {
-        try {
-          await prisma.notificationArchived.create({ data: row });
-          inserted++;
-        } catch (innerError) {
-          if (!isUniqueConstraintError(innerError)) {
-            throw innerError;
-          }
-        }
-      }
-    }
+    const result = await db.insert(notificationArchived).values(batch).onConflictDoNothing();
+    inserted += result.meta?.changes ?? 0;
   }
 
   return inserted;
 }
 
-async function cleanupArchivedNotifications(prisma: PrismaClient, actorApId: string): Promise<void> {
+async function cleanupArchivedNotifications(db: Database, actorApId: string): Promise<void> {
   const retentionDate = new Date();
   retentionDate.setDate(retentionDate.getDate() - ARCHIVE_RETENTION_DAYS);
   const retentionDateStr = retentionDate.toISOString();
 
-  const archivedToDelete = await prisma.notificationArchived.findMany({
-    where: {
-      actorApId,
-      archivedAt: { lt: retentionDateStr },
-    },
-    select: { activityApId: true },
-  });
+  const archivedToDelete = await db
+    .select({ activityApId: notificationArchived.activityApId })
+    .from(notificationArchived)
+    .where(and(
+      eq(notificationArchived.actorApId, actorApId),
+      lt(notificationArchived.archivedAt, retentionDateStr),
+    ));
 
   if (archivedToDelete.length === 0) return;
 
   const activityApIds = archivedToDelete.map(a => a.activityApId);
 
-  await prisma.inbox.deleteMany({
-    where: {
-      actorApId,
-      activityApId: { in: activityApIds },
-    },
-  });
+  await db.delete(inboxTable).where(and(
+    eq(inboxTable.actorApId, actorApId),
+    inArray(inboxTable.activityApId, activityApIds),
+  ));
 
-  await prisma.notificationArchived.deleteMany({
-    where: {
-      actorApId,
-      archivedAt: { lt: retentionDateStr },
-    },
-  });
+  await db.delete(notificationArchived).where(and(
+    eq(notificationArchived.actorApId, actorApId),
+    lt(notificationArchived.archivedAt, retentionDateStr),
+  ));
 }
 
-async function maybeCleanupArchivedNotifications(prisma: PrismaClient, actorApId: string): Promise<void> {
+async function maybeCleanupArchivedNotifications(db: Database, actorApId: string): Promise<void> {
   const now = Date.now();
   const lastRun = archivedCleanupTimestamps.get(actorApId) ?? 0;
   if (now - lastRun < ARCHIVED_CLEANUP_INTERVAL_MS) return;
 
   archivedCleanupTimestamps.set(actorApId, now);
-  await cleanupArchivedNotifications(prisma, actorApId);
+  await cleanupArchivedNotifications(db, actorApId);
 }
 
 function activityToNotificationType(activityType: string, hasInReplyTo: boolean, followStatus?: string | null): string | null {
@@ -123,33 +95,6 @@ function activityToNotificationType(activityType: string, hasInReplyTo: boolean,
   }
 }
 
-/** Build a merged actor lookup map (local actors take priority over cached). */
-async function buildActorMap(
-  prisma: PrismaClient,
-  apIds: string[],
-): Promise<Map<string, ActorInfo>> {
-  const [localActors, cachedActors] = await Promise.all([
-    prisma.actor.findMany({
-      where: { apId: { in: apIds } },
-      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-    }),
-    prisma.actorCache.findMany({
-      where: { apId: { in: apIds } },
-      select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-    }),
-  ]);
-
-  const map = new Map<string, ActorInfo>();
-  // Insert cached first so local actors override them
-  for (const a of cachedActors) {
-    map.set(a.apId, { preferredUsername: a.preferredUsername, name: a.name, iconUrl: a.iconUrl });
-  }
-  for (const a of localActors) {
-    map.set(a.apId, { preferredUsername: a.preferredUsername, name: a.name, iconUrl: a.iconUrl });
-  }
-  return map;
-}
-
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
@@ -159,8 +104,8 @@ notifications.get('/', async (c) => {
   const actor = requireActor(c);
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
-  await maybeCleanupArchivedNotifications(prisma, actor.ap_id);
+  const db = c.get('prisma');
+  await maybeCleanupArchivedNotifications(db, actor.ap_id);
 
   const limit = parseLimit(c.req.query('limit'), 20, 100);
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
@@ -181,50 +126,59 @@ notifications.get('/', async (c) => {
     : NOTIFICATION_ACTIVITY_TYPES;
 
   // Get archived activity IDs for filtering
-  const archivedActivities = await prisma.notificationArchived.findMany({
-    where: { actorApId: actor.ap_id },
-    select: { activityApId: true },
-  });
+  const archivedActivities = await db
+    .select({ activityApId: notificationArchived.activityApId })
+    .from(notificationArchived)
+    .where(eq(notificationArchived.actorApId, actor.ap_id));
   const archivedActivityIds = new Set(archivedActivities.map(a => a.activityApId));
 
-  // Build inbox query
-  const whereClause: Prisma.InboxWhereInput = {
-    actorApId: actor.ap_id,
-    activity: {
-      actorApId: { not: actor.ap_id },
-      type: { in: activityTypes },
-    },
-  };
+  // Build inbox query with JOIN to activities
+  const conditions = [
+    eq(inboxTable.actorApId, actor.ap_id),
+    ne(activities.actorApId, actor.ap_id),
+    inArray(activities.type, activityTypes),
+  ];
   if (before) {
-    whereClause.createdAt = { lt: before };
+    conditions.push(lt(inboxTable.createdAt, before));
   }
 
-  const inboxEntries = await prisma.inbox.findMany({
-    where: whereClause,
-    include: { activity: true },
-    orderBy: { createdAt: 'desc' },
-    take: limit + 1,
-  });
+  const inboxEntries = await db
+    .select({
+      actorApId: inboxTable.actorApId,
+      activityApId: inboxTable.activityApId,
+      read: inboxTable.read,
+      createdAt: inboxTable.createdAt,
+      activityType: activities.type,
+      activityActorApId: activities.actorApId,
+      activityObjectApId: activities.objectApId,
+    })
+    .from(inboxTable)
+    .innerJoin(activities, eq(inboxTable.activityApId, activities.apId))
+    .where(and(...conditions))
+    .orderBy(desc(inboxTable.createdAt))
+    .limit(limit + 1);
 
   // Batch fetch related data
-  const actorApIds = [...new Set(inboxEntries.map(i => i.activity.actorApId))];
-  const objectApIds = [...new Set(inboxEntries.map(i => i.activity.objectApId).filter((id): id is string => id !== null))];
-  const activityApIds = [...new Set(inboxEntries.map(i => i.activityApId))];
+  const actorApIds = [...new Set(inboxEntries.map(i => i.activityActorApId))];
+  const objectApIds = [...new Set(inboxEntries.map(i => i.activityObjectApId).filter((id): id is string => id !== null))];
+  const activityApIdsArr = [...new Set(inboxEntries.map(i => i.activityApId))];
 
-  const [actorMap, objects, follows] = await Promise.all([
-    buildActorMap(prisma, actorApIds),
-    prisma.object.findMany({
-      where: { apId: { in: objectApIds } },
-      select: { apId: true, content: true, inReplyTo: true },
-    }),
-    prisma.follow.findMany({
-      where: { activityApId: { in: activityApIds } },
-      select: { activityApId: true, status: true },
-    }),
+  const [actorMap, objectRows, followRows] = await Promise.all([
+    batchLoadActorInfo(db as any, actorApIds),
+    objectApIds.length > 0
+      ? db.select({ apId: objects.apId, content: objects.content, inReplyTo: objects.inReplyTo })
+          .from(objects)
+          .where(inArray(objects.apId, objectApIds))
+      : Promise.resolve([]),
+    activityApIdsArr.length > 0
+      ? db.select({ activityApId: follows.activityApId, status: follows.status })
+          .from(follows)
+          .where(inArray(follows.activityApId, activityApIdsArr))
+      : Promise.resolve([]),
   ]);
 
-  const objectMap = new Map(objects.map(o => [o.apId, { content: o.content, inReplyTo: o.inReplyTo }]));
-  const followMap = new Map(follows.filter(f => f.activityApId).map(f => [f.activityApId!, f.status]));
+  const objectMap = new Map(objectRows.map(o => [o.apId, { content: o.content, inReplyTo: o.inReplyTo }]));
+  const followMap = new Map(followRows.filter(f => f.activityApId).map(f => [f.activityApId!, f.status]));
 
   // Filter and transform inbox entries into notifications in a single pass
   const notifications_list: Array<{
@@ -243,26 +197,26 @@ notifications.get('/', async (c) => {
     const isArchived = archivedActivityIds.has(entry.activityApId);
     if (showArchived !== isArchived) continue;
 
-    const objectData = entry.activity.objectApId ? objectMap.get(entry.activity.objectApId) : null;
+    const objectData = entry.activityObjectApId ? objectMap.get(entry.activityObjectApId) : null;
     const inReplyTo = objectData?.inReplyTo ?? null;
 
     // Distinguish reply vs mention for Create activities
-    if (typeFilter === 'reply' && entry.activity.type === 'Create' && !inReplyTo) continue;
-    if (typeFilter === 'mention' && entry.activity.type === 'Create' && inReplyTo) continue;
+    if (typeFilter === 'reply' && entry.activityType === 'Create' && !inReplyTo) continue;
+    if (typeFilter === 'mention' && entry.activityType === 'Create' && inReplyTo) continue;
 
     const followStatus = followMap.get(entry.activityApId) ?? null;
-    const notifType = activityToNotificationType(entry.activity.type, !!inReplyTo, followStatus);
-    const actorInfo = actorMap.get(entry.activity.actorApId);
+    const notifType = activityToNotificationType(entry.activityType, !!inReplyTo, followStatus);
+    const actorInfo = actorMap.get(entry.activityActorApId);
 
     notifications_list.push({
       id: entry.activityApId,
-      type: notifType || entry.activity.type.toLowerCase(),
-      object_ap_id: entry.activity.objectApId,
+      type: notifType || entry.activityType.toLowerCase(),
+      object_ap_id: entry.activityObjectApId,
       read: !!entry.read,
       created_at: entry.createdAt,
       actor: {
-        ap_id: entry.activity.actorApId,
-        username: formatUsername(entry.activity.actorApId),
+        ap_id: entry.activityActorApId,
+        username: formatUsername(entry.activityActorApId),
         preferred_username: actorInfo?.preferredUsername ?? null,
         name: actorInfo?.name ?? null,
         icon_url: actorInfo?.iconUrl ?? null,
@@ -282,21 +236,22 @@ notifications.get('/unread/count', async (c) => {
   const actor = requireActor(c);
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
-  await maybeCleanupArchivedNotifications(prisma, actor.ap_id);
+  const db = c.get('prisma');
+  await maybeCleanupArchivedNotifications(db, actor.ap_id);
 
-  const count = await prisma.inbox.count({
-    where: {
-      actorApId: actor.ap_id,
-      read: 0,
-      activity: {
-        actorApId: { not: actor.ap_id },
-        type: { in: NOTIFICATION_ACTIVITY_TYPES },
-      },
-    },
-  });
+  const result = await db
+    .select({ count: count() })
+    .from(inboxTable)
+    .innerJoin(activities, eq(inboxTable.activityApId, activities.apId))
+    .where(and(
+      eq(inboxTable.actorApId, actor.ap_id),
+      eq(inboxTable.read, 0),
+      ne(activities.actorApId, actor.ap_id),
+      inArray(activities.type, NOTIFICATION_ACTIVITY_TYPES),
+    ))
+    .get();
 
-  return c.json({ count });
+  return c.json({ count: result?.count ?? 0 });
 });
 
 // POST /read -- Mark notifications as read
@@ -304,22 +259,20 @@ notifications.post('/read', async (c) => {
   const actor = requireActor(c);
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const body = await c.req.json<{ ids?: string[]; read_all?: boolean }>();
 
   if (body.read_all) {
-    await prisma.inbox.updateMany({
-      where: { actorApId: actor.ap_id },
-      data: { read: 1 },
-    });
+    await db.update(inboxTable)
+      .set({ read: 1 })
+      .where(eq(inboxTable.actorApId, actor.ap_id));
   } else if (body.ids && body.ids.length > 0) {
-    await prisma.inbox.updateMany({
-      where: {
-        actorApId: actor.ap_id,
-        activityApId: { in: body.ids },
-      },
-      data: { read: 1 },
-    });
+    await db.update(inboxTable)
+      .set({ read: 1 })
+      .where(and(
+        eq(inboxTable.actorApId, actor.ap_id),
+        inArray(inboxTable.activityApId, body.ids),
+      ));
   } else {
     return c.json({ error: 'Either ids array or read_all flag is required' }, 400);
   }
@@ -332,7 +285,7 @@ notifications.post('/archive', async (c) => {
   const actor = requireActor(c);
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const body = await c.req.json<{ ids: string[] }>();
 
   if (
@@ -350,13 +303,13 @@ notifications.post('/archive', async (c) => {
   const now = new Date().toISOString();
   const uniqueIds = [...new Set(body.ids.map((id) => id.trim()))];
 
-  const alreadyArchived = await prisma.notificationArchived.findMany({
-    where: {
-      actorApId: actor.ap_id,
-      activityApId: { in: uniqueIds },
-    },
-    select: { activityApId: true },
-  });
+  const alreadyArchived = await db
+    .select({ activityApId: notificationArchived.activityApId })
+    .from(notificationArchived)
+    .where(and(
+      eq(notificationArchived.actorApId, actor.ap_id),
+      inArray(notificationArchived.activityApId, uniqueIds),
+    ));
   const alreadyArchivedSet = new Set(alreadyArchived.map((row) => row.activityApId));
   const toArchive = uniqueIds.filter((id) => !alreadyArchivedSet.has(id));
 
@@ -365,7 +318,7 @@ notifications.post('/archive', async (c) => {
     activityApId: id,
     archivedAt: now,
   }));
-  const archived_count = await batchArchiveInsert(prisma, rows, ARCHIVE_CREATE_BATCH_SIZE);
+  const archived_count = await batchArchiveInsert(db, rows, ARCHIVE_CREATE_BATCH_SIZE);
 
   return c.json({ success: true, archived_count });
 });
@@ -375,18 +328,16 @@ notifications.delete('/archive', async (c) => {
   const actor = requireActor(c);
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const body = await c.req.json<{ ids: string[] }>();
   if (!body.ids || body.ids.length === 0) {
     return c.json({ error: 'ids array is required' }, 400);
   }
 
-  await prisma.notificationArchived.deleteMany({
-    where: {
-      actorApId: actor.ap_id,
-      activityApId: { in: body.ids },
-    },
-  });
+  await db.delete(notificationArchived).where(and(
+    eq(notificationArchived.actorApId, actor.ap_id),
+    inArray(notificationArchived.activityApId, body.ids),
+  ));
 
   return c.json({ success: true });
 });
@@ -396,20 +347,18 @@ notifications.post('/archive/all', async (c) => {
   const actor = requireActor(c);
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const now = new Date().toISOString();
 
   const [alreadyArchived, inboxItems] = await Promise.all([
-    prisma.notificationArchived.findMany({
-      where: { actorApId: actor.ap_id },
-      select: { activityApId: true },
-      take: ARCHIVE_ALL_CAP,
-    }),
-    prisma.inbox.findMany({
-      where: { actorApId: actor.ap_id },
-      select: { activityApId: true },
-      take: ARCHIVE_ALL_CAP,
-    }),
+    db.select({ activityApId: notificationArchived.activityApId })
+      .from(notificationArchived)
+      .where(eq(notificationArchived.actorApId, actor.ap_id))
+      .limit(ARCHIVE_ALL_CAP),
+    db.select({ activityApId: inboxTable.activityApId })
+      .from(inboxTable)
+      .where(eq(inboxTable.actorApId, actor.ap_id))
+      .limit(ARCHIVE_ALL_CAP),
   ]);
 
   const alreadyArchivedIds = new Set(alreadyArchived.map(a => a.activityApId));
@@ -421,7 +370,7 @@ notifications.post('/archive/all', async (c) => {
     archivedAt: now,
   }));
 
-  const archived_count = await batchArchiveInsert(prisma, rows, ARCHIVE_CREATE_BATCH_SIZE);
+  const archived_count = await batchArchiveInsert(db, rows, ARCHIVE_CREATE_BATCH_SIZE);
   return c.json({ success: true, archived_count });
 });
 

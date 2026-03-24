@@ -1,50 +1,3 @@
-export {
-  // Error codes
-  ErrorCodes,
-  type ErrorCode,
-  // Error classes
-  AppError,
-  BadRequestError,
-  AuthenticationError,
-  AuthorizationError,
-  NotFoundError,
-  ConflictError,
-  ValidationError,
-  RateLimitError,
-  InternalError,
-  ServiceUnavailableError,
-  // Utilities
-  isAppError,
-  normalizeError,
-  logError,
-  handleDatabaseError,
-  type ErrorResponse,
-  type ValidationErrorDetail,
-} from './lib/errors';
-
-export {
-  badRequest,
-  unauthorized,
-  forbidden,
-  notFound,
-  conflict,
-  validationError,
-  validationErrorWithFields,
-  internalError,
-  serviceUnavailable,
-  rateLimited,
-  handleDbError,
-  throwBadRequest,
-  throwUnauthorized,
-  throwForbidden,
-  throwNotFound,
-  throwConflict,
-  throwValidation,
-  throwInternalError,
-  throwServiceUnavailable,
-  throwRateLimited,
-} from './middleware/error-handler';
-
 export function safeJsonParse<T>(json: string | null | undefined, defaultValue: T): T {
   if (!json) return defaultValue;
   try {
@@ -56,23 +9,16 @@ export function safeJsonParse<T>(json: string | null | undefined, defaultValue: 
   }
 }
 
-function parseBoundedInt(
-  value: string | undefined,
-  fallback: number,
-  min: number,
-  max: number
-): number {
+export function parseLimit(value: string | undefined, fallback: number, max: number): number {
   const parsed = parseInt(value || '', 10);
   if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(Math.max(parsed, min), max);
-}
-
-export function parseLimit(value: string | undefined, fallback: number, max: number): number {
-  return parseBoundedInt(value, fallback, 1, max);
+  return Math.min(Math.max(parsed, 1), max);
 }
 
 export function parseOffset(value: string | undefined, fallback: number, max: number): number {
-  return parseBoundedInt(value, fallback, 0, max);
+  const parsed = parseInt(value || '', 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 0), max);
 }
 
 export function generateId(): string {
@@ -157,7 +103,7 @@ function isPrivateIPv6(ipv6Raw: string): boolean {
   return false;
 }
 
-export function isPrivateIpAddress(host: string): boolean {
+function isPrivateIpAddress(host: string): boolean {
   if (isPrivateIPv4(host)) return true;
   if (host.includes(':')) return isPrivateIPv6(host);
   return false;
@@ -170,7 +116,7 @@ function normalizeHostname(hostname: string): string {
 
 const BLOCKED_HOSTNAME_SUFFIXES = ['.localhost', '.local', '.localdomain', '.internal'];
 
-export function isBlockedHostname(hostname: string): boolean {
+function isBlockedHostname(hostname: string): boolean {
   const lower = normalizeHostname(hostname);
   if (lower === 'localhost') return true;
   if (BLOCKED_HOSTNAME_SUFFIXES.some((suffix) => lower.endsWith(suffix))) return true;
@@ -226,7 +172,7 @@ async function dohResolve(hostname: string, type: 'A' | 'AAAA' | 'CNAME'): Promi
     .filter((answer): answer is { type: number; data: string } => typeof answer.type === 'number' && typeof answer.data === 'string');
 }
 
-export async function resolveRemoteHostnameIPs(hostname: string): Promise<string[]> {
+async function resolveRemoteHostnameIPs(hostname: string): Promise<string[]> {
   const visited = new Set<string>();
   const ips = new Set<string>();
 
@@ -251,7 +197,7 @@ export async function resolveRemoteHostnameIPs(hostname: string): Promise<string
     }
 
     for (const answer of cnameAnswers) {
-      // eslint-disable-next-line no-await-in-loop
+       
       if (answer.type === 5) await walk(answer.data, depth + 1);
     }
   }

@@ -1,277 +1,35 @@
 import { Hono } from 'hono';
-import type { PrismaClient } from '../../generated/prisma';
+import { actors, objects, follows } from '../../../db';
+import { eq, and, or, desc, sql } from 'drizzle-orm';
 import type { Env, Variables } from '../../types';
-import { generateId, objectApId, activityApId, formatUsername, isLocal, safeJsonParse } from '../../utils';
-import { MAX_POST_CONTENT_LENGTH, MAX_POST_SUMMARY_LENGTH, MAX_POSTS_PAGE_LIMIT, extractMentions, formatPost, normalizeVisibility, parseLimit, PostRow } from './utils';
-import { enqueueFanoutToFollowers } from '../../lib/delivery/queue';
+import { generateId, objectApId, activityApId, formatUsername, parseLimit, safeJsonParse } from '../../utils';
+import { MAX_POSTS_PAGE_LIMIT, normalizeVisibility, formatPost, PostRow } from './utils';
+import {
+  type PostDetailRow,
+  type PostWithAuthor,
+  AUTHOR_WITH,
+  postWhereByIdOrApId,
+  resolveAuthor,
+  resolveAuthorWithCache,
+  toPostRow,
+  buildAddressing,
+  loadInteractionFlags,
+  persistAndFanout,
+  loadCachedAuthorMap,
+} from './queries';
+import {
+  requireActor,
+  validateCreatePostBody,
+  checkCommunityPostPermission,
+  insertPostAndHandleReply,
+  processMentions,
+  validateEditBody,
+  validateContentEdit,
+  validateSummaryEdit,
+  REPLY_TARGET_NOT_FOUND,
+} from './post-helpers';
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
-const REPLY_TARGET_NOT_FOUND = 'REPLY_TARGET_NOT_FOUND';
-
-type PostAttachment = {
-  type?: string;
-  mediaType?: string;
-  url?: string;
-  [key: string]: unknown;
-};
-
-type CreatePostBody = {
-  content: string;
-  summary?: string;
-  attachments?: PostAttachment[];
-  in_reply_to?: string;
-  visibility?: string;
-  community_ap_id?: string;
-};
-
-type PostDetailRow = PostRow & {
-  to_json?: string | null;
-  bookmarked?: number;
-};
-
-type MentionFailure = {
-  mention: string;
-  stage: 'resolve' | 'persist_activity' | 'persist_inbox';
-  reason: string;
-};
-
-type AuthorInfo = {
-  preferredUsername: string | null;
-  name: string | null;
-  iconUrl: string | null;
-};
-
-/** Shape returned by Prisma when using AUTHOR_INCLUDE. */
-type PostWithAuthor = {
-  apId: string;
-  type: string;
-  attributedTo: string;
-  content: string;
-  summary: string | null;
-  attachmentsJson: string | null;
-  inReplyTo: string | null;
-  visibility: string;
-  communityApId: string | null;
-  likeCount: number;
-  replyCount: number;
-  announceCount: number;
-  published: string;
-  toJson?: string | null;
-  author: AuthorInfo | null;
-};
-
-// --- Inline helpers ---
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-async function parseJsonObject(
-  c: { req: { json: () => Promise<unknown> } }
-): Promise<Record<string, unknown> | null> {
-  try {
-    const body = await c.req.json();
-    if (!isRecord(body)) return null;
-    return body;
-  } catch {
-    return null;
-  }
-}
-
-/** Require an authenticated actor or return a 401 response. */
-function requireActor(c: { get: (key: 'actor') => Variables['actor'] }): Variables['actor'] {
-  return c.get('actor');
-}
-
-/** Shared Prisma `include` for loading a post's local author info. */
-const AUTHOR_INCLUDE = {
-  author: {
-    select: {
-      preferredUsername: true,
-      name: true,
-      iconUrl: true,
-    },
-  },
-} as const;
-
-/** Build a `where` clause that matches either the full apId or the raw postId. */
-function postWhereByIdOrApId(baseUrl: string, postId: string): { OR: [{ apId: string }, { apId: string }] } {
-  return {
-    OR: [
-      { apId: objectApId(baseUrl, postId) },
-      { apId: postId },
-    ],
-  };
-}
-
-/**
- * Validate that a raw field is either absent, null, or a string.
- * Returns an error message string if invalid, or null if valid.
- */
-function validateOptionalString(raw: Record<string, unknown>, field: string): string | null {
-  const value = raw[field];
-  if (value !== undefined && value !== null && typeof value !== 'string') {
-    return `${field} must be a string`;
-  }
-  return null;
-}
-
-/**
- * Resolve author info from a Prisma post's local author or a cached-author map.
- * Returns { preferredUsername, name, iconUrl } with nulls as fallback.
- */
-function resolveAuthor(
-  localAuthor: AuthorInfo | null | undefined,
-  attributedTo: string,
-  cachedAuthorMap?: Map<string, AuthorInfo>,
-): AuthorInfo {
-  if (localAuthor?.preferredUsername) return localAuthor;
-  const cached = cachedAuthorMap?.get(attributedTo);
-  if (cached) return cached;
-  return { preferredUsername: null, name: null, iconUrl: null };
-}
-
-/**
- * Resolve author info with an async fallback to actorCache.
- * Used for single-post lookups where a batch-loaded map is unavailable.
- */
-async function resolveAuthorWithCache(
-  localAuthor: AuthorInfo | null | undefined,
-  attributedTo: string,
-  prisma: PrismaClient,
-): Promise<AuthorInfo> {
-  if (localAuthor?.preferredUsername) return localAuthor;
-  const cached = await prisma.actorCache.findUnique({
-    where: { apId: attributedTo },
-    select: { preferredUsername: true, name: true, iconUrl: true },
-  });
-  return cached ?? { preferredUsername: null, name: null, iconUrl: null };
-}
-
-/** Convert a Prisma object row + resolved author into a PostRow for formatPost. */
-function toPostRow(
-  post: {
-    apId: string;
-    type: string;
-    attributedTo: string;
-    content: string;
-    summary: string | null;
-    attachmentsJson: string | null;
-    inReplyTo: string | null;
-    visibility: string;
-    communityApId: string | null;
-    likeCount: number;
-    replyCount: number;
-    announceCount: number;
-    published: string;
-    toJson?: string | null;
-  },
-  author: AuthorInfo,
-  flags: { liked: boolean; bookmarked?: boolean },
-): PostRow & { to_json?: string | null; bookmarked?: number } {
-  return {
-    ap_id: post.apId,
-    type: post.type,
-    attributed_to: post.attributedTo,
-    author_username: author.preferredUsername,
-    author_name: author.name,
-    author_icon_url: author.iconUrl,
-    content: post.content,
-    summary: post.summary,
-    attachments_json: post.attachmentsJson,
-    in_reply_to: post.inReplyTo,
-    visibility: post.visibility,
-    community_ap_id: post.communityApId,
-    like_count: post.likeCount,
-    reply_count: post.replyCount,
-    announce_count: post.announceCount,
-    published: post.published,
-    liked: flags.liked ? 1 : 0,
-    ...(flags.bookmarked !== undefined ? { bookmarked: flags.bookmarked ? 1 : 0 } : {}),
-    ...(post.toJson !== undefined ? { to_json: post.toJson } : {}),
-  };
-}
-
-/** Compute to/cc fields from visibility for ActivityPub delivery. */
-function buildAddressing(visibility: string, followersUrl: string): { to: string[]; cc: string[] } {
-  const publicUrl = 'https://www.w3.org/ns/activitystreams#Public';
-  switch (visibility) {
-    case 'public':
-      return { to: [publicUrl], cc: [followersUrl] };
-    case 'unlisted':
-      return { to: [followersUrl], cc: [publicUrl] };
-    case 'followers':
-      return { to: [followersUrl], cc: [] };
-    default:
-      return { to: [], cc: [] };
-  }
-}
-
-/** Batch-load liked and bookmarked object IDs for a set of posts. */
-async function loadInteractionFlags(
-  prisma: PrismaClient,
-  actorApId: string | undefined,
-  objectApIds: string[],
-): Promise<{ likedIds: Set<string>; bookmarkedIds: Set<string> }> {
-  if (!actorApId || objectApIds.length === 0) {
-    return { likedIds: new Set(), bookmarkedIds: new Set() };
-  }
-  const [likes, bookmarks] = await Promise.all([
-    prisma.like.findMany({
-      where: { actorApId, objectApId: { in: objectApIds } },
-      select: { objectApId: true },
-    }),
-    prisma.bookmark.findMany({
-      where: { actorApId, objectApId: { in: objectApIds } },
-      select: { objectApId: true },
-    }),
-  ]);
-  return {
-    likedIds: new Set(likes.map((l) => l.objectApId)),
-    bookmarkedIds: new Set(bookmarks.map((b) => b.objectApId)),
-  };
-}
-
-/** Persist an outbound ActivityPub activity and enqueue federation fanout. */
-async function persistAndFanout(
-  prisma: PrismaClient,
-  env: Env,
-  activity: { id: string; type: string; actor: string; [key: string]: unknown },
-  objectApId: string,
-): Promise<void> {
-  await prisma.activity.create({
-    data: {
-      apId: activity.id,
-      type: activity.type,
-      actorApId: activity.actor,
-      objectApId,
-      rawJson: JSON.stringify(activity),
-      direction: 'outbound',
-    },
-  });
-
-  try {
-    await enqueueFanoutToFollowers(env, activity.id, activity.actor);
-  } catch (err) {
-    console.error(`[Posts] Failed to enqueue ${activity.type} federation fanout:`, err);
-  }
-}
-
-/** Batch-load cached authors for posts without a local author join. */
-async function loadCachedAuthorMap(
-  prisma: PrismaClient,
-  posts: PostWithAuthor[],
-): Promise<Map<string, AuthorInfo>> {
-  const remoteAttributedTos = [...new Set(
-    posts.filter((p) => !p.author).map((p) => p.attributedTo)
-  )];
-  if (remoteAttributedTos.length === 0) return new Map();
-  const cachedAuthors = await prisma.actorCache.findMany({
-    where: { apId: { in: remoteAttributedTos } },
-    select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-  });
-  return new Map(cachedAuthors.map((a) => [a.apId, a]));
-}
 
 // --- Route handlers ---
 
@@ -280,167 +38,39 @@ posts.post('/', async (c) => {
   const actor = requireActor(c);
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const rawBody = await parseJsonObject(c);
-  if (!rawBody) {
-    return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+  const validation = await validateCreatePostBody(c);
+  if (!validation.ok) {
+    return c.json({ error: validation.error, ...(validation.code ? { code: validation.code } : {}) }, 400);
   }
+  const { body, content, summary } = validation;
 
-  if (typeof rawBody.content !== 'string') {
-    return c.json({ error: 'content must be a string', code: 'BAD_REQUEST' }, 400);
-  }
-
-  // Validate optional string fields
-  for (const field of ['summary', 'visibility', 'in_reply_to', 'community_ap_id'] as const) {
-    const error = validateOptionalString(rawBody, field);
-    if (error) return c.json({ error, code: 'BAD_REQUEST' }, 400);
-  }
-
-  if (rawBody.attachments !== undefined && !Array.isArray(rawBody.attachments)) {
-    return c.json({ error: 'attachments must be an array', code: 'BAD_REQUEST' }, 400);
-  }
-  if (Array.isArray(rawBody.attachments) && rawBody.attachments.some((a) => !isRecord(a))) {
-    return c.json({ error: 'attachments must be objects', code: 'BAD_REQUEST' }, 400);
-  }
-
-  const body: CreatePostBody = {
-    content: rawBody.content,
-    summary: typeof rawBody.summary === 'string' ? rawBody.summary : undefined,
-    attachments: Array.isArray(rawBody.attachments) ? rawBody.attachments as PostAttachment[] : undefined,
-    in_reply_to: typeof rawBody.in_reply_to === 'string' ? rawBody.in_reply_to : undefined,
-    visibility: typeof rawBody.visibility === 'string' ? rawBody.visibility : undefined,
-    community_ap_id: typeof rawBody.community_ap_id === 'string' ? rawBody.community_ap_id : undefined,
-  };
-
-  const content = body.content.trim();
-  const summary = body.summary?.trim();
-
-  if (!content) {
-    return c.json({ error: 'Content required' }, 400);
-  }
-  if (content.length > MAX_POST_CONTENT_LENGTH) {
-    return c.json({ error: `Content too long (max ${MAX_POST_CONTENT_LENGTH} chars)` }, 400);
-  }
-  if (summary && summary.length > MAX_POST_SUMMARY_LENGTH) {
-    return c.json({ error: `Summary too long (max ${MAX_POST_SUMMARY_LENGTH} chars)` }, 400);
-  }
-
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const visibility = normalizeVisibility(body.visibility);
-  let communityId: string | null = null;
 
-  if (body.community_ap_id) {
-    const community = await prisma.community.findFirst({
-      where: {
-        OR: [
-          { apId: body.community_ap_id },
-          { preferredUsername: body.community_ap_id },
-        ],
-      },
-      select: { apId: true, postPolicy: true },
-    });
-
-    if (!community) return c.json({ error: 'Community not found' }, 404);
-
-    communityId = community.apId;
-
-    const membership = await prisma.communityMember.findUnique({
-      where: {
-        communityApId_actorApId: {
-          communityApId: community.apId,
-          actorApId: actor.ap_id,
-        },
-      },
-      select: { role: true },
-    });
-
-    const policy = community.postPolicy || 'members';
-    const role = membership?.role as 'owner' | 'moderator' | 'member' | undefined;
-    const isManager = role === 'owner' || role === 'moderator';
-
-    if (policy !== 'anyone' && !membership) {
-      return c.json({ error: 'Not a community member' }, 403);
-    }
-    if (policy === 'mods' && !isManager) {
-      return c.json({ error: 'Moderator role required' }, 403);
-    }
-    if (policy === 'owners' && role !== 'owner') {
-      return c.json({ error: 'Owner role required' }, 403);
-    }
+  const communityCheck = await checkCommunityPostPermission(db, actor.ap_id, body.community_ap_id);
+  if (!communityCheck.allowed) {
+    return c.json({ error: communityCheck.error }, communityCheck.status);
   }
+  const communityId = communityCheck.communityId;
 
   const baseUrl = c.env.APP_URL;
   const postId = generateId();
   const apId = objectApId(baseUrl, postId);
   const now = new Date().toISOString();
+
   let parentAuthor: string | null = null;
-
   try {
-    await prisma.$transaction(async (tx) => {
-      await tx.object.create({
-        data: {
-          apId,
-          type: 'Note',
-          attributedTo: actor.ap_id,
-          content,
-          summary: summary || null,
-          attachmentsJson: JSON.stringify(body.attachments || []),
-          inReplyTo: body.in_reply_to || null,
-          visibility,
-          communityApId: communityId,
-          published: now,
-          isLocal: 1,
-        },
-      });
-
-      await tx.actor.update({
-        where: { apId: actor.ap_id },
-        data: { postCount: { increment: 1 } },
-      });
-
-      if (!body.in_reply_to) return;
-
-      const parentPost = await tx.object.findUnique({
-        where: { apId: body.in_reply_to },
-        select: { attributedTo: true },
-      });
-
-      if (!parentPost) throw new Error(REPLY_TARGET_NOT_FOUND);
-
-      parentAuthor = parentPost.attributedTo;
-
-      await tx.object.update({
-        where: { apId: body.in_reply_to },
-        data: { replyCount: { increment: 1 } },
-      });
-
-      if (parentPost.attributedTo === actor.ap_id || !isLocal(parentPost.attributedTo, baseUrl)) return;
-
-      const replyActivityId = activityApId(baseUrl, generateId());
-      await tx.activity.create({
-        data: {
-          apId: replyActivityId,
-          type: 'Create',
-          actorApId: actor.ap_id,
-          objectApId: apId,
-          rawJson: JSON.stringify({
-            '@context': 'https://www.w3.org/ns/activitystreams',
-            id: replyActivityId,
-            type: 'Create',
-            actor: actor.ap_id,
-            object: apId,
-          }),
-          createdAt: now,
-        },
-      });
-
-      await tx.inbox.create({
-        data: {
-          actorApId: parentPost.attributedTo,
-          activityApId: replyActivityId,
-          read: 0,
-          createdAt: now,
-        },
-      });
+    parentAuthor = await insertPostAndHandleReply(db, {
+      apId,
+      actorApId: actor.ap_id,
+      content,
+      summary: summary || null,
+      attachments: body.attachments,
+      inReplyTo: body.in_reply_to || null,
+      visibility,
+      communityId,
+      baseUrl,
+      now,
     });
   } catch (e) {
     if (e instanceof Error && e.message === REPLY_TARGET_NOT_FOUND) {
@@ -451,123 +81,14 @@ posts.post('/', async (c) => {
   }
 
   // Process mentions and create notifications
-  const mentions = extractMentions(content);
-  const mentionFailures: MentionFailure[] = [];
-
-  if (mentions.length > 0) {
-    const localMentions = mentions.filter((m) => !m.includes('@'));
-    const remoteMentions = mentions.filter((m) => m.includes('@'));
-
-    const [localActors, cachedActors] = await Promise.all([
-      localMentions.length > 0
-        ? prisma.actor.findMany({
-            where: { preferredUsername: { in: localMentions } },
-            select: { apId: true, preferredUsername: true },
-          })
-        : [],
-      remoteMentions.length > 0
-        ? prisma.actorCache.findMany({
-            where: { preferredUsername: { in: remoteMentions.map((m) => m.split('@')[0]) } },
-            select: { apId: true, preferredUsername: true },
-          })
-        : [],
-    ]);
-    const localActorMap = new Map(localActors.map((a) => [a.preferredUsername, a.apId]));
-
-    const remoteActorMap = new Map<string, string>();
-    for (const mention of remoteMentions) {
-      const [username, domain] = mention.split('@');
-      const matching = cachedActors.find(
-        (a) => a.preferredUsername === username && a.apId.includes(domain)
-      );
-      if (matching) {
-        remoteActorMap.set(mention, matching.apId);
-      }
-    }
-
-    const activitiesToCreate: Array<{
-      apId: string;
-      type: string;
-      actorApId: string;
-      objectApId: string;
-      rawJson: string;
-      createdAt: string;
-    }> = [];
-    const inboxEntriesToCreate: Array<{
-      actorApId: string;
-      activityApId: string;
-      read: number;
-      createdAt: string;
-    }> = [];
-
-    for (const mention of mentions) {
-      try {
-        const mentionedActorApId = mention.includes('@')
-          ? remoteActorMap.get(mention) || null
-          : localActorMap.get(mention) || null;
-
-        if (!mentionedActorApId || mentionedActorApId === actor.ap_id) continue;
-        if (parentAuthor === mentionedActorApId) continue;
-
-        if (!isLocal(mentionedActorApId, baseUrl)) continue;
-
-        const mentionActivityId = activityApId(baseUrl, generateId());
-        activitiesToCreate.push({
-          apId: mentionActivityId,
-          type: 'Create',
-          actorApId: actor.ap_id,
-          objectApId: apId,
-          rawJson: JSON.stringify({
-            '@context': 'https://www.w3.org/ns/activitystreams',
-            id: mentionActivityId,
-            type: 'Create',
-            actor: actor.ap_id,
-            object: apId,
-          }),
-          createdAt: now,
-        });
-
-        inboxEntriesToCreate.push({
-          actorApId: mentionedActorApId,
-          activityApId: mentionActivityId,
-          read: 0,
-          createdAt: now,
-        });
-      } catch (e) {
-        console.error(`Failed to process mention ${mention}:`, e);
-        mentionFailures.push({
-          mention,
-          stage: 'resolve',
-          reason: 'mention_processing_failed',
-        });
-      }
-    }
-
-    if (activitiesToCreate.length > 0) {
-      try {
-        await prisma.activity.createMany({ data: activitiesToCreate });
-      } catch (e) {
-        console.error('[Posts] Failed to persist mention activities:', e);
-        mentionFailures.push({
-          mention: '__batch__',
-          stage: 'persist_activity',
-          reason: 'mention_activity_persist_failed',
-        });
-      }
-    }
-    if (inboxEntriesToCreate.length > 0) {
-      try {
-        await prisma.inbox.createMany({ data: inboxEntriesToCreate });
-      } catch (e) {
-        console.error('[Posts] Failed to persist mention inbox entries:', e);
-        mentionFailures.push({
-          mention: '__batch__',
-          stage: 'persist_inbox',
-          reason: 'mention_inbox_persist_failed',
-        });
-      }
-    }
-  }
+  const mentionFailures = await processMentions(db, {
+    content,
+    postApId: apId,
+    actorApId: actor.ap_id,
+    parentAuthor,
+    baseUrl,
+    now,
+  });
 
   // Federate to followers if visibility is not direct
   if (visibility !== 'direct') {
@@ -597,7 +118,7 @@ posts.post('/', async (c) => {
       },
     };
 
-    await persistAndFanout(prisma, c.env, createActivity, apId);
+    await persistAndFanout(db, c.env, createActivity, apId);
   }
 
   return c.json({
@@ -636,19 +157,19 @@ posts.get('/:id', async (c) => {
   const currentActor = c.get('actor');
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
-  const post = await prisma.object.findFirst({
+  const post = await db.query.objects.findFirst({
     where: postWhereByIdOrApId(baseUrl, postId),
-    include: AUTHOR_INCLUDE,
+    with: AUTHOR_WITH,
   });
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
   // Resolve author and interaction flags in parallel
   const [author, { likedIds, bookmarkedIds }] = await Promise.all([
-    resolveAuthorWithCache(post.author, post.attributedTo, prisma),
-    loadInteractionFlags(prisma, currentActor?.ap_id, [post.apId]),
+    resolveAuthorWithCache(post.author, post.attributedTo, db),
+    loadInteractionFlags(db, currentActor?.ap_id, [post.apId]),
   ]);
   const liked = likedIds.has(post.apId);
   const bookmarked = bookmarkedIds.has(post.apId);
@@ -657,16 +178,17 @@ posts.get('/:id', async (c) => {
   if (post.visibility === 'followers') {
     if (!currentActor) return c.json({ error: 'Post not found' }, 404);
     if (currentActor.ap_id !== post.attributedTo) {
-      const follows = await prisma.follow.findUnique({
-        where: {
-          followerApId_followingApId: {
-            followerApId: currentActor.ap_id,
-            followingApId: post.attributedTo,
-          },
-          status: 'accepted',
-        },
-      });
-      if (!follows) return c.json({ error: 'Post not found' }, 404);
+      const followRow = await db.select({ followerApId: follows.followerApId })
+        .from(follows)
+        .where(
+          and(
+            eq(follows.followerApId, currentActor.ap_id),
+            eq(follows.followingApId, post.attributedTo),
+            eq(follows.status, 'accepted'),
+          )
+        )
+        .get();
+      if (!followRow) return c.json({ error: 'Post not found' }, 404);
     }
   }
 
@@ -697,41 +219,36 @@ posts.get('/:id/replies', async (c) => {
   const baseUrl = c.env.APP_URL;
   const limit = parseLimit(c.req.query('limit'), 20, MAX_POSTS_PAGE_LIMIT);
   const before = c.req.query('before');
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
-  const parentPost = await prisma.object.findFirst({
-    where: postWhereByIdOrApId(baseUrl, postId),
-    select: { apId: true },
-  });
+  const parentPost = await db.select({ apId: objects.apId })
+    .from(objects)
+    .where(postWhereByIdOrApId(baseUrl, postId)!)
+    .get();
 
   if (!parentPost) return c.json({ error: 'Post not found' }, 404);
 
-  const whereClause: {
-    inReplyTo: string;
-    published?: { lt: string };
-  } = { inReplyTo: parentPost.apId };
+  const whereCondition = before
+    ? and(eq(objects.inReplyTo, parentPost.apId), sql`${objects.published} < ${before}`)
+    : eq(objects.inReplyTo, parentPost.apId);
 
-  if (before) {
-    whereClause.published = { lt: before };
-  }
-
-  const replies = await prisma.object.findMany({
-    where: whereClause,
-    include: AUTHOR_INCLUDE,
-    orderBy: { published: 'desc' },
-    take: limit,
+  const replies = await db.query.objects.findMany({
+    where: whereCondition,
+    with: AUTHOR_WITH,
+    orderBy: desc(objects.published),
+    limit,
   });
 
   // Batch load cached authors and interaction flags in parallel
   const replyApIds = replies.map((r) => r.apId);
   const [cachedAuthorMap, { likedIds }] = await Promise.all([
-    loadCachedAuthorMap(prisma, replies),
-    loadInteractionFlags(prisma, currentActor?.ap_id, replyApIds),
+    loadCachedAuthorMap(db, replies as PostWithAuthor[]),
+    loadInteractionFlags(db, currentActor?.ap_id, replyApIds),
   ]);
 
   const result = replies.map((reply) => {
     const author = resolveAuthor(reply.author, reply.attributedTo, cachedAuthorMap);
-    const postRow = toPostRow(reply, author, {
+    const postRow = toPostRow(reply as PostWithAuthor, author, {
       liked: likedIds.has(reply.apId),
     });
     return formatPost(postRow, currentActor?.ap_id);
@@ -747,47 +264,30 @@ posts.patch('/:id', async (c) => {
 
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
-  const rawBody = await parseJsonObject(c);
-  if (!rawBody) {
-    return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
+
+  const editValidation = await validateEditBody(c);
+  if (!editValidation.ok) {
+    return c.json({ error: editValidation.error, ...(editValidation.code ? { code: editValidation.code } : {}) }, 400);
   }
+  const { body } = editValidation;
 
-  for (const field of ['content', 'summary'] as const) {
-    const error = validateOptionalString(rawBody, field);
-    if (error) return c.json({ error, code: 'BAD_REQUEST' }, 400);
-  }
+  const db = c.get('prisma');
 
-  const body: { content?: string; summary?: string } = {
-    content: typeof rawBody.content === 'string' ? rawBody.content : undefined,
-    summary: typeof rawBody.summary === 'string' ? rawBody.summary : undefined,
-  };
-  const prisma = c.get('prisma');
-
-  const post = await prisma.object.findFirst({
+  const post = await db.query.objects.findFirst({
     where: postWhereByIdOrApId(baseUrl, postId),
   });
   if (!post) return c.json({ error: 'Post not found' }, 404);
   if (post.attributedTo !== actor.ap_id) return c.json({ error: 'Forbidden' }, 403);
 
   // Validate content
-  let trimmedContent: string | undefined;
-  if (body.content !== undefined) {
-    trimmedContent = body.content.trim();
-    if (trimmedContent.length === 0) {
-      return c.json({ error: 'Content cannot be empty' }, 400);
-    }
-    if (trimmedContent.length > MAX_POST_CONTENT_LENGTH) {
-      return c.json({ error: `Content too long (max ${MAX_POST_CONTENT_LENGTH} chars)` }, 400);
-    }
-  }
+  const contentCheck = validateContentEdit(body.content);
+  if (!contentCheck.ok) return c.json({ error: contentCheck.error }, 400);
+  const trimmedContent = contentCheck.ok ? contentCheck.trimmed : undefined;
 
-  let trimmedSummary: string | undefined;
-  if (body.summary !== undefined) {
-    trimmedSummary = body.summary.trim();
-    if (trimmedSummary.length > MAX_POST_SUMMARY_LENGTH) {
-      return c.json({ error: `Summary too long (max ${MAX_POST_SUMMARY_LENGTH} chars)` }, 400);
-    }
-  }
+  // Validate summary
+  const summaryCheck = validateSummaryEdit(body.summary);
+  if (!summaryCheck.ok) return c.json({ error: summaryCheck.error }, 400);
+  const trimmedSummary = summaryCheck.ok ? summaryCheck.trimmed : undefined;
 
   const nextContent = body.content !== undefined ? (trimmedContent as string) : post.content;
   const nextSummary = body.summary !== undefined ? trimmedSummary || null : post.summary;
@@ -806,10 +306,9 @@ posts.patch('/:id', async (c) => {
     return c.json({ error: 'No changes provided' }, 400);
   }
 
-  await prisma.object.update({
-    where: { apId: post.apId },
-    data: updateData,
-  });
+  await db.update(objects)
+    .set(updateData)
+    .where(eq(objects.apId, post.apId));
 
   const updateActivity = {
     '@context': 'https://www.w3.org/ns/activitystreams',
@@ -826,7 +325,7 @@ posts.patch('/:id', async (c) => {
     },
   };
 
-  await persistAndFanout(prisma, c.env, updateActivity, post.apId);
+  await persistAndFanout(db, c.env, updateActivity, post.apId);
 
   return c.json({
     success: true,
@@ -846,31 +345,29 @@ posts.delete('/:id', async (c) => {
 
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
-  const post = await prisma.object.findFirst({
+  const post = await db.query.objects.findFirst({
     where: postWhereByIdOrApId(baseUrl, postId),
   });
 
   if (!post) return c.json({ error: 'Post not found' }, 404);
   if (post.attributedTo !== actor.ap_id) return c.json({ error: 'Forbidden' }, 403);
 
-  const parentUpdated = await prisma.$transaction(async (tx) => {
-    await tx.object.delete({ where: { apId: post.apId } });
+  // D1 doesn't support interactive transactions; use sequential operations
+  await db.delete(objects).where(eq(objects.apId, post.apId));
 
-    await tx.actor.update({
-      where: { apId: actor.ap_id },
-      data: { postCount: { decrement: 1 } },
-    });
+  await db.update(actors)
+    .set({ postCount: sql`${actors.postCount} - 1` })
+    .where(eq(actors.apId, actor.ap_id));
 
-    if (!post.inReplyTo) return true;
-
-    const updateResult = await tx.object.updateMany({
-      where: { apId: post.inReplyTo },
-      data: { replyCount: { decrement: 1 } },
-    });
-    return updateResult.count > 0;
-  });
+  let parentUpdated = true;
+  if (post.inReplyTo) {
+    const result = await db.update(objects)
+      .set({ replyCount: sql`${objects.replyCount} - 1` })
+      .where(and(eq(objects.apId, post.inReplyTo), sql`${objects.replyCount} > 0`));
+    parentUpdated = (result?.meta?.changes ?? 0) > 0;
+  }
 
   if (post.inReplyTo && !parentUpdated) {
     console.warn('[Posts] Failed to decrement parent reply count (parent may not exist)');
@@ -884,7 +381,7 @@ posts.delete('/:id', async (c) => {
     object: post.apId,
   };
 
-  await persistAndFanout(prisma, c.env, deleteActivity, post.apId);
+  await persistAndFanout(db, c.env, deleteActivity, post.apId);
 
   return c.json({ success: true });
 });

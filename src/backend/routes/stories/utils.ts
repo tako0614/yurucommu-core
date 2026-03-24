@@ -1,4 +1,6 @@
-import type { PrismaClient } from '../../../generated/prisma';
+import { eq, and, lt, inArray, count } from 'drizzle-orm';
+import type { Database } from '../../../db';
+import { objects, storyVotes, likes, storyViews, storyShares, actorCache, blocks, mutes } from '../../../db';
 import { safeJsonParse, objectApId } from '../../utils';
 
 interface VoteResults {
@@ -55,11 +57,12 @@ export function resolveStoryApId(storyId: string, baseUrl: string): string {
   return storyId.startsWith('http') ? storyId : objectApId(baseUrl, storyId);
 }
 
-/** Find a single Story object by ap_id. Returns null when not found. */
-export function findStory(prisma: PrismaClient, apId: string) {
-  return prisma.object.findFirst({
-    where: { apId, type: 'Story' },
-  });
+/** Find a single Story object by ap_id. Returns null/undefined when not found. */
+export function findStory(db: Database, apId: string) {
+  return db.select()
+    .from(objects)
+    .where(and(eq(objects.apId, apId), eq(objects.type, 'Story')))
+    .get();
 }
 
 // ---------------------------------------------------------------------------
@@ -68,23 +71,21 @@ export function findStory(prisma: PrismaClient, apId: string) {
 
 /** Fetch blocked and muted ap_ids for the given actor. */
 export async function fetchBlockedAndMutedIds(
-  prisma: PrismaClient,
+  db: Database,
   actorApId: string,
 ): Promise<{ blockedIds: string[]; mutedIds: string[] }> {
-  const [blocks, mutes] = await Promise.all([
-    prisma.block.findMany({
-      where: { blockerApId: actorApId },
-      select: { blockedApId: true },
-    }),
-    prisma.mute.findMany({
-      where: { muterApId: actorApId },
-      select: { mutedApId: true },
-    }),
+  const [blockRows, muteRows] = await Promise.all([
+    db.select({ blockedApId: blocks.blockedApId })
+      .from(blocks)
+      .where(eq(blocks.blockerApId, actorApId)),
+    db.select({ mutedApId: mutes.mutedApId })
+      .from(mutes)
+      .where(eq(mutes.muterApId, actorApId)),
   ]);
 
   return {
-    blockedIds: blocks.map((b) => b.blockedApId),
-    mutedIds: mutes.map((m) => m.mutedApId),
+    blockedIds: blockRows.map((b) => b.blockedApId),
+    mutedIds: muteRows.map((m) => m.mutedApId),
   };
 }
 
@@ -93,14 +94,16 @@ export async function fetchBlockedAndMutedIds(
 // ---------------------------------------------------------------------------
 
 /** Get vote counts for a single story, keyed by option index. */
-export async function getVoteCounts(prisma: PrismaClient, storyApId: string): Promise<VoteResults> {
-  const votes = await prisma.storyVote.groupBy({
-    by: ['optionIndex'],
-    where: { storyApId },
-    _count: { id: true },
-  });
+export async function getVoteCounts(db: Database, storyApId: string): Promise<VoteResults> {
+  const votes = await db.select({
+    optionIndex: storyVotes.optionIndex,
+    count: count(),
+  })
+    .from(storyVotes)
+    .where(eq(storyVotes.storyApId, storyApId))
+    .groupBy(storyVotes.optionIndex);
 
-  return Object.fromEntries(votes.map((v) => [v.optionIndex, v._count.id]));
+  return Object.fromEntries(votes.map((v) => [v.optionIndex, v.count]));
 }
 
 /** Sum all vote counts in a VoteResults record. */
@@ -113,7 +116,7 @@ export function sumVotes(votes: VoteResults): number {
  * for a list of story ap_ids.
  */
 export async function fetchBatchVotes(
-  prisma: PrismaClient,
+  db: Database,
   storyApIds: string[],
   actorApId?: string,
 ): Promise<{ allVotes: Record<string, VoteResults>; userVotes: Record<string, number> }> {
@@ -121,24 +124,34 @@ export async function fetchBatchVotes(
     return { allVotes: {}, userVotes: {} };
   }
 
-  const voteCounts = await prisma.storyVote.groupBy({
-    by: ['storyApId', 'optionIndex'],
-    where: { storyApId: { in: storyApIds } },
-    _count: { id: true },
-  });
+  const voteCounts = await db.select({
+    storyApId: storyVotes.storyApId,
+    optionIndex: storyVotes.optionIndex,
+    count: count(),
+  })
+    .from(storyVotes)
+    .where(inArray(storyVotes.storyApId, storyApIds))
+    .groupBy(storyVotes.storyApId, storyVotes.optionIndex);
 
   const allVotes: Record<string, VoteResults> = {};
   for (const v of voteCounts) {
     if (!allVotes[v.storyApId]) allVotes[v.storyApId] = {};
-    allVotes[v.storyApId][v.optionIndex] = v._count.id;
+    allVotes[v.storyApId][v.optionIndex] = v.count;
   }
 
   let userVotes: Record<string, number> = {};
   if (actorApId) {
-    const rows = await prisma.storyVote.findMany({
-      where: { storyApId: { in: storyApIds }, actorApId },
-      select: { storyApId: true, optionIndex: true },
-    });
+    const rows = await db.select({
+      storyApId: storyVotes.storyApId,
+      optionIndex: storyVotes.optionIndex,
+    })
+      .from(storyVotes)
+      .where(
+        and(
+          inArray(storyVotes.storyApId, storyApIds),
+          eq(storyVotes.actorApId, actorApId),
+        ),
+      );
     userVotes = Object.fromEntries(rows.map((r) => [r.storyApId, r.optionIndex]));
   }
 
@@ -151,15 +164,19 @@ export async function fetchBatchVotes(
 
 /** Fetch cached actor info for remote authors missing a local actor row. */
 export async function fetchActorCache(
-  prisma: PrismaClient,
+  db: Database,
   remoteApIds: string[],
 ): Promise<Record<string, ActorCacheEntry>> {
   if (remoteApIds.length === 0) return {};
 
-  const cached = await prisma.actorCache.findMany({
-    where: { apId: { in: remoteApIds } },
-    select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-  });
+  const cached = await db.select({
+    apId: actorCache.apId,
+    preferredUsername: actorCache.preferredUsername,
+    name: actorCache.name,
+    iconUrl: actorCache.iconUrl,
+  })
+    .from(actorCache)
+    .where(inArray(actorCache.apId, remoteApIds));
 
   return Object.fromEntries(
     cached.map((a) => [
@@ -173,28 +190,25 @@ export async function fetchActorCache(
 // Story data cleanup & transformation
 // ---------------------------------------------------------------------------
 
-export async function cleanupExpiredStories(prisma: PrismaClient): Promise<number> {
+export async function cleanupExpiredStories(db: Database): Promise<number> {
   const now = new Date().toISOString();
 
-  const expiredStories = await prisma.object.findMany({
-    where: { type: 'Story', endTime: { lt: now } },
-    select: { apId: true },
-  });
+  const expiredStories = await db.select({ apId: objects.apId })
+    .from(objects)
+    .where(and(eq(objects.type, 'Story'), lt(objects.endTime, now)));
 
   if (expiredStories.length === 0) return 0;
 
   const expiredApIds = expiredStories.map((s) => s.apId);
 
-  await prisma.storyVote.deleteMany({ where: { storyApId: { in: expiredApIds } } });
-  await prisma.like.deleteMany({ where: { objectApId: { in: expiredApIds } } });
-  await prisma.storyView.deleteMany({ where: { storyApId: { in: expiredApIds } } });
-  await prisma.storyShare.deleteMany({ where: { storyApId: { in: expiredApIds } } });
+  await db.delete(storyVotes).where(inArray(storyVotes.storyApId, expiredApIds));
+  await db.delete(likes).where(inArray(likes.objectApId, expiredApIds));
+  await db.delete(storyViews).where(inArray(storyViews.storyApId, expiredApIds));
+  await db.delete(storyShares).where(inArray(storyShares.storyApId, expiredApIds));
 
-  const result = await prisma.object.deleteMany({
-    where: { type: 'Story', endTime: { lt: now } },
-  });
+  await db.delete(objects).where(and(eq(objects.type, 'Story'), lt(objects.endTime, now)));
 
-  return result.count;
+  return expiredApIds.length;
 }
 
 // ---------------------------------------------------------------------------
