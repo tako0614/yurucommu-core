@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import authRoutes from './auth';
-import { LOGIN_LOCKOUT_CONFIG } from '../lib/auth-lockout';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import authRoutes from '../../routes/auth';
+import { LOGIN_LOCKOUT_CONFIG } from '../../lib/auth-lockout';
+import { hashPassword } from '../../lib/crypto';
 
 class MockKVNamespace {
   private store = new Map<string, { value: string; expiration?: number }>();
@@ -54,26 +55,57 @@ async function request(
   return { res, body: json };
 }
 
+let hashedPassword: string;
+
 function createAuthTestApp(envOverrides: Record<string, unknown> = {}) {
   const env = {
     KV: new MockKVNamespace(),
-    AUTH_PASSWORD: 'correct-password',
+    AUTH_PASSWORD_HASH: hashedPassword,
     APP_URL: 'https://test.yurucommu.com',
     ...envOverrides,
   };
 
   const app = new Hono();
   app.use('/api/auth/*', async (c, next) => {
+    // Drizzle-style chainable mock for db operations:
+    //   db.select().from().where().get() -> actor record
+    //   db.insert().values() -> session insert (in rotateSession)
+    //   db.delete().where() -> session delete (in rotateSession)
+    const actorData = {
+      apId: 'https://test.yurucommu.com/ap/users/tako',
+      type: 'Person',
+      preferredUsername: 'tako',
+      name: 'tako',
+      iconUrl: null,
+      role: 'owner',
+      takosUserId: 'password:owner',
+    };
+
+    const mockGet = vi.fn().mockResolvedValue(actorData);
+    const mockWhere = vi.fn().mockReturnValue({ get: mockGet });
+    const mockFrom = vi.fn().mockReturnValue({ where: mockWhere, get: mockGet });
+    const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
+
+    const mockInsertValues = vi.fn().mockReturnValue({
+      returning: vi.fn().mockReturnValue({
+        get: vi.fn().mockResolvedValue(actorData),
+      }),
+      then: (resolve: any) => Promise.resolve(undefined).then(resolve),
+    });
+    const mockInsert = vi.fn().mockReturnValue({ values: mockInsertValues });
+
+    const mockDeleteWhere = vi.fn().mockReturnValue({
+      then: (resolve: any) => Promise.resolve(undefined).then(resolve),
+    });
+    const mockDelete = vi.fn().mockReturnValue({
+      where: mockDeleteWhere,
+      then: (resolve: any) => Promise.resolve(undefined).then(resolve),
+    });
+
     (c as unknown as { set: (key: string, value: unknown) => void }).set('prisma', {
-      actor: {
-        findFirst: vi.fn().mockResolvedValue({
-          apId: 'https://test.yurucommu.com/ap/users/tako',
-        }),
-      },
-      session: {
-        create: vi.fn().mockResolvedValue({}),
-        delete: vi.fn().mockResolvedValue({}),
-      },
+      select: mockSelect,
+      insert: mockInsert,
+      delete: mockDelete,
     });
     await next();
   });
@@ -83,6 +115,10 @@ function createAuthTestApp(envOverrides: Record<string, unknown> = {}) {
 }
 
 describe('auth login lockout', () => {
+  beforeAll(async () => {
+    hashedPassword = await hashPassword('correct-password');
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-02-18T00:00:00.000Z'));

@@ -8,7 +8,9 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
+import { eq } from 'drizzle-orm';
 import type { Env, Variables } from '../types';
+import { sessions } from '../../db';
 import { getTakosClient, type TakosSession } from '../lib/takos-client';
 
 const takosProxy = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -39,9 +41,9 @@ takosProxy.use('*', async (c, next) => {
   }
 
   const prisma = c.get('prisma');
-  const session = await prisma.session.findUnique({
-    where: { id: sessionId },
-    select: {
+  const session = await prisma.query.sessions.findFirst({
+    where: eq(sessions.id, sessionId),
+    columns: {
       id: true,
       memberId: true,
       expiresAt: true,

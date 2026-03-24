@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
-import { rateLimit, RateLimitConfigs } from './rate-limit';
+import { rateLimit, RateLimitConfigs } from '../../middleware/rate-limit';
 
 class MockKVNamespace {
   private store = new Map<string, { value: string; expiration?: number }>();

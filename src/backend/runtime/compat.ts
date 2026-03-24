@@ -564,7 +564,6 @@ export async function createNodeEnv(config: {
   assetsPath?: string;
   APP_URL: string;
   AUTH_PASSWORD_HASH?: string;
-  AUTH_PASSWORD?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   X_CLIENT_ID?: string;
@@ -578,8 +577,8 @@ export async function createNodeEnv(config: {
   const kv = new KVCompatNamespace();
   const assets = config.assetsPath ? await AssetsCompatFetcher.create(config.assetsPath) : undefined;
 
-  const { getPrismaSQLite } = await import('../lib/db');
-  const prisma = await getPrismaSQLite(config.databasePath || './data/yurucommu.db');
+  const { getDbSQLite } = await import('../../db');
+  const prisma = await getDbSQLite(config.databasePath || './data/yurucommu.db');
 
   return {
     DB: db as unknown as D1Database,
@@ -589,7 +588,6 @@ export async function createNodeEnv(config: {
     PRISMA: prisma,
     APP_URL: config.APP_URL,
     AUTH_PASSWORD_HASH: config.AUTH_PASSWORD_HASH,
-    AUTH_PASSWORD: config.AUTH_PASSWORD,
     GOOGLE_CLIENT_ID: config.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: config.GOOGLE_CLIENT_SECRET,
     X_CLIENT_ID: config.X_CLIENT_ID,

@@ -28,7 +28,7 @@ declare global {
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 type HonoMiddleware = MiddlewareHandler<{ Bindings: Env; Variables: Variables }>;
 
-export interface CacheConfig {
+interface CacheConfig {
   /** Time-to-live in seconds */
   ttl: number;
   /** Whether to include query params in cache key (default: true) */
@@ -56,8 +56,6 @@ export const CacheTTL = {
   WEBFINGER: 3600,
   /** Community info (5 minutes) */
   COMMUNITY: 300,
-  /** Static content like well-known (1 hour) */
-  STATIC: 3600,
   /** Search results (1 minute) */
   SEARCH: 60,
 } as const;
@@ -66,7 +64,6 @@ export const CacheTags = {
   TIMELINE: 'timeline',
   ACTOR: 'actor',
   COMMUNITY: 'community',
-  POST: 'post',
   WEBFINGER: 'webfinger',
 } as const;
 
@@ -117,25 +114,6 @@ class LRUCache {
     }
 
     this.cache.set(key, entry);
-  }
-
-  delete(key: string): boolean {
-    return this.cache.delete(key);
-  }
-
-  deleteByTag(tag: string): number {
-    let deleted = 0;
-    for (const [key, entry] of this.cache) {
-      if (entry.tag === tag) {
-        this.cache.delete(key);
-        deleted++;
-      }
-    }
-    return deleted;
-  }
-
-  clear(): void {
-    this.cache.clear();
   }
 
   cleanup(): void {
@@ -422,112 +400,3 @@ async function handleMemoryCache(
   });
 }
 
-// ============================================================================
-// Cache Invalidation
-// ============================================================================
-
-/**
- * Invalidate cache entries by key pattern
- */
-export async function invalidateCache(patterns: string[]): Promise<void> {
-  if (isCloudflareWorkers()) {
-    const cache = caches.default;
-    await Promise.all(
-      patterns.map(pattern =>
-        // Requires the full URL; in practice, call from middleware with access to c.req.url
-        cache.delete(new Request(pattern))
-      )
-    );
-  } else {
-    for (const pattern of patterns) {
-      memoryCache.delete(pattern);
-    }
-  }
-}
-
-/**
- * Invalidate all cache entries with a specific tag.
- * Tag-based purging is only supported for the in-memory cache;
- * Cloudflare Cache API would need the Cloudflare REST API for this.
- */
-export function invalidateCacheByTag(tag: string): number {
-  if (!isCloudflareWorkers()) {
-    return memoryCache.deleteByTag(tag);
-  }
-  return 0;
-}
-
-/**
- * Middleware to invalidate cache on mutations
- *
- * @example
- * posts.post('/', invalidateCacheOnMutation([CacheTags.TIMELINE, CacheTags.ACTOR]), handler);
- */
-export function invalidateCacheOnMutation(tags: string[]): HonoMiddleware {
-  return async (c, next) => {
-    await next();
-
-    if (c.res.status >= 200 && c.res.status < 300) {
-      for (const tag of tags) {
-        invalidateCacheByTag(tag);
-      }
-    }
-  };
-}
-
-// ============================================================================
-// Cache Headers Middleware (CDN/Browser caching only)
-// ============================================================================
-
-/**
- * Add cache headers without storing in cache.
- * Useful for CDN or browser caching.
- */
-export function withCacheHeaders(config: CacheConfig): HonoMiddleware {
-  return async (c, next) => {
-    await next();
-
-    if (c.req.method !== 'GET' || c.res.status !== 200) {
-      return;
-    }
-
-    const body = await c.res.text();
-    const etag = await generateETag(body);
-    const lastModified = new Date().toUTCString();
-
-    const headers = new Headers(c.res.headers);
-    headers.set('Cache-Control', buildCacheControl(config));
-    headers.set('ETag', etag);
-    headers.set('Last-Modified', lastModified);
-
-    c.res = new Response(body, {
-      status: c.res.status,
-      headers,
-    });
-  };
-}
-
-/**
- * No-cache middleware
- */
-export const noCache: HonoMiddleware = async (c, next) => {
-  await next();
-
-  const headers = new Headers(c.res.headers);
-  headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-  headers.set('Pragma', 'no-cache');
-  headers.set('Expires', '0');
-
-  const body = await c.res.text();
-  c.res = new Response(body, {
-    status: c.res.status,
-    headers,
-  });
-};
-
-/**
- * Clear all in-memory cache (useful for testing)
- */
-export function clearMemoryCache(): void {
-  memoryCache.clear();
-}

@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
+import { and, eq, like } from 'drizzle-orm';
 import type { Env, Variables } from '../types';
-import type { PrismaClient } from '../../generated/prisma';
+import type { Database } from '../../db';
+import { objects, mediaUploads, follows } from '../../db';
 import { generateId, safeJsonParse } from '../utils';
 
 const media = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -159,9 +161,13 @@ media.post('/upload', async (c) => {
     });
 
     // Record ownership and upload to R2 in parallel
-    const prisma = c.get('prisma');
-    const dbRecord = prisma.mediaUpload.create({
-      data: { id, r2Key, uploaderApId: actor.ap_id, contentType, size: file.size },
+    const db = c.get('prisma');
+    const dbRecord = db.insert(mediaUploads).values({
+      id,
+      r2Key,
+      uploaderApId: actor.ap_id,
+      contentType,
+      size: file.size,
     });
 
     await Promise.all([r2Upload, dbRecord]);
@@ -189,23 +195,34 @@ const ALLOW_PRIVATE: MediaAuthResult = { allowed: true, isPublic: false };
 
 // Check if user can access media based on associated object visibility
 async function checkMediaAuthorization(
-  prisma: PrismaClient,
+  db: Database,
   mediaUrl: string,
   currentActorApId: string | null,
   r2Key: string
 ): Promise<MediaAuthResult> {
-  const obj = await prisma.object.findFirst({
-    where: { attachmentsJson: { contains: mediaUrl } },
-    select: { apId: true, attributedTo: true, visibility: true, toJson: true },
-  });
+  const obj = await db
+    .select({
+      apId: objects.apId,
+      attributedTo: objects.attributedTo,
+      visibility: objects.visibility,
+      toJson: objects.toJson,
+    })
+    .from(objects)
+    .where(like(objects.attachmentsJson, '%' + mediaUrl + '%'))
+    .get();
 
   // Unattached media: only the uploader may access
   if (!obj) {
     if (!currentActorApId) return DENY_AUTH_REQUIRED;
 
-    const uploadRecord = await prisma.mediaUpload.findFirst({
-      where: { r2Key, uploaderApId: currentActorApId },
-    });
+    const uploadRecord = await db
+      .select()
+      .from(mediaUploads)
+      .where(and(
+        eq(mediaUploads.r2Key, r2Key),
+        eq(mediaUploads.uploaderApId, currentActorApId),
+      ))
+      .get();
     return uploadRecord
       ? ALLOW_PRIVATE
       : { allowed: false, reason: 'Not authorized to access this media', isPublic: false };
@@ -220,15 +237,15 @@ async function checkMediaAuthorization(
   if (obj.attributedTo === currentActorApId) return ALLOW_PRIVATE;
 
   if (obj.visibility === 'followers') {
-    const follow = await prisma.follow.findUnique({
-      where: {
-        followerApId_followingApId: {
-          followerApId: currentActorApId,
-          followingApId: obj.attributedTo,
-        },
-        status: 'accepted',
-      },
-    });
+    const follow = await db
+      .select()
+      .from(follows)
+      .where(and(
+        eq(follows.followerApId, currentActorApId),
+        eq(follows.followingApId, obj.attributedTo),
+        eq(follows.status, 'accepted'),
+      ))
+      .get();
     return follow ? ALLOW_PRIVATE : DENY_NOT_AUTHORIZED;
   }
 
@@ -253,8 +270,8 @@ media.get('/:id', async (c) => {
     if (!r2Key.startsWith('uploads/') || r2Key.includes('..')) return c.notFound();
 
     const actor = c.get('actor');
-    const prisma = c.get('prisma');
-    const authResult = await checkMediaAuthorization(prisma, `/media/${id}`, actor?.ap_id || null, r2Key);
+    const db = c.get('prisma');
+    const authResult = await checkMediaAuthorization(db, `/media/${id}`, actor?.ap_id || null, r2Key);
     if (!authResult.allowed) return c.json({ error: authResult.reason || 'Forbidden' }, 403);
 
     const object = await c.env.MEDIA.get(r2Key);

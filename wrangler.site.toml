@@ -1,5 +1,5 @@
 name = "yurucommu-site"
-main = "src/site-worker.ts"
+main = "src/runtime/site-worker.ts"
 compatibility_date = "2025-01-01"
 
 [assets]

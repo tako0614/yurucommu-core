@@ -2,47 +2,51 @@
   "name": "@takos/yurucommu",
   "version": "1.0.0",
   "private": false,
+  "license": "AGPL-3.0-only",
   "type": "module",
-  "main": "./src/server.ts",
-  "types": "./src/server.ts",
+  "main": "./src/backend/public.ts",
+  "types": "./src/backend/public.ts",
   "exports": {
     ".": {
-      "types": "./src/server.ts",
-      "import": "./src/server.ts"
+      "types": "./src/backend/public.ts",
+      "import": "./src/backend/public.ts"
     },
     "./server": {
-      "types": "./src/server.ts",
-      "import": "./src/server.ts"
+      "types": "./src/backend/public.ts",
+      "import": "./src/backend/public.ts"
     },
     "./web": {
-      "types": "./src/web.ts",
-      "import": "./src/web.ts"
+      "types": "./web/public.ts",
+      "import": "./web/public.ts"
     },
-    "./web/styles.css": "./src/frontend/src/styles.css",
+    "./web/styles.css": "./web/styles.css",
     "./plugins": {
-      "types": "./src/plugins.ts",
-      "import": "./src/plugins.ts"
+      "types": "./src/plugin/public.ts",
+      "import": "./src/plugin/public.ts"
     }
   },
   "scripts": {
     "dev": "wrangler dev",
-    "dev:web": "vite --config src/vite.config.ts",
-    "dev:node": "tsx watch src/server-node.ts",
-    "dev:bun": "bun run src/server-bun.ts",
-    "dev:deno": "deno run --allow-net --allow-read --allow-write --allow-env src/server-deno.ts",
-    "start:node": "tsx src/server-node.ts",
-    "start:bun": "bun run src/server-bun.ts",
-    "start:deno": "deno run --allow-net --allow-read --allow-write --allow-env src/server-deno.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "dev:node": "tsx watch src/backend/server.ts",
+    "dev:bun": "bun run src/backend/server-bun.ts",
+    "dev:deno": "deno run --allow-net --allow-read --allow-write --allow-env src/backend/server-deno.ts",
+    "start:node": "tsx src/backend/server.ts",
+    "start:bun": "bun run src/backend/server-bun.ts",
+    "start:deno": "deno run --allow-net --allow-read --allow-write --allow-env src/backend/server-deno.ts",
     "start:workerd": "wrangler dev --local",
-    "build": "vite build --config src/vite.config.ts",
-    "build:worker": "esbuild src/server-app.ts --bundle --format=esm --outfile=dist/worker.js --platform=browser --target=es2022 --conditions=workerd,worker,browser --external:cloudflare:* --external:node:*",
+    "build": "vite build --config web/vite.config.ts",
+    "build:worker": "esbuild src/backend/index.ts --bundle --format=esm --outfile=dist/worker.js --platform=browser --target=es2022 --conditions=workerd,worker,browser --external:cloudflare:* --external:node:*",
     "build:bundle": "npm run build && npm run build:worker",
-    "deploy": "vite build --config src/vite.config.ts && wrangler deploy",
+    "deploy": "vite build --config web/vite.config.ts && wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "db:generate": "prisma generate",
-    "db:push": "prisma db push",
-    "db:migrate": "prisma migrate dev",
-    "db:studio": "prisma studio"
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "db:d1:apply:local": "wrangler d1 migrations apply DB --local --config wrangler.local.toml",
+    "db:d1:apply:remote": "wrangler d1 migrations apply DB --remote",
+    "db:d1:apply:tenant2": "wrangler d1 migrations apply DB --remote --config wrangler.tenant2.toml"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.971.0",
@@ -50,13 +54,11 @@
     "@ffmpeg/util": "^0.12.2",
     "@hono/node-server": "^1.13.0",
     "@libsql/client": "^0.17.0",
-    "@prisma/adapter-d1": "^7.3.0",
-    "@prisma/adapter-libsql": "^7.3.0",
-    "@prisma/client": "^7.3.0",
     "dotenv": "^17.2.3",
+    "drizzle-orm": "^0.45.1",
     "hono": "^4.11.4",
     "html5-qrcode": "^2.3.8",
-    "prisma": "^7.3.0",
+    "jotai": "^2.18.1",
     "qrcode.react": "^4.2.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
@@ -73,11 +75,12 @@
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "drizzle-kit": "^0.31.9",
     "esbuild": "^0.25.12",
     "tailwindcss": "^4.1.18",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0",
-    "vite": "^6.0.0",
+    "vite": "^6.4.1",
     "wrangler": "^4.61.0"
   }
 }

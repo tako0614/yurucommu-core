@@ -1,4 +1,6 @@
-import type { PrismaClient } from '../../../generated/prisma';
+import type { Database } from '../../../db';
+import { eq } from 'drizzle-orm';
+import { deliveryCircuit } from '../../../db';
 import { safeParseIsoTimeMs } from './utils';
 
 export type CircuitState = 'closed' | 'open' | 'half_open';
@@ -21,16 +23,6 @@ type CircuitRow = {
 };
 
 type CircuitData = Partial<Omit<CircuitRow, 'endpoint'>>;
-
-const CIRCUIT_SELECT = {
-  endpoint: true,
-  state: true,
-  consecutiveFailures: true,
-  recentOutcomesJson: true,
-  openUntil: true,
-  halfOpenProbeAttempts: true,
-  halfOpenProbeSuccesses: true,
-} as const;
 
 const INITIAL_CIRCUIT_DATA: CircuitData = {
   state: 'closed',
@@ -62,11 +54,11 @@ function serializeRecentOutcomes(values: number[]): string {
  * Returns the row and the updated recent-outcomes array ready for persistence.
  */
 async function loadCircuitWithOutcome(
-  prisma: PrismaClient,
+  db: Database,
   endpoint: string,
   outcome: 0 | 1
 ): Promise<{ circuit: CircuitRow; recent: number[] }> {
-  const circuit = await getOrCreateCircuit(prisma, endpoint);
+  const circuit = await getOrCreateCircuit(db, endpoint);
   const recent = parseRecentOutcomes(circuit.recentOutcomesJson);
   recent.push(outcome);
   return { circuit, recent };
@@ -83,30 +75,46 @@ function buildOpenData(recent: number[], consecutiveFailures: number): CircuitDa
   };
 }
 
-async function updateCircuit(prisma: PrismaClient, endpoint: string, data: CircuitData): Promise<void> {
-  await prisma.deliveryCircuit.update({ where: { endpoint }, data });
+async function updateCircuit(db: Database, endpoint: string, data: CircuitData): Promise<void> {
+  await db.update(deliveryCircuit).set(data).where(eq(deliveryCircuit.endpoint, endpoint));
 }
 
-async function getOrCreateCircuit(prisma: PrismaClient, endpoint: string): Promise<CircuitRow> {
-  const existing = await prisma.deliveryCircuit.findUnique({
-    where: { endpoint },
-    select: CIRCUIT_SELECT,
-  });
+async function getOrCreateCircuit(db: Database, endpoint: string): Promise<CircuitRow> {
+  const existing = await db.select({
+    endpoint: deliveryCircuit.endpoint,
+    state: deliveryCircuit.state,
+    consecutiveFailures: deliveryCircuit.consecutiveFailures,
+    recentOutcomesJson: deliveryCircuit.recentOutcomesJson,
+    openUntil: deliveryCircuit.openUntil,
+    halfOpenProbeAttempts: deliveryCircuit.halfOpenProbeAttempts,
+    halfOpenProbeSuccesses: deliveryCircuit.halfOpenProbeSuccesses,
+  })
+    .from(deliveryCircuit)
+    .where(eq(deliveryCircuit.endpoint, endpoint))
+    .get();
   if (existing) return existing as CircuitRow;
 
-  const created = await prisma.deliveryCircuit.create({
-    data: { endpoint, ...INITIAL_CIRCUIT_DATA },
-    select: CIRCUIT_SELECT,
-  });
+  const created = await db.insert(deliveryCircuit)
+    .values({ endpoint, ...INITIAL_CIRCUIT_DATA })
+    .returning({
+      endpoint: deliveryCircuit.endpoint,
+      state: deliveryCircuit.state,
+      consecutiveFailures: deliveryCircuit.consecutiveFailures,
+      recentOutcomesJson: deliveryCircuit.recentOutcomesJson,
+      openUntil: deliveryCircuit.openUntil,
+      halfOpenProbeAttempts: deliveryCircuit.halfOpenProbeAttempts,
+      halfOpenProbeSuccesses: deliveryCircuit.halfOpenProbeSuccesses,
+    })
+    .get();
   return created as CircuitRow;
 }
 
 export async function checkCircuit(
-  prisma: PrismaClient,
+  db: Database,
   endpoint: string
 ): Promise<{ allow: true } | { allow: false; deferSeconds: number }> {
   const now = Date.now();
-  const circuit = await getOrCreateCircuit(prisma, endpoint);
+  const circuit = await getOrCreateCircuit(db, endpoint);
 
   if (circuit.state === 'open') {
     const untilMs = safeParseIsoTimeMs(circuit.openUntil);
@@ -116,7 +124,7 @@ export async function checkCircuit(
     }
 
     // Transition to half-open when open window elapsed.
-    await updateCircuit(prisma, endpoint, {
+    await updateCircuit(db, endpoint, {
       state: 'half_open',
       openUntil: null,
       halfOpenProbeAttempts: 0,
@@ -132,8 +140,8 @@ export async function checkCircuit(
   return { allow: true };
 }
 
-export async function recordCircuitSuccess(prisma: PrismaClient, endpoint: string): Promise<void> {
-  const { circuit, recent } = await loadCircuitWithOutcome(prisma, endpoint, 0);
+export async function recordCircuitSuccess(db: Database, endpoint: string): Promise<void> {
+  const { circuit, recent } = await loadCircuitWithOutcome(db, endpoint, 0);
   const serialized = serializeRecentOutcomes(recent);
 
   if (circuit.state === 'half_open') {
@@ -141,7 +149,7 @@ export async function recordCircuitSuccess(prisma: PrismaClient, endpoint: strin
     const nextSuccesses = circuit.halfOpenProbeSuccesses + 1;
     const allProbesSucceeded = nextAttempts >= HALF_OPEN_PROBES && nextSuccesses >= HALF_OPEN_PROBES;
 
-    await updateCircuit(prisma, endpoint, allProbesSucceeded
+    await updateCircuit(db, endpoint, allProbesSucceeded
       ? { ...INITIAL_CIRCUIT_DATA, recentOutcomesJson: serialized }
       : {
           consecutiveFailures: 0,
@@ -152,15 +160,15 @@ export async function recordCircuitSuccess(prisma: PrismaClient, endpoint: strin
     return;
   }
 
-  await updateCircuit(prisma, endpoint, { consecutiveFailures: 0, recentOutcomesJson: serialized });
+  await updateCircuit(db, endpoint, { consecutiveFailures: 0, recentOutcomesJson: serialized });
 }
 
-export async function recordCircuitFailure(prisma: PrismaClient, endpoint: string): Promise<void> {
-  const { circuit, recent } = await loadCircuitWithOutcome(prisma, endpoint, 1);
+export async function recordCircuitFailure(db: Database, endpoint: string): Promise<void> {
+  const { circuit, recent } = await loadCircuitWithOutcome(db, endpoint, 1);
 
   // Half-open failure: immediately re-open.
   if (circuit.state === 'half_open') {
-    await updateCircuit(prisma, endpoint, buildOpenData(recent, CONSECUTIVE_FAILURE_THRESHOLD));
+    await updateCircuit(db, endpoint, buildOpenData(recent, CONSECUTIVE_FAILURE_THRESHOLD));
     return;
   }
 
@@ -177,7 +185,7 @@ export async function recordCircuitFailure(prisma: PrismaClient, endpoint: strin
     (fullWindow && failures / RECENT_WINDOW_SIZE >= FAILURE_RATE_THRESHOLD);
 
   if (shouldOpen) {
-    await updateCircuit(prisma, endpoint, buildOpenData(recent, consecutiveFailures));
+    await updateCircuit(db, endpoint, buildOpenData(recent, consecutiveFailures));
     console.warn('[DeliveryCircuit] OPEN', {
       endpoint,
       at: new Date().toISOString(),
@@ -188,9 +196,8 @@ export async function recordCircuitFailure(prisma: PrismaClient, endpoint: strin
     return;
   }
 
-  await updateCircuit(prisma, endpoint, {
+  await updateCircuit(db, endpoint, {
     consecutiveFailures,
     recentOutcomesJson: serializeRecentOutcomes(recent),
   });
 }
-

@@ -5,7 +5,7 @@ import {
   DELIVERY_MAX_ATTEMPTS,
   safeEndpointHost,
   safeParseIsoTimeMs,
-} from './utils';
+} from '../../../lib/delivery/utils';
 
 describe('delivery/utils', () => {
   afterEach(() => {

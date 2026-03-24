@@ -3,9 +3,12 @@
 // Threading via conversation field
 
 import { Hono } from 'hono';
+import { eq, and, lt, desc, like, inArray } from 'drizzle-orm';
+import type { Database } from '../../../db';
+import { actors, actorCache, objects, objectRecipients, activities, inbox as inboxTable } from '../../../db';
 import type { Env, Variables } from '../../types';
-import { generateId, objectApId, activityApId, formatUsername, isLocal, safeJsonParse } from '../../utils';
-import { MAX_DM_CONTENT_LENGTH, MAX_DM_PAGE_LIMIT, getConversationId, parseLimit } from './utils';
+import { generateId, objectApId, activityApId, formatUsername, isLocal, parseLimit, safeJsonParse } from '../../utils';
+import { MAX_DM_CONTENT_LENGTH, MAX_DM_PAGE_LIMIT, getConversationId } from './utils';
 import { enqueueDeliveryToActor } from '../../lib/delivery/queue';
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -18,13 +21,6 @@ type Attachment = {
 };
 
 // --- Shared helpers (file-local) ---
-
-const ACTOR_INFO_SELECT = {
-  apId: true,
-  preferredUsername: true,
-  name: true,
-  iconUrl: true,
-} as const;
 
 type ActorInfo = { apId: string; preferredUsername: string | null; name: string | null; iconUrl: string | null };
 
@@ -59,36 +55,32 @@ function buildSenderFromActor(actor: { ap_id: string; preferred_username: string
 
 /** Fetch direct messages the actor is authorized to see, filtered by conversation. */
 async function fetchAuthorizedMessages(
-  prisma: any,
+  db: Database,
   actorApId: string,
   conversationId: string,
   limit: number,
   before: string | undefined,
 ): Promise<Array<any>> {
-  const actorApIdJson = JSON.stringify(actorApId);
+  // Build where clause: filter by conversation + visibility + type
+  // Authorization is re-validated in code below (defense-in-depth)
+  const baseCondition = and(
+    eq(objects.visibility, 'direct'),
+    eq(objects.type, 'Note'),
+    eq(objects.conversation, conversationId),
+  );
 
-  const whereClause: Record<string, unknown> = {
-    visibility: 'direct',
-    type: 'Note',
-    conversation: conversationId,
-    OR: [
-      { attributedTo: actorApId },
-      { toJson: { contains: actorApIdJson } },
-    ],
-  };
+  const whereClause = before
+    ? and(baseCondition!, lt(objects.published, before))
+    : baseCondition;
 
-  if (before) {
-    whereClause.published = { lt: before };
-  }
-
-  const messages = await prisma.object.findMany({
-    where: whereClause,
-    orderBy: { published: 'desc' },
-    take: limit,
-  });
+  const messages = await db.select()
+    .from(objects)
+    .where(whereClause!)
+    .orderBy(desc(objects.published))
+    .limit(limit);
 
   // Defence-in-depth: re-validate authorization at the code level
-  return messages.filter((msg: any) => {
+  return messages.filter((msg) => {
     if (msg.attributedTo === actorApId) return true;
     const toRecipients = safeJsonParse<string[]>(msg.toJson, []);
     return toRecipients.includes(actorApId);
@@ -97,21 +89,31 @@ async function fetchAuthorizedMessages(
 
 /** Build a map from ap_id -> actor info, checking local actors then cached actors. */
 async function resolveAuthorInfoMap(
-  prisma: any,
+  db: Database,
   authorApIds: string[],
 ): Promise<Map<string, ActorInfo>> {
-  const localActors: ActorInfo[] = await prisma.actor.findMany({
-    where: { apId: { in: authorApIds } },
-    select: ACTOR_INFO_SELECT,
-  });
-  const localMap = new Map(localActors.map((a) => [a.apId, a]));
+  const localActors = await db.select({
+    apId: actors.apId,
+    preferredUsername: actors.preferredUsername,
+    name: actors.name,
+    iconUrl: actors.iconUrl,
+  })
+    .from(actors)
+    .where(inArray(actors.apId, authorApIds));
+
+  const localMap = new Map<string, ActorInfo>(localActors.map((a) => [a.apId, a]));
 
   const remoteApIds = authorApIds.filter((id) => !localMap.has(id));
   if (remoteApIds.length > 0) {
-    const cached: ActorInfo[] = await prisma.actorCache.findMany({
-      where: { apId: { in: remoteApIds } },
-      select: ACTOR_INFO_SELECT,
-    });
+    const cached = await db.select({
+      apId: actorCache.apId,
+      preferredUsername: actorCache.preferredUsername,
+      name: actorCache.name,
+      iconUrl: actorCache.iconUrl,
+    })
+      .from(actorCache)
+      .where(inArray(actorCache.apId, remoteApIds));
+
     for (const a of cached) {
       localMap.set(a.apId, a);
     }
@@ -151,51 +153,60 @@ function formatMessages(
 
 /** Fetch messages for a conversation, resolve authors, and format for API response. */
 async function fetchAndFormatMessages(
-  prisma: any,
+  db: Database,
   actorApId: string,
   conversationId: string,
   limit: number,
   before: string | undefined,
 ): Promise<Array<any>> {
-  const messages = await fetchAuthorizedMessages(prisma, actorApId, conversationId, limit, before);
+  const messages = await fetchAuthorizedMessages(db, actorApId, conversationId, limit, before);
   const authorApIds = [...new Set(messages.map((m: any) => m.attributedTo))];
-  const authorMap = await resolveAuthorInfoMap(prisma, authorApIds);
+  const authorMap = await resolveAuthorInfoMap(db, authorApIds);
   return formatMessages(messages, authorMap);
 }
 
 /** Look up a direct-message Note that the actor owns (for edit/delete). */
 async function findOwnedDmMessage(
-  prisma: any,
+  db: Database,
   messageId: string,
   actorApId: string,
 ): Promise<{ apId: string; attributedTo: string; conversation: string | null } | { error: string; status: 403 | 404 }> {
-  const message = await prisma.object.findFirst({
-    where: { apId: messageId, visibility: 'direct', type: 'Note' },
-    select: { apId: true, attributedTo: true, conversation: true },
-  });
+  const message = await db.select({
+    apId: objects.apId,
+    attributedTo: objects.attributedTo,
+    conversation: objects.conversation,
+  })
+    .from(objects)
+    .where(
+      and(
+        eq(objects.apId, messageId),
+        eq(objects.visibility, 'direct'),
+        eq(objects.type, 'Note'),
+      ),
+    )
+    .get();
+
   if (!message) return { error: 'Message not found', status: 404 };
   if (message.attributedTo !== actorApId) return { error: 'Forbidden', status: 403 };
   return message;
 }
 
-/** Create the DM Note object row in a transaction context. */
+/** Create the DM Note object row. */
 async function createDmNote(
-  tx: any,
+  db: Database,
   data: { apId: string; actorApId: string; content: string; toJson: string; conversationId: string; published: string },
 ): Promise<void> {
-  await tx.object.create({
-    data: {
-      apId: data.apId,
-      type: 'Note',
-      attributedTo: data.actorApId,
-      content: data.content,
-      visibility: 'direct',
-      toJson: data.toJson,
-      ccJson: JSON.stringify([]),
-      conversation: data.conversationId,
-      published: data.published,
-      isLocal: 1,
-    },
+  await db.insert(objects).values({
+    apId: data.apId,
+    type: 'Note',
+    attributedTo: data.actorApId,
+    content: data.content,
+    visibility: 'direct',
+    toJson: data.toJson,
+    ccJson: JSON.stringify([]),
+    conversation: data.conversationId,
+    published: data.published,
+    isLocal: 1,
   });
 }
 
@@ -205,13 +216,13 @@ dm.get('/user/:encodedApId/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const otherApId = decodeURIComponent(c.req.param('encodedApId'));
   const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
   const before = c.req.query('before');
   const conversationId = getConversationId(c.env.APP_URL, actor.ap_id, otherApId);
 
-  const messages = await fetchAndFormatMessages(prisma, actor.ap_id, conversationId, limit, before);
+  const messages = await fetchAndFormatMessages(db, actor.ap_id, conversationId, limit, before);
   return c.json({ messages, conversation_id: conversationId });
 });
 
@@ -220,7 +231,7 @@ dm.post('/user/:encodedApId/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const otherApId = decodeURIComponent(c.req.param('encodedApId'));
   const body = await c.req.json<{ content: string }>();
   const baseUrl = c.env.APP_URL;
@@ -232,15 +243,16 @@ dm.post('/user/:encodedApId/messages', async (c) => {
   const content = contentOrError;
 
   // Verify other user exists (check both local actors and cached remote actors)
-  const localActor = await prisma.actor.findUnique({
-    where: { apId: otherApId },
-    select: { apId: true, inbox: true },
-  });
+  const localActor = await db.select({ apId: actors.apId, inbox: actors.inbox })
+    .from(actors)
+    .where(eq(actors.apId, otherApId))
+    .get();
+
   const cachedActor = !localActor
-    ? await prisma.actorCache.findUnique({
-        where: { apId: otherApId },
-        select: { apId: true, inbox: true },
-      })
+    ? await db.select({ apId: actorCache.apId, inbox: actorCache.inbox })
+        .from(actorCache)
+        .where(eq(actorCache.apId, otherApId))
+        .get()
     : null;
 
   const otherActor = localActor || cachedActor;
@@ -273,43 +285,37 @@ dm.post('/user/:encodedApId/messages', async (c) => {
     : null;
 
   try {
-    await prisma.$transaction(async (tx: any) => {
-      await createDmNote(tx, { apId, actorApId: actor.ap_id, content, toJson, conversationId, published: now });
+    // Sequential operations (D1 doesn't support interactive transactions)
+    await createDmNote(db, { apId, actorApId: actor.ap_id, content, toJson, conversationId, published: now });
 
-      if (isRecipientLocal) {
-        await tx.objectRecipient.upsert({
-          where: { objectApId_recipientApId: { objectApId: apId, recipientApId: otherApId } },
-          create: { objectApId: apId, recipientApId: otherApId, type: 'to' },
-          update: {},
-        });
+    if (isRecipientLocal) {
+      await db.insert(objectRecipients)
+        .values({ objectApId: apId, recipientApId: otherApId, type: 'to' })
+        .onConflictDoNothing();
 
-        await tx.activity.create({
-          data: {
-            apId: deliveryActivityId,
-            type: 'Create',
-            actorApId: actor.ap_id,
-            objectApId: apId,
-            rawJson: JSON.stringify({ type: 'Create', actor: actor.ap_id, object: apId }),
-            direction: 'inbound',
-          },
-        });
+      await db.insert(activities).values({
+        apId: deliveryActivityId,
+        type: 'Create',
+        actorApId: actor.ap_id,
+        objectApId: apId,
+        rawJson: JSON.stringify({ type: 'Create', actor: actor.ap_id, object: apId }),
+        direction: 'inbound',
+      });
 
-        await tx.inbox.create({
-          data: { actorApId: otherApId, activityApId: deliveryActivityId },
-        });
-      } else {
-        await tx.activity.create({
-          data: {
-            apId: deliveryActivityId,
-            type: 'Create',
-            actorApId: actor.ap_id,
-            objectApId: apId,
-            rawJson: JSON.stringify(remoteCreateActivity),
-            direction: 'outbound',
-          },
-        });
-      }
-    });
+      await db.insert(inboxTable).values({
+        actorApId: otherApId,
+        activityApId: deliveryActivityId,
+      });
+    } else {
+      await db.insert(activities).values({
+        apId: deliveryActivityId,
+        type: 'Create',
+        actorApId: actor.ap_id,
+        objectApId: apId,
+        rawJson: JSON.stringify(remoteCreateActivity),
+        direction: 'outbound',
+      });
+    }
   } catch (e) {
     console.error('[DM] Failed to insert message:', e);
     return c.json({ error: 'Failed to send message' }, 500);
@@ -330,7 +336,7 @@ dm.patch('/messages/:messageId', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const body = await c.req.json<{ content: string }>();
 
   const contentOrError = validateContent(body.content);
@@ -339,17 +345,16 @@ dm.patch('/messages/:messageId', async (c) => {
   }
   const content = contentOrError;
 
-  const messageOrError = await findOwnedDmMessage(prisma, c.req.param('messageId'), actor.ap_id);
+  const messageOrError = await findOwnedDmMessage(db, c.req.param('messageId'), actor.ap_id);
   if ('error' in messageOrError) {
     return c.json({ error: messageOrError.error }, messageOrError.status);
   }
   const message = messageOrError;
 
   const now = new Date().toISOString();
-  await prisma.object.update({
-    where: { apId: message.apId },
-    data: { content, updated: now },
-  });
+  await db.update(objects)
+    .set({ content, updated: now })
+    .where(eq(objects.apId, message.apId));
 
   return c.json({
     success: true,
@@ -362,18 +367,17 @@ dm.delete('/messages/:messageId', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
-  const messageOrError = await findOwnedDmMessage(prisma, c.req.param('messageId'), actor.ap_id);
+  const messageOrError = await findOwnedDmMessage(db, c.req.param('messageId'), actor.ap_id);
   if ('error' in messageOrError) {
     return c.json({ error: messageOrError.error }, messageOrError.status);
   }
   const message = messageOrError;
 
-  await prisma.$transaction(async (tx: any) => {
-    await tx.objectRecipient.deleteMany({ where: { objectApId: message.apId } });
-    await tx.object.delete({ where: { apId: message.apId } });
-  });
+  // Sequential operations (D1 doesn't support interactive transactions)
+  await db.delete(objectRecipients).where(eq(objectRecipients.objectApId, message.apId));
+  await db.delete(objects).where(eq(objects.apId, message.apId));
 
   return c.json({ success: true });
 });
@@ -384,12 +388,12 @@ dm.get('/conversations/:id/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const conversationId = c.req.param('id');
   const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
   const before = c.req.query('before');
 
-  const messages = await fetchAndFormatMessages(prisma, actor.ap_id, conversationId, limit, before);
+  const messages = await fetchAndFormatMessages(db, actor.ap_id, conversationId, limit, before);
   return c.json({ messages });
 });
 
@@ -397,7 +401,7 @@ dm.post('/conversations/:id/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const conversationId = c.req.param('id');
   const body = await c.req.json<{ content: string }>();
   const baseUrl = c.env.APP_URL;
@@ -409,11 +413,18 @@ dm.post('/conversations/:id/messages', async (c) => {
   const content = contentOrError;
 
   // Find the other participant from existing messages in this conversation
-  const existingMessages = await prisma.object.findMany({
-    where: { conversation: conversationId, visibility: 'direct' },
-    select: { attributedTo: true, toJson: true },
-    take: 10,
-  });
+  const existingMessages = await db.select({
+    attributedTo: objects.attributedTo,
+    toJson: objects.toJson,
+  })
+    .from(objects)
+    .where(
+      and(
+        eq(objects.conversation, conversationId),
+        eq(objects.visibility, 'direct'),
+      ),
+    )
+    .limit(10);
 
   let otherApId: string | null = null;
   for (const msg of existingMessages) {
@@ -431,22 +442,19 @@ dm.post('/conversations/:id/messages', async (c) => {
   const now = new Date().toISOString();
   const toJson = JSON.stringify([otherApId]);
 
-  const isRecipientLocal = !!(await prisma.actor.findUnique({
-    where: { apId: otherApId },
-    select: { apId: true },
-  }));
+  const isRecipientLocal = !!(await db.select({ apId: actors.apId })
+    .from(actors)
+    .where(eq(actors.apId, otherApId))
+    .get());
 
-  await prisma.$transaction(async (tx: any) => {
-    await createDmNote(tx, { apId, actorApId: actor.ap_id, content, toJson, conversationId, published: now });
+  // Sequential operations (D1 doesn't support interactive transactions)
+  await createDmNote(db, { apId, actorApId: actor.ap_id, content, toJson, conversationId, published: now });
 
-    if (isRecipientLocal) {
-      await tx.objectRecipient.upsert({
-        where: { objectApId_recipientApId: { objectApId: apId, recipientApId: otherApId } },
-        create: { objectApId: apId, recipientApId: otherApId, type: 'to' },
-        update: {},
-      });
-    }
-  });
+  if (isRecipientLocal) {
+    await db.insert(objectRecipients)
+      .values({ objectApId: apId, recipientApId: otherApId, type: 'to' })
+      .onConflictDoNothing();
+  }
 
   return c.json({
     message: { id: apId, sender: buildSenderFromActor(actor), content, created_at: now },

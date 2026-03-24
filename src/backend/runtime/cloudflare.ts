@@ -22,7 +22,7 @@ import type {
 /**
  * Cloudflare D1 Database Adapter
  */
-export class CloudflareDatabase implements IDatabase {
+class CloudflareDatabase implements IDatabase {
   constructor(private db: D1Database) {}
 
   prepare(query: string): PreparedStatement {
@@ -93,7 +93,7 @@ class CloudflarePreparedStatement implements PreparedStatement {
 /**
  * Cloudflare R2 Storage Adapter
  */
-export class CloudflareStorage implements IObjectStorage {
+class CloudflareStorage implements IObjectStorage {
   constructor(private bucket: R2Bucket) {}
 
   async put(
@@ -173,7 +173,7 @@ export class CloudflareStorage implements IObjectStorage {
 /**
  * Cloudflare KV Adapter
  */
-export class CloudflareKV implements IKeyValueStore {
+class CloudflareKV implements IKeyValueStore {
   constructor(private kv: KVNamespace) {}
 
   get(key: string, options?: { type?: 'text' }): Promise<string | null>;
@@ -226,7 +226,7 @@ export class CloudflareKV implements IKeyValueStore {
 /**
  * Cloudflare Static Assets Adapter
  */
-export class CloudflareAssets implements IStaticAssets {
+class CloudflareAssets implements IStaticAssets {
   constructor(private assets: Fetcher) {}
 
   async fetch(request: Request): Promise<Response> {
@@ -245,7 +245,6 @@ export function createCloudflareRuntime(env: {
   ASSETS?: Fetcher;
   APP_URL: string;
   AUTH_PASSWORD_HASH?: string;
-  AUTH_PASSWORD?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   X_CLIENT_ID?: string;
@@ -257,7 +256,7 @@ export function createCloudflareRuntime(env: {
 }) {
   const {
     DB, MEDIA, KV, ASSETS,
-    APP_URL, AUTH_PASSWORD_HASH, AUTH_PASSWORD,
+    APP_URL, AUTH_PASSWORD_HASH,
     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
     X_CLIENT_ID, X_CLIENT_SECRET,
     TAKOS_URL, TAKOS_CLIENT_ID, TAKOS_CLIENT_SECRET,
@@ -269,7 +268,7 @@ export function createCloudflareRuntime(env: {
     storage: MEDIA ? new CloudflareStorage(MEDIA) : undefined,
     kv: KV ? new CloudflareKV(KV) : undefined,
     assets: ASSETS ? new CloudflareAssets(ASSETS) : undefined,
-    APP_URL, AUTH_PASSWORD_HASH, AUTH_PASSWORD,
+    APP_URL, AUTH_PASSWORD_HASH,
     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
     X_CLIENT_ID, X_CLIENT_SECRET,
     TAKOS_URL, TAKOS_CLIENT_ID, TAKOS_CLIENT_SECRET,

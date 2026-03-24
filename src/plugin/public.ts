@@ -1,6 +1,5 @@
-export const YURUCOMMU_PLUGIN_API_VERSION = 1 as const;
 export { YURUCOMMU_BACKEND_PLUGIN_API_VERSION } from '../backend/public';
-export { YURUCOMMU_FRONTEND_PLUGIN_API_VERSION } from '../frontend/src/lib/plugin';
+export { YURUCOMMU_FRONTEND_PLUGIN_API_VERSION } from '../../web/plugin';
 
 export type {
   BackendPluginContextV1,
@@ -22,4 +21,4 @@ export type {
   YurucommuFrontendPluginV1,
   BootstrapMountOptionsV1,
   BootstrapYurucommuFrontendOptionsV1,
-} from '../frontend/src/public';
+} from '../../web/public';

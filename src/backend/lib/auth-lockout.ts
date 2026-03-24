@@ -56,11 +56,11 @@ function normalizeLockoutRecord(
   return isRecordExpired(record, now) ? null : record;
 }
 
-const UNLOCKED_STATUS: LoginLockoutStatus = {
+const UNLOCKED_STATUS: LoginLockoutStatus = Object.freeze({
   locked: false,
   failedAttempts: 0,
   retryAfterSeconds: 0,
-};
+});
 
 function toStatus(record: LoginLockoutRecord | null, now: number): LoginLockoutStatus {
   if (!record) return UNLOCKED_STATUS;

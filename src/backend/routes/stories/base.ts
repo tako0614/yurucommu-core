@@ -1,6 +1,9 @@
 // Story routes for Yurucommu backend
 // v2: 1 Story = 1 Media (Instagram style)
 import { Hono } from 'hono';
+import { eq, and, gt, inArray, notInArray, desc, sql } from 'drizzle-orm';
+import type { Database } from '../../../db';
+import { actors, objects, follows, likes, storyViews, storyVotes, storyShares, activities } from '../../../db';
 import type { Env, Variables } from '../../types';
 import { generateId, objectApId, actorApId, formatUsername, activityApId } from '../../utils';
 import { storyToActivityPub } from '../../lib/activitypub-helpers';
@@ -79,15 +82,15 @@ function buildStoryResponse(
     published: string;
     likeCount: number;
     shareCount: number | null;
-    storyViews?: { actorApId: string }[];
-    likes?: { actorApId: string }[];
+    viewedByUser?: boolean;
+    likedByUser?: boolean;
   },
   author: StoryAuthor,
   allVotes: Record<string, VoteResults>,
   userVotes: Record<string, number>,
 ): StoryResponse {
   const storyData = transformStoryData(s.attachmentsJson);
-  const storyVotes = allVotes[s.apId] || {};
+  const storyVotesData = allVotes[s.apId] || {};
 
   return {
     ap_id: s.apId,
@@ -97,56 +100,54 @@ function buildStoryResponse(
     overlays: storyData.overlays,
     end_time: s.endTime || '',
     published: s.published,
-    viewed: (s.storyViews?.length ?? 0) > 0,
+    viewed: s.viewedByUser ?? false,
     like_count: s.likeCount,
     share_count: s.shareCount || 0,
-    liked: (s.likes?.length ?? 0) > 0,
-    votes: storyVotes,
-    votes_total: sumVotes(storyVotes),
+    liked: s.likedByUser ?? false,
+    votes: storyVotesData,
+    votes_total: sumVotes(storyVotesData),
     user_vote: userVotes[s.apId],
   };
 }
 
 /** Resolve remote author info for stories missing a joined author relation. */
 async function resolveRemoteAuthors(
-  prisma: any,
+  db: Database,
   storiesData: Array<{ author?: unknown; attributedTo: string }>,
 ): Promise<Record<string, { preferredUsername: string | null; name: string | null; iconUrl: string | null }>> {
   const remoteIds = [...new Set(storiesData.filter((s) => !s.author).map((s) => s.attributedTo))];
-  return fetchActorCache(prisma, remoteIds);
+  return fetchActorCache(db, remoteIds);
 }
 
 /** Create an outbound activity record and enqueue fanout to followers. */
 async function createAndFanoutActivity(
-  prisma: any,
+  db: Database,
   env: Env,
   actorApIdStr: string,
   objectApIdStr: string,
   activity: Record<string, unknown>,
 ): Promise<void> {
   const id = activity.id as string;
-  await prisma.activity.create({
-    data: {
-      apId: id,
-      type: activity.type as string,
-      actorApId: actorApIdStr,
-      objectApId: objectApIdStr,
-      rawJson: JSON.stringify(activity),
-      direction: 'outbound',
-    },
+  await db.insert(activities).values({
+    apId: id,
+    type: activity.type as string,
+    actorApId: actorApIdStr,
+    objectApId: objectApIdStr,
+    rawJson: JSON.stringify(activity),
+    direction: 'outbound',
   });
   await enqueueFanoutToFollowers(env, id, actorApIdStr);
 }
 
 /** Delete all related data for a story, then the story object itself. */
-async function deleteStoryAndRelatedData(prisma: any, apId: string): Promise<void> {
+async function deleteStoryAndRelatedData(db: Database, apId: string): Promise<void> {
   await Promise.all([
-    prisma.storyVote.deleteMany({ where: { storyApId: apId } }),
-    prisma.like.deleteMany({ where: { objectApId: apId } }),
-    prisma.storyView.deleteMany({ where: { storyApId: apId } }),
-    prisma.storyShare.deleteMany({ where: { storyApId: apId } }),
+    db.delete(storyVotes).where(eq(storyVotes.storyApId, apId)),
+    db.delete(likes).where(eq(likes.objectApId, apId)),
+    db.delete(storyViews).where(eq(storyViews.storyApId, apId)),
+    db.delete(storyShares).where(eq(storyShares.storyApId, apId)),
   ]);
-  await prisma.object.delete({ where: { apId } });
+  await db.delete(objects).where(eq(objects.apId, apId));
 }
 
 // Get active stories from followed users and self (grouped by author)
@@ -154,56 +155,87 @@ stories.get('/', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const now = new Date().toISOString();
 
   // Probabilistic cleanup: 1% chance per request
   if (Math.random() < 0.01) {
-    cleanupExpiredStories(prisma).catch((err) => {
+    cleanupExpiredStories(db).catch((err) => {
       console.warn('[Stories] Failed to cleanup expired stories', err);
     });
   }
 
   // Get followed user IDs
-  const follows = await prisma.follow.findMany({
-    where: { followerApId: actor.ap_id, status: 'accepted' },
-    select: { followingApId: true },
-  });
-  const followedIds = follows.map((f) => f.followingApId);
+  const followRows = await db.select({ followingApId: follows.followingApId })
+    .from(follows)
+    .where(and(eq(follows.followerApId, actor.ap_id), eq(follows.status, 'accepted')));
+  const followedIds = followRows.map((f) => f.followingApId);
   followedIds.push(actor.ap_id); // Include self
 
-  const { blockedIds, mutedIds } = await fetchBlockedAndMutedIds(prisma, actor.ap_id);
+  const { blockedIds, mutedIds } = await fetchBlockedAndMutedIds(db, actor.ap_id);
+  const excludeIds = [...blockedIds, ...mutedIds];
 
   // Get stories from followed users (excluding blocked/muted)
-  const storiesData = await prisma.object.findMany({
-    where: {
-      type: 'Story',
-      endTime: { gt: now },
-      attributedTo: {
-        in: followedIds,
-        notIn: [...blockedIds, ...mutedIds],
-      },
-    },
-    include: {
-      author: {
-        select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-      },
-      storyViews: {
-        where: { actorApId: actor.ap_id },
-        select: { actorApId: true },
-      },
-      likes: {
-        where: { actorApId: actor.ap_id },
-        select: { actorApId: true },
-      },
-    },
-    orderBy: [{ endTime: 'desc' }],
-  });
+  let storiesWhere = and(
+    eq(objects.type, 'Story'),
+    gt(objects.endTime, now),
+    inArray(objects.attributedTo, followedIds),
+  );
 
+  if (excludeIds.length > 0) {
+    storiesWhere = and(
+      storiesWhere,
+      notInArray(objects.attributedTo, excludeIds),
+    );
+  }
+
+  const storiesData = await db.select()
+    .from(objects)
+    .where(storiesWhere!)
+    .orderBy(desc(objects.endTime));
+
+  // Batch fetch views and likes for the current user
   const storyApIds = storiesData.map((s) => s.apId);
-  const [{ allVotes, userVotes }, actorCacheMap] = await Promise.all([
-    fetchBatchVotes(prisma, storyApIds, actor.ap_id),
-    resolveRemoteAuthors(prisma, storiesData),
+
+  const [viewedRows, likedRows] = await Promise.all([
+    storyApIds.length > 0
+      ? db.select({ storyApId: storyViews.storyApId })
+          .from(storyViews)
+          .where(and(eq(storyViews.actorApId, actor.ap_id), inArray(storyViews.storyApId, storyApIds)))
+      : [],
+    storyApIds.length > 0
+      ? db.select({ objectApId: likes.objectApId })
+          .from(likes)
+          .where(and(eq(likes.actorApId, actor.ap_id), inArray(likes.objectApId, storyApIds)))
+      : [],
+  ]);
+
+  const viewedSet = new Set(viewedRows.map((v) => v.storyApId));
+  const likedSet = new Set(likedRows.map((l) => l.objectApId));
+
+  // Batch fetch author info
+  const authorApIds = [...new Set(storiesData.map((s) => s.attributedTo))];
+  const [localAuthors, remoteAuthorCache] = await Promise.all([
+    authorApIds.length > 0
+      ? db.select({
+          apId: actors.apId,
+          preferredUsername: actors.preferredUsername,
+          name: actors.name,
+          iconUrl: actors.iconUrl,
+        }).from(actors).where(inArray(actors.apId, authorApIds))
+      : [],
+    Promise.resolve().then(async () => {
+      // We'll resolve after we know which are remote
+      return {} as Record<string, { preferredUsername: string | null; name: string | null; iconUrl: string | null }>;
+    }),
+  ]);
+
+  const authorMap = new Map(localAuthors.map((a) => [a.apId, a]));
+  const missingAuthorIds = authorApIds.filter((id) => !authorMap.has(id));
+  const actorCacheMap = await fetchActorCache(db, missingAuthorIds);
+
+  const [{ allVotes, userVotes }] = await Promise.all([
+    fetchBatchVotes(db, storyApIds, actor.ap_id),
   ]);
 
   // Group by author
@@ -212,7 +244,7 @@ stories.get('/', async (c) => {
 
   for (const s of storiesData) {
     const authorApId = s.attributedTo;
-    const authorData = s.author || actorCacheMap[authorApId];
+    const authorData = authorMap.get(authorApId) || actorCacheMap[authorApId];
     const authorInfo = buildAuthor(authorApId, authorData);
 
     if (!grouped[authorApId]) {
@@ -224,7 +256,12 @@ stories.get('/', async (c) => {
       }
     }
 
-    const response = buildStoryResponse(s, authorInfo, allVotes, userVotes);
+    const response = buildStoryResponse(
+      { ...s, viewedByUser: viewedSet.has(s.apId), likedByUser: likedSet.has(s.apId) },
+      authorInfo,
+      allVotes,
+      userVotes,
+    );
     if (!response.viewed) grouped[authorApId].has_unviewed = true;
     grouped[authorApId].stories.push(response);
   }
@@ -254,7 +291,7 @@ stories.get('/', async (c) => {
 stories.get('/:actorId', async (c) => {
   const targetActorId = c.req.param('actorId');
   const actor = c.get('actor');
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const baseUrl = c.env.APP_URL;
   const now = new Date().toISOString();
 
@@ -265,47 +302,68 @@ stories.get('/:actorId', async (c) => {
 
   // Check blocked/muted (if authenticated)
   if (actor) {
-    const { blockedIds, mutedIds } = await fetchBlockedAndMutedIds(prisma, actor.ap_id);
+    const { blockedIds, mutedIds } = await fetchBlockedAndMutedIds(db, actor.ap_id);
     if (blockedIds.includes(targetApId) || mutedIds.includes(targetApId)) {
       return c.json({ stories: [] });
     }
   }
 
   // Get stories for the target user
-  const userStories = await prisma.object.findMany({
-    where: {
-      type: 'Story',
-      attributedTo: targetApId,
-      endTime: { gt: now },
-    },
-    include: {
-      author: {
-        select: { apId: true, preferredUsername: true, name: true, iconUrl: true },
-      },
-      storyViews: actor
-        ? { where: { actorApId: actor.ap_id }, select: { actorApId: true } }
-        : false,
-      likes: actor
-        ? { where: { actorApId: actor.ap_id }, select: { actorApId: true } }
-        : false,
-    },
-    orderBy: { published: 'desc' },
-  });
+  const userStories = await db.select()
+    .from(objects)
+    .where(
+      and(
+        eq(objects.type, 'Story'),
+        eq(objects.attributedTo, targetApId),
+        gt(objects.endTime, now),
+      ),
+    )
+    .orderBy(desc(objects.published));
 
   const storyApIds = userStories.map((s) => s.apId);
-  const [{ allVotes, userVotes }, actorCacheMap] = await Promise.all([
-    fetchBatchVotes(prisma, storyApIds, actor?.ap_id),
-    resolveRemoteAuthors(prisma, userStories),
+
+  // Batch fetch views and likes for current user
+  const [viewedRows, likedRows] = await Promise.all([
+    actor && storyApIds.length > 0
+      ? db.select({ storyApId: storyViews.storyApId })
+          .from(storyViews)
+          .where(and(eq(storyViews.actorApId, actor.ap_id), inArray(storyViews.storyApId, storyApIds)))
+      : [],
+    actor && storyApIds.length > 0
+      ? db.select({ objectApId: likes.objectApId })
+          .from(likes)
+          .where(and(eq(likes.actorApId, actor.ap_id), inArray(likes.objectApId, storyApIds)))
+      : [],
+  ]);
+
+  const viewedSet = new Set((viewedRows || []).map((v) => v.storyApId));
+  const likedSet = new Set((likedRows || []).map((l) => l.objectApId));
+
+  // Batch fetch author info
+  const authorApIds = [...new Set(userStories.map((s) => s.attributedTo))];
+  const localAuthors = authorApIds.length > 0
+    ? await db.select({
+        apId: actors.apId,
+        preferredUsername: actors.preferredUsername,
+        name: actors.name,
+        iconUrl: actors.iconUrl,
+      }).from(actors).where(inArray(actors.apId, authorApIds))
+    : [];
+
+  const authorLocalMap = new Map(localAuthors.map((a) => [a.apId, a]));
+  const missingIds = authorApIds.filter((id) => !authorLocalMap.has(id));
+  const actorCacheMap = await fetchActorCache(db, missingIds);
+
+  const [{ allVotes, userVotes }] = await Promise.all([
+    fetchBatchVotes(db, storyApIds, actor?.ap_id),
   ]);
 
   const result = userStories.map((s) => {
-    const authorData = s.author || actorCacheMap[s.attributedTo];
+    const authorData = authorLocalMap.get(s.attributedTo) || actorCacheMap[s.attributedTo];
     const author = buildAuthor(s.attributedTo, authorData);
-    const storyViews = (s.storyViews as { actorApId: string }[] | undefined) || [];
-    const likes = (s.likes as { actorApId: string }[] | undefined) || [];
 
     return buildStoryResponse(
-      { ...s, storyViews, likes },
+      { ...s, viewedByUser: viewedSet.has(s.apId), likedByUser: likedSet.has(s.apId) },
       author,
       allVotes,
       userVotes,
@@ -320,7 +378,7 @@ stories.post('/', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const body = await c.req.json<StoryCreateBody>();
 
   if (!body.attachment || !body.attachment.r2_key) {
@@ -350,23 +408,20 @@ stories.post('/', async (c) => {
   };
   const attachmentsJson = JSON.stringify(storyData);
 
-  await prisma.object.create({
-    data: {
-      apId,
-      type: 'Story',
-      attributedTo: actor.ap_id,
-      content: '',
-      attachmentsJson,
-      endTime,
-      published: now,
-      isLocal: 1,
-    },
+  await db.insert(objects).values({
+    apId,
+    type: 'Story',
+    attributedTo: actor.ap_id,
+    content: '',
+    attachmentsJson,
+    endTime,
+    published: now,
+    isLocal: 1,
   });
 
-  await prisma.actor.update({
-    where: { apId: actor.ap_id },
-    data: { postCount: { increment: 1 } },
-  });
+  await db.update(actors)
+    .set({ postCount: sql`${actors.postCount} + 1` })
+    .where(eq(actors.apId, actor.ap_id));
 
   const responseData = transformStoryData(attachmentsJson);
   const authorInfo = buildAuthor(actor.ap_id, {
@@ -402,7 +457,7 @@ stories.post('/', async (c) => {
     actor,
     baseUrl,
   );
-  await createAndFanoutActivity(prisma, c.env, actor.ap_id, apId, {
+  await createAndFanoutActivity(db, c.env, actor.ap_id, apId, {
     '@context': 'https://www.w3.org/ns/activitystreams',
     id: activityApId(baseUrl, generateId()),
     type: 'Create',
@@ -420,20 +475,20 @@ stories.post('/delete', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const body = await c.req.json<{ ap_id: string }>();
   if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
   const apId = body.ap_id;
 
   // Verify ownership
-  const story = await prisma.object.findUnique({ where: { apId } });
+  const story = await db.select().from(objects).where(eq(objects.apId, apId)).get();
   if (!story) return c.json({ error: 'Story not found' }, 404);
   if (story.attributedTo !== actor.ap_id) return c.json({ error: 'Forbidden' }, 403);
 
   // Enqueue Delete(Story) activity to followers before deleting.
   // Outbound delivery MUST NOT run in request path; enqueue is the sync boundary.
   const baseUrl = c.env.APP_URL;
-  await createAndFanoutActivity(prisma, c.env, actor.ap_id, apId, {
+  await createAndFanoutActivity(db, c.env, actor.ap_id, apId, {
     '@context': 'https://www.w3.org/ns/activitystreams',
     id: activityApId(baseUrl, generateId()),
     type: 'Delete',
@@ -442,12 +497,11 @@ stories.post('/delete', async (c) => {
     object: apId,
   });
 
-  await deleteStoryAndRelatedData(prisma, apId);
+  await deleteStoryAndRelatedData(db, apId);
 
-  await prisma.actor.update({
-    where: { apId: actor.ap_id },
-    data: { postCount: { decrement: 1 } },
-  });
+  await db.update(actors)
+    .set({ postCount: sql`${actors.postCount} - 1` })
+    .where(eq(actors.apId, actor.ap_id));
 
   return c.json({ success: true });
 });

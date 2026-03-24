@@ -3,202 +3,73 @@
 // Threading via conversation field
 
 import { Hono } from 'hono';
-import type { Context } from 'hono';
-import type { PrismaClient } from '../../../generated/prisma';
-import type { Env, Variables } from '../../types';
-import { formatUsername, safeJsonParse } from '../../utils';
+import { eq, and, ne, desc, like, inArray, notInArray, count, sql } from 'drizzle-orm';
+import { actors, actorCache, objects, objectRecipients, dmTyping, dmReadStatus, dmArchivedConversations, blocks, communityMembers, communities } from '../../../db';
+import { formatUsername } from '../../utils';
 import { getConversationId, resolveConversationId } from './utils';
+import {
+  type HonoEnv,
+  ACTOR_INFO_FIELDS,
+  ACTOR_CACHE_INFO_FIELDS,
+  buildActorInfoMap,
+  formatActorProfile,
+  dmWhereForActor,
+  byTimeDesc,
+  parseOtherApId,
+  groupConversations,
+  findRepliedConversations,
+  uniqueValues,
+} from './conversations-helpers';
 
-type HonoEnv = { Bindings: Env; Variables: Variables };
-type ActorInfo = { preferredUsername: string | null; name: string | null; iconUrl: string | null };
-
-const ACTOR_INFO_SELECT = {
-  apId: true,
-  preferredUsername: true,
-  name: true,
-  iconUrl: true,
-} as const;
-
-// ── Shared helpers ──────────────────────────────────────────────────
-
-/** Fetch actor info from local actors (preferred) with cache fallback, keyed by apId. */
-async function buildActorInfoMap(
-  prisma: PrismaClient,
-  apIds: string[],
-): Promise<Map<string, ActorInfo>> {
-  if (apIds.length === 0) return new Map();
-
-  const [localActors, cachedActors] = await Promise.all([
-    prisma.actor.findMany({ where: { apId: { in: apIds } }, select: ACTOR_INFO_SELECT }),
-    prisma.actorCache.findMany({ where: { apId: { in: apIds } }, select: ACTOR_INFO_SELECT }),
-  ]);
-
-  const map = new Map<string, ActorInfo>();
-  for (const a of cachedActors) map.set(a.apId, a);
-  for (const a of localActors) map.set(a.apId, a); // local takes precedence
-  return map;
-}
-
-/** Build the standard actor profile shape used across all DM responses. */
-function formatActorProfile(apId: string, info: ActorInfo | undefined) {
-  return {
-    ap_id: apId,
-    username: formatUsername(apId),
-    preferred_username: info?.preferredUsername || null,
-    name: info?.name || null,
-    icon_url: info?.iconUrl || null,
-  };
-}
-
-/** Extract the other participant's AP ID from a DM object. */
-function getOtherParticipant(obj: { attributedTo: string; toJson: string }, actorApId: string): string {
-  if (obj.attributedTo === actorApId) {
-    return safeJsonParse<string[]>(obj.toJson, [])[0] || '';
-  }
-  return obj.attributedTo;
-}
-
-/** Prisma where clause for DM objects involving a given actor. */
-function dmWhereForActor(actorApId: string, actorApIdJson: string) {
-  return {
-    visibility: 'direct' as const,
-    type: 'Note' as const,
-    conversation: { not: null } as const,
-    OR: [
-      { attributedTo: actorApId },
-      { toJson: { contains: actorApIdJson } },
-    ],
-  };
-}
-
-/** Sort comparator: descending by time string, with fallback. */
-function byTimeDesc(a: string | null, b: string | null): number {
-  return (b || '').localeCompare(a || '');
-}
-
-/** Decode and validate the :encodedApId route param. Returns null on failure after sending 400. */
-function parseOtherApId(c: Context<HonoEnv>): string | null {
-  const apId = decodeURIComponent(c.req.param('encodedApId'));
-  if (!apId) {
-    c.status(400);
-    return null;
-  }
-  return apId;
-}
-
-type DmObject = {
-  conversation: string | null;
-  attributedTo: string;
-  toJson: string;
-  published: string;
-  content?: string | null;
-};
-
-/**
- * Group DM objects by conversation, keeping only the first (most recent) per conversation.
- * `filterFn` controls which conversations to include.
- */
-function groupConversations(
-  dmObjects: DmObject[],
-  actorApId: string,
-  filterFn: (conversationId: string) => boolean,
-): Map<string, { conversation: string; otherApId: string; lastMessageAt: string; lastContent: string | null; lastSender: string }> {
-  const map = new Map<string, { conversation: string; otherApId: string; lastMessageAt: string; lastContent: string | null; lastSender: string }>();
-
-  for (const obj of dmObjects) {
-    if (!obj.conversation || !filterFn(obj.conversation) || map.has(obj.conversation)) continue;
-
-    const otherApId = getOtherParticipant(obj, actorApId);
-    if (!otherApId) continue;
-
-    map.set(obj.conversation, {
-      conversation: obj.conversation,
-      otherApId,
-      lastMessageAt: obj.published,
-      lastContent: obj.content ?? null,
-      lastSender: obj.attributedTo,
-    });
-  }
-
-  return map;
-}
-
-/** Find the set of conversation IDs where the actor has sent at least one message. */
-async function findRepliedConversations(
-  prisma: PrismaClient,
-  conversationIds: string[],
-  actorApId: string,
-): Promise<Set<string | null>> {
-  if (conversationIds.length === 0) return new Set();
-
-  const replies = await prisma.object.findMany({
-    where: {
-      conversation: { in: conversationIds },
-      attributedTo: actorApId,
-    },
-    select: { conversation: true },
-    distinct: ['conversation'],
-  });
-
-  return new Set(replies.map((r) => r.conversation));
-}
-
-/** Collect unique values from a map's entries via accessor function. */
-function uniqueValues<V>(map: Map<string, V>, accessor: (v: V) => string): string[] {
-  return [...new Set(Array.from(map.values()).map(accessor))];
-}
-
-// ── Routes ──────────────────────────────────────────────────────────
+// -- Routes --
 
 const dm = new Hono<HonoEnv>();
 
 dm.get('/contacts', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const actorApIdJson = JSON.stringify(actor.ap_id);
   const dmWhere = dmWhereForActor(actor.ap_id, actorApIdJson);
 
   // Clean up orphaned read status entries for conversations that no longer exist
-  const validConversations = await prisma.object.findMany({
-    where: dmWhere,
-    select: { conversation: true },
-    distinct: ['conversation'],
-  });
+  const validConversations = await db.selectDistinct({ conversation: objects.conversation })
+    .from(objects)
+    .where(dmWhere!);
 
   const validConversationIds = validConversations
     .map((c) => c.conversation)
     .filter((c): c is string => c !== null);
 
-  await prisma.dmReadStatus.deleteMany({
-    where: {
-      actorApId: actor.ap_id,
-      ...(validConversationIds.length > 0
-        ? { conversationId: { notIn: validConversationIds } }
-        : {}),
-    },
-  });
+  if (validConversationIds.length > 0) {
+    await db.delete(dmReadStatus).where(
+      and(
+        eq(dmReadStatus.actorApId, actor.ap_id),
+        notInArray(dmReadStatus.conversationId, validConversationIds),
+      ),
+    );
+  } else {
+    await db.delete(dmReadStatus).where(eq(dmReadStatus.actorApId, actor.ap_id));
+  }
 
   // Get archived conversation IDs to exclude
-  const archivedConversations = await prisma.dmArchivedConversation.findMany({
-    where: { actorApId: actor.ap_id },
-    select: { conversationId: true },
-  });
+  const archivedConversations = await db.select({ conversationId: dmArchivedConversations.conversationId })
+    .from(dmArchivedConversations)
+    .where(eq(dmArchivedConversations.actorApId, actor.ap_id));
   const archivedSet = new Set(archivedConversations.map((a) => a.conversationId));
 
   // Get DM conversations for this actor with limit to prevent DoS
-  const dmObjects = await prisma.object.findMany({
-    where: dmWhere,
-    orderBy: { published: 'desc' },
-    select: {
-      conversation: true,
-      attributedTo: true,
-      toJson: true,
-      published: true,
-      content: true,
-    },
-    take: 2000,
-  });
+  const dmObjects = await db.select({
+    conversation: objects.conversation,
+    attributedTo: objects.attributedTo,
+    toJson: objects.toJson,
+    published: objects.published,
+    content: objects.content,
+  })
+    .from(objects)
+    .where(dmWhere!)
+    .orderBy(desc(objects.published))
+    .limit(2000);
 
   const conversationMap = groupConversations(
     dmObjects,
@@ -207,9 +78,9 @@ dm.get('/contacts', async (c) => {
   );
 
   // Get read status for all conversations
-  const readStatuses = await prisma.dmReadStatus.findMany({
-    where: { actorApId: actor.ap_id },
-  });
+  const readStatuses = await db.select()
+    .from(dmReadStatus)
+    .where(eq(dmReadStatus.actorApId, actor.ap_id));
   const readStatusMap = new Map(readStatuses.map((r) => [r.conversationId, r.lastReadAt]));
 
   // Calculate unread counts for each conversation using batch query
@@ -228,20 +99,24 @@ dm.get('/contacts', async (c) => {
 
     await Promise.all(
       Array.from(lastReadAtMap.entries()).map(async ([lastReadAt, convIds]) => {
-        const unreadMessages = await prisma.object.groupBy({
-          by: ['conversation'],
-          where: {
-            conversation: { in: convIds },
-            visibility: 'direct',
-            attributedTo: { not: actor.ap_id },
-            published: { gt: lastReadAt },
-          },
-          _count: { apId: true },
-        });
+        const unreadMessages = await db.select({
+          conversation: objects.conversation,
+          count: count(),
+        })
+          .from(objects)
+          .where(
+            and(
+              inArray(objects.conversation, convIds),
+              eq(objects.visibility, 'direct'),
+              ne(objects.attributedTo, actor.ap_id),
+              sql`${objects.published} > ${lastReadAt}`,
+            ),
+          )
+          .groupBy(objects.conversation);
 
         for (const msg of unreadMessages) {
           if (msg.conversation) {
-            unreadCounts.set(msg.conversation, msg._count.apId);
+            unreadCounts.set(msg.conversation, msg.count);
           }
         }
       }),
@@ -249,7 +124,7 @@ dm.get('/contacts', async (c) => {
   }
 
   const otherApIds = uniqueValues(conversationMap, (c) => c.otherApId);
-  const actorInfoMap = await buildActorInfoMap(prisma, otherApIds);
+  const actorInfoMap = await buildActorInfoMap(db, otherApIds);
 
   const contactsResult = Array.from(conversationMap.values())
     .map((conv) => ({
@@ -266,32 +141,35 @@ dm.get('/contacts', async (c) => {
     .sort((a, b) => byTimeDesc(a.last_message_at, b.last_message_at));
 
   // Get communities the user is a member of (for group chat)
-  const communityMemberships = await prisma.communityMember.findMany({
-    where: { actorApId: actor.ap_id },
-    include: {
-      community: {
-        select: {
-          apId: true,
-          preferredUsername: true,
-          name: true,
-          iconUrl: true,
-          memberCount: true,
-        },
-      },
+  const communityMemberships = await db.select({
+    communityApId: communityMembers.communityApId,
+    community: {
+      apId: communities.apId,
+      preferredUsername: communities.preferredUsername,
+      name: communities.name,
+      iconUrl: communities.iconUrl,
+      memberCount: communities.memberCount,
     },
-  });
+  })
+    .from(communityMembers)
+    .innerJoin(communities, eq(communityMembers.communityApId, communities.apId))
+    .where(eq(communityMembers.actorApId, actor.ap_id));
 
   // Batch get last messages for all communities to avoid N+1
   const communityApIds = communityMemberships.map((cm) => cm.community.apId);
   const lastMessagesMap = new Map<string, { content: string; attributedTo: string; published: string }>();
 
   if (communityApIds.length > 0) {
-    const recentMessages = await prisma.object.findMany({
-      where: { communityApId: { in: communityApIds } },
-      orderBy: { published: 'desc' },
-      select: { communityApId: true, content: true, attributedTo: true, published: true },
-      take: communityApIds.length * 10,
-    });
+    const recentMessages = await db.select({
+      communityApId: objects.communityApId,
+      content: objects.content,
+      attributedTo: objects.attributedTo,
+      published: objects.published,
+    })
+      .from(objects)
+      .where(inArray(objects.communityApId, communityApIds))
+      .orderBy(desc(objects.published))
+      .limit(communityApIds.length * 10);
 
     for (const msg of recentMessages) {
       if (msg.communityApId && !lastMessagesMap.has(msg.communityApId)) {
@@ -327,21 +205,21 @@ dm.get('/contacts', async (c) => {
     );
 
   // Count pending requests: DMs from people we haven't replied to
-  const incomingDMs = await prisma.object.findMany({
-    where: {
-      visibility: 'direct',
-      type: 'Note',
-      toJson: { contains: actorApIdJson },
-    },
-    select: { conversation: true },
-    distinct: ['conversation'],
-  });
+  const incomingDMs = await db.selectDistinct({ conversation: objects.conversation })
+    .from(objects)
+    .where(
+      and(
+        eq(objects.visibility, 'direct'),
+        eq(objects.type, 'Note'),
+        like(objects.toJson, `%${actorApIdJson}%`),
+      ),
+    );
 
   const incomingConversations = incomingDMs
     .map((dm) => dm.conversation)
     .filter((c): c is string => c !== null);
 
-  const repliedConversations = await findRepliedConversations(prisma, incomingConversations, actor.ap_id);
+  const repliedConversations = await findRepliedConversations(db, incomingConversations, actor.ap_id);
   const requestCount = incomingConversations.filter((c) => !repliedConversations.has(c)).length;
 
   return c.json({
@@ -355,30 +233,31 @@ dm.get('/contacts', async (c) => {
 dm.get('/requests', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const actorApIdJson = JSON.stringify(actor.ap_id);
 
-  const incomingDMs = await prisma.object.findMany({
-    where: {
-      visibility: 'direct',
-      type: 'Note',
-      toJson: { contains: actorApIdJson },
-    },
-    orderBy: { published: 'desc' },
-    select: {
-      apId: true,
-      attributedTo: true,
-      content: true,
-      published: true,
-      conversation: true,
-    },
-    take: 1000,
-  });
+  const incomingDMs = await db.select({
+    apId: objects.apId,
+    attributedTo: objects.attributedTo,
+    content: objects.content,
+    published: objects.published,
+    conversation: objects.conversation,
+  })
+    .from(objects)
+    .where(
+      and(
+        eq(objects.visibility, 'direct'),
+        eq(objects.type, 'Note'),
+        like(objects.toJson, `%${actorApIdJson}%`),
+      ),
+    )
+    .orderBy(desc(objects.published))
+    .limit(1000);
 
   const allConversations = [...new Set(
     incomingDMs.map((dm) => dm.conversation).filter((c): c is string => c !== null),
   )];
-  const repliedConversationsSet = await findRepliedConversations(prisma, allConversations, actor.ap_id);
+  const repliedConversationsSet = await findRepliedConversations(db, allConversations, actor.ap_id);
 
   // Filter to only unreplied conversations (one per conversation, most recent first)
   const seenConversations = new Set<string>();
@@ -405,7 +284,7 @@ dm.get('/requests', async (c) => {
   }
 
   const senderApIds = [...new Set(requests.map((r) => r.senderApId))];
-  const actorInfoMap = await buildActorInfoMap(prisma, senderApIds);
+  const actorInfoMap = await buildActorInfoMap(db, senderApIds);
 
   const result = requests.map((r) => ({
     id: r.id,
@@ -425,7 +304,7 @@ dm.get('/requests', async (c) => {
 dm.post('/requests/reject', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
   const body = await c.req.json<{ sender_ap_id: string; block?: boolean }>();
   if (!body.sender_ap_id) {
@@ -435,44 +314,36 @@ dm.post('/requests/reject', async (c) => {
   const baseUrl = c.env.APP_URL;
   const conversationId = getConversationId(baseUrl, actor.ap_id, body.sender_ap_id);
 
-  const messagesToDelete = await prisma.object.findMany({
-    where: {
-      conversation: conversationId,
-      attributedTo: body.sender_ap_id,
-    },
-    select: { apId: true },
-  });
+  const messagesToDelete = await db.select({ apId: objects.apId })
+    .from(objects)
+    .where(
+      and(
+        eq(objects.conversation, conversationId),
+        eq(objects.attributedTo, body.sender_ap_id),
+      ),
+    );
 
   const messageApIds = messagesToDelete.map((m) => m.apId);
 
   if (messageApIds.length > 0) {
-    await prisma.objectRecipient.deleteMany({
-      where: { objectApId: { in: messageApIds } },
-    });
+    await db.delete(objectRecipients).where(inArray(objectRecipients.objectApId, messageApIds));
   }
 
-  await prisma.object.deleteMany({
-    where: {
-      conversation: conversationId,
-      visibility: 'direct',
-      attributedTo: body.sender_ap_id,
-    },
-  });
+  await db.delete(objects).where(
+    and(
+      eq(objects.conversation, conversationId),
+      eq(objects.visibility, 'direct'),
+      eq(objects.attributedTo, body.sender_ap_id),
+    ),
+  );
 
   if (body.block) {
-    await prisma.block.upsert({
-      where: {
-        blockerApId_blockedApId: {
-          blockerApId: actor.ap_id,
-          blockedApId: body.sender_ap_id,
-        },
-      },
-      update: {},
-      create: {
+    await db.insert(blocks)
+      .values({
         blockerApId: actor.ap_id,
         blockedApId: body.sender_ap_id,
-      },
-    });
+      })
+      .onConflictDoNothing();
   }
 
   return c.json({ success: true });
@@ -498,7 +369,7 @@ dm.get('/conversations', async (c) => {
 dm.post('/conversations', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
   const body = await c.req.json<{ participant_ap_id: string }>();
   if (!body.participant_ap_id) {
@@ -508,15 +379,15 @@ dm.post('/conversations', async (c) => {
   const baseUrl = c.env.APP_URL;
   const conversationId = getConversationId(baseUrl, actor.ap_id, body.participant_ap_id);
 
-  const localActor = await prisma.actor.findUnique({
-    where: { apId: body.participant_ap_id },
-    select: ACTOR_INFO_SELECT,
-  });
+  const localActor = await db.select(ACTOR_INFO_FIELDS)
+    .from(actors)
+    .where(eq(actors.apId, body.participant_ap_id))
+    .get();
 
-  const cachedActor = localActor ? null : await prisma.actorCache.findUnique({
-    where: { apId: body.participant_ap_id },
-    select: ACTOR_INFO_SELECT,
-  });
+  const cachedActor = localActor ? null : await db.select(ACTOR_CACHE_INFO_FIELDS)
+    .from(actorCache)
+    .where(eq(actorCache.apId, body.participant_ap_id))
+    .get();
 
   const otherInfo = localActor || cachedActor;
   if (!otherInfo) {
@@ -537,26 +408,22 @@ dm.post('/conversations', async (c) => {
 dm.post('/user/:encodedApId/typing', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
   const otherApId = parseOtherApId(c);
   if (!otherApId) return c.json({ error: 'ap_id required' }, 400);
 
   const now = new Date().toISOString();
-  await prisma.dmTyping.upsert({
-    where: {
-      actorApId_recipientApId: {
-        actorApId: actor.ap_id,
-        recipientApId: otherApId,
-      },
-    },
-    update: { lastTypedAt: now },
-    create: {
+  await db.insert(dmTyping)
+    .values({
       actorApId: actor.ap_id,
       recipientApId: otherApId,
       lastTypedAt: now,
-    },
-  });
+    })
+    .onConflictDoUpdate({
+      target: [dmTyping.actorApId, dmTyping.recipientApId],
+      set: { lastTypedAt: now },
+    });
 
   return c.json({ success: true, typed_at: now });
 });
@@ -564,22 +431,20 @@ dm.post('/user/:encodedApId/typing', async (c) => {
 dm.get('/user/:encodedApId/typing', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
   const otherApId = parseOtherApId(c);
   if (!otherApId) return c.json({ error: 'ap_id required' }, 400);
 
-  const typingKey = {
-    actorApId_recipientApId: {
-      actorApId: otherApId,
-      recipientApId: actor.ap_id,
-    },
-  };
-
-  const typing = await prisma.dmTyping.findUnique({
-    where: typingKey,
-    select: { lastTypedAt: true },
-  });
+  const typing = await db.select({ lastTypedAt: dmTyping.lastTypedAt })
+    .from(dmTyping)
+    .where(
+      and(
+        eq(dmTyping.actorApId, otherApId),
+        eq(dmTyping.recipientApId, actor.ap_id),
+      ),
+    )
+    .get();
 
   if (!typing?.lastTypedAt) {
     return c.json({ is_typing: false, last_typed_at: null });
@@ -592,7 +457,12 @@ dm.get('/user/:encodedApId/typing', async (c) => {
   const isExpired = !isValid || elapsedMs > 5 * 60 * 1000;
 
   if (isExpired) {
-    await prisma.dmTyping.delete({ where: typingKey });
+    await db.delete(dmTyping).where(
+      and(
+        eq(dmTyping.actorApId, otherApId),
+        eq(dmTyping.recipientApId, actor.ap_id),
+      ),
+    );
     return c.json({ is_typing: false, last_typed_at: null });
   }
 
@@ -603,29 +473,25 @@ dm.get('/user/:encodedApId/typing', async (c) => {
 dm.post('/user/:encodedApId/read', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
   const otherApId = parseOtherApId(c);
   if (!otherApId) return c.json({ error: 'ap_id required' }, 400);
 
   const baseUrl = c.env.APP_URL;
-  const conversationId = await resolveConversationId(prisma, baseUrl, actor.ap_id, otherApId);
+  const conversationId = await resolveConversationId(db, baseUrl, actor.ap_id, otherApId);
   const now = new Date().toISOString();
 
-  await prisma.dmReadStatus.upsert({
-    where: {
-      actorApId_conversationId: {
-        actorApId: actor.ap_id,
-        conversationId,
-      },
-    },
-    update: { lastReadAt: now },
-    create: {
+  await db.insert(dmReadStatus)
+    .values({
       actorApId: actor.ap_id,
       conversationId,
       lastReadAt: now,
-    },
-  });
+    })
+    .onConflictDoUpdate({
+      target: [dmReadStatus.actorApId, dmReadStatus.conversationId],
+      set: { lastReadAt: now },
+    });
 
   return c.json({ success: true, last_read_at: now });
 });
@@ -634,7 +500,7 @@ dm.post('/user/:encodedApId/read', async (c) => {
 dm.post('/user/:encodedApId/archive', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
   const otherApId = parseOtherApId(c);
   if (!otherApId) return c.json({ error: 'ap_id required' }, 400);
@@ -643,20 +509,13 @@ dm.post('/user/:encodedApId/archive', async (c) => {
   const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
   const now = new Date().toISOString();
 
-  await prisma.dmArchivedConversation.upsert({
-    where: {
-      actorApId_conversationId: {
-        actorApId: actor.ap_id,
-        conversationId,
-      },
-    },
-    update: {},
-    create: {
+  await db.insert(dmArchivedConversations)
+    .values({
       actorApId: actor.ap_id,
       conversationId,
       archivedAt: now,
-    },
-  });
+    })
+    .onConflictDoNothing();
 
   return c.json({ success: true, archived_at: now });
 });
@@ -665,7 +524,7 @@ dm.post('/user/:encodedApId/archive', async (c) => {
 dm.delete('/user/:encodedApId/archive', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
   const otherApId = parseOtherApId(c);
   if (!otherApId) return c.json({ error: 'ap_id required' }, 400);
@@ -673,12 +532,12 @@ dm.delete('/user/:encodedApId/archive', async (c) => {
   const baseUrl = c.env.APP_URL;
   const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
 
-  await prisma.dmArchivedConversation.deleteMany({
-    where: {
-      actorApId: actor.ap_id,
-      conversationId,
-    },
-  });
+  await db.delete(dmArchivedConversations).where(
+    and(
+      eq(dmArchivedConversations.actorApId, actor.ap_id),
+      eq(dmArchivedConversations.conversationId, conversationId),
+    ),
+  );
 
   return c.json({ success: true });
 });
@@ -687,13 +546,15 @@ dm.delete('/user/:encodedApId/archive', async (c) => {
 dm.get('/archived', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const actorApIdJson = JSON.stringify(actor.ap_id);
 
-  const archivedConversations = await prisma.dmArchivedConversation.findMany({
-    where: { actorApId: actor.ap_id },
-    select: { conversationId: true, archivedAt: true },
-  });
+  const archivedConversations = await db.select({
+    conversationId: dmArchivedConversations.conversationId,
+    archivedAt: dmArchivedConversations.archivedAt,
+  })
+    .from(dmArchivedConversations)
+    .where(eq(dmArchivedConversations.actorApId, actor.ap_id));
 
   if (archivedConversations.length === 0) {
     return c.json({ archived: [] });
@@ -701,17 +562,16 @@ dm.get('/archived', async (c) => {
 
   const archivedSet = new Set(archivedConversations.map((a) => a.conversationId));
 
-  const dmObjects = await prisma.object.findMany({
-    where: dmWhereForActor(actor.ap_id, actorApIdJson),
-    orderBy: { published: 'desc' },
-    select: {
-      conversation: true,
-      attributedTo: true,
-      toJson: true,
-      published: true,
-    },
-    take: 2000,
-  });
+  const dmObjects = await db.select({
+    conversation: objects.conversation,
+    attributedTo: objects.attributedTo,
+    toJson: objects.toJson,
+    published: objects.published,
+  })
+    .from(objects)
+    .where(dmWhereForActor(actor.ap_id, actorApIdJson)!)
+    .orderBy(desc(objects.published))
+    .limit(2000);
 
   const conversationMap = groupConversations(
     dmObjects,
@@ -720,7 +580,7 @@ dm.get('/archived', async (c) => {
   );
 
   const otherApIds = uniqueValues(conversationMap, (c) => c.otherApId);
-  const actorInfoMap = await buildActorInfoMap(prisma, otherApIds);
+  const actorInfoMap = await buildActorInfoMap(db, otherApIds);
 
   const archived = Array.from(conversationMap.values())
     .map((conv) => ({

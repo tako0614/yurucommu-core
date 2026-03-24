@@ -105,8 +105,8 @@
             <td><code>password</code></td>
           </tr>
           <tr>
-            <td><code>AUTH_PASSWORD</code></td>
-            <td>パスワード認証時のパスワード（AUTH_MODE=password時のみ）</td>
+            <td><code>AUTH_PASSWORD_HASH</code></td>
+            <td>PBKDF2ハッシュ化パスワード（パスワード認証時）</td>
             <td>-</td>
           </tr>
         </tbody>
@@ -144,12 +144,12 @@ APP_URL = "https://yurucommu.example.com"
 AUTH_MODE = "password"
 
 # シークレットはwrangler secretで設定
-# AUTH_PASSWORDなどはコードに含めない</code></pre>
+# AUTH_PASSWORD_HASHなどはコードに含めない</code></pre>
 
       <h2>シークレットの設定</h2>
       <p>パスワードなどの機密情報は <code>wrangler secret</code> で設定します：</p>
-      <pre><code># パスワードを設定
-wrangler secret put AUTH_PASSWORD
+      <pre><code># パスワードハッシュを設定
+wrangler secret put AUTH_PASSWORD_HASH
 
 # Takos連携用シークレット
 wrangler secret put TAKOS_CLIENT_SECRET</code></pre>
@@ -187,7 +187,7 @@ wrangler secret list</code></pre>
         <a href="/specs/" class="footer-link">Specs</a>
         <a href="https://github.com/tako0614/yurucommu" class="footer-link">GitHub</a>
       </div>
-      <p class="footer-copy">&copy; 2026 Yurucommu. MIT License.</p>
+      <p class="footer-copy">&copy; 2026 Yurucommu. AGPL v3.</p>
     </div>
   </footer>
 </body>

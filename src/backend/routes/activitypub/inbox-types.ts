@@ -1,4 +1,7 @@
-﻿import type { Env } from '../../types';
+﻿import type { Context } from 'hono';
+import type { Env, Variables } from '../../types';
+
+export type ActivityContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 export type ActivityObject = {
   id?: string;
@@ -36,55 +39,6 @@ export type RemoteActor = {
   outbox?: string;
   publicKey?: { id?: string; publicKeyPem?: string };
 };
-
-export type ActorCacheInboxRow = {
-  inbox: string;
-};
-
-export type ActivityRow = {
-  type: string;
-  object_ap_id: string | null;
-};
-
-export type ObjectApIdRow = {
-  object_ap_id: string;
-};
-
-export type AttributedToRow = {
-  attributed_to: string;
-};
-
-export type ObjectOwnerRow = {
-  ap_id: string;
-  attributed_to: string;
-};
-
-export type ObjectDeleteRow = {
-  attributed_to: string;
-  type: string;
-  reply_count: number;
-};
-
-export type FollowRow = {
-  follower_ap_id: string;
-  following_ap_id: string;
-  activity_ap_id: string;
-  status: string;
-};
-
-export type CommunityRow = {
-  ap_id: string;
-  preferred_username: string;
-};
-
-export type InstanceActor = {
-  ap_id: string;
-  private_key_pem: string;
-  join_policy?: string;
-  posting_policy?: string;
-};
-
-export type ActivityContext = { env: Env };
 
 export type StoryOverlay = {
   position?: {

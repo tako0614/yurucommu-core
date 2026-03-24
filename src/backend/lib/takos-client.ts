@@ -5,7 +5,9 @@
  */
 
 import type { Env } from '../types';
-import type { PrismaClient } from '../../generated/prisma';
+import type { Database } from '../../db';
+import { eq } from 'drizzle-orm';
+import { sessions } from '../../db';
 import { decrypt, encrypt } from './crypto';
 
 interface TokenResponse {
@@ -59,7 +61,7 @@ export interface TakosUser {
  */
 export async function getTakosClient(
   env: Env,
-  prisma: PrismaClient,
+  db: Database,
   session: TakosSession
 ): Promise<TakosClient | null> {
   if (session.provider !== 'takos' || !session.providerAccessToken) return null;
@@ -80,7 +82,7 @@ export async function getTakosClient(
     const newTokens = await refreshWithLock(session.id, env, refreshToken);
     if (!newTokens) return null;
 
-    await updateSessionTokens(prisma, session.id, newTokens, env.ENCRYPTION_KEY);
+    await updateSessionTokens(db, session.id, newTokens, env.ENCRYPTION_KEY);
     accessToken = newTokens.access_token;
   }
 
@@ -136,14 +138,13 @@ async function refreshTakosToken(
 ): Promise<TokenResponse | null> {
   const clientId = env.TAKOS_CLIENT_ID || env.CLIENT_ID;
   const clientSecret = env.TAKOS_CLIENT_SECRET || env.CLIENT_SECRET;
-  const usingTakosExchangeBinding = !!env.TAKOS_OAUTH_EXCHANGE;
 
-  if ((!env.TAKOS_URL && !usingTakosExchangeBinding) || !clientId || !clientSecret) {
+  if (!env.TAKOS_URL || !clientId || !clientSecret) {
     return null;
   }
 
   try {
-    const url = usingTakosExchangeBinding ? 'https://internal/oauth/token' : `${env.TAKOS_URL}/oauth/token`;
+    const url = `${env.TAKOS_URL}/oauth/token`;
     const init: RequestInit = {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -155,9 +156,7 @@ async function refreshTakosToken(
       }),
     };
 
-    const res = usingTakosExchangeBinding
-      ? await env.TAKOS_OAUTH_EXCHANGE!.fetch(url, init)
-      : await fetch(url, init);
+    const res = await fetch(url, init);
 
     if (!res.ok) {
       console.error('Failed to refresh takos token:', await res.text());
@@ -175,7 +174,7 @@ async function refreshTakosToken(
  * セッションのトークンを更新
  */
 async function updateSessionTokens(
-  prisma: PrismaClient,
+  db: Database,
   sessionId: string,
   tokens: TokenResponse,
   encryptionKey?: string
@@ -190,12 +189,11 @@ async function updateSessionTokens(
     ? await encrypt(tokens.refresh_token, encryptionKey)
     : undefined;
 
-  await prisma.session.update({
-    where: { id: sessionId },
-    data: {
+  await db.update(sessions)
+    .set({
       providerAccessToken: encryptedAccessToken,
       ...(encryptedRefreshToken && { providerRefreshToken: encryptedRefreshToken }),
       ...(tokenExpiresAt && { providerTokenExpiresAt: tokenExpiresAt }),
-    },
-  });
+    })
+    .where(eq(sessions.id, sessionId));
 }

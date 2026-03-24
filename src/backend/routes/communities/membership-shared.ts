@@ -1,42 +1,42 @@
 import type { Context } from 'hono';
+import { eq, and, or, inArray } from 'drizzle-orm';
+import type { Database } from '../../../db';
+import { actors, actorCache, communities, communityMembers } from '../../../db';
 import type { Env, Variables } from '../../types';
-import type { PrismaClient } from '../../../generated/prisma';
 import { communityApId } from '../../utils';
-import { managerRoles } from './utils';
 
-export type MembershipContext = Context<{ Bindings: Env; Variables: Variables }>;
+export const managerRoles = new Set(['owner', 'moderator']);
 
 export function resolveCommunityApId(baseUrl: string, identifier: string): string {
   return identifier.startsWith('http') ? identifier : communityApId(baseUrl, identifier);
 }
 
 /** Shared WHERE clause for looking up a community by identifier or apId. */
-function communityWhere(apId: string, identifier: string) {
-  return { OR: [{ apId }, { preferredUsername: identifier }] };
+export function communityWhere(apId: string, identifier: string) {
+  return or(eq(communities.apId, apId), eq(communities.preferredUsername, identifier));
 }
 
-export async function fetchCommunityDetails(c: MembershipContext, identifier: string) {
-  const prisma = c.get('prisma') as PrismaClient;
+export async function fetchCommunityDetails(c: Context<{ Bindings: Env; Variables: Variables }>, identifier: string) {
+  const db = c.get('prisma');
   const apId = resolveCommunityApId(c.env.APP_URL, identifier);
-  const community = await prisma.community.findFirst({
-    where: communityWhere(apId, identifier),
-  });
+  const community = await db.select().from(communities)
+    .where(communityWhere(apId, identifier))
+    .get();
   return { apId, community };
 }
 
-export async function fetchCommunityId(c: MembershipContext, identifier: string) {
-  const prisma = c.get('prisma') as PrismaClient;
+export async function fetchCommunityId(c: Context<{ Bindings: Env; Variables: Variables }>, identifier: string) {
+  const db = c.get('prisma');
   const apId = resolveCommunityApId(c.env.APP_URL, identifier);
-  const community = await prisma.community.findFirst({
-    where: communityWhere(apId, identifier),
-    select: { apId: true },
-  });
+  const community = await db.select({ apId: communities.apId }).from(communities)
+    .where(communityWhere(apId, identifier))
+    .get();
   return { apId, community };
 }
 
-/** Compound key for CommunityMember / CommunityJoinRequest lookups. */
-export function memberKey(communityApId: string, actorApId: string) {
-  return { communityApId_actorApId: { communityApId, actorApId } };
+/** Compound key condition for CommunityMember / CommunityJoinRequest lookups. */
+export function memberWhere(communityApIdVal: string, actorApId: string) {
+  return and(eq(communityMembers.communityApId, communityApIdVal), eq(communityMembers.actorApId, actorApId));
 }
 
 /**
@@ -44,13 +44,13 @@ export function memberKey(communityApId: string, actorApId: string) {
  * Returns the membership record on success, or null if unauthorized.
  */
 export async function requireManager(
-  prisma: PrismaClient,
-  communityApId: string,
+  db: Database,
+  communityApIdVal: string,
   actorApId: string,
 ) {
-  const member = await prisma.communityMember.findUnique({
-    where: memberKey(communityApId, actorApId),
-  });
+  const member = await db.select().from(communityMembers)
+    .where(memberWhere(communityApIdVal, actorApId))
+    .get();
   if (!member || !managerRoles.has(member.role)) return null;
   return member;
 }
@@ -60,24 +60,33 @@ export async function requireManager(
  * Returns a single Map keyed by apId with the merged results (local takes priority).
  */
 export async function batchLoadActorInfo(
-  prisma: PrismaClient,
+  db: Database,
   apIds: string[],
   includeIcon = true,
 ) {
   if (apIds.length === 0) return new Map<string, { preferredUsername: string | null; name: string | null; iconUrl?: string | null }>();
 
-  const select = includeIcon
-    ? { apId: true, preferredUsername: true, name: true, iconUrl: true } as const
-    : { apId: true, preferredUsername: true, name: true } as const;
+  type ActorInfo = { preferredUsername: string | null; name: string | null; iconUrl?: string | null };
+
+  const selectLocalBase = { apId: actors.apId, preferredUsername: actors.preferredUsername, name: actors.name, iconUrl: actors.iconUrl } as const;
+  const selectCachedBase = { apId: actorCache.apId, preferredUsername: actorCache.preferredUsername, name: actorCache.name, iconUrl: actorCache.iconUrl } as const;
 
   const [localActors, cachedActors] = await Promise.all([
-    prisma.actor.findMany({ where: { apId: { in: apIds } }, select }),
-    prisma.actorCache.findMany({ where: { apId: { in: apIds } }, select }),
+    db.select(selectLocalBase).from(actors).where(inArray(actors.apId, apIds)),
+    db.select(selectCachedBase).from(actorCache).where(inArray(actorCache.apId, apIds)),
   ]);
 
   // Cached first so local overrides
-  const map = new Map<string, { preferredUsername: string | null; name: string | null; iconUrl?: string | null }>();
-  for (const a of cachedActors) map.set(a.apId, a);
-  for (const a of localActors) map.set(a.apId, a);
+  const map = new Map<string, ActorInfo>();
+  for (const a of cachedActors) {
+    const info: ActorInfo = { preferredUsername: a.preferredUsername, name: a.name };
+    if (includeIcon) info.iconUrl = a.iconUrl;
+    map.set(a.apId, info);
+  }
+  for (const a of localActors) {
+    const info: ActorInfo = { preferredUsername: a.preferredUsername, name: a.name };
+    if (includeIcon) info.iconUrl = a.iconUrl;
+    map.set(a.apId, info);
+  }
   return map;
 }

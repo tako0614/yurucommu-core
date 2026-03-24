@@ -1,26 +1,28 @@
-import type { Hono } from 'hono';
+import type { Context, Hono } from 'hono';
+import { eq, and, or, gt, sql, isNull, count } from 'drizzle-orm';
+import { communities, communityMembers, communityJoinRequests, communityInvites } from '../../../db';
 import type { Env, Variables } from '../../types';
 import {
-  MembershipContext,
   fetchCommunityDetails,
-  memberKey,
+  memberWhere,
 } from './membership-shared';
 
 function isUniqueConstraintError(error: unknown): boolean {
   return typeof error === 'object'
     && error !== null
-    && 'code' in error
-    && (error as { code?: string }).code === 'P2002';
+    && 'message' in error
+    && typeof (error as { message: string }).message === 'string'
+    && (error as { message: string }).message.includes('UNIQUE constraint failed');
 }
 
-export function registerMembershipJoinRoutes(communities: Hono<{ Bindings: Env; Variables: Variables }>) {
+export function registerMembershipJoinRoutes(communitiesRouter: Hono<{ Bindings: Env; Variables: Variables }>) {
   // POST /api/communities/:identifier/join - Join a community
-  communities.post('/:identifier/join', async (c: MembershipContext) => {
+  communitiesRouter.post('/:identifier/join', async (c: Context<{ Bindings: Env; Variables: Variables }>) => {
     const actor = c.get('actor');
     if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-    const identifier = c.req.param('identifier');
-    const prisma = c.get('prisma');
+    const identifier = c.req.param('identifier')!;
+    const db = c.get('prisma');
 
     let inviteId: string | undefined;
     try {
@@ -36,9 +38,9 @@ export function registerMembershipJoinRoutes(communities: Hono<{ Bindings: Env; 
     }
 
     // Check if already member
-    const existing = await prisma.communityMember.findUnique({
-      where: memberKey(community.apId, actor.ap_id),
-    });
+    const existing = await db.select().from(communityMembers)
+      .where(memberWhere(community.apId, actor.ap_id))
+      .get();
     if (existing) {
       return c.json({ error: 'Already a member' }, 409);
     }
@@ -46,20 +48,29 @@ export function registerMembershipJoinRoutes(communities: Hono<{ Bindings: Env; 
     const now = new Date().toISOString();
 
     if (community.joinPolicy === 'approval') {
-      await prisma.communityJoinRequest.upsert({
-        where: memberKey(community.apId, actor.ap_id),
-        create: {
+      // Upsert: check if exists, then insert or update
+      const existingRequest = await db.select().from(communityJoinRequests)
+        .where(and(
+          eq(communityJoinRequests.communityApId, community.apId),
+          eq(communityJoinRequests.actorApId, actor.ap_id),
+        ))
+        .get();
+
+      if (existingRequest) {
+        await db.update(communityJoinRequests)
+          .set({ status: 'pending', createdAt: now, processedAt: null })
+          .where(and(
+            eq(communityJoinRequests.communityApId, community.apId),
+            eq(communityJoinRequests.actorApId, actor.ap_id),
+          ));
+      } else {
+        await db.insert(communityJoinRequests).values({
           communityApId: community.apId,
           actorApId: actor.ap_id,
           status: 'pending',
           createdAt: now,
-        },
-        update: {
-          status: 'pending',
-          createdAt: now,
-          processedAt: null,
-        },
-      });
+        });
+      }
 
       return c.json({ success: true, status: 'pending' });
     }
@@ -70,76 +81,59 @@ export function registerMembershipJoinRoutes(communities: Hono<{ Bindings: Env; 
       }
 
       try {
-        const result = await prisma.$transaction(async (tx) => {
-          const invite = await tx.communityInvite.findFirst({
-            where: {
-              id: inviteId,
-              communityApId: community.apId,
-              usedAt: null,
-              OR: [
-                { expiresAt: null },
-                { expiresAt: { gt: now } },
-              ],
-            },
-          });
+        // Find the invite
+        const invite = await db.select().from(communityInvites)
+          .where(and(
+            eq(communityInvites.id, inviteId),
+            eq(communityInvites.communityApId, community.apId),
+            isNull(communityInvites.usedAt),
+            or(
+              isNull(communityInvites.expiresAt),
+              gt(communityInvites.expiresAt, now),
+            ),
+          ))
+          .get();
 
-          if (!invite) {
-            return { status: 'invalid_invite' as const };
-          }
-          if (invite.invitedApId && invite.invitedApId !== actor.ap_id) {
-            return { status: 'invite_wrong_account' as const };
-          }
-
-          await tx.communityMember.create({
-            data: {
-              communityApId: community.apId,
-              actorApId: actor.ap_id,
-              role: 'member',
-              joinedAt: now,
-            },
-          });
-
-          await tx.community.update({
-            where: { apId: community.apId },
-            data: { memberCount: { increment: 1 } },
-          });
-
-          const claimed = await tx.communityInvite.updateMany({
-            where: {
-              id: inviteId,
-              communityApId: community.apId,
-              usedAt: null,
-              OR: [
-                { expiresAt: null },
-                { expiresAt: { gt: now } },
-              ],
-              AND: [
-                {
-                  OR: [
-                    { invitedApId: null },
-                    { invitedApId: actor.ap_id },
-                  ],
-                },
-              ],
-            },
-            data: {
-              usedByApId: actor.ap_id,
-              usedAt: now,
-            },
-          });
-          if (claimed.count !== 1) {
-            throw new Error('INVITE_CLAIM_FAILED');
-          }
-
-          return { status: 'joined' as const };
-        });
-
-        if (result.status === 'invalid_invite') {
+        if (!invite) {
           return c.json({ error: 'Invalid or expired invite', status: 'invite_required' }, 403);
         }
-        if (result.status === 'invite_wrong_account') {
+        if (invite.invitedApId && invite.invitedApId !== actor.ap_id) {
           return c.json({ error: 'Invite not for this account', status: 'invite_required' }, 403);
         }
+
+        // Create member
+        await db.insert(communityMembers).values({
+          communityApId: community.apId,
+          actorApId: actor.ap_id,
+          role: 'member',
+          joinedAt: now,
+        });
+
+        // Increment member count
+        await db.update(communities)
+          .set({ memberCount: sql`${communities.memberCount} + 1` })
+          .where(eq(communities.apId, community.apId));
+
+        // Claim the invite - update only if conditions still match
+        const claimResult = await db.update(communityInvites)
+          .set({ usedByApId: actor.ap_id, usedAt: now })
+          .where(and(
+            eq(communityInvites.id, inviteId),
+            eq(communityInvites.communityApId, community.apId),
+            isNull(communityInvites.usedAt),
+            or(
+              isNull(communityInvites.expiresAt),
+              gt(communityInvites.expiresAt, now),
+            ),
+            or(
+              isNull(communityInvites.invitedApId),
+              eq(communityInvites.invitedApId, actor.ap_id),
+            ),
+          ));
+        if (claimResult.meta.changes !== 1) {
+          throw new Error('INVITE_CLAIM_FAILED');
+        }
+
         return c.json({ success: true, status: 'joined' });
       } catch (error) {
         if (isUniqueConstraintError(error)) {
@@ -152,21 +146,17 @@ export function registerMembershipJoinRoutes(communities: Hono<{ Bindings: Env; 
 
     // Open join
     try {
-      await prisma.$transaction(async (tx) => {
-        await tx.communityMember.create({
-          data: {
-            communityApId: community.apId,
-            actorApId: actor.ap_id,
-            role: 'member',
-            joinedAt: now,
-          },
-        });
-
-        await tx.community.update({
-          where: { apId: community.apId },
-          data: { memberCount: { increment: 1 } },
-        });
+      await db.insert(communityMembers).values({
+        communityApId: community.apId,
+        actorApId: actor.ap_id,
+        role: 'member',
+        joinedAt: now,
       });
+
+      await db.update(communities)
+        .set({ memberCount: sql`${communities.memberCount} + 1` })
+        .where(eq(communities.apId, community.apId));
+
       return c.json({ success: true, status: 'joined' });
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -178,44 +168,44 @@ export function registerMembershipJoinRoutes(communities: Hono<{ Bindings: Env; 
   });
 
   // POST /api/communities/:identifier/leave - Leave a community
-  communities.post('/:identifier/leave', async (c: MembershipContext) => {
+  communitiesRouter.post('/:identifier/leave', async (c: Context<{ Bindings: Env; Variables: Variables }>) => {
     const actor = c.get('actor');
     if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-    const identifier = c.req.param('identifier');
-    const prisma = c.get('prisma');
+    const identifier = c.req.param('identifier')!;
+    const db = c.get('prisma');
 
     const { community } = await fetchCommunityDetails(c, identifier);
     if (!community) {
       return c.json({ error: 'Community not found' }, 404);
     }
 
-    const membership = await prisma.communityMember.findUnique({
-      where: memberKey(community.apId, actor.ap_id),
-    });
+    const membership = await db.select().from(communityMembers)
+      .where(memberWhere(community.apId, actor.ap_id))
+      .get();
     if (!membership) {
       return c.json({ error: 'Not a member' }, 400);
     }
 
     // Don't allow the last owner to leave
     if (membership.role === 'owner') {
-      const ownerCount = await prisma.communityMember.count({
-        where: { communityApId: community.apId, role: 'owner' },
-      });
-      if (ownerCount <= 1) {
+      const ownerCountResult = await db.select({ count: count() }).from(communityMembers)
+        .where(and(
+          eq(communityMembers.communityApId, community.apId),
+          eq(communityMembers.role, 'owner'),
+        ))
+        .get();
+      if ((ownerCountResult?.count ?? 0) <= 1) {
         return c.json({ error: 'Cannot leave: you are the only owner' }, 400);
       }
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.communityMember.delete({
-        where: memberKey(community.apId, actor.ap_id),
-      });
-      await tx.community.update({
-        where: { apId: community.apId },
-        data: { memberCount: { decrement: 1 } },
-      });
-    });
+    await db.delete(communityMembers)
+      .where(memberWhere(community.apId, actor.ap_id));
+
+    await db.update(communities)
+      .set({ memberCount: sql`${communities.memberCount} - 1` })
+      .where(eq(communities.apId, community.apId));
 
     return c.json({ success: true });
   });

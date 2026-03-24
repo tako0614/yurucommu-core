@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import type { Env, Variables } from '../../types';
-import type { Actor as PrismaActor } from '../../../generated/prisma';
+import { eq } from 'drizzle-orm';
+import { actorCache, activities, actors } from '../../../db';
 import { activityApId, actorApId, generateId, isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../../utils';
 import { getInstanceActor } from './utils';
 import type { Activity, RemoteActor } from './inbox-types';
@@ -65,12 +66,12 @@ async function fetchActorPublicKey(keyId: string, c: HonoContext): Promise<strin
     return null;
   }
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const actorUrl = keyId.includes('#') ? keyId.split('#')[0] : keyId;
 
-  const cached = await prisma.actorCache.findUnique({
-    where: { apId: actorUrl },
-    select: { publicKeyPem: true },
+  const cached = await db.query.actorCache.findFirst({
+    where: eq(actorCache.apId, actorUrl),
+    columns: { publicKeyPem: true },
   });
 
   if (cached?.publicKeyPem) {
@@ -99,11 +100,16 @@ async function fetchActorPublicKey(keyId: string, c: HonoContext): Promise<strin
 
     if (actorData.id && actorData.inbox && isSafeRemoteUrl(actorData.id) && isSafeRemoteUrl(actorData.inbox)) {
       const cacheFields = buildActorCacheFields(narrowed);
-      await prisma.actorCache.upsert({
-        where: { apId: actorData.id },
-        update: cacheFields,
-        create: { apId: actorData.id, ...cacheFields },
+      // Upsert: check existence then insert or update
+      const existing = await db.query.actorCache.findFirst({
+        where: eq(actorCache.apId, actorData.id),
+        columns: { apId: true },
       });
+      if (existing) {
+        await db.update(actorCache).set(cacheFields).where(eq(actorCache.apId, actorData.id));
+      } else {
+        await db.insert(actorCache).values({ apId: actorData.id, ...cacheFields });
+      }
     }
 
     return narrowed.publicKey.publicKeyPem;
@@ -319,12 +325,12 @@ async function deduplicateAndStoreActivity(
   c: HonoContext,
   { activityId, activityType, actor, activityObjectId, activity }: ParsedActivity
 ): Promise<Response | null> {
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const rawJson = JSON.stringify(activity);
 
-  const existing = await prisma.activity.findUnique({
-    where: { apId: activityId },
-    select: { rawJson: true },
+  const existing = await db.query.activities.findFirst({
+    where: eq(activities.apId, activityId),
+    columns: { rawJson: true },
   });
 
   if (existing) {
@@ -334,15 +340,13 @@ async function deduplicateAndStoreActivity(
     return c.body(null, 202);
   }
 
-  await prisma.activity.create({
-    data: {
-      apId: activityId,
-      type: activityType,
-      actorApId: actor,
-      objectApId: activityObjectId,
-      rawJson,
-      direction: 'inbound',
-    },
+  await db.insert(activities).values({
+    apId: activityId,
+    type: activityType,
+    actorApId: actor,
+    objectApId: activityObjectId,
+    rawJson,
+    direction: 'inbound',
   });
 
   return null;
@@ -368,11 +372,11 @@ function buildActorCacheFields(actorData: RemoteActor & { inbox: string; publicK
 async function cacheRemoteActor(c: HonoContext, actorApIdUrl: string, baseUrl: string): Promise<void> {
   if (isLocal(actorApIdUrl, baseUrl)) return;
 
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
 
-  const cached = await prisma.actorCache.findUnique({
-    where: { apId: actorApIdUrl },
-    select: { apId: true },
+  const cached = await db.query.actorCache.findFirst({
+    where: eq(actorCache.apId, actorApIdUrl),
+    columns: { apId: true },
   });
   if (cached) return;
 
@@ -404,9 +408,7 @@ async function cacheRemoteActor(c: HonoContext, actorApIdUrl: string, baseUrl: s
 
     // publicKey.publicKeyPem and inbox are guaranteed by guards above
     const narrowed = actorData as RemoteActor & { inbox: string; publicKey: { publicKeyPem: string } };
-    await prisma.actorCache.create({
-      data: { apId: actorData.id, ...buildActorCacheFields(narrowed) },
-    });
+    await db.insert(actorCache).values({ apId: actorData.id, ...buildActorCacheFields(narrowed) });
   } catch (e) {
     console.error('Failed to cache remote actor:', e);
   }
@@ -416,8 +418,11 @@ async function cacheRemoteActor(c: HonoContext, actorApIdUrl: string, baseUrl: s
 // User inbox activity dispatch
 // ---------------------------------------------------------------------------
 
+/** The Drizzle row type for actors table */
+type ActorRow = typeof actors.$inferSelect;
+
 type UserInboxHandler = {
-  recipient: PrismaActor;
+  recipient: ActorRow;
   actor: string;
   baseUrl: string;
 };
@@ -483,7 +488,7 @@ async function dispatchUserActivity(
 const ap = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 ap.post('/ap/actor/inbox', async (c) => {
-  const instanceActor = await getInstanceActor(c);
+  const instActor = await getInstanceActor(c);
   const baseUrl = c.env.APP_URL;
 
   const result = await verifyAndParseInbox(c, baseUrl);
@@ -496,13 +501,13 @@ ap.post('/ap/actor/inbox', async (c) => {
 
   switch (activityType) {
     case 'Follow':
-      await handleGroupFollow(c, activity, instanceActor, actor, baseUrl, result.activityId);
+      await handleGroupFollow(c, activity, instActor, actor, baseUrl, result.activityId);
       break;
     case 'Undo':
-      await handleGroupUndo(c, activity, instanceActor);
+      await handleGroupUndo(c, activity, instActor);
       break;
     case 'Create':
-      await handleGroupCreate(c, activity, instanceActor, actor, baseUrl);
+      await handleGroupCreate(c, activity, instActor, actor, baseUrl);
       break;
   }
 
@@ -510,12 +515,12 @@ ap.post('/ap/actor/inbox', async (c) => {
 });
 
 ap.post('/ap/users/:username/inbox', async (c) => {
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const username = c.req.param('username');
   const baseUrl = c.env.APP_URL;
   const apId = actorApId(baseUrl, username);
 
-  const recipient = await prisma.actor.findUnique({ where: { apId } });
+  const recipient = await db.query.actors.findFirst({ where: eq(actors.apId, apId) });
   if (!recipient) return c.json({ error: 'Actor not found' }, 404);
 
   const result = await verifyAndParseInbox(c, baseUrl);

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
-import { getCookie } from 'hono/cookie';
-import type { Env, Variables, Actor } from './types';
-import { getPrismaD1 } from './lib/db';
+import type { Env, Variables } from './types';
+import { getDb } from '../db';
+import { extractActorFromSession } from './lib/session-actor';
 
 import authRoutes from './routes/auth';
 import actorsRoutes from './routes/actors';
@@ -71,11 +71,6 @@ function getMimeType(path: string): string {
   return MIME_TYPES[ext] || 'application/octet-stream';
 }
 
-function isExpired(expiresAt: string): boolean {
-  const expiresMs = Date.parse(expiresAt);
-  return !Number.isFinite(expiresMs) || expiresMs <= Date.now();
-}
-
 function applyGlobalMiddleware(app: YurucommuApp): void {
   app.onError(createErrorMiddleware());
 
@@ -109,86 +104,20 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
   });
 
   app.use('*', async (c, next) => {
-    const prisma = c.env.PRISMA ?? getPrismaD1(c.env.DB);
-    c.set('prisma', prisma);
+    const db = c.env.PRISMA ?? getDb(c.env.DB);
+    c.set('prisma', db);
     await next();
   });
 
   app.use('/api/*', async (c, next) => {
-    const sessionId = getCookie(c, 'session');
-    if (sessionId) {
-      const prisma = c.get('prisma');
-      const session = await prisma.session.findUnique({
-        where: { id: sessionId },
-        include: { member: true },
-      });
-
-      if (session && !isExpired(session.expiresAt)) {
-        const actor: Actor = {
-          ap_id: session.member.apId,
-          type: session.member.type,
-          preferred_username: session.member.preferredUsername,
-          name: session.member.name,
-          summary: session.member.summary,
-          icon_url: session.member.iconUrl,
-          header_url: session.member.headerUrl,
-          inbox: session.member.inbox,
-          outbox: session.member.outbox,
-          followers_url: session.member.followersUrl,
-          following_url: session.member.followingUrl,
-          public_key_pem: session.member.publicKeyPem,
-          private_key_pem: session.member.privateKeyPem,
-          takos_user_id: session.member.takosUserId,
-          follower_count: session.member.followerCount,
-          following_count: session.member.followingCount,
-          post_count: session.member.postCount,
-          is_private: session.member.isPrivate,
-          role: session.member.role as 'owner' | 'moderator' | 'member',
-          created_at: session.member.createdAt,
-        };
-        c.set('actor', actor);
-      }
-    }
+    await extractActorFromSession(c);
     await next();
   });
 
   // Takos tools endpoints may be called from the browser (same-origin) and rely on
   // the same session cookie auth as the rest of the API.
   app.use('/.takos/tools/*', async (c, next) => {
-    const sessionId = getCookie(c, 'session');
-    if (sessionId) {
-      const prisma = c.get('prisma');
-      const session = await prisma.session.findUnique({
-        where: { id: sessionId },
-        include: { member: true },
-      });
-
-      if (session && !isExpired(session.expiresAt)) {
-        const actor: Actor = {
-          ap_id: session.member.apId,
-          type: session.member.type,
-          preferred_username: session.member.preferredUsername,
-          name: session.member.name,
-          summary: session.member.summary,
-          icon_url: session.member.iconUrl,
-          header_url: session.member.headerUrl,
-          inbox: session.member.inbox,
-          outbox: session.member.outbox,
-          followers_url: session.member.followersUrl,
-          following_url: session.member.followingUrl,
-          public_key_pem: session.member.publicKeyPem,
-          private_key_pem: session.member.privateKeyPem,
-          takos_user_id: session.member.takosUserId,
-          follower_count: session.member.followerCount,
-          following_count: session.member.followingCount,
-          post_count: session.member.postCount,
-          is_private: session.member.isPrivate,
-          role: session.member.role as 'owner' | 'moderator' | 'member',
-          created_at: session.member.createdAt,
-        };
-        c.set('actor', actor);
-      }
-    }
+    await extractActorFromSession(c);
     await next();
   });
 

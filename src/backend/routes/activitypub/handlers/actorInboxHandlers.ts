@@ -1,5 +1,5 @@
-import type { Context } from 'hono';
-import type { Env, Variables } from '../../../types';
+import { eq, and, or, sql } from 'drizzle-orm';
+import { follows, activities, communities, objects, objectRecipients } from '../../../../db';
 import {
   activityApId,
   generateId,
@@ -9,12 +9,11 @@ import {
 import { enqueueDeliveryToActor } from '../../../lib/delivery/queue';
 import type { InstanceActorResult } from '../utils';
 import {
-  Activity,
+  type ActivityContext,
+  type Activity,
   getActivityObject,
   getActivityObjectId,
 } from '../inbox-types';
-
-type ActivityContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 const AS_CONTEXT = 'https://www.w3.org/ns/activitystreams';
 
@@ -31,27 +30,28 @@ export async function handleGroupFollow(
   baseUrl: string,
   activityId: string
 ) {
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const followerKey = {
     followerApId: actorApIdStr,
     followingApId: instanceActor.apId,
   };
 
-  const existing = await prisma.follow.findUnique({
-    where: { followerApId_followingApId: followerKey },
+  const existing = await db.query.follows.findFirst({
+    where: and(
+      eq(follows.followerApId, followerKey.followerApId),
+      eq(follows.followingApId, followerKey.followingApId)
+    ),
   });
   if (existing) return;
 
   const status = JOIN_POLICY_STATUS[instanceActor.joinPolicy ?? ''] ?? 'accepted';
 
   const now = new Date().toISOString();
-  await prisma.follow.create({
-    data: {
-      ...followerKey,
-      status,
-      activityApId: activityId,
-      acceptedAt: status === 'accepted' ? now : null,
-    },
+  await db.insert(follows).values({
+    ...followerKey,
+    status,
+    activityApId: activityId,
+    acceptedAt: status === 'accepted' ? now : null,
   });
 
   if (isLocal(actorApIdStr, baseUrl)) return;
@@ -67,15 +67,13 @@ export async function handleGroupFollow(
     object: activityId,
   };
 
-  await prisma.activity.create({
-    data: {
-      apId: responseId,
-      type: responseType,
-      actorApId: instanceActor.apId,
-      objectApId: activityId,
-      rawJson: JSON.stringify(responseActivity),
-      direction: 'outbound',
-    },
+  await db.insert(activities).values({
+    apId: responseId,
+    type: responseType,
+    actorApId: instanceActor.apId,
+    objectApId: activityId,
+    rawJson: JSON.stringify(responseActivity),
+    direction: 'outbound',
   });
 
   // Outbound delivery must be async (no remote POST in request path).
@@ -87,39 +85,37 @@ export async function handleGroupUndo(
   activity: Activity,
   instanceActor: InstanceActorResult
 ) {
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
   // Try exact match by activity AP ID first.
-  const follow = await prisma.follow.findFirst({
-    where: {
-      activityApId: objectId,
-      followingApId: instanceActor.apId,
-    },
+  const follow = await db.query.follows.findFirst({
+    where: and(
+      eq(follows.activityApId, objectId),
+      eq(follows.followingApId, instanceActor.apId)
+    ),
   });
 
   if (follow) {
-    await prisma.follow.delete({
-      where: {
-        followerApId_followingApId: {
-          followerApId: follow.followerApId,
-          followingApId: follow.followingApId,
-        },
-      },
-    });
+    await db.delete(follows).where(
+      and(
+        eq(follows.followerApId, follow.followerApId),
+        eq(follows.followingApId, follow.followingApId)
+      )
+    );
     return;
   }
 
   // Fallback: if the undone object is a Follow, delete by actor pair.
   if (getActivityObject(activity)?.type !== 'Follow') return;
 
-  await prisma.follow.deleteMany({
-    where: {
-      followerApId: activity.actor,
-      followingApId: instanceActor.apId,
-    },
-  });
+  await db.delete(follows).where(
+    and(
+      eq(follows.followerApId, activity.actor as string),
+      eq(follows.followingApId, instanceActor.apId)
+    )
+  );
 }
 
 export async function handleGroupCreate(
@@ -129,7 +125,7 @@ export async function handleGroupCreate(
   actorApIdStr: string,
   baseUrl: string
 ) {
-  const prisma = c.get('prisma');
+  const db = c.get('prisma');
   const object = getActivityObject(activity);
   if (!object || object.type !== 'Note') return;
 
@@ -139,59 +135,53 @@ export async function handleGroupCreate(
   if (!match) return;
   const roomId = match[1];
 
-  const community = await prisma.community.findFirst({
-    where: {
-      OR: [
-        { preferredUsername: roomId },
-        { apId: roomId },
-      ],
-    },
-    select: { apId: true, preferredUsername: true },
+  const community = await db.query.communities.findFirst({
+    where: or(
+      eq(communities.preferredUsername, roomId),
+      eq(communities.apId, roomId)
+    ),
+    columns: { apId: true, preferredUsername: true },
   });
   if (!community) return;
 
   const postingPolicy = instanceActor.postingPolicy || 'members';
   if (postingPolicy !== 'anyone') {
-    const follow = await prisma.follow.findUnique({
-      where: {
-        followerApId_followingApId: {
-          followerApId: actorApIdStr,
-          followingApId: instanceActor.apId,
-        },
-        status: 'accepted',
-      },
+    const followRecord = await db.query.follows.findFirst({
+      where: and(
+        eq(follows.followerApId, actorApIdStr),
+        eq(follows.followingApId, instanceActor.apId),
+        eq(follows.status, 'accepted')
+      ),
     });
-    if (!follow) return;
+    if (!followRecord) return;
     if (postingPolicy === 'mods' || postingPolicy === 'owners') return;
   }
 
-  const objectId = object.id || objectApId(baseUrl, generateId());
-  const existing = await prisma.object.findUnique({
-    where: { apId: objectId },
+  const newObjectId = object.id || objectApId(baseUrl, generateId());
+  const existingObj = await db.query.objects.findFirst({
+    where: eq(objects.apId, newObjectId),
   });
-  if (existing) return;
+  if (existingObj) return;
 
   const attachments = object.attachment ? JSON.stringify(object.attachment) : '[]';
   const now = object.published || new Date().toISOString();
 
-  await prisma.object.create({
-    data: {
-      apId: objectId,
-      type: 'Note',
-      attributedTo: actorApIdStr,
-      content: object.content || '',
-      summary: object.summary || null,
-      attachmentsJson: attachments,
-      visibility: 'group',
-      communityApId: community.apId,
-      published: now,
-      isLocal: 0,
-    },
+  await db.insert(objects).values({
+    apId: newObjectId,
+    type: 'Note',
+    attributedTo: actorApIdStr,
+    content: object.content || '',
+    summary: object.summary || null,
+    attachmentsJson: attachments,
+    visibility: 'group',
+    communityApId: community.apId,
+    published: now,
+    isLocal: 0,
   });
 
-  // Using $executeRaw with INSERT OR IGNORE since ObjectRecipient FK expects Actor, not Community
-  await prisma.$executeRaw`
+  // Using raw SQL with INSERT OR IGNORE since ObjectRecipient FK expects Actor, not Community
+  await db.run(sql`
     INSERT OR IGNORE INTO object_recipients (object_ap_id, recipient_ap_id, type, created_at)
-    VALUES (${objectId}, ${community.apId}, 'audience', ${now})
-  `;
+    VALUES (${newObjectId}, ${community.apId}, 'audience', ${now})
+  `);
 }

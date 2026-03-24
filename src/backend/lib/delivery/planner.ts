@@ -1,4 +1,6 @@
-import type { PrismaClient } from '../../../generated/prisma';
+import type { Database } from '../../../db';
+import { inArray } from 'drizzle-orm';
+import { actorCache } from '../../../db';
 import { emitMetric } from './metrics';
 import { DELIVERY_ENDPOINT_CACHE_TTL_MS, safeParseIsoTimeMs } from './utils';
 import { isSafeRemoteUrl } from '../../utils';
@@ -40,7 +42,7 @@ function chooseEndpoint(row: ActorCacheRow): { endpoint: string; usedSharedInbox
 }
 
 export async function planEndpointsFromActorCache(
-  prisma: PrismaClient,
+  db: Database,
   recipientActorApIds: string[],
   options?: {
     metricTags?: Record<string, string | number | boolean | null | undefined>;
@@ -53,10 +55,14 @@ export async function planEndpointsFromActorCache(
   }
 
   // Batch-load actor_cache for recipient set.
-  const rows = await prisma.actorCache.findMany({
-    where: { apId: { in: recipientActorApIds } },
-    select: { apId: true, inbox: true, sharedInbox: true, lastFetchedAt: true },
-  });
+  const rows = await db.select({
+    apId: actorCache.apId,
+    inbox: actorCache.inbox,
+    sharedInbox: actorCache.sharedInbox,
+    lastFetchedAt: actorCache.lastFetchedAt,
+  })
+    .from(actorCache)
+    .where(inArray(actorCache.apId, recipientActorApIds));
 
   const byApId = new Map(rows.map((r) => [r.apId, r as ActorCacheRow]));
   const unknownRecipients: string[] = [];
@@ -93,4 +99,3 @@ export async function planEndpointsFromActorCache(
 
   return { groups, unknownRecipients, totalRecipients, sharedInboxRecipients };
 }
-

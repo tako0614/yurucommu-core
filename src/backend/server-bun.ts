@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck - This file is Bun-specific and should be type-checked by Bun's TypeScript
 /**
  * Bun Server Entry Point
@@ -13,7 +14,7 @@
  *   STORAGE_PATH     - File storage path (default: ./data/storage)
  *   ASSETS_PATH      - Static assets path (default: ./dist)
  *   APP_URL          - Application URL (default: http://localhost:3000)
- *   AUTH_PASSWORD    - Optional password authentication
+ *   AUTH_PASSWORD_HASH - PBKDF2-hashed password authentication
  *   GOOGLE_CLIENT_ID/SECRET - Google OAuth
  *   X_CLIENT_ID/SECRET - X (Twitter) OAuth
  *   TAKOS_URL/CLIENT_ID/SECRET - Takos OAuth
@@ -48,7 +49,6 @@ async function main() {
     assetsPath: ASSETS_PATH,
     APP_URL,
     AUTH_PASSWORD_HASH: process.env.AUTH_PASSWORD_HASH,
-    AUTH_PASSWORD: process.env.AUTH_PASSWORD,
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     X_CLIENT_ID: process.env.X_CLIENT_ID,

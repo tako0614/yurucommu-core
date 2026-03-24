@@ -1,5 +1,5 @@
 import type { TakosClient } from './lib/takos-client';
-import type { PrismaClient } from '../generated/prisma';
+import type { Database } from '../db';
 import type { DeliveryQueueMessageV1, DeliveryDlqMessageV1 } from './lib/delivery/types';
 
 /**
@@ -13,9 +13,7 @@ export interface EnvVars {
   ENABLE_TAKOS_TOOLS?: string;
 
   // 認証設定（自由に組み合わせ可能）
-  AUTH_PASSWORD_HASH?: string; // PBKDF2-hashed password (recommended)
-  AUTH_PASSWORD?: string; // Legacy plain text (deprecated)
-  ALLOW_PLAINTEXT_AUTH?: string; // Explicit opt-in for AUTH_PASSWORD fallback
+  AUTH_PASSWORD_HASH?: string; // PBKDF2-hashed password
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   X_CLIENT_ID?: string;
@@ -23,7 +21,7 @@ export interface EnvVars {
   TAKOS_URL?: string;
   TAKOS_CLIENT_ID?: string;
   TAKOS_CLIENT_SECRET?: string;
-  // Takopack OAuth autoEnv compatibility (CLIENT_ID/CLIENT_SECRET)
+  // OAuth autoEnv compatibility (CLIENT_ID/CLIENT_SECRET)
   CLIENT_ID?: string;
   CLIENT_SECRET?: string;
   AUTH_MODE?: string;
@@ -50,9 +48,7 @@ export type Env = {
   MEDIA: R2Bucket;
   KV: KVNamespace;
   ASSETS: Fetcher;
-  // Optional: Takos OAuth exchange service binding (for same-zone/WFP deployments)
-  TAKOS_OAUTH_EXCHANGE?: Fetcher;
-  PRISMA?: PrismaClient;
+  PRISMA?: Database;
   DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1>;
   DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1>;
 } & EnvVars;
@@ -60,7 +56,7 @@ export type Env = {
 export type Variables = {
   actor: Actor | null;
   takosClient: TakosClient | null;
-  prisma: PrismaClient;
+  prisma: Database;
   oauthToken?: { sub: string; scope: string; client_id: string };
 };
 

@@ -1,11 +1,15 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
+import { eq, and, asc, desc, lt } from 'drizzle-orm';
 import type { Env, Variables } from '../types';
-import { actorApId, getDomain } from '../utils';
-import { INSTANCE_ACTOR_USERNAME, MAX_ROOM_STREAM_LIMIT, getInstanceActor, parseLimit, roomApId } from './activitypub/utils';
+import { actors, communities, objects as objectsTable } from '../../db';
+import { notDeleted } from '../../db';
+import { actorApId, getDomain, parseLimit } from '../utils';
+import { INSTANCE_ACTOR_USERNAME, MAX_ROOM_STREAM_LIMIT, getInstanceActor, roomApId } from './activitypub/utils';
 import inboxRoutes from './activitypub/inbox';
 import outboxRoutes from './activitypub/outbox';
 import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
+import { communityWhere, resolveCommunityApId } from './communities/membership-shared';
 
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -57,11 +61,6 @@ function buildPublicKey(actorApId: string, publicKeyPem: string): Record<string,
 function activityJson(c: HonoContext, body: Record<string, unknown>): Response {
   c.header('Content-Type', AP_CONTENT_TYPE);
   return c.json(body);
-}
-
-/** Prisma where-clause to find a community by slug or apId. */
-function communityWhereClause(roomId: string): { OR: Array<Record<string, string>> } {
-  return { OR: [{ preferredUsername: roomId }, { apId: roomId }] };
 }
 
 // ---------------------------------------------------------------------------
@@ -120,9 +119,9 @@ ap.get('/.well-known/webfinger', withCache({
     ));
   }
 
-  const actor = await prisma.actor.findUnique({
-    where: { preferredUsername: username },
-    select: { apId: true, preferredUsername: true },
+  const actor = await prisma.query.actors.findFirst({
+    where: and(eq(actors.preferredUsername, username), notDeleted(actors)),
+    columns: { apId: true, preferredUsername: true },
   });
 
   if (!actor) return c.json({ error: 'Actor not found' }, 404);
@@ -148,9 +147,9 @@ ap.get('/ap/users/:username', withCache({
   const baseUrl = c.env.APP_URL;
   const apId = actorApId(baseUrl, username);
 
-  const actor = await prisma.actor.findUnique({
-    where: { apId },
-    select: {
+  const actor = await prisma.query.actors.findFirst({
+    where: and(eq(actors.apId, apId), notDeleted(actors)),
+    columns: {
       apId: true,
       type: true,
       preferredUsername: true,
@@ -254,9 +253,10 @@ ap.get('/ap/rooms', withCache({
   const prisma = c.get('prisma');
   const baseUrl = c.env.APP_URL;
 
-  const rooms = await prisma.community.findMany({
-    select: { preferredUsername: true, name: true, summary: true },
-    orderBy: { createdAt: 'asc' },
+  const rooms = await prisma.query.communities.findMany({
+    where: notDeleted(communities),
+    columns: { preferredUsername: true, name: true, summary: true },
+    orderBy: asc(communities.createdAt),
   });
 
   const items = rooms.map((room) => ({
@@ -280,9 +280,9 @@ ap.get('/ap/rooms/:roomId', async (c) => {
   const baseUrl = c.env.APP_URL;
   const roomId = c.req.param('roomId');
 
-  const room = await prisma.community.findFirst({
-    where: communityWhereClause(roomId),
-    select: { preferredUsername: true, name: true, summary: true },
+  const room = await prisma.query.communities.findFirst({
+    where: and(communityWhere(resolveCommunityApId(baseUrl, roomId), roomId), notDeleted(communities)),
+    columns: { preferredUsername: true, name: true, summary: true },
   });
 
   if (!room) return c.json({ error: 'Room not found' }, 404);
@@ -309,22 +309,25 @@ ap.get('/ap/rooms/:roomId/stream', async (c) => {
   const limit = parseLimit(c.req.query('limit'), 20, MAX_ROOM_STREAM_LIMIT);
   const before = c.req.query('before');
 
-  const community = await prisma.community.findFirst({
-    where: communityWhereClause(roomId),
-    select: { apId: true, preferredUsername: true },
+  const community = await prisma.query.communities.findFirst({
+    where: and(communityWhere(resolveCommunityApId(baseUrl, roomId), roomId), notDeleted(communities)),
+    columns: { apId: true, preferredUsername: true },
   });
 
   if (!community) return c.json({ error: 'Room not found' }, 404);
 
-  const objects = await prisma.object.findMany({
-    where: {
-      type: 'Note',
-      communityApId: community.apId,
-      ...(before ? { published: { lt: before } } : {}),
-    },
-    select: { apId: true, attributedTo: true, content: true, published: true },
-    orderBy: { published: 'desc' },
-    take: limit,
+  const conditions = [
+    eq(objectsTable.type, 'Note'),
+    eq(objectsTable.communityApId, community.apId),
+    notDeleted(objectsTable),
+  ];
+  if (before) conditions.push(lt(objectsTable.published, before));
+
+  const objects = await prisma.query.objects.findMany({
+    where: and(...conditions),
+    columns: { apId: true, attributedTo: true, content: true, published: true },
+    orderBy: desc(objectsTable.published),
+    limit,
   });
 
   const communityRoomUrl = roomApId(baseUrl, community.preferredUsername);

@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck - This file is Bun-specific and should be type-checked by Bun's TypeScript
 /**
  * Bun Runtime Adapters
@@ -395,7 +396,6 @@ export function createBunRuntime(config: {
   envVars: {
     APP_URL: string;
     AUTH_PASSWORD_HASH?: string;
-    AUTH_PASSWORD?: string;
     GOOGLE_CLIENT_ID?: string;
     GOOGLE_CLIENT_SECRET?: string;
     X_CLIENT_ID?: string;
