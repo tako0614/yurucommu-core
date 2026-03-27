@@ -1,6 +1,6 @@
 import type { Database } from '../../../../db';
 import { eq, and, sql, inArray } from 'drizzle-orm';
-import { actors, objects, follows, likes, announces, activities, inbox as inboxTable } from '../../../../db';
+import { actors, objects, follows, likes, activities } from '../../../../db';
 import {
   activityApId,
   generateId,
@@ -17,8 +17,7 @@ import {
   upsertActivityAndNotify,
   findFollowByActivityId,
   deleteFollowByCompoundKey,
-  findAndDeleteLikeByActivityId,
-  findAndDeleteAnnounceByActivityId,
+  findAndDeleteInteractionByActivityId,
   undoInteraction,
 } from './inbox-shared-helpers';
 
@@ -222,18 +221,12 @@ async function resolveUndoByActivityId(
     return true;
   }
 
-  if (originalActivity.type === 'Like' && originalActivity.objectApId) {
-    await findAndDeleteLikeByActivityId(db, objectId);
+  if ((originalActivity.type === 'Like' || originalActivity.type === 'Announce') && originalActivity.objectApId) {
+    const kind = originalActivity.type === 'Like' ? 'like' as const : 'announce' as const;
+    const countField = kind === 'like' ? 'likeCount' as const : 'announceCount' as const;
+    await findAndDeleteInteractionByActivityId(db, kind, objectId);
     await db.update(objects)
-      .set({ likeCount: sql`${objects.likeCount} - 1` })
-      .where(eq(objects.apId, originalActivity.objectApId));
-    return true;
-  }
-
-  if (originalActivity.type === 'Announce' && originalActivity.objectApId) {
-    await findAndDeleteAnnounceByActivityId(db, objectId);
-    await db.update(objects)
-      .set({ announceCount: sql`${objects.announceCount} - 1` })
+      .set({ [countField]: sql`${objects[countField]} - 1` })
       .where(eq(objects.apId, originalActivity.objectApId));
     return true;
   }

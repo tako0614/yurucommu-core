@@ -1,6 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { useAtomValue } from 'jotai';
-import { actorAtom } from '../../atoms/auth';
+import { useRequiredActor } from '../../hooks/useRequiredActor';
 import { useI18n } from '../../lib/i18n';
 
 const HomeIcon = () => (
@@ -41,7 +40,7 @@ const SettingsIcon = () => (
 );
 
 export function Sidebar() {
-  const actor = useAtomValue(actorAtom)!;
+  const actor = useRequiredActor();
   const { t } = useI18n();
   const navItems = [
     { to: '/', icon: HomeIcon, label: t('nav.home') },

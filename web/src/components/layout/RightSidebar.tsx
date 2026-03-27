@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { useAtomValue } from 'jotai';
-import { actorAtom } from '../../atoms/auth';
+import { useRequiredActor } from '../../hooks/useRequiredActor';
 import type { RecommendedUser } from '../../lib/api/recommendations';
 import { fetchRecommendedUsers, follow } from '../../lib/api';
 import { UserAvatar } from '../UserAvatar';
@@ -66,7 +65,7 @@ function RecommendedUserCard({
 }
 
 export function RightSidebar() {
-  const actor = useAtomValue(actorAtom)!;
+  const actor = useRequiredActor();
   const [users, setUsers] = useState<RecommendedUser[]>([]);
   const [loading, setLoading] = useState(true);
 

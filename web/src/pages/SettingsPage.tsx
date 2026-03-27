@@ -1,7 +1,7 @@
 ﻿import { useEffect, useCallback } from 'react';
 import { atom } from 'jotai';
-import { useAtom, useAtomValue } from 'jotai';
-import { actorAtom } from '../atoms/auth';
+import { useAtom } from 'jotai';
+import { useRequiredActor } from '../hooks/useRequiredActor';
 import type { Actor } from '../types';
 import { useI18n } from '../lib/i18n';
 import { UserAvatar } from '../components/UserAvatar';
@@ -37,7 +37,7 @@ const settings_createErrorAtom = atom<string | null>(null);
 const settings_switchingAtom = atom(false);
 
 export function SettingsPage() {
-  const actor = useAtomValue(actorAtom)!;
+  const actor = useRequiredActor();
   const { t, language, setLanguage } = useI18n();
   const [error, setError] = useAtom(settings_errorAtom);
   const clearError = useCallback(() => setError(null), [setError]);
@@ -148,8 +148,8 @@ export function SettingsPage() {
       const newAccount = await createAccount(normalizedUsername, newDisplayName.trim() || undefined);
       setAccounts(prev => [...prev, newAccount]);
       resetCreateAccount();
-    } catch (e: any) {
-      setCreateError(e.message || 'Failed to create account');
+    } catch (e: unknown) {
+      setCreateError(e instanceof Error ? e.message : String(e) || 'Failed to create account');
     }
   };
 
@@ -181,8 +181,8 @@ export function SettingsPage() {
     try {
       await deleteAccount();
       window.location.href = '/';
-    } catch (e: any) {
-      alert(e.message || 'Failed to delete account');
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : String(e) || 'Failed to delete account');
     }
   };
 

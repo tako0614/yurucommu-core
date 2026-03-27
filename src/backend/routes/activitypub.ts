@@ -72,7 +72,7 @@ ap.get('/.well-known/webfinger', withCache({
   cacheTag: CacheTags.WEBFINGER,
   queryParamsToInclude: ['resource'],
 }), async (c) => {
-  const prisma = c.get('db');
+  const db = c.get('db');
   const resource = c.req.query('resource');
   if (!resource) return c.json({ error: 'resource parameter required' }, 400);
 
@@ -119,7 +119,7 @@ ap.get('/.well-known/webfinger', withCache({
     ));
   }
 
-  const actor = await prisma.query.actors.findFirst({
+  const actor = await db.query.actors.findFirst({
     where: and(eq(actors.preferredUsername, username), notDeleted(actors)),
     columns: { apId: true, preferredUsername: true },
   });
@@ -142,12 +142,12 @@ ap.get('/ap/users/:username', withCache({
   ttl: CacheTTL.ACTIVITYPUB_ACTOR,
   cacheTag: CacheTags.ACTOR,
 }), async (c) => {
-  const prisma = c.get('db');
+  const db = c.get('db');
   const username = c.req.param('username');
   const baseUrl = c.env.APP_URL;
   const apId = actorApId(baseUrl, username);
 
-  const actor = await prisma.query.actors.findFirst({
+  const actor = await db.query.actors.findFirst({
     where: and(eq(actors.apId, apId), notDeleted(actors)),
     columns: {
       apId: true,
@@ -250,10 +250,10 @@ ap.get('/ap/rooms', withCache({
   ttl: CacheTTL.COMMUNITY,
   cacheTag: CacheTags.COMMUNITY,
 }), async (c) => {
-  const prisma = c.get('db');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
 
-  const rooms = await prisma.query.communities.findMany({
+  const rooms = await db.query.communities.findMany({
     where: notDeleted(communities),
     columns: { preferredUsername: true, name: true, summary: true },
     orderBy: asc(communities.createdAt),
@@ -276,11 +276,11 @@ ap.get('/ap/rooms', withCache({
 });
 
 ap.get('/ap/rooms/:roomId', async (c) => {
-  const prisma = c.get('db');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
   const roomId = c.req.param('roomId');
 
-  const room = await prisma.query.communities.findFirst({
+  const room = await db.query.communities.findFirst({
     where: and(communityWhere(resolveCommunityApId(baseUrl, roomId), roomId), notDeleted(communities)),
     columns: { preferredUsername: true, name: true, summary: true },
   });
@@ -303,13 +303,13 @@ ap.get('/ap/rooms/:roomId', async (c) => {
 });
 
 ap.get('/ap/rooms/:roomId/stream', async (c) => {
-  const prisma = c.get('db');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
   const roomId = c.req.param('roomId');
   const limit = parseLimit(c.req.query('limit'), 20, MAX_ROOM_STREAM_LIMIT);
   const before = c.req.query('before');
 
-  const community = await prisma.query.communities.findFirst({
+  const community = await db.query.communities.findFirst({
     where: and(communityWhere(resolveCommunityApId(baseUrl, roomId), roomId), notDeleted(communities)),
     columns: { apId: true, preferredUsername: true },
   });
@@ -323,7 +323,7 @@ ap.get('/ap/rooms/:roomId/stream', async (c) => {
   ];
   if (before) conditions.push(lt(objectsTable.published, before));
 
-  const objects = await prisma.query.objects.findMany({
+  const objects = await db.query.objects.findMany({
     where: and(...conditions),
     columns: { apId: true, attributedTo: true, content: true, published: true },
     orderBy: desc(objectsTable.published),

@@ -1,8 +1,8 @@
 import { useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { atom } from 'jotai';
-import { useAtom, useAtomValue } from 'jotai';
-import { actorAtom } from '../atoms/auth';
+import { useAtom } from 'jotai';
+import { useRequiredActor } from '../hooks/useRequiredActor';
 import { Actor } from '../types';
 import { fetchFollowing, fetchFollowers } from '../lib/api';
 import { useI18n } from '../lib/i18n';
@@ -38,7 +38,7 @@ const friends_loadingAtom = atom(true);
 const friends_searchQueryAtom = atom('');
 
 export function FriendsListPage() {
-  const actor = useAtomValue(actorAtom)!;
+  const actor = useRequiredActor();
   const { t } = useI18n();
   const [error, setError] = useAtom(friends_errorAtom);
   const clearError = useCallback(() => setError(null), [setError]);

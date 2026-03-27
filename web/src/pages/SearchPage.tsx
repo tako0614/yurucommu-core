@@ -1,8 +1,8 @@
 import { useEffect, useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { atom } from 'jotai';
-import { useAtom, useAtomValue } from 'jotai';
-import { actorAtom } from '../atoms/auth';
+import { useAtom } from 'jotai';
+import { useRequiredActor } from '../hooks/useRequiredActor';
 import { Actor, Post } from '../types';
 import {
   CommunityDetail,
@@ -53,7 +53,7 @@ const SearchIcon = () => (
 );
 
 export function SearchPage() {
-  const actor = useAtomValue(actorAtom)!;
+  const actor = useRequiredActor();
   const { t } = useI18n();
   const [error, setError] = useAtom(search_errorAtom);
   const clearError = useCallback(() => setError(null), [setError]);

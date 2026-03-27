@@ -3,7 +3,7 @@
  *
  * This file runs before all tests and sets up:
  * - Mock Cloudflare Workers bindings (D1, R2, KV)
- * - Mock Prisma client
+ * - Mock database client
  * - Hono app testing utilities
  * - ActivityPub test helpers
  */
@@ -244,10 +244,10 @@ export class MockKVNamespace {
 }
 
 // ============================================================================
-// Mock Prisma Client
+// Mock Database Client
 // ============================================================================
 
-export interface MockPrismaOperation {
+export interface MockDbOperation {
   findUnique: ReturnType<typeof vi.fn>;
   findFirst: ReturnType<typeof vi.fn>;
   findMany: ReturnType<typeof vi.fn>;
@@ -262,7 +262,7 @@ export interface MockPrismaOperation {
   upsert: ReturnType<typeof vi.fn>;
 }
 
-function createMockPrismaOperation(): MockPrismaOperation {
+function createMockDbOperation(): MockDbOperation {
   return {
     findUnique: vi.fn().mockResolvedValue(null),
     findFirst: vi.fn().mockResolvedValue(null),
@@ -279,24 +279,24 @@ function createMockPrismaOperation(): MockPrismaOperation {
   };
 }
 
-export function createMockPrismaClient() {
+export function createMockDbClient() {
   return {
-    actor: createMockPrismaOperation(),
-    actorCache: createMockPrismaOperation(),
-    apObject: createMockPrismaOperation(),
-    follow: createMockPrismaOperation(),
-    like: createMockPrismaOperation(),
-    announce: createMockPrismaOperation(),
-    community: createMockPrismaOperation(),
-    communityMember: createMockPrismaOperation(),
-    communityMessage: createMockPrismaOperation(),
-    story: createMockPrismaOperation(),
-    storyView: createMockPrismaOperation(),
-    storyReaction: createMockPrismaOperation(),
-    dmConversation: createMockPrismaOperation(),
-    dmParticipant: createMockPrismaOperation(),
-    dmMessage: createMockPrismaOperation(),
-    notification: createMockPrismaOperation(),
+    actor: createMockDbOperation(),
+    actorCache: createMockDbOperation(),
+    apObject: createMockDbOperation(),
+    follow: createMockDbOperation(),
+    like: createMockDbOperation(),
+    announce: createMockDbOperation(),
+    community: createMockDbOperation(),
+    communityMember: createMockDbOperation(),
+    communityMessage: createMockDbOperation(),
+    story: createMockDbOperation(),
+    storyView: createMockDbOperation(),
+    storyReaction: createMockDbOperation(),
+    dmConversation: createMockDbOperation(),
+    dmParticipant: createMockDbOperation(),
+    dmMessage: createMockDbOperation(),
+    notification: createMockDbOperation(),
     $transaction: vi.fn().mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn({})),
     $connect: vi.fn().mockResolvedValue(undefined),
     $disconnect: vi.fn().mockResolvedValue(undefined),
@@ -482,7 +482,7 @@ export function createMockEnv(overrides: Partial<Record<string, unknown>> = {}) 
     ASSETS: {
       fetch: vi.fn().mockResolvedValue(new Response('', { status: 404 })),
     },
-    PRISMA: createMockPrismaClient(),
+    DB_CLIENT: createMockDbClient(),
     APP_URL: 'https://test.yurucommu.com',
     TAKOS_URL: 'https://takos.jp',
     ...overrides,

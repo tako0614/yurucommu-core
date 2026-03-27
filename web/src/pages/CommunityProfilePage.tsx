@@ -1,8 +1,8 @@
 ﻿import { useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { atom } from 'jotai';
-import { useAtom, useAtomValue } from 'jotai';
-import { actorAtom } from '../atoms/auth';
+import { useAtom } from 'jotai';
+import { useRequiredActor } from '../hooks/useRequiredActor';
 import {
   CommunityDetail,
   CommunityJoinRequest,
@@ -50,7 +50,7 @@ const communityProfile_uploadingIconAtom = atom(false);
 const communityProfile_iconPreviewAtom = atom<string | null>(null);
 
 export function CommunityProfilePage() {
-  const actor = useAtomValue(actorAtom)!;
+  const actor = useRequiredActor();
   const { t } = useI18n();
   const [error, setError] = useAtom(communityProfile_errorAtom);
   const clearError = useCallback(() => setError(null), [setError]);

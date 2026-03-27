@@ -3,7 +3,7 @@
 
 name = "yurucommu-local"
 main = "src/backend/index.ts"
-compatibility_date = "2024-12-01"
+compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
 [vars]

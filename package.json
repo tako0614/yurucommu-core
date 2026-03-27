@@ -2,6 +2,7 @@
   "name": "@takos/yurucommu",
   "version": "1.0.0",
   "private": false,
+  "packageManager": "pnpm@10.32.1",
   "license": "AGPL-3.0-only",
   "type": "module",
   "main": "./src/backend/public.ts",

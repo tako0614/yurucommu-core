@@ -110,8 +110,8 @@ export function QRCodeModal({ actor, onClose }: QRCodeModalProps) {
               try {
                 const actorData = await fetchActor(identifier);
                 setScanResult(actorData);
-              } catch (localErr: any) {
-                setScanError(`Local user fetch error: ${localErr.message || 'Unknown'}`);
+              } catch (localErr: unknown) {
+                setScanError(`Local user fetch error: ${localErr instanceof Error ? localErr.message : String(localErr) || 'Unknown'}`);
               }
             } else if (username) {
               // Remote user - search via ActivityPub WebFinger
@@ -123,14 +123,14 @@ export function QRCodeModal({ actor, onClose }: QRCodeModalProps) {
                 } else {
                   setScanError(`Remote user not found: ${webfingerAddress}`);
                 }
-              } catch (remoteErr: any) {
-                setScanError(`Remote search error: ${remoteErr.message || 'Unknown'}`);
+              } catch (remoteErr: unknown) {
+                setScanError(`Remote search error: ${remoteErr instanceof Error ? remoteErr.message : String(remoteErr) || 'Unknown'}`);
               }
             } else {
               setScanError(`Remote user info insufficient (hash=${url.hash})`);
             }
-          } catch (err: any) {
-            setScanError(`QR parse error: ${err.message || 'Unknown'}`);
+          } catch (err: unknown) {
+            setScanError(`QR parse error: ${err instanceof Error ? err.message : String(err) || 'Unknown'}`);
           } finally {
             setLookingUp(false);
           }
