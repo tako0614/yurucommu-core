@@ -8,7 +8,7 @@ import type { Env } from '../../types';
 import type { Database } from '../../../db';
 import { eq, and, notInArray, sql } from 'drizzle-orm';
 import { actorCache, actors, communities, instanceActor, activities, deliveryQueue } from '../../../db';
-import { isSafeRemoteUrl, signRequest, fetchWithTimeout } from '../../utils';
+import { isSafeRemoteUrl, signRequest, fetchWithTimeout } from '../../federation-helpers';
 import { emitMetric } from './metrics';
 import { checkCircuit, recordCircuitFailure, recordCircuitSuccess } from './circuit';
 import {
@@ -20,7 +20,7 @@ import {
   DELIVERY_MAX_ATTEMPTS,
   safeEndpointHost,
   safeParseIsoTimeMs,
-} from './utils';
+} from './transformers';
 import {
   type Bulkhead,
   type QueueEnv,

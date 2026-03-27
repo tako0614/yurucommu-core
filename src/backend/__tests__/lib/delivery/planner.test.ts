@@ -1,17 +1,19 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import type { Database } from '../../../../db';
 import { planEndpointsFromActorCache } from '../../../lib/delivery/planner';
-import { DELIVERY_ENDPOINT_CACHE_TTL_MS } from '../../../lib/delivery/utils';
+import { DELIVERY_ENDPOINT_CACHE_TTL_MS } from '../../../lib/delivery/transformers';
 
 /**
  * Extract bound values from a drizzle inArray() condition.
  * inArray(col, values) stores the values as Param objects in queryChunks.
  */
-function extractValuesFromInArray(condition: any): string[] | null {
-  const chunks = condition?.queryChunks;
+function extractValuesFromInArray(condition: unknown): string[] | null {
+  const chunks = (condition as Record<string, unknown> | null | undefined)?.queryChunks;
   if (!Array.isArray(chunks)) return null;
   for (const chunk of chunks) {
-    if (chunk?.constructor?.name === 'Param' && Array.isArray(chunk.value)) {
-      return chunk.value;
+    const c = chunk as Record<string, unknown> | null | undefined;
+    if (c?.constructor?.name === 'Param' && Array.isArray(c.value)) {
+      return c.value as string[];
     }
   }
   return null;
@@ -26,9 +28,9 @@ type ActorCacheRow = {
 
 function createMockPlannerDb(rows: ActorCacheRow[]) {
   return {
-    select: vi.fn((_fields?: any) => ({
-      from: (_table: any) => ({
-        where: (...whereArgs: any[]) => {
+    select: vi.fn((_fields?: unknown) => ({
+      from: (_table: unknown) => ({
+        where: (...whereArgs: unknown[]) => {
           // The planner calls: db.select({...}).from(actorCache).where(inArray(..., apIds))
           // which returns a promise resolving to an array of rows.
           // Extract the requested apIds from the inArray condition and filter rows.
@@ -37,9 +39,10 @@ function createMockPlannerDb(rows: ActorCacheRow[]) {
             ? rows.filter((r) => requestedIds.includes(r.apId))
             : rows;
           // In Drizzle, the chain without .get() is thenable and resolves to an array
-          const result = Promise.resolve(filtered);
-          // Add .get() in case it's called (it won't be for this code path)
-          (result as any).get = () => Promise.resolve(filtered[0] ?? undefined);
+          const result: Promise<ActorCacheRow[]> & { get?: () => Promise<ActorCacheRow | undefined> } =
+            Object.assign(Promise.resolve(filtered), {
+              get: () => Promise.resolve(filtered[0] ?? undefined),
+            });
           return result;
         },
       }),
@@ -78,7 +81,7 @@ describe('delivery/planner', () => {
       },
     ]);
 
-    const res = await planEndpointsFromActorCache(db as any, [
+    const res = await planEndpointsFromActorCache(db as unknown as Database, [
       'https://a.example/ap/users/u1',
       'https://a.example/ap/users/u2',
       'https://b.example/ap/users/u3',
@@ -107,7 +110,7 @@ describe('delivery/planner', () => {
       },
     ]);
 
-    const res = await planEndpointsFromActorCache(db as any, [
+    const res = await planEndpointsFromActorCache(db as unknown as Database, [
       'https://a.example/ap/users/u1',
       'https://missing.example/ap/users/u2',
     ]);

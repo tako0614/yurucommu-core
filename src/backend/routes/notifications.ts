@@ -3,7 +3,7 @@
 import { Hono } from 'hono';
 import { eq, and, ne, lt, count, desc, inArray } from 'drizzle-orm';
 import type { Env, Variables } from '../types';
-import { formatUsername, parseLimit, parseOffset } from '../utils';
+import { formatUsername, parseLimit, parseOffset } from '../federation-helpers';
 import type { Database } from '../../db';
 import { inbox as inboxTable, activities, notificationArchived, objects, follows } from '../../db';
 import { batchLoadActorInfo } from './communities/membership-shared';
@@ -104,7 +104,7 @@ notifications.get('/', async (c) => {
   const actor = requireActor(c);
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   await maybeCleanupArchivedNotifications(db, actor.ap_id);
 
   const limit = parseLimit(c.req.query('limit'), 20, 100);
@@ -164,7 +164,7 @@ notifications.get('/', async (c) => {
   const activityApIdsArr = [...new Set(inboxEntries.map(i => i.activityApId))];
 
   const [actorMap, objectRows, followRows] = await Promise.all([
-    batchLoadActorInfo(db as any, actorApIds),
+    batchLoadActorInfo(db, actorApIds),
     objectApIds.length > 0
       ? db.select({ apId: objects.apId, content: objects.content, inReplyTo: objects.inReplyTo })
           .from(objects)
@@ -236,7 +236,7 @@ notifications.get('/unread/count', async (c) => {
   const actor = requireActor(c);
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   await maybeCleanupArchivedNotifications(db, actor.ap_id);
 
   const result = await db
@@ -259,7 +259,7 @@ notifications.post('/read', async (c) => {
   const actor = requireActor(c);
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const body = await c.req.json<{ ids?: string[]; read_all?: boolean }>();
 
   if (body.read_all) {
@@ -285,7 +285,7 @@ notifications.post('/archive', async (c) => {
   const actor = requireActor(c);
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const body = await c.req.json<{ ids: string[] }>();
 
   if (
@@ -328,7 +328,7 @@ notifications.delete('/archive', async (c) => {
   const actor = requireActor(c);
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const body = await c.req.json<{ ids: string[] }>();
   if (!body.ids || body.ids.length === 0) {
     return c.json({ error: 'ids array is required' }, 400);
@@ -347,7 +347,7 @@ notifications.post('/archive/all', async (c) => {
   const actor = requireActor(c);
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const now = new Date().toISOString();
 
   const [alreadyArchived, inboxItems] = await Promise.all([

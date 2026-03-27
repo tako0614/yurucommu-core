@@ -7,8 +7,8 @@ import { eq, and, lt, desc, like, inArray } from 'drizzle-orm';
 import type { Database } from '../../../db';
 import { actors, actorCache, objects, objectRecipients, activities, inbox as inboxTable } from '../../../db';
 import type { Env, Variables } from '../../types';
-import { generateId, objectApId, activityApId, formatUsername, isLocal, parseLimit, safeJsonParse } from '../../utils';
-import { MAX_DM_CONTENT_LENGTH, MAX_DM_PAGE_LIMIT, getConversationId } from './utils';
+import { generateId, objectApId, activityApId, formatUsername, isLocal, parseLimit, safeJsonParse } from '../../federation-helpers';
+import { MAX_DM_CONTENT_LENGTH, MAX_DM_PAGE_LIMIT, getConversationId } from './query-helpers';
 import { enqueueDeliveryToActor } from '../../lib/delivery/queue';
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -216,7 +216,7 @@ dm.get('/user/:encodedApId/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const otherApId = decodeURIComponent(c.req.param('encodedApId'));
   const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
   const before = c.req.query('before');
@@ -231,7 +231,7 @@ dm.post('/user/:encodedApId/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const otherApId = decodeURIComponent(c.req.param('encodedApId'));
   const body = await c.req.json<{ content: string }>();
   const baseUrl = c.env.APP_URL;
@@ -336,7 +336,7 @@ dm.patch('/messages/:messageId', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const body = await c.req.json<{ content: string }>();
 
   const contentOrError = validateContent(body.content);
@@ -367,7 +367,7 @@ dm.delete('/messages/:messageId', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const messageOrError = await findOwnedDmMessage(db, c.req.param('messageId'), actor.ap_id);
   if ('error' in messageOrError) {
@@ -388,7 +388,7 @@ dm.get('/conversations/:id/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const conversationId = c.req.param('id');
   const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
   const before = c.req.query('before');
@@ -401,7 +401,7 @@ dm.post('/conversations/:id/messages', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const conversationId = c.req.param('id');
   const body = await c.req.json<{ content: string }>();
   const baseUrl = c.env.APP_URL;

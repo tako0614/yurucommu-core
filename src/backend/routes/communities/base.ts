@@ -2,8 +2,9 @@ import { Hono } from 'hono';
 import { eq, and, or, count, asc, desc, sql, inArray, isNull } from 'drizzle-orm';
 import { communities, communityMembers, communityJoinRequests, objects } from '../../../db';
 import type { Env, Variables } from '../../types';
-import { communityApId, generateKeyPair, parseLimit, parseOffset } from '../../utils';
+import { communityApId, generateKeyPair, parseLimit, parseOffset } from '../../federation-helpers';
 import { fetchCommunityId, memberWhere, requireManager } from './membership-shared';
+import { isUniqueConstraintError } from '../../lib/parse-helpers';
 
 const communitiesRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -42,7 +43,7 @@ function validateCommunityName(name: string | undefined): string | null {
 // GET /api/communities - List all communities
 communitiesRouter.get('/', async (c) => {
   const actor = c.get('actor');
-  const db = c.get('prisma');
+  const db = c.get('db');
   const limit = parseLimit(c.req.query('limit'), 100, 500);
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
 
@@ -112,7 +113,7 @@ communitiesRouter.post('/', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const body = await c.req.json<{
     name: string;
@@ -163,8 +164,7 @@ communitiesRouter.post('/', async (c) => {
       joinedAt: now,
     });
   } catch (error) {
-    // SQLite UNIQUE constraint error
-    if (error && typeof error === 'object' && 'message' in error && typeof (error as { message: string }).message === 'string' && (error as { message: string }).message.includes('UNIQUE constraint failed')) {
+    if (isUniqueConstraintError(error)) {
       return c.json({ error: 'Community name already taken' }, 409);
     }
     throw error;
@@ -191,7 +191,7 @@ communitiesRouter.post('/', async (c) => {
 communitiesRouter.get('/:identifier', async (c) => {
   const identifier = c.req.param('identifier');
   const actor = c.get('actor');
-  const db = c.get('prisma');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
 
   const apId = identifier.startsWith('http') ? identifier : communityApId(baseUrl, identifier);
@@ -265,7 +265,7 @@ communitiesRouter.patch('/:identifier/settings', async (c) => {
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const identifier = c.req.param('identifier');
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const { community } = await fetchCommunityId(c, identifier);
   if (!community) {

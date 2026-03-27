@@ -4,7 +4,7 @@ import { eq, and, asc, desc, lt } from 'drizzle-orm';
 import type { Env, Variables } from '../types';
 import { actors, communities, objects as objectsTable } from '../../db';
 import { notDeleted } from '../../db';
-import { actorApId, getDomain, parseLimit } from '../utils';
+import { actorApId, getDomain, parseLimit } from '../federation-helpers';
 import { INSTANCE_ACTOR_USERNAME, MAX_ROOM_STREAM_LIMIT, getInstanceActor, roomApId } from './activitypub/utils';
 import inboxRoutes from './activitypub/inbox';
 import outboxRoutes from './activitypub/outbox';
@@ -72,7 +72,7 @@ ap.get('/.well-known/webfinger', withCache({
   cacheTag: CacheTags.WEBFINGER,
   queryParamsToInclude: ['resource'],
 }), async (c) => {
-  const prisma = c.get('prisma');
+  const prisma = c.get('db');
   const resource = c.req.query('resource');
   if (!resource) return c.json({ error: 'resource parameter required' }, 400);
 
@@ -142,7 +142,7 @@ ap.get('/ap/users/:username', withCache({
   ttl: CacheTTL.ACTIVITYPUB_ACTOR,
   cacheTag: CacheTags.ACTOR,
 }), async (c) => {
-  const prisma = c.get('prisma');
+  const prisma = c.get('db');
   const username = c.req.param('username');
   const baseUrl = c.env.APP_URL;
   const apId = actorApId(baseUrl, username);
@@ -250,7 +250,7 @@ ap.get('/ap/rooms', withCache({
   ttl: CacheTTL.COMMUNITY,
   cacheTag: CacheTags.COMMUNITY,
 }), async (c) => {
-  const prisma = c.get('prisma');
+  const prisma = c.get('db');
   const baseUrl = c.env.APP_URL;
 
   const rooms = await prisma.query.communities.findMany({
@@ -276,7 +276,7 @@ ap.get('/ap/rooms', withCache({
 });
 
 ap.get('/ap/rooms/:roomId', async (c) => {
-  const prisma = c.get('prisma');
+  const prisma = c.get('db');
   const baseUrl = c.env.APP_URL;
   const roomId = c.req.param('roomId');
 
@@ -303,7 +303,7 @@ ap.get('/ap/rooms/:roomId', async (c) => {
 });
 
 ap.get('/ap/rooms/:roomId/stream', async (c) => {
-  const prisma = c.get('prisma');
+  const prisma = c.get('db');
   const baseUrl = c.env.APP_URL;
   const roomId = c.req.param('roomId');
   const limit = parseLimit(c.req.query('limit'), 20, MAX_ROOM_STREAM_LIMIT);

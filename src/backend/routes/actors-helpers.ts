@@ -3,11 +3,10 @@ import { eq, and, inArray, desc, sql, count } from 'drizzle-orm';
 import type { Database } from '../../db';
 import { actors, actorCache, follows, likes, bookmarks, announces, blocks, mutes } from '../../db';
 import type { Actor, Env, Variables } from '../types';
-import { actorApId, getDomain, formatUsername, parseLimit, parseOffset } from '../utils';
+import { actorApId, getDomain, formatUsername, parseLimit, parseOffset } from '../federation-helpers';
 
 // Hono context with our app's bindings and variables
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AppContext = Context<{ Bindings: Env; Variables: Variables }, any>;
+export type AppContext = Context<{ Bindings: Env; Variables: Variables }, string>;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -210,7 +209,7 @@ export async function listRelation<T extends { [K in ApIdKey]: string }, ApIdKey
   if (result instanceof Response) return result;
   const actor = result;
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const limit = parseLimit(c.req.query('limit'), 100, 500);
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
 
@@ -239,7 +238,7 @@ export async function createRelation(
   if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
   if (body.ap_id === actor.ap_id) return c.json({ error: `Cannot ${verb} yourself` }, 400);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   await upsert(db, actor.ap_id, body.ap_id);
 
   return c.json({ success: true });
@@ -260,7 +259,7 @@ export async function deleteRelation(
   const body = await c.req.json<{ ap_id: string }>();
   if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   await remove(db, actor.ap_id, body.ap_id);
 
   return c.json({ success: true });
@@ -275,12 +274,12 @@ export async function listFollowRelation(
 ): Promise<Response> {
   const identifier = c.req.param('identifier');
   if (!identifier) return c.json({ error: 'Actor not found' }, 404);
-  const apId = await resolveActorApId(c.get('prisma'), c.env.APP_URL, identifier);
+  const apId = await resolveActorApId(c.get('db'), c.env.APP_URL, identifier);
   if (!apId) return c.json({ error: 'Actor not found' }, 404);
 
   const limit = parseLimit(c.req.query('limit'), 50, 100);
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const isFollowers = direction === 'followers';
   const whereCondition = isFollowers

@@ -6,14 +6,7 @@ import {
   fetchCommunityDetails,
   memberWhere,
 } from './membership-shared';
-
-function isUniqueConstraintError(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'message' in error
-    && typeof (error as { message: string }).message === 'string'
-    && (error as { message: string }).message.includes('UNIQUE constraint failed');
-}
+import { isUniqueConstraintError } from '../../lib/parse-helpers';
 
 export function registerMembershipJoinRoutes(communitiesRouter: Hono<{ Bindings: Env; Variables: Variables }>) {
   // POST /api/communities/:identifier/join - Join a community
@@ -22,7 +15,7 @@ export function registerMembershipJoinRoutes(communitiesRouter: Hono<{ Bindings:
     if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
     const identifier = c.req.param('identifier')!;
-    const db = c.get('prisma');
+    const db = c.get('db');
 
     let inviteId: string | undefined;
     try {
@@ -173,7 +166,7 @@ export function registerMembershipJoinRoutes(communitiesRouter: Hono<{ Bindings:
     if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
     const identifier = c.req.param('identifier')!;
-    const db = c.get('prisma');
+    const db = c.get('db');
 
     const { community } = await fetchCommunityDetails(c, identifier);
     if (!community) {

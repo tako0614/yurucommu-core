@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, eq, or, like, desc, gt, inArray, count } from 'drizzle-orm';
 import type { Env, Variables } from '../types';
-import { formatUsername, isSafeRemoteUrl, normalizeRemoteDomain, parseLimit, parseOffset, fetchWithTimeout } from '../utils';
+import { formatUsername, isSafeRemoteUrl, normalizeRemoteDomain, parseLimit, parseOffset, fetchWithTimeout } from '../federation-helpers';
 import type { Database } from '../../db';
 import { actors, actorCache, objects, likes } from '../../db';
 
@@ -167,7 +167,7 @@ search.get('/actors', async (c) => {
   const query = c.req.query('q')?.trim();
   if (!query) return c.json({ actors: [] });
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const sort = validateSort(c.req.query('sort'), ALLOWED_ACTOR_SORTS, 'relevance');
   const lowerQuery = query.toLowerCase();
 
@@ -235,7 +235,7 @@ search.get('/posts', async (c) => {
   if (!query) return c.json({ posts: [] });
 
   const actor = c.get('actor');
-  const db = c.get('prisma');
+  const db = c.get('db');
   const sort = validateSort(c.req.query('sort'), ALLOWED_POST_SORTS, 'recent');
 
   const posts = await db
@@ -296,7 +296,7 @@ search.get('/remote', async (c) => {
     const actorData = (await actorRes.json()) as RemoteActor;
 
     // Cache the actor (upsert: check if exists, then insert or update)
-    const db = c.get('prisma');
+    const db = c.get('db');
     const cacheFields = {
       type: actorData.type || 'Person',
       preferredUsername: actorData.preferredUsername || null,
@@ -351,7 +351,7 @@ search.get('/hashtag/:tag', async (c) => {
   if (!tag) return c.json({ posts: [], total: 0 });
 
   const actor = c.get('actor');
-  const db = c.get('prisma');
+  const db = c.get('db');
   const sort = validateSort(c.req.query('sort'), ALLOWED_POST_SORTS, 'recent');
   const limit = parseLimit(c.req.query('limit'), 50, 100);
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
@@ -402,7 +402,7 @@ search.get('/hashtags/trending', async (c) => {
   const days = parseLimit(c.req.query('days'), 7, 30);
   const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const posts = await db
     .select({ content: objects.content })

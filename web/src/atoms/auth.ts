@@ -15,6 +15,7 @@ export const IS_HOSTED = authStrategy.mode === 'hosted';
 // --- State atoms ---
 export const actorAtom = atom<Actor | null>(null);
 export const authLoadingAtom = atom(true);
+export const authErrorAtom = atom<string | null>(null);
 export const loginErrorAtom = atom<string | null>(null);
 export const needsSetupAtom = atom(false);
 export const instancePendingAtom = atom(false);
@@ -30,6 +31,7 @@ export const instancesLoadingAtom = atom(false);
 export const checkAuthAtom = atom(null, async (_get, set) => {
   try {
     set(instancesLoadingAtom, true);
+    set(authErrorAtom, null);
     const result = await authStrategy.checkAuth();
     set(actorAtom, result.actor);
     set(hostedUserAtom, result.hostedUser);
@@ -43,6 +45,7 @@ export const checkAuthAtom = atom(null, async (_get, set) => {
   } catch (e) {
     console.error('Auth check failed:', e);
     set(actorAtom, null);
+    set(authErrorAtom, '認証の確認に失敗しました');
   } finally {
     set(authLoadingAtom, false);
     set(instancesLoadingAtom, false);
@@ -78,6 +81,7 @@ export const logoutAtom = atom(null, async (_get, set) => {
     await authStrategy.logout();
   } catch (e) {
     console.error('Logout error:', e);
+    set(authErrorAtom, 'ログアウトに失敗しました');
   } finally {
     set(actorAtom, null);
   }
@@ -95,6 +99,9 @@ export const selectInstanceAtom = atom(null, async (_get, set, instanceId: strin
   set(instancesLoadingAtom, true);
   try {
     await authStrategy.selectInstance(instanceId);
+  } catch (e) {
+    console.error('Failed to select instance:', e);
+    set(authErrorAtom, 'インスタンスの選択に失敗しました');
   } finally {
     await set(checkAuthAtom);
     set(instancesLoadingAtom, false);
@@ -106,6 +113,10 @@ export const rebuildInstanceAtom = atom(null, async (_get, set, instanceId: stri
   set(instancesLoadingAtom, true);
   try {
     return await authStrategy.rebuildInstance(instanceId);
+  } catch (e) {
+    console.error('Failed to rebuild instance:', e);
+    set(authErrorAtom, 'インスタンスの再構築に失敗しました');
+    return false;
   } finally {
     await set(checkAuthAtom);
     set(instancesLoadingAtom, false);

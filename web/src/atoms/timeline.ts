@@ -31,6 +31,7 @@ export const showPostModalAtom = atom(false);
 // --- Story state ---
 export const actorStoriesAtom = atom<ActorStories[]>([]);
 export const storiesLoadingAtom = atom(true);
+export const storiesErrorAtom = atom<string | null>(null);
 export const showStoryViewerAtom = atom(false);
 export const storyViewerActorIndexAtom = atom(0);
 export const showStoryComposerAtom = atom(false);
@@ -39,6 +40,7 @@ export const showStoryComposerAtom = atom(false);
 export const accountsAtom = atom<AccountInfo[]>([]);
 export const currentApIdAtom = atom('');
 export const accountsLoadingAtom = atom(false);
+export const accountsErrorAtom = atom<string | null>(null);
 export const showAccountSwitcherAtom = atom(false);
 
 // --- Mobile menu ---
@@ -83,11 +85,13 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
 });
 
 export const loadStoriesAtom = atom(null, async (_get, set) => {
+  set(storiesErrorAtom, null);
   try {
     const data = await fetchStories();
     set(actorStoriesAtom, data);
   } catch (e) {
     console.error('Failed to load stories:', e);
+    set(storiesErrorAtom, 'ストーリーの読み込みに失敗しました');
   } finally {
     set(storiesLoadingAtom, false);
   }
@@ -151,12 +155,14 @@ export const removeMediaAtom = atom(null, (_get, set, index: number) => {
 
 export const loadAccountsAtom = atom(null, async (_get, set) => {
   set(accountsLoadingAtom, true);
+  set(accountsErrorAtom, null);
   try {
     const data = await fetchAccounts();
     set(accountsAtom, data.accounts);
     set(currentApIdAtom, data.current_ap_id);
   } catch (e) {
     console.error('Failed to load accounts:', e);
+    set(accountsErrorAtom, 'アカウント情報の読み込みに失敗しました');
   } finally {
     set(accountsLoadingAtom, false);
   }

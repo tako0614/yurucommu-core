@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleDelete, handleLike } from '../../../../routes/activitypub/handlers/userInboxHandlers';
+import { handleDelete, handleLike } from '../../../../routes/activitypub/handlers/user-inbox-handlers';
+import type { ActivityContext, Activity } from '../../../../routes/activitypub/inbox-types';
+import type { actors } from '../../../../../db';
+
+type ActorRow = typeof actors.$inferSelect;
 
 /**
  * Creates a mock Drizzle DB that supports chainable patterns:
@@ -77,6 +81,18 @@ function createMockDb(options: {
   return { db, callTracker };
 }
 
+/**
+ * Creates a mock ActivityContext whose `get('db')` returns the given mock db.
+ */
+function createMockContext(db: ReturnType<typeof createMockDb>['db']): ActivityContext {
+  return {
+    get: (key: string) => {
+      if (key === 'db') return db;
+      return null;
+    },
+  } as unknown as ActivityContext;
+}
+
 describe('userInboxHandlers hardening', () => {
   it('handleLike writes like/count/inbox in a single transaction', async () => {
     const actorApId = 'https://example.com/ap/users/alice';
@@ -93,22 +109,19 @@ describe('userInboxHandlers hardening', () => {
       insertReturningResult: { actorApId, objectApId, activityApId: 'like-1' },
     });
 
-    const context = {
-      get: (key: string) => {
-        if (key === 'prisma') return db;
-        return null;
-      },
-    } as any;
+    const context = createMockContext(db);
+
+    const activity: Activity = {
+      id: 'https://example.com/ap/activities/like-1',
+      type: 'Like',
+      actor: actorApId,
+      object: objectApId,
+    };
 
     await handleLike(
       context,
-      {
-        id: 'https://example.com/ap/activities/like-1',
-        type: 'Like',
-        actor: actorApId,
-        object: objectApId,
-      } as any,
-      {} as any,
+      activity,
+      {} as unknown as ActorRow,
       actorApId,
       'https://example.com'
     );
@@ -129,22 +142,19 @@ describe('userInboxHandlers hardening', () => {
       insertReturningResult: undefined, // null = duplicate, so skip
     });
 
-    const context = {
-      get: (key: string) => {
-        if (key === 'prisma') return db;
-        return null;
-      },
-    } as any;
+    const context = createMockContext(db);
+
+    const activity: Activity = {
+      id: 'https://example.com/ap/activities/like-2',
+      type: 'Like',
+      actor: 'https://example.com/ap/users/alice',
+      object: 'https://example.com/ap/objects/note-2',
+    };
 
     await handleLike(
       context,
-      {
-        id: 'https://example.com/ap/activities/like-2',
-        type: 'Like',
-        actor: 'https://example.com/ap/users/alice',
-        object: 'https://example.com/ap/objects/note-2',
-      } as any,
-      {} as any,
+      activity,
+      {} as unknown as ActorRow,
       'https://example.com/ap/users/alice',
       'https://example.com'
     );
@@ -165,21 +175,18 @@ describe('userInboxHandlers hardening', () => {
       }],
     });
 
-    const context = {
-      get: (key: string) => {
-        if (key === 'prisma') return db;
-        return null;
-      },
-    } as any;
+    const context = createMockContext(db);
+
+    const activity: Activity = {
+      id: 'https://example.com/ap/activities/delete-1',
+      type: 'Delete',
+      actor: 'https://example.com/ap/users/alice',
+      object: 'https://example.com/ap/objects/note-3',
+    };
 
     await handleDelete(
       context,
-      {
-        id: 'https://example.com/ap/activities/delete-1',
-        type: 'Delete',
-        actor: 'https://example.com/ap/users/alice',
-        object: 'https://example.com/ap/objects/note-3',
-      } as any
+      activity
     );
 
     // Verify select was called (lookup object)

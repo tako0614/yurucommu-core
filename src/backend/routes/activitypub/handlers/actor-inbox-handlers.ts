@@ -5,7 +5,7 @@ import {
   generateId,
   isLocal,
   objectApId,
-} from '../../../utils';
+} from '../../../federation-helpers';
 import { enqueueDeliveryToActor } from '../../../lib/delivery/queue';
 import type { InstanceActorResult } from '../utils';
 import {
@@ -30,7 +30,7 @@ export async function handleGroupFollow(
   baseUrl: string,
   activityId: string
 ) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const followerKey = {
     followerApId: actorApIdStr,
     followingApId: instanceActor.apId,
@@ -85,7 +85,7 @@ export async function handleGroupUndo(
   activity: Activity,
   instanceActor: InstanceActorResult
 ) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
@@ -125,7 +125,7 @@ export async function handleGroupCreate(
   actorApIdStr: string,
   baseUrl: string
 ) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const object = getActivityObject(activity);
   if (!object || object.type !== 'Note') return;
 

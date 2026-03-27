@@ -5,7 +5,7 @@ import { eq, and, gt, inArray, notInArray, desc, sql } from 'drizzle-orm';
 import type { Database } from '../../../db';
 import { actors, objects, follows, likes, storyViews, storyVotes, storyShares, activities } from '../../../db';
 import type { Env, Variables } from '../../types';
-import { generateId, objectApId, actorApId, formatUsername, activityApId } from '../../utils';
+import { generateId, objectApId, actorApId, formatUsername, activityApId } from '../../federation-helpers';
 import { storyToActivityPub } from '../../lib/activitypub-helpers';
 import {
   cleanupExpiredStories,
@@ -15,7 +15,7 @@ import {
   fetchBatchVotes,
   fetchActorCache,
   sumVotes,
-} from './utils';
+} from './query-helpers';
 import { enqueueFanoutToFollowers } from '../../lib/delivery/queue';
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -155,7 +155,7 @@ stories.get('/', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const now = new Date().toISOString();
 
   // Probabilistic cleanup: 1% chance per request
@@ -291,7 +291,7 @@ stories.get('/', async (c) => {
 stories.get('/:actorId', async (c) => {
   const targetActorId = c.req.param('actorId');
   const actor = c.get('actor');
-  const db = c.get('prisma');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
   const now = new Date().toISOString();
 
@@ -378,7 +378,7 @@ stories.post('/', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const body = await c.req.json<StoryCreateBody>();
 
   if (!body.attachment || !body.attachment.r2_key) {
@@ -475,7 +475,7 @@ stories.post('/delete', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const body = await c.req.json<{ ap_id: string }>();
   if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
   const apId = body.ap_id;

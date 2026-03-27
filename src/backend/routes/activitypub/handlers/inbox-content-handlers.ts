@@ -9,7 +9,7 @@ import {
   isSafeRemoteUrl,
   objectApId,
   fetchWithTimeout,
-} from '../../../utils';
+} from '../../../federation-helpers';
 import {
   type ActivityContext,
   type Activity,
@@ -40,7 +40,7 @@ export async function handleCreate(
   actor: string,
   baseUrl: string
 ) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const object = getActivityObject(activity);
   if (!object) return;
 
@@ -121,7 +121,7 @@ export async function handleCreateStory(
   actor: string,
   baseUrl: string
 ) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const object = getActivityObject(activity);
   if (!object) return;
   const objectId = object.id || objectApId(baseUrl, generateId());
@@ -196,7 +196,7 @@ export async function handleCreateStory(
 // ---------------------------------------------------------------------------
 
 export async function handleDelete(c: ActivityContext, activity: Activity) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
@@ -243,7 +243,7 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
 // ---------------------------------------------------------------------------
 
 export async function handleUpdate(c: ActivityContext, activity: Activity, actor: string) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const object = getActivityObject(activity);
   if (!object) return;
 
@@ -275,7 +275,7 @@ export async function handleUpdate(c: ActivityContext, activity: Activity, actor
 // ---------------------------------------------------------------------------
 
 export async function handleMove(c: ActivityContext, activity: Activity, actor: string) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const oldActorApId = getActivityObjectId(activity);
   const newActorApId = getActivityTargetId(activity);
   if (!oldActorApId || !newActorApId) return;

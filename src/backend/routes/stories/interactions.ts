@@ -2,8 +2,8 @@ import { Hono } from 'hono';
 import { eq, and, sql } from 'drizzle-orm';
 import type { Env, Variables } from '../../types';
 import { objects, storyVotes, storyViews, likes, storyShares, activities, inbox } from '../../../db';
-import { generateId, objectApId, activityApId, isLocal, safeJsonParse } from '../../utils';
-import { findStory, resolveStoryApId, getVoteCounts, sumVotes } from './utils';
+import { generateId, objectApId, activityApId, isLocal, safeJsonParse } from '../../federation-helpers';
+import { findStory, resolveStoryApId, getVoteCounts, sumVotes } from './query-helpers';
 import { enqueueDeliveryToActor } from '../../lib/delivery/queue';
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -22,7 +22,7 @@ stories.post('/view', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const body = await c.req.json<{ ap_id: string }>();
   if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
   const apId = body.ap_id;
@@ -54,7 +54,7 @@ stories.post('/vote', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const body = await c.req.json<{ ap_id: string; option_index: number }>();
   if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
   const apId = body.ap_id;
@@ -117,7 +117,7 @@ stories.post('/:id/like', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
   const apId = resolveStoryApId(c.req.param('id'), baseUrl);
 
@@ -189,7 +189,7 @@ stories.delete('/:id/like', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
   const apId = resolveStoryApId(c.req.param('id'), baseUrl);
 
@@ -254,7 +254,7 @@ stories.post('/:id/share', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
   const apId = resolveStoryApId(c.req.param('id'), baseUrl);
 
@@ -287,7 +287,7 @@ stories.post('/:id/share', async (c) => {
 
 // Get share count for a story
 stories.get('/:id/shares', async (c) => {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
   const apId = resolveStoryApId(c.req.param('id'), baseUrl);
 
@@ -302,7 +302,7 @@ stories.get('/:id/shares', async (c) => {
 
 // Get votes for a story
 stories.get('/:id/votes', async (c) => {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const actor = c.get('actor');
   const baseUrl = c.env.APP_URL;
   const apId = objectApId(baseUrl, c.req.param('id'));

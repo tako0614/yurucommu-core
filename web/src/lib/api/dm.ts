@@ -1,6 +1,6 @@
 import type { DMConversation, DMMessage } from '../../types';
 import { normalizeActor } from './normalize';
-import { apiFetch, apiPost } from './fetch';
+import { apiFetch, apiPost, assertOk } from './fetch';
 
 // Contact types for the unified DM view
 export interface DMContact {
@@ -72,13 +72,13 @@ export async function fetchDMRequests(): Promise<DMRequest[]> {
 // Accept message request (by sender AP ID)
 export async function acceptDMRequest(senderApId: string): Promise<void> {
   const res = await apiPost('/api/dm/requests/accept', { sender_ap_id: senderApId });
-  if (!res.ok) throw new Error('Failed to accept request');
+  await assertOk(res, 'Failed to accept request');
 }
 
 // Reject message request (by sender AP ID, optionally block)
 export async function rejectDMRequest(senderApId: string, block?: boolean): Promise<void> {
   const res = await apiPost('/api/dm/requests/reject', { sender_ap_id: senderApId, block });
-  if (!res.ok) throw new Error('Failed to reject request');
+  await assertOk(res, 'Failed to reject request');
 }
 
 // Legacy: Fetch conversations (for backwards compatibility)
@@ -90,7 +90,7 @@ export async function fetchDMConversations(): Promise<DMConversation[]> {
 
 export async function createDMConversation(participantApId: string): Promise<DMConversation> {
   const res = await apiPost('/api/dm/conversations', { participant_ap_id: participantApId });
-  if (!res.ok) throw new Error('Failed to create conversation');
+  await assertOk(res, 'Failed to create conversation');
   const data = (await res.json()) as { conversation: DMConversation };
   return normalizeDmConversation(data.conversation);
 }
@@ -110,7 +110,7 @@ export async function fetchDMMessages(
 
 export async function sendDMMessage(conversationId: string, content: string): Promise<DMMessage> {
   const res = await apiPost(`/api/dm/conversations/${conversationId}/messages`, { content });
-  if (!res.ok) throw new Error('Failed to send message');
+  await assertOk(res, 'Failed to send message');
   const data = (await res.json()) as { message: DMMessage };
   return normalizeDmMessage(data.message);
 }
@@ -137,10 +137,7 @@ export async function sendUserDMMessage(
   content: string
 ): Promise<{ message: DMMessage; conversation_id: string }> {
   const res = await apiPost(`/api/dm/user/${encodeURIComponent(userApId)}/messages`, { content });
-  if (!res.ok) {
-    const error = (await res.json()) as { error?: string };
-    throw new Error(error.error || 'Failed to send message');
-  }
+  await assertOk(res, 'Failed to send message');
   const data = (await res.json()) as { message: DMMessage; conversation_id: string };
   return {
     message: normalizeDmMessage(data.message),
@@ -150,14 +147,14 @@ export async function sendUserDMMessage(
 
 export async function sendUserDMTyping(userApId: string): Promise<void> {
   const res = await apiPost(`/api/dm/user/${encodeURIComponent(userApId)}/typing`);
-  if (!res.ok) throw new Error('Failed to send typing');
+  await assertOk(res, 'Failed to send typing');
 }
 
 export async function fetchUserDMTyping(
   userApId: string
 ): Promise<{ is_typing: boolean; last_typed_at: string | null }> {
   const res = await apiFetch(`/api/dm/user/${encodeURIComponent(userApId)}/typing`);
-  if (!res.ok) throw new Error('Failed to fetch typing');
+  await assertOk(res, 'Failed to fetch typing');
   const data = (await res.json()) as { is_typing?: boolean; last_typed_at?: string | null };
   return {
     is_typing: !!data.is_typing,
@@ -167,5 +164,5 @@ export async function fetchUserDMTyping(
 
 export async function markDMAsRead(userApId: string): Promise<void> {
   const res = await apiPost(`/api/dm/user/${encodeURIComponent(userApId)}/read`);
-  if (!res.ok) throw new Error('Failed to mark as read');
+  await assertOk(res, 'Failed to mark as read');
 }

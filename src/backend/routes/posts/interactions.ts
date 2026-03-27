@@ -4,8 +4,8 @@ import type { Env, Variables } from '../../types';
 import type { Database } from '../../../db';
 import { objects, actors, actorCache, likes, bookmarks, announces, activities, inbox as inboxTable } from '../../../db';
 import { eq, and, or, gt, sql, inArray, desc } from 'drizzle-orm';
-import { generateId, objectApId, activityApId, isLocal, formatUsername, parseLimit, safeJsonParse } from '../../utils';
-import { MAX_POSTS_PAGE_LIMIT } from './utils';
+import { generateId, objectApId, activityApId, isLocal, formatUsername, parseLimit, safeJsonParse } from '../../federation-helpers';
+import { MAX_POSTS_PAGE_LIMIT } from './transformers';
 import { enqueueDeliveryToActor } from '../../lib/delivery/queue';
 
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
@@ -18,7 +18,7 @@ const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 /** Look up a post by local ID or full AP ID. Returns null when not found. */
 async function findPost(c: AppContext, selectFields?: 'apIdOnly') {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const postId = c.req.param('id')!;
   const baseUrl = c.env.APP_URL;
 
@@ -62,7 +62,7 @@ posts.post('/:id/like', async (c) => {
   const post = await findPost(c);
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
 
   const existingLike = await db.select({ actorApId: likes.actorApId })
@@ -126,7 +126,7 @@ posts.delete('/:id/like', async (c) => {
   const post = await findPost(c);
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
 
   const like = await db.select({
@@ -184,7 +184,7 @@ posts.post('/:id/repost', async (c) => {
   const post = await findPost(c);
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
 
   const existingRepost = await db.select({ actorApId: announces.actorApId })
@@ -250,7 +250,7 @@ posts.delete('/:id/repost', async (c) => {
   const post = await findPost(c);
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
 
   const announce = await db.select({ actorApId: announces.actorApId })
@@ -302,7 +302,7 @@ posts.post('/:id/bookmark', async (c) => {
   const post = await findPost(c, 'apIdOnly');
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const existing = await db.select({ actorApId: bookmarks.actorApId })
     .from(bookmarks)
@@ -325,7 +325,7 @@ posts.delete('/:id/bookmark', async (c) => {
   const post = await findPost(c, 'apIdOnly');
   if (!post) return c.json({ error: 'Post not found' }, 404);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const bookmark = await db.select({ actorApId: bookmarks.actorApId })
     .from(bookmarks)
@@ -343,7 +343,7 @@ posts.get('/bookmarks', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const limit = parseLimit(c.req.query('limit'), 20, MAX_POSTS_PAGE_LIMIT);
   const before = c.req.query('before');
 

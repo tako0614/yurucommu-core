@@ -1,6 +1,6 @@
 import type { Post } from '../../types';
 import { normalizePost } from './normalize';
-import { apiFetch, apiPost, apiDelete } from './fetch';
+import { apiFetch, apiPost, apiDelete, assertOk } from './fetch';
 
 export async function fetchTimeline(options?: {
   limit?: number;
@@ -32,7 +32,7 @@ export async function fetchFollowingTimeline(options?: {
 
 export async function fetchPost(apId: string): Promise<Post> {
   const res = await apiFetch(`/api/posts/${encodeURIComponent(apId)}`);
-  if (!res.ok) throw new Error('Post not found');
+  await assertOk(res, 'Post not found');
   const data = (await res.json()) as { post: Post };
   return normalizePost(data.post);
 }
@@ -52,44 +52,44 @@ export async function createPost(data: {
   attachments?: { r2_key: string; content_type: string }[];
 }): Promise<Post> {
   const res = await apiPost('/api/posts', data);
-  if (!res.ok) throw new Error('Failed to create post');
+  await assertOk(res, 'Failed to create post');
   const result = (await res.json()) as { post: Post };
   return normalizePost(result.post);
 }
 
 export async function deletePost(apId: string): Promise<void> {
   const res = await apiDelete(`/api/posts/${encodeURIComponent(apId)}`);
-  if (!res.ok) throw new Error('Failed to delete post');
+  await assertOk(res, 'Failed to delete post');
 }
 
 export async function likePost(apId: string): Promise<void> {
   const res = await apiPost(`/api/posts/${encodeURIComponent(apId)}/like`);
-  if (!res.ok) throw new Error('Failed to like');
+  await assertOk(res, 'Failed to like');
 }
 
 export async function unlikePost(apId: string): Promise<void> {
   const res = await apiDelete(`/api/posts/${encodeURIComponent(apId)}/like`);
-  if (!res.ok) throw new Error('Failed to unlike');
+  await assertOk(res, 'Failed to unlike');
 }
 
 export async function repostPost(apId: string): Promise<void> {
   const res = await apiPost(`/api/posts/${encodeURIComponent(apId)}/repost`);
-  if (!res.ok) throw new Error('Failed to repost');
+  await assertOk(res, 'Failed to repost');
 }
 
 export async function unrepostPost(apId: string): Promise<void> {
   const res = await apiDelete(`/api/posts/${encodeURIComponent(apId)}/repost`);
-  if (!res.ok) throw new Error('Failed to unrepost');
+  await assertOk(res, 'Failed to unrepost');
 }
 
 export async function bookmarkPost(apId: string): Promise<void> {
   const res = await apiPost(`/api/posts/${encodeURIComponent(apId)}/bookmark`);
-  if (!res.ok) throw new Error('Failed to bookmark');
+  await assertOk(res, 'Failed to bookmark');
 }
 
 export async function unbookmarkPost(apId: string): Promise<void> {
   const res = await apiDelete(`/api/posts/${encodeURIComponent(apId)}/bookmark`);
-  if (!res.ok) throw new Error('Failed to unbookmark');
+  await assertOk(res, 'Failed to unbookmark');
 }
 
 export async function fetchBookmarks(options?: { limit?: number; before?: string }): Promise<Post[]> {

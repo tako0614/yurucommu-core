@@ -39,6 +39,10 @@
     "build:worker": "esbuild src/backend/index.ts --bundle --format=esm --outfile=dist/worker.js --platform=browser --target=es2022 --conditions=workerd,worker,browser --external:cloudflare:* --external:node:*",
     "build:bundle": "npm run build && npm run build:worker",
     "deploy": "vite build --config web/vite.config.ts && wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/ web/src/",
+    "lint:fix": "eslint src/ web/src/ --fix",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
@@ -46,7 +50,9 @@
     "db:studio": "drizzle-kit studio",
     "db:d1:apply:local": "wrangler d1 migrations apply DB --local --config wrangler.local.toml",
     "db:d1:apply:remote": "wrangler d1 migrations apply DB --remote",
-    "db:d1:apply:tenant2": "wrangler d1 migrations apply DB --remote --config wrangler.tenant2.toml"
+    "db:d1:apply:tenant2": "wrangler d1 migrations apply DB --remote --config wrangler.tenant2.toml",
+    "format": "prettier --write 'src/**/*.{ts,tsx}' 'web/**/*.{ts,tsx}'",
+    "format:check": "prettier --check 'src/**/*.{ts,tsx}' 'web/**/*.{ts,tsx}'"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.971.0",
@@ -69,6 +75,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260118.0",
+    "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.1.18",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
@@ -77,10 +84,14 @@
     "@vitejs/plugin-react": "^4.3.0",
     "drizzle-kit": "^0.31.9",
     "esbuild": "^0.25.12",
+    "eslint": "^10.1.0",
+    "prettier": "^3.8.1",
     "tailwindcss": "^4.1.18",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0",
+    "typescript-eslint": "^8.57.2",
     "vite": "^6.4.1",
+    "vitest": "^3.2.1",
     "wrangler": "^4.61.0"
   }
 }

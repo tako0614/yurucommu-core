@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { eq, and, lt, desc, sql, inArray } from 'drizzle-orm';
 import { communities, communityMembers, objects, objectRecipients, activities } from '../../../db';
 import type { Env, Variables } from '../../types';
-import { generateId, formatUsername } from '../../utils';
+import { generateId, formatUsername } from '../../federation-helpers';
 import { batchLoadActorInfo, communityWhere, fetchCommunityId, managerRoles, memberWhere, resolveCommunityApId } from './membership-shared';
 
 const MAX_COMMUNITY_MESSAGE_LENGTH = 5000;
@@ -33,7 +33,7 @@ messagesRouter.get('/:identifier/messages', async (c) => {
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const identifier = c.req.param('identifier')!;
-  const db = c.get('prisma');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
   const apId = resolveCommunityApId(baseUrl, identifier);
   const rawLimit = parseInt(c.req.query('limit') || '50', 10);
@@ -112,7 +112,7 @@ messagesRouter.post('/:identifier/messages', async (c) => {
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
   const identifier = c.req.param('identifier')!;
-  const db = c.get('prisma');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
   const apId = resolveCommunityApId(baseUrl, identifier);
   const body = await c.req.json<{ content: string }>();
@@ -203,7 +203,7 @@ messagesRouter.patch('/:identifier/messages/:messageId', async (c) => {
 
   const identifier = c.req.param('identifier')!;
   const messageId = decodeURIComponent(c.req.param('messageId')!);
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const { community } = await fetchCommunityId(c, identifier);
   if (!community) {
@@ -255,7 +255,7 @@ messagesRouter.delete('/:identifier/messages/:messageId', async (c) => {
 
   const identifier = c.req.param('identifier')!;
   const messageId = decodeURIComponent(c.req.param('messageId')!);
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const { community } = await fetchCommunityId(c, identifier);
   if (!community) {

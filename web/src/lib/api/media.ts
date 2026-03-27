@@ -1,4 +1,4 @@
-import { apiFetch } from './fetch';
+import { apiFetch, assertOk } from './fetch';
 
 // Allowed MIME types for media uploads
 export const allowedMimeTypes = [
@@ -92,10 +92,7 @@ export async function uploadMedia(file: File): Promise<{ url: string; r2_key: st
     body: formData,
   });
 
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: 'Failed to upload' }));
-    throw new Error((error as { error?: string }).error || 'Failed to upload');
-  }
+  await assertOk(res, 'Failed to upload');
 
   return res.json();
 }

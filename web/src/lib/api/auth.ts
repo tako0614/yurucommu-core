@@ -1,6 +1,6 @@
 import type { Actor } from '../../types';
 import { normalizeActor } from './normalize';
-import { apiFetch, apiPost } from './fetch';
+import { apiFetch, apiPost, assertOk } from './fetch';
 
 export async function fetchMe(): Promise<{ authenticated: boolean; actor?: Actor }> {
   const res = await apiFetch('/api/auth/me');
@@ -30,21 +30,18 @@ export interface AccountInfo {
 
 export async function fetchAccounts(): Promise<{ accounts: AccountInfo[]; current_ap_id: string }> {
   const res = await apiFetch('/api/auth/accounts');
-  if (!res.ok) throw new Error('Failed to fetch accounts');
+  await assertOk(res, 'Failed to fetch accounts');
   return (await res.json()) as { accounts: AccountInfo[]; current_ap_id: string };
 }
 
 export async function switchAccount(apId: string): Promise<void> {
   const res = await apiPost('/api/auth/switch', { ap_id: apId });
-  if (!res.ok) throw new Error('Failed to switch account');
+  await assertOk(res, 'Failed to switch account');
 }
 
 export async function createAccount(username: string, name?: string): Promise<AccountInfo> {
   const res = await apiPost('/api/auth/accounts', { username, name });
-  if (!res.ok) {
-    const data = (await res.json()) as { error?: string };
-    throw new Error(data.error || 'Failed to create account');
-  }
+  await assertOk(res, 'Failed to create account');
   const data = (await res.json()) as { account: AccountInfo };
   return data.account;
 }

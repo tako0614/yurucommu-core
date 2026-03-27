@@ -4,7 +4,7 @@ import { eq, and, or, ne, lt, desc, inArray, notInArray, isNull } from 'drizzle-
 import type { Database } from '../../db';
 import { actors, actorCache, objects, follows, likes, bookmarks, announces, blocks, mutes } from '../../db';
 import type { Env, Variables } from '../types';
-import { formatUsername, parseLimit, parseOffset, safeJsonParse } from '../utils';
+import { formatUsername, parseLimit, parseOffset, safeJsonParse } from '../federation-helpers';
 import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
 
 const timeline = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -189,7 +189,7 @@ timeline.get('/', withCache({
   queryParamsToInclude: ['limit', 'offset', 'before', 'community'],
 }), async (c) => {
   const actor = c.get('actor');
-  const db = c.get('prisma');
+  const db = c.get('db');
   const limit = parseLimit(c.req.query('limit'), 20, 100);
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
   const before = c.req.query('before');
@@ -225,7 +225,7 @@ timeline.get('/following', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const limit = parseLimit(c.req.query('limit'), 20, 100);
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
   const before = c.req.query('before');

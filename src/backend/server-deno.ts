@@ -23,6 +23,27 @@
 import { DenoStorage } from './runtime/deno.ts';
 
 // ---------------------------------------------------------------------------
+// Deno sqlite3 type definitions (subset of https://deno.land/x/sqlite3 API)
+// ---------------------------------------------------------------------------
+
+/** Minimal interface for a Deno sqlite3 prepared statement. */
+interface DenoSqlite3Statement {
+  get(...params: unknown[]): Record<string, unknown> | undefined;
+  all(...params: unknown[]): Record<string, unknown>[];
+  run(...params: unknown[]): void;
+  finalize(): void;
+}
+
+/** Minimal interface for a Deno sqlite3 Database (https://deno.land/x/sqlite3). */
+interface DenoSqlite3Database {
+  exec(sql: string): void;
+  prepare(sql: string): DenoSqlite3Statement;
+  transaction<T>(fn: () => T): () => T;
+  changes: number;
+  lastInsertRowId: number;
+}
+
+// ---------------------------------------------------------------------------
 // Deno env helpers
 // ---------------------------------------------------------------------------
 
@@ -64,9 +85,9 @@ function getMimeType(ext: string): string {
 // ---------------------------------------------------------------------------
 
 class D1CompatDatabase {
-  private db: unknown;
+  private db: DenoSqlite3Database;
 
-  constructor(db: unknown) {
+  constructor(db: DenoSqlite3Database) {
     this.db = db;
   }
 
@@ -83,12 +104,12 @@ class D1CompatDatabase {
   }
 
   async exec(query: string): Promise<void> {
-    (this.db as any).exec(query);
+    this.db.exec(query);
   }
 
   async batch<T = unknown>(statements: D1CompatPreparedStatement[]): Promise<Array<{ results: T[]; success: boolean; meta: object }>> {
     const results: Array<{ results: T[]; success: boolean; meta: object }> = [];
-    (this.db as any).transaction(() => {
+    this.db.transaction(() => {
       for (const stmt of statements) {
         try {
           const result = stmt.runSync();
@@ -109,7 +130,7 @@ class D1CompatDatabase {
     return results;
   }
 
-  getRawDatabase(): unknown {
+  getRawDatabase(): DenoSqlite3Database {
     return this.db;
   }
 }
@@ -119,11 +140,11 @@ class D1CompatDatabase {
 // ---------------------------------------------------------------------------
 
 class D1CompatPreparedStatement {
-  private db: unknown;
+  private db: DenoSqlite3Database;
   private query: string;
   private boundValues: unknown[] = [];
 
-  constructor(db: unknown, query: string) {
+  constructor(db: DenoSqlite3Database, query: string) {
     this.db = db;
     this.query = query;
   }
@@ -134,8 +155,8 @@ class D1CompatPreparedStatement {
   }
 
   async first<T = unknown>(colName?: string): Promise<T | null> {
-    const stmt = (this.db as any).prepare(this.query);
-    const row = stmt.get(...this.boundValues) as Record<string, unknown> | undefined;
+    const stmt = this.db.prepare(this.query);
+    const row = stmt.get(...this.boundValues);
     stmt.finalize();
     if (!row) return null;
     if (colName) return row[colName] as T;
@@ -143,7 +164,7 @@ class D1CompatPreparedStatement {
   }
 
   async all<T = unknown>(): Promise<{ results: T[]; success: boolean; meta: object }> {
-    const stmt = (this.db as any).prepare(this.query);
+    const stmt = this.db.prepare(this.query);
     const rows = stmt.all(...this.boundValues) as T[];
     stmt.finalize();
     return { results: rows, success: true, meta: {} };
@@ -158,10 +179,10 @@ class D1CompatPreparedStatement {
   }
 
   runSync(): { changes: number; lastInsertRowid: number } {
-    const stmt = (this.db as any).prepare(this.query);
+    const stmt = this.db.prepare(this.query);
     stmt.run(...this.boundValues);
-    const changes = (this.db as any).changes;
-    const lastInsertRowid = (this.db as any).lastInsertRowId;
+    const changes = this.db.changes;
+    const lastInsertRowid = this.db.lastInsertRowId;
     stmt.finalize();
     return { changes, lastInsertRowid };
   }
@@ -355,10 +376,10 @@ async function createDenoEnv(config: {
   }
 
   return {
-    DB: db as unknown,
-    MEDIA: media as unknown,
-    KV: kv as unknown,
-    ASSETS: assets as unknown,
+    DB: db as unknown as D1Database,
+    MEDIA: media as unknown as R2Bucket,
+    KV: kv as unknown as KVNamespace,
+    ASSETS: assets as unknown as Fetcher,
     APP_URL: config.appUrl,
     ...passthrough,
   };
@@ -377,7 +398,7 @@ async function runMigrations(db: D1CompatDatabase, migrationsDir: string): Promi
   }
   entries.sort();
 
-  const rawDb = db.getRawDatabase() as any;
+  const rawDb = db.getRawDatabase();
 
   // Create migrations tracking table
   rawDb.exec(`

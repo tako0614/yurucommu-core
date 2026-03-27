@@ -3,8 +3,8 @@ import type { Context } from 'hono';
 import type { Env, Variables } from '../../types';
 import { eq, and, desc, count } from 'drizzle-orm';
 import { activities, follows, actors, objects } from '../../../db';
-import { actorApId, objectApId, parseLimit, safeJsonParse } from '../../utils';
-import { getInstanceActor } from './utils';
+import { actorApId, objectApId, parseLimit, safeJsonParse } from '../../federation-helpers';
+import { getInstanceActor } from './query-helpers';
 
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -57,7 +57,7 @@ function orderedCollectionResponse(
 // ---------------------------------------------------------------------------
 
 ap.get('/ap/actor/outbox', async (c) => {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const instActor = await getInstanceActor(c);
   const page = c.req.query('page');
   const pageNum = parseLimit(page, 1, 100000);
@@ -90,7 +90,7 @@ ap.get('/ap/actor/outbox', async (c) => {
 });
 
 ap.get('/ap/actor/followers', async (c) => {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const instActor = await getInstanceActor(c);
   const page = c.req.query('page');
   const pageNum = parseLimit(page, 1, 100000);
@@ -140,7 +140,7 @@ ap.get('/ap/actor/following', async (c) => {
 // ---------------------------------------------------------------------------
 
 ap.get('/ap/users/:username/outbox', async (c) => {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const username = c.req.param('username');
   const apId = actorApId(c.env.APP_URL, username);
 
@@ -181,7 +181,7 @@ ap.get('/ap/users/:username/outbox', async (c) => {
 });
 
 ap.get('/ap/users/:username/followers', async (c) => {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const username = c.req.param('username');
   const apId = actorApId(c.env.APP_URL, username);
 
@@ -222,7 +222,7 @@ ap.get('/ap/users/:username/followers', async (c) => {
 });
 
 ap.get('/ap/users/:username/following', async (c) => {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const username = c.req.param('username');
   const apId = actorApId(c.env.APP_URL, username);
 
@@ -267,7 +267,7 @@ ap.get('/ap/users/:username/following', async (c) => {
 // ---------------------------------------------------------------------------
 
 ap.get('/ap/objects/:id', async (c) => {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const id = c.req.param('id');
   const objApId = objectApId(c.env.APP_URL, id);
 

@@ -2,8 +2,8 @@ import type { Database } from '../../../db';
 import { inArray } from 'drizzle-orm';
 import { actorCache } from '../../../db';
 import { emitMetric } from './metrics';
-import { DELIVERY_ENDPOINT_CACHE_TTL_MS, safeParseIsoTimeMs } from './utils';
-import { isSafeRemoteUrl } from '../../utils';
+import { DELIVERY_ENDPOINT_CACHE_TTL_MS, safeParseIsoTimeMs } from './transformers';
+import { isSafeRemoteUrl } from '../../federation-helpers';
 
 export type PlannedEndpointGroup = {
   endpoint: string;

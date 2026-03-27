@@ -3,7 +3,7 @@ import { and, eq, like } from 'drizzle-orm';
 import type { Env, Variables } from '../types';
 import type { Database } from '../../db';
 import { objects, mediaUploads, follows } from '../../db';
-import { generateId, safeJsonParse } from '../utils';
+import { generateId, safeJsonParse } from '../federation-helpers';
 
 const media = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -161,7 +161,7 @@ media.post('/upload', async (c) => {
     });
 
     // Record ownership and upload to R2 in parallel
-    const db = c.get('prisma');
+    const db = c.get('db');
     const dbRecord = db.insert(mediaUploads).values({
       id,
       r2Key,
@@ -270,7 +270,7 @@ media.get('/:id', async (c) => {
     if (!r2Key.startsWith('uploads/') || r2Key.includes('..')) return c.notFound();
 
     const actor = c.get('actor');
-    const db = c.get('prisma');
+    const db = c.get('db');
     const authResult = await checkMediaAuthorization(db, `/media/${id}`, actor?.ap_id || null, r2Key);
     if (!authResult.allowed) return c.json({ error: authResult.reason || 'Forbidden' }, 403);
 

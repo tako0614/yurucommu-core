@@ -86,23 +86,25 @@ function createAuthTestApp(envOverrides: Record<string, unknown> = {}) {
     const mockFrom = vi.fn().mockReturnValue({ where: mockWhere, get: mockGet });
     const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
 
+    type ThenResolve = ((value: unknown) => unknown) | null | undefined;
+
     const mockInsertValues = vi.fn().mockReturnValue({
       returning: vi.fn().mockReturnValue({
         get: vi.fn().mockResolvedValue(actorData),
       }),
-      then: (resolve: any) => Promise.resolve(undefined).then(resolve),
+      then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
     });
     const mockInsert = vi.fn().mockReturnValue({ values: mockInsertValues });
 
     const mockDeleteWhere = vi.fn().mockReturnValue({
-      then: (resolve: any) => Promise.resolve(undefined).then(resolve),
+      then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
     });
     const mockDelete = vi.fn().mockReturnValue({
       where: mockDeleteWhere,
-      then: (resolve: any) => Promise.resolve(undefined).then(resolve),
+      then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
     });
 
-    (c as unknown as { set: (key: string, value: unknown) => void }).set('prisma', {
+    (c as unknown as { set: (key: string, value: unknown) => void }).set('db', {
       select: mockSelect,
       insert: mockInsert,
       delete: mockDelete,

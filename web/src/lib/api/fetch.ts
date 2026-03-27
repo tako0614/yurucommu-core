@@ -6,6 +6,43 @@
 
 import { getApiTransport } from '../plugin';
 
+/**
+ * Custom error class for API responses that includes the HTTP status code.
+ */
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(`${status}: ${message}`);
+    this.name = 'ApiError';
+  }
+}
+
+/**
+ * Read an error message from a failed API response. Attempts to parse JSON
+ * with an `error` field; falls back to `statusText`.
+ */
+export async function extractErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = (await res.json()) as { error?: string };
+    return data.error || fallback;
+  } catch {
+    return res.statusText || fallback;
+  }
+}
+
+/**
+ * Assert that a response is OK. Throws an `ApiError` with the status code
+ * and a message extracted from the response body when it is not.
+ */
+export async function assertOk(res: Response, fallback: string): Promise<void> {
+  if (!res.ok) {
+    const message = await extractErrorMessage(res, fallback);
+    throw new ApiError(res.status, message);
+  }
+}
+
 export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const transport = getApiTransport();
   const apiUrl = transport.resolveUrl(url);

@@ -8,7 +8,7 @@ import type { Env } from '../../types';
 import { getDb, type Database } from '../../../db';
 import { eq, and, or, notInArray, sql } from 'drizzle-orm';
 import { actorCache, deliveryQueue } from '../../../db';
-import { isSafeRemoteUrl } from '../../utils';
+import { isSafeRemoteUrl } from '../../federation-helpers';
 import {
   DELIVERY_QUEUE_MESSAGE_VERSION,
   type DeliveryQueueMessageV1,
@@ -20,7 +20,7 @@ import {
 import {
   computeDeliveryJobId,
   safeEndpointHost,
-} from './utils';
+} from './transformers';
 
 // ---------------------------------------------------------------------------
 // Concurrency primitives
@@ -255,7 +255,7 @@ export async function handleDeliveryQueueBatch(
   batch: MessageBatch<DeliveryQueueMessageV1>,
   env: Env
 ): Promise<void> {
-  const db = (env as { PRISMA?: Database }).PRISMA ?? getDb(env.DB);
+  const db = (env as { DB_INSTANCE?: Database }).DB_INSTANCE ?? getDb(env.DB);
   const bulkhead = new Bulkhead(BULKHEAD_GLOBAL_CONCURRENCY, BULKHEAD_PER_DOMAIN);
 
   // Lazy import sub-modules to avoid circular dependencies at module level

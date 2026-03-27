@@ -2,7 +2,7 @@ import type { Context } from 'hono';
 import type { Env, Variables } from '../../types';
 import { eq } from 'drizzle-orm';
 import { instanceActor } from '../../../db';
-import { generateKeyPair } from '../../utils';
+import { generateKeyPair } from '../../federation-helpers';
 
 export const INSTANCE_ACTOR_USERNAME = 'community';
 export const MAX_ROOM_STREAM_LIMIT = 50;
@@ -24,7 +24,7 @@ export type InstanceActorResult = {
 };
 
 export async function getInstanceActor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<InstanceActorResult> {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const baseUrl = c.env.APP_URL;
   const apId = `${baseUrl}/ap/actor`;
 
