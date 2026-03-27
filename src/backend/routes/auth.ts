@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { Env, Variables } from '../types';
-import { actorApId, formatUsername } from '../utils';
+import { actorApId, formatUsername } from '../federation-helpers';
 import { verifyPassword } from '../lib/crypto';
 import {
   getAuthConfig,
@@ -28,7 +28,7 @@ import { eq, or, asc } from 'drizzle-orm';
 import { actors, sessions } from '../../db';
 import {
   parseJsonObject,
-  nonEmptyString,
+  parseNonEmptyString,
   formatAccountResponse,
   deleteSessionSafely,
   rotateSession,
@@ -71,7 +71,7 @@ auth.get('/me', async (c) => {
   let hasTakosAccess = false;
 
   if (sessionId) {
-    const db = c.get('prisma');
+    const db = c.get('db');
     const session = await db.select({
       provider: sessions.provider,
       providerAccessToken: sessions.providerAccessToken,
@@ -122,7 +122,7 @@ auth.post('/login', async (c) => {
     return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
   }
 
-  const password = nonEmptyString(body.password);
+  const password = parseNonEmptyString(body.password);
   if (!password) {
     return c.json({ error: 'password is required', code: 'BAD_REQUEST' }, 400);
   }
@@ -143,7 +143,7 @@ auth.post('/login', async (c) => {
     return c.json({ error: 'Invalid password' }, 401);
   }
 
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   // Single-user instance: find existing owner or create default
   const actorData = await db.select().from(actors).where(eq(actors.role, 'owner')).get()
@@ -256,7 +256,7 @@ auth.get('/callback/:provider', async (c) => {
     return c.redirect('/?error=user_info_failed');
   }
 
-  const actorData = await findOrCreateOAuthActor(c.get('prisma'), c.env, providerId, userInfo);
+  const actorData = await findOrCreateOAuthActor(c.get('db'), c.env, providerId, userInfo);
   if (!actorData) return c.redirect('/?error=actor_creation_failed');
 
   await rotateSession(
@@ -275,7 +275,7 @@ auth.get('/callback/:provider', async (c) => {
 auth.post('/logout', async (c) => {
   const sessionId = getCookie(c, 'session');
   if (sessionId) {
-    await deleteSessionSafely(c.get('prisma'), sessionId, 'logout');
+    await deleteSessionSafely(c.get('db'), sessionId, 'logout');
     deleteCookie(c, 'session');
   }
   return c.json({ success: true });
@@ -285,7 +285,7 @@ auth.get('/accounts', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Not authenticated' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   // Find the root owner ap_id: current actor may be a sub-account.
   // ownerActorApId is set on actors created via POST /accounts; root actors have null.
@@ -323,10 +323,10 @@ auth.post('/switch', async (c) => {
   const body = await parseJsonObject(c);
   if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
 
-  const targetApId = nonEmptyString(body.ap_id);
+  const targetApId = parseNonEmptyString(body.ap_id);
   if (!targetApId) return c.json({ error: 'ap_id required', code: 'BAD_REQUEST' }, 400);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   // Resolve the root owner of the current session to enforce ownership (Issue 106).
   const currentActorRecord = await db.select({ ownerActorApId: actors.ownerActorApId })
@@ -362,7 +362,7 @@ auth.post('/accounts', async (c) => {
   const body = await parseJsonObject(c);
   if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
 
-  const username = nonEmptyString(body.username);
+  const username = parseNonEmptyString(body.username);
   if (!username) return c.json({ error: 'username required', code: 'BAD_REQUEST' }, 400);
   if (!/^[a-zA-Z0-9_]+$/.test(username)) {
     return c.json({ error: 'Invalid username. Use only letters, numbers, and underscores.' }, 400);
@@ -373,7 +373,7 @@ auth.post('/accounts', async (c) => {
   }
   const name: string | undefined = typeof body.name === 'string' ? body.name : undefined;
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const apId = actorApId(c.env.APP_URL, username);
 
   const existing = await db.select({ apId: actors.apId })

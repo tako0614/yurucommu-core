@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
+import type { Env, Variables } from '../../types';
 import followRoutes from '../../routes/follow';
 import postRoutes from '../../routes/posts/base';
 import dmConversationsRoutes from '../../routes/dm/conversations';
@@ -44,26 +45,66 @@ function createDrizzleMockDb(options: {
     deleteCalls: 0,
   };
 
-  function makeTerminalChain(result?: unknown) {
+  /** Thenable chain terminal that mimics Drizzle's query builder */
+  interface TerminalChain {
+    get: ReturnType<typeof vi.fn>;
+    all: ReturnType<typeof vi.fn>;
+    then: <TResult1 = unknown[], TResult2 = never>(
+      onfulfilled?: ((value: unknown[]) => TResult1 | PromiseLike<TResult1>) | null,
+      onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+    ) => Promise<TResult1 | TResult2>;
+    where: ReturnType<typeof vi.fn>;
+    orderBy: ReturnType<typeof vi.fn>;
+    limit: ReturnType<typeof vi.fn>;
+    offset: ReturnType<typeof vi.fn>;
+  }
+
+  function makeTerminalChain(result?: unknown): TerminalChain {
     const resolved = result !== undefined ? result : nextResult();
-    const terminalObj: any = {
+    const arrayResult = Array.isArray(resolved) ? resolved : [];
+    // Use a lazy reference so chaining methods can return the same object
+    const terminalObj = {} as TerminalChain;
+    Object.assign(terminalObj, {
       get: vi.fn().mockResolvedValue(resolved),
       all: vi.fn().mockResolvedValue(Array.isArray(resolved) ? resolved : []),
-      then: undefined as any,
-    };
-    // Make it thenable (returns the array directly for non-.get() chains)
-    const arrayResult = Array.isArray(resolved) ? resolved : [];
-    terminalObj.then = (resolve: any, reject: any) => Promise.resolve(arrayResult).then(resolve, reject);
-
-    // Support additional chaining after where: orderBy, limit, offset
-    terminalObj.where = vi.fn().mockReturnValue(terminalObj);
-    terminalObj.orderBy = vi.fn().mockReturnValue(terminalObj);
-    terminalObj.limit = vi.fn().mockReturnValue(terminalObj);
-    terminalObj.offset = vi.fn().mockReturnValue(terminalObj);
+      then: (onfulfilled: ((v: unknown[]) => unknown) | null | undefined, onrejected?: ((r: unknown) => unknown) | null) =>
+        Promise.resolve(arrayResult).then(onfulfilled, onrejected),
+      // Support additional chaining after where: orderBy, limit, offset
+      where: vi.fn().mockReturnValue(terminalObj),
+      orderBy: vi.fn().mockReturnValue(terminalObj),
+      limit: vi.fn().mockReturnValue(terminalObj),
+      offset: vi.fn().mockReturnValue(terminalObj),
+    } satisfies TerminalChain);
     return terminalObj;
   }
 
-  const db: any = {
+  /** Callback type for thenable resolve/reject */
+  type ThenResolve<T = unknown> = ((value: T) => unknown) | null | undefined;
+  type ThenReject = ((reason: unknown) => unknown) | null | undefined;
+
+  interface InsertChain {
+    onConflictDoNothing: ReturnType<typeof vi.fn>;
+    onConflictDoUpdate: ReturnType<typeof vi.fn>;
+    returning: ReturnType<typeof vi.fn>;
+    then: (resolve: ThenResolve, reject?: ThenReject) => Promise<unknown>;
+  }
+
+  /** Shape of the chainable Drizzle mock DB */
+  interface MockDb {
+    select: ReturnType<typeof vi.fn>;
+    selectDistinct: ReturnType<typeof vi.fn>;
+    insert: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
+    delete: ReturnType<typeof vi.fn>;
+    query: {
+      objects: {
+        findFirst: ReturnType<typeof vi.fn>;
+        findMany: ReturnType<typeof vi.fn>;
+      };
+    };
+  }
+
+  const db: MockDb = {
     select: vi.fn((..._args: unknown[]) => {
       tracker.selectCalls++;
       const terminal = makeTerminalChain();
@@ -92,11 +133,11 @@ function createDrizzleMockDb(options: {
       const values = vi.fn((..._vArgs: unknown[]) => {
         if (shouldError) {
           // Make the entire chain thenable with rejection
-          const errorChain: any = {
+          const errorChain: InsertChain = {
             onConflictDoNothing,
             onConflictDoUpdate,
             returning,
-            then: (resolve: any, reject: any) => Promise.reject(shouldError).then(resolve, reject),
+            then: (resolve: ThenResolve, reject?: ThenReject) => Promise.reject(shouldError).then(resolve, reject),
           };
           return errorChain;
         }
@@ -104,8 +145,8 @@ function createDrizzleMockDb(options: {
           onConflictDoNothing,
           onConflictDoUpdate,
           returning,
-          then: (resolve: any) => Promise.resolve(undefined).then(resolve),
-        };
+          then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
+        } satisfies InsertChain;
       });
       return { values };
     }),
@@ -113,12 +154,12 @@ function createDrizzleMockDb(options: {
     update: vi.fn((..._args: unknown[]) => {
       tracker.updateCalls++;
       const where = vi.fn().mockReturnValue({
-        then: (resolve: any) => Promise.resolve({ meta: updateMeta }).then(resolve),
+        then: (resolve: ThenResolve) => Promise.resolve({ meta: updateMeta }).then(resolve),
         run: vi.fn().mockResolvedValue({ meta: updateMeta }),
       });
       const set = vi.fn().mockReturnValue({
         where,
-        then: (resolve: any) => Promise.resolve({ meta: updateMeta }).then(resolve),
+        then: (resolve: ThenResolve) => Promise.resolve({ meta: updateMeta }).then(resolve),
         run: vi.fn().mockResolvedValue({ meta: updateMeta }),
       });
       return { set };
@@ -127,11 +168,11 @@ function createDrizzleMockDb(options: {
     delete: vi.fn((..._args: unknown[]) => {
       tracker.deleteCalls++;
       const where = vi.fn().mockReturnValue({
-        then: (resolve: any) => Promise.resolve(undefined).then(resolve),
+        then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
       });
       return {
         where,
-        then: (resolve: any) => Promise.resolve(undefined).then(resolve),
+        then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
       };
     }),
 
@@ -149,9 +190,9 @@ function createDrizzleMockDb(options: {
 function createApp(db: unknown, actor?: { ap_id: string }) {
   const app = new Hono();
   app.use('*', async (c, next) => {
-    (c as any).set('prisma', db);
+    (c as unknown as { set: (key: string, value: unknown) => void }).set('db', db);
     if (actor) {
-      (c as any).set('actor', actor);
+      (c as unknown as { set: (key: string, value: unknown) => void }).set('actor', actor);
     }
     await next();
   });
@@ -322,7 +363,7 @@ describe('issue067/068 hardening routes', () => {
     });
 
     const communities = new Hono();
-    registerMembershipMemberRoutes(communities as any);
+    registerMembershipMemberRoutes(communities as unknown as Hono<{ Bindings: Env; Variables: Variables }>);
 
     const app = createApp(db, { ap_id: actorApId });
     app.route('/api/communities', communities);
@@ -354,7 +395,7 @@ describe('issue067/068 hardening routes', () => {
     });
 
     const communities = new Hono();
-    registerMembershipMemberRoutes(communities as any);
+    registerMembershipMemberRoutes(communities as unknown as Hono<{ Bindings: Env; Variables: Variables }>);
 
     const app = createApp(db);
     app.route('/api/communities', communities);

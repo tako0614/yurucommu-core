@@ -40,7 +40,7 @@ export interface EnvVars {
  * For non-Cloudflare runtimes (Node.js, Bun, Deno), the compatibility layers
  * in runtime/compat*.ts provide implementations that are cast to these types.
  *
- * PRISMA: Optional pre-created Prisma client for non-Cloudflare runtimes.
+ * DB_INSTANCE: Optional pre-created database instance for non-Cloudflare runtimes.
  * If provided, the middleware will use this instead of creating a new one with D1 adapter.
  */
 export type Env = {
@@ -48,7 +48,7 @@ export type Env = {
   MEDIA: R2Bucket;
   KV: KVNamespace;
   ASSETS: Fetcher;
-  PRISMA?: Database;
+  DB_INSTANCE?: Database;
   DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1>;
   DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1>;
 } & EnvVars;
@@ -56,7 +56,7 @@ export type Env = {
 export type Variables = {
   actor: Actor | null;
   takosClient: TakosClient | null;
-  prisma: Database;
+  db: Database;
   oauthToken?: { sub: string; scope: string; client_id: string };
 };
 

@@ -1,12 +1,13 @@
 import type { Context } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { Env, Variables } from '../types';
-import { generateId, actorApId, generateKeyPair } from '../utils';
+import { generateId, actorApId, generateKeyPair } from '../federation-helpers';
 import { encrypt } from '../lib/crypto';
 import { getClientCredentials } from '../lib/oauth-providers';
 import type { Database } from '../../db';
 import { eq, count } from 'drizzle-orm';
 import { actors, sessions } from '../../db';
+import { parseJsonObject, parseNonEmptyString } from '../lib/parse-helpers';
 
 /** Session lifetime: 30 days in seconds. */
 export const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
@@ -15,23 +16,7 @@ export type OAuthTokens = { access_token: string; refresh_token?: string; expire
 
 export type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
-export async function parseJsonObject(
-  c: { req: { json(): Promise<unknown> } }
-): Promise<Record<string, unknown> | null> {
-  try {
-    const body = await c.req.json();
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
-    return body as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-export function nonEmptyString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
+export { parseJsonObject, parseNonEmptyString };
 
 export function formatAccountResponse(a: { apId: string; preferredUsername: string; name: string | null; iconUrl: string | null }): {
   ap_id: string;
@@ -67,7 +52,7 @@ export async function rotateSession(
   encryptionKey: string | undefined,
   rotationContext: string,
 ): Promise<string> {
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   // Invalidate existing session
   const existingSessionId = getCookie(c, 'session');
@@ -244,14 +229,6 @@ export async function exchangeOAuthToken(
     headers: tokenHeaders,
     body: new URLSearchParams(tokenBody),
   };
-
-  console.log('Token exchange request:', {
-    url: tokenUrl,
-    via: 'fetch',
-    clientId,
-    redirectUri,
-    hasCodeVerifier: !!tokenBody.code_verifier,
-  });
 
   const res = await fetch(tokenUrl, requestInit);
 

@@ -1,6 +1,6 @@
 import type { Notification } from '../../types';
 import { normalizeNotification } from './normalize';
-import { apiFetch, apiPost } from './fetch';
+import { apiFetch, apiPost, assertOk } from './fetch';
 
 export async function fetchNotifications(options?: { limit?: number; type?: string }): Promise<Notification[]> {
   const params = new URLSearchParams();
@@ -20,5 +20,5 @@ export async function fetchUnreadCount(): Promise<number> {
 
 export async function markNotificationsRead(ids?: string[]): Promise<void> {
   const res = await apiPost('/api/notifications/read', { ids });
-  if (!res.ok) throw new Error('Failed to mark as read');
+  await assertOk(res, 'Failed to mark as read');
 }

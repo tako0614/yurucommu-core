@@ -104,8 +104,8 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
   });
 
   app.use('*', async (c, next) => {
-    const db = c.env.PRISMA ?? getDb(c.env.DB);
-    c.set('prisma', db);
+    const db = c.env.DB_INSTANCE ?? getDb(c.env.DB);
+    c.set('db', db);
     await next();
   });
 

@@ -1,6 +1,6 @@
 import type { Actor, Post } from '../../types';
 import { normalizeActor, normalizePost } from './normalize';
-import { apiFetch, apiPost, apiPut, apiDelete } from './fetch';
+import { apiFetch, apiPost, apiPut, apiDelete, assertOk } from './fetch';
 
 export async function fetchActors(): Promise<Actor[]> {
   const res = await apiFetch('/api/actors');
@@ -10,7 +10,7 @@ export async function fetchActors(): Promise<Actor[]> {
 
 export async function fetchActor(identifier: string): Promise<Actor> {
   const res = await apiFetch(`/api/actors/${encodeURIComponent(identifier)}`);
-  if (!res.ok) throw new Error('Actor not found');
+  await assertOk(res, 'Actor not found');
   const data = (await res.json()) as { actor: Actor };
   return normalizeActor(data.actor);
 }
@@ -23,7 +23,7 @@ export async function updateProfile(data: {
   is_private?: boolean;
 }): Promise<void> {
   const res = await apiPut('/api/actors/me', data);
-  if (!res.ok) throw new Error('Failed to update profile');
+  await assertOk(res, 'Failed to update profile');
 }
 
 export async function fetchActorPosts(
@@ -35,7 +35,7 @@ export async function fetchActorPosts(
   if (options?.before) params.set('before', options.before);
   const query = params.toString() ? `?${params}` : '';
   const res = await apiFetch(`/api/actors/${encodeURIComponent(identifier)}/posts${query}`);
-  if (!res.ok) throw new Error('Failed to fetch actor posts');
+  await assertOk(res, 'Failed to fetch actor posts');
   const data = (await res.json()) as { posts?: Post[] };
   return (data.posts || []).map(normalizePost);
 }
@@ -54,39 +54,39 @@ export async function fetchFollowing(identifier: string): Promise<Actor[]> {
 
 export async function fetchBlockedUsers(): Promise<Actor[]> {
   const res = await apiFetch('/api/actors/me/blocked');
-  if (!res.ok) throw new Error('Failed to fetch blocked users');
+  await assertOk(res, 'Failed to fetch blocked users');
   const data = (await res.json()) as { blocked?: Actor[] };
   return (data.blocked || []).map(normalizeActor);
 }
 
 export async function blockUser(apId: string): Promise<void> {
   const res = await apiPost('/api/actors/me/blocked', { ap_id: apId });
-  if (!res.ok) throw new Error('Failed to block user');
+  await assertOk(res, 'Failed to block user');
 }
 
 export async function unblockUser(apId: string): Promise<void> {
   const res = await apiDelete('/api/actors/me/blocked', { ap_id: apId });
-  if (!res.ok) throw new Error('Failed to unblock user');
+  await assertOk(res, 'Failed to unblock user');
 }
 
 export async function fetchMutedUsers(): Promise<Actor[]> {
   const res = await apiFetch('/api/actors/me/muted');
-  if (!res.ok) throw new Error('Failed to fetch muted users');
+  await assertOk(res, 'Failed to fetch muted users');
   const data = (await res.json()) as { muted?: Actor[] };
   return (data.muted || []).map(normalizeActor);
 }
 
 export async function muteUser(apId: string): Promise<void> {
   const res = await apiPost('/api/actors/me/muted', { ap_id: apId });
-  if (!res.ok) throw new Error('Failed to mute user');
+  await assertOk(res, 'Failed to mute user');
 }
 
 export async function unmuteUser(apId: string): Promise<void> {
   const res = await apiDelete('/api/actors/me/muted', { ap_id: apId });
-  if (!res.ok) throw new Error('Failed to unmute user');
+  await assertOk(res, 'Failed to unmute user');
 }
 
 export async function deleteAccount(): Promise<void> {
   const res = await apiPost('/api/actors/me/delete');
-  if (!res.ok) throw new Error('Failed to delete account');
+  await assertOk(res, 'Failed to delete account');
 }

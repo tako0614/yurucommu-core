@@ -3,7 +3,7 @@ import { eq, and, or, inArray } from 'drizzle-orm';
 import type { Database } from '../../../db';
 import { actors, actorCache, communities, communityMembers } from '../../../db';
 import type { Env, Variables } from '../../types';
-import { communityApId } from '../../utils';
+import { communityApId } from '../../federation-helpers';
 
 export const managerRoles = new Set(['owner', 'moderator']);
 
@@ -17,7 +17,7 @@ export function communityWhere(apId: string, identifier: string) {
 }
 
 export async function fetchCommunityDetails(c: Context<{ Bindings: Env; Variables: Variables }>, identifier: string) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const apId = resolveCommunityApId(c.env.APP_URL, identifier);
   const community = await db.select().from(communities)
     .where(communityWhere(apId, identifier))
@@ -26,7 +26,7 @@ export async function fetchCommunityDetails(c: Context<{ Bindings: Env; Variable
 }
 
 export async function fetchCommunityId(c: Context<{ Bindings: Env; Variables: Variables }>, identifier: string) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const apId = resolveCommunityApId(c.env.APP_URL, identifier);
   const community = await db.select({ apId: communities.apId }).from(communities)
     .where(communityWhere(apId, identifier))

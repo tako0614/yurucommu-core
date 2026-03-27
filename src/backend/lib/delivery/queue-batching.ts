@@ -8,7 +8,7 @@ import type { Env } from '../../types';
 import type { Database } from '../../../db';
 import { eq, and, or, sql } from 'drizzle-orm';
 import { actorCache, follows, deliveryQueue } from '../../../db';
-import { isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../../utils';
+import { isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../../federation-helpers';
 import { planEndpointsFromActorCache } from './planner';
 import {
   DELIVERY_QUEUE_MESSAGE_VERSION,
@@ -20,7 +20,7 @@ import {
 import {
   DELIVERY_ENDPOINT_CACHE_TTL_MS,
   safeParseIsoTimeMs,
-} from './utils';
+} from './transformers';
 import {
   type QueueEnv,
   requireQueue,

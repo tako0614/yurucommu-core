@@ -5,7 +5,7 @@ import {
   activityApId,
   generateId,
   isLocal,
-} from '../../../utils';
+} from '../../../federation-helpers';
 import {
   type ActivityContext,
   type Activity,
@@ -29,7 +29,7 @@ export async function handleLike(
   actor: string,
   baseUrl: string
 ) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
@@ -76,7 +76,7 @@ export async function handleAnnounce(
   actor: string,
   baseUrl: string
 ) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
@@ -115,7 +115,7 @@ export async function handleAdd(
   const followingApId = resolveCollectionTarget(activity, recipient, actor);
   if (!followingApId) return;
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const now = new Date().toISOString();
   await db.insert(follows)
     .values({
@@ -148,7 +148,7 @@ export async function handleRemove(
   const followingApId = resolveCollectionTarget(activity, recipient, actor);
   if (!followingApId) return;
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   await db.delete(follows)
     .where(
       and(
@@ -168,7 +168,7 @@ export async function handleBlock(
   recipient: ActorRow,
   actor: string
 ) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const blockedId = getActivityObjectId(activity);
   if (!blockedId) return;
 

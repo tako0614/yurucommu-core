@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { eq, and, inArray, sql, desc } from 'drizzle-orm';
 import type { Env, Variables } from '../types';
 import { actors, actorCache, follows, activities, inbox } from '../../db';
-import { activityApId, isLocal, isSafeRemoteUrl, formatUsername, parseLimit, parseOffset, generateId } from '../utils';
+import { activityApId, isLocal, isSafeRemoteUrl, formatUsername, parseLimit, parseOffset, generateId } from '../federation-helpers';
 import { enqueueDeliveryToActor } from '../lib/delivery/queue';
 import {
   parseNonEmptyString,
@@ -295,7 +295,7 @@ follow.get('/requests', async (c) => {
   const actor = c.get('actor');
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const limit = parseLimit(c.req.query('limit'), 100, 500);
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
 

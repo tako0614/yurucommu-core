@@ -40,7 +40,7 @@ takosProxy.use('*', async (c, next) => {
     return c.json({ error: 'No session' }, 401);
   }
 
-  const prisma = c.get('prisma');
+  const prisma = c.get('db');
   const session = await prisma.query.sessions.findFirst({
     where: eq(sessions.id, sessionId),
     columns: {

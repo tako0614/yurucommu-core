@@ -95,14 +95,26 @@ function buildKey(prefix: string | undefined, clientId: string): string {
   return `${prefix ?? ''}${clientId}`;
 }
 
+const RATE_LIMIT_WINDOW_MS = 60_000;
+
+const RATE_LIMITS = {
+  general:     { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 10_000 },
+  auth:        { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 20 },
+  postCreate:  { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 3_000 },
+  search:      { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 3_000 },
+  mediaUpload: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 2_000 },
+  dm:          { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 6_000 },
+  inbox:       { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 20_000 },
+} as const;
+
 export const RateLimitConfigs = {
-  general:     { windowMs: 60000, maxRequests: 10000 },
-  auth:        { windowMs: 60000, maxRequests: 20,    keyPrefix: 'auth:' },
-  postCreate:  { windowMs: 60000, maxRequests: 3000,  keyPrefix: 'post:' },
-  search:      { windowMs: 60000, maxRequests: 3000,  keyPrefix: 'search:' },
-  mediaUpload: { windowMs: 60000, maxRequests: 2000,  keyPrefix: 'media:' },
-  dm:          { windowMs: 60000, maxRequests: 6000,  keyPrefix: 'dm:' },
-  inbox:       { windowMs: 60000, maxRequests: 20000, keyPrefix: 'inbox:' },
+  general:     { ...RATE_LIMITS.general },
+  auth:        { ...RATE_LIMITS.auth,        keyPrefix: 'auth:' },
+  postCreate:  { ...RATE_LIMITS.postCreate,  keyPrefix: 'post:' },
+  search:      { ...RATE_LIMITS.search,      keyPrefix: 'search:' },
+  mediaUpload: { ...RATE_LIMITS.mediaUpload, keyPrefix: 'media:' },
+  dm:          { ...RATE_LIMITS.dm,           keyPrefix: 'dm:' },
+  inbox:       { ...RATE_LIMITS.inbox,        keyPrefix: 'inbox:' },
 } as const satisfies Record<string, RateLimitConfig>;
 
 /**

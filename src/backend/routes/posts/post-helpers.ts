@@ -14,8 +14,8 @@ import { eq, and, or, sql, inArray, isNull } from 'drizzle-orm';
 import type { Variables } from '../../types';
 import type { Database } from '../../../db';
 import type { Env } from '../../types';
-import { generateId, activityApId, isLocal } from '../../utils';
-import { MAX_POST_CONTENT_LENGTH, MAX_POST_SUMMARY_LENGTH, extractMentions } from './utils';
+import { generateId, activityApId, isLocal } from '../../federation-helpers';
+import { MAX_POST_CONTENT_LENGTH, MAX_POST_SUMMARY_LENGTH, extractMentions } from './transformers';
 import {
   type PostAttachment,
   type CreatePostBody,

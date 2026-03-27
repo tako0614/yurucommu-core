@@ -3,11 +3,11 @@ import type { Context } from 'hono';
 import type { Env, Variables } from '../../types';
 import { eq } from 'drizzle-orm';
 import { actorCache, activities, actors } from '../../../db';
-import { activityApId, actorApId, generateId, isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../../utils';
-import { getInstanceActor } from './utils';
+import { activityApId, actorApId, generateId, isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../../federation-helpers';
+import { getInstanceActor } from './query-helpers';
 import type { Activity, RemoteActor } from './inbox-types';
 import { getActivityObjectId } from './inbox-types';
-import { handleGroupCreate, handleGroupFollow, handleGroupUndo } from './handlers/actorInboxHandlers';
+import { handleGroupCreate, handleGroupFollow, handleGroupUndo } from './handlers/actor-inbox-handlers';
 import {
   handleAccept,
   handleAdd,
@@ -23,7 +23,7 @@ import {
   handleReject,
   handleUndo,
   handleUpdate,
-} from './handlers/userInboxHandlers';
+} from './handlers/user-inbox-handlers';
 
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -66,7 +66,7 @@ async function fetchActorPublicKey(keyId: string, c: HonoContext): Promise<strin
     return null;
   }
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const actorUrl = keyId.includes('#') ? keyId.split('#')[0] : keyId;
 
   const cached = await db.query.actorCache.findFirst({
@@ -325,7 +325,7 @@ async function deduplicateAndStoreActivity(
   c: HonoContext,
   { activityId, activityType, actor, activityObjectId, activity }: ParsedActivity
 ): Promise<Response | null> {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const rawJson = JSON.stringify(activity);
 
   const existing = await db.query.activities.findFirst({
@@ -372,7 +372,7 @@ function buildActorCacheFields(actorData: RemoteActor & { inbox: string; publicK
 async function cacheRemoteActor(c: HonoContext, actorApIdUrl: string, baseUrl: string): Promise<void> {
   if (isLocal(actorApIdUrl, baseUrl)) return;
 
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const cached = await db.query.actorCache.findFirst({
     where: eq(actorCache.apId, actorApIdUrl),
@@ -515,7 +515,7 @@ ap.post('/ap/actor/inbox', async (c) => {
 });
 
 ap.post('/ap/users/:username/inbox', async (c) => {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const username = c.req.param('username');
   const baseUrl = c.env.APP_URL;
   const apId = actorApId(baseUrl, username);

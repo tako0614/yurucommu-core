@@ -3,8 +3,9 @@ import { eq, and, sql } from 'drizzle-orm';
 import type { Env, Variables } from '../types';
 import type { Database } from '../../db';
 import { actors, actorCache, follows, activities, inbox } from '../../db';
-import { generateId, activityApId, isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../utils';
+import { generateId, activityApId, isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../federation-helpers';
 import { enqueueDeliveryToActor } from '../lib/delivery/queue';
+import { parseJsonObject, parseNonEmptyString, isUniqueConstraintError } from '../lib/parse-helpers';
 
 const REMOTE_FETCH_TIMEOUT_MS = 10000;
 
@@ -36,25 +37,7 @@ export type RequestContext = {
 // Pure helpers
 // ---------------------------------------------------------------------------
 
-export async function parseJsonObject(
-  c: { req: { json: () => Promise<unknown> } },
-): Promise<Record<string, unknown> | null> {
-  try {
-    const body = await c.req.json();
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return null;
-    }
-    return body as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-export function parseNonEmptyString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
+export { parseJsonObject, parseNonEmptyString, isUniqueConstraintError };
 
 export function parseStringArray(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
@@ -63,13 +46,6 @@ export function parseStringArray(value: unknown): string[] | null {
     .filter((v): v is string => v !== null);
   if (parsed.length !== value.length) return null;
   return parsed;
-}
-
-export function isUniqueConstraintError(error: unknown): boolean {
-  if (typeof error === 'object' && error !== null && 'message' in error) {
-    return String((error as { message: string }).message).includes('UNIQUE constraint failed');
-  }
-  return false;
 }
 
 export function buildApActivity(
@@ -101,7 +77,7 @@ export async function requireActorAndBody(c: HonoContext): Promise<RequestContex
   if (!actor) return c.json({ error: 'Unauthorized' }, 401);
   const body = await parseJsonObject(c);
   if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
-  return { actor, body, baseUrl: c.env.APP_URL, db: c.get('prisma') };
+  return { actor, body, baseUrl: c.env.APP_URL, db: c.get('db') };
 }
 
 export function isResponse(value: RequestContext | Response): value is Response {

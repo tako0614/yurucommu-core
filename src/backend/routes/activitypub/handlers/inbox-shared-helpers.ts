@@ -1,7 +1,7 @@
 import type { Database } from '../../../../db';
 import { eq, and, sql } from 'drizzle-orm';
 import { objects, follows, likes, announces, activities, inbox as inboxTable } from '../../../../db';
-import { isLocal } from '../../../utils';
+import { isLocal } from '../../../federation-helpers';
 import type { Activity } from '../inbox-types';
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { formatUsername, safeJsonParse } from '../../utils';
+import { formatUsername, safeJsonParse } from '../../federation-helpers';
 
 export const MAX_POST_CONTENT_LENGTH = 5000;
 export const MAX_POST_SUMMARY_LENGTH = 500;

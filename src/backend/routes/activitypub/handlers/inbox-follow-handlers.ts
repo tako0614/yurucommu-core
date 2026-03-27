@@ -5,7 +5,7 @@ import {
   activityApId,
   generateId,
   isLocal,
-} from '../../../utils';
+} from '../../../federation-helpers';
 import { enqueueDeliveryToActor } from '../../../lib/delivery/queue';
 import {
   type ActivityContext,
@@ -35,7 +35,7 @@ export async function handleFollow(
   actor: string,
   baseUrl: string
 ) {
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const activityId = activity.id || activityApId(baseUrl, generateId());
 
@@ -105,7 +105,7 @@ export async function handleFollow(
 // ---------------------------------------------------------------------------
 
 export async function handleAccept(c: ActivityContext, activity: Activity) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const followId = getActivityObjectId(activity);
   if (!followId) return;
 
@@ -140,7 +140,7 @@ export async function handleAccept(c: ActivityContext, activity: Activity) {
 // ---------------------------------------------------------------------------
 
 export async function handleReject(c: ActivityContext, activity: Activity) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const followId = getActivityObjectId(activity);
   if (!followId) return;
 
@@ -161,7 +161,7 @@ export async function handleUndo(
   actor: string,
   _baseUrl: string
 ) {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const activityObject = getActivityObject(activity);
   const objectType = activityObject?.type;
   const objectId = getActivityObjectId(activity);

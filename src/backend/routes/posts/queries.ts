@@ -11,9 +11,10 @@ import type { Database } from '../../../db';
 import { actorCache, objects, likes, bookmarks, activities } from '../../../db';
 import { eq, and, or, inArray } from 'drizzle-orm';
 import type { Env } from '../../types';
-import { objectApId, formatUsername } from '../../utils';
-import { PostRow, formatPost } from './utils';
+import { objectApId, formatUsername } from '../../federation-helpers';
+import { PostRow, formatPost } from './transformers';
 import { enqueueFanoutToFollowers } from '../../lib/delivery/queue';
+import { isRecord, parseJsonObject } from '../../lib/parse-helpers';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,21 +76,7 @@ export type PostWithAuthor = {
 // Inline helpers
 // ---------------------------------------------------------------------------
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-export async function parseJsonObject(
-  c: { req: { json: () => Promise<unknown> } }
-): Promise<Record<string, unknown> | null> {
-  try {
-    const body = await c.req.json();
-    if (!isRecord(body)) return null;
-    return body;
-  } catch {
-    return null;
-  }
-}
+export { isRecord, parseJsonObject };
 
 /**
  * Validate that a raw field is either absent, null, or a string.

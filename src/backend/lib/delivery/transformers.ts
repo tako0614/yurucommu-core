@@ -1,4 +1,4 @@
-import { isSafeRemoteUrl } from '../../utils';
+import { isSafeRemoteUrl } from '../../federation-helpers';
 
 export const DELIVERY_ENDPOINT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 

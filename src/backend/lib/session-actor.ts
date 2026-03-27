@@ -19,7 +19,7 @@ export async function extractActorFromSession(
   const sessionId = getCookie(c, 'session');
   if (!sessionId) return;
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const session = await db.query.sessions.findFirst({
     where: eq(sessions.id, sessionId),
     with: { member: true },

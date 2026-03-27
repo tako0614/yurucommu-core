@@ -1,5 +1,5 @@
 /**
- * Takos Tools - Utility helpers
+ * Takos Tools - Response & input helpers
  *
  * Shared helpers extracted from takos-tools.ts for response formatting,
  * input validation, and common data operations.
@@ -8,7 +8,7 @@
 import { eq, and, inArray } from 'drizzle-orm';
 import type { Database } from '../../db';
 import { actors, follows, likes, bookmarks } from '../../db';
-import { formatUsername, parseLimit, safeJsonParse } from '../utils';
+import { formatUsername, parseLimit, safeJsonParse } from '../federation-helpers';
 
 // ---------------------------------------------------------------------------
 // Types

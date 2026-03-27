@@ -2,7 +2,7 @@ import type { Context, Hono } from 'hono';
 import { eq, and, desc } from 'drizzle-orm';
 import { communityInvites } from '../../../db';
 import type { Env, Variables } from '../../types';
-import { generateId, formatUsername } from '../../utils';
+import { generateId, formatUsername } from '../../federation-helpers';
 import {
   batchLoadActorInfo,
   fetchCommunityId,
@@ -16,7 +16,7 @@ export function registerMembershipInviteRoutes(communitiesRouter: Hono<{ Binding
     if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
     const identifier = c.req.param('identifier')!;
-    const db = c.get('prisma');
+    const db = c.get('db');
 
     const { community } = await fetchCommunityId(c, identifier);
     if (!community) {
@@ -63,7 +63,7 @@ export function registerMembershipInviteRoutes(communitiesRouter: Hono<{ Binding
     if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
     const identifier = c.req.param('identifier')!;
-    const db = c.get('prisma');
+    const db = c.get('db');
     let invitedApId: string | null = null;
     let expiresInHours: number | null = null;
     try {
@@ -110,7 +110,7 @@ export function registerMembershipInviteRoutes(communitiesRouter: Hono<{ Binding
 
     const identifier = c.req.param('identifier')!;
     const inviteId = c.req.param('inviteId')!;
-    const db = c.get('prisma');
+    const db = c.get('db');
 
     const { community } = await fetchCommunityId(c, identifier);
     if (!community) {

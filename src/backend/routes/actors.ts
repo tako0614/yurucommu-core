@@ -7,7 +7,7 @@ import {
   objectRecipients, storyVotes, storyViews, notDeleted,
 } from '../../db';
 import type { Env, Variables } from '../types';
-import { formatUsername, parseLimit, parseOffset, safeJsonParse } from '../utils';
+import { formatUsername, parseLimit, parseOffset, safeJsonParse } from '../federation-helpers';
 import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
 import {
   isValidHttpUrl,
@@ -37,7 +37,7 @@ actorsRoute.get('/', withCache({
   ttl: CacheTTL.ACTOR_PROFILE,
   cacheTag: CacheTags.ACTOR,
 }), async (c) => {
-  const db = c.get('prisma');
+  const db = c.get('db');
   const limit = parseLimit(c.req.query('limit'), 100, 500);
   const offset = parseOffset(c.req.query('offset'), 0, 10000);
 
@@ -137,7 +137,7 @@ actorsRoute.post('/me/delete', async (c) => {
   const actor = result;
 
   const actorApIdVal = actor.ap_id;
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   try {
     // Phase 1: remove dependent records sequentially.
@@ -204,7 +204,7 @@ actorsRoute.post('/me/delete', async (c) => {
 actorsRoute.get('/:identifier/posts', async (c) => {
   const currentActor = c.get('actor');
   const identifier = c.req.param('identifier');
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const apId = await resolveActorApId(db, c.env.APP_URL, identifier);
   if (!apId) return c.json({ error: 'Actor not found' }, 404);
@@ -277,7 +277,7 @@ actorsRoute.get('/:identifier', async (c) => {
   const currentActor = c.get('actor');
   const identifier = c.req.param('identifier');
   const baseUrl = c.env.APP_URL;
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   // For @user@remote-domain, we may need to return cached data directly
   // (resolveActorApId only returns an apId when the cache has a match)
@@ -423,7 +423,7 @@ actorsRoute.put('/me', async (c) => {
     return c.json({ error: 'No fields to update' }, 400);
   }
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   await db.update(actors).set(updates).where(eq(actors.apId, actor.ap_id));
 
   return c.json({ success: true });

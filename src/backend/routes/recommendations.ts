@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { sql } from 'drizzle-orm';
 import type { Env, Variables } from '../types';
-import { formatUsername } from '../utils';
+import { formatUsername } from '../federation-helpers';
 import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
 import { batchLoadActorInfo } from './communities/membership-shared';
 
@@ -21,7 +21,7 @@ recommendations.get(
     const actor = c.get('actor');
     if (!actor) return c.json({ error: 'Unauthorized' }, 401);
 
-    const db = c.get('prisma');
+    const db = c.get('db');
     const myApId = actor.ap_id;
 
     const candidates = await db.all<{ ap_id: string; mutual_count: number }>(sql`

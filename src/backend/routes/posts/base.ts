@@ -2,8 +2,8 @@ import { Hono } from 'hono';
 import { actors, objects, follows } from '../../../db';
 import { eq, and, or, desc, sql } from 'drizzle-orm';
 import type { Env, Variables } from '../../types';
-import { generateId, objectApId, activityApId, formatUsername, parseLimit, safeJsonParse } from '../../utils';
-import { MAX_POSTS_PAGE_LIMIT, normalizeVisibility, formatPost, PostRow } from './utils';
+import { generateId, objectApId, activityApId, formatUsername, parseLimit, safeJsonParse } from '../../federation-helpers';
+import { MAX_POSTS_PAGE_LIMIT, normalizeVisibility, formatPost, PostRow } from './transformers';
 import {
   type PostDetailRow,
   type PostWithAuthor,
@@ -44,7 +44,7 @@ posts.post('/', async (c) => {
   }
   const { body, content, summary } = validation;
 
-  const db = c.get('prisma');
+  const db = c.get('db');
   const visibility = normalizeVisibility(body.visibility);
 
   const communityCheck = await checkCommunityPostPermission(db, actor.ap_id, body.community_ap_id);
@@ -157,7 +157,7 @@ posts.get('/:id', async (c) => {
   const currentActor = c.get('actor');
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const post = await db.query.objects.findFirst({
     where: postWhereByIdOrApId(baseUrl, postId),
@@ -219,7 +219,7 @@ posts.get('/:id/replies', async (c) => {
   const baseUrl = c.env.APP_URL;
   const limit = parseLimit(c.req.query('limit'), 20, MAX_POSTS_PAGE_LIMIT);
   const before = c.req.query('before');
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const parentPost = await db.select({ apId: objects.apId })
     .from(objects)
@@ -271,7 +271,7 @@ posts.patch('/:id', async (c) => {
   }
   const { body } = editValidation;
 
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const post = await db.query.objects.findFirst({
     where: postWhereByIdOrApId(baseUrl, postId),
@@ -345,7 +345,7 @@ posts.delete('/:id', async (c) => {
 
   const postId = c.req.param('id');
   const baseUrl = c.env.APP_URL;
-  const db = c.get('prisma');
+  const db = c.get('db');
 
   const post = await db.query.objects.findFirst({
     where: postWhereByIdOrApId(baseUrl, postId),

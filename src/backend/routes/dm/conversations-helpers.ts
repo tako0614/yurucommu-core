@@ -5,10 +5,11 @@ import { eq, and, or, like, inArray, isNotNull } from 'drizzle-orm';
 import type { Database } from '../../../db';
 import { actors, actorCache, objects } from '../../../db';
 import type { Env, Variables } from '../../types';
-import { formatUsername, safeJsonParse } from '../../utils';
+import { safeJsonParse } from '../../federation-helpers';
 
 export type HonoEnv = { Bindings: Env; Variables: Variables };
-export type ActorInfo = { preferredUsername: string | null; name: string | null; iconUrl: string | null };
+
+export { type ActorInfo, loadActorInfoMap as buildActorInfoMap, formatActorSummary as formatActorProfile } from '../actors-helpers';
 
 export const ACTOR_INFO_FIELDS = {
   apId: actors.apId,
@@ -23,35 +24,6 @@ export const ACTOR_CACHE_INFO_FIELDS = {
   name: actorCache.name,
   iconUrl: actorCache.iconUrl,
 } as const;
-
-/** Fetch actor info from local actors (preferred) with cache fallback, keyed by apId. */
-export async function buildActorInfoMap(
-  db: Database,
-  apIds: string[],
-): Promise<Map<string, ActorInfo>> {
-  if (apIds.length === 0) return new Map();
-
-  const [localActors, cachedActors] = await Promise.all([
-    db.select(ACTOR_INFO_FIELDS).from(actors).where(inArray(actors.apId, apIds)),
-    db.select(ACTOR_CACHE_INFO_FIELDS).from(actorCache).where(inArray(actorCache.apId, apIds)),
-  ]);
-
-  const map = new Map<string, ActorInfo>();
-  for (const a of cachedActors) map.set(a.apId, a);
-  for (const a of localActors) map.set(a.apId, a); // local takes precedence
-  return map;
-}
-
-/** Build the standard actor profile shape used across all DM responses. */
-export function formatActorProfile(apId: string, info: ActorInfo | undefined) {
-  return {
-    ap_id: apId,
-    username: formatUsername(apId),
-    preferred_username: info?.preferredUsername || null,
-    name: info?.name || null,
-    icon_url: info?.iconUrl || null,
-  };
-}
 
 /** Extract the other participant's AP ID from a DM object. */
 export function getOtherParticipant(obj: { attributedTo: string; toJson: string }, actorApId: string): string {

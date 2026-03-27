@@ -1,5 +1,5 @@
 import { normalizeActor } from './normalize';
-import { apiFetch, apiPost, apiPatch, apiDelete } from './fetch';
+import { apiFetch, apiPost, apiPatch, apiDelete, assertOk, ApiError } from './fetch';
 
 export interface CommunityDetail {
   ap_id: string;
@@ -98,7 +98,7 @@ export async function fetchCommunities(): Promise<CommunityDetail[]> {
 
 export async function fetchCommunity(identifier: string): Promise<CommunityDetail> {
   const res = await apiFetch(`/api/communities/${encodeURIComponent(identifier)}`);
-  if (!res.ok) throw new Error('Community not found');
+  await assertOk(res, 'Community not found');
   const data = (await res.json()) as { community: CommunityDetail };
   return data.community;
 }
@@ -109,10 +109,7 @@ export async function createCommunity(data: {
   summary?: string;
 }): Promise<CommunityDetail> {
   const res = await apiPost('/api/communities', data);
-  if (!res.ok) {
-    const error = (await res.json()) as { error?: string };
-    throw new Error(error.error || 'Failed to create community');
-  }
+  await assertOk(res, 'Failed to create community');
   const result = (await res.json()) as { community: CommunityDetail };
   return result.community;
 }
@@ -125,20 +122,14 @@ export async function joinCommunity(
   const res = await apiPost(`/api/communities/${encodeURIComponent(identifier)}/join`, body);
   const data = (await res.json().catch(() => ({}))) as { error?: string; status?: string };
   if (!res.ok) {
-    const error = data.error || 'Failed to join community';
-    const err = new Error(error) as Error & { status?: string };
-    err.status = data.status;
-    throw err;
+    throw new ApiError(res.status, data.error || 'Failed to join community');
   }
   return { status: (data.status as JoinCommunityResult['status']) || 'joined' };
 }
 
 export async function leaveCommunity(identifier: string): Promise<void> {
   const res = await apiPost(`/api/communities/${encodeURIComponent(identifier)}/leave`);
-  if (!res.ok) {
-    const error = (await res.json()) as { error?: string };
-    throw new Error(error.error || 'Failed to leave community');
-  }
+  await assertOk(res, 'Failed to leave community');
 }
 
 export async function fetchCommunityMessages(
@@ -150,45 +141,45 @@ export async function fetchCommunityMessages(
   if (options?.before) params.set('before', options.before);
   const query = params.toString() ? `?${params}` : '';
   const res = await apiFetch(`/api/communities/${encodeURIComponent(identifier)}/messages${query}`);
-  if (!res.ok) throw new Error('Failed to fetch messages');
+  await assertOk(res, 'Failed to fetch messages');
   const data = (await res.json()) as { messages?: CommunityMessage[] };
   return (data.messages || []).map(normalizeCommunityMessage);
 }
 
 export async function sendCommunityMessage(identifier: string, content: string): Promise<CommunityMessage> {
   const res = await apiPost(`/api/communities/${encodeURIComponent(identifier)}/messages`, { content });
-  if (!res.ok) throw new Error('Failed to send message');
+  await assertOk(res, 'Failed to send message');
   const data = (await res.json()) as { message: CommunityMessage };
   return normalizeCommunityMessage(data.message);
 }
 
 export async function fetchCommunityMembers(identifier: string): Promise<CommunityMember[]> {
   const res = await apiFetch(`/api/communities/${encodeURIComponent(identifier)}/members`);
-  if (!res.ok) throw new Error('Failed to fetch members');
+  await assertOk(res, 'Failed to fetch members');
   const data = (await res.json()) as { members?: CommunityMember[] };
   return (data.members || []).map(normalizeActor);
 }
 
 export async function fetchCommunityJoinRequests(identifier: string): Promise<CommunityJoinRequest[]> {
   const res = await apiFetch(`/api/communities/${encodeURIComponent(identifier)}/requests`);
-  if (!res.ok) throw new Error('Failed to fetch join requests');
+  await assertOk(res, 'Failed to fetch join requests');
   const data = (await res.json()) as { requests?: CommunityJoinRequest[] };
   return (data.requests || []).map(normalizeActor);
 }
 
 export async function acceptCommunityJoinRequest(identifier: string, actorApId: string): Promise<void> {
   const res = await apiPost(`/api/communities/${encodeURIComponent(identifier)}/requests/accept`, { actor_ap_id: actorApId });
-  if (!res.ok) throw new Error('Failed to accept join request');
+  await assertOk(res, 'Failed to accept join request');
 }
 
 export async function rejectCommunityJoinRequest(identifier: string, actorApId: string): Promise<void> {
   const res = await apiPost(`/api/communities/${encodeURIComponent(identifier)}/requests/reject`, { actor_ap_id: actorApId });
-  if (!res.ok) throw new Error('Failed to reject join request');
+  await assertOk(res, 'Failed to reject join request');
 }
 
 export async function fetchCommunityInvites(identifier: string): Promise<CommunityInvite[]> {
   const res = await apiFetch(`/api/communities/${encodeURIComponent(identifier)}/invites`);
-  if (!res.ok) throw new Error('Failed to fetch invites');
+  await assertOk(res, 'Failed to fetch invites');
   const data = (await res.json()) as { invites?: CommunityInvite[] };
   return (data.invites || []).map((invite: CommunityInvite) => ({
     ...invite,
@@ -201,7 +192,7 @@ export async function createCommunityInvite(
   options?: { invited_ap_id?: string; expires_in_hours?: number }
 ): Promise<CommunityInviteResult & { expires_at?: string }> {
   const res = await apiPost(`/api/communities/${encodeURIComponent(identifier)}/invites`, options);
-  if (!res.ok) throw new Error('Failed to create invite');
+  await assertOk(res, 'Failed to create invite');
   return (await res.json()) as CommunityInviteResult & { expires_at?: string };
 }
 
@@ -209,7 +200,7 @@ export async function revokeCommunityInvite(identifier: string, inviteId: string
   const res = await apiDelete(
     `/api/communities/${encodeURIComponent(identifier)}/invites/${encodeURIComponent(inviteId)}`
   );
-  if (!res.ok) throw new Error('Failed to revoke invite');
+  await assertOk(res, 'Failed to revoke invite');
 }
 
 export async function updateCommunitySettings(
@@ -217,7 +208,7 @@ export async function updateCommunitySettings(
   settings: CommunitySettings
 ): Promise<void> {
   const res = await apiPatch(`/api/communities/${encodeURIComponent(identifier)}/settings`, settings);
-  if (!res.ok) throw new Error('Failed to update community settings');
+  await assertOk(res, 'Failed to update community settings');
 }
 
 export async function removeCommunityMember(
@@ -227,7 +218,7 @@ export async function removeCommunityMember(
   const res = await apiDelete(
     `/api/communities/${encodeURIComponent(identifier)}/members/${encodeURIComponent(actorApId)}`
   );
-  if (!res.ok) throw new Error('Failed to remove member');
+  await assertOk(res, 'Failed to remove member');
 }
 
 export async function updateCommunityMemberRole(
@@ -239,7 +230,7 @@ export async function updateCommunityMemberRole(
     `/api/communities/${encodeURIComponent(identifier)}/members/${encodeURIComponent(actorApId)}`,
     { role }
   );
-  if (!res.ok) throw new Error('Failed to update member role');
+  await assertOk(res, 'Failed to update member role');
 }
 
 export async function editCommunityMessage(
@@ -251,7 +242,7 @@ export async function editCommunityMessage(
     `/api/communities/${encodeURIComponent(identifier)}/messages/${encodeURIComponent(messageId)}`,
     { content }
   );
-  if (!res.ok) throw new Error('Failed to edit message');
+  await assertOk(res, 'Failed to edit message');
 }
 
 export async function deleteCommunityMessage(
@@ -261,5 +252,5 @@ export async function deleteCommunityMessage(
   const res = await apiDelete(
     `/api/communities/${encodeURIComponent(identifier)}/messages/${encodeURIComponent(messageId)}`
   );
-  if (!res.ok) throw new Error('Failed to delete message');
+  await assertOk(res, 'Failed to delete message');
 }

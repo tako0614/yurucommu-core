@@ -10,7 +10,7 @@ import {
   index,
   primaryKey,
 } from "drizzle-orm/sqlite-core";
-import { nowIso } from "./helpers";
+import { nowIso } from "./date-utils";
 
 // ---------------------------------------------------------------------------
 // ACTIVITIES
