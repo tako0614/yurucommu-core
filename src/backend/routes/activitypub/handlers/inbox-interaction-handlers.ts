@@ -1,10 +1,8 @@
-import type { Database } from '../../../../db';
 import { eq, and, or, sql } from 'drizzle-orm';
 import { actors, objects, follows, likes, announces } from '../../../../db';
 import {
   activityApId,
   generateId,
-  isLocal,
 } from '../../../federation-helpers';
 import {
   type ActivityContext,
@@ -12,37 +10,50 @@ import {
   getActivityObjectId,
 } from '../inbox-types';
 import {
-  upsertActivityAndNotify,
   notifyLocalObjectOwner,
 } from './inbox-shared-helpers';
 
 type ActorRow = typeof actors.$inferSelect;
 
 // ---------------------------------------------------------------------------
-// Like handler
+// Interaction table / count-field mapping
 // ---------------------------------------------------------------------------
 
-export async function handleLike(
+type InteractionKind = 'like' | 'announce';
+
+const INTERACTION_CONFIG = {
+  like: {
+    table: likes,
+    countField: 'likeCount' as const,
+    activityType: 'Like',
+  },
+  announce: {
+    table: announces,
+    countField: 'announceCount' as const,
+    activityType: 'Announce',
+  },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Generic interaction handler (shared by Like & Announce)
+// ---------------------------------------------------------------------------
+
+async function handleInteraction(
+  kind: InteractionKind,
   c: ActivityContext,
   activity: Activity,
-  _recipient: ActorRow,
   actor: string,
   baseUrl: string
-) {
+): Promise<void> {
   const db = c.get('db');
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
-  const likedObj = await db.select({ attributedTo: objects.attributedTo })
-    .from(objects)
-    .where(eq(objects.apId, objectId))
-    .get();
-  if (!likedObj) return;
-
+  const { table, countField, activityType } = INTERACTION_CONFIG[kind];
   const activityId = activity.id || activityApId(baseUrl, generateId());
 
-  // Try to insert like; if duplicate, skip
-  const insertResult = await db.insert(likes)
+  // Try to insert; if duplicate, skip
+  const insertResult = await db.insert(table)
     .values({
       actorApId: actor,
       objectApId: objectId,
@@ -55,14 +66,24 @@ export async function handleLike(
   if (!insertResult) return; // duplicate
 
   await db.update(objects)
-    .set({ likeCount: sql`${objects.likeCount} + 1` })
+    .set({ [countField]: sql`${objects[countField]} + 1` })
     .where(eq(objects.apId, objectId));
 
-  if (isLocal(likedObj.attributedTo, baseUrl)) {
-    await upsertActivityAndNotify(
-      db, activityId, 'Like', actor, objectId, activity, likedObj.attributedTo
-    );
-  }
+  await notifyLocalObjectOwner(db, objectId, activityId, activityType, actor, activity, baseUrl);
+}
+
+// ---------------------------------------------------------------------------
+// Like handler
+// ---------------------------------------------------------------------------
+
+export async function handleLike(
+  c: ActivityContext,
+  activity: Activity,
+  _recipient: ActorRow,
+  actor: string,
+  baseUrl: string
+) {
+  await handleInteraction('like', c, activity, actor, baseUrl);
 }
 
 // ---------------------------------------------------------------------------
@@ -76,30 +97,7 @@ export async function handleAnnounce(
   actor: string,
   baseUrl: string
 ) {
-  const db = c.get('db');
-  const objectId = getActivityObjectId(activity);
-  if (!objectId) return;
-
-  const activityId = activity.id || activityApId(baseUrl, generateId());
-
-  const insertResult = await db.insert(announces)
-    .values({
-      actorApId: actor,
-      objectApId: objectId,
-      activityApId: activityId,
-    })
-    .onConflictDoNothing()
-    .returning()
-    .get();
-
-  const isNewAnnounce = !!insertResult;
-  if (!isNewAnnounce) return;
-
-  await db.update(objects)
-    .set({ announceCount: sql`${objects.announceCount} + 1` })
-    .where(eq(objects.apId, objectId));
-
-  await notifyLocalObjectOwner(db, objectId, activityId, 'Announce', actor, activity, baseUrl);
+  await handleInteraction('announce', c, activity, actor, baseUrl);
 }
 
 // ---------------------------------------------------------------------------

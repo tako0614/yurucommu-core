@@ -1,8 +1,8 @@
 import { useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { atom } from 'jotai';
-import { useAtom, useAtomValue } from 'jotai';
-import { actorAtom } from '../atoms/auth';
+import { useAtom } from 'jotai';
+import { useRequiredActor } from '../hooks/useRequiredActor';
 import {
   fetchDMContacts,
   DMContact,
@@ -117,7 +117,7 @@ const dm_activeTabAtom = atom<TabType>('all');
 const dm_searchQueryAtom = atom('');
 
 export function DMPage() {
-  const actor = useAtomValue(actorAtom)!;
+  const actor = useRequiredActor();
   const { contactId: rawContactId } = useParams<{ contactId?: string }>();
   const navigate = useNavigate();
   const [contacts, setContacts] = useAtom(dm_contactsAtom);

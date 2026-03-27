@@ -40,8 +40,8 @@ takosProxy.use('*', async (c, next) => {
     return c.json({ error: 'No session' }, 401);
   }
 
-  const prisma = c.get('db');
-  const session = await prisma.query.sessions.findFirst({
+  const db = c.get('db');
+  const session = await db.query.sessions.findFirst({
     where: eq(sessions.id, sessionId),
     columns: {
       id: true,
@@ -70,7 +70,7 @@ takosProxy.use('*', async (c, next) => {
     return c.json({ error: 'Not logged in with Takos' }, 400);
   }
 
-  const client = await getTakosClient(c.env, prisma, session);
+  const client = await getTakosClient(c.env, db, session);
   if (!client) {
     return c.json({ error: 'Failed to create Takos client' }, 500);
   }

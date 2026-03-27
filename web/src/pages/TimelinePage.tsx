@@ -1,7 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAtomValue } from 'jotai';
-import { actorAtom } from '../atoms/auth';
+import { useRequiredActor } from '../hooks/useRequiredActor';
 import { StoryBar } from '../components/story/StoryBar';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 
@@ -17,7 +16,7 @@ import { PluginSlot } from '../components/PluginSlot';
 import { useTimelineState } from './useTimelineState';
 
 export function TimelinePage() {
-  const actor = useAtomValue(actorAtom)!;
+  const actor = useRequiredActor();
   const navigate = useNavigate();
   const {
     t,

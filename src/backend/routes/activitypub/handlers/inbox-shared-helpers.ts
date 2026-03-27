@@ -40,35 +40,50 @@ export async function upsertActivityAndNotify(
 }
 
 /**
+ * Interaction table descriptor used by generic helpers.
+ * Both `likes` and `announces` share the same column shape.
+ */
+type InteractionTable = typeof likes | typeof announces;
+
+const INTERACTION_TABLES: Record<'like' | 'announce', InteractionTable> = {
+  like: likes,
+  announce: announces,
+};
+
+/**
  * Find a record by activityApId, then delete it using its compound key.
  * Returns the deleted record (or null if not found).
  */
-export async function findAndDeleteLikeByActivityId(
+export async function findAndDeleteInteractionByActivityId(
   db: Database,
+  kind: 'like' | 'announce',
   activityApIdValue: string
 ): Promise<{ actorApId: string; objectApId: string } | null> {
-  const record = await db.select({ actorApId: likes.actorApId, objectApId: likes.objectApId })
-    .from(likes)
-    .where(eq(likes.activityApId, activityApIdValue))
+  const table = INTERACTION_TABLES[kind];
+  const record = await db.select({ actorApId: table.actorApId, objectApId: table.objectApId })
+    .from(table)
+    .where(eq(table.activityApId, activityApIdValue))
     .get();
   if (!record) return null;
-  await db.delete(likes)
-    .where(and(eq(likes.actorApId, record.actorApId), eq(likes.objectApId, record.objectApId)));
+  await db.delete(table)
+    .where(and(eq(table.actorApId, record.actorApId), eq(table.objectApId, record.objectApId)));
   return record;
 }
 
-export async function findAndDeleteAnnounceByActivityId(
+/** @deprecated Use findAndDeleteInteractionByActivityId(db, 'like', ...) */
+export function findAndDeleteLikeByActivityId(
   db: Database,
   activityApIdValue: string
 ): Promise<{ actorApId: string; objectApId: string } | null> {
-  const record = await db.select({ actorApId: announces.actorApId, objectApId: announces.objectApId })
-    .from(announces)
-    .where(eq(announces.activityApId, activityApIdValue))
-    .get();
-  if (!record) return null;
-  await db.delete(announces)
-    .where(and(eq(announces.actorApId, record.actorApId), eq(announces.objectApId, record.objectApId)));
-  return record;
+  return findAndDeleteInteractionByActivityId(db, 'like', activityApIdValue);
+}
+
+/** @deprecated Use findAndDeleteInteractionByActivityId(db, 'announce', ...) */
+export function findAndDeleteAnnounceByActivityId(
+  db: Database,
+  activityApIdValue: string
+): Promise<{ actorApId: string; objectApId: string } | null> {
+  return findAndDeleteInteractionByActivityId(db, 'announce', activityApIdValue);
 }
 
 /** Find a follow by activityApId and return it (or null). */
@@ -124,9 +139,15 @@ export async function notifyLocalObjectOwner(
   return obj.attributedTo;
 }
 
+/** Map interaction kind to the corresponding count column on `objects`. */
+const COUNT_FIELDS: Record<'like' | 'announce', 'likeCount' | 'announceCount'> = {
+  like: 'likeCount',
+  announce: 'announceCount',
+};
+
 /**
  * Generic undo for Like or Announce: delete by direct object ID or fallback
- * to findAndDeleteBy ActivityId, then decrement the count field.
+ * to findAndDeleteInteractionByActivityId, then decrement the count field.
  * Returns true if the deletion was handled, false otherwise.
  */
 export async function undoInteraction(
@@ -137,26 +158,23 @@ export async function undoInteraction(
   activityId: string | null,
   actor: string
 ): Promise<boolean> {
+  const table = INTERACTION_TABLES[kind];
+  const cf = countField ?? COUNT_FIELDS[kind];
+
   if (directObjectId) {
-    if (kind === 'like') {
-      await db.delete(likes).where(and(eq(likes.actorApId, actor), eq(likes.objectApId, directObjectId)));
-    } else {
-      await db.delete(announces).where(and(eq(announces.actorApId, actor), eq(announces.objectApId, directObjectId)));
-    }
+    await db.delete(table).where(and(eq(table.actorApId, actor), eq(table.objectApId, directObjectId)));
     await db.update(objects)
-      .set({ [countField]: sql`${objects[countField]} - 1` })
+      .set({ [cf]: sql`${objects[cf]} - 1` })
       .where(eq(objects.apId, directObjectId));
     return true;
   }
 
   if (!activityId) return false;
 
-  const record = kind === 'like'
-    ? await findAndDeleteLikeByActivityId(db, activityId)
-    : await findAndDeleteAnnounceByActivityId(db, activityId);
+  const record = await findAndDeleteInteractionByActivityId(db, kind, activityId);
   if (record) {
     await db.update(objects)
-      .set({ [countField]: sql`${objects[countField]} - 1` })
+      .set({ [cf]: sql`${objects[cf]} - 1` })
       .where(eq(objects.apId, record.objectApId));
     return true;
   }

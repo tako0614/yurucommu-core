@@ -1,5 +1,3 @@
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck - This file is Bun-specific and should be type-checked by Bun's TypeScript
 /**
  * Bun Cloudflare Compatibility Layer - D1 Database
  */
@@ -8,8 +6,10 @@
  * D1Database-compatible SQLite implementation for Bun
  */
 export class D1CompatDatabase {
+  // @ts-expect-error - bun:sqlite is only available in Bun runtime
   private db: import('bun:sqlite').Database;
 
+  // @ts-expect-error - bun:sqlite is only available in Bun runtime
   constructor(db: import('bun:sqlite').Database) {
     this.db = db;
   }
@@ -54,6 +54,7 @@ export class D1CompatDatabase {
     return results;
   }
 
+  // @ts-expect-error - bun:sqlite is only available in Bun runtime
   getRawDatabase(): import('bun:sqlite').Database {
     return this.db;
   }
@@ -63,10 +64,12 @@ export class D1CompatDatabase {
  * D1PreparedStatement-compatible implementation for Bun
  */
 export class D1CompatPreparedStatement {
+  // @ts-expect-error - bun:sqlite is only available in Bun runtime
   private db: import('bun:sqlite').Database;
   private query: string;
   private boundValues: unknown[] = [];
 
+  // @ts-expect-error - bun:sqlite is only available in Bun runtime
   constructor(db: import('bun:sqlite').Database, query: string) {
     this.db = db;
     this.query = query;

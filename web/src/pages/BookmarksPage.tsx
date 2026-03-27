@@ -1,8 +1,8 @@
 import { useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { atom } from 'jotai';
-import { useAtom, useAtomValue } from 'jotai';
-import { actorAtom } from '../atoms/auth';
+import { useAtom } from 'jotai';
+import { useRequiredActor } from '../hooks/useRequiredActor';
 import { Post } from '../types';
 import { fetchBookmarks, likePost, unlikePost, unbookmarkPost } from '../lib/api';
 import { formatRelativeTime } from '../lib/datetime';
@@ -18,7 +18,7 @@ const bookmarks_postsAtom = atom<Post[]>([]);
 const bookmarks_loadingAtom = atom(true);
 
 export function BookmarksPage() {
-  const actor = useAtomValue(actorAtom)!;
+  const actor = useRequiredActor();
   const { t } = useI18n();
   const [error, setError] = useAtom(bookmarks_errorAtom);
   const clearError = useCallback(() => setError(null), [setError]);

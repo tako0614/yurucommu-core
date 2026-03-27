@@ -3,7 +3,7 @@
  *
  * Demonstrates testing patterns for:
  * - Hono route testing
- * - Prisma mock usage
+ * - Database mock usage
  * - ActivityPub object handling
  * - Cloudflare bindings mocking
  */
@@ -14,7 +14,7 @@ import {
   MockD1Database,
   MockR2Bucket,
   MockKVNamespace,
-  createMockPrismaClient,
+  createMockDbClient,
   createMockEnv,
   testHonoRequest,
   createMockActor,
@@ -126,26 +126,26 @@ describe('MockKVNamespace', () => {
 });
 
 // ============================================================================
-// Mock Prisma Client Tests
+// Mock Database Client Tests
 // ============================================================================
 
-describe('MockPrismaClient', () => {
-  let prisma: ReturnType<typeof createMockPrismaClient>;
+describe('MockDbClient', () => {
+  let db: ReturnType<typeof createMockDbClient>;
 
   beforeEach(() => {
-    prisma = createMockPrismaClient();
+    db = createMockDbClient();
   });
 
   it('should mock findUnique', async () => {
     const mockActor = createMockActor({ preferred_username: 'testuser' });
-    prisma.actor.findUnique.mockResolvedValue(mockActor);
+    db.actor.findUnique.mockResolvedValue(mockActor);
 
-    const result = await prisma.actor.findUnique({
+    const result = await db.actor.findUnique({
       where: { ap_id: mockActor.ap_id },
     });
 
     expect(result).toEqual(mockActor);
-    expect(prisma.actor.findUnique).toHaveBeenCalledWith({
+    expect(db.actor.findUnique).toHaveBeenCalledWith({
       where: { ap_id: mockActor.ap_id },
     });
   });
@@ -155,9 +155,9 @@ describe('MockPrismaClient', () => {
       createMockActor({ preferred_username: 'user1' }),
       createMockActor({ preferred_username: 'user2' }),
     ];
-    prisma.actor.findMany.mockResolvedValue(mockActors);
+    db.actor.findMany.mockResolvedValue(mockActors);
 
-    const result = await prisma.actor.findMany({
+    const result = await db.actor.findMany({
       where: { is_private: 0 },
     });
 
@@ -167,7 +167,7 @@ describe('MockPrismaClient', () => {
   it('should mock create', async () => {
     const newActor = createMockActor();
 
-    const result = await prisma.actor.create({
+    const result = await db.actor.create({
       data: newActor,
     });
 
@@ -175,7 +175,7 @@ describe('MockPrismaClient', () => {
   });
 
   it('should mock transactions', async () => {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await db.$transaction(async (tx) => {
       // Transaction operations would go here
       return { success: true };
     });
@@ -322,24 +322,24 @@ describe('Integration Test Pattern', () => {
   it('should demonstrate a full integration test', async () => {
     // 1. Set up environment
     const env = createMockEnv();
-    const prisma = env.PRISMA as ReturnType<typeof createMockPrismaClient>;
+    const db = env.DB_CLIENT as ReturnType<typeof createMockDbClient>;
 
     // 2. Set up mock data
     const mockActor = createMockActor({ preferred_username: 'testuser' });
-    prisma.actor.findUnique.mockResolvedValue(mockActor);
+    db.actor.findUnique.mockResolvedValue(mockActor);
 
     const mockPosts = [
       createMockAPObject({ attributed_to: mockActor.ap_id, content: '<p>Post 1</p>' }),
       createMockAPObject({ attributed_to: mockActor.ap_id, content: '<p>Post 2</p>' }),
     ];
-    prisma.apObject.findMany.mockResolvedValue(mockPosts);
+    db.apObject.findMany.mockResolvedValue(mockPosts);
 
     // 3. Create app with routes
     const app = new Hono<{ Bindings: typeof env }>();
 
     app.get('/api/users/:username', async (c) => {
       const username = c.req.param('username');
-      const actor = await prisma.actor.findUnique({
+      const actor = await db.actor.findUnique({
         where: { preferred_username: username },
       });
 
@@ -352,7 +352,7 @@ describe('Integration Test Pattern', () => {
 
     app.get('/api/users/:username/posts', async (c) => {
       const username = c.req.param('username');
-      const actor = await prisma.actor.findUnique({
+      const actor = await db.actor.findUnique({
         where: { preferred_username: username },
       });
 
@@ -360,7 +360,7 @@ describe('Integration Test Pattern', () => {
         return c.json({ error: 'Not found' }, 404);
       }
 
-      const posts = await prisma.apObject.findMany({
+      const posts = await db.apObject.findMany({
         where: { attributed_to: actor.ap_id },
       });
 
@@ -382,8 +382,8 @@ describe('Integration Test Pattern', () => {
     expect(postsResponse.status).toBe(200);
     expect((postsResponse.body as { posts: unknown[] }).posts).toHaveLength(2);
 
-    // 5. Verify Prisma was called correctly
-    expect(prisma.actor.findUnique).toHaveBeenCalledWith({
+    // 5. Verify database was called correctly
+    expect(db.actor.findUnique).toHaveBeenCalledWith({
       where: { preferred_username: 'testuser' },
     });
   });

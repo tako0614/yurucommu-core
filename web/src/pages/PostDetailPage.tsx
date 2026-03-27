@@ -1,8 +1,8 @@
 ﻿import { useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { atom } from 'jotai';
-import { useAtom, useAtomValue } from 'jotai';
-import { actorAtom } from '../atoms/auth';
+import { useAtom } from 'jotai';
+import { useRequiredActor } from '../hooks/useRequiredActor';
 import { Post, MediaAttachment } from '../types';
 import { fetchPost, fetchReplies, createPost, likePost, unlikePost, deletePost, bookmarkPost, unbookmarkPost } from '../lib/api';
 import { useI18n } from '../lib/i18n';
@@ -33,7 +33,7 @@ const TrashIcon = () => (
 );
 
 export function PostDetailPage() {
-  const actor = useAtomValue(actorAtom)!;
+  const actor = useRequiredActor();
   const { postId } = useParams<{ postId: string }>();
   const navigate = useNavigate();
   const { t } = useI18n();

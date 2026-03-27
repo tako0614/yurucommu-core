@@ -1,8 +1,8 @@
 ﻿import { useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { atom } from 'jotai';
-import { useAtom, useAtomValue } from 'jotai';
-import { actorAtom } from '../atoms/auth';
+import { useAtom } from 'jotai';
+import { useRequiredActor } from '../hooks/useRequiredActor';
 import {
   CommunityDetail,
   CommunityMessage,
@@ -110,7 +110,7 @@ const communityChat_showMembersAtom = atom(false);
 const communityChat_errorMessageAtom = atom<string | null>(null);
 
 export function CommunityChatPage() {
-  const actor = useAtomValue(actorAtom)!;
+  const actor = useRequiredActor();
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
   const { t } = useI18n();
