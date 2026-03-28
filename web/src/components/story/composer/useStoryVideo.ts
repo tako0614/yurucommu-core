@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { BackgroundFill, BackgroundLayer, StoryCanvas } from '../../../lib/storyCanvas';
+import type { BackgroundFill, BackgroundLayer, StoryCanvas } from '../../../lib/story-canvas';
 import { getVideoDuration, initFFmpeg, isVideoFile } from '../../../lib/ffmpeg';
 
 interface UseStoryVideoOptions {

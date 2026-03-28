@@ -5,8 +5,8 @@
  * (brightness, contrast, saturation), and opacity.
  */
 
-import { FILTER_PRESETS, MediaLayer } from '../../lib/storyCanvas';
-import { TrashIcon, LayerUpIcon, LayerDownIcon } from './tool-panel-icons';
+import { FILTER_PRESETS, MediaLayer } from '../../lib/story-canvas';
+import { TrashIcon, LayerUpIcon, LayerDownIcon } from './ToolPanelIcons';
 
 interface MediaPanelProps {
   layer: MediaLayer;

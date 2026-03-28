@@ -1,6 +1,6 @@
 ﻿import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import baseRoutes from './communities/base';
+import baseRoutes from './communities/routes';
 import { registerMembershipInviteRoutes } from './communities/membership-invites';
 import { registerMembershipJoinRoutes } from './communities/membership-join';
 import { registerMembershipMemberRoutes } from './communities/membership-members';

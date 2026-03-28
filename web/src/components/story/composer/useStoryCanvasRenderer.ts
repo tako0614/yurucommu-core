@@ -1,7 +1,7 @@
 import { useEffect, type RefObject } from 'react';
 import type { SnapGuide } from '../../../hooks/useCanvasInteraction';
-import type { Layer, StoryCanvas } from '../../../lib/storyCanvas';
-import { CANVAS_HEIGHT, CANVAS_WIDTH } from '../../../lib/storyCanvas';
+import type { Layer, StoryCanvas } from '../../../lib/story-canvas';
+import { CANVAS_HEIGHT, CANVAS_WIDTH } from '../../../lib/story-canvas';
 
 interface StoryCanvasRendererOptions {
   storyCanvas: StoryCanvas | null;

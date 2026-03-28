@@ -4,8 +4,8 @@
  * Canvas-first rendering for WYSIWYG story editing.
  * Single source of truth for both preview and export.
  *
- * Drawing logic is in storyCanvas-drawing.ts
- * Transform/hit-test logic is in storyCanvas-transforms.ts
+ * Drawing logic is in story-canvas-drawing.ts
+ * Transform/hit-test logic is in story-canvas-transforms.ts
  */
 
 import {
@@ -14,11 +14,11 @@ import {
   drawText,
   drawSticker,
   drawDrawing,
-} from './storyCanvas-drawing';
+} from './story-canvas-drawing';
 import {
   hitTest as hitTestImpl,
   getLayerCorners as getLayerCornersImpl,
-} from './storyCanvas-transforms';
+} from './story-canvas-transforms';
 
 // Canvas dimensions (9:16 aspect ratio, Instagram story size)
 export const CANVAS_WIDTH = 1080;

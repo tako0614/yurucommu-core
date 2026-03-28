@@ -5,9 +5,9 @@
  * color, background, stroke, and shadow.
  */
 
-import { FONTS, TextLayer } from '../../lib/storyCanvas';
+import { FONTS, TextLayer } from '../../lib/story-canvas';
 import { ColorPicker } from './ColorPicker';
-import { TrashIcon, LayerUpIcon, LayerDownIcon } from './tool-panel-icons';
+import { TrashIcon, LayerUpIcon, LayerDownIcon } from './ToolPanelIcons';
 
 interface TextPanelProps {
   layer: TextLayer;

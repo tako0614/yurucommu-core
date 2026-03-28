@@ -2,7 +2,7 @@
 // v2: 1 Story = 1 Media (Instagram style)
 import { Hono } from 'hono';
 import type { Env, Variables } from '../types';
-import baseRoutes from './stories/base';
+import baseRoutes from './stories/routes';
 import interactionRoutes from './stories/interactions';
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();

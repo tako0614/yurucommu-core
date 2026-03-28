@@ -6,7 +6,7 @@
  * No React dependencies.
  */
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, type Layer } from '../lib/storyCanvas';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, type Layer } from './story-canvas';
 
 // Snap guide types
 export interface SnapGuide {
