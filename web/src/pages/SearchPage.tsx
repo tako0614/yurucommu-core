@@ -79,8 +79,8 @@ export function SearchPage() {
     setSearchUsersResult([]);
     setSearchPostsResult([]);
     fetchTrendingHashtags(10).catch(() => []).then(setTrendingHashtags);
-    fetchCommunities().then(setCommunities).catch(() => {});
-    fetchFollowing(actor.ap_id).then(setFollowing).catch(() => {});
+    fetchCommunities().then(setCommunities).catch((e) => console.error('Failed to fetch communities', e));
+    fetchFollowing(actor.ap_id).then(setFollowing).catch((e) => console.error('Failed to fetch following', e));
   }, [actor.ap_id]);
 
   // Handle search query parameter from URL
