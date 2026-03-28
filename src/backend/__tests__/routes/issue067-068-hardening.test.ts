@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 import type { Env, Variables } from '../../types';
 import followRoutes from '../../routes/follow';
-import postRoutes from '../../routes/posts/base';
+import postRoutes from '../../routes/posts/routes';
 import dmConversationsRoutes from '../../routes/dm/conversations';
 import { registerMembershipMemberRoutes } from '../../routes/communities/membership-members';
 

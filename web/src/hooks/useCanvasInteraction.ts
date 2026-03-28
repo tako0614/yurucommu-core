@@ -22,14 +22,14 @@ import {
   Layer,
   DrawingLayer,
   DrawingPath,
-} from '../lib/storyCanvas';
+} from '../lib/story-canvas';
 import {
   type SnapGuide,
   displayToCanvas as displayToCanvasImpl,
   calculateSnapGuides as calculateSnapGuidesImpl,
   applySnap as applySnapImpl,
   getTouchInfo,
-} from './canvas-math';
+} from '../lib/canvas-math';
 
 export type { SnapGuide };
 export type InteractionMode = 'select' | 'draw';

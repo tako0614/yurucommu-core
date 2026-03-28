@@ -9,7 +9,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { FONTS } from '../../lib/storyCanvas';
+import { FONTS } from '../../lib/story-canvas';
 
 // Text style presets (Instagram-like A, A, A buttons)
 const TEXT_STYLES = [

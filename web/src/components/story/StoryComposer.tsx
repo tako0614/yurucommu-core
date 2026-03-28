@@ -13,7 +13,7 @@ import {
   type TextLayer,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
-} from '../../lib/storyCanvas';
+} from '../../lib/story-canvas';
 import {
   exportCanvasWithVideo,
   FFmpegError,

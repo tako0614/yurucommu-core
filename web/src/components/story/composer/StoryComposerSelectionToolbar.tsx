@@ -1,4 +1,4 @@
-import type { Layer } from '../../../lib/storyCanvas';
+import type { Layer } from '../../../lib/story-canvas';
 
 interface StoryComposerSelectionToolbarProps {
   selectedLayer: Layer | null;
