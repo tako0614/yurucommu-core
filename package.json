@@ -1,7 +1,7 @@
 {
   "name": "@takos/yurucommu",
   "version": "1.0.0",
-  "private": false,
+  "private": true,
   "packageManager": "pnpm@10.32.1",
   "license": "AGPL-3.0-only",
   "type": "module",
