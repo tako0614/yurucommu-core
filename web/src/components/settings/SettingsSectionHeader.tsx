@@ -1,4 +1,4 @@
-﻿import { BackIcon } from './SettingsIcons';
+﻿import { BackIcon } from './SettingsIcons.tsx';
 
 interface SettingsSectionHeaderProps {
   title: string;

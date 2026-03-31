@@ -5,7 +5,7 @@
  * as Cloudflare Workers KV.
  */
 
-import { drainStream } from './node-modules';
+import { drainStream } from './node-modules.ts';
 
 /**
  * KVNamespace-compatible in-memory implementation

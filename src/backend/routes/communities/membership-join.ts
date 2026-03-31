@@ -1,12 +1,12 @@
 import type { Context, Hono } from 'hono';
 import { eq, and, or, gt, sql, isNull, count } from 'drizzle-orm';
-import { communities, communityMembers, communityJoinRequests, communityInvites } from '../../../db';
-import type { Env, Variables } from '../../types';
+import { communities, communityMembers, communityJoinRequests, communityInvites } from '../../../db/index.ts';
+import type { Env, Variables } from '../../types.ts';
 import {
   fetchCommunityDetails,
   memberWhere,
-} from './membership-shared';
-import { isUniqueConstraintError } from '../../lib/parse-helpers';
+} from './membership-shared.ts';
+import { isUniqueConstraintError } from '../../lib/parse-helpers.ts';
 
 export function registerMembershipJoinRoutes(communitiesRouter: Hono<{ Bindings: Env; Variables: Variables }>) {
   // POST /api/communities/:identifier/join - Join a community

@@ -2,8 +2,8 @@
 import { useParams } from 'react-router-dom';
 import { atom } from 'jotai';
 import { useAtom } from 'jotai';
-import { useRequiredActor } from '../hooks/useRequiredActor';
-import { Actor, Post } from '../types';
+import { useRequiredActor } from '../hooks/useRequiredActor.ts';
+import { Actor, Post } from '../types/index.ts';
 import {
   fetchActor,
   fetchFollowers,
@@ -17,14 +17,14 @@ import {
   fetchAccounts,
   switchAccount,
   AccountInfo,
-} from '../lib/api';
-import { useI18n } from '../lib/i18n';
-import { InlineErrorBanner } from '../components/InlineErrorBanner';
-import { ProfileHeader } from '../components/profile/ProfileHeader';
-import { ProfileSummary } from '../components/profile/ProfileSummary';
-import { ProfilePostsSection } from '../components/profile/ProfilePostsSection';
-import { ProfileEditModal } from '../components/profile/ProfileEditModal';
-import { ProfileFollowModal } from '../components/profile/ProfileFollowModal';
+} from '../lib/api.ts';
+import { useI18n } from '../lib/i18n.tsx';
+import { InlineErrorBanner } from '../components/InlineErrorBanner.tsx';
+import { ProfileHeader } from '../components/profile/ProfileHeader.tsx';
+import { ProfileSummary } from '../components/profile/ProfileSummary.tsx';
+import { ProfilePostsSection } from '../components/profile/ProfilePostsSection.tsx';
+import { ProfileEditModal } from '../components/profile/ProfileEditModal.tsx';
+import { ProfileFollowModal } from '../components/profile/ProfileFollowModal.tsx';
 
 // Atoms defined at module level
 const profile_errorAtom = atom<string | null>(null);

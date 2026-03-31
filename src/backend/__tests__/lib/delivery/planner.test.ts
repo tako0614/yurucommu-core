@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import type { Database } from '../../../../db';
-import { planEndpointsFromActorCache } from '../../../lib/delivery/planner';
-import { DELIVERY_ENDPOINT_CACHE_TTL_MS } from '../../../lib/delivery/transformers';
+import { assertEquals } from 'jsr:@std/assert';
+import { stub } from 'jsr:@std/testing/mock';
+import type { Database } from '../../../../db/index.ts';
+import { planEndpointsFromActorCache } from '../../../lib/delivery/planner.ts';
+import { DELIVERY_ENDPOINT_CACHE_TTL_MS } from '../../../lib/delivery/transformers.ts';
 
 /**
  * Extract bound values from a drizzle inArray() condition.
@@ -28,17 +29,13 @@ type ActorCacheRow = {
 
 function createMockPlannerDb(rows: ActorCacheRow[]) {
   return {
-    select: vi.fn((_fields?: unknown) => ({
+    select: (_fields?: unknown) => ({
       from: (_table: unknown) => ({
         where: (...whereArgs: unknown[]) => {
-          // The planner calls: db.select({...}).from(actorCache).where(inArray(..., apIds))
-          // which returns a promise resolving to an array of rows.
-          // Extract the requested apIds from the inArray condition and filter rows.
           const requestedIds = extractValuesFromInArray(whereArgs[0]);
           const filtered = requestedIds
             ? rows.filter((r) => requestedIds.includes(r.apId))
             : rows;
-          // In Drizzle, the chain without .get() is thenable and resolves to an array
           const result: Promise<ActorCacheRow[]> & { get?: () => Promise<ActorCacheRow | undefined> } =
             Object.assign(Promise.resolve(filtered), {
               get: () => Promise.resolve(filtered[0] ?? undefined),
@@ -46,18 +43,14 @@ function createMockPlannerDb(rows: ActorCacheRow[]) {
           return result;
         },
       }),
-    })),
+    }),
   };
 }
 
-describe('delivery/planner', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('aggregates by sharedInbox and prefers sharedInbox', async () => {
-    const nowMs = Date.now();
-    vi.spyOn(Date, 'now').mockReturnValue(nowMs);
+Deno.test('delivery/planner - aggregates by sharedInbox and prefers sharedInbox', async () => {
+  const nowMs = Date.now();
+  const dateNowStub = stub(Date, 'now', () => nowMs);
+  try {
     const nowIso = new Date(nowMs).toISOString();
 
     const db = createMockPlannerDb([
@@ -87,18 +80,22 @@ describe('delivery/planner', () => {
       'https://b.example/ap/users/u3',
     ]);
 
-    expect(res.totalRecipients).toBe(3);
-    expect(res.sharedInboxRecipients).toBe(2);
-    expect(res.unknownRecipients).toEqual([]);
+    assertEquals(res.totalRecipients, 3);
+    assertEquals(res.sharedInboxRecipients, 2);
+    assertEquals(res.unknownRecipients, []);
 
     const byEndpoint = new Map(res.groups.map((g) => [g.endpoint, g.recipientCount]));
-    expect(byEndpoint.get('https://a.example/shared')).toBe(2);
-    expect(byEndpoint.get('https://b.example/inbox')).toBe(1);
-  });
+    assertEquals(byEndpoint.get('https://a.example/shared'), 2);
+    assertEquals(byEndpoint.get('https://b.example/inbox'), 1);
+  } finally {
+    dateNowStub.restore();
+  }
+});
 
-  it('marks stale and missing recipients as unknown', async () => {
-    const nowMs = Date.now();
-    vi.spyOn(Date, 'now').mockReturnValue(nowMs);
+Deno.test('delivery/planner - marks stale and missing recipients as unknown', async () => {
+  const nowMs = Date.now();
+  const dateNowStub = stub(Date, 'now', () => nowMs);
+  try {
     const staleIso = new Date(nowMs - DELIVERY_ENDPOINT_CACHE_TTL_MS - 1000).toISOString();
 
     const db = createMockPlannerDb([
@@ -115,10 +112,13 @@ describe('delivery/planner', () => {
       'https://missing.example/ap/users/u2',
     ]);
 
-    expect(res.groups).toEqual([]);
-    expect(res.totalRecipients).toBe(2);
-    expect(res.unknownRecipients.sort()).toEqual(
+    assertEquals(res.groups, []);
+    assertEquals(res.totalRecipients, 2);
+    assertEquals(
+      res.unknownRecipients.sort(),
       ['https://a.example/ap/users/u1', 'https://missing.example/ap/users/u2'].sort()
     );
-  });
+  } finally {
+    dateNowStub.restore();
+  }
 });

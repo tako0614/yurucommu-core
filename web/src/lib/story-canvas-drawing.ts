@@ -12,8 +12,8 @@ import type {
   StickerLayer,
   DrawingLayer,
   ImageFilter,
-} from './story-canvas';
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from './story-canvas';
+} from './story-canvas.ts';
+import { CANVAS_WIDTH, CANVAS_HEIGHT } from './story-canvas.ts';
 
 // ---------------------------------------------------------------------------
 // Filter string builder

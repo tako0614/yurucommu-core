@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchUnreadCount } from '../lib/api';
+import { fetchUnreadCount } from '../lib/api.ts';
 
 export function useUnreadCount(pollIntervalMs = 30000) {
   const [count, setCount] = useState(0);

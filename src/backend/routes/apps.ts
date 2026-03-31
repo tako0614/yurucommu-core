@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
-import type { Env, Variables } from '../types';
-import { requireBearerAuth } from '../middleware/bearer-auth';
-import { rateLimit, RateLimitConfigs } from '../middleware/rate-limit';
+import type { Env, Variables } from '../types.ts';
+import { requireBearerAuth } from '../middleware/bearer-auth.ts';
+import { rateLimit, RateLimitConfigs } from '../middleware/rate-limit.ts';
 
 type AppEnv = { Bindings: Env; Variables: Variables };
 

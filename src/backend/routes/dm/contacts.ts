@@ -2,8 +2,8 @@
 
 import { Hono } from 'hono';
 import { eq, and, ne, desc, like, inArray, notInArray, count, sql } from 'drizzle-orm';
-import { objects, dmReadStatus, dmArchivedConversations, communityMembers, communities } from '../../../db';
-import { formatUsername } from '../../federation-helpers';
+import { objects, dmReadStatus, dmArchivedConversations, communityMembers, communities } from '../../../db/index.ts';
+import { formatUsername } from '../../federation-helpers.ts';
 import {
   type HonoEnv,
   buildActorInfoMap,
@@ -13,7 +13,7 @@ import {
   uniqueValues,
   groupConversations,
   findRepliedConversations,
-} from './conversations-helpers';
+} from './conversations-helpers.ts';
 
 const contacts = new Hono<HonoEnv>();
 

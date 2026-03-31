@@ -6,9 +6,9 @@
  */
 
 import { eq, and, desc, isNotNull } from 'drizzle-orm';
-import { actors, objects, inbox, activities, objectRecipients } from '../../../db';
-import { activityApId, generateId, objectApId, safeJsonParse } from '../../federation-helpers';
-import { getConversationId } from '../dm/query-helpers';
+import { actors, objects, inbox, activities, objectRecipients } from '../../../db/index.ts';
+import { activityApId, generateId, objectApId, safeJsonParse } from '../../federation-helpers.ts';
+import { getConversationId } from '../dm/query-helpers.ts';
 import {
   toolLimit,
   requireString,
@@ -17,8 +17,8 @@ import {
   errNotFound,
   ok,
   resolveDmPartner,
-} from '../takos-tools-response';
-import type { ToolContext, Input } from './types';
+} from '../takos-tools-response.ts';
+import type { ToolContext, Input } from './types.ts';
 
 export async function handleSendDm(c: ToolContext, input: Input, actor: { ap_id: string } | null) {
   if (!actor) return c.json(errAuth(), 401);

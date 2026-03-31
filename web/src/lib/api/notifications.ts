@@ -1,6 +1,6 @@
-import type { Notification } from '../../types';
-import { normalizeNotification } from './normalize';
-import { apiFetch, apiPost, assertOk } from './fetch';
+import type { Notification } from '../../types/index.ts';
+import { normalizeNotification } from './normalize.ts';
+import { apiFetch, apiPost, assertOk } from './fetch.ts';
 
 export async function fetchNotifications(options?: { limit?: number; type?: string }): Promise<Notification[]> {
   const params = new URLSearchParams();

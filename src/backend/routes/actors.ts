@@ -5,10 +5,10 @@ import {
   actors, actorCache, objects, follows, likes, bookmarks, announces,
   blocks, mutes, sessions, activities, inbox, communityMembers, communities,
   objectRecipients, storyVotes, storyViews, notDeleted,
-} from '../../db';
-import type { Env, Variables } from '../types';
-import { formatUsername, parseLimit, parseOffset, safeJsonParse } from '../federation-helpers';
-import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
+} from '../../db/index.ts';
+import type { Env, Variables } from '../types.ts';
+import { formatUsername, parseLimit, parseOffset, safeJsonParse } from '../federation-helpers.ts';
+import { withCache, CacheTTL, CacheTags } from '../middleware/cache.ts';
 import {
   isValidHttpUrl,
   loadActorInfoMap,
@@ -24,7 +24,7 @@ import {
   MAX_PROFILE_NAME_LENGTH,
   MAX_PROFILE_SUMMARY_LENGTH,
   MAX_PROFILE_URL_LENGTH,
-} from './actors-helpers';
+} from './actors-helpers.ts';
 
 const actorsRoute = new Hono<{ Bindings: Env; Variables: Variables }>();
 

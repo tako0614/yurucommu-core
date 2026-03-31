@@ -1,10 +1,10 @@
 ﻿import { Link } from 'react-router-dom';
-import type { Post } from '../../types';
-import { formatRelativeTime } from '../../lib/datetime';
-import { UserAvatar } from '../UserAvatar';
-import { PostContent } from '../PostContent';
-import { HeartIcon, ReplyIcon } from '../icons/SocialIcons';
-import type { Translate } from '../../lib/i18n';
+import type { Post } from '../../types/index.ts';
+import { formatRelativeTime } from '../../lib/datetime.ts';
+import { UserAvatar } from '../UserAvatar.tsx';
+import { PostContent } from '../PostContent.tsx';
+import { HeartIcon, ReplyIcon } from '../icons/SocialIcons.tsx';
+import type { Translate } from '../../lib/i18n.tsx';
 
 type ProfileTab = 'posts' | 'likes';
 

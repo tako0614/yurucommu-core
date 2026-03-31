@@ -1,5 +1,5 @@
-﻿import { DMContact } from '../../lib/api';
-import { formatConversationListTime } from '../../lib/datetime';
+﻿import { DMContact } from '../../lib/api.ts';
+import { formatConversationListTime } from '../../lib/datetime.ts';
 
 interface DMContactItemProps {
   contact: DMContact;

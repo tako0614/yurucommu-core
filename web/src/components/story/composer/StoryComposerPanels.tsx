@@ -1,4 +1,4 @@
-import { DrawingPanel, StickerPanel } from '../ToolPanel';
+import { DrawingPanel, StickerPanel } from '../ToolPanel.tsx';
 
 interface StoryComposerStickerPanelProps {
   open: boolean;

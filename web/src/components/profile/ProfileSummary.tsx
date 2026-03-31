@@ -1,8 +1,8 @@
-﻿import type { Actor } from '../../types';
-import { formatMonthYear } from '../../lib/datetime';
-import { UserAvatar } from '../UserAvatar';
-import { CalendarIcon, MoreIcon } from './ProfileIcons';
-import type { Translate } from '../../lib/i18n';
+﻿import type { Actor } from '../../types/index.ts';
+import { formatMonthYear } from '../../lib/datetime.ts';
+import { UserAvatar } from '../UserAvatar.tsx';
+import { CalendarIcon, MoreIcon } from './ProfileIcons.tsx';
+import type { Translate } from '../../lib/i18n.tsx';
 
 type FollowModalType = 'followers' | 'following';
 

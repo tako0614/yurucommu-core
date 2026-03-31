@@ -1,7 +1,7 @@
 import type { Context, Next } from 'hono';
 
-import { getClientIP } from '../lib/client-ip';
-import type { Env, Variables } from '../types';
+import { getClientIP } from '../lib/client-ip.ts';
+import type { Env, Variables } from '../types.ts';
 
 interface RateLimitEntry {
   count: number;

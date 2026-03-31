@@ -2,14 +2,14 @@
 
 import { Hono } from 'hono';
 import { eq, and, desc, like, inArray } from 'drizzle-orm';
-import { objects, objectRecipients, blocks } from '../../../db';
-import { getConversationId } from './query-helpers';
+import { objects, objectRecipients, blocks } from '../../../db/index.ts';
+import { getConversationId } from './query-helpers.ts';
 import {
   type HonoEnv,
   buildActorInfoMap,
   formatActorProfile,
   findRepliedConversations,
-} from './conversations-helpers';
+} from './conversations-helpers.ts';
 
 const requests = new Hono<HonoEnv>();
 

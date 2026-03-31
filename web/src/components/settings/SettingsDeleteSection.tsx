@@ -1,5 +1,5 @@
-﻿import type { Actor } from '../../types';
-import { SettingsSectionHeader } from './SettingsSectionHeader';
+﻿import type { Actor } from '../../types/index.ts';
+import { SettingsSectionHeader } from './SettingsSectionHeader.tsx';
 
 interface SettingsDeleteSectionProps {
   actor: Actor;

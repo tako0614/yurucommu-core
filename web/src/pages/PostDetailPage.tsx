@@ -2,15 +2,15 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { atom } from 'jotai';
 import { useAtom } from 'jotai';
-import { useRequiredActor } from '../hooks/useRequiredActor';
-import { Post, MediaAttachment } from '../types';
-import { fetchPost, fetchReplies, createPost, likePost, unlikePost, deletePost, bookmarkPost, unbookmarkPost } from '../lib/api';
-import { useI18n } from '../lib/i18n';
-import { formatDateTime } from '../lib/datetime';
-import { UserAvatar } from '../components/UserAvatar';
-import { PostContent } from '../components/PostContent';
-import { HeartIcon, ReplyIcon, BookmarkIcon } from '../components/icons/SocialIcons';
-import { InlineErrorBanner } from '../components/InlineErrorBanner';
+import { useRequiredActor } from '../hooks/useRequiredActor.ts';
+import { Post, MediaAttachment } from '../types/index.ts';
+import { fetchPost, fetchReplies, createPost, likePost, unlikePost, deletePost, bookmarkPost, unbookmarkPost } from '../lib/api.ts';
+import { useI18n } from '../lib/i18n.tsx';
+import { formatDateTime } from '../lib/datetime.ts';
+import { UserAvatar } from '../components/UserAvatar.tsx';
+import { PostContent } from '../components/PostContent.tsx';
+import { HeartIcon, ReplyIcon, BookmarkIcon } from '../components/icons/SocialIcons.tsx';
+import { InlineErrorBanner } from '../components/InlineErrorBanner.tsx';
 
 // Atoms defined at module level
 const postDetail_errorAtom = atom<string | null>(null);

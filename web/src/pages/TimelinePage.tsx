@@ -1,19 +1,19 @@
 import { lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useRequiredActor } from '../hooks/useRequiredActor';
-import { StoryBar } from '../components/story/StoryBar';
-import { LoadingSpinner } from '../components/LoadingSpinner';
+import { useRequiredActor } from '../hooks/useRequiredActor.ts';
+import { StoryBar } from '../components/story/StoryBar.tsx';
+import { LoadingSpinner } from '../components/LoadingSpinner.tsx';
 
 // Lazy load heavy components
-const StoryViewer = lazy(() => import('../components/story/StoryViewer'));
-const StoryComposer = lazy(() => import('../components/story/StoryComposer'));
-import { InlineErrorBanner } from '../components/InlineErrorBanner';
-import { TimelineHeader } from '../components/timeline/TimelineHeader';
-import { TimelineMobileMenu } from '../components/timeline/TimelineMobileMenu';
-import { TimelinePostItem } from '../components/timeline/TimelinePostItem';
-import { TimelinePostModal } from '../components/timeline/TimelinePostModal';
-import { PluginSlot } from '../components/PluginSlot';
-import { useTimelineState } from './useTimelineState';
+const StoryViewer = lazy(() => import('../components/story/StoryViewer.tsx'));
+const StoryComposer = lazy(() => import('../components/story/StoryComposer.tsx'));
+import { InlineErrorBanner } from '../components/InlineErrorBanner.tsx';
+import { TimelineHeader } from '../components/timeline/TimelineHeader.tsx';
+import { TimelineMobileMenu } from '../components/timeline/TimelineMobileMenu.tsx';
+import { TimelinePostItem } from '../components/timeline/TimelinePostItem.tsx';
+import { TimelinePostModal } from '../components/timeline/TimelinePostModal.tsx';
+import { PluginSlot } from '../components/PluginSlot.tsx';
+import { useTimelineState } from './useTimelineState.ts';
 
 export function TimelinePage() {
   const actor = useRequiredActor();

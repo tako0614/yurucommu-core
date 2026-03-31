@@ -18,7 +18,7 @@ import type {
   ListObjectsResult,
   ObjectMetadata,
   RuntimeEnv,
-} from './types';
+} from './types.ts';
 
 // Dynamic imports for Node.js modules (only loaded when needed)
 import type BetterSqlite3 from 'better-sqlite3';

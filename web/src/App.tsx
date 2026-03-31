@@ -2,26 +2,26 @@ import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Provider } from 'jotai';
 import { useAtomValue } from 'jotai';
-import { useAuth } from './hooks/useAuth';
-import { tAtom } from './atoms/i18n';
-import { actorAtom } from './atoms/auth';
-import { LoginForm } from './components/LoginForm';
-import { AppLayout } from './components/layout';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { LoadingSpinner } from './components/LoadingSpinner';
+import { useAuth } from './hooks/useAuth.ts';
+import { tAtom } from './atoms/i18n.ts';
+import { actorAtom } from './atoms/auth.ts';
+import { LoginForm } from './components/LoginForm.tsx';
+import { AppLayout } from './components/layout/index.ts';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
+import { LoadingSpinner } from './components/LoadingSpinner.tsx';
 
 // Lazy load page components for code splitting
-const TimelinePage = lazy(() => import('./pages/TimelinePage'));
-const CommunityChatPage = lazy(() => import('./pages/CommunityChatPage'));
-const DMPage = lazy(() => import('./pages/DMPage'));
-const ProfilePage = lazy(() => import('./pages/ProfilePage'));
-const NotificationPage = lazy(() => import('./pages/NotificationPage'));
-const PostDetailPage = lazy(() => import('./pages/PostDetailPage'));
-const BookmarksPage = lazy(() => import('./pages/BookmarksPage'));
-const SettingsPage = lazy(() => import('./pages/SettingsPage'));
-const FriendsListPage = lazy(() => import('./pages/FriendsListPage'));
-const CommunityProfilePage = lazy(() => import('./pages/CommunityProfilePage'));
-const SearchPage = lazy(() => import('./pages/SearchPage'));
+const TimelinePage = lazy(() => import('./pages/TimelinePage.tsx'));
+const CommunityChatPage = lazy(() => import('./pages/CommunityChatPage.tsx'));
+const DMPage = lazy(() => import('./pages/DMPage.tsx'));
+const ProfilePage = lazy(() => import('./pages/ProfilePage.tsx'));
+const NotificationPage = lazy(() => import('./pages/NotificationPage.tsx'));
+const PostDetailPage = lazy(() => import('./pages/PostDetailPage.tsx'));
+const BookmarksPage = lazy(() => import('./pages/BookmarksPage.tsx'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage.tsx'));
+const FriendsListPage = lazy(() => import('./pages/FriendsListPage.tsx'));
+const CommunityProfilePage = lazy(() => import('./pages/CommunityProfilePage.tsx'));
+const SearchPage = lazy(() => import('./pages/SearchPage.tsx'));
 
 function AppContent() {
   const { actor, loading, loginError, login } = useAuth();

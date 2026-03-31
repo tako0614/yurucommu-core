@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { and, eq, like } from 'drizzle-orm';
-import type { Env, Variables } from '../types';
-import type { Database } from '../../db';
-import { objects, mediaUploads, follows } from '../../db';
-import { generateId, safeJsonParse } from '../federation-helpers';
+import type { Env, Variables } from '../types.ts';
+import type { Database } from '../../db/index.ts';
+import { objects, mediaUploads, follows } from '../../db/index.ts';
+import { generateId, safeJsonParse } from '../federation-helpers.ts';
 
 const media = new Hono<{ Bindings: Env; Variables: Variables }>();
 

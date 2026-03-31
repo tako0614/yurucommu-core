@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { useRequiredActor } from '../../hooks/useRequiredActor';
-import type { RecommendedUser } from '../../lib/api/recommendations';
-import { fetchRecommendedUsers, follow } from '../../lib/api';
-import { UserAvatar } from '../UserAvatar';
-import { PluginSlot } from '../PluginSlot';
+import { useRequiredActor } from '../../hooks/useRequiredActor.ts';
+import type { RecommendedUser } from '../../lib/api/recommendations.ts';
+import { fetchRecommendedUsers, follow } from '../../lib/api.ts';
+import { UserAvatar } from '../UserAvatar.tsx';
+import { PluginSlot } from '../PluginSlot.tsx';
 
 function RecommendedUserCard({
   user,

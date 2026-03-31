@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { Actor } from '../types';
-import { fetchActor, follow, searchRemote } from '../lib/api';
-import { UserAvatar } from './UserAvatar';
+import { Actor } from '../types/index.ts';
+import { fetchActor, follow, searchRemote } from '../lib/api.ts';
+import { UserAvatar } from './UserAvatar.tsx';
 
 interface QRCodeModalProps {
   actor: Actor;

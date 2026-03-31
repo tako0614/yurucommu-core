@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import type { Actor } from '../types';
+import type { Actor } from '../types/index.ts';
 
 export const YURUCOMMU_FRONTEND_PLUGIN_API_VERSION = 1 as const;
 

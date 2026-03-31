@@ -1,17 +1,17 @@
 import { eq, and, or, sql } from 'drizzle-orm';
-import { actors, objects, follows, likes, announces } from '../../../../db';
+import { actors, objects, follows, likes, announces } from '../../../../db/index.ts';
 import {
   activityApId,
   generateId,
-} from '../../../federation-helpers';
+} from '../../../federation-helpers.ts';
 import {
   type ActivityContext,
   type Activity,
   getActivityObjectId,
-} from '../inbox-types';
+} from '../inbox-types.ts';
 import {
   notifyLocalObjectOwner,
-} from './inbox-shared-helpers';
+} from './inbox-shared-helpers.ts';
 
 type ActorRow = typeof actors.$inferSelect;
 

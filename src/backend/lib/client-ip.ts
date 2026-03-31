@@ -1,5 +1,5 @@
 import type { Context } from 'hono';
-import type { Env, Variables } from '../types';
+import type { Env, Variables } from '../types.ts';
 
 const IPV4_PATTERN = /^(\d{1,3}\.){3}\d{1,3}$/;
 const IPV6_PATTERN = /^[0-9a-fA-F:]+$/;

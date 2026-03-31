@@ -2,11 +2,11 @@
 // v2: 1 Story = 1 Media (Instagram style)
 import { Hono } from 'hono';
 import { eq, and, gt, inArray, notInArray, desc, sql } from 'drizzle-orm';
-import type { Database } from '../../../db';
-import { actors, objects, follows, likes, storyViews, storyVotes, storyShares, activities } from '../../../db';
-import type { Env, Variables } from '../../types';
-import { generateId, objectApId, actorApId, formatUsername, activityApId } from '../../federation-helpers';
-import { storyToActivityPub } from '../../lib/activitypub-helpers';
+import type { Database } from '../../../db/index.ts';
+import { actors, objects, follows, likes, storyViews, storyVotes, storyShares, activities } from '../../../db/index.ts';
+import type { Env, Variables } from '../../types.ts';
+import { generateId, objectApId, actorApId, formatUsername, activityApId } from '../../federation-helpers.ts';
+import { storyToActivityPub } from '../../lib/activitypub-helpers.ts';
 import {
   cleanupExpiredStories,
   transformStoryData,
@@ -15,8 +15,8 @@ import {
   fetchBatchVotes,
   fetchActorCache,
   sumVotes,
-} from './query-helpers';
-import { enqueueFanoutToFollowers } from '../../lib/delivery/queue';
+} from './query-helpers.ts';
+import { enqueueFanoutToFollowers } from '../../lib/delivery/queue.ts';
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
 

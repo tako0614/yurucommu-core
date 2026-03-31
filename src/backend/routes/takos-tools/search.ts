@@ -7,7 +7,7 @@
 
 import { eq, and, or, desc, like } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
-import { actors, objects } from '../../../db';
+import { actors, objects } from '../../../db/index.ts';
 import {
   toolLimit,
   requireString,
@@ -16,8 +16,8 @@ import {
   ok,
   formatActorSummary,
   ACTOR_SUMMARY_COLUMNS,
-} from '../takos-tools-response';
-import type { ToolContext, Input } from './types';
+} from '../takos-tools-response.ts';
+import type { ToolContext, Input } from './types.ts';
 
 export function handleSearchUsers(c: ToolContext, input: Input, _actor: { ap_id: string } | null) {
   return searchUsers(c, input);

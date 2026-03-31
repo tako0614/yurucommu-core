@@ -4,8 +4,8 @@
  * Bun Cloudflare Compatibility Layer - R2 Bucket
  */
 
-import { mkdir, unlink, readdir, stat } from './utils';
-import { toUint8Array, readMetadata } from './utils';
+import { mkdir, unlink, readdir, stat } from './utils.ts';
+import { toUint8Array, readMetadata } from './utils.ts';
 
 /**
  * R2Bucket-compatible filesystem implementation for Bun

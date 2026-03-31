@@ -1,4 +1,4 @@
-import type { CommunityDetail } from '../../lib/api';
+import type { CommunityDetail } from '../../lib/api.ts';
 
 interface CommunityAboutPanelProps {
   community: CommunityDetail;

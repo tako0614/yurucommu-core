@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { useI18n } from '../../lib/i18n';
+import { useI18n } from '../../lib/i18n.tsx';
 
 // SVG Icons
 const HomeIcon = ({ active }: { active: boolean }) => (

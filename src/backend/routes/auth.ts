@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import type { Env, Variables } from '../types';
-import { actorApId, formatUsername } from '../federation-helpers';
-import { verifyPassword } from '../lib/crypto';
+import type { Env, Variables } from '../types.ts';
+import { actorApId, formatUsername } from '../federation-helpers.ts';
+import { verifyPassword } from '../lib/crypto.ts';
 import {
   getAuthConfig,
   getProvider,
   getClientCredentials,
   fetchUserInfo,
-} from '../lib/oauth-providers';
+} from '../lib/oauth-providers.ts';
 import {
   generateId as generateOAuthId,
   generateCodeVerifier,
@@ -17,15 +17,15 @@ import {
   saveOAuthState,
   getOAuthState,
   deleteOAuthState,
-} from '../lib/oauth-utils';
+} from '../lib/oauth-utils.ts';
 import {
   clearLoginLockout,
   getLoginLockoutStatus,
   recordFailedLoginAttempt,
-} from '../lib/auth-lockout';
-import { getClientIP } from '../lib/client-ip';
+} from '../lib/auth-lockout.ts';
+import { getClientIP } from '../lib/client-ip.ts';
 import { eq, or, asc } from 'drizzle-orm';
-import { actors, sessions } from '../../db';
+import { actors, sessions } from '../../db/index.ts';
 import {
   parseJsonObject,
   parseNonEmptyString,
@@ -37,7 +37,7 @@ import {
   lockoutErrorResponse,
   exchangeOAuthToken,
   findOrCreateOAuthActor,
-} from './auth-helpers';
+} from './auth-helpers.ts';
 
 const KNOWN_OAUTH_ERRORS = new Set([
   'access_denied', 'invalid_request', 'unauthorized_client',

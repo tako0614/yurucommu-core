@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { and, eq, or, like, desc, gt, inArray, count } from 'drizzle-orm';
-import type { Env, Variables } from '../types';
-import { formatUsername, isSafeRemoteUrl, normalizeRemoteDomain, parseLimit, parseOffset, fetchWithTimeout } from '../federation-helpers';
-import type { Database } from '../../db';
-import { actors, actorCache, objects, likes } from '../../db';
+import type { Env, Variables } from '../types.ts';
+import { formatUsername, isSafeRemoteUrl, normalizeRemoteDomain, parseLimit, parseOffset, fetchWithTimeout } from '../federation-helpers.ts';
+import type { Database } from '../../db/index.ts';
+import { actors, actorCache, objects, likes } from '../../db/index.ts';
 
 const search = new Hono<{ Bindings: Env; Variables: Variables }>();
 const REMOTE_FETCH_TIMEOUT_MS = 10000;

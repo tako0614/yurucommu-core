@@ -1,7 +1,7 @@
 ﻿import { useState, useCallback } from 'react';
-import { searchActors } from '../lib/api';
-import { UserAvatar } from './UserAvatar';
-import { Actor } from '../types';
+import { searchActors } from '../lib/api.ts';
+import { UserAvatar } from './UserAvatar.tsx';
+import { Actor } from '../types/index.ts';
 
 interface NewConversationModalProps {
   isOpen: boolean;

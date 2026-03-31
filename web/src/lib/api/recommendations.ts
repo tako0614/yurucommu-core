@@ -1,6 +1,6 @@
-import type { Actor } from '../../types';
-import { normalizeActor } from './normalize';
-import { apiFetch } from './fetch';
+import type { Actor } from '../../types/index.ts';
+import { normalizeActor } from './normalize.ts';
+import { apiFetch } from './fetch.ts';
 
 export interface RecommendedUser {
   ap_id: string;

@@ -1,6 +1,6 @@
-import type { DMConversation, DMMessage } from '../../types';
-import { normalizeActor } from './normalize';
-import { apiFetch, apiPost, assertOk } from './fetch';
+import type { DMConversation, DMMessage } from '../../types/index.ts';
+import { normalizeActor } from './normalize.ts';
+import { apiFetch, apiPost, assertOk } from './fetch.ts';
 
 // Contact types for the unified DM view
 export interface DMContact {

@@ -1,19 +1,19 @@
 import { eq, and, or, sql } from 'drizzle-orm';
-import { follows, activities, communities, objects, objectRecipients } from '../../../../db';
+import { follows, activities, communities, objects, objectRecipients } from '../../../../db/index.ts';
 import {
   activityApId,
   generateId,
   isLocal,
   objectApId,
-} from '../../../federation-helpers';
-import { enqueueDeliveryToActor } from '../../../lib/delivery/queue';
-import type { InstanceActorResult } from '../utils';
+} from '../../../federation-helpers.ts';
+import { enqueueDeliveryToActor } from '../../../lib/delivery/queue.ts';
+import type { InstanceActorResult } from '../utils.ts';
 import {
   type ActivityContext,
   type Activity,
   getActivityObject,
   getActivityObjectId,
-} from '../inbox-types';
+} from '../inbox-types.ts';
 
 const AS_CONTEXT = 'https://www.w3.org/ns/activitystreams';
 

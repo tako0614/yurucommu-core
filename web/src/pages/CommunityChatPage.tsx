@@ -2,7 +2,7 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { atom } from 'jotai';
 import { useAtom } from 'jotai';
-import { useRequiredActor } from '../hooks/useRequiredActor';
+import { useRequiredActor } from '../hooks/useRequiredActor.ts';
 import {
   CommunityDetail,
   CommunityMessage,
@@ -12,10 +12,10 @@ import {
   fetchCommunityMembers,
   sendCommunityMessage,
   leaveCommunity,
-} from '../lib/api';
-import { useI18n } from '../lib/i18n';
-import { formatChatDateHeader, formatTime } from '../lib/datetime';
-import { UserAvatar } from '../components/UserAvatar';
+} from '../lib/api.ts';
+import { useI18n } from '../lib/i18n.tsx';
+import { formatChatDateHeader, formatTime } from '../lib/datetime.ts';
+import { UserAvatar } from '../components/UserAvatar.tsx';
 
 const BackIcon = () => (
   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

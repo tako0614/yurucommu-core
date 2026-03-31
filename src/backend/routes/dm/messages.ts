@@ -4,12 +4,12 @@
 
 import { Hono } from 'hono';
 import { eq, and, lt, desc, like, inArray } from 'drizzle-orm';
-import type { Database } from '../../../db';
-import { actors, actorCache, objects, objectRecipients, activities, inbox as inboxTable } from '../../../db';
-import type { Env, Variables } from '../../types';
-import { generateId, objectApId, activityApId, formatUsername, isLocal, parseLimit, safeJsonParse } from '../../federation-helpers';
-import { MAX_DM_CONTENT_LENGTH, MAX_DM_PAGE_LIMIT, getConversationId } from './query-helpers';
-import { enqueueDeliveryToActor } from '../../lib/delivery/queue';
+import type { Database } from '../../../db/index.ts';
+import { actors, actorCache, objects, objectRecipients, activities, inbox as inboxTable } from '../../../db/index.ts';
+import type { Env, Variables } from '../../types.ts';
+import { generateId, objectApId, activityApId, formatUsername, isLocal, parseLimit, safeJsonParse } from '../../federation-helpers.ts';
+import { MAX_DM_CONTENT_LENGTH, MAX_DM_PAGE_LIMIT, getConversationId } from './query-helpers.ts';
+import { enqueueDeliveryToActor } from '../../lib/delivery/queue.ts';
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
 

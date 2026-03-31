@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
-import { useRequiredActor } from '../../hooks/useRequiredActor';
-import { useI18n } from '../../lib/i18n';
+import { useRequiredActor } from '../../hooks/useRequiredActor.ts';
+import { useI18n } from '../../lib/i18n.tsx';
 
 const HomeIcon = () => (
   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

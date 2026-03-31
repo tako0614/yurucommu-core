@@ -7,7 +7,7 @@ import {
   isAppError,
   logError,
   RateLimitError,
-} from '../lib/errors';
+} from '../lib/errors.ts';
 
 interface ErrorMiddlewareOptions {
   /** Custom error logger */

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { BackgroundFill, StoryCanvas } from '../../../lib/story-canvas';
+import type { BackgroundFill, StoryCanvas } from '../../../lib/story-canvas.ts';
 
 interface StoryBackgroundOptions {
   storyCanvas: StoryCanvas | null;

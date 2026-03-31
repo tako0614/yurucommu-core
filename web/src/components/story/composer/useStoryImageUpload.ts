@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback } from 'react';
-import type { StoryCanvas } from '../../../lib/story-canvas';
+import type { StoryCanvas } from '../../../lib/story-canvas.ts';
 
 // File size limit
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB

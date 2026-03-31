@@ -1,6 +1,6 @@
 import React, { type ComponentType } from 'react';
 import ReactDOM from 'react-dom/client';
-import DefaultApp from './App';
+import DefaultApp from './App.tsx';
 import {
   clearYurucommuFrontendPlugin,
   setYurucommuFrontendPlugins,
@@ -17,7 +17,7 @@ import {
   type LoginResult,
   type SlotName,
   type SlotEntry,
-} from './lib/plugin';
+} from './lib/plugin.ts';
 
 export type {
   FrontendPluginContextV1,

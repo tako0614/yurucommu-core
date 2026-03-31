@@ -2,8 +2,8 @@ import { useEffect, useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { atom } from 'jotai';
 import { useAtom } from 'jotai';
-import { useRequiredActor } from '../hooks/useRequiredActor';
-import { Actor, Post } from '../types';
+import { useRequiredActor } from '../hooks/useRequiredActor.ts';
+import { Actor, Post } from '../types/index.ts';
 import {
   CommunityDetail,
   fetchCommunities,
@@ -15,13 +15,13 @@ import {
   likePost,
   unlikePost,
   fetchFollowing,
-} from '../lib/api';
-import { useI18n } from '../lib/i18n';
-import { formatRelativeTime } from '../lib/datetime';
-import { UserAvatar } from '../components/UserAvatar';
-import { PostContent } from '../components/PostContent';
-import { InlineErrorBanner } from '../components/InlineErrorBanner';
-import { HeartIcon } from '../components/icons/SocialIcons';
+} from '../lib/api.ts';
+import { useI18n } from '../lib/i18n.tsx';
+import { formatRelativeTime } from '../lib/datetime.ts';
+import { UserAvatar } from '../components/UserAvatar.tsx';
+import { PostContent } from '../components/PostContent.tsx';
+import { InlineErrorBanner } from '../components/InlineErrorBanner.tsx';
+import { HeartIcon } from '../components/icons/SocialIcons.tsx';
 
 const REMOTE_ACTOR_QUERY_PATTERN = /^@?[^@\s]+@[^@\s]+$/;
 

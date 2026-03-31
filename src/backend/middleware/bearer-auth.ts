@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from 'hono';
-import type { Env, Variables } from '../types';
+import type { Env, Variables } from '../types.ts';
 
 export function requireBearerAuth(
   requiredScope: string,

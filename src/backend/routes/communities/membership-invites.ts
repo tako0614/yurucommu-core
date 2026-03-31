@@ -1,13 +1,13 @@
 import type { Context, Hono } from 'hono';
 import { eq, and, desc } from 'drizzle-orm';
-import { communityInvites } from '../../../db';
-import type { Env, Variables } from '../../types';
-import { generateId, formatUsername } from '../../federation-helpers';
+import { communityInvites } from '../../../db/index.ts';
+import type { Env, Variables } from '../../types.ts';
+import { generateId, formatUsername } from '../../federation-helpers.ts';
 import {
   batchLoadActorInfo,
   fetchCommunityId,
   requireManager,
-} from './membership-shared';
+} from './membership-shared.ts';
 
 export function registerMembershipInviteRoutes(communitiesRouter: Hono<{ Bindings: Env; Variables: Variables }>) {
   // GET /api/communities/:identifier/invites - List invites

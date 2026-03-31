@@ -1,15 +1,15 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { eq, and, asc, desc, lt } from 'drizzle-orm';
-import type { Env, Variables } from '../types';
-import { actors, communities, objects as objectsTable } from '../../db';
-import { notDeleted } from '../../db';
-import { actorApId, getDomain, parseLimit } from '../federation-helpers';
-import { INSTANCE_ACTOR_USERNAME, MAX_ROOM_STREAM_LIMIT, getInstanceActor, roomApId } from './activitypub/utils';
-import inboxRoutes from './activitypub/inbox';
-import outboxRoutes from './activitypub/outbox';
-import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
-import { communityWhere, resolveCommunityApId } from './communities/membership-shared';
+import type { Env, Variables } from '../types.ts';
+import { actors, communities, objects as objectsTable } from '../../db/index.ts';
+import { notDeleted } from '../../db/index.ts';
+import { actorApId, getDomain, parseLimit } from '../federation-helpers.ts';
+import { INSTANCE_ACTOR_USERNAME, MAX_ROOM_STREAM_LIMIT, getInstanceActor, roomApId } from './activitypub/utils.ts';
+import inboxRoutes from './activitypub/inbox.ts';
+import outboxRoutes from './activitypub/outbox.ts';
+import { withCache, CacheTTL, CacheTags } from '../middleware/cache.ts';
+import { communityWhere, resolveCommunityApId } from './communities/membership-shared.ts';
 
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 

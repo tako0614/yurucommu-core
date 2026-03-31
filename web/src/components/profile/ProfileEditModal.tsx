@@ -1,6 +1,6 @@
 ﻿import type { ChangeEvent } from 'react';
-import { CloseIcon } from './ProfileIcons';
-import type { Translate } from '../../lib/i18n';
+import { CloseIcon } from './ProfileIcons.tsx';
+import type { Translate } from '../../lib/i18n.tsx';
 
 interface ProfileEditModalProps {
   isOpen: boolean;

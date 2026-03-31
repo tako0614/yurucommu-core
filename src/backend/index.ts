@@ -1,31 +1,31 @@
 import { Hono } from 'hono';
-import type { Env, Variables } from './types';
-import { getDb } from '../db';
-import { extractActorFromSession } from './lib/session-actor';
+import type { Env, Variables } from './types.ts';
+import { getDb } from '../db/index.ts';
+import { extractActorFromSession } from './lib/session-actor.ts';
 
-import authRoutes from './routes/auth';
-import actorsRoutes from './routes/actors';
-import followRoutes from './routes/follow';
-import timelineRoutes from './routes/timeline';
-import postsRoutes from './routes/posts';
-import notificationsRoutes from './routes/notifications';
-import storiesRoutes from './routes/stories';
-import searchRoutes from './routes/search';
-import communitiesRoutes from './routes/communities';
-import dmRoutes from './routes/dm';
-import mediaRoutes from './routes/media';
-import activitypubRoutes from './routes/activitypub';
-import takosProxyRoutes from './routes/takos-proxy';
-import takosToolsRoutes from './routes/takos-tools';
-import recommendationsRoutes from './routes/recommendations';
-import { appsApiRoutes, appsServeRoutes } from './routes/apps';
+import authRoutes from './routes/auth.ts';
+import actorsRoutes from './routes/actors.ts';
+import followRoutes from './routes/follow.ts';
+import timelineRoutes from './routes/timeline.ts';
+import postsRoutes from './routes/posts.ts';
+import notificationsRoutes from './routes/notifications.ts';
+import storiesRoutes from './routes/stories.ts';
+import searchRoutes from './routes/search.ts';
+import communitiesRoutes from './routes/communities.ts';
+import dmRoutes from './routes/dm.ts';
+import mediaRoutes from './routes/media.ts';
+import activitypubRoutes from './routes/activitypub.ts';
+import takosProxyRoutes from './routes/takos-proxy.ts';
+import takosToolsRoutes from './routes/takos-tools.ts';
+import recommendationsRoutes from './routes/recommendations.ts';
+import { appsApiRoutes, appsServeRoutes } from './routes/apps.ts';
 
-import { rateLimit, RateLimitConfigs } from './middleware/rate-limit';
-import { csrfProtection } from './middleware/csrf';
-import { createErrorMiddleware } from './middleware/error-handler';
+import { rateLimit, RateLimitConfigs } from './middleware/rate-limit.ts';
+import { csrfProtection } from './middleware/csrf.ts';
+import { createErrorMiddleware } from './middleware/error-handler.ts';
 import type { MessageBatch } from '@cloudflare/workers-types';
-import type { DeliveryQueueMessageV1, DeliveryDlqMessageV1 } from './lib/delivery/types';
-import { handleDeliveryDlqBatch, handleDeliveryQueueBatch } from './lib/delivery/queue';
+import type { DeliveryQueueMessageV1, DeliveryDlqMessageV1 } from './lib/delivery/types.ts';
+import { handleDeliveryDlqBatch, handleDeliveryQueueBatch } from './lib/delivery/queue.ts';
 
 type YurucommuApp = Hono<{ Bindings: Env; Variables: Variables }>;
 

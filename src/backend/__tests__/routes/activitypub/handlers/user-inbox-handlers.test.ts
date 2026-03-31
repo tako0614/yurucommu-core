@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
-import { handleDelete, handleLike } from '../../../../routes/activitypub/handlers/user-inbox-handlers';
-import type { ActivityContext, Activity } from '../../../../routes/activitypub/inbox-types';
-import type { actors } from '../../../../../db';
+import { assertEquals, assertNotEquals } from 'jsr:@std/assert';
+import { spy, assertSpyCalls } from 'jsr:@std/testing/mock';
+import { handleDelete, handleLike } from '../../../../routes/activitypub/handlers/user-inbox-handlers.ts';
+import type { ActivityContext, Activity } from '../../../../routes/activitypub/inbox-types.ts';
+import type { actors } from '../../../../../db/index.ts';
 
 type ActorRow = typeof actors.$inferSelect;
 
@@ -30,52 +31,57 @@ function createMockDb(options: {
     deletes: [] as unknown[],
   };
 
+  const selectSpy = spy((...args: unknown[]) => {
+    callTracker.selects.push(args);
+    const result = selectResults[selectCallIndex] ?? undefined;
+    selectCallIndex++;
+    const chain = {
+      from: spy(() => ({
+        where: spy(() => ({
+          get: spy(() => Promise.resolve(result)),
+          limit: spy(() => ({
+            get: spy(() => Promise.resolve(result)),
+          })),
+        })),
+        get: spy(() => Promise.resolve(result)),
+      })),
+    };
+    return chain;
+  });
+
+  const insertSpy = spy((...args: unknown[]) => {
+    callTracker.inserts.push(args);
+    const returningGet = spy(() => Promise.resolve(insertReturningResult));
+    const returning = spy(() => ({ get: returningGet }));
+    const onConflictDoNothing = spy(() => ({
+      returning,
+      get: returningGet,
+    }));
+    const values = spy(() => ({
+      onConflictDoNothing,
+      returning,
+    }));
+    return { values };
+  });
+
+  const updateSpy = spy((...args: unknown[]) => {
+    callTracker.updates.push(args);
+    const where = spy(() => Promise.resolve(undefined));
+    const set = spy(() => ({ where }));
+    return { set };
+  });
+
+  const deleteSpy = spy((...args: unknown[]) => {
+    callTracker.deletes.push(args);
+    const where = spy(() => Promise.resolve(undefined));
+    return { where };
+  });
+
   const db = {
-    select: vi.fn((...args: unknown[]) => {
-      callTracker.selects.push(args);
-      const result = selectResults[selectCallIndex] ?? undefined;
-      selectCallIndex++;
-      const chain = {
-        from: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            get: vi.fn().mockResolvedValue(result),
-            limit: vi.fn().mockReturnValue({
-              get: vi.fn().mockResolvedValue(result),
-            }),
-          }),
-          get: vi.fn().mockResolvedValue(result),
-        }),
-      };
-      return chain;
-    }),
-
-    insert: vi.fn((...args: unknown[]) => {
-      callTracker.inserts.push(args);
-      const returningGet = vi.fn().mockResolvedValue(insertReturningResult);
-      const returning = vi.fn().mockReturnValue({ get: returningGet });
-      const onConflictDoNothing = vi.fn().mockReturnValue({
-        returning,
-        get: returningGet,
-      });
-      const values = vi.fn().mockReturnValue({
-        onConflictDoNothing,
-        returning,
-      });
-      return { values };
-    }),
-
-    update: vi.fn((...args: unknown[]) => {
-      callTracker.updates.push(args);
-      const where = vi.fn().mockResolvedValue(undefined);
-      const set = vi.fn().mockReturnValue({ where });
-      return { set };
-    }),
-
-    delete: vi.fn((...args: unknown[]) => {
-      callTracker.deletes.push(args);
-      const where = vi.fn().mockResolvedValue(undefined);
-      return { where };
-    }),
+    select: selectSpy,
+    insert: insertSpy,
+    update: updateSpy,
+    delete: deleteSpy,
   };
 
   return { db, callTracker };
@@ -93,107 +99,104 @@ function createMockContext(db: ReturnType<typeof createMockDb>['db']): ActivityC
   } as unknown as ActivityContext;
 }
 
-describe('userInboxHandlers hardening', () => {
-  it('handleLike writes like/count/inbox in a single transaction', async () => {
-    const actorApId = 'https://example.com/ap/users/alice';
-    const targetApId = 'https://example.com/ap/users/bob';
-    const objectApId = 'https://example.com/ap/objects/note-1';
+Deno.test('userInboxHandlers hardening - handleLike writes like/count/inbox in a single transaction', async () => {
+  const actorApId = 'https://example.com/ap/users/alice';
+  const targetApId = 'https://example.com/ap/users/bob';
+  const objectApId = 'https://example.com/ap/objects/note-1';
 
-    // select[0] = lookup liked object -> returns attributedTo (local target)
-    // insert[0] = insert like -> returns non-null (new like)
-    // update[0] = increment likeCount
-    // insert[1] = upsertActivityAndNotify -> insert activity (onConflictDoNothing)
-    // insert[2] = upsertActivityAndNotify -> insert inbox
-    const { db, callTracker } = createMockDb({
-      selectResults: [{ attributedTo: targetApId }],
-      insertReturningResult: { actorApId, objectApId, activityApId: 'like-1' },
-    });
-
-    const context = createMockContext(db);
-
-    const activity: Activity = {
-      id: 'https://example.com/ap/activities/like-1',
-      type: 'Like',
-      actor: actorApId,
-      object: objectApId,
-    };
-
-    await handleLike(
-      context,
-      activity,
-      {} as unknown as ActorRow,
-      actorApId,
-      'https://example.com'
-    );
-
-    // Verify select was called (lookup object)
-    expect(db.select).toHaveBeenCalled();
-    // Verify insert was called (like + activity + inbox)
-    expect(db.insert).toHaveBeenCalled();
-    // Verify update was called (likeCount)
-    expect(db.update).toHaveBeenCalled();
+  const { db, callTracker } = createMockDb({
+    selectResults: [{ attributedTo: targetApId }],
+    insertReturningResult: { actorApId, objectApId, activityApId: 'like-1' },
   });
 
-  it('handleLike treats unique conflicts as idempotent (no extra count update)', async () => {
-    // select[0] = lookup liked object -> returns attributedTo
-    // insert[0] = insert like -> returns null (duplicate, onConflictDoNothing returned nothing)
-    const { db } = createMockDb({
-      selectResults: [{ attributedTo: 'https://example.com/ap/users/bob' }],
-      insertReturningResult: undefined, // null = duplicate, so skip
-    });
+  const context = createMockContext(db);
 
-    const context = createMockContext(db);
+  const activity: Activity = {
+    id: 'https://example.com/ap/activities/like-1',
+    type: 'Like',
+    actor: actorApId,
+    object: objectApId,
+  };
 
-    const activity: Activity = {
-      id: 'https://example.com/ap/activities/like-2',
-      type: 'Like',
-      actor: 'https://example.com/ap/users/alice',
-      object: 'https://example.com/ap/objects/note-2',
-    };
+  await handleLike(
+    context,
+    activity,
+    {} as unknown as ActorRow,
+    actorApId,
+    'https://example.com'
+  );
 
-    await handleLike(
-      context,
-      activity,
-      {} as unknown as ActorRow,
-      'https://example.com/ap/users/alice',
-      'https://example.com'
-    );
-
-    // insert was called for like, but returned undefined (duplicate)
-    expect(db.insert).toHaveBeenCalledTimes(1);
-    // update should NOT have been called (no count increment for duplicate)
-    expect(db.update).not.toHaveBeenCalled();
-  });
-
-  it('handleDelete performs dependent deletes and counter update transactionally', async () => {
-    // select[0] = lookup object -> returns attributedTo, type, replyCount
-    const { db } = createMockDb({
-      selectResults: [{
-        attributedTo: 'https://example.com/ap/users/alice',
-        type: 'Note',
-        replyCount: 0,
-      }],
-    });
-
-    const context = createMockContext(db);
-
-    const activity: Activity = {
-      id: 'https://example.com/ap/activities/delete-1',
-      type: 'Delete',
-      actor: 'https://example.com/ap/users/alice',
-      object: 'https://example.com/ap/objects/note-3',
-    };
-
-    await handleDelete(
-      context,
-      activity
-    );
-
-    // Verify select was called (lookup object)
-    expect(db.select).toHaveBeenCalledTimes(1);
-    // Verify delete was called (likes + objects)
-    expect(db.delete).toHaveBeenCalledTimes(2);
-    // Verify update was called (actor postCount decrement)
-    expect(db.update).toHaveBeenCalledTimes(1);
-  });
+  // Verify select was called (lookup object)
+  assertSpyCalls(db.select, 1);
+  // Verify insert was called (like + activity + inbox)
+  assert_called(db.insert);
+  // Verify update was called (likeCount)
+  assert_called(db.update);
 });
+
+Deno.test('userInboxHandlers hardening - handleLike treats unique conflicts as idempotent', async () => {
+  const { db } = createMockDb({
+    selectResults: [{ attributedTo: 'https://example.com/ap/users/bob' }],
+    insertReturningResult: undefined,
+  });
+
+  const context = createMockContext(db);
+
+  const activity: Activity = {
+    id: 'https://example.com/ap/activities/like-2',
+    type: 'Like',
+    actor: 'https://example.com/ap/users/alice',
+    object: 'https://example.com/ap/objects/note-2',
+  };
+
+  await handleLike(
+    context,
+    activity,
+    {} as unknown as ActorRow,
+    'https://example.com/ap/users/alice',
+    'https://example.com'
+  );
+
+  // insert was called for like, but returned undefined (duplicate)
+  assertSpyCalls(db.insert, 1);
+  // update should NOT have been called (no count increment for duplicate)
+  assertSpyCalls(db.update, 0);
+});
+
+Deno.test('userInboxHandlers hardening - handleDelete performs dependent deletes and counter update', async () => {
+  const { db } = createMockDb({
+    selectResults: [{
+      attributedTo: 'https://example.com/ap/users/alice',
+      type: 'Note',
+      replyCount: 0,
+    }],
+  });
+
+  const context = createMockContext(db);
+
+  const activity: Activity = {
+    id: 'https://example.com/ap/activities/delete-1',
+    type: 'Delete',
+    actor: 'https://example.com/ap/users/alice',
+    object: 'https://example.com/ap/objects/note-3',
+  };
+
+  await handleDelete(
+    context,
+    activity
+  );
+
+  // Verify select was called (lookup object)
+  assertSpyCalls(db.select, 1);
+  // Verify delete was called (likes + objects)
+  assertSpyCalls(db.delete, 2);
+  // Verify update was called (actor postCount decrement)
+  assertSpyCalls(db.update, 1);
+});
+
+/** Helper: assert a spy was called at least once */
+function assert_called(spyFn: { calls: unknown[] }) {
+  if (spyFn.calls.length === 0) {
+    throw new Error('Expected spy to have been called at least once');
+  }
+}

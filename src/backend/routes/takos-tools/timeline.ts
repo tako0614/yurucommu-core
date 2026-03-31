@@ -5,15 +5,15 @@
  */
 
 import { eq, and, desc, lt, inArray } from 'drizzle-orm';
-import { actors, objects, inbox } from '../../../db';
+import { actors, objects, inbox } from '../../../db/index.ts';
 import {
   toolLimit,
   errAuth,
   ok,
   formatActorSummary,
   ACTOR_SUMMARY_COLUMNS,
-} from '../takos-tools-response';
-import type { ToolContext, Input } from './types';
+} from '../takos-tools-response.ts';
+import type { ToolContext, Input } from './types.ts';
 
 export async function handleGetTimeline(c: ToolContext, input: Input, _actor: { ap_id: string } | null) {
   const db = c.get('db');

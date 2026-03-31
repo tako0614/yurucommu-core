@@ -9,9 +9,9 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { eq } from 'drizzle-orm';
-import type { Env, Variables } from '../types';
-import { sessions } from '../../db';
-import { getTakosClient, type TakosSession } from '../lib/takos-client';
+import type { Env, Variables } from '../types.ts';
+import { sessions } from '../../db/index.ts';
+import { getTakosClient, type TakosSession } from '../lib/takos-client.ts';
 
 const takosProxy = new Hono<{ Bindings: Env; Variables: Variables }>();
 

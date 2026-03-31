@@ -1,8 +1,8 @@
 import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { eq } from 'drizzle-orm';
-import type { Env, Variables, Actor } from '../types';
-import { sessions } from '../../db';
+import type { Env, Variables, Actor } from '../types.ts';
+import { sessions } from '../../db/index.ts';
 
 function isExpired(expiresAt: string): boolean {
   const expiresMs = Date.parse(expiresAt);

@@ -1,11 +1,11 @@
-export { YURUCOMMU_BACKEND_PLUGIN_API_VERSION } from '../backend/public';
-export { YURUCOMMU_FRONTEND_PLUGIN_API_VERSION } from '../../web/plugin';
+export { YURUCOMMU_BACKEND_PLUGIN_API_VERSION } from '../backend/public.ts';
+export { YURUCOMMU_FRONTEND_PLUGIN_API_VERSION } from '../../web/plugin.ts';
 
 export type {
   BackendPluginContextV1,
   YurucommuBackendPluginV1,
   CreateYurucommuBackendAppOptionsV1,
-} from '../backend/public';
+} from '../backend/public.ts';
 
 export type {
   AuthStrategy,
@@ -21,4 +21,4 @@ export type {
   YurucommuFrontendPluginV1,
   BootstrapMountOptionsV1,
   BootstrapYurucommuFrontendOptionsV1,
-} from '../../web/public';
+} from '../../web/public.ts';

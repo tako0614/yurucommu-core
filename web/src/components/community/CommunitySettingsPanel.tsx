@@ -1,5 +1,5 @@
 ﻿import type { ChangeEvent } from 'react';
-import type { CommunityDetail, CommunitySettings } from '../../lib/api';
+import type { CommunityDetail, CommunitySettings } from '../../lib/api.ts';
 
 interface CommunitySettingsPanelProps {
   community: CommunityDetail;

@@ -1,8 +1,8 @@
 ﻿import type { ChangeEvent, RefObject } from 'react';
-import type { Actor } from '../../types';
-import { UserAvatar } from '../UserAvatar';
-import { CloseIcon, CloseIconLarge, ImageIcon } from './TimelineIcons';
-import type { UploadedMedia } from './types';
+import type { Actor } from '../../types/index.ts';
+import { UserAvatar } from '../UserAvatar.tsx';
+import { CloseIcon, CloseIconLarge, ImageIcon } from './TimelineIcons.tsx';
+import type { UploadedMedia } from './types.ts';
 
 interface TimelinePostModalProps {
   isOpen: boolean;

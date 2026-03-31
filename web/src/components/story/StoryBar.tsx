@@ -1,5 +1,5 @@
-import { ActorStories, Actor } from '../../types';
-import { UserAvatar } from '../UserAvatar';
+import { ActorStories, Actor } from '../../types/index.ts';
+import { UserAvatar } from '../UserAvatar.tsx';
 
 interface StoryBarProps {
   actor: Actor;

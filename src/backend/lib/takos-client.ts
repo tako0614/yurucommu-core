@@ -4,11 +4,11 @@
  * takosでログインした場合、保存されたアクセストークンでtakos APIにアクセス可能
  */
 
-import type { Env } from '../types';
-import type { Database } from '../../db';
+import type { Env } from '../types.ts';
+import type { Database } from '../../db/index.ts';
 import { eq } from 'drizzle-orm';
-import { sessions } from '../../db';
-import { decrypt, encrypt } from './crypto';
+import { sessions } from '../../db/index.ts';
+import { decrypt, encrypt } from './crypto.ts';
 
 interface TokenResponse {
   access_token: string;

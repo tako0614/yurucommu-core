@@ -1,11 +1,11 @@
 import { atom } from 'jotai';
-import type { Actor } from '../types';
+import type { Actor } from '../types/index.ts';
 import {
   getAuthStrategy,
   type HostedInstance,
   type HostedUserInfo,
   type InstanceHealth,
-} from '../lib/plugin';
+} from '../lib/plugin.ts';
 
 export type { HostedInstance };
 

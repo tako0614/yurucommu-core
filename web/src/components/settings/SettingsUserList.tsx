@@ -1,7 +1,7 @@
-﻿import type { Actor } from '../../types';
-import { UserAvatar } from '../UserAvatar';
-import { SettingsSectionHeader } from './SettingsSectionHeader';
-import type { Translate } from '../../lib/i18n';
+﻿import type { Actor } from '../../types/index.ts';
+import { UserAvatar } from '../UserAvatar.tsx';
+import { SettingsSectionHeader } from './SettingsSectionHeader.tsx';
+import type { Translate } from '../../lib/i18n.tsx';
 
 interface SettingsUserListProps {
   title: string;

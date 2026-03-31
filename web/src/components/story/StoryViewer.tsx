@@ -1,15 +1,15 @@
 ﻿import { useState, useEffect, useRef, useCallback } from 'react';
-import { ActorStories } from '../../types';
-import { markStoryViewed, deleteStory, voteOnStory, likeStory, unlikeStory, shareStory } from '../../lib/api';
-import { useI18n } from '../../lib/i18n';
-import { formatRelativeTime } from '../../lib/datetime';
-import { ErrorIcon } from './viewer/StoryViewerIcons';
-import { StoryViewerActionBar } from './viewer/StoryViewerActionBar';
-import { StoryViewerDeleteDialog } from './viewer/StoryViewerDeleteDialog';
-import { StoryViewerHeader } from './viewer/StoryViewerHeader';
-import { renderStoryOverlay } from './viewer/StoryViewerOverlays';
-import { StoryViewerProgress } from './viewer/StoryViewerProgress';
-import { parseStoryDuration } from './viewer/storyViewerUtils';
+import { ActorStories } from '../../types/index.ts';
+import { markStoryViewed, deleteStory, voteOnStory, likeStory, unlikeStory, shareStory } from '../../lib/api.ts';
+import { useI18n } from '../../lib/i18n.tsx';
+import { formatRelativeTime } from '../../lib/datetime.ts';
+import { ErrorIcon } from './viewer/StoryViewerIcons.tsx';
+import { StoryViewerActionBar } from './viewer/StoryViewerActionBar.tsx';
+import { StoryViewerDeleteDialog } from './viewer/StoryViewerDeleteDialog.tsx';
+import { StoryViewerHeader } from './viewer/StoryViewerHeader.tsx';
+import { renderStoryOverlay } from './viewer/StoryViewerOverlays.tsx';
+import { StoryViewerProgress } from './viewer/StoryViewerProgress.tsx';
+import { parseStoryDuration } from './viewer/storyViewerUtils.ts';
 
 interface StoryViewerProps {
   actorStories: ActorStories[];

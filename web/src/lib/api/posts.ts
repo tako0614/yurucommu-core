@@ -1,6 +1,6 @@
-import type { Post } from '../../types';
-import { normalizePost } from './normalize';
-import { apiFetch, apiPost, apiDelete, assertOk } from './fetch';
+import type { Post } from '../../types/index.ts';
+import { normalizePost } from './normalize.ts';
+import { apiFetch, apiPost, apiDelete, assertOk } from './fetch.ts';
 
 export async function fetchTimeline(options?: {
   limit?: number;

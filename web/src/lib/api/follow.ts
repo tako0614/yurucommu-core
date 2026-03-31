@@ -1,6 +1,6 @@
-import type { Actor } from '../../types';
-import { normalizeActor } from './normalize';
-import { apiFetch, apiPost, apiDelete, assertOk } from './fetch';
+import type { Actor } from '../../types/index.ts';
+import { normalizeActor } from './normalize.ts';
+import { apiFetch, apiPost, apiDelete, assertOk } from './fetch.ts';
 
 export async function follow(targetApId: string): Promise<{ status: string }> {
   const res = await apiPost('/api/follow', { target_ap_id: targetApId });

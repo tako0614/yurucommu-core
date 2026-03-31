@@ -1,8 +1,8 @@
 ﻿import { Link } from 'react-router-dom';
-import type { CommunityJoinRequest } from '../../lib/api';
-import type { CommunityMember } from '../../lib/api/communities';
-import { UserAvatar } from '../UserAvatar';
-import type { Translate } from '../../lib/i18n';
+import type { CommunityJoinRequest } from '../../lib/api.ts';
+import type { CommunityMember } from '../../lib/api/communities.ts';
+import { UserAvatar } from '../UserAvatar.tsx';
+import type { Translate } from '../../lib/i18n.tsx';
 
 interface CommunityMembersPanelProps {
   members: CommunityMember[];

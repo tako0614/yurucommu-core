@@ -1,4 +1,4 @@
-import { Actor, Post, Story, Notification, ActorStories } from '../../types';
+import { Actor, Post, Story, Notification, ActorStories } from '../../types/index.ts';
 
 type ActorLike = { ap_id: string; username?: string; preferred_username?: string };
 

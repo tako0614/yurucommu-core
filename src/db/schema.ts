@@ -12,4 +12,4 @@
  * - schema/relations.ts: all Drizzle relation definitions
  */
 
-export * from "./schema/index";
+export * from "./schema/index.ts";

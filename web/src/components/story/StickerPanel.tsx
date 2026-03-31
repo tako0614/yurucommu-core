@@ -4,7 +4,7 @@
  * Provides emoji picker for adding sticker layers.
  */
 
-import { EmojiPicker } from './EmojiPicker';
+import { EmojiPicker } from './EmojiPicker.tsx';
 
 interface StickerPanelProps {
   onAddEmoji: (emoji: string) => void;

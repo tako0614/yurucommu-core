@@ -1,15 +1,15 @@
 ﻿import { useEffect, useCallback } from 'react';
 import { atom } from 'jotai';
 import { useAtom } from 'jotai';
-import { useRequiredActor } from '../hooks/useRequiredActor';
-import type { Actor } from '../types';
-import { useI18n } from '../lib/i18n';
-import { UserAvatar } from '../components/UserAvatar';
-import { InlineErrorBanner } from '../components/InlineErrorBanner';
-import { SettingsAccountsSection } from '../components/settings/SettingsAccountsSection';
-import { SettingsDeleteSection } from '../components/settings/SettingsDeleteSection';
-import { SettingsUserList } from '../components/settings/SettingsUserList';
-import { ChevronRightIcon } from '../components/settings/SettingsIcons';
+import { useRequiredActor } from '../hooks/useRequiredActor.ts';
+import type { Actor } from '../types/index.ts';
+import { useI18n } from '../lib/i18n.tsx';
+import { UserAvatar } from '../components/UserAvatar.tsx';
+import { InlineErrorBanner } from '../components/InlineErrorBanner.tsx';
+import { SettingsAccountsSection } from '../components/settings/SettingsAccountsSection.tsx';
+import { SettingsDeleteSection } from '../components/settings/SettingsDeleteSection.tsx';
+import { SettingsUserList } from '../components/settings/SettingsUserList.tsx';
+import { ChevronRightIcon } from '../components/settings/SettingsIcons.tsx';
 import {
   fetchAccounts,
   switchAccount,
@@ -20,7 +20,7 @@ import {
   unmuteUser,
   deleteAccount,
   AccountInfo,
-} from '../lib/api';
+} from '../lib/api.ts';
 
 // Atoms defined at module level
 const settings_errorAtom = atom<string | null>(null);

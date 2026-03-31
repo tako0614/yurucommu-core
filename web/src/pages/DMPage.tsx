@@ -2,7 +2,7 @@ import { useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { atom } from 'jotai';
 import { useAtom } from 'jotai';
-import { useRequiredActor } from '../hooks/useRequiredActor';
+import { useRequiredActor } from '../hooks/useRequiredActor.ts';
 import {
   fetchDMContacts,
   DMContact,
@@ -10,10 +10,10 @@ import {
   DMRequest,
   acceptDMRequest,
   rejectDMRequest,
-} from '../lib/api';
-import { useI18n } from '../lib/i18n';
-import { DMChatPanel } from '../components/dm/DMChatPanel';
-import { DMContactItem } from '../components/dm/DMContactItem';
+} from '../lib/api.ts';
+import { useI18n } from '../lib/i18n.tsx';
+import { DMChatPanel } from '../components/dm/DMChatPanel.tsx';
+import { DMContactItem } from '../components/dm/DMContactItem.tsx';
 
 /**
  * Validate and decode contactId URL parameter

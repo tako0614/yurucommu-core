@@ -5,7 +5,7 @@
  * that implement the same interface as Cloudflare D1.
  */
 
-import { loadNodeModules, getDatabase } from './node-modules';
+import { loadNodeModules, getDatabase } from './node-modules.ts';
 
 /**
  * D1Database-compatible SQLite implementation

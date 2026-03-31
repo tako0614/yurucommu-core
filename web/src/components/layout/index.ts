@@ -1,3 +1,3 @@
-export { AppLayout } from './AppLayout';
-export { Sidebar } from './Sidebar';
-export { BottomNav } from './BottomNav';
+export { AppLayout } from './AppLayout.tsx';
+export { Sidebar } from './Sidebar.tsx';
+export { BottomNav } from './BottomNav.tsx';

@@ -14,11 +14,11 @@ import {
   drawText,
   drawSticker,
   drawDrawing,
-} from './story-canvas-drawing';
+} from './story-canvas-drawing.ts';
 import {
   hitTest as hitTestImpl,
   getLayerCorners as getLayerCornersImpl,
-} from './story-canvas-transforms';
+} from './story-canvas-transforms.ts';
 
 // Canvas dimensions (9:16 aspect ratio, Instagram story size)
 export const CANVAS_WIDTH = 1080;

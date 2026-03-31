@@ -3,9 +3,9 @@
 // Threading via conversation field
 
 import { Hono } from 'hono';
-import type { Env, Variables } from '../types';
-import conversationRoutes from './dm/conversations';
-import messageRoutes from './dm/messages';
+import type { Env, Variables } from '../types.ts';
+import conversationRoutes from './dm/conversations.ts';
+import messageRoutes from './dm/messages.ts';
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
 

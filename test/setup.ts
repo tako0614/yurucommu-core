@@ -1,13 +1,13 @@
 /**
- * Vitest Setup for yurucommu
+ * Test Setup for yurucommu (Deno)
  *
- * This file runs before all tests and sets up:
+ * This file provides:
  * - Mock Cloudflare Workers bindings (D1, R2, KV)
  * - Mock database client
  * - Hono app testing utilities
  * - ActivityPub test helpers
  */
-import { vi, beforeAll, afterAll, afterEach } from 'vitest';
+import { spy } from 'jsr:@std/testing/mock';
 import { Hono } from 'hono';
 
 // ============================================================================
@@ -21,7 +21,7 @@ export class MockD1Database {
     return new MockD1PreparedStatement(query, this);
   }
 
-  exec(query: string): Promise<{ count: number; duration: number }> {
+  exec(_query: string): Promise<{ count: number; duration: number }> {
     return Promise.resolve({ count: 1, duration: 0 });
   }
 
@@ -47,7 +47,7 @@ export class MockD1PreparedStatement {
     return this;
   }
 
-  async first<T = unknown>(column?: string): Promise<T | null> {
+  async first<T = unknown>(_column?: string): Promise<T | null> {
     return null as T | null;
   }
 
@@ -248,34 +248,34 @@ export class MockKVNamespace {
 // ============================================================================
 
 export interface MockDbOperation {
-  findUnique: ReturnType<typeof vi.fn>;
-  findFirst: ReturnType<typeof vi.fn>;
-  findMany: ReturnType<typeof vi.fn>;
-  create: ReturnType<typeof vi.fn>;
-  createMany: ReturnType<typeof vi.fn>;
-  update: ReturnType<typeof vi.fn>;
-  updateMany: ReturnType<typeof vi.fn>;
-  delete: ReturnType<typeof vi.fn>;
-  deleteMany: ReturnType<typeof vi.fn>;
-  count: ReturnType<typeof vi.fn>;
-  aggregate: ReturnType<typeof vi.fn>;
-  upsert: ReturnType<typeof vi.fn>;
+  findUnique: (...args: unknown[]) => Promise<unknown>;
+  findFirst: (...args: unknown[]) => Promise<unknown>;
+  findMany: (...args: unknown[]) => Promise<unknown[]>;
+  create: (...args: unknown[]) => Promise<unknown>;
+  createMany: (...args: unknown[]) => Promise<{ count: number }>;
+  update: (...args: unknown[]) => Promise<unknown>;
+  updateMany: (...args: unknown[]) => Promise<{ count: number }>;
+  delete: (...args: unknown[]) => Promise<unknown>;
+  deleteMany: (...args: unknown[]) => Promise<{ count: number }>;
+  count: (...args: unknown[]) => Promise<number>;
+  aggregate: (...args: unknown[]) => Promise<Record<string, unknown>>;
+  upsert: (...args: unknown[]) => Promise<unknown>;
 }
 
 function createMockDbOperation(): MockDbOperation {
   return {
-    findUnique: vi.fn().mockResolvedValue(null),
-    findFirst: vi.fn().mockResolvedValue(null),
-    findMany: vi.fn().mockResolvedValue([]),
-    create: vi.fn().mockImplementation((args: { data: unknown }) => Promise.resolve(args.data)),
-    createMany: vi.fn().mockResolvedValue({ count: 0 }),
-    update: vi.fn().mockImplementation((args: { data: unknown }) => Promise.resolve(args.data)),
-    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
-    delete: vi.fn().mockResolvedValue(null),
-    deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
-    count: vi.fn().mockResolvedValue(0),
-    aggregate: vi.fn().mockResolvedValue({}),
-    upsert: vi.fn().mockImplementation((args: { create: unknown }) => Promise.resolve(args.create)),
+    findUnique: spy((..._args: unknown[]) => Promise.resolve(null)),
+    findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
+    findMany: spy((..._args: unknown[]) => Promise.resolve([])),
+    create: spy((args: { data: unknown }) => Promise.resolve(args.data)),
+    createMany: spy((..._args: unknown[]) => Promise.resolve({ count: 0 })),
+    update: spy((args: { data: unknown }) => Promise.resolve(args.data)),
+    updateMany: spy((..._args: unknown[]) => Promise.resolve({ count: 0 })),
+    delete: spy((..._args: unknown[]) => Promise.resolve(null)),
+    deleteMany: spy((..._args: unknown[]) => Promise.resolve({ count: 0 })),
+    count: spy((..._args: unknown[]) => Promise.resolve(0)),
+    aggregate: spy((..._args: unknown[]) => Promise.resolve({})),
+    upsert: spy((args: { create: unknown }) => Promise.resolve(args.create)),
   };
 }
 
@@ -297,9 +297,9 @@ export function createMockDbClient() {
     dmParticipant: createMockDbOperation(),
     dmMessage: createMockDbOperation(),
     notification: createMockDbOperation(),
-    $transaction: vi.fn().mockImplementation((fn: (tx: unknown) => Promise<unknown>) => fn({})),
-    $connect: vi.fn().mockResolvedValue(undefined),
-    $disconnect: vi.fn().mockResolvedValue(undefined),
+    $transaction: spy((fn: (tx: unknown) => Promise<unknown>) => fn({})),
+    $connect: spy(() => Promise.resolve(undefined)),
+    $disconnect: spy(() => Promise.resolve(undefined)),
   };
 }
 
@@ -480,7 +480,7 @@ export function createMockEnv(overrides: Partial<Record<string, unknown>> = {}) 
     MEDIA: new MockR2Bucket(),
     KV: new MockKVNamespace(),
     ASSETS: {
-      fetch: vi.fn().mockResolvedValue(new Response('', { status: 404 })),
+      fetch: spy(() => Promise.resolve(new Response('', { status: 404 }))),
     },
     DB_CLIENT: createMockDbClient(),
     APP_URL: 'https://test.yurucommu.com',
@@ -488,26 +488,3 @@ export function createMockEnv(overrides: Partial<Record<string, unknown>> = {}) 
     ...overrides,
   };
 }
-
-// ============================================================================
-// Global Setup and Teardown
-// ============================================================================
-
-beforeAll(() => {
-  // Suppress console output during tests unless DEBUG is set
-  if (!process.env.DEBUG) {
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-    vi.spyOn(console, 'info').mockImplementation(() => {});
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-  }
-});
-
-afterEach(() => {
-  // Clear all mocks after each test
-  vi.clearAllMocks();
-});
-
-afterAll(() => {
-  // Restore all mocks after all tests
-  vi.restoreAllMocks();
-});

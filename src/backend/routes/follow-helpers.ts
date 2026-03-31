@@ -1,11 +1,11 @@
 import type { Context } from 'hono';
 import { eq, and, sql } from 'drizzle-orm';
-import type { Env, Variables } from '../types';
-import type { Database } from '../../db';
-import { actors, actorCache, follows, activities, inbox } from '../../db';
-import { generateId, activityApId, isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../federation-helpers';
-import { enqueueDeliveryToActor } from '../lib/delivery/queue';
-import { parseJsonObject, parseNonEmptyString, isUniqueConstraintError } from '../lib/parse-helpers';
+import type { Env, Variables } from '../types.ts';
+import type { Database } from '../../db/index.ts';
+import { actors, actorCache, follows, activities, inbox } from '../../db/index.ts';
+import { generateId, activityApId, isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../federation-helpers.ts';
+import { enqueueDeliveryToActor } from '../lib/delivery/queue.ts';
+import { parseJsonObject, parseNonEmptyString, isUniqueConstraintError } from '../lib/parse-helpers.ts';
 
 const REMOTE_FETCH_TIMEOUT_MS = 10000;
 

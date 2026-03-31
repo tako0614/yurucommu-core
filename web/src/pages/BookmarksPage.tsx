@@ -2,15 +2,15 @@ import { useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { atom } from 'jotai';
 import { useAtom } from 'jotai';
-import { useRequiredActor } from '../hooks/useRequiredActor';
-import { Post } from '../types';
-import { fetchBookmarks, likePost, unlikePost, unbookmarkPost } from '../lib/api';
-import { formatRelativeTime } from '../lib/datetime';
-import { useI18n } from '../lib/i18n';
-import { UserAvatar } from '../components/UserAvatar';
-import { PostContent } from '../components/PostContent';
-import { HeartIcon, BookmarkIcon } from '../components/icons/SocialIcons';
-import { InlineErrorBanner } from '../components/InlineErrorBanner';
+import { useRequiredActor } from '../hooks/useRequiredActor.ts';
+import { Post } from '../types/index.ts';
+import { fetchBookmarks, likePost, unlikePost, unbookmarkPost } from '../lib/api.ts';
+import { formatRelativeTime } from '../lib/datetime.ts';
+import { useI18n } from '../lib/i18n.tsx';
+import { UserAvatar } from '../components/UserAvatar.tsx';
+import { PostContent } from '../components/PostContent.tsx';
+import { HeartIcon, BookmarkIcon } from '../components/icons/SocialIcons.tsx';
+import { InlineErrorBanner } from '../components/InlineErrorBanner.tsx';
 
 // Atoms defined at module level
 const bookmarks_errorAtom = atom<string | null>(null);

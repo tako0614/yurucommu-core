@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Actor, DMMessage } from '../../types';
+import { Actor, DMMessage } from '../../types/index.ts';
 import {
   DMContact,
   fetchUserDMMessages,
@@ -10,9 +10,9 @@ import {
   fetchUserDMTyping,
   sendUserDMTyping,
   markDMAsRead,
-} from '../../lib/api';
-import { formatTime } from '../../lib/datetime';
-import { useI18n } from '../../lib/i18n';
+} from '../../lib/api.ts';
+import { formatTime } from '../../lib/datetime.ts';
+import { useI18n } from '../../lib/i18n.tsx';
 
 interface DMChatPanelProps {
   contact: DMContact;

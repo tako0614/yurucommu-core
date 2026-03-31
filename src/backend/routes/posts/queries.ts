@@ -7,14 +7,14 @@
  * - Addressing logic for ActivityPub delivery
  */
 
-import type { Database } from '../../../db';
-import { actorCache, objects, likes, bookmarks, activities } from '../../../db';
+import type { Database } from '../../../db/index.ts';
+import { actorCache, objects, likes, bookmarks, activities } from '../../../db/index.ts';
 import { eq, and, or, inArray } from 'drizzle-orm';
-import type { Env } from '../../types';
-import { objectApId, formatUsername } from '../../federation-helpers';
-import { PostRow, formatPost } from './transformers';
-import { enqueueFanoutToFollowers } from '../../lib/delivery/queue';
-import { isRecord, parseJsonObject } from '../../lib/parse-helpers';
+import type { Env } from '../../types.ts';
+import { objectApId, formatUsername } from '../../federation-helpers.ts';
+import { PostRow, formatPost } from './transformers.ts';
+import { enqueueFanoutToFollowers } from '../../lib/delivery/queue.ts';
+import { isRecord, parseJsonObject } from '../../lib/parse-helpers.ts';
 
 // ---------------------------------------------------------------------------
 // Types

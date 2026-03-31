@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import { eq, and, or, count, asc, desc, sql, inArray, isNull } from 'drizzle-orm';
-import { communities, communityMembers, communityJoinRequests, objects } from '../../../db';
-import type { Env, Variables } from '../../types';
-import { communityApId, generateKeyPair, parseLimit, parseOffset } from '../../federation-helpers';
-import { fetchCommunityId, memberWhere, requireManager } from './membership-shared';
-import { isUniqueConstraintError } from '../../lib/parse-helpers';
+import { communities, communityMembers, communityJoinRequests, objects } from '../../../db/index.ts';
+import type { Env, Variables } from '../../types.ts';
+import { communityApId, generateKeyPair, parseLimit, parseOffset } from '../../federation-helpers.ts';
+import { fetchCommunityId, memberWhere, requireManager } from './membership-shared.ts';
+import { isUniqueConstraintError } from '../../lib/parse-helpers.ts';
 
 const communitiesRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 

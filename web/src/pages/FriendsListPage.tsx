@@ -2,12 +2,12 @@ import { useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { atom } from 'jotai';
 import { useAtom } from 'jotai';
-import { useRequiredActor } from '../hooks/useRequiredActor';
-import { Actor } from '../types';
-import { fetchFollowing, fetchFollowers } from '../lib/api';
-import { useI18n } from '../lib/i18n';
-import { UserAvatar } from '../components/UserAvatar';
-import { InlineErrorBanner } from '../components/InlineErrorBanner';
+import { useRequiredActor } from '../hooks/useRequiredActor.ts';
+import { Actor } from '../types/index.ts';
+import { fetchFollowing, fetchFollowers } from '../lib/api.ts';
+import { useI18n } from '../lib/i18n.tsx';
+import { UserAvatar } from '../components/UserAvatar.tsx';
+import { InlineErrorBanner } from '../components/InlineErrorBanner.tsx';
 
 const BackIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -1,7 +1,7 @@
 import { Outlet } from 'react-router-dom';
-import { Sidebar } from './Sidebar';
-import { BottomNav } from './BottomNav';
-import { RightSidebar } from './RightSidebar';
+import { Sidebar } from './Sidebar.tsx';
+import { BottomNav } from './BottomNav.tsx';
+import { RightSidebar } from './RightSidebar.tsx';
 
 export function AppLayout() {
   return (

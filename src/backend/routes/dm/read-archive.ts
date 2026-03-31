@@ -2,8 +2,8 @@
 
 import { Hono } from 'hono';
 import { eq, and, desc } from 'drizzle-orm';
-import { objects, dmReadStatus, dmArchivedConversations } from '../../../db';
-import { getConversationId, resolveConversationId } from './query-helpers';
+import { objects, dmReadStatus, dmArchivedConversations } from '../../../db/index.ts';
+import { getConversationId, resolveConversationId } from './query-helpers.ts';
 import {
   type HonoEnv,
   buildActorInfoMap,
@@ -13,7 +13,7 @@ import {
   parseOtherApId,
   groupConversations,
   uniqueValues,
-} from './conversations-helpers';
+} from './conversations-helpers.ts';
 
 const readArchive = new Hono<HonoEnv>();
 

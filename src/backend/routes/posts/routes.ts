@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
-import { actors, objects, follows } from '../../../db';
+import { actors, objects, follows } from '../../../db/index.ts';
 import { eq, and, or, desc, sql } from 'drizzle-orm';
-import type { Env, Variables } from '../../types';
-import { generateId, objectApId, activityApId, formatUsername, parseLimit, safeJsonParse } from '../../federation-helpers';
-import { MAX_POSTS_PAGE_LIMIT, normalizeVisibility, formatPost, PostRow } from './transformers';
+import type { Env, Variables } from '../../types.ts';
+import { generateId, objectApId, activityApId, formatUsername, parseLimit, safeJsonParse } from '../../federation-helpers.ts';
+import { MAX_POSTS_PAGE_LIMIT, normalizeVisibility, formatPost, PostRow } from './transformers.ts';
 import {
   type PostDetailRow,
   type PostWithAuthor,
@@ -16,7 +16,7 @@ import {
   loadInteractionFlags,
   persistAndFanout,
   loadCachedAuthorMap,
-} from './queries';
+} from './queries.ts';
 import {
   requireActor,
   validateCreatePostBody,
@@ -27,7 +27,7 @@ import {
   validateContentEdit,
   validateSummaryEdit,
   REPLY_TARGET_NOT_FOUND,
-} from './post-helpers';
+} from './post-helpers.ts';
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 

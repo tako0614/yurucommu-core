@@ -5,7 +5,7 @@
  * filesystem, mimicking Cloudflare Workers Assets binding.
  */
 
-import { loadNodeModules, getFs, getPath } from './node-modules';
+import { loadNodeModules, getFs, getPath } from './node-modules.ts';
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
