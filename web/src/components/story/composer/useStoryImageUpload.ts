@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { createEffect, onCleanup } from 'solid-js';
 import type { StoryCanvas } from '../../../lib/story-canvas.ts';
 
 // File size limit
@@ -12,61 +12,55 @@ interface UseStoryImageUploadOptions {
   onUpdate: () => void;
 }
 
-export function useStoryImageUpload({
-  storyCanvas,
-  selectLayer,
-  setUploading,
-  setError,
-  onUpdate,
-}: UseStoryImageUploadOptions) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const objectUrlsRef = useRef<Set<string>>(new Set());
+export function useStoryImageUpload(opts: UseStoryImageUploadOptions) {
+  let fileInputRef!: HTMLInputElement;
+  const objectUrls = new Set<string>();
 
   // Cleanup object URLs on unmount to prevent memory leaks
-  useEffect(() => {
-    const objectUrls = objectUrlsRef.current;
-    return () => {
+  createEffect(() => {
+    onCleanup(() => {
       objectUrls.forEach(url => {
         URL.revokeObjectURL(url);
       });
       objectUrls.clear();
-    };
-  }, []);
+    });
+  });
 
-  const handleImageSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !storyCanvas) return;
+  const handleImageSelect = async (e: Event & { currentTarget: HTMLInputElement }) => {
+    const file = (e.currentTarget as HTMLInputElement).files?.[0];
+    if (!file || !opts.storyCanvas) return;
 
     if (!file.type.startsWith('image/')) {
-      setError('画像ファイルを選択してください');
+      opts.setError('画像ファイルを選択してください');
       return;
     }
 
     if (file.size > MAX_IMAGE_SIZE) {
-      setError(`画像サイズが大きすぎます（最大${MAX_IMAGE_SIZE / 1024 / 1024}MB）`);
+      opts.setError(`画像サイズが大きすぎます（最大${MAX_IMAGE_SIZE / 1024 / 1024}MB）`);
       return;
     }
 
-    setUploading(true);
+    opts.setUploading(true);
     try {
       const preview = URL.createObjectURL(file);
       // Track the object URL for cleanup
-      objectUrlsRef.current.add(preview);
-      const layer = await storyCanvas.createMediaLayer(preview);
-      storyCanvas.addLayer(layer);
-      selectLayer(layer.id);
-      onUpdate();
+      objectUrls.add(preview);
+      const layer = await opts.storyCanvas.createMediaLayer(preview);
+      opts.storyCanvas.addLayer(layer);
+      opts.selectLayer(layer.id);
+      opts.onUpdate();
     } catch (err) {
       console.error('Failed to add image:', err);
-      setError('画像の追加に失敗しました');
+      opts.setError('画像の追加に失敗しました');
     } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      opts.setUploading(false);
+      if (fileInputRef) fileInputRef.value = '';
     }
-  }, [storyCanvas, selectLayer, setUploading, setError, onUpdate]);
+  };
 
   return {
-    fileInputRef,
+    get fileInputRef() { return fileInputRef; },
+    set fileInputRef(el: HTMLInputElement) { fileInputRef = el; },
     handleImageSelect,
   };
 }

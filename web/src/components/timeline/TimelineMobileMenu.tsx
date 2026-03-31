@@ -1,4 +1,5 @@
-import { Link } from 'react-router-dom';
+import { Show, For } from 'solid-js';
+import { A } from '@solidjs/router';
 import type { Actor } from '../../types/index.ts';
 import type { AccountInfo } from '../../lib/api.ts';
 import { UserAvatar } from '../UserAvatar.tsx';
@@ -18,133 +19,124 @@ interface TimelineMobileMenuProps {
   t: Translate;
 }
 
-export function TimelineMobileMenu({
-  isOpen,
-  actor,
-  accounts,
-  accountsLoading,
-  currentApId,
-  showAccountSwitcher,
-  onToggleAccountSwitcher,
-  onSwitchAccount,
-  onClose,
-  t,
-}: TimelineMobileMenuProps) {
-  if (!isOpen) return null;
-
+export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
   return (
-    <div className="fixed inset-0 z-50 md:hidden">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      {/* Slide-in Menu */}
-      <div className="absolute left-0 top-0 bottom-0 w-72 bg-neutral-900 border-r border-neutral-800 animate-slide-in overflow-y-auto">
-        {/* Profile Header */}
-        <div className="p-4 border-b border-neutral-800">
-          {/* Avatar and Account Switcher Toggle */}
-          <div className="flex items-center justify-between mb-3">
-            <UserAvatar avatarUrl={actor.icon_url} name={actor.name || actor.username} size={48} />
-            <button
-              onClick={onToggleAccountSwitcher}
-              className="p-2 rounded-full border border-neutral-700 hover:bg-neutral-800 transition-colors"
-            >
-              <svg
-                className={`w-4 h-4 transition-transform ${showAccountSwitcher ? 'rotate-180' : ''}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+    <Show when={props.isOpen}>
+      <div class="fixed inset-0 z-50 md:hidden">
+        {/* Backdrop */}
+        <div class="absolute inset-0 bg-black/60" onClick={props.onClose} />
+        {/* Slide-in Menu */}
+        <div class="absolute left-0 top-0 bottom-0 w-72 bg-neutral-900 border-r border-neutral-800 animate-slide-in overflow-y-auto">
+          {/* Profile Header */}
+          <div class="p-4 border-b border-neutral-800">
+            {/* Avatar and Account Switcher Toggle */}
+            <div class="flex items-center justify-between mb-3">
+              <UserAvatar avatarUrl={props.actor.icon_url} name={props.actor.name || props.actor.username} size={48} />
+              <button
+                onClick={props.onToggleAccountSwitcher}
+                class="p-2 rounded-full border border-neutral-700 hover:bg-neutral-800 transition-colors"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
+                <svg
+                  class={`w-4 h-4 transition-transform ${props.showAccountSwitcher ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+            </div>
+            {/* Name and Username */}
+            <p class="font-bold text-white text-lg">{props.actor.name || props.actor.username}</p>
+            <p class="text-neutral-500">@{props.actor.username}</p>
+            {/* Follow/Follower counts */}
+            <div class="flex gap-4 mt-3">
+              <A
+                href={`/profile/${encodeURIComponent(props.actor.ap_id)}/following`}
+                onClick={props.onClose}
+                class="hover:underline"
+              >
+                <span class="font-bold text-white">{props.actor.following_count || 0}</span>
+                <span class="text-neutral-500 ml-1">{props.t('profile.following')}</span>
+              </A>
+              <A
+                href={`/profile/${encodeURIComponent(props.actor.ap_id)}/followers`}
+                onClick={props.onClose}
+                class="hover:underline"
+              >
+                <span class="font-bold text-white">{props.actor.follower_count || 0}</span>
+                <span class="text-neutral-500 ml-1">{props.t('profile.followers')}</span>
+              </A>
+            </div>
           </div>
-          {/* Name and Username */}
-          <p className="font-bold text-white text-lg">{actor.name || actor.username}</p>
-          <p className="text-neutral-500">@{actor.username}</p>
-          {/* Follow/Follower counts */}
-          <div className="flex gap-4 mt-3">
-            <Link
-              to={`/profile/${encodeURIComponent(actor.ap_id)}/following`}
-              onClick={onClose}
-              className="hover:underline"
-            >
-              <span className="font-bold text-white">{actor.following_count || 0}</span>
-              <span className="text-neutral-500 ml-1">{t('profile.following')}</span>
-            </Link>
-            <Link
-              to={`/profile/${encodeURIComponent(actor.ap_id)}/followers`}
-              onClick={onClose}
-              className="hover:underline"
-            >
-              <span className="font-bold text-white">{actor.follower_count || 0}</span>
-              <span className="text-neutral-500 ml-1">{t('profile.followers')}</span>
-            </Link>
-          </div>
-        </div>
 
-        {/* Account Switcher */}
-        {showAccountSwitcher && (
-          <div className="border-b border-neutral-800">
-            {accountsLoading ? (
-              <div className="p-4 text-center text-neutral-500">�ǂݍ��ݒ�...</div>
-            ) : (
-              <div className="py-2">
-                {accounts.map((account) => (
-                  <button
-                    key={account.ap_id}
-                    onClick={() => onSwitchAccount(account.ap_id)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900 transition-colors ${
-                      account.ap_id === currentApId ? 'bg-neutral-900/50' : ''
-                    }`}
-                  >
-                    <UserAvatar
-                      avatarUrl={account.icon_url}
-                      name={account.name || account.preferred_username}
-                      size={40}
-                    />
-                    <div className="flex-1 text-left">
-                      <p className="font-bold text-white">{account.name || account.preferred_username}</p>
-                      <p className="text-sm text-neutral-500">@{account.preferred_username}</p>
-                    </div>
-                    {account.ap_id === currentApId && (
-                      <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                      </svg>
+          {/* Account Switcher */}
+          <Show when={props.showAccountSwitcher}>
+            <div class="border-b border-neutral-800">
+              <Show
+                when={!props.accountsLoading}
+                fallback={<div class="p-4 text-center text-neutral-500">読み込み中...</div>}
+              >
+                <div class="py-2">
+                  <For each={props.accounts}>
+                    {(account) => (
+                      <button
+                        onClick={() => props.onSwitchAccount(account.ap_id)}
+                        class={`w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900 transition-colors ${
+                          account.ap_id === props.currentApId ? 'bg-neutral-900/50' : ''
+                        }`}
+                      >
+                        <UserAvatar
+                          avatarUrl={account.icon_url}
+                          name={account.name || account.preferred_username}
+                          size={40}
+                        />
+                        <div class="flex-1 text-left">
+                          <p class="font-bold text-white">{account.name || account.preferred_username}</p>
+                          <p class="text-sm text-neutral-500">@{account.preferred_username}</p>
+                        </div>
+                        <Show when={account.ap_id === props.currentApId}>
+                          <svg class="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                          </svg>
+                        </Show>
+                      </button>
                     )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+                  </For>
+                </div>
+              </Show>
+            </div>
+          </Show>
 
-        {/* Navigation */}
-        <nav className="p-2">
-          <Link
-            to="/profile"
-            onClick={onClose}
-            className="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors"
-          >
-            <ProfileIconMenu />
-            <span className="text-lg">{t('nav.profile')}</span>
-          </Link>
-          <Link
-            to="/bookmarks"
-            onClick={onClose}
-            className="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors"
-          >
-            <BookmarkIconMenu />
-            <span className="text-lg">{t('nav.bookmarks')}</span>
-          </Link>
-          <Link
-            to="/settings"
-            onClick={onClose}
-            className="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors"
-          >
-            <SettingsIconMenu />
-            <span className="text-lg">{t('nav.settings')}</span>
-          </Link>
-        </nav>
+          {/* Navigation */}
+          <nav class="p-2">
+            <A
+              href="/profile"
+              onClick={props.onClose}
+              class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors"
+            >
+              <ProfileIconMenu />
+              <span class="text-lg">{props.t('nav.profile')}</span>
+            </A>
+            <A
+              href="/bookmarks"
+              onClick={props.onClose}
+              class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors"
+            >
+              <BookmarkIconMenu />
+              <span class="text-lg">{props.t('nav.bookmarks')}</span>
+            </A>
+            <A
+              href="/settings"
+              onClick={props.onClose}
+              class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors"
+            >
+              <SettingsIconMenu />
+              <span class="text-lg">{props.t('nav.settings')}</span>
+            </A>
+          </nav>
+        </div>
       </div>
-    </div>
+    </Show>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { createSignal } from 'solid-js';
 import type { StoryCanvas, TextLayer } from '../../../lib/story-canvas.ts';
 import type { TextData } from '../TextEditorModal.tsx';
 
@@ -8,27 +8,24 @@ interface UseStoryTextEditorOptions {
   onUpdate: () => void;
 }
 
-export function useStoryTextEditor({
-  storyCanvas,
-  selectLayer,
-  onUpdate,
-}: UseStoryTextEditorOptions) {
-  const [isTextEditorOpen, setIsTextEditorOpen] = useState(false);
-  const [editingTextLayerId, setEditingTextLayerId] = useState<string | null>(null);
+export function useStoryTextEditor(opts: UseStoryTextEditorOptions) {
+  const [isTextEditorOpen, setIsTextEditorOpen] = createSignal(false);
+  const [editingTextLayerId, setEditingTextLayerId] = createSignal<string | null>(null);
 
-  const handleAddText = useCallback(() => {
+  const handleAddText = () => {
     setEditingTextLayerId(null);
     setIsTextEditorOpen(true);
-  }, []);
+  };
 
-  const handleEditText = useCallback((layerId: string) => {
+  const handleEditText = (layerId: string) => {
     setEditingTextLayerId(layerId);
     setIsTextEditorOpen(true);
-  }, []);
+  };
 
-  const getInitialTextData = useCallback((): TextData | undefined => {
-    if (!editingTextLayerId || !storyCanvas) return undefined;
-    const layer = storyCanvas.getLayer(editingTextLayerId);
+  const getInitialTextData = (): TextData | undefined => {
+    const layerId = editingTextLayerId();
+    if (!layerId || !opts.storyCanvas) return undefined;
+    const layer = opts.storyCanvas.getLayer(layerId);
     if (!layer || layer.type !== 'text') return undefined;
     const textLayer = layer as TextLayer;
     return {
@@ -42,14 +39,15 @@ export function useStoryTextEditor({
       textAlign: textLayer.textAlign,
       stroke: textLayer.stroke,
     };
-  }, [editingTextLayerId, storyCanvas]);
+  };
 
-  const handleTextSave = useCallback((textData: TextData) => {
-    if (!storyCanvas) return;
+  const handleTextSave = (textData: TextData) => {
+    if (!opts.storyCanvas) return;
 
-    if (editingTextLayerId) {
+    const layerId = editingTextLayerId();
+    if (layerId) {
       // Update existing layer
-      storyCanvas.updateLayer(editingTextLayerId, {
+      opts.storyCanvas.updateLayer(layerId, {
         content: textData.content,
         fontFamily: textData.fontFamily,
         fontSize: textData.fontSize,
@@ -62,7 +60,7 @@ export function useStoryTextEditor({
       });
     } else {
       // Create new layer with modal data
-      const layer = storyCanvas.createTextLayer();
+      const layer = opts.storyCanvas.createTextLayer();
       layer.content = textData.content;
       layer.fontFamily = textData.fontFamily;
       layer.fontSize = textData.fontSize;
@@ -72,18 +70,18 @@ export function useStoryTextEditor({
       layer.backgroundColor = textData.backgroundColor;
       layer.textAlign = textData.textAlign;
       layer.stroke = textData.stroke;
-      storyCanvas.addLayer(layer);
-      selectLayer(layer.id);
+      opts.storyCanvas.addLayer(layer);
+      opts.selectLayer(layer.id);
     }
-    onUpdate();
+    opts.onUpdate();
     setIsTextEditorOpen(false);
     setEditingTextLayerId(null);
-  }, [storyCanvas, editingTextLayerId, selectLayer, onUpdate]);
+  };
 
-  const handleTextEditorClose = useCallback(() => {
+  const handleTextEditorClose = () => {
     setIsTextEditorOpen(false);
     setEditingTextLayerId(null);
-  }, []);
+  };
 
   return {
     isTextEditorOpen,

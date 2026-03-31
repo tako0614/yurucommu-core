@@ -1,22 +1,26 @@
+import { Show } from 'solid-js';
 import type { CommunityDetail } from '../../lib/api.ts';
 
 interface CommunityAboutPanelProps {
   community: CommunityDetail;
 }
 
-export function CommunityAboutPanel({ community }: CommunityAboutPanelProps) {
+export function CommunityAboutPanel(props: CommunityAboutPanelProps) {
   return (
-    <div className="p-4">
-      {community.summary ? (
+    <div class="p-4">
+      <Show
+        when={props.community.summary}
+        fallback={
+          <div class="text-neutral-500 text-center py-8">
+            説明がありません
+          </div>
+        }
+      >
         <div>
-          <h3 className="text-lg font-bold mb-2">グループについて</h3>
-          <p className="text-neutral-300 whitespace-pre-wrap">{community.summary}</p>
+          <h3 class="text-lg font-bold mb-2">グループについて</h3>
+          <p class="text-neutral-300 whitespace-pre-wrap">{props.community.summary}</p>
         </div>
-      ) : (
-        <div className="text-neutral-500 text-center py-8">
-          説明がありません
-        </div>
-      )}
+      </Show>
     </div>
   );
 }

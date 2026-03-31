@@ -1,4 +1,5 @@
-﻿import { Link } from 'react-router-dom';
+import { Show } from 'solid-js';
+import { A } from '@solidjs/router';
 import type { CommunityDetail } from '../../lib/api.ts';
 import { formatMonthYear } from '../../lib/datetime.ts';
 import { CalendarIcon, ChatIcon, UsersIcon } from './CommunityIcons.tsx';
@@ -26,106 +27,104 @@ function getJoinButtonLabel(
   return '参加する';
 }
 
-export function CommunityProfileSummary({
-  community,
-  joining,
-  onJoin,
-  onLeave,
-  chatPath,
-}: CommunityProfileSummaryProps) {
-  const joinLabel = getJoinButtonLabel(community.join_policy, community.join_status, joining);
-  const visibilityLabel = community.visibility === 'public' ? '公開' : '非公開';
-  const joinPolicyLabel =
-    community.join_policy === 'open'
+export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
+  const joinLabel = () => getJoinButtonLabel(props.community.join_policy, props.community.join_status, props.joining);
+  const visibilityLabel = () => props.community.visibility === 'public' ? '公開' : '非公開';
+  const joinPolicyLabel = () =>
+    props.community.join_policy === 'open'
       ? '誰でも参加可能'
-      : community.join_policy === 'approval'
+      : props.community.join_policy === 'approval'
         ? '承認制'
         : '招待制';
 
   return (
     <>
       {/* Header Image */}
-      <div className="h-32 md:h-48 bg-gradient-to-br from-blue-600 to-purple-700 relative" />
+      <div class="h-32 md:h-48 bg-gradient-to-br from-blue-600 to-purple-700 relative" />
 
       {/* Profile Info */}
-      <div className="px-4 pb-4 relative">
+      <div class="px-4 pb-4 relative">
         {/* Icon */}
-        <div className="absolute -top-16 left-4">
-          <div className="w-32 h-32 rounded-2xl border-4 border-black overflow-hidden bg-neutral-800 flex items-center justify-center">
-            {community.icon_url ? (
-              <img src={community.icon_url} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-4xl font-bold text-white">
-                {(community.display_name || community.name).charAt(0).toUpperCase()}
-              </span>
-            )}
+        <div class="absolute -top-16 left-4">
+          <div class="w-32 h-32 rounded-2xl border-4 border-black overflow-hidden bg-neutral-800 flex items-center justify-center">
+            <Show
+              when={props.community.icon_url}
+              fallback={
+                <span class="text-4xl font-bold text-white">
+                  {(props.community.display_name || props.community.name).charAt(0).toUpperCase()}
+                </span>
+              }
+            >
+              <img src={props.community.icon_url} alt="" class="w-full h-full object-cover" />
+            </Show>
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex justify-end pt-3 pb-12 gap-2">
-          {community.is_member ? (
-            <>
-              <Link
-                to={chatPath}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-bold transition-colors"
-              >
-                <ChatIcon />
-                <span>トーク</span>
-              </Link>
+        <div class="flex justify-end pt-3 pb-12 gap-2">
+          <Show
+            when={props.community.is_member}
+            fallback={
               <button
-                onClick={onLeave}
-                disabled={joining}
-                className="px-4 py-2 border border-neutral-600 text-white hover:border-red-500 hover:text-red-500 rounded-full font-bold transition-colors disabled:opacity-50"
+                onClick={props.onJoin}
+                disabled={props.joining || props.community.join_status === 'pending'}
+                class="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-bold transition-colors disabled:opacity-50"
               >
-                退出
+                {joinLabel()}
               </button>
-            </>
-          ) : (
-            <button
-              onClick={onJoin}
-              disabled={joining || community.join_status === 'pending'}
-              className="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-bold transition-colors disabled:opacity-50"
+            }
+          >
+            <A
+              href={props.chatPath}
+              class="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-bold transition-colors"
             >
-              {joinLabel}
+              <ChatIcon />
+              <span>トーク</span>
+            </A>
+            <button
+              onClick={props.onLeave}
+              disabled={props.joining}
+              class="px-4 py-2 border border-neutral-600 text-white hover:border-red-500 hover:text-red-500 rounded-full font-bold transition-colors disabled:opacity-50"
+            >
+              退出
             </button>
-          )}
+          </Show>
         </div>
 
         {/* Name */}
-        <div className="mb-3">
-          <div className="text-xl font-bold text-white">{community.display_name || community.name}</div>
-          <div className="text-neutral-500">@{community.name}</div>
+        <div class="mb-3">
+          <div class="text-xl font-bold text-white">{props.community.display_name || props.community.name}</div>
+          <div class="text-neutral-500">@{props.community.name}</div>
         </div>
 
         {/* Summary */}
-        {community.summary && (
-          <p className="text-neutral-200 mb-3 whitespace-pre-wrap">{community.summary}</p>
-        )}
+        <Show when={props.community.summary}>
+          <p class="text-neutral-200 mb-3 whitespace-pre-wrap">{props.community.summary}</p>
+        </Show>
 
         {/* Meta Info */}
-        <div className="flex flex-wrap gap-4 text-neutral-500 text-sm mb-3">
-          <div className="flex items-center gap-1">
+        <div class="flex flex-wrap gap-4 text-neutral-500 text-sm mb-3">
+          <div class="flex items-center gap-1">
             <UsersIcon />
-            <span>{community.member_count} メンバー</span>
+            <span>{props.community.member_count} メンバー</span>
           </div>
-          <div className="flex items-center gap-1">
+          <div class="flex items-center gap-1">
             <CalendarIcon />
-            <span>作成日 {formatMonthYear(community.created_at)}</span>
+            <span>作成日 {formatMonthYear(props.community.created_at)}</span>
           </div>
         </div>
 
         {/* Visibility & Policy */}
-        <div className="flex flex-wrap gap-2">
+        <div class="flex flex-wrap gap-2">
           <span
-            className={`px-2 py-1 text-xs rounded-full ${
-              community.visibility === 'public' ? 'bg-green-500/20 text-green-400' : 'bg-neutral-700 text-neutral-300'
+            class={`px-2 py-1 text-xs rounded-full ${
+              props.community.visibility === 'public' ? 'bg-green-500/20 text-green-400' : 'bg-neutral-700 text-neutral-300'
             }`}
           >
-            {visibilityLabel}
+            {visibilityLabel()}
           </span>
-          <span className="px-2 py-1 text-xs rounded-full bg-neutral-700 text-neutral-300">
-            {joinPolicyLabel}
+          <span class="px-2 py-1 text-xs rounded-full bg-neutral-700 text-neutral-300">
+            {joinPolicyLabel()}
           </span>
         </div>
       </div>

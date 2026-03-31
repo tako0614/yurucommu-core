@@ -10,11 +10,11 @@ interface StickerPanelProps {
   onAddEmoji: (emoji: string) => void;
 }
 
-export function StickerPanel({ onAddEmoji }: StickerPanelProps) {
+export function StickerPanel(props: StickerPanelProps) {
   return (
-    <div className="space-y-4">
-      <h3 className="text-white font-medium">スタンプ</h3>
-      <EmojiPicker onSelect={onAddEmoji} />
+    <div class="space-y-4">
+      <h3 class="text-white font-medium">スタンプ</h3>
+      <EmojiPicker onSelect={props.onAddEmoji} />
     </div>
   );
 }

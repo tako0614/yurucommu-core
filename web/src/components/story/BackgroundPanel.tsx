@@ -4,6 +4,7 @@
  * Controls background fill type (solid or gradient) and color selection.
  */
 
+import { Show } from 'solid-js';
 import { ColorPicker, GradientPicker } from './ColorPicker.tsx';
 
 interface BackgroundPanelProps {
@@ -16,25 +17,17 @@ interface BackgroundPanelProps {
   onFillTypeChange: (type: 'solid' | 'gradient') => void;
 }
 
-export function BackgroundPanel({
-  fillType,
-  solidColor,
-  gradientColors,
-  gradientAngle,
-  onSolidColorChange,
-  onGradientChange,
-  onFillTypeChange,
-}: BackgroundPanelProps) {
+export function BackgroundPanel(props: BackgroundPanelProps) {
   return (
-    <div className="space-y-4">
-      <h3 className="text-white font-medium">背景</h3>
+    <div class="space-y-4">
+      <h3 class="text-white font-medium">背景</h3>
 
       {/* Fill type toggle */}
-      <div className="flex gap-2">
+      <div class="flex gap-2">
         <button
-          onClick={() => onFillTypeChange('solid')}
-          className={`flex-1 py-2 rounded-lg text-sm transition-colors ${
-            fillType === 'solid'
+          onClick={() => props.onFillTypeChange('solid')}
+          class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
+            props.fillType === 'solid'
               ? 'bg-blue-500 text-white'
               : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
           }`}
@@ -42,9 +35,9 @@ export function BackgroundPanel({
           単色
         </button>
         <button
-          onClick={() => onFillTypeChange('gradient')}
-          className={`flex-1 py-2 rounded-lg text-sm transition-colors ${
-            fillType === 'gradient'
+          onClick={() => props.onFillTypeChange('gradient')}
+          class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
+            props.fillType === 'gradient'
               ? 'bg-blue-500 text-white'
               : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
           }`}
@@ -54,15 +47,18 @@ export function BackgroundPanel({
       </div>
 
       {/* Color picker based on fill type */}
-      {fillType === 'solid' ? (
-        <ColorPicker color={solidColor} onChange={onSolidColorChange} />
-      ) : (
-        <GradientPicker
-          colors={gradientColors}
-          angle={gradientAngle}
-          onChange={onGradientChange}
-        />
-      )}
+      <Show
+        when={props.fillType === 'solid'}
+        fallback={
+          <GradientPicker
+            colors={props.gradientColors}
+            angle={props.gradientAngle}
+            onChange={props.onGradientChange}
+          />
+        }
+      >
+        <ColorPicker color={props.solidColor} onChange={props.onSolidColorChange} />
+      </Show>
     </div>
   );
 }

@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { createSignal, createEffect, onCleanup } from 'solid-js';
 import { fetchUnreadCount } from '../lib/api.ts';
 
 export function useUnreadCount(pollIntervalMs = 30000) {
-  const [count, setCount] = useState(0);
+  const [count, setCount] = createSignal(0);
 
-  useEffect(() => {
+  createEffect(() => {
     let active = true;
 
     const load = async () => {
@@ -20,16 +20,16 @@ export function useUnreadCount(pollIntervalMs = 30000) {
 
     if (pollIntervalMs > 0) {
       const intervalId = setInterval(load, pollIntervalMs);
-      return () => {
+      onCleanup(() => {
         active = false;
         clearInterval(intervalId);
-      };
+      });
+    } else {
+      onCleanup(() => {
+        active = false;
+      });
     }
-
-    return () => {
-      active = false;
-    };
-  }, [pollIntervalMs]);
+  });
 
   return count;
 }

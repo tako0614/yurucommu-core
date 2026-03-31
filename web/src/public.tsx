@@ -1,5 +1,5 @@
-import React, { type ComponentType } from 'react';
-import ReactDOM from 'react-dom/client';
+import { render } from 'solid-js/web';
+import type { Component } from 'solid-js';
 import DefaultApp from './App.tsx';
 import {
   clearYurucommuFrontendPlugin,
@@ -37,13 +37,12 @@ export type {
 
 export interface BootstrapMountOptionsV1 {
   rootId?: string;
-  strictMode?: boolean;
 }
 
 export interface BootstrapYurucommuFrontendOptionsV1 {
   plugins?: YurucommuFrontendPluginV1[];
   mount?: BootstrapMountOptionsV1;
-  AppComponent?: ComponentType;
+  AppComponent?: Component;
 }
 
 let bootstrapped = false;
@@ -54,7 +53,6 @@ export function bootstrapYurucommuFrontend(options: BootstrapYurucommuFrontendOp
   }
 
   const rootId = options.mount?.rootId ?? 'root';
-  const strictMode = options.mount?.strictMode ?? true;
   const AppComponent = options.AppComponent ?? DefaultApp;
   const plugins = options.plugins ?? [];
 
@@ -66,15 +64,7 @@ export function bootstrapYurucommuFrontend(options: BootstrapYurucommuFrontendOp
     throw new Error(`[yurucommu] root element not found: #${rootId}`);
   }
 
-  const appElement = strictMode
-    ? (
-      <React.StrictMode>
-        <AppComponent />
-      </React.StrictMode>
-    )
-    : <AppComponent />;
-
-  ReactDOM.createRoot(container).render(appElement);
+  render(() => <AppComponent />, container);
   bootstrapped = true;
 }
 

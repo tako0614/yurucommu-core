@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react';
+import type { Component } from 'solid-js';
 import type { Actor } from '../types/index.ts';
 
 export const YURUCOMMU_FRONTEND_PLUGIN_API_VERSION = 1 as const;
@@ -6,7 +6,7 @@ export const YURUCOMMU_FRONTEND_PLUGIN_API_VERSION = 1 as const;
 export type SlotName = 'timeline.between-posts' | 'right-sidebar.below-recommendations' | (string & {});
 
 export interface SlotEntry {
-  component: ComponentType<Record<string, unknown>>;
+  component: Component<Record<string, unknown>>;
   priority?: number;
 }
 
@@ -172,7 +172,7 @@ let activePlugins: YurucommuFrontendPluginV1[] = [];
 let pluginSetupDone = false;
 let cachedStrategy: AuthStrategy | null = null;
 let cachedTransport: ApiTransport | null = null;
-let cachedSlots: Map<string, ComponentType<Record<string, unknown>>[]> | null = null;
+let cachedSlots: Map<string, Component<Record<string, unknown>>[]> | null = null;
 
 function ensurePluginVersion(plugin: YurucommuFrontendPluginV1): void {
   if (plugin.apiVersion !== YURUCOMMU_FRONTEND_PLUGIN_API_VERSION) {
@@ -244,7 +244,7 @@ export function getApiTransport(): ApiTransport {
   return cachedTransport;
 }
 
-function buildSlotCache(): Map<string, ComponentType<Record<string, unknown>>[]> {
+function buildSlotCache(): Map<string, Component<Record<string, unknown>>[]> {
   ensurePluginSetup();
   const map = new Map<string, SlotEntry[]>();
   for (const plugin of activePlugins) {
@@ -256,7 +256,7 @@ function buildSlotCache(): Map<string, ComponentType<Record<string, unknown>>[]>
       map.set(slotName, existing);
     }
   }
-  const result = new Map<string, ComponentType<Record<string, unknown>>[]>();
+  const result = new Map<string, Component<Record<string, unknown>>[]>();
   for (const [name, entries] of map) {
     entries.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
     result.set(name, entries.map(e => e.component));
@@ -264,7 +264,7 @@ function buildSlotCache(): Map<string, ComponentType<Record<string, unknown>>[]>
   return result;
 }
 
-export function getSlotComponents(slotName: string): ComponentType<Record<string, unknown>>[] {
+export function getSlotComponents(slotName: string): Component<Record<string, unknown>>[] {
   if (!cachedSlots) {
     cachedSlots = buildSlotCache();
   }

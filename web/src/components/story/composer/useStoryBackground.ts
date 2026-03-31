@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { createEffect } from 'solid-js';
 import type { BackgroundFill, StoryCanvas } from '../../../lib/story-canvas.ts';
 
 interface StoryBackgroundOptions {
@@ -10,25 +10,18 @@ interface StoryBackgroundOptions {
   onUpdate: () => void;
 }
 
-export function useStoryBackground({
-  storyCanvas,
-  backgroundType,
-  solidColor,
-  gradientColors,
-  gradientAngle,
-  onUpdate,
-}: StoryBackgroundOptions) {
-  useEffect(() => {
-    if (!storyCanvas) return;
+export function useStoryBackground(opts: StoryBackgroundOptions) {
+  createEffect(() => {
+    if (!opts.storyCanvas) return;
 
     let fill: BackgroundFill;
-    if (backgroundType === 'solid') {
-      fill = { type: 'solid', color: solidColor };
+    if (opts.backgroundType === 'solid') {
+      fill = { type: 'solid', color: opts.solidColor };
     } else {
-      fill = { type: 'gradient', colors: gradientColors, angle: gradientAngle };
+      fill = { type: 'gradient', colors: opts.gradientColors, angle: opts.gradientAngle };
     }
 
-    storyCanvas.setBackground(fill);
-    onUpdate();
-  }, [storyCanvas, backgroundType, solidColor, gradientColors, gradientAngle, onUpdate]);
+    opts.storyCanvas.setBackground(fill);
+    opts.onUpdate();
+  });
 }

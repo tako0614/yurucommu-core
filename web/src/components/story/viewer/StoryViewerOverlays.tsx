@@ -1,4 +1,5 @@
-import type { CSSProperties } from 'react';
+import type { JSX } from 'solid-js';
+import { For, Show } from 'solid-js';
 import { voteOnStory } from '../../../lib/api.ts';
 import type { StoryOverlay } from '../../../types/index.ts';
 
@@ -33,16 +34,16 @@ export function renderStoryOverlay(
   const width = position.width * containerSize.width;
   const height = position.height * containerSize.height;
 
-  const style: CSSProperties = {
+  const style: JSX.CSSProperties = {
     position: 'absolute',
     left: `${left}px`,
     top: `${top}px`,
     width: `${width}px`,
     height: `${height}px`,
     display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
+    "flex-direction": 'column',
+    "align-items": 'center',
+    "justify-content": 'center',
   };
 
   if (overlay.type === 'Question' && overlay.name && overlay.oneOf) {
@@ -50,52 +51,55 @@ export function renderStoryOverlay(
     const hasUserVoted = userVote !== undefined && userVote !== null;
 
     return (
-      <div key={`overlay-${overlay.name}`} style={style}>
-        <div className="bg-black/60 backdrop-blur-sm rounded-xl p-3 w-full">
-          <p className="text-white text-sm font-medium text-center mb-2">{overlay.name}</p>
-          <div className="flex gap-2">
-            {overlay.oneOf.map((option, optionIndex) => {
-              const voteCount = votes?.[optionIndex] || 0;
-              const percentage = hasVotes && votesTotal ? Math.round((voteCount / votesTotal) * 100) : 0;
-              const isSelected = userVote === optionIndex;
+      <div style={style}>
+        <div class="bg-black/60 backdrop-blur-sm rounded-xl p-3 w-full">
+          <p class="text-white text-sm font-medium text-center mb-2">{overlay.name}</p>
+          <div class="flex gap-2">
+            <For each={overlay.oneOf}>
+              {(option, optionIndex) => {
+                const voteCount = votes?.[optionIndex()] || 0;
+                const percentage = hasVotes && votesTotal ? Math.round((voteCount / votesTotal) * 100) : 0;
+                const isSelected = userVote === optionIndex();
 
-              return (
-                <button
-                  key={`${option.name}-${optionIndex}`}
-                  className={`flex-1 relative overflow-hidden text-white text-sm py-2 px-3 rounded-lg transition-colors ${isSelected ? 'ring-2 ring-white' : ''} ${hasUserVoted ? 'cursor-default' : 'hover:bg-white/30'}`}
-                  style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    if (hasUserVoted) return;
-                    try {
-                      if (onVote) {
-                        await onVote(storyApId, optionIndex);
-                      } else {
-                        await voteOnStory(storyApId, optionIndex);
+                return (
+                  <button
+                    class={`flex-1 relative overflow-hidden text-white text-sm py-2 px-3 rounded-lg transition-colors ${isSelected ? 'ring-2 ring-white' : ''} ${hasUserVoted ? 'cursor-default' : 'hover:bg-white/30'}`}
+                    style={{ "background-color": 'rgba(255,255,255,0.2)' }}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (hasUserVoted) return;
+                      try {
+                        if (onVote) {
+                          await onVote(storyApId, optionIndex());
+                        } else {
+                          await voteOnStory(storyApId, optionIndex());
+                        }
+                      } catch (err) {
+                        console.error('Failed to vote:', err);
                       }
-                    } catch (err) {
-                      console.error('Failed to vote:', err);
-                    }
-                  }}
-                  disabled={hasUserVoted}
-                >
-                  {hasVotes && (
-                    <div
-                      className="absolute inset-0 bg-white/20 transition-all"
-                      style={{ width: `${percentage}%` }}
-                    />
-                  )}
-                  <span className="relative z-10 flex items-center justify-between">
-                    <span>{option.name}</span>
-                    {hasVotes && <span className="text-xs ml-2">{percentage}%</span>}
-                  </span>
-                </button>
-              );
-            })}
+                    }}
+                    disabled={hasUserVoted ?? undefined}
+                  >
+                    <Show when={hasVotes}>
+                      <div
+                        class="absolute inset-0 bg-white/20 transition-all"
+                        style={{ width: `${percentage}%` }}
+                      />
+                    </Show>
+                    <span class="relative z-10 flex items-center justify-between">
+                      <span>{option.name}</span>
+                      <Show when={hasVotes}>
+                        <span class="text-xs ml-2">{percentage}%</span>
+                      </Show>
+                    </span>
+                  </button>
+                );
+              }}
+            </For>
           </div>
-          {hasVotes && (
-            <p className="text-white/60 text-xs text-center mt-2">{votesTotal}票</p>
-          )}
+          <Show when={hasVotes}>
+            <p class="text-white/60 text-xs text-center mt-2">{votesTotal}票</p>
+          </Show>
         </div>
       </div>
     );
@@ -103,8 +107,8 @@ export function renderStoryOverlay(
 
   if (overlay.type === 'Note' && overlay.name) {
     return (
-      <div key={`overlay-note-${overlay.name}`} style={style}>
-        <p className="text-white text-lg font-medium drop-shadow-lg bg-black/30 px-4 py-2 rounded-lg text-center">
+      <div style={style}>
+        <p class="text-white text-lg font-medium drop-shadow-lg bg-black/30 px-4 py-2 rounded-lg text-center">
           {overlay.name}
         </p>
       </div>
@@ -119,12 +123,12 @@ export function renderStoryOverlay(
     }
 
     return (
-      <div key={`overlay-link-${linkOverlay.href}`} style={style}>
+      <div style={style}>
         <a
           href={linkOverlay.href}
           target="_blank"
           rel="noopener noreferrer"
-          className="bg-white text-black text-sm font-medium px-4 py-2 rounded-full hover:bg-neutral-200 transition-colors"
+          class="bg-white text-black text-sm font-medium px-4 py-2 rounded-full hover:bg-neutral-200 transition-colors"
           onClick={(e) => e.stopPropagation()}
         >
           {linkOverlay.name || 'リンクを開く'}

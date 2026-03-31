@@ -1,5 +1,5 @@
-import { useEffect, useRef, useCallback } from 'react';
-import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { onMount, onCleanup } from 'solid-js';
+import { useAtom, useAtomValue, useSetAtom } from 'solid-jotai';
 import { tAtom } from '../atoms/i18n.ts';
 import {
   timelinePostsAtom,
@@ -39,8 +39,8 @@ import type { ActorStories } from '../types/index.ts';
 export function useTimelineState() {
   const t = useAtomValue(tAtom);
   const [error, setError] = useAtom(timelineErrorAtom);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  let fileInputRef!: HTMLInputElement;
+  let scrollContainerRef!: HTMLDivElement;
 
   // State atoms
   const [posts, setPosts] = useAtom(timelinePostsAtom);
@@ -50,8 +50,6 @@ export function useTimelineState() {
   const [postContent, setPostContent] = useAtom(postContentAtom);
   const posting = useAtomValue(postingAtom);
   const uploadedMedia = useAtomValue(uploadedMediaAtom);
-  const uploadedMediaRef = useRef(uploadedMedia);
-  uploadedMediaRef.current = uploadedMedia;
   const uploading = useAtomValue(uploadingAtom);
   const uploadError = useAtomValue(uploadErrorAtom);
   const [showPostModal, setShowPostModal] = useAtom(showPostModalAtom);
@@ -83,102 +81,109 @@ export function useTimelineState() {
   const doClosePostModal = useSetAtom(closePostModalAtom);
 
   // Initial load
-  useEffect(() => {
+  onMount(() => {
     loadTimeline();
     loadStories();
-  }, [loadTimeline, loadStories]);
+  });
 
   // Cleanup object URLs on unmount
-  useEffect(() => {
-    return () => {
-      uploadedMediaRef.current.forEach((media) => {
-        if (media.preview) URL.revokeObjectURL(media.preview);
-      });
-    };
-  }, []);
+  onCleanup(() => {
+    uploadedMedia().forEach((media) => {
+      if (media.preview) URL.revokeObjectURL(media.preview);
+    });
+  });
 
-  // Infinite scroll
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
+  // Infinite scroll — set up after mount when ref is bound
+  onMount(() => {
     const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = container;
+      if (!scrollContainerRef) return;
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef;
       if (scrollHeight - scrollTop - clientHeight < 200) {
         loadMore();
       }
     };
-    container.addEventListener('scroll', handleScroll);
-    return () => container.removeEventListener('scroll', handleScroll);
-  }, [loadMore]);
+
+    if (scrollContainerRef) {
+      scrollContainerRef.addEventListener('scroll', handleScroll);
+    }
+
+    onCleanup(() => {
+      if (scrollContainerRef) {
+        scrollContainerRef.removeEventListener('scroll', handleScroll);
+      }
+    });
+  });
 
   // Story handlers
-  const handleStoryClick = useCallback((stories: ActorStories, _index: number) => {
-    const actualIndex = actorStories.findIndex((as) => as.actor.ap_id === stories.actor.ap_id);
+  const handleStoryClick = (stories: ActorStories, _index: number) => {
+    const actualIndex = actorStories().findIndex((as) => as.actor.ap_id === stories.actor.ap_id);
     if (actualIndex >= 0) {
       setStoryViewerActorIndex(actualIndex);
       setShowStoryViewer(true);
     }
-  }, [actorStories, setStoryViewerActorIndex, setShowStoryViewer]);
+  };
 
   // Menu handlers
-  const handleOpenMenu = useCallback(() => {
+  const handleOpenMenu = () => {
     setShowMenu(true);
     doLoadAccounts();
-  }, [setShowMenu, doLoadAccounts]);
+  };
 
-  const handleCloseMenu = useCallback(() => {
+  const handleCloseMenu = () => {
     setShowMenu(false);
     setShowAccountSwitcher(false);
-  }, [setShowMenu, setShowAccountSwitcher]);
+  };
 
   // File upload handler
-  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  const handleFileSelect = async (e: Event & { currentTarget: HTMLInputElement }) => {
+    const files = e.currentTarget.files;
     if (!files || files.length === 0) return;
     for (const file of Array.from(files)) {
       await doUploadMedia(file);
     }
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  }, [doUploadMedia]);
+    if (fileInputRef) fileInputRef.value = '';
+  };
 
   // Post interactions using shared helpers
-  const handleLike = useCallback(async (post: Parameters<typeof toggleLike>[0]) => {
+  const handleLike = async (post: Parameters<typeof toggleLike>[0]) => {
     try {
       await toggleLike(post, (fn) => setPosts(fn));
     } catch (e) {
       console.error('Failed to toggle like:', e);
-      setError(t('common.error'));
+      setError(t()('common.error'));
     }
-  }, [setPosts, setError, t]);
+  };
 
-  const handleBookmark = useCallback(async (post: Parameters<typeof toggleBookmark>[0]) => {
+  const handleBookmark = async (post: Parameters<typeof toggleBookmark>[0]) => {
     try {
       await toggleBookmark(post, (fn) => setPosts(fn));
     } catch (e) {
       console.error('Failed to toggle bookmark:', e);
-      setError(t('common.error'));
+      setError(t()('common.error'));
     }
-  }, [setPosts, setError, t]);
+  };
 
-  const handleRepost = useCallback(async (post: Parameters<typeof toggleRepost>[0]) => {
+  const handleRepost = async (post: Parameters<typeof toggleRepost>[0]) => {
     try {
       await toggleRepost(post, (fn) => setPosts(fn));
     } catch (e) {
       console.error('Failed to toggle repost:', e);
-      setError(t('common.error'));
+      setError(t()('common.error'));
     }
-  }, [setPosts, setError, t]);
+  };
 
-  const handlePost = useCallback(async (): Promise<boolean> => {
-    return (await doCreatePost(postContent)) || false;
-  }, [doCreatePost, postContent]);
+  const handlePost = async (): Promise<boolean> => {
+    return (await doCreatePost(postContent())) || false;
+  };
 
   return {
-    t,
+    t: () => t(),
     error,
-    clearError: useCallback(() => setError(null), [setError]),
-    fileInputRef,
-    scrollContainerRef,
+    clearError: () => setError(null),
+    get fileInputRef() { return fileInputRef; },
+    set fileInputRef(el: HTMLInputElement) { fileInputRef = el; },
+    get scrollContainerRef() { return scrollContainerRef; },
+    set scrollContainerRef(el: HTMLDivElement) { scrollContainerRef = el; },
     posts,
     loading,
     loadingMore,
@@ -200,7 +205,7 @@ export function useTimelineState() {
     showStoryComposer,
     setShowStoryComposer,
     handleStoryClick,
-    handleAddStory: useCallback(() => setShowStoryComposer(true), [setShowStoryComposer]),
+    handleAddStory: () => setShowStoryComposer(true),
     handleStorySuccess: loadStories,
     loadStories,
     showMenu,
@@ -218,6 +223,6 @@ export function useTimelineState() {
     handleLike,
     handleBookmark,
     handleRepost,
-    getPlaceholder: useCallback(() => t('posts.placeholder'), [t]),
+    getPlaceholder: () => t()('posts.placeholder'),
   };
 }

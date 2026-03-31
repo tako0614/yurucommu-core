@@ -1,11 +1,11 @@
-import { useCallback, useState } from 'react';
+import { createSignal } from 'solid-js';
 
 export function useInlineError() {
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = createSignal<string | null>(null);
 
-  const clearError = useCallback(() => {
+  const clearError = () => {
     setError(null);
-  }, []);
+  };
 
   return { error, setError, clearError };
 }

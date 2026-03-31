@@ -10,7 +10,7 @@
  *   useStoryTextEditor, useStoryLayerActions, useStoryPost, useStoryImageUpload
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { createSignal, createEffect, onCleanup } from 'solid-js';
 import {
   StoryCanvas,
   CANVAS_WIDTH,
@@ -48,58 +48,44 @@ const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
 
 type ToolTab = 'background' | 'text' | 'sticker' | 'draw' | 'video' | 'none';
 
-export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
+export function StoryComposer(props: StoryComposerProps) {
   // Canvas state
-  const [storyCanvas, setStoryCanvas] = useState<StoryCanvas | null>(null);
-  const [renderKey, setRenderKey] = useState(0);
-  const bumpRenderKey = useCallback(() => setRenderKey(k => k + 1), [setRenderKey]);
-  const canvasContainerRef = useRef<HTMLDivElement>(null);
-  const displayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [storyCanvas, setStoryCanvas] = createSignal<StoryCanvas | null>(null);
+  const [renderKey, setRenderKey] = createSignal(0);
+  const bumpRenderKey = () => setRenderKey(k => k + 1);
+  let canvasContainerRef!: HTMLDivElement;
+  let displayCanvasRef!: HTMLCanvasElement;
 
   // UI state
-  const [activeTab, setActiveTab] = useState<ToolTab>('none');
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [displayScale, setDisplayScale] = useState(1);
+  const [activeTab, setActiveTab] = createSignal<ToolTab>('none');
+  const [uploading, setUploading] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+  const [displayScale, setDisplayScale] = createSignal(1);
 
   // Background state
-  const [backgroundType] = useState<'solid' | 'gradient'>('gradient');
-  const [solidColor] = useState('#000000');
-  const [gradientColors] = useState(['#667eea', '#764ba2']);
-  const [gradientAngle] = useState(135);
+  const [backgroundType] = createSignal<'solid' | 'gradient'>('gradient');
+  const [solidColor] = createSignal('#000000');
+  const [gradientColors] = createSignal(['#667eea', '#764ba2']);
+  const [gradientAngle] = createSignal(135);
 
   // Overlay state (for interactive elements)
-  const [overlays] = useState<StoryOverlay[]>([]);
+  const [overlays] = createSignal<StoryOverlay[]>([]);
 
   // Snap guides state
-  const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
+  const [snapGuides, setSnapGuides] = createSignal<SnapGuide[]>([]);
 
   // Caption and audience state (Instagram-style)
-  const [caption, setCaption] = useState('');
-  const [showToolPanel, setShowToolPanel] = useState(false);
-  const [activeTool, setActiveTool] = useState<'text' | 'sticker' | 'music' | 'effect' | 'resize' | null>(null);
+  const [caption, setCaption] = createSignal('');
+  const [showToolPanel, setShowToolPanel] = createSignal(false);
+  const [activeTool, setActiveTool] = createSignal<'text' | 'sticker' | 'music' | 'effect' | 'resize' | null>(null);
 
   // Double-tap detection for text editing
-  const [lastTapTime, setLastTapTime] = useState(0);
+  let lastTapTime = 0;
 
   // --- Custom hooks ---
 
-  const {
-    videoFile,
-    videoPreview,
-    videoInputRef,
-    videoRef,
-    videoScale,
-    setVideoScale,
-    videoPosition,
-    setVideoPosition,
-    videoRotation,
-    setVideoRotation,
-    ffmpegReady,
-    ffmpegLoading,
-    handleVideoSelect,
-  } = useStoryVideo({
-    storyCanvas,
+  const video = useStoryVideo({
+    get storyCanvas() { return storyCanvas(); },
     setUploading: (value) => setUploading(value),
     setError: (message) => setError(message),
     maxVideoSize: MAX_VIDEO_SIZE,
@@ -120,28 +106,28 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
     clearDrawing,
     undoDrawing,
   } = useCanvasInteraction({
-    canvas: storyCanvas,
-    displayScale: displayScale,
+    get canvas() { return storyCanvas(); },
+    get displayScale() { return displayScale(); },
     onUpdate: bumpRenderKey,
     onSnapGuidesChange: setSnapGuides,
   });
 
   const postActions = useStoryPost({
-    storyCanvas,
-    videoFile,
-    videoScale,
-    videoPosition,
-    videoRotation,
-    displayScale,
-    ffmpegReady,
-    overlays,
+    get storyCanvas() { return storyCanvas(); },
+    get videoFile() { return video.videoFile(); },
+    get videoScale() { return video.videoScale(); },
+    get videoPosition() { return video.videoPosition(); },
+    get videoRotation() { return video.videoRotation(); },
+    get displayScale() { return displayScale(); },
+    get ffmpegReady() { return video.ffmpegReady(); },
+    get overlays() { return overlays(); },
     setError,
-    onSuccess,
-    onClose,
+    onSuccess: props.onSuccess,
+    onClose: props.onClose,
   });
 
   const textEditor = useStoryTextEditor({
-    storyCanvas,
+    get storyCanvas() { return storyCanvas(); },
     selectLayer,
     onUpdate: () => {
       bumpRenderKey();
@@ -150,14 +136,14 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
   });
 
   const layerActions = useStoryLayerActions({
-    storyCanvas,
-    selectedLayerId: interactionState.selectedLayerId,
+    get storyCanvas() { return storyCanvas(); },
+    get selectedLayerId() { return interactionState.selectedLayerId; },
     selectLayer,
     onUpdate: bumpRenderKey,
   });
 
   const imageUpload = useStoryImageUpload({
-    storyCanvas,
+    get storyCanvas() { return storyCanvas(); },
     selectLayer,
     setUploading: (value) => setUploading(value),
     setError: (message) => setError(message),
@@ -168,73 +154,73 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
   });
 
   const videoTransform = useVideoTransform({
-    enabled: !!videoPreview,
-    scale: videoScale,
-    position: videoPosition,
-    rotation: videoRotation,
-    setScale: setVideoScale,
-    setPosition: setVideoPosition,
-    setRotation: setVideoRotation,
+    get enabled() { return !!video.videoPreview(); },
+    get scale() { return video.videoScale(); },
+    get position() { return video.videoPosition(); },
+    get rotation() { return video.videoRotation(); },
+    setScale: video.setVideoScale,
+    setPosition: video.setVideoPosition,
+    setRotation: video.setVideoRotation,
   });
 
   // --- Effects ---
 
   // Initialize canvas
-  useEffect(() => {
+  createEffect(() => {
     const canvas = new StoryCanvas();
     canvas.setBackground({
       type: 'gradient',
-      colors: gradientColors,
-      angle: gradientAngle,
+      colors: gradientColors(),
+      angle: gradientAngle(),
     });
     setStoryCanvas(canvas);
     canvas.render().then(() => {
       setRenderKey(k => k + 1);
     });
-  }, []);
+  });
 
   // Calculate display scale
-  useEffect(() => {
+  createEffect(() => {
     const updateScale = () => {
-      if (canvasContainerRef.current) {
-        const containerWidth = canvasContainerRef.current.clientWidth;
+      if (canvasContainerRef) {
+        const containerWidth = canvasContainerRef.clientWidth;
         const scale = CANVAS_WIDTH / containerWidth;
         setDisplayScale(scale);
       }
     };
     updateScale();
     window.addEventListener('resize', updateScale);
-    return () => window.removeEventListener('resize', updateScale);
-  }, []);
+    onCleanup(() => window.removeEventListener('resize', updateScale));
+  });
 
   // Set container ref for interaction
-  useEffect(() => {
-    if (canvasContainerRef.current) {
-      setContainerRef(canvasContainerRef.current);
+  createEffect(() => {
+    if (canvasContainerRef) {
+      setContainerRef(canvasContainerRef);
     }
-  }, [setContainerRef]);
+  });
 
   useStoryCanvasRenderer({
-    storyCanvas,
-    displayCanvasRef,
-    renderKey,
-    snapGuides,
+    get storyCanvas() { return storyCanvas(); },
+    get displayCanvasRef() { return displayCanvasRef; },
+    get renderKey() { return renderKey(); },
+    get snapGuides() { return snapGuides(); },
     getSelectedLayer,
   });
 
   useStoryBackground({
-    storyCanvas,
-    backgroundType,
-    solidColor,
-    gradientColors,
-    gradientAngle,
+    get storyCanvas() { return storyCanvas(); },
+    get backgroundType() { return backgroundType(); },
+    get solidColor() { return solidColor(); },
+    get gradientColors() { return gradientColors(); },
+    get gradientAngle() { return gradientAngle(); },
     onUpdate: bumpRenderKey,
   });
 
   // --- Event handlers ---
 
   const handleTabChange = (tab: ToolTab) => {
-    setActiveTab(tab === activeTab ? 'none' : tab);
+    setActiveTab(tab === activeTab() ? 'none' : tab);
     if (tab === 'draw') {
       setMode('draw');
     } else {
@@ -243,27 +229,28 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
   };
 
   // Custom pointer down that detects double-tap for text editing
-  const handleCanvasPointerDown = (e: React.MouseEvent | React.TouchEvent) => {
+  const handleCanvasPointerDown = (e: MouseEvent | TouchEvent) => {
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
     const now = Date.now();
 
-    if (storyCanvas && canvasContainerRef.current) {
-      const rect = canvasContainerRef.current.getBoundingClientRect();
+    const sc = storyCanvas();
+    if (sc && canvasContainerRef) {
+      const rect = canvasContainerRef.getBoundingClientRect();
       const scale = CANVAS_WIDTH / rect.width;
       const canvasX = (clientX - rect.left) * scale;
       const canvasY = (clientY - rect.top) * scale;
 
-      const hitLayer = storyCanvas.hitTest(canvasX, canvasY);
+      const hitLayer = sc.hitTest(canvasX, canvasY);
       if (hitLayer && hitLayer.type === 'text') {
         if (now - lastTapTime < 300 && interactionState.selectedLayerId === hitLayer.id) {
           textEditor.handleEditText(hitLayer.id);
-          setLastTapTime(0);
+          lastTapTime = 0;
           return;
         }
-        setLastTapTime(now);
+        lastTapTime = now;
       } else {
-        setLastTapTime(0);
+        lastTapTime = 0;
       }
     }
 
@@ -272,9 +259,10 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
 
   // Add emoji sticker
   const handleAddEmoji = (emoji: string) => {
-    if (!storyCanvas) return;
-    const layer = storyCanvas.createStickerLayer(emoji, true);
-    storyCanvas.addLayer(layer);
+    const sc = storyCanvas();
+    if (!sc) return;
+    const layer = sc.createStickerLayer(emoji, true);
+    sc.addLayer(layer);
     selectLayer(layer.id);
     bumpRenderKey();
   };
@@ -286,44 +274,45 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
       return;
     }
     if (tool === 'sticker') {
-      setActiveTool(activeTool === 'sticker' ? null : 'sticker');
-      setShowToolPanel(activeTool !== 'sticker');
+      setActiveTool(activeTool() === 'sticker' ? null : 'sticker');
+      setShowToolPanel(activeTool() !== 'sticker');
       handleTabChange('sticker');
       return;
     }
-    setActiveTool(activeTool === tool ? null : tool);
-    setShowToolPanel(activeTool !== tool);
+    setActiveTool(activeTool() === tool ? null : tool);
+    setShowToolPanel(activeTool() !== tool);
   };
 
   // --- Derived state ---
 
-  const selectedLayer = getSelectedLayer();
-  const canPost = !!storyCanvas && (storyCanvas.getLayers().length > 1 || !!videoFile);
+  const selectedLayer = () => getSelectedLayer();
+  const canPost = () => {
+    const sc = storyCanvas();
+    return !!sc && (sc.getLayers().length > 1 || !!video.videoFile());
+  };
 
   const getDisplayDimensions = () => {
-    if (!canvasContainerRef.current) return { width: 360, height: 640 };
-    const width = canvasContainerRef.current.clientWidth;
+    if (!canvasContainerRef) return { width: 360, height: 640 };
+    const width = canvasContainerRef.clientWidth;
     const height = (width * CANVAS_HEIGHT) / CANVAS_WIDTH;
     return { width, height };
   };
 
-  const displayDimensions = getDisplayDimensions();
-
   // --- Render ---
 
   return (
-    <div className="fixed inset-0 bg-neutral-900 z-51">
+    <div class="fixed inset-0 bg-neutral-900 z-51">
       {/* Full screen canvas area with overlay UI */}
-      <div className="relative w-full h-full pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+      <div class="relative w-full h-full pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
         <StoryComposerCanvas
           canvasContainerRef={canvasContainerRef}
           displayCanvasRef={displayCanvasRef}
-          displayDimensions={displayDimensions}
-          videoPreview={videoPreview}
-          videoRef={videoRef}
-          videoPosition={videoPosition}
-          videoScale={videoScale}
-          videoRotation={videoRotation}
+          displayDimensions={getDisplayDimensions()}
+          videoPreview={video.videoPreview()}
+          videoRef={video.videoRef}
+          videoPosition={video.videoPosition()}
+          videoScale={video.videoScale()}
+          videoRotation={video.videoRotation()}
           onCanvasPointerDown={handleCanvasPointerDown}
           onCanvasWheel={handleWheel}
           onVideoPointerDown={videoTransform.handlePointerDown}
@@ -336,13 +325,13 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
         />
 
         <StoryComposerHeader
-          onClose={onClose}
-          activeTool={activeTool}
+          onClose={props.onClose}
+          activeTool={activeTool()}
           onToolClick={handleToolClick}
         />
 
         <StoryComposerSelectionToolbar
-          selectedLayer={selectedLayer}
+          selectedLayer={selectedLayer()}
           onEditText={textEditor.handleEditText}
           onBringToFront={layerActions.handleBringToFront}
           onSendToBack={layerActions.handleSendToBack}
@@ -350,20 +339,20 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
         />
 
         <StoryComposerFooter
-          caption={caption}
+          caption={caption()}
           onCaptionChange={setCaption}
           onPost={postActions.handlePost}
-          canPost={canPost}
-          posting={postActions.posting}
-          progress={postActions.progress}
-          videoFile={videoFile}
-          ffmpegReady={ffmpegReady}
-          error={error}
+          canPost={canPost()}
+          posting={postActions.posting()}
+          progress={postActions.progress()}
+          videoFile={video.videoFile()}
+          ffmpegReady={video.ffmpegReady()}
+          error={error()}
           onDismissError={() => setError(null)}
         />
 
         <StoryComposerStickerPanel
-          open={showToolPanel && activeTool === 'sticker'}
+          open={showToolPanel() && activeTool() === 'sticker'}
           onAddEmoji={(emoji) => {
             handleAddEmoji(emoji);
             setShowToolPanel(false);
@@ -376,11 +365,11 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
         />
 
         <StoryComposerQuickActions
-          uploading={uploading}
-          hasVideo={!!videoFile}
+          uploading={uploading()}
+          hasVideo={!!video.videoFile()}
           isDrawing={interactionState.mode === 'draw'}
-          onSelectImage={() => imageUpload.fileInputRef.current?.click()}
-          onSelectVideo={() => videoInputRef.current?.click()}
+          onSelectImage={() => imageUpload.fileInputRef?.click()}
+          onSelectVideo={() => video.videoInputRef?.click()}
           onToggleDraw={() => handleTabChange('draw')}
         />
 
@@ -394,31 +383,31 @@ export function StoryComposer({ onClose, onSuccess }: StoryComposerProps) {
         />
 
         <StoryComposerStatusOverlay
-          ffmpegLoading={ffmpegLoading}
-          posting={postActions.posting}
-          progress={postActions.progress}
+          ffmpegLoading={video.ffmpegLoading()}
+          posting={postActions.posting()}
+          progress={postActions.progress()}
         />
       </div>
 
       {/* Hidden file inputs */}
       <input
-        ref={imageUpload.fileInputRef}
+        ref={(el) => { imageUpload.fileInputRef = el; }}
         type="file"
         accept="image/*"
-        onChange={imageUpload.handleImageSelect}
-        className="hidden"
+        onInput={imageUpload.handleImageSelect}
+        class="hidden"
       />
       <input
-        ref={videoInputRef}
+        ref={(el) => { video.videoInputRef = el; }}
         type="file"
         accept="video/*"
-        onChange={handleVideoSelect}
-        className="hidden"
+        onInput={video.handleVideoSelect}
+        class="hidden"
       />
 
       {/* Text editor modal */}
       <TextEditorModal
-        isOpen={textEditor.isTextEditorOpen}
+        isOpen={textEditor.isTextEditorOpen()}
         onClose={textEditor.handleTextEditorClose}
         onSave={textEditor.handleTextSave}
         initialText={textEditor.getInitialTextData()}
