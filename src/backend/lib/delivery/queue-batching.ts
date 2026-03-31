@@ -4,23 +4,23 @@
  */
 
 import type { Message, MessageBatch } from '@cloudflare/workers-types';
-import type { Env } from '../../types';
-import type { Database } from '../../../db';
+import type { Env } from '../../types.ts';
+import type { Database } from '../../../db/index.ts';
 import { eq, and, or, sql } from 'drizzle-orm';
-import { actorCache, follows, deliveryQueue } from '../../../db';
-import { isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../../federation-helpers';
-import { planEndpointsFromActorCache } from './planner';
+import { actorCache, follows, deliveryQueue } from '../../../db/index.ts';
+import { isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../../federation-helpers.ts';
+import { planEndpointsFromActorCache } from './planner.ts';
 import {
   DELIVERY_QUEUE_MESSAGE_VERSION,
   type DeliveryFanoutFollowersMessageV1,
   type DeliveryResolveActorMessageV1,
   type DeliveryReconcileJobMessageV1,
   type DeliveryQueueMessageV1,
-} from './types';
+} from './types.ts';
 import {
   DELIVERY_ENDPOINT_CACHE_TTL_MS,
   safeParseIsoTimeMs,
-} from './transformers';
+} from './transformers.ts';
 import {
   type QueueEnv,
   requireQueue,
@@ -29,7 +29,7 @@ import {
   buildResolveActorMessage,
   nowIso,
   upsertDeliveryJob,
-} from './queue';
+} from './queue.ts';
 
 const DELIVERY_HTTP_TIMEOUT_MS = 8000;
 const MAX_RECONCILE_ATTEMPTS = 5;
@@ -121,7 +121,7 @@ export async function processFanoutFollowers(
 
   const deliverRequests: Array<{ body: DeliveryQueueMessageV1 }> = [];
   for (const group of planned.groups) {
-    const { computeDeliveryJobId } = await import('./utils');
+    const { computeDeliveryJobId } = await import('./utils.ts');
     const jobId = await computeDeliveryJobId(msg.activityId, group.endpoint);
     await upsertDeliveryJob(db, jobId, msg.activityId, group.endpoint);
     deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
@@ -180,7 +180,7 @@ export async function processResolveActor(
     return;
   }
 
-  const { computeDeliveryJobId } = await import('./utils');
+  const { computeDeliveryJobId } = await import('./utils.ts');
   const jobId = await computeDeliveryJobId(msg.activityId, endpoint);
   await upsertDeliveryJob(db, jobId, msg.activityId, endpoint);
   await sendQueueMessage(env, buildDeliverEndpointMessage(jobId));

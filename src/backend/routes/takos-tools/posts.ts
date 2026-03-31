@@ -7,7 +7,7 @@
 
 import { eq, and, count } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
-import { actors, objects, likes, bookmarks } from '../../../db';
+import { actors, objects, likes, bookmarks } from '../../../db/index.ts';
 import {
   toolLimit,
   requireString,
@@ -17,8 +17,8 @@ import {
   ok,
   togglePostRelation,
   type ToolResponse,
-} from '../takos-tools-response';
-import type { ToolContext, Input } from './types';
+} from '../takos-tools-response.ts';
+import type { ToolContext, Input } from './types.ts';
 
 export async function handleCreatePost(c: ToolContext, input: Input, actor: { ap_id: string } | null) {
   if (!actor) return c.json(errAuth(), 401);

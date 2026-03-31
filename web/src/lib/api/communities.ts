@@ -1,5 +1,5 @@
-import { normalizeActor } from './normalize';
-import { apiFetch, apiPost, apiPatch, apiDelete, assertOk, ApiError } from './fetch';
+import { normalizeActor } from './normalize.ts';
+import { apiFetch, apiPost, apiPatch, apiDelete, assertOk, ApiError } from './fetch.ts';
 
 export interface CommunityDetail {
   ap_id: string;

@@ -1,13 +1,13 @@
 import type { Context } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import type { Env, Variables } from '../types';
-import { generateId, actorApId, generateKeyPair } from '../federation-helpers';
-import { encrypt } from '../lib/crypto';
-import { getClientCredentials } from '../lib/oauth-providers';
-import type { Database } from '../../db';
+import type { Env, Variables } from '../types.ts';
+import { generateId, actorApId, generateKeyPair } from '../federation-helpers.ts';
+import { encrypt } from '../lib/crypto.ts';
+import { getClientCredentials } from '../lib/oauth-providers.ts';
+import type { Database } from '../../db/index.ts';
 import { eq, count } from 'drizzle-orm';
-import { actors, sessions } from '../../db';
-import { parseJsonObject, parseNonEmptyString } from '../lib/parse-helpers';
+import { actors, sessions } from '../../db/index.ts';
+import { parseJsonObject, parseNonEmptyString } from '../lib/parse-helpers.ts';
 
 /** Session lifetime: 30 days in seconds. */
 export const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;

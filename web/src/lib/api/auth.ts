@@ -1,6 +1,6 @@
-import type { Actor } from '../../types';
-import { normalizeActor } from './normalize';
-import { apiFetch, apiPost, assertOk } from './fetch';
+import type { Actor } from '../../types/index.ts';
+import { normalizeActor } from './normalize.ts';
+import { apiFetch, apiPost, assertOk } from './fetch.ts';
 
 export async function fetchMe(): Promise<{ authenticated: boolean; actor?: Actor }> {
   const res = await apiFetch('/api/auth/me');

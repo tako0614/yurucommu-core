@@ -1,12 +1,12 @@
 import { useState, useCallback } from 'react';
-import type { StoryCanvas, TextLayer } from '../../../lib/story-canvas';
-import type { StoryOverlay } from '../../../types';
-import { createStory, uploadMedia } from '../../../lib/api';
+import type { StoryCanvas, TextLayer } from '../../../lib/story-canvas.ts';
+import type { StoryOverlay } from '../../../types/index.ts';
+import { createStory, uploadMedia } from '../../../lib/api.ts';
 import {
   exportCanvasWithVideo,
   FFmpegError,
   type VideoTransform,
-} from '../../../lib/ffmpeg';
+} from '../../../lib/ffmpeg.ts';
 
 interface UseStoryPostOptions {
   storyCanvas: StoryCanvas | null;

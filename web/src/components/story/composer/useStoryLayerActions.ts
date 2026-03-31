@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import type { StoryCanvas, Layer } from '../../../lib/story-canvas';
+import type { StoryCanvas, Layer } from '../../../lib/story-canvas.ts';
 
 interface UseStoryLayerActionsOptions {
   storyCanvas: StoryCanvas | null;

@@ -1,14 +1,14 @@
 import type { Context, Hono } from 'hono';
 import { eq, and, count, desc, sql } from 'drizzle-orm';
-import { communities, communityMembers, communityJoinRequests } from '../../../db';
-import type { Env, Variables } from '../../types';
-import { formatUsername } from '../../federation-helpers';
+import { communities, communityMembers, communityJoinRequests } from '../../../db/index.ts';
+import type { Env, Variables } from '../../types.ts';
+import { formatUsername } from '../../federation-helpers.ts';
 import {
   batchLoadActorInfo,
   fetchCommunityId,
   memberWhere,
   requireManager,
-} from './membership-shared';
+} from './membership-shared.ts';
 
 export function registerMembershipRequestRoutes(communitiesRouter: Hono<{ Bindings: Env; Variables: Variables }>) {
   // GET /api/communities/:identifier/requests - List pending join requests

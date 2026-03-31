@@ -1,9 +1,9 @@
-﻿import type { AccountInfo } from '../../lib/api';
-import type { Actor } from '../../types';
-import { UserAvatar } from '../UserAvatar';
-import { CheckIcon, CloseIcon, PlusIcon } from './SettingsIcons';
-import { SettingsSectionHeader } from './SettingsSectionHeader';
-import type { Translate } from '../../lib/i18n';
+﻿import type { AccountInfo } from '../../lib/api.ts';
+import type { Actor } from '../../types/index.ts';
+import { UserAvatar } from '../UserAvatar.tsx';
+import { CheckIcon, CloseIcon, PlusIcon } from './SettingsIcons.tsx';
+import { SettingsSectionHeader } from './SettingsSectionHeader.tsx';
+import type { Translate } from '../../lib/i18n.tsx';
 
 interface SettingsAccountsSectionProps {
   actor: Actor;

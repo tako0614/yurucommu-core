@@ -1,7 +1,7 @@
 ﻿import { Link } from 'react-router-dom';
-import type { AccountInfo } from '../../lib/api';
-import { UserAvatar } from '../UserAvatar';
-import { BackIcon } from './ProfileIcons';
+import type { AccountInfo } from '../../lib/api.ts';
+import { UserAvatar } from '../UserAvatar.tsx';
+import { BackIcon } from './ProfileIcons.tsx';
 
 interface ProfileHeaderProps {
   actorId?: string;

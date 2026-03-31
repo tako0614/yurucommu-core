@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
-import type { StoryCanvas, TextLayer } from '../../../lib/story-canvas';
-import type { TextData } from '../TextEditorModal';
+import type { StoryCanvas, TextLayer } from '../../../lib/story-canvas.ts';
+import type { TextData } from '../TextEditorModal.tsx';
 
 interface UseStoryTextEditorOptions {
   storyCanvas: StoryCanvas | null;

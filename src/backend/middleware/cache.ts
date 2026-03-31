@@ -13,7 +13,7 @@
  */
 
 import type { Context, MiddlewareHandler, Next } from 'hono';
-import type { Env, Variables } from '../types';
+import type { Env, Variables } from '../types.ts';
 
 declare global {
   interface CacheStorage {

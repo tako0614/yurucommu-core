@@ -9,13 +9,13 @@
  * - validateEditFields: content/summary validation for PATCH
  */
 
-import { actors, actorCache, objects, activities, inbox as inboxTable, communities, communityMembers } from '../../../db';
+import { actors, actorCache, objects, activities, inbox as inboxTable, communities, communityMembers } from '../../../db/index.ts';
 import { eq, and, or, sql, inArray, isNull } from 'drizzle-orm';
-import type { Variables } from '../../types';
-import type { Database } from '../../../db';
-import type { Env } from '../../types';
-import { generateId, activityApId, isLocal } from '../../federation-helpers';
-import { MAX_POST_CONTENT_LENGTH, MAX_POST_SUMMARY_LENGTH, extractMentions } from './transformers';
+import type { Variables } from '../../types.ts';
+import type { Database } from '../../../db/index.ts';
+import type { Env } from '../../types.ts';
+import { generateId, activityApId, isLocal } from '../../federation-helpers.ts';
+import { MAX_POST_CONTENT_LENGTH, MAX_POST_SUMMARY_LENGTH, extractMentions } from './transformers.ts';
 import {
   type PostAttachment,
   type CreatePostBody,
@@ -23,7 +23,7 @@ import {
   isRecord,
   parseJsonObject,
   validateOptionalString,
-} from './queries';
+} from './queries.ts';
 
 // ---------------------------------------------------------------------------
 // Auth helper

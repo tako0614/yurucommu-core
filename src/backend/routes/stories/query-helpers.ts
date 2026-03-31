@@ -1,7 +1,7 @@
 import { eq, and, lt, inArray, count } from 'drizzle-orm';
-import type { Database } from '../../../db';
-import { objects, storyVotes, likes, storyViews, storyShares, actorCache, blocks, mutes } from '../../../db';
-import { safeJsonParse, objectApId } from '../../federation-helpers';
+import type { Database } from '../../../db/index.ts';
+import { objects, storyVotes, likes, storyViews, storyShares, actorCache, blocks, mutes } from '../../../db/index.ts';
+import { safeJsonParse, objectApId } from '../../federation-helpers.ts';
 
 interface VoteResults {
   [optionIndex: number]: number;

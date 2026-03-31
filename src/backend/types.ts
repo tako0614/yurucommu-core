@@ -1,6 +1,6 @@
-import type { TakosClient } from './lib/takos-client';
-import type { Database } from '../db';
-import type { DeliveryQueueMessageV1, DeliveryDlqMessageV1 } from './lib/delivery/types';
+import type { TakosClient } from './lib/takos-client.ts';
+import type { Database } from '../db/index.ts';
+import type { DeliveryQueueMessageV1, DeliveryDlqMessageV1 } from './lib/delivery/types.ts';
 
 /**
  * Environment Variables (common across all runtimes)

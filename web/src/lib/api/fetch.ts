@@ -4,7 +4,7 @@
  * transport behavior (URL resolution, auth headers, credentials mode).
  */
 
-import { getApiTransport } from '../plugin';
+import { getApiTransport } from '../plugin.ts';
 
 /**
  * Custom error class for API responses that includes the HTTP status code.

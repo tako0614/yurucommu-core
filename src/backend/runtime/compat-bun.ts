@@ -9,9 +9,9 @@
  * This is the entry point that re-exports all modules.
  */
 
-export { D1CompatDatabase, D1CompatPreparedStatement } from './compat-bun/d1';
-export { R2CompatBucket } from './compat-bun/r2';
-export type { R2CompatObjectHead } from './compat-bun/r2';
-export { KVCompatNamespace } from './compat-bun/kv';
-export { AssetsCompatFetcher } from './compat-bun/assets';
-export { createBunEnv, runMigrations } from './compat-bun/env';
+export { D1CompatDatabase, D1CompatPreparedStatement } from './compat-bun/d1.ts';
+export { R2CompatBucket } from './compat-bun/r2.ts';
+export type { R2CompatObjectHead } from './compat-bun/r2.ts';
+export { KVCompatNamespace } from './compat-bun/kv.ts';
+export { AssetsCompatFetcher } from './compat-bun/assets.ts';
+export { createBunEnv, runMigrations } from './compat-bun/env.ts';

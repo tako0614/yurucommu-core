@@ -1,20 +1,17 @@
 import { Hono } from 'hono';
-import { describe, expect, it, vi } from 'vitest';
-import type { Env, Variables } from '../../types';
-import followRoutes from '../../routes/follow';
-import postRoutes from '../../routes/posts/routes';
-import dmConversationsRoutes from '../../routes/dm/conversations';
-import { registerMembershipMemberRoutes } from '../../routes/communities/membership-members';
+import { assertEquals, assertObjectMatch } from 'jsr:@std/assert';
+import { spy, assertSpyCalls } from 'jsr:@std/testing/mock';
+import type { Env, Variables } from '../../types.ts';
+import followRoutes from '../../routes/follow.ts';
+import postRoutes from '../../routes/posts/routes.ts';
+import dmConversationsRoutes from '../../routes/dm/conversations.ts';
+import { registerMembershipMemberRoutes } from '../../routes/communities/membership-members.ts';
 
 /**
  * Creates a chainable Drizzle mock DB.
  *
  * Call sequences resolve results from a queue. Each time a terminal method
  * (.get(), implicit array return) is hit, the next result from the queue is used.
- *
- * Supports: db.select().from().where().get(), db.select().from().where().orderBy().limit().offset(),
- * db.insert().values(), db.update().set().where(), db.delete().where(),
- * db.query.objects.findFirst(), and db.selectDistinct().from().where()
  */
 function createDrizzleMockDb(options: {
   results?: unknown[];
@@ -47,33 +44,31 @@ function createDrizzleMockDb(options: {
 
   /** Thenable chain terminal that mimics Drizzle's query builder */
   interface TerminalChain {
-    get: ReturnType<typeof vi.fn>;
-    all: ReturnType<typeof vi.fn>;
+    get: (...args: unknown[]) => Promise<unknown>;
+    all: (...args: unknown[]) => Promise<unknown[]>;
     then: <TResult1 = unknown[], TResult2 = never>(
       onfulfilled?: ((value: unknown[]) => TResult1 | PromiseLike<TResult1>) | null,
       onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
     ) => Promise<TResult1 | TResult2>;
-    where: ReturnType<typeof vi.fn>;
-    orderBy: ReturnType<typeof vi.fn>;
-    limit: ReturnType<typeof vi.fn>;
-    offset: ReturnType<typeof vi.fn>;
+    where: (...args: unknown[]) => TerminalChain;
+    orderBy: (...args: unknown[]) => TerminalChain;
+    limit: (...args: unknown[]) => TerminalChain;
+    offset: (...args: unknown[]) => TerminalChain;
   }
 
   function makeTerminalChain(result?: unknown): TerminalChain {
     const resolved = result !== undefined ? result : nextResult();
     const arrayResult = Array.isArray(resolved) ? resolved : [];
-    // Use a lazy reference so chaining methods can return the same object
     const terminalObj = {} as TerminalChain;
     Object.assign(terminalObj, {
-      get: vi.fn().mockResolvedValue(resolved),
-      all: vi.fn().mockResolvedValue(Array.isArray(resolved) ? resolved : []),
+      get: spy((..._args: unknown[]) => Promise.resolve(resolved)),
+      all: spy((..._args: unknown[]) => Promise.resolve(Array.isArray(resolved) ? resolved : [])),
       then: (onfulfilled: ((v: unknown[]) => unknown) | null | undefined, onrejected?: ((r: unknown) => unknown) | null) =>
         Promise.resolve(arrayResult).then(onfulfilled, onrejected),
-      // Support additional chaining after where: orderBy, limit, offset
-      where: vi.fn().mockReturnValue(terminalObj),
-      orderBy: vi.fn().mockReturnValue(terminalObj),
-      limit: vi.fn().mockReturnValue(terminalObj),
-      offset: vi.fn().mockReturnValue(terminalObj),
+      where: spy((..._args: unknown[]) => terminalObj),
+      orderBy: spy((..._args: unknown[]) => terminalObj),
+      limit: spy((..._args: unknown[]) => terminalObj),
+      offset: spy((..._args: unknown[]) => terminalObj),
     } satisfies TerminalChain);
     return terminalObj;
   }
@@ -83,103 +78,92 @@ function createDrizzleMockDb(options: {
   type ThenReject = ((reason: unknown) => unknown) | null | undefined;
 
   interface InsertChain {
-    onConflictDoNothing: ReturnType<typeof vi.fn>;
-    onConflictDoUpdate: ReturnType<typeof vi.fn>;
-    returning: ReturnType<typeof vi.fn>;
+    onConflictDoNothing: (...args: unknown[]) => unknown;
+    onConflictDoUpdate: (...args: unknown[]) => unknown;
+    returning: (...args: unknown[]) => unknown;
     then: (resolve: ThenResolve, reject?: ThenReject) => Promise<unknown>;
   }
 
-  /** Shape of the chainable Drizzle mock DB */
-  interface MockDb {
-    select: ReturnType<typeof vi.fn>;
-    selectDistinct: ReturnType<typeof vi.fn>;
-    insert: ReturnType<typeof vi.fn>;
-    update: ReturnType<typeof vi.fn>;
-    delete: ReturnType<typeof vi.fn>;
-    query: {
-      objects: {
-        findFirst: ReturnType<typeof vi.fn>;
-        findMany: ReturnType<typeof vi.fn>;
-      };
+  const selectSpy = spy((..._args: unknown[]) => {
+    tracker.selectCalls++;
+    const terminal = makeTerminalChain();
+    return {
+      from: spy((..._fArgs: unknown[]) => terminal),
     };
-  }
+  });
 
-  const db: MockDb = {
-    select: vi.fn((..._args: unknown[]) => {
-      tracker.selectCalls++;
-      const terminal = makeTerminalChain();
-      return {
-        from: vi.fn().mockReturnValue(terminal),
-      };
-    }),
+  const selectDistinctSpy = spy((..._args: unknown[]) => {
+    const terminal = makeTerminalChain();
+    return {
+      from: spy((..._fArgs: unknown[]) => terminal),
+    };
+  });
 
-    selectDistinct: vi.fn((..._args: unknown[]) => {
-      const terminal = makeTerminalChain();
-      return {
-        from: vi.fn().mockReturnValue(terminal),
-      };
-    }),
+  const insertSpy = spy((..._args: unknown[]) => {
+    tracker.insertCalls++;
+    const currentInsertIdx = insertCallCount++;
+    const shouldError = insertErrors.get(currentInsertIdx);
 
-    insert: vi.fn((..._args: unknown[]) => {
-      tracker.insertCalls++;
-      const currentInsertIdx = insertCallCount++;
-      const shouldError = insertErrors.get(currentInsertIdx);
+    const get = spy((..._gArgs: unknown[]) => Promise.resolve(nextResult()));
+    const returning = spy((..._rArgs: unknown[]) => ({ get }));
+    const onConflictDoNothing = spy((..._cArgs: unknown[]) => ({ returning, get }));
+    const onConflictDoUpdate = spy((..._cArgs: unknown[]) => ({ returning, get }));
 
-      const get = vi.fn().mockResolvedValue(nextResult());
-      const returning = vi.fn().mockReturnValue({ get });
-      const onConflictDoNothing = vi.fn().mockReturnValue({ returning, get });
-      const onConflictDoUpdate = vi.fn().mockReturnValue({ returning, get });
-
-      const values = vi.fn((..._vArgs: unknown[]) => {
-        if (shouldError) {
-          // Make the entire chain thenable with rejection
-          const errorChain: InsertChain = {
-            onConflictDoNothing,
-            onConflictDoUpdate,
-            returning,
-            then: (resolve: ThenResolve, reject?: ThenReject) => Promise.reject(shouldError).then(resolve, reject),
-          };
-          return errorChain;
-        }
-        return {
+    const values = spy((..._vArgs: unknown[]) => {
+      if (shouldError) {
+        const errorChain: InsertChain = {
           onConflictDoNothing,
           onConflictDoUpdate,
           returning,
-          then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
-        } satisfies InsertChain;
-      });
-      return { values };
-    }),
-
-    update: vi.fn((..._args: unknown[]) => {
-      tracker.updateCalls++;
-      const where = vi.fn().mockReturnValue({
-        then: (resolve: ThenResolve) => Promise.resolve({ meta: updateMeta }).then(resolve),
-        run: vi.fn().mockResolvedValue({ meta: updateMeta }),
-      });
-      const set = vi.fn().mockReturnValue({
-        where,
-        then: (resolve: ThenResolve) => Promise.resolve({ meta: updateMeta }).then(resolve),
-        run: vi.fn().mockResolvedValue({ meta: updateMeta }),
-      });
-      return { set };
-    }),
-
-    delete: vi.fn((..._args: unknown[]) => {
-      tracker.deleteCalls++;
-      const where = vi.fn().mockReturnValue({
-        then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
-      });
+          then: (resolve: ThenResolve, reject?: ThenReject) => Promise.reject(shouldError).then(resolve, reject),
+        };
+        return errorChain;
+      }
       return {
-        where,
+        onConflictDoNothing,
+        onConflictDoUpdate,
+        returning,
         then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
-      };
-    }),
+      } satisfies InsertChain;
+    });
+    return { values };
+  });
 
+  const updateSpy = spy((..._args: unknown[]) => {
+    tracker.updateCalls++;
+    const where = spy((..._wArgs: unknown[]) => ({
+      then: (resolve: ThenResolve) => Promise.resolve({ meta: updateMeta }).then(resolve),
+      run: spy((..._rArgs: unknown[]) => Promise.resolve({ meta: updateMeta })),
+    }));
+    const set = spy((..._sArgs: unknown[]) => ({
+      where,
+      then: (resolve: ThenResolve) => Promise.resolve({ meta: updateMeta }).then(resolve),
+      run: spy((..._rArgs: unknown[]) => Promise.resolve({ meta: updateMeta })),
+    }));
+    return { set };
+  });
+
+  const deleteSpy = spy((..._args: unknown[]) => {
+    tracker.deleteCalls++;
+    const where = spy((..._wArgs: unknown[]) => ({
+      then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
+    }));
+    return {
+      where,
+      then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
+    };
+  });
+
+  const db = {
+    select: selectSpy,
+    selectDistinct: selectDistinctSpy,
+    insert: insertSpy,
+    update: updateSpy,
+    delete: deleteSpy,
     query: {
       objects: {
-        findFirst: vi.fn().mockResolvedValue(queryFindFirstResult),
-        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: spy((..._args: unknown[]) => Promise.resolve(queryFindFirstResult)),
+        findMany: spy((..._args: unknown[]) => Promise.resolve([])),
       },
     },
   };
@@ -216,227 +200,202 @@ async function requestJson(
   return { res, body };
 }
 
-describe('issue067/068 hardening routes', () => {
-  it('local follow handles duplicate create via unique constraint', async () => {
-    const actorApId = 'https://example.com/ap/users/alice';
-    const targetApId = 'https://example.com/ap/users/bob';
+Deno.test('issue067/068 hardening - local follow handles duplicate create via unique constraint', async () => {
+  const actorApId = 'https://example.com/ap/users/alice';
+  const targetApId = 'https://example.com/ap/users/bob';
 
-    // Flow:
-    // select[0] = check existing follow -> null (no existing)
-    // select[1] = handleLocalFollow: get target actor isPrivate -> { isPrivate: 0 }
-    // insert[0] = insert follow -> throws UNIQUE constraint error
-    const { db } = createDrizzleMockDb({
-      results: [
-        null,               // select: existing follow check
-        { isPrivate: 0 },   // select: target actor
-      ],
-      insertErrors: new Map([
-        [0, new Error('UNIQUE constraint failed: follows.follower_ap_id, follows.following_ap_id')],
-      ]),
-    });
-
-    const app = createApp(db, { ap_id: actorApId });
-    app.route('/api/follow', followRoutes);
-
-    const { res, body } = await requestJson(
-      app,
-      '/api/follow',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_ap_id: targetApId }),
-      }
-    );
-
-    expect(res.status).toBe(400);
-    expect(body).toMatchObject({ error: 'Already following or pending' });
-    expect(db.select).toHaveBeenCalled();
-    expect(db.insert).toHaveBeenCalled();
+  const { db } = createDrizzleMockDb({
+    results: [
+      null,               // select: existing follow check
+      { isPrivate: 0 },   // select: target actor
+    ],
+    insertErrors: new Map([
+      [0, new Error('UNIQUE constraint failed: follows.follower_ap_id, follows.following_ap_id')],
+    ]),
   });
 
-  it('unfollow uses a transaction for delete + counter updates', async () => {
-    const actorApId = 'https://example.com/ap/users/alice';
-    const targetApId = 'https://example.com/ap/users/bob';
+  const app = createApp(db, { ap_id: actorApId });
+  app.route('/api/follow', followRoutes);
 
-    // Flow:
-    // select[0] = check existing follow -> returns follow record
-    // delete[0] = delete follow
-    // update[0] = decrement followingCount for actor
-    // update[1] = decrement followerCount for target (local)
-    const { db, tracker } = createDrizzleMockDb({
-      results: [
-        {
-          followerApId: actorApId,
-          followingApId: targetApId,
-          status: 'accepted',
-          activityApId: null,
-        },
-      ],
-    });
+  const { res, body } = await requestJson(
+    app,
+    '/api/follow',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_ap_id: targetApId }),
+    }
+  );
 
-    const app = createApp(db, { ap_id: actorApId });
-    app.route('/api/follow', followRoutes);
-
-    const { res, body } = await requestJson(
-      app,
-      '/api/follow',
-      {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_ap_id: targetApId }),
-      }
-    );
-
-    expect(res.status).toBe(200);
-    expect(body).toMatchObject({ success: true });
-    expect(db.delete).toHaveBeenCalled();
-    // Two update calls: decrement followingCount + followerCount
-    expect(tracker.updateCalls).toBe(2);
-  });
-
-  it('post delete performs delete + counts in one transaction', async () => {
-    const actorApId = 'https://example.com/ap/users/alice';
-    const postApId = 'https://example.com/ap/objects/post-1';
-    const parentApId = 'https://example.com/ap/objects/post-parent';
-
-    // The post delete route uses db.query.objects.findFirst, then sequential operations
-    // Flow:
-    // query.objects.findFirst -> returns post
-    // delete[0] = delete object
-    // update[0] = decrement postCount on actor
-    // update[1] = decrement parent replyCount
-    // insert[0] = create delete activity
-    const { db } = createDrizzleMockDb({
-      results: [],
-      queryFindFirstResult: {
-        apId: postApId,
-        attributedTo: actorApId,
-        inReplyTo: parentApId,
-        type: 'Note',
-        content: 'test',
-        summary: null,
-        attachmentsJson: '[]',
-        visibility: 'public',
-        communityApId: null,
-        likeCount: 0,
-        replyCount: 0,
-        announceCount: 0,
-        published: '2026-01-01T00:00:00Z',
-      },
-      updateMeta: { changes: 1 },
-    });
-
-    const app = createApp(db, { ap_id: actorApId });
-    app.route('/api/posts', postRoutes);
-
-    const { res, body } = await requestJson(
-      app,
-      '/api/posts/post-1',
-      { method: 'DELETE' },
-      { APP_URL: 'https://example.com', DELIVERY_QUEUE: { send: vi.fn().mockResolvedValue(undefined) } }
-    );
-
-    expect(res.status).toBe(200);
-    expect(body).toMatchObject({ success: true });
-    expect(db.query.objects.findFirst).toHaveBeenCalledTimes(1);
-    expect(db.delete).toHaveBeenCalled();
-    expect(db.update).toHaveBeenCalled();
-  });
-
-  it('community member removal uses a transaction for delete + member_count decrement', async () => {
-    const actorApId = 'https://example.com/ap/users/owner';
-    const targetApId = 'https://example.com/ap/users/member';
-    const communityApId = 'https://example.com/ap/groups/team';
-
-    // Flow:
-    // select[0] = fetchCommunityId -> { apId: communityApId }
-    // select[1] = requireManager -> { role: 'owner', actorApId, communityApId }
-    // select[2] = check target membership -> { role: 'member', ... }
-    // delete[0] = delete community member
-    // update[0] = decrement memberCount
-    const { db } = createDrizzleMockDb({
-      results: [
-        { apId: communityApId },
-        { role: 'owner', actorApId, communityApId },
-        { role: 'member', actorApId: targetApId, communityApId },
-      ],
-    });
-
-    const communities = new Hono();
-    registerMembershipMemberRoutes(communities as unknown as Hono<{ Bindings: Env; Variables: Variables }>);
-
-    const app = createApp(db, { ap_id: actorApId });
-    app.route('/api/communities', communities);
-
-    const { res, body } = await requestJson(
-      app,
-      `/api/communities/team/members/${encodeURIComponent(targetApId)}`,
-      { method: 'DELETE' }
-    );
-
-    expect(res.status).toBe(200);
-    expect(body).toMatchObject({ success: true });
-    expect(db.delete).toHaveBeenCalled();
-    expect(db.update).toHaveBeenCalled();
-  });
-
-  it('community member list is pagination-bounded with limit/offset', async () => {
-    const communityApId = 'https://example.com/ap/groups/team';
-
-    // Flow:
-    // select[0] = find community -> { apId: communityApId }
-    // select[1] = find members -> [] (empty list, iterable)
-    // batchLoadActorInfo: since memberApIds is empty, returns early without db calls
-    const { db } = createDrizzleMockDb({
-      results: [
-        { apId: communityApId },
-        [],  // members (empty array)
-      ],
-    });
-
-    const communities = new Hono();
-    registerMembershipMemberRoutes(communities as unknown as Hono<{ Bindings: Env; Variables: Variables }>);
-
-    const app = createApp(db);
-    app.route('/api/communities', communities);
-
-    const { res, body } = await requestJson(
-      app,
-      '/api/communities/team/members?limit=25&offset=10',
-      { method: 'GET' }
-    );
-
-    expect(res.status).toBe(200);
-    expect(body).toMatchObject({ members: [] });
-    // Verify the db.select was called with pagination chain
-    expect(db.select).toHaveBeenCalled();
-  });
-
-  it('DM requests query uses quoted contains match to avoid substring leaks', async () => {
-    const actorApId = 'https://example.com/ap/users/alice';
-
-    // Flow:
-    // select[0] = find incoming DMs -> []
-    // selectDistinct[0] = find replied conversations -> [] (won't be called if empty DMs)
-    // batchLoadActorInfo: since senderApIds is empty, returns early
-    const { db } = createDrizzleMockDb({
-      results: [
-        [],  // incoming DMs (empty)
-      ],
-    });
-
-    const app = createApp(db, { ap_id: actorApId });
-    app.route('/api/dm', dmConversationsRoutes);
-
-    const { res, body } = await requestJson(
-      app,
-      '/api/dm/requests',
-      { method: 'GET' }
-    );
-
-    expect(res.status).toBe(200);
-    expect(body).toMatchObject({ requests: [] });
-    // Verify db.select was called for the DM query
-    expect(db.select).toHaveBeenCalled();
-  });
+  assertEquals(res.status, 400);
+  assertObjectMatch(body as Record<string, unknown>, { error: 'Already following or pending' });
+  assert_called(db.select);
+  assert_called(db.insert);
 });
+
+Deno.test('issue067/068 hardening - unfollow uses a transaction for delete + counter updates', async () => {
+  const actorApId = 'https://example.com/ap/users/alice';
+  const targetApId = 'https://example.com/ap/users/bob';
+
+  const { db, tracker } = createDrizzleMockDb({
+    results: [
+      {
+        followerApId: actorApId,
+        followingApId: targetApId,
+        status: 'accepted',
+        activityApId: null,
+      },
+    ],
+  });
+
+  const app = createApp(db, { ap_id: actorApId });
+  app.route('/api/follow', followRoutes);
+
+  const { res, body } = await requestJson(
+    app,
+    '/api/follow',
+    {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_ap_id: targetApId }),
+    }
+  );
+
+  assertEquals(res.status, 200);
+  assertObjectMatch(body as Record<string, unknown>, { success: true });
+  assert_called(db.delete);
+  // Two update calls: decrement followingCount + followerCount
+  assertEquals(tracker.updateCalls, 2);
+});
+
+Deno.test('issue067/068 hardening - post delete performs delete + counts in one transaction', async () => {
+  const actorApId = 'https://example.com/ap/users/alice';
+  const postApId = 'https://example.com/ap/objects/post-1';
+  const parentApId = 'https://example.com/ap/objects/post-parent';
+
+  const { db } = createDrizzleMockDb({
+    results: [],
+    queryFindFirstResult: {
+      apId: postApId,
+      attributedTo: actorApId,
+      inReplyTo: parentApId,
+      type: 'Note',
+      content: 'test',
+      summary: null,
+      attachmentsJson: '[]',
+      visibility: 'public',
+      communityApId: null,
+      likeCount: 0,
+      replyCount: 0,
+      announceCount: 0,
+      published: '2026-01-01T00:00:00Z',
+    },
+    updateMeta: { changes: 1 },
+  });
+
+  const app = createApp(db, { ap_id: actorApId });
+  app.route('/api/posts', postRoutes);
+
+  const { res, body } = await requestJson(
+    app,
+    '/api/posts/post-1',
+    { method: 'DELETE' },
+    { APP_URL: 'https://example.com', DELIVERY_QUEUE: { send: spy((..._args: unknown[]) => Promise.resolve(undefined)) } }
+  );
+
+  assertEquals(res.status, 200);
+  assertObjectMatch(body as Record<string, unknown>, { success: true });
+  assertSpyCalls(db.query.objects.findFirst, 1);
+  assert_called(db.delete);
+  assert_called(db.update);
+});
+
+Deno.test('issue067/068 hardening - community member removal uses a transaction for delete + member_count decrement', async () => {
+  const actorApId = 'https://example.com/ap/users/owner';
+  const targetApId = 'https://example.com/ap/users/member';
+  const communityApId = 'https://example.com/ap/groups/team';
+
+  const { db } = createDrizzleMockDb({
+    results: [
+      { apId: communityApId },
+      { role: 'owner', actorApId, communityApId },
+      { role: 'member', actorApId: targetApId, communityApId },
+    ],
+  });
+
+  const communities = new Hono();
+  registerMembershipMemberRoutes(communities as unknown as Hono<{ Bindings: Env; Variables: Variables }>);
+
+  const app = createApp(db, { ap_id: actorApId });
+  app.route('/api/communities', communities);
+
+  const { res, body } = await requestJson(
+    app,
+    `/api/communities/team/members/${encodeURIComponent(targetApId)}`,
+    { method: 'DELETE' }
+  );
+
+  assertEquals(res.status, 200);
+  assertObjectMatch(body as Record<string, unknown>, { success: true });
+  assert_called(db.delete);
+  assert_called(db.update);
+});
+
+Deno.test('issue067/068 hardening - community member list is pagination-bounded with limit/offset', async () => {
+  const communityApId = 'https://example.com/ap/groups/team';
+
+  const { db } = createDrizzleMockDb({
+    results: [
+      { apId: communityApId },
+      [],  // members (empty array)
+    ],
+  });
+
+  const communities = new Hono();
+  registerMembershipMemberRoutes(communities as unknown as Hono<{ Bindings: Env; Variables: Variables }>);
+
+  const app = createApp(db);
+  app.route('/api/communities', communities);
+
+  const { res, body } = await requestJson(
+    app,
+    '/api/communities/team/members?limit=25&offset=10',
+    { method: 'GET' }
+  );
+
+  assertEquals(res.status, 200);
+  assertObjectMatch(body as Record<string, unknown>, { members: [] });
+  // Verify the db.select was called with pagination chain
+  assert_called(db.select);
+});
+
+Deno.test('issue067/068 hardening - DM requests query uses quoted contains match to avoid substring leaks', async () => {
+  const actorApId = 'https://example.com/ap/users/alice';
+
+  const { db } = createDrizzleMockDb({
+    results: [
+      [],  // incoming DMs (empty)
+    ],
+  });
+
+  const app = createApp(db, { ap_id: actorApId });
+  app.route('/api/dm', dmConversationsRoutes);
+
+  const { res, body } = await requestJson(
+    app,
+    '/api/dm/requests',
+    { method: 'GET' }
+  );
+
+  assertEquals(res.status, 200);
+  assertObjectMatch(body as Record<string, unknown>, { requests: [] });
+  // Verify db.select was called for the DM query
+  assert_called(db.select);
+});
+
+/** Helper: assert a spy was called at least once */
+function assert_called(spyFn: { calls: unknown[] }) {
+  if (spyFn.calls.length === 0) {
+    throw new Error('Expected spy to have been called at least once');
+  }
+}

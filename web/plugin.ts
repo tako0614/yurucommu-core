@@ -19,4 +19,4 @@ export {
   getAuthStrategy,
   getApiTransport,
   getSlotComponents,
-} from './src/lib/plugin';
+} from './src/lib/plugin.ts';

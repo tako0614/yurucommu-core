@@ -1,7 +1,0 @@
-node_modules
-dist
-build
-.wrangler
-coverage
-pnpm-lock.yaml
-package-lock.json

@@ -1,4 +1,4 @@
-import { apiFetch, assertOk } from './fetch';
+import { apiFetch, assertOk } from './fetch.ts';
 
 // Allowed MIME types for media uploads
 export const allowedMimeTypes = [

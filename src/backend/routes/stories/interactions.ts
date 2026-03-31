@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import { eq, and, sql } from 'drizzle-orm';
-import type { Env, Variables } from '../../types';
-import { objects, storyVotes, storyViews, likes, storyShares, activities, inbox } from '../../../db';
-import { generateId, objectApId, activityApId, isLocal, safeJsonParse } from '../../federation-helpers';
-import { findStory, resolveStoryApId, getVoteCounts, sumVotes } from './query-helpers';
-import { enqueueDeliveryToActor } from '../../lib/delivery/queue';
+import type { Env, Variables } from '../../types.ts';
+import { objects, storyVotes, storyViews, likes, storyShares, activities, inbox } from '../../../db/index.ts';
+import { generateId, objectApId, activityApId, isLocal, safeJsonParse } from '../../federation-helpers.ts';
+import { findStory, resolveStoryApId, getVoteCounts, sumVotes } from './query-helpers.ts';
+import { enqueueDeliveryToActor } from '../../lib/delivery/queue.ts';
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
 

@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom';
-import type { Actor } from '../../types';
-import type { AccountInfo } from '../../lib/api';
-import { UserAvatar } from '../UserAvatar';
-import { BookmarkIconMenu, ProfileIconMenu, SettingsIconMenu } from './TimelineIcons';
-import type { Translate } from '../../lib/i18n';
+import type { Actor } from '../../types/index.ts';
+import type { AccountInfo } from '../../lib/api.ts';
+import { UserAvatar } from '../UserAvatar.tsx';
+import { BookmarkIconMenu, ProfileIconMenu, SettingsIconMenu } from './TimelineIcons.tsx';
+import type { Translate } from '../../lib/i18n.tsx';
 
 interface TimelineMobileMenuProps {
   isOpen: boolean;

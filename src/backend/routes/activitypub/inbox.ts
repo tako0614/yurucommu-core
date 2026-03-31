@@ -1,13 +1,13 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import type { Env, Variables } from '../../types';
+import type { Env, Variables } from '../../types.ts';
 import { eq } from 'drizzle-orm';
-import { actorCache, activities, actors } from '../../../db';
-import { activityApId, actorApId, generateId, isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../../federation-helpers';
-import { getInstanceActor } from './query-helpers';
-import type { Activity, RemoteActor } from './inbox-types';
-import { getActivityObjectId } from './inbox-types';
-import { handleGroupCreate, handleGroupFollow, handleGroupUndo } from './handlers/actor-inbox-handlers';
+import { actorCache, activities, actors } from '../../../db/index.ts';
+import { activityApId, actorApId, generateId, isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../../federation-helpers.ts';
+import { getInstanceActor } from './query-helpers.ts';
+import type { Activity, RemoteActor } from './inbox-types.ts';
+import { getActivityObjectId } from './inbox-types.ts';
+import { handleGroupCreate, handleGroupFollow, handleGroupUndo } from './handlers/actor-inbox-handlers.ts';
 import {
   handleAccept,
   handleAdd,
@@ -23,7 +23,7 @@ import {
   handleReject,
   handleUndo,
   handleUpdate,
-} from './handlers/user-inbox-handlers';
+} from './handlers/user-inbox-handlers.ts';
 
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 

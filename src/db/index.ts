@@ -9,7 +9,7 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import { isNull } from "drizzle-orm";
-import * as schema from "./schema";
+import * as schema from "./schema.ts";
 
 export type Database = ReturnType<typeof getDb>;
 
@@ -46,5 +46,5 @@ export function notDeleted(table: typeof schema.actors | typeof schema.objects |
   return isNull(table.deletedAt);
 }
 
-export { nowIso } from "./schema";
-export * from "./schema";
+export { nowIso } from "./schema.ts";
+export * from "./schema.ts";

@@ -2,14 +2,14 @@
 
 import type { Context } from 'hono';
 import { eq, and, or, like, inArray, isNotNull } from 'drizzle-orm';
-import type { Database } from '../../../db';
-import { actors, actorCache, objects } from '../../../db';
-import type { Env, Variables } from '../../types';
-import { safeJsonParse } from '../../federation-helpers';
+import type { Database } from '../../../db/index.ts';
+import { actors, actorCache, objects } from '../../../db/index.ts';
+import type { Env, Variables } from '../../types.ts';
+import { safeJsonParse } from '../../federation-helpers.ts';
 
 export type HonoEnv = { Bindings: Env; Variables: Variables };
 
-export { type ActorInfo, loadActorInfoMap as buildActorInfoMap, formatActorSummary as formatActorProfile } from '../actors-helpers';
+export { type ActorInfo, loadActorInfoMap as buildActorInfoMap, formatActorSummary as formatActorProfile } from '../actors-helpers.ts';
 
 export const ACTOR_INFO_FIELDS = {
   apId: actors.apId,

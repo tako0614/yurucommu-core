@@ -1,11 +1,11 @@
 // Timeline routes for Yurucommu backend
 import { Hono } from 'hono';
 import { eq, and, or, ne, lt, desc, inArray, notInArray, isNull } from 'drizzle-orm';
-import type { Database } from '../../db';
-import { actors, actorCache, objects, follows, likes, bookmarks, announces, blocks, mutes } from '../../db';
-import type { Env, Variables } from '../types';
-import { formatUsername, parseLimit, parseOffset, safeJsonParse } from '../federation-helpers';
-import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
+import type { Database } from '../../db/index.ts';
+import { actors, actorCache, objects, follows, likes, bookmarks, announces, blocks, mutes } from '../../db/index.ts';
+import type { Env, Variables } from '../types.ts';
+import { formatUsername, parseLimit, parseOffset, safeJsonParse } from '../federation-helpers.ts';
+import { withCache, CacheTTL, CacheTags } from '../middleware/cache.ts';
 
 const timeline = new Hono<{ Bindings: Env; Variables: Variables }>();
 const MAX_BLOCK_MUTE_FILTER_ENTRIES = 1000;

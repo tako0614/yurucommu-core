@@ -1,12 +1,12 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import type { Env, Variables } from '../../types';
-import type { Database } from '../../../db';
-import { objects, actors, actorCache, likes, bookmarks, announces, activities, inbox as inboxTable } from '../../../db';
+import type { Env, Variables } from '../../types.ts';
+import type { Database } from '../../../db/index.ts';
+import { objects, actors, actorCache, likes, bookmarks, announces, activities, inbox as inboxTable } from '../../../db/index.ts';
 import { eq, and, or, gt, sql, inArray, desc } from 'drizzle-orm';
-import { generateId, objectApId, activityApId, isLocal, formatUsername, parseLimit, safeJsonParse } from '../../federation-helpers';
-import { MAX_POSTS_PAGE_LIMIT } from './transformers';
-import { enqueueDeliveryToActor } from '../../lib/delivery/queue';
+import { generateId, objectApId, activityApId, isLocal, formatUsername, parseLimit, safeJsonParse } from '../../federation-helpers.ts';
+import { MAX_POSTS_PAGE_LIMIT } from './transformers.ts';
+import { enqueueDeliveryToActor } from '../../lib/delivery/queue.ts';
 
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 

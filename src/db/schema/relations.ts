@@ -3,12 +3,12 @@
  */
 
 import { relations } from "drizzle-orm";
-import { actors, actorCache, sessions } from "./actors";
-import { objects, likes, announces, bookmarks, objectRecipients } from "./posts";
-import { follows, blocks, mutes } from "./social";
-import { communities, communityMembers, communityJoinRequests, communityInvites } from "./communities";
-import { storyViews, storyVotes, storyShares } from "./stories";
-import { activities, inbox } from "./messaging";
+import { actors, actorCache, sessions } from "./actors.ts";
+import { objects, likes, announces, bookmarks, objectRecipients } from "./posts.ts";
+import { follows, blocks, mutes } from "./social.ts";
+import { communities, communityMembers, communityJoinRequests, communityInvites } from "./communities.ts";
+import { storyViews, storyVotes, storyShares } from "./stories.ts";
+import { activities, inbox } from "./messaging.ts";
 
 // ===========================================================================
 // RELATIONS

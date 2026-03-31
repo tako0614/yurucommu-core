@@ -9,7 +9,7 @@ import {
   index,
   primaryKey,
 } from "drizzle-orm/sqlite-core";
-import { nowIso } from "./date-utils";
+import { nowIso } from "./date-utils.ts";
 
 // ---------------------------------------------------------------------------
 // COMMUNITIES

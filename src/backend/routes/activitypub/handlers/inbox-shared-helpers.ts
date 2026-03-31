@@ -1,8 +1,8 @@
-import type { Database } from '../../../../db';
+import type { Database } from '../../../../db/index.ts';
 import { eq, and, sql } from 'drizzle-orm';
-import { objects, follows, likes, announces, activities, inbox as inboxTable } from '../../../../db';
-import { isLocal } from '../../../federation-helpers';
-import type { Activity } from '../inbox-types';
+import { objects, follows, likes, announces, activities, inbox as inboxTable } from '../../../../db/index.ts';
+import { isLocal } from '../../../federation-helpers.ts';
+import type { Activity } from '../inbox-types.ts';
 
 // ---------------------------------------------------------------------------
 // Shared helpers used by multiple inbox handler files

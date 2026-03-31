@@ -4,7 +4,7 @@
  * Controls drawing tool properties: color, brush width, and opacity.
  */
 
-import { ColorPicker } from './ColorPicker';
+import { ColorPicker } from './ColorPicker.tsx';
 
 interface DrawingPanelProps {
   color: string;

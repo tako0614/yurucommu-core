@@ -5,7 +5,7 @@
  * the same interface as Cloudflare R2.
  */
 
-import { loadNodeModules, getFs, getPath, toBuffer, readMetaFile } from './node-modules';
+import { loadNodeModules, getFs, getPath, toBuffer, readMetaFile } from './node-modules.ts';
 
 export interface R2MetaFile {
   httpMetadata?: { contentType?: string };

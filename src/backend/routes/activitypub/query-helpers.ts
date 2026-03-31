@@ -1,8 +1,8 @@
 import type { Context } from 'hono';
-import type { Env, Variables } from '../../types';
+import type { Env, Variables } from '../../types.ts';
 import { eq } from 'drizzle-orm';
-import { instanceActor } from '../../../db';
-import { generateKeyPair } from '../../federation-helpers';
+import { instanceActor } from '../../../db/index.ts';
+import { generateKeyPair } from '../../federation-helpers.ts';
 
 export const INSTANCE_ACTOR_USERNAME = 'community';
 export const MAX_ROOM_STREAM_LIMIT = 50;

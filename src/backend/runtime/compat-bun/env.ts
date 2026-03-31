@@ -4,11 +4,11 @@
  * Bun Cloudflare Compatibility Layer - Environment & Migrations
  */
 
-import { readdir, readFile } from './utils';
-import { D1CompatDatabase } from './d1';
-import { R2CompatBucket } from './r2';
-import { KVCompatNamespace } from './kv';
-import { AssetsCompatFetcher } from './assets';
+import { readdir, readFile } from './utils.ts';
+import { D1CompatDatabase } from './d1.ts';
+import { R2CompatBucket } from './r2.ts';
+import { KVCompatNamespace } from './kv.ts';
+import { AssetsCompatFetcher } from './assets.ts';
 
 /**
  * Create Cloudflare-compatible environment from Bun
@@ -32,7 +32,7 @@ export async function createBunEnv(config: {
   const kv = new KVCompatNamespace();
   const assets = config.assetsPath ? AssetsCompatFetcher.create(config.assetsPath) : undefined;
 
-  const { getDbSQLite } = await import('../../../db');
+  const { getDbSQLite } = await import('../../../db/index.ts');
   const dbInstance = await getDbSQLite(config.databasePath || './data/yurucommu.db');
 
   return {

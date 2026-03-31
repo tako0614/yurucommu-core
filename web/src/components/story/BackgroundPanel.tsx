@@ -4,7 +4,7 @@
  * Controls background fill type (solid or gradient) and color selection.
  */
 
-import { ColorPicker, GradientPicker } from './ColorPicker';
+import { ColorPicker, GradientPicker } from './ColorPicker.tsx';
 
 interface BackgroundPanelProps {
   fillType: 'solid' | 'gradient';

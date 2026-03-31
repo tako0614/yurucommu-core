@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { sql } from 'drizzle-orm';
-import type { Env, Variables } from '../types';
-import { formatUsername } from '../federation-helpers';
-import { withCache, CacheTTL, CacheTags } from '../middleware/cache';
-import { batchLoadActorInfo } from './communities/membership-shared';
+import type { Env, Variables } from '../types.ts';
+import { formatUsername } from '../federation-helpers.ts';
+import { withCache, CacheTTL, CacheTags } from '../middleware/cache.ts';
+import { batchLoadActorInfo } from './communities/membership-shared.ts';
 
 const recommendations = new Hono<{ Bindings: Env; Variables: Variables }>();
 

@@ -6,9 +6,9 @@
  */
 
 import { eq, and, inArray } from 'drizzle-orm';
-import type { Database } from '../../db';
-import { actors, follows, likes, bookmarks } from '../../db';
-import { formatUsername, parseLimit, safeJsonParse } from '../federation-helpers';
+import type { Database } from '../../db/index.ts';
+import { actors, follows, likes, bookmarks } from '../../db/index.ts';
+import { formatUsername, parseLimit, safeJsonParse } from '../federation-helpers.ts';
 
 // ---------------------------------------------------------------------------
 // Types

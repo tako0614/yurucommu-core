@@ -21,8 +21,8 @@ import {
   selectInstanceAtom,
   rebuildInstanceAtom,
   checkAuthAtom,
-} from '../atoms/auth';
-import type { HostedInstance } from '../atoms/auth';
+} from '../atoms/auth.ts';
+import type { HostedInstance } from '../atoms/auth.ts';
 
 export type { HostedInstance };
 

@@ -1,9 +1,9 @@
 import type { Context } from 'hono';
 import { eq, and, inArray, desc, sql, count } from 'drizzle-orm';
-import type { Database } from '../../db';
-import { actors, actorCache, follows, likes, bookmarks, announces, blocks, mutes } from '../../db';
-import type { Actor, Env, Variables } from '../types';
-import { actorApId, getDomain, formatUsername, parseLimit, parseOffset } from '../federation-helpers';
+import type { Database } from '../../db/index.ts';
+import { actors, actorCache, follows, likes, bookmarks, announces, blocks, mutes } from '../../db/index.ts';
+import type { Actor, Env, Variables } from '../types.ts';
+import { actorApId, getDomain, formatUsername, parseLimit, parseOffset } from '../federation-helpers.ts';
 
 // Hono context with our app's bindings and variables
 export type AppContext = Context<{ Bindings: Env; Variables: Variables }, string>;

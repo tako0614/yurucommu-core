@@ -2,7 +2,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { atom } from 'jotai';
 import { useAtom } from 'jotai';
-import { useRequiredActor } from '../hooks/useRequiredActor';
+import { useRequiredActor } from '../hooks/useRequiredActor.ts';
 import {
   CommunityDetail,
   CommunityJoinRequest,
@@ -18,15 +18,15 @@ import {
   updateCommunitySettings,
   updateCommunityMemberRole,
   uploadMedia,
-} from '../lib/api';
-import { useI18n } from '../lib/i18n';
-import { InlineErrorBanner } from '../components/InlineErrorBanner';
-import { CommunityProfileHeader } from '../components/community/CommunityProfileHeader';
-import { CommunityProfileSummary } from '../components/community/CommunityProfileSummary';
-import { CommunityAboutPanel } from '../components/community/CommunityAboutPanel';
-import { CommunityMembersPanel } from '../components/community/CommunityMembersPanel';
-import { CommunitySettingsPanel } from '../components/community/CommunitySettingsPanel';
-import type { CommunityMember } from '../lib/api/communities';
+} from '../lib/api.ts';
+import { useI18n } from '../lib/i18n.tsx';
+import { InlineErrorBanner } from '../components/InlineErrorBanner.tsx';
+import { CommunityProfileHeader } from '../components/community/CommunityProfileHeader.tsx';
+import { CommunityProfileSummary } from '../components/community/CommunityProfileSummary.tsx';
+import { CommunityAboutPanel } from '../components/community/CommunityAboutPanel.tsx';
+import { CommunityMembersPanel } from '../components/community/CommunityMembersPanel.tsx';
+import { CommunitySettingsPanel } from '../components/community/CommunitySettingsPanel.tsx';
+import type { CommunityMember } from '../lib/api/communities.ts';
 
 // Atoms defined at module level
 const communityProfile_errorAtom = atom<string | null>(null);

@@ -1,25 +1,25 @@
-import type { Database } from '../../../../db';
+import type { Database } from '../../../../db/index.ts';
 import { eq, and, sql, inArray } from 'drizzle-orm';
-import { actors, objects, follows, likes, activities } from '../../../../db';
+import { actors, objects, follows, likes, activities } from '../../../../db/index.ts';
 import {
   activityApId,
   generateId,
   isLocal,
-} from '../../../federation-helpers';
-import { enqueueDeliveryToActor } from '../../../lib/delivery/queue';
+} from '../../../federation-helpers.ts';
+import { enqueueDeliveryToActor } from '../../../lib/delivery/queue.ts';
 import {
   type ActivityContext,
   type Activity,
   getActivityObject,
   getActivityObjectId,
-} from '../inbox-types';
+} from '../inbox-types.ts';
 import {
   upsertActivityAndNotify,
   findFollowByActivityId,
   deleteFollowByCompoundKey,
   findAndDeleteInteractionByActivityId,
   undoInteraction,
-} from './inbox-shared-helpers';
+} from './inbox-shared-helpers.ts';
 
 type ActorRow = typeof actors.$inferSelect;
 

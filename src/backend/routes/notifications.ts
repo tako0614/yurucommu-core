@@ -2,11 +2,11 @@
 // AP Native: Notifications are derived from inbox (activities addressed to the actor)
 import { Hono } from 'hono';
 import { eq, and, ne, lt, count, desc, inArray } from 'drizzle-orm';
-import type { Env, Variables } from '../types';
-import { formatUsername, parseLimit, parseOffset } from '../federation-helpers';
-import type { Database } from '../../db';
-import { inbox as inboxTable, activities, notificationArchived, objects, follows } from '../../db';
-import { batchLoadActorInfo } from './communities/membership-shared';
+import type { Env, Variables } from '../types.ts';
+import { formatUsername, parseLimit, parseOffset } from '../federation-helpers.ts';
+import type { Database } from '../../db/index.ts';
+import { inbox as inboxTable, activities, notificationArchived, objects, follows } from '../../db/index.ts';
+import { batchLoadActorInfo } from './communities/membership-shared.ts';
 
 const notifications = new Hono<{ Bindings: Env; Variables: Variables }>();
 

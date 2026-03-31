@@ -8,15 +8,15 @@
  */
 
 import { Hono } from 'hono';
-import type { Env, Variables } from '../types';
-import type { ToolResponse } from './takos-tools-response';
+import type { Env, Variables } from '../types.ts';
+import type { ToolResponse } from './takos-tools-response.ts';
 
 // Handler modules
-import { handleSearchUsers, handleSearchPosts, handleGetTrending, handleGetUserProfile } from './takos-tools/search';
-import { handleCreatePost, handleDeletePost, handleLikePost, handleBookmarkPost } from './takos-tools/posts';
-import { handleFollowUser, handleUnfollowUser, handleGetFollowList } from './takos-tools/follows';
-import { handleSendDm, handleGetDmThreads, handleGetDmMessages } from './takos-tools/dm';
-import { handleGetTimeline, handleGetNotifications } from './takos-tools/timeline';
+import { handleSearchUsers, handleSearchPosts, handleGetTrending, handleGetUserProfile } from './takos-tools/search.ts';
+import { handleCreatePost, handleDeletePost, handleLikePost, handleBookmarkPost } from './takos-tools/posts.ts';
+import { handleFollowUser, handleUnfollowUser, handleGetFollowList } from './takos-tools/follows.ts';
+import { handleSendDm, handleGetDmThreads, handleGetDmMessages } from './takos-tools/dm.ts';
+import { handleGetTimeline, handleGetNotifications } from './takos-tools/timeline.ts';
 
 type HonoEnv = { Bindings: Env; Variables: Variables };
 

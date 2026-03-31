@@ -5,11 +5,11 @@
  * from Node.js configuration, and runMigrations for database setup.
  */
 
-import { loadNodeModules, getFs, getPath } from './node-modules';
-import { D1CompatDatabase } from './d1';
-import { R2CompatBucket } from './r2';
-import { KVCompatNamespace } from './kv';
-import { AssetsCompatFetcher } from './assets';
+import { loadNodeModules, getFs, getPath } from './node-modules.ts';
+import { D1CompatDatabase } from './d1.ts';
+import { R2CompatBucket } from './r2.ts';
+import { KVCompatNamespace } from './kv.ts';
+import { AssetsCompatFetcher } from './assets.ts';
 
 /**
  * Create Cloudflare-compatible environment from Node.js
@@ -33,7 +33,7 @@ export async function createNodeEnv(config: {
   const kv = new KVCompatNamespace();
   const assets = config.assetsPath ? await AssetsCompatFetcher.create(config.assetsPath) : undefined;
 
-  const { getDbSQLite } = await import('../../../db');
+  const { getDbSQLite } = await import('../../../db/index.ts');
   const dbInstance = await getDbSQLite(config.databasePath || './data/yurucommu.db');
 
   return {

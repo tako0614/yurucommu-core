@@ -1,5 +1,5 @@
 import { type WritableAtom } from 'jotai';
-import type { Post } from '../types';
+import type { Post } from '../types/index.ts';
 import {
   likePost,
   unlikePost,
@@ -7,7 +7,7 @@ import {
   unrepostPost,
   bookmarkPost,
   unbookmarkPost,
-} from '../lib/api';
+} from '../lib/api.ts';
 
 type PostsSetter = WritableAtom<Post[], [Post[] | ((prev: Post[]) => Post[])], void>;
 

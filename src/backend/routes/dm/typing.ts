@@ -2,11 +2,11 @@
 
 import { Hono } from 'hono';
 import { eq, and } from 'drizzle-orm';
-import { dmTyping } from '../../../db';
+import { dmTyping } from '../../../db/index.ts';
 import {
   type HonoEnv,
   parseOtherApId,
-} from './conversations-helpers';
+} from './conversations-helpers.ts';
 
 const typing = new Hono<HonoEnv>();
 

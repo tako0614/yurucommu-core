@@ -6,19 +6,19 @@
 
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
-import { actors, actorCache } from '../../../db';
-import { getConversationId } from './query-helpers';
+import { actors, actorCache } from '../../../db/index.ts';
+import { getConversationId } from './query-helpers.ts';
 import {
   type HonoEnv,
   ACTOR_INFO_FIELDS,
   ACTOR_CACHE_INFO_FIELDS,
   formatActorProfile,
-} from './conversations-helpers';
+} from './conversations-helpers.ts';
 
-import contacts from './contacts';
-import requests from './requests';
-import typing from './typing';
-import readArchive from './read-archive';
+import contacts from './contacts.ts';
+import requests from './requests.ts';
+import typing from './typing.ts';
+import readArchive from './read-archive.ts';
 
 // -- Routes --
 

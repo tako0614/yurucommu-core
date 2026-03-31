@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
-import { voteOnStory } from '../../../lib/api';
-import type { StoryOverlay } from '../../../types';
+import { voteOnStory } from '../../../lib/api.ts';
+import type { StoryOverlay } from '../../../types/index.ts';
 
 // Validate URL for XSS protection - only allow http: and https: protocols
 function isValidUrl(url: string): boolean {

@@ -1,7 +1,7 @@
 // FFmpeg utility for Story composition
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from './story-canvas';
+import { CANVAS_WIDTH, CANVAS_HEIGHT } from './story-canvas.ts';
 
 // Timeout constants
 const FFMPEG_TIMEOUT = 120000; // 2分（120秒）

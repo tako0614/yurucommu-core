@@ -1,4 +1,4 @@
-import type { Actor } from '../types';
+import type { Actor } from '../types.ts';
 
 interface StoryData {
   apId: string;

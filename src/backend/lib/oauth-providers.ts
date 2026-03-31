@@ -5,7 +5,7 @@
  * 複数のプロバイダーを自由に組み合わせ可能
  */
 
-import type { Env } from '../types';
+import type { Env } from '../types.ts';
 
 export interface OAuthProvider {
   id: string;

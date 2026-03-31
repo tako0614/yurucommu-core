@@ -15,28 +15,28 @@ import {
   StoryCanvas,
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
-} from '../../../lib/story-canvas';
-import { useCanvasInteraction, type SnapGuide } from '../../../hooks/useCanvasInteraction';
-import { useVideoTransform } from '../../../hooks/useVideoTransform';
-import type { StoryOverlay } from '../../../types';
-import { TextEditorModal } from '../TextEditorModal';
-import { StoryComposerCanvas } from './StoryComposerCanvas';
-import { StoryComposerFooter } from './StoryComposerFooter';
-import { StoryComposerHeader } from './StoryComposerHeader';
-import { StoryComposerSelectionToolbar } from './StoryComposerSelectionToolbar';
+} from '../../../lib/story-canvas.ts';
+import { useCanvasInteraction, type SnapGuide } from '../../../hooks/useCanvasInteraction.ts';
+import { useVideoTransform } from '../../../hooks/useVideoTransform.ts';
+import type { StoryOverlay } from '../../../types/index.ts';
+import { TextEditorModal } from '../TextEditorModal.tsx';
+import { StoryComposerCanvas } from './StoryComposerCanvas.tsx';
+import { StoryComposerFooter } from './StoryComposerFooter.tsx';
+import { StoryComposerHeader } from './StoryComposerHeader.tsx';
+import { StoryComposerSelectionToolbar } from './StoryComposerSelectionToolbar.tsx';
 import {
   StoryComposerDrawingPanel,
   StoryComposerQuickActions,
   StoryComposerStickerPanel,
-} from './StoryComposerPanels';
-import { StoryComposerStatusOverlay } from './StoryComposerStatusOverlay';
-import { useStoryBackground } from './useStoryBackground';
-import { useStoryCanvasRenderer } from './useStoryCanvasRenderer';
-import { useStoryVideo } from './useStoryVideo';
-import { useStoryTextEditor } from './useStoryTextEditor';
-import { useStoryLayerActions } from './useStoryLayerActions';
-import { useStoryPost } from './useStoryPost';
-import { useStoryImageUpload } from './useStoryImageUpload';
+} from './StoryComposerPanels.tsx';
+import { StoryComposerStatusOverlay } from './StoryComposerStatusOverlay.tsx';
+import { useStoryBackground } from './useStoryBackground.ts';
+import { useStoryCanvasRenderer } from './useStoryCanvasRenderer.ts';
+import { useStoryVideo } from './useStoryVideo.ts';
+import { useStoryTextEditor } from './useStoryTextEditor.ts';
+import { useStoryLayerActions } from './useStoryLayerActions.ts';
+import { useStoryPost } from './useStoryPost.ts';
+import { useStoryImageUpload } from './useStoryImageUpload.ts';
 
 interface StoryComposerProps {
   onClose: () => void;

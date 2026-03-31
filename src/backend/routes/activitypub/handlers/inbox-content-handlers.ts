@@ -1,7 +1,7 @@
-import type { Database } from '../../../../db';
+import type { Database } from '../../../../db/index.ts';
 import { eq, and, or, sql, inArray } from 'drizzle-orm';
-import { actors, actorCache, objects, follows, likes, storyVotes, storyViews, activities } from '../../../../db';
-import { upsertActivityAndNotify } from './inbox-shared-helpers';
+import { actors, actorCache, objects, follows, likes, storyVotes, storyViews, activities } from '../../../../db/index.ts';
+import { upsertActivityAndNotify } from './inbox-shared-helpers.ts';
 import {
   activityApId,
   generateId,
@@ -9,14 +9,14 @@ import {
   isSafeRemoteUrl,
   objectApId,
   fetchWithTimeout,
-} from '../../../federation-helpers';
+} from '../../../federation-helpers.ts';
 import {
   type ActivityContext,
   type Activity,
   type StoryOverlay,
   getActivityObject,
   getActivityObjectId,
-} from '../inbox-types';
+} from '../inbox-types.ts';
 
 type ActorRow = typeof actors.$inferSelect;
 

@@ -1,9 +1,9 @@
 import type { Context } from 'hono';
 import { eq, and, or, inArray } from 'drizzle-orm';
-import type { Database } from '../../../db';
-import { actors, actorCache, communities, communityMembers } from '../../../db';
-import type { Env, Variables } from '../../types';
-import { communityApId } from '../../federation-helpers';
+import type { Database } from '../../../db/index.ts';
+import { actors, actorCache, communities, communityMembers } from '../../../db/index.ts';
+import type { Env, Variables } from '../../types.ts';
+import { communityApId } from '../../federation-helpers.ts';
 
 export const managerRoles = new Set(['owner', 'moderator']);
 

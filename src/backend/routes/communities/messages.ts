@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { eq, and, lt, desc, sql, inArray } from 'drizzle-orm';
-import { communities, communityMembers, objects, objectRecipients, activities } from '../../../db';
-import type { Env, Variables } from '../../types';
-import { generateId, formatUsername } from '../../federation-helpers';
-import { batchLoadActorInfo, communityWhere, fetchCommunityId, managerRoles, memberWhere, resolveCommunityApId } from './membership-shared';
+import { communities, communityMembers, objects, objectRecipients, activities } from '../../../db/index.ts';
+import type { Env, Variables } from '../../types.ts';
+import { generateId, formatUsername } from '../../federation-helpers.ts';
+import { batchLoadActorInfo, communityWhere, fetchCommunityId, managerRoles, memberWhere, resolveCommunityApId } from './membership-shared.ts';
 
 const MAX_COMMUNITY_MESSAGE_LENGTH = 5000;
 const MAX_COMMUNITY_MESSAGES_LIMIT = 100;

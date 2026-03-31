@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import type { Env, Variables } from '../../types';
+import type { Env, Variables } from '../../types.ts';
 import { eq, and, desc, count } from 'drizzle-orm';
-import { activities, follows, actors, objects } from '../../../db';
-import { actorApId, objectApId, parseLimit, safeJsonParse } from '../../federation-helpers';
-import { getInstanceActor } from './query-helpers';
+import { activities, follows, actors, objects } from '../../../db/index.ts';
+import { actorApId, objectApId, parseLimit, safeJsonParse } from '../../federation-helpers.ts';
+import { getInstanceActor } from './query-helpers.ts';
 
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 

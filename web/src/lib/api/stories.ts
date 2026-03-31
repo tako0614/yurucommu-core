@@ -1,6 +1,6 @@
-import type { Story, StoryOverlay, ActorStories } from '../../types';
-import { normalizeActorStories, normalizeStory } from './normalize';
-import { apiFetch, apiPost, apiDelete, assertOk } from './fetch';
+import type { Story, StoryOverlay, ActorStories } from '../../types/index.ts';
+import { normalizeActorStories, normalizeStory } from './normalize.ts';
+import { apiFetch, apiPost, apiDelete, assertOk } from './fetch.ts';
 
 export async function fetchStories(): Promise<ActorStories[]> {
   const res = await apiFetch('/api/stories');

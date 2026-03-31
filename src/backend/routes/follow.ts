@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import { eq, and, inArray, sql, desc } from 'drizzle-orm';
-import type { Env, Variables } from '../types';
-import { actors, actorCache, follows, activities, inbox } from '../../db';
-import { activityApId, isLocal, isSafeRemoteUrl, formatUsername, parseLimit, parseOffset, generateId } from '../federation-helpers';
-import { enqueueDeliveryToActor } from '../lib/delivery/queue';
+import type { Env, Variables } from '../types.ts';
+import { actors, actorCache, follows, activities, inbox } from '../../db/index.ts';
+import { activityApId, isLocal, isSafeRemoteUrl, formatUsername, parseLimit, parseOffset, generateId } from '../federation-helpers.ts';
+import { enqueueDeliveryToActor } from '../lib/delivery/queue.ts';
 import {
   parseNonEmptyString,
   parseStringArray,
@@ -15,7 +15,7 @@ import {
   findPendingFollow,
   handleLocalFollow,
   handleRemoteFollow,
-} from './follow-helpers';
+} from './follow-helpers.ts';
 
 const MAX_BATCH_ACCEPT_SIZE = 100;
 

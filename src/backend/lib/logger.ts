@@ -87,10 +87,9 @@ function formatData(
 
 /** Detect whether we are likely running in a production environment. */
 function detectProduction(): boolean {
-  // Cloudflare Workers have no process.env – treat as production by default
-  if (typeof process === 'undefined') return true;
-  const env =
-    (typeof process !== 'undefined' && process.env?.NODE_ENV) || '';
+  // Cloudflare Workers have no Deno/process – treat as production by default
+  if (typeof Deno === 'undefined') return true;
+  const env = Deno.env.get('NODE_ENV') || '';
   return env === 'production';
 }
 

@@ -1,6 +1,6 @@
 import type { Context, Next } from 'hono';
 
-import type { Env, Variables } from '../types';
+import type { Env, Variables } from '../types.ts';
 
 const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'DELETE', 'PATCH']);
 

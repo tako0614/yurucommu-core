@@ -1,15 +1,15 @@
 import type { Context, Hono } from 'hono';
 import { eq, and, or, count, desc, asc, sql, inArray } from 'drizzle-orm';
-import { communities, communityMembers } from '../../../db';
-import type { Env, Variables } from '../../types';
-import { formatUsername, parseLimit, parseOffset } from '../../federation-helpers';
+import { communities, communityMembers } from '../../../db/index.ts';
+import type { Env, Variables } from '../../types.ts';
+import { formatUsername, parseLimit, parseOffset } from '../../federation-helpers.ts';
 import {
   batchLoadActorInfo,
   fetchCommunityId,
   memberWhere,
   requireManager,
   resolveCommunityApId,
-} from './membership-shared';
+} from './membership-shared.ts';
 
 const MAX_MEMBER_BATCH_SIZE = 100;
 

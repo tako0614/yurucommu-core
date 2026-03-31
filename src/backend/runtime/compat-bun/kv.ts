@@ -4,7 +4,7 @@
  * Bun Cloudflare Compatibility Layer - KV Namespace
  */
 
-import { drainStream, resolveExpiration } from './utils';
+import { drainStream, resolveExpiration } from './utils.ts';
 
 /**
  * KVNamespace-compatible in-memory implementation

@@ -4,7 +4,7 @@
  * Hit testing, coordinate transformation, and bounding box calculations.
  */
 
-import type { Layer } from './story-canvas';
+import type { Layer } from './story-canvas.ts';
 
 // ---------------------------------------------------------------------------
 // Hit testing

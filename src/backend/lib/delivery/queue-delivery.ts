@@ -4,23 +4,23 @@
  */
 
 import type { Message } from '@cloudflare/workers-types';
-import type { Env } from '../../types';
-import type { Database } from '../../../db';
+import type { Env } from '../../types.ts';
+import type { Database } from '../../../db/index.ts';
 import { eq, and, notInArray, sql } from 'drizzle-orm';
-import { actorCache, actors, communities, instanceActor, activities, deliveryQueue } from '../../../db';
-import { isSafeRemoteUrl, signRequest, fetchWithTimeout } from '../../federation-helpers';
-import { emitMetric } from './metrics';
-import { checkCircuit, recordCircuitFailure, recordCircuitSuccess } from './circuit';
+import { actorCache, actors, communities, instanceActor, activities, deliveryQueue } from '../../../db/index.ts';
+import { isSafeRemoteUrl, signRequest, fetchWithTimeout } from '../../federation-helpers.ts';
+import { emitMetric } from './metrics.ts';
+import { checkCircuit, recordCircuitFailure, recordCircuitSuccess } from './circuit.ts';
 import {
   type DeliveryDeliverEndpointMessageV1,
   type DeliveryQueueMessageV1,
-} from './types';
+} from './types.ts';
 import {
   computeRetryDelaySeconds,
   DELIVERY_MAX_ATTEMPTS,
   safeEndpointHost,
   safeParseIsoTimeMs,
-} from './transformers';
+} from './transformers.ts';
 import {
   type Bulkhead,
   type QueueEnv,
@@ -31,7 +31,7 @@ import {
   buildReconcileJobMessage,
   nowIso,
   enqueueResolveForEndpointActors,
-} from './queue';
+} from './queue.ts';
 
 const DELIVERY_HTTP_TIMEOUT_MS = 8000;
 const STALE_PROCESSING_MS = 2 * 60 * 1000;

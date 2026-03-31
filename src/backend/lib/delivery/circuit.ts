@@ -1,7 +1,7 @@
-import type { Database } from '../../../db';
+import type { Database } from '../../../db/index.ts';
 import { eq } from 'drizzle-orm';
-import { deliveryCircuit } from '../../../db';
-import { safeParseIsoTimeMs } from './transformers';
+import { deliveryCircuit } from '../../../db/index.ts';
+import { safeParseIsoTimeMs } from './transformers.ts';
 
 export type CircuitState = 'closed' | 'open' | 'half_open';
 

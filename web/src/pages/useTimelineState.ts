@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { tAtom } from '../atoms/i18n';
+import { tAtom } from '../atoms/i18n.ts';
 import {
   timelinePostsAtom,
   timelineLoadingAtom,
@@ -32,9 +32,9 @@ import {
   loadAccountsAtom,
   switchAccountAtom,
   closePostModalAtom,
-} from '../atoms/timeline';
-import { toggleLike, toggleRepost, toggleBookmark } from '../atoms/posts';
-import type { ActorStories } from '../types';
+} from '../atoms/timeline.ts';
+import { toggleLike, toggleRepost, toggleBookmark } from '../atoms/posts.ts';
+import type { ActorStories } from '../types/index.ts';
 
 export function useTimelineState() {
   const t = useAtomValue(tAtom);

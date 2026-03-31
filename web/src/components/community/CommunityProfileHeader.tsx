@@ -1,4 +1,4 @@
-﻿import { BackIcon } from './CommunityIcons';
+﻿import { BackIcon } from './CommunityIcons.tsx';
 
 interface CommunityProfileHeaderProps {
   title: string;

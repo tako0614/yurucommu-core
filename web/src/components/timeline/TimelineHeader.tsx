@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { HeartIcon } from '../icons/SocialIcons';
+import { HeartIcon } from '../icons/SocialIcons.tsx';
 
 interface TimelineHeaderProps {
   onCreatePost: () => void;

@@ -1,5 +1,5 @@
 import { useAtomValue } from 'jotai';
-import { actorAtom } from '../atoms/auth';
+import { actorAtom } from '../atoms/auth.ts';
 
 export function useRequiredActor() {
   const actor = useAtomValue(actorAtom);

@@ -1,6 +1,6 @@
-import type { Actor, Post } from '../../types';
-import { normalizeActor, normalizePost } from './normalize';
-import { apiFetch } from './fetch';
+import type { Actor, Post } from '../../types/index.ts';
+import { normalizeActor, normalizePost } from './normalize.ts';
+import { apiFetch } from './fetch.ts';
 
 export async function searchActors(query: string): Promise<Actor[]> {
   const res = await apiFetch(`/api/search/actors?q=${encodeURIComponent(query)}`);

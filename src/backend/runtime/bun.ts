@@ -20,10 +20,10 @@ import type {
   ListObjectsResult,
   ObjectMetadata,
   RuntimeEnv,
-} from './types';
+} from './types.ts';
 
 // Re-export MemoryKV from node.ts as it works in Bun too
-export { MemoryKV } from './node';
+export { MemoryKV } from './node.ts';
 
 const { mkdir, unlink, readdir, stat } = await import('fs/promises');
 

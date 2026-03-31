@@ -4,11 +4,11 @@
  */
 
 import type { Message, MessageBatch, Queue } from '@cloudflare/workers-types';
-import type { Env } from '../../types';
-import { getDb, type Database } from '../../../db';
+import type { Env } from '../../types.ts';
+import { getDb, type Database } from '../../../db/index.ts';
 import { eq, and, or, notInArray, sql } from 'drizzle-orm';
-import { actorCache, deliveryQueue } from '../../../db';
-import { isSafeRemoteUrl } from '../../federation-helpers';
+import { actorCache, deliveryQueue } from '../../../db/index.ts';
+import { isSafeRemoteUrl } from '../../federation-helpers.ts';
 import {
   DELIVERY_QUEUE_MESSAGE_VERSION,
   type DeliveryQueueMessageV1,
@@ -16,11 +16,11 @@ import {
   type DeliveryDeliverEndpointMessageV1,
   isDeliveryQueueMessageV1,
   isDeliveryDlqMessageV1,
-} from './types';
+} from './types.ts';
 import {
   computeDeliveryJobId,
   safeEndpointHost,
-} from './transformers';
+} from './transformers.ts';
 
 // ---------------------------------------------------------------------------
 // Concurrency primitives
@@ -259,8 +259,8 @@ export async function handleDeliveryQueueBatch(
   const bulkhead = new Bulkhead(BULKHEAD_GLOBAL_CONCURRENCY, BULKHEAD_PER_DOMAIN);
 
   // Lazy import sub-modules to avoid circular dependencies at module level
-  const { processFanoutFollowers, processResolveActor, processReconcileJob, runWithConcurrency } = await import('./queue-batching');
-  const { processDeliverEndpoint } = await import('./queue-delivery');
+  const { processFanoutFollowers, processResolveActor, processReconcileJob, runWithConcurrency } = await import('./queue-batching.ts');
+  const { processDeliverEndpoint } = await import('./queue-delivery.ts');
 
   // Process non-delivery messages first (planning/resolution).
   for (const message of batch.messages) {

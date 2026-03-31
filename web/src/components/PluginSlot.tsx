@@ -1,4 +1,4 @@
-import { getSlotComponents, type SlotName } from '../lib/plugin';
+import { getSlotComponents, type SlotName } from '../lib/plugin.ts';
 
 interface PluginSlotProps {
   name: SlotName;

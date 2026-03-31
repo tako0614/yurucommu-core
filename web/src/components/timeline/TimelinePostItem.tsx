@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom';
-import type { Post } from '../../types';
-import { formatRelativeTime } from '../../lib/datetime';
-import { UserAvatar } from '../UserAvatar';
-import { PostContent } from '../PostContent';
-import { HeartIcon, ReplyIcon, BookmarkIcon, RepostIcon } from '../icons/SocialIcons';
+import type { Post } from '../../types/index.ts';
+import { formatRelativeTime } from '../../lib/datetime.ts';
+import { UserAvatar } from '../UserAvatar.tsx';
+import { PostContent } from '../PostContent.tsx';
+import { HeartIcon, ReplyIcon, BookmarkIcon, RepostIcon } from '../icons/SocialIcons.tsx';
 
 interface TimelinePostItemProps {
   post: Post;

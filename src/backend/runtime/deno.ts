@@ -20,7 +20,7 @@ import type {
   ListObjectsResult,
   ObjectMetadata,
   RuntimeEnv,
-} from './types';
+} from './types.ts';
 
 const DEFAULT_LIST_LIMIT = 1000;
 const META_SUFFIX = '.meta.json';

@@ -17,7 +17,7 @@ import type {
   StorageObject,
   ListObjectsResult,
   ObjectMetadata,
-} from './types';
+} from './types.ts';
 
 /**
  * Cloudflare D1 Database Adapter

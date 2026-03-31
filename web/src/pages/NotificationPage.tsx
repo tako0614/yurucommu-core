@@ -1,13 +1,13 @@
 ﻿import { useEffect, useCallback } from 'react';
 import { atom } from 'jotai';
 import { useAtom } from 'jotai';
-import { Notification } from '../types';
-import { acceptFollowRequest, fetchNotifications, markNotificationsRead, rejectFollowRequest } from '../lib/api';
-import { useI18n } from '../lib/i18n';
-import { formatRelativeTime } from '../lib/datetime';
-import { UserAvatar } from '../components/UserAvatar';
-import { HeartIcon, ReplyIcon, RepostIcon } from '../components/icons/SocialIcons';
-import { InlineErrorBanner } from '../components/InlineErrorBanner';
+import { Notification } from '../types/index.ts';
+import { acceptFollowRequest, fetchNotifications, markNotificationsRead, rejectFollowRequest } from '../lib/api.ts';
+import { useI18n } from '../lib/i18n.tsx';
+import { formatRelativeTime } from '../lib/datetime.ts';
+import { UserAvatar } from '../components/UserAvatar.tsx';
+import { HeartIcon, ReplyIcon, RepostIcon } from '../components/icons/SocialIcons.tsx';
+import { InlineErrorBanner } from '../components/InlineErrorBanner.tsx';
 
 // SVG Icons
 const FollowIcon = () => (

@@ -1,5 +1,5 @@
 import { atom } from 'jotai';
-import type { Post, ActorStories } from '../types';
+import type { Post, ActorStories } from '../types/index.ts';
 import {
   fetchTimeline,
   fetchStories,
@@ -8,8 +8,8 @@ import {
   fetchAccounts,
   switchAccount,
   type AccountInfo,
-} from '../lib/api';
-import type { UploadedMedia } from '../components/timeline/types';
+} from '../lib/api.ts';
+import type { UploadedMedia } from '../components/timeline/types.ts';
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 

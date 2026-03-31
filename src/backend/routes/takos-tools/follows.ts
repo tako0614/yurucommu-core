@@ -7,7 +7,7 @@
 
 import { eq, and } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
-import { actors, follows } from '../../../db';
+import { actors, follows } from '../../../db/index.ts';
 import {
   toolLimit,
   requireString,
@@ -18,8 +18,8 @@ import {
   formatActorSummary,
   fetchFollowList,
   type ToolResponse,
-} from '../takos-tools-response';
-import type { ToolContext, Input } from './types';
+} from '../takos-tools-response.ts';
+import type { ToolContext, Input } from './types.ts';
 
 export async function handleFollowUser(c: ToolContext, input: Input, actor: { ap_id: string } | null) {
   if (!actor) return c.json(errAuth(), 401);

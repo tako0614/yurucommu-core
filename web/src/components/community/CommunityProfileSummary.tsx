@@ -1,7 +1,7 @@
 ﻿import { Link } from 'react-router-dom';
-import type { CommunityDetail } from '../../lib/api';
-import { formatMonthYear } from '../../lib/datetime';
-import { CalendarIcon, ChatIcon, UsersIcon } from './CommunityIcons';
+import type { CommunityDetail } from '../../lib/api.ts';
+import { formatMonthYear } from '../../lib/datetime.ts';
+import { CalendarIcon, ChatIcon, UsersIcon } from './CommunityIcons.tsx';
 
 type JoinPolicy = 'open' | 'approval' | 'invite';
 

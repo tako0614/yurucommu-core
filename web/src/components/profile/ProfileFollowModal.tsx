@@ -1,8 +1,8 @@
 ﻿import { Link } from 'react-router-dom';
-import type { Actor } from '../../types';
-import { UserAvatar } from '../UserAvatar';
-import { CloseIcon } from './ProfileIcons';
-import type { Translate } from '../../lib/i18n';
+import type { Actor } from '../../types/index.ts';
+import { UserAvatar } from '../UserAvatar.tsx';
+import { CloseIcon } from './ProfileIcons.tsx';
+import type { Translate } from '../../lib/i18n.tsx';
 
 type FollowModalType = 'followers' | 'following' | null;
 

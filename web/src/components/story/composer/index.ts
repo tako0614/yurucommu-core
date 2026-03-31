@@ -1,2 +1,2 @@
-export { StoryComposer } from './StoryComposer';
-export { default } from './StoryComposer';
+export { StoryComposer } from './StoryComposer.tsx';
+export { default } from './StoryComposer.tsx';

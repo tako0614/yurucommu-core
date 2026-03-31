@@ -15,5 +15,5 @@ export {
   type SlotEntry,
   type BootstrapMountOptionsV1,
   type BootstrapYurucommuFrontendOptionsV1,
-} from './src/public';
-export { default } from './src/public';
+} from './src/public.tsx';
+export { default } from './src/public.tsx';

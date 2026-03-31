@@ -1,6 +1,6 @@
 import { eq, and, or, desc, isNotNull, like } from 'drizzle-orm';
-import type { Database } from '../../../db';
-import { objects } from '../../../db';
+import type { Database } from '../../../db/index.ts';
+import { objects } from '../../../db/index.ts';
 
 export const MAX_DM_CONTENT_LENGTH = 5000;
 export const MAX_DM_PAGE_LIMIT = 100;

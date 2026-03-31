@@ -4,12 +4,12 @@ export {
   type BackendPluginContextV1,
   type YurucommuBackendPluginV1,
   type CreateYurucommuBackendAppOptionsV1,
-} from './index';
-export { default } from './index';
-export { default as app } from './index';
+} from './index.ts';
+export { default } from './index.ts';
+export { default as app } from './index.ts';
 export {
   getDb,
   getDbSQLite,
   type Database,
-} from '../db';
+} from '../db/index.ts';
 export type { D1Database } from '@cloudflare/workers-types';
