@@ -1,7 +1,7 @@
-﻿import { useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { createEffect, onCleanup, Show } from 'solid-js';
+import { useParams, useNavigate } from '@solidjs/router';
 import { atom } from 'jotai';
-import { useAtom } from 'jotai';
+import { useAtom } from 'solid-jotai';
 import { useRequiredActor } from '../hooks/useRequiredActor.ts';
 import {
   CommunityDetail,
@@ -53,8 +53,8 @@ export function CommunityProfilePage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
   const [error, setError] = useAtom(communityProfile_errorAtom);
-  const clearError = useCallback(() => setError(null), [setError]);
-  const { name } = useParams<{ name: string }>();
+  const clearError = () => setError(null);
+  const params = useParams();
   const navigate = useNavigate();
   const [community, setCommunity] = useAtom(communityProfile_communityAtom);
   const [members, setMembers] = useAtom(communityProfile_membersAtom);
@@ -76,15 +76,15 @@ export function CommunityProfilePage() {
   const [iconPreview, setIconPreview] = useAtom(communityProfile_iconPreviewAtom);
 
   // Cleanup iconPreview ObjectURL on unmount
-  useEffect(() => {
-    return () => {
-      if (iconPreview) {
-        URL.revokeObjectURL(iconPreview);
-      }
-    };
-  }, [iconPreview]);
+  onCleanup(() => {
+    const preview = iconPreview();
+    if (preview) {
+      URL.revokeObjectURL(preview);
+    }
+  });
 
-  useEffect(() => {
+  createEffect(() => {
+    const name = params.name;
     if (name) {
       setCommunity(null);
       setMembers([]);
@@ -95,19 +95,20 @@ export function CommunityProfilePage() {
       setLoading(true);
       loadCommunity();
     }
-  }, [name]);
+  });
 
   const loadCommunity = async () => {
+    const name = params.name;
     if (!name) return;
     // Only show loading if no cached data
-    if (!community) setLoading(true);
+    if (!community()) setLoading(true);
     try {
       const data = await fetchCommunity(name);
       setCommunity(data);
       const membersData = await fetchCommunityMembers(name);
       setMembers(membersData);
-      const canManage = data.member_role === 'owner' || data.member_role === 'moderator';
-      if (canManage) {
+      const canManageNow = data.member_role === 'owner' || data.member_role === 'moderator';
+      if (canManageNow) {
         setLoadingRequests(true);
         try {
           const requestsData = await fetchCommunityJoinRequests(name);
@@ -127,11 +128,12 @@ export function CommunityProfilePage() {
   };
 
   const handleJoin = async () => {
-    if (!community || joining) return;
+    const comm = community();
+    if (!comm || joining()) return;
     setJoining(true);
     try {
       let inviteId: string | undefined;
-      if (community.join_policy === 'invite') {
+      if (comm.join_policy === 'invite') {
         const input = window.prompt('Invite code');
         if (!input) {
           setJoining(false);
@@ -139,7 +141,7 @@ export function CommunityProfilePage() {
         }
         inviteId = input.trim();
       }
-      const result = await joinCommunity(community.name, { inviteId });
+      const result = await joinCommunity(comm.name, { inviteId });
       if (result.status === 'pending') {
         setCommunity(prev => prev ? { ...prev, join_status: 'pending' } : null);
       } else {
@@ -154,10 +156,11 @@ export function CommunityProfilePage() {
   };
 
   const handleLeave = async () => {
-    if (!community || joining) return;
+    const comm = community();
+    if (!comm || joining()) return;
     setJoining(true);
     try {
-      await leaveCommunity(community.name);
+      await leaveCommunity(comm.name);
       setCommunity(prev => prev ? { ...prev, is_member: false, member_count: prev.member_count - 1 } : null);
     } catch (e) {
       console.error('Failed to leave:', e);
@@ -168,13 +171,14 @@ export function CommunityProfilePage() {
   };
 
   const handleAcceptRequest = async (request: CommunityJoinRequest) => {
-    if (!community) return;
-    if (requestAction[request.ap_id]) return;
+    const comm = community();
+    if (!comm) return;
+    if (requestAction()[request.ap_id]) return;
     setRequestAction(prev => ({ ...prev, [request.ap_id]: true }));
     try {
-      await acceptCommunityJoinRequest(community.name, request.ap_id);
+      await acceptCommunityJoinRequest(comm.name, request.ap_id);
       setJoinRequests(prev => prev.filter(r => r.ap_id !== request.ap_id));
-      const membersData = await fetchCommunityMembers(community.name);
+      const membersData = await fetchCommunityMembers(comm.name);
       setMembers(membersData);
       setCommunity(prev => prev ? { ...prev, member_count: prev.member_count + 1 } : null);
     } catch (e) {
@@ -186,11 +190,12 @@ export function CommunityProfilePage() {
   };
 
   const handleRejectRequest = async (request: CommunityJoinRequest) => {
-    if (!community) return;
-    if (requestAction[request.ap_id]) return;
+    const comm = community();
+    if (!comm) return;
+    if (requestAction()[request.ap_id]) return;
     setRequestAction(prev => ({ ...prev, [request.ap_id]: true }));
     try {
-      await rejectCommunityJoinRequest(community.name, request.ap_id);
+      await rejectCommunityJoinRequest(comm.name, request.ap_id);
       setJoinRequests(prev => prev.filter(r => r.ap_id !== request.ap_id));
     } catch (e) {
       console.error('Failed to reject join request:', e);
@@ -201,10 +206,11 @@ export function CommunityProfilePage() {
   };
 
   const handleCreateInvite = async () => {
-    if (!community || creatingInvite) return;
+    const comm = community();
+    if (!comm || creatingInvite()) return;
     setCreatingInvite(true);
     try {
-      const result = await createCommunityInvite(community.name);
+      const result = await createCommunityInvite(comm.name);
       setInviteCode(result.invite_id);
     } catch (e) {
       console.error('Failed to create invite:', e);
@@ -215,12 +221,13 @@ export function CommunityProfilePage() {
   };
 
   const handleUpdateMemberRole = async (member: CommunityMember, role: 'owner' | 'moderator' | 'member') => {
-    if (!community) return;
-    if (member.role === role || updatingMemberRole[member.ap_id]) return;
+    const comm = community();
+    if (!comm) return;
+    if (member.role === role || updatingMemberRole()[member.ap_id]) return;
     setMemberActionError(null);
     setUpdatingMemberRole(prev => ({ ...prev, [member.ap_id]: true }));
     try {
-      await updateCommunityMemberRole(community.name, member.ap_id, role);
+      await updateCommunityMemberRole(comm.name, member.ap_id, role);
       setMembers(prev =>
         prev.map(m => (m.ap_id === member.ap_id ? { ...m, role } : m))
       );
@@ -236,32 +243,34 @@ export function CommunityProfilePage() {
   };
 
   // Initialize settings form when community is loaded
-  useEffect(() => {
-    if (community) {
+  createEffect(() => {
+    const comm = community();
+    if (comm) {
       setSettingsForm({
-        display_name: community.display_name || community.name,
-        summary: community.summary || '',
-        visibility: community.visibility as 'public' | 'private',
-        join_policy: community.join_policy as 'open' | 'approval' | 'invite',
-        post_policy: community.post_policy as 'anyone' | 'members' | 'mods' | 'owners',
+        display_name: comm.display_name || comm.name,
+        summary: comm.summary || '',
+        visibility: comm.visibility as 'public' | 'private',
+        join_policy: comm.join_policy as 'open' | 'approval' | 'invite',
+        post_policy: comm.post_policy as 'anyone' | 'members' | 'mods' | 'owners',
       });
     }
-  }, [community]);
+  });
 
-  const handleIconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || uploadingIcon) return;
+  const handleIconUpload = async (e: Event & { currentTarget: HTMLInputElement }) => {
+    const file = e.currentTarget.files?.[0];
+    if (!file || uploadingIcon()) return;
 
     setUploadingIcon(true);
     try {
       const result = await uploadMedia(file);
       setSettingsForm(prev => ({ ...prev, icon_url: result.url }));
       // Revoke old ObjectURL before creating a new one
-      if (iconPreview) {
-        URL.revokeObjectURL(iconPreview);
+      const oldPreview = iconPreview();
+      if (oldPreview) {
+        URL.revokeObjectURL(oldPreview);
       }
       setIconPreview(URL.createObjectURL(file));
-    } catch (err) {
+    } catch {
       setSettingsError('アイコンのアップロードに失敗しました');
     } finally {
       setUploadingIcon(false);
@@ -269,16 +278,17 @@ export function CommunityProfilePage() {
   };
 
   const handleSaveSettings = async () => {
-    if (!community || savingSettings) return;
+    const comm = community();
+    if (!comm || savingSettings()) return;
     setSavingSettings(true);
     setSettingsError(null);
     try {
       const normalizedSettings: CommunitySettings = {
-        ...settingsForm,
-        display_name: settingsForm.display_name !== undefined ? settingsForm.display_name.trim() : undefined,
-        summary: settingsForm.summary !== undefined ? settingsForm.summary.trim() : undefined,
+        ...settingsForm(),
+        display_name: settingsForm().display_name !== undefined ? settingsForm().display_name!.trim() : undefined,
+        summary: settingsForm().summary !== undefined ? settingsForm().summary!.trim() : undefined,
       };
-      await updateCommunitySettings(community.name, normalizedSettings);
+      await updateCommunitySettings(comm.name, normalizedSettings);
       // Update local community state
       setCommunity(prev => prev ? {
         ...prev,
@@ -290,147 +300,139 @@ export function CommunityProfilePage() {
         post_policy: normalizedSettings.post_policy ?? prev.post_policy,
       } : null);
       // Cleanup ObjectURL and clear preview after successful save
-      if (iconPreview) {
-        URL.revokeObjectURL(iconPreview);
+      const preview = iconPreview();
+      if (preview) {
+        URL.revokeObjectURL(preview);
       }
       setIconPreview(null);
-    } catch (e) {
+    } catch {
       setSettingsError('Failed to save settings');
     } finally {
       setSavingSettings(false);
     }
   };
 
-  const canManage = community?.member_role === 'owner' || community?.member_role === 'moderator';
-  const isOwner = community?.member_role === 'owner';
-
-  if (loading) {
-    return (
-      <div className="flex flex-col h-full">
-        {error && (
-          <InlineErrorBanner message={error} onClose={clearError} />
-        )}
-        <CommunityProfileHeader
-          title={t('groups.title')}
-          subtitle=""
-          onBack={() => navigate(-1)}
-        />
-        <div className="p-8 text-center text-neutral-500">{t('common.loading')}</div>
-      </div>
-    );
-  }
-
-  if (!community) {
-    return (
-      <div className="flex flex-col h-full">
-        {error && (
-          <InlineErrorBanner message={error} onClose={clearError} />
-        )}
-        <CommunityProfileHeader
-          title={t('groups.title')}
-          subtitle=""
-          onBack={() => navigate(-1)}
-        />
-        <div className="p-8 text-center text-neutral-500">グループが見つかりません</div>
-      </div>
-    );
-  }
+  const canManage = () => community()?.member_role === 'owner' || community()?.member_role === 'moderator';
+  const isOwner = () => community()?.member_role === 'owner';
 
   return (
-    <div className="flex flex-col h-full">
-      {error && (
-        <InlineErrorBanner message={error} onClose={clearError} />
-      )}
-      <CommunityProfileHeader
-        title={community.display_name || community.name}
-        subtitle={`${community.member_count} メンバー`}
-        onBack={() => navigate(-1)}
-      />
+    <div class="flex flex-col h-full">
+      <Show when={error()}>
+        <InlineErrorBanner message={error()!} onClose={clearError} />
+      </Show>
 
-      <div className="flex-1 overflow-y-auto">
-        <CommunityProfileSummary
-          community={community}
-          joining={joining}
-          onJoin={handleJoin}
-          onLeave={handleLeave}
-          chatPath={`/groups/${community.name}/chat`}
+      <Show when={loading()}>
+        <CommunityProfileHeader
+          title={t('groups.title')}
+          subtitle=""
+          onBack={() => navigate(-1)}
         />
-        {/* Tabs */}
-        <div className="border-b border-neutral-900 flex">
-          <button
-            onClick={() => setActiveTab('about')}
-            className={`flex-1 py-4 text-center font-bold transition-colors relative ${
-              activeTab === 'about' ? 'text-white' : 'text-neutral-500 hover:bg-neutral-900/50'
-            }`}
-          >
-            概要
-            {activeTab === 'about' && (
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('members')}
-            className={`flex-1 py-4 text-center font-bold transition-colors relative ${
-              activeTab === 'members' ? 'text-white' : 'text-neutral-500 hover:bg-neutral-900/50'
-            }`}
-          >
-            メンバー
-            {activeTab === 'members' && (
-              <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
-            )}
-          </button>
-          {canManage && (
+        <div class="p-8 text-center text-neutral-500">{t('common.loading')}</div>
+      </Show>
+
+      <Show when={!loading() && !community()}>
+        <CommunityProfileHeader
+          title={t('groups.title')}
+          subtitle=""
+          onBack={() => navigate(-1)}
+        />
+        <div class="p-8 text-center text-neutral-500">グループが見つかりません</div>
+      </Show>
+
+      <Show when={!loading() && community()}>
+        <CommunityProfileHeader
+          title={community()!.display_name || community()!.name}
+          subtitle={`${community()!.member_count} メンバー`}
+          onBack={() => navigate(-1)}
+        />
+
+        <div class="flex-1 overflow-y-auto">
+          <CommunityProfileSummary
+            community={community()!}
+            joining={joining()}
+            onJoin={handleJoin}
+            onLeave={handleLeave}
+            chatPath={`/groups/${community()!.name}/chat`}
+          />
+          {/* Tabs */}
+          <div class="border-b border-neutral-900 flex">
             <button
-              onClick={() => setActiveTab('settings')}
-              className={`flex-1 py-4 text-center font-bold transition-colors relative ${
-                activeTab === 'settings' ? 'text-white' : 'text-neutral-500 hover:bg-neutral-900/50'
+              onClick={() => setActiveTab('about')}
+              class={`flex-1 py-4 text-center font-bold transition-colors relative ${
+                activeTab() === 'about' ? 'text-white' : 'text-neutral-500 hover:bg-neutral-900/50'
               }`}
             >
-              設定
-              {activeTab === 'settings' && (
-                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
-              )}
+              概要
+              <Show when={activeTab() === 'about'}>
+                <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
+              </Show>
             </button>
-          )}
-        </div>
+            <button
+              onClick={() => setActiveTab('members')}
+              class={`flex-1 py-4 text-center font-bold transition-colors relative ${
+                activeTab() === 'members' ? 'text-white' : 'text-neutral-500 hover:bg-neutral-900/50'
+              }`}
+            >
+              メンバー
+              <Show when={activeTab() === 'members'}>
+                <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
+              </Show>
+            </button>
+            <Show when={canManage()}>
+              <button
+                onClick={() => setActiveTab('settings')}
+                class={`flex-1 py-4 text-center font-bold transition-colors relative ${
+                  activeTab() === 'settings' ? 'text-white' : 'text-neutral-500 hover:bg-neutral-900/50'
+                }`}
+              >
+                設定
+                <Show when={activeTab() === 'settings'}>
+                  <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
+                </Show>
+              </button>
+            </Show>
+          </div>
 
-        {/* Content */}
-        {activeTab === 'about' && <CommunityAboutPanel community={community} />}
-        {activeTab === 'members' && (
-          <CommunityMembersPanel
-            members={members}
-            joinRequests={joinRequests}
-            canManage={canManage}
-            isOwner={isOwner}
-            loadingRequests={loadingRequests}
-            requestAction={requestAction}
-            memberActionError={memberActionError}
-            updatingMemberRole={updatingMemberRole}
-            inviteCode={inviteCode}
-            creatingInvite={creatingInvite}
-            joinPolicy={community.join_policy}
-            actorApId={actor.ap_id}
-            onAcceptRequest={handleAcceptRequest}
-            onRejectRequest={handleRejectRequest}
-            onUpdateMemberRole={handleUpdateMemberRole}
-            onCreateInvite={handleCreateInvite}
-            t={t}
-          />
-        )}
-        {activeTab === 'settings' && canManage && (
-          <CommunitySettingsPanel
-            community={community}
-            settingsForm={settingsForm}
-            settingsError={settingsError}
-            savingSettings={savingSettings}
-            uploadingIcon={uploadingIcon}
-            iconPreview={iconPreview}
-            onChangeSettings={(updater) => setSettingsForm((prev) => updater(prev))}
-            onUploadIcon={handleIconUpload}
-            onSaveSettings={handleSaveSettings}
-          />
-        )}
-      </div>
+          {/* Content */}
+          <Show when={activeTab() === 'about'}>
+            <CommunityAboutPanel community={community()!} />
+          </Show>
+          <Show when={activeTab() === 'members'}>
+            <CommunityMembersPanel
+              members={members()}
+              joinRequests={joinRequests()}
+              canManage={canManage()}
+              isOwner={isOwner()}
+              loadingRequests={loadingRequests()}
+              requestAction={requestAction()}
+              memberActionError={memberActionError()}
+              updatingMemberRole={updatingMemberRole()}
+              inviteCode={inviteCode()}
+              creatingInvite={creatingInvite()}
+              joinPolicy={community()!.join_policy}
+              actorApId={actor.ap_id}
+              onAcceptRequest={handleAcceptRequest}
+              onRejectRequest={handleRejectRequest}
+              onUpdateMemberRole={handleUpdateMemberRole}
+              onCreateInvite={handleCreateInvite}
+              t={t}
+            />
+          </Show>
+          <Show when={activeTab() === 'settings' && canManage()}>
+            <CommunitySettingsPanel
+              community={community()!}
+              settingsForm={settingsForm()}
+              settingsError={settingsError()}
+              savingSettings={savingSettings()}
+              uploadingIcon={uploadingIcon()}
+              iconPreview={iconPreview()}
+              onChangeSettings={(updater) => setSettingsForm((prev) => updater(prev))}
+              onUploadIcon={handleIconUpload}
+              onSaveSettings={handleSaveSettings}
+            />
+          </Show>
+        </div>
+      </Show>
     </div>
   );
 }

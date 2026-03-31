@@ -1,4 +1,3 @@
-import { useCallback } from 'react';
 import type { StoryCanvas, Layer } from '../../../lib/story-canvas.ts';
 
 interface UseStoryLayerActionsOptions {
@@ -8,40 +7,35 @@ interface UseStoryLayerActionsOptions {
   onUpdate: () => void;
 }
 
-export function useStoryLayerActions({
-  storyCanvas,
-  selectedLayerId,
-  selectLayer,
-  onUpdate,
-}: UseStoryLayerActionsOptions) {
-  const handleUpdateLayer = useCallback((updates: Partial<Layer>) => {
-    if (!storyCanvas || !selectedLayerId) return;
+export function useStoryLayerActions(opts: UseStoryLayerActionsOptions) {
+  const handleUpdateLayer = (updates: Partial<Layer>) => {
+    if (!opts.storyCanvas || !opts.selectedLayerId) return;
 
-    storyCanvas.updateLayer(selectedLayerId, updates);
-    onUpdate();
-  }, [storyCanvas, selectedLayerId, onUpdate]);
+    opts.storyCanvas.updateLayer(opts.selectedLayerId, updates);
+    opts.onUpdate();
+  };
 
-  const handleDeleteLayer = useCallback(() => {
-    if (!storyCanvas || !selectedLayerId) return;
+  const handleDeleteLayer = () => {
+    if (!opts.storyCanvas || !opts.selectedLayerId) return;
 
-    storyCanvas.removeLayer(selectedLayerId);
-    selectLayer(null);
-    onUpdate();
-  }, [storyCanvas, selectedLayerId, selectLayer, onUpdate]);
+    opts.storyCanvas.removeLayer(opts.selectedLayerId);
+    opts.selectLayer(null);
+    opts.onUpdate();
+  };
 
-  const handleBringToFront = useCallback(() => {
-    if (!storyCanvas || !selectedLayerId) return;
+  const handleBringToFront = () => {
+    if (!opts.storyCanvas || !opts.selectedLayerId) return;
 
-    storyCanvas.bringToFront(selectedLayerId);
-    onUpdate();
-  }, [storyCanvas, selectedLayerId, onUpdate]);
+    opts.storyCanvas.bringToFront(opts.selectedLayerId);
+    opts.onUpdate();
+  };
 
-  const handleSendToBack = useCallback(() => {
-    if (!storyCanvas || !selectedLayerId) return;
+  const handleSendToBack = () => {
+    if (!opts.storyCanvas || !opts.selectedLayerId) return;
 
-    storyCanvas.sendToBack(selectedLayerId);
-    onUpdate();
-  }, [storyCanvas, selectedLayerId, onUpdate]);
+    opts.storyCanvas.sendToBack(opts.selectedLayerId);
+    opts.onUpdate();
+  };
 
   return {
     handleUpdateLayer,

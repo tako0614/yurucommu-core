@@ -1,17 +1,17 @@
+import { For, Show } from 'solid-js';
 import { getSlotComponents, type SlotName } from '../lib/plugin.ts';
 
 interface PluginSlotProps {
   name: SlotName;
 }
 
-export function PluginSlot({ name }: PluginSlotProps) {
-  const components = getSlotComponents(name);
-  if (components.length === 0) return null;
+export function PluginSlot(props: PluginSlotProps) {
+  const components = () => getSlotComponents(props.name);
   return (
-    <>
-      {components.map((Component, i) => (
-        <Component key={i} />
-      ))}
-    </>
+    <Show when={components().length > 0}>
+      <For each={components()}>{(Component) => (
+        <Component />
+      )}</For>
+    </Show>
   );
 }

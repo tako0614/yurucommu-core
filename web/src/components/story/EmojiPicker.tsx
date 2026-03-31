@@ -4,7 +4,7 @@
  * Simple emoji picker organized by categories.
  */
 
-import { useState } from 'react';
+import { createSignal, For } from 'solid-js';
 
 interface EmojiPickerProps {
   onSelect: (emoji: string) => void;
@@ -127,40 +127,42 @@ const EMOJI_CATEGORIES = [
   },
 ];
 
-export function EmojiPicker({ onSelect }: EmojiPickerProps) {
-  const [activeCategory, setActiveCategory] = useState(0);
+export function EmojiPicker(props: EmojiPickerProps) {
+  const [activeCategory, setActiveCategory] = createSignal(0);
 
   return (
-    <div className="space-y-2">
+    <div class="space-y-2">
       {/* Category tabs */}
-      <div className="flex gap-1 overflow-x-auto pb-2 scrollbar-thin">
-        {EMOJI_CATEGORIES.map((category, index) => (
-          <button
-            key={category.name}
-            onClick={() => setActiveCategory(index)}
-            className={`px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors ${
-              activeCategory === index
-                ? 'bg-blue-500 text-white'
-                : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
-            }`}
-          >
-            {category.name}
-          </button>
-        ))}
+      <div class="flex gap-1 overflow-x-auto pb-2 scrollbar-thin">
+        <For each={EMOJI_CATEGORIES}>
+          {(category, index) => (
+            <button
+              onClick={() => setActiveCategory(index())}
+              class={`px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors ${
+                activeCategory() === index()
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
+              }`}
+            >
+              {category.name}
+            </button>
+          )}
+        </For>
       </div>
 
       {/* Emoji grid */}
-      <div className="h-48 overflow-y-auto">
-        <div className="grid grid-cols-8 gap-1">
-          {EMOJI_CATEGORIES[activeCategory].emojis.map((emoji, index) => (
-            <button
-              key={`${emoji}-${index}`}
-              onClick={() => onSelect(emoji)}
-              className="w-9 h-9 flex items-center justify-center text-2xl hover:bg-neutral-800 rounded-lg transition-colors"
-            >
-              {emoji}
-            </button>
-          ))}
+      <div class="h-48 overflow-y-auto">
+        <div class="grid grid-cols-8 gap-1">
+          <For each={EMOJI_CATEGORIES[activeCategory()].emojis}>
+            {(emoji) => (
+              <button
+                onClick={() => props.onSelect(emoji)}
+                class="w-9 h-9 flex items-center justify-center text-2xl hover:bg-neutral-800 rounded-lg transition-colors"
+              >
+                {emoji}
+              </button>
+            )}
+          </For>
         </div>
       </div>
     </div>

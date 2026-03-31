@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { useAtomValue, useSetAtom } from 'jotai';
+import { onMount } from 'solid-js';
+import { useAtomValue, useSetAtom } from 'solid-jotai';
 import {
   actorAtom,
   authLoadingAtom,
@@ -47,9 +47,9 @@ export function useAuth() {
   const rebuildInstance = useSetAtom(rebuildInstanceAtom);
   const refreshAuth = useSetAtom(checkAuthAtom);
 
-  useEffect(() => {
+  onMount(() => {
     initAuth();
-  }, [initAuth]);
+  });
 
   return {
     actor,

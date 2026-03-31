@@ -1,6 +1,6 @@
-﻿import { useEffect, useCallback } from 'react';
+import { createEffect, onMount, Show } from 'solid-js';
 import { atom } from 'jotai';
-import { useAtom } from 'jotai';
+import { useAtom } from 'solid-jotai';
 import { useRequiredActor } from '../hooks/useRequiredActor.ts';
 import type { Actor } from '../types/index.ts';
 import { useI18n } from '../lib/i18n.tsx';
@@ -40,7 +40,7 @@ export function SettingsPage() {
   const actor = useRequiredActor();
   const { t, language, setLanguage } = useI18n();
   const [error, setError] = useAtom(settings_errorAtom);
-  const clearError = useCallback(() => setError(null), [setError]);
+  const clearError = () => setError(null);
   const [activeSection, setActiveSection] = useAtom(settings_activeSectionAtom);
   const [blockedUsers, setBlockedUsers] = useAtom(settings_blockedUsersAtom);
   const [mutedUsers, setMutedUsers] = useAtom(settings_mutedUsersAtom);
@@ -54,8 +54,8 @@ export function SettingsPage() {
   const [newDisplayName, setNewDisplayName] = useAtom(settings_newDisplayNameAtom);
   const [createError, setCreateError] = useAtom(settings_createErrorAtom);
   const usernamePattern = /^[a-zA-Z0-9_]+$/;
-  const normalizedUsername = newUsername.trim();
-  const isUsernameValid = normalizedUsername.length > 0 && usernamePattern.test(normalizedUsername);
+  const normalizedUsername = () => newUsername().trim();
+  const isUsernameValid = () => normalizedUsername().length > 0 && usernamePattern.test(normalizedUsername());
   const [switching, setSwitching] = useAtom(settings_switchingAtom);
 
   const handleLogout = async () => {
@@ -83,14 +83,15 @@ export function SettingsPage() {
     }
   };
 
-  useEffect(() => {
+  onMount(() => {
     setActiveSection('main');
-  }, []);
+  });
 
-  useEffect(() => {
-    if (activeSection === 'blocked') {
+  createEffect(() => {
+    const section = activeSection();
+    if (section === 'blocked') {
       // Only show loading if no cached data
-      if (blockedUsers.length === 0) setLoading(true);
+      if (blockedUsers().length === 0) setLoading(true);
       fetchBlockedUsers()
         .then(setBlockedUsers)
         .catch((err) => {
@@ -98,9 +99,9 @@ export function SettingsPage() {
           setError(t('common.error'));
         })
         .finally(() => setLoading(false));
-    } else if (activeSection === 'muted') {
+    } else if (section === 'muted') {
       // Only show loading if no cached data
-      if (mutedUsers.length === 0) setLoading(true);
+      if (mutedUsers().length === 0) setLoading(true);
       fetchMutedUsers()
         .then(setMutedUsers)
         .catch((err) => {
@@ -108,7 +109,7 @@ export function SettingsPage() {
           setError(t('common.error'));
         })
         .finally(() => setLoading(false));
-    } else if (activeSection === 'accounts') {
+    } else if (section === 'accounts') {
       setLoading(true);
       fetchAccounts()
         .then(data => setAccounts(data.accounts))
@@ -118,7 +119,7 @@ export function SettingsPage() {
         })
         .finally(() => setLoading(false));
     }
-  }, [activeSection, setError, t]);
+  });
 
   const handleSwitchAccount = async (apId: string) => {
     if (apId === actor.ap_id) return;
@@ -135,17 +136,17 @@ export function SettingsPage() {
   };
 
   const handleCreateAccount = async () => {
-    if (!normalizedUsername) {
+    if (!normalizedUsername()) {
       setCreateError('Username is required');
       return;
     }
-    if (!usernamePattern.test(normalizedUsername)) {
+    if (!usernamePattern.test(normalizedUsername())) {
       setCreateError('Use letters, numbers, and underscores only');
       return;
     }
     setCreateError(null);
     try {
-      const newAccount = await createAccount(normalizedUsername, newDisplayName.trim() || undefined);
+      const newAccount = await createAccount(normalizedUsername(), newDisplayName().trim() || undefined);
       setAccounts(prev => [...prev, newAccount]);
       resetCreateAccount();
     } catch (e: unknown) {
@@ -174,7 +175,7 @@ export function SettingsPage() {
   };
 
   const handleDeleteAccount = async () => {
-    if (deleteConfirm !== actor.preferred_username) {
+    if (deleteConfirm() !== actor.preferred_username) {
       alert('Username does not match');
       return;
     }
@@ -186,75 +187,60 @@ export function SettingsPage() {
     }
   };
 
-  const errorBanner = error ? (
-    <InlineErrorBanner message={error} onClose={clearError} />
+  const errorBanner = () => error() ? (
+    <InlineErrorBanner message={error()!} onClose={clearError} />
   ) : null;
 
-  if (activeSection === 'blocked') {
-    return (
-      <div className="flex flex-col h-full">
-        {errorBanner}
+  return (
+    <div class="flex flex-col h-full">
+      {errorBanner()}
+      <Show when={activeSection() === 'blocked'}>
         <SettingsUserList
           title="Blocked Users"
           emptyLabel="No blocked users"
           actionLabel="Unblock"
-          loading={loading}
-          users={blockedUsers}
+          loading={loading()}
+          users={blockedUsers()}
           onBack={() => setActiveSection('main')}
           onAction={handleUnblock}
           t={t}
         />
-      </div>
-    );
-  }
+      </Show>
 
-  if (activeSection === 'muted') {
-    return (
-      <div className="flex flex-col h-full">
-        {errorBanner}
+      <Show when={activeSection() === 'muted'}>
         <SettingsUserList
           title="Muted Users"
           emptyLabel="No muted users"
           actionLabel="Unmute"
-          loading={loading}
-          users={mutedUsers}
+          loading={loading()}
+          users={mutedUsers()}
           onBack={() => setActiveSection('main')}
           onAction={handleUnmute}
           t={t}
         />
-      </div>
-    );
-  }
+      </Show>
 
-  if (activeSection === 'delete') {
-    return (
-      <div className="flex flex-col h-full">
-        {errorBanner}
+      <Show when={activeSection() === 'delete'}>
         <SettingsDeleteSection
           actor={actor}
-          deleteConfirm={deleteConfirm}
+          deleteConfirm={deleteConfirm()}
           onChangeConfirm={setDeleteConfirm}
           onDelete={handleDeleteAccount}
           onBack={() => setActiveSection('main')}
         />
-      </div>
-    );
-  }
+      </Show>
 
-  if (activeSection === 'accounts') {
-    return (
-      <div className="flex flex-col h-full">
-        {errorBanner}
+      <Show when={activeSection() === 'accounts'}>
         <SettingsAccountsSection
           actor={actor}
-          accounts={accounts}
-          loading={loading}
-          switching={switching}
-          showCreateAccount={showCreateAccount}
-          newUsername={newUsername}
-          newDisplayName={newDisplayName}
-          createError={createError}
-          isUsernameValid={isUsernameValid}
+          accounts={accounts()}
+          loading={loading()}
+          switching={switching()}
+          showCreateAccount={showCreateAccount()}
+          newUsername={newUsername()}
+          newDisplayName={newDisplayName()}
+          createError={createError()}
+          isUsernameValid={isUsernameValid()}
           onBack={() => setActiveSection('main')}
           onSwitchAccount={handleSwitchAccount}
           onToggleCreate={handleToggleCreate}
@@ -264,80 +250,77 @@ export function SettingsPage() {
           onResetCreate={resetCreateAccount}
           t={t}
         />
-      </div>
-    );
-  }
+      </Show>
 
-  return (
-    <div className="flex flex-col h-full">
-      {errorBanner}
-      <header className="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-        <h1 className="text-xl font-bold px-4 py-3">Settings</h1>
-      </header>
-      <div className="flex-1 overflow-y-auto">
-        {/* Language */}
-        <div className="border-b border-neutral-900">
-          <div className="px-4 py-2 text-sm text-neutral-500 uppercase">Display</div>
-          <button
-            onClick={() => setLanguage(language === 'ja' ? 'en' : 'ja')}
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
-          >
-            <span>Language</span>
-            <span className="text-neutral-500">{language === 'ja' ? 'Japanese' : 'English'}</span>
-          </button>
-        </div>
+      <Show when={activeSection() === 'main'}>
+        <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
+          <h1 class="text-xl font-bold px-4 py-3">Settings</h1>
+        </header>
+        <div class="flex-1 overflow-y-auto">
+          {/* Language */}
+          <div class="border-b border-neutral-900">
+            <div class="px-4 py-2 text-sm text-neutral-500 uppercase">Display</div>
+            <button
+              onClick={() => setLanguage(language === 'ja' ? 'en' : 'ja')}
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+            >
+              <span>Language</span>
+              <span class="text-neutral-500">{language === 'ja' ? 'Japanese' : 'English'}</span>
+            </button>
+          </div>
 
-        {/* Privacy */}
-        <div className="border-b border-neutral-900">
-          <div className="px-4 py-2 text-sm text-neutral-500 uppercase">Privacy</div>
-          <button
-            onClick={() => setActiveSection('blocked')}
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
-          >
-            <span>Blocked Users</span>
-            <ChevronRightIcon />
-          </button>
-          <button
-            onClick={() => setActiveSection('muted')}
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
-          >
-            <span>Muted Users</span>
-            <ChevronRightIcon />
-          </button>
-        </div>
+          {/* Privacy */}
+          <div class="border-b border-neutral-900">
+            <div class="px-4 py-2 text-sm text-neutral-500 uppercase">Privacy</div>
+            <button
+              onClick={() => setActiveSection('blocked')}
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+            >
+              <span>Blocked Users</span>
+              <ChevronRightIcon />
+            </button>
+            <button
+              onClick={() => setActiveSection('muted')}
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+            >
+              <span>Muted Users</span>
+              <ChevronRightIcon />
+            </button>
+          </div>
 
-        {/* Account */}
-        <div className="border-b border-neutral-900">
-          <div className="px-4 py-2 text-sm text-neutral-500 uppercase">Account</div>
-          <button
-            onClick={() => setActiveSection('accounts')}
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
-          >
-            <div className="flex items-center gap-3">
-              <UserAvatar avatarUrl={actor.icon_url} name={actor.name || actor.preferred_username} size={32} />
-              <div className="text-left">
-                <div className="text-sm font-medium">{actor.name || actor.preferred_username}</div>
-                <div className="text-xs text-neutral-500">@{actor.preferred_username}</div>
+          {/* Account */}
+          <div class="border-b border-neutral-900">
+            <div class="px-4 py-2 text-sm text-neutral-500 uppercase">Account</div>
+            <button
+              onClick={() => setActiveSection('accounts')}
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+            >
+              <div class="flex items-center gap-3">
+                <UserAvatar avatarUrl={actor.icon_url} name={actor.name || actor.preferred_username} size={32} />
+                <div class="text-left">
+                  <div class="text-sm font-medium">{actor.name || actor.preferred_username}</div>
+                  <div class="text-xs text-neutral-500">@{actor.preferred_username}</div>
+                </div>
               </div>
-            </div>
-            <ChevronRightIcon />
-          </button>
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
-          >
-            <span>Logout</span>
-            <ChevronRightIcon />
-          </button>
-          <button
-            onClick={() => setActiveSection('delete')}
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50 text-red-500"
-          >
-            <span>Delete Account</span>
-            <ChevronRightIcon />
-          </button>
+              <ChevronRightIcon />
+            </button>
+            <button
+              onClick={handleLogout}
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
+            >
+              <span>Logout</span>
+              <ChevronRightIcon />
+            </button>
+            <button
+              onClick={() => setActiveSection('delete')}
+              class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50 text-red-500"
+            >
+              <span>Delete Account</span>
+              <ChevronRightIcon />
+            </button>
+          </div>
         </div>
-      </div>
+      </Show>
     </div>
   );
 }

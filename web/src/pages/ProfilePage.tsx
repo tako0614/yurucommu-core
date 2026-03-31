@@ -1,7 +1,7 @@
-﻿import { useEffect, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { createEffect, onMount, Show } from 'solid-js';
+import { useParams } from '@solidjs/router';
 import { atom } from 'jotai';
-import { useAtom } from 'jotai';
+import { useAtom } from 'solid-jotai';
 import { useRequiredActor } from '../hooks/useRequiredActor.ts';
 import { Actor, Post } from '../types/index.ts';
 import {
@@ -51,8 +51,8 @@ export function ProfilePage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
   const [error, setError] = useAtom(profile_errorAtom);
-  const clearError = useCallback(() => setError(null), [setError]);
-  const { actorId } = useParams<{ actorId?: string }>();
+  const clearError = () => setError(null);
+  const params = useParams();
   const [profile, setProfile] = useAtom(profile_profileAtom);
   const [posts, setPosts] = useAtom(profile_postsAtom);
   const [loading, setLoading] = useAtom(profile_loadingAtom);
@@ -73,9 +73,9 @@ export function ProfilePage() {
   const [accountsLoading, setAccountsLoading] = useAtom(profile_accountsLoadingAtom);
 
   // Use current actor if no actorId in URL
-  const targetActorId = actorId ? decodeURIComponent(actorId) : actor.ap_id;
-  const isOwnProfile = targetActorId === actor.ap_id;
-  const displayUsername = profile?.username || actor.username;
+  const targetActorId = () => params.actorId ? decodeURIComponent(params.actorId) : actor.ap_id;
+  const isOwnProfile = () => targetActorId() === actor.ap_id;
+  const displayUsername = () => profile()?.username || actor.username;
 
   const loadAccounts = async () => {
     setAccountsLoading(true);
@@ -92,7 +92,7 @@ export function ProfilePage() {
   };
 
   const handleSwitchAccount = async (apId: string) => {
-    if (apId === currentApId) {
+    if (apId === currentApId()) {
       setShowAccountSwitcher(false);
       return;
     }
@@ -106,18 +106,18 @@ export function ProfilePage() {
   };
 
   const toggleAccountSwitcher = () => {
-    if (!showAccountSwitcher) {
+    if (!showAccountSwitcher()) {
       loadAccounts();
     }
-    setShowAccountSwitcher(!showAccountSwitcher);
+    setShowAccountSwitcher(!showAccountSwitcher());
   };
 
-  const loadProfile = useCallback(async () => {
+  const loadProfile = async () => {
     try {
-      const profileData = await fetchActor(targetActorId);
+      const profileData = await fetchActor(targetActorId());
       setProfile(profileData);
       setIsFollowing(profileData.is_following || false);
-      const postsData = await fetchActorPosts(targetActorId);
+      const postsData = await fetchActorPosts(targetActorId());
       setPosts(postsData);
     } catch (e) {
       console.error('Failed to load profile:', e);
@@ -125,9 +125,11 @@ export function ProfilePage() {
     } finally {
       setLoading(false);
     }
-  }, [targetActorId, t, setError, setProfile, setIsFollowing, setPosts, setLoading]);
+  };
 
-  useEffect(() => {
+  createEffect(() => {
+    // Track targetActorId for reactivity
+    const _id = targetActorId();
     setProfile(null);
     setPosts([]);
     setIsFollowing(false);
@@ -138,17 +140,17 @@ export function ProfilePage() {
     setShowMenu(false);
     setActiveTab('posts');
     loadProfile();
-  }, [loadProfile]);
+  });
 
   const handleFollow = async () => {
-    if (!profile) return;
+    if (!profile()) return;
     try {
-      if (isFollowing) {
-        await unfollow(profile.ap_id);
+      if (isFollowing()) {
+        await unfollow(profile()!.ap_id);
         setIsFollowing(false);
         setProfile(prev => prev ? { ...prev, follower_count: prev.follower_count - 1 } : null);
       } else {
-        await follow(profile.ap_id);
+        await follow(profile()!.ap_id);
         setIsFollowing(true);
         setProfile(prev => prev ? { ...prev, follower_count: prev.follower_count + 1 } : null);
       }
@@ -174,28 +176,29 @@ export function ProfilePage() {
   };
 
   const openEditModal = () => {
-    if (profile) {
-      setEditName(profile.name || '');
-      setEditSummary(profile.summary || '');
-      setEditIsPrivate(profile.is_private || false);
+    const p = profile();
+    if (p) {
+      setEditName(p.name || '');
+      setEditSummary(p.summary || '');
+      setEditIsPrivate(p.is_private || false);
       setShowEditModal(true);
     }
   };
 
   const handleSaveProfile = async () => {
-    if (saving) return;
+    if (saving()) return;
     setSaving(true);
     try {
       await updateProfile({
-        name: editName.trim() || undefined,
-        summary: editSummary.trim() || undefined,
-        is_private: editIsPrivate,
+        name: editName().trim() || undefined,
+        summary: editSummary().trim() || undefined,
+        is_private: editIsPrivate(),
       });
       setProfile(prev => prev ? {
         ...prev,
-        name: editName.trim() || prev.preferred_username,
-        summary: editSummary.trim(),
-        is_private: editIsPrivate,
+        name: editName().trim() || prev.preferred_username,
+        summary: editSummary().trim(),
+        is_private: editIsPrivate(),
       } : null);
       setShowEditModal(false);
     } catch (e) {
@@ -212,8 +215,8 @@ export function ProfilePage() {
     setFollowModalActors([]);
     try {
       const data = type === 'followers'
-        ? await fetchFollowers(targetActorId)
-        : await fetchFollowing(targetActorId);
+        ? await fetchFollowers(targetActorId())
+        : await fetchFollowing(targetActorId());
       setFollowModalActors(data);
     } catch (e) {
       console.error(`Failed to load ${type}:`, e);
@@ -222,114 +225,101 @@ export function ProfilePage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex flex-col h-full">
-        {error && (
-          <InlineErrorBanner message={error} onClose={clearError} />
-        )}
-        <ProfileHeader
-          actorId={actorId}
-          isOwnProfile={isOwnProfile}
-          username={displayUsername}
-          showAccountSwitcher={showAccountSwitcher}
-          onToggleAccountSwitcher={toggleAccountSwitcher}
-          onCloseAccountSwitcher={() => setShowAccountSwitcher(false)}
-          accounts={accounts}
-          accountsLoading={accountsLoading}
-          currentApId={currentApId}
-          onSwitchAccount={handleSwitchAccount}
-        />
-        <div className="p-8 text-center text-neutral-500">{t('common.loading')}</div>
-      </div>
-    );
-  }
-
-  if (!profile) {
-    return (
-      <div className="flex flex-col h-full">
-        {error && (
-          <InlineErrorBanner message={error} onClose={clearError} />
-        )}
-        <ProfileHeader
-          actorId={actorId}
-          isOwnProfile={isOwnProfile}
-          username={displayUsername}
-          showAccountSwitcher={showAccountSwitcher}
-          onToggleAccountSwitcher={toggleAccountSwitcher}
-          onCloseAccountSwitcher={() => setShowAccountSwitcher(false)}
-          accounts={accounts}
-          accountsLoading={accountsLoading}
-          currentApId={currentApId}
-          onSwitchAccount={handleSwitchAccount}
-        />
-        <div className="p-8 text-center text-neutral-500">{t('common.error')}</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col h-full">
-      {error && (
-        <InlineErrorBanner message={error} onClose={clearError} />
-      )}
-      <ProfileHeader
-        actorId={actorId}
-        isOwnProfile={isOwnProfile}
-        username={profile.username}
-        showAccountSwitcher={showAccountSwitcher}
-        onToggleAccountSwitcher={toggleAccountSwitcher}
-        onCloseAccountSwitcher={() => setShowAccountSwitcher(false)}
-        accounts={accounts}
-        accountsLoading={accountsLoading}
-        currentApId={currentApId}
-        onSwitchAccount={handleSwitchAccount}
-      />
-      <div className="flex-1 overflow-y-auto">
-        <ProfileSummary
-          profile={profile}
-          isOwnProfile={isOwnProfile}
-          isFollowing={isFollowing}
-          showMenu={showMenu}
-          onToggleMenu={() => setShowMenu(!showMenu)}
-          onCloseMenu={() => setShowMenu(false)}
-          onToggleFollow={handleFollow}
-          onOpenEdit={openEditModal}
-          onOpenFollowModal={openFollowModal}
+    <div class="flex flex-col h-full">
+      <Show when={error()}>
+        <InlineErrorBanner message={error()!} onClose={clearError} />
+      </Show>
+      <Show when={loading()}>
+        <ProfileHeader
+          actorId={params.actorId}
+          isOwnProfile={isOwnProfile()}
+          username={displayUsername()}
+          showAccountSwitcher={showAccountSwitcher()}
+          onToggleAccountSwitcher={toggleAccountSwitcher}
+          onCloseAccountSwitcher={() => setShowAccountSwitcher(false)}
+          accounts={accounts()}
+          accountsLoading={accountsLoading()}
+          currentApId={currentApId()}
+          onSwitchAccount={handleSwitchAccount}
+        />
+        <div class="p-8 text-center text-neutral-500">{t('common.loading')}</div>
+      </Show>
+
+      <Show when={!loading() && !profile()}>
+        <ProfileHeader
+          actorId={params.actorId}
+          isOwnProfile={isOwnProfile()}
+          username={displayUsername()}
+          showAccountSwitcher={showAccountSwitcher()}
+          onToggleAccountSwitcher={toggleAccountSwitcher}
+          onCloseAccountSwitcher={() => setShowAccountSwitcher(false)}
+          accounts={accounts()}
+          accountsLoading={accountsLoading()}
+          currentApId={currentApId()}
+          onSwitchAccount={handleSwitchAccount}
+        />
+        <div class="p-8 text-center text-neutral-500">{t('common.error')}</div>
+      </Show>
+
+      <Show when={!loading() && profile()}>
+        <ProfileHeader
+          actorId={params.actorId}
+          isOwnProfile={isOwnProfile()}
+          username={profile()!.username}
+          showAccountSwitcher={showAccountSwitcher()}
+          onToggleAccountSwitcher={toggleAccountSwitcher}
+          onCloseAccountSwitcher={() => setShowAccountSwitcher(false)}
+          accounts={accounts()}
+          accountsLoading={accountsLoading()}
+          currentApId={currentApId()}
+          onSwitchAccount={handleSwitchAccount}
+        />
+        <div class="flex-1 overflow-y-auto">
+          <ProfileSummary
+            profile={profile()!}
+            isOwnProfile={isOwnProfile()}
+            isFollowing={isFollowing()}
+            showMenu={showMenu()}
+            onToggleMenu={() => setShowMenu(!showMenu())}
+            onCloseMenu={() => setShowMenu(false)}
+            onToggleFollow={handleFollow}
+            onOpenEdit={openEditModal}
+            onOpenFollowModal={openFollowModal}
+            t={t}
+          />
+          <ProfilePostsSection
+            activeTab={activeTab()}
+            onChangeTab={setActiveTab}
+            posts={posts()}
+            actorApId={actor.ap_id}
+            onLike={handleLike}
+            t={t}
+          />
+        </div>
+        <ProfileEditModal
+          isOpen={showEditModal()}
+          editName={editName()}
+          editSummary={editSummary()}
+          editIsPrivate={editIsPrivate()}
+          saving={saving()}
+          onClose={() => setShowEditModal(false)}
+          onSave={handleSaveProfile}
+          onChangeName={(event) => setEditName(event.currentTarget.value)}
+          onChangeSummary={(event) => setEditSummary(event.currentTarget.value)}
+          onTogglePrivate={() => setEditIsPrivate(!editIsPrivate())}
           t={t}
         />
-        <ProfilePostsSection
-          activeTab={activeTab}
-          onChangeTab={setActiveTab}
-          posts={posts}
-          actorApId={actor.ap_id}
-          onLike={handleLike}
+        <ProfileFollowModal
+          type={showFollowModal()}
+          actors={followModalActors()}
+          loading={followModalLoading()}
+          onClose={() => setShowFollowModal(null)}
           t={t}
         />
-      </div>
-      <ProfileEditModal
-        isOpen={showEditModal}
-        editName={editName}
-        editSummary={editSummary}
-        editIsPrivate={editIsPrivate}
-        saving={saving}
-        onClose={() => setShowEditModal(false)}
-        onSave={handleSaveProfile}
-        onChangeName={(event) => setEditName(event.target.value)}
-        onChangeSummary={(event) => setEditSummary(event.target.value)}
-        onTogglePrivate={() => setEditIsPrivate(!editIsPrivate)}
-        t={t}
-      />
-      <ProfileFollowModal
-        type={showFollowModal}
-        actors={followModalActors}
-        loading={followModalLoading}
-        onClose={() => setShowFollowModal(null)}
-        t={t}
-      />
+      </Show>
     </div>
   );
 }
 
 export default ProfilePage;
-

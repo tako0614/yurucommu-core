@@ -1,4 +1,5 @@
-import { Link } from 'react-router-dom';
+import { A } from '@solidjs/router';
+import { Show, For } from 'solid-js';
 import type { Post } from '../../types/index.ts';
 import { formatRelativeTime } from '../../lib/datetime.ts';
 import { UserAvatar } from '../UserAvatar.tsx';
@@ -13,84 +14,84 @@ interface TimelinePostItemProps {
   onBookmark: (post: Post) => void;
 }
 
-export function TimelinePostItem({
-  post,
-  onReply,
-  onRepost,
-  onLike,
-  onBookmark,
-}: TimelinePostItemProps) {
+export function TimelinePostItem(props: TimelinePostItemProps) {
   return (
-    <div className="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
-      <Link to={`/profile/${encodeURIComponent(post.author.ap_id)}`}>
-        <UserAvatar avatarUrl={post.author.icon_url} name={post.author.name || post.author.username} size={48} />
-      </Link>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2">
-          <Link
-            to={`/profile/${encodeURIComponent(post.author.ap_id)}`}
-            className="font-bold text-white truncate hover:underline"
+    <div class="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
+      <A href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}>
+        <UserAvatar avatarUrl={props.post.author.icon_url} name={props.post.author.name || props.post.author.username} size={48} />
+      </A>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-baseline gap-2">
+          <A
+            href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}
+            class="font-bold text-white truncate hover:underline"
           >
-            {post.author.name || post.author.username}
-          </Link>
-          <span className="text-neutral-500 truncate">@{post.author.username}</span>
-          <span className="text-neutral-500">�E</span>
-          <span className="text-neutral-500 text-sm">{formatRelativeTime(post.published)}</span>
+            {props.post.author.name || props.post.author.username}
+          </A>
+          <span class="text-neutral-500 truncate">@{props.post.author.username}</span>
+          <span class="text-neutral-500">{'\u00B7'}</span>
+          <span class="text-neutral-500 text-sm">{formatRelativeTime(props.post.published)}</span>
         </div>
-        <Link to={`/post/${encodeURIComponent(post.ap_id)}`} className="block">
-          <PostContent content={post.content} className="text-[15px] text-neutral-200 mt-1" />
-          {post.attachments && post.attachments.length > 0 && (
+        <A href={`/post/${encodeURIComponent(props.post.ap_id)}`} class="block">
+          <PostContent content={props.post.content} class="text-[15px] text-neutral-200 mt-1" />
+          <Show when={props.post.attachments && props.post.attachments.length > 0}>
             <div
-              className={`mt-3 grid gap-1 rounded-xl overflow-hidden ${
-                post.attachments.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
+              class={`mt-3 grid gap-1 rounded-xl overflow-hidden ${
+                props.post.attachments!.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
               }`}
             >
-              {post.attachments.map((m) => (
-                <img key={m.r2_key} src={`/media/${m.r2_key}`} alt="" className="w-full object-cover max-h-96" />
-              ))}
+              <For each={props.post.attachments}>
+                {(m) => (
+                  <img src={`/media/${m.r2_key}`} alt="" class="w-full object-cover max-h-96" />
+                )}
+              </For>
             </div>
-          )}
-        </Link>
-        <div className="flex items-center gap-6 mt-3">
+          </Show>
+        </A>
+        <div class="flex items-center gap-6 mt-3">
           <button
-            onClick={() => onReply(post)}
+            onClick={() => props.onReply(props.post)}
             aria-label="Reply"
-            className="flex items-center gap-2 text-neutral-500 hover:text-blue-500 transition-colors"
+            class="flex items-center gap-2 text-neutral-500 hover:text-blue-500 transition-colors"
           >
             <ReplyIcon />
-            <span className="text-sm">{post.reply_count || ''}</span>
+            <span class="text-sm">{props.post.reply_count || ''}</span>
           </button>
           <button
-            onClick={() => onRepost(post)}
-            aria-label={post.reposted ? 'Undo repost' : 'Repost'}
-            aria-pressed={post.reposted}
-            className={`flex items-center gap-2 transition-colors ${
-              post.reposted ? 'text-green-500' : 'text-neutral-500 hover:text-green-500'
+            onClick={() => props.onRepost(props.post)}
+            aria-label={props.post.reposted ? 'Undo repost' : 'Repost'}
+            aria-pressed={props.post.reposted}
+            class={`flex items-center gap-2 transition-colors ${
+              props.post.reposted ? 'text-green-500' : 'text-neutral-500 hover:text-green-500'
             }`}
           >
-            <RepostIcon filled={post.reposted} />
-            {post.announce_count > 0 && <span className="text-sm">{post.announce_count}</span>}
+            <RepostIcon filled={props.post.reposted} />
+            <Show when={props.post.announce_count > 0}>
+              <span class="text-sm">{props.post.announce_count}</span>
+            </Show>
           </button>
           <button
-            onClick={() => onLike(post)}
-            aria-label={post.liked ? 'Unlike' : 'Like'}
-            aria-pressed={post.liked}
-            className={`flex items-center gap-2 transition-colors ${
-              post.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'
+            onClick={() => props.onLike(props.post)}
+            aria-label={props.post.liked ? 'Unlike' : 'Like'}
+            aria-pressed={props.post.liked}
+            class={`flex items-center gap-2 transition-colors ${
+              props.post.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'
             }`}
           >
-            <HeartIcon filled={post.liked} />
-            {post.like_count > 0 && <span className="text-sm">{post.like_count}</span>}
+            <HeartIcon filled={props.post.liked} />
+            <Show when={props.post.like_count > 0}>
+              <span class="text-sm">{props.post.like_count}</span>
+            </Show>
           </button>
           <button
-            onClick={() => onBookmark(post)}
-            aria-label={post.bookmarked ? 'Remove bookmark' : 'Bookmark'}
-            aria-pressed={post.bookmarked}
-            className={`flex items-center gap-2 transition-colors ${
-              post.bookmarked ? 'text-blue-500' : 'text-neutral-500 hover:text-blue-500'
+            onClick={() => props.onBookmark(props.post)}
+            aria-label={props.post.bookmarked ? 'Remove bookmark' : 'Bookmark'}
+            aria-pressed={props.post.bookmarked}
+            class={`flex items-center gap-2 transition-colors ${
+              props.post.bookmarked ? 'text-blue-500' : 'text-neutral-500 hover:text-blue-500'
             }`}
           >
-            <BookmarkIcon filled={post.bookmarked} />
+            <BookmarkIcon filled={props.post.bookmarked} />
           </button>
         </div>
       </div>

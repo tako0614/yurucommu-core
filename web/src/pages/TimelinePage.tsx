@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { lazy, Suspense, Show, For } from 'solid-js';
+import { useNavigate } from '@solidjs/router';
 import { useRequiredActor } from '../hooks/useRequiredActor.ts';
 import { StoryBar } from '../components/story/StoryBar.tsx';
 import { LoadingSpinner } from '../components/LoadingSpinner.tsx';
@@ -18,153 +18,114 @@ import { useTimelineState } from './useTimelineState.ts';
 export function TimelinePage() {
   const actor = useRequiredActor();
   const navigate = useNavigate();
-  const {
-    t,
-    error,
-    clearError,
-    fileInputRef,
-    scrollContainerRef,
-    posts,
-    loading,
-    loadingMore,
-    hasMore,
-    postContent,
-    setPostContent,
-    posting,
-    handlePost,
-    uploadedMedia,
-    uploading,
-    uploadError,
-    handleFileSelect,
-    removeMedia,
-    actorStories,
-    storiesLoading,
-    showStoryViewer,
-    setShowStoryViewer,
-    storyViewerActorIndex,
-    showStoryComposer,
-    setShowStoryComposer,
-    handleStoryClick,
-    handleAddStory,
-    handleStorySuccess,
-    loadStories,
-    showMenu,
-    showAccountSwitcher,
-    setShowAccountSwitcher,
-    handleOpenMenu,
-    handleCloseMenu,
-    showPostModal,
-    setShowPostModal,
-    handleClosePostModal,
-    accounts,
-    accountsLoading,
-    currentApId,
-    handleSwitchAccount,
-    handleLike,
-    handleBookmark,
-    handleRepost,
-    getPlaceholder,
-  } = useTimelineState();
+  const state = useTimelineState();
 
   return (
-    <div className="flex flex-col h-full">
-      {error && (
-        <InlineErrorBanner message={error} onClose={clearError} />
-      )}
+    <div class="flex flex-col h-full">
+      <Show when={state.error()}>
+        <InlineErrorBanner message={state.error()!} onClose={state.clearError} />
+      </Show>
       {/* Story Viewer Modal */}
-      {showStoryViewer && actorStories.length > 0 && (
+      <Show when={state.showStoryViewer() && state.actorStories().length > 0}>
         <Suspense fallback={<LoadingSpinner fullScreen={true} />}>
           <StoryViewer
-            actorStories={actorStories}
-            initialActorIndex={storyViewerActorIndex}
+            actorStories={state.actorStories()}
+            initialActorIndex={state.storyViewerActorIndex()}
             onClose={() => {
-              setShowStoryViewer(false);
-              loadStories(); // Refresh to update viewed status
+              state.setShowStoryViewer(false);
+              state.loadStories(); // Refresh to update viewed status
             }}
           />
         </Suspense>
-      )}
+      </Show>
 
       {/* Story Composer Modal */}
-      {showStoryComposer && (
+      <Show when={state.showStoryComposer()}>
         <Suspense fallback={<LoadingSpinner fullScreen={true} />}>
           <StoryComposer
-            onClose={() => setShowStoryComposer(false)}
-            onSuccess={handleStorySuccess}
+            onClose={() => state.setShowStoryComposer(false)}
+            onSuccess={state.handleStorySuccess}
           />
         </Suspense>
-      )}
+      </Show>
 
       <TimelineMobileMenu
-        isOpen={showMenu}
+        isOpen={state.showMenu()}
         actor={actor}
-        accounts={accounts}
-        accountsLoading={accountsLoading}
-        currentApId={currentApId}
-        showAccountSwitcher={showAccountSwitcher}
-        onToggleAccountSwitcher={() => setShowAccountSwitcher((prev) => !prev)}
-        onSwitchAccount={handleSwitchAccount}
-        onClose={handleCloseMenu}
-        t={t}
+        accounts={state.accounts()}
+        accountsLoading={state.accountsLoading()}
+        currentApId={state.currentApId()}
+        showAccountSwitcher={state.showAccountSwitcher()}
+        onToggleAccountSwitcher={() => state.setShowAccountSwitcher((prev) => !prev)}
+        onSwitchAccount={state.handleSwitchAccount}
+        onClose={state.handleCloseMenu}
+        t={state.t()}
       />
 
       <TimelineHeader
-        onCreatePost={() => setShowPostModal(true)}
-        title={t('timeline.title')}
+        onCreatePost={() => state.setShowPostModal(true)}
+        title={state.t()('timeline.title')}
       />
 
       {/* Story Bar */}
       <StoryBar
         actor={actor}
-        actorStories={actorStories}
-        loading={storiesLoading}
-        onStoryClick={handleStoryClick}
-        onAddStory={handleAddStory}
+        actorStories={state.actorStories()}
+        loading={state.storiesLoading()}
+        onStoryClick={state.handleStoryClick}
+        onAddStory={state.handleAddStory}
       />
 
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-        {loading ? (
-          <div className="p-8 text-center text-neutral-500">{t('common.loading')}</div>
-        ) : posts.length === 0 ? (
-          <div className="p-8 text-center text-neutral-500">{t('timeline.empty')}</div>
-        ) : (
-          <>
-            {posts.map((post, index) => (
-              <div key={post.ap_id}>
-                <TimelinePostItem
-                  post={post}
-                  onReply={() => navigate(`/post/${encodeURIComponent(post.ap_id)}`)}
-                  onRepost={handleRepost}
-                  onLike={handleLike}
-                  onBookmark={handleBookmark}
-                />
-                {(index === 2 || (index > 2 && (index - 2) % 8 === 0)) && (
-                  <PluginSlot name="timeline.between-posts" />
-                )}
-              </div>
-            ))}            {loadingMore && <div className="p-4 text-center text-neutral-500">{t('common.loading')}</div>}
-            {!hasMore && posts.length > 0 && <div className="p-4 text-center text-neutral-600 text-sm">これ以上の投稿はありません</div>}
-          </>
-        )}
+      <div ref={(el) => { state.scrollContainerRef = el; }} class="flex-1 overflow-y-auto">
+        <Show when={!state.loading()} fallback={
+          <div class="p-8 text-center text-neutral-500">{state.t()('common.loading')}</div>
+        }>
+          <Show when={state.posts().length > 0} fallback={
+            <div class="p-8 text-center text-neutral-500">{state.t()('timeline.empty')}</div>
+          }>
+            <For each={state.posts()}>
+              {(post, index) => (
+                <div>
+                  <TimelinePostItem
+                    post={post}
+                    onReply={() => navigate(`/post/${encodeURIComponent(post.ap_id)}`)}
+                    onRepost={state.handleRepost}
+                    onLike={state.handleLike}
+                    onBookmark={state.handleBookmark}
+                  />
+                  <Show when={index() === 2 || (index() > 2 && (index() - 2) % 8 === 0)}>
+                    <PluginSlot name="timeline.between-posts" />
+                  </Show>
+                </div>
+              )}
+            </For>
+            <Show when={state.loadingMore()}>
+              <div class="p-4 text-center text-neutral-500">{state.t()('common.loading')}</div>
+            </Show>
+            <Show when={!state.hasMore() && state.posts().length > 0}>
+              <div class="p-4 text-center text-neutral-600 text-sm">これ以上の投稿はありません</div>
+            </Show>
+          </Show>
+        </Show>
       </div>
 
       <TimelinePostModal
-        isOpen={showPostModal}
+        isOpen={state.showPostModal()}
         actor={actor}
-        postContent={postContent}
-        onPostContentChange={setPostContent}
-        placeholder={getPlaceholder()}
-        submitLabel={t('posts.post')}
+        postContent={state.postContent()}
+        onPostContentChange={state.setPostContent}
+        placeholder={state.getPlaceholder()}
+        submitLabel={state.t()('posts.post')}
         submittingLabel="投稿中..."
-        onClose={handleClosePostModal}
-        onSubmit={handlePost}
-        posting={posting}
-        fileInputRef={fileInputRef}
-        onFileSelect={handleFileSelect}
-        uploadedMedia={uploadedMedia}
-        onRemoveMedia={removeMedia}
-        uploading={uploading}
-        uploadError={uploadError}
+        onClose={state.handleClosePostModal}
+        onSubmit={state.handlePost}
+        posting={state.posting()}
+        fileInputRef={state.fileInputRef}
+        onFileSelect={state.handleFileSelect}
+        uploadedMedia={state.uploadedMedia()}
+        onRemoveMedia={state.removeMedia}
+        uploading={state.uploading()}
+        uploadError={state.uploadError()}
       />
     </div>
   );

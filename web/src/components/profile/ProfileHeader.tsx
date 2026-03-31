@@ -1,4 +1,5 @@
-﻿import { Link } from 'react-router-dom';
+import { Show, For } from 'solid-js';
+import { A } from '@solidjs/router';
 import type { AccountInfo } from '../../lib/api.ts';
 import { UserAvatar } from '../UserAvatar.tsx';
 import { BackIcon } from './ProfileIcons.tsx';
@@ -16,96 +17,88 @@ interface ProfileHeaderProps {
   onSwitchAccount: (apId: string) => void;
 }
 
-export function ProfileHeader({
-  actorId,
-  isOwnProfile,
-  username,
-  showAccountSwitcher,
-  onToggleAccountSwitcher,
-  onCloseAccountSwitcher,
-  accounts,
-  accountsLoading,
-  currentApId,
-  onSwitchAccount,
-}: ProfileHeaderProps) {
+export function ProfileHeader(props: ProfileHeaderProps) {
   return (
     <>
-      <header className="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-        <div className="flex items-center justify-between px-4 py-3">
+      <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
+        <div class="flex items-center justify-between px-4 py-3">
           {/* Left: Back button (only when viewing other's profile) */}
-          <div className="w-10">
-            {actorId && (
-              <Link to="/" aria-label="Back" className="p-2 -ml-2 hover:bg-neutral-900 rounded-full inline-block">
+          <div class="w-10">
+            <Show when={props.actorId}>
+              <A href="/" aria-label="Back" class="p-2 -ml-2 hover:bg-neutral-900 rounded-full inline-block">
                 <BackIcon />
-              </Link>
-            )}
+              </A>
+            </Show>
           </div>
 
           {/* Center: Username with account switcher (own profile only) */}
-          {isOwnProfile ? (
+          <Show
+            when={props.isOwnProfile}
+            fallback={<span class="font-bold text-white">@{props.username}</span>}
+          >
             <button
-              onClick={onToggleAccountSwitcher}
-              className="flex items-center gap-1 hover:bg-neutral-900 px-3 py-1 rounded-full transition-colors"
+              onClick={props.onToggleAccountSwitcher}
+              class="flex items-center gap-1 hover:bg-neutral-900 px-3 py-1 rounded-full transition-colors"
             >
-              <span className="font-bold text-white">@{username}</span>
+              <span class="font-bold text-white">@{props.username}</span>
               <svg
-                className={`w-4 h-4 transition-transform ${showAccountSwitcher ? 'rotate-180' : ''}`}
+                class={`w-4 h-4 transition-transform ${props.showAccountSwitcher ? 'rotate-180' : ''}`}
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
-          ) : (
-            <span className="font-bold text-white">@{username}</span>
-          )}
+          </Show>
 
           {/* Right: Placeholder for balance */}
-          <div className="w-10" />
+          <div class="w-10" />
         </div>
 
         {/* Account Switcher Dropdown */}
-        {showAccountSwitcher && isOwnProfile && (
-          <div className="absolute left-1/2 -translate-x-1/2 top-14 bg-neutral-900 rounded-xl shadow-lg border border-neutral-800 min-w-[250px] z-20">
-            {accountsLoading ? (
-              <div className="p-4 text-center text-neutral-500">読み込み中...</div>
-            ) : (
-              <div className="py-2">
-                {accounts.map((account) => (
-                  <button
-                    key={account.ap_id}
-                    onClick={() => onSwitchAccount(account.ap_id)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-800 transition-colors ${
-                      account.ap_id === currentApId ? 'bg-neutral-800/50' : ''
-                    }`}
-                  >
-                    <UserAvatar
-                      avatarUrl={account.icon_url}
-                      name={account.name || account.preferred_username}
-                      size={40}
-                    />
-                    <div className="flex-1 text-left">
-                      <p className="font-bold text-white">{account.name || account.preferred_username}</p>
-                      <p className="text-sm text-neutral-500">@{account.preferred_username}</p>
-                    </div>
-                    {account.ap_id === currentApId && (
-                      <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                      </svg>
-                    )}
-                  </button>
-                ))}
+        <Show when={props.showAccountSwitcher && props.isOwnProfile}>
+          <div class="absolute left-1/2 -translate-x-1/2 top-14 bg-neutral-900 rounded-xl shadow-lg border border-neutral-800 min-w-[250px] z-20">
+            <Show
+              when={!props.accountsLoading}
+              fallback={<div class="p-4 text-center text-neutral-500">読み込み中...</div>}
+            >
+              <div class="py-2">
+                <For each={props.accounts}>
+                  {(account) => (
+                    <button
+                      onClick={() => props.onSwitchAccount(account.ap_id)}
+                      class={`w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-800 transition-colors ${
+                        account.ap_id === props.currentApId ? 'bg-neutral-800/50' : ''
+                      }`}
+                    >
+                      <UserAvatar
+                        avatarUrl={account.icon_url}
+                        name={account.name || account.preferred_username}
+                        size={40}
+                      />
+                      <div class="flex-1 text-left">
+                        <p class="font-bold text-white">{account.name || account.preferred_username}</p>
+                        <p class="text-sm text-neutral-500">@{account.preferred_username}</p>
+                      </div>
+                      <Show when={account.ap_id === props.currentApId}>
+                        <svg class="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                        </svg>
+                      </Show>
+                    </button>
+                  )}
+                </For>
               </div>
-            )}
+            </Show>
           </div>
-        )}
+        </Show>
       </header>
 
       {/* Backdrop for account switcher */}
-      {showAccountSwitcher && (
-        <div className="fixed inset-0 z-10" onClick={onCloseAccountSwitcher} />
-      )}
+      <Show when={props.showAccountSwitcher}>
+        <div class="fixed inset-0 z-10" onClick={props.onCloseAccountSwitcher} />
+      </Show>
     </>
   );
 }

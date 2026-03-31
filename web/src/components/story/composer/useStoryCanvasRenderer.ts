@@ -1,11 +1,11 @@
-import { useEffect, type RefObject } from 'react';
+import { createEffect } from 'solid-js';
 import type { SnapGuide } from '../../../hooks/useCanvasInteraction.ts';
 import type { Layer, StoryCanvas } from '../../../lib/story-canvas.ts';
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from '../../../lib/story-canvas.ts';
 
 interface StoryCanvasRendererOptions {
   storyCanvas: StoryCanvas | null;
-  displayCanvasRef: RefObject<HTMLCanvasElement>;
+  displayCanvasRef: HTMLCanvasElement | undefined;
   renderKey: number;
   snapGuides: SnapGuide[];
   getSelectedLayer: () => Layer | null;
@@ -68,17 +68,16 @@ const drawSnapGuides = (
   ctx.setLineDash([]);
 };
 
-export function useStoryCanvasRenderer({
-  storyCanvas,
-  displayCanvasRef,
-  renderKey,
-  snapGuides,
-  getSelectedLayer,
-}: StoryCanvasRendererOptions) {
-  useEffect(() => {
+export function useStoryCanvasRenderer(opts: StoryCanvasRendererOptions) {
+  createEffect(() => {
+    const storyCanvas = opts.storyCanvas;
     if (!storyCanvas) return;
-    const displayCanvas = displayCanvasRef.current;
+    const displayCanvas = opts.displayCanvasRef;
     if (!displayCanvas) return;
+
+    // Track reactive dependencies
+    const _renderKey = opts.renderKey;
+    const snapGuides = opts.snapGuides;
 
     const render = async () => {
       await storyCanvas.render();
@@ -99,12 +98,12 @@ export function useStoryCanvasRenderer({
       const scale = displayWidth / CANVAS_WIDTH;
       drawSnapGuides(displayCtx, scale, displayWidth, displayHeight, snapGuides);
 
-      const selectedLayer = getSelectedLayer();
+      const selectedLayer = opts.getSelectedLayer();
       if (selectedLayer && selectedLayer.type !== 'background') {
         drawSelectionIndicator(displayCtx, storyCanvas, selectedLayer, scale);
       }
     };
 
     render();
-  }, [storyCanvas, displayCanvasRef, renderKey, snapGuides, getSelectedLayer]);
+  });
 }

@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useCallback } from 'react';
+import { createSignal, createEffect, onCleanup, Show, For, createMemo } from 'solid-js';
 import { ActorStories } from '../../types/index.ts';
 import { markStoryViewed, deleteStory, voteOnStory, likeStory, unlikeStory, shareStory } from '../../lib/api.ts';
 import { useI18n } from '../../lib/i18n.tsx';
@@ -17,146 +17,118 @@ interface StoryViewerProps {
   currentUserApId?: string;
   onClose: () => void;
 }
-export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, onClose }: StoryViewerProps) {
+export function StoryViewer(props: StoryViewerProps) {
   const { t } = useI18n();
-  const [localActorStories, setLocalActorStories] = useState(actorStories);
-  const [actorIndex, setActorIndex] = useState(initialActorIndex);
-  const [storyIndex, setStoryIndex] = useState(0);
-  const [progress, setProgress] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
-  const isPausedRef = useRef(false);
-  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
-  const [videoReady, setVideoReady] = useState(false);
-  const [mediaError, setMediaError] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [isMuted, setIsMuted] = useState(true);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const storyContainerRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [localActorStories, setLocalActorStories] = createSignal(props.actorStories);
+  const [actorIndex, setActorIndex] = createSignal(props.initialActorIndex);
+  const [storyIndex, setStoryIndex] = createSignal(0);
+  const [progress, setProgress] = createSignal(0);
+  const [isPaused, setIsPaused] = createSignal(false);
+  let isPausedRef = false;
+  const [containerSize, setContainerSize] = createSignal({ width: 0, height: 0 });
+  const [videoReady, setVideoReady] = createSignal(false);
+  const [mediaError, setMediaError] = createSignal(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
+  const [isMuted, setIsMuted] = createSignal(true);
+  const [toastMessage, setToastMessage] = createSignal<string | null>(null);
+  let containerRef!: HTMLDivElement;
+  let storyContainerRef!: HTMLDivElement;
+  let timerRef: ReturnType<typeof setTimeout> | null = null;
+  let progressTimerRef: ReturnType<typeof setInterval> | null = null;
 
-  const currentActorStories = localActorStories[actorIndex];
-  const currentStory = currentActorStories?.stories[storyIndex];
-  const isOwnStory = currentUserApId && currentActorStories?.actor.ap_id === currentUserApId;
-  const isLiked = !!currentStory?.liked;
+  const currentActorStories = createMemo(() => localActorStories()[actorIndex()]);
+  const currentStory = createMemo(() => currentActorStories()?.stories[storyIndex()]);
+  const isOwnStory = createMemo(() => props.currentUserApId != null && currentActorStories()?.actor.ap_id === props.currentUserApId);
+  const isLiked = createMemo(() => !!currentStory()?.liked);
 
-  useEffect(() => {
-    setLocalActorStories(actorStories);
-  }, [actorStories]);
+  createEffect(() => {
+    setLocalActorStories(props.actorStories);
+  });
 
-  useEffect(() => {
-    if (!toastMessage) return;
+  createEffect(() => {
+    const msg = toastMessage();
+    if (!msg) return;
     const timeoutId = window.setTimeout(() => setToastMessage(null), 2000);
-    return () => window.clearTimeout(timeoutId);
-  }, [toastMessage]);
+    onCleanup(() => window.clearTimeout(timeoutId));
+  });
 
   // Update container size for overlay positioning
-  useEffect(() => {
+  createEffect(() => {
+    // Track currentStory to re-run when story changes
+    currentStory();
     const updateSize = () => {
-      if (storyContainerRef.current) {
-        const rect = storyContainerRef.current.getBoundingClientRect();
+      if (storyContainerRef) {
+        const rect = storyContainerRef.getBoundingClientRect();
         setContainerSize({ width: rect.width, height: rect.height });
       }
     };
 
     updateSize();
     window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, [currentStory]);
+    onCleanup(() => window.removeEventListener('resize', updateSize));
+  });
 
   // Mark story as viewed when displaying
-  useEffect(() => {
-    if (currentStory && !currentStory.viewed) {
-      markStoryViewed(currentStory.ap_id).catch(console.error);
+  createEffect(() => {
+    const story = currentStory();
+    if (story && !story.viewed) {
+      markStoryViewed(story.ap_id).catch(console.error);
     }
-  }, [currentStory?.ap_id]);
+  });
 
   // Reset media states when story changes
-  useEffect(() => {
+  createEffect(() => {
+    // Track both indices
+    actorIndex();
+    storyIndex();
     setMediaError(false);
     setVideoReady(false);
     setShowDeleteConfirm(false);
-  }, [actorIndex, storyIndex]);
+  });
 
   // Check if current story is a video
-  const isVideo = currentStory?.attachment?.mediaType?.startsWith('video/') ?? false;
+  const isVideo = createMemo(() => currentStory()?.attachment?.mediaType?.startsWith('video/') ?? false);
 
   // Keep ref in sync with state for use in interval callback
-  useEffect(() => {
-    isPausedRef.current = isPaused;
-  }, [isPaused]);
+  createEffect(() => {
+    isPausedRef = isPaused();
+  });
 
-  // Auto-advance timer (for images only, videos use onEnded)
-  const startTimer = useCallback(() => {
-    if (!currentStory || isVideo) return;
+  // Navigation functions
+  const goNext = () => {
+    const cas = currentActorStories();
+    if (!cas?.stories) return;
 
-    const duration = parseStoryDuration(currentStory.displayDuration);
-    const startTime = Date.now();
-
-    // Clear existing timers
-    if (timerRef.current) clearTimeout(timerRef.current);
-    if (progressTimerRef.current) clearInterval(progressTimerRef.current);
-
-    // Progress update - use ref to avoid stale closure
-    progressTimerRef.current = setInterval(() => {
-      if (isPausedRef.current) return;
-      const elapsed = Date.now() - startTime;
-      setProgress(Math.min((elapsed / duration) * 100, 100));
-    }, 50);
-
-    // Auto-advance
-    timerRef.current = setTimeout(() => {
-      if (progressTimerRef.current) clearInterval(progressTimerRef.current);
-      goNext();
-    }, duration);
-  }, [currentStory, isVideo]);
-
-  useEffect(() => {
-    if (!isPaused && !isVideo) {
-      setProgress(0);
-      startTimer();
-    }
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      if (progressTimerRef.current) clearInterval(progressTimerRef.current);
-    };
-  }, [actorIndex, storyIndex, isPaused, startTimer, isVideo]);
-
-  // Navigation functions (defined first for dependency order)
-  const goNext = useCallback(() => {
-    if (!currentActorStories?.stories) return;
-
-    const currentStoriesLen = currentActorStories.stories.length;
+    const currentStoriesLen = cas.stories.length;
 
     // Next story from same user
-    if (storyIndex < currentStoriesLen - 1) {
-      setStoryIndex(storyIndex + 1);
+    if (storyIndex() < currentStoriesLen - 1) {
+      setStoryIndex(storyIndex() + 1);
       return;
     }
 
     // Next user
-    if (actorIndex < localActorStories.length - 1) {
-      setActorIndex(actorIndex + 1);
+    if (actorIndex() < localActorStories().length - 1) {
+      setActorIndex(actorIndex() + 1);
       setStoryIndex(0);
       return;
     }
 
     // End of all stories
-    onClose();
-  }, [actorIndex, storyIndex, currentActorStories, localActorStories.length, onClose]);
+    props.onClose();
+  };
 
-  const goPrev = useCallback(() => {
+  const goPrev = () => {
     // Previous story from same user
-    if (storyIndex > 0) {
-      setStoryIndex(storyIndex - 1);
+    if (storyIndex() > 0) {
+      setStoryIndex(storyIndex() - 1);
       return;
     }
 
     // Previous user
-    if (actorIndex > 0) {
-      setActorIndex(actorIndex - 1);
-      const prevActorStories = localActorStories[actorIndex - 1];
+    if (actorIndex() > 0) {
+      setActorIndex(actorIndex() - 1);
+      const prevActorStories = localActorStories()[actorIndex() - 1];
       const lastStoryIndex = prevActorStories.stories.length - 1;
       setStoryIndex(lastStoryIndex);
       return;
@@ -164,9 +136,53 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
 
     // At the beginning, restart current story
     setProgress(0);
-  }, [actorIndex, storyIndex, localActorStories]);
+  };
 
-  const handleVote = useCallback(async (storyApId: string, optionIndex: number) => {
+  // Auto-advance timer (for images only, videos use onEnded)
+  const startTimer = () => {
+    const story = currentStory();
+    if (!story || isVideo()) return;
+
+    const duration = parseStoryDuration(story.displayDuration);
+    const startTime = Date.now();
+
+    // Clear existing timers
+    if (timerRef) clearTimeout(timerRef);
+    if (progressTimerRef) clearInterval(progressTimerRef);
+
+    // Progress update - use ref to avoid stale closure
+    progressTimerRef = setInterval(() => {
+      if (isPausedRef) return;
+      const elapsed = Date.now() - startTime;
+      setProgress(Math.min((elapsed / duration) * 100, 100));
+    }, 50);
+
+    // Auto-advance
+    timerRef = setTimeout(() => {
+      if (progressTimerRef) clearInterval(progressTimerRef);
+      goNext();
+    }, duration);
+  };
+
+  createEffect(() => {
+    // Track dependencies
+    actorIndex();
+    storyIndex();
+    const paused = isPaused();
+    const video = isVideo();
+
+    if (!paused && !video) {
+      setProgress(0);
+      startTimer();
+    }
+
+    onCleanup(() => {
+      if (timerRef) clearTimeout(timerRef);
+      if (progressTimerRef) clearInterval(progressTimerRef);
+    });
+  });
+
+  const handleVote = async (storyApId: string, optionIndex: number) => {
     const result = await voteOnStory(storyApId, optionIndex);
     setLocalActorStories(prev =>
       prev.map(group => ({
@@ -182,21 +198,22 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
         }),
       }))
     );
-  }, []);
+  };
 
-  const handleLike = useCallback(async () => {
-    if (!currentStory) return;
+  const handleLike = async () => {
+    const story = currentStory();
+    if (!story) return;
     try {
-      const result = currentStory.liked
-        ? await unlikeStory(currentStory.ap_id)
-        : await likeStory(currentStory.ap_id);
+      const result = story.liked
+        ? await unlikeStory(story.ap_id)
+        : await likeStory(story.ap_id);
       setLocalActorStories(prev =>
         prev.map(group => ({
           ...group,
-          stories: group.stories.map(story =>
-            story.ap_id === currentStory.ap_id
-              ? { ...story, liked: result.liked, like_count: result.like_count }
-              : story
+          stories: group.stories.map(s =>
+            s.ap_id === story.ap_id
+              ? { ...s, liked: result.liked, like_count: result.like_count }
+              : s
           ),
         }))
       );
@@ -204,26 +221,27 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
       console.error('Failed to toggle story like:', err);
       setToastMessage(t('common.error'));
     }
-  }, [currentStory, t]);
+  };
 
-  const handleShare = useCallback(async () => {
-    if (!currentStory) return;
-    const shareUrl = currentStory.ap_id;
+  const handleShare = async () => {
+    const story = currentStory();
+    if (!story) return;
+    const shareUrl = story.ap_id;
     try {
       if (navigator.share) {
         await navigator.share({
-          title: `${currentActorStories?.actor?.name || currentActorStories?.actor?.preferred_username || 'Story'}`,
+          title: `${currentActorStories()?.actor?.name || currentActorStories()?.actor?.preferred_username || 'Story'}`,
           url: shareUrl,
         });
         try {
-          const result = await shareStory(currentStory.ap_id);
+          const result = await shareStory(story.ap_id);
           setLocalActorStories(prev =>
             prev.map(group => ({
               ...group,
-              stories: group.stories.map(story =>
-                story.ap_id === currentStory.ap_id
-                  ? { ...story, share_count: result.share_count }
-                  : story
+              stories: group.stories.map(s =>
+                s.ap_id === story.ap_id
+                  ? { ...s, share_count: result.share_count }
+                  : s
               ),
             }))
           );
@@ -235,14 +253,14 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
         await navigator.clipboard.writeText(shareUrl);
         setToastMessage(t('story.shareCopied'));
         try {
-          const result = await shareStory(currentStory.ap_id);
+          const result = await shareStory(story.ap_id);
           setLocalActorStories(prev =>
             prev.map(group => ({
               ...group,
-              stories: group.stories.map(story =>
-                story.ap_id === currentStory.ap_id
-                  ? { ...story, share_count: result.share_count }
-                  : story
+              stories: group.stories.map(s =>
+                s.ap_id === story.ap_id
+                  ? { ...s, share_count: result.share_count }
+                  : s
               ),
             }))
           );
@@ -255,51 +273,52 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
       console.error('Failed to share story:', err);
       setToastMessage(t('story.shareFailed'));
     }
-  }, [currentStory, currentActorStories?.actor, t]);
+  };
 
   // Handle video ended event
-  const handleVideoEnded = useCallback(() => {
+  const handleVideoEnded = () => {
     goNext();
-  }, [goNext]);
+  };
 
   // Handle video time update for progress bar
-  const handleVideoTimeUpdate = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const video = e.currentTarget;
+  const handleVideoTimeUpdate = (e: Event) => {
+    const video = e.currentTarget as HTMLVideoElement;
     if (video.duration) {
       setProgress((video.currentTime / video.duration) * 100);
     }
-  }, []);
+  };
 
   // Handle video loaded metadata
-  const handleVideoLoadedMetadata = useCallback(() => {
+  const handleVideoLoadedMetadata = () => {
     setVideoReady(true);
     setProgress(0);
-  }, []);
+  };
 
   // Handle media error
-  const handleMediaError = useCallback(() => {
+  const handleMediaError = () => {
     setMediaError(true);
-  }, []);
+  };
 
   // Handle delete story
-  const handleDeleteStory = useCallback(() => {
+  const handleDeleteStory = () => {
     setShowDeleteConfirm(true);
-  }, []);
+  };
 
   // Confirm delete story
-  const confirmDelete = useCallback(async () => {
-    if (!currentStory) return;
+  const confirmDelete = async () => {
+    const story = currentStory();
+    if (!story) return;
 
     try {
-      await deleteStory(currentStory.ap_id);
+      await deleteStory(story.ap_id);
       // Navigate to next story or close
-      if (currentActorStories.stories.length === 1) {
+      if (currentActorStories()!.stories.length === 1) {
         // Last story from this user
-        if (actorIndex < localActorStories.length - 1) {
-          setActorIndex(actorIndex + 1);
+        if (actorIndex() < localActorStories().length - 1) {
+          setActorIndex(actorIndex() + 1);
           setStoryIndex(0);
         } else {
-          onClose();
+          props.onClose();
         }
       } else {
         // Same user's next story
@@ -311,11 +330,11 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
     } finally {
       setShowDeleteConfirm(false);
     }
-  }, [currentStory, currentActorStories, actorIndex, localActorStories.length, goNext, onClose, t]);
+  };
 
   // Handle click/tap navigation
-  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = containerRef.current?.getBoundingClientRect();
+  const handleClick = (e: MouseEvent) => {
+    const rect = containerRef?.getBoundingClientRect();
     if (!rect) return;
 
     const x = e.clientX - rect.left;
@@ -330,141 +349,139 @@ export function StoryViewer({ actorStories, initialActorIndex, currentUserApId, 
   };
 
   // Handle keyboard navigation
-  useEffect(() => {
+  createEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') {
         goPrev();
       } else if (e.key === 'ArrowRight' || e.key === ' ') {
         goNext();
       } else if (e.key === 'Escape') {
-        onClose();
+        props.onClose();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [goNext, goPrev, onClose]);
+    onCleanup(() => window.removeEventListener('keydown', handleKeyDown));
+  });
 
   // Pause on touch/hold
   const handleTouchStart = () => setIsPaused(true);
   const handleTouchEnd = () => setIsPaused(false);
 
-  if (!currentActorStories || !currentStory) {
-    return null;
-  }
-
-  // Total stories for this user (for progress bar)
-  const totalStories = currentActorStories.stories.length;
-
   return (
-    <div className="fixed inset-0 z-51 bg-neutral-900">
-      <StoryViewerProgress
-        totalStories={totalStories}
-        storyIndex={storyIndex}
-        progress={progress}
-      />
+    <Show when={currentActorStories() && currentStory()}>
+      <div class="fixed inset-0 z-51 bg-neutral-900">
+        <StoryViewerProgress
+          totalStories={currentActorStories()!.stories.length}
+          storyIndex={storyIndex()}
+          progress={progress()}
+        />
 
-      <StoryViewerHeader
-        actor={currentActorStories.actor}
-        timeLabel={formatRelativeTime(currentStory.published, { maxDays: 1 })}
-        isVideo={isVideo}
-        isMuted={isMuted}
-        isOwnStory={Boolean(isOwnStory)}
-        onToggleMute={() => setIsMuted(!isMuted)}
-        onDelete={handleDeleteStory}
-        onClose={onClose}
-      />
+        <StoryViewerHeader
+          actor={currentActorStories()!.actor}
+          timeLabel={formatRelativeTime(currentStory()!.published, { maxDays: 1 })}
+          isVideo={isVideo()}
+          isMuted={isMuted()}
+          isOwnStory={Boolean(isOwnStory())}
+          onToggleMute={() => setIsMuted(!isMuted())}
+          onDelete={handleDeleteStory}
+          onClose={props.onClose}
+        />
 
-      {/* Main content area - vertical 9:16 container */}
-      <div
-        ref={containerRef}
-        className="absolute inset-0 flex items-center justify-center cursor-pointer"
-        onClick={handleClick}
-        onMouseDown={handleTouchStart}
-        onMouseUp={handleTouchEnd}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
-        {/* Vertical story container (9:16 aspect ratio) */}
+        {/* Main content area - vertical 9:16 container */}
         <div
-          ref={storyContainerRef}
-          className="relative w-full h-full sm:w-auto sm:h-[calc(100vh-2rem)] sm:aspect-[9/16] sm:max-h-[900px] bg-neutral-900 overflow-hidden sm:rounded-xl"
+          ref={containerRef}
+          class="absolute inset-0 flex items-center justify-center cursor-pointer"
+          onClick={handleClick}
+          onMouseDown={handleTouchStart}
+          onMouseUp={handleTouchEnd}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
         >
-          {/* Media content - directly from story.attachment */}
-          {!mediaError && currentStory.attachment.mediaType.startsWith('image/') ? (
-            <img
-              src={currentStory.attachment.url || `/media/${currentStory.attachment.r2_key}`}
-              alt=""
-              className="w-full h-full object-cover"
-              draggable={false}
-              onError={handleMediaError}
-            />
-          ) : !mediaError && currentStory.attachment.mediaType.startsWith('video/') ? (
-            <video
-              src={currentStory.attachment.url || `/media/${currentStory.attachment.r2_key}`}
-              className="w-full h-full object-cover"
-              autoPlay={videoReady}
-              muted={isMuted}
-              playsInline
-              onEnded={handleVideoEnded}
-              onTimeUpdate={handleVideoTimeUpdate}
-              onLoadedMetadata={handleVideoLoadedMetadata}
-              onError={handleMediaError}
-            />
-          ) : null}
+          {/* Vertical story container (9:16 aspect ratio) */}
+          <div
+            ref={storyContainerRef}
+            class="relative w-full h-full sm:w-auto sm:h-[calc(100vh-2rem)] sm:aspect-[9/16] sm:max-h-[900px] bg-neutral-900 overflow-hidden sm:rounded-xl"
+          >
+            {/* Media content - directly from story.attachment */}
+            <Show when={!mediaError() && currentStory()!.attachment.mediaType.startsWith('image/')}>
+              <img
+                src={currentStory()!.attachment.url || `/media/${currentStory()!.attachment.r2_key}`}
+                alt=""
+                class="w-full h-full object-cover"
+                draggable={false}
+                onError={handleMediaError}
+              />
+            </Show>
+            <Show when={!mediaError() && currentStory()!.attachment.mediaType.startsWith('video/')}>
+              <video
+                src={currentStory()!.attachment.url || `/media/${currentStory()!.attachment.r2_key}`}
+                class="w-full h-full object-cover"
+                autoplay={videoReady()}
+                muted={isMuted()}
+                playsinline
+                onEnded={handleVideoEnded}
+                onTimeUpdate={handleVideoTimeUpdate}
+                onLoadedMetadata={handleVideoLoadedMetadata}
+                onError={handleMediaError}
+              />
+            </Show>
 
-          {/* Media error fallback */}
-          {mediaError && (
-            <div className="absolute inset-0 flex items-center justify-center bg-neutral-900">
-              <div className="text-center text-neutral-400">
-                <ErrorIcon />
-                <p className="mt-2">メディアを読み込めませんでした</p>
+            {/* Media error fallback */}
+            <Show when={mediaError()}>
+              <div class="absolute inset-0 flex items-center justify-center bg-neutral-900">
+                <div class="text-center text-neutral-400">
+                  <ErrorIcon />
+                  <p class="mt-2">メディアを読み込めませんでした</p>
+                </div>
               </div>
-            </div>
-          )}
+            </Show>
 
-          {/* Overlays rendering */}
-          {currentStory.overlays && containerSize.width > 0 && (
-            <div className="absolute inset-0 pointer-events-none">
-              <div className="pointer-events-auto">
-                {currentStory.overlays.map((overlay) => (
-                  <div key={`${overlay.type}-${overlay.position.x}-${overlay.position.y}`}>
-                    {renderStoryOverlay(
-                      overlay,
-                      containerSize,
-                      currentStory.ap_id,
-                      currentStory.votes,
-                      currentStory.votes_total,
-                      currentStory.user_vote,
-                      handleVote
+            {/* Overlays rendering */}
+            <Show when={currentStory()!.overlays && containerSize().width > 0}>
+              <div class="absolute inset-0 pointer-events-none">
+                <div class="pointer-events-auto">
+                  <For each={currentStory()!.overlays}>
+                    {(overlay) => (
+                      <div>
+                        {renderStoryOverlay(
+                          overlay,
+                          containerSize(),
+                          currentStory()!.ap_id,
+                          currentStory()!.votes,
+                          currentStory()!.votes_total,
+                          currentStory()!.user_vote,
+                          handleVote
+                        )}
+                      </div>
                     )}
-                  </div>
-                ))}
+                  </For>
+                </div>
               </div>
-            </div>
-          )}
+            </Show>
+          </div>
         </div>
+
+        <Show when={toastMessage()}>
+          <div class="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/80 px-4 py-2 text-sm text-white shadow-lg">
+            {toastMessage()}
+          </div>
+        </Show>
+
+        <StoryViewerActionBar
+          isLiked={isLiked()}
+          placeholder={t('messages.placeholder')}
+          onLike={handleLike}
+          onShare={handleShare}
+        />
+
+        <StoryViewerDeleteDialog
+          open={showDeleteConfirm()}
+          onCancel={() => setShowDeleteConfirm(false)}
+          onConfirm={confirmDelete}
+        />
       </div>
-
-      {toastMessage && (
-        <div className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-black/80 px-4 py-2 text-sm text-white shadow-lg">
-          {toastMessage}
-        </div>
-      )}
-
-      <StoryViewerActionBar
-        isLiked={isLiked}
-        placeholder={t('messages.placeholder')}
-        onLike={handleLike}
-        onShare={handleShare}
-      />
-
-      <StoryViewerDeleteDialog
-        open={showDeleteConfirm}
-        onCancel={() => setShowDeleteConfirm(false)}
-        onConfirm={confirmDelete}
-      />
-    </div>
+    </Show>
   );
 }
 

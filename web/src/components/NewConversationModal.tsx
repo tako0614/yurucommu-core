@@ -1,4 +1,4 @@
-﻿import { useState, useCallback } from 'react';
+import { createSignal, Show, For } from 'solid-js';
 import { searchActors } from '../lib/api.ts';
 import { UserAvatar } from './UserAvatar.tsx';
 import { Actor } from '../types/index.ts';
@@ -9,13 +9,13 @@ interface NewConversationModalProps {
   onSelect: (actor: Actor) => void;
 }
 
-export function NewConversationModal({ isOpen, onClose, onSelect }: NewConversationModalProps) {
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Actor[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export function NewConversationModal(props: NewConversationModalProps) {
+  const [query, setQuery] = createSignal('');
+  const [results, setResults] = createSignal<Actor[]>([]);
+  const [loading, setLoading] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
 
-  const handleSearch = useCallback(async (q: string) => {
+  const handleSearch = async (q: string) => {
     setQuery(q);
     if (q.trim().length < 2) {
       setResults([]);
@@ -29,94 +29,98 @@ export function NewConversationModal({ isOpen, onClose, onSelect }: NewConversat
       setResults(actors);
     } catch (e) {
       console.error('Search failed:', e);
-      setError('検索に失敗しました');
+      setError('\u691C\u7D22\u306B\u5931\u6557\u3057\u307E\u3057\u305F');
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  const handleSelect = (actor: Actor) => {
-    onSelect(actor);
-    setQuery('');
-    setResults([]);
-    onClose();
   };
 
-  if (!isOpen) return null;
+  const handleSelect = (actor: Actor) => {
+    props.onSelect(actor);
+    setQuery('');
+    setResults([]);
+    props.onClose();
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+    <Show when={props.isOpen}>
+      <div class="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4">
+        {/* Backdrop */}
+        <div class="absolute inset-0 bg-black/60" onClick={props.onClose} />
 
-      {/* Modal */}
-      <div className="relative w-full max-w-md bg-neutral-900 rounded-2xl overflow-hidden shadow-xl">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
-          <h2 className="text-lg font-semibold">新しいメッセージ</h2>
-          <button
-            onClick={onClose}
-            className="p-1 text-neutral-400 hover:text-white transition-colors"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+        {/* Modal */}
+        <div class="relative w-full max-w-md bg-neutral-900 rounded-2xl overflow-hidden shadow-xl">
+          {/* Header */}
+          <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
+            <h2 class="text-lg font-semibold">{'\u65B0\u3057\u3044\u30E1\u30C3\u30BB\u30FC\u30B8'}</h2>
+            <button
+              onClick={props.onClose}
+              class="p-1 text-neutral-400 hover:text-white transition-colors"
+            >
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
 
-        {/* Search input */}
-        <div className="p-4 border-b border-neutral-800">
-          <div className="flex items-center gap-3">
-            <span className="text-neutral-400">検索:</span>
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => handleSearch(e.target.value)}
-              placeholder="ユーザーを検索..."
-              className="flex-1 bg-transparent text-white placeholder-neutral-500 outline-none"
-              autoFocus
-            />
+          {/* Search input */}
+          <div class="p-4 border-b border-neutral-800">
+            <div class="flex items-center gap-3">
+              <span class="text-neutral-400">{'\u691C\u7D22:'}</span>
+              <input
+                type="text"
+                value={query()}
+                onInput={(e) => handleSearch(e.currentTarget.value)}
+                placeholder={'\u30E6\u30FC\u30B6\u30FC\u3092\u691C\u7D22...'}
+                class="flex-1 bg-transparent text-white placeholder-neutral-500 outline-none"
+                autofocus
+              />
+            </div>
+          </div>
+
+          {/* Results */}
+          <div class="max-h-80 overflow-y-auto">
+            <Show when={!loading()} fallback={
+              <div class="p-8 text-center text-neutral-500">{'\u8AAD\u307F\u8FBC\u307F\u4E2D...'}</div>
+            }>
+              <Show when={!error()} fallback={
+                <div class="p-8 text-center text-red-400">{error()}</div>
+              }>
+                <Show when={results().length > 0} fallback={
+                  <Show when={query().length >= 2} fallback={
+                    <div class="p-8 text-center text-neutral-500">
+                      {'\u30E6\u30FC\u30B6\u30FC\u540D\u3067\u691C\u7D22'}
+                    </div>
+                  }>
+                    <div class="p-8 text-center text-neutral-500">
+                      {'\u30E6\u30FC\u30B6\u30FC\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093'}
+                    </div>
+                  </Show>
+                }>
+                  <div class="py-2">
+                    <For each={results()}>{(actor) => (
+                      <button
+                        onClick={() => handleSelect(actor)}
+                        class="w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-800 transition-colors"
+                      >
+                        <UserAvatar
+                          avatarUrl={actor.icon_url}
+                          name={actor.name || actor.preferred_username}
+                          size={44}
+                        />
+                        <div class="flex-1 text-left">
+                          <p class="font-medium">{actor.name || actor.preferred_username}</p>
+                          <p class="text-sm text-neutral-500">@{actor.preferred_username}</p>
+                        </div>
+                      </button>
+                    )}</For>
+                  </div>
+                </Show>
+              </Show>
+            </Show>
           </div>
         </div>
-
-        {/* Results */}
-        <div className="max-h-80 overflow-y-auto">
-          {loading ? (
-            <div className="p-8 text-center text-neutral-500">読み込み中...</div>
-          ) : error ? (
-            <div className="p-8 text-center text-red-400">{error}</div>
-          ) : results.length > 0 ? (
-            <div className="py-2">
-              {results.map((actor) => (
-                <button
-                  key={actor.ap_id}
-                  onClick={() => handleSelect(actor)}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-800 transition-colors"
-                >
-                  <UserAvatar
-                    avatarUrl={actor.icon_url}
-                    name={actor.name || actor.preferred_username}
-                    size={44}
-                  />
-                  <div className="flex-1 text-left">
-                    <p className="font-medium">{actor.name || actor.preferred_username}</p>
-                    <p className="text-sm text-neutral-500">@{actor.preferred_username}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : query.length >= 2 ? (
-            <div className="p-8 text-center text-neutral-500">
-              ユーザーが見つかりません
-            </div>
-          ) : (
-            <div className="p-8 text-center text-neutral-500">
-              ユーザー名で検索
-            </div>
-          )}
-        </div>
       </div>
-    </div>
+    </Show>
   );
 }
-

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { createSignal, createEffect, onCleanup } from 'solid-js';
 import type { BackgroundFill, BackgroundLayer, StoryCanvas } from '../../../lib/story-canvas.ts';
 import { getVideoDuration, initFFmpeg, isVideoFile } from '../../../lib/ffmpeg.ts';
 
@@ -10,43 +10,38 @@ interface UseStoryVideoOptions {
   onBackgroundChange: () => void;
 }
 
-export function useStoryVideo({
-  storyCanvas,
-  setUploading,
-  setError,
-  maxVideoSize,
-  onBackgroundChange,
-}: UseStoryVideoOptions) {
-  const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [videoPreview, setVideoPreview] = useState<string | null>(null);
-  const videoPreviewRef = useRef<string | null>(null);
-  const [videoDuration, setVideoDuration] = useState<number>(5);
-  const [savedBackground, setSavedBackground] = useState<BackgroundFill | null>(null);
-  const [videoScale, setVideoScale] = useState(1);
-  const [videoPosition, setVideoPosition] = useState({ x: 0, y: 0 });
-  const [videoRotation, setVideoRotation] = useState(0);
-  const [ffmpegReady, setFfmpegReady] = useState(false);
-  const [ffmpegLoading, setFfmpegLoading] = useState(false);
-  const videoInputRef = useRef<HTMLInputElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
+export function useStoryVideo(opts: UseStoryVideoOptions) {
+  const [videoFile, setVideoFile] = createSignal<File | null>(null);
+  const [videoPreview, setVideoPreview] = createSignal<string | null>(null);
+  let videoPreviewRef: string | null = null;
+  const [videoDuration, setVideoDuration] = createSignal<number>(5);
+  const [savedBackground, setSavedBackground] = createSignal<BackgroundFill | null>(null);
+  const [videoScale, setVideoScale] = createSignal(1);
+  const [videoPosition, setVideoPosition] = createSignal({ x: 0, y: 0 });
+  const [videoRotation, setVideoRotation] = createSignal(0);
+  const [ffmpegReady, setFfmpegReady] = createSignal(false);
+  const [ffmpegLoading, setFfmpegLoading] = createSignal(false);
+  let videoInputRef!: HTMLInputElement;
+  let videoRef!: HTMLVideoElement;
 
   // Keep ref in sync for cleanup on unmount
-  useEffect(() => {
-    videoPreviewRef.current = videoPreview;
-  }, [videoPreview]);
+  createEffect(() => {
+    videoPreviewRef = videoPreview();
+  });
 
   // Cleanup video preview URL on unmount
-  useEffect(() => {
-    return () => {
-      if (videoPreviewRef.current) {
-        URL.revokeObjectURL(videoPreviewRef.current);
+  createEffect(() => {
+    onCleanup(() => {
+      if (videoPreviewRef) {
+        URL.revokeObjectURL(videoPreviewRef);
       }
-    };
-  }, []);
+    });
+  });
 
-  useEffect(() => {
-    if (!videoFile) return;
-    if (ffmpegReady) return;
+  createEffect(() => {
+    const file = videoFile();
+    if (!file) return;
+    if (ffmpegReady()) return;
 
     const loadFFmpeg = async () => {
       setFfmpegLoading(true);
@@ -55,41 +50,42 @@ export function useStoryVideo({
         setFfmpegReady(true);
       } catch (e) {
         console.error('Failed to load FFmpeg:', e);
-        setError('FFmpegの読み込みに失敗しました。動画機能は使用できません。');
+        opts.setError('FFmpegの読み込みに失敗しました。動画機能は使用できません。');
       } finally {
         setFfmpegLoading(false);
       }
     };
     loadFFmpeg();
-  }, [videoFile, ffmpegReady, setError]);
+  });
 
-  const handleVideoSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !storyCanvas) return;
+  const handleVideoSelect = async (e: Event & { currentTarget: HTMLInputElement }) => {
+    const file = (e.currentTarget as HTMLInputElement).files?.[0];
+    if (!file || !opts.storyCanvas) return;
 
     if (!isVideoFile(file)) {
-      setError('動画ファイルを選択してください');
+      opts.setError('動画ファイルを選択してください');
       return;
     }
 
-    if (file.size > maxVideoSize) {
-      setError(`動画サイズが大きすぎます（最大${maxVideoSize / 1024 / 1024}MB）`);
+    if (file.size > opts.maxVideoSize) {
+      opts.setError(`動画サイズが大きすぎます（最大${opts.maxVideoSize / 1024 / 1024}MB）`);
       return;
     }
 
-    setUploading(true);
+    opts.setUploading(true);
     try {
-      if (videoPreview) {
-        URL.revokeObjectURL(videoPreview);
+      const currentPreview = videoPreview();
+      if (currentPreview) {
+        URL.revokeObjectURL(currentPreview);
       }
       const preview = URL.createObjectURL(file);
       const duration = await getVideoDuration(file);
 
-      const bgLayer = storyCanvas.getLayers().find((layer) => layer.type === 'background') as BackgroundLayer | undefined;
+      const bgLayer = opts.storyCanvas.getLayers().find((layer) => layer.type === 'background') as BackgroundLayer | undefined;
       if (bgLayer) {
         setSavedBackground(bgLayer.fill);
-        storyCanvas.setBackground({ type: 'transparent' });
-        onBackgroundChange();
+        opts.storyCanvas.setBackground({ type: 'transparent' });
+        opts.onBackgroundChange();
       }
 
       setVideoFile(file);
@@ -97,16 +93,17 @@ export function useStoryVideo({
       setVideoDuration(duration);
     } catch (err) {
       console.error('Failed to process video:', err);
-      setError('動画の処理に失敗しました');
+      opts.setError('動画の処理に失敗しました');
     } finally {
-      setUploading(false);
-      if (videoInputRef.current) videoInputRef.current.value = '';
+      opts.setUploading(false);
+      if (videoInputRef) videoInputRef.value = '';
     }
-  }, [storyCanvas, maxVideoSize, setError, setUploading, onBackgroundChange, videoPreview]);
+  };
 
-  const clearVideo = useCallback(() => {
-    if (videoPreview) {
-      URL.revokeObjectURL(videoPreview);
+  const clearVideo = () => {
+    const currentPreview = videoPreview();
+    if (currentPreview) {
+      URL.revokeObjectURL(currentPreview);
     }
     setVideoFile(null);
     setVideoPreview(null);
@@ -114,19 +111,22 @@ export function useStoryVideo({
     setVideoPosition({ x: 0, y: 0 });
     setVideoRotation(0);
 
-    if (savedBackground && storyCanvas) {
-      storyCanvas.setBackground(savedBackground);
+    const bg = savedBackground();
+    if (bg && opts.storyCanvas) {
+      opts.storyCanvas.setBackground(bg);
       setSavedBackground(null);
-      onBackgroundChange();
+      opts.onBackgroundChange();
     }
-  }, [videoPreview, savedBackground, storyCanvas, onBackgroundChange]);
+  };
 
   return {
     videoFile,
     videoPreview,
     videoDuration,
-    videoInputRef,
-    videoRef,
+    get videoInputRef() { return videoInputRef; },
+    set videoInputRef(el: HTMLInputElement) { videoInputRef = el; },
+    get videoRef() { return videoRef; },
+    set videoRef(el: HTMLVideoElement) { videoRef = el; },
     videoScale,
     setVideoScale,
     videoPosition,

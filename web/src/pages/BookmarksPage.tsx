@@ -1,7 +1,7 @@
-import { useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { onMount, Show, For } from 'solid-js';
+import { A } from '@solidjs/router';
 import { atom } from 'jotai';
-import { useAtom } from 'jotai';
+import { useAtom } from 'solid-jotai';
 import { useRequiredActor } from '../hooks/useRequiredActor.ts';
 import { Post } from '../types/index.ts';
 import { fetchBookmarks, likePost, unlikePost, unbookmarkPost } from '../lib/api.ts';
@@ -21,17 +21,17 @@ export function BookmarksPage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
   const [error, setError] = useAtom(bookmarks_errorAtom);
-  const clearError = useCallback(() => setError(null), [setError]);
+  const clearError = () => setError(null);
   const [posts, setPosts] = useAtom(bookmarks_postsAtom);
   const [loading, setLoading] = useAtom(bookmarks_loadingAtom);
 
-  useEffect(() => {
+  onMount(() => {
     loadBookmarks();
-  }, []);
+  });
 
   const loadBookmarks = async () => {
     // Only show loading if no cached data
-    if (posts.length === 0) setLoading(true);
+    if (posts().length === 0) setLoading(true);
     try {
       const data = await fetchBookmarks();
       setPosts(data);
@@ -69,62 +69,66 @@ export function BookmarksPage() {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {error && (
-        <InlineErrorBanner message={error} onClose={clearError} />
-      )}
-      <header className="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-        <h1 className="text-xl font-bold px-4 py-3">Bookmarks</h1>
+    <div class="flex flex-col h-full">
+      <Show when={error()}>
+        <InlineErrorBanner message={error()!} onClose={clearError} />
+      </Show>
+      <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
+        <h1 class="text-xl font-bold px-4 py-3">Bookmarks</h1>
       </header>
 
-      <div className="flex-1 overflow-y-auto">
-        {loading ? (
-          <div className="p-8 text-center text-neutral-500">{t('common.loading')}</div>
-        ) : posts.length === 0 ? (
-          <div className="p-8 text-center text-neutral-500">No bookmarks yet</div>
-        ) : (
-          posts.map(post => (
-            <div key={post.ap_id} className="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
-              <Link to={`/profile/${encodeURIComponent(post.author.ap_id)}`}>
-                <UserAvatar avatarUrl={post.author.icon_url} name={post.author.name || post.author.preferred_username} size={48} />
-              </Link>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-2">
-                  <Link to={`/profile/${encodeURIComponent(post.author.ap_id)}`} className="font-bold text-white truncate hover:underline">
-                    {post.author.name || post.author.preferred_username}
-                  </Link>
-                  <span className="text-neutral-500 truncate">@{post.author.username}</span>
-                  <span className="text-neutral-500">·</span>
-                  <span className="text-neutral-500 text-sm">{formatRelativeTime(post.published)}</span>
+      <div class="flex-1 overflow-y-auto">
+        <Show when={!loading()} fallback={
+          <div class="p-8 text-center text-neutral-500">{t('common.loading')}</div>
+        }>
+          <Show when={posts().length > 0} fallback={
+            <div class="p-8 text-center text-neutral-500">No bookmarks yet</div>
+          }>
+            <For each={posts()}>
+              {(post) => (
+                <div class="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
+                  <A href={`/profile/${encodeURIComponent(post.author.ap_id)}`}>
+                    <UserAvatar avatarUrl={post.author.icon_url} name={post.author.name || post.author.preferred_username} size={48} />
+                  </A>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-baseline gap-2">
+                      <A href={`/profile/${encodeURIComponent(post.author.ap_id)}`} class="font-bold text-white truncate hover:underline">
+                        {post.author.name || post.author.preferred_username}
+                      </A>
+                      <span class="text-neutral-500 truncate">@{post.author.username}</span>
+                      <span class="text-neutral-500">·</span>
+                      <span class="text-neutral-500 text-sm">{formatRelativeTime(post.published)}</span>
+                    </div>
+                    <A href={`/post/${encodeURIComponent(post.ap_id)}`}>
+                      <PostContent content={post.content} class="text-[15px] text-neutral-200 mt-1" />
+                    </A>
+                    <div class="flex items-center gap-6 mt-3">
+                      <button
+                        onClick={() => handleLike(post)}
+                        aria-label={post.liked ? 'Unlike' : 'Like'}
+                        aria-pressed={post.liked}
+                        class={`flex items-center gap-2 transition-colors ${post.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'}`}
+                      >
+                        <HeartIcon filled={post.liked || false} />
+                        <Show when={post.author.ap_id === actor.ap_id && post.like_count > 0}>
+                          <span class="text-sm">{post.like_count}</span>
+                        </Show>
+                      </button>
+                      <button
+                        onClick={() => handleUnbookmark(post.ap_id)}
+                        aria-label="Remove bookmark"
+                        class="flex items-center gap-2 text-blue-500 hover:text-blue-400 transition-colors"
+                        title="Remove bookmark"
+                      >
+                        <BookmarkIcon filled={true} />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <Link to={`/post/${encodeURIComponent(post.ap_id)}`}>
-                  <PostContent content={post.content} className="text-[15px] text-neutral-200 mt-1" />
-                </Link>
-                <div className="flex items-center gap-6 mt-3">
-                  <button
-                    onClick={() => handleLike(post)}
-                    aria-label={post.liked ? 'Unlike' : 'Like'}
-                    aria-pressed={post.liked}
-                    className={`flex items-center gap-2 transition-colors ${post.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'}`}
-                  >
-                    <HeartIcon filled={post.liked || false} />
-                    {post.author.ap_id === actor.ap_id && post.like_count > 0 && (
-                      <span className="text-sm">{post.like_count}</span>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => handleUnbookmark(post.ap_id)}
-                    aria-label="Remove bookmark"
-                    className="flex items-center gap-2 text-blue-500 hover:text-blue-400 transition-colors"
-                    title="Remove bookmark"
-                  >
-                    <BookmarkIcon filled={true} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))
-        )}
+              )}
+            </For>
+          </Show>
+        </Show>
       </div>
     </div>
   );

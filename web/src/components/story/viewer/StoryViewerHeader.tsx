@@ -1,3 +1,4 @@
+import { Show } from 'solid-js';
 import { UserAvatar } from '../../UserAvatar.tsx';
 import { CloseIcon, MutedIcon, TrashIcon, UnmutedIcon } from './StoryViewerIcons.tsx';
 
@@ -12,56 +13,47 @@ interface StoryViewerHeaderProps {
   onClose: () => void;
 }
 
-export function StoryViewerHeader({
-  actor,
-  timeLabel,
-  isVideo,
-  isMuted,
-  isOwnStory,
-  onToggleMute,
-  onDelete,
-  onClose,
-}: StoryViewerHeaderProps) {
+export function StoryViewerHeader(props: StoryViewerHeaderProps) {
   return (
-    <div className="absolute top-4 left-0 right-0 z-20 px-4 flex items-center justify-between">
-      <div className="flex items-center gap-3">
+    <div class="absolute top-4 left-0 right-0 z-20 px-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
         <UserAvatar
-          avatarUrl={actor.icon_url}
-          name={actor.name || actor.preferred_username}
+          avatarUrl={props.actor.icon_url}
+          name={props.actor.name || props.actor.preferred_username}
           size={32}
         />
         <div>
-          <p className="text-white text-sm font-medium">
-            {actor.name || actor.preferred_username}
+          <p class="text-white text-sm font-medium">
+            {props.actor.name || props.actor.preferred_username}
           </p>
-          <p className="text-neutral-400 text-xs">
-            {timeLabel}
+          <p class="text-neutral-400 text-xs">
+            {props.timeLabel}
           </p>
         </div>
       </div>
-      <div className="flex items-center gap-1">
-        {isVideo && (
+      <div class="flex items-center gap-1">
+        <Show when={props.isVideo}>
           <button
-            onClick={onToggleMute}
-            aria-label={isMuted ? "Unmute video" : "Mute video"}
-            className="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
+            onClick={props.onToggleMute}
+            aria-label={props.isMuted ? "Unmute video" : "Mute video"}
+            class="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
           >
-            {isMuted ? <MutedIcon /> : <UnmutedIcon />}
+            {props.isMuted ? <MutedIcon /> : <UnmutedIcon />}
           </button>
-        )}
-        {isOwnStory && (
+        </Show>
+        <Show when={props.isOwnStory}>
           <button
-            onClick={onDelete}
+            onClick={props.onDelete}
             aria-label="Delete story"
-            className="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
+            class="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
           >
             <TrashIcon />
           </button>
-        )}
+        </Show>
         <button
-          onClick={onClose}
+          onClick={props.onClose}
           aria-label="Close"
-          className="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
+          class="p-2 text-white hover:bg-white/10 rounded-full transition-colors"
         >
           <CloseIcon />
         </button>

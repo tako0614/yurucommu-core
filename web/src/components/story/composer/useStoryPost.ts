@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { createSignal } from 'solid-js';
 import type { StoryCanvas, TextLayer } from '../../../lib/story-canvas.ts';
 import type { StoryOverlay } from '../../../types/index.ts';
 import { createStory, uploadMedia } from '../../../lib/api.ts';
@@ -22,26 +22,14 @@ interface UseStoryPostOptions {
   onClose: () => void;
 }
 
-export function useStoryPost({
-  storyCanvas,
-  videoFile,
-  videoScale,
-  videoPosition,
-  videoRotation,
-  displayScale,
-  ffmpegReady,
-  overlays,
-  setError,
-  onSuccess,
-  onClose,
-}: UseStoryPostOptions) {
-  const [posting, setPosting] = useState(false);
-  const [progress, setProgress] = useState(0);
+export function useStoryPost(opts: UseStoryPostOptions) {
+  const [posting, setPosting] = createSignal(false);
+  const [progress, setProgress] = createSignal(0);
 
-  const calculateDuration = useCallback((): number => {
-    if (!storyCanvas) return 5;
+  const calculateDuration = (): number => {
+    if (!opts.storyCanvas) return 5;
 
-    const layers = storyCanvas.getLayers();
+    const layers = opts.storyCanvas.getLayers();
     let seconds = 3;
 
     const textLayers = layers.filter(l => l.type === 'text') as TextLayer[];
@@ -52,41 +40,41 @@ export function useStoryPost({
     }
 
     return Math.max(3, Math.min(15, seconds));
-  }, [storyCanvas]);
+  };
 
-  const handlePost = useCallback(async () => {
-    if (!storyCanvas || posting) return;
+  const handlePost = async () => {
+    if (!opts.storyCanvas || posting()) return;
     // Video mode requires FFmpeg to be ready
-    if (videoFile && !ffmpegReady) {
-      setError('動画処理の準備中です。しばらくお待ちください。');
+    if (opts.videoFile && !opts.ffmpegReady) {
+      opts.setError('動画処理の準備中です。しばらくお待ちください。');
       return;
     }
 
     setPosting(true);
     setProgress(0);
-    setError(null);
+    opts.setError(null);
 
     try {
       // Render canvas first
-      await storyCanvas.render();
-      const canvas = storyCanvas.getCanvas();
+      await opts.storyCanvas.render();
+      const canvas = opts.storyCanvas.getCanvas();
 
       let blob: Blob;
       let contentType: string;
       let duration: number;
 
-      if (videoFile) {
+      if (opts.videoFile) {
         // Video mode: export canvas overlay on video through FFmpeg
         setProgress(10);
         const transform: VideoTransform = {
-          scale: videoScale,
-          position: videoPosition,
-          rotation: videoRotation,
-          displayScale: displayScale,
+          scale: opts.videoScale,
+          position: opts.videoPosition,
+          rotation: opts.videoRotation,
+          displayScale: opts.displayScale,
         };
         const result = await exportCanvasWithVideo(
           canvas,
-          videoFile,
+          opts.videoFile,
           (p) => setProgress(10 + p * 0.6), // 10-70%
           transform
         );
@@ -113,7 +101,7 @@ export function useStoryPost({
 
       // Upload to server
       setProgress(70);
-      const filename = videoFile ? 'story.mp4' : 'story.jpg';
+      const filename = opts.videoFile ? 'story.mp4' : 'story.jpg';
       const file = new File([blob], filename, { type: contentType });
       const result = await uploadMedia(file);
 
@@ -125,30 +113,26 @@ export function useStoryPost({
           content_type: contentType,
         },
         displayDuration: `PT${Math.round(duration)}S`,
-        overlays: overlays.length > 0 ? overlays : undefined,
+        overlays: opts.overlays.length > 0 ? opts.overlays : undefined,
       });
 
       setProgress(100);
-      onSuccess();
-      onClose();
+      opts.onSuccess();
+      opts.onClose();
     } catch (err) {
       console.error('Failed to create story:', err);
       if (err instanceof FFmpegError) {
-        setError(`動画処理エラー: ${err.message}`);
+        opts.setError(`動画処理エラー: ${err.message}`);
       } else if (err instanceof Error) {
-        setError(`エラー: ${err.message}`);
+        opts.setError(`エラー: ${err.message}`);
       } else {
-        setError('ストーリーの作成に失敗しました');
+        opts.setError('ストーリーの作成に失敗しました');
       }
     } finally {
       setPosting(false);
       setProgress(0);
     }
-  }, [
-    storyCanvas, posting, videoFile, ffmpegReady,
-    videoScale, videoPosition, videoRotation, displayScale,
-    calculateDuration, overlays, setError, onSuccess, onClose,
-  ]);
+  };
 
   return {
     posting,

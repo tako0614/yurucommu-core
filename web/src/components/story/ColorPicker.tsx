@@ -4,7 +4,7 @@
  * Simple color picker with presets and custom color input.
  */
 
-import { useState } from 'react';
+import { createSignal, Show, For } from 'solid-js';
 
 interface ColorPickerProps {
   color: string;
@@ -32,69 +32,70 @@ const GRADIENT_PRESETS = [
   { colors: ['#43e97b', '#38f9d7'], angle: 135 },
 ];
 
-export function ColorPicker({ color, onChange, label, showAlpha = false }: ColorPickerProps) {
-  const [showCustom, setShowCustom] = useState(false);
-  const [customColor, setCustomColor] = useState(color);
+export function ColorPicker(props: ColorPickerProps) {
+  const [showCustom, setShowCustom] = createSignal(false);
+  const [customColor, setCustomColor] = createSignal(props.color);
 
   const handlePresetClick = (preset: string) => {
-    onChange(preset);
+    props.onChange(preset);
     setCustomColor(preset);
   };
 
-  const handleCustomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
+  const handleCustomChange = (e: InputEvent & { currentTarget: HTMLInputElement }) => {
+    const value = e.currentTarget.value;
     setCustomColor(value);
-    onChange(value);
+    props.onChange(value);
   };
 
   return (
-    <div className="space-y-2">
-      {label && (
-        <label className="text-neutral-400 text-sm">{label}</label>
-      )}
+    <div class="space-y-2">
+      <Show when={props.label}>
+        <label class="text-neutral-400 text-sm">{props.label}</label>
+      </Show>
 
       {/* Preset colors */}
-      <div className="grid grid-cols-8 gap-1">
-        {PRESET_COLORS.map((preset) => (
-          <button
-            key={preset}
-            onClick={() => handlePresetClick(preset)}
-            className={`w-8 h-8 rounded-lg border-2 transition-all ${
-              color === preset
-                ? 'border-white scale-110 shadow-lg'
-                : 'border-transparent hover:scale-105'
-            }`}
-            style={{ backgroundColor: preset }}
-          />
-        ))}
+      <div class="grid grid-cols-8 gap-1">
+        <For each={PRESET_COLORS}>
+          {(preset) => (
+            <button
+              onClick={() => handlePresetClick(preset)}
+              class={`w-8 h-8 rounded-lg border-2 transition-all ${
+                props.color === preset
+                  ? 'border-white scale-110 shadow-lg'
+                  : 'border-transparent hover:scale-105'
+              }`}
+              style={{ "background-color": preset }}
+            />
+          )}
+        </For>
       </div>
 
       {/* Custom color toggle */}
       <button
-        onClick={() => setShowCustom(!showCustom)}
-        className="text-neutral-400 text-xs hover:text-white transition-colors"
+        onClick={() => setShowCustom(!showCustom())}
+        class="text-neutral-400 text-xs hover:text-white transition-colors"
       >
-        カスタムカラー {showCustom ? '▲' : '▼'}
+        カスタムカラー {showCustom() ? '▲' : '▼'}
       </button>
 
       {/* Custom color input */}
-      {showCustom && (
-        <div className="flex gap-2 items-center">
+      <Show when={showCustom()}>
+        <div class="flex gap-2 items-center">
           <input
             type="color"
-            value={customColor.startsWith('#') ? customColor : '#ffffff'}
-            onChange={handleCustomChange}
-            className="w-10 h-10 rounded-lg cursor-pointer bg-transparent"
+            value={customColor().startsWith('#') ? customColor() : '#ffffff'}
+            onInput={handleCustomChange}
+            class="w-10 h-10 rounded-lg cursor-pointer bg-transparent"
           />
           <input
             type="text"
-            value={customColor}
-            onChange={handleCustomChange}
+            value={customColor()}
+            onInput={handleCustomChange}
             placeholder="#ffffff"
-            className="flex-1 bg-neutral-800 text-white px-3 py-2 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
+            class="flex-1 bg-neutral-800 text-white px-3 py-2 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-      )}
+      </Show>
     </div>
   );
 }
@@ -107,65 +108,66 @@ interface GradientPickerProps {
   label?: string;
 }
 
-export function GradientPicker({ colors, angle, onChange, label }: GradientPickerProps) {
+export function GradientPicker(props: GradientPickerProps) {
   const getGradientStyle = (c: string[], a: number) => {
     return `linear-gradient(${a}deg, ${c.join(', ')})`;
   };
 
   return (
-    <div className="space-y-2">
-      {label && (
-        <label className="text-neutral-400 text-sm">{label}</label>
-      )}
+    <div class="space-y-2">
+      <Show when={props.label}>
+        <label class="text-neutral-400 text-sm">{props.label}</label>
+      </Show>
 
       {/* Preset gradients */}
-      <div className="grid grid-cols-4 gap-2">
-        {GRADIENT_PRESETS.map((preset) => (
-          <button
-            key={preset.colors.join('-')}
-            onClick={() => onChange(preset.colors, preset.angle)}
-            className={`w-full aspect-square rounded-lg border-2 transition-all ${
-              JSON.stringify(colors) === JSON.stringify(preset.colors)
-                ? 'border-white scale-105 shadow-lg'
-                : 'border-transparent hover:scale-105'
-            }`}
-            style={{ background: getGradientStyle(preset.colors, preset.angle) }}
-          />
-        ))}
+      <div class="grid grid-cols-4 gap-2">
+        <For each={GRADIENT_PRESETS}>
+          {(preset) => (
+            <button
+              onClick={() => props.onChange(preset.colors, preset.angle)}
+              class={`w-full aspect-square rounded-lg border-2 transition-all ${
+                JSON.stringify(props.colors) === JSON.stringify(preset.colors)
+                  ? 'border-white scale-105 shadow-lg'
+                  : 'border-transparent hover:scale-105'
+              }`}
+              style={{ background: getGradientStyle(preset.colors, preset.angle) }}
+            />
+          )}
+        </For>
       </div>
 
       {/* Custom gradient controls */}
-      <div className="flex gap-2">
-        <div className="flex-1">
-          <label className="text-neutral-500 text-xs">開始色</label>
+      <div class="flex gap-2">
+        <div class="flex-1">
+          <label class="text-neutral-500 text-xs">開始色</label>
           <input
             type="color"
-            value={colors[0] || '#667eea'}
-            onChange={(e) => onChange([e.target.value, colors[1] || '#764ba2'], angle)}
-            className="w-full h-8 rounded cursor-pointer bg-transparent"
+            value={props.colors[0] || '#667eea'}
+            onInput={(e) => props.onChange([e.currentTarget.value, props.colors[1] || '#764ba2'], props.angle)}
+            class="w-full h-8 rounded cursor-pointer bg-transparent"
           />
         </div>
-        <div className="flex-1">
-          <label className="text-neutral-500 text-xs">終了色</label>
+        <div class="flex-1">
+          <label class="text-neutral-500 text-xs">終了色</label>
           <input
             type="color"
-            value={colors[colors.length - 1] || '#764ba2'}
-            onChange={(e) => onChange([colors[0] || '#667eea', e.target.value], angle)}
-            className="w-full h-8 rounded cursor-pointer bg-transparent"
+            value={props.colors[props.colors.length - 1] || '#764ba2'}
+            onInput={(e) => props.onChange([props.colors[0] || '#667eea', e.currentTarget.value], props.angle)}
+            class="w-full h-8 rounded cursor-pointer bg-transparent"
           />
         </div>
       </div>
 
       {/* Angle slider */}
       <div>
-        <label className="text-neutral-500 text-xs">角度: {angle}°</label>
+        <label class="text-neutral-500 text-xs">角度: {props.angle}°</label>
         <input
           type="range"
           min="0"
           max="360"
-          value={angle}
-          onChange={(e) => onChange(colors, parseInt(e.target.value))}
-          className="w-full accent-blue-500"
+          value={props.angle}
+          onInput={(e) => props.onChange(props.colors, parseInt(e.currentTarget.value))}
+          class="w-full accent-blue-500"
         />
       </div>
     </div>
