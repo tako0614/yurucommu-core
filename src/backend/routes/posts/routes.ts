@@ -1,53 +1,72 @@
-import { Hono } from 'hono';
-import { actors, objects, follows } from '../../../db/index.ts';
-import { eq, and, or, desc, sql } from 'drizzle-orm';
-import type { Env, Variables } from '../../types.ts';
-import { generateId, objectApId, activityApId, formatUsername, parseLimit, safeJsonParse } from '../../federation-helpers.ts';
-import { MAX_POSTS_PAGE_LIMIT, normalizeVisibility, formatPost, PostRow } from './transformers.ts';
+import { Hono } from "hono";
+import { actors, follows, objects } from "../../../db/index.ts";
+import { and, desc, eq, or, sql } from "drizzle-orm";
+import type { Env, Variables } from "../../types.ts";
 import {
-  type PostDetailRow,
-  type PostWithAuthor,
+  activityApId,
+  formatUsername,
+  generateId,
+  objectApId,
+  parseLimit,
+  safeJsonParse,
+} from "../../federation-helpers.ts";
+import {
+  formatPost,
+  MAX_POSTS_PAGE_LIMIT,
+  normalizeVisibility,
+  PostRow,
+} from "./transformers.ts";
+import {
   AUTHOR_WITH,
+  buildAddressing,
+  loadCachedAuthorMap,
+  loadInteractionFlags,
+  persistAndFanout,
+  type PostDetailRow,
   postWhereByIdOrApId,
+  type PostWithAuthor,
   resolveAuthor,
   resolveAuthorWithCache,
   toPostRow,
-  buildAddressing,
-  loadInteractionFlags,
-  persistAndFanout,
-  loadCachedAuthorMap,
-} from './queries.ts';
+} from "./queries.ts";
 import {
-  requireActor,
-  validateCreatePostBody,
   checkCommunityPostPermission,
   insertPostAndHandleReply,
   processMentions,
-  validateEditBody,
-  validateContentEdit,
-  validateSummaryEdit,
   REPLY_TARGET_NOT_FOUND,
-} from './post-helpers.ts';
+  requireActor,
+  validateContentEdit,
+  validateCreatePostBody,
+  validateEditBody,
+  validateSummaryEdit,
+} from "./post-helpers.ts";
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 // --- Route handlers ---
 
 // Create post
-posts.post('/', async (c) => {
+posts.post("/", async (c) => {
   const actor = requireActor(c);
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
   const validation = await validateCreatePostBody(c);
   if (!validation.ok) {
-    return c.json({ error: validation.error, ...(validation.code ? { code: validation.code } : {}) }, 400);
+    return c.json({
+      error: validation.error,
+      ...(validation.code ? { code: validation.code } : {}),
+    }, 400);
   }
   const { body, content, summary } = validation;
 
-  const db = c.get('db');
+  const db = c.get("db");
   const visibility = normalizeVisibility(body.visibility);
 
-  const communityCheck = await checkCommunityPostPermission(db, actor.ap_id, body.community_ap_id);
+  const communityCheck = await checkCommunityPostPermission(
+    db,
+    actor.ap_id,
+    body.community_ap_id,
+  );
   if (!communityCheck.allowed) {
     return c.json({ error: communityCheck.error }, communityCheck.status);
   }
@@ -74,10 +93,10 @@ posts.post('/', async (c) => {
     });
   } catch (e) {
     if (e instanceof Error && e.message === REPLY_TARGET_NOT_FOUND) {
-      return c.json({ error: 'Reply target not found' }, 404);
+      return c.json({ error: "Reply target not found" }, 404);
     }
-    console.error('[Posts] Failed to create post transaction:', e);
-    return c.json({ error: 'Failed to create post' }, 500);
+    console.error("[Posts] Failed to create post transaction:", e);
+    return c.json({ error: "Failed to create post" }, 500);
   }
 
   // Process mentions and create notifications
@@ -91,22 +110,22 @@ posts.post('/', async (c) => {
   });
 
   // Federate to followers if visibility is not direct
-  if (visibility !== 'direct') {
+  if (visibility !== "direct") {
     const followersUrl = `${actor.ap_id}/followers`;
     const { to, cc } = buildAddressing(visibility, followersUrl);
 
     const createActivity = {
-      '@context': 'https://www.w3.org/ns/activitystreams',
+      "@context": "https://www.w3.org/ns/activitystreams",
       id: activityApId(baseUrl, generateId()),
-      type: 'Create',
+      type: "Create",
       actor: actor.ap_id,
       published: now,
       to,
       cc,
       object: {
-        '@context': 'https://www.w3.org/ns/activitystreams',
+        "@context": "https://www.w3.org/ns/activitystreams",
         id: apId,
-        type: 'Note',
+        type: "Note",
         attributedTo: actor.ap_id,
         content,
         summary: summary || null,
@@ -121,9 +140,9 @@ posts.post('/', async (c) => {
     await persistAndFanout(db, c.env, createActivity, apId);
   }
 
-  return c.json({
+  const createdPost = {
     ap_id: apId,
-    type: 'Note',
+    type: "Note",
     author: {
       ap_id: actor.ap_id,
       username: formatUsername(actor.ap_id),
@@ -143,28 +162,33 @@ posts.post('/', async (c) => {
     bookmarked: false,
     ...(mentionFailures.length > 0
       ? {
-          mention_processing: {
-            failed_count: mentionFailures.length,
-            failures: mentionFailures,
-          },
-        }
+        mention_processing: {
+          failed_count: mentionFailures.length,
+          failures: mentionFailures,
+        },
+      }
       : {}),
+  };
+
+  return c.json({
+    ...createdPost,
+    post: createdPost,
   });
 });
 
 // Get single post
-posts.get('/:id', async (c) => {
-  const currentActor = c.get('actor');
-  const postId = c.req.param('id');
+posts.get("/:id", async (c) => {
+  const currentActor = c.get("actor");
+  const postId = c.req.param("id");
   const baseUrl = c.env.APP_URL;
-  const db = c.get('db');
+  const db = c.get("db");
 
   const post = await db.query.objects.findFirst({
     where: postWhereByIdOrApId(baseUrl, postId),
     with: AUTHOR_WITH,
   });
 
-  if (!post) return c.json({ error: 'Post not found' }, 404);
+  if (!post) return c.json({ error: "Post not found" }, 404);
 
   // Resolve author and interaction flags in parallel
   const [author, { likedIds, bookmarkedIds }] = await Promise.all([
@@ -175,8 +199,8 @@ posts.get('/:id', async (c) => {
   const bookmarked = bookmarkedIds.has(post.apId);
 
   // Check visibility - followers-only
-  if (post.visibility === 'followers') {
-    if (!currentActor) return c.json({ error: 'Post not found' }, 404);
+  if (post.visibility === "followers") {
+    if (!currentActor) return c.json({ error: "Post not found" }, 404);
     if (currentActor.ap_id !== post.attributedTo) {
       const followRow = await db.select({ followerApId: follows.followerApId })
         .from(follows)
@@ -184,21 +208,21 @@ posts.get('/:id', async (c) => {
           and(
             eq(follows.followerApId, currentActor.ap_id),
             eq(follows.followingApId, post.attributedTo),
-            eq(follows.status, 'accepted'),
-          )
+            eq(follows.status, "accepted"),
+          ),
         )
         .get();
-      if (!followRow) return c.json({ error: 'Post not found' }, 404);
+      if (!followRow) return c.json({ error: "Post not found" }, 404);
     }
   }
 
   // Check visibility - direct messages
-  if (post.visibility === 'direct') {
-    if (!currentActor) return c.json({ error: 'Post not found' }, 404);
+  if (post.visibility === "direct") {
+    if (!currentActor) return c.json({ error: "Post not found" }, 404);
     if (currentActor.ap_id !== post.attributedTo) {
       const recipients = safeJsonParse<string[]>(post.toJson, []);
       if (!recipients.includes(currentActor.ap_id)) {
-        return c.json({ error: 'Post not found' }, 404);
+        return c.json({ error: "Post not found" }, 404);
       }
     }
   }
@@ -213,23 +237,26 @@ posts.get('/:id', async (c) => {
 });
 
 // Get post replies
-posts.get('/:id/replies', async (c) => {
-  const currentActor = c.get('actor');
-  const postId = c.req.param('id');
+posts.get("/:id/replies", async (c) => {
+  const currentActor = c.get("actor");
+  const postId = c.req.param("id");
   const baseUrl = c.env.APP_URL;
-  const limit = parseLimit(c.req.query('limit'), 20, MAX_POSTS_PAGE_LIMIT);
-  const before = c.req.query('before');
-  const db = c.get('db');
+  const limit = parseLimit(c.req.query("limit"), 20, MAX_POSTS_PAGE_LIMIT);
+  const before = c.req.query("before");
+  const db = c.get("db");
 
   const parentPost = await db.select({ apId: objects.apId })
     .from(objects)
     .where(postWhereByIdOrApId(baseUrl, postId)!)
     .get();
 
-  if (!parentPost) return c.json({ error: 'Post not found' }, 404);
+  if (!parentPost) return c.json({ error: "Post not found" }, 404);
 
   const whereCondition = before
-    ? and(eq(objects.inReplyTo, parentPost.apId), sql`${objects.published} < ${before}`)
+    ? and(
+      eq(objects.inReplyTo, parentPost.apId),
+      sql`${objects.published} < ${before}`,
+    )
     : eq(objects.inReplyTo, parentPost.apId);
 
   const replies = await db.query.objects.findMany({
@@ -247,7 +274,11 @@ posts.get('/:id/replies', async (c) => {
   ]);
 
   const result = replies.map((reply) => {
-    const author = resolveAuthor(reply.author, reply.attributedTo, cachedAuthorMap);
+    const author = resolveAuthor(
+      reply.author,
+      reply.attributedTo,
+      cachedAuthorMap,
+    );
     const postRow = toPostRow(reply as PostWithAuthor, author, {
       liked: likedIds.has(reply.apId),
     });
@@ -258,26 +289,31 @@ posts.get('/:id/replies', async (c) => {
 });
 
 // Edit post
-posts.patch('/:id', async (c) => {
+posts.patch("/:id", async (c) => {
   const actor = requireActor(c);
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const postId = c.req.param('id');
+  const postId = c.req.param("id");
   const baseUrl = c.env.APP_URL;
 
   const editValidation = await validateEditBody(c);
   if (!editValidation.ok) {
-    return c.json({ error: editValidation.error, ...(editValidation.code ? { code: editValidation.code } : {}) }, 400);
+    return c.json({
+      error: editValidation.error,
+      ...(editValidation.code ? { code: editValidation.code } : {}),
+    }, 400);
   }
   const { body } = editValidation;
 
-  const db = c.get('db');
+  const db = c.get("db");
 
   const post = await db.query.objects.findFirst({
     where: postWhereByIdOrApId(baseUrl, postId),
   });
-  if (!post) return c.json({ error: 'Post not found' }, 404);
-  if (post.attributedTo !== actor.ap_id) return c.json({ error: 'Forbidden' }, 403);
+  if (!post) return c.json({ error: "Post not found" }, 404);
+  if (post.attributedTo !== actor.ap_id) {
+    return c.json({ error: "Forbidden" }, 403);
+  }
 
   // Validate content
   const contentCheck = validateContentEdit(body.content);
@@ -289,8 +325,12 @@ posts.patch('/:id', async (c) => {
   if (!summaryCheck.ok) return c.json({ error: summaryCheck.error }, 400);
   const trimmedSummary = summaryCheck.ok ? summaryCheck.trimmed : undefined;
 
-  const nextContent = body.content !== undefined ? (trimmedContent as string) : post.content;
-  const nextSummary = body.summary !== undefined ? trimmedSummary || null : post.summary;
+  const nextContent = body.content !== undefined
+    ? (trimmedContent as string)
+    : post.content;
+  const nextSummary = body.summary !== undefined
+    ? trimmedSummary || null
+    : post.summary;
   const now = new Date().toISOString();
 
   const updateData: {
@@ -303,7 +343,7 @@ posts.patch('/:id', async (c) => {
   if (body.summary !== undefined) updateData.summary = trimmedSummary || null;
 
   if (Object.keys(updateData).length === 1) {
-    return c.json({ error: 'No changes provided' }, 400);
+    return c.json({ error: "No changes provided" }, 400);
   }
 
   await db.update(objects)
@@ -311,13 +351,13 @@ posts.patch('/:id', async (c) => {
     .where(eq(objects.apId, post.apId));
 
   const updateActivity = {
-    '@context': 'https://www.w3.org/ns/activitystreams',
+    "@context": "https://www.w3.org/ns/activitystreams",
     id: activityApId(baseUrl, generateId()),
-    type: 'Update',
+    type: "Update",
     actor: actor.ap_id,
     object: {
       id: post.apId,
-      type: 'Note',
+      type: "Note",
       attributedTo: actor.ap_id,
       content: nextContent,
       summary: nextSummary,
@@ -339,20 +379,22 @@ posts.patch('/:id', async (c) => {
 });
 
 // Delete post
-posts.delete('/:id', async (c) => {
+posts.delete("/:id", async (c) => {
   const actor = requireActor(c);
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const postId = c.req.param('id');
+  const postId = c.req.param("id");
   const baseUrl = c.env.APP_URL;
-  const db = c.get('db');
+  const db = c.get("db");
 
   const post = await db.query.objects.findFirst({
     where: postWhereByIdOrApId(baseUrl, postId),
   });
 
-  if (!post) return c.json({ error: 'Post not found' }, 404);
-  if (post.attributedTo !== actor.ap_id) return c.json({ error: 'Forbidden' }, 403);
+  if (!post) return c.json({ error: "Post not found" }, 404);
+  if (post.attributedTo !== actor.ap_id) {
+    return c.json({ error: "Forbidden" }, 403);
+  }
 
   // D1 doesn't support interactive transactions; use sequential operations
   await db.delete(objects).where(eq(objects.apId, post.apId));
@@ -365,18 +407,22 @@ posts.delete('/:id', async (c) => {
   if (post.inReplyTo) {
     const result = await db.update(objects)
       .set({ replyCount: sql`${objects.replyCount} - 1` })
-      .where(and(eq(objects.apId, post.inReplyTo), sql`${objects.replyCount} > 0`));
+      .where(
+        and(eq(objects.apId, post.inReplyTo), sql`${objects.replyCount} > 0`),
+      );
     parentUpdated = (result?.meta?.changes ?? 0) > 0;
   }
 
   if (post.inReplyTo && !parentUpdated) {
-    console.warn('[Posts] Failed to decrement parent reply count (parent may not exist)');
+    console.warn(
+      "[Posts] Failed to decrement parent reply count (parent may not exist)",
+    );
   }
 
   const deleteActivity = {
-    '@context': 'https://www.w3.org/ns/activitystreams',
+    "@context": "https://www.w3.org/ns/activitystreams",
     id: activityApId(baseUrl, generateId()),
-    type: 'Delete',
+    type: "Delete",
     actor: actor.ap_id,
     object: post.apId,
   };

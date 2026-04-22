@@ -4,20 +4,27 @@
  * These adapters wrap Cloudflare-specific APIs to conform to the runtime interfaces.
  */
 
-import type { D1Database, R2Bucket, KVNamespace, Fetcher } from '@cloudflare/workers-types';
 import type {
-  IDatabase,
-  IObjectStorage,
-  IKeyValueStore,
-  IStaticAssets,
-  PreparedStatement,
-  QueryResult,
+  D1Database,
+  Fetcher,
+  KVNamespace,
+  R2Bucket,
+} from "@cloudflare/workers-types";
+import type {
   FirstResult,
-  RunResult,
-  StorageObject,
+  IDatabase,
+  IKeyValueStore,
+  IObjectStorage,
+  IStaticAssets,
   ListObjectsResult,
   ObjectMetadata,
-} from './types.ts';
+  PreparedStatement,
+  QueryResult,
+  RunResult,
+  StorageObject,
+} from "./types.ts";
+
+type D1BatchResult = Awaited<ReturnType<D1Database["batch"]>>[number];
 
 /**
  * Cloudflare D1 Database Adapter
@@ -33,14 +40,16 @@ class CloudflareDatabase implements IDatabase {
     await this.db.exec(query);
   }
 
-  async batch<T = unknown>(statements: PreparedStatement[]): Promise<QueryResult<T>[]> {
+  async batch<T = unknown>(
+    statements: PreparedStatement[],
+  ): Promise<QueryResult<T>[]> {
     const d1Statements = statements.map((s) => {
       if (s instanceof CloudflarePreparedStatement) return s.getD1Statement();
-      throw new Error('Invalid statement type for Cloudflare batch');
+      throw new Error("Invalid statement type for Cloudflare batch");
     });
 
     const results = await this.db.batch(d1Statements);
-    return results.map((r) => ({
+    return results.map((r: D1BatchResult) => ({
       results: (r.results ?? []) as T[],
       success: r.success,
       meta: r.meta,
@@ -52,9 +61,9 @@ class CloudflareDatabase implements IDatabase {
  * Cloudflare D1 Prepared Statement Adapter
  */
 class CloudflarePreparedStatement implements PreparedStatement {
-  private stmt: ReturnType<D1Database['prepare']>;
+  private stmt: ReturnType<D1Database["prepare"]>;
 
-  constructor(stmt: ReturnType<D1Database['prepare']>) {
+  constructor(stmt: ReturnType<D1Database["prepare"]>) {
     this.stmt = stmt;
   }
 
@@ -64,14 +73,19 @@ class CloudflarePreparedStatement implements PreparedStatement {
   }
 
   async first<T = unknown>(colName?: string): Promise<FirstResult<T>> {
-    if (colName) return this.stmt.first<T>(colName);
-    return this.stmt.first<T>();
+    const stmt = this.stmt as {
+      first(columnName?: string): Promise<unknown | null>;
+    };
+    return await stmt.first(colName) as FirstResult<T>;
   }
 
   async all<T = unknown>(): Promise<QueryResult<T>> {
-    const result = await this.stmt.all<T>();
+    const stmt = this.stmt as {
+      all(): Promise<QueryResult<unknown>>;
+    };
+    const result = await stmt.all();
     return {
-      results: result.results ?? [],
+      results: (result.results ?? []) as T[],
       success: result.success,
       meta: result.meta,
     };
@@ -85,7 +99,7 @@ class CloudflarePreparedStatement implements PreparedStatement {
     };
   }
 
-  getD1Statement(): ReturnType<D1Database['prepare']> {
+  getD1Statement(): ReturnType<D1Database["prepare"]> {
     return this.stmt;
   }
 }
@@ -100,11 +114,11 @@ class CloudflareStorage implements IObjectStorage {
     key: string,
     value: ReadableStream | ArrayBuffer | string,
     options?: {
-      httpMetadata?: ObjectMetadata['httpMetadata'];
+      httpMetadata?: ObjectMetadata["httpMetadata"];
       customMetadata?: Record<string, string>;
-    }
+    },
   ): Promise<void> {
-    await this.bucket.put(key, value as Parameters<R2Bucket['put']>[1], {
+    await this.bucket.put(key, value as Parameters<R2Bucket["put"]>[1], {
       httpMetadata: options?.httpMetadata,
       customMetadata: options?.customMetadata,
     });
@@ -137,7 +151,15 @@ class CloudflareStorage implements IObjectStorage {
     delimiter?: string;
   }): Promise<ListObjectsResult> {
     const result = await this.bucket.list(options) as {
-      objects: Array<{ key: string; size: number; uploaded: Date; etag: string; httpMetadata?: ObjectMetadata['httpMetadata'] }>;
+      objects: Array<
+        {
+          key: string;
+          size: number;
+          uploaded: Date;
+          etag: string;
+          httpMetadata?: ObjectMetadata["httpMetadata"];
+        }
+      >;
       truncated: boolean;
       cursor?: string;
       delimitedPrefixes?: string[];
@@ -176,14 +198,22 @@ class CloudflareStorage implements IObjectStorage {
 class CloudflareKV implements IKeyValueStore {
   constructor(private kv: KVNamespace) {}
 
-  get(key: string, options?: { type?: 'text' }): Promise<string | null>;
-  get<T = unknown>(key: string, options: { type: 'json' }): Promise<T | null>;
-  get(key: string, options: { type: 'arrayBuffer' }): Promise<ArrayBuffer | null>;
-  async get(key: string, options?: { type?: 'text' | 'json' | 'arrayBuffer' }): Promise<string | ArrayBuffer | unknown | null> {
-    const type = options?.type ?? 'text';
-    if (type === 'json') return this.kv.get(key, { type: 'json' });
-    if (type === 'arrayBuffer') return this.kv.get(key, { type: 'arrayBuffer' });
-    return this.kv.get(key, { type: 'text' });
+  get(key: string, options?: { type?: "text" }): Promise<string | null>;
+  get<T = unknown>(key: string, options: { type: "json" }): Promise<T | null>;
+  get(
+    key: string,
+    options: { type: "arrayBuffer" },
+  ): Promise<ArrayBuffer | null>;
+  async get(
+    key: string,
+    options?: { type?: "text" | "json" | "arrayBuffer" },
+  ): Promise<string | ArrayBuffer | unknown | null> {
+    const type = options?.type ?? "text";
+    if (type === "json") return this.kv.get(key, { type: "json" });
+    if (type === "arrayBuffer") {
+      return this.kv.get(key, { type: "arrayBuffer" });
+    }
+    return this.kv.get(key, { type: "text" });
   }
 
   async put(
@@ -193,7 +223,7 @@ class CloudflareKV implements IKeyValueStore {
       expirationTtl?: number;
       expiration?: number;
       metadata?: Record<string, unknown>;
-    }
+    },
   ): Promise<void> {
     await this.kv.put(key, value as string, {
       expirationTtl: options?.expirationTtl,
@@ -230,7 +260,9 @@ class CloudflareAssets implements IStaticAssets {
   constructor(private assets: Fetcher) {}
 
   async fetch(request: Request): Promise<Response> {
-    const response = await this.assets.fetch(request as unknown as Parameters<Fetcher['fetch']>[0]);
+    const response = await this.assets.fetch(
+      request as unknown as Parameters<Fetcher["fetch"]>[0],
+    );
     return response as unknown as Response;
   }
 }
@@ -255,11 +287,19 @@ export function createCloudflareRuntime(env: {
   AUTH_MODE?: string;
 }) {
   const {
-    DB, MEDIA, KV, ASSETS,
-    APP_URL, AUTH_PASSWORD_HASH,
-    GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
-    X_CLIENT_ID, X_CLIENT_SECRET,
-    TAKOS_URL, TAKOS_CLIENT_ID, TAKOS_CLIENT_SECRET,
+    DB,
+    MEDIA,
+    KV,
+    ASSETS,
+    APP_URL,
+    AUTH_PASSWORD_HASH,
+    GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET,
+    X_CLIENT_ID,
+    X_CLIENT_SECRET,
+    TAKOS_URL,
+    TAKOS_CLIENT_ID,
+    TAKOS_CLIENT_SECRET,
     AUTH_MODE,
   } = env;
 
@@ -268,10 +308,15 @@ export function createCloudflareRuntime(env: {
     storage: MEDIA ? new CloudflareStorage(MEDIA) : undefined,
     kv: KV ? new CloudflareKV(KV) : undefined,
     assets: ASSETS ? new CloudflareAssets(ASSETS) : undefined,
-    APP_URL, AUTH_PASSWORD_HASH,
-    GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
-    X_CLIENT_ID, X_CLIENT_SECRET,
-    TAKOS_URL, TAKOS_CLIENT_ID, TAKOS_CLIENT_SECRET,
+    APP_URL,
+    AUTH_PASSWORD_HASH,
+    GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET,
+    X_CLIENT_ID,
+    X_CLIENT_SECRET,
+    TAKOS_URL,
+    TAKOS_CLIENT_ID,
+    TAKOS_CLIENT_SECRET,
     AUTH_MODE,
   };
 }

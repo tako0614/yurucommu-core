@@ -1,4 +1,4 @@
-import { formatUsername, safeJsonParse } from '../../federation-helpers.ts';
+import { formatUsername, safeJsonParse } from "../../federation-helpers.ts";
 
 export const MAX_POST_CONTENT_LENGTH = 5000;
 export const MAX_POST_SUMMARY_LENGTH = 500;
@@ -54,7 +54,10 @@ export function extractMentions(content: string): string[] {
   return [...new Set(matches)];
 }
 
-export function formatPost(p: PostRow, currentActorApId?: string): FormattedPost {
+export function formatPost(
+  p: PostRow,
+  currentActorApId?: string,
+): FormattedPost {
   return {
     ap_id: p.ap_id,
     type: p.type,
@@ -79,12 +82,20 @@ export function formatPost(p: PostRow, currentActorApId?: string): FormattedPost
   };
 }
 
-const VALID_VISIBILITIES = new Set(['public', 'unlisted', 'followers', 'direct'] as const);
+const VALID_VISIBILITIES = new Set(
+  ["public", "unlisted", "followers", "direct"] as const,
+);
 
-export function normalizeVisibility(value?: string): 'public' | 'unlisted' | 'followers' | 'direct' {
-  if (value === 'private' || value === 'followers_only') return 'followers';
-  if (VALID_VISIBILITIES.has(value as 'public' | 'unlisted' | 'followers' | 'direct')) {
-    return value as 'public' | 'unlisted' | 'followers' | 'direct';
+export function normalizeVisibility(
+  value?: string,
+): "public" | "unlisted" | "followers" | "direct" {
+  if (value === "private" || value === "followers_only") return "followers";
+  if (
+    VALID_VISIBILITIES.has(
+      value as "public" | "unlisted" | "followers" | "direct",
+    )
+  ) {
+    return value as "public" | "unlisted" | "followers" | "direct";
   }
-  return 'public';
+  return "public";
 }

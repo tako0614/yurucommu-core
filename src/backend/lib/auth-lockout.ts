@@ -16,18 +16,20 @@ export const LOGIN_LOCKOUT_CONFIG = {
   trackingWindowMs: 15 * 60 * 1000,
 } as const;
 
-const LOCKOUT_KEY_PREFIX = 'auth-lockout:v1';
+const LOCKOUT_KEY_PREFIX = "auth-lockout:v1";
 const lockoutFallbackStore = new Map<string, LoginLockoutRecord>();
 
 function getLockoutStorageKey(clientKey: string): string {
   return `${LOCKOUT_KEY_PREFIX}:${encodeURIComponent(clientKey)}`;
 }
 
-function isValidRecord(v: Partial<LoginLockoutRecord>): v is LoginLockoutRecord {
+function isValidRecord(
+  v: Partial<LoginLockoutRecord>,
+): v is LoginLockoutRecord {
   return (
-    typeof v.failedAttempts === 'number'
-    && typeof v.firstFailedAt === 'number'
-    && (v.lockoutUntil === null || typeof v.lockoutUntil === 'number')
+    typeof v.failedAttempts === "number" &&
+    typeof v.firstFailedAt === "number" &&
+    (v.lockoutUntil === null || typeof v.lockoutUntil === "number")
   );
 }
 
@@ -44,13 +46,15 @@ function parseLockoutRecord(raw: string | null): LoginLockoutRecord | null {
 
 function isRecordExpired(record: LoginLockoutRecord, now: number): boolean {
   if (record.lockoutUntil !== null && record.lockoutUntil <= now) return true;
-  if (now - record.firstFailedAt > LOGIN_LOCKOUT_CONFIG.trackingWindowMs) return true;
+  if (now - record.firstFailedAt > LOGIN_LOCKOUT_CONFIG.trackingWindowMs) {
+    return true;
+  }
   return false;
 }
 
 function normalizeLockoutRecord(
   record: LoginLockoutRecord | null,
-  now: number
+  now: number,
 ): LoginLockoutRecord | null {
   if (!record) return null;
   return isRecordExpired(record, now) ? null : record;
@@ -62,7 +66,10 @@ const UNLOCKED_STATUS: LoginLockoutStatus = Object.freeze({
   retryAfterSeconds: 0,
 });
 
-function toStatus(record: LoginLockoutRecord | null, now: number): LoginLockoutStatus {
+function toStatus(
+  record: LoginLockoutRecord | null,
+  now: number,
+): LoginLockoutStatus {
   if (!record) return UNLOCKED_STATUS;
 
   const locked = record.lockoutUntil !== null && record.lockoutUntil > now;
@@ -75,8 +82,14 @@ function toStatus(record: LoginLockoutRecord | null, now: number): LoginLockoutS
   };
 }
 
-function fallbackRead(storageKey: string, now: number): LoginLockoutRecord | null {
-  const record = normalizeLockoutRecord(lockoutFallbackStore.get(storageKey) || null, now);
+function fallbackRead(
+  storageKey: string,
+  now: number,
+): LoginLockoutRecord | null {
+  const record = normalizeLockoutRecord(
+    lockoutFallbackStore.get(storageKey) || null,
+    now,
+  );
   if (!record) {
     lockoutFallbackStore.delete(storageKey);
   }
@@ -90,7 +103,7 @@ function fallbackWrite(storageKey: string, record: LoginLockoutRecord): void {
 async function readRecord(
   kv: KVNamespace,
   storageKey: string,
-  now: number
+  now: number,
 ): Promise<LoginLockoutRecord | null> {
   try {
     const raw = await kv.get(storageKey);
@@ -100,7 +113,10 @@ async function readRecord(
     }
     return record;
   } catch (err) {
-    console.warn('[Auth] Failed to read login lockout from KV, using local fallback', err);
+    console.warn(
+      "[Auth] Failed to read login lockout from KV, using local fallback",
+      err,
+    );
     return fallbackRead(storageKey, now);
   }
 }
@@ -109,7 +125,7 @@ async function writeRecord(
   kv: KVNamespace,
   storageKey: string,
   record: LoginLockoutRecord,
-  now: number
+  now: number,
 ): Promise<void> {
   const ttlMs = record.lockoutUntil
     ? record.lockoutUntil - now
@@ -119,24 +135,30 @@ async function writeRecord(
   try {
     await kv.put(storageKey, JSON.stringify(record), { expirationTtl });
   } catch (err) {
-    console.warn('[Auth] Failed to write login lockout to KV, using local fallback', err);
+    console.warn(
+      "[Auth] Failed to write login lockout to KV, using local fallback",
+      err,
+    );
     fallbackWrite(storageKey, record);
   }
 }
 
-async function deleteRecord(kv: KVNamespace, storageKey: string): Promise<void> {
+async function deleteRecord(
+  kv: KVNamespace,
+  storageKey: string,
+): Promise<void> {
   lockoutFallbackStore.delete(storageKey);
   try {
     await kv.delete(storageKey);
   } catch (err) {
-    console.warn('[Auth] Failed to clear login lockout from KV', err);
+    console.warn("[Auth] Failed to clear login lockout from KV", err);
   }
 }
 
 export async function getLoginLockoutStatus(
   kv: KVNamespace,
   clientKey: string,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<LoginLockoutStatus> {
   const storageKey = getLockoutStorageKey(clientKey);
   const record = await readRecord(kv, storageKey, now);
@@ -146,13 +168,16 @@ export async function getLoginLockoutStatus(
 export async function recordFailedLoginAttempt(
   kv: KVNamespace,
   clientKey: string,
-  now = Date.now()
+  now = Date.now(),
 ): Promise<LoginLockoutStatus> {
   const storageKey = getLockoutStorageKey(clientKey);
   const existing = await readRecord(kv, storageKey, now);
 
   // Already locked out -- return current status without extending
-  if (existing?.lockoutUntil !== null && existing?.lockoutUntil !== undefined && existing.lockoutUntil > now) {
+  if (
+    existing?.lockoutUntil !== null && existing?.lockoutUntil !== undefined &&
+    existing.lockoutUntil > now
+  ) {
     return toStatus(existing, now);
   }
 
@@ -172,7 +197,7 @@ export async function recordFailedLoginAttempt(
 
 export async function clearLoginLockout(
   kv: KVNamespace,
-  clientKey: string
+  clientKey: string,
 ): Promise<void> {
   const storageKey = getLockoutStorageKey(clientKey);
   await deleteRecord(kv, storageKey);

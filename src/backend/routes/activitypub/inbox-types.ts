@@ -1,5 +1,5 @@
-﻿import type { Context } from 'hono';
-import type { Env, Variables } from '../../types.ts';
+import type { Context } from "hono";
+import type { Env, Variables } from "../../types.ts";
 
 export type ActivityContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -50,12 +50,12 @@ export type StoryOverlay = {
 };
 
 export function getActivityObject(activity: Activity): ActivityObject | null {
-  if (!activity.object || typeof activity.object === 'string') return null;
+  if (!activity.object || typeof activity.object === "string") return null;
   return activity.object;
 }
 
 export function getActivityObjectId(activity: Activity): string | null {
   if (!activity.object) return null;
-  if (typeof activity.object === 'string') return activity.object;
+  if (typeof activity.object === "string") return activity.object;
   return activity.object.id || null;
 }

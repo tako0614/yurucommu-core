@@ -1,6 +1,6 @@
-import type { Actor } from '../../types/index.ts';
-import { normalizeActor } from './normalize.ts';
-import { apiFetch } from './fetch.ts';
+import type { Actor } from "../../types/index.ts";
+import { normalizeActor } from "./normalize.ts";
+import { apiFetch } from "./fetch.ts";
 
 export interface RecommendedUser {
   ap_id: string;
@@ -12,7 +12,7 @@ export interface RecommendedUser {
 }
 
 export async function fetchRecommendedUsers(): Promise<RecommendedUser[]> {
-  const res = await apiFetch('/api/recommendations/users');
+  const res = await apiFetch("/api/recommendations/users");
   if (!res.ok) return [];
   const data = (await res.json()) as { users?: RecommendedUser[] };
   return (data.users || []).map((u) => ({

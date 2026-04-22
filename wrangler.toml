@@ -9,8 +9,11 @@ APP_URL = "https://test.yurucommu.com"
 # Authentication Configuration
 # Set any combination of the following to enable different auth methods:
 #
-# Password authentication (PBKDF2-hashed):
-# AUTH_PASSWORD_HASH = "pbkdf2:sha256:600000:..."  # Set via wrangler secret put
+# Password authentication (PBKDF2-SHA256 saltHex:hashHex):
+# AUTH_PASSWORD_HASH = "0123456789abcdef0123456789abcdef:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+#
+# Session and token encryption:
+# ENCRYPTION_KEY = "..."  # Generate with: openssl rand -hex 32
 #
 # Google OAuth:
 # GOOGLE_CLIENT_ID = "xxx.apps.googleusercontent.com"
@@ -27,6 +30,7 @@ TAKOS_URL = "https://takos.jp"
 
 # Secrets (set via wrangler secret put):
 # - AUTH_PASSWORD_HASH (optional)
+# - ENCRYPTION_KEY (required for encrypted sessions/tokens)
 # - GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET (optional)
 # - X_CLIENT_ID, X_CLIENT_SECRET (optional)
 # - TAKOS_CLIENT_ID, TAKOS_CLIENT_SECRET (optional)
@@ -83,4 +87,3 @@ not_found_handling = "single-page-application"
 [[routes]]
 pattern = "test.yurucommu.com/*"
 zone_name = "yurucommu.com"
-

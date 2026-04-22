@@ -1,5 +1,5 @@
-import { createSignal, createEffect, onCleanup } from 'solid-js';
-import { fetchUnreadCount } from '../lib/api.ts';
+import { createEffect, createSignal, onCleanup } from "solid-js";
+import { fetchUnreadCount } from "../lib/api.ts";
 
 export function useUnreadCount(pollIntervalMs = 30000) {
   const [count, setCount] = createSignal(0);
@@ -12,7 +12,7 @@ export function useUnreadCount(pollIntervalMs = 30000) {
         const next = await fetchUnreadCount();
         if (active) setCount(next);
       } catch (e) {
-        console.error('Failed to fetch unread count:', e);
+        console.error("Failed to fetch unread count:", e);
       }
     };
 

@@ -1,9 +1,12 @@
-import type { Database } from '../../../db/index.ts';
-import { inArray } from 'drizzle-orm';
-import { actorCache } from '../../../db/index.ts';
-import { emitMetric } from './metrics.ts';
-import { DELIVERY_ENDPOINT_CACHE_TTL_MS, safeParseIsoTimeMs } from './transformers.ts';
-import { isSafeRemoteUrl } from '../../federation-helpers.ts';
+import type { Database } from "../../../db/index.ts";
+import { inArray } from "drizzle-orm";
+import { actorCache } from "../../../db/index.ts";
+import { emitMetric } from "./metrics.ts";
+import {
+  DELIVERY_ENDPOINT_CACHE_TTL_MS,
+  safeParseIsoTimeMs,
+} from "./transformers.ts";
+import { isSafeRemoteUrl } from "../../federation-helpers.ts";
 
 export type PlannedEndpointGroup = {
   endpoint: string;
@@ -30,7 +33,9 @@ function isActorCacheFresh(row: ActorCacheRow, nowMs: number): boolean {
   return nowMs - lastFetched < DELIVERY_ENDPOINT_CACHE_TTL_MS;
 }
 
-function chooseEndpoint(row: ActorCacheRow): { endpoint: string; usedSharedInbox: boolean } | null {
+function chooseEndpoint(
+  row: ActorCacheRow,
+): { endpoint: string; usedSharedInbox: boolean } | null {
   const shared = row.sharedInbox;
   if (shared && isSafeRemoteUrl(shared)) {
     return { endpoint: shared, usedSharedInbox: true };
@@ -46,12 +51,17 @@ export async function planEndpointsFromActorCache(
   recipientActorApIds: string[],
   options?: {
     metricTags?: Record<string, string | number | boolean | null | undefined>;
-  }
+  },
 ): Promise<PlanEndpointsResult> {
   const nowMs = Date.now();
   const totalRecipients = recipientActorApIds.length;
   if (totalRecipients === 0) {
-    return { groups: [], unknownRecipients: [], totalRecipients: 0, sharedInboxRecipients: 0 };
+    return {
+      groups: [],
+      unknownRecipients: [],
+      totalRecipients: 0,
+      sharedInboxRecipients: 0,
+    };
   }
 
   // Batch-load actor_cache for recipient set.
@@ -72,24 +82,32 @@ export async function planEndpointsFromActorCache(
   for (const apId of recipientActorApIds) {
     const row = byApId.get(apId);
     // Treat missing, stale, or unresolvable actors as unknown for resolve_actor jobs.
-    const chosen = row && isActorCacheFresh(row, nowMs) ? chooseEndpoint(row) : null;
+    const chosen = row && isActorCacheFresh(row, nowMs)
+      ? chooseEndpoint(row)
+      : null;
     if (!chosen) {
       unknownRecipients.push(apId);
       continue;
     }
 
     if (chosen.usedSharedInbox) sharedInboxRecipients++;
-    endpointCounts.set(chosen.endpoint, (endpointCounts.get(chosen.endpoint) ?? 0) + 1);
+    endpointCounts.set(
+      chosen.endpoint,
+      (endpointCounts.get(chosen.endpoint) ?? 0) + 1,
+    );
   }
 
-  const groups: PlannedEndpointGroup[] = Array.from(endpointCounts.entries()).map(([endpoint, recipientCount]) => ({
-    endpoint,
-    recipientCount,
-  }));
+  const groups: PlannedEndpointGroup[] = Array.from(endpointCounts.entries())
+    .map(([endpoint, recipientCount]) => ({
+      endpoint,
+      recipientCount,
+    }));
 
   // Observability: sharedInbox aggregation ratio.
-  const ratio = totalRecipients > 0 ? sharedInboxRecipients / totalRecipients : 0;
-  emitMetric('delivery_shared_inbox_aggregation_ratio', ratio, {
+  const ratio = totalRecipients > 0
+    ? sharedInboxRecipients / totalRecipients
+    : 0;
+  emitMetric("delivery_shared_inbox_aggregation_ratio", ratio, {
     total_recipients: totalRecipients,
     shared_inbox_recipients: sharedInboxRecipients,
     endpoints: groups.length,

@@ -1,10 +1,14 @@
-import { Show, For } from 'solid-js';
-import { A } from '@solidjs/router';
-import type { Actor } from '../../types/index.ts';
-import type { AccountInfo } from '../../lib/api.ts';
-import { UserAvatar } from '../UserAvatar.tsx';
-import { BookmarkIconMenu, ProfileIconMenu, SettingsIconMenu } from './TimelineIcons.tsx';
-import type { Translate } from '../../lib/i18n.tsx';
+import { For, Show } from "solid-js";
+import { A } from "@solidjs/router";
+import type { Actor } from "../../types/index.ts";
+import type { AccountInfo } from "../../lib/api.ts";
+import { UserAvatar } from "../UserAvatar.tsx";
+import {
+  BookmarkIconMenu,
+  ProfileIconMenu,
+  SettingsIconMenu,
+} from "./TimelineIcons.tsx";
+import type { Translate } from "../../lib/i18n.tsx";
 
 interface TimelineMobileMenuProps {
   isOpen: boolean;
@@ -31,41 +35,66 @@ export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
           <div class="p-4 border-b border-neutral-800">
             {/* Avatar and Account Switcher Toggle */}
             <div class="flex items-center justify-between mb-3">
-              <UserAvatar avatarUrl={props.actor.icon_url} name={props.actor.name || props.actor.username} size={48} />
+              <UserAvatar
+                avatarUrl={props.actor.icon_url}
+                name={props.actor.name || props.actor.username}
+                size={48}
+              />
               <button
                 onClick={props.onToggleAccountSwitcher}
                 class="p-2 rounded-full border border-neutral-700 hover:bg-neutral-800 transition-colors"
               >
                 <svg
-                  class={`w-4 h-4 transition-transform ${props.showAccountSwitcher ? 'rotate-180' : ''}`}
+                  class={`w-4 h-4 transition-transform ${
+                    props.showAccountSwitcher ? "rotate-180" : ""
+                  }`}
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
                 >
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M19 9l-7 7-7-7" />
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width={2}
+                    d="M19 9l-7 7-7-7"
+                  />
                 </svg>
               </button>
             </div>
             {/* Name and Username */}
-            <p class="font-bold text-white text-lg">{props.actor.name || props.actor.username}</p>
+            <p class="font-bold text-white text-lg">
+              {props.actor.name || props.actor.username}
+            </p>
             <p class="text-neutral-500">@{props.actor.username}</p>
             {/* Follow/Follower counts */}
             <div class="flex gap-4 mt-3">
               <A
-                href={`/profile/${encodeURIComponent(props.actor.ap_id)}/following`}
+                href={`/profile/${
+                  encodeURIComponent(props.actor.ap_id)
+                }/following`}
                 onClick={props.onClose}
                 class="hover:underline"
               >
-                <span class="font-bold text-white">{props.actor.following_count || 0}</span>
-                <span class="text-neutral-500 ml-1">{props.t('profile.following')}</span>
+                <span class="font-bold text-white">
+                  {props.actor.following_count || 0}
+                </span>
+                <span class="text-neutral-500 ml-1">
+                  {props.t("profile.following")}
+                </span>
               </A>
               <A
-                href={`/profile/${encodeURIComponent(props.actor.ap_id)}/followers`}
+                href={`/profile/${
+                  encodeURIComponent(props.actor.ap_id)
+                }/followers`}
                 onClick={props.onClose}
                 class="hover:underline"
               >
-                <span class="font-bold text-white">{props.actor.follower_count || 0}</span>
-                <span class="text-neutral-500 ml-1">{props.t('profile.followers')}</span>
+                <span class="font-bold text-white">
+                  {props.actor.follower_count || 0}
+                </span>
+                <span class="text-neutral-500 ml-1">
+                  {props.t("profile.followers")}
+                </span>
               </A>
             </div>
           </div>
@@ -75,7 +104,11 @@ export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
             <div class="border-b border-neutral-800">
               <Show
                 when={!props.accountsLoading}
-                fallback={<div class="p-4 text-center text-neutral-500">読み込み中...</div>}
+                fallback={
+                  <div class="p-4 text-center text-neutral-500">
+                    読み込み中...
+                  </div>
+                }
               >
                 <div class="py-2">
                   <For each={props.accounts}>
@@ -83,7 +116,9 @@ export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
                       <button
                         onClick={() => props.onSwitchAccount(account.ap_id)}
                         class={`w-full flex items-center gap-3 px-4 py-3 hover:bg-neutral-900 transition-colors ${
-                          account.ap_id === props.currentApId ? 'bg-neutral-900/50' : ''
+                          account.ap_id === props.currentApId
+                            ? "bg-neutral-900/50"
+                            : ""
                         }`}
                       >
                         <UserAvatar
@@ -92,11 +127,19 @@ export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
                           size={40}
                         />
                         <div class="flex-1 text-left">
-                          <p class="font-bold text-white">{account.name || account.preferred_username}</p>
-                          <p class="text-sm text-neutral-500">@{account.preferred_username}</p>
+                          <p class="font-bold text-white">
+                            {account.name || account.preferred_username}
+                          </p>
+                          <p class="text-sm text-neutral-500">
+                            @{account.preferred_username}
+                          </p>
                         </div>
                         <Show when={account.ap_id === props.currentApId}>
-                          <svg class="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
+                          <svg
+                            class="w-5 h-5 text-blue-500"
+                            fill="currentColor"
+                            viewBox="0 0 24 24"
+                          >
                             <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
                           </svg>
                         </Show>
@@ -116,7 +159,7 @@ export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
               class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors"
             >
               <ProfileIconMenu />
-              <span class="text-lg">{props.t('nav.profile')}</span>
+              <span class="text-lg">{props.t("nav.profile")}</span>
             </A>
             <A
               href="/bookmarks"
@@ -124,7 +167,7 @@ export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
               class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors"
             >
               <BookmarkIconMenu />
-              <span class="text-lg">{props.t('nav.bookmarks')}</span>
+              <span class="text-lg">{props.t("nav.bookmarks")}</span>
             </A>
             <A
               href="/settings"
@@ -132,7 +175,7 @@ export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
               class="flex items-center gap-4 px-4 py-3 rounded-full hover:bg-neutral-900 transition-colors"
             >
               <SettingsIconMenu />
-              <span class="text-lg">{props.t('nav.settings')}</span>
+              <span class="text-lg">{props.t("nav.settings")}</span>
             </A>
           </nav>
         </div>

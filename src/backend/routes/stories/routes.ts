@@ -1,22 +1,37 @@
 // Story routes for Yurucommu backend
 // v2: 1 Story = 1 Media (Instagram style)
-import { Hono } from 'hono';
-import { eq, and, gt, inArray, notInArray, desc, sql } from 'drizzle-orm';
-import type { Database } from '../../../db/index.ts';
-import { actors, objects, follows, likes, storyViews, storyVotes, storyShares, activities } from '../../../db/index.ts';
-import type { Env, Variables } from '../../types.ts';
-import { generateId, objectApId, actorApId, formatUsername, activityApId } from '../../federation-helpers.ts';
-import { storyToActivityPub } from '../../lib/activitypub-helpers.ts';
+import { Hono } from "hono";
+import { and, desc, eq, gt, inArray, notInArray, sql } from "drizzle-orm";
+import type { Database } from "../../../db/index.ts";
+import {
+  activities,
+  actors,
+  follows,
+  likes,
+  objects,
+  storyShares,
+  storyViews,
+  storyVotes,
+} from "../../../db/index.ts";
+import type { Env, Variables } from "../../types.ts";
+import {
+  activityApId,
+  actorApId,
+  formatUsername,
+  generateId,
+  objectApId,
+} from "../../federation-helpers.ts";
+import { storyToActivityPub } from "../../lib/activitypub-helpers.ts";
 import {
   cleanupExpiredStories,
+  fetchActorCache,
+  fetchBatchVotes,
+  fetchBlockedAndMutedIds,
+  sumVotes,
   transformStoryData,
   validateOverlays,
-  fetchBlockedAndMutedIds,
-  fetchBatchVotes,
-  fetchActorCache,
-  sumVotes,
-} from './query-helpers.ts';
-import { enqueueFanoutToFollowers } from '../../lib/delivery/queue.ts';
+} from "./query-helpers.ts";
+import { enqueueFanoutToFollowers } from "../../lib/delivery/queue.ts";
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -33,9 +48,9 @@ type StoryAuthor = {
 type StoryResponse = {
   ap_id: string;
   author: StoryAuthor;
-  attachment: ReturnType<typeof transformStoryData>['attachment'];
+  attachment: ReturnType<typeof transformStoryData>["attachment"];
   displayDuration: string;
-  overlays?: ReturnType<typeof transformStoryData>['overlays'];
+  overlays?: ReturnType<typeof transformStoryData>["overlays"];
   end_time: string;
   published: string;
   viewed: boolean;
@@ -61,7 +76,14 @@ type StoryCreateBody = {
 /** Build a StoryAuthor from available data sources. */
 function buildAuthor(
   apId: string,
-  data: { preferredUsername?: string | null; name?: string | null; iconUrl?: string | null } | null | undefined,
+  data:
+    | {
+      preferredUsername?: string | null;
+      name?: string | null;
+      iconUrl?: string | null;
+    }
+    | null
+    | undefined,
 ): StoryAuthor {
   return {
     ap_id: apId,
@@ -98,7 +120,7 @@ function buildStoryResponse(
     attachment: storyData.attachment,
     displayDuration: storyData.displayDuration,
     overlays: storyData.overlays,
-    end_time: s.endTime || '',
+    end_time: s.endTime || "",
     published: s.published,
     viewed: s.viewedByUser ?? false,
     like_count: s.likeCount,
@@ -114,8 +136,19 @@ function buildStoryResponse(
 async function resolveRemoteAuthors(
   db: Database,
   storiesData: Array<{ author?: unknown; attributedTo: string }>,
-): Promise<Record<string, { preferredUsername: string | null; name: string | null; iconUrl: string | null }>> {
-  const remoteIds = [...new Set(storiesData.filter((s) => !s.author).map((s) => s.attributedTo))];
+): Promise<
+  Record<
+    string,
+    {
+      preferredUsername: string | null;
+      name: string | null;
+      iconUrl: string | null;
+    }
+  >
+> {
+  const remoteIds = [
+    ...new Set(storiesData.filter((s) => !s.author).map((s) => s.attributedTo)),
+  ];
   return fetchActorCache(db, remoteIds);
 }
 
@@ -134,13 +167,16 @@ async function createAndFanoutActivity(
     actorApId: actorApIdStr,
     objectApId: objectApIdStr,
     rawJson: JSON.stringify(activity),
-    direction: 'outbound',
+    direction: "outbound",
   });
   await enqueueFanoutToFollowers(env, id, actorApIdStr);
 }
 
 /** Delete all related data for a story, then the story object itself. */
-async function deleteStoryAndRelatedData(db: Database, apId: string): Promise<void> {
+async function deleteStoryAndRelatedData(
+  db: Database,
+  apId: string,
+): Promise<void> {
   await Promise.all([
     db.delete(storyVotes).where(eq(storyVotes.storyApId, apId)),
     db.delete(likes).where(eq(likes.objectApId, apId)),
@@ -151,33 +187,41 @@ async function deleteStoryAndRelatedData(db: Database, apId: string): Promise<vo
 }
 
 // Get active stories from followed users and self (grouped by author)
-stories.get('/', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+stories.get("/", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const db = c.get('db');
+  const db = c.get("db");
   const now = new Date().toISOString();
 
   // Probabilistic cleanup: 1% chance per request
   if (Math.random() < 0.01) {
     cleanupExpiredStories(db).catch((err) => {
-      console.warn('[Stories] Failed to cleanup expired stories', err);
+      console.warn("[Stories] Failed to cleanup expired stories", err);
     });
   }
 
   // Get followed user IDs
   const followRows = await db.select({ followingApId: follows.followingApId })
     .from(follows)
-    .where(and(eq(follows.followerApId, actor.ap_id), eq(follows.status, 'accepted')));
+    .where(
+      and(
+        eq(follows.followerApId, actor.ap_id),
+        eq(follows.status, "accepted"),
+      ),
+    );
   const followedIds = followRows.map((f) => f.followingApId);
   followedIds.push(actor.ap_id); // Include self
 
-  const { blockedIds, mutedIds } = await fetchBlockedAndMutedIds(db, actor.ap_id);
+  const { blockedIds, mutedIds } = await fetchBlockedAndMutedIds(
+    db,
+    actor.ap_id,
+  );
   const excludeIds = [...blockedIds, ...mutedIds];
 
   // Get stories from followed users (excluding blocked/muted)
   let storiesWhere = and(
-    eq(objects.type, 'Story'),
+    eq(objects.type, "Story"),
     gt(objects.endTime, now),
     inArray(objects.attributedTo, followedIds),
   );
@@ -200,13 +244,23 @@ stories.get('/', async (c) => {
   const [viewedRows, likedRows] = await Promise.all([
     storyApIds.length > 0
       ? db.select({ storyApId: storyViews.storyApId })
-          .from(storyViews)
-          .where(and(eq(storyViews.actorApId, actor.ap_id), inArray(storyViews.storyApId, storyApIds)))
+        .from(storyViews)
+        .where(
+          and(
+            eq(storyViews.actorApId, actor.ap_id),
+            inArray(storyViews.storyApId, storyApIds),
+          ),
+        )
       : [],
     storyApIds.length > 0
       ? db.select({ objectApId: likes.objectApId })
-          .from(likes)
-          .where(and(eq(likes.actorApId, actor.ap_id), inArray(likes.objectApId, storyApIds)))
+        .from(likes)
+        .where(
+          and(
+            eq(likes.actorApId, actor.ap_id),
+            inArray(likes.objectApId, storyApIds),
+          ),
+        )
       : [],
   ]);
 
@@ -218,15 +272,22 @@ stories.get('/', async (c) => {
   const [localAuthors, remoteAuthorCache] = await Promise.all([
     authorApIds.length > 0
       ? db.select({
-          apId: actors.apId,
-          preferredUsername: actors.preferredUsername,
-          name: actors.name,
-          iconUrl: actors.iconUrl,
-        }).from(actors).where(inArray(actors.apId, authorApIds))
+        apId: actors.apId,
+        preferredUsername: actors.preferredUsername,
+        name: actors.name,
+        iconUrl: actors.iconUrl,
+      }).from(actors).where(inArray(actors.apId, authorApIds))
       : [],
     Promise.resolve().then(async () => {
       // We'll resolve after we know which are remote
-      return {} as Record<string, { preferredUsername: string | null; name: string | null; iconUrl: string | null }>;
+      return {} as Record<
+        string,
+        {
+          preferredUsername: string | null;
+          name: string | null;
+          iconUrl: string | null;
+        }
+      >;
     }),
   ]);
 
@@ -239,7 +300,10 @@ stories.get('/', async (c) => {
   ]);
 
   // Group by author
-  const grouped: Record<string, { actor: StoryAuthor; stories: StoryResponse[]; has_unviewed: boolean }> = {};
+  const grouped: Record<
+    string,
+    { actor: StoryAuthor; stories: StoryResponse[]; has_unviewed: boolean }
+  > = {};
   const authorOrder: string[] = [];
 
   for (const s of storiesData) {
@@ -248,7 +312,11 @@ stories.get('/', async (c) => {
     const authorInfo = buildAuthor(authorApId, authorData);
 
     if (!grouped[authorApId]) {
-      grouped[authorApId] = { actor: authorInfo, stories: [], has_unviewed: false };
+      grouped[authorApId] = {
+        actor: authorInfo,
+        stories: [],
+        has_unviewed: false,
+      };
       if (authorApId === actor.ap_id) {
         authorOrder.unshift(authorApId);
       } else {
@@ -257,7 +325,11 @@ stories.get('/', async (c) => {
     }
 
     const response = buildStoryResponse(
-      { ...s, viewedByUser: viewedSet.has(s.apId), likedByUser: likedSet.has(s.apId) },
+      {
+        ...s,
+        viewedByUser: viewedSet.has(s.apId),
+        likedByUser: likedSet.has(s.apId),
+      },
       authorInfo,
       allVotes,
       userVotes,
@@ -288,21 +360,24 @@ stories.get('/', async (c) => {
 });
 
 // Get stories for a specific user
-stories.get('/:actorId', async (c) => {
-  const targetActorId = c.req.param('actorId');
-  const actor = c.get('actor');
-  const db = c.get('db');
+stories.get("/:actorId", async (c) => {
+  const targetActorId = c.req.param("actorId");
+  const actor = c.get("actor");
+  const db = c.get("db");
   const baseUrl = c.env.APP_URL;
   const now = new Date().toISOString();
 
   // Find the actor by username or full ap_id
-  const targetApId = targetActorId.startsWith('http')
+  const targetApId = targetActorId.startsWith("http")
     ? targetActorId
     : actorApId(baseUrl, targetActorId);
 
   // Check blocked/muted (if authenticated)
   if (actor) {
-    const { blockedIds, mutedIds } = await fetchBlockedAndMutedIds(db, actor.ap_id);
+    const { blockedIds, mutedIds } = await fetchBlockedAndMutedIds(
+      db,
+      actor.ap_id,
+    );
     if (blockedIds.includes(targetApId) || mutedIds.includes(targetApId)) {
       return c.json({ stories: [] });
     }
@@ -313,7 +388,7 @@ stories.get('/:actorId', async (c) => {
     .from(objects)
     .where(
       and(
-        eq(objects.type, 'Story'),
+        eq(objects.type, "Story"),
         eq(objects.attributedTo, targetApId),
         gt(objects.endTime, now),
       ),
@@ -326,13 +401,23 @@ stories.get('/:actorId', async (c) => {
   const [viewedRows, likedRows] = await Promise.all([
     actor && storyApIds.length > 0
       ? db.select({ storyApId: storyViews.storyApId })
-          .from(storyViews)
-          .where(and(eq(storyViews.actorApId, actor.ap_id), inArray(storyViews.storyApId, storyApIds)))
+        .from(storyViews)
+        .where(
+          and(
+            eq(storyViews.actorApId, actor.ap_id),
+            inArray(storyViews.storyApId, storyApIds),
+          ),
+        )
       : [],
     actor && storyApIds.length > 0
       ? db.select({ objectApId: likes.objectApId })
-          .from(likes)
-          .where(and(eq(likes.actorApId, actor.ap_id), inArray(likes.objectApId, storyApIds)))
+        .from(likes)
+        .where(
+          and(
+            eq(likes.actorApId, actor.ap_id),
+            inArray(likes.objectApId, storyApIds),
+          ),
+        )
       : [],
   ]);
 
@@ -343,11 +428,11 @@ stories.get('/:actorId', async (c) => {
   const authorApIds = [...new Set(userStories.map((s) => s.attributedTo))];
   const localAuthors = authorApIds.length > 0
     ? await db.select({
-        apId: actors.apId,
-        preferredUsername: actors.preferredUsername,
-        name: actors.name,
-        iconUrl: actors.iconUrl,
-      }).from(actors).where(inArray(actors.apId, authorApIds))
+      apId: actors.apId,
+      preferredUsername: actors.preferredUsername,
+      name: actors.name,
+      iconUrl: actors.iconUrl,
+    }).from(actors).where(inArray(actors.apId, authorApIds))
     : [];
 
   const authorLocalMap = new Map(localAuthors.map((a) => [a.apId, a]));
@@ -359,11 +444,16 @@ stories.get('/:actorId', async (c) => {
   ]);
 
   const result = userStories.map((s) => {
-    const authorData = authorLocalMap.get(s.attributedTo) || actorCacheMap[s.attributedTo];
+    const authorData = authorLocalMap.get(s.attributedTo) ||
+      actorCacheMap[s.attributedTo];
     const author = buildAuthor(s.attributedTo, authorData);
 
     return buildStoryResponse(
-      { ...s, viewedByUser: viewedSet.has(s.apId), likedByUser: likedSet.has(s.apId) },
+      {
+        ...s,
+        viewedByUser: viewedSet.has(s.apId),
+        likedByUser: likedSet.has(s.apId),
+      },
       author,
       allVotes,
       userVotes,
@@ -374,15 +464,15 @@ stories.get('/:actorId', async (c) => {
 });
 
 // Create story (v2: single attachment format)
-stories.post('/', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+stories.post("/", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const db = c.get('db');
+  const db = c.get("db");
   const body = await c.req.json<StoryCreateBody>();
 
   if (!body.attachment || !body.attachment.r2_key) {
-    return c.json({ error: 'attachment with r2_key required' }, 400);
+    return c.json({ error: "attachment with r2_key required" }, 400);
   }
 
   if (body.overlays && body.overlays.length > 0) {
@@ -403,16 +493,16 @@ stories.post('/', async (c) => {
       width: body.attachment.width || 1080,
       height: body.attachment.height || 1920,
     },
-    displayDuration: body.displayDuration || 'PT5S',
+    displayDuration: body.displayDuration || "PT5S",
     overlays: body.overlays || undefined,
   };
   const attachmentsJson = JSON.stringify(storyData);
 
   await db.insert(objects).values({
     apId,
-    type: 'Story',
+    type: "Story",
     attributedTo: actor.ap_id,
-    content: '',
+    content: "",
     attachmentsJson,
     endTime,
     published: now,
@@ -458,9 +548,9 @@ stories.post('/', async (c) => {
     baseUrl,
   );
   await createAndFanoutActivity(db, c.env, actor.ap_id, apId, {
-    '@context': 'https://www.w3.org/ns/activitystreams',
+    "@context": "https://www.w3.org/ns/activitystreams",
     id: activityApId(baseUrl, generateId()),
-    type: 'Create',
+    type: "Create",
     actor: actor.ap_id,
     published: now,
     to: [`${actor.ap_id}/followers`],
@@ -471,29 +561,32 @@ stories.post('/', async (c) => {
 });
 
 // Delete story
-stories.post('/delete', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+stories.post("/delete", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const db = c.get('db');
+  const db = c.get("db");
   const body = await c.req.json<{ ap_id: string }>();
-  if (!body.ap_id) return c.json({ error: 'ap_id required' }, 400);
+  if (!body.ap_id) return c.json({ error: "ap_id required" }, 400);
   const apId = body.ap_id;
 
   // Verify ownership
-  const story = await db.select().from(objects).where(eq(objects.apId, apId)).get();
-  if (!story) return c.json({ error: 'Story not found' }, 404);
-  if (story.attributedTo !== actor.ap_id) return c.json({ error: 'Forbidden' }, 403);
+  const story = await db.select().from(objects).where(eq(objects.apId, apId))
+    .get();
+  if (!story) return c.json({ error: "Story not found" }, 404);
+  if (story.attributedTo !== actor.ap_id) {
+    return c.json({ error: "Forbidden" }, 403);
+  }
 
   // Enqueue Delete(Story) activity to followers before deleting.
   // Outbound delivery MUST NOT run in request path; enqueue is the sync boundary.
   const baseUrl = c.env.APP_URL;
   await createAndFanoutActivity(db, c.env, actor.ap_id, apId, {
-    '@context': 'https://www.w3.org/ns/activitystreams',
+    "@context": "https://www.w3.org/ns/activitystreams",
     id: activityApId(baseUrl, generateId()),
-    type: 'Delete',
+    type: "Delete",
     actor: actor.ap_id,
-    to: ['https://www.w3.org/ns/activitystreams#Public'],
+    to: ["https://www.w3.org/ns/activitystreams#Public"],
     object: apId,
   });
 

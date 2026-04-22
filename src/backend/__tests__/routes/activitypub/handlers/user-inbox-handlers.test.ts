@@ -1,8 +1,14 @@
-import { assertEquals, assertNotEquals } from 'jsr:@std/assert';
-import { spy, assertSpyCalls } from 'jsr:@std/testing/mock';
-import { handleDelete, handleLike } from '../../../../routes/activitypub/handlers/user-inbox-handlers.ts';
-import type { ActivityContext, Activity } from '../../../../routes/activitypub/inbox-types.ts';
-import type { actors } from '../../../../../db/index.ts';
+import { assertEquals, assertNotEquals } from "jsr:@std/assert";
+import { assertSpyCalls, spy } from "jsr:@std/testing/mock";
+import {
+  handleDelete,
+  handleLike,
+} from "../../../../routes/activitypub/handlers/user-inbox-handlers.ts";
+import type {
+  Activity,
+  ActivityContext,
+} from "../../../../routes/activitypub/inbox-types.ts";
+import type { actors } from "../../../../../db/index.ts";
 
 type ActorRow = typeof actors.$inferSelect;
 
@@ -90,30 +96,32 @@ function createMockDb(options: {
 /**
  * Creates a mock ActivityContext whose `get('db')` returns the given mock db.
  */
-function createMockContext(db: ReturnType<typeof createMockDb>['db']): ActivityContext {
+function createMockContext(
+  db: ReturnType<typeof createMockDb>["db"],
+): ActivityContext {
   return {
     get: (key: string) => {
-      if (key === 'db') return db;
+      if (key === "db") return db;
       return null;
     },
   } as unknown as ActivityContext;
 }
 
-Deno.test('userInboxHandlers hardening - handleLike writes like/count/inbox in a single transaction', async () => {
-  const actorApId = 'https://example.com/ap/users/alice';
-  const targetApId = 'https://example.com/ap/users/bob';
-  const objectApId = 'https://example.com/ap/objects/note-1';
+Deno.test("userInboxHandlers hardening - handleLike writes like/count/inbox in a single transaction", async () => {
+  const actorApId = "https://example.com/ap/users/alice";
+  const targetApId = "https://example.com/ap/users/bob";
+  const objectApId = "https://example.com/ap/objects/note-1";
 
   const { db, callTracker } = createMockDb({
     selectResults: [{ attributedTo: targetApId }],
-    insertReturningResult: { actorApId, objectApId, activityApId: 'like-1' },
+    insertReturningResult: { actorApId, objectApId, activityApId: "like-1" },
   });
 
   const context = createMockContext(db);
 
   const activity: Activity = {
-    id: 'https://example.com/ap/activities/like-1',
-    type: 'Like',
+    id: "https://example.com/ap/activities/like-1",
+    type: "Like",
     actor: actorApId,
     object: objectApId,
   };
@@ -123,7 +131,7 @@ Deno.test('userInboxHandlers hardening - handleLike writes like/count/inbox in a
     activity,
     {} as unknown as ActorRow,
     actorApId,
-    'https://example.com'
+    "https://example.com",
   );
 
   // Verify select was called (lookup object)
@@ -134,27 +142,27 @@ Deno.test('userInboxHandlers hardening - handleLike writes like/count/inbox in a
   assert_called(db.update);
 });
 
-Deno.test('userInboxHandlers hardening - handleLike treats unique conflicts as idempotent', async () => {
+Deno.test("userInboxHandlers hardening - handleLike treats unique conflicts as idempotent", async () => {
   const { db } = createMockDb({
-    selectResults: [{ attributedTo: 'https://example.com/ap/users/bob' }],
+    selectResults: [{ attributedTo: "https://example.com/ap/users/bob" }],
     insertReturningResult: undefined,
   });
 
   const context = createMockContext(db);
 
   const activity: Activity = {
-    id: 'https://example.com/ap/activities/like-2',
-    type: 'Like',
-    actor: 'https://example.com/ap/users/alice',
-    object: 'https://example.com/ap/objects/note-2',
+    id: "https://example.com/ap/activities/like-2",
+    type: "Like",
+    actor: "https://example.com/ap/users/alice",
+    object: "https://example.com/ap/objects/note-2",
   };
 
   await handleLike(
     context,
     activity,
     {} as unknown as ActorRow,
-    'https://example.com/ap/users/alice',
-    'https://example.com'
+    "https://example.com/ap/users/alice",
+    "https://example.com",
   );
 
   // insert was called for like, but returned undefined (duplicate)
@@ -163,11 +171,11 @@ Deno.test('userInboxHandlers hardening - handleLike treats unique conflicts as i
   assertSpyCalls(db.update, 0);
 });
 
-Deno.test('userInboxHandlers hardening - handleDelete performs dependent deletes and counter update', async () => {
+Deno.test("userInboxHandlers hardening - handleDelete performs dependent deletes and counter update", async () => {
   const { db } = createMockDb({
     selectResults: [{
-      attributedTo: 'https://example.com/ap/users/alice',
-      type: 'Note',
+      attributedTo: "https://example.com/ap/users/alice",
+      type: "Note",
       replyCount: 0,
     }],
   });
@@ -175,15 +183,15 @@ Deno.test('userInboxHandlers hardening - handleDelete performs dependent deletes
   const context = createMockContext(db);
 
   const activity: Activity = {
-    id: 'https://example.com/ap/activities/delete-1',
-    type: 'Delete',
-    actor: 'https://example.com/ap/users/alice',
-    object: 'https://example.com/ap/objects/note-3',
+    id: "https://example.com/ap/activities/delete-1",
+    type: "Delete",
+    actor: "https://example.com/ap/users/alice",
+    object: "https://example.com/ap/objects/note-3",
   };
 
   await handleDelete(
     context,
-    activity
+    activity,
   );
 
   // Verify select was called (lookup object)
@@ -197,6 +205,6 @@ Deno.test('userInboxHandlers hardening - handleDelete performs dependent deletes
 /** Helper: assert a spy was called at least once */
 function assert_called(spyFn: { calls: unknown[] }) {
   if (spyFn.calls.length === 0) {
-    throw new Error('Expected spy to have been called at least once');
+    throw new Error("Expected spy to have been called at least once");
   }
 }

@@ -42,7 +42,12 @@ export async function getDbSQLite(databasePath: string): Promise<Database> {
  * Soft-delete helper: returns `isNull(table.deletedAt)` condition.
  * Use in WHERE clauses for tables with soft-delete (actors, objects, communities).
  */
-export function notDeleted(table: typeof schema.actors | typeof schema.objects | typeof schema.communities) {
+export function notDeleted(
+  table:
+    | typeof schema.actors
+    | typeof schema.objects
+    | typeof schema.communities,
+) {
   return isNull(table.deletedAt);
 }
 

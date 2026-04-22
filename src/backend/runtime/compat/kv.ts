@@ -5,7 +5,7 @@
  * as Cloudflare Workers KV.
  */
 
-import { drainStream } from './node-modules.ts';
+import { drainStream } from "./node-modules.ts";
 
 /**
  * KVNamespace-compatible in-memory implementation
@@ -17,7 +17,9 @@ export class KVCompatNamespace {
     metadata?: unknown;
   }>();
 
-  private getEntry(key: string): { value: string | ArrayBuffer; metadata?: unknown } | null {
+  private getEntry(
+    key: string,
+  ): { value: string | ArrayBuffer; metadata?: unknown } | null {
     const entry = this.store.get(key);
     if (!entry) return null;
     if (entry.expiration && entry.expiration < Date.now() / 1000) {
@@ -28,17 +30,22 @@ export class KVCompatNamespace {
   }
 
   private decodeAsText(value: string | ArrayBuffer): string {
-    return typeof value === 'string' ? value : new TextDecoder().decode(value);
+    return typeof value === "string" ? value : new TextDecoder().decode(value);
   }
 
-  async get(key: string, options?: { type?: 'text' | 'json' | 'arrayBuffer' | 'stream' }): Promise<unknown> {
+  async get(
+    key: string,
+    options?: { type?: "text" | "json" | "arrayBuffer" | "stream" },
+  ): Promise<unknown> {
     const entry = this.getEntry(key);
     if (!entry) return null;
 
-    const type = options?.type ?? 'text';
-    if (type === 'json') return JSON.parse(this.decodeAsText(entry.value));
-    if (type === 'arrayBuffer') {
-      return typeof entry.value === 'string' ? new TextEncoder().encode(entry.value).buffer : entry.value;
+    const type = options?.type ?? "text";
+    if (type === "json") return JSON.parse(this.decodeAsText(entry.value));
+    if (type === "arrayBuffer") {
+      return typeof entry.value === "string"
+        ? new TextEncoder().encode(entry.value).buffer
+        : entry.value;
     }
     return this.decodeAsText(entry.value);
   }
@@ -50,13 +57,14 @@ export class KVCompatNamespace {
       expirationTtl?: number;
       expiration?: number;
       metadata?: unknown;
-    }
+    },
   ): Promise<void> {
     let storedValue: string | ArrayBuffer;
-    if (typeof value === 'string' || value instanceof ArrayBuffer) {
+    if (typeof value === "string" || value instanceof ArrayBuffer) {
       storedValue = value;
     } else {
-      storedValue = (await drainStream(value as ReadableStream<Uint8Array>)).buffer as ArrayBuffer;
+      storedValue = (await drainStream(value as ReadableStream<Uint8Array>))
+        .buffer as ArrayBuffer;
     }
 
     let expiration: number | undefined;
@@ -86,13 +94,19 @@ export class KVCompatNamespace {
     list_complete: boolean;
     cursor?: string;
   }> {
-    const keys: Array<{ name: string; expiration?: number; metadata?: unknown }> = [];
+    const keys: Array<
+      { name: string; expiration?: number; metadata?: unknown }
+    > = [];
     const now = Date.now() / 1000;
 
     for (const [name, entry] of this.store.entries()) {
       if (entry.expiration && entry.expiration < now) continue;
       if (options?.prefix && !name.startsWith(options.prefix)) continue;
-      keys.push({ name, expiration: entry.expiration, metadata: entry.metadata });
+      keys.push({
+        name,
+        expiration: entry.expiration,
+        metadata: entry.metadata,
+      });
     }
 
     const limit = options?.limit ?? 1000;

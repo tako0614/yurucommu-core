@@ -5,34 +5,51 @@
  *          yurucommu_get_dm_messages
  */
 
-import { eq, and, desc, isNotNull } from 'drizzle-orm';
-import { actors, objects, inbox, activities, objectRecipients } from '../../../db/index.ts';
-import { activityApId, generateId, objectApId, safeJsonParse } from '../../federation-helpers.ts';
-import { getConversationId } from '../dm/query-helpers.ts';
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import {
-  toolLimit,
-  requireString,
+  activities,
+  actors,
+  inbox,
+  objectRecipients,
+  objects,
+} from "../../../db/index.ts";
+import {
+  activityApId,
+  generateId,
+  objectApId,
+  safeJsonParse,
+} from "../../federation-helpers.ts";
+import { getConversationId } from "../dm/query-helpers.ts";
+import {
   errAuth,
-  errRequired,
   errNotFound,
+  errRequired,
   ok,
+  requireString,
   resolveDmPartner,
-} from '../takos-tools-response.ts';
-import type { ToolContext, Input } from './types.ts';
+  toolLimit,
+} from "../takos-tools-response.ts";
+import type { Input, ToolContext } from "./types.ts";
 
-export async function handleSendDm(c: ToolContext, input: Input, actor: { ap_id: string } | null) {
+export async function handleSendDm(
+  c: ToolContext,
+  input: Input,
+  actor: { ap_id: string } | null,
+) {
   if (!actor) return c.json(errAuth(), 401);
 
-  const db = c.get('db');
-  const recipient = requireString(input, 'recipient');
-  const content = requireString(input, 'content');
-  if (!recipient || !content) return c.json(errRequired('Recipient and content'), 400);
+  const db = c.get("db");
+  const recipient = requireString(input, "recipient");
+  const content = requireString(input, "content");
+  if (!recipient || !content) {
+    return c.json(errRequired("Recipient and content"), 400);
+  }
 
   const target = await db.select({ apId: actors.apId })
     .from(actors)
     .where(eq(actors.preferredUsername, recipient))
     .get();
-  if (!target) return c.json(errNotFound('Recipient'), 404);
+  if (!target) return c.json(errNotFound("Recipient"), 404);
 
   const baseUrl = c.env.APP_URL;
   const now = new Date().toISOString();
@@ -45,34 +62,54 @@ export async function handleSendDm(c: ToolContext, input: Input, actor: { ap_id:
 
   // Sequential operations (D1 doesn't support interactive transactions)
   await db.insert(objects).values({
-    apId, type: 'Note', attributedTo: actor.ap_id, content,
-    summary: null, attachmentsJson: '[]', inReplyTo: null,
-    conversation: conversationId, visibility: 'direct',
-    toJson, ccJson, published: now, isLocal: 1,
+    apId,
+    type: "Note",
+    attributedTo: actor.ap_id,
+    content,
+    summary: null,
+    attachmentsJson: "[]",
+    inReplyTo: null,
+    conversation: conversationId,
+    visibility: "direct",
+    toJson,
+    ccJson,
+    published: now,
+    isLocal: 1,
   });
 
   await db.insert(objectRecipients)
-    .values({ objectApId: apId, recipientApId: target.apId, type: 'to' })
+    .values({ objectApId: apId, recipientApId: target.apId, type: "to" })
     .onConflictDoNothing();
 
   await db.insert(activities).values({
-    apId: actId, type: 'Create', actorApId: actor.ap_id,
+    apId: actId,
+    type: "Create",
+    actorApId: actor.ap_id,
     objectApId: apId,
-    rawJson: JSON.stringify({ type: 'Create', actor: actor.ap_id, object: apId }),
-    direction: 'inbound',
+    rawJson: JSON.stringify({
+      type: "Create",
+      actor: actor.ap_id,
+      object: apId,
+    }),
+    direction: "inbound",
   });
 
   await db.insert(inbox).values({
-    actorApId: target.apId, activityApId: actId,
+    actorApId: target.apId,
+    activityApId: actId,
   });
 
   return c.json(ok({ message_id: apId, conversation_id: conversationId }));
 }
 
-export async function handleGetDmThreads(c: ToolContext, input: Input, actor: { ap_id: string } | null) {
+export async function handleGetDmThreads(
+  c: ToolContext,
+  input: Input,
+  actor: { ap_id: string } | null,
+) {
   if (!actor) return c.json(errAuth(), 401);
 
-  const db = c.get('db');
+  const db = c.get("db");
   const limit = toolLimit(input.limit, 20, 50);
 
   const dms = await db.select({
@@ -83,22 +120,25 @@ export async function handleGetDmThreads(c: ToolContext, input: Input, actor: { 
   })
     .from(objects)
     .where(and(
-      eq(objects.visibility, 'direct'),
-      eq(objects.type, 'Note'),
+      eq(objects.visibility, "direct"),
+      eq(objects.type, "Note"),
       isNotNull(objects.conversation),
     ))
     .orderBy(desc(objects.published))
     .limit(2000);
 
   // Filter to only messages where actor is sender or recipient, then group by partner
-  const threads: Record<string, { partner: string; lastMessage: string; lastDate: string }> = {};
+  const threads: Record<
+    string,
+    { partner: string; lastMessage: string; lastDate: string }
+  > = {};
 
   for (const dm of dms) {
     const partner = resolveDmPartner(dm, actor.ap_id);
     if (partner && !threads[partner]) {
       threads[partner] = {
         partner,
-        lastMessage: dm.content || '',
+        lastMessage: dm.content || "",
         lastDate: dm.published,
       };
     }
@@ -107,13 +147,17 @@ export async function handleGetDmThreads(c: ToolContext, input: Input, actor: { 
   return c.json(ok({ threads: Object.values(threads).slice(0, limit) }));
 }
 
-export async function handleGetDmMessages(c: ToolContext, input: Input, actor: { ap_id: string } | null) {
+export async function handleGetDmMessages(
+  c: ToolContext,
+  input: Input,
+  actor: { ap_id: string } | null,
+) {
   if (!actor) return c.json(errAuth(), 401);
 
-  const db = c.get('db');
-  const threadId = requireString(input, 'thread_id');
+  const db = c.get("db");
+  const threadId = requireString(input, "thread_id");
   const limit = toolLimit(input.limit, 50, 100);
-  if (!threadId) return c.json(errRequired('Thread ID'), 400);
+  if (!threadId) return c.json(errRequired("Thread ID"), 400);
 
   const baseUrl = c.env.APP_URL;
   const conversationId = getConversationId(baseUrl, actor.ap_id, threadId);
@@ -121,8 +165,8 @@ export async function handleGetDmMessages(c: ToolContext, input: Input, actor: {
   const messages = await db.select()
     .from(objects)
     .where(and(
-      eq(objects.visibility, 'direct'),
-      eq(objects.type, 'Note'),
+      eq(objects.visibility, "direct"),
+      eq(objects.type, "Note"),
       eq(objects.conversation, conversationId),
     ))
     .orderBy(desc(objects.published))

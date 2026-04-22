@@ -1,53 +1,116 @@
-import { Hono } from 'hono';
-import { eq, and, or, count, asc, desc, sql, inArray, isNull } from 'drizzle-orm';
-import { communities, communityMembers, communityJoinRequests, objects } from '../../../db/index.ts';
-import type { Env, Variables } from '../../types.ts';
-import { communityApId, generateKeyPair, parseLimit, parseOffset } from '../../federation-helpers.ts';
-import { fetchCommunityId, memberWhere, requireManager } from './membership-shared.ts';
-import { isUniqueConstraintError } from '../../lib/parse-helpers.ts';
+import { Hono } from "hono";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
+import {
+  communities,
+  communityJoinRequests,
+  communityMembers,
+  objects,
+} from "../../../db/index.ts";
+import type { Env, Variables } from "../../types.ts";
+import {
+  communityApId,
+  generateKeyPair,
+  parseLimit,
+  parseOffset,
+} from "../../federation-helpers.ts";
+import {
+  fetchCommunityId,
+  memberWhere,
+  requireManager,
+} from "./membership-shared.ts";
+import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
 
 const communitiesRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 function isValidCommunityIconUrl(value: string): boolean {
   const trimmed = value.trim();
-  if (trimmed.startsWith('/media/')) return true;
+  if (trimmed.startsWith("/media/")) return true;
   try {
     const parsed = new URL(trimmed);
-    return parsed.protocol === 'https:';
+    return parsed.protocol === "https:";
   } catch {
     return false;
   }
 }
 
 const RESERVED_NAMES = new Set([
-  'admin', 'administrator', 'system', 'root', 'moderator', 'mod',
-  'community', 'communities', 'group', 'groups', 'user', 'users',
-  'api', 'ap', 'activitypub', 'webfinger', 'well_known',
-  'settings', 'config', 'configuration', 'help', 'support',
-  'about', 'terms', 'privacy', 'legal', 'dmca', 'copyright',
-  'login', 'logout', 'register', 'signup', 'signin', 'auth',
-  'null', 'undefined', 'true', 'false', 'test', 'demo',
+  "admin",
+  "administrator",
+  "system",
+  "root",
+  "moderator",
+  "mod",
+  "community",
+  "communities",
+  "group",
+  "groups",
+  "user",
+  "users",
+  "api",
+  "ap",
+  "activitypub",
+  "webfinger",
+  "well_known",
+  "settings",
+  "config",
+  "configuration",
+  "help",
+  "support",
+  "about",
+  "terms",
+  "privacy",
+  "legal",
+  "dmca",
+  "copyright",
+  "login",
+  "logout",
+  "register",
+  "signup",
+  "signin",
+  "auth",
+  "null",
+  "undefined",
+  "true",
+  "false",
+  "test",
+  "demo",
 ]);
 
 function validateCommunityName(name: string | undefined): string | null {
-  if (!name || name.trim().length < 2) return 'Name must be at least 2 characters';
+  if (!name || name.trim().length < 2) {
+    return "Name must be at least 2 characters";
+  }
   const trimmed = name.trim();
-  if (trimmed.length > 32) return 'Name must be at most 32 characters';
-  if (!/^[a-zA-Z0-9_]+$/.test(trimmed)) return 'Name can only contain letters, numbers, and underscores';
-  if (RESERVED_NAMES.has(trimmed.toLowerCase())) return 'This name is reserved';
-  if (/^\d+$/.test(trimmed)) return 'Name cannot be all numbers';
-  if (trimmed.startsWith('_') || trimmed.endsWith('_')) return 'Name cannot start or end with underscore';
+  if (trimmed.length > 32) return "Name must be at most 32 characters";
+  if (!/^[a-zA-Z0-9_]+$/.test(trimmed)) {
+    return "Name can only contain letters, numbers, and underscores";
+  }
+  if (RESERVED_NAMES.has(trimmed.toLowerCase())) return "This name is reserved";
+  if (/^\d+$/.test(trimmed)) return "Name cannot be all numbers";
+  if (trimmed.startsWith("_") || trimmed.endsWith("_")) {
+    return "Name cannot start or end with underscore";
+  }
   return null;
 }
 
 // GET /api/communities - List all communities
-communitiesRouter.get('/', async (c) => {
-  const actor = c.get('actor');
-  const db = c.get('db');
-  const limit = parseLimit(c.req.query('limit'), 100, 500);
-  const offset = parseOffset(c.req.query('offset'), 0, 10000);
+communitiesRouter.get("/", async (c) => {
+  const actor = c.get("actor");
+  const db = c.get("db");
+  const limit = parseLimit(c.req.query("limit"), 100, 500);
+  const offset = parseOffset(c.req.query("offset"), 0, 10000);
 
-  const actorApIdVal = actor?.ap_id || '';
+  const actorApIdVal = actor?.ap_id || "";
 
   const communitiesList = await db.select().from(communities)
     .orderBy(
@@ -76,7 +139,7 @@ communitiesRouter.get('/', async (c) => {
         .where(and(
           eq(communityJoinRequests.actorApId, actorApIdVal),
           inArray(communityJoinRequests.communityApId, communityApIds),
-          eq(communityJoinRequests.status, 'pending'),
+          eq(communityJoinRequests.status, "pending"),
         )),
     ]);
 
@@ -86,7 +149,9 @@ communitiesRouter.get('/', async (c) => {
 
   const result = communitiesList.map((community) => {
     const isMember = membershipSet.has(community.apId);
-    const joinStatus = !isMember && pendingRequestSet.has(community.apId) ? 'pending' : null;
+    const joinStatus = !isMember && pendingRequestSet.has(community.apId)
+      ? "pending"
+      : null;
 
     return {
       ap_id: community.apId,
@@ -109,11 +174,11 @@ communitiesRouter.get('/', async (c) => {
 });
 
 // POST /api/communities - Create a new community
-communitiesRouter.post('/', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+communitiesRouter.post("/", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const db = c.get('db');
+  const db = c.get("db");
 
   const body = await c.req.json<{
     name: string;
@@ -143,15 +208,15 @@ communitiesRouter.post('/', async (c) => {
       apId,
       preferredUsername: validName,
       name: body.display_name || validName,
-      summary: body.summary || '',
+      summary: body.summary || "",
       inbox: inboxUrl,
       outbox,
       followersUrl,
       publicKeyPem,
       privateKeyPem,
-      visibility: 'public',
-      joinPolicy: 'open',
-      postPolicy: 'members',
+      visibility: "public",
+      joinPolicy: "open",
+      postPolicy: "members",
       memberCount: 1,
       createdBy: actor.ap_id,
       createdAt: now,
@@ -160,12 +225,12 @@ communitiesRouter.post('/', async (c) => {
     await db.insert(communityMembers).values({
       communityApId: apId,
       actorApId: actor.ap_id,
-      role: 'owner',
+      role: "owner",
       joinedAt: now,
     });
   } catch (error) {
     if (isUniqueConstraintError(error)) {
-      return c.json({ error: 'Community name already taken' }, 409);
+      return c.json({ error: "Community name already taken" }, 409);
     }
     throw error;
   }
@@ -175,33 +240,40 @@ communitiesRouter.post('/', async (c) => {
       ap_id: apId,
       name: body.name,
       display_name: body.display_name || body.name,
-      summary: body.summary || '',
+      summary: body.summary || "",
       icon_url: null,
-      visibility: 'public',
-      join_policy: 'open',
-      post_policy: 'members',
+      visibility: "public",
+      join_policy: "open",
+      post_policy: "members",
       member_count: 1,
       created_at: now,
       is_member: true,
-    }
+    },
   }, 201);
 });
 
 // GET /api/communities/:name - Get community by name or ap_id
-communitiesRouter.get('/:identifier', async (c) => {
-  const identifier = c.req.param('identifier');
-  const actor = c.get('actor');
-  const db = c.get('db');
+communitiesRouter.get("/:identifier", async (c) => {
+  const identifier = c.req.param("identifier");
+  const actor = c.get("actor");
+  const db = c.get("db");
   const baseUrl = c.env.APP_URL;
 
-  const apId = identifier.startsWith('http') ? identifier : communityApId(baseUrl, identifier);
+  const apId = identifier.startsWith("http")
+    ? identifier
+    : communityApId(baseUrl, identifier);
 
   const community = await db.select().from(communities)
-    .where(or(eq(communities.apId, apId), eq(communities.preferredUsername, identifier)))
+    .where(
+      or(
+        eq(communities.apId, apId),
+        eq(communities.preferredUsername, identifier),
+      ),
+    )
     .get();
 
   if (!community) {
-    return c.json({ error: 'Community not found' }, 404);
+    return c.json({ error: "Community not found" }, 404);
   }
 
   // Check membership and join status
@@ -223,8 +295,8 @@ communitiesRouter.get('/:identifier', async (c) => {
           eq(communityJoinRequests.actorApId, actor.ap_id),
         ))
         .get();
-      if (joinRequest?.status === 'pending') {
-        joinStatus = 'pending';
+      if (joinRequest?.status === "pending") {
+        joinStatus = "pending";
       }
     }
   }
@@ -255,35 +327,35 @@ communitiesRouter.get('/:identifier', async (c) => {
       is_member: isMember,
       member_role: memberRole,
       join_status: joinStatus,
-    }
+    },
   });
 });
 
 // PATCH /api/communities/:identifier/settings - Update community settings
-communitiesRouter.patch('/:identifier/settings', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+communitiesRouter.patch("/:identifier/settings", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const identifier = c.req.param('identifier');
-  const db = c.get('db');
+  const identifier = c.req.param("identifier");
+  const db = c.get("db");
 
   const { community } = await fetchCommunityId(c, identifier);
   if (!community) {
-    return c.json({ error: 'Community not found' }, 404);
+    return c.json({ error: "Community not found" }, 404);
   }
 
   const manager = await requireManager(db, community.apId, actor.ap_id);
   if (!manager) {
-    return c.json({ error: 'Forbidden' }, 403);
+    return c.json({ error: "Forbidden" }, 403);
   }
 
   const body = await c.req.json<{
     display_name?: string;
     summary?: string;
     icon_url?: string;
-    visibility?: 'public' | 'private';
-    join_policy?: 'open' | 'approval' | 'invite';
-    post_policy?: 'anyone' | 'members' | 'mods' | 'owners';
+    visibility?: "public" | "private";
+    join_policy?: "open" | "approval" | "invite";
+    post_policy?: "anyone" | "members" | "mods" | "owners";
   }>();
 
   const updates: Record<string, string | null> = {};
@@ -295,37 +367,40 @@ communitiesRouter.patch('/:identifier/settings', async (c) => {
     updates.summary = body.summary;
   }
   if (body.icon_url !== undefined) {
-    if (body.icon_url === null || (typeof body.icon_url === 'string' && body.icon_url.trim().length === 0)) {
+    if (
+      body.icon_url === null ||
+      (typeof body.icon_url === "string" && body.icon_url.trim().length === 0)
+    ) {
       updates.iconUrl = null;
-    } else if (typeof body.icon_url !== 'string') {
-      return c.json({ error: 'Invalid icon_url' }, 400);
+    } else if (typeof body.icon_url !== "string") {
+      return c.json({ error: "Invalid icon_url" }, 400);
     } else if (!isValidCommunityIconUrl(body.icon_url)) {
-      return c.json({ error: 'Invalid icon_url scheme' }, 400);
+      return c.json({ error: "Invalid icon_url scheme" }, 400);
     } else {
       updates.iconUrl = body.icon_url.trim();
     }
   }
   if (body.visibility !== undefined) {
-    if (!['public', 'private'].includes(body.visibility)) {
-      return c.json({ error: 'Invalid visibility' }, 400);
+    if (!["public", "private"].includes(body.visibility)) {
+      return c.json({ error: "Invalid visibility" }, 400);
     }
     updates.visibility = body.visibility;
   }
   if (body.join_policy !== undefined) {
-    if (!['open', 'approval', 'invite'].includes(body.join_policy)) {
-      return c.json({ error: 'Invalid join_policy' }, 400);
+    if (!["open", "approval", "invite"].includes(body.join_policy)) {
+      return c.json({ error: "Invalid join_policy" }, 400);
     }
     updates.joinPolicy = body.join_policy;
   }
   if (body.post_policy !== undefined) {
-    if (!['anyone', 'members', 'mods', 'owners'].includes(body.post_policy)) {
-      return c.json({ error: 'Invalid post_policy' }, 400);
+    if (!["anyone", "members", "mods", "owners"].includes(body.post_policy)) {
+      return c.json({ error: "Invalid post_policy" }, 400);
     }
     updates.postPolicy = body.post_policy;
   }
 
   if (Object.keys(updates).length === 0) {
-    return c.json({ error: 'No fields to update' }, 400);
+    return c.json({ error: "No fields to update" }, 400);
   }
 
   await db.update(communities)
@@ -334,6 +409,5 @@ communitiesRouter.patch('/:identifier/settings', async (c) => {
 
   return c.json({ success: true });
 });
-
 
 export default communitiesRouter;

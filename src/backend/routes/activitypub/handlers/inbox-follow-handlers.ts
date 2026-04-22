@@ -1,25 +1,31 @@
-import type { Database } from '../../../../db/index.ts';
-import { eq, and, sql, inArray } from 'drizzle-orm';
-import { actors, objects, follows, likes, activities } from '../../../../db/index.ts';
+import type { Database } from "../../../../db/index.ts";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import {
+  activities,
+  actors,
+  follows,
+  likes,
+  objects,
+} from "../../../../db/index.ts";
 import {
   activityApId,
   generateId,
   isLocal,
-} from '../../../federation-helpers.ts';
-import { enqueueDeliveryToActor } from '../../../lib/delivery/queue.ts';
+} from "../../../federation-helpers.ts";
+import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
 import {
-  type ActivityContext,
   type Activity,
+  type ActivityContext,
   getActivityObject,
   getActivityObjectId,
-} from '../inbox-types.ts';
+} from "../inbox-types.ts";
 import {
-  upsertActivityAndNotify,
-  findFollowByActivityId,
   deleteFollowByCompoundKey,
   findAndDeleteInteractionByActivityId,
+  findFollowByActivityId,
   undoInteraction,
-} from './inbox-shared-helpers.ts';
+  upsertActivityAndNotify,
+} from "./inbox-shared-helpers.ts";
 
 type ActorRow = typeof actors.$inferSelect;
 
@@ -32,14 +38,14 @@ export async function handleFollow(
   activity: Activity,
   recipient: ActorRow,
   actor: string,
-  baseUrl: string
+  baseUrl: string,
 ) {
-  const db = c.get('db');
+  const db = c.get("db");
 
   const activityId = activity.id || activityApId(baseUrl, generateId());
 
   // Determine if we need to approve
-  const status = recipient.isPrivate ? 'pending' : 'accepted';
+  const status = recipient.isPrivate ? "pending" : "accepted";
   const now = new Date().toISOString();
 
   // Use insert + onConflictDoNothing to atomically create follow record (prevents race condition)
@@ -49,7 +55,7 @@ export async function handleFollow(
       followingApId: recipient.apId,
       status,
       activityApId: activityId,
-      acceptedAt: status === 'accepted' ? now : null,
+      acceptedAt: status === "accepted" ? now : null,
     })
     .onConflictDoNothing()
     .returning()
@@ -60,7 +66,7 @@ export async function handleFollow(
   if (!isNewFollow) return;
 
   // Update counts if accepted
-  if (status === 'accepted') {
+  if (status === "accepted") {
     await db.update(actors)
       .set({ followerCount: sql`${actors.followerCount} + 1` })
       .where(eq(actors.apId, recipient.apId));
@@ -68,17 +74,23 @@ export async function handleFollow(
 
   // Store activity and add to inbox (AP Native notification)
   await upsertActivityAndNotify(
-    db, activityId, 'Follow', actor, recipient.apId, activity, recipient.apId
+    db,
+    activityId,
+    "Follow",
+    actor,
+    recipient.apId,
+    activity,
+    recipient.apId,
   );
 
   // Send Accept response
   // If the recipient requires approval, do NOT auto-accept.
-  if (status === 'accepted' && !isLocal(actor, baseUrl)) {
+  if (status === "accepted" && !isLocal(actor, baseUrl)) {
     const acceptId = activityApId(baseUrl, generateId());
     const acceptActivity = {
-      '@context': 'https://www.w3.org/ns/activitystreams',
+      "@context": "https://www.w3.org/ns/activitystreams",
       id: acceptId,
-      type: 'Accept',
+      type: "Accept",
       actor: recipient.apId,
       object: activityId,
     };
@@ -87,11 +99,11 @@ export async function handleFollow(
     await db.insert(activities)
       .values({
         apId: acceptId,
-        type: 'Accept',
+        type: "Accept",
         actorApId: recipient.apId,
         objectApId: activityId,
         rawJson: JSON.stringify(acceptActivity),
-        direction: 'outbound',
+        direction: "outbound",
       });
 
     // Outbound delivery must be async (no remote POST in request path).
@@ -104,23 +116,23 @@ export async function handleFollow(
 // ---------------------------------------------------------------------------
 
 export async function handleAccept(c: ActivityContext, activity: Activity) {
-  const db = c.get('db');
+  const db = c.get("db");
   const followId = getActivityObjectId(activity);
   if (!followId) return;
 
   const follow = await findFollowByActivityId(db, followId);
-  if (!follow || follow.status === 'accepted') return;
+  if (!follow || follow.status === "accepted") return;
 
   const now = new Date().toISOString();
 
   try {
     await db.update(follows)
-      .set({ status: 'accepted', acceptedAt: now })
+      .set({ status: "accepted", acceptedAt: now })
       .where(
         and(
           eq(follows.followerApId, follow.followerApId),
           eq(follows.followingApId, follow.followingApId),
-        )
+        ),
       );
 
     await db.update(actors)
@@ -130,7 +142,7 @@ export async function handleAccept(c: ActivityContext, activity: Activity) {
       .set({ followerCount: sql`${actors.followerCount} + 1` })
       .where(eq(actors.apId, follow.followingApId));
   } catch (e) {
-    console.error('[ActivityPub] Error in handleAccept:', e);
+    console.error("[ActivityPub] Error in handleAccept:", e);
   }
 }
 
@@ -139,14 +151,18 @@ export async function handleAccept(c: ActivityContext, activity: Activity) {
 // ---------------------------------------------------------------------------
 
 export async function handleReject(c: ActivityContext, activity: Activity) {
-  const db = c.get('db');
+  const db = c.get("db");
   const followId = getActivityObjectId(activity);
   if (!followId) return;
 
   const follow = await findFollowByActivityId(db, followId);
   if (!follow) return;
 
-  await deleteFollowByCompoundKey(db, follow.followerApId, follow.followingApId);
+  await deleteFollowByCompoundKey(
+    db,
+    follow.followerApId,
+    follow.followingApId,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -158,24 +174,29 @@ export async function handleUndo(
   activity: Activity,
   recipient: ActorRow,
   actor: string,
-  _baseUrl: string
+  _baseUrl: string,
 ) {
-  const db = c.get('db');
+  const db = c.get("db");
   const activityObject = getActivityObject(activity);
   const objectType = activityObject?.type;
   const objectId = getActivityObjectId(activity);
 
   // If object is just a string (activity ID), try to find the original activity
   if (!objectType && objectId) {
-    const resolved = await resolveUndoByActivityId(db, objectId, actor, recipient);
+    const resolved = await resolveUndoByActivityId(
+      db,
+      objectId,
+      actor,
+      recipient,
+    );
     if (resolved) return;
   }
 
-  if (objectType === 'Follow') {
+  if (objectType === "Follow") {
     await undoFollow(db, objectId, actor, recipient);
-  } else if (objectType === 'Like') {
+  } else if (objectType === "Like") {
     await undoLike(db, objectId, activityObject, actor, recipient);
-  } else if (objectType === 'Announce') {
+  } else if (objectType === "Announce") {
     await undoAnnounce(db, objectId, activityObject, actor);
   }
 }
@@ -193,7 +214,7 @@ async function resolveUndoByActivityId(
   db: Database,
   objectId: string,
   actor: string,
-  recipient: ActorRow
+  recipient: ActorRow,
 ): Promise<boolean> {
   const originalActivity = await db.select({
     type: activities.type,
@@ -206,14 +227,20 @@ async function resolveUndoByActivityId(
   if (!originalActivity) return false;
 
   if (originalActivity.actorApId && originalActivity.actorApId !== actor) {
-    console.warn(`[ActivityPub] Undo actor mismatch: ${actor} tried to undo activity by ${originalActivity.actorApId}`);
+    console.warn(
+      `[ActivityPub] Undo actor mismatch: ${actor} tried to undo activity by ${originalActivity.actorApId}`,
+    );
     return true;
   }
 
-  if (originalActivity.type === 'Follow') {
+  if (originalActivity.type === "Follow") {
     const follow = await findFollowByActivityId(db, objectId);
     if (follow) {
-      await deleteFollowByCompoundKey(db, follow.followerApId, follow.followingApId);
+      await deleteFollowByCompoundKey(
+        db,
+        follow.followerApId,
+        follow.followingApId,
+      );
     }
     await db.update(actors)
       .set({ followerCount: sql`${actors.followerCount} - 1` })
@@ -221,9 +248,16 @@ async function resolveUndoByActivityId(
     return true;
   }
 
-  if ((originalActivity.type === 'Like' || originalActivity.type === 'Announce') && originalActivity.objectApId) {
-    const kind = originalActivity.type === 'Like' ? 'like' as const : 'announce' as const;
-    const countField = kind === 'like' ? 'likeCount' as const : 'announceCount' as const;
+  if (
+    (originalActivity.type === "Like" ||
+      originalActivity.type === "Announce") && originalActivity.objectApId
+  ) {
+    const kind = originalActivity.type === "Like"
+      ? "like" as const
+      : "announce" as const;
+    const countField = kind === "like"
+      ? "likeCount" as const
+      : "announceCount" as const;
     await findAndDeleteInteractionByActivityId(db, kind, objectId);
     await db.update(objects)
       .set({ [countField]: sql`${objects[countField]} - 1` })
@@ -238,15 +272,24 @@ async function undoFollow(
   db: Database,
   objectId: string | null,
   actor: string,
-  recipient: ActorRow
+  recipient: ActorRow,
 ): Promise<void> {
   const follow = objectId ? await findFollowByActivityId(db, objectId) : null;
 
   if (follow) {
-    await deleteFollowByCompoundKey(db, follow.followerApId, follow.followingApId);
+    await deleteFollowByCompoundKey(
+      db,
+      follow.followerApId,
+      follow.followingApId,
+    );
   } else {
     await db.delete(follows)
-      .where(and(eq(follows.followerApId, actor), eq(follows.followingApId, recipient.apId)));
+      .where(
+        and(
+          eq(follows.followerApId, actor),
+          eq(follows.followingApId, recipient.apId),
+        ),
+      );
   }
 
   await db.update(actors)
@@ -259,10 +302,15 @@ async function undoLike(
   objectId: string | null,
   activityObject: ReturnType<typeof getActivityObject>,
   actor: string,
-  recipient: ActorRow
+  recipient: ActorRow,
 ): Promise<void> {
   const handled = await undoInteraction(
-    db, 'like', 'likeCount', activityObject?.object, objectId, actor
+    db,
+    "like",
+    "likeCount",
+    activityObject?.object,
+    objectId,
+    actor,
   );
   if (handled) return;
 
@@ -276,7 +324,7 @@ async function undoLike(
         and(
           eq(likes.actorApId, actor),
           inArray(likes.objectApId, recipientObjects.map((o) => o.apId)),
-        )
+        ),
       );
   }
 }
@@ -285,7 +333,14 @@ async function undoAnnounce(
   db: Database,
   objectId: string | null,
   activityObject: ReturnType<typeof getActivityObject>,
-  actor: string
+  actor: string,
 ): Promise<void> {
-  await undoInteraction(db, 'announce', 'announceCount', activityObject?.object, objectId, actor);
+  await undoInteraction(
+    db,
+    "announce",
+    "announceCount",
+    activityObject?.object,
+    objectId,
+    actor,
+  );
 }

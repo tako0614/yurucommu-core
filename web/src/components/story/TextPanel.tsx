@@ -5,10 +5,10 @@
  * color, background, stroke, and shadow.
  */
 
-import { Show, For } from 'solid-js';
-import { FONTS, TextLayer } from '../../lib/story-canvas.ts';
-import { ColorPicker } from './ColorPicker.tsx';
-import { TrashIcon, LayerUpIcon, LayerDownIcon } from './ToolPanelIcons.tsx';
+import { For, Show } from "solid-js";
+import { FONTS, TextLayer } from "../../lib/story-canvas.ts";
+import { ColorPicker } from "./ColorPicker.tsx";
+import { LayerDownIcon, LayerUpIcon, TrashIcon } from "./ToolPanelIcons.tsx";
 
 interface TextPanelProps {
   layer: TextLayer;
@@ -68,8 +68,8 @@ export function TextPanel(props: TextPanelProps) {
                 onClick={() => props.onUpdate({ fontFamily: font.family })}
                 class={`px-3 py-2 rounded-lg text-sm transition-colors ${
                   props.layer.fontFamily === font.family
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                    ? "bg-blue-500 text-white"
+                    : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
                 }`}
                 style={{ "font-family": font.family }}
               >
@@ -82,13 +82,16 @@ export function TextPanel(props: TextPanelProps) {
 
       {/* Font size */}
       <div>
-        <label class="text-neutral-400 text-sm">サイズ: {props.layer.fontSize}px</label>
+        <label class="text-neutral-400 text-sm">
+          サイズ: {props.layer.fontSize}px
+        </label>
         <input
           type="range"
           min="24"
           max="200"
           value={props.layer.fontSize}
-          onInput={(e) => props.onUpdate({ fontSize: parseInt(e.currentTarget.value) })}
+          onInput={(e) =>
+            props.onUpdate({ fontSize: parseInt(e.currentTarget.value) })}
           class="w-full mt-1 accent-blue-500"
         />
       </div>
@@ -96,21 +99,29 @@ export function TextPanel(props: TextPanelProps) {
       {/* Font style */}
       <div class="flex gap-2">
         <button
-          onClick={() => props.onUpdate({ fontWeight: props.layer.fontWeight === 'bold' ? 'normal' : 'bold' })}
+          onClick={() =>
+            props.onUpdate({
+              fontWeight: props.layer.fontWeight === "bold" ? "normal" : "bold",
+            })}
           class={`flex-1 py-2 rounded-lg font-bold transition-colors ${
-            props.layer.fontWeight === 'bold'
-              ? 'bg-blue-500 text-white'
-              : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+            props.layer.fontWeight === "bold"
+              ? "bg-blue-500 text-white"
+              : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
           }`}
         >
           B
         </button>
         <button
-          onClick={() => props.onUpdate({ fontStyle: props.layer.fontStyle === 'italic' ? 'normal' : 'italic' })}
+          onClick={() =>
+            props.onUpdate({
+              fontStyle: props.layer.fontStyle === "italic"
+                ? "normal"
+                : "italic",
+            })}
           class={`flex-1 py-2 rounded-lg italic transition-colors ${
-            props.layer.fontStyle === 'italic'
-              ? 'bg-blue-500 text-white'
-              : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+            props.layer.fontStyle === "italic"
+              ? "bg-blue-500 text-white"
+              : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
           }`}
         >
           I
@@ -121,17 +132,17 @@ export function TextPanel(props: TextPanelProps) {
       <div>
         <label class="text-neutral-400 text-sm">配置</label>
         <div class="flex gap-2 mt-1">
-          <For each={['left', 'center', 'right'] as const}>
+          <For each={["left", "center", "right"] as const}>
             {(align) => (
               <button
                 onClick={() => props.onUpdate({ textAlign: align })}
                 class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
                   props.layer.textAlign === align
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                    ? "bg-blue-500 text-white"
+                    : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
                 }`}
               >
-                {align === 'left' ? '左' : align === 'center' ? '中央' : '右'}
+                {align === "left" ? "左" : align === "center" ? "中央" : "右"}
               </button>
             )}
           </For>
@@ -153,18 +164,19 @@ export function TextPanel(props: TextPanelProps) {
             onClick={() => props.onUpdate({ backgroundColor: undefined })}
             class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
               !props.layer.backgroundColor
-                ? 'bg-blue-500 text-white'
-                : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                ? "bg-blue-500 text-white"
+                : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
             なし
           </button>
           <button
-            onClick={() => props.onUpdate({ backgroundColor: 'rgba(0,0,0,0.5)' })}
+            onClick={() =>
+              props.onUpdate({ backgroundColor: "rgba(0,0,0,0.5)" })}
             class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
               props.layer.backgroundColor
-                ? 'bg-blue-500 text-white'
-                : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                ? "bg-blue-500 text-white"
+                : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
             あり
@@ -186,18 +198,19 @@ export function TextPanel(props: TextPanelProps) {
             onClick={() => props.onUpdate({ stroke: undefined })}
             class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
               !props.layer.stroke
-                ? 'bg-blue-500 text-white'
-                : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                ? "bg-blue-500 text-white"
+                : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
             なし
           </button>
           <button
-            onClick={() => props.onUpdate({ stroke: { color: '#000000', width: 4 } })}
+            onClick={() =>
+              props.onUpdate({ stroke: { color: "#000000", width: 4 } })}
             class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
               props.layer.stroke
-                ? 'bg-blue-500 text-white'
-                : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                ? "bg-blue-500 text-white"
+                : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
             あり
@@ -207,16 +220,26 @@ export function TextPanel(props: TextPanelProps) {
           <div class="mt-2 space-y-2">
             <ColorPicker
               color={props.layer.stroke!.color}
-              onChange={(color) => props.onUpdate({ stroke: { color, width: props.layer.stroke?.width ?? 4 } })}
+              onChange={(color) => props.onUpdate({
+                stroke: { color, width: props.layer.stroke?.width ?? 4 },
+              })}
             />
             <div>
-              <label class="text-neutral-500 text-xs">太さ: {props.layer.stroke!.width}px</label>
+              <label class="text-neutral-500 text-xs">
+                太さ: {props.layer.stroke!.width}px
+              </label>
               <input
                 type="range"
                 min="1"
                 max="20"
                 value={props.layer.stroke!.width}
-                onInput={(e) => props.onUpdate({ stroke: { color: props.layer.stroke?.color ?? '#000000', width: parseInt(e.currentTarget.value) } })}
+                onInput={(e) =>
+                  props.onUpdate({
+                    stroke: {
+                      color: props.layer.stroke?.color ?? "#000000",
+                      width: parseInt(e.currentTarget.value),
+                    },
+                  })}
                 class="w-full accent-blue-500"
               />
             </div>
@@ -232,18 +255,26 @@ export function TextPanel(props: TextPanelProps) {
             onClick={() => props.onUpdate({ shadow: undefined })}
             class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
               !props.layer.shadow
-                ? 'bg-blue-500 text-white'
-                : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                ? "bg-blue-500 text-white"
+                : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
             なし
           </button>
           <button
-            onClick={() => props.onUpdate({ shadow: { color: 'rgba(0,0,0,0.5)', blur: 10, offsetX: 2, offsetY: 2 } })}
+            onClick={() =>
+              props.onUpdate({
+                shadow: {
+                  color: "rgba(0,0,0,0.5)",
+                  blur: 10,
+                  offsetX: 2,
+                  offsetY: 2,
+                },
+              })}
             class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
               props.layer.shadow
-                ? 'bg-blue-500 text-white'
-                : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                ? "bg-blue-500 text-white"
+                : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
             あり

@@ -4,7 +4,7 @@
  * Controls drawing tool properties: color, brush width, and opacity.
  */
 
-import { ColorPicker } from './ColorPicker.tsx';
+import { ColorPicker } from "./ColorPicker.tsx";
 
 interface DrawingPanelProps {
   color: string;
@@ -39,7 +39,11 @@ export function DrawingPanel(props: DrawingPanelProps) {
       </div>
 
       {/* Color */}
-      <ColorPicker label="色" color={props.color} onChange={props.onColorChange} />
+      <ColorPicker
+        label="色"
+        color={props.color}
+        onChange={props.onColorChange}
+      />
 
       {/* Width */}
       <div>
@@ -68,13 +72,16 @@ export function DrawingPanel(props: DrawingPanelProps) {
 
       {/* Opacity */}
       <div>
-        <label class="text-neutral-400 text-sm">不透明度: {Math.round(props.opacity * 100)}%</label>
+        <label class="text-neutral-400 text-sm">
+          不透明度: {Math.round(props.opacity * 100)}%
+        </label>
         <input
           type="range"
           min="10"
           max="100"
           value={props.opacity * 100}
-          onInput={(e) => props.onOpacityChange(parseInt(e.currentTarget.value) / 100)}
+          onInput={(e) =>
+            props.onOpacityChange(parseInt(e.currentTarget.value) / 100)}
           class="w-full mt-1 accent-blue-500"
         />
       </div>

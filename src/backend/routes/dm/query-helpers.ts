@@ -1,13 +1,20 @@
-import { eq, and, or, desc, isNotNull, like } from 'drizzle-orm';
-import type { Database } from '../../../db/index.ts';
-import { objects } from '../../../db/index.ts';
+import { and, desc, eq, isNotNull, like, or } from "drizzle-orm";
+import type { Database } from "../../../db/index.ts";
+import { objects } from "../../../db/index.ts";
 
 export const MAX_DM_CONTENT_LENGTH = 5000;
 export const MAX_DM_PAGE_LIMIT = 100;
 
-export function getConversationId(baseUrl: string, ap1: string, ap2: string): string {
+export function getConversationId(
+  baseUrl: string,
+  ap1: string,
+  ap2: string,
+): string {
   const [p1, p2] = [ap1, ap2].sort();
-  const hash = btoa(`${p1}:${p2}`).replace(/[^a-zA-Z0-9]/g, '').substring(0, 16);
+  const hash = btoa(`${p1}:${p2}`).replace(/[^a-zA-Z0-9]/g, "").substring(
+    0,
+    16,
+  );
   return `${baseUrl}/ap/conversations/${hash}`;
 }
 
@@ -15,7 +22,7 @@ export async function resolveConversationId(
   db: Database,
   baseUrl: string,
   actorApId: string,
-  otherApId: string
+  otherApId: string,
 ): Promise<string> {
   const actorApIdJson = JSON.stringify(actorApId);
   const otherApIdJson = JSON.stringify(otherApId);
@@ -25,8 +32,8 @@ export async function resolveConversationId(
     .from(objects)
     .where(
       and(
-        eq(objects.visibility, 'direct'),
-        eq(objects.type, 'Note'),
+        eq(objects.visibility, "direct"),
+        eq(objects.type, "Note"),
         isNotNull(objects.conversation),
         or(
           and(
@@ -44,5 +51,6 @@ export async function resolveConversationId(
     .limit(1)
     .get();
 
-  return existing?.conversation || getConversationId(baseUrl, actorApId, otherApId);
+  return existing?.conversation ||
+    getConversationId(baseUrl, actorApId, otherApId);
 }

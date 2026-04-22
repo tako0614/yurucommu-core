@@ -1,5 +1,5 @@
-import type { Context } from 'hono';
-import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 import {
   AppError,
@@ -7,7 +7,7 @@ import {
   isAppError,
   logError,
   RateLimitError,
-} from '../lib/errors.ts';
+} from "../lib/errors.ts";
 
 interface ErrorMiddlewareOptions {
   /** Custom error logger */
@@ -15,7 +15,8 @@ interface ErrorMiddlewareOptions {
 }
 
 function getCorrelationId(c: Context): string {
-  return c.req.header('x-request-id') ?? c.req.header('CF-Ray') ?? crypto.randomUUID();
+  return c.req.header("x-request-id") ?? c.req.header("CF-Ray") ??
+    crypto.randomUUID();
 }
 
 /**
@@ -25,7 +26,7 @@ function resolveAppError(
   err: Error,
   c: Context,
   correlationId: string,
-  logger: ErrorMiddlewareOptions['logger'],
+  logger: ErrorMiddlewareOptions["logger"],
 ): AppError {
   if (isAppError(err)) return err;
 
@@ -33,16 +34,16 @@ function resolveAppError(
     correlationId,
     path: c.req.path,
     method: c.req.method,
-    requestId: c.req.header('x-request-id'),
+    requestId: c.req.header("x-request-id"),
   });
-  return new InternalError('An unexpected error occurred');
+  return new InternalError("An unexpected error occurred");
 }
 
 /**
  * Create Hono error middleware
  */
 export function createErrorMiddleware(
-  options: ErrorMiddlewareOptions = {}
+  options: ErrorMiddlewareOptions = {},
 ): (err: Error, c: Context) => Response {
   const { logger = logError } = options;
 
@@ -55,10 +56,9 @@ export function createErrorMiddleware(
     errorBody.correlation_id = correlationId;
 
     if (appError instanceof RateLimitError && appError.retryAfter) {
-      c.header('Retry-After', String(appError.retryAfter));
+      c.header("Retry-After", String(appError.retryAfter));
     }
 
     return c.json(response, appError.statusCode as ContentfulStatusCode);
   };
 }
-

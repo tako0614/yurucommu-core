@@ -1,5 +1,5 @@
-import { createEffect, onCleanup } from 'solid-js';
-import type { StoryCanvas } from '../../../lib/story-canvas.ts';
+import { createEffect, onCleanup } from "solid-js";
+import type { StoryCanvas } from "../../../lib/story-canvas.ts";
 
 // File size limit
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
@@ -19,24 +19,28 @@ export function useStoryImageUpload(opts: UseStoryImageUploadOptions) {
   // Cleanup object URLs on unmount to prevent memory leaks
   createEffect(() => {
     onCleanup(() => {
-      objectUrls.forEach(url => {
+      objectUrls.forEach((url) => {
         URL.revokeObjectURL(url);
       });
       objectUrls.clear();
     });
   });
 
-  const handleImageSelect = async (e: Event & { currentTarget: HTMLInputElement }) => {
+  const handleImageSelect = async (
+    e: Event & { currentTarget: HTMLInputElement },
+  ) => {
     const file = (e.currentTarget as HTMLInputElement).files?.[0];
     if (!file || !opts.storyCanvas) return;
 
-    if (!file.type.startsWith('image/')) {
-      opts.setError('画像ファイルを選択してください');
+    if (!file.type.startsWith("image/")) {
+      opts.setError("画像ファイルを選択してください");
       return;
     }
 
     if (file.size > MAX_IMAGE_SIZE) {
-      opts.setError(`画像サイズが大きすぎます（最大${MAX_IMAGE_SIZE / 1024 / 1024}MB）`);
+      opts.setError(
+        `画像サイズが大きすぎます（最大${MAX_IMAGE_SIZE / 1024 / 1024}MB）`,
+      );
       return;
     }
 
@@ -50,17 +54,21 @@ export function useStoryImageUpload(opts: UseStoryImageUploadOptions) {
       opts.selectLayer(layer.id);
       opts.onUpdate();
     } catch (err) {
-      console.error('Failed to add image:', err);
-      opts.setError('画像の追加に失敗しました');
+      console.error("Failed to add image:", err);
+      opts.setError("画像の追加に失敗しました");
     } finally {
       opts.setUploading(false);
-      if (fileInputRef) fileInputRef.value = '';
+      if (fileInputRef) fileInputRef.value = "";
     }
   };
 
   return {
-    get fileInputRef() { return fileInputRef; },
-    set fileInputRef(el: HTMLInputElement) { fileInputRef = el; },
+    get fileInputRef() {
+      return fileInputRef;
+    },
+    set fileInputRef(el: HTMLInputElement) {
+      fileInputRef = el;
+    },
     handleImageSelect,
   };
 }

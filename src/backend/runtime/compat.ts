@@ -7,8 +7,8 @@
  * This module re-exports everything from the compat/ subdirectory.
  */
 
-export { D1CompatDatabase, D1CompatPreparedStatement } from './compat/d1.ts';
-export { R2CompatBucket } from './compat/r2.ts';
-export { KVCompatNamespace } from './compat/kv.ts';
-export { AssetsCompatFetcher } from './compat/assets.ts';
-export { createNodeEnv, runMigrations } from './compat/env.ts';
+export { D1CompatDatabase, D1CompatPreparedStatement } from "./compat/d1.ts";
+export { R2CompatBucket } from "./compat/r2.ts";
+export { KVCompatNamespace } from "./compat/kv.ts";
+export { AssetsCompatFetcher } from "./compat/assets.ts";
+export { createNodeEnv, runMigrations } from "./compat/env.ts";

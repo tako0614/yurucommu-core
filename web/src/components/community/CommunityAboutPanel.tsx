@@ -1,5 +1,5 @@
-import { Show } from 'solid-js';
-import type { CommunityDetail } from '../../lib/api.ts';
+import { Show } from "solid-js";
+import type { CommunityDetail } from "../../lib/api.ts";
 
 interface CommunityAboutPanelProps {
   community: CommunityDetail;
@@ -18,7 +18,9 @@ export function CommunityAboutPanel(props: CommunityAboutPanelProps) {
       >
         <div>
           <h3 class="text-lg font-bold mb-2">グループについて</h3>
-          <p class="text-neutral-300 whitespace-pre-wrap">{props.community.summary}</p>
+          <p class="text-neutral-300 whitespace-pre-wrap">
+            {props.community.summary}
+          </p>
         </div>
       </Show>
     </div>

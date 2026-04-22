@@ -14,7 +14,7 @@
 // Types
 // ---------------------------------------------------------------------------
 
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+export type LogLevel = "debug" | "info" | "warn" | "error";
 
 const LEVEL_ORDER: Record<LogLevel, number> = {
   debug: 0,
@@ -47,7 +47,7 @@ export interface LoggerOptions {
    *  - "json"   : one JSON object per line (default, best for prod)
    *  - "pretty" : human-readable coloured output (best for dev)
    */
-  format?: 'json' | 'pretty';
+  format?: "json" | "pretty";
 }
 
 export interface Logger {
@@ -88,16 +88,16 @@ function formatData(
 /** Detect whether we are likely running in a production environment. */
 function detectProduction(): boolean {
   // Cloudflare Workers have no Deno/process – treat as production by default
-  if (typeof Deno === 'undefined') return true;
-  const env = Deno.env.get('NODE_ENV') || '';
-  return env === 'production';
+  if (typeof Deno === "undefined") return true;
+  const env = Deno.env.get("NODE_ENV") || "";
+  return env === "production";
 }
 
 const PRETTY_LEVEL_TAG: Record<LogLevel, string> = {
-  debug: 'DBG',
-  info:  'INF',
-  warn:  'WRN',
-  error: 'ERR',
+  debug: "DBG",
+  info: "INF",
+  warn: "WRN",
+  error: "ERR",
 };
 
 // ---------------------------------------------------------------------------
@@ -116,12 +116,12 @@ class LoggerImpl implements Logger {
   private useJson: boolean;
 
   constructor(opts?: InternalOptions) {
-    this.minLevel = LEVEL_ORDER[opts?.level ?? 'debug'];
+    this.minLevel = LEVEL_ORDER[opts?.level ?? "debug"];
     this.service = opts?.service;
     this.fields = { ...opts?.defaultFields, ...opts?._fields };
 
     if (opts?.format) {
-      this.useJson = opts.format === 'json';
+      this.useJson = opts.format === "json";
     } else {
       this.useJson = detectProduction();
     }
@@ -171,13 +171,12 @@ class LoggerImpl implements Logger {
   ): void {
     const ts = new Date().toISOString();
     const tag = PRETTY_LEVEL_TAG[level];
-    const svc = this.service ? ` [${this.service}]` : '';
+    const svc = this.service ? ` [${this.service}]` : "";
 
     const merged = { ...this.fields, ...formatData(data) };
-    const extra =
-      Object.keys(merged).length > 0
-        ? ' ' + JSON.stringify(merged)
-        : '';
+    const extra = Object.keys(merged).length > 0
+      ? " " + JSON.stringify(merged)
+      : "";
 
     const line = `${ts} ${tag}${svc} ${msg}${extra}`;
     this.write(level, line);
@@ -187,15 +186,15 @@ class LoggerImpl implements Logger {
 
   private write(level: LogLevel, line: string): void {
     switch (level) {
-      case 'debug':
-      case 'info':
+      case "debug":
+      case "info":
         // eslint-disable-next-line no-console
         console.log(line);
         break;
-      case 'warn':
+      case "warn":
         console.warn(line);
         break;
-      case 'error':
+      case "error":
         console.error(line);
         break;
     }
@@ -204,26 +203,26 @@ class LoggerImpl implements Logger {
   // ---- public API ---------------------------------------------------------
 
   debug(msg: string, data?: Record<string, unknown>): void {
-    this.emit('debug', msg, data);
+    this.emit("debug", msg, data);
   }
 
   info(msg: string, data?: Record<string, unknown>): void {
-    this.emit('info', msg, data);
+    this.emit("info", msg, data);
   }
 
   warn(msg: string, data?: Record<string, unknown>): void {
-    this.emit('warn', msg, data);
+    this.emit("warn", msg, data);
   }
 
   error(msg: string, data?: Record<string, unknown>): void {
-    this.emit('error', msg, data);
+    this.emit("error", msg, data);
   }
 
   child(fields: Record<string, unknown>): Logger {
     return new LoggerImpl({
       level: LEVEL_NAMES[this.minLevel],
       service: this.service,
-      format: this.useJson ? 'json' : 'pretty',
+      format: this.useJson ? "json" : "pretty",
       _fields: { ...this.fields, ...fields },
     });
   }
@@ -253,4 +252,4 @@ export function createLogger(opts?: LoggerOptions): Logger {
  * Default logger instance for quick usage.
  * Service name defaults to "yurucommu".
  */
-export const logger: Logger = createLogger({ service: 'yurucommu' });
+export const logger: Logger = createLogger({ service: "yurucommu" });

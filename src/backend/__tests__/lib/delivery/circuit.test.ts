@@ -1,11 +1,15 @@
-import { assertEquals, assert } from 'jsr:@std/assert';
-import { stub } from 'jsr:@std/testing/mock';
-import { checkCircuit, recordCircuitFailure, recordCircuitSuccess } from '../../../lib/delivery/circuit.ts';
-import type { Database } from '../../../../db/index.ts';
+import { assert, assertEquals } from "jsr:@std/assert";
+import { stub } from "jsr:@std/testing/mock";
+import {
+  checkCircuit,
+  recordCircuitFailure,
+  recordCircuitSuccess,
+} from "../../../lib/delivery/circuit.ts";
+import type { Database } from "../../../../db/index.ts";
 
 type CircuitRow = {
   endpoint: string;
-  state: 'closed' | 'open' | 'half_open';
+  state: "closed" | "open" | "half_open";
   consecutiveFailures: number;
   recentOutcomesJson: string;
   openUntil: string | null;
@@ -47,9 +51,9 @@ function createMockCircuitDb(): MockCircuitDb {
           get: async () => {
             const row: CircuitRow = {
               endpoint: data.endpoint,
-              state: data.state ?? 'closed',
+              state: data.state ?? "closed",
               consecutiveFailures: data.consecutiveFailures ?? 0,
-              recentOutcomesJson: data.recentOutcomesJson ?? '[]',
+              recentOutcomesJson: data.recentOutcomesJson ?? "[]",
               openUntil: data.openUntil ?? null,
               halfOpenProbeAttempts: data.halfOpenProbeAttempts ?? 0,
               halfOpenProbeSuccesses: data.halfOpenProbeSuccesses ?? 0,
@@ -88,16 +92,17 @@ function createMockCircuitDb(): MockCircuitDb {
  * Param objects hold the bound values (e.g., queryChunks[3].value).
  */
 function extractValueFromEq(condition: unknown): string | null {
-  if (!condition || typeof condition !== 'object') return null;
+  if (!condition || typeof condition !== "object") return null;
 
   const chunks = (condition as { queryChunks?: unknown[] }).queryChunks;
   if (Array.isArray(chunks)) {
     for (const chunk of chunks) {
       if (
         chunk &&
-        typeof chunk === 'object' &&
-        (chunk as { constructor?: { name?: string } }).constructor?.name === 'Param' &&
-        typeof (chunk as { value?: unknown }).value === 'string'
+        typeof chunk === "object" &&
+        (chunk as { constructor?: { name?: string } }).constructor?.name ===
+          "Param" &&
+        typeof (chunk as { value?: unknown }).value === "string"
       ) {
         return (chunk as { value: string }).value;
       }
@@ -107,11 +112,11 @@ function extractValueFromEq(condition: unknown): string | null {
   return null;
 }
 
-Deno.test('delivery/circuit - opens after 5 consecutive failures, then transitions to half-open', async () => {
-  const endpoint = 'https://remote.example/inbox';
+Deno.test("delivery/circuit - opens after 5 consecutive failures, then transitions to half-open", async () => {
+  const endpoint = "https://remote.example/inbox";
   const db = createMockCircuitDb();
 
-  const dateNowStub = stub(Date, 'now', () => 0);
+  const dateNowStub = stub(Date, "now", () => 0);
   try {
     for (let i = 0; i < 5; i++) {
       await recordCircuitFailure(db, endpoint);
@@ -125,32 +130,34 @@ Deno.test('delivery/circuit - opens after 5 consecutive failures, then transitio
 
     // Open window elapsed -> half-open and allow probes.
     dateNowStub.restore();
-    const dateNowStub2 = stub(Date, 'now', () => 5 * 60 * 1000 + 1);
+    const dateNowStub2 = stub(Date, "now", () => 5 * 60 * 1000 + 1);
     try {
       const res2 = await checkCircuit(db, endpoint);
       assertEquals(res2.allow, true);
-      assertEquals(db.__store.get(endpoint)?.state, 'half_open');
+      assertEquals(db.__store.get(endpoint)?.state, "half_open");
     } finally {
       dateNowStub2.restore();
     }
   } finally {
     // Ensure restore even if inner stub wasn't created
-    try { dateNowStub.restore(); } catch { /* already restored */ }
+    try {
+      dateNowStub.restore();
+    } catch { /* already restored */ }
   }
 });
 
-Deno.test('delivery/circuit - closes after 3 successful half-open probes', async () => {
-  const endpoint = 'https://remote.example/inbox';
+Deno.test("delivery/circuit - closes after 3 successful half-open probes", async () => {
+  const endpoint = "https://remote.example/inbox";
   const db = createMockCircuitDb();
 
-  const dateNowStub = stub(Date, 'now', () => 0);
+  const dateNowStub = stub(Date, "now", () => 0);
   try {
     for (let i = 0; i < 5; i++) {
       await recordCircuitFailure(db, endpoint);
     }
 
     dateNowStub.restore();
-    const dateNowStub2 = stub(Date, 'now', () => 5 * 60 * 1000 + 1);
+    const dateNowStub2 = stub(Date, "now", () => 5 * 60 * 1000 + 1);
     try {
       await checkCircuit(db, endpoint);
 
@@ -159,7 +166,7 @@ Deno.test('delivery/circuit - closes after 3 successful half-open probes', async
       await recordCircuitSuccess(db, endpoint);
 
       const row = db.__store.get(endpoint);
-      assertEquals(row?.state, 'closed');
+      assertEquals(row?.state, "closed");
       assertEquals(row?.consecutiveFailures, 0);
       assertEquals(row?.halfOpenProbeAttempts, 0);
       assertEquals(row?.halfOpenProbeSuccesses, 0);
@@ -167,34 +174,38 @@ Deno.test('delivery/circuit - closes after 3 successful half-open probes', async
       dateNowStub2.restore();
     }
   } finally {
-    try { dateNowStub.restore(); } catch { /* already restored */ }
+    try {
+      dateNowStub.restore();
+    } catch { /* already restored */ }
   }
 });
 
-Deno.test('delivery/circuit - re-opens immediately on half-open failure', async () => {
-  const endpoint = 'https://remote.example/inbox';
+Deno.test("delivery/circuit - re-opens immediately on half-open failure", async () => {
+  const endpoint = "https://remote.example/inbox";
   const db = createMockCircuitDb();
 
-  const dateNowStub = stub(Date, 'now', () => 0);
+  const dateNowStub = stub(Date, "now", () => 0);
   try {
     for (let i = 0; i < 5; i++) {
       await recordCircuitFailure(db, endpoint);
     }
 
     dateNowStub.restore();
-    const dateNowStub2 = stub(Date, 'now', () => 5 * 60 * 1000 + 1);
+    const dateNowStub2 = stub(Date, "now", () => 5 * 60 * 1000 + 1);
     try {
       await checkCircuit(db, endpoint);
 
       await recordCircuitFailure(db, endpoint);
       const row = db.__store.get(endpoint);
-      assertEquals(row?.state, 'open');
+      assertEquals(row?.state, "open");
       assert((row?.consecutiveFailures ?? 0) >= 5);
       assert(row?.openUntil);
     } finally {
       dateNowStub2.restore();
     }
   } finally {
-    try { dateNowStub.restore(); } catch { /* already restored */ }
+    try {
+      dateNowStub.restore();
+    } catch { /* already restored */ }
   }
 });

@@ -5,41 +5,57 @@
  *          yurucommu_get_trending, yurucommu_get_user_profile
  */
 
-import { eq, and, or, desc, like } from 'drizzle-orm';
-import { sql } from 'drizzle-orm';
-import { actors, objects } from '../../../db/index.ts';
+import { and, desc, eq, like, or } from "drizzle-orm";
+import { sql } from "drizzle-orm";
+import { actors, objects } from "../../../db/index.ts";
 import {
-  toolLimit,
-  requireString,
-  errRequired,
-  errNotFound,
-  ok,
-  formatActorSummary,
   ACTOR_SUMMARY_COLUMNS,
-} from '../takos-tools-response.ts';
-import type { ToolContext, Input } from './types.ts';
+  errNotFound,
+  errRequired,
+  formatActorSummary,
+  ok,
+  requireString,
+  toolLimit,
+} from "../takos-tools-response.ts";
+import type { Input, ToolContext } from "./types.ts";
 
-export function handleSearchUsers(c: ToolContext, input: Input, _actor: { ap_id: string } | null) {
+export function handleSearchUsers(
+  c: ToolContext,
+  input: Input,
+  _actor: { ap_id: string } | null,
+) {
   return searchUsers(c, input);
 }
 
-export function handleSearchPosts(c: ToolContext, input: Input, _actor: { ap_id: string } | null) {
+export function handleSearchPosts(
+  c: ToolContext,
+  input: Input,
+  _actor: { ap_id: string } | null,
+) {
   return searchPosts(c, input);
 }
 
-export function handleGetTrending(c: ToolContext, input: Input, _actor: { ap_id: string } | null) {
+export function handleGetTrending(
+  c: ToolContext,
+  input: Input,
+  _actor: { ap_id: string } | null,
+) {
   return getTrending(c, input);
 }
 
-export function handleGetUserProfile(c: ToolContext, input: Input, actor: { ap_id: string } | null) {
+export function handleGetUserProfile(
+  c: ToolContext,
+  input: Input,
+  actor: { ap_id: string } | null,
+) {
   return getUserProfile(c, input, actor);
 }
 
 // ---------------------------------------------------------------------------
 
 async function searchUsers(c: ToolContext, input: Input) {
-  const db = c.get('db');
-  const query = requireString(input, 'query');
+  const db = c.get("db");
+  const query = requireString(input, "query");
   const limit = toolLimit(input.limit, 20, 50);
 
   if (!query) return c.json(ok({ actors: [] }));
@@ -61,7 +77,7 @@ async function searchUsers(c: ToolContext, input: Input) {
     .limit(limit);
 
   return c.json(ok({
-    actors: results.map(a => ({
+    actors: results.map((a) => ({
       ...formatActorSummary(a),
       summary: a.summary,
       follower_count: a.followerCount,
@@ -70,8 +86,8 @@ async function searchUsers(c: ToolContext, input: Input) {
 }
 
 async function searchPosts(c: ToolContext, input: Input) {
-  const db = c.get('db');
-  const query = requireString(input, 'query');
+  const db = c.get("db");
+  const query = requireString(input, "query");
   const limit = toolLimit(input.limit, 20, 50);
 
   if (!query) return c.json(ok({ posts: [] }));
@@ -80,13 +96,13 @@ async function searchPosts(c: ToolContext, input: Input) {
     .from(objects)
     .where(and(
       like(objects.content, `%${query}%`),
-      eq(objects.visibility, 'public'),
+      eq(objects.visibility, "public"),
     ))
     .orderBy(desc(objects.published))
     .limit(limit);
 
   return c.json(ok({
-    posts: posts.map(p => ({
+    posts: posts.map((p) => ({
       ap_id: p.apId,
       content: p.content,
       published: p.published,
@@ -96,25 +112,27 @@ async function searchPosts(c: ToolContext, input: Input) {
 }
 
 async function getTrending(c: ToolContext, input: Input) {
-  const db = c.get('db');
+  const db = c.get("db");
   const limit = toolLimit(input.limit, 10, 50);
-  const sinceDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const sinceDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    .toISOString();
 
   const posts = await db.select({ content: objects.content })
     .from(objects)
     .where(and(
-      eq(objects.visibility, 'public'),
+      eq(objects.visibility, "public"),
       sql`${objects.published} > ${sinceDate}`,
     ))
     .orderBy(desc(objects.published))
     .limit(1000);
 
   const hashtagCounts: Record<string, number> = {};
-  const hashtagRegex = /#([a-zA-Z0-9_\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]+)/g;
+  const hashtagRegex =
+    /#([a-zA-Z0-9_\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]+)/g;
 
   for (const post of posts) {
     let match;
-    while ((match = hashtagRegex.exec(post.content || '')) !== null) {
+    while ((match = hashtagRegex.exec(post.content || "")) !== null) {
       const tagName = match[1].toLowerCase();
       hashtagCounts[tagName] = (hashtagCounts[tagName] || 0) + 1;
     }
@@ -128,10 +146,14 @@ async function getTrending(c: ToolContext, input: Input) {
   return c.json(ok({ trending }));
 }
 
-async function getUserProfile(c: ToolContext, input: Input, actor: { ap_id: string } | null) {
-  const db = c.get('db');
-  const username = requireString(input, 'username');
-  if (!username) return c.json(errRequired('Username'), 400);
+async function getUserProfile(
+  c: ToolContext,
+  input: Input,
+  actor: { ap_id: string } | null,
+) {
+  const db = c.get("db");
+  const username = requireString(input, "username");
+  if (!username) return c.json(errRequired("Username"), 400);
 
   const actorRecord = await db.select({
     ...ACTOR_SUMMARY_COLUMNS,
@@ -145,11 +167,11 @@ async function getUserProfile(c: ToolContext, input: Input, actor: { ap_id: stri
     .where(eq(actors.preferredUsername, username))
     .get();
 
-  if (!actorRecord) return c.json(errNotFound('User'), 404);
+  if (!actorRecord) return c.json(errNotFound("User"), 404);
 
   // Fail-close for private accounts (allow self lookup only).
   if (actorRecord.isPrivate && actor?.ap_id !== actorRecord.apId) {
-    return c.json(errNotFound('User'), 404);
+    return c.json(errNotFound("User"), 404);
   }
 
   return c.json(ok({

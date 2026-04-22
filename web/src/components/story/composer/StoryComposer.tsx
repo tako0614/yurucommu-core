@@ -10,33 +10,36 @@
  *   useStoryTextEditor, useStoryLayerActions, useStoryPost, useStoryImageUpload
  */
 
-import { createSignal, createEffect, onCleanup } from 'solid-js';
+import { createEffect, createSignal, onCleanup } from "solid-js";
 import {
-  StoryCanvas,
-  CANVAS_WIDTH,
   CANVAS_HEIGHT,
-} from '../../../lib/story-canvas.ts';
-import { useCanvasInteraction, type SnapGuide } from '../../../hooks/useCanvasInteraction.ts';
-import { useVideoTransform } from '../../../hooks/useVideoTransform.ts';
-import type { StoryOverlay } from '../../../types/index.ts';
-import { TextEditorModal } from '../TextEditorModal.tsx';
-import { StoryComposerCanvas } from './StoryComposerCanvas.tsx';
-import { StoryComposerFooter } from './StoryComposerFooter.tsx';
-import { StoryComposerHeader } from './StoryComposerHeader.tsx';
-import { StoryComposerSelectionToolbar } from './StoryComposerSelectionToolbar.tsx';
+  CANVAS_WIDTH,
+  StoryCanvas,
+} from "../../../lib/story-canvas.ts";
+import {
+  type SnapGuide,
+  useCanvasInteraction,
+} from "../../../hooks/useCanvasInteraction.ts";
+import { useVideoTransform } from "../../../hooks/useVideoTransform.ts";
+import type { StoryOverlay } from "../../../types/index.ts";
+import { TextEditorModal } from "../TextEditorModal.tsx";
+import { StoryComposerCanvas } from "./StoryComposerCanvas.tsx";
+import { StoryComposerFooter } from "./StoryComposerFooter.tsx";
+import { StoryComposerHeader } from "./StoryComposerHeader.tsx";
+import { StoryComposerSelectionToolbar } from "./StoryComposerSelectionToolbar.tsx";
 import {
   StoryComposerDrawingPanel,
   StoryComposerQuickActions,
   StoryComposerStickerPanel,
-} from './StoryComposerPanels.tsx';
-import { StoryComposerStatusOverlay } from './StoryComposerStatusOverlay.tsx';
-import { useStoryBackground } from './useStoryBackground.ts';
-import { useStoryCanvasRenderer } from './useStoryCanvasRenderer.ts';
-import { useStoryVideo } from './useStoryVideo.ts';
-import { useStoryTextEditor } from './useStoryTextEditor.ts';
-import { useStoryLayerActions } from './useStoryLayerActions.ts';
-import { useStoryPost } from './useStoryPost.ts';
-import { useStoryImageUpload } from './useStoryImageUpload.ts';
+} from "./StoryComposerPanels.tsx";
+import { StoryComposerStatusOverlay } from "./StoryComposerStatusOverlay.tsx";
+import { useStoryBackground } from "./useStoryBackground.ts";
+import { useStoryCanvasRenderer } from "./useStoryCanvasRenderer.ts";
+import { useStoryVideo } from "./useStoryVideo.ts";
+import { useStoryTextEditor } from "./useStoryTextEditor.ts";
+import { useStoryLayerActions } from "./useStoryLayerActions.ts";
+import { useStoryPost } from "./useStoryPost.ts";
+import { useStoryImageUpload } from "./useStoryImageUpload.ts";
 
 interface StoryComposerProps {
   onClose: () => void;
@@ -46,26 +49,26 @@ interface StoryComposerProps {
 // File size limits
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
 
-type ToolTab = 'background' | 'text' | 'sticker' | 'draw' | 'video' | 'none';
+type ToolTab = "background" | "text" | "sticker" | "draw" | "video" | "none";
 
 export function StoryComposer(props: StoryComposerProps) {
   // Canvas state
   const [storyCanvas, setStoryCanvas] = createSignal<StoryCanvas | null>(null);
   const [renderKey, setRenderKey] = createSignal(0);
-  const bumpRenderKey = () => setRenderKey(k => k + 1);
+  const bumpRenderKey = () => setRenderKey((k) => k + 1);
   let canvasContainerRef!: HTMLDivElement;
   let displayCanvasRef!: HTMLCanvasElement;
 
   // UI state
-  const [activeTab, setActiveTab] = createSignal<ToolTab>('none');
+  const [activeTab, setActiveTab] = createSignal<ToolTab>("none");
   const [uploading, setUploading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [displayScale, setDisplayScale] = createSignal(1);
 
   // Background state
-  const [backgroundType] = createSignal<'solid' | 'gradient'>('gradient');
-  const [solidColor] = createSignal('#000000');
-  const [gradientColors] = createSignal(['#667eea', '#764ba2']);
+  const [backgroundType] = createSignal<"solid" | "gradient">("gradient");
+  const [solidColor] = createSignal("#000000");
+  const [gradientColors] = createSignal(["#667eea", "#764ba2"]);
   const [gradientAngle] = createSignal(135);
 
   // Overlay state (for interactive elements)
@@ -75,9 +78,11 @@ export function StoryComposer(props: StoryComposerProps) {
   const [snapGuides, setSnapGuides] = createSignal<SnapGuide[]>([]);
 
   // Caption and audience state (Instagram-style)
-  const [caption, setCaption] = createSignal('');
+  const [caption, setCaption] = createSignal("");
   const [showToolPanel, setShowToolPanel] = createSignal(false);
-  const [activeTool, setActiveTool] = createSignal<'text' | 'sticker' | 'music' | 'effect' | 'resize' | null>(null);
+  const [activeTool, setActiveTool] = createSignal<
+    "text" | "sticker" | "music" | "effect" | "resize" | null
+  >(null);
 
   // Double-tap detection for text editing
   let lastTapTime = 0;
@@ -85,7 +90,9 @@ export function StoryComposer(props: StoryComposerProps) {
   // --- Custom hooks ---
 
   const video = useStoryVideo({
-    get storyCanvas() { return storyCanvas(); },
+    get storyCanvas() {
+      return storyCanvas();
+    },
     setUploading: (value) => setUploading(value),
     setError: (message) => setError(message),
     maxVideoSize: MAX_VIDEO_SIZE,
@@ -106,58 +113,94 @@ export function StoryComposer(props: StoryComposerProps) {
     clearDrawing,
     undoDrawing,
   } = useCanvasInteraction({
-    get canvas() { return storyCanvas(); },
-    get displayScale() { return displayScale(); },
+    get canvas() {
+      return storyCanvas();
+    },
+    get displayScale() {
+      return displayScale();
+    },
     onUpdate: bumpRenderKey,
     onSnapGuidesChange: setSnapGuides,
   });
 
   const postActions = useStoryPost({
-    get storyCanvas() { return storyCanvas(); },
-    get videoFile() { return video.videoFile(); },
-    get videoScale() { return video.videoScale(); },
-    get videoPosition() { return video.videoPosition(); },
-    get videoRotation() { return video.videoRotation(); },
-    get displayScale() { return displayScale(); },
-    get ffmpegReady() { return video.ffmpegReady(); },
-    get overlays() { return overlays(); },
+    get storyCanvas() {
+      return storyCanvas();
+    },
+    get videoFile() {
+      return video.videoFile();
+    },
+    get videoScale() {
+      return video.videoScale();
+    },
+    get videoPosition() {
+      return video.videoPosition();
+    },
+    get videoRotation() {
+      return video.videoRotation();
+    },
+    get displayScale() {
+      return displayScale();
+    },
+    get ffmpegReady() {
+      return video.ffmpegReady();
+    },
+    get overlays() {
+      return overlays();
+    },
     setError,
     onSuccess: props.onSuccess,
     onClose: props.onClose,
   });
 
   const textEditor = useStoryTextEditor({
-    get storyCanvas() { return storyCanvas(); },
+    get storyCanvas() {
+      return storyCanvas();
+    },
     selectLayer,
     onUpdate: () => {
       bumpRenderKey();
-      setActiveTab('none');
+      setActiveTab("none");
     },
   });
 
   const layerActions = useStoryLayerActions({
-    get storyCanvas() { return storyCanvas(); },
-    get selectedLayerId() { return interactionState.selectedLayerId; },
+    get storyCanvas() {
+      return storyCanvas();
+    },
+    get selectedLayerId() {
+      return interactionState().selectedLayerId;
+    },
     selectLayer,
     onUpdate: bumpRenderKey,
   });
 
   const imageUpload = useStoryImageUpload({
-    get storyCanvas() { return storyCanvas(); },
+    get storyCanvas() {
+      return storyCanvas();
+    },
     selectLayer,
     setUploading: (value) => setUploading(value),
     setError: (message) => setError(message),
     onUpdate: () => {
       bumpRenderKey();
-      setActiveTab('none');
+      setActiveTab("none");
     },
   });
 
   const videoTransform = useVideoTransform({
-    get enabled() { return !!video.videoPreview(); },
-    get scale() { return video.videoScale(); },
-    get position() { return video.videoPosition(); },
-    get rotation() { return video.videoRotation(); },
+    get enabled() {
+      return !!video.videoPreview();
+    },
+    get scale() {
+      return video.videoScale();
+    },
+    get position() {
+      return video.videoPosition();
+    },
+    get rotation() {
+      return video.videoRotation();
+    },
     setScale: video.setVideoScale,
     setPosition: video.setVideoPosition,
     setRotation: video.setVideoRotation,
@@ -169,13 +212,13 @@ export function StoryComposer(props: StoryComposerProps) {
   createEffect(() => {
     const canvas = new StoryCanvas();
     canvas.setBackground({
-      type: 'gradient',
+      type: "gradient",
       colors: gradientColors(),
       angle: gradientAngle(),
     });
     setStoryCanvas(canvas);
     canvas.render().then(() => {
-      setRenderKey(k => k + 1);
+      setRenderKey((k) => k + 1);
     });
   });
 
@@ -189,8 +232,8 @@ export function StoryComposer(props: StoryComposerProps) {
       }
     };
     updateScale();
-    window.addEventListener('resize', updateScale);
-    onCleanup(() => window.removeEventListener('resize', updateScale));
+    window.addEventListener("resize", updateScale);
+    onCleanup(() => window.removeEventListener("resize", updateScale));
   });
 
   // Set container ref for interaction
@@ -201,37 +244,55 @@ export function StoryComposer(props: StoryComposerProps) {
   });
 
   useStoryCanvasRenderer({
-    get storyCanvas() { return storyCanvas(); },
-    get displayCanvasRef() { return displayCanvasRef; },
-    get renderKey() { return renderKey(); },
-    get snapGuides() { return snapGuides(); },
+    get storyCanvas() {
+      return storyCanvas();
+    },
+    get displayCanvasRef() {
+      return displayCanvasRef;
+    },
+    get renderKey() {
+      return renderKey();
+    },
+    get snapGuides() {
+      return snapGuides();
+    },
     getSelectedLayer,
   });
 
   useStoryBackground({
-    get storyCanvas() { return storyCanvas(); },
-    get backgroundType() { return backgroundType(); },
-    get solidColor() { return solidColor(); },
-    get gradientColors() { return gradientColors(); },
-    get gradientAngle() { return gradientAngle(); },
+    get storyCanvas() {
+      return storyCanvas();
+    },
+    get backgroundType() {
+      return backgroundType();
+    },
+    get solidColor() {
+      return solidColor();
+    },
+    get gradientColors() {
+      return gradientColors();
+    },
+    get gradientAngle() {
+      return gradientAngle();
+    },
     onUpdate: bumpRenderKey,
   });
 
   // --- Event handlers ---
 
   const handleTabChange = (tab: ToolTab) => {
-    setActiveTab(tab === activeTab() ? 'none' : tab);
-    if (tab === 'draw') {
-      setMode('draw');
+    setActiveTab(tab === activeTab() ? "none" : tab);
+    if (tab === "draw") {
+      setMode("draw");
     } else {
-      setMode('select');
+      setMode("select");
     }
   };
 
   // Custom pointer down that detects double-tap for text editing
   const handleCanvasPointerDown = (e: MouseEvent | TouchEvent) => {
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
     const now = Date.now();
 
     const sc = storyCanvas();
@@ -242,8 +303,11 @@ export function StoryComposer(props: StoryComposerProps) {
       const canvasY = (clientY - rect.top) * scale;
 
       const hitLayer = sc.hitTest(canvasX, canvasY);
-      if (hitLayer && hitLayer.type === 'text') {
-        if (now - lastTapTime < 300 && interactionState.selectedLayerId === hitLayer.id) {
+      if (hitLayer && hitLayer.type === "text") {
+        if (
+          now - lastTapTime < 300 &&
+          interactionState().selectedLayerId === hitLayer.id
+        ) {
           textEditor.handleEditText(hitLayer.id);
           lastTapTime = 0;
           return;
@@ -268,15 +332,17 @@ export function StoryComposer(props: StoryComposerProps) {
   };
 
   // Handle tool button click
-  const handleToolClick = (tool: 'text' | 'sticker' | 'music' | 'effect' | 'resize') => {
-    if (tool === 'text') {
+  const handleToolClick = (
+    tool: "text" | "sticker" | "music" | "effect" | "resize",
+  ) => {
+    if (tool === "text") {
       textEditor.handleAddText();
       return;
     }
-    if (tool === 'sticker') {
-      setActiveTool(activeTool() === 'sticker' ? null : 'sticker');
-      setShowToolPanel(activeTool() !== 'sticker');
-      handleTabChange('sticker');
+    if (tool === "sticker") {
+      setActiveTool(activeTool() === "sticker" ? null : "sticker");
+      setShowToolPanel(activeTool() !== "sticker");
+      handleTabChange("sticker");
       return;
     }
     setActiveTool(activeTool() === tool ? null : tool);
@@ -352,7 +418,7 @@ export function StoryComposer(props: StoryComposerProps) {
         />
 
         <StoryComposerStickerPanel
-          open={showToolPanel() && activeTool() === 'sticker'}
+          open={showToolPanel() && activeTool() === "sticker"}
           onAddEmoji={(emoji) => {
             handleAddEmoji(emoji);
             setShowToolPanel(false);
@@ -367,19 +433,19 @@ export function StoryComposer(props: StoryComposerProps) {
         <StoryComposerQuickActions
           uploading={uploading()}
           hasVideo={!!video.videoFile()}
-          isDrawing={interactionState.mode === 'draw'}
+          isDrawing={interactionState().mode === "draw"}
           onSelectImage={() => imageUpload.fileInputRef?.click()}
           onSelectVideo={() => video.videoInputRef?.click()}
-          onToggleDraw={() => handleTabChange('draw')}
+          onToggleDraw={() => handleTabChange("draw")}
         />
 
         <StoryComposerDrawingPanel
-          isDrawing={interactionState.mode === 'draw'}
-          drawingSettings={drawingSettings}
+          isDrawing={interactionState().mode === "draw"}
+          drawingSettings={drawingSettings()}
           onDrawingSettingsChange={setDrawingSettings}
           onClear={clearDrawing}
           onUndo={undoDrawing}
-          onDone={() => setMode('select')}
+          onDone={() => setMode("select")}
         />
 
         <StoryComposerStatusOverlay
@@ -391,14 +457,18 @@ export function StoryComposer(props: StoryComposerProps) {
 
       {/* Hidden file inputs */}
       <input
-        ref={(el) => { imageUpload.fileInputRef = el; }}
+        ref={(el) => {
+          imageUpload.fileInputRef = el;
+        }}
         type="file"
         accept="image/*"
         onInput={imageUpload.handleImageSelect}
         class="hidden"
       />
       <input
-        ref={(el) => { video.videoInputRef = el; }}
+        ref={(el) => {
+          video.videoInputRef = el;
+        }}
         type="file"
         accept="video/*"
         onInput={video.handleVideoSelect}

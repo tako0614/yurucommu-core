@@ -1,7 +1,16 @@
-import { eq, and, lt, inArray, count } from 'drizzle-orm';
-import type { Database } from '../../../db/index.ts';
-import { objects, storyVotes, likes, storyViews, storyShares, actorCache, blocks, mutes } from '../../../db/index.ts';
-import { safeJsonParse, objectApId } from '../../federation-helpers.ts';
+import { and, count, eq, inArray, lt } from "drizzle-orm";
+import type { Database } from "../../../db/index.ts";
+import {
+  actorCache,
+  blocks,
+  likes,
+  mutes,
+  objects,
+  storyShares,
+  storyViews,
+  storyVotes,
+} from "../../../db/index.ts";
+import { objectApId, safeJsonParse } from "../../federation-helpers.ts";
 
 interface VoteResults {
   [optionIndex: number]: number;
@@ -54,14 +63,14 @@ type ActorCacheEntry = {
 
 /** Resolve a story param (short ID or full URL) to a full ap_id. */
 export function resolveStoryApId(storyId: string, baseUrl: string): string {
-  return storyId.startsWith('http') ? storyId : objectApId(baseUrl, storyId);
+  return storyId.startsWith("http") ? storyId : objectApId(baseUrl, storyId);
 }
 
 /** Find a single Story object by ap_id. Returns null/undefined when not found. */
 export function findStory(db: Database, apId: string) {
   return db.select()
     .from(objects)
-    .where(and(eq(objects.apId, apId), eq(objects.type, 'Story')))
+    .where(and(eq(objects.apId, apId), eq(objects.type, "Story")))
     .get();
 }
 
@@ -94,7 +103,10 @@ export async function fetchBlockedAndMutedIds(
 // ---------------------------------------------------------------------------
 
 /** Get vote counts for a single story, keyed by option index. */
-export async function getVoteCounts(db: Database, storyApId: string): Promise<VoteResults> {
+export async function getVoteCounts(
+  db: Database,
+  storyApId: string,
+): Promise<VoteResults> {
   const votes = await db.select({
     optionIndex: storyVotes.optionIndex,
     count: count(),
@@ -119,7 +131,9 @@ export async function fetchBatchVotes(
   db: Database,
   storyApIds: string[],
   actorApId?: string,
-): Promise<{ allVotes: Record<string, VoteResults>; userVotes: Record<string, number> }> {
+): Promise<
+  { allVotes: Record<string, VoteResults>; userVotes: Record<string, number> }
+> {
   if (storyApIds.length === 0) {
     return { allVotes: {}, userVotes: {} };
   }
@@ -152,7 +166,9 @@ export async function fetchBatchVotes(
           eq(storyVotes.actorApId, actorApId),
         ),
       );
-    userVotes = Object.fromEntries(rows.map((r) => [r.storyApId, r.optionIndex]));
+    userVotes = Object.fromEntries(
+      rows.map((r) => [r.storyApId, r.optionIndex]),
+    );
   }
 
   return { allVotes, userVotes };
@@ -181,7 +197,11 @@ export async function fetchActorCache(
   return Object.fromEntries(
     cached.map((a) => [
       a.apId,
-      { preferredUsername: a.preferredUsername, name: a.name, iconUrl: a.iconUrl },
+      {
+        preferredUsername: a.preferredUsername,
+        name: a.name,
+        iconUrl: a.iconUrl,
+      },
     ]),
   );
 }
@@ -195,18 +215,26 @@ export async function cleanupExpiredStories(db: Database): Promise<number> {
 
   const expiredStories = await db.select({ apId: objects.apId })
     .from(objects)
-    .where(and(eq(objects.type, 'Story'), lt(objects.endTime, now)));
+    .where(and(eq(objects.type, "Story"), lt(objects.endTime, now)));
 
   if (expiredStories.length === 0) return 0;
 
   const expiredApIds = expiredStories.map((s) => s.apId);
 
-  await db.delete(storyVotes).where(inArray(storyVotes.storyApId, expiredApIds));
+  await db.delete(storyVotes).where(
+    inArray(storyVotes.storyApId, expiredApIds),
+  );
   await db.delete(likes).where(inArray(likes.objectApId, expiredApIds));
-  await db.delete(storyViews).where(inArray(storyViews.storyApId, expiredApIds));
-  await db.delete(storyShares).where(inArray(storyShares.storyApId, expiredApIds));
+  await db.delete(storyViews).where(
+    inArray(storyViews.storyApId, expiredApIds),
+  );
+  await db.delete(storyShares).where(
+    inArray(storyShares.storyApId, expiredApIds),
+  );
 
-  await db.delete(objects).where(and(eq(objects.type, 'Story'), lt(objects.endTime, now)));
+  await db.delete(objects).where(
+    and(eq(objects.type, "Story"), lt(objects.endTime, now)),
+  );
 
   return expiredApIds.length;
 }
@@ -215,41 +243,51 @@ export async function cleanupExpiredStories(db: Database): Promise<number> {
 // Overlay validation
 // ---------------------------------------------------------------------------
 
-const POSITION_FIELDS = ['x', 'y', 'width', 'height'] as const;
+const POSITION_FIELDS = ["x", "y", "width", "height"] as const;
 
-export function validateOverlays(overlays: unknown[]): { valid: boolean; error?: string } {
+export function validateOverlays(
+  overlays: unknown[],
+): { valid: boolean; error?: string } {
   if (!Array.isArray(overlays)) {
-    return { valid: false, error: 'overlays must be an array' };
+    return { valid: false, error: "overlays must be an array" };
   }
 
   for (const [i, raw] of overlays.entries()) {
     const overlay = raw as Record<string, unknown>;
 
-    if (!overlay.type || typeof overlay.type !== 'string') {
+    if (!overlay.type || typeof overlay.type !== "string") {
       return { valid: false, error: `overlay[${i}].type is required` };
     }
 
-    if (!overlay.position || typeof overlay.position !== 'object') {
+    if (!overlay.position || typeof overlay.position !== "object") {
       return { valid: false, error: `overlay[${i}].position is required` };
     }
 
     const position = overlay.position as Partial<OverlayPosition>;
     for (const field of POSITION_FIELDS) {
       const val = position[field];
-      if (typeof val !== 'number' || val < 0 || val > 1) {
-        return { valid: false, error: `overlay[${i}].position.${field} must be 0.0-1.0` };
+      if (typeof val !== "number" || val < 0 || val > 1) {
+        return {
+          valid: false,
+          error: `overlay[${i}].position.${field} must be 0.0-1.0`,
+        };
       }
     }
 
-    if (overlay.type === 'Question') {
+    if (overlay.type === "Question") {
       const oneOf = overlay.oneOf as unknown[] | undefined;
-      if (!oneOf || !Array.isArray(oneOf) || oneOf.length < 2 || oneOf.length > 4) {
-        return { valid: false, error: `overlay[${i}].oneOf must have 2-4 options` };
+      if (
+        !oneOf || !Array.isArray(oneOf) || oneOf.length < 2 || oneOf.length > 4
+      ) {
+        return {
+          valid: false,
+          error: `overlay[${i}].oneOf must have 2-4 options`,
+        };
       }
     }
 
-    if (overlay.type === 'Link') {
-      if (!overlay.href || typeof overlay.href !== 'string') {
+    if (overlay.type === "Link") {
+      if (!overlay.href || typeof overlay.href !== "string") {
         return { valid: false, error: `overlay[${i}].href is required` };
       }
       try {
@@ -274,26 +312,26 @@ export function transformStoryData(attachmentsJson: string): {
 } {
   const stored = safeJsonParse<StoredStoryData>(attachmentsJson, {});
   const r2Key = stored.attachment?.r2_key;
-  const contentType = stored.attachment?.content_type || 'image/jpeg';
+  const contentType = stored.attachment?.content_type || "image/jpeg";
   const externalUrl = stored.attachment?.url;
 
-  let url = '';
+  let url = "";
   if (r2Key) {
-    url = `/media/${r2Key.replace('uploads/', '')}`;
+    url = `/media/${r2Key.replace("uploads/", "")}`;
   } else if (externalUrl) {
     url = externalUrl;
   }
 
   return {
     attachment: {
-      type: contentType.startsWith('video/') ? 'Video' : 'Document',
+      type: contentType.startsWith("video/") ? "Video" : "Document",
       mediaType: contentType,
       url,
-      r2_key: r2Key || '',
+      r2_key: r2Key || "",
       width: stored.attachment?.width || 1080,
       height: stored.attachment?.height || 1920,
     },
-    displayDuration: stored.displayDuration || 'PT5S',
+    displayDuration: stored.displayDuration || "PT5S",
     overlays: stored.overlays || undefined,
   };
 }

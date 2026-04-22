@@ -1,15 +1,15 @@
-import { atom } from 'jotai';
-import type { Post, ActorStories } from '../types/index.ts';
+import { atom } from "jotai";
+import type { ActorStories, Post } from "../types/index.ts";
 import {
-  fetchTimeline,
-  fetchStories,
-  createPost,
-  uploadMedia,
-  fetchAccounts,
-  switchAccount,
   type AccountInfo,
-} from '../lib/api.ts';
-import type { UploadedMedia } from '../components/timeline/types.ts';
+  createPost,
+  fetchAccounts,
+  fetchStories,
+  fetchTimeline,
+  switchAccount,
+  uploadMedia,
+} from "../lib/api.ts";
+import type { UploadedMedia } from "../components/timeline/types.ts";
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 
@@ -21,7 +21,7 @@ export const timelineHasMoreAtom = atom(true);
 export const timelineErrorAtom = atom<string | null>(null);
 
 // --- Post composition ---
-export const postContentAtom = atom('');
+export const postContentAtom = atom("");
 export const postingAtom = atom(false);
 export const uploadedMediaAtom = atom<UploadedMedia[]>([]);
 export const uploadingAtom = atom(false);
@@ -38,7 +38,7 @@ export const showStoryComposerAtom = atom(false);
 
 // --- Account state ---
 export const accountsAtom = atom<AccountInfo[]>([]);
-export const currentApIdAtom = atom('');
+export const currentApIdAtom = atom("");
 export const accountsLoadingAtom = atom(false);
 export const accountsErrorAtom = atom<string | null>(null);
 export const showAccountSwitcherAtom = atom(false);
@@ -55,8 +55,8 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
     set(timelinePostsAtom, posts);
     set(timelineHasMoreAtom, posts.length >= 20);
   } catch (e) {
-    console.error('Failed to load timeline:', e);
-    set(timelineErrorAtom, 'エラーが発生しました');
+    console.error("Failed to load timeline:", e);
+    set(timelineErrorAtom, "エラーが発生しました");
   } finally {
     set(timelineLoadingAtom, false);
   }
@@ -77,8 +77,8 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
     }
     set(timelineHasMoreAtom, newPosts.length >= 20);
   } catch (e) {
-    console.error('Failed to load more:', e);
-    set(timelineErrorAtom, 'エラーが発生しました');
+    console.error("Failed to load more:", e);
+    set(timelineErrorAtom, "エラーが発生しました");
   } finally {
     set(timelineLoadingMoreAtom, false);
   }
@@ -90,8 +90,8 @@ export const loadStoriesAtom = atom(null, async (_get, set) => {
     const data = await fetchStories();
     set(actorStoriesAtom, data);
   } catch (e) {
-    console.error('Failed to load stories:', e);
-    set(storiesErrorAtom, 'ストーリーの読み込みに失敗しました');
+    console.error("Failed to load stories:", e);
+    set(storiesErrorAtom, "ストーリーの読み込みに失敗しました");
   } finally {
     set(storiesLoadingAtom, false);
   }
@@ -105,19 +105,25 @@ export const createPostAtom = atom(null, async (get, set, content: string) => {
   try {
     const newPost = await createPost({
       content: content.trim(),
-      attachments: media.length > 0 ? media.map((m) => ({ r2_key: m.r2_key, content_type: m.content_type })) : undefined,
+      attachments: media.length > 0
+        ? media.map((m) => ({
+          url: m.url,
+          r2_key: m.r2_key,
+          content_type: m.content_type,
+        }))
+        : undefined,
     });
     if (newPost) {
       set(timelinePostsAtom, (prev) => [newPost, ...prev]);
-      set(postContentAtom, '');
+      set(postContentAtom, "");
       media.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
       set(uploadedMediaAtom, []);
       return true;
     }
     return false;
   } catch (e) {
-    console.error('Failed to create post:', e);
-    set(timelineErrorAtom, 'エラーが発生しました');
+    console.error("Failed to create post:", e);
+    set(timelineErrorAtom, "エラーが発生しました");
     return false;
   } finally {
     set(postingAtom, false);
@@ -127,7 +133,10 @@ export const createPostAtom = atom(null, async (get, set, content: string) => {
 export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
   if (get(uploadedMediaAtom).length >= 4) return;
   if (file.size > MAX_IMAGE_SIZE) {
-    set(uploadErrorAtom, `画像サイズが大きすぎます（最大${MAX_IMAGE_SIZE / 1024 / 1024}MB）`);
+    set(
+      uploadErrorAtom,
+      `画像サイズが大きすぎます（最大${MAX_IMAGE_SIZE / 1024 / 1024}MB）`,
+    );
     return;
   }
 
@@ -136,10 +145,20 @@ export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
   try {
     const result = await uploadMedia(file);
     const preview = URL.createObjectURL(file);
-    set(uploadedMediaAtom, (prev) => [...prev, { r2_key: result.r2_key, content_type: result.content_type, preview }]);
+    set(
+      uploadedMediaAtom,
+      (
+        prev,
+      ) => [...prev, {
+        url: result.url,
+        r2_key: result.r2_key,
+        content_type: result.content_type,
+        preview,
+      }],
+    );
   } catch (e) {
-    console.error('Failed to upload:', e);
-    set(uploadErrorAtom, 'アップロードに失敗しました');
+    console.error("Failed to upload:", e);
+    set(uploadErrorAtom, "アップロードに失敗しました");
   } finally {
     set(uploadingAtom, false);
   }
@@ -161,8 +180,8 @@ export const loadAccountsAtom = atom(null, async (_get, set) => {
     set(accountsAtom, data.accounts);
     set(currentApIdAtom, data.current_ap_id);
   } catch (e) {
-    console.error('Failed to load accounts:', e);
-    set(accountsErrorAtom, 'アカウント情報の読み込みに失敗しました');
+    console.error("Failed to load accounts:", e);
+    set(accountsErrorAtom, "アカウント情報の読み込みに失敗しました");
   } finally {
     set(accountsLoadingAtom, false);
   }
@@ -176,7 +195,7 @@ export const switchAccountAtom = atom(null, async (get, _set, apId: string) => {
 
 export const closePostModalAtom = atom(null, (_get, set) => {
   set(showPostModalAtom, false);
-  set(postContentAtom, '');
+  set(postContentAtom, "");
   set(uploadedMediaAtom, (prev) => {
     prev.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
     return [];

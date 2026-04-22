@@ -8,10 +8,28 @@
  */
 
 // Follow/Accept/Reject/Undo
-export { handleFollow, handleAccept, handleReject, handleUndo } from './inbox-follow-handlers.ts';
+export {
+  handleAccept,
+  handleFollow,
+  handleReject,
+  handleUndo,
+} from "./inbox-follow-handlers.ts";
 
 // Create/Delete/Update/Move + CreateStory
-export { handleCreate, handleCreateStory, handleDelete, handleUpdate, handleMove } from './inbox-content-handlers.ts';
+export {
+  handleCreate,
+  handleCreateStory,
+  handleDelete,
+  handleMove,
+  handleUpdate,
+} from "./inbox-content-handlers.ts";
 
 // Like/Announce/Add/Remove/Block/Flag
-export { handleLike, handleAnnounce, handleAdd, handleRemove, handleBlock, handleFlag } from './inbox-interaction-handlers.ts';
+export {
+  handleAdd,
+  handleAnnounce,
+  handleBlock,
+  handleFlag,
+  handleLike,
+  handleRemove,
+} from "./inbox-interaction-handlers.ts";

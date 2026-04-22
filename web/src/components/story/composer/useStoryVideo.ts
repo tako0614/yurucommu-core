@@ -1,6 +1,14 @@
-import { createSignal, createEffect, onCleanup } from 'solid-js';
-import type { BackgroundFill, BackgroundLayer, StoryCanvas } from '../../../lib/story-canvas.ts';
-import { getVideoDuration, initFFmpeg, isVideoFile } from '../../../lib/ffmpeg.ts';
+import { createEffect, createSignal, onCleanup } from "solid-js";
+import type {
+  BackgroundFill,
+  BackgroundLayer,
+  StoryCanvas,
+} from "../../../lib/story-canvas.ts";
+import {
+  getVideoDuration,
+  initFFmpeg,
+  isVideoFile,
+} from "../../../lib/ffmpeg.ts";
 
 interface UseStoryVideoOptions {
   storyCanvas: StoryCanvas | null;
@@ -15,7 +23,9 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
   const [videoPreview, setVideoPreview] = createSignal<string | null>(null);
   let videoPreviewRef: string | null = null;
   const [videoDuration, setVideoDuration] = createSignal<number>(5);
-  const [savedBackground, setSavedBackground] = createSignal<BackgroundFill | null>(null);
+  const [savedBackground, setSavedBackground] = createSignal<
+    BackgroundFill | null
+  >(null);
   const [videoScale, setVideoScale] = createSignal(1);
   const [videoPosition, setVideoPosition] = createSignal({ x: 0, y: 0 });
   const [videoRotation, setVideoRotation] = createSignal(0);
@@ -49,8 +59,10 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
         await initFFmpeg();
         setFfmpegReady(true);
       } catch (e) {
-        console.error('Failed to load FFmpeg:', e);
-        opts.setError('FFmpegの読み込みに失敗しました。動画機能は使用できません。');
+        console.error("Failed to load FFmpeg:", e);
+        opts.setError(
+          "FFmpegの読み込みに失敗しました。動画機能は使用できません。",
+        );
       } finally {
         setFfmpegLoading(false);
       }
@@ -58,17 +70,21 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
     loadFFmpeg();
   });
 
-  const handleVideoSelect = async (e: Event & { currentTarget: HTMLInputElement }) => {
+  const handleVideoSelect = async (
+    e: Event & { currentTarget: HTMLInputElement },
+  ) => {
     const file = (e.currentTarget as HTMLInputElement).files?.[0];
     if (!file || !opts.storyCanvas) return;
 
     if (!isVideoFile(file)) {
-      opts.setError('動画ファイルを選択してください');
+      opts.setError("動画ファイルを選択してください");
       return;
     }
 
     if (file.size > opts.maxVideoSize) {
-      opts.setError(`動画サイズが大きすぎます（最大${opts.maxVideoSize / 1024 / 1024}MB）`);
+      opts.setError(
+        `動画サイズが大きすぎます（最大${opts.maxVideoSize / 1024 / 1024}MB）`,
+      );
       return;
     }
 
@@ -81,10 +97,12 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
       const preview = URL.createObjectURL(file);
       const duration = await getVideoDuration(file);
 
-      const bgLayer = opts.storyCanvas.getLayers().find((layer) => layer.type === 'background') as BackgroundLayer | undefined;
+      const bgLayer = opts.storyCanvas.getLayers().find((layer) =>
+        layer.type === "background"
+      ) as BackgroundLayer | undefined;
       if (bgLayer) {
         setSavedBackground(bgLayer.fill);
-        opts.storyCanvas.setBackground({ type: 'transparent' });
+        opts.storyCanvas.setBackground({ type: "transparent" });
         opts.onBackgroundChange();
       }
 
@@ -92,11 +110,11 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
       setVideoPreview(preview);
       setVideoDuration(duration);
     } catch (err) {
-      console.error('Failed to process video:', err);
-      opts.setError('動画の処理に失敗しました');
+      console.error("Failed to process video:", err);
+      opts.setError("動画の処理に失敗しました");
     } finally {
       opts.setUploading(false);
-      if (videoInputRef) videoInputRef.value = '';
+      if (videoInputRef) videoInputRef.value = "";
     }
   };
 
@@ -123,10 +141,18 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
     videoFile,
     videoPreview,
     videoDuration,
-    get videoInputRef() { return videoInputRef; },
-    set videoInputRef(el: HTMLInputElement) { videoInputRef = el; },
-    get videoRef() { return videoRef; },
-    set videoRef(el: HTMLVideoElement) { videoRef = el; },
+    get videoInputRef() {
+      return videoInputRef;
+    },
+    set videoInputRef(el: HTMLInputElement) {
+      videoInputRef = el;
+    },
+    get videoRef() {
+      return videoRef;
+    },
+    set videoRef(el: HTMLVideoElement) {
+      videoRef = el;
+    },
     videoScale,
     setVideoScale,
     videoPosition,

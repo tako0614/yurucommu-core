@@ -18,7 +18,8 @@
  *   TAKOS_URL/CLIENT_ID/SECRET - Takos OAuth
  */
 
-import { DenoStorage } from './runtime/deno.ts';
+import { DenoAssets, DenoDatabase, DenoStorage } from "./runtime/deno.ts";
+import { MemoryKV } from "./runtime/memory-kv.ts";
 
 // ---------------------------------------------------------------------------
 // Deno sqlite3 type definitions (subset of https://deno.land/x/sqlite3 API)
@@ -45,311 +46,34 @@ interface DenoSqlite3Database {
 // Deno env helpers
 // ---------------------------------------------------------------------------
 
-const PORT = parseInt(Deno.env.get('PORT') ?? '3000', 10);
-const DATABASE_PATH = Deno.env.get('DATABASE_PATH') ?? './data/yurucommu.db';
-const STORAGE_PATH = Deno.env.get('STORAGE_PATH') ?? './data/storage';
-const ASSETS_PATH = Deno.env.get('ASSETS_PATH') ?? './dist';
-const MIGRATIONS_PATH = Deno.env.get('MIGRATIONS_PATH') ?? './migrations';
-const APP_URL = Deno.env.get('APP_URL') ?? `http://localhost:${PORT}`;
-
-// ---------------------------------------------------------------------------
-// MIME type lookup
-// ---------------------------------------------------------------------------
-
-const MIME_TYPES: Record<string, string> = {
-  '.html': 'text/html',
-  '.css': 'text/css',
-  '.js': 'application/javascript',
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.svg': 'image/svg+xml',
-  '.webp': 'image/webp',
-  '.ico': 'image/x-icon',
-};
-
-function getMimeType(ext: string): string {
-  return MIME_TYPES[ext] || 'application/octet-stream';
-}
-
-// ---------------------------------------------------------------------------
-// D1Database-compatible SQLite implementation for Deno
-// ---------------------------------------------------------------------------
-
-class D1CompatDatabase {
-  private db: DenoSqlite3Database;
-
-  constructor(db: DenoSqlite3Database) {
-    this.db = db;
-  }
-
-  static async create(filename: string = ':memory:'): Promise<D1CompatDatabase> {
-    const { Database } = await import('https://deno.land/x/sqlite3@0.12.0/mod.ts');
-    const db = new Database(filename);
-    db.exec('PRAGMA journal_mode = WAL');
-    db.exec('PRAGMA foreign_keys = ON');
-    return new D1CompatDatabase(db);
-  }
-
-  prepare(query: string): D1CompatPreparedStatement {
-    return new D1CompatPreparedStatement(this.db, query);
-  }
-
-  async exec(query: string): Promise<void> {
-    this.db.exec(query);
-  }
-
-  async batch<T = unknown>(statements: D1CompatPreparedStatement[]): Promise<Array<{ results: T[]; success: boolean; meta: object }>> {
-    const results: Array<{ results: T[]; success: boolean; meta: object }> = [];
-    this.db.transaction(() => {
-      for (const stmt of statements) {
-        try {
-          const result = stmt.runSync();
-          results.push({
-            results: [],
-            success: true,
-            meta: { changes: result.changes, last_row_id: result.lastInsertRowid },
-          });
-        } catch (e) {
-          results.push({
-            results: [],
-            success: false,
-            meta: { error: String(e) },
-          });
-        }
-      }
-    })();
-    return results;
-  }
-
-  getRawDatabase(): DenoSqlite3Database {
-    return this.db;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// D1PreparedStatement-compatible implementation for Deno
-// ---------------------------------------------------------------------------
-
-class D1CompatPreparedStatement {
-  private db: DenoSqlite3Database;
-  private query: string;
-  private boundValues: unknown[] = [];
-
-  constructor(db: DenoSqlite3Database, query: string) {
-    this.db = db;
-    this.query = query;
-  }
-
-  bind(...values: unknown[]): D1CompatPreparedStatement {
-    this.boundValues = values;
-    return this;
-  }
-
-  async first<T = unknown>(colName?: string): Promise<T | null> {
-    const stmt = this.db.prepare(this.query);
-    const row = stmt.get(...this.boundValues);
-    stmt.finalize();
-    if (!row) return null;
-    if (colName) return row[colName] as T;
-    return row as T;
-  }
-
-  async all<T = unknown>(): Promise<{ results: T[]; success: boolean; meta: object }> {
-    const stmt = this.db.prepare(this.query);
-    const rows = stmt.all(...this.boundValues) as T[];
-    stmt.finalize();
-    return { results: rows, success: true, meta: {} };
-  }
-
-  async run(): Promise<{ success: boolean; meta: { changes: number; last_row_id: number } }> {
-    const result = this.runSync();
-    return {
-      success: true,
-      meta: { changes: result.changes, last_row_id: result.lastInsertRowid },
-    };
-  }
-
-  runSync(): { changes: number; lastInsertRowid: number } {
-    const stmt = this.db.prepare(this.query);
-    stmt.run(...this.boundValues);
-    const changes = this.db.changes;
-    const lastInsertRowid = this.db.lastInsertRowId;
-    stmt.finalize();
-    return { changes, lastInsertRowid };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// KVNamespace-compatible in-memory implementation
-// ---------------------------------------------------------------------------
-
-class KVCompatNamespace {
-  private store = new Map<string, {
-    value: string | ArrayBuffer;
-    expiration?: number;
-    metadata?: unknown;
-  }>();
-
-  async get(key: string, options?: { type?: 'text' | 'json' | 'arrayBuffer' | 'stream' }): Promise<unknown> {
-    const entry = this.store.get(key);
-    if (!entry) return null;
-
-    if (entry.expiration && entry.expiration < Date.now() / 1000) {
-      this.store.delete(key);
-      return null;
-    }
-
-    const type = options?.type ?? 'text';
-    const value = entry.value;
-
-    if (type === 'json') {
-      return typeof value === 'string' ? JSON.parse(value) : JSON.parse(new TextDecoder().decode(value as ArrayBuffer));
-    }
-    if (type === 'arrayBuffer') {
-      return typeof value === 'string' ? new TextEncoder().encode(value).buffer : value;
-    }
-    return typeof value === 'string' ? value : new TextDecoder().decode(value as ArrayBuffer);
-  }
-
-  async put(
-    key: string,
-    value: string | ArrayBuffer | ReadableStream,
-    options?: {
-      expirationTtl?: number;
-      expiration?: number;
-      metadata?: unknown;
-    },
-  ): Promise<void> {
-    const storedValue = await toStorableValue(value);
-
-    let expiration: number | undefined;
-    if (options?.expiration) {
-      expiration = options.expiration;
-    } else if (options?.expirationTtl) {
-      expiration = Math.floor(Date.now() / 1000) + options.expirationTtl;
-    }
-
-    this.store.set(key, { value: storedValue, expiration, metadata: options?.metadata });
-  }
-
-  async delete(key: string): Promise<void> {
-    this.store.delete(key);
-  }
-
-  async list(options?: {
-    prefix?: string;
-    limit?: number;
-    cursor?: string;
-  }): Promise<{
-    keys: Array<{ name: string; expiration?: number; metadata?: unknown }>;
-    list_complete: boolean;
-    cursor?: string;
-  }> {
-    const keys: Array<{ name: string; expiration?: number; metadata?: unknown }> = [];
-    const now = Date.now() / 1000;
-
-    for (const [name, entry] of this.store.entries()) {
-      if (entry.expiration && entry.expiration < now) continue;
-      if (options?.prefix && !name.startsWith(options.prefix)) continue;
-      keys.push({ name, expiration: entry.expiration, metadata: entry.metadata });
-    }
-
-    const limit = options?.limit ?? 1000;
-    return {
-      keys: keys.slice(0, limit),
-      list_complete: keys.length <= limit,
-      cursor: keys.length > limit ? String(limit) : undefined,
-    };
-  }
-}
-
-/** Convert a put() value argument into a string or ArrayBuffer for storage. */
-async function toStorableValue(value: string | ArrayBuffer | ReadableStream): Promise<string | ArrayBuffer> {
-  if (typeof value === 'string') return value;
-  if (value instanceof ArrayBuffer) return value;
-
-  const reader = (value as ReadableStream).getReader();
-  const chunks: Uint8Array[] = [];
-  while (true) {
-    const { done, value: chunk } = await reader.read();
-    if (done) break;
-    chunks.push(chunk);
-  }
-  const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
-  const result = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return result.buffer;
-}
-
-// ---------------------------------------------------------------------------
-// Fetcher-compatible static assets implementation for Deno
-// ---------------------------------------------------------------------------
-
-class AssetsCompatFetcher {
-  private basePath: string;
-
-  constructor(basePath: string) {
-    this.basePath = basePath;
-  }
-
-  async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    let filePath = `${this.basePath}${url.pathname}`;
-
-    // Security: prevent directory traversal
-    const normalizedPath = filePath.replace(/\.\./g, '');
-    if (normalizedPath !== filePath) {
-      return new Response('Forbidden', { status: 403 });
-    }
-
-    try {
-      const stat = await Deno.stat(filePath);
-      if (stat.isDirectory) {
-        filePath = `${filePath}/index.html`;
-      }
-
-      const content = await Deno.readFile(filePath);
-      const ext = filePath.substring(filePath.lastIndexOf('.'));
-      return new Response(content, {
-        headers: {
-          'Content-Type': getMimeType(ext),
-          'Content-Length': String(content.length),
-        },
-      });
-    } catch {
-      // SPA fallback
-      try {
-        const content = await Deno.readFile(`${this.basePath}/index.html`);
-        return new Response(content, {
-          headers: { 'Content-Type': 'text/html' },
-        });
-      } catch {
-        return new Response('Not Found', { status: 404 });
-      }
-    }
-  }
-}
+const PORT = parseInt(Deno.env.get("PORT") ?? "3000", 10);
+const DATABASE_PATH = Deno.env.get("DATABASE_PATH") ?? "./data/yurucommu.db";
+const STORAGE_PATH = Deno.env.get("STORAGE_PATH") ?? "./data/storage";
+const ASSETS_PATH = Deno.env.get("ASSETS_PATH") ?? "./dist";
+const MIGRATIONS_PATH = Deno.env.get("MIGRATIONS_PATH") ?? "./migrations";
+const APP_URL = Deno.env.get("APP_URL") ?? `http://localhost:${PORT}`;
 
 // ---------------------------------------------------------------------------
 // Create Cloudflare-compatible environment from Deno
 // ---------------------------------------------------------------------------
 
 const ENV_PASSTHROUGH_KEYS = [
-  'AUTH_PASSWORD_HASH',
-  'GOOGLE_CLIENT_ID',
-  'GOOGLE_CLIENT_SECRET',
-  'X_CLIENT_ID',
-  'X_CLIENT_SECRET',
-  'TAKOS_URL',
-  'TAKOS_CLIENT_ID',
-  'TAKOS_CLIENT_SECRET',
+  "AUTH_PASSWORD_HASH",
+  "ENCRYPTION_KEY",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "X_CLIENT_ID",
+  "X_CLIENT_SECRET",
+  "TAKOS_URL",
+  "TAKOS_CLIENT_ID",
+  "TAKOS_CLIENT_SECRET",
+  "CLIENT_ID",
+  "CLIENT_SECRET",
+  "AUTH_MODE",
+  "ENABLE_TAKOS_PROXY",
+  "ENABLE_TAKOS_TOOLS",
+  "DELIVERY_SHADOW_PROBE_HOSTS",
+  "DELIVERY_SHADOW_PROBE_SAMPLE_RATE",
 ] as const;
 
 async function createDenoEnv(config: {
@@ -358,9 +82,9 @@ async function createDenoEnv(config: {
   assetsPath: string;
   appUrl: string;
 }) {
-  const db = await D1CompatDatabase.create(config.databasePath);
-  const kv = new KVCompatNamespace();
-  const assets = new AssetsCompatFetcher(config.assetsPath);
+  const db = await DenoDatabase.create(config.databasePath);
+  const kv = new MemoryKV();
+  const assets = DenoAssets.create(config.assetsPath);
   const media = await DenoStorage.create(config.storagePath);
 
   const passthrough: Record<string, string | undefined> = {};
@@ -382,16 +106,19 @@ async function createDenoEnv(config: {
 // Run migrations from SQL files
 // ---------------------------------------------------------------------------
 
-async function runMigrations(db: D1CompatDatabase, migrationsDir: string): Promise<void> {
+export async function runMigrations(
+  db: DenoDatabase,
+  migrationsDir: string,
+): Promise<void> {
   const entries: string[] = [];
   for await (const entry of Deno.readDir(migrationsDir)) {
-    if (entry.isFile && entry.name.endsWith('.sql')) {
+    if (entry.isFile && entry.name.endsWith(".sql")) {
       entries.push(entry.name);
     }
   }
   entries.sort();
 
-  const rawDb = db.getRawDatabase();
+  const rawDb = db.getRawDatabase() as DenoSqlite3Database;
 
   rawDb.exec(`
     CREATE TABLE IF NOT EXISTS _cf_migrations (
@@ -401,9 +128,13 @@ async function runMigrations(db: D1CompatDatabase, migrationsDir: string): Promi
     )
   `);
 
-  const applied = rawDb
-    .prepare('SELECT name FROM _cf_migrations')
-    .all() as Array<{ name: string }>;
+  const appliedStmt = rawDb.prepare("SELECT name FROM _cf_migrations");
+  let applied: Array<{ name: string }>;
+  try {
+    applied = appliedStmt.all() as Array<{ name: string }>;
+  } finally {
+    appliedStmt.finalize();
+  }
   const appliedSet = new Set(applied.map((r) => r.name));
 
   for (const file of entries) {
@@ -415,21 +146,21 @@ async function runMigrations(db: D1CompatDatabase, migrationsDir: string): Promi
     console.log(`Applying migration: ${file}`);
     const sql = await Deno.readTextFile(`${migrationsDir}/${file}`);
 
-    const statements = sql
-      .split(';')
-      .map((s: string) => s.trim())
-      .filter((s: string) => s.length > 0);
-
-    for (const stmt of statements) {
-      try {
-        rawDb.exec(stmt);
-      } catch (e) {
-        console.error(`Error executing statement in ${file}:`, stmt);
-        throw e;
-      }
+    try {
+      rawDb.exec(sql);
+    } catch (e) {
+      console.error(`Error executing migration ${file}`);
+      throw e;
     }
 
-    rawDb.prepare('INSERT INTO _cf_migrations (name) VALUES (?)').run(file);
+    const markAppliedStmt = rawDb.prepare(
+      "INSERT INTO _cf_migrations (name) VALUES (?)",
+    );
+    try {
+      markAppliedStmt.run(file);
+    } finally {
+      markAppliedStmt.finalize();
+    }
     console.log(`Migration ${file} applied successfully`);
   }
 }
@@ -439,10 +170,10 @@ async function runMigrations(db: D1CompatDatabase, migrationsDir: string): Promi
 // ---------------------------------------------------------------------------
 
 async function main() {
-  console.log('Starting Yurucommu server (Deno mode)...');
+  console.log("Starting Yurucommu server (Deno mode)...");
 
   // Ensure data directory exists
-  const dataDir = DATABASE_PATH.substring(0, DATABASE_PATH.lastIndexOf('/'));
+  const dataDir = DATABASE_PATH.substring(0, DATABASE_PATH.lastIndexOf("/"));
   try {
     await Deno.mkdir(dataDir, { recursive: true });
   } catch { /* ignore if exists */ }
@@ -457,31 +188,50 @@ async function main() {
   // Run migrations
   try {
     await Deno.stat(MIGRATIONS_PATH);
-    console.log('Running database migrations...');
-    await runMigrations(env.DB as unknown as D1CompatDatabase, MIGRATIONS_PATH);
-    console.log('Migrations complete');
-  } catch {
-    console.log('No migrations directory found, skipping migrations');
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) {
+      throw error;
+    }
+    console.log("No migrations directory found, skipping migrations");
+    await startServer(env);
+    return;
   }
 
-  // Start server
+  console.log("Running database migrations...");
+  await runMigrations(env.DB as unknown as DenoDatabase, MIGRATIONS_PATH);
+  console.log("Migrations complete");
+
+  await startServer(env);
+}
+
+async function startServer(env: Awaited<ReturnType<typeof createDenoEnv>>) {
   console.log(`\nServer starting on http://localhost:${PORT}`);
   console.log(`  APP_URL: ${APP_URL}`);
   console.log(`  Database: ${DATABASE_PATH}`);
   console.log(`  Storage: ${STORAGE_PATH}`);
   console.log(`  Assets: ${ASSETS_PATH}`);
-  console.log('');
+  console.log("");
 
-  const { default: app } = await import('./index.ts');
+  const { default: app } = await import("./index.ts");
 
   Deno.serve({ port: PORT }, (request: Request) => {
-    return app.fetch(request, env);
+    const ctx = {
+      waitUntil: (promise: Promise<unknown>) => {
+        promise.catch((error) => {
+          console.error("Background task failed:", error);
+        });
+      },
+      passThroughOnException: () => {},
+    } as ExecutionContext;
+    return app.fetch(request, env, ctx);
   });
 
   console.log(`Server is running at http://localhost:${PORT}`);
 }
 
-main().catch((error) => {
-  console.error('Failed to start server:', error);
-  Deno.exit(1);
-});
+if (import.meta.main) {
+  main().catch((error) => {
+    console.error("Failed to start server:", error);
+    Deno.exit(1);
+  });
+}

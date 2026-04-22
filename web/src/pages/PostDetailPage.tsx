@@ -1,34 +1,57 @@
-import { createEffect, Show, For } from 'solid-js';
-import { useParams, useNavigate, A } from '@solidjs/router';
-import { atom } from 'jotai';
-import { useAtom } from 'solid-jotai';
-import { useRequiredActor } from '../hooks/useRequiredActor.ts';
-import { Post, MediaAttachment } from '../types/index.ts';
-import { fetchPost, fetchReplies, createPost, likePost, unlikePost, deletePost, bookmarkPost, unbookmarkPost } from '../lib/api.ts';
-import { useI18n } from '../lib/i18n.tsx';
-import { formatDateTime } from '../lib/datetime.ts';
-import { UserAvatar } from '../components/UserAvatar.tsx';
-import { PostContent } from '../components/PostContent.tsx';
-import { HeartIcon, ReplyIcon, BookmarkIcon } from '../components/icons/SocialIcons.tsx';
-import { InlineErrorBanner } from '../components/InlineErrorBanner.tsx';
+import { createEffect, For, Show } from "solid-js";
+import { A, useNavigate, useParams } from "@solidjs/router";
+import { atom } from "jotai";
+import { useAtom } from "solid-jotai";
+import { useRequiredActor } from "../hooks/useRequiredActor.ts";
+import { MediaAttachment, Post } from "../types/index.ts";
+import {
+  bookmarkPost,
+  createPost,
+  deletePost,
+  fetchPost,
+  fetchReplies,
+  likePost,
+  unbookmarkPost,
+  unlikePost,
+} from "../lib/api.ts";
+import { useI18n } from "../lib/i18n.tsx";
+import { formatDateTime } from "../lib/datetime.ts";
+import { UserAvatar } from "../components/UserAvatar.tsx";
+import { PostContent } from "../components/PostContent.tsx";
+import {
+  BookmarkIcon,
+  HeartIcon,
+  ReplyIcon,
+} from "../components/icons/SocialIcons.tsx";
+import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 
 // Atoms defined at module level
 const postDetail_errorAtom = atom<string | null>(null);
 const postDetail_postAtom = atom<Post | null>(null);
 const postDetail_repliesAtom = atom<Post[]>([]);
 const postDetail_loadingAtom = atom(true);
-const postDetail_replyContentAtom = atom('');
+const postDetail_replyContentAtom = atom("");
 const postDetail_replyingAtom = atom(false);
 
 const BackIcon = () => (
   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width={2}
+      d="M10 19l-7-7m0 0l7-7m-7 7h18"
+    />
   </svg>
 );
 
 const TrashIcon = () => (
   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width={2}
+      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+    />
   </svg>
 );
 
@@ -51,20 +74,20 @@ export function PostDetailPage() {
 
     setPost(null);
     setReplies([]);
-    setReplyContent('');
+    setReplyContent("");
     setError(null);
     setLoading(true);
 
     const decodedPostId = decodeURIComponent(postId);
     Promise.all([
       fetchPost(decodedPostId),
-      fetchReplies(decodedPostId)
+      fetchReplies(decodedPostId),
     ]).then(([postData, repliesData]) => {
       setPost(postData);
       setReplies(repliesData);
-    }).catch(e => {
-      console.error('Failed to load post:', e);
-      setError(t('common.error'));
+    }).catch((e) => {
+      console.error("Failed to load post:", e);
+      setError(t("common.error"));
     }).finally(() => {
       setLoading(false);
     });
@@ -75,21 +98,41 @@ export function PostDetailPage() {
       if (targetPost.liked) {
         await unlikePost(targetPost.ap_id);
         if (isReply) {
-          setReplies(prev => prev.map(r => r.ap_id === targetPost.ap_id ? { ...r, liked: false, like_count: r.like_count - 1 } : r));
+          setReplies((prev) =>
+            prev.map((r) =>
+              r.ap_id === targetPost.ap_id
+                ? { ...r, liked: false, like_count: r.like_count - 1 }
+                : r
+            )
+          );
         } else {
-          setPost(prev => prev ? { ...prev, liked: false, like_count: prev.like_count - 1 } : null);
+          setPost((prev) =>
+            prev
+              ? { ...prev, liked: false, like_count: prev.like_count - 1 }
+              : null
+          );
         }
       } else {
         await likePost(targetPost.ap_id);
         if (isReply) {
-          setReplies(prev => prev.map(r => r.ap_id === targetPost.ap_id ? { ...r, liked: true, like_count: r.like_count + 1 } : r));
+          setReplies((prev) =>
+            prev.map((r) =>
+              r.ap_id === targetPost.ap_id
+                ? { ...r, liked: true, like_count: r.like_count + 1 }
+                : r
+            )
+          );
         } else {
-          setPost(prev => prev ? { ...prev, liked: true, like_count: prev.like_count + 1 } : null);
+          setPost((prev) =>
+            prev
+              ? { ...prev, liked: true, like_count: prev.like_count + 1 }
+              : null
+          );
         }
       }
     } catch (e) {
-      console.error('Failed to toggle like:', e);
-      setError(t('common.error'));
+      console.error("Failed to toggle like:", e);
+      setError(t("common.error"));
     }
   };
 
@@ -101,33 +144,38 @@ export function PostDetailPage() {
         content: replyContent().trim(),
         in_reply_to: post()!.ap_id,
       });
-      setReplies(prev => [...prev, newReply]);
-      setReplyContent('');
-      setPost(prev => prev ? { ...prev, reply_count: prev.reply_count + 1 } : null);
+      setReplies((prev) => [...prev, newReply]);
+      setReplyContent("");
+      setPost((prev) =>
+        prev ? { ...prev, reply_count: prev.reply_count + 1 } : null
+      );
     } catch (e) {
-      console.error('Failed to reply:', e);
-      setError(t('common.error'));
+      console.error("Failed to reply:", e);
+      setError(t("common.error"));
     } finally {
       setReplying(false);
     }
   };
 
   const handleDelete = async (targetPost: Post, isReply: boolean = false) => {
-    if (!confirm('Delete this post?')) return;
+    if (!confirm("Delete this post?")) return;
     try {
       await deletePost(targetPost.ap_id);
       if (isReply) {
-        setReplies(prev => prev.filter(r => r.ap_id !== targetPost.ap_id));
+        setReplies((prev) => prev.filter((r) => r.ap_id !== targetPost.ap_id));
         const currentPost = post();
         if (currentPost) {
-          setPost({ ...currentPost, reply_count: Math.max(0, currentPost.reply_count - 1) });
+          setPost({
+            ...currentPost,
+            reply_count: Math.max(0, currentPost.reply_count - 1),
+          });
         }
       } else {
         navigate(-1);
       }
     } catch (e) {
-      console.error('Failed to delete:', e);
-      setError(t('common.error'));
+      console.error("Failed to delete:", e);
+      setError(t("common.error"));
     }
   };
 
@@ -143,8 +191,8 @@ export function PostDetailPage() {
         setPost({ ...currentPost, bookmarked: true });
       }
     } catch (e) {
-      console.error('Failed to toggle bookmark:', e);
-      setError(t('common.error'));
+      console.error("Failed to toggle bookmark:", e);
+      setError(t("common.error"));
     }
   };
 
@@ -155,7 +203,11 @@ export function PostDetailPage() {
       </Show>
       <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
         <div class="flex items-center gap-4 px-4 py-3">
-          <button onClick={() => navigate(-1)} aria-label="Back" class="p-1 hover:bg-neutral-800 rounded-full">
+          <button
+            onClick={() => navigate(-1)}
+            aria-label="Back"
+            class="p-1 hover:bg-neutral-800 rounded-full"
+          >
             <BackIcon />
           </button>
           <h1 class="text-xl font-bold">Post</h1>
@@ -163,7 +215,9 @@ export function PostDetailPage() {
       </header>
 
       <Show when={loading()}>
-        <div class="p-8 text-center text-neutral-500">{t('common.loading')}</div>
+        <div class="p-8 text-center text-neutral-500">
+          {t("common.loading")}
+        </div>
       </Show>
 
       <Show when={!loading() && !post()}>
@@ -178,12 +232,16 @@ export function PostDetailPage() {
               <A href={`/profile/${encodeURIComponent(post()!.author.ap_id)}`}>
                 <UserAvatar
                   avatarUrl={post()!.author.icon_url}
-                  name={post()!.author.name || post()!.author.preferred_username}
+                  name={post()!.author.name ||
+                    post()!.author.preferred_username}
                   size={48}
                 />
               </A>
               <div class="flex-1">
-                <A href={`/profile/${encodeURIComponent(post()!.author.ap_id)}`} class="font-bold text-white hover:underline">
+                <A
+                  href={`/profile/${encodeURIComponent(post()!.author.ap_id)}`}
+                  class="font-bold text-white hover:underline"
+                >
                   {post()!.author.name || post()!.author.preferred_username}
                 </A>
                 <div class="text-neutral-500">@{post()!.author.username}</div>
@@ -203,19 +261,28 @@ export function PostDetailPage() {
             />
             {/* Post Images */}
             <Show when={post()!.attachments.length > 0}>
-              <div class={`mt-3 grid gap-1 rounded-xl overflow-hidden ${
-                post()!.attachments.length === 1 ? 'grid-cols-1' :
-                post()!.attachments.length === 2 ? 'grid-cols-2' :
-                post()!.attachments.length === 3 ? 'grid-cols-2' : 'grid-cols-2'
-              }`}>
+              <div
+                class={`mt-3 grid gap-1 rounded-xl overflow-hidden ${
+                  post()!.attachments.length === 1
+                    ? "grid-cols-1"
+                    : post()!.attachments.length === 2
+                    ? "grid-cols-2"
+                    : post()!.attachments.length === 3
+                    ? "grid-cols-2"
+                    : "grid-cols-2"
+                }`}
+              >
                 <For each={post()!.attachments}>
                   {(m, idx) => (
                     <img
-                      src={`/media/${m.r2_key}`}
+                      src={m.url || `/media/${m.r2_key}`}
                       alt=""
                       class={`w-full object-cover ${
-                        post()!.attachments.length === 1 ? 'max-h-[500px]' :
-                        post()!.attachments.length === 3 && idx() === 0 ? 'row-span-2 h-full' : 'h-48'
+                        post()!.attachments.length === 1
+                          ? "max-h-[500px]"
+                          : post()!.attachments.length === 3 && idx() === 0
+                          ? "row-span-2 h-full"
+                          : "h-48"
                       }`}
                     />
                   )}
@@ -238,25 +305,32 @@ export function PostDetailPage() {
               </Show>
             </div>
             <div class="flex items-center justify-around mt-3 pt-3 border-t border-neutral-800">
-              <button aria-label="Reply" class="flex items-center gap-2 p-2 text-neutral-500 hover:text-blue-500 transition-colors">
+              <button
+                aria-label="Reply"
+                class="flex items-center gap-2 p-2 text-neutral-500 hover:text-blue-500 transition-colors"
+              >
                 <ReplyIcon />
               </button>
               <button
                 onClick={() => handleLike(post()!)}
-                aria-label={post()!.liked ? 'Unlike' : 'Like'}
+                aria-label={post()!.liked ? "Unlike" : "Like"}
                 aria-pressed={post()!.liked}
                 class={`flex items-center gap-2 p-2 transition-colors ${
-                  post()!.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'
+                  post()!.liked
+                    ? "text-pink-500"
+                    : "text-neutral-500 hover:text-pink-500"
                 }`}
               >
                 <HeartIcon filled={post()!.liked || false} />
               </button>
               <button
                 onClick={handleBookmark}
-                aria-label={post()!.bookmarked ? 'Remove bookmark' : 'Bookmark'}
+                aria-label={post()!.bookmarked ? "Remove bookmark" : "Bookmark"}
                 aria-pressed={post()!.bookmarked}
                 class={`flex items-center gap-2 p-2 transition-colors ${
-                  post()!.bookmarked ? 'text-blue-500' : 'text-neutral-500 hover:text-blue-500'
+                  post()!.bookmarked
+                    ? "text-blue-500"
+                    : "text-neutral-500 hover:text-blue-500"
                 }`}
               >
                 <BookmarkIcon filled={post()!.bookmarked || false} />
@@ -275,7 +349,7 @@ export function PostDetailPage() {
               <div class="flex-1">
                 <textarea
                   value={replyContent()}
-                  onInput={e => setReplyContent(e.currentTarget.value)}
+                  onInput={(e) => setReplyContent(e.currentTarget.value)}
                   placeholder="Post a reply"
                   class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none"
                   rows={2}
@@ -306,12 +380,21 @@ export function PostDetailPage() {
                 </A>
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2">
-                    <A href={`/profile/${encodeURIComponent(reply.author.ap_id)}`} class="font-bold text-white truncate hover:underline">
+                    <A
+                      href={`/profile/${
+                        encodeURIComponent(reply.author.ap_id)
+                      }`}
+                      class="font-bold text-white truncate hover:underline"
+                    >
                       {reply.author.name || reply.author.preferred_username}
                     </A>
-                    <span class="text-neutral-500 truncate">@{reply.author.username}</span>
+                    <span class="text-neutral-500 truncate">
+                      @{reply.author.username}
+                    </span>
                     <span class="text-neutral-500">·</span>
-                    <span class="text-neutral-500 text-sm">{formatDateTime(reply.published)}</span>
+                    <span class="text-neutral-500 text-sm">
+                      {formatDateTime(reply.published)}
+                    </span>
                     <Show when={reply.author.ap_id === actor.ap_id}>
                       <button
                         onClick={() => handleDelete(reply, true)}
@@ -329,14 +412,19 @@ export function PostDetailPage() {
                   <div class="flex items-center gap-6 mt-2">
                     <button
                       onClick={() => handleLike(reply, true)}
-                      aria-label={reply.liked ? 'Unlike reply' : 'Like reply'}
+                      aria-label={reply.liked ? "Unlike reply" : "Like reply"}
                       aria-pressed={reply.liked}
                       class={`flex items-center gap-2 transition-colors ${
-                        reply.liked ? 'text-pink-500' : 'text-neutral-500 hover:text-pink-500'
+                        reply.liked
+                          ? "text-pink-500"
+                          : "text-neutral-500 hover:text-pink-500"
                       }`}
                     >
                       <HeartIcon filled={reply.liked || false} />
-                      <Show when={reply.author.ap_id === actor.ap_id && reply.like_count > 0}>
+                      <Show
+                        when={reply.author.ap_id === actor.ap_id &&
+                          reply.like_count > 0}
+                      >
                         <span class="text-sm">{reply.like_count}</span>
                       </Show>
                     </button>

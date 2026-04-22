@@ -1,38 +1,38 @@
-import { render } from 'solid-js/web';
-import type { Component } from 'solid-js';
-import DefaultApp from './App.tsx';
+import { render } from "solid-js/web";
+import type { Component } from "solid-js";
+import DefaultApp from "./App.tsx";
 import {
-  clearYurucommuFrontendPlugin,
-  setYurucommuFrontendPlugins,
-  type FrontendPluginContextV1,
-  type YurucommuFrontendPluginV1,
-  type AuthStrategy,
   type ApiTransport,
-  type DeploymentMode,
-  type HostedUserInfo,
-  type HostedInstance,
-  type InstanceHealthChecks,
-  type InstanceHealth,
   type AuthCheckResult,
+  type AuthStrategy,
+  clearYurucommuFrontendPlugin,
+  type DeploymentMode,
+  type FrontendPluginContextV1,
+  type HostedInstance,
+  type HostedUserInfo,
+  type InstanceHealth,
+  type InstanceHealthChecks,
   type LoginResult,
-  type SlotName,
+  setYurucommuFrontendPlugins,
   type SlotEntry,
-} from './lib/plugin.ts';
+  type SlotName,
+  type YurucommuFrontendPluginV1,
+} from "./lib/plugin.ts";
 
 export type {
-  FrontendPluginContextV1,
-  YurucommuFrontendPluginV1,
-  AuthStrategy,
   ApiTransport,
-  DeploymentMode,
-  HostedUserInfo,
-  HostedInstance,
-  InstanceHealthChecks,
-  InstanceHealth,
   AuthCheckResult,
+  AuthStrategy,
+  DeploymentMode,
+  FrontendPluginContextV1,
+  HostedInstance,
+  HostedUserInfo,
+  InstanceHealth,
+  InstanceHealthChecks,
   LoginResult,
-  SlotName,
   SlotEntry,
+  SlotName,
+  YurucommuFrontendPluginV1,
 };
 
 export interface BootstrapMountOptionsV1 {
@@ -47,12 +47,14 @@ export interface BootstrapYurucommuFrontendOptionsV1 {
 
 let bootstrapped = false;
 
-export function bootstrapYurucommuFrontend(options: BootstrapYurucommuFrontendOptionsV1 = {}): void {
+export function bootstrapYurucommuFrontend(
+  options: BootstrapYurucommuFrontendOptionsV1 = {},
+): void {
   if (bootstrapped) {
-    throw new Error('[yurucommu] frontend already bootstrapped');
+    throw new Error("[yurucommu] frontend already bootstrapped");
   }
 
-  const rootId = options.mount?.rootId ?? 'root';
+  const rootId = options.mount?.rootId ?? "root";
   const AppComponent = options.AppComponent ?? DefaultApp;
   const plugins = options.plugins ?? [];
 

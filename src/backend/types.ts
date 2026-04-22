@@ -1,6 +1,9 @@
-import type { TakosClient } from './lib/takos-client.ts';
-import type { Database } from '../db/index.ts';
-import type { DeliveryQueueMessageV1, DeliveryDlqMessageV1 } from './lib/delivery/types.ts';
+import type { TakosClient } from "./lib/takos-client.ts";
+import type { Database } from "../db/index.ts";
+import type {
+  DeliveryDlqMessageV1,
+  DeliveryQueueMessageV1,
+} from "./lib/delivery/types.ts";
 
 /**
  * Environment Variables (common across all runtimes)
@@ -31,6 +34,9 @@ export interface EnvVars {
   DELIVERY_SHADOW_PROBE_HOSTS?: string;
   // 0.0-1.0 sampling rate for probes (default: 1.0)
   DELIVERY_SHADOW_PROBE_SAMPLE_RATE?: string;
+  DELIVERY_QUEUE_NAME?: string;
+  DELIVERY_DLQ_NAME?: string;
+  YURUCOMMU_STRICT_READINESS?: string;
 }
 
 /**
@@ -62,7 +68,7 @@ export type Variables = {
 
 // Local actor (Person)
 export interface Actor {
-  ap_id: string;  // Primary key: https://domain/ap/users/username
+  ap_id: string; // Primary key: https://domain/ap/users/username
   type: string;
   preferred_username: string;
   name: string | null;
@@ -80,7 +86,7 @@ export interface Actor {
   following_count: number;
   post_count: number;
   is_private: number;
-  role: 'owner' | 'moderator' | 'member';
+  role: "owner" | "moderator" | "member";
   created_at: string;
 }
 
@@ -118,4 +124,4 @@ export interface APObject {
 }
 
 // Re-export Hono types for route files
-export type { Context } from 'hono';
+export type { Context } from "hono";

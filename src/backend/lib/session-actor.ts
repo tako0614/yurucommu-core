@@ -1,8 +1,8 @@
-import type { Context } from 'hono';
-import { getCookie } from 'hono/cookie';
-import { eq } from 'drizzle-orm';
-import type { Env, Variables, Actor } from '../types.ts';
-import { sessions } from '../../db/index.ts';
+import type { Context } from "hono";
+import { getCookie } from "hono/cookie";
+import { eq } from "drizzle-orm";
+import type { Actor, Env, Variables } from "../types.ts";
+import { sessions } from "../../db/index.ts";
 
 function isExpired(expiresAt: string): boolean {
   const expiresMs = Date.parse(expiresAt);
@@ -16,10 +16,10 @@ function isExpired(expiresAt: string): boolean {
 export async function extractActorFromSession(
   c: Context<{ Bindings: Env; Variables: Variables }>,
 ): Promise<void> {
-  const sessionId = getCookie(c, 'session');
+  const sessionId = getCookie(c, "session");
   if (!sessionId) return;
 
-  const db = c.get('db');
+  const db = c.get("db");
   const session = await db.query.sessions.findFirst({
     where: eq(sessions.id, sessionId),
     with: { member: true },
@@ -47,8 +47,8 @@ export async function extractActorFromSession(
     following_count: m.followingCount,
     post_count: m.postCount,
     is_private: m.isPrivate,
-    role: m.role as 'owner' | 'moderator' | 'member',
+    role: m.role as "owner" | "moderator" | "member",
     created_at: m.createdAt,
   };
-  c.set('actor', actor);
+  c.set("actor", actor);
 }

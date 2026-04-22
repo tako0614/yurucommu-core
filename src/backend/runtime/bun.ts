@@ -8,29 +8,31 @@
  */
 
 import type {
-  IDatabase,
-  IObjectStorage,
-  IKeyValueStore,
-  IStaticAssets,
-  PreparedStatement,
-  QueryResult,
   FirstResult,
-  RunResult,
-  StorageObject,
+  IDatabase,
+  IKeyValueStore,
+  IObjectStorage,
+  IStaticAssets,
   ListObjectsResult,
   ObjectMetadata,
+  PreparedStatement,
+  QueryResult,
+  RunResult,
   RuntimeEnv,
-} from './types.ts';
+  StorageObject,
+} from "./types.ts";
 
 // Re-export MemoryKV from node.ts as it works in Bun too
-export { MemoryKV } from './node.ts';
+export { MemoryKV } from "./node.ts";
 
-const { mkdir, unlink, readdir, stat } = await import('fs/promises');
+const { mkdir, unlink, readdir, stat } = await import("fs/promises");
 
 /**
  * Drain a ReadableStream into a single Uint8Array.
  */
-async function drainStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+async function drainStream(
+  stream: ReadableStream<Uint8Array>,
+): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   const reader = stream.getReader();
   while (true) {
@@ -51,8 +53,10 @@ async function drainStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Arr
 /**
  * Convert a put() value to Uint8Array.
  */
-async function toUint8Array(value: ReadableStream | ArrayBuffer | string): Promise<Uint8Array> {
-  if (typeof value === 'string') return new TextEncoder().encode(value);
+async function toUint8Array(
+  value: ReadableStream | ArrayBuffer | string,
+): Promise<Uint8Array> {
+  if (typeof value === "string") return new TextEncoder().encode(value);
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
   return drainStream(value);
 }
@@ -62,7 +66,7 @@ async function toUint8Array(value: ReadableStream | ArrayBuffer | string): Promi
  * Returns an empty object if the sidecar doesn't exist or can't be parsed.
  */
 async function readMetadata(metaPath: string): Promise<{
-  httpMetadata?: ObjectMetadata['httpMetadata'];
+  httpMetadata?: ObjectMetadata["httpMetadata"];
   customMetadata?: Record<string, string>;
 }> {
   try {
@@ -80,17 +84,17 @@ async function readMetadata(metaPath: string): Promise<{
  * Bun SQLite Database Adapter (using bun:sqlite)
  */
 export class BunDatabase implements IDatabase {
-  private db: import('bun:sqlite').Database;
+  private db: import("bun:sqlite").Database;
 
-  constructor(db: import('bun:sqlite').Database) {
+  constructor(db: import("bun:sqlite").Database) {
     this.db = db;
   }
 
-  static create(filename: string = ':memory:'): BunDatabase {
+  static create(filename: string = ":memory:"): BunDatabase {
     // @ts-expect-error - Bun.sql is available in Bun runtime
-    const { Database } = require('bun:sqlite');
+    const { Database } = require("bun:sqlite");
     const db = new Database(filename);
-    db.exec('PRAGMA journal_mode = WAL');
+    db.exec("PRAGMA journal_mode = WAL");
     return new BunDatabase(db);
   }
 
@@ -102,7 +106,9 @@ export class BunDatabase implements IDatabase {
     this.db.exec(query);
   }
 
-  async batch<T = unknown>(statements: PreparedStatement[]): Promise<QueryResult<T>[]> {
+  async batch<T = unknown>(
+    statements: PreparedStatement[],
+  ): Promise<QueryResult<T>[]> {
     const results: QueryResult<T>[] = [];
     this.db.transaction(() => {
       for (const stmt of statements) {
@@ -124,11 +130,11 @@ export class BunDatabase implements IDatabase {
  * Bun SQLite Prepared Statement Adapter
  */
 class BunPreparedStatement implements PreparedStatement {
-  private db: import('bun:sqlite').Database;
+  private db: import("bun:sqlite").Database;
   private query: string;
   private boundValues: unknown[] = [];
 
-  constructor(db: import('bun:sqlite').Database, query: string) {
+  constructor(db: import("bun:sqlite").Database, query: string) {
     this.db = db;
     this.query = query;
   }
@@ -168,7 +174,10 @@ class BunPreparedStatement implements PreparedStatement {
 
   runSync(): { changes: number; lastInsertRowid: number } {
     const stmt = this.db.prepare(this.query);
-    return stmt.run(...this.boundValues) as { changes: number; lastInsertRowid: number };
+    return stmt.run(...this.boundValues) as {
+      changes: number;
+      lastInsertRowid: number;
+    };
   }
 }
 
@@ -199,12 +208,12 @@ export class BunStorage implements IObjectStorage {
     key: string,
     value: ReadableStream | ArrayBuffer | string,
     options?: {
-      httpMetadata?: ObjectMetadata['httpMetadata'];
+      httpMetadata?: ObjectMetadata["httpMetadata"];
       customMetadata?: Record<string, string>;
-    }
+    },
   ): Promise<void> {
     const filePath = this.getFilePath(key);
-    const dir = filePath.substring(0, filePath.lastIndexOf('/'));
+    const dir = filePath.substring(0, filePath.lastIndexOf("/"));
     await mkdir(dir, { recursive: true });
 
     const content = await toUint8Array(value);
@@ -216,7 +225,7 @@ export class BunStorage implements IObjectStorage {
         JSON.stringify({
           httpMetadata: options.httpMetadata,
           customMetadata: options.customMetadata,
-        })
+        }),
       );
     }
   }
@@ -265,8 +274,12 @@ export class BunStorage implements IObjectStorage {
   async delete(key: string | string[]): Promise<void> {
     const keys = Array.isArray(key) ? key : [key];
     for (const k of keys) {
-      try { await unlink(this.getFilePath(k)); } catch { /* ignore */ }
-      try { await unlink(this.getMetaPath(k)); } catch { /* ignore */ }
+      try {
+        await unlink(this.getFilePath(k));
+      } catch { /* ignore */ }
+      try {
+        await unlink(this.getMetaPath(k));
+      } catch { /* ignore */ }
     }
   }
 
@@ -276,9 +289,9 @@ export class BunStorage implements IObjectStorage {
     cursor?: string;
     delimiter?: string;
   }): Promise<ListObjectsResult> {
-    const objects: ListObjectsResult['objects'] = [];
+    const objects: ListObjectsResult["objects"] = [];
 
-    const readDirRecursive = async (dir: string, prefix: string = '') => {
+    const readDirRecursive = async (dir: string, prefix: string = "") => {
       try {
         const entries = await readdir(dir, { withFileTypes: true });
         for (const entry of entries) {
@@ -287,7 +300,7 @@ export class BunStorage implements IObjectStorage {
 
           if (entry.isDirectory()) {
             await readDirRecursive(fullPath, key);
-          } else if (!entry.name.endsWith('.meta.json')) {
+          } else if (!entry.name.endsWith(".meta.json")) {
             if (!options?.prefix || key.startsWith(options.prefix)) {
               const stats = await stat(fullPath);
               objects.push({
@@ -353,9 +366,9 @@ export class BunAssets implements IStaticAssets {
     let filePath = `${this.basePath}${url.pathname}`;
 
     // Security: prevent directory traversal
-    const normalizedPath = filePath.replace(/\.\./g, '');
+    const normalizedPath = filePath.replace(/\.\./g, "");
     if (normalizedPath !== filePath) {
-      return new Response('Forbidden', { status: 403 });
+      return new Response("Forbidden", { status: 403 });
     }
 
     try {
@@ -375,13 +388,13 @@ export class BunAssets implements IStaticAssets {
       const indexFile = Bun.file(`${this.basePath}/index.html`);
       if (await indexFile.exists()) {
         return new Response(indexFile, {
-          headers: { 'Content-Type': 'text/html' },
+          headers: { "Content-Type": "text/html" },
         });
       }
 
-      return new Response('Not Found', { status: 404 });
+      return new Response("Not Found", { status: 404 });
     } catch {
-      return new Response('Not Found', { status: 404 });
+      return new Response("Not Found", { status: 404 });
     }
   }
 }
@@ -406,11 +419,13 @@ export function createBunRuntime(config: {
     AUTH_MODE?: string;
   };
 }): RuntimeEnv {
-  const { MemoryKV } = require('./node');
+  const { MemoryKV } = require("./node");
 
   return {
-    db: BunDatabase.create(config.databasePath || ':memory:'),
-    storage: config.storagePath ? new BunStorage(config.storagePath) : undefined,
+    db: BunDatabase.create(config.databasePath || ":memory:"),
+    storage: config.storagePath
+      ? new BunStorage(config.storagePath)
+      : undefined,
     kv: new MemoryKV(),
     assets: config.assetsPath ? BunAssets.create(config.assetsPath) : undefined,
     ...config.envVars,

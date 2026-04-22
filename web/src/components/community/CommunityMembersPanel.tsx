@@ -1,9 +1,9 @@
-import { Show, For } from 'solid-js';
-import { A } from '@solidjs/router';
-import type { CommunityJoinRequest } from '../../lib/api.ts';
-import type { CommunityMember } from '../../lib/api/communities.ts';
-import { UserAvatar } from '../UserAvatar.tsx';
-import type { Translate } from '../../lib/i18n.tsx';
+import { For, Show } from "solid-js";
+import { A } from "@solidjs/router";
+import type { CommunityJoinRequest } from "../../lib/api.ts";
+import type { CommunityMember } from "../../lib/api/communities.ts";
+import { UserAvatar } from "../UserAvatar.tsx";
+import type { Translate } from "../../lib/i18n.tsx";
 
 interface CommunityMembersPanelProps {
   members: CommunityMember[];
@@ -20,7 +20,10 @@ interface CommunityMembersPanelProps {
   actorApId: string;
   onAcceptRequest: (request: CommunityJoinRequest) => void;
   onRejectRequest: (request: CommunityJoinRequest) => void;
-  onUpdateMemberRole: (member: CommunityMember, role: 'owner' | 'moderator' | 'member') => void;
+  onUpdateMemberRole: (
+    member: CommunityMember,
+    role: "owner" | "moderator" | "member",
+  ) => void;
   onCreateInvite: () => void;
   t: Translate;
 }
@@ -31,15 +34,23 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
       <Show when={props.canManage}>
         <div class="border-b border-neutral-900">
           <div class="px-4 py-3">
-            <div class="text-sm font-semibold text-neutral-400">Join Requests</div>
+            <div class="text-sm font-semibold text-neutral-400">
+              Join Requests
+            </div>
           </div>
           <Show
             when={!props.loadingRequests}
-            fallback={<div class="px-4 pb-4 text-sm text-neutral-500">Loading...</div>}
+            fallback={
+              <div class="px-4 pb-4 text-sm text-neutral-500">Loading...</div>
+            }
           >
             <Show
               when={props.joinRequests.length > 0}
-              fallback={<div class="px-4 pb-4 text-sm text-neutral-500">No pending requests</div>}
+              fallback={
+                <div class="px-4 pb-4 text-sm text-neutral-500">
+                  No pending requests
+                </div>
+              }
             >
               <For each={props.joinRequests}>
                 {(request) => (
@@ -53,7 +64,9 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                       <div class="font-semibold text-white truncate">
                         {request.name || request.preferred_username}
                       </div>
-                      <div class="text-sm text-neutral-500 truncate">@{request.username}</div>
+                      <div class="text-sm text-neutral-500 truncate">
+                        @{request.username}
+                      </div>
                     </div>
                     <div class="flex gap-2">
                       <button
@@ -85,7 +98,9 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
       </Show>
       <Show
         when={props.members.length > 0}
-        fallback={<div class="p-8 text-center text-neutral-500">メンバーがいません</div>}
+        fallback={
+          <div class="p-8 text-center text-neutral-500">メンバーがいません</div>
+        }
       >
         <For each={props.members}>
           {(member) => (
@@ -103,12 +118,12 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                   <span class="font-bold text-white truncate">
                     {member.name || member.preferred_username}
                   </span>
-                  <Show when={member.role === 'owner'}>
+                  <Show when={member.role === "owner"}>
                     <span class="px-1.5 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
                       オーナー
                     </span>
                   </Show>
-                  <Show when={member.role === 'moderator'}>
+                  <Show when={member.role === "moderator"}>
                     <span class="px-1.5 py-0.5 text-xs bg-blue-500/20 text-blue-400 rounded">
                       モデレーター
                     </span>
@@ -127,29 +142,37 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                     e.preventDefault();
                     e.stopPropagation();
                   }}
-                  onChange={(e) => props.onUpdateMemberRole(member, e.currentTarget.value as 'owner' | 'moderator' | 'member')}
+                  onChange={(e) =>
+                    props.onUpdateMemberRole(
+                      member,
+                      e.currentTarget.value as "owner" | "moderator" | "member",
+                    )}
                   disabled={props.updatingMemberRole[member.ap_id]}
                   class="ml-auto bg-neutral-900 border border-neutral-700 text-xs text-white rounded-lg px-2 py-1"
                 >
-                  <option value="member">{props.t('members.member')}</option>
-                  <option value="moderator">{props.t('members.moderator')}</option>
-                  <option value="owner">{props.t('members.owner')}</option>
+                  <option value="member">{props.t("members.member")}</option>
+                  <option value="moderator">
+                    {props.t("members.moderator")}
+                  </option>
+                  <option value="owner">{props.t("members.owner")}</option>
                 </select>
               </Show>
             </A>
           )}
         </For>
       </Show>
-      <Show when={props.canManage && props.joinPolicy === 'invite'}>
+      <Show when={props.canManage && props.joinPolicy === "invite"}>
         <div class="mt-4 p-3 bg-neutral-900/50 rounded-lg">
-          <div class="text-sm font-semibold text-neutral-300 mb-2">Invite Code</div>
+          <div class="text-sm font-semibold text-neutral-300 mb-2">
+            Invite Code
+          </div>
           <div class="flex items-center gap-2 flex-wrap">
             <button
               onClick={props.onCreateInvite}
               disabled={props.creatingInvite}
               class="px-3 py-1 text-xs bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
             >
-              {props.creatingInvite ? 'Creating...' : 'Create'}
+              {props.creatingInvite ? "Creating..." : "Create"}
             </button>
             <Show when={props.inviteCode}>
               <span class="px-2 py-1 text-xs bg-neutral-800 text-neutral-200 rounded">

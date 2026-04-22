@@ -1,5 +1,5 @@
-import type { Actor } from '../../types/index.ts';
-import { SettingsSectionHeader } from './SettingsSectionHeader.tsx';
+import type { Actor } from "../../types/index.ts";
+import { SettingsSectionHeader } from "./SettingsSectionHeader.tsx";
 
 interface SettingsDeleteSectionProps {
   actor: Actor;
@@ -12,11 +12,16 @@ interface SettingsDeleteSectionProps {
 export function SettingsDeleteSection(props: SettingsDeleteSectionProps) {
   return (
     <div class="flex flex-col h-full">
-      <SettingsSectionHeader title="Delete Account" accent="danger" onBack={props.onBack} />
+      <SettingsSectionHeader
+        title="Delete Account"
+        accent="danger"
+        onBack={props.onBack}
+      />
       <div class="p-4 space-y-4">
         <div class="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
           <p class="text-red-400 text-sm">
-            This action cannot be undone. All posts, likes, and follows will be deleted.
+            This action cannot be undone. All posts, likes, and follows will be
+            deleted.
           </p>
         </div>
         <div>

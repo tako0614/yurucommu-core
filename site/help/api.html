@@ -68,18 +68,25 @@
     <main class="docs-content">
       <h1>API リファレンス</h1>
       <p class="lead">
-        Yurucommuの内部REST APIエンドポイント一覧です。
-        主にフロントエンドから使用されますが、外部クライアントからも利用可能です。
+        Yurucommuの主要な内部REST APIエンドポイントです。
+        主にフロントエンドから使用されます。外部クライアントからは参照系APIを利用できます。
       </p>
 
       <h2>認証</h2>
       <p>APIはセッションベースの認証を使用します。ログイン後、Cookieでセッションが管理されます。</p>
+      <p>
+        <code>/api/*</code> のうち <code>POST</code> / <code>PUT</code> /
+        <code>DELETE</code> / <code>PATCH</code> は CSRF 保護の対象です。
+        リクエストの <code>Origin</code>、または <code>Referer</code> の origin が
+        <code>APP_URL</code> と同一である必要があります。外部クライアントからは
+        <code>GET</code> 系の参照 API を利用できますが、状態を変更する API は
+        Yurucommu と同一 origin から送信してください。
+      </p>
 
       <h3>POST /api/auth/login</h3>
       <p>ログイン</p>
-      <pre><code>{
-  "password": "string",
-  "username": "string" // オプション
+<pre><code>{
+  "password": "string"
 }</code></pre>
 
       <h3>POST /api/auth/logout</h3>
@@ -87,6 +94,25 @@
 
       <h3>GET /api/auth/me</h3>
       <p>現在のログインユーザー情報を取得</p>
+
+      <h3>GET /api/auth/providers</h3>
+      <p>有効な認証プロバイダー一覧を取得</p>
+
+      <h3>GET /api/auth/accounts</h3>
+      <p>セッションに紐づくアカウント一覧を取得（要認証）</p>
+
+      <h3>POST /api/auth/accounts</h3>
+      <p>ローカルアカウントを作成（要認証）</p>
+      <pre><code>{
+  "username": "string",
+  "name": "string"
+}</code></pre>
+
+      <h3>POST /api/auth/switch</h3>
+      <p>利用中のアカウントを切り替え（要認証）</p>
+      <pre><code>{
+  "ap_id": "string"
+}</code></pre>
 
       <h2>タイムライン</h2>
 
@@ -116,7 +142,8 @@
   "in_reply_to": "string",   // 返信先ap_id（オプション）
   "community_ap_id": "string", // コミュニティ（オプション）
   "attachments": [{          // メディア添付（オプション）
-    "r2_key": "string",
+    "url": "/media/&lt;filename&gt;",
+    "r2_key": "uploads/&lt;filename&gt;",
     "content_type": "string"
   }]
 }</code></pre>
@@ -138,6 +165,9 @@
 
       <h3>DELETE /api/posts/:id/bookmark</h3>
       <p>ブックマーク解除（要認証）</p>
+
+      <h3>GET /api/bookmarks</h3>
+      <p>ブックマーク済み投稿一覧を取得（要認証）</p>
 
       <h3>POST /api/posts/:id/repost</h3>
       <p>リポスト（ブースト）する（要認証）</p>
@@ -169,11 +199,17 @@
   }]
 }</code></pre>
 
-      <h3>DELETE /api/stories/:id</h3>
+      <h3>POST /api/stories/delete</h3>
       <p>ストーリーを削除（要認証）</p>
+      <pre><code>{
+  "ap_id": "string"
+}</code></pre>
 
-      <h3>POST /api/stories/:id/view</h3>
+      <h3>POST /api/stories/view</h3>
       <p>ストーリーを閲覧済みにする（要認証）</p>
+      <pre><code>{
+  "ap_id": "string"
+}</code></pre>
 
       <h3>POST /api/stories/:id/share</h3>
       <p>ストーリーをシェアとして記録（要認証）</p>
@@ -213,8 +249,9 @@
       <p>メディアファイルをアップロード（要認証）</p>
       <p><code>multipart/form-data</code> で <code>file</code> フィールドにファイルを送信</p>
 
-      <h3>GET /media/:r2_key</h3>
-      <p>アップロードされたメディアファイルを取得</p>
+      <h3>GET /media/:filename</h3>
+      <p>アップロードされたメディアファイルを取得。アップロードレスポンスの <code>url</code> を使う。</p>
+      <p>互換用に <code>/media/uploads/:filename</code> でも保存済み <code>r2_key</code> を取得できる。</p>
 
       <h2>通知</h2>
 
@@ -245,16 +282,29 @@
 
       <h2>ダイレクトメッセージ</h2>
 
+      <h3>GET /api/dm/contacts</h3>
+      <p>DM連絡先と会話一覧を取得（要認証）</p>
+
       <h3>GET /api/dm/conversations</h3>
-      <p>DM会話一覧を取得（要認証）</p>
+      <p>後方互換用。<code>/api/dm/contacts</code> にリダイレクトします（要認証）</p>
 
-      <h3>GET /api/dm/conversations/:targetApId/messages</h3>
+      <h3>GET /api/dm/user/:encodedApId/messages</h3>
       <p>特定の相手とのメッセージ一覧を取得（要認証）</p>
+      <p><code>:encodedApId</code> は相手の ActivityPub ID を URL エンコードした値です。</p>
 
-      <h3>POST /api/dm/messages</h3>
+      <h3>POST /api/dm/user/:encodedApId/messages</h3>
       <p>DMを送信（要認証）</p>
       <pre><code>{
-  "to_ap_id": "string",     // 送信先のap_id
+  "content": "string"       // メッセージ本文
+}</code></pre>
+
+      <h3>GET /api/dm/conversations/:id/messages</h3>
+      <p>会話IDを指定してメッセージ一覧を取得（後方互換用、要認証）</p>
+      <p><code>:id</code> は会話IDであり、相手の ActivityPub ID ではありません。</p>
+
+      <h3>POST /api/dm/conversations/:id/messages</h3>
+      <p>会話IDを指定してDMを送信（後方互換用、要認証）</p>
+      <pre><code>{
   "content": "string"       // メッセージ本文
 }</code></pre>
 
@@ -266,6 +316,93 @@
 
       <h3>GET /api/dm/user/:encodedApId/typing</h3>
       <p>相手のタイピング状態を取得（要認証）</p>
+
+      <h2>検索・おすすめ</h2>
+
+      <h3>GET /api/search/actors</h3>
+      <p>ローカル actor を検索</p>
+
+      <h3>GET /api/search/remote</h3>
+      <p>リモート actor を検索</p>
+
+      <h3>GET /api/search/posts</h3>
+      <p>投稿を検索</p>
+
+      <h3>GET /api/search/hashtags/trending</h3>
+      <p>トレンド hashtag を取得</p>
+
+      <h3>GET /api/recommendations/users</h3>
+      <p>おすすめユーザー一覧を取得（要認証）</p>
+
+      <h2>コミュニティ</h2>
+
+      <h3>GET /api/communities</h3>
+      <p>コミュニティ一覧を取得</p>
+
+      <h3>POST /api/communities</h3>
+      <p>コミュニティを作成（要認証）</p>
+
+      <h3>GET /api/communities/:identifier</h3>
+      <p>コミュニティ詳細を取得</p>
+
+      <h3>POST /api/communities/:identifier/join</h3>
+      <p>コミュニティに参加（要認証）</p>
+
+      <h3>POST /api/communities/:identifier/leave</h3>
+      <p>コミュニティから退出（要認証）</p>
+
+      <h3>GET /api/communities/:identifier/messages</h3>
+      <p>コミュニティメッセージ一覧を取得</p>
+
+      <h3>POST /api/communities/:identifier/messages</h3>
+      <p>コミュニティメッセージを送信（要認証）</p>
+
+      <h2>アカウント管理</h2>
+
+      <h3>PUT /api/actors/me</h3>
+      <p>プロフィールを更新（要認証）</p>
+
+      <h3>GET /api/actors/me/blocked</h3>
+      <p>ブロック中のユーザー一覧を取得（要認証）</p>
+
+      <h3>POST /api/actors/me/blocked</h3>
+      <p>ユーザーをブロック（要認証）</p>
+
+      <h3>DELETE /api/actors/me/blocked</h3>
+      <p>ユーザーのブロックを解除（要認証）</p>
+
+      <h3>GET /api/actors/me/muted</h3>
+      <p>ミュート中のユーザー一覧を取得（要認証）</p>
+
+      <h3>POST /api/actors/me/muted</h3>
+      <p>ユーザーをミュート（要認証）</p>
+
+      <h3>DELETE /api/actors/me/muted</h3>
+      <p>ユーザーのミュートを解除（要認証）</p>
+
+      <h3>POST /api/actors/me/delete</h3>
+      <p>アカウントを削除（要認証）</p>
+
+      <h2>Takos tools</h2>
+      <p><code>ENABLE_TAKOS_TOOLS=true</code> のときだけ公開されます。</p>
+
+      <h3>POST /.takos/tools/:name</h3>
+      <p>Takos agent 向け tool を実行</p>
+      <pre><code>{
+  "input": {},
+  "context": {
+    "user_id": "string",
+    "session_id": "string"
+  }
+}</code></pre>
+      <p>利用可能な <code>:name</code>:</p>
+      <ul>
+        <li><code>yurucommu_search_users</code>, <code>yurucommu_search_posts</code>, <code>yurucommu_get_trending</code>, <code>yurucommu_get_user_profile</code></li>
+        <li><code>yurucommu_create_post</code>, <code>yurucommu_delete_post</code>, <code>yurucommu_like_post</code>, <code>yurucommu_bookmark_post</code></li>
+        <li><code>yurucommu_follow_user</code>, <code>yurucommu_unfollow_user</code>, <code>yurucommu_get_followers</code>, <code>yurucommu_get_following</code></li>
+        <li><code>yurucommu_send_dm</code>, <code>yurucommu_get_dm_threads</code>, <code>yurucommu_get_dm_messages</code></li>
+        <li><code>yurucommu_get_timeline</code>, <code>yurucommu_get_notifications</code></li>
+      </ul>
 
       <h2>ActivityPubエンドポイント</h2>
       <p>連合用のActivityPubエンドポイントについては、<a href="/specs/">仕様書</a>を参照してください。</p>

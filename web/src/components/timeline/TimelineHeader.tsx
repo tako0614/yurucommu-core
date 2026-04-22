@@ -1,5 +1,5 @@
-import { A } from '@solidjs/router';
-import { HeartIcon } from '../icons/SocialIcons.tsx';
+import { A } from "@solidjs/router";
+import { HeartIcon } from "../icons/SocialIcons.tsx";
 
 interface TimelineHeaderProps {
   onCreatePost: () => void;
@@ -16,8 +16,18 @@ export function TimelineHeader(props: TimelineHeaderProps) {
           aria-label="Create post"
           class="md:hidden p-2 text-white hover:text-neutral-400 transition-colors"
         >
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M12 4v16m8-8H4" />
+          <svg
+            class="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width={2}
+              d="M12 4v16m8-8H4"
+            />
           </svg>
         </button>
         {/* Desktop: Show text title */}

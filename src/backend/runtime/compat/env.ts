@@ -5,11 +5,11 @@
  * from Node.js configuration, and runMigrations for database setup.
  */
 
-import { loadNodeModules, getFs, getPath } from './node-modules.ts';
-import { D1CompatDatabase } from './d1.ts';
-import { R2CompatBucket } from './r2.ts';
-import { KVCompatNamespace } from './kv.ts';
-import { AssetsCompatFetcher } from './assets.ts';
+import { getFs, getPath, loadNodeModules } from "./node-modules.ts";
+import { D1CompatDatabase } from "./d1.ts";
+import { R2CompatBucket } from "./r2.ts";
+import { KVCompatNamespace } from "./kv.ts";
+import { AssetsCompatFetcher } from "./assets.ts";
 
 /**
  * Create Cloudflare-compatible environment from Node.js
@@ -28,13 +28,21 @@ export async function createNodeEnv(config: {
   TAKOS_CLIENT_ID?: string;
   TAKOS_CLIENT_SECRET?: string;
 }) {
-  const db = await D1CompatDatabase.create(config.databasePath || './data/yurucommu.db');
-  const storage = config.storagePath ? await R2CompatBucket.create(config.storagePath) : undefined;
+  const db = await D1CompatDatabase.create(
+    config.databasePath || "./data/yurucommu.db",
+  );
+  const storage = config.storagePath
+    ? await R2CompatBucket.create(config.storagePath)
+    : undefined;
   const kv = new KVCompatNamespace();
-  const assets = config.assetsPath ? await AssetsCompatFetcher.create(config.assetsPath) : undefined;
+  const assets = config.assetsPath
+    ? await AssetsCompatFetcher.create(config.assetsPath)
+    : undefined;
 
-  const { getDbSQLite } = await import('../../../db/index.ts');
-  const dbInstance = await getDbSQLite(config.databasePath || './data/yurucommu.db');
+  const { getDbSQLite } = await import("../../../db/index.ts");
+  const dbInstance = await getDbSQLite(
+    config.databasePath || "./data/yurucommu.db",
+  );
 
   return {
     DB: db as unknown as D1Database,
@@ -57,14 +65,17 @@ export async function createNodeEnv(config: {
 /**
  * Run migrations from SQL files
  */
-export async function runMigrations(db: D1CompatDatabase, migrationsDir: string): Promise<void> {
+export async function runMigrations(
+  db: D1CompatDatabase,
+  migrationsDir: string,
+): Promise<void> {
   await loadNodeModules();
   const fs = getFs();
   const path = getPath();
 
   const entries = await fs.readdir(migrationsDir, { withFileTypes: true });
   const sqlFiles = entries
-    .filter((e) => e.isFile() && e.name.endsWith('.sql'))
+    .filter((e) => e.isFile() && e.name.endsWith(".sql"))
     .map((e) => e.name)
     .sort();
 
@@ -77,7 +88,7 @@ export async function runMigrations(db: D1CompatDatabase, migrationsDir: string)
   `);
 
   const applied = db.getRawDatabase()
-    .prepare('SELECT name FROM _cf_migrations')
+    .prepare("SELECT name FROM _cf_migrations")
     .all() as Array<{ name: string }>;
   const appliedSet = new Set(applied.map((r) => r.name));
 
@@ -88,10 +99,10 @@ export async function runMigrations(db: D1CompatDatabase, migrationsDir: string)
     }
 
     console.log(`Applying migration: ${file}`);
-    const sql = await fs.readFile(path.join(migrationsDir, file), 'utf-8');
+    const sql = await fs.readFile(path.join(migrationsDir, file), "utf-8");
 
     const statements = sql
-      .split(';')
+      .split(";")
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
 
@@ -105,7 +116,7 @@ export async function runMigrations(db: D1CompatDatabase, migrationsDir: string)
     }
 
     db.getRawDatabase()
-      .prepare('INSERT INTO _cf_migrations (name) VALUES (?)')
+      .prepare("INSERT INTO _cf_migrations (name) VALUES (?)")
       .run(file);
 
     console.log(`Migration ${file} applied successfully`);

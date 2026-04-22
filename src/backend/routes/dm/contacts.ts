@@ -1,31 +1,49 @@
 // GET /contacts - List DM contacts and communities
 
-import { Hono } from 'hono';
-import { eq, and, ne, desc, like, inArray, notInArray, count, sql } from 'drizzle-orm';
-import { objects, dmReadStatus, dmArchivedConversations, communityMembers, communities } from '../../../db/index.ts';
-import { formatUsername } from '../../federation-helpers.ts';
+import { Hono } from "hono";
 import {
-  type HonoEnv,
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  like,
+  ne,
+  notInArray,
+  sql,
+} from "drizzle-orm";
+import {
+  communities,
+  communityMembers,
+  dmArchivedConversations,
+  dmReadStatus,
+  objects,
+} from "../../../db/index.ts";
+import { formatUsername } from "../../federation-helpers.ts";
+import {
   buildActorInfoMap,
-  formatActorProfile,
-  dmWhereForActor,
   byTimeDesc,
-  uniqueValues,
-  groupConversations,
+  dmWhereForActor,
   findRepliedConversations,
-} from './conversations-helpers.ts';
+  formatActorProfile,
+  groupConversations,
+  type HonoEnv,
+  uniqueValues,
+} from "./conversations-helpers.ts";
 
 const contacts = new Hono<HonoEnv>();
 
-contacts.get('/contacts', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const db = c.get('db');
+contacts.get("/contacts", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  const db = c.get("db");
   const actorApIdJson = JSON.stringify(actor.ap_id);
   const dmWhere = dmWhereForActor(actor.ap_id, actorApIdJson);
 
   // Clean up orphaned read status entries for conversations that no longer exist
-  const validConversations = await db.selectDistinct({ conversation: objects.conversation })
+  const validConversations = await db.selectDistinct({
+    conversation: objects.conversation,
+  })
     .from(objects)
     .where(dmWhere!);
 
@@ -41,14 +59,20 @@ contacts.get('/contacts', async (c) => {
       ),
     );
   } else {
-    await db.delete(dmReadStatus).where(eq(dmReadStatus.actorApId, actor.ap_id));
+    await db.delete(dmReadStatus).where(
+      eq(dmReadStatus.actorApId, actor.ap_id),
+    );
   }
 
   // Get archived conversation IDs to exclude
-  const archivedConversations = await db.select({ conversationId: dmArchivedConversations.conversationId })
+  const archivedConversations = await db.select({
+    conversationId: dmArchivedConversations.conversationId,
+  })
     .from(dmArchivedConversations)
     .where(eq(dmArchivedConversations.actorApId, actor.ap_id));
-  const archivedSet = new Set(archivedConversations.map((a) => a.conversationId));
+  const archivedSet = new Set(
+    archivedConversations.map((a) => a.conversationId),
+  );
 
   // Get DM conversations for this actor with limit to prevent DoS
   const dmObjects = await db.select({
@@ -73,7 +97,9 @@ contacts.get('/contacts', async (c) => {
   const readStatuses = await db.select()
     .from(dmReadStatus)
     .where(eq(dmReadStatus.actorApId, actor.ap_id));
-  const readStatusMap = new Map(readStatuses.map((r) => [r.conversationId, r.lastReadAt]));
+  const readStatusMap = new Map(
+    readStatuses.map((r) => [r.conversationId, r.lastReadAt]),
+  );
 
   // Calculate unread counts for each conversation using batch query
   const conversationIds = Array.from(conversationMap.keys());
@@ -83,7 +109,7 @@ contacts.get('/contacts', async (c) => {
     // Group conversations by their lastReadAt time for efficient querying
     const lastReadAtMap = new Map<string, string[]>();
     for (const convId of conversationIds) {
-      const lastReadAt = readStatusMap.get(convId) || '1970-01-01T00:00:00Z';
+      const lastReadAt = readStatusMap.get(convId) || "1970-01-01T00:00:00Z";
       const convIds = lastReadAtMap.get(lastReadAt) || [];
       convIds.push(convId);
       lastReadAtMap.set(lastReadAt, convIds);
@@ -99,7 +125,7 @@ contacts.get('/contacts', async (c) => {
           .where(
             and(
               inArray(objects.conversation, convIds),
-              eq(objects.visibility, 'direct'),
+              eq(objects.visibility, "direct"),
               ne(objects.attributedTo, actor.ap_id),
               sql`${objects.published} > ${lastReadAt}`,
             ),
@@ -120,13 +146,15 @@ contacts.get('/contacts', async (c) => {
 
   const contactsResult = Array.from(conversationMap.values())
     .map((conv) => ({
-      type: 'user' as const,
+      type: "user" as const,
       ...formatActorProfile(conv.otherApId, actorInfoMap.get(conv.otherApId)),
       conversation_id: conv.conversation,
-      last_message: conv.lastContent ? {
-        content: conv.lastContent,
-        is_mine: conv.lastSender === actor.ap_id,
-      } : null,
+      last_message: conv.lastContent
+        ? {
+          content: conv.lastContent,
+          is_mine: conv.lastSender === actor.ap_id,
+        }
+        : null,
       last_message_at: conv.lastMessageAt,
       unread_count: unreadCounts.get(conv.conversation) || 0,
     }))
@@ -144,12 +172,18 @@ contacts.get('/contacts', async (c) => {
     },
   })
     .from(communityMembers)
-    .innerJoin(communities, eq(communityMembers.communityApId, communities.apId))
+    .innerJoin(
+      communities,
+      eq(communityMembers.communityApId, communities.apId),
+    )
     .where(eq(communityMembers.actorApId, actor.ap_id));
 
   // Batch get last messages for all communities to avoid N+1
   const communityApIds = communityMemberships.map((cm) => cm.community.apId);
-  const lastMessagesMap = new Map<string, { content: string; attributedTo: string; published: string }>();
+  const lastMessagesMap = new Map<
+    string,
+    { content: string; attributedTo: string; published: string }
+  >();
 
   if (communityApIds.length > 0) {
     const recentMessages = await db.select({
@@ -178,31 +212,36 @@ contacts.get('/contacts', async (c) => {
     .map((cm) => {
       const lastMessage = lastMessagesMap.get(cm.community.apId);
       return {
-        type: 'community' as const,
+        type: "community" as const,
         ap_id: cm.community.apId,
         username: formatUsername(cm.community.apId),
         preferred_username: cm.community.preferredUsername,
         name: cm.community.name,
         icon_url: cm.community.iconUrl,
         member_count: cm.community.memberCount,
-        last_message: lastMessage?.content ? {
-          content: lastMessage.content,
-          is_mine: lastMessage.attributedTo === actor.ap_id,
-        } : null,
+        last_message: lastMessage?.content
+          ? {
+            content: lastMessage.content,
+            is_mine: lastMessage.attributedTo === actor.ap_id,
+          }
+          : null,
         last_message_at: lastMessage?.published || null,
       };
     })
     .sort((a, b) =>
-      byTimeDesc(a.last_message_at, b.last_message_at) || a.name.localeCompare(b.name),
+      byTimeDesc(a.last_message_at, b.last_message_at) ||
+      a.name.localeCompare(b.name)
     );
 
   // Count pending requests: DMs from people we haven't replied to
-  const incomingDMs = await db.selectDistinct({ conversation: objects.conversation })
+  const incomingDMs = await db.selectDistinct({
+    conversation: objects.conversation,
+  })
     .from(objects)
     .where(
       and(
-        eq(objects.visibility, 'direct'),
-        eq(objects.type, 'Note'),
+        eq(objects.visibility, "direct"),
+        eq(objects.type, "Note"),
         like(objects.toJson, `%${actorApIdJson}%`),
       ),
     );
@@ -211,8 +250,14 @@ contacts.get('/contacts', async (c) => {
     .map((dm) => dm.conversation)
     .filter((c): c is string => c !== null);
 
-  const repliedConversations = await findRepliedConversations(db, incomingConversations, actor.ap_id);
-  const requestCount = incomingConversations.filter((c) => !repliedConversations.has(c)).length;
+  const repliedConversations = await findRepliedConversations(
+    db,
+    incomingConversations,
+    actor.ap_id,
+  );
+  const requestCount = incomingConversations.filter((c) =>
+    !repliedConversations.has(c)
+  ).length;
 
   return c.json({
     mutual_followers: contactsResult,

@@ -1,15 +1,27 @@
-import { Hono } from 'hono';
-import type { Context } from 'hono';
-import { eq, and, asc, desc, lt } from 'drizzle-orm';
-import type { Env, Variables } from '../types.ts';
-import { actors, communities, objects as objectsTable } from '../../db/index.ts';
-import { notDeleted } from '../../db/index.ts';
-import { actorApId, getDomain, parseLimit } from '../federation-helpers.ts';
-import { INSTANCE_ACTOR_USERNAME, MAX_ROOM_STREAM_LIMIT, getInstanceActor, roomApId } from './activitypub/utils.ts';
-import inboxRoutes from './activitypub/inbox.ts';
-import outboxRoutes from './activitypub/outbox.ts';
-import { withCache, CacheTTL, CacheTags } from '../middleware/cache.ts';
-import { communityWhere, resolveCommunityApId } from './communities/membership-shared.ts';
+import { Hono } from "hono";
+import type { Context } from "hono";
+import { and, asc, desc, eq, lt } from "drizzle-orm";
+import type { Env, Variables } from "../types.ts";
+import {
+  actors,
+  communities,
+  objects as objectsTable,
+} from "../../db/index.ts";
+import { notDeleted } from "../../db/index.ts";
+import { actorApId, getDomain, parseLimit } from "../federation-helpers.ts";
+import {
+  getInstanceActor,
+  INSTANCE_ACTOR_USERNAME,
+  MAX_ROOM_STREAM_LIMIT,
+  roomApId,
+} from "./activitypub/query-helpers.ts";
+import inboxRoutes from "./activitypub/inbox.ts";
+import outboxRoutes from "./activitypub/outbox.ts";
+import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
+import {
+  communityWhere,
+  resolveCommunityApId,
+} from "./communities/membership-shared.ts";
 
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -19,16 +31,16 @@ const ap = new Hono<{ Bindings: Env; Variables: Variables }>();
 // Shared constants and helpers
 // ---------------------------------------------------------------------------
 
-const AP_CONTENT_TYPE = 'application/activity+json';
+const AP_CONTENT_TYPE = "application/activity+json";
 
 const AP_CONTEXT = [
-  'https://www.w3.org/ns/activitystreams',
-  'https://w3id.org/security/v1',
+  "https://www.w3.org/ns/activitystreams",
+  "https://w3id.org/security/v1",
 ] as const;
 
 const APC_ROOM_CONTEXT = {
-  apc: 'https://yurucommu.com/ns/apc#',
-  Room: 'apc:Room',
+  apc: "https://yurucommu.com/ns/apc#",
+  Room: "apc:Room",
 } as const;
 
 /** Build a standard WebFinger JRD response. */
@@ -42,14 +54,21 @@ function buildWebFingerResponse(
     subject: `acct:${username}@${domain}`,
     aliases: [apId],
     links: [
-      { rel: 'self', type: AP_CONTENT_TYPE, href: apId },
-      { rel: 'http://webfinger.net/rel/profile-page', type: 'text/html', href: profileHref },
+      { rel: "self", type: AP_CONTENT_TYPE, href: apId },
+      {
+        rel: "http://webfinger.net/rel/profile-page",
+        type: "text/html",
+        href: profileHref,
+      },
     ],
   };
 }
 
 /** Build an ActivityPub public-key block for an actor. */
-function buildPublicKey(actorApId: string, publicKeyPem: string): Record<string, string> {
+function buildPublicKey(
+  actorApId: string,
+  publicKeyPem: string,
+): Record<string, string> {
   return {
     id: `${actorApId}#main-key`,
     owner: actorApId,
@@ -59,265 +78,305 @@ function buildPublicKey(actorApId: string, publicKeyPem: string): Record<string,
 
 /** Return an activity+json Response via Hono context. */
 function activityJson(c: HonoContext, body: Record<string, unknown>): Response {
-  c.header('Content-Type', AP_CONTENT_TYPE);
+  c.header("Content-Type", AP_CONTENT_TYPE);
   return c.json(body);
+}
+
+function canViewPrivateActorCollections(
+  c: HonoContext,
+  actorApId: string,
+): boolean {
+  const viewer = c.get("actor");
+  return viewer?.ap_id === actorApId;
 }
 
 // ---------------------------------------------------------------------------
 // WebFinger - Actor Discovery (cached 1 hour)
 // ---------------------------------------------------------------------------
 
-ap.get('/.well-known/webfinger', withCache({
-  ttl: CacheTTL.WEBFINGER,
-  cacheTag: CacheTags.WEBFINGER,
-  queryParamsToInclude: ['resource'],
-}), async (c) => {
-  const db = c.get('db');
-  const resource = c.req.query('resource');
-  if (!resource) return c.json({ error: 'resource parameter required' }, 400);
+ap.get(
+  "/.well-known/webfinger",
+  withCache({
+    ttl: CacheTTL.WEBFINGER,
+    cacheTag: CacheTags.WEBFINGER,
+    queryParamsToInclude: ["resource"],
+  }),
+  async (c) => {
+    const db = c.get("db");
+    const resource = c.req.query("resource");
+    if (!resource) return c.json({ error: "resource parameter required" }, 400);
 
-  // Parse resource format: acct:username@domain or https://domain/ap/users/username
-  let username: string | null = null;
-  let domain: string | null = null;
+    // Parse resource format: acct:username@domain or https://domain/ap/users/username
+    let username: string | null = null;
+    let domain: string | null = null;
 
-  if (resource.startsWith('acct:')) {
-    const acctPart = resource.slice(5);
-    const [user, host] = acctPart.split('@');
-    username = user;
-    domain = host;
-  } else if (resource.startsWith('http')) {
-    try {
-      const url = new URL(resource);
-      domain = url.host;
-      const match = resource.match(/\/users\/([^\/]+)$/);
-      if (match) {
-        username = match[1];
+    if (resource.startsWith("acct:")) {
+      const acctPart = resource.slice(5);
+      const [user, host] = acctPart.split("@");
+      username = user;
+      domain = host;
+    } else if (resource.startsWith("http")) {
+      try {
+        const url = new URL(resource);
+        domain = url.host;
+        const match = resource.match(/\/users\/([^\/]+)$/);
+        if (match) {
+          username = match[1];
+        }
+      } catch {
+        return c.json({ error: "Invalid resource format" }, 400);
       }
-    } catch {
-      return c.json({ error: 'Invalid resource format' }, 400);
+    } else {
+      return c.json({ error: "Invalid resource format" }, 400);
     }
-  } else {
-    return c.json({ error: 'Invalid resource format' }, 400);
-  }
 
-  if (!username || !domain) return c.json({ error: 'Invalid resource format' }, 400);
+    if (!username || !domain) {
+      return c.json({
+        error: "Invalid resource format",
+      }, 400);
+    }
 
-  const baseUrl = c.env.APP_URL;
-  const currentDomain = getDomain(baseUrl);
+    const baseUrl = c.env.APP_URL;
+    const currentDomain = getDomain(baseUrl);
 
-  if (domain !== currentDomain) {
-    return c.json({ error: 'Actor not found' }, 404);
-  }
+    if (domain !== currentDomain) {
+      return c.json({ error: "Actor not found" }, 404);
+    }
 
-  if (username === INSTANCE_ACTOR_USERNAME) {
-    const instanceActor = await getInstanceActor(c);
+    if (username === INSTANCE_ACTOR_USERNAME) {
+      const instanceActor = await getInstanceActor(c);
+      return c.json(buildWebFingerResponse(
+        INSTANCE_ACTOR_USERNAME,
+        domain,
+        instanceActor.apId,
+        `${baseUrl}/groups`,
+      ));
+    }
+
+    const actor = await db.query.actors.findFirst({
+      where: and(eq(actors.preferredUsername, username), notDeleted(actors)),
+      columns: { apId: true, preferredUsername: true },
+    });
+
+    if (!actor) return c.json({ error: "Actor not found" }, 404);
+
     return c.json(buildWebFingerResponse(
-      INSTANCE_ACTOR_USERNAME,
+      username,
       domain,
-      instanceActor.apId,
-      `${baseUrl}/groups`,
+      actor.apId,
+      `${baseUrl}/users/${username}`,
     ));
-  }
-
-  const actor = await db.query.actors.findFirst({
-    where: and(eq(actors.preferredUsername, username), notDeleted(actors)),
-    columns: { apId: true, preferredUsername: true },
-  });
-
-  if (!actor) return c.json({ error: 'Actor not found' }, 404);
-
-  return c.json(buildWebFingerResponse(
-    username,
-    domain,
-    actor.apId,
-    `${baseUrl}/users/${username}`,
-  ));
-});
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Actor Profile Endpoint (cached 10 minutes)
 // ---------------------------------------------------------------------------
 
-ap.get('/ap/users/:username', withCache({
-  ttl: CacheTTL.ACTIVITYPUB_ACTOR,
-  cacheTag: CacheTags.ACTOR,
-}), async (c) => {
-  const db = c.get('db');
-  const username = c.req.param('username');
-  const baseUrl = c.env.APP_URL;
-  const apId = actorApId(baseUrl, username);
+ap.get(
+  "/ap/users/:username",
+  withCache({
+    ttl: CacheTTL.ACTIVITYPUB_ACTOR,
+    cacheTag: CacheTags.ACTOR,
+    varyByActor: true,
+  }),
+  async (c) => {
+    const db = c.get("db");
+    const username = c.req.param("username");
+    const baseUrl = c.env.APP_URL;
+    const apId = actorApId(baseUrl, username);
 
-  const actor = await db.query.actors.findFirst({
-    where: and(eq(actors.apId, apId), notDeleted(actors)),
-    columns: {
-      apId: true,
-      type: true,
-      preferredUsername: true,
-      name: true,
-      summary: true,
-      iconUrl: true,
-      headerUrl: true,
-      inbox: true,
-      outbox: true,
-      followersUrl: true,
-      followingUrl: true,
-      publicKeyPem: true,
-      followerCount: true,
-      followingCount: true,
-      postCount: true,
-      isPrivate: true,
-      createdAt: true,
-    },
-  });
+    const actor = await db.query.actors.findFirst({
+      where: and(eq(actors.apId, apId), notDeleted(actors)),
+      columns: {
+        apId: true,
+        type: true,
+        preferredUsername: true,
+        name: true,
+        summary: true,
+        iconUrl: true,
+        headerUrl: true,
+        inbox: true,
+        outbox: true,
+        followersUrl: true,
+        followingUrl: true,
+        publicKeyPem: true,
+        followerCount: true,
+        followingCount: true,
+        postCount: true,
+        isPrivate: true,
+        createdAt: true,
+      },
+    });
 
-  if (!actor) return c.json({ error: 'Actor not found' }, 404);
+    if (!actor) return c.json({ error: "Actor not found" }, 404);
 
-  const actorResponse: Record<string, unknown> = {
-    '@context': AP_CONTEXT,
-    id: actor.apId,
-    type: actor.type,
-    preferredUsername: actor.preferredUsername,
-    name: actor.name,
-    summary: actor.summary,
-    url: `${baseUrl}/users/${username}`,
-    icon: actor.iconUrl ? { type: 'Image', url: actor.iconUrl } : undefined,
-    image: actor.headerUrl ? { type: 'Image', url: actor.headerUrl } : undefined,
-    inbox: actor.inbox,
-    outbox: actor.outbox,
-    followers: actor.followersUrl,
-    following: actor.followingUrl,
-    publicKey: buildPublicKey(actor.apId, actor.publicKeyPem),
-    discoverable: !actor.isPrivate,
-    published: actor.createdAt,
-  };
+    const showCollections = !actor.isPrivate ||
+      canViewPrivateActorCollections(c, actor.apId);
 
-  // Remove undefined fields
-  for (const key of Object.keys(actorResponse)) {
-    if (actorResponse[key] === undefined) {
-      delete actorResponse[key];
+    const actorResponse: Record<string, unknown> = {
+      "@context": AP_CONTEXT,
+      id: actor.apId,
+      type: actor.type,
+      preferredUsername: actor.preferredUsername,
+      name: actor.name,
+      summary: actor.summary,
+      url: `${baseUrl}/users/${username}`,
+      icon: actor.iconUrl ? { type: "Image", url: actor.iconUrl } : undefined,
+      image: actor.headerUrl
+        ? { type: "Image", url: actor.headerUrl }
+        : undefined,
+      inbox: actor.inbox,
+      outbox: showCollections ? actor.outbox : undefined,
+      followers: showCollections ? actor.followersUrl : undefined,
+      following: showCollections ? actor.followingUrl : undefined,
+      publicKey: buildPublicKey(actor.apId, actor.publicKeyPem),
+      discoverable: !actor.isPrivate,
+      published: actor.createdAt,
+    };
+
+    // Remove undefined fields
+    for (const key of Object.keys(actorResponse)) {
+      if (actorResponse[key] === undefined) {
+        delete actorResponse[key];
+      }
     }
-  }
 
-  return activityJson(c, actorResponse);
-});
+    return activityJson(c, actorResponse);
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Group Actor / Instance Community (cached 10 minutes)
 // ---------------------------------------------------------------------------
 
-ap.get('/ap/actor', withCache({
-  ttl: CacheTTL.ACTIVITYPUB_ACTOR,
-  cacheTag: CacheTags.COMMUNITY,
-}), async (c) => {
-  const baseUrl = c.env.APP_URL;
-  const instanceActor = await getInstanceActor(c);
+ap.get(
+  "/ap/actor",
+  withCache({
+    ttl: CacheTTL.ACTIVITYPUB_ACTOR,
+    cacheTag: CacheTags.COMMUNITY,
+  }),
+  async (c) => {
+    const baseUrl = c.env.APP_URL;
+    const instanceActor = await getInstanceActor(c);
 
-  const actorResponse = {
-    '@context': [
-      ...AP_CONTEXT,
-      {
-        apc: 'https://yurucommu.com/ns/apc#',
-        rooms: { '@id': 'apc:rooms', '@type': '@id' },
-        joinPolicy: 'apc:joinPolicy',
-        postingPolicy: 'apc:postingPolicy',
-        visibility: 'apc:visibility',
-      },
-    ],
-    id: instanceActor.apId,
-    type: 'Group',
-    preferredUsername: instanceActor.preferredUsername,
-    name: instanceActor.name || 'Yurucommu',
-    summary: instanceActor.summary || '',
-    inbox: `${baseUrl}/ap/actor/inbox`,
-    outbox: `${baseUrl}/ap/actor/outbox`,
-    followers: `${baseUrl}/ap/actor/followers`,
-    following: `${baseUrl}/ap/actor/following`,
-    publicKey: buildPublicKey(instanceActor.apId, instanceActor.publicKeyPem),
-    rooms: `${baseUrl}/ap/rooms`,
-    joinPolicy: instanceActor.joinPolicy || 'open',
-    postingPolicy: instanceActor.postingPolicy || 'members',
-    visibility: instanceActor.visibility || 'public',
-  };
+    const actorResponse = {
+      "@context": [
+        ...AP_CONTEXT,
+        {
+          apc: "https://yurucommu.com/ns/apc#",
+          rooms: { "@id": "apc:rooms", "@type": "@id" },
+          joinPolicy: "apc:joinPolicy",
+          postingPolicy: "apc:postingPolicy",
+          visibility: "apc:visibility",
+        },
+      ],
+      id: instanceActor.apId,
+      type: "Group",
+      preferredUsername: instanceActor.preferredUsername,
+      name: instanceActor.name || "Yurucommu",
+      summary: instanceActor.summary || "",
+      inbox: `${baseUrl}/ap/actor/inbox`,
+      outbox: `${baseUrl}/ap/actor/outbox`,
+      followers: `${baseUrl}/ap/actor/followers`,
+      following: `${baseUrl}/ap/actor/following`,
+      publicKey: buildPublicKey(instanceActor.apId, instanceActor.publicKeyPem),
+      rooms: `${baseUrl}/ap/rooms`,
+      joinPolicy: instanceActor.joinPolicy || "open",
+      postingPolicy: instanceActor.postingPolicy || "members",
+      visibility: instanceActor.visibility || "public",
+    };
 
-  return activityJson(c, actorResponse);
-});
+    return activityJson(c, actorResponse);
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Rooms (Communities) (cached 5 minutes)
 // ---------------------------------------------------------------------------
 
-ap.get('/ap/rooms', withCache({
-  ttl: CacheTTL.COMMUNITY,
-  cacheTag: CacheTags.COMMUNITY,
-}), async (c) => {
-  const db = c.get('db');
+ap.get(
+  "/ap/rooms",
+  withCache({
+    ttl: CacheTTL.COMMUNITY,
+    cacheTag: CacheTags.COMMUNITY,
+  }),
+  async (c) => {
+    const db = c.get("db");
+    const baseUrl = c.env.APP_URL;
+
+    const rooms = await db.query.communities.findMany({
+      where: notDeleted(communities),
+      columns: { preferredUsername: true, name: true, summary: true },
+      orderBy: asc(communities.createdAt),
+    });
+
+    const items = rooms.map((room) => ({
+      id: roomApId(baseUrl, room.preferredUsername),
+      type: "Room",
+      name: room.name,
+      summary: room.summary || "",
+    }));
+
+    return c.json({
+      "@context": ["https://www.w3.org/ns/activitystreams", APC_ROOM_CONTEXT],
+      id: `${baseUrl}/ap/rooms`,
+      type: "OrderedCollection",
+      totalItems: items.length,
+      orderedItems: items,
+    });
+  },
+);
+
+ap.get("/ap/rooms/:roomId", async (c) => {
+  const db = c.get("db");
   const baseUrl = c.env.APP_URL;
-
-  const rooms = await db.query.communities.findMany({
-    where: notDeleted(communities),
-    columns: { preferredUsername: true, name: true, summary: true },
-    orderBy: asc(communities.createdAt),
-  });
-
-  const items = rooms.map((room) => ({
-    id: roomApId(baseUrl, room.preferredUsername),
-    type: 'Room',
-    name: room.name,
-    summary: room.summary || '',
-  }));
-
-  return c.json({
-    '@context': ['https://www.w3.org/ns/activitystreams', APC_ROOM_CONTEXT],
-    id: `${baseUrl}/ap/rooms`,
-    type: 'OrderedCollection',
-    totalItems: items.length,
-    orderedItems: items,
-  });
-});
-
-ap.get('/ap/rooms/:roomId', async (c) => {
-  const db = c.get('db');
-  const baseUrl = c.env.APP_URL;
-  const roomId = c.req.param('roomId');
+  const roomId = c.req.param("roomId");
 
   const room = await db.query.communities.findFirst({
-    where: and(communityWhere(resolveCommunityApId(baseUrl, roomId), roomId), notDeleted(communities)),
+    where: and(
+      communityWhere(resolveCommunityApId(baseUrl, roomId), roomId),
+      notDeleted(communities),
+    ),
     columns: { preferredUsername: true, name: true, summary: true },
   });
 
-  if (!room) return c.json({ error: 'Room not found' }, 404);
+  if (!room) return c.json({ error: "Room not found" }, 404);
 
   const roomUrl = roomApId(baseUrl, room.preferredUsername);
 
   return c.json({
-    '@context': [
-      'https://www.w3.org/ns/activitystreams',
-      { ...APC_ROOM_CONTEXT, stream: { '@id': 'apc:stream', '@type': '@id' } },
+    "@context": [
+      "https://www.w3.org/ns/activitystreams",
+      { ...APC_ROOM_CONTEXT, stream: { "@id": "apc:stream", "@type": "@id" } },
     ],
     id: roomUrl,
-    type: 'Room',
+    type: "Room",
     name: room.name,
-    summary: room.summary || '',
+    summary: room.summary || "",
     stream: `${roomUrl}/stream`,
   });
 });
 
-ap.get('/ap/rooms/:roomId/stream', async (c) => {
-  const db = c.get('db');
+ap.get("/ap/rooms/:roomId/stream", async (c) => {
+  const db = c.get("db");
   const baseUrl = c.env.APP_URL;
-  const roomId = c.req.param('roomId');
-  const limit = parseLimit(c.req.query('limit'), 20, MAX_ROOM_STREAM_LIMIT);
-  const before = c.req.query('before');
+  const roomId = c.req.param("roomId");
+  const limit = parseLimit(c.req.query("limit"), 20, MAX_ROOM_STREAM_LIMIT);
+  const before = c.req.query("before");
 
   const community = await db.query.communities.findFirst({
-    where: and(communityWhere(resolveCommunityApId(baseUrl, roomId), roomId), notDeleted(communities)),
+    where: and(
+      communityWhere(resolveCommunityApId(baseUrl, roomId), roomId),
+      notDeleted(communities),
+    ),
     columns: { apId: true, preferredUsername: true },
   });
 
-  if (!community) return c.json({ error: 'Room not found' }, 404);
+  if (!community) return c.json({ error: "Room not found" }, 404);
 
   const conditions = [
-    eq(objectsTable.type, 'Note'),
+    eq(objectsTable.type, "Note"),
     eq(objectsTable.communityApId, community.apId),
     notDeleted(objectsTable),
   ];
@@ -334,7 +393,7 @@ ap.get('/ap/rooms/:roomId/stream', async (c) => {
 
   const items = objects.map((o) => ({
     id: o.apId,
-    type: 'Note',
+    type: "Note",
     attributedTo: o.attributedTo,
     content: o.content,
     published: o.published,
@@ -342,9 +401,9 @@ ap.get('/ap/rooms/:roomId/stream', async (c) => {
   }));
 
   return c.json({
-    '@context': 'https://www.w3.org/ns/activitystreams',
+    "@context": "https://www.w3.org/ns/activitystreams",
     id: `${communityRoomUrl}/stream`,
-    type: 'OrderedCollection',
+    type: "OrderedCollection",
     totalItems: items.length,
     orderedItems: items,
   });
@@ -352,7 +411,7 @@ ap.get('/ap/rooms/:roomId/stream', async (c) => {
 
 // ---------------------------------------------------------------------------
 
-ap.route('/', inboxRoutes);
-ap.route('/', outboxRoutes);
+ap.route("/", inboxRoutes);
+ap.route("/", outboxRoutes);
 
 export default ap;

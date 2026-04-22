@@ -1,11 +1,27 @@
-import type { Context } from 'hono';
-import { eq, and, sql } from 'drizzle-orm';
-import type { Env, Variables } from '../types.ts';
-import type { Database } from '../../db/index.ts';
-import { actors, actorCache, follows, activities, inbox } from '../../db/index.ts';
-import { generateId, activityApId, isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../federation-helpers.ts';
-import { enqueueDeliveryToActor } from '../lib/delivery/queue.ts';
-import { parseJsonObject, parseNonEmptyString, isUniqueConstraintError } from '../lib/parse-helpers.ts';
+import type { Context } from "hono";
+import { and, eq, sql } from "drizzle-orm";
+import type { Env, Variables } from "../types.ts";
+import type { Database } from "../../db/index.ts";
+import {
+  activities,
+  actorCache,
+  actors,
+  follows,
+  inbox,
+} from "../../db/index.ts";
+import {
+  activityApId,
+  fetchWithTimeout,
+  generateId,
+  isLocal,
+  isSafeRemoteUrl,
+} from "../federation-helpers.ts";
+import { enqueueDeliveryToActor } from "../lib/delivery/queue.ts";
+import {
+  isUniqueConstraintError,
+  parseJsonObject,
+  parseNonEmptyString,
+} from "../lib/parse-helpers.ts";
 
 const REMOTE_FETCH_TIMEOUT_MS = 10000;
 
@@ -37,7 +53,7 @@ export type RequestContext = {
 // Pure helpers
 // ---------------------------------------------------------------------------
 
-export { parseJsonObject, parseNonEmptyString, isUniqueConstraintError };
+export { isUniqueConstraintError, parseJsonObject, parseNonEmptyString };
 
 export function parseStringArray(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
@@ -55,7 +71,7 @@ export function buildApActivity(
   id: string,
 ): Record<string, unknown> {
   return {
-    '@context': 'https://www.w3.org/ns/activitystreams',
+    "@context": "https://www.w3.org/ns/activitystreams",
     id,
     type,
     actor: actorId,
@@ -72,15 +88,21 @@ export function buildApActivity(
  * Extracts the authenticated actor and parsed JSON body from a request.
  * Returns a Response on auth or parse failure, or the extracted context on success.
  */
-export async function requireActorAndBody(c: HonoContext): Promise<RequestContext | Response> {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+export async function requireActorAndBody(
+  c: HonoContext,
+): Promise<RequestContext | Response> {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
   const body = await parseJsonObject(c);
-  if (!body) return c.json({ error: 'Invalid request body', code: 'BAD_REQUEST' }, 400);
-  return { actor, body, baseUrl: c.env.APP_URL, db: c.get('db') };
+  if (!body) {
+    return c.json({ error: "Invalid request body", code: "BAD_REQUEST" }, 400);
+  }
+  return { actor, body, baseUrl: c.env.APP_URL, db: c.get("db") };
 }
 
-export function isResponse(value: RequestContext | Response): value is Response {
+export function isResponse(
+  value: RequestContext | Response,
+): value is Response {
   return value instanceof Response;
 }
 
@@ -110,7 +132,7 @@ export async function createAndDeliverActivity(
     actorApId: actorId,
     objectApId: objectApId || undefined,
     rawJson: JSON.stringify(activity),
-    direction: 'outbound',
+    direction: "outbound",
   });
 
   await enqueueDeliveryToActor(env, id, recipientApId);
@@ -124,15 +146,21 @@ export async function deliverResponseIfRemote(
   env: Env,
   db: Database,
   baseUrl: string,
-  type: 'Accept' | 'Reject',
+  type: "Accept" | "Reject",
   actorId: string,
   requesterApId: string,
   originalActivityApId: string | null,
 ): Promise<void> {
   if (isLocal(requesterApId, baseUrl)) return;
   await createAndDeliverActivity(
-    env, db, baseUrl, type, actorId,
-    originalActivityApId, requesterApId, originalActivityApId,
+    env,
+    db,
+    baseUrl,
+    type,
+    actorId,
+    originalActivityApId,
+    requesterApId,
+    originalActivityApId,
   );
 }
 
@@ -152,7 +180,7 @@ export async function findPendingFollow(
     and(
       eq(follows.followerApId, requesterApId),
       eq(follows.followingApId, targetApId),
-      eq(follows.status, 'pending'),
+      eq(follows.status, "pending"),
     ),
   ).get();
 }
@@ -168,15 +196,16 @@ export async function handleLocalFollow(
   actor: { ap_id: string },
   targetApId: string,
 ) {
-  const target = await db.select({ isPrivate: actors.isPrivate }).from(actors).where(
-    eq(actors.apId, targetApId),
-  ).get();
-  if (!target) return c.json({ error: 'Target actor not found' }, 404);
+  const target = await db.select({ isPrivate: actors.isPrivate }).from(actors)
+    .where(
+      eq(actors.apId, targetApId),
+    ).get();
+  if (!target) return c.json({ error: "Target actor not found" }, 404);
 
-  const status = target.isPrivate ? 'pending' : 'accepted';
+  const status = target.isPrivate ? "pending" : "accepted";
   const id = activityApId(baseUrl, generateId());
   const now = new Date().toISOString();
-  const followActivity = buildApActivity('Follow', actor.ap_id, targetApId, id);
+  const followActivity = buildApActivity("Follow", actor.ap_id, targetApId, id);
 
   try {
     await db.insert(follows).values({
@@ -184,10 +213,10 @@ export async function handleLocalFollow(
       followingApId: targetApId,
       status,
       activityApId: id,
-      acceptedAt: status === 'accepted' ? now : null,
+      acceptedAt: status === "accepted" ? now : null,
     });
 
-    if (status === 'accepted') {
+    if (status === "accepted") {
       await db.update(actors).set({
         followingCount: sql`${actors.followingCount} + 1`,
       }).where(eq(actors.apId, actor.ap_id));
@@ -198,11 +227,11 @@ export async function handleLocalFollow(
 
     await db.insert(activities).values({
       apId: id,
-      type: 'Follow',
+      type: "Follow",
       actorApId: actor.ap_id,
       objectApId: targetApId,
       rawJson: JSON.stringify(followActivity),
-      direction: 'local',
+      direction: "local",
     });
 
     await db.insert(inbox).values({
@@ -212,7 +241,7 @@ export async function handleLocalFollow(
     });
   } catch (error) {
     if (isUniqueConstraintError(error)) {
-      return c.json({ error: 'Already following or pending' }, 400);
+      return c.json({ error: "Already following or pending" }, 400);
     }
     throw error;
   }
@@ -228,7 +257,7 @@ export async function handleRemoteFollow(
   targetApId: string,
 ) {
   if (!isSafeRemoteUrl(targetApId)) {
-    return c.json({ error: 'Invalid target_ap_id' }, 400);
+    return c.json({ error: "Invalid target_ap_id" }, 400);
   }
 
   let cachedActorRow = await db.select().from(actorCache).where(
@@ -238,10 +267,12 @@ export async function handleRemoteFollow(
   if (!cachedActorRow) {
     try {
       const res = await fetchWithTimeout(targetApId, {
-        headers: { 'Accept': 'application/activity+json, application/ld+json' },
+        headers: { "Accept": "application/activity+json, application/ld+json" },
         timeout: REMOTE_FETCH_TIMEOUT_MS,
       });
-      if (!res.ok) return c.json({ error: 'Could not fetch remote actor' }, 400);
+      if (!res.ok) {
+        return c.json({ error: "Could not fetch remote actor" }, 400);
+      }
 
       const actorData = await res.json() as RemoteActor;
       if (
@@ -250,12 +281,12 @@ export async function handleRemoteFollow(
         !isSafeRemoteUrl(actorData.id) ||
         !isSafeRemoteUrl(actorData.inbox)
       ) {
-        return c.json({ error: 'Invalid remote actor data' }, 400);
+        return c.json({ error: "Invalid remote actor data" }, 400);
       }
 
       cachedActorRow = await db.insert(actorCache).values({
         apId: actorData.id,
-        type: actorData.type || 'Person',
+        type: actorData.type || "Person",
         preferredUsername: actorData.preferredUsername || null,
         name: actorData.name || null,
         summary: actorData.summary || null,
@@ -271,38 +302,38 @@ export async function handleRemoteFollow(
         lastFetchedAt: new Date().toISOString(),
       }).returning().get();
     } catch {
-      return c.json({ error: 'Failed to fetch remote actor' }, 400);
+      return c.json({ error: "Failed to fetch remote actor" }, 400);
     }
   }
 
   if (!cachedActorRow?.inbox || !isSafeRemoteUrl(cachedActorRow.inbox)) {
-    return c.json({ error: 'Invalid inbox URL' }, 400);
+    return c.json({ error: "Invalid inbox URL" }, 400);
   }
 
   const id = activityApId(baseUrl, generateId());
-  const followActivity = buildApActivity('Follow', actor.ap_id, targetApId, id);
+  const followActivity = buildApActivity("Follow", actor.ap_id, targetApId, id);
 
   try {
     await db.insert(follows).values({
       followerApId: actor.ap_id,
       followingApId: targetApId,
-      status: 'pending',
+      status: "pending",
       activityApId: id,
     });
 
     await db.insert(activities).values({
       apId: id,
-      type: 'Follow',
+      type: "Follow",
       actorApId: actor.ap_id,
       objectApId: targetApId,
       rawJson: JSON.stringify(followActivity),
-      direction: 'outbound',
+      direction: "outbound",
     });
   } catch (e) {
-    console.error('[Follow] Failed to create remote follow:', e);
-    return c.json({ error: 'Failed to follow remote actor' }, 500);
+    console.error("[Follow] Failed to create remote follow:", e);
+    return c.json({ error: "Failed to follow remote actor" }, 500);
   }
 
   await enqueueDeliveryToActor(c.env, id, targetApId);
-  return c.json({ success: true, status: 'pending' });
+  return c.json({ success: true, status: "pending" });
 }

@@ -23,9 +23,9 @@ export class AssetsCompatFetcher {
     let filePath = `${this.basePath}${url.pathname}`;
 
     // Security: prevent directory traversal
-    const normalizedPath = filePath.replace(/\.\./g, '');
+    const normalizedPath = filePath.replace(/\.\./g, "");
     if (normalizedPath !== filePath) {
-      return new Response('Forbidden', { status: 403 });
+      return new Response("Forbidden", { status: 403 });
     }
 
     try {
@@ -44,13 +44,13 @@ export class AssetsCompatFetcher {
       const indexFile = Bun.file(`${this.basePath}/index.html`);
       if (await indexFile.exists()) {
         return new Response(indexFile, {
-          headers: { 'Content-Type': 'text/html' },
+          headers: { "Content-Type": "text/html" },
         });
       }
 
-      return new Response('Not Found', { status: 404 });
+      return new Response("Not Found", { status: 404 });
     } catch {
-      return new Response('Not Found', { status: 404 });
+      return new Response("Not Found", { status: 404 });
     }
   }
 }

@@ -2,14 +2,33 @@
 // DMs are Note objects with visibility='direct' and to=[recipient]
 // Threading via conversation field
 
-import { Hono } from 'hono';
-import { eq, and, lt, desc, like, inArray } from 'drizzle-orm';
-import type { Database } from '../../../db/index.ts';
-import { actors, actorCache, objects, objectRecipients, activities, inbox as inboxTable } from '../../../db/index.ts';
-import type { Env, Variables } from '../../types.ts';
-import { generateId, objectApId, activityApId, formatUsername, isLocal, parseLimit, safeJsonParse } from '../../federation-helpers.ts';
-import { MAX_DM_CONTENT_LENGTH, MAX_DM_PAGE_LIMIT, getConversationId } from './query-helpers.ts';
-import { enqueueDeliveryToActor } from '../../lib/delivery/queue.ts';
+import { Hono } from "hono";
+import { and, desc, eq, inArray, like, lt } from "drizzle-orm";
+import type { Database } from "../../../db/index.ts";
+import {
+  activities,
+  actorCache,
+  actors,
+  inbox as inboxTable,
+  objectRecipients,
+  objects,
+} from "../../../db/index.ts";
+import type { Env, Variables } from "../../types.ts";
+import {
+  activityApId,
+  formatUsername,
+  generateId,
+  isLocal,
+  objectApId,
+  parseLimit,
+  safeJsonParse,
+} from "../../federation-helpers.ts";
+import {
+  getConversationId,
+  MAX_DM_CONTENT_LENGTH,
+  MAX_DM_PAGE_LIMIT,
+} from "./query-helpers.ts";
+import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -22,7 +41,12 @@ type Attachment = {
 
 // --- Shared helpers (file-local) ---
 
-type ActorInfo = { apId: string; preferredUsername: string | null; name: string | null; iconUrl: string | null };
+type ActorInfo = {
+  apId: string;
+  preferredUsername: string | null;
+  name: string | null;
+  iconUrl: string | null;
+};
 
 type SenderInfo = {
   ap_id: string;
@@ -33,17 +57,29 @@ type SenderInfo = {
 };
 
 /** Validate trimmed DM content; returns the trimmed string or an error response. */
-function validateContent(raw: string | undefined): string | { error: string; status: 400 } {
+function validateContent(
+  raw: string | undefined,
+): string | { error: string; status: 400 } {
   const content = raw?.trim();
-  if (!content) return { error: 'Message content is required', status: 400 };
+  if (!content) return { error: "Message content is required", status: 400 };
   if (content.length > MAX_DM_CONTENT_LENGTH) {
-    return { error: `Message too long (max ${MAX_DM_CONTENT_LENGTH} chars)`, status: 400 };
+    return {
+      error: `Message too long (max ${MAX_DM_CONTENT_LENGTH} chars)`,
+      status: 400,
+    };
   }
   return content;
 }
 
 /** Build a sender info object from a current-session actor. */
-function buildSenderFromActor(actor: { ap_id: string; preferred_username: string | null; name: string | null; icon_url: string | null }): SenderInfo {
+function buildSenderFromActor(
+  actor: {
+    ap_id: string;
+    preferred_username: string | null;
+    name: string | null;
+    icon_url: string | null;
+  },
+): SenderInfo {
   return {
     ap_id: actor.ap_id,
     username: formatUsername(actor.ap_id),
@@ -64,8 +100,8 @@ async function fetchAuthorizedMessages(
   // Build where clause: filter by conversation + visibility + type
   // Authorization is re-validated in code below (defense-in-depth)
   const baseCondition = and(
-    eq(objects.visibility, 'direct'),
-    eq(objects.type, 'Note'),
+    eq(objects.visibility, "direct"),
+    eq(objects.type, "Note"),
     eq(objects.conversation, conversationId),
   );
 
@@ -101,7 +137,9 @@ async function resolveAuthorInfoMap(
     .from(actors)
     .where(inArray(actors.apId, authorApIds));
 
-  const localMap = new Map<string, ActorInfo>(localActors.map((a) => [a.apId, a]));
+  const localMap = new Map<string, ActorInfo>(
+    localActors.map((a) => [a.apId, a]),
+  );
 
   const remoteApIds = authorApIds.filter((id) => !localMap.has(id));
   if (remoteApIds.length > 0) {
@@ -159,7 +197,13 @@ async function fetchAndFormatMessages(
   limit: number,
   before: string | undefined,
 ): Promise<Array<any>> {
-  const messages = await fetchAuthorizedMessages(db, actorApId, conversationId, limit, before);
+  const messages = await fetchAuthorizedMessages(
+    db,
+    actorApId,
+    conversationId,
+    limit,
+    before,
+  );
   const authorApIds = [...new Set(messages.map((m: any) => m.attributedTo))];
   const authorMap = await resolveAuthorInfoMap(db, authorApIds);
   return formatMessages(messages, authorMap);
@@ -170,7 +214,12 @@ async function findOwnedDmMessage(
   db: Database,
   messageId: string,
   actorApId: string,
-): Promise<{ apId: string; attributedTo: string; conversation: string | null } | { error: string; status: 403 | 404 }> {
+): Promise<
+  { apId: string; attributedTo: string; conversation: string | null } | {
+    error: string;
+    status: 403 | 404;
+  }
+> {
   const message = await db.select({
     apId: objects.apId,
     attributedTo: objects.attributedTo,
@@ -180,28 +229,37 @@ async function findOwnedDmMessage(
     .where(
       and(
         eq(objects.apId, messageId),
-        eq(objects.visibility, 'direct'),
-        eq(objects.type, 'Note'),
+        eq(objects.visibility, "direct"),
+        eq(objects.type, "Note"),
       ),
     )
     .get();
 
-  if (!message) return { error: 'Message not found', status: 404 };
-  if (message.attributedTo !== actorApId) return { error: 'Forbidden', status: 403 };
+  if (!message) return { error: "Message not found", status: 404 };
+  if (message.attributedTo !== actorApId) {
+    return { error: "Forbidden", status: 403 };
+  }
   return message;
 }
 
 /** Create the DM Note object row. */
 async function createDmNote(
   db: Database,
-  data: { apId: string; actorApId: string; content: string; toJson: string; conversationId: string; published: string },
+  data: {
+    apId: string;
+    actorApId: string;
+    content: string;
+    toJson: string;
+    conversationId: string;
+    published: string;
+  },
 ): Promise<void> {
   await db.insert(objects).values({
     apId: data.apId,
-    type: 'Note',
+    type: "Note",
     attributedTo: data.actorApId,
     content: data.content,
-    visibility: 'direct',
+    visibility: "direct",
     toJson: data.toJson,
     ccJson: JSON.stringify([]),
     conversation: data.conversationId,
@@ -212,32 +270,42 @@ async function createDmNote(
 
 // --- Route handlers ---
 
-dm.get('/user/:encodedApId/messages', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+dm.get("/user/:encodedApId/messages", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const db = c.get('db');
-  const otherApId = decodeURIComponent(c.req.param('encodedApId'));
-  const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
-  const before = c.req.query('before');
-  const conversationId = getConversationId(c.env.APP_URL, actor.ap_id, otherApId);
+  const db = c.get("db");
+  const otherApId = decodeURIComponent(c.req.param("encodedApId"));
+  const limit = parseLimit(c.req.query("limit"), 50, MAX_DM_PAGE_LIMIT);
+  const before = c.req.query("before");
+  const conversationId = getConversationId(
+    c.env.APP_URL,
+    actor.ap_id,
+    otherApId,
+  );
 
-  const messages = await fetchAndFormatMessages(db, actor.ap_id, conversationId, limit, before);
+  const messages = await fetchAndFormatMessages(
+    db,
+    actor.ap_id,
+    conversationId,
+    limit,
+    before,
+  );
   return c.json({ messages, conversation_id: conversationId });
 });
 
 // Send message to a specific user (creates Note with direct visibility)
-dm.post('/user/:encodedApId/messages', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+dm.post("/user/:encodedApId/messages", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const db = c.get('db');
-  const otherApId = decodeURIComponent(c.req.param('encodedApId'));
+  const db = c.get("db");
+  const otherApId = decodeURIComponent(c.req.param("encodedApId"));
   const body = await c.req.json<{ content: string }>();
   const baseUrl = c.env.APP_URL;
 
   const contentOrError = validateContent(body.content);
-  if (typeof contentOrError !== 'string') {
+  if (typeof contentOrError !== "string") {
     return c.json({ error: contentOrError.error }, contentOrError.status);
   }
   const content = contentOrError;
@@ -250,13 +318,13 @@ dm.post('/user/:encodedApId/messages', async (c) => {
 
   const cachedActor = !localActor
     ? await db.select({ apId: actorCache.apId, inbox: actorCache.inbox })
-        .from(actorCache)
-        .where(eq(actorCache.apId, otherApId))
-        .get()
+      .from(actorCache)
+      .where(eq(actorCache.apId, otherApId))
+      .get()
     : null;
 
   const otherActor = localActor || cachedActor;
-  if (!otherActor) return c.json({ error: 'User not found' }, 404);
+  if (!otherActor) return c.json({ error: "User not found" }, 404);
 
   const apId = objectApId(baseUrl, generateId());
   const now = new Date().toISOString();
@@ -267,39 +335,50 @@ dm.post('/user/:encodedApId/messages', async (c) => {
   const deliveryActivityId = activityApId(baseUrl, generateId());
   const remoteCreateActivity = !isRecipientLocal
     ? {
-        '@context': 'https://www.w3.org/ns/activitystreams',
-        id: deliveryActivityId,
-        type: 'Create',
-        actor: actor.ap_id,
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: deliveryActivityId,
+      type: "Create",
+      actor: actor.ap_id,
+      to: [otherApId],
+      object: {
+        id: apId,
+        type: "Note",
+        attributedTo: actor.ap_id,
         to: [otherApId],
-        object: {
-          id: apId,
-          type: 'Note',
-          attributedTo: actor.ap_id,
-          to: [otherApId],
-          content,
-          published: now,
-          conversation: conversationId,
-        },
-      }
+        content,
+        published: now,
+        conversation: conversationId,
+      },
+    }
     : null;
 
   try {
     // Sequential operations (D1 doesn't support interactive transactions)
-    await createDmNote(db, { apId, actorApId: actor.ap_id, content, toJson, conversationId, published: now });
+    await createDmNote(db, {
+      apId,
+      actorApId: actor.ap_id,
+      content,
+      toJson,
+      conversationId,
+      published: now,
+    });
 
     if (isRecipientLocal) {
       await db.insert(objectRecipients)
-        .values({ objectApId: apId, recipientApId: otherApId, type: 'to' })
+        .values({ objectApId: apId, recipientApId: otherApId, type: "to" })
         .onConflictDoNothing();
 
       await db.insert(activities).values({
         apId: deliveryActivityId,
-        type: 'Create',
+        type: "Create",
         actorApId: actor.ap_id,
         objectApId: apId,
-        rawJson: JSON.stringify({ type: 'Create', actor: actor.ap_id, object: apId }),
-        direction: 'inbound',
+        rawJson: JSON.stringify({
+          type: "Create",
+          actor: actor.ap_id,
+          object: apId,
+        }),
+        direction: "inbound",
       });
 
       await db.insert(inboxTable).values({
@@ -309,16 +388,16 @@ dm.post('/user/:encodedApId/messages', async (c) => {
     } else {
       await db.insert(activities).values({
         apId: deliveryActivityId,
-        type: 'Create',
+        type: "Create",
         actorApId: actor.ap_id,
         objectApId: apId,
         rawJson: JSON.stringify(remoteCreateActivity),
-        direction: 'outbound',
+        direction: "outbound",
       });
     }
   } catch (e) {
-    console.error('[DM] Failed to insert message:', e);
-    return c.json({ error: 'Failed to send message' }, 500);
+    console.error("[DM] Failed to insert message:", e);
+    return c.json({ error: "Failed to send message" }, 500);
   }
 
   if (!isLocal(otherApId, baseUrl)) {
@@ -326,27 +405,36 @@ dm.post('/user/:encodedApId/messages', async (c) => {
   }
 
   return c.json({
-    message: { id: apId, sender: buildSenderFromActor(actor), content, created_at: now },
+    message: {
+      id: apId,
+      sender: buildSenderFromActor(actor),
+      content,
+      created_at: now,
+    },
     conversation_id: conversationId,
   }, 201);
 });
 
 // Edit a DM message
-dm.patch('/messages/:messageId', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+dm.patch("/messages/:messageId", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const db = c.get('db');
+  const db = c.get("db");
   const body = await c.req.json<{ content: string }>();
 
   const contentOrError = validateContent(body.content);
-  if (typeof contentOrError !== 'string') {
+  if (typeof contentOrError !== "string") {
     return c.json({ error: contentOrError.error }, contentOrError.status);
   }
   const content = contentOrError;
 
-  const messageOrError = await findOwnedDmMessage(db, c.req.param('messageId'), actor.ap_id);
-  if ('error' in messageOrError) {
+  const messageOrError = await findOwnedDmMessage(
+    db,
+    c.req.param("messageId"),
+    actor.ap_id,
+  );
+  if ("error" in messageOrError) {
     return c.json({ error: messageOrError.error }, messageOrError.status);
   }
   const message = messageOrError;
@@ -363,20 +451,26 @@ dm.patch('/messages/:messageId', async (c) => {
 });
 
 // Delete a DM message
-dm.delete('/messages/:messageId', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+dm.delete("/messages/:messageId", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const db = c.get('db');
+  const db = c.get("db");
 
-  const messageOrError = await findOwnedDmMessage(db, c.req.param('messageId'), actor.ap_id);
-  if ('error' in messageOrError) {
+  const messageOrError = await findOwnedDmMessage(
+    db,
+    c.req.param("messageId"),
+    actor.ap_id,
+  );
+  if ("error" in messageOrError) {
     return c.json({ error: messageOrError.error }, messageOrError.status);
   }
   const message = messageOrError;
 
   // Sequential operations (D1 doesn't support interactive transactions)
-  await db.delete(objectRecipients).where(eq(objectRecipients.objectApId, message.apId));
+  await db.delete(objectRecipients).where(
+    eq(objectRecipients.objectApId, message.apId),
+  );
   await db.delete(objects).where(eq(objects.apId, message.apId));
 
   return c.json({ success: true });
@@ -384,30 +478,36 @@ dm.delete('/messages/:messageId', async (c) => {
 
 // Legacy endpoints for backwards compatibility
 
-dm.get('/conversations/:id/messages', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+dm.get("/conversations/:id/messages", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const db = c.get('db');
-  const conversationId = c.req.param('id');
-  const limit = parseLimit(c.req.query('limit'), 50, MAX_DM_PAGE_LIMIT);
-  const before = c.req.query('before');
+  const db = c.get("db");
+  const conversationId = c.req.param("id");
+  const limit = parseLimit(c.req.query("limit"), 50, MAX_DM_PAGE_LIMIT);
+  const before = c.req.query("before");
 
-  const messages = await fetchAndFormatMessages(db, actor.ap_id, conversationId, limit, before);
+  const messages = await fetchAndFormatMessages(
+    db,
+    actor.ap_id,
+    conversationId,
+    limit,
+    before,
+  );
   return c.json({ messages });
 });
 
-dm.post('/conversations/:id/messages', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+dm.post("/conversations/:id/messages", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const db = c.get('db');
-  const conversationId = c.req.param('id');
+  const db = c.get("db");
+  const conversationId = c.req.param("id");
   const body = await c.req.json<{ content: string }>();
   const baseUrl = c.env.APP_URL;
 
   const contentOrError = validateContent(body.content);
-  if (typeof contentOrError !== 'string') {
+  if (typeof contentOrError !== "string") {
     return c.json({ error: contentOrError.error }, contentOrError.status);
   }
   const content = contentOrError;
@@ -421,7 +521,7 @@ dm.post('/conversations/:id/messages', async (c) => {
     .where(
       and(
         eq(objects.conversation, conversationId),
-        eq(objects.visibility, 'direct'),
+        eq(objects.visibility, "direct"),
       ),
     )
     .limit(10);
@@ -430,13 +530,17 @@ dm.post('/conversations/:id/messages', async (c) => {
   for (const msg of existingMessages) {
     const recipients = safeJsonParse<string[]>(msg.toJson, []);
     if (msg.attributedTo === actor.ap_id) {
-      if (recipients.length > 0) { otherApId = recipients[0]; break; }
+      if (recipients.length > 0) {
+        otherApId = recipients[0];
+        break;
+      }
     } else if (recipients.includes(actor.ap_id)) {
-      otherApId = msg.attributedTo; break;
+      otherApId = msg.attributedTo;
+      break;
     }
   }
 
-  if (!otherApId) return c.json({ error: 'Forbidden' }, 403);
+  if (!otherApId) return c.json({ error: "Forbidden" }, 403);
 
   const apId = objectApId(baseUrl, generateId());
   const now = new Date().toISOString();
@@ -448,16 +552,28 @@ dm.post('/conversations/:id/messages', async (c) => {
     .get());
 
   // Sequential operations (D1 doesn't support interactive transactions)
-  await createDmNote(db, { apId, actorApId: actor.ap_id, content, toJson, conversationId, published: now });
+  await createDmNote(db, {
+    apId,
+    actorApId: actor.ap_id,
+    content,
+    toJson,
+    conversationId,
+    published: now,
+  });
 
   if (isRecipientLocal) {
     await db.insert(objectRecipients)
-      .values({ objectApId: apId, recipientApId: otherApId, type: 'to' })
+      .values({ objectApId: apId, recipientApId: otherApId, type: "to" })
       .onConflictDoNothing();
   }
 
   return c.json({
-    message: { id: apId, sender: buildSenderFromActor(actor), content, created_at: now },
+    message: {
+      id: apId,
+      sender: buildSenderFromActor(actor),
+      content,
+      created_at: now,
+    },
   }, 201);
 });
 

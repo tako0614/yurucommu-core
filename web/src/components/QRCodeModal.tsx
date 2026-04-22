@@ -1,9 +1,9 @@
-import { createSignal, createEffect, onCleanup, Show } from 'solid-js';
-import { QRCodeSVG } from 'qrcode.react';
-import { Html5Qrcode } from 'html5-qrcode';
-import { Actor } from '../types/index.ts';
-import { fetchActor, follow, searchRemote } from '../lib/api.ts';
-import { UserAvatar } from './UserAvatar.tsx';
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { QRCodeSVG } from "qrcode.react";
+import { Html5Qrcode } from "html5-qrcode";
+import { Actor } from "../types/index.ts";
+import { fetchActor, follow, searchRemote } from "../lib/api.ts";
+import { UserAvatar } from "./UserAvatar.tsx";
 
 interface QRCodeModalProps {
   actor: Actor;
@@ -12,18 +12,28 @@ interface QRCodeModalProps {
 
 const CloseIcon = () => (
   <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M6 18L18 6M6 6l12 12" />
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width={2}
+      d="M6 18L18 6M6 6l12 12"
+    />
   </svg>
 );
 
 const ShareIcon = () => (
   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width={2}
+      d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+    />
   </svg>
 );
 
 export function QRCodeModal(props: QRCodeModalProps) {
-  const [tab, setTab] = createSignal<'myqr' | 'scan'>('myqr');
+  const [tab, setTab] = createSignal<"myqr" | "scan">("myqr");
   const [scanning, setScanning] = createSignal(false);
   const [lookingUp, setLookingUp] = createSignal(false);
   const [scanResult, setScanResult] = createSignal<Actor | null>(null);
@@ -40,15 +50,18 @@ export function QRCodeModal(props: QRCodeModalProps) {
       await scannerRef.stop();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (!message.toLowerCase().includes('not running')) {
-        console.warn('Failed to stop QR scanner:', err);
+      if (!message.toLowerCase().includes("not running")) {
+        console.warn("Failed to stop QR scanner:", err);
       }
     }
   };
 
   // Generate QR URL - include username for ActivityPub lookup
   const currentDomain = window.location.host;
-  const qrUrl = () => `${window.location.origin}/profile/${encodeURIComponent(props.actor.ap_id)}#${props.actor.preferred_username}`;
+  const qrUrl = () =>
+    `${window.location.origin}/profile/${
+      encodeURIComponent(props.actor.ap_id)
+    }#${props.actor.preferred_username}`;
 
   // Stop scanner when component unmounts
   onCleanup(() => {
@@ -57,9 +70,9 @@ export function QRCodeModal(props: QRCodeModalProps) {
 
   // Start/stop scanner when tab changes
   createEffect(() => {
-    if (tab() === 'scan' && !scanning() && !scanResult()) {
+    if (tab() === "scan" && !scanning() && !scanResult()) {
       startScanner();
-    } else if (tab() !== 'scan' && scannerRef) {
+    } else if (tab() !== "scan" && scannerRef) {
       void stopScannerSafely();
       setScanning(false);
     }
@@ -72,11 +85,11 @@ export function QRCodeModal(props: QRCodeModalProps) {
     setScanning(true);
 
     try {
-      const html5QrCode = new Html5Qrcode('qr-scanner');
+      const html5QrCode = new Html5Qrcode("qr-scanner");
       scannerRef = html5QrCode;
 
       await html5QrCode.start(
-        { facingMode: 'environment' },
+        { facingMode: "environment" },
         {
           fps: 10,
           qrbox: { width: 250, height: 250 },
@@ -92,10 +105,12 @@ export function QRCodeModal(props: QRCodeModalProps) {
             const url = new URL(decodedText);
             const scannedDomain = url.host;
             const pathMatch = url.pathname.match(/\/profile\/([^\/\?]+)/);
-            const username = url.hash ? decodeURIComponent(url.hash.slice(1)) : null;
+            const username = url.hash
+              ? decodeURIComponent(url.hash.slice(1))
+              : null;
 
             if (!pathMatch) {
-              setScanError('Invalid QR code');
+              setScanError("Invalid QR code");
               setLookingUp(false);
               return;
             }
@@ -109,7 +124,13 @@ export function QRCodeModal(props: QRCodeModalProps) {
                 const actorData = await fetchActor(identifier);
                 setScanResult(actorData);
               } catch (localErr: unknown) {
-                setScanError(`Local user fetch error: ${localErr instanceof Error ? localErr.message : String(localErr) || 'Unknown'}`);
+                setScanError(
+                  `Local user fetch error: ${
+                    localErr instanceof Error
+                      ? localErr.message
+                      : String(localErr) || "Unknown"
+                  }`,
+                );
               }
             } else if (username) {
               // Remote user - search via ActivityPub WebFinger
@@ -122,22 +143,32 @@ export function QRCodeModal(props: QRCodeModalProps) {
                   setScanError(`Remote user not found: ${webfingerAddress}`);
                 }
               } catch (remoteErr: unknown) {
-                setScanError(`Remote search error: ${remoteErr instanceof Error ? remoteErr.message : String(remoteErr) || 'Unknown'}`);
+                setScanError(
+                  `Remote search error: ${
+                    remoteErr instanceof Error
+                      ? remoteErr.message
+                      : String(remoteErr) || "Unknown"
+                  }`,
+                );
               }
             } else {
               setScanError(`Remote user info insufficient (hash=${url.hash})`);
             }
           } catch (err: unknown) {
-            setScanError(`QR parse error: ${err instanceof Error ? err.message : String(err) || 'Unknown'}`);
+            setScanError(
+              `QR parse error: ${
+                err instanceof Error ? err.message : String(err) || "Unknown"
+              }`,
+            );
           } finally {
             setLookingUp(false);
           }
         },
-        () => {} // ignore errors during scanning
+        () => {}, // ignore errors during scanning
       );
     } catch (err) {
-      console.error('Failed to start scanner:', err);
-      setScanError('Failed to start camera. Please allow camera access.');
+      console.error("Failed to start scanner:", err);
+      setScanError("Failed to start camera. Please allow camera access.");
       setScanning(false);
     }
   };
@@ -151,8 +182,8 @@ export function QRCodeModal(props: QRCodeModalProps) {
       await follow(result.ap_id);
       setFollowSuccess(true);
     } catch (err) {
-      console.error('Failed to follow:', err);
-      setScanError('Failed to follow');
+      console.error("Failed to follow:", err);
+      setScanError("Failed to follow");
     } finally {
       setFollowing(false);
     }
@@ -162,7 +193,9 @@ export function QRCodeModal(props: QRCodeModalProps) {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: `${props.actor.name || props.actor.preferred_username}'s profile`,
+          title: `${
+            props.actor.name || props.actor.preferred_username
+          }'s profile`,
           url: qrUrl(),
         });
       } catch {
@@ -171,7 +204,7 @@ export function QRCodeModal(props: QRCodeModalProps) {
     } else {
       // Fallback: copy to clipboard
       navigator.clipboard.writeText(qrUrl());
-      alert('URL copied to clipboard');
+      alert("URL copied to clipboard");
     }
   };
 
@@ -180,7 +213,7 @@ export function QRCodeModal(props: QRCodeModalProps) {
     setScanError(null);
     setFollowSuccess(false);
     setLookingUp(false);
-    if (tab() === 'scan') {
+    if (tab() === "scan") {
       startScanner();
     }
   };
@@ -203,20 +236,24 @@ export function QRCodeModal(props: QRCodeModalProps) {
         {/* Tabs */}
         <div class="flex border-b border-neutral-800">
           <button
-            onClick={() => setTab('myqr')}
-            class={`flex-1 py-3 text-center font-medium relative ${tab() === 'myqr' ? 'text-white' : 'text-neutral-500'}`}
+            onClick={() => setTab("myqr")}
+            class={`flex-1 py-3 text-center font-medium relative ${
+              tab() === "myqr" ? "text-white" : "text-neutral-500"
+            }`}
           >
             My QR
-            <Show when={tab() === 'myqr'}>
+            <Show when={tab() === "myqr"}>
               <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-blue-500 rounded-full" />
             </Show>
           </button>
           <button
-            onClick={() => setTab('scan')}
-            class={`flex-1 py-3 text-center font-medium relative ${tab() === 'scan' ? 'text-white' : 'text-neutral-500'}`}
+            onClick={() => setTab("scan")}
+            class={`flex-1 py-3 text-center font-medium relative ${
+              tab() === "scan" ? "text-white" : "text-neutral-500"
+            }`}
           >
             Scan
-            <Show when={tab() === 'scan'}>
+            <Show when={tab() === "scan"}>
               <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-blue-500 rounded-full" />
             </Show>
           </button>
@@ -225,96 +262,105 @@ export function QRCodeModal(props: QRCodeModalProps) {
         {/* Content */}
         <div class="p-6">
           <Show
-            when={tab() === 'myqr'}
+            when={tab() === "myqr"}
             fallback={
               /* Scanner */
-              <div class="flex flex-col items-center space-y-4">
-                <Show when={lookingUp()}>
-                  {/* Loading State */}
-                  <div class="flex flex-col items-center space-y-4 py-8">
-                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
-                    <div class="text-neutral-400">Looking up user...</div>
-                  </div>
-                </Show>
 
-                <Show when={!lookingUp() && scanResult()}>
-                  {/* Scan Result */}
-                  <div class="flex flex-col items-center space-y-4 w-full">
-                    <UserAvatar
-                      avatarUrl={scanResult()!.icon_url}
-                      name={scanResult()!.name || scanResult()!.preferred_username}
-                      size={80}
-                    />
-                    <div class="text-center">
-                      <div class="font-bold text-white text-xl">
-                        {scanResult()!.name || scanResult()!.preferred_username}
-                      </div>
-                      <div class="text-neutral-500">@{scanResult()!.username}</div>
-                      <Show when={scanResult()!.summary}>
-                        <div class="text-neutral-400 text-sm mt-2 max-w-xs">
-                          {scanResult()!.summary}
-                        </div>
-                      </Show>
-                    </div>
 
-                    <Show
-                      when={!followSuccess()}
-                      fallback={
-                        <div class="px-6 py-2 bg-green-600 text-white rounded-full font-medium">
-                          Followed!
-                        </div>
-                      }
-                    >
-                      <Show
-                        when={scanResult()!.ap_id !== props.actor.ap_id}
-                        fallback={<div class="text-neutral-500">This is you</div>}
-                      >
-                        <button
-                          onClick={handleFollow}
-                          disabled={following()}
-                          class="px-6 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 text-white rounded-full font-medium transition-colors"
-                        >
-                          {following() ? 'Following...' : 'Follow'}
-                        </button>
-                      </Show>
-                    </Show>
-
-                    <button
-                      onClick={resetScan}
-                      class="text-neutral-400 hover:text-white text-sm"
-                    >
-                      Scan again
-                    </button>
-                  </div>
-                </Show>
-
-                <Show when={!lookingUp() && !scanResult() && scanError()}>
-                  {/* Error State */}
-                  <div class="flex flex-col items-center space-y-4">
-                    <div class="text-red-400 text-center">{scanError()}</div>
-                    <button
-                      onClick={resetScan}
-                      class="px-6 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-full transition-colors"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                </Show>
-
-                <Show when={!lookingUp() && !scanResult() && !scanError()}>
-                  {/* Scanner View */}
-                  <div
-                    id="qr-scanner"
-                    ref={scannerContainerRef}
-                    class="w-full aspect-square max-w-[300px] rounded-lg overflow-hidden bg-neutral-800"
-                  />
-                  <Show when={scanning()}>
-                    <div class="text-neutral-400 text-sm">
-                      Point camera at QR code
+                <div class="flex flex-col items-center space-y-4">
+                  <Show when={lookingUp()}>
+                    {/* Loading State */}
+                    <div class="flex flex-col items-center space-y-4 py-8">
+                      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
+                      <div class="text-neutral-400">Looking up user...</div>
                     </div>
                   </Show>
-                </Show>
-              </div>
+
+                  <Show when={!lookingUp() && scanResult()}>
+                    {/* Scan Result */}
+                    <div class="flex flex-col items-center space-y-4 w-full">
+                      <UserAvatar
+                        avatarUrl={scanResult()!.icon_url}
+                        name={scanResult()!.name ||
+                          scanResult()!.preferred_username}
+                        size={80}
+                      />
+                      <div class="text-center">
+                        <div class="font-bold text-white text-xl">
+                          {scanResult()!.name ||
+                            scanResult()!.preferred_username}
+                        </div>
+                        <div class="text-neutral-500">
+                          @{scanResult()!.username}
+                        </div>
+                        <Show when={scanResult()!.summary}>
+                          <div class="text-neutral-400 text-sm mt-2 max-w-xs">
+                            {scanResult()!.summary}
+                          </div>
+                        </Show>
+                      </div>
+
+                      <Show
+                        when={!followSuccess()}
+                        fallback={
+                          <div class="px-6 py-2 bg-green-600 text-white rounded-full font-medium">
+                            Followed!
+                          </div>
+                        }
+                      >
+                        <Show
+                          when={scanResult()!.ap_id !== props.actor.ap_id}
+                          fallback={
+                            <div class="text-neutral-500">This is you</div>
+                          }
+                        >
+                          <button
+                            onClick={handleFollow}
+                            disabled={following()}
+                            class="px-6 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 text-white rounded-full font-medium transition-colors"
+                          >
+                            {following() ? "Following..." : "Follow"}
+                          </button>
+                        </Show>
+                      </Show>
+
+                      <button
+                        onClick={resetScan}
+                        class="text-neutral-400 hover:text-white text-sm"
+                      >
+                        Scan again
+                      </button>
+                    </div>
+                  </Show>
+
+                  <Show when={!lookingUp() && !scanResult() && scanError()}>
+                    {/* Error State */}
+                    <div class="flex flex-col items-center space-y-4">
+                      <div class="text-red-400 text-center">{scanError()}</div>
+                      <button
+                        onClick={resetScan}
+                        class="px-6 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-full transition-colors"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  </Show>
+
+                  <Show when={!lookingUp() && !scanResult() && !scanError()}>
+                    {/* Scanner View */}
+                    <div
+                      id="qr-scanner"
+                      ref={scannerContainerRef}
+                      class="w-full aspect-square max-w-[300px] rounded-lg overflow-hidden bg-neutral-800"
+                    />
+                    <Show when={scanning()}>
+                      <div class="text-neutral-400 text-sm">
+                        Point camera at QR code
+                      </div>
+                    </Show>
+                  </Show>
+                </div>
+
             }
           >
             {/* My QR Code */}

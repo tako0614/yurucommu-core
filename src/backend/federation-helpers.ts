@@ -1,22 +1,33 @@
-export function safeJsonParse<T>(json: string | null | undefined, defaultValue: T): T {
+export function safeJsonParse<T>(
+  json: string | null | undefined,
+  defaultValue: T,
+): T {
   if (!json) return defaultValue;
   try {
     return JSON.parse(json) as T;
   } catch (err) {
     // MEDIUM FIX: Log the error for debugging
-    console.warn('[Utils] safeJsonParse failed:', err);
+    console.warn("[Utils] safeJsonParse failed:", err);
     return defaultValue;
   }
 }
 
-export function parseLimit(value: string | undefined, fallback: number, max: number): number {
-  const parsed = parseInt(value || '', 10);
+export function parseLimit(
+  value: string | undefined,
+  fallback: number,
+  max: number,
+): number {
+  const parsed = parseInt(value || "", 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(Math.max(parsed, 1), max);
 }
 
-export function parseOffset(value: string | undefined, fallback: number, max: number): number {
-  const parsed = parseInt(value || '', 10);
+export function parseOffset(
+  value: string | undefined,
+  fallback: number,
+  max: number,
+): number {
+  const parsed = parseInt(value || "", 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(Math.max(parsed, 0), max);
 }
@@ -24,7 +35,7 @@ export function parseOffset(value: string | undefined, fallback: number, max: nu
 export function generateId(): string {
   const bytes = new Uint8Array(12);
   crypto.getRandomValues(bytes);
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export function actorApId(baseUrl: string, username: string): string {
@@ -61,12 +72,14 @@ export function formatUsername(apId: string): string {
 }
 
 const HOSTNAME_PATTERN = /^[a-z0-9.-]+$/i;
-const DOH_ENDPOINT = 'https://cloudflare-dns.com/dns-query';
+const DOH_ENDPOINT = "https://cloudflare-dns.com/dns-query";
 
 function parseIPv4(hostname: string): number[] | null {
   if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return null;
-  const parts = hostname.split('.').map((part) => Number(part));
-  if (parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)) return null;
+  const parts = hostname.split(".").map((part) => Number(part));
+  if (parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)) {
+    return null;
+  }
   return parts;
 }
 
@@ -88,14 +101,16 @@ function isPrivateIPv4(hostname: string): boolean {
   return false;
 }
 
-const PRIVATE_IPV6_EXACT = ['::1', '0:0:0:0:0:0:0:1', '::', '0:0:0:0:0:0:0:0'];
-const PRIVATE_IPV6_PREFIXES = ['fc', 'fd', 'fe8', 'fe9', 'fea', 'feb', 'ff'];
+const PRIVATE_IPV6_EXACT = ["::1", "0:0:0:0:0:0:0:1", "::", "0:0:0:0:0:0:0:0"];
+const PRIVATE_IPV6_PREFIXES = ["fc", "fd", "fe8", "fe9", "fea", "feb", "ff"];
 
 function isPrivateIPv6(ipv6Raw: string): boolean {
-  const ipv6 = ipv6Raw.toLowerCase().replace(/^\[|\]$/g, '');
+  const ipv6 = ipv6Raw.toLowerCase().replace(/^\[|\]$/g, "");
 
   if (PRIVATE_IPV6_EXACT.includes(ipv6)) return true;
-  if (PRIVATE_IPV6_PREFIXES.some((prefix) => ipv6.startsWith(prefix))) return true;
+  if (PRIVATE_IPV6_PREFIXES.some((prefix) => ipv6.startsWith(prefix))) {
+    return true;
+  }
 
   const mappedIpv4 = ipv6.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
   if (mappedIpv4) return isPrivateIPv4(mappedIpv4[1]);
@@ -105,21 +120,28 @@ function isPrivateIPv6(ipv6Raw: string): boolean {
 
 function isPrivateIpAddress(host: string): boolean {
   if (isPrivateIPv4(host)) return true;
-  if (host.includes(':')) return isPrivateIPv6(host);
+  if (host.includes(":")) return isPrivateIPv6(host);
   return false;
 }
 
 function normalizeHostname(hostname: string): string {
   const normalized = hostname.trim().toLowerCase();
-  return normalized.endsWith('.') ? normalized.slice(0, -1) : normalized;
+  return normalized.endsWith(".") ? normalized.slice(0, -1) : normalized;
 }
 
-const BLOCKED_HOSTNAME_SUFFIXES = ['.localhost', '.local', '.localdomain', '.internal'];
+const BLOCKED_HOSTNAME_SUFFIXES = [
+  ".localhost",
+  ".local",
+  ".localdomain",
+  ".internal",
+];
 
 function isBlockedHostname(hostname: string): boolean {
   const lower = normalizeHostname(hostname);
-  if (lower === 'localhost') return true;
-  if (BLOCKED_HOSTNAME_SUFFIXES.some((suffix) => lower.endsWith(suffix))) return true;
+  if (lower === "localhost") return true;
+  if (BLOCKED_HOSTNAME_SUFFIXES.some((suffix) => lower.endsWith(suffix))) {
+    return true;
+  }
   return isPrivateIpAddress(lower);
 }
 
@@ -127,9 +149,11 @@ export function isSafeRemoteUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     if (parsed.username || parsed.password) return false;
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return false;
+    }
     if (!HOSTNAME_PATTERN.test(parsed.hostname)) return false;
-    if (!parsed.hostname.includes('.')) return false;
+    if (!parsed.hostname.includes(".")) return false;
     if (isBlockedHostname(parsed.hostname)) return false;
     return true;
   } catch {
@@ -143,10 +167,10 @@ export function normalizeRemoteDomain(domain: string): string | null {
   try {
     const parsed = new URL(`https://${trimmed}`);
     if (parsed.username || parsed.password) return null;
-    if (parsed.pathname !== '/' || parsed.search || parsed.hash) return null;
+    if (parsed.pathname !== "/" || parsed.search || parsed.hash) return null;
     const hostname = parsed.hostname;
     if (!HOSTNAME_PATTERN.test(hostname)) return null;
-    if (!hostname.includes('.')) return null;
+    if (!hostname.includes(".")) return null;
     if (isBlockedHostname(hostname)) return null;
     return parsed.host;
   } catch {
@@ -154,11 +178,17 @@ export function normalizeRemoteDomain(domain: string): string | null {
   }
 }
 
-async function dohResolve(hostname: string, type: 'A' | 'AAAA' | 'CNAME'): Promise<Array<{ type: number; data: string }>> {
-  const response = await fetch(`${DOH_ENDPOINT}?name=${encodeURIComponent(hostname)}&type=${type}`, {
-    headers: { Accept: 'application/dns-json' },
-    redirect: 'manual',
-  });
+async function dohResolve(
+  hostname: string,
+  type: "A" | "AAAA" | "CNAME",
+): Promise<Array<{ type: number; data: string }>> {
+  const response = await fetch(
+    `${DOH_ENDPOINT}?name=${encodeURIComponent(hostname)}&type=${type}`,
+    {
+      headers: { Accept: "application/dns-json" },
+      redirect: "manual",
+    },
+  );
 
   if (!response.ok) {
     throw new Error(`DoH lookup failed (${response.status})`);
@@ -169,7 +199,9 @@ async function dohResolve(hostname: string, type: 'A' | 'AAAA' | 'CNAME'): Promi
   };
 
   return (json.Answer ?? [])
-    .filter((answer): answer is { type: number; data: string } => typeof answer.type === 'number' && typeof answer.data === 'string');
+    .filter((answer): answer is { type: number; data: string } =>
+      typeof answer.type === "number" && typeof answer.data === "string"
+    );
 }
 
 async function resolveRemoteHostnameIPs(hostname: string): Promise<string[]> {
@@ -178,7 +210,7 @@ async function resolveRemoteHostnameIPs(hostname: string): Promise<string[]> {
 
   async function walk(name: string, depth: number): Promise<void> {
     if (depth > 10) {
-      throw new Error('DNS resolution exceeded max depth');
+      throw new Error("DNS resolution exceeded max depth");
     }
 
     const normalized = normalizeHostname(name);
@@ -186,9 +218,9 @@ async function resolveRemoteHostnameIPs(hostname: string): Promise<string[]> {
     visited.add(normalized);
 
     const [aAnswers, aaaaAnswers, cnameAnswers] = await Promise.all([
-      dohResolve(normalized, 'A'),
-      dohResolve(normalized, 'AAAA'),
-      dohResolve(normalized, 'CNAME'),
+      dohResolve(normalized, "A"),
+      dohResolve(normalized, "AAAA"),
+      dohResolve(normalized, "CNAME"),
     ]);
 
     // type 1 = A record, type 28 = AAAA record
@@ -197,7 +229,6 @@ async function resolveRemoteHostnameIPs(hostname: string): Promise<string[]> {
     }
 
     for (const answer of cnameAnswers) {
-       
       if (answer.type === 5) await walk(answer.data, depth + 1);
     }
   }
@@ -226,58 +257,91 @@ export async function assertSafeRemoteUrlResolved(url: string): Promise<void> {
   }
 }
 
-const RSA_ALGORITHM = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' };
+const RSA_ALGORITHM = { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" };
 
 function bufferToBase64(buffer: ArrayBuffer): string {
   return btoa(String.fromCharCode(...new Uint8Array(buffer)));
 }
 
 function wrapPem(label: string, base64: string): string {
-  const lines = base64.match(/.{1,64}/g)?.join('\n') ?? base64;
+  const lines = base64.match(/.{1,64}/g)?.join("\n") ?? base64;
   return `-----BEGIN ${label}-----\n${lines}\n-----END ${label}-----`;
 }
 
-export async function generateKeyPair(): Promise<{ publicKeyPem: string; privateKeyPem: string }> {
+export async function generateKeyPair(): Promise<
+  { publicKeyPem: string; privateKeyPem: string }
+> {
   const keyPair = await crypto.subtle.generateKey(
-    { ...RSA_ALGORITHM, modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]) },
+    {
+      ...RSA_ALGORITHM,
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+    },
     true,
-    ['sign', 'verify']
+    ["sign", "verify"],
   );
 
   const [publicKey, privateKey] = await Promise.all([
-    crypto.subtle.exportKey('spki', keyPair.publicKey),
-    crypto.subtle.exportKey('pkcs8', keyPair.privateKey),
+    crypto.subtle.exportKey("spki", keyPair.publicKey),
+    crypto.subtle.exportKey("pkcs8", keyPair.privateKey),
   ]);
 
   return {
-    publicKeyPem: wrapPem('PUBLIC KEY', bufferToBase64(publicKey)),
-    privateKeyPem: wrapPem('PRIVATE KEY', bufferToBase64(privateKey)),
+    publicKeyPem: wrapPem("PUBLIC KEY", bufferToBase64(publicKey)),
+    privateKeyPem: wrapPem("PRIVATE KEY", bufferToBase64(privateKey)),
   };
 }
 
-export async function signRequest(privateKeyPem: string, keyId: string, method: string, url: string, body?: string): Promise<Record<string, string>> {
+export async function signRequest(
+  privateKeyPem: string,
+  keyId: string,
+  method: string,
+  url: string,
+  body?: string,
+): Promise<Record<string, string>> {
   const urlObj = new URL(url);
   const date = new Date().toUTCString();
   const digest = body
-    ? `SHA-256=${bufferToBase64(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body)))}`
+    ? `SHA-256=${
+      bufferToBase64(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body)),
+      )
+    }`
     : undefined;
 
-  const signedHeaders = digest ? '(request-target) host date digest' : '(request-target) host date';
-  let signatureString = `(request-target): ${method.toLowerCase()} ${urlObj.pathname}\nhost: ${urlObj.host}\ndate: ${date}`;
+  const signedHeaders = digest
+    ? "(request-target) host date digest"
+    : "(request-target) host date";
+  let signatureString =
+    `(request-target): ${method.toLowerCase()} ${urlObj.pathname}\nhost: ${urlObj.host}\ndate: ${date}`;
   if (digest) signatureString += `\ndigest: ${digest}`;
 
-  const pemContents = privateKeyPem.replace(/-----[^-]+-----/g, '').replace(/\s/g, '');
+  const pemContents = privateKeyPem.replace(/-----[^-]+-----/g, "").replace(
+    /\s/g,
+    "",
+  );
   const binaryKey = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
-  const cryptoKey = await crypto.subtle.importKey('pkcs8', binaryKey, RSA_ALGORITHM, false, ['sign']);
-  const signatureBuffer = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, new TextEncoder().encode(signatureString));
+  const cryptoKey = await crypto.subtle.importKey(
+    "pkcs8",
+    binaryKey,
+    RSA_ALGORITHM,
+    false,
+    ["sign"],
+  );
+  const signatureBuffer = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    cryptoKey,
+    new TextEncoder().encode(signatureString),
+  );
   const signature = bufferToBase64(signatureBuffer);
 
   const headers: Record<string, string> = {
-    'Date': date,
-    'Host': urlObj.host,
-    'Signature': `keyId="${keyId}",algorithm="rsa-sha256",headers="${signedHeaders}",signature="${signature}"`,
+    "Date": date,
+    "Host": urlObj.host,
+    "Signature":
+      `keyId="${keyId}",algorithm="rsa-sha256",headers="${signedHeaders}",signature="${signature}"`,
   };
-  if (digest) headers['Digest'] = digest;
+  if (digest) headers["Digest"] = digest;
 
   return headers;
 }
@@ -286,7 +350,7 @@ const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
 
 export async function fetchWithTimeout(
   url: string,
-  options: RequestInit & { timeout?: number; skipSafetyCheck?: boolean } = {}
+  options: RequestInit & { timeout?: number; skipSafetyCheck?: boolean } = {},
 ): Promise<Response> {
   const {
     timeout = DEFAULT_FETCH_TIMEOUT_MS,
@@ -305,16 +369,22 @@ export async function fetchWithTimeout(
     const response = await fetch(url, {
       ...fetchOptions,
       signal: controller.signal,
-      redirect: 'manual', // Prevent redirect-based SSRF bypassing DNS safety checks
+      redirect: "manual", // Prevent redirect-based SSRF bypassing DNS safety checks
     });
     // Reject redirects to prevent SSRF via open redirects on remote servers
     if (response.status >= 300 && response.status < 400) {
-      throw new Error(`Redirect not allowed from remote URL: ${url} -> ${response.headers.get('location')}`);
+      throw new Error(
+        `Redirect not allowed from remote URL: ${url} -> ${
+          response.headers.get("location")
+        }`,
+      );
     }
     return response;
   } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error(`Request timed out after ${timeout / 1000} seconds: ${url}`);
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        `Request timed out after ${timeout / 1000} seconds: ${url}`,
+      );
     }
     throw err;
   } finally {

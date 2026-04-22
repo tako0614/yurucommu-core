@@ -1,0 +1,88 @@
+name: yurucommu
+version: "1.0.0"
+
+publish:
+  - name: yurucommu-ui
+    publisher: web
+    type: UiSurface
+    path: /
+    title: Yurucommu
+    spec: {}
+  - name: yurucommu-oauth
+    publisher: takos
+    type: oauth-client
+    spec:
+      clientName: Yurucommu
+      redirectUris:
+        - /api/auth/callback/takos
+      scopes:
+        - openid
+        - profile
+        - email
+        - spaces:read
+        - repos:read
+
+compute:
+  web:
+    build:
+      fromWorkflow:
+        path: .takos/workflows/deploy.yml
+        job: build-web
+        artifact: web
+        artifactPath: dist/takos-worker.js
+    readiness: /readyz
+    env:
+      DELIVERY_QUEUE_NAME: yurucommu-delivery
+      DELIVERY_DLQ_NAME: yurucommu-delivery-dlq
+      YURUCOMMU_STRICT_READINESS: "1"
+    consume:
+      - publication: yurucommu-ui
+        env:
+          url: APP_URL
+      - publication: yurucommu-oauth
+        env:
+          clientId: TAKOS_CLIENT_ID
+          clientSecret: TAKOS_CLIENT_SECRET
+          issuer: TAKOS_URL
+    triggers:
+      queues:
+        - binding: DELIVERY_QUEUE
+          deadLetterQueue: DELIVERY_DLQ
+          maxBatchSize: 10
+          maxRetries: 3
+        - binding: DELIVERY_DLQ
+          maxBatchSize: 10
+          maxWaitTimeMs: 60000
+          maxRetries: 1
+
+resources:
+  yurucommu-db:
+    type: sql
+    migrations: migrations
+    bindings:
+      web: DB
+  yurucommu-media:
+    type: object-store
+    bindings:
+      web: MEDIA
+  yurucommu-kv:
+    type: key-value
+    bindings:
+      web: KV
+  yurucommu-delivery:
+    type: queue
+    bindings:
+      web: DELIVERY_QUEUE
+  yurucommu-delivery-dlq:
+    type: queue
+    bindings:
+      web: DELIVERY_DLQ
+  yurucommu-encryption-key:
+    type: secret
+    generate: true
+    bind: ENCRYPTION_KEY
+    to: web
+
+routes:
+  - target: web
+    path: /

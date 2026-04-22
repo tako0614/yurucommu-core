@@ -7,9 +7,10 @@
  *      against KV eventual-consistency delays.
  */
 
-const ALPHANUMERIC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-const PKCE_CHARSET = ALPHANUMERIC + '-._~';
-const OAUTH_KV_PREFIX = 'oauth:';
+const ALPHANUMERIC =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const PKCE_CHARSET = ALPHANUMERIC + "-._~";
+const OAUTH_KV_PREFIX = "oauth:";
 const STATE_TTL_SECONDS = 600;
 const STATE_TTL_MS = STATE_TTL_SECONDS * 1000;
 
@@ -19,7 +20,7 @@ const STATE_TTL_MS = STATE_TTL_SECONDS * 1000;
 function randomString(length: number, alphabet: string): string {
   const bytes = new Uint8Array(length);
   crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
 }
 
 export function generateId(length = 21): string {
@@ -46,7 +47,7 @@ export function generateNonce(): string {
 export async function generateCodeChallenge(verifier: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(verifier);
-  const digest = await crypto.subtle.digest('SHA-256', data);
+  const digest = await crypto.subtle.digest("SHA-256", data);
   return base64UrlEncode(digest);
 }
 
@@ -54,29 +55,31 @@ export async function generateCodeChallenge(verifier: string): Promise<string> {
  * Base64-URL-encode an ArrayBuffer (RFC 4648 section 5, no padding).
  * Uses chunked conversion to avoid stack overflow on large buffers.
  */
-export function base64UrlEncode(buffer: ArrayBuffer | null | undefined): string {
+export function base64UrlEncode(
+  buffer: ArrayBuffer | null | undefined,
+): string {
   if (buffer == null) {
-    throw new Error('base64UrlEncode: buffer cannot be null or undefined');
+    throw new Error("base64UrlEncode: buffer cannot be null or undefined");
   }
   if (!(buffer instanceof ArrayBuffer)) {
-    throw new Error('base64UrlEncode: buffer must be an ArrayBuffer');
+    throw new Error("base64UrlEncode: buffer must be an ArrayBuffer");
   }
   if (buffer.byteLength === 0) {
-    return '';
+    return "";
   }
 
   const bytes = new Uint8Array(buffer);
   const CHUNK_SIZE = 8192;
-  let binary = '';
+  let binary = "";
   for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
     const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.length));
     binary += String.fromCharCode.apply(null, Array.from(chunk));
   }
 
   return btoa(binary)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 export interface OAuthState {
@@ -98,7 +101,7 @@ function oauthKey(state: string): string {
 export async function saveOAuthState(
   kv: KVNamespace,
   state: string,
-  data: OAuthState
+  data: OAuthState,
 ): Promise<void> {
   await kv.put(oauthKey(state), JSON.stringify(data), {
     expirationTtl: STATE_TTL_SECONDS,
@@ -107,7 +110,7 @@ export async function saveOAuthState(
 
 export async function getOAuthState(
   kv: KVNamespace,
-  state: string
+  state: string,
 ): Promise<OAuthState | null> {
   const stored = await kv.get(oauthKey(state));
   if (!stored) return null;
@@ -125,7 +128,7 @@ export async function getOAuthState(
 
 export async function deleteOAuthState(
   kv: KVNamespace,
-  state: string
+  state: string,
 ): Promise<void> {
   await kv.delete(oauthKey(state));
 }

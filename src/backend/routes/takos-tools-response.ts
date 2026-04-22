@@ -5,10 +5,14 @@
  * input validation, and common data operations.
  */
 
-import { eq, and, inArray } from 'drizzle-orm';
-import type { Database } from '../../db/index.ts';
-import { actors, follows, likes, bookmarks } from '../../db/index.ts';
-import { formatUsername, parseLimit, safeJsonParse } from '../federation-helpers.ts';
+import { and, eq, inArray } from "drizzle-orm";
+import type { Database } from "../../db/index.ts";
+import { actors, bookmarks, follows, likes } from "../../db/index.ts";
+import {
+  formatUsername,
+  parseLimit,
+  safeJsonParse,
+} from "../federation-helpers.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,13 +37,17 @@ export type Input = Record<string, unknown>;
 // Input helpers
 // ---------------------------------------------------------------------------
 
-export function toolLimit(value: unknown, fallback: number, max: number): number {
+export function toolLimit(
+  value: unknown,
+  fallback: number,
+  max: number,
+): number {
   const normalized = value == null ? undefined : String(value);
   return parseLimit(normalized, fallback, max);
 }
 
 export function requireString(input: Input, key: string): string {
-  return String(input[key] || '').trim();
+  return String(input[key] || "").trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -47,7 +55,7 @@ export function requireString(input: Input, key: string): string {
 // ---------------------------------------------------------------------------
 
 export function errAuth(): ToolResponse {
-  return { success: false, error: 'Authentication required' };
+  return { success: false, error: "Authentication required" };
 }
 
 export function errRequired(field: string): ToolResponse {
@@ -123,7 +131,12 @@ export async function togglePostRelation(
       .onConflictDoNothing();
   } else {
     await db.delete(table)
-      .where(and(eq(table.actorApId, actorApIdVal), eq(table.objectApId, objectApIdVal)));
+      .where(
+        and(
+          eq(table.actorApId, actorApIdVal),
+          eq(table.objectApId, objectApIdVal),
+        ),
+      );
   }
 }
 
@@ -133,19 +146,24 @@ export async function togglePostRelation(
 export async function fetchFollowList(
   db: Database,
   targetApId: string,
-  direction: 'followers' | 'following',
+  direction: "followers" | "following",
   limit: number,
 ): Promise<ActorSummary[]> {
-  const isFollowers = direction === 'followers';
+  const isFollowers = direction === "followers";
   const followRows = await db.select()
     .from(follows)
     .where(and(
-      eq(isFollowers ? follows.followingApId : follows.followerApId, targetApId),
-      eq(follows.status, 'accepted'),
+      eq(
+        isFollowers ? follows.followingApId : follows.followerApId,
+        targetApId,
+      ),
+      eq(follows.status, "accepted"),
     ))
     .limit(limit);
 
-  const relatedIds = followRows.map((f) => isFollowers ? f.followerApId : f.followingApId);
+  const relatedIds = followRows.map((f) =>
+    isFollowers ? f.followerApId : f.followingApId
+  );
   if (relatedIds.length === 0) return [];
 
   return db.select(ACTOR_SUMMARY_COLUMNS)

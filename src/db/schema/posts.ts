@@ -3,11 +3,11 @@
  */
 
 import {
+  index,
+  integer,
+  primaryKey,
   sqliteTable,
   text,
-  integer,
-  index,
-  primaryKey,
 } from "drizzle-orm/sqlite-core";
 import { nowIso } from "./date-utils.ts";
 
@@ -52,7 +52,11 @@ export const objects = sqliteTable(
     index("objects_deleted_at_idx").on(t.deletedAt),
     index("objects_attr_published_idx").on(t.attributedTo, t.published),
     index("objects_vis_published_idx").on(t.visibility, t.published),
-    index("objects_type_vis_published_idx").on(t.type, t.visibility, t.published),
+    index("objects_type_vis_published_idx").on(
+      t.type,
+      t.visibility,
+      t.published,
+    ),
     index("objects_conversation_idx").on(t.conversation),
     index("objects_comm_published_idx").on(t.communityApId, t.published),
     index("objects_is_local_idx").on(t.isLocal),
@@ -130,6 +134,9 @@ export const objectRecipients = sqliteTable(
   },
   (t) => [
     primaryKey({ columns: [t.objectApId, t.recipientApId] }),
-    index("object_recipients_recipient_created_idx").on(t.recipientApId, t.createdAt),
+    index("object_recipients_recipient_created_idx").on(
+      t.recipientApId,
+      t.createdAt,
+    ),
   ],
 );

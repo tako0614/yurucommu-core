@@ -1,182 +1,240 @@
 <!DOCTYPE html>
 <html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cloudflare設定 - Yurucommu</title>
-  <meta name="description" content="Cloudflare Workers、D1、R2のセットアップ方法">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="../styles.css">
-</head>
-<body>
-  <header class="header">
-    <div class="header-inner">
-      <a href="/" class="logo">Yurucommu</a>
-      <div class="header-links">
-        <a href="/help/" class="header-link active">Docs</a>
-        <a href="/specs/" class="header-link">Specs</a>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloudflare設定 - Yurucommu</title>
+    <meta
+      name="description"
+      content="Cloudflare Workers、D1、R2のセットアップ方法"
+    >
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body>
+    <header class="header">
+      <div class="header-inner">
+        <a href="/" class="logo">Yurucommu</a>
+        <div class="header-links">
+          <a href="/help/" class="header-link active">Docs</a>
+          <a href="/specs/" class="header-link">Specs</a>
+        </div>
+        <a href="https://github.com/tako0614/yurucommu" class="header-cta">
+          GitHub
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path
+              d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"
+            />
+          </svg>
+        </a>
       </div>
-      <a href="https://github.com/tako0614/yurucommu" class="header-cta">
-        GitHub
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
-        </svg>
-      </a>
-    </div>
-  </header>
+    </header>
 
-  <div class="docs-layout">
-    <aside class="docs-sidebar">
-      <p class="docs-sidebar-title">はじめに</p>
-      <ul class="docs-sidebar-nav">
-        <li><a href="/help/">概要</a></li>
-        <li><a href="/help/getting-started.html">クイックスタート</a></li>
-        <li><a href="/help/requirements.html">必要な環境</a></li>
-      </ul>
-
-      <div class="docs-sidebar-section">
-        <p class="docs-sidebar-title">セットアップ</p>
+    <div class="docs-layout">
+      <aside class="docs-sidebar">
+        <p class="docs-sidebar-title">はじめに</p>
         <ul class="docs-sidebar-nav">
-          <li><a href="/help/cloudflare-setup.html" class="active">Cloudflare設定</a></li>
-          <li><a href="/help/deployment.html">デプロイ</a></li>
-          <li><a href="/help/configuration.html">環境変数</a></li>
-          <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
+          <li><a href="/help/">概要</a></li>
+          <li><a href="/help/getting-started.html">クイックスタート</a></li>
+          <li><a href="/help/requirements.html">必要な環境</a></li>
         </ul>
-      </div>
 
-      <div class="docs-sidebar-section">
-        <p class="docs-sidebar-title">使い方</p>
-        <ul class="docs-sidebar-nav">
-          <li><a href="/help/first-post.html">最初の投稿</a></li>
-          <li><a href="/help/following.html">フォローする</a></li>
-          <li><a href="/help/communities.html">コミュニティ</a></li>
-        </ul>
-      </div>
+        <div class="docs-sidebar-section">
+          <p class="docs-sidebar-title">セットアップ</p>
+          <ul class="docs-sidebar-nav">
+            <li>
+              <a href="/help/cloudflare-setup.html" class="active"
+              >Cloudflare設定</a>
+            </li>
+            <li><a href="/help/deployment.html">デプロイ</a></li>
+            <li><a href="/help/configuration.html">環境変数</a></li>
+            <li><a href="/help/custom-domain.html">カスタムドメイン</a></li>
+          </ul>
+        </div>
 
-      <div class="docs-sidebar-section">
-        <p class="docs-sidebar-title">リファレンス</p>
-        <ul class="docs-sidebar-nav">
-          <li><a href="/help/api.html">API</a></li>
-          <li><a href="/help/database.html">データベース</a></li>
-          <li><a href="/specs/">ActivityPub拡張</a></li>
-        </ul>
-      </div>
-    </aside>
+        <div class="docs-sidebar-section">
+          <p class="docs-sidebar-title">使い方</p>
+          <ul class="docs-sidebar-nav">
+            <li><a href="/help/first-post.html">最初の投稿</a></li>
+            <li><a href="/help/following.html">フォローする</a></li>
+            <li><a href="/help/communities.html">コミュニティ</a></li>
+          </ul>
+        </div>
 
-    <main class="docs-content">
-      <h1>Cloudflare設定</h1>
-      <p class="lead">
-        Cloudflare Workers、D1データベース、R2ストレージの詳細なセットアップ方法です。
-      </p>
+        <div class="docs-sidebar-section">
+          <p class="docs-sidebar-title">リファレンス</p>
+          <ul class="docs-sidebar-nav">
+            <li><a href="/help/api.html">API</a></li>
+            <li><a href="/help/database.html">データベース</a></li>
+            <li><a href="/specs/">ActivityPub拡張</a></li>
+          </ul>
+        </div>
+      </aside>
 
-      <h2>Cloudflareアカウントの作成</h2>
-      <ol>
-        <li><a href="https://dash.cloudflare.com/sign-up" target="_blank">Cloudflare</a>にアクセス</li>
-        <li>メールアドレスとパスワードを入力してアカウント作成</li>
-        <li>メール認証を完了</li>
-      </ol>
+      <main class="docs-content">
+        <h1>Cloudflare設定</h1>
+        <p class="lead">
+          Cloudflare
+          Workers、D1データベース、R2ストレージの詳細なセットアップ方法です。
+        </p>
 
-      <h2>Wrangler CLIのインストール</h2>
-      <p>Wranglerは、Cloudflare Workers/D1/R2を管理するためのCLIツールです。</p>
-      <pre><code># グローバルインストール（推奨）
-npm install -g wrangler
+        <h2>Cloudflareアカウントの作成</h2>
+        <ol>
+          <li>
+            <a href="https://dash.cloudflare.com/sign-up" target="_blank"
+            >Cloudflare</a>にアクセス
+          </li>
+          <li>メールアドレスとパスワードを入力してアカウント作成</li>
+          <li>メール認証を完了</li>
+        </ol>
 
-# またはプロジェクト内で使用
-npx wrangler</code></pre>
+        <h2>Wrangler CLIの利用</h2>
+        <p>
+          Wranglerは、Cloudflare Workers/D1/R2を管理するためのCLIツールです。
+        </p>
+        <pre><code>deno run -A npm:wrangler --version</code></pre>
 
-      <h3>ログイン</h3>
-      <pre><code>wrangler login</code></pre>
-      <p>ブラウザが開くので、Cloudflareアカウントで認証します。</p>
+        <h3>ログイン</h3>
+        <pre><code>deno run -A npm:wrangler login</code></pre>
+        <p>ブラウザが開くので、Cloudflareアカウントで認証します。</p>
 
-      <h2>D1データベースの作成</h2>
-      <p>D1はCloudflareのサーバーレスSQLiteデータベースです。</p>
+        <h2>D1データベースの作成</h2>
+        <p>D1はCloudflareのサーバーレスSQLiteデータベースです。</p>
 
-      <h3>データベース作成</h3>
-      <pre><code>wrangler d1 create yurucommu-db</code></pre>
+        <h3>データベース作成</h3>
+        <pre><code>deno run -A npm:wrangler d1 create yurucommu-db</code></pre>
 
-      <p>出力例：</p>
-      <pre><code>✅ Successfully created DB 'yurucommu-db'
+        <p>出力例：</p>
+        <pre><code>✅ Successfully created DB 'yurucommu-db'
 
 [[d1_databases]]
 binding = "DB"
 database_name = "yurucommu-db"
 database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"</code></pre>
 
-      <h3>wrangler.tomlへの設定</h3>
-      <p>表示された設定を <code>wrangler.toml</code> にコピーします：</p>
-      <pre><code>[[d1_databases]]
+        <h3>wrangler.tomlへの設定</h3>
+        <p>表示された設定を <code>wrangler.toml</code> にコピーします：</p>
+        <pre><code>[[d1_databases]]
 binding = "DB"
 database_name = "yurucommu-db"
 database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 migrations_dir = "migrations"</code></pre>
 
-      <h3>マイグレーション実行</h3>
-      <pre><code># ローカルDBでテスト
-wrangler d1 migrations apply yurucommu-db --local
+        <h3>マイグレーション実行</h3>
+        <pre><code># ローカルDBでテスト
+deno run -A npm:wrangler d1 migrations apply yurucommu-db --local
 
 # 本番DBに適用
-wrangler d1 migrations apply yurucommu-db --remote</code></pre>
+deno run -A npm:wrangler d1 migrations apply yurucommu-db --remote</code></pre>
 
-      <h2>R2バケットの作成</h2>
-      <p>R2はCloudflareのオブジェクトストレージ（S3互換）です。画像や動画の保存に使用します。</p>
+        <h2>R2バケットの作成</h2>
+        <p>
+          R2はCloudflareのオブジェクトストレージ（S3互換）です。画像や動画の保存に使用します。
+        </p>
 
-      <h3>バケット作成</h3>
-      <pre><code>wrangler r2 bucket create yurucommu-media</code></pre>
+        <h3>バケット作成</h3>
+        <pre><code>deno run -A npm:wrangler r2 bucket create yurucommu-media</code></pre>
 
-      <h3>wrangler.tomlへの設定</h3>
-      <pre><code>[[r2_buckets]]
+        <h3>wrangler.tomlへの設定</h3>
+        <pre><code>[[r2_buckets]]
 binding = "MEDIA"
 bucket_name = "yurucommu-media"</code></pre>
 
-      <h2>最終的なwrangler.toml</h2>
-      <pre><code>name = "yurucommu"
+        <h2>最終的なwrangler.toml</h2>
+        <pre><code>name = "yurucommu"
 main = "src/backend/index.ts"
-compatibility_date = "2024-01-01"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
 [vars]
 APP_URL = "https://your-domain.com"
-AUTH_MODE = "password"
+TAKOS_URL = "https://takos.example.com"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "yurucommu-db"
-database_id = "your-database-id"
+database_id = "YOUR_DATABASE_ID"
 migrations_dir = "migrations"
+
+[[queues.producers]]
+queue = "yurucommu-delivery"
+binding = "DELIVERY_QUEUE"
+
+[[queues.consumers]]
+queue = "yurucommu-delivery"
+max_batch_size = 10
+max_batch_timeout = 1
+max_retries = 3
+
+# Dead letter queue
+[[queues.producers]]
+queue = "yurucommu-delivery-dlq"
+binding = "DELIVERY_DLQ"
+
+[[queues.consumers]]
+queue = "yurucommu-delivery-dlq"
+max_batch_size = 10
+max_batch_timeout = 60
+max_retries = 1
 
 [[r2_buckets]]
 binding = "MEDIA"
 bucket_name = "yurucommu-media"
 
-[site]
-bucket = "./dist"</code></pre>
+[[kv_namespaces]]
+binding = "KV"
+id = "YOUR_KV_NAMESPACE_ID"
 
-      <h2>トラブルシューティング</h2>
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+run_worker_first = true
+not_found_handling = "single-page-application"
 
-      <h3>「認証エラー」が出る場合</h3>
-      <pre><code>wrangler logout
-wrangler login</code></pre>
+[[routes]]
+pattern = "your-domain.com/*"
+zone_name = "your-domain.com"</code></pre>
 
-      <h3>D1のクエリを確認したい場合</h3>
-      <pre><code>wrangler d1 execute yurucommu-db --remote --command "SELECT * FROM actors LIMIT 5"</code></pre>
+        <h2>トラブルシューティング</h2>
 
-      <h3>R2の内容を確認したい場合</h3>
-      <p>Cloudflareダッシュボード &gt; R2 &gt; yurucommu-media で確認できます。</p>
-    </main>
-  </div>
+        <h3>「認証エラー」が出る場合</h3>
+        <pre><code>deno run -A npm:wrangler logout
+deno run -A npm:wrangler login</code></pre>
 
-  <footer class="footer">
-    <div class="footer-inner">
-      <div class="footer-logo">Yurucommu</div>
-      <div class="footer-links">
-        <a href="/" class="footer-link">ホーム</a>
-        <a href="/help/" class="footer-link">Docs</a>
-        <a href="/specs/" class="footer-link">Specs</a>
-        <a href="https://github.com/tako0614/yurucommu" class="footer-link">GitHub</a>
-      </div>
-      <p class="footer-copy">&copy; 2026 Yurucommu. AGPL v3.</p>
+        <h3>D1のクエリを確認したい場合</h3>
+        <pre><code>deno run -A npm:wrangler d1 execute yurucommu-db --remote --command "SELECT * FROM actors LIMIT 5"</code></pre>
+
+        <h3>R2の内容を確認したい場合</h3>
+        <p>
+          Cloudflareダッシュボード &gt; R2 &gt; yurucommu-media で確認できます。
+        </p>
+      </main>
     </div>
-  </footer>
-</body>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div class="footer-logo">Yurucommu</div>
+        <div class="footer-links">
+          <a href="/" class="footer-link">ホーム</a>
+          <a href="/help/" class="footer-link">Docs</a>
+          <a href="/specs/" class="footer-link">Specs</a>
+          <a href="https://github.com/tako0614/yurucommu" class="footer-link"
+          >GitHub</a>
+        </div>
+        <p class="footer-copy">&copy; 2026 Yurucommu. AGPL v3.</p>
+      </div>
+    </footer>
+  </body>
 </html>

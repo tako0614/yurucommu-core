@@ -1,9 +1,18 @@
-import { Show } from 'solid-js';
-import { UserAvatar } from '../../UserAvatar.tsx';
-import { CloseIcon, MutedIcon, TrashIcon, UnmutedIcon } from './StoryViewerIcons.tsx';
+import { Show } from "solid-js";
+import { UserAvatar } from "../../UserAvatar.tsx";
+import {
+  CloseIcon,
+  MutedIcon,
+  TrashIcon,
+  UnmutedIcon,
+} from "./StoryViewerIcons.tsx";
 
 interface StoryViewerHeaderProps {
-  actor: { icon_url: string | null; name: string | null; preferred_username: string };
+  actor: {
+    icon_url: string | null;
+    name: string | null;
+    preferred_username: string;
+  };
   timeLabel: string;
   isVideo: boolean;
   isMuted: boolean;

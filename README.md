@@ -1,27 +1,26 @@
 # Yurucommu
 
-Japanese: [README.ja.md](README.ja.md)
+Yurucommu はセルフホスト型・一人用の ActivityPub プロダクトです。
 
-Yurucommu is a self-hosted, single-user ActivityPub social product.
+自分のドメイン、自分のデータ、小さなコミュニティ単位のつながりを前提に設計されています。
 
-It is designed around personal domains, self-owned data, and community-sized relationships rather than algorithmic feeds.
+この repo 単体で、runtime model、ローカル開発、deploy
+の大枠が追える状態を保つことを目指します。
 
-The project aims to keep the repo self-contained enough that a contributor can understand the runtime model, local setup, and deployment shape from this repository alone.
+## 特徴
 
-## Highlights
+- セルフホスト前提で、Cloudflare ベースの低コスト運用を目指す
+- ActivityPub 互換で、Mastodon や Misskey 系との相互接続を意識する
+- アルゴリズムよりも小さなコミュニティや趣味単位のつながりを重視する
 
-- Self-hosted by default, with a low-cost Cloudflare-oriented runtime model
-- ActivityPub-compatible and intended to interoperate with Mastodon and Misskey-style servers
-- Focused on small communities and interest-based connections
+## 目指す方向
 
-## Design Direction
+- recommendation feed より human-scale な関係性
+- mass-audience timeline より community-sized な場
+- identity、domain、data を自分で持てる self-hosted 性
+- ActivityPub による standards-based federation
 
-- human-scale relationships over recommendation feeds
-- community-sized social spaces over mass-audience timelines
-- self-hosted control over identity, domain, and data
-- standards-based federation through ActivityPub
-
-## Tech Stack
+## 技術スタック
 
 - Runtime: Cloudflare Workers
 - Database: Cloudflare D1
@@ -32,14 +31,15 @@ The project aims to keep the repo self-contained enough that a contributor can u
 
 ## Repository Map
 
-- `src/backend`: Hono routes, middleware, runtime code, and backend tests
-- `src/db`: schema and database-related code
-- `src/plugin`: reusable plugin surface
-- `src/runtime`: runtime helpers
-- `web/`: Vite-based web UI
-- `site/`: static project website assets
-- `migrations/`: database migrations
-- `wrangler.toml`, `wrangler.local.toml`, `wrangler.site.toml`: deployment and environment-specific config
+- `src/backend`: Hono route、middleware、runtime code、backend test
+- `src/db`: schema と database 関連コード
+- `src/plugin`: 再利用可能な plugin surface
+- `src/runtime`: runtime helper
+- `web/`: Vite ベースの web UI
+- `site/`: プロジェクトサイト用の静的ファイル
+- `migrations/`: database migration
+- `wrangler.toml`、`wrangler.tenant2.toml`、`wrangler.local.toml`、`wrangler.site.toml`:
+  deploy / environment 別設定
 
 ## Quickstart
 
@@ -48,16 +48,17 @@ cd yurucommu
 deno task dev
 ```
 
-This starts the Cloudflare Worker-oriented local development flow.
+これは `wrangler.local.toml` を使った Cloudflare Worker
+前提のローカル開発フローを起動します。
 
-For web UI development:
+web UI の開発:
 
 ```bash
 cd yurucommu
 deno task dev:web
 ```
 
-For tests and linting:
+テスト・lint:
 
 ```bash
 cd yurucommu
@@ -65,7 +66,7 @@ deno task test
 deno task lint
 ```
 
-Database helpers:
+database helper:
 
 ```bash
 cd yurucommu
@@ -76,33 +77,87 @@ deno task db:studio
 
 ## Deploy
 
-Main application:
+アプリ本体:
 
 ```bash
 cd yurucommu
 deno task deploy
 ```
 
-Static site:
+現在 commit されている `wrangler.toml` は `test.yurucommu.com` 向けの本体 Worker
+設定です。別の production hostname で運用する場合は、`APP_URL` と
+`[[routes]].pattern` をその canonical hostname に合わせてから deploy します。
+`wrangler.tenant2.toml` は `test2.yurucommu.com` 向けの別 tenant/test 設定です。
+`.env.example` の `APP_URL=https://app.yurucommu.com` は self-host
+用の例であり、 checked-in `wrangler*.toml` の実デプロイ先とは別です。
+
+Takos 向け experimental bundle:
+
+```bash
+cd yurucommu
+deno task build:takos-worker
+```
+
+`.takos/app.yml` は `dist/takos-worker.js` を deploy artifact として扱います。
+この bundle は web UI を worker に内包するため、Takos 側で `ASSETS` が無くても
+画面は配信できます。`/healthz` は bootstrap 用の liveness probe で、binding
+欠落がある場合も `degraded` を 200 で返します。Takos manifest readiness は初回
+resource bootstrap が詰まらないよう `/healthz` を使います。runtime binding の
+strict 確認には `/readyz` を使います。 `YURUCOMMU_STRICT_READINESS=1`
+を設定すると `/healthz` も binding 欠落時に 503 を返します。
+
+ただし canonical ActivityPub identity を固定する production では `APP_URL` を
+deploy env / manifest override で明示してください。runtime binding は
+`.takos/app.yml` の `resources` で `DB` / `MEDIA` / `KV` / `DELIVERY_QUEUE` /
+`DELIVERY_DLQ` として宣言済みです。queue consumer は
+`.takos/app.yml` の `compute.web.triggers.queues` で `DELIVERY_QUEUE` を primary
+consumer、`DELIVERY_DLQ` を dead-letter queue かつ DLQ reconciliation consumer
+として宣言します。manifest は
+`DELIVERY_QUEUE_NAME=yurucommu-delivery` と
+`DELIVERY_DLQ_NAME=yurucommu-delivery-dlq` も明示し、Takos resource 名と runtime
+dispatch 名を一致させます。
+
+Takos deploy の目安:
+
+```bash
+cd yurucommu
+
+# 1. manifest resources / bindings / queue consumers を含めて deploy する
+takos deploy --group yurucommu
+
+# 2. D1 migration を適用する
+deno task takos:migrate
+
+# 3. migration 後の strict readiness を確認し、必要なら再 deploy する
+takos deploy --group yurucommu
+```
+
+queue 名を変えた環境では `DELIVERY_QUEUE_NAME` / `DELIVERY_DLQ_NAME` を worker
+env に設定してください。未設定時は `yurucommu-delivery` /
+`yurucommu-delivery-dlq` を consumer queue 名として扱います。
+
+静的サイト:
 
 ```bash
 cd yurucommu
 deno run -A npm:wrangler deploy --config wrangler.site.toml
 ```
 
-## Configuration Notes
+## 設定メモ
 
-- Use `.env.example` as the starting point for local configuration
-- Keep tracked config safe for OSS use; do not commit secrets or production-only identifiers
-- If you change public behavior, update `README.md` and related examples along with the code
+- ローカル設定は `.env.example` を起点にする
+- tracked config は OSS に安全な値だけを置き、secret や本番専用 ID は commit
+  しない
+- public behavior を変えたら、コードと一緒に `README.md` や example も更新する
 
-## Documentation Strategy
+## ドキュメント方針
 
-Yurucommu currently uses the repository README and in-repo config examples as its primary public entrypoint.
-If the product grows additional docs, keep this README as the short overview and navigation page.
+現状の Yurucommu は、README と in-repo config example を public entrypoint
+の中心にしています。 今後 docs を増やしても、この README は短い overview と
+navigation の役割を維持します。
 
-## License And Contributing
+## ライセンスと貢献
 
-Licensed under GNU AGPL v3. See `LICENSE`.
+ライセンスは GNU AGPL v3 です。詳細は `LICENSE` を参照してください。
 
-See `CONTRIBUTING.md` and `SECURITY.md` for contribution and security guidance.
+貢献方針は `CONTRIBUTING.md`、脆弱性報告は `SECURITY.md` を参照してください。

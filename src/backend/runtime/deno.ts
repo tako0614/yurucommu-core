@@ -8,167 +8,25 @@
  */
 
 import type {
+  FirstResult,
   IDatabase,
   IObjectStorage,
-  IKeyValueStore,
   IStaticAssets,
-  PreparedStatement,
-  QueryResult,
-  FirstResult,
-  RunResult,
-  StorageObject,
   ListObjectsResult,
   ObjectMetadata,
+  PreparedStatement,
+  QueryResult,
+  RunResult,
   RuntimeEnv,
-} from './types.ts';
-
-const DEFAULT_LIST_LIMIT = 1000;
-const META_SUFFIX = '.meta.json';
-const FALLBACK_MIME = 'application/octet-stream';
-
-const MIME_TYPES: Record<string, string> = {
-  '.html': 'text/html',
-  '.css': 'text/css',
-  '.js': 'application/javascript',
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.svg': 'image/svg+xml',
-  '.webp': 'image/webp',
-  '.ico': 'image/x-icon',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-  '.ttf': 'font/ttf',
-  '.mp4': 'video/mp4',
-  '.webm': 'video/webm',
-};
-
-function getMimeType(ext: string): string {
-  return MIME_TYPES[ext] || FALLBACK_MIME;
-}
-
-function nowSeconds(): number {
-  return Date.now() / 1000;
-}
-
-/** Drain a ReadableStream into a single Uint8Array. */
-async function drainStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-  }
-  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const combined = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    combined.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return combined;
-}
-
-/** Compute expiration timestamp from options. */
-function resolveExpiration(options?: { expiration?: number; expirationTtl?: number }): number | undefined {
-  if (options?.expiration) return options.expiration;
-  if (options?.expirationTtl) return Math.floor(nowSeconds()) + options.expirationTtl;
-  return undefined;
-}
-
-/** Build a paginated list result with truncation. */
-function paginateList<T>(items: T[], limit: number): { items: T[]; complete: boolean; cursor?: string } {
-  const complete = items.length <= limit;
-  return {
-    items: items.slice(0, limit),
-    complete,
-    cursor: complete ? undefined : String(limit),
-  };
-}
-
-/**
- * In-Memory Key-Value Store Adapter (same as Node.js version)
- */
-export class MemoryKV implements IKeyValueStore {
-  private store = new Map<string, { value: string; expiration?: number; metadata?: Record<string, unknown> }>();
-
-  get(key: string, options?: { type?: 'text' }): Promise<string | null>;
-  get<T = unknown>(key: string, options: { type: 'json' }): Promise<T | null>;
-  get(key: string, options: { type: 'arrayBuffer' }): Promise<ArrayBuffer | null>;
-  async get(key: string, options?: { type?: 'text' | 'json' | 'arrayBuffer' }): Promise<string | ArrayBuffer | unknown | null> {
-    const entry = this.store.get(key);
-    if (!entry) return null;
-
-    if (entry.expiration && entry.expiration < nowSeconds()) {
-      this.store.delete(key);
-      return null;
-    }
-
-    const type = options?.type ?? 'text';
-    if (type === 'json') return JSON.parse(entry.value);
-    if (type === 'arrayBuffer') return new TextEncoder().encode(entry.value).buffer;
-    return entry.value;
-  }
-
-  async put(
-    key: string,
-    value: string | ArrayBuffer | ReadableStream,
-    options?: {
-      expirationTtl?: number;
-      expiration?: number;
-      metadata?: Record<string, unknown>;
-    }
-  ): Promise<void> {
-    let strValue: string;
-    if (typeof value === 'string') {
-      strValue = value;
-    } else if (value instanceof ArrayBuffer) {
-      strValue = new TextDecoder().decode(value);
-    } else {
-      strValue = new TextDecoder().decode(await drainStream(value));
-    }
-
-    this.store.set(key, {
-      value: strValue,
-      expiration: resolveExpiration(options),
-      metadata: options?.metadata,
-    });
-  }
-
-  async delete(key: string): Promise<void> {
-    this.store.delete(key);
-  }
-
-  async list(options?: {
-    prefix?: string;
-    limit?: number;
-    cursor?: string;
-  }): Promise<{
-    keys: Array<{ name: string; expiration?: number; metadata?: unknown }>;
-    list_complete: boolean;
-    cursor?: string;
-  }> {
-    const keys: Array<{ name: string; expiration?: number; metadata?: unknown }> = [];
-    const now = nowSeconds();
-
-    for (const [name, entry] of this.store.entries()) {
-      if (entry.expiration && entry.expiration < now) continue;
-      if (options?.prefix && !name.startsWith(options.prefix)) continue;
-
-      keys.push({
-        name,
-        expiration: entry.expiration,
-        metadata: entry.metadata,
-      });
-    }
-
-    const { items, complete, cursor } = paginateList(keys, options?.limit ?? DEFAULT_LIST_LIMIT);
-    return { keys: items, list_complete: complete, cursor };
-  }
-}
+  StorageObject,
+} from "./types.ts";
+import { MemoryKV } from "./memory-kv.ts";
+import {
+  DEFAULT_LIST_LIMIT,
+  getMimeType,
+  META_SUFFIX,
+  readStream,
+} from "./shared.ts";
 
 /**
  * Deno SQLite Database Adapter
@@ -183,11 +41,14 @@ export class DenoDatabase implements IDatabase {
     this.db = db;
   }
 
-  static async create(filename: string = ':memory:'): Promise<DenoDatabase> {
+  static async create(filename: string = ":memory:"): Promise<DenoDatabase> {
     // @ts-expect-error - Deno import
-    const { Database } = await import('https://deno.land/x/sqlite3@0.12.0/mod.ts');
+    const { Database } = await import(
+      "https://deno.land/x/sqlite3@0.12.0/mod.ts"
+    );
     const db = new Database(filename);
-    db.exec('PRAGMA journal_mode = WAL');
+    db.exec("PRAGMA journal_mode = WAL");
+    db.exec("PRAGMA foreign_keys = ON");
     return new DenoDatabase(db);
   }
 
@@ -200,7 +61,9 @@ export class DenoDatabase implements IDatabase {
     this.db.exec(query);
   }
 
-  async batch<T = unknown>(statements: PreparedStatement[]): Promise<QueryResult<T>[]> {
+  async batch<T = unknown>(
+    statements: PreparedStatement[],
+  ): Promise<QueryResult<T>[]> {
     const results: QueryResult<T>[] = [];
     // @ts-expect-error - Deno SQLite type
     this.db.transaction(() => {
@@ -216,6 +79,10 @@ export class DenoDatabase implements IDatabase {
       }
     })();
     return results;
+  }
+
+  getRawDatabase(): unknown {
+    return this.db;
   }
 }
 
@@ -242,7 +109,9 @@ class DenoPreparedStatement implements PreparedStatement {
   async first<T = unknown>(colName?: string): Promise<FirstResult<T>> {
     // @ts-expect-error - Deno SQLite type
     const stmt = this.db.prepare(this.query);
-    const row = stmt.get(...this.boundValues) as Record<string, unknown> | undefined;
+    const row = stmt.get(...this.boundValues) as
+      | Record<string, unknown>
+      | undefined;
     stmt.finalize();
     if (!row) return null;
     if (colName) return row[colName] as T;
@@ -285,7 +154,10 @@ class DenoPreparedStatement implements PreparedStatement {
 }
 
 /** Parsed storage metadata shape. */
-type StorageMeta = { httpMetadata?: ObjectMetadata['httpMetadata']; customMetadata?: Record<string, string> };
+type StorageMeta = {
+  httpMetadata?: ObjectMetadata["httpMetadata"];
+  customMetadata?: Record<string, string>;
+};
 
 /**
  * Deno Filesystem Storage Adapter
@@ -326,23 +198,23 @@ export class DenoStorage implements IObjectStorage {
     key: string,
     value: ReadableStream | ArrayBuffer | string,
     options?: {
-      httpMetadata?: ObjectMetadata['httpMetadata'];
+      httpMetadata?: ObjectMetadata["httpMetadata"];
       customMetadata?: Record<string, string>;
-    }
+    },
   ): Promise<void> {
     const filePath = this.getFilePath(key);
 
-    const dir = filePath.substring(0, filePath.lastIndexOf('/'));
+    const dir = filePath.substring(0, filePath.lastIndexOf("/"));
     // @ts-expect-error - Deno API
     await Deno.mkdir(dir, { recursive: true });
 
     let content: Uint8Array;
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       content = new TextEncoder().encode(value);
     } else if (value instanceof ArrayBuffer) {
       content = new Uint8Array(value);
     } else {
-      content = await drainStream(value);
+      content = await readStream(value);
     }
 
     // @ts-expect-error - Deno API
@@ -355,7 +227,7 @@ export class DenoStorage implements IObjectStorage {
         JSON.stringify({
           httpMetadata: options.httpMetadata,
           customMetadata: options.customMetadata,
-        })
+        }),
       );
     }
   }
@@ -417,9 +289,9 @@ export class DenoStorage implements IObjectStorage {
     cursor?: string;
     delimiter?: string;
   }): Promise<ListObjectsResult> {
-    const objects: ListObjectsResult['objects'] = [];
+    const objects: ListObjectsResult["objects"] = [];
 
-    const readDirRecursive = async (dir: string, prefix: string = '') => {
+    const readDirRecursive = async (dir: string, prefix: string = "") => {
       try {
         // @ts-expect-error - Deno API
         for await (const entry of Deno.readDir(dir)) {
@@ -493,9 +365,9 @@ export class DenoAssets implements IStaticAssets {
     let filePath = `${this.basePath}${url.pathname}`;
 
     // Security: prevent directory traversal
-    const normalizedPath = filePath.replace(/\.\./g, '');
+    const normalizedPath = filePath.replace(/\.\./g, "");
     if (normalizedPath !== filePath) {
-      return new Response('Forbidden', { status: 403 });
+      return new Response("Forbidden", { status: 403 });
     }
 
     try {
@@ -509,13 +381,13 @@ export class DenoAssets implements IStaticAssets {
 
       // @ts-expect-error - Deno API
       const content = await Deno.readFile(filePath);
-      const ext = filePath.substring(filePath.lastIndexOf('.'));
+      const ext = filePath.substring(filePath.lastIndexOf("."));
       const contentType = getMimeType(ext);
 
       return new Response(content, {
         headers: {
-          'Content-Type': contentType,
-          'Content-Length': String(content.length),
+          "Content-Type": contentType,
+          "Content-Length": String(content.length),
         },
       });
     } catch {
@@ -524,10 +396,10 @@ export class DenoAssets implements IStaticAssets {
         // @ts-expect-error - Deno API
         const content = await Deno.readFile(`${this.basePath}/index.html`);
         return new Response(content, {
-          headers: { 'Content-Type': 'text/html' },
+          headers: { "Content-Type": "text/html" },
         });
       } catch {
-        return new Response('Not Found', { status: 404 });
+        return new Response("Not Found", { status: 404 });
       }
     }
   }
@@ -554,10 +426,14 @@ export async function createDenoRuntime(config: {
   };
 }): Promise<RuntimeEnv> {
   return {
-    db: await DenoDatabase.create(config.databasePath || ':memory:'),
-    storage: config.storagePath ? await DenoStorage.create(config.storagePath) : undefined,
+    db: await DenoDatabase.create(config.databasePath || ":memory:"),
+    storage: config.storagePath
+      ? await DenoStorage.create(config.storagePath)
+      : undefined,
     kv: new MemoryKV(),
-    assets: config.assetsPath ? DenoAssets.create(config.assetsPath) : undefined,
+    assets: config.assetsPath
+      ? DenoAssets.create(config.assetsPath)
+      : undefined,
     ...config.envVars,
   };
 }

@@ -3,39 +3,54 @@
  * Includes signing, circuit breaker checks, retry logic, and dead-letter handling.
  */
 
-import type { Message } from '@cloudflare/workers-types';
-import type { Env } from '../../types.ts';
-import type { Database } from '../../../db/index.ts';
-import { eq, and, notInArray, sql } from 'drizzle-orm';
-import { actorCache, actors, communities, instanceActor, activities, deliveryQueue } from '../../../db/index.ts';
-import { isSafeRemoteUrl, signRequest, fetchWithTimeout } from '../../federation-helpers.ts';
-import { emitMetric } from './metrics.ts';
-import { checkCircuit, recordCircuitFailure, recordCircuitSuccess } from './circuit.ts';
+import type { Message } from "@cloudflare/workers-types";
+import type { Env } from "../../types.ts";
+import type { Database } from "../../../db/index.ts";
+import { and, eq, notInArray, sql } from "drizzle-orm";
+import {
+  activities,
+  actorCache,
+  actors,
+  communities,
+  deliveryQueue,
+  instanceActor,
+} from "../../../db/index.ts";
+import {
+  fetchWithTimeout,
+  isSafeRemoteUrl,
+  signRequest,
+} from "../../federation-helpers.ts";
+import { emitMetric } from "./metrics.ts";
+import {
+  checkCircuit,
+  recordCircuitFailure,
+  recordCircuitSuccess,
+} from "./circuit.ts";
 import {
   type DeliveryDeliverEndpointMessageV1,
   type DeliveryQueueMessageV1,
-} from './types.ts';
+} from "./types.ts";
 import {
   computeRetryDelaySeconds,
   DELIVERY_MAX_ATTEMPTS,
   safeEndpointHost,
   safeParseIsoTimeMs,
-} from './transformers.ts';
+} from "./transformers.ts";
 import {
-  type Bulkhead,
-  type QueueEnv,
-  requireQueue,
-  sendQueueMessage,
-  sendDlqMessage,
   buildDeliverEndpointMessage,
   buildReconcileJobMessage,
-  nowIso,
+  type Bulkhead,
   enqueueResolveForEndpointActors,
-} from './queue.ts';
+  nowIso,
+  type QueueEnv,
+  requireQueue,
+  sendDlqMessage,
+  sendQueueMessage,
+} from "./queue.ts";
 
 const DELIVERY_HTTP_TIMEOUT_MS = 8000;
 const STALE_PROCESSING_MS = 2 * 60 * 1000;
-const EPOCH_ISO = '1970-01-01T00:00:00.000Z';
+const EPOCH_ISO = "1970-01-01T00:00:00.000Z";
 
 type TimedFetchResult = {
   response: Response | null;
@@ -43,7 +58,10 @@ type TimedFetchResult = {
   latencyMs: number;
 };
 
-async function timedFetch(url: string, init: RequestInit & { timeout: number }): Promise<TimedFetchResult> {
+async function timedFetch(
+  url: string,
+  init: RequestInit & { timeout: number },
+): Promise<TimedFetchResult> {
   const startedAt = Date.now();
   let response: Response | null = null;
   let error: unknown = null;
@@ -58,13 +76,13 @@ async function timedFetch(url: string, init: RequestInit & { timeout: number }):
 function buildErrorMessage(response: Response | null, error: unknown): string {
   if (response) return `HTTP ${response.status}`;
   if (error instanceof Error) return error.message;
-  return 'delivery_error';
+  return "delivery_error";
 }
 
 function parseCommaSeparated(value: string | undefined): string[] {
   if (!value) return [];
   return value
-    .split(',')
+    .split(",")
     .map((v) => v.trim())
     .filter(Boolean);
 }
@@ -78,28 +96,46 @@ function parseSampleRate(value: string | undefined): number {
 
 async function resolveSigningActor(
   db: Database,
-  actorApId: string
+  actorApId: string,
 ): Promise<{ apId: string; privateKeyPem: string } | null> {
   // Check actors table
-  const actorRow = await db.select({ apId: actors.apId, privateKeyPem: actors.privateKeyPem })
+  const actorRow = await db.select({
+    apId: actors.apId,
+    privateKeyPem: actors.privateKeyPem,
+  })
     .from(actors)
     .where(eq(actors.apId, actorApId))
     .get();
-  if (actorRow?.privateKeyPem) return { apId: actorRow.apId, privateKeyPem: actorRow.privateKeyPem };
+  if (actorRow?.privateKeyPem) {
+    return { apId: actorRow.apId, privateKeyPem: actorRow.privateKeyPem };
+  }
 
   // Check communities table
-  const communityRow = await db.select({ apId: communities.apId, privateKeyPem: communities.privateKeyPem })
+  const communityRow = await db.select({
+    apId: communities.apId,
+    privateKeyPem: communities.privateKeyPem,
+  })
     .from(communities)
     .where(eq(communities.apId, actorApId))
     .get();
-  if (communityRow?.privateKeyPem) return { apId: communityRow.apId, privateKeyPem: communityRow.privateKeyPem };
+  if (communityRow?.privateKeyPem) {
+    return {
+      apId: communityRow.apId,
+      privateKeyPem: communityRow.privateKeyPem,
+    };
+  }
 
   // Check instanceActor table
-  const instanceRow = await db.select({ apId: instanceActor.apId, privateKeyPem: instanceActor.privateKeyPem })
+  const instanceRow = await db.select({
+    apId: instanceActor.apId,
+    privateKeyPem: instanceActor.privateKeyPem,
+  })
     .from(instanceActor)
     .where(eq(instanceActor.apId, actorApId))
     .get();
-  if (instanceRow?.privateKeyPem) return { apId: instanceRow.apId, privateKeyPem: instanceRow.privateKeyPem };
+  if (instanceRow?.privateKeyPem) {
+    return { apId: instanceRow.apId, privateKeyPem: instanceRow.privateKeyPem };
+  }
 
   return null;
 }
@@ -108,15 +144,23 @@ async function failJob(
   db: Database,
   jobId: string,
   error: string,
-  message: Message<DeliveryQueueMessageV1>
+  message: Message<DeliveryQueueMessageV1>,
 ): Promise<void> {
   await db.update(deliveryQueue)
-    .set({ status: 'failed', error, lastAttemptAt: nowIso(), processingStartedAt: null })
+    .set({
+      status: "failed",
+      error,
+      lastAttemptAt: nowIso(),
+      processingStartedAt: null,
+    })
     .where(eq(deliveryQueue.id, jobId));
   message.ack();
 }
 
-async function incrementDeliveryAttempts(db: Database, jobId: string): Promise<number> {
+async function incrementDeliveryAttempts(
+  db: Database,
+  jobId: string,
+): Promise<number> {
   await db.update(deliveryQueue)
     .set({ attempts: sql`${deliveryQueue.attempts} + 1` })
     .where(eq(deliveryQueue.id, jobId));
@@ -136,7 +180,7 @@ async function maybeShadowProbeInbox(
     endpointHost: string;
     sender: { apId: string; privateKeyPem: string };
     body: string;
-  }
+  },
 ): Promise<void> {
   const allowedHosts = parseCommaSeparated(env.DELIVERY_SHADOW_PROBE_HOSTS);
   if (allowedHosts.length === 0) return;
@@ -146,7 +190,10 @@ async function maybeShadowProbeInbox(
   if (sampleRate <= 0) return;
   if (sampleRate < 1 && Math.random() > sampleRate) return;
 
-  const rep = await db.select({ apId: actorCache.apId, inbox: actorCache.inbox })
+  const rep = await db.select({
+    apId: actorCache.apId,
+    inbox: actorCache.inbox,
+  })
     .from(actorCache)
     .where(eq(actorCache.sharedInbox, params.sharedInboxEndpoint))
     .limit(1)
@@ -156,28 +203,34 @@ async function maybeShadowProbeInbox(
 
   const inboxHost = safeEndpointHost(inbox);
   const keyId = `${params.sender.apId}#main-key`;
-  const headers = await signRequest(params.sender.privateKeyPem, keyId, 'POST', inbox, params.body);
+  const headers = await signRequest(
+    params.sender.privateKeyPem,
+    keyId,
+    "POST",
+    inbox,
+    params.body,
+  );
 
   const { response, error, latencyMs } = await timedFetch(inbox, {
-    method: 'POST',
+    method: "POST",
     headers: {
       ...headers,
-      'Content-Type': 'application/activity+json',
-      'X-Yurucommu-Shadow-Probe': '1',
+      "Content-Type": "application/activity+json",
+      "X-Yurucommu-Shadow-Probe": "1",
     },
     body: params.body,
     timeout: DELIVERY_HTTP_TIMEOUT_MS,
   });
 
-  emitMetric('delivery_shadow_probe_inbox_latency_ms', latencyMs, {
+  emitMetric("delivery_shadow_probe_inbox_latency_ms", latencyMs, {
     endpoint_host: params.endpointHost,
-    inbox_host: inboxHost ?? 'unknown',
+    inbox_host: inboxHost ?? "unknown",
     ok: response?.ok ?? false,
     status: response?.status ?? null,
   });
-  emitMetric('delivery_shadow_probe_inbox_ok', response?.ok ? 1 : 0, {
+  emitMetric("delivery_shadow_probe_inbox_ok", response?.ok ? 1 : 0, {
     endpoint_host: params.endpointHost,
-    inbox_host: inboxHost ?? 'unknown',
+    inbox_host: inboxHost ?? "unknown",
     status: response?.status ?? null,
     error: error instanceof Error ? error.message : null,
   });
@@ -188,9 +241,9 @@ export async function processDeliverEndpoint(
   env: Env,
   msg: DeliveryDeliverEndpointMessageV1,
   message: Message<DeliveryQueueMessageV1>,
-  bulkhead: Bulkhead
+  bulkhead: Bulkhead,
 ): Promise<void> {
-  if (!requireQueue(env, 'deliver_endpoint', message)) return;
+  if (!requireQueue(env, "deliver_endpoint", message)) return;
 
   const job = await db.select({
     id: deliveryQueue.id,
@@ -205,7 +258,11 @@ export async function processDeliverEndpoint(
     .where(eq(deliveryQueue.id, msg.jobId))
     .get();
 
-  const TERMINAL_JOB_STATUSES: readonly string[] = ['delivered', 'dead_letter', 'failed'];
+  const TERMINAL_JOB_STATUSES: readonly string[] = [
+    "delivered",
+    "dead_letter",
+    "failed",
+  ];
 
   if (!job || TERMINAL_JOB_STATUSES.includes(job.status)) {
     message.ack();
@@ -215,21 +272,32 @@ export async function processDeliverEndpoint(
   // Queue lag metric
   const scheduledMs = safeParseIsoTimeMs(msg.scheduledAt);
   if (scheduledMs !== null) {
-    emitMetric('delivery_queue_lag_seconds', Math.max(0, (Date.now() - scheduledMs) / 1000), {
-      endpoint_host: safeEndpointHost(job.inboxUrl) ?? 'unknown',
-    });
+    emitMetric(
+      "delivery_queue_lag_seconds",
+      Math.max(0, (Date.now() - scheduledMs) / 1000),
+      {
+        endpoint_host: safeEndpointHost(job.inboxUrl) ?? "unknown",
+      },
+    );
   }
 
   // Respect job scheduling stored in DB
   const nextAttemptMs = safeParseIsoTimeMs(job.nextAttemptAt);
   if (nextAttemptMs !== null && Date.now() < nextAttemptMs) {
-    const deferSeconds = Math.max(1, Math.ceil((nextAttemptMs - Date.now()) / 1000));
-    await sendQueueMessage(env, buildDeliverEndpointMessage(job.id), deferSeconds);
+    const deferSeconds = Math.max(
+      1,
+      Math.ceil((nextAttemptMs - Date.now()) / 1000),
+    );
+    await sendQueueMessage(
+      env,
+      buildDeliverEndpointMessage(job.id),
+      deferSeconds,
+    );
     message.ack();
     return;
   }
 
-  if (job.status === 'processing') {
+  if (job.status === "processing") {
     const startedMs = safeParseIsoTimeMs(job.processingStartedAt);
     if (startedMs !== null && Date.now() - startedMs < STALE_PROCESSING_MS) {
       await sendQueueMessage(env, buildDeliverEndpointMessage(job.id), 30);
@@ -241,15 +309,19 @@ export async function processDeliverEndpoint(
   const endpoint = job.inboxUrl;
   const host = safeEndpointHost(endpoint);
   if (!host) {
-    await failJob(db, job.id, 'invalid_endpoint', message);
+    await failJob(db, job.id, "invalid_endpoint", message);
     return;
   }
 
   // Circuit breaker
   const circuit = await checkCircuit(db, endpoint);
   if (!circuit.allow) {
-    emitMetric('delivery_circuit_open_count', 1, { endpoint_host: host });
-    await sendQueueMessage(env, buildDeliverEndpointMessage(job.id), circuit.deferSeconds);
+    emitMetric("delivery_circuit_open_count", 1, { endpoint_host: host });
+    await sendQueueMessage(
+      env,
+      buildDeliverEndpointMessage(job.id),
+      circuit.deferSeconds,
+    );
     message.ack();
     return;
   }
@@ -259,38 +331,47 @@ export async function processDeliverEndpoint(
     // Mark processing
     await db.update(deliveryQueue)
       .set({
-        status: 'processing',
+        status: "processing",
         processingStartedAt: nowIso(),
       })
       .where(eq(deliveryQueue.id, job.id));
 
-    const activity = await db.select({ rawJson: activities.rawJson, actorApId: activities.actorApId })
+    const activity = await db.select({
+      rawJson: activities.rawJson,
+      actorApId: activities.actorApId,
+    })
       .from(activities)
       .where(eq(activities.apId, job.activityApId))
       .get();
     if (!activity) {
-      await failJob(db, job.id, 'activity_not_found', message);
+      await failJob(db, job.id, "activity_not_found", message);
       return;
     }
 
     const sender = await resolveSigningActor(db, activity.actorApId);
     if (!sender) {
-      await failJob(db, job.id, 'signing_actor_not_found', message);
+      await failJob(db, job.id, "signing_actor_not_found", message);
       return;
     }
 
     const body = activity.rawJson;
     const keyId = `${sender.apId}#main-key`;
-    const headers = await signRequest(sender.privateKeyPem, keyId, 'POST', endpoint, body);
+    const headers = await signRequest(
+      sender.privateKeyPem,
+      keyId,
+      "POST",
+      endpoint,
+      body,
+    );
 
     const { response, error, latencyMs } = await timedFetch(endpoint, {
-      method: 'POST',
-      headers: { ...headers, 'Content-Type': 'application/activity+json' },
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/activity+json" },
       body,
       timeout: DELIVERY_HTTP_TIMEOUT_MS,
     });
 
-    emitMetric('delivery_latency_ms', latencyMs, {
+    emitMetric("delivery_latency_ms", latencyMs, {
       endpoint_host: host,
       ok: response?.ok ?? false,
       status: response?.status ?? null,
@@ -300,14 +381,14 @@ export async function processDeliverEndpoint(
       const now = nowIso();
       await db.update(deliveryQueue)
         .set({
-          status: 'delivered',
+          status: "delivered",
           deliveredAt: now,
           error: null,
           lastAttemptAt: now,
           processingStartedAt: null,
         })
         .where(eq(deliveryQueue.id, job.id));
-      emitMetric('delivery_success', 1, { endpoint_host: host });
+      emitMetric("delivery_success", 1, { endpoint_host: host });
       await recordCircuitSuccess(db, endpoint);
 
       // Shadow probe (staging-only)
@@ -321,7 +402,7 @@ export async function processDeliverEndpoint(
             body,
           });
         } catch (e) {
-          console.warn('[DeliveryQueue] shadow probe failed:', e);
+          console.warn("[DeliveryQueue] shadow probe failed:", e);
         }
       }
 
@@ -335,7 +416,12 @@ export async function processDeliverEndpoint(
     // 404/410: expire endpoint cache immediately
     if (status === 404 || status === 410) {
       try {
-        await enqueueResolveForEndpointActors(db, env, job.activityApId, endpoint);
+        await enqueueResolveForEndpointActors(
+          db,
+          env,
+          job.activityApId,
+          endpoint,
+        );
         await db.update(actorCache)
           .set({ sharedInbox: null, lastFetchedAt: EPOCH_ISO })
           .where(eq(actorCache.sharedInbox, endpoint));
@@ -343,15 +429,20 @@ export async function processDeliverEndpoint(
           .set({ lastFetchedAt: EPOCH_ISO })
           .where(eq(actorCache.inbox, endpoint));
       } catch (e) {
-        console.warn('[DeliveryQueue] endpoint invalidation failed:', e);
+        console.warn("[DeliveryQueue] endpoint invalidation failed:", e);
       }
     }
 
     // Non-retryable 4xx (except 429) => permanent failure
-    const nonRetryable = status !== null && status >= 400 && status < 500 && status !== 429;
+    const nonRetryable = status !== null && status >= 400 && status < 500 &&
+      status !== 429;
     if (nonRetryable) {
       await failJob(db, job.id, errorMessage, message);
-      emitMetric('delivery_success', 0, { endpoint_host: host, non_retryable: true, status });
+      emitMetric("delivery_success", 0, {
+        endpoint_host: host,
+        non_retryable: true,
+        status,
+      });
       await recordCircuitFailure(db, endpoint);
       return;
     }
@@ -363,13 +454,18 @@ export async function processDeliverEndpoint(
     if (nextAttempts >= DELIVERY_MAX_ATTEMPTS) {
       const now = nowIso();
       await db.update(deliveryQueue)
-        .set({ status: 'dead_letter', error: errorMessage, lastAttemptAt: now, processingStartedAt: null })
+        .set({
+          status: "dead_letter",
+          error: errorMessage,
+          lastAttemptAt: now,
+          processingStartedAt: null,
+        })
         .where(eq(deliveryQueue.id, job.id));
-      emitMetric('delivery_dead_letter', 1, { endpoint_host: host });
+      emitMetric("delivery_dead_letter", 1, { endpoint_host: host });
 
       await sendDlqMessage(env, {
         version: 1,
-        type: 'dlq',
+        type: "dlq",
         jobId: job.id,
         activityId: job.activityApId,
         endpoint,
@@ -383,14 +479,28 @@ export async function processDeliverEndpoint(
     }
 
     const delaySeconds = computeRetryDelaySeconds(nextAttempts);
-    const nextAttemptAtStr = new Date(Date.now() + delaySeconds * 1000).toISOString();
+    const nextAttemptAtStr = new Date(Date.now() + delaySeconds * 1000)
+      .toISOString();
 
     await db.update(deliveryQueue)
-      .set({ status: 'retry_wait', error: errorMessage, lastAttemptAt: nowIso(), processingStartedAt: null, nextAttemptAt: nextAttemptAtStr })
+      .set({
+        status: "retry_wait",
+        error: errorMessage,
+        lastAttemptAt: nowIso(),
+        processingStartedAt: null,
+        nextAttemptAt: nextAttemptAtStr,
+      })
       .where(eq(deliveryQueue.id, job.id));
 
-    emitMetric('delivery_success', 0, { endpoint_host: host, status: status ?? null });
-    await sendQueueMessage(env, buildDeliverEndpointMessage(job.id), delaySeconds);
+    emitMetric("delivery_success", 0, {
+      endpoint_host: host,
+      status: status ?? null,
+    });
+    await sendQueueMessage(
+      env,
+      buildDeliverEndpointMessage(job.id),
+      delaySeconds,
+    );
     message.ack();
   } finally {
     bulkhead.release(host);

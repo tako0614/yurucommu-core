@@ -8,20 +8,28 @@
  * - Real-time preview
  */
 
-import { createSignal, createEffect, Show, For } from 'solid-js';
-import { FONTS } from '../../lib/story-canvas.ts';
+import { createEffect, createSignal, For, Show } from "solid-js";
+import { FONTS } from "../../lib/story-canvas.ts";
 
 // Text style presets (Instagram-like A, A, A buttons)
 const TEXT_STYLES = [
-  { id: 'none', label: 'A', bg: 'transparent', description: 'なし' },
-  { id: 'semi', label: 'A', bg: 'rgba(0,0,0,0.5)', description: '半透明' },
-  { id: 'solid', label: 'A', bg: '#000000', description: '塗り' },
+  { id: "none", label: "A", bg: "transparent", description: "なし" },
+  { id: "semi", label: "A", bg: "rgba(0,0,0,0.5)", description: "半透明" },
+  { id: "solid", label: "A", bg: "#000000", description: "塗り" },
 ] as const;
 
 // Color palette
 const COLORS = [
-  '#FFFFFF', '#000000', '#FF3B30', '#FF9500', '#FFCC00',
-  '#34C759', '#007AFF', '#5856D6', '#AF52DE', '#FF2D55',
+  "#FFFFFF",
+  "#000000",
+  "#FF3B30",
+  "#FF9500",
+  "#FFCC00",
+  "#34C759",
+  "#007AFF",
+  "#5856D6",
+  "#AF52DE",
+  "#FF2D55",
 ];
 
 interface TextEditorModalProps {
@@ -35,28 +43,30 @@ export interface TextData {
   content: string;
   fontFamily: string;
   fontSize: number;
-  fontWeight: 'normal' | 'bold';
-  fontStyle: 'normal' | 'italic';
+  fontWeight: "normal" | "bold";
+  fontStyle: "normal" | "italic";
   color: string;
   backgroundColor?: string;
-  textAlign: 'left' | 'center' | 'right';
+  textAlign: "left" | "center" | "right";
   stroke?: { color: string; width: number };
 }
 
 const defaultTextData: TextData = {
-  content: '',
-  fontFamily: FONTS[0]?.family || 'sans-serif',
+  content: "",
+  fontFamily: FONTS[0]?.family || "sans-serif",
   fontSize: 64,
-  fontWeight: 'bold',
-  fontStyle: 'normal',
-  color: '#FFFFFF',
+  fontWeight: "bold",
+  fontStyle: "normal",
+  color: "#FFFFFF",
   backgroundColor: undefined,
-  textAlign: 'center',
-  stroke: { color: '#000000', width: 3 },
+  textAlign: "center",
+  stroke: { color: "#000000", width: 3 },
 };
 
 export function TextEditorModal(props: TextEditorModalProps) {
-  const [text, setText] = createSignal<TextData>(props.initialText || defaultTextData);
+  const [text, setText] = createSignal<TextData>(
+    props.initialText || defaultTextData,
+  );
   const [showFontPicker, setShowFontPicker] = createSignal(false);
   const [showColorPicker, setShowColorPicker] = createSignal(false);
   let inputRef!: HTMLTextAreaElement;
@@ -87,20 +97,20 @@ export function TextEditorModal(props: TextEditorModalProps) {
   };
 
   const handleStyleChange = (styleId: string) => {
-    const style = TEXT_STYLES.find(s => s.id === styleId);
+    const style = TEXT_STYLES.find((s) => s.id === styleId);
     if (style) {
-      setText(prev => ({
+      setText((prev) => ({
         ...prev,
-        backgroundColor: style.bg === 'transparent' ? undefined : style.bg,
+        backgroundColor: style.bg === "transparent" ? undefined : style.bg,
       }));
     }
   };
 
   const getCurrentStyle = () => {
     const t = text();
-    if (!t.backgroundColor) return 'none';
-    if (t.backgroundColor.includes('rgba')) return 'semi';
-    return 'solid';
+    if (!t.backgroundColor) return "none";
+    if (t.backgroundColor.includes("rgba")) return "semi";
+    return "solid";
   };
 
   return (
@@ -122,7 +132,9 @@ export function TextEditorModal(props: TextEditorModalProps) {
                 setShowColorPicker(false);
               }}
               class={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                showFontPicker() ? 'bg-white text-black' : 'bg-white/20 text-white'
+                showFontPicker()
+                  ? "bg-white text-black"
+                  : "bg-white/20 text-white"
               }`}
             >
               Aa
@@ -152,11 +164,12 @@ export function TextEditorModal(props: TextEditorModalProps) {
               <For each={FONTS}>
                 {(font) => (
                   <button
-                    onClick={() => setText(prev => ({ ...prev, fontFamily: font.family }))}
+                    onClick={() =>
+                      setText((prev) => ({ ...prev, fontFamily: font.family }))}
                     class={`px-4 py-2 rounded-full whitespace-nowrap text-sm transition-colors ${
                       text().fontFamily === font.family
-                        ? 'bg-white text-black'
-                        : 'bg-white/20 text-white'
+                        ? "bg-white text-black"
+                        : "bg-white/20 text-white"
                     }`}
                     style={{ "font-family": font.family }}
                   >
@@ -175,9 +188,11 @@ export function TextEditorModal(props: TextEditorModalProps) {
               <For each={COLORS}>
                 {(color) => (
                   <button
-                    onClick={() => setText(prev => ({ ...prev, color }))}
+                    onClick={() => setText((prev) => ({ ...prev, color }))}
                     class={`w-8 h-8 rounded-full transition-transform ${
-                      text().color === color ? 'scale-125 ring-2 ring-white ring-offset-2 ring-offset-black' : ''
+                      text().color === color
+                        ? "scale-125 ring-2 ring-white ring-offset-2 ring-offset-black"
+                        : ""
                     }`}
                     style={{ "background-color": color }}
                   />
@@ -188,7 +203,11 @@ export function TextEditorModal(props: TextEditorModalProps) {
                 <input
                   type="color"
                   value={text().color}
-                  onInput={(e) => setText(prev => ({ ...prev, color: e.currentTarget.value }))}
+                  onInput={(e) =>
+                    setText((prev) => ({
+                      ...prev,
+                      color: e.currentTarget.value,
+                    }))}
                   class="opacity-0 absolute w-0 h-0"
                 />
                 <span class="text-white text-xs">+</span>
@@ -203,14 +222,18 @@ export function TextEditorModal(props: TextEditorModalProps) {
             class="w-full max-w-md"
             style={{
               "background-color": text().backgroundColor,
-              padding: text().backgroundColor ? '16px 24px' : '0',
-              "border-radius": text().backgroundColor ? '12px' : '0',
+              padding: text().backgroundColor ? "16px 24px" : "0",
+              "border-radius": text().backgroundColor ? "12px" : "0",
             }}
           >
             <textarea
               ref={inputRef}
               value={text().content}
-              onInput={(e) => setText(prev => ({ ...prev, content: e.currentTarget.value }))}
+              onInput={(e) =>
+                setText((prev) => ({
+                  ...prev,
+                  content: e.currentTarget.value,
+                }))}
               placeholder="テキストを入力"
               class="w-full bg-transparent border-none outline-none resize-none text-center"
               style={{
@@ -222,14 +245,22 @@ export function TextEditorModal(props: TextEditorModalProps) {
                 "text-align": text().textAlign,
                 "text-shadow": text().stroke
                   ? `
-                    -${text().stroke!.width}px -${text().stroke!.width}px 0 ${text().stroke!.color},
-                    ${text().stroke!.width}px -${text().stroke!.width}px 0 ${text().stroke!.color},
-                    -${text().stroke!.width}px ${text().stroke!.width}px 0 ${text().stroke!.color},
-                    ${text().stroke!.width}px ${text().stroke!.width}px 0 ${text().stroke!.color}
+                    -${text().stroke!.width}px -${text().stroke!.width}px 0 ${
+                    text().stroke!.color
+                  },
+                    ${text().stroke!.width}px -${text().stroke!.width}px 0 ${
+                    text().stroke!.color
+                  },
+                    -${text().stroke!.width}px ${text().stroke!.width}px 0 ${
+                    text().stroke!.color
+                  },
+                    ${text().stroke!.width}px ${text().stroke!.width}px 0 ${
+                    text().stroke!.color
+                  }
                   `
-                  : 'none',
-                "line-height": '1.4',
-                "min-height": '100px',
+                  : "none",
+                "line-height": "1.4",
+                "min-height": "100px",
               }}
               rows={3}
             />
@@ -246,13 +277,17 @@ export function TextEditorModal(props: TextEditorModalProps) {
                   onClick={() => handleStyleChange(style.id)}
                   class={`w-10 h-10 rounded-lg flex items-center justify-center font-bold text-lg transition-all ${
                     getCurrentStyle() === style.id
-                      ? 'ring-2 ring-white scale-110'
-                      : ''
+                      ? "ring-2 ring-white scale-110"
+                      : ""
                   }`}
                   style={{
-                    "background-color": style.id === 'none' ? 'transparent' : style.bg,
-                    color: '#fff',
-                    border: style.id === 'none' ? '2px solid rgba(255,255,255,0.5)' : 'none',
+                    "background-color": style.id === "none"
+                      ? "transparent"
+                      : style.bg,
+                    color: "#fff",
+                    border: style.id === "none"
+                      ? "2px solid rgba(255,255,255,0.5)"
+                      : "none",
                   }}
                 >
                   A
@@ -263,29 +298,54 @@ export function TextEditorModal(props: TextEditorModalProps) {
 
           {/* Alignment */}
           <div class="flex justify-center gap-2">
-            <For each={['left', 'center', 'right'] as const}>
+            <For each={["left", "center", "right"] as const}>
               {(align) => (
                 <button
-                  onClick={() => setText(prev => ({ ...prev, textAlign: align }))}
+                  onClick={() =>
+                    setText((prev) => ({ ...prev, textAlign: align }))}
                   class={`w-12 h-10 rounded-lg flex items-center justify-center transition-colors ${
                     text().textAlign === align
-                      ? 'bg-white text-black'
-                      : 'bg-white/20 text-white'
+                      ? "bg-white text-black"
+                      : "bg-white/20 text-white"
                   }`}
                 >
-                  <Show when={align === 'left'}>
-                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm0 5A.75.75 0 012.75 9h9.5a.75.75 0 010 1.5h-9.5A.75.75 0 012 9.75zm0 5a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clip-rule="evenodd" />
+                  <Show when={align === "left"}>
+                    <svg
+                      class="w-5 h-5"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fill-rule="evenodd"
+                        d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm0 5A.75.75 0 012.75 9h9.5a.75.75 0 010 1.5h-9.5A.75.75 0 012 9.75zm0 5a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z"
+                        clip-rule="evenodd"
+                      />
                     </svg>
                   </Show>
-                  <Show when={align === 'center'}>
-                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm2.5 5a.75.75 0 01.75-.75h9.5a.75.75 0 010 1.5h-9.5a.75.75 0 01-.75-.75zm-2.5 5a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clip-rule="evenodd" />
+                  <Show when={align === "center"}>
+                    <svg
+                      class="w-5 h-5"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fill-rule="evenodd"
+                        d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm2.5 5a.75.75 0 01.75-.75h9.5a.75.75 0 010 1.5h-9.5a.75.75 0 01-.75-.75zm-2.5 5a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z"
+                        clip-rule="evenodd"
+                      />
                     </svg>
                   </Show>
-                  <Show when={align === 'right'}>
-                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fill-rule="evenodd" d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm5 5a.75.75 0 01.75-.75h9.5a.75.75 0 010 1.5h-9.5A.75.75 0 017 9.75zm-5 5a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z" clip-rule="evenodd" />
+                  <Show when={align === "right"}>
+                    <svg
+                      class="w-5 h-5"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fill-rule="evenodd"
+                        d="M2 4.75A.75.75 0 012.75 4h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 4.75zm5 5a.75.75 0 01.75-.75h9.5a.75.75 0 010 1.5h-9.5A.75.75 0 017 9.75zm-5 5a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75a.75.75 0 01-.75-.75z"
+                        clip-rule="evenodd"
+                      />
                     </svg>
                   </Show>
                 </button>
@@ -301,7 +361,11 @@ export function TextEditorModal(props: TextEditorModalProps) {
               min="24"
               max="120"
               value={text().fontSize}
-              onInput={(e) => setText(prev => ({ ...prev, fontSize: parseInt(e.currentTarget.value) }))}
+              onInput={(e) =>
+                setText((prev) => ({
+                  ...prev,
+                  fontSize: parseInt(e.currentTarget.value),
+                }))}
               class="flex-1 accent-white h-1"
             />
             <span class="text-white text-sm">A</span>
@@ -310,43 +374,47 @@ export function TextEditorModal(props: TextEditorModalProps) {
           {/* Bold / Italic toggle */}
           <div class="flex justify-center gap-2">
             <button
-              onClick={() => setText(prev => ({
-                ...prev,
-                fontWeight: prev.fontWeight === 'bold' ? 'normal' : 'bold'
-              }))}
+              onClick={() =>
+                setText((prev) => ({
+                  ...prev,
+                  fontWeight: prev.fontWeight === "bold" ? "normal" : "bold",
+                }))}
               class={`w-12 h-10 rounded-lg flex items-center justify-center font-bold transition-colors ${
-                text().fontWeight === 'bold'
-                  ? 'bg-white text-black'
-                  : 'bg-white/20 text-white'
+                text().fontWeight === "bold"
+                  ? "bg-white text-black"
+                  : "bg-white/20 text-white"
               }`}
             >
               B
             </button>
             <button
-              onClick={() => setText(prev => ({
-                ...prev,
-                fontStyle: prev.fontStyle === 'italic' ? 'normal' : 'italic'
-              }))}
+              onClick={() =>
+                setText((prev) => ({
+                  ...prev,
+                  fontStyle: prev.fontStyle === "italic" ? "normal" : "italic",
+                }))}
               class={`w-12 h-10 rounded-lg flex items-center justify-center italic transition-colors ${
-                text().fontStyle === 'italic'
-                  ? 'bg-white text-black'
-                  : 'bg-white/20 text-white'
+                text().fontStyle === "italic"
+                  ? "bg-white text-black"
+                  : "bg-white/20 text-white"
               }`}
             >
               I
             </button>
             <button
-              onClick={() => setText(prev => ({
-                ...prev,
-                stroke: prev.stroke ? undefined : { color: '#000000', width: 3 }
-              }))}
+              onClick={() =>
+                setText((prev) => ({
+                  ...prev,
+                  stroke: prev.stroke
+                    ? undefined
+                    : { color: "#000000", width: 3 },
+                }))}
               class={`w-12 h-10 rounded-lg flex items-center justify-center font-bold transition-colors ${
-                text().stroke
-                  ? 'bg-white text-black'
-                  : 'bg-white/20 text-white'
+                text().stroke ? "bg-white text-black" : "bg-white/20 text-white"
               }`}
               style={{
-                "text-shadow": '1px 1px 0 #666, -1px -1px 0 #666, 1px -1px 0 #666, -1px 1px 0 #666',
+                "text-shadow":
+                  "1px 1px 0 #666, -1px -1px 0 #666, 1px -1px 0 #666, -1px 1px 0 #666",
               }}
             >
               A

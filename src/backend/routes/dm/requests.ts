@@ -1,23 +1,23 @@
 // DM requests - list, accept, reject
 
-import { Hono } from 'hono';
-import { eq, and, desc, like, inArray } from 'drizzle-orm';
-import { objects, objectRecipients, blocks } from '../../../db/index.ts';
-import { getConversationId } from './query-helpers.ts';
+import { Hono } from "hono";
+import { and, desc, eq, inArray, like } from "drizzle-orm";
+import { blocks, objectRecipients, objects } from "../../../db/index.ts";
+import { getConversationId } from "./query-helpers.ts";
 import {
-  type HonoEnv,
   buildActorInfoMap,
-  formatActorProfile,
   findRepliedConversations,
-} from './conversations-helpers.ts';
+  formatActorProfile,
+  type HonoEnv,
+} from "./conversations-helpers.ts";
 
 const requests = new Hono<HonoEnv>();
 
 // Get message requests (DMs from people we haven't replied to)
-requests.get('/requests', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const db = c.get('db');
+requests.get("/requests", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  const db = c.get("db");
   const actorApIdJson = JSON.stringify(actor.ap_id);
 
   const incomingDMs = await db.select({
@@ -30,18 +30,26 @@ requests.get('/requests', async (c) => {
     .from(objects)
     .where(
       and(
-        eq(objects.visibility, 'direct'),
-        eq(objects.type, 'Note'),
+        eq(objects.visibility, "direct"),
+        eq(objects.type, "Note"),
         like(objects.toJson, `%${actorApIdJson}%`),
       ),
     )
     .orderBy(desc(objects.published))
     .limit(1000);
 
-  const allConversations = [...new Set(
-    incomingDMs.map((dm) => dm.conversation).filter((c): c is string => c !== null),
-  )];
-  const repliedConversationsSet = await findRepliedConversations(db, allConversations, actor.ap_id);
+  const allConversations = [
+    ...new Set(
+      incomingDMs.map((dm) => dm.conversation).filter((c): c is string =>
+        c !== null
+      ),
+    ),
+  ];
+  const repliedConversationsSet = await findRepliedConversations(
+    db,
+    allConversations,
+    actor.ap_id,
+  );
 
   // Filter to only unreplied conversations (one per conversation, most recent first)
   const seenConversations = new Set<string>();
@@ -85,18 +93,22 @@ requests.get('/requests', async (c) => {
 // No separate accept action needed in AP model
 
 // Reject request = delete messages from a sender and optionally block
-requests.post('/requests/reject', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const db = c.get('db');
+requests.post("/requests/reject", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  const db = c.get("db");
 
   const body = await c.req.json<{ sender_ap_id: string; block?: boolean }>();
   if (!body.sender_ap_id) {
-    return c.json({ error: 'sender_ap_id is required' }, 400);
+    return c.json({ error: "sender_ap_id is required" }, 400);
   }
 
   const baseUrl = c.env.APP_URL;
-  const conversationId = getConversationId(baseUrl, actor.ap_id, body.sender_ap_id);
+  const conversationId = getConversationId(
+    baseUrl,
+    actor.ap_id,
+    body.sender_ap_id,
+  );
 
   const messagesToDelete = await db.select({ apId: objects.apId })
     .from(objects)
@@ -110,13 +122,15 @@ requests.post('/requests/reject', async (c) => {
   const messageApIds = messagesToDelete.map((m) => m.apId);
 
   if (messageApIds.length > 0) {
-    await db.delete(objectRecipients).where(inArray(objectRecipients.objectApId, messageApIds));
+    await db.delete(objectRecipients).where(
+      inArray(objectRecipients.objectApId, messageApIds),
+    );
   }
 
   await db.delete(objects).where(
     and(
       eq(objects.conversation, conversationId),
-      eq(objects.visibility, 'direct'),
+      eq(objects.visibility, "direct"),
       eq(objects.attributedTo, body.sender_ap_id),
     ),
   );
@@ -134,16 +148,19 @@ requests.post('/requests/reject', async (c) => {
 });
 
 // Accept request = reply and mark as accepted (alternative to just sending a message)
-requests.post('/requests/accept', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+requests.post("/requests/accept", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
   const body = await c.req.json<{ sender_ap_id: string }>();
   if (!body.sender_ap_id) {
-    return c.json({ error: 'sender_ap_id is required' }, 400);
+    return c.json({ error: "sender_ap_id is required" }, 400);
   }
 
-  return c.json({ success: true, message: 'Reply to the conversation to accept' });
+  return c.json({
+    success: true,
+    message: "Reply to the conversation to accept",
+  });
 });
 
 export default requests;
