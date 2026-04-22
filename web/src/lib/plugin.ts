@@ -1,16 +1,21 @@
-import type { Component } from 'solid-js';
-import type { Actor } from '../types/index.ts';
+import type { Component } from "solid-js";
+import type { Actor } from "../types/index.ts";
+import { fetchWithTimeout } from "./fetch-with-timeout.ts";
 
 export const YURUCOMMU_FRONTEND_PLUGIN_API_VERSION = 1 as const;
 
-export type SlotName = 'timeline.between-posts' | 'right-sidebar.below-recommendations' | (string & {});
+type CustomSlotName = string & Record<never, never>;
+export type SlotName =
+  | "timeline.between-posts"
+  | "right-sidebar.below-recommendations"
+  | CustomSlotName;
 
 export interface SlotEntry {
   component: Component<Record<string, unknown>>;
   priority?: number;
 }
 
-export type DeploymentMode = 'hosted' | 'self-hosted';
+export type DeploymentMode = "hosted" | "self-hosted";
 
 export interface HostedUserInfo {
   id: string;
@@ -41,10 +46,16 @@ export interface InstanceHealthChecks {
 
 export interface InstanceHealth {
   checks: InstanceHealthChecks;
-  check_mode: 'cf_sync';
+  check_mode: "cf_sync";
   timeout_ms: number;
   retries: number;
-  effective_state: 'active' | 'missing' | 'provisioning' | 'updating' | 'failed' | 'blocked';
+  effective_state:
+    | "active"
+    | "missing"
+    | "provisioning"
+    | "updating"
+    | "failed"
+    | "blocked";
   reasons: string[];
   checked_at: string;
 }
@@ -110,11 +121,13 @@ const EMPTY_RESULT: AuthCheckResult = {
 };
 
 class DefaultSelfHostedStrategy implements AuthStrategy {
-  readonly mode = 'self-hosted' as const;
+  readonly mode = "self-hosted" as const;
 
   async checkAuth(): Promise<AuthCheckResult> {
     try {
-      const res = await fetch('/api/auth/me', { credentials: 'include' });
+      const res = await fetchWithTimeout("/api/auth/me", {
+        credentials: "include",
+      });
       if (!res.ok) {
         return EMPTY_RESULT;
       }
@@ -127,27 +140,27 @@ class DefaultSelfHostedStrategy implements AuthStrategy {
 
   async login(password?: string): Promise<LoginResult> {
     if (!password) {
-      return { error: 'Password required' };
+      return { error: "Password required" };
     }
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+      const res = await fetchWithTimeout("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ password }),
       });
       const data = await res.json() as { success?: boolean; error?: string };
       if (data.success) return { success: true };
-      return { error: data.error || 'Login failed' };
+      return { error: data.error || "Login failed" };
     } catch {
-      return { error: 'Network error' };
+      return { error: "Network error" };
     }
   }
 
   async logout(): Promise<void> {
-    await fetch('/api/auth/logout', {
-      method: 'POST',
-      credentials: 'include',
+    await fetchWithTimeout("/api/auth/logout", {
+      method: "POST",
+      credentials: "include",
     });
   }
 
@@ -157,7 +170,7 @@ class DefaultSelfHostedStrategy implements AuthStrategy {
 }
 
 class DefaultSelfHostedTransport implements ApiTransport {
-  readonly credentials: RequestCredentials = 'include';
+  readonly credentials: RequestCredentials = "include";
 
   resolveUrl(path: string): string {
     return path;
@@ -172,13 +185,14 @@ let activePlugins: YurucommuFrontendPluginV1[] = [];
 let pluginSetupDone = false;
 let cachedStrategy: AuthStrategy | null = null;
 let cachedTransport: ApiTransport | null = null;
-let cachedSlots: Map<string, Component<Record<string, unknown>>[]> | null = null;
+let cachedSlots: Map<string, Component<Record<string, unknown>>[]> | null =
+  null;
 
 function ensurePluginVersion(plugin: YurucommuFrontendPluginV1): void {
   if (plugin.apiVersion !== YURUCOMMU_FRONTEND_PLUGIN_API_VERSION) {
     throw new Error(
       `[yurucommu] frontend plugin "${plugin.name}" uses unsupported apiVersion=${plugin.apiVersion}. ` +
-      `Expected ${YURUCOMMU_FRONTEND_PLUGIN_API_VERSION}.`
+        `Expected ${YURUCOMMU_FRONTEND_PLUGIN_API_VERSION}.`,
     );
   }
 }
@@ -194,7 +208,9 @@ function ensurePluginSetup(): void {
   pluginSetupDone = true;
 }
 
-export function registerYurucommuFrontendPlugin(plugin: YurucommuFrontendPluginV1): void {
+export function registerYurucommuFrontendPlugin(
+  plugin: YurucommuFrontendPluginV1,
+): void {
   ensurePluginVersion(plugin);
   activePlugins.push(plugin);
   pluginSetupDone = false;
@@ -203,7 +219,9 @@ export function registerYurucommuFrontendPlugin(plugin: YurucommuFrontendPluginV
   cachedSlots = null;
 }
 
-export function setYurucommuFrontendPlugins(plugins: YurucommuFrontendPluginV1[]): void {
+export function setYurucommuFrontendPlugins(
+  plugins: YurucommuFrontendPluginV1[],
+): void {
   activePlugins = [];
   for (const plugin of plugins) {
     registerYurucommuFrontendPlugin(plugin);
@@ -259,12 +277,14 @@ function buildSlotCache(): Map<string, Component<Record<string, unknown>>[]> {
   const result = new Map<string, Component<Record<string, unknown>>[]>();
   for (const [name, entries] of map) {
     entries.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
-    result.set(name, entries.map(e => e.component));
+    result.set(name, entries.map((e) => e.component));
   }
   return result;
 }
 
-export function getSlotComponents(slotName: string): Component<Record<string, unknown>>[] {
+export function getSlotComponents(
+  slotName: string,
+): Component<Record<string, unknown>>[] {
   if (!cachedSlots) {
     cachedSlots = buildSlotCache();
   }

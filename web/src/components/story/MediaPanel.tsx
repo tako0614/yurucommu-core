@@ -5,9 +5,9 @@
  * (brightness, contrast, saturation), and opacity.
  */
 
-import { createMemo, For } from 'solid-js';
-import { FILTER_PRESETS, MediaLayer } from '../../lib/story-canvas.ts';
-import { TrashIcon, LayerUpIcon, LayerDownIcon } from './ToolPanelIcons.tsx';
+import { createMemo, For } from "solid-js";
+import { FILTER_PRESETS, MediaLayer } from "../../lib/story-canvas.ts";
+import { LayerDownIcon, LayerUpIcon, TrashIcon } from "./ToolPanelIcons.tsx";
 
 interface MediaPanelProps {
   layer: MediaLayer;
@@ -18,7 +18,9 @@ interface MediaPanelProps {
 }
 
 export function MediaPanel(props: MediaPanelProps) {
-  const currentFilter = createMemo(() => props.layer.filter || FILTER_PRESETS[0].filter);
+  const currentFilter = createMemo(() =>
+    props.layer.filter || FILTER_PRESETS[0].filter
+  );
 
   return (
     <div class="space-y-4">
@@ -57,9 +59,10 @@ export function MediaPanel(props: MediaPanelProps) {
               <button
                 onClick={() => props.onUpdate({ filter: preset.filter })}
                 class={`p-2 rounded-lg text-xs transition-colors ${
-                  JSON.stringify(currentFilter()) === JSON.stringify(preset.filter)
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                  JSON.stringify(currentFilter()) ===
+                      JSON.stringify(preset.filter)
+                    ? "bg-blue-500 text-white"
+                    : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
                 }`}
               >
                 {preset.name}
@@ -72,35 +75,59 @@ export function MediaPanel(props: MediaPanelProps) {
       {/* Manual adjustments */}
       <div class="space-y-3">
         <div>
-          <label class="text-neutral-500 text-xs">明るさ: {currentFilter().brightness}%</label>
+          <label class="text-neutral-500 text-xs">
+            明るさ: {currentFilter().brightness}%
+          </label>
           <input
             type="range"
             min="0"
             max="200"
             value={currentFilter().brightness}
-            onInput={(e) => props.onUpdate({ filter: { ...currentFilter(), brightness: parseInt(e.currentTarget.value) } })}
+            onInput={(e) =>
+              props.onUpdate({
+                filter: {
+                  ...currentFilter(),
+                  brightness: parseInt(e.currentTarget.value),
+                },
+              })}
             class="w-full accent-blue-500"
           />
         </div>
         <div>
-          <label class="text-neutral-500 text-xs">コントラスト: {currentFilter().contrast}%</label>
+          <label class="text-neutral-500 text-xs">
+            コントラスト: {currentFilter().contrast}%
+          </label>
           <input
             type="range"
             min="0"
             max="200"
             value={currentFilter().contrast}
-            onInput={(e) => props.onUpdate({ filter: { ...currentFilter(), contrast: parseInt(e.currentTarget.value) } })}
+            onInput={(e) =>
+              props.onUpdate({
+                filter: {
+                  ...currentFilter(),
+                  contrast: parseInt(e.currentTarget.value),
+                },
+              })}
             class="w-full accent-blue-500"
           />
         </div>
         <div>
-          <label class="text-neutral-500 text-xs">彩度: {currentFilter().saturation}%</label>
+          <label class="text-neutral-500 text-xs">
+            彩度: {currentFilter().saturation}%
+          </label>
           <input
             type="range"
             min="0"
             max="200"
             value={currentFilter().saturation}
-            onInput={(e) => props.onUpdate({ filter: { ...currentFilter(), saturation: parseInt(e.currentTarget.value) } })}
+            onInput={(e) =>
+              props.onUpdate({
+                filter: {
+                  ...currentFilter(),
+                  saturation: parseInt(e.currentTarget.value),
+                },
+              })}
             class="w-full accent-blue-500"
           />
         </div>
@@ -108,13 +135,16 @@ export function MediaPanel(props: MediaPanelProps) {
 
       {/* Opacity */}
       <div>
-        <label class="text-neutral-500 text-xs">不透明度: {Math.round(props.layer.opacity * 100)}%</label>
+        <label class="text-neutral-500 text-xs">
+          不透明度: {Math.round(props.layer.opacity * 100)}%
+        </label>
         <input
           type="range"
           min="0"
           max="100"
           value={props.layer.opacity * 100}
-          onInput={(e) => props.onUpdate({ opacity: parseInt(e.currentTarget.value) / 100 })}
+          onInput={(e) =>
+            props.onUpdate({ opacity: parseInt(e.currentTarget.value) / 100 })}
           class="w-full accent-blue-500"
         />
       </div>

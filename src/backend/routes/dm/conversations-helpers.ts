@@ -1,15 +1,19 @@
 // Shared helpers for DM conversations
 
-import type { Context } from 'hono';
-import { eq, and, or, like, inArray, isNotNull } from 'drizzle-orm';
-import type { Database } from '../../../db/index.ts';
-import { actors, actorCache, objects } from '../../../db/index.ts';
-import type { Env, Variables } from '../../types.ts';
-import { safeJsonParse } from '../../federation-helpers.ts';
+import type { Context } from "hono";
+import { and, eq, inArray, isNotNull, like, or } from "drizzle-orm";
+import type { Database } from "../../../db/index.ts";
+import { actorCache, actors, objects } from "../../../db/index.ts";
+import type { Env, Variables } from "../../types.ts";
+import { safeJsonParse } from "../../federation-helpers.ts";
 
 export type HonoEnv = { Bindings: Env; Variables: Variables };
 
-export { type ActorInfo, loadActorInfoMap as buildActorInfoMap, formatActorSummary as formatActorProfile } from '../actors-helpers.ts';
+export {
+  type ActorInfo,
+  formatActorSummary as formatActorProfile,
+  loadActorInfoMap as buildActorInfoMap,
+} from "../actors-helpers.ts";
 
 export const ACTOR_INFO_FIELDS = {
   apId: actors.apId,
@@ -26,9 +30,12 @@ export const ACTOR_CACHE_INFO_FIELDS = {
 } as const;
 
 /** Extract the other participant's AP ID from a DM object. */
-export function getOtherParticipant(obj: { attributedTo: string; toJson: string }, actorApId: string): string {
+export function getOtherParticipant(
+  obj: { attributedTo: string; toJson: string },
+  actorApId: string,
+): string {
   if (obj.attributedTo === actorApId) {
-    return safeJsonParse<string[]>(obj.toJson, [])[0] || '';
+    return safeJsonParse<string[]>(obj.toJson, [])[0] || "";
   }
   return obj.attributedTo;
 }
@@ -36,8 +43,8 @@ export function getOtherParticipant(obj: { attributedTo: string; toJson: string 
 /** Drizzle where clause for DM objects involving a given actor. */
 export function dmWhereForActor(actorApId: string, actorApIdJson: string) {
   return and(
-    eq(objects.visibility, 'direct'),
-    eq(objects.type, 'Note'),
+    eq(objects.visibility, "direct"),
+    eq(objects.type, "Note"),
     isNotNull(objects.conversation),
     or(
       eq(objects.attributedTo, actorApId),
@@ -48,12 +55,12 @@ export function dmWhereForActor(actorApId: string, actorApIdJson: string) {
 
 /** Sort comparator: descending by time string, with fallback. */
 export function byTimeDesc(a: string | null, b: string | null): number {
-  return (b || '').localeCompare(a || '');
+  return (b || "").localeCompare(a || "");
 }
 
 /** Decode and validate the :encodedApId route param. Returns null on failure after sending 400. */
 export function parseOtherApId(c: Context<HonoEnv>): string | null {
-  const raw = c.req.param('encodedApId');
+  const raw = c.req.param("encodedApId");
   if (!raw) {
     c.status(400);
     return null;
@@ -82,11 +89,32 @@ export function groupConversations(
   dmObjects: DmObject[],
   actorApId: string,
   filterFn: (conversationId: string) => boolean,
-): Map<string, { conversation: string; otherApId: string; lastMessageAt: string; lastContent: string | null; lastSender: string }> {
-  const map = new Map<string, { conversation: string; otherApId: string; lastMessageAt: string; lastContent: string | null; lastSender: string }>();
+): Map<
+  string,
+  {
+    conversation: string;
+    otherApId: string;
+    lastMessageAt: string;
+    lastContent: string | null;
+    lastSender: string;
+  }
+> {
+  const map = new Map<
+    string,
+    {
+      conversation: string;
+      otherApId: string;
+      lastMessageAt: string;
+      lastContent: string | null;
+      lastSender: string;
+    }
+  >();
 
   for (const obj of dmObjects) {
-    if (!obj.conversation || !filterFn(obj.conversation) || map.has(obj.conversation)) continue;
+    if (
+      !obj.conversation || !filterFn(obj.conversation) ||
+      map.has(obj.conversation)
+    ) continue;
 
     const otherApId = getOtherParticipant(obj, actorApId);
     if (!otherApId) continue;
@@ -111,7 +139,9 @@ export async function findRepliedConversations(
 ): Promise<Set<string | null>> {
   if (conversationIds.length === 0) return new Set();
 
-  const replies = await db.selectDistinct({ conversation: objects.conversation })
+  const replies = await db.selectDistinct({
+    conversation: objects.conversation,
+  })
     .from(objects)
     .where(
       and(
@@ -124,6 +154,9 @@ export async function findRepliedConversations(
 }
 
 /** Collect unique values from a map's entries via accessor function. */
-export function uniqueValues<V>(map: Map<string, V>, accessor: (v: V) => string): string[] {
+export function uniqueValues<V>(
+  map: Map<string, V>,
+  accessor: (v: V) => string,
+): string[] {
   return [...new Set(Array.from(map.values()).map(accessor))];
 }

@@ -1,10 +1,10 @@
-import type { Context } from 'hono';
-import type { Env, Variables } from '../../types.ts';
-import { eq } from 'drizzle-orm';
-import { instanceActor } from '../../../db/index.ts';
-import { generateKeyPair } from '../../federation-helpers.ts';
+import type { Context } from "hono";
+import type { Env, Variables } from "../../types.ts";
+import { eq } from "drizzle-orm";
+import { instanceActor } from "../../../db/index.ts";
+import { generateKeyPair } from "../../federation-helpers.ts";
 
-export const INSTANCE_ACTOR_USERNAME = 'community';
+export const INSTANCE_ACTOR_USERNAME = "community";
 export const MAX_ROOM_STREAM_LIMIT = 50;
 
 export function roomApId(baseUrl: string, roomId: string): string {
@@ -23,8 +23,10 @@ export type InstanceActorResult = {
   visibility: string;
 };
 
-export async function getInstanceActor(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<InstanceActorResult> {
-  const db = c.get('db');
+export async function getInstanceActor(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+): Promise<InstanceActorResult> {
+  const db = c.get("db");
   const baseUrl = c.env.APP_URL;
   const apId = `${baseUrl}/ap/actor`;
 
@@ -38,13 +40,13 @@ export async function getInstanceActor(c: Context<{ Bindings: Env; Variables: Va
     actor = await db.insert(instanceActor).values({
       apId,
       preferredUsername: INSTANCE_ACTOR_USERNAME,
-      name: 'Yurucommu',
-      summary: 'Yurucommu Community',
+      name: "Yurucommu",
+      summary: "Yurucommu Community",
       publicKeyPem,
       privateKeyPem,
-      joinPolicy: 'open',
-      postingPolicy: 'members',
-      visibility: 'public',
+      joinPolicy: "open",
+      postingPolicy: "members",
+      visibility: "public",
       createdAt: now,
       updatedAt: now,
     }).returning().get();

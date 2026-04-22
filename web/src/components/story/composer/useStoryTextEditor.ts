@@ -1,6 +1,6 @@
-import { createSignal } from 'solid-js';
-import type { StoryCanvas, TextLayer } from '../../../lib/story-canvas.ts';
-import type { TextData } from '../TextEditorModal.tsx';
+import { createSignal } from "solid-js";
+import type { StoryCanvas, TextLayer } from "../../../lib/story-canvas.ts";
+import type { TextData } from "../TextEditorModal.tsx";
 
 interface UseStoryTextEditorOptions {
   storyCanvas: StoryCanvas | null;
@@ -10,7 +10,9 @@ interface UseStoryTextEditorOptions {
 
 export function useStoryTextEditor(opts: UseStoryTextEditorOptions) {
   const [isTextEditorOpen, setIsTextEditorOpen] = createSignal(false);
-  const [editingTextLayerId, setEditingTextLayerId] = createSignal<string | null>(null);
+  const [editingTextLayerId, setEditingTextLayerId] = createSignal<
+    string | null
+  >(null);
 
   const handleAddText = () => {
     setEditingTextLayerId(null);
@@ -26,7 +28,7 @@ export function useStoryTextEditor(opts: UseStoryTextEditorOptions) {
     const layerId = editingTextLayerId();
     if (!layerId || !opts.storyCanvas) return undefined;
     const layer = opts.storyCanvas.getLayer(layerId);
-    if (!layer || layer.type !== 'text') return undefined;
+    if (!layer || layer.type !== "text") return undefined;
     const textLayer = layer as TextLayer;
     return {
       content: textLayer.content,

@@ -3,11 +3,11 @@
  */
 
 import {
+  index,
+  integer,
+  primaryKey,
   sqliteTable,
   text,
-  integer,
-  index,
-  primaryKey,
 } from "drizzle-orm/sqlite-core";
 import { nowIso } from "./date-utils.ts";
 
@@ -60,7 +60,11 @@ export const communityMembers = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.communityApId, t.actorApId] }),
     index("community_members_actor_idx").on(t.actorApId),
-    index("community_members_comm_role_joined_idx").on(t.communityApId, t.role, t.joinedAt),
+    index("community_members_comm_role_joined_idx").on(
+      t.communityApId,
+      t.role,
+      t.joinedAt,
+    ),
   ],
 );
 
@@ -79,7 +83,10 @@ export const communityJoinRequests = sqliteTable(
   },
   (t) => [
     primaryKey({ columns: [t.communityApId, t.actorApId] }),
-    index("community_join_requests_comm_status_idx").on(t.communityApId, t.status),
+    index("community_join_requests_comm_status_idx").on(
+      t.communityApId,
+      t.status,
+    ),
     index("community_join_requests_actor_idx").on(t.actorApId),
   ],
 );

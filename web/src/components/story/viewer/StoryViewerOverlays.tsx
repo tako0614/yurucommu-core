@@ -1,13 +1,13 @@
-import type { JSX } from 'solid-js';
-import { For, Show } from 'solid-js';
-import { voteOnStory } from '../../../lib/api.ts';
-import type { StoryOverlay } from '../../../types/index.ts';
+import type { JSX } from "solid-js";
+import { For, Show } from "solid-js";
+import { voteOnStory } from "../../../lib/api.ts";
+import type { StoryOverlay } from "../../../types/index.ts";
 
 // Validate URL for XSS protection - only allow http: and https: protocols
 function isValidUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return ['http:', 'https:'].includes(parsed.protocol);
+    return ["http:", "https:"].includes(parsed.protocol);
   } catch {
     return false;
   }
@@ -25,46 +25,54 @@ export function renderStoryOverlay(
   votes?: { [key: number]: number },
   votesTotal?: number,
   userVote?: number,
-  onVote?: (storyApId: string, optionIndex: number) => Promise<void>
+  onVote?: (storyApId: string, optionIndex: number) => Promise<void>,
 ) {
   const { position } = overlay;
 
-  const left = position.x * containerSize.width - (position.width * containerSize.width) / 2;
-  const top = position.y * containerSize.height - (position.height * containerSize.height) / 2;
+  const left = position.x * containerSize.width -
+    (position.width * containerSize.width) / 2;
+  const top = position.y * containerSize.height -
+    (position.height * containerSize.height) / 2;
   const width = position.width * containerSize.width;
   const height = position.height * containerSize.height;
 
   const style: JSX.CSSProperties = {
-    position: 'absolute',
+    position: "absolute",
     left: `${left}px`,
     top: `${top}px`,
     width: `${width}px`,
     height: `${height}px`,
-    display: 'flex',
-    "flex-direction": 'column',
-    "align-items": 'center',
-    "justify-content": 'center',
+    display: "flex",
+    "flex-direction": "column",
+    "align-items": "center",
+    "justify-content": "center",
   };
 
-  if (overlay.type === 'Question' && overlay.name && overlay.oneOf) {
+  if (overlay.type === "Question" && overlay.name && overlay.oneOf) {
     const hasVotes = votesTotal && votesTotal > 0;
     const hasUserVoted = userVote !== undefined && userVote !== null;
 
     return (
       <div style={style}>
         <div class="bg-black/60 backdrop-blur-sm rounded-xl p-3 w-full">
-          <p class="text-white text-sm font-medium text-center mb-2">{overlay.name}</p>
+          <p class="text-white text-sm font-medium text-center mb-2">
+            {overlay.name}
+          </p>
           <div class="flex gap-2">
             <For each={overlay.oneOf}>
               {(option, optionIndex) => {
                 const voteCount = votes?.[optionIndex()] || 0;
-                const percentage = hasVotes && votesTotal ? Math.round((voteCount / votesTotal) * 100) : 0;
+                const percentage = hasVotes && votesTotal
+                  ? Math.round((voteCount / votesTotal) * 100)
+                  : 0;
                 const isSelected = userVote === optionIndex();
 
                 return (
                   <button
-                    class={`flex-1 relative overflow-hidden text-white text-sm py-2 px-3 rounded-lg transition-colors ${isSelected ? 'ring-2 ring-white' : ''} ${hasUserVoted ? 'cursor-default' : 'hover:bg-white/30'}`}
-                    style={{ "background-color": 'rgba(255,255,255,0.2)' }}
+                    class={`flex-1 relative overflow-hidden text-white text-sm py-2 px-3 rounded-lg transition-colors ${
+                      isSelected ? "ring-2 ring-white" : ""
+                    } ${hasUserVoted ? "cursor-default" : "hover:bg-white/30"}`}
+                    style={{ "background-color": "rgba(255,255,255,0.2)" }}
                     onClick={async (e) => {
                       e.stopPropagation();
                       if (hasUserVoted) return;
@@ -75,7 +83,7 @@ export function renderStoryOverlay(
                           await voteOnStory(storyApId, optionIndex());
                         }
                       } catch (err) {
-                        console.error('Failed to vote:', err);
+                        console.error("Failed to vote:", err);
                       }
                     }}
                     disabled={hasUserVoted ?? undefined}
@@ -105,7 +113,7 @@ export function renderStoryOverlay(
     );
   }
 
-  if (overlay.type === 'Note' && overlay.name) {
+  if (overlay.type === "Note" && overlay.name) {
     return (
       <div style={style}>
         <p class="text-white text-lg font-medium drop-shadow-lg bg-black/30 px-4 py-2 rounded-lg text-center">
@@ -115,7 +123,9 @@ export function renderStoryOverlay(
     );
   }
 
-  if (overlay.type === 'Link' && (overlay as unknown as { href?: string }).href) {
+  if (
+    overlay.type === "Link" && (overlay as unknown as { href?: string }).href
+  ) {
     const linkOverlay = overlay as unknown as { href: string; name?: string };
 
     if (!isValidUrl(linkOverlay.href)) {
@@ -131,7 +141,7 @@ export function renderStoryOverlay(
           class="bg-white text-black text-sm font-medium px-4 py-2 rounded-full hover:bg-neutral-200 transition-colors"
           onClick={(e) => e.stopPropagation()}
         >
-          {linkOverlay.name || 'リンクを開く'}
+          {linkOverlay.name || "リンクを開く"}
         </a>
       </div>
     );

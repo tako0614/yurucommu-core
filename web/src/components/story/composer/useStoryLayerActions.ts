@@ -1,4 +1,4 @@
-import type { StoryCanvas, Layer } from '../../../lib/story-canvas.ts';
+import type { Layer, StoryCanvas } from "../../../lib/story-canvas.ts";
 
 interface UseStoryLayerActionsOptions {
   storyCanvas: StoryCanvas | null;

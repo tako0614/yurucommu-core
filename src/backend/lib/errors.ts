@@ -4,9 +4,9 @@
  */
 
 const ErrorCodes = {
-  NOT_FOUND: 'NOT_FOUND',
-  RATE_LIMITED: 'RATE_LIMITED',
-  INTERNAL_ERROR: 'INTERNAL_ERROR',
+  NOT_FOUND: "NOT_FOUND",
+  RATE_LIMITED: "RATE_LIMITED",
+  INTERNAL_ERROR: "INTERNAL_ERROR",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
@@ -28,7 +28,7 @@ export class AppError extends Error {
     message: string,
     code: ErrorCode = ErrorCodes.INTERNAL_ERROR,
     statusCode = 500,
-    details?: unknown
+    details?: unknown,
   ) {
     super(message);
     this.name = this.constructor.name;
@@ -54,7 +54,7 @@ export class AppError extends Error {
 // Only classes with actual consumers are kept.
 
 export class NotFoundError extends AppError {
-  constructor(resource = 'Resource', details?: unknown) {
+  constructor(resource = "Resource", details?: unknown) {
     super(`${resource} not found`, ErrorCodes.NOT_FOUND, 404, details);
   }
 }
@@ -62,14 +62,14 @@ export class NotFoundError extends AppError {
 export class RateLimitError extends AppError {
   public readonly retryAfter?: number;
 
-  constructor(message = 'Rate limit exceeded', retryAfter?: number) {
+  constructor(message = "Rate limit exceeded", retryAfter?: number) {
     super(message, ErrorCodes.RATE_LIMITED, 429);
     this.retryAfter = retryAfter;
   }
 }
 
 export class InternalError extends AppError {
-  constructor(message = 'Internal server error', details?: unknown) {
+  constructor(message = "Internal server error", details?: unknown) {
     super(message, ErrorCodes.INTERNAL_ERROR, 500, details);
   }
 }
@@ -80,25 +80,27 @@ export function isAppError(error: unknown): error is AppError {
   return error instanceof AppError;
 }
 
-export function logError(error: unknown, context?: Record<string, unknown>): void {
+export function logError(
+  error: unknown,
+  context?: Record<string, unknown>,
+): void {
   const errorInfo = isAppError(error)
     ? {
-        name: error.name,
-        code: error.code,
-        message: error.message,
-        statusCode: error.statusCode,
-        details: error.details,
-        stack: error.stack,
-      }
+      name: error.name,
+      code: error.code,
+      message: error.message,
+      statusCode: error.statusCode,
+      details: error.details,
+      stack: error.stack,
+    }
     : {
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      };
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    };
 
-  console.error('[Error]', {
+  console.error("[Error]", {
     ...errorInfo,
     context,
     timestamp: new Date().toISOString(),
   });
 }
-

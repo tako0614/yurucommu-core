@@ -15,20 +15,20 @@ function toDate(dateString: string): Date | null {
 const relativeFormatterCache = new Map<string, Intl.RelativeTimeFormat>();
 
 function getRelativeFormatter(locale: Locale) {
-  const key = Array.isArray(locale) ? locale.join(',') : (locale ?? '');
+  const key = Array.isArray(locale) ? locale.join(",") : (locale ?? "");
   const cached = relativeFormatterCache.get(key);
   if (cached) return cached;
-  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
   relativeFormatterCache.set(key, formatter);
   return formatter;
 }
 
 export function formatRelativeTime(
   dateString: string,
-  options?: { locale?: Locale; maxDays?: number }
+  options?: { locale?: Locale; maxDays?: number },
 ): string {
   const date = toDate(dateString);
-  if (!date) return '';
+  if (!date) return "";
 
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -41,61 +41,76 @@ export function formatRelativeTime(
   const diffDays = Math.floor(diffMs / DAY_MS);
   const maxDays = options?.maxDays ?? 7;
 
-  if (diffMins < 1) return 'now';
+  if (diffMins < 1) return "now";
   if (diffMins < 60) return `${diffMins}m`;
   if (diffHours < 24) return `${diffHours}h`;
   if (diffDays < maxDays) return `${diffDays}d`;
   return date.toLocaleDateString(options?.locale);
 }
 
-export function formatDateTime(dateString: string, locale: Locale = 'ja-JP'): string {
+export function formatDateTime(
+  dateString: string,
+  locale: Locale = "ja-JP",
+): string {
   const date = toDate(dateString);
-  if (!date) return '';
+  if (!date) return "";
   return date.toLocaleString(locale, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
-export function formatMonthYear(dateString: string, locale: Locale = undefined): string {
+export function formatMonthYear(
+  dateString: string,
+  locale: Locale = undefined,
+): string {
   const date = toDate(dateString);
-  if (!date) return '';
-  return date.toLocaleDateString(locale, { year: 'numeric', month: 'long' });
+  if (!date) return "";
+  return date.toLocaleDateString(locale, { year: "numeric", month: "long" });
 }
 
-export function formatTime(dateString: string, locale: Locale = 'ja-JP'): string {
+export function formatTime(
+  dateString: string,
+  locale: Locale = "ja-JP",
+): string {
   const date = toDate(dateString);
-  if (!date) return '';
-  return date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+  if (!date) return "";
+  return date.toLocaleTimeString(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-export function formatChatDateHeader(dateString: string, locale: Locale = 'ja-JP'): string {
+export function formatChatDateHeader(
+  dateString: string,
+  locale: Locale = "ja-JP",
+): string {
   const date = toDate(dateString);
-  if (!date) return '';
+  if (!date) return "";
   const now = new Date();
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
 
   if (date.toDateString() === now.toDateString()) {
-    return getRelativeFormatter(locale).format(0, 'day');
+    return getRelativeFormatter(locale).format(0, "day");
   }
   if (date.toDateString() === yesterday.toDateString()) {
-    return getRelativeFormatter(locale).format(-1, 'day');
+    return getRelativeFormatter(locale).format(-1, "day");
   }
 
-  return date.toLocaleDateString(locale, { month: 'long', day: 'numeric' });
+  return date.toLocaleDateString(locale, { month: "long", day: "numeric" });
 }
 
 export function formatConversationListTime(
   dateString: string | null,
-  locale: Locale = 'ja-JP'
+  locale: Locale = "ja-JP",
 ): string {
-  if (!dateString) return '';
+  if (!dateString) return "";
   const date = toDate(dateString);
-  if (!date) return '';
+  if (!date) return "";
 
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -105,18 +120,28 @@ export function formatConversationListTime(
     return formatTime(dateString, locale);
   }
   if (diffDays < 7) {
-    return new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(date);
+    return new Intl.DateTimeFormat(locale, { weekday: "short" }).format(date);
   }
   if (diffDays < 365) {
-    return date.toLocaleDateString(locale, { month: 'numeric', day: 'numeric' });
+    return date.toLocaleDateString(locale, {
+      month: "numeric",
+      day: "numeric",
+    });
   }
-  return date.toLocaleDateString(locale, { year: 'numeric', month: 'numeric', day: 'numeric' });
+  return date.toLocaleDateString(locale, {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
 }
 
-export function formatRecentTime(dateString: string | null | undefined, locale: Locale = 'ja-JP'): string {
-  if (!dateString) return '';
+export function formatRecentTime(
+  dateString: string | null | undefined,
+  locale: Locale = "ja-JP",
+): string {
+  if (!dateString) return "";
   const date = toDate(dateString);
-  if (!date) return '';
+  if (!date) return "";
 
   const now = new Date();
   const diffDays = Math.floor((now.getTime() - date.getTime()) / DAY_MS);
@@ -125,7 +150,7 @@ export function formatRecentTime(dateString: string | null | undefined, locale: 
     return formatTime(dateString, locale);
   }
   if (diffDays < 7) {
-    return getRelativeFormatter(locale).format(-diffDays, 'day');
+    return getRelativeFormatter(locale).format(-diffDays, "day");
   }
-  return date.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
+  return date.toLocaleDateString(locale, { month: "short", day: "numeric" });
 }

@@ -1,18 +1,18 @@
-import { createSignal, createEffect, onCleanup, Show, For } from 'solid-js';
-import { Actor, DMMessage } from '../../types/index.ts';
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { Actor, DMMessage } from "../../types/index.ts";
 import {
-  DMContact,
-  fetchUserDMMessages,
-  sendUserDMMessage,
-  fetchCommunityMessages,
-  sendCommunityMessage,
   CommunityMessage,
+  DMContact,
+  fetchCommunityMessages,
+  fetchUserDMMessages,
   fetchUserDMTyping,
-  sendUserDMTyping,
   markDMAsRead,
-} from '../../lib/api.ts';
-import { formatTime } from '../../lib/datetime.ts';
-import { useI18n } from '../../lib/i18n.tsx';
+  sendCommunityMessage,
+  sendUserDMMessage,
+  sendUserDMTyping,
+} from "../../lib/api.ts";
+import { formatTime } from "../../lib/datetime.ts";
+import { useI18n } from "../../lib/i18n.tsx";
 
 interface DMChatPanelProps {
   contact: DMContact;
@@ -22,9 +22,11 @@ interface DMChatPanelProps {
 }
 
 export function DMChatPanel(props: DMChatPanelProps) {
-  const [messages, setMessages] = createSignal<(DMMessage | CommunityMessage)[]>([]);
+  const [messages, setMessages] = createSignal<
+    (DMMessage | CommunityMessage)[]
+  >([]);
   const [loading, setLoading] = createSignal(true);
-  const [input, setInput] = createSignal('');
+  const [input, setInput] = createSignal("");
   const [sending, setSending] = createSignal(false);
   const [isTyping, setIsTyping] = createSignal(false);
   const [errorMessage, setErrorMessage] = createSignal<string | null>(null);
@@ -41,13 +43,15 @@ export function DMChatPanel(props: DMChatPanelProps) {
       setErrorMessage(null);
       setLoading(true);
       try {
-        if (contactType === 'community') {
+        if (contactType === "community") {
           const data = await fetchCommunityMessages(contactApId);
           if (!cancelled) {
             setMessages(data);
           }
         } else {
-          const { messages: loadedMessages } = await fetchUserDMMessages(contactApId);
+          const { messages: loadedMessages } = await fetchUserDMMessages(
+            contactApId,
+          );
           if (!cancelled) {
             setMessages(loadedMessages);
           }
@@ -62,8 +66,8 @@ export function DMChatPanel(props: DMChatPanelProps) {
         }
       } catch (e) {
         if (!cancelled) {
-          console.error('Failed to load messages:', e);
-          setErrorMessage(t('common.error'));
+          console.error("Failed to load messages:", e);
+          setErrorMessage(t("common.error"));
         }
       } finally {
         if (!cancelled) {
@@ -82,14 +86,14 @@ export function DMChatPanel(props: DMChatPanelProps) {
   createEffect(() => {
     // Track messages to scroll on change
     messages();
-    messagesEndRef?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef?.scrollIntoView({ behavior: "smooth" });
   });
 
   createEffect(() => {
     const contactApId = props.contact.ap_id;
     const contactType = props.contact.type;
 
-    if (contactType !== 'user') {
+    if (contactType !== "user") {
       setIsTyping(false);
       return;
     }
@@ -117,7 +121,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
   });
 
   const sendTyping = async (value: string) => {
-    if (props.contact.type !== 'user') return;
+    if (props.contact.type !== "user") return;
     if (!value.trim()) return;
     const now = Date.now();
     if (now - lastTypingSent < 2000) return;
@@ -125,7 +129,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
     try {
       await sendUserDMTyping(props.contact.ap_id);
     } catch (e) {
-      console.error('Failed to send typing:', e);
+      console.error("Failed to send typing:", e);
     }
   };
 
@@ -136,23 +140,31 @@ export function DMChatPanel(props: DMChatPanelProps) {
     setSending(true);
     setErrorMessage(null);
     try {
-      if (props.contact.type === 'community') {
-        const newMsg = await sendCommunityMessage(props.contact.ap_id, input().trim());
-        setMessages(prev => [...prev, newMsg]);
+      if (props.contact.type === "community") {
+        const newMsg = await sendCommunityMessage(
+          props.contact.ap_id,
+          input().trim(),
+        );
+        setMessages((prev) => [...prev, newMsg]);
       } else {
-        const { message } = await sendUserDMMessage(props.contact.ap_id, input().trim());
-        setMessages(prev => [...prev, message]);
+        const { message } = await sendUserDMMessage(
+          props.contact.ap_id,
+          input().trim(),
+        );
+        setMessages((prev) => [...prev, message]);
       }
-      setInput('');
+      setInput("");
     } catch (e) {
-      console.error('Failed to send message:', e);
-      setErrorMessage(t('common.error'));
+      console.error("Failed to send message:", e);
+      setErrorMessage(t("common.error"));
     } finally {
       setSending(false);
     }
   };
 
-  const handleInputChange = (e: InputEvent & { currentTarget: HTMLInputElement }) => {
+  const handleInputChange = (
+    e: InputEvent & { currentTarget: HTMLInputElement },
+  ) => {
     const value = e.currentTarget.value;
     setInput(value);
     void sendTyping(value);
@@ -165,21 +177,36 @@ export function DMChatPanel(props: DMChatPanelProps) {
   return (
     <div class="flex flex-col h-full">
       <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-900 bg-neutral-900/80 backdrop-blur-sm">
-        <button onClick={props.onBack} aria-label="Back" class="text-neutral-400 hover:text-white transition-colors">
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M15 19l-7-7 7-7" />
+        <button
+          onClick={props.onBack}
+          aria-label="Back"
+          class="text-neutral-400 hover:text-white transition-colors"
+        >
+          <svg
+            class="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width={2}
+              d="M15 19l-7-7 7-7"
+            />
           </svg>
         </button>
         <Show
           when={props.contact.icon_url}
           fallback={
             <div class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold">
-              {(props.contact.name || props.contact.preferred_username)?.[0]?.toUpperCase() || '?'}
+              {(props.contact.name || props.contact.preferred_username)?.[0]
+                ?.toUpperCase() || "?"}
             </div>
           }
         >
           <img
-            src={props.contact.icon_url}
+            src={props.contact.icon_url ?? undefined}
             alt={props.contact.name || props.contact.preferred_username}
             class="w-10 h-10 rounded-full object-cover"
           />
@@ -190,7 +217,10 @@ export function DMChatPanel(props: DMChatPanelProps) {
           </div>
           <div class="text-xs text-neutral-500 truncate">
             @{props.contact.preferred_username}
-            <Show when={props.contact.type === 'community' && props.contact.member_count !== undefined}>
+            <Show
+              when={props.contact.type === "community" &&
+                props.contact.member_count !== undefined}
+            >
               <span class="ml-2">{props.contact.member_count}人</span>
             </Show>
           </div>
@@ -206,7 +236,9 @@ export function DMChatPanel(props: DMChatPanelProps) {
             when={messages().length > 0}
             fallback={
               <div class="text-center text-neutral-500">
-                {props.contact.type === 'community' ? t('communityChat.noMessages') : t('dm.noMessages')}
+                {props.contact.type === "community"
+                  ? t("communityChat.noMessages")
+                  : t("dm.noMessages")}
               </div>
             }
           >
@@ -214,29 +246,43 @@ export function DMChatPanel(props: DMChatPanelProps) {
               {(msg, index) => {
                 const isMine = getSenderApId(msg) === props.actor.ap_id;
                 const showAvatar = !isMine && (
-                  index() === 0 || getSenderApId(messages()[index() - 1]) !== getSenderApId(msg)
+                  index() === 0 ||
+                  getSenderApId(messages()[index() - 1]) !== getSenderApId(msg)
                 );
 
                 return (
-                  <div class={`flex ${isMine ? 'justify-end' : 'justify-start'} mb-2`}>
-                    <Show when={!isMine && showAvatar} fallback={!isMine ? <div class="w-8 mr-2" /> : undefined}>
+                  <div
+                    class={`flex ${
+                      isMine ? "justify-end" : "justify-start"
+                    } mb-2`}
+                  >
+                    <Show
+                      when={!isMine && showAvatar}
+                      fallback={!isMine ? <div class="w-8 mr-2" /> : undefined}
+                    >
                       <img
-                        src={msg.sender.icon_url || ''}
+                        src={msg.sender.icon_url || ""}
                         alt={msg.sender.name || msg.sender.preferred_username}
                         class="w-8 h-8 rounded-full mr-2 object-cover"
                       />
                     </Show>
-                    <div class={`max-w-[70%] ${isMine ? 'text-right' : 'text-left'}`}>
+                    <div
+                      class={`max-w-[70%] ${
+                        isMine ? "text-right" : "text-left"
+                      }`}
+                    >
                       <Show when={!isMine && showAvatar}>
                         <div class="text-xs text-neutral-500 mb-1">
                           {msg.sender.name || msg.sender.preferred_username}
                         </div>
                       </Show>
-                      <div class={`inline-block px-4 py-2 rounded-2xl ${
-                        isMine
-                          ? 'bg-blue-500 text-white rounded-br-sm'
-                          : 'bg-neutral-800 text-white rounded-bl-sm'
-                      }`}>
+                      <div
+                        class={`inline-block px-4 py-2 rounded-2xl ${
+                          isMine
+                            ? "bg-blue-500 text-white rounded-br-sm"
+                            : "bg-neutral-800 text-white rounded-bl-sm"
+                        }`}
+                      >
                         <p class="text-sm">{msg.content}</p>
                       </div>
                       <div class="text-xs text-neutral-500 mt-1">
@@ -249,11 +295,13 @@ export function DMChatPanel(props: DMChatPanelProps) {
             </For>
           </Show>
         </Show>
-        <Show when={props.contact.type === 'user' && isTyping()}>
-          <div class="text-xs text-neutral-500 mt-2">{t('dm.typing')}</div>
+        <Show when={props.contact.type === "user" && isTyping()}>
+          <div class="text-xs text-neutral-500 mt-2">{t("dm.typing")}</div>
         </Show>
         <Show when={errorMessage()}>
-          <div class="mt-4 text-center text-red-400 text-sm">{errorMessage()}</div>
+          <div class="mt-4 text-center text-red-400 text-sm">
+            {errorMessage()}
+          </div>
         </Show>
         <div ref={messagesEndRef!} />
       </div>
@@ -264,7 +312,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
             type="text"
             value={input()}
             onInput={handleInputChange}
-            placeholder={t('dm.placeholder')}
+            placeholder={t("dm.placeholder")}
             class="flex-1 px-4 py-2 bg-neutral-900 border border-neutral-800 rounded-full text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500"
           />
           <button

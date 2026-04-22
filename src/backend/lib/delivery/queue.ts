@@ -3,24 +3,21 @@
  * and the batch handler that dispatches to sub-modules.
  */
 
-import type { Message, MessageBatch, Queue } from '@cloudflare/workers-types';
-import type { Env } from '../../types.ts';
-import { getDb, type Database } from '../../../db/index.ts';
-import { eq, and, or, notInArray, sql } from 'drizzle-orm';
-import { actorCache, deliveryQueue } from '../../../db/index.ts';
-import { isSafeRemoteUrl } from '../../federation-helpers.ts';
+import type { Message, MessageBatch, Queue } from "@cloudflare/workers-types";
+import type { Env } from "../../types.ts";
+import { type Database, getDb } from "../../../db/index.ts";
+import { and, eq, notInArray, or, sql } from "drizzle-orm";
+import { actorCache, deliveryQueue } from "../../../db/index.ts";
+import { isSafeRemoteUrl } from "../../federation-helpers.ts";
 import {
   DELIVERY_QUEUE_MESSAGE_VERSION,
-  type DeliveryQueueMessageV1,
-  type DeliveryDlqMessageV1,
   type DeliveryDeliverEndpointMessageV1,
-  isDeliveryQueueMessageV1,
+  type DeliveryDlqMessageV1,
+  type DeliveryQueueMessageV1,
   isDeliveryDlqMessageV1,
-} from './types.ts';
-import {
-  computeDeliveryJobId,
-  safeEndpointHost,
-} from './transformers.ts';
+  isDeliveryQueueMessageV1,
+} from "./types.ts";
+import { computeDeliveryJobId, safeEndpointHost } from "./transformers.ts";
 
 // ---------------------------------------------------------------------------
 // Concurrency primitives
@@ -89,15 +86,26 @@ export function nowIso(): string {
   return new Date().toISOString();
 }
 
-export type QueueEnv = Env & { DELIVERY_QUEUE: Queue<DeliveryQueueMessageV1>; DELIVERY_DLQ: Queue<DeliveryDlqMessageV1> };
+export type QueueEnv = Env & {
+  DELIVERY_QUEUE: Queue<DeliveryQueueMessageV1>;
+  DELIVERY_DLQ: Queue<DeliveryDlqMessageV1>;
+};
 
 function queueAvailable(env: Env): env is QueueEnv {
-  return Boolean((env as unknown as { DELIVERY_QUEUE?: unknown }).DELIVERY_QUEUE) && Boolean((env as unknown as { DELIVERY_DLQ?: unknown }).DELIVERY_DLQ);
+  return Boolean(
+    (env as unknown as { DELIVERY_QUEUE?: unknown }).DELIVERY_QUEUE,
+  ) && Boolean((env as unknown as { DELIVERY_DLQ?: unknown }).DELIVERY_DLQ);
 }
 
-export function requireQueue(env: Env, label: string, message: Message<DeliveryQueueMessageV1>): env is QueueEnv {
+export function requireQueue(
+  env: Env,
+  label: string,
+  message: Message<DeliveryQueueMessageV1>,
+): env is QueueEnv {
   if (queueAvailable(env)) return true;
-  console.warn(`[DeliveryQueue] Missing DELIVERY_QUEUE/DELIVERY_DLQ bindings. Dropping ${label} job.`);
+  console.warn(
+    `[DeliveryQueue] Missing DELIVERY_QUEUE/DELIVERY_DLQ bindings. Dropping ${label} job.`,
+  );
   message.ack();
   return false;
 }
@@ -106,33 +114,73 @@ export function requireQueue(env: Env, label: string, message: Message<DeliveryQ
 // Queue message builders & senders
 // ---------------------------------------------------------------------------
 
-export async function sendQueueMessage(env: Env, body: DeliveryQueueMessageV1, delaySeconds?: number): Promise<void> {
+export async function sendQueueMessage(
+  env: Env,
+  body: DeliveryQueueMessageV1,
+  delaySeconds?: number,
+): Promise<void> {
   if (!queueAvailable(env)) return;
-  await env.DELIVERY_QUEUE.send(body, delaySeconds ? { delaySeconds } : undefined);
+  await env.DELIVERY_QUEUE.send(
+    body,
+    delaySeconds ? { delaySeconds } : undefined,
+  );
 }
 
-export async function sendDlqMessage(env: Env, payload: DeliveryDlqMessageV1): Promise<void> {
+export async function sendDlqMessage(
+  env: Env,
+  payload: DeliveryDlqMessageV1,
+): Promise<void> {
   if (!queueAvailable(env)) return;
   await env.DELIVERY_DLQ.send(payload);
 }
 
-export function buildDeliverEndpointMessage(jobId: string): DeliveryQueueMessageV1 {
-  return { version: DELIVERY_QUEUE_MESSAGE_VERSION, type: 'deliver_endpoint', jobId, scheduledAt: nowIso() };
+export function buildDeliverEndpointMessage(
+  jobId: string,
+): DeliveryQueueMessageV1 {
+  return {
+    version: DELIVERY_QUEUE_MESSAGE_VERSION,
+    type: "deliver_endpoint",
+    jobId,
+    scheduledAt: nowIso(),
+  };
 }
 
-export function buildResolveActorMessage(activityId: string, recipientActorApId: string): DeliveryQueueMessageV1 {
-  return { version: DELIVERY_QUEUE_MESSAGE_VERSION, type: 'resolve_actor', activityId, recipientActorApId, scheduledAt: nowIso() };
+export function buildResolveActorMessage(
+  activityId: string,
+  recipientActorApId: string,
+): DeliveryQueueMessageV1 {
+  return {
+    version: DELIVERY_QUEUE_MESSAGE_VERSION,
+    type: "resolve_actor",
+    activityId,
+    recipientActorApId,
+    scheduledAt: nowIso(),
+  };
 }
 
-export function buildReconcileJobMessage(jobId: string, reconcileAttempt: number): DeliveryQueueMessageV1 {
-  return { version: DELIVERY_QUEUE_MESSAGE_VERSION, type: 'reconcile_job', jobId, reconcileAttempt, scheduledAt: nowIso() };
+export function buildReconcileJobMessage(
+  jobId: string,
+  reconcileAttempt: number,
+): DeliveryQueueMessageV1 {
+  return {
+    version: DELIVERY_QUEUE_MESSAGE_VERSION,
+    type: "reconcile_job",
+    jobId,
+    reconcileAttempt,
+    scheduledAt: nowIso(),
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Job management
 // ---------------------------------------------------------------------------
 
-export async function upsertDeliveryJob(db: Database, jobId: string, activityId: string, endpoint: string): Promise<void> {
+export async function upsertDeliveryJob(
+  db: Database,
+  jobId: string,
+  activityId: string,
+  endpoint: string,
+): Promise<void> {
   await db.insert(deliveryQueue)
     .values({
       id: jobId,
@@ -140,7 +188,7 @@ export async function upsertDeliveryJob(db: Database, jobId: string, activityId:
       activityApId: activityId,
       attempts: 0,
       nextAttemptAt: nowIso(),
-      status: 'pending',
+      status: "pending",
     })
     .onConflictDoNothing();
 
@@ -153,8 +201,8 @@ export async function upsertDeliveryJob(db: Database, jobId: string, activityId:
     .where(
       and(
         eq(deliveryQueue.id, jobId),
-        notInArray(deliveryQueue.status, ['processing', 'delivered']),
-      )
+        notInArray(deliveryQueue.status, ["processing", "delivered"]),
+      ),
     );
 }
 
@@ -162,7 +210,7 @@ export async function enqueueResolveForEndpointActors(
   db: Database,
   env: Env,
   activityId: string,
-  endpoint: string
+  endpoint: string,
 ): Promise<number> {
   if (!queueAvailable(env)) return 0;
 
@@ -176,7 +224,12 @@ export async function enqueueResolveForEndpointActors(
   while (enqueued < MAX_ACTORS) {
     let query = db.select({ apId: actorCache.apId })
       .from(actorCache)
-      .where(or(eq(actorCache.sharedInbox, endpoint), eq(actorCache.inbox, endpoint)))
+      .where(
+        or(
+          eq(actorCache.sharedInbox, endpoint),
+          eq(actorCache.inbox, endpoint),
+        ),
+      )
       .orderBy(actorCache.apId)
       .limit(PAGE_SIZE);
 
@@ -185,9 +238,12 @@ export async function enqueueResolveForEndpointActors(
         .from(actorCache)
         .where(
           and(
-            or(eq(actorCache.sharedInbox, endpoint), eq(actorCache.inbox, endpoint)),
+            or(
+              eq(actorCache.sharedInbox, endpoint),
+              eq(actorCache.inbox, endpoint),
+            ),
             sql`${actorCache.apId} > ${cursor}`,
-          )
+          ),
         )
         .orderBy(actorCache.apId)
         .limit(PAGE_SIZE);
@@ -197,7 +253,11 @@ export async function enqueueResolveForEndpointActors(
 
     if (page.length === 0) break;
 
-    for (let i = 0; i < page.length && enqueued < MAX_ACTORS; i += SEND_BATCH_SIZE) {
+    for (
+      let i = 0;
+      i < page.length && enqueued < MAX_ACTORS;
+      i += SEND_BATCH_SIZE
+    ) {
       const slice = page
         .slice(i, i + SEND_BATCH_SIZE)
         .map((r) => r.apId)
@@ -218,12 +278,15 @@ export async function enqueueResolveForEndpointActors(
   }
 
   if (enqueued >= MAX_ACTORS) {
-    console.warn('[DeliveryQueue] endpoint invalidation affected many actors; capped re-resolution enqueue:', {
-      endpoint,
-      activityId,
-      enqueued,
-      max: MAX_ACTORS,
-    });
+    console.warn(
+      "[DeliveryQueue] endpoint invalidation affected many actors; capped re-resolution enqueue:",
+      {
+        endpoint,
+        activityId,
+        enqueued,
+        max: MAX_ACTORS,
+      },
+    );
   }
 
   return enqueued;
@@ -233,18 +296,29 @@ export async function enqueueResolveForEndpointActors(
 // Public enqueue entry points
 // ---------------------------------------------------------------------------
 
-export async function enqueueFanoutToFollowers(env: Env, activityId: string, followeeApId: string): Promise<void> {
+export async function enqueueFanoutToFollowers(
+  env: Env,
+  activityId: string,
+  followeeApId: string,
+): Promise<void> {
   await sendQueueMessage(env, {
     version: DELIVERY_QUEUE_MESSAGE_VERSION,
-    type: 'fanout_followers',
+    type: "fanout_followers",
     activityId,
     followeeApId,
     scheduledAt: nowIso(),
   });
 }
 
-export async function enqueueDeliveryToActor(env: Env, activityId: string, recipientActorApId: string): Promise<void> {
-  await sendQueueMessage(env, buildResolveActorMessage(activityId, recipientActorApId));
+export async function enqueueDeliveryToActor(
+  env: Env,
+  activityId: string,
+  recipientActorApId: string,
+): Promise<void> {
+  await sendQueueMessage(
+    env,
+    buildResolveActorMessage(activityId, recipientActorApId),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -253,75 +327,102 @@ export async function enqueueDeliveryToActor(env: Env, activityId: string, recip
 
 export async function handleDeliveryQueueBatch(
   batch: MessageBatch<DeliveryQueueMessageV1>,
-  env: Env
+  env: Env,
 ): Promise<void> {
   const db = (env as { DB_INSTANCE?: Database }).DB_INSTANCE ?? getDb(env.DB);
-  const bulkhead = new Bulkhead(BULKHEAD_GLOBAL_CONCURRENCY, BULKHEAD_PER_DOMAIN);
+  const bulkhead = new Bulkhead(
+    BULKHEAD_GLOBAL_CONCURRENCY,
+    BULKHEAD_PER_DOMAIN,
+  );
 
   // Lazy import sub-modules to avoid circular dependencies at module level
-  const { processFanoutFollowers, processResolveActor, processReconcileJob, runWithConcurrency } = await import('./queue-batching.ts');
-  const { processDeliverEndpoint } = await import('./queue-delivery.ts');
+  const {
+    processFanoutFollowers,
+    processResolveActor,
+    processReconcileJob,
+    runWithConcurrency,
+  } = await import("./queue-batching.ts");
+  const { processDeliverEndpoint } = await import("./queue-delivery.ts");
 
   // Process non-delivery messages first (planning/resolution).
   for (const message of batch.messages) {
     const body = message.body;
     if (!isDeliveryQueueMessageV1(body)) {
-      console.warn('[DeliveryQueue] Invalid message format, skipping:', JSON.stringify(body).slice(0, 200));
+      console.warn(
+        "[DeliveryQueue] Invalid message format, skipping:",
+        JSON.stringify(body).slice(0, 200),
+      );
       message.ack();
       continue;
     }
 
-    if (body.type === 'deliver_endpoint') {
+    if (body.type === "deliver_endpoint") {
       // handled later with concurrency
       continue;
     }
 
     try {
       switch (body.type) {
-        case 'fanout_followers':
+        case "fanout_followers":
           await processFanoutFollowers(db, env, body, message);
           break;
-        case 'resolve_actor':
+        case "resolve_actor":
           await processResolveActor(db, env, body, message);
           break;
-        case 'reconcile_job':
+        case "reconcile_job":
           await processReconcileJob(db, env, body, message);
           break;
         default:
           message.ack();
       }
     } catch (e) {
-      console.error('[DeliveryQueue] Non-delivery message failed:', e);
+      console.error("[DeliveryQueue] Non-delivery message failed:", e);
       message.retry({ delaySeconds: 60 });
     }
   }
 
   // Deliver endpoint messages with bulkhead+concurrency.
-  const deliveryMessages = batch.messages.filter((m) => isDeliveryQueueMessageV1(m.body) && m.body.type === 'deliver_endpoint') as Array<Message<DeliveryQueueMessageV1>>;
-  await runWithConcurrency(deliveryMessages, BULKHEAD_GLOBAL_CONCURRENCY, async (m) => {
-    try {
-      await processDeliverEndpoint(db, env, m.body as DeliveryDeliverEndpointMessageV1, m, bulkhead);
-    } catch (e) {
-      console.error('[DeliveryQueue] deliver_endpoint failed:', e);
-      m.retry({ delaySeconds: 60 });
-    }
-  });
+  const deliveryMessages = batch.messages.filter(
+    (m: Message<DeliveryQueueMessageV1>) =>
+      isDeliveryQueueMessageV1(m.body) && m.body.type === "deliver_endpoint",
+  ) as Array<Message<DeliveryQueueMessageV1>>;
+  await runWithConcurrency(
+    deliveryMessages,
+    BULKHEAD_GLOBAL_CONCURRENCY,
+    async (m: Message<DeliveryQueueMessageV1>) => {
+      try {
+        await processDeliverEndpoint(
+          db,
+          env,
+          m.body as DeliveryDeliverEndpointMessageV1,
+          m,
+          bulkhead,
+        );
+      } catch (e) {
+        console.error("[DeliveryQueue] deliver_endpoint failed:", e);
+        m.retry({ delaySeconds: 60 });
+      }
+    },
+  );
 }
 
 export async function handleDeliveryDlqBatch(
   batch: MessageBatch<DeliveryDlqMessageV1>,
-  env: Env
+  env: Env,
 ): Promise<void> {
   for (const message of batch.messages) {
     const body = message.body;
     if (!isDeliveryDlqMessageV1(body)) {
-      console.warn('[DeliveryDLQ] Invalid message format, skipping:', JSON.stringify(body).slice(0, 200));
+      console.warn(
+        "[DeliveryDLQ] Invalid message format, skipping:",
+        JSON.stringify(body).slice(0, 200),
+      );
       message.ack();
       continue;
     }
 
     // Structured log for alerting/monitoring.
-    console.error('[DeliveryDLQ] job dead-lettered:', {
+    console.error("[DeliveryDLQ] job dead-lettered:", {
       jobId: body.jobId,
       activityId: body.activityId,
       endpoint: body.endpoint,
@@ -332,9 +433,13 @@ export async function handleDeliveryDlqBatch(
 
     // Phase 3: periodic reconciliation (best-effort).
     try {
-      await sendQueueMessage(env, buildReconcileJobMessage(body.jobId, 1), 6 * 60 * 60);
+      await sendQueueMessage(
+        env,
+        buildReconcileJobMessage(body.jobId, 1),
+        6 * 60 * 60,
+      );
     } catch (e) {
-      console.warn('[DeliveryDLQ] Failed to schedule reconciliation:', e);
+      console.warn("[DeliveryDLQ] Failed to schedule reconciliation:", e);
     }
 
     message.ack();

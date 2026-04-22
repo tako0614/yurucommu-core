@@ -1,14 +1,14 @@
-import type { Context, Next } from 'hono';
+import type { Context, Next } from "hono";
 
-import { getClientIP } from '../lib/client-ip.ts';
-import type { Env, Variables } from '../types.ts';
+import { getClientIP } from "../lib/client-ip.ts";
+import type { Env, Variables } from "../types.ts";
 
 interface RateLimitEntry {
   count: number;
   resetAt: number;
 }
 
-const RATE_LIMIT_KV_PREFIX = 'rate-limit:v1';
+const RATE_LIMIT_KV_PREFIX = "rate-limit:v1";
 const fallbackRateLimitStore = new Map<string, RateLimitEntry>();
 
 let hasWarnedKvFailure = false;
@@ -18,10 +18,13 @@ function getRateLimitStorageKey(key: string): string {
 }
 
 function isValidEntry(v: Partial<RateLimitEntry>): v is RateLimitEntry {
-  return typeof v.count === 'number' && typeof v.resetAt === 'number';
+  return typeof v.count === "number" && typeof v.resetAt === "number";
 }
 
-function parseRateLimitEntry(raw: string | null, now: number): RateLimitEntry | null {
+function parseRateLimitEntry(
+  raw: string | null,
+  now: number,
+): RateLimitEntry | null {
   if (!raw) return null;
 
   try {
@@ -33,7 +36,11 @@ function parseRateLimitEntry(raw: string | null, now: number): RateLimitEntry | 
   }
 }
 
-function consumeLocalFallback(key: string, windowMs: number, now: number): RateLimitEntry {
+function consumeLocalFallback(
+  key: string,
+  windowMs: number,
+  now: number,
+): RateLimitEntry {
   const existing = fallbackRateLimitStore.get(key);
   if (!existing || existing.resetAt <= now) {
     const created = { count: 1, resetAt: now + windowMs };
@@ -50,7 +57,7 @@ async function consumeDistributed(
   kv: KVNamespace,
   key: string,
   windowMs: number,
-  now: number
+  now: number,
 ): Promise<RateLimitEntry> {
   const storageKey = getRateLimitStorageKey(key);
   const current = parseRateLimitEntry(await kv.get(storageKey), now);
@@ -59,7 +66,10 @@ async function consumeDistributed(
     ? { count: current.count + 1, resetAt: current.resetAt }
     : { count: 1, resetAt: now + windowMs };
 
-  const expirationTtl = Math.max(60, Math.ceil((next.resetAt - now) / 1000) + 5);
+  const expirationTtl = Math.max(
+    60,
+    Math.ceil((next.resetAt - now) / 1000) + 5,
+  );
   await kv.put(storageKey, JSON.stringify(next), { expirationTtl });
   return next;
 }
@@ -68,7 +78,7 @@ async function consumeRateLimit(
   kv: KVNamespace | undefined,
   key: string,
   windowMs: number,
-  now: number
+  now: number,
 ): Promise<RateLimitEntry> {
   if (!kv) {
     return consumeLocalFallback(key, windowMs, now);
@@ -79,7 +89,10 @@ async function consumeRateLimit(
   } catch (err) {
     if (!hasWarnedKvFailure) {
       hasWarnedKvFailure = true;
-      console.warn('[RateLimit] KV unavailable, falling back to in-memory limiter', err);
+      console.warn(
+        "[RateLimit] KV unavailable, falling back to in-memory limiter",
+        err,
+      );
     }
     return consumeLocalFallback(key, windowMs, now);
   }
@@ -92,38 +105,41 @@ interface RateLimitConfig {
 }
 
 function buildKey(prefix: string | undefined, clientId: string): string {
-  return `${prefix ?? ''}${clientId}`;
+  return `${prefix ?? ""}${clientId}`;
 }
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
 
 const RATE_LIMITS = {
-  general:     { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 10_000 },
-  auth:        { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 20 },
-  postCreate:  { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 3_000 },
-  search:      { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 3_000 },
+  general: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 10_000 },
+  auth: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 20 },
+  postCreate: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 3_000 },
+  search: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 3_000 },
   mediaUpload: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 2_000 },
-  dm:          { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 6_000 },
-  inbox:       { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 20_000 },
+  dm: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 6_000 },
+  inbox: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 20_000 },
 } as const;
 
 export const RateLimitConfigs = {
-  general:     { ...RATE_LIMITS.general },
-  auth:        { ...RATE_LIMITS.auth,        keyPrefix: 'auth:' },
-  postCreate:  { ...RATE_LIMITS.postCreate,  keyPrefix: 'post:' },
-  search:      { ...RATE_LIMITS.search,      keyPrefix: 'search:' },
-  mediaUpload: { ...RATE_LIMITS.mediaUpload, keyPrefix: 'media:' },
-  dm:          { ...RATE_LIMITS.dm,           keyPrefix: 'dm:' },
-  inbox:       { ...RATE_LIMITS.inbox,        keyPrefix: 'inbox:' },
+  general: { ...RATE_LIMITS.general },
+  auth: { ...RATE_LIMITS.auth, keyPrefix: "auth:" },
+  postCreate: { ...RATE_LIMITS.postCreate, keyPrefix: "post:" },
+  search: { ...RATE_LIMITS.search, keyPrefix: "search:" },
+  mediaUpload: { ...RATE_LIMITS.mediaUpload, keyPrefix: "media:" },
+  dm: { ...RATE_LIMITS.dm, keyPrefix: "dm:" },
+  inbox: { ...RATE_LIMITS.inbox, keyPrefix: "inbox:" },
 } as const satisfies Record<string, RateLimitConfig>;
 
 /**
  * Create a rate limiting middleware
  */
 export function rateLimit(config: RateLimitConfig) {
-  return async (c: Context<{ Bindings: Env; Variables: Variables }>, next: Next) => {
+  return async (
+    c: Context<{ Bindings: Env; Variables: Variables }>,
+    next: Next,
+  ) => {
     // Get client identifier (IP or authenticated actor)
-    const actor = c.get('actor');
+    const actor = c.get("actor");
     const ip = getClientIP(c);
     const clientId = actor?.ap_id || ip;
 
@@ -135,17 +151,17 @@ export function rateLimit(config: RateLimitConfig) {
     const remaining = Math.max(0, config.maxRequests - entry.count);
     const resetAt = Math.ceil(entry.resetAt / 1000);
 
-    c.header('X-RateLimit-Limit', config.maxRequests.toString());
-    c.header('X-RateLimit-Remaining', remaining.toString());
-    c.header('X-RateLimit-Reset', resetAt.toString());
+    c.header("X-RateLimit-Limit", config.maxRequests.toString());
+    c.header("X-RateLimit-Remaining", remaining.toString());
+    c.header("X-RateLimit-Reset", resetAt.toString());
 
     // Check if rate limited
     if (entry.count > config.maxRequests) {
       const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
-      c.header('Retry-After', retryAfter.toString());
+      c.header("Retry-After", retryAfter.toString());
 
       return c.json({
-        error: 'Too many requests',
+        error: "Too many requests",
         retry_after: retryAfter,
       }, 429);
     }
@@ -153,4 +169,3 @@ export function rateLimit(config: RateLimitConfig) {
     await next();
   };
 }
-

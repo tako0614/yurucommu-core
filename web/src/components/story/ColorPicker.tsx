@@ -4,7 +4,7 @@
  * Simple color picker with presets and custom color input.
  */
 
-import { createSignal, Show, For } from 'solid-js';
+import { createSignal, For, Show } from "solid-js";
 
 interface ColorPickerProps {
   color: string;
@@ -15,21 +15,33 @@ interface ColorPickerProps {
 
 // Color presets
 const PRESET_COLORS = [
-  '#ffffff', '#000000', '#ff0000', '#ff6b6b',
-  '#ff9500', '#ffcc00', '#4cd964', '#34c759',
-  '#5ac8fa', '#007aff', '#5856d6', '#af52de',
-  '#ff2d55', '#ff375f', '#8e8e93', '#636366',
+  "#ffffff",
+  "#000000",
+  "#ff0000",
+  "#ff6b6b",
+  "#ff9500",
+  "#ffcc00",
+  "#4cd964",
+  "#34c759",
+  "#5ac8fa",
+  "#007aff",
+  "#5856d6",
+  "#af52de",
+  "#ff2d55",
+  "#ff375f",
+  "#8e8e93",
+  "#636366",
 ];
 
 const GRADIENT_PRESETS = [
-  { colors: ['#667eea', '#764ba2'], angle: 135 },
-  { colors: ['#fa709a', '#fee140'], angle: 135 },
-  { colors: ['#667eea', '#00d4ff'], angle: 135 },
-  { colors: ['#11998e', '#38ef7d'], angle: 135 },
-  { colors: ['#0f0c29', '#302b63', '#24243e'], angle: 135 },
-  { colors: ['#f093fb', '#f5576c'], angle: 135 },
-  { colors: ['#4facfe', '#00f2fe'], angle: 135 },
-  { colors: ['#43e97b', '#38f9d7'], angle: 135 },
+  { colors: ["#667eea", "#764ba2"], angle: 135 },
+  { colors: ["#fa709a", "#fee140"], angle: 135 },
+  { colors: ["#667eea", "#00d4ff"], angle: 135 },
+  { colors: ["#11998e", "#38ef7d"], angle: 135 },
+  { colors: ["#0f0c29", "#302b63", "#24243e"], angle: 135 },
+  { colors: ["#f093fb", "#f5576c"], angle: 135 },
+  { colors: ["#4facfe", "#00f2fe"], angle: 135 },
+  { colors: ["#43e97b", "#38f9d7"], angle: 135 },
 ];
 
 export function ColorPicker(props: ColorPickerProps) {
@@ -41,7 +53,9 @@ export function ColorPicker(props: ColorPickerProps) {
     setCustomColor(preset);
   };
 
-  const handleCustomChange = (e: InputEvent & { currentTarget: HTMLInputElement }) => {
+  const handleCustomChange = (
+    e: InputEvent & { currentTarget: HTMLInputElement },
+  ) => {
     const value = e.currentTarget.value;
     setCustomColor(value);
     props.onChange(value);
@@ -61,8 +75,8 @@ export function ColorPicker(props: ColorPickerProps) {
               onClick={() => handlePresetClick(preset)}
               class={`w-8 h-8 rounded-lg border-2 transition-all ${
                 props.color === preset
-                  ? 'border-white scale-110 shadow-lg'
-                  : 'border-transparent hover:scale-105'
+                  ? "border-white scale-110 shadow-lg"
+                  : "border-transparent hover:scale-105"
               }`}
               style={{ "background-color": preset }}
             />
@@ -75,7 +89,7 @@ export function ColorPicker(props: ColorPickerProps) {
         onClick={() => setShowCustom(!showCustom())}
         class="text-neutral-400 text-xs hover:text-white transition-colors"
       >
-        カスタムカラー {showCustom() ? '▲' : '▼'}
+        カスタムカラー {showCustom() ? "▲" : "▼"}
       </button>
 
       {/* Custom color input */}
@@ -83,7 +97,7 @@ export function ColorPicker(props: ColorPickerProps) {
         <div class="flex gap-2 items-center">
           <input
             type="color"
-            value={customColor().startsWith('#') ? customColor() : '#ffffff'}
+            value={customColor().startsWith("#") ? customColor() : "#ffffff"}
             onInput={handleCustomChange}
             class="w-10 h-10 rounded-lg cursor-pointer bg-transparent"
           />
@@ -110,7 +124,7 @@ interface GradientPickerProps {
 
 export function GradientPicker(props: GradientPickerProps) {
   const getGradientStyle = (c: string[], a: number) => {
-    return `linear-gradient(${a}deg, ${c.join(', ')})`;
+    return `linear-gradient(${a}deg, ${c.join(", ")})`;
   };
 
   return (
@@ -127,10 +141,12 @@ export function GradientPicker(props: GradientPickerProps) {
               onClick={() => props.onChange(preset.colors, preset.angle)}
               class={`w-full aspect-square rounded-lg border-2 transition-all ${
                 JSON.stringify(props.colors) === JSON.stringify(preset.colors)
-                  ? 'border-white scale-105 shadow-lg'
-                  : 'border-transparent hover:scale-105'
+                  ? "border-white scale-105 shadow-lg"
+                  : "border-transparent hover:scale-105"
               }`}
-              style={{ background: getGradientStyle(preset.colors, preset.angle) }}
+              style={{
+                background: getGradientStyle(preset.colors, preset.angle),
+              }}
             />
           )}
         </For>
@@ -142,8 +158,12 @@ export function GradientPicker(props: GradientPickerProps) {
           <label class="text-neutral-500 text-xs">開始色</label>
           <input
             type="color"
-            value={props.colors[0] || '#667eea'}
-            onInput={(e) => props.onChange([e.currentTarget.value, props.colors[1] || '#764ba2'], props.angle)}
+            value={props.colors[0] || "#667eea"}
+            onInput={(e) =>
+              props.onChange([
+                e.currentTarget.value,
+                props.colors[1] || "#764ba2",
+              ], props.angle)}
             class="w-full h-8 rounded cursor-pointer bg-transparent"
           />
         </div>
@@ -151,8 +171,12 @@ export function GradientPicker(props: GradientPickerProps) {
           <label class="text-neutral-500 text-xs">終了色</label>
           <input
             type="color"
-            value={props.colors[props.colors.length - 1] || '#764ba2'}
-            onInput={(e) => props.onChange([props.colors[0] || '#667eea', e.currentTarget.value], props.angle)}
+            value={props.colors[props.colors.length - 1] || "#764ba2"}
+            onInput={(e) =>
+              props.onChange([
+                props.colors[0] || "#667eea",
+                e.currentTarget.value,
+              ], props.angle)}
             class="w-full h-8 rounded cursor-pointer bg-transparent"
           />
         </div>
@@ -166,7 +190,8 @@ export function GradientPicker(props: GradientPickerProps) {
           min="0"
           max="360"
           value={props.angle}
-          onInput={(e) => props.onChange(props.colors, parseInt(e.currentTarget.value))}
+          onInput={(e) =>
+            props.onChange(props.colors, parseInt(e.currentTarget.value))}
           class="w-full accent-blue-500"
         />
       </div>

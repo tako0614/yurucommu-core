@@ -73,7 +73,7 @@
 
       <h2>前提条件</h2>
       <ul>
-        <li>Node.js 18以上</li>
+        <li>Deno 2系</li>
         <li>Cloudflareアカウント（無料プランで可）</li>
         <li>Git</li>
       </ul>
@@ -81,18 +81,19 @@
       <h2>Step 1: リポジトリをクローン</h2>
       <pre><code>git clone https://github.com/tako0614/yurucommu.git
 cd yurucommu
-npm install</code></pre>
+deno task dev</code></pre>
+      <p><code>deno task dev</code> は <code>wrangler.local.toml</code> を使ってローカル Worker を起動します。開発時の基本タスクは <code>deno task build</code>、<code>deno task deploy</code>、<code>deno task db:generate</code> です。</p>
 
       <h2>Step 2: Cloudflare CLIでログイン</h2>
-      <pre><code>npx wrangler login</code></pre>
+      <pre><code>deno run -A npm:wrangler login</code></pre>
       <p>ブラウザが開くので、Cloudflareアカウントで認証してください。</p>
 
       <h2>Step 3: D1データベースを作成</h2>
-      <pre><code>npx wrangler d1 create yurucommu-db</code></pre>
+      <pre><code>deno run -A npm:wrangler d1 create yurucommu-db</code></pre>
       <p>作成後、表示される <code>database_id</code> をメモしてください。</p>
 
       <h2>Step 4: R2バケットを作成</h2>
-      <pre><code>npx wrangler r2 bucket create yurucommu-media</code></pre>
+      <pre><code>deno run -A npm:wrangler r2 bucket create yurucommu-media</code></pre>
 
       <h2>Step 5: wrangler.tomlを設定</h2>
       <p><code>wrangler.toml</code>を開き、D1のIDを設定します：</p>
@@ -102,11 +103,11 @@ database_name = "yurucommu-db"
 database_id = "ここにStep 3でメモしたIDを入力"</code></pre>
 
       <h2>Step 6: データベースマイグレーション</h2>
-      <pre><code>npx wrangler d1 migrations apply yurucommu-db --remote</code></pre>
+      <pre><code>deno run -A npm:wrangler d1 migrations apply yurucommu-db --remote</code></pre>
 
       <h2>Step 7: デプロイ</h2>
-      <pre><code>npm run build
-npx wrangler deploy</code></pre>
+      <pre><code>deno task build
+deno task deploy</code></pre>
       <p>デプロイが完了すると、URLが表示されます（例: <code>yurucommu.xxx.workers.dev</code>）</p>
 
       <h2>Step 8: 初期設定</h2>
@@ -114,7 +115,7 @@ npx wrangler deploy</code></pre>
       <ol>
         <li>ユーザー名を設定</li>
         <li>表示名を設定</li>
-        <li>パスワードを設定（AUTH_MODE=passwordの場合）</li>
+        <li>パスワードを設定（<code>AUTH_PASSWORD_HASH</code> を設定した場合）</li>
       </ol>
 
       <h2>次のステップ</h2>

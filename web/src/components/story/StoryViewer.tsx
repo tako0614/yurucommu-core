@@ -1,15 +1,29 @@
-import { createSignal, createEffect, onCleanup, Show, For, createMemo } from 'solid-js';
-import { ActorStories } from '../../types/index.ts';
-import { markStoryViewed, deleteStory, voteOnStory, likeStory, unlikeStory, shareStory } from '../../lib/api.ts';
-import { useI18n } from '../../lib/i18n.tsx';
-import { formatRelativeTime } from '../../lib/datetime.ts';
-import { ErrorIcon } from './viewer/StoryViewerIcons.tsx';
-import { StoryViewerActionBar } from './viewer/StoryViewerActionBar.tsx';
-import { StoryViewerDeleteDialog } from './viewer/StoryViewerDeleteDialog.tsx';
-import { StoryViewerHeader } from './viewer/StoryViewerHeader.tsx';
-import { renderStoryOverlay } from './viewer/StoryViewerOverlays.tsx';
-import { StoryViewerProgress } from './viewer/StoryViewerProgress.tsx';
-import { parseStoryDuration } from './viewer/storyViewerUtils.ts';
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  Show,
+} from "solid-js";
+import { ActorStories } from "../../types/index.ts";
+import {
+  deleteStory,
+  likeStory,
+  markStoryViewed,
+  shareStory,
+  unlikeStory,
+  voteOnStory,
+} from "../../lib/api.ts";
+import { useI18n } from "../../lib/i18n.tsx";
+import { formatRelativeTime } from "../../lib/datetime.ts";
+import { ErrorIcon } from "./viewer/StoryViewerIcons.tsx";
+import { StoryViewerActionBar } from "./viewer/StoryViewerActionBar.tsx";
+import { StoryViewerDeleteDialog } from "./viewer/StoryViewerDeleteDialog.tsx";
+import { StoryViewerHeader } from "./viewer/StoryViewerHeader.tsx";
+import { renderStoryOverlay } from "./viewer/StoryViewerOverlays.tsx";
+import { StoryViewerProgress } from "./viewer/StoryViewerProgress.tsx";
+import { parseStoryDuration } from "./viewer/storyViewerUtils.ts";
 
 interface StoryViewerProps {
   actorStories: ActorStories[];
@@ -19,13 +33,18 @@ interface StoryViewerProps {
 }
 export function StoryViewer(props: StoryViewerProps) {
   const { t } = useI18n();
-  const [localActorStories, setLocalActorStories] = createSignal(props.actorStories);
+  const [localActorStories, setLocalActorStories] = createSignal(
+    props.actorStories,
+  );
   const [actorIndex, setActorIndex] = createSignal(props.initialActorIndex);
   const [storyIndex, setStoryIndex] = createSignal(0);
   const [progress, setProgress] = createSignal(0);
   const [isPaused, setIsPaused] = createSignal(false);
   let isPausedRef = false;
-  const [containerSize, setContainerSize] = createSignal({ width: 0, height: 0 });
+  const [containerSize, setContainerSize] = createSignal({
+    width: 0,
+    height: 0,
+  });
   const [videoReady, setVideoReady] = createSignal(false);
   const [mediaError, setMediaError] = createSignal(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = createSignal(false);
@@ -36,9 +55,16 @@ export function StoryViewer(props: StoryViewerProps) {
   let timerRef: ReturnType<typeof setTimeout> | null = null;
   let progressTimerRef: ReturnType<typeof setInterval> | null = null;
 
-  const currentActorStories = createMemo(() => localActorStories()[actorIndex()]);
-  const currentStory = createMemo(() => currentActorStories()?.stories[storyIndex()]);
-  const isOwnStory = createMemo(() => props.currentUserApId != null && currentActorStories()?.actor.ap_id === props.currentUserApId);
+  const currentActorStories = createMemo(() =>
+    localActorStories()[actorIndex()]
+  );
+  const currentStory = createMemo(() =>
+    currentActorStories()?.stories[storyIndex()]
+  );
+  const isOwnStory = createMemo(() =>
+    props.currentUserApId != null &&
+    currentActorStories()?.actor.ap_id === props.currentUserApId
+  );
   const isLiked = createMemo(() => !!currentStory()?.liked);
 
   createEffect(() => {
@@ -64,8 +90,8 @@ export function StoryViewer(props: StoryViewerProps) {
     };
 
     updateSize();
-    window.addEventListener('resize', updateSize);
-    onCleanup(() => window.removeEventListener('resize', updateSize));
+    window.addEventListener("resize", updateSize);
+    onCleanup(() => window.removeEventListener("resize", updateSize));
   });
 
   // Mark story as viewed when displaying
@@ -87,7 +113,9 @@ export function StoryViewer(props: StoryViewerProps) {
   });
 
   // Check if current story is a video
-  const isVideo = createMemo(() => currentStory()?.attachment?.mediaType?.startsWith('video/') ?? false);
+  const isVideo = createMemo(() =>
+    currentStory()?.attachment?.mediaType?.startsWith("video/") ?? false
+  );
 
   // Keep ref in sync with state for use in interval callback
   createEffect(() => {
@@ -184,10 +212,10 @@ export function StoryViewer(props: StoryViewerProps) {
 
   const handleVote = async (storyApId: string, optionIndex: number) => {
     const result = await voteOnStory(storyApId, optionIndex);
-    setLocalActorStories(prev =>
-      prev.map(group => ({
+    setLocalActorStories((prev) =>
+      prev.map((group) => ({
         ...group,
-        stories: group.stories.map(story => {
+        stories: group.stories.map((story) => {
           if (story.ap_id !== storyApId) return story;
           return {
             ...story,
@@ -207,10 +235,10 @@ export function StoryViewer(props: StoryViewerProps) {
       const result = story.liked
         ? await unlikeStory(story.ap_id)
         : await likeStory(story.ap_id);
-      setLocalActorStories(prev =>
-        prev.map(group => ({
+      setLocalActorStories((prev) =>
+        prev.map((group) => ({
           ...group,
-          stories: group.stories.map(s =>
+          stories: group.stories.map((s) =>
             s.ap_id === story.ap_id
               ? { ...s, liked: result.liked, like_count: result.like_count }
               : s
@@ -218,8 +246,8 @@ export function StoryViewer(props: StoryViewerProps) {
         }))
       );
     } catch (err) {
-      console.error('Failed to toggle story like:', err);
-      setToastMessage(t('common.error'));
+      console.error("Failed to toggle story like:", err);
+      setToastMessage(t("common.error"));
     }
   };
 
@@ -230,15 +258,18 @@ export function StoryViewer(props: StoryViewerProps) {
     try {
       if (navigator.share) {
         await navigator.share({
-          title: `${currentActorStories()?.actor?.name || currentActorStories()?.actor?.preferred_username || 'Story'}`,
+          title: `${
+            currentActorStories()?.actor?.name ||
+            currentActorStories()?.actor?.preferred_username || "Story"
+          }`,
           url: shareUrl,
         });
         try {
           const result = await shareStory(story.ap_id);
-          setLocalActorStories(prev =>
-            prev.map(group => ({
+          setLocalActorStories((prev) =>
+            prev.map((group) => ({
               ...group,
-              stories: group.stories.map(s =>
+              stories: group.stories.map((s) =>
                 s.ap_id === story.ap_id
                   ? { ...s, share_count: result.share_count }
                   : s
@@ -246,18 +277,18 @@ export function StoryViewer(props: StoryViewerProps) {
             }))
           );
         } catch (err) {
-          console.error('Failed to record story share:', err);
-          setToastMessage(t('story.shareRecordFailed'));
+          console.error("Failed to record story share:", err);
+          setToastMessage(t("story.shareRecordFailed"));
         }
       } else if (navigator.clipboard) {
         await navigator.clipboard.writeText(shareUrl);
-        setToastMessage(t('story.shareCopied'));
+        setToastMessage(t("story.shareCopied"));
         try {
           const result = await shareStory(story.ap_id);
-          setLocalActorStories(prev =>
-            prev.map(group => ({
+          setLocalActorStories((prev) =>
+            prev.map((group) => ({
               ...group,
-              stories: group.stories.map(s =>
+              stories: group.stories.map((s) =>
                 s.ap_id === story.ap_id
                   ? { ...s, share_count: result.share_count }
                   : s
@@ -265,13 +296,13 @@ export function StoryViewer(props: StoryViewerProps) {
             }))
           );
         } catch (err) {
-          console.error('Failed to record story share:', err);
-          setToastMessage(t('story.shareRecordFailed'));
+          console.error("Failed to record story share:", err);
+          setToastMessage(t("story.shareRecordFailed"));
         }
       }
     } catch (err) {
-      console.error('Failed to share story:', err);
-      setToastMessage(t('story.shareFailed'));
+      console.error("Failed to share story:", err);
+      setToastMessage(t("story.shareFailed"));
     }
   };
 
@@ -325,8 +356,8 @@ export function StoryViewer(props: StoryViewerProps) {
         goNext();
       }
     } catch (e) {
-      console.error('Failed to delete story:', e);
-      setToastMessage(t('common.error'));
+      console.error("Failed to delete story:", e);
+      setToastMessage(t("common.error"));
     } finally {
       setShowDeleteConfirm(false);
     }
@@ -351,17 +382,17 @@ export function StoryViewer(props: StoryViewerProps) {
   // Handle keyboard navigation
   createEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') {
+      if (e.key === "ArrowLeft") {
         goPrev();
-      } else if (e.key === 'ArrowRight' || e.key === ' ') {
+      } else if (e.key === "ArrowRight" || e.key === " ") {
         goNext();
-      } else if (e.key === 'Escape') {
+      } else if (e.key === "Escape") {
         props.onClose();
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    onCleanup(() => window.removeEventListener('keydown', handleKeyDown));
+    window.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
   });
 
   // Pause on touch/hold
@@ -379,7 +410,9 @@ export function StoryViewer(props: StoryViewerProps) {
 
         <StoryViewerHeader
           actor={currentActorStories()!.actor}
-          timeLabel={formatRelativeTime(currentStory()!.published, { maxDays: 1 })}
+          timeLabel={formatRelativeTime(currentStory()!.published, {
+            maxDays: 1,
+          })}
           isVideo={isVideo()}
           isMuted={isMuted()}
           isOwnStory={Boolean(isOwnStory())}
@@ -404,18 +437,26 @@ export function StoryViewer(props: StoryViewerProps) {
             class="relative w-full h-full sm:w-auto sm:h-[calc(100vh-2rem)] sm:aspect-[9/16] sm:max-h-[900px] bg-neutral-900 overflow-hidden sm:rounded-xl"
           >
             {/* Media content - directly from story.attachment */}
-            <Show when={!mediaError() && currentStory()!.attachment.mediaType.startsWith('image/')}>
+            <Show
+              when={!mediaError() &&
+                currentStory()!.attachment.mediaType.startsWith("image/")}
+            >
               <img
-                src={currentStory()!.attachment.url || `/media/${currentStory()!.attachment.r2_key}`}
+                src={currentStory()!.attachment.url ||
+                  `/media/${currentStory()!.attachment.r2_key}`}
                 alt=""
                 class="w-full h-full object-cover"
                 draggable={false}
                 onError={handleMediaError}
               />
             </Show>
-            <Show when={!mediaError() && currentStory()!.attachment.mediaType.startsWith('video/')}>
+            <Show
+              when={!mediaError() &&
+                currentStory()!.attachment.mediaType.startsWith("video/")}
+            >
               <video
-                src={currentStory()!.attachment.url || `/media/${currentStory()!.attachment.r2_key}`}
+                src={currentStory()!.attachment.url ||
+                  `/media/${currentStory()!.attachment.r2_key}`}
                 class="w-full h-full object-cover"
                 autoplay={videoReady()}
                 muted={isMuted()}
@@ -451,7 +492,7 @@ export function StoryViewer(props: StoryViewerProps) {
                           currentStory()!.votes,
                           currentStory()!.votes_total,
                           currentStory()!.user_vote,
-                          handleVote
+                          handleVote,
                         )}
                       </div>
                     )}
@@ -470,7 +511,7 @@ export function StoryViewer(props: StoryViewerProps) {
 
         <StoryViewerActionBar
           isLiked={isLiked()}
-          placeholder={t('messages.placeholder')}
+          placeholder={t("messages.placeholder")}
           onLike={handleLike}
           onShare={handleShare}
         />

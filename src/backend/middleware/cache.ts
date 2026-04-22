@@ -12,8 +12,8 @@
  * - Cache invalidation
  */
 
-import type { Context, MiddlewareHandler, Next } from 'hono';
-import type { Env, Variables } from '../types.ts';
+import type { Context, MiddlewareHandler, Next } from "hono";
+import type { Env, Variables } from "../types.ts";
 
 declare global {
   interface CacheStorage {
@@ -26,7 +26,9 @@ declare global {
 // ============================================================================
 
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
-type HonoMiddleware = MiddlewareHandler<{ Bindings: Env; Variables: Variables }>;
+type HonoMiddleware = MiddlewareHandler<
+  { Bindings: Env; Variables: Variables }
+>;
 
 interface CacheConfig {
   /** Time-to-live in seconds */
@@ -61,10 +63,10 @@ export const CacheTTL = {
 } as const;
 
 export const CacheTags = {
-  TIMELINE: 'timeline',
-  ACTOR: 'actor',
-  COMMUNITY: 'community',
-  WEBFINGER: 'webfinger',
+  TIMELINE: "timeline",
+  ACTOR: "actor",
+  COMMUNITY: "community",
+  WEBFINGER: "webfinger",
 } as const;
 
 // ============================================================================
@@ -175,8 +177,8 @@ function generateCacheKey(c: HonoContext, config: CacheConfig): string {
   }
 
   if (config.varyByActor) {
-    const actor = c.get('actor');
-    cacheKey += actor ? `#actor:${actor.ap_id}` : '#actor:anonymous';
+    const actor = c.get("actor");
+    cacheKey += actor ? `#actor:${actor.ap_id}` : "#actor:anonymous";
   }
 
   return cacheKey;
@@ -184,9 +186,11 @@ function generateCacheKey(c: HonoContext, config: CacheConfig): string {
 
 async function generateETag(body: string): Promise<string> {
   const data = new TextEncoder().encode(body);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join(
+    "",
+  );
   return `"${hashHex.substring(0, 16)}"`;
 }
 
@@ -207,12 +211,12 @@ function isConditionalHit(
   etag: string | null,
   lastModified: string | null,
 ): boolean {
-  const ifNoneMatch = c.req.header('If-None-Match');
+  const ifNoneMatch = c.req.header("If-None-Match");
   if (ifNoneMatch && etag && ifNoneMatch === etag) {
     return true;
   }
 
-  const ifModifiedSince = c.req.header('If-Modified-Since');
+  const ifModifiedSince = c.req.header("If-Modified-Since");
   if (ifModifiedSince && lastModified) {
     if (new Date(ifModifiedSince) >= new Date(lastModified)) {
       return true;
@@ -231,20 +235,20 @@ function applyCacheHeaders(
   config: CacheConfig,
   etag: string,
   lastModified: string,
-  cacheStatus: 'HIT' | 'MISS',
+  cacheStatus: "HIT" | "MISS",
 ): Headers {
-  headers.set('Cache-Control', buildCacheControl(config));
-  headers.set('ETag', etag);
-  headers.set('Last-Modified', lastModified);
-  headers.set('X-Cache', cacheStatus);
+  headers.set("Cache-Control", buildCacheControl(config));
+  headers.set("ETag", etag);
+  headers.set("Last-Modified", lastModified);
+  headers.set("X-Cache", cacheStatus);
   if (config.cacheTag) {
-    headers.set('Cache-Tag', config.cacheTag);
+    headers.set("Cache-Tag", config.cacheTag);
   }
   return headers;
 }
 
 function isCloudflareWorkers(): boolean {
-  return typeof caches !== 'undefined' && 'default' in caches;
+  return typeof caches !== "undefined" && "default" in caches;
 }
 
 // ============================================================================
@@ -266,12 +270,12 @@ function isCloudflareWorkers(): boolean {
  */
 export function withCache(config: CacheConfig): HonoMiddleware {
   return async (c, next) => {
-    if (c.req.method !== 'GET') {
+    if (c.req.method !== "GET") {
       await next();
       return;
     }
 
-    if (!config.varyByActor && c.get('actor')) {
+    if (!config.varyByActor && c.get("actor")) {
       await next();
       return;
     }
@@ -298,15 +302,15 @@ async function handleCloudflareCache(
   const cachedResponse = await cache.match(fullCacheKey);
 
   if (cachedResponse) {
-    const etag = cachedResponse.headers.get('ETag');
-    const lastModified = cachedResponse.headers.get('Last-Modified');
+    const etag = cachedResponse.headers.get("ETag");
+    const lastModified = cachedResponse.headers.get("Last-Modified");
 
     if (isConditionalHit(c, etag, lastModified)) {
       return c.body(null, 304);
     }
 
     const headers = new Headers(cachedResponse.headers);
-    headers.set('X-Cache', 'HIT');
+    headers.set("X-Cache", "HIT");
     return new Response(cachedResponse.body, {
       status: cachedResponse.status,
       headers,
@@ -324,7 +328,7 @@ async function handleCloudflareCache(
   const lastModified = new Date().toUTCString();
 
   const headers = new Headers(c.res.headers);
-  applyCacheHeaders(headers, config, etag, lastModified, 'MISS');
+  applyCacheHeaders(headers, config, etag, lastModified, "MISS");
 
   const responseToCache = new Response(responseBody, {
     status: 200,
@@ -332,11 +336,11 @@ async function handleCloudflareCache(
   });
 
   const ctx = c.executionCtx;
-  if (ctx && typeof ctx.waitUntil === 'function') {
+  if (ctx && typeof ctx.waitUntil === "function") {
     ctx.waitUntil(
-      cache.put(fullCacheKey, responseToCache.clone()).catch(err => {
-        console.error('Failed to store response in cache:', err);
-      })
+      cache.put(fullCacheKey, responseToCache.clone()).catch((err) => {
+        console.error("Failed to store response in cache:", err);
+      }),
     );
   }
 
@@ -359,7 +363,7 @@ async function handleMemoryCache(
     }
 
     const headers = new Headers(cached.headers);
-    headers.set('X-Cache', 'HIT');
+    headers.set("X-Cache", "HIT");
     return new Response(cached.body, {
       status: cached.status,
       headers,
@@ -377,7 +381,7 @@ async function handleMemoryCache(
   const lastModified = new Date().toUTCString();
 
   const headers = new Headers(c.res.headers);
-  applyCacheHeaders(headers, config, etag, lastModified, 'MISS');
+  applyCacheHeaders(headers, config, etag, lastModified, "MISS");
 
   const headersObj: Record<string, string> = {};
   headers.forEach((value, key) => {
@@ -399,4 +403,3 @@ async function handleMemoryCache(
     headers,
   });
 }
-

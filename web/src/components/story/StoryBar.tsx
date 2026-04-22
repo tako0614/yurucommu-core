@@ -1,6 +1,6 @@
-import { Show, For } from 'solid-js';
-import { ActorStories, Actor } from '../../types/index.ts';
-import { UserAvatar } from '../UserAvatar.tsx';
+import { For, Show } from "solid-js";
+import { Actor, ActorStories } from "../../types/index.ts";
+import { UserAvatar } from "../UserAvatar.tsx";
 
 interface StoryBarProps {
   actor: Actor;
@@ -11,22 +11,33 @@ interface StoryBarProps {
 }
 
 const PlusIcon = () => (
-  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M12 4v16m8-8H4" />
+  <svg
+    class="w-3.5 h-3.5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width={2}
+      d="M12 4v16m8-8H4"
+    />
   </svg>
 );
 
 export function StoryBar(props: StoryBarProps) {
-
   // Check if current user has any stories
-  const myStories = () => props.actorStories.find(as => as.actor.ap_id === props.actor.ap_id);
+  const myStories = () =>
+    props.actorStories.find((as) => as.actor.ap_id === props.actor.ap_id);
   const hasMyStories = () => {
     const ms = myStories();
     return ms && ms.stories.length > 0;
   };
 
   // Other users' stories (excluding self)
-  const otherStories = () => props.actorStories.filter(as => as.actor.ap_id !== props.actor.ap_id);
+  const otherStories = () =>
+    props.actorStories.filter((as) => as.actor.ap_id !== props.actor.ap_id);
 
   return (
     <Show
@@ -53,7 +64,11 @@ export function StoryBar(props: StoryBarProps) {
               >
                 <div class="relative">
                   <div class="w-16 h-16 rounded-full ring-2 ring-neutral-700 flex items-center justify-center">
-                    <UserAvatar avatarUrl={props.actor.icon_url} name={props.actor.name || props.actor.username} size={60} />
+                    <UserAvatar
+                      avatarUrl={props.actor.icon_url}
+                      name={props.actor.name || props.actor.username}
+                      size={60}
+                    />
                   </div>
                   <div class="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center ring-2 ring-black">
                     <PlusIcon />
@@ -84,12 +99,18 @@ export function StoryBar(props: StoryBarProps) {
                   }}
                   class={`w-16 h-16 rounded-full p-0.5 ${
                     hasMyStories() && myStories()
-                      ? (myStories()!.has_unviewed ? 'bg-gradient-to-tr from-green-400 to-green-500' : 'bg-neutral-600')
-                      : 'ring-2 ring-neutral-700'
+                      ? (myStories()!.has_unviewed
+                        ? "bg-gradient-to-tr from-green-400 to-green-500"
+                        : "bg-neutral-600")
+                      : "ring-2 ring-neutral-700"
                   }`}
                 >
                   <div class="w-full h-full rounded-full bg-neutral-900 p-0.5">
-                    <UserAvatar avatarUrl={props.actor.icon_url} name={props.actor.name || props.actor.username} size={56} />
+                    <UserAvatar
+                      avatarUrl={props.actor.icon_url}
+                      name={props.actor.name || props.actor.username}
+                      size={56}
+                    />
                   </div>
                 </button>
                 {/* + button - always visible, always adds new story */}
@@ -104,7 +125,7 @@ export function StoryBar(props: StoryBarProps) {
                 </button>
               </div>
               <span class="text-xs text-neutral-400 max-w-16 truncate">
-                {hasMyStories() ? 'Your story' : 'Add story'}
+                {hasMyStories() ? "Your story" : "Add story"}
               </span>
             </div>
 
@@ -115,11 +136,13 @@ export function StoryBar(props: StoryBarProps) {
                   onClick={() => props.onStoryClick(as, idx())}
                   class="flex flex-col items-center gap-1 flex-shrink-0 group"
                 >
-                  <div class={`w-16 h-16 rounded-full p-0.5 ${
-                    as.has_unviewed
-                      ? 'bg-gradient-to-tr from-green-400 to-green-500'
-                      : 'bg-neutral-600'
-                  }`}>
+                  <div
+                    class={`w-16 h-16 rounded-full p-0.5 ${
+                      as.has_unviewed
+                        ? "bg-gradient-to-tr from-green-400 to-green-500"
+                        : "bg-neutral-600"
+                    }`}
+                  >
                     <div class="w-full h-full rounded-full bg-neutral-900 p-0.5">
                       <UserAvatar
                         avatarUrl={as.actor.icon_url}

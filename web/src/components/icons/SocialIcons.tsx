@@ -7,7 +7,7 @@ type FilledIconProps = IconProps & {
   stroke?: boolean;
 };
 
-const DEFAULT_SIZE = 'w-5 h-5';
+const DEFAULT_SIZE = "w-5 h-5";
 
 export function HeartIcon(props: FilledIconProps) {
   const filled = () => props.filled ?? false;
@@ -15,8 +15,8 @@ export function HeartIcon(props: FilledIconProps) {
   return (
     <svg
       class={props.class ?? DEFAULT_SIZE}
-      fill={filled() ? 'currentColor' : 'none'}
-      stroke={stroke() ? 'currentColor' : 'none'}
+      fill={filled() ? "currentColor" : "none"}
+      stroke={stroke() ? "currentColor" : "none"}
       stroke-width={stroke() ? 2 : 0}
       viewBox="0 0 24 24"
     >
@@ -31,7 +31,12 @@ export function HeartIcon(props: FilledIconProps) {
 
 export function ReplyIcon(props: IconProps) {
   return (
-    <svg class={props.class ?? DEFAULT_SIZE} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg
+      class={props.class ?? DEFAULT_SIZE}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
       <path
         stroke-linecap="round"
         stroke-linejoin="round"
@@ -45,7 +50,12 @@ export function ReplyIcon(props: IconProps) {
 export function BookmarkIcon(props: FilledIconProps) {
   const filled = () => props.filled ?? false;
   return (
-    <svg class={props.class ?? DEFAULT_SIZE} fill={filled() ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+    <svg
+      class={props.class ?? DEFAULT_SIZE}
+      fill={filled() ? "currentColor" : "none"}
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
       <path
         stroke-linecap="round"
         stroke-linejoin="round"
@@ -59,7 +69,12 @@ export function BookmarkIcon(props: FilledIconProps) {
 export function RepostIcon(props: FilledIconProps) {
   const filled = () => props.filled ?? false;
   return (
-    <svg class={props.class ?? DEFAULT_SIZE} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg
+      class={props.class ?? DEFAULT_SIZE}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
       <path
         stroke-linecap="round"
         stroke-linejoin="round"

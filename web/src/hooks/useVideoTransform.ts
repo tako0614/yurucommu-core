@@ -1,5 +1,5 @@
-import type { Setter } from 'solid-js';
-import type { JSX } from 'solid-js/jsx-runtime';
+import type { Setter } from "solid-js";
+import type { JSX } from "solid-js/jsx-runtime";
 
 type Position = { x: number; y: number };
 
@@ -25,10 +25,22 @@ export function useVideoTransform({
   setPosition,
   setRotation,
 }: UseVideoTransformArgs) {
-  let dragRef: { startX: number; startY: number; startPosX: number; startPosY: number } | null = null;
-  let pinchRef: { startDistance: number; startScale: number; startAngle: number; startRotation: number } | null = null;
+  let dragRef: {
+    startX: number;
+    startY: number;
+    startPosX: number;
+    startPosY: number;
+  } | null = null;
+  let pinchRef: {
+    startDistance: number;
+    startScale: number;
+    startAngle: number;
+    startRotation: number;
+  } | null = null;
 
-  const handlePointerDown: JSX.EventHandler<HTMLDivElement, PointerEvent> = (e) => {
+  const handlePointerDown: JSX.EventHandler<HTMLDivElement, PointerEvent> = (
+    e,
+  ) => {
     if (!enabled) return;
     e.stopPropagation();
 
@@ -43,7 +55,9 @@ export function useVideoTransform({
     target.setPointerCapture(e.pointerId);
   };
 
-  const handlePointerMove: JSX.EventHandler<HTMLDivElement, PointerEvent> = (e) => {
+  const handlePointerMove: JSX.EventHandler<HTMLDivElement, PointerEvent> = (
+    e,
+  ) => {
     if (!dragRef || !enabled) return;
 
     const dx = e.clientX - dragRef.startX;
@@ -55,7 +69,9 @@ export function useVideoTransform({
     });
   };
 
-  const handlePointerUp: JSX.EventHandler<HTMLDivElement, PointerEvent> = (e) => {
+  const handlePointerUp: JSX.EventHandler<HTMLDivElement, PointerEvent> = (
+    e,
+  ) => {
     if (!enabled) return;
     dragRef = null;
     const target = e.currentTarget as HTMLElement;
@@ -70,7 +86,9 @@ export function useVideoTransform({
     setScale((prev) => Math.max(MIN_SCALE, Math.min(MAX_SCALE, prev * delta)));
   };
 
-  const handleTouchStart: JSX.EventHandler<HTMLDivElement, TouchEvent> = (e) => {
+  const handleTouchStart: JSX.EventHandler<HTMLDivElement, TouchEvent> = (
+    e,
+  ) => {
     if (e.touches.length === 2 && enabled) {
       e.stopPropagation();
       const dx = e.touches[0].clientX - e.touches[1].clientX;
@@ -94,7 +112,8 @@ export function useVideoTransform({
       const distance = Math.sqrt(dx * dx + dy * dy);
       const angle = Math.atan2(dy, dx) * (180 / Math.PI);
 
-      const nextScale = (distance / pinchRef.startDistance) * pinchRef.startScale;
+      const nextScale = (distance / pinchRef.startDistance) *
+        pinchRef.startScale;
       setScale(Math.max(MIN_SCALE, Math.min(MAX_SCALE, nextScale)));
 
       const angleDelta = angle - pinchRef.startAngle;
@@ -102,7 +121,7 @@ export function useVideoTransform({
     }
   };
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd: JSX.EventHandler<HTMLDivElement, TouchEvent> = () => {
     pinchRef = null;
   };
 

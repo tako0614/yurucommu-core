@@ -1,16 +1,16 @@
-import { atom } from 'jotai';
-import type { Actor } from '../types/index.ts';
+import { atom } from "jotai";
+import type { Actor } from "../types/index.ts";
 import {
   getAuthStrategy,
   type HostedInstance,
   type HostedUserInfo,
   type InstanceHealth,
-} from '../lib/plugin.ts';
+} from "../lib/plugin.ts";
 
 export type { HostedInstance };
 
 const authStrategy = getAuthStrategy();
-export const IS_HOSTED = authStrategy.mode === 'hosted';
+export const IS_HOSTED = authStrategy.mode === "hosted";
 
 // --- State atoms ---
 export const actorAtom = atom<Actor | null>(null);
@@ -43,9 +43,9 @@ export const checkAuthAtom = atom(null, async (_get, set) => {
     set(instancesAtom, result.instances);
     set(selectedInstanceIdAtom, result.selectedInstanceId);
   } catch (e) {
-    console.error('Auth check failed:', e);
+    console.error("Auth check failed:", e);
     set(actorAtom, null);
-    set(authErrorAtom, '認証の確認に失敗しました');
+    set(authErrorAtom, "認証の確認に失敗しました");
   } finally {
     set(authLoadingAtom, false);
     set(instancesLoadingAtom, false);
@@ -70,8 +70,8 @@ export const loginAtom = atom(null, async (_get, set, password?: string) => {
     }
     return false;
   } catch (e) {
-    console.error('Login error:', e);
-    set(loginErrorAtom, 'Network error');
+    console.error("Login error:", e);
+    set(loginErrorAtom, "Network error");
     return false;
   }
 });
@@ -80,48 +80,57 @@ export const logoutAtom = atom(null, async (_get, set) => {
   try {
     await authStrategy.logout();
   } catch (e) {
-    console.error('Logout error:', e);
-    set(authErrorAtom, 'ログアウトに失敗しました');
+    console.error("Logout error:", e);
+    set(authErrorAtom, "ログアウトに失敗しました");
   } finally {
     set(actorAtom, null);
   }
 });
 
-export const completeSetupAtom = atom(null, async (_get, set, username: string) => {
-  if (!IS_HOSTED || !authStrategy.completeSetup) return false;
-  const success = await authStrategy.completeSetup(username);
-  if (success) await set(checkAuthAtom);
-  return success;
-});
+export const completeSetupAtom = atom(
+  null,
+  async (_get, set, username: string) => {
+    if (!IS_HOSTED || !authStrategy.completeSetup) return false;
+    const success = await authStrategy.completeSetup(username);
+    if (success) await set(checkAuthAtom);
+    return success;
+  },
+);
 
-export const selectInstanceAtom = atom(null, async (_get, set, instanceId: string) => {
-  if (!IS_HOSTED || !authStrategy.selectInstance) return;
-  set(instancesLoadingAtom, true);
-  try {
-    await authStrategy.selectInstance(instanceId);
-  } catch (e) {
-    console.error('Failed to select instance:', e);
-    set(authErrorAtom, 'インスタンスの選択に失敗しました');
-  } finally {
-    await set(checkAuthAtom);
-    set(instancesLoadingAtom, false);
-  }
-});
+export const selectInstanceAtom = atom(
+  null,
+  async (_get, set, instanceId: string) => {
+    if (!IS_HOSTED || !authStrategy.selectInstance) return;
+    set(instancesLoadingAtom, true);
+    try {
+      await authStrategy.selectInstance(instanceId);
+    } catch (e) {
+      console.error("Failed to select instance:", e);
+      set(authErrorAtom, "インスタンスの選択に失敗しました");
+    } finally {
+      await set(checkAuthAtom);
+      set(instancesLoadingAtom, false);
+    }
+  },
+);
 
-export const rebuildInstanceAtom = atom(null, async (_get, set, instanceId: string) => {
-  if (!IS_HOSTED || !authStrategy.rebuildInstance) return false;
-  set(instancesLoadingAtom, true);
-  try {
-    return await authStrategy.rebuildInstance(instanceId);
-  } catch (e) {
-    console.error('Failed to rebuild instance:', e);
-    set(authErrorAtom, 'インスタンスの再構築に失敗しました');
-    return false;
-  } finally {
-    await set(checkAuthAtom);
-    set(instancesLoadingAtom, false);
-  }
-});
+export const rebuildInstanceAtom = atom(
+  null,
+  async (_get, set, instanceId: string) => {
+    if (!IS_HOSTED || !authStrategy.rebuildInstance) return false;
+    set(instancesLoadingAtom, true);
+    try {
+      return await authStrategy.rebuildInstance(instanceId);
+    } catch (e) {
+      console.error("Failed to rebuild instance:", e);
+      set(authErrorAtom, "インスタンスの再構築に失敗しました");
+      return false;
+    } finally {
+      await set(checkAuthAtom);
+      set(instancesLoadingAtom, false);
+    }
+  },
+);
 
 // Init: extract token from URL on load
 export const initAuthAtom = atom(null, async (_get, set) => {

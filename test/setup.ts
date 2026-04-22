@@ -150,26 +150,26 @@ export class MockR2Object {
 
   constructor(
     readonly key: string,
-    private _body: ArrayBuffer,
+    protected readonly bodyBytes: ArrayBuffer,
     readonly customMetadata: Record<string, string>
   ) {
-    this.size = _body.byteLength;
+    this.size = bodyBytes.byteLength;
     this.etag = 'mock-etag';
     this.uploaded = new Date();
   }
 }
 
 export class MockR2ObjectBody extends MockR2Object {
-  constructor(key: string, private _body: ArrayBuffer, customMetadata: Record<string, string>) {
-    super(key, _body, customMetadata);
+  constructor(key: string, bodyBytes: ArrayBuffer, customMetadata: Record<string, string>) {
+    super(key, bodyBytes, customMetadata);
   }
 
   async arrayBuffer(): Promise<ArrayBuffer> {
-    return this._body;
+    return this.bodyBytes;
   }
 
   async text(): Promise<string> {
-    return new TextDecoder().decode(this._body);
+    return new TextDecoder().decode(this.bodyBytes);
   }
 
   async json<T>(): Promise<T> {
@@ -179,7 +179,7 @@ export class MockR2ObjectBody extends MockR2Object {
   get body(): ReadableStream {
     return new ReadableStream({
       start: (controller) => {
-        controller.enqueue(new Uint8Array(this._body));
+        controller.enqueue(new Uint8Array(this.bodyBytes));
         controller.close();
       },
     });
@@ -248,33 +248,33 @@ export class MockKVNamespace {
 // ============================================================================
 
 export interface MockDbOperation {
-  findUnique: (...args: unknown[]) => Promise<unknown>;
-  findFirst: (...args: unknown[]) => Promise<unknown>;
-  findMany: (...args: unknown[]) => Promise<unknown[]>;
-  create: (...args: unknown[]) => Promise<unknown>;
-  createMany: (...args: unknown[]) => Promise<{ count: number }>;
-  update: (...args: unknown[]) => Promise<unknown>;
-  updateMany: (...args: unknown[]) => Promise<{ count: number }>;
-  delete: (...args: unknown[]) => Promise<unknown>;
-  deleteMany: (...args: unknown[]) => Promise<{ count: number }>;
-  count: (...args: unknown[]) => Promise<number>;
-  aggregate: (...args: unknown[]) => Promise<Record<string, unknown>>;
-  upsert: (...args: unknown[]) => Promise<unknown>;
+  findUnique: (...args: any[]) => Promise<any>;
+  findFirst: (...args: any[]) => Promise<any>;
+  findMany: (...args: any[]) => Promise<any>;
+  create: (...args: any[]) => Promise<any>;
+  createMany: (...args: any[]) => Promise<any>;
+  update: (...args: any[]) => Promise<any>;
+  updateMany: (...args: any[]) => Promise<any>;
+  delete: (...args: any[]) => Promise<any>;
+  deleteMany: (...args: any[]) => Promise<any>;
+  count: (...args: any[]) => Promise<any>;
+  aggregate: (...args: any[]) => Promise<any>;
+  upsert: (...args: any[]) => Promise<any>;
 }
 
 function createMockDbOperation(): MockDbOperation {
   return {
-    findUnique: spy((..._args: unknown[]) => Promise.resolve(null)),
-    findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
-    findMany: spy((..._args: unknown[]) => Promise.resolve([])),
+    findUnique: spy((..._args: any[]) => Promise.resolve(null)),
+    findFirst: spy((..._args: any[]) => Promise.resolve(null)),
+    findMany: spy((..._args: any[]) => Promise.resolve([])),
     create: spy((args: { data: unknown }) => Promise.resolve(args.data)),
-    createMany: spy((..._args: unknown[]) => Promise.resolve({ count: 0 })),
+    createMany: spy((..._args: any[]) => Promise.resolve({ count: 0 })),
     update: spy((args: { data: unknown }) => Promise.resolve(args.data)),
-    updateMany: spy((..._args: unknown[]) => Promise.resolve({ count: 0 })),
-    delete: spy((..._args: unknown[]) => Promise.resolve(null)),
-    deleteMany: spy((..._args: unknown[]) => Promise.resolve({ count: 0 })),
-    count: spy((..._args: unknown[]) => Promise.resolve(0)),
-    aggregate: spy((..._args: unknown[]) => Promise.resolve({})),
+    updateMany: spy((..._args: any[]) => Promise.resolve({ count: 0 })),
+    delete: spy((..._args: any[]) => Promise.resolve(null)),
+    deleteMany: spy((..._args: any[]) => Promise.resolve({ count: 0 })),
+    count: spy((..._args: any[]) => Promise.resolve(0)),
+    aggregate: spy((..._args: any[]) => Promise.resolve({})),
     upsert: spy((args: { create: unknown }) => Promise.resolve(args.create)),
   };
 }

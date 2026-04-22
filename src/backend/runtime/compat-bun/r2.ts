@@ -4,8 +4,8 @@
  * Bun Cloudflare Compatibility Layer - R2 Bucket
  */
 
-import { mkdir, unlink, readdir, stat } from './utils.ts';
-import { toUint8Array, readMetadata } from './utils.ts';
+import { mkdir, readdir, stat, unlink } from "./utils.ts";
+import { readMetadata, toUint8Array } from "./utils.ts";
 
 /**
  * R2Bucket-compatible filesystem implementation for Bun
@@ -36,10 +36,10 @@ export class R2CompatBucket {
     options?: {
       httpMetadata?: { contentType?: string };
       customMetadata?: Record<string, string>;
-    }
+    },
   ): Promise<{ key: string }> {
     const filePath = this.getFilePath(key);
-    const dir = filePath.substring(0, filePath.lastIndexOf('/'));
+    const dir = filePath.substring(0, filePath.lastIndexOf("/"));
     await mkdir(dir, { recursive: true });
 
     const content = await toUint8Array(value);
@@ -53,7 +53,7 @@ export class R2CompatBucket {
           customMetadata: options.customMetadata,
           size: content.length,
           uploaded: new Date().toISOString(),
-        })
+        }),
       );
     }
 
@@ -78,8 +78,12 @@ export class R2CompatBucket {
   async delete(key: string | string[]): Promise<void> {
     const keys = Array.isArray(key) ? key : [key];
     for (const k of keys) {
-      try { await unlink(this.getFilePath(k)); } catch { /* ignore */ }
-      try { await unlink(this.getMetaPath(k)); } catch { /* ignore */ }
+      try {
+        await unlink(this.getFilePath(k));
+      } catch { /* ignore */ }
+      try {
+        await unlink(this.getMetaPath(k));
+      } catch { /* ignore */ }
     }
   }
 
@@ -116,7 +120,7 @@ export class R2CompatBucket {
   }> {
     const objects: Array<{ key: string; size: number; uploaded: Date }> = [];
 
-    const readDirRecursive = async (dir: string, prefix: string = '') => {
+    const readDirRecursive = async (dir: string, prefix: string = "") => {
       try {
         const entries = await readdir(dir, { withFileTypes: true });
         for (const entry of entries) {
@@ -125,7 +129,7 @@ export class R2CompatBucket {
 
           if (entry.isDirectory()) {
             await readDirRecursive(fullPath, key);
-          } else if (!entry.name.endsWith('.meta.json')) {
+          } else if (!entry.name.endsWith(".meta.json")) {
             if (!options?.prefix || key.startsWith(options.prefix)) {
               const stats = await stat(fullPath);
               objects.push({ key, size: stats.size, uploaded: stats.mtime });
@@ -169,14 +173,16 @@ class R2CompatObject {
       customMetadata?: Record<string, string>;
       size?: number;
       uploaded?: string;
-    }
+    },
   ) {
     this.key = key;
     this.content = content;
     this.httpMetadata = metadata.httpMetadata;
     this.customMetadata = metadata.customMetadata;
     this.size = content.length;
-    this.uploaded = metadata.uploaded ? new Date(metadata.uploaded) : new Date();
+    this.uploaded = metadata.uploaded
+      ? new Date(metadata.uploaded)
+      : new Date();
     this.body = new ReadableStream({
       start: (controller) => {
         controller.enqueue(content);

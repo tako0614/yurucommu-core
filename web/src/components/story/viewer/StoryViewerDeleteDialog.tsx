@@ -1,4 +1,4 @@
-import { Show } from 'solid-js';
+import { Show } from "solid-js";
 
 interface StoryViewerDeleteDialogProps {
   open: boolean;
@@ -11,8 +11,12 @@ export function StoryViewerDeleteDialog(props: StoryViewerDeleteDialogProps) {
     <Show when={props.open}>
       <div class="absolute inset-0 z-30 bg-black/80 flex items-center justify-center">
         <div class="bg-neutral-800 rounded-2xl p-6 max-w-xs mx-4">
-          <h3 class="text-white font-semibold text-lg mb-2">ストーリーを削除</h3>
-          <p class="text-neutral-400 text-sm mb-4">このストーリーを削除しますか？この操作は元に戻せません。</p>
+          <h3 class="text-white font-semibold text-lg mb-2">
+            ストーリーを削除
+          </h3>
+          <p class="text-neutral-400 text-sm mb-4">
+            このストーリーを削除しますか？この操作は元に戻せません。
+          </p>
           <div class="flex gap-3">
             <button
               onClick={props.onCancel}

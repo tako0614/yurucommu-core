@@ -1,9 +1,9 @@
-import type { Database } from '../../../db/index.ts';
-import { eq } from 'drizzle-orm';
-import { deliveryCircuit } from '../../../db/index.ts';
-import { safeParseIsoTimeMs } from './transformers.ts';
+import type { Database } from "../../../db/index.ts";
+import { eq } from "drizzle-orm";
+import { deliveryCircuit } from "../../../db/index.ts";
+import { safeParseIsoTimeMs } from "./transformers.ts";
 
-export type CircuitState = 'closed' | 'open' | 'half_open';
+export type CircuitState = "closed" | "open" | "half_open";
 
 const OPEN_DURATION_MS = 5 * 60 * 1000;
 const HALF_OPEN_PROBES = 3;
@@ -22,12 +22,12 @@ type CircuitRow = {
   halfOpenProbeSuccesses: number;
 };
 
-type CircuitData = Partial<Omit<CircuitRow, 'endpoint'>>;
+type CircuitData = Partial<Omit<CircuitRow, "endpoint">>;
 
 const INITIAL_CIRCUIT_DATA: CircuitData = {
-  state: 'closed',
+  state: "closed",
   consecutiveFailures: 0,
-  recentOutcomesJson: '[]',
+  recentOutcomesJson: "[]",
   openUntil: null,
   halfOpenProbeAttempts: 0,
   halfOpenProbeSuccesses: 0,
@@ -56,7 +56,7 @@ function serializeRecentOutcomes(values: number[]): string {
 async function loadCircuitWithOutcome(
   db: Database,
   endpoint: string,
-  outcome: 0 | 1
+  outcome: 0 | 1,
 ): Promise<{ circuit: CircuitRow; recent: number[] }> {
   const circuit = await getOrCreateCircuit(db, endpoint);
   const recent = parseRecentOutcomes(circuit.recentOutcomesJson);
@@ -64,9 +64,12 @@ async function loadCircuitWithOutcome(
   return { circuit, recent };
 }
 
-function buildOpenData(recent: number[], consecutiveFailures: number): CircuitData {
+function buildOpenData(
+  recent: number[],
+  consecutiveFailures: number,
+): CircuitData {
   return {
-    state: 'open',
+    state: "open",
     consecutiveFailures,
     recentOutcomesJson: serializeRecentOutcomes(recent),
     openUntil: new Date(Date.now() + OPEN_DURATION_MS).toISOString(),
@@ -75,11 +78,20 @@ function buildOpenData(recent: number[], consecutiveFailures: number): CircuitDa
   };
 }
 
-async function updateCircuit(db: Database, endpoint: string, data: CircuitData): Promise<void> {
-  await db.update(deliveryCircuit).set(data).where(eq(deliveryCircuit.endpoint, endpoint));
+async function updateCircuit(
+  db: Database,
+  endpoint: string,
+  data: CircuitData,
+): Promise<void> {
+  await db.update(deliveryCircuit).set(data).where(
+    eq(deliveryCircuit.endpoint, endpoint),
+  );
 }
 
-async function getOrCreateCircuit(db: Database, endpoint: string): Promise<CircuitRow> {
+async function getOrCreateCircuit(
+  db: Database,
+  endpoint: string,
+): Promise<CircuitRow> {
   const existing = await db.select({
     endpoint: deliveryCircuit.endpoint,
     state: deliveryCircuit.state,
@@ -111,12 +123,12 @@ async function getOrCreateCircuit(db: Database, endpoint: string): Promise<Circu
 
 export async function checkCircuit(
   db: Database,
-  endpoint: string
+  endpoint: string,
 ): Promise<{ allow: true } | { allow: false; deferSeconds: number }> {
   const now = Date.now();
   const circuit = await getOrCreateCircuit(db, endpoint);
 
-  if (circuit.state === 'open') {
+  if (circuit.state === "open") {
     const untilMs = safeParseIsoTimeMs(circuit.openUntil);
     if (untilMs !== null && now < untilMs) {
       const deferSeconds = Math.max(1, Math.ceil((untilMs - now) / 1000));
@@ -125,7 +137,7 @@ export async function checkCircuit(
 
     // Transition to half-open when open window elapsed.
     await updateCircuit(db, endpoint, {
-      state: 'half_open',
+      state: "half_open",
       openUntil: null,
       halfOpenProbeAttempts: 0,
       halfOpenProbeSuccesses: 0,
@@ -133,42 +145,63 @@ export async function checkCircuit(
     return { allow: true };
   }
 
-  if (circuit.state === 'half_open' && circuit.halfOpenProbeAttempts >= HALF_OPEN_PROBES) {
+  if (
+    circuit.state === "half_open" &&
+    circuit.halfOpenProbeAttempts >= HALF_OPEN_PROBES
+  ) {
     return { allow: false, deferSeconds: HALF_OPEN_DEFER_SECONDS };
   }
 
   return { allow: true };
 }
 
-export async function recordCircuitSuccess(db: Database, endpoint: string): Promise<void> {
+export async function recordCircuitSuccess(
+  db: Database,
+  endpoint: string,
+): Promise<void> {
   const { circuit, recent } = await loadCircuitWithOutcome(db, endpoint, 0);
   const serialized = serializeRecentOutcomes(recent);
 
-  if (circuit.state === 'half_open') {
+  if (circuit.state === "half_open") {
     const nextAttempts = circuit.halfOpenProbeAttempts + 1;
     const nextSuccesses = circuit.halfOpenProbeSuccesses + 1;
-    const allProbesSucceeded = nextAttempts >= HALF_OPEN_PROBES && nextSuccesses >= HALF_OPEN_PROBES;
+    const allProbesSucceeded = nextAttempts >= HALF_OPEN_PROBES &&
+      nextSuccesses >= HALF_OPEN_PROBES;
 
-    await updateCircuit(db, endpoint, allProbesSucceeded
-      ? { ...INITIAL_CIRCUIT_DATA, recentOutcomesJson: serialized }
-      : {
+    await updateCircuit(
+      db,
+      endpoint,
+      allProbesSucceeded
+        ? { ...INITIAL_CIRCUIT_DATA, recentOutcomesJson: serialized }
+        : {
           consecutiveFailures: 0,
           recentOutcomesJson: serialized,
           halfOpenProbeAttempts: nextAttempts,
           halfOpenProbeSuccesses: nextSuccesses,
-        });
+        },
+    );
     return;
   }
 
-  await updateCircuit(db, endpoint, { consecutiveFailures: 0, recentOutcomesJson: serialized });
+  await updateCircuit(db, endpoint, {
+    consecutiveFailures: 0,
+    recentOutcomesJson: serialized,
+  });
 }
 
-export async function recordCircuitFailure(db: Database, endpoint: string): Promise<void> {
+export async function recordCircuitFailure(
+  db: Database,
+  endpoint: string,
+): Promise<void> {
   const { circuit, recent } = await loadCircuitWithOutcome(db, endpoint, 1);
 
   // Half-open failure: immediately re-open.
-  if (circuit.state === 'half_open') {
-    await updateCircuit(db, endpoint, buildOpenData(recent, CONSECUTIVE_FAILURE_THRESHOLD));
+  if (circuit.state === "half_open") {
+    await updateCircuit(
+      db,
+      endpoint,
+      buildOpenData(recent, CONSECUTIVE_FAILURE_THRESHOLD),
+    );
     return;
   }
 
@@ -180,13 +213,16 @@ export async function recordCircuitFailure(db: Database, endpoint: string): Prom
   // Open conditions (contract):
   // - N consecutive failures OR
   // - failure rate >= threshold over a full recent window.
-  const shouldOpen =
-    consecutiveFailures >= CONSECUTIVE_FAILURE_THRESHOLD ||
+  const shouldOpen = consecutiveFailures >= CONSECUTIVE_FAILURE_THRESHOLD ||
     (fullWindow && failures / RECENT_WINDOW_SIZE >= FAILURE_RATE_THRESHOLD);
 
   if (shouldOpen) {
-    await updateCircuit(db, endpoint, buildOpenData(recent, consecutiveFailures));
-    console.warn('[DeliveryCircuit] OPEN', {
+    await updateCircuit(
+      db,
+      endpoint,
+      buildOpenData(recent, consecutiveFailures),
+    );
+    console.warn("[DeliveryCircuit] OPEN", {
       endpoint,
       at: new Date().toISOString(),
       consecutiveFailures,

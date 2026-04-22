@@ -1,8 +1,8 @@
-import { Show, For } from 'solid-js';
-import type { Actor } from '../../types/index.ts';
-import { UserAvatar } from '../UserAvatar.tsx';
-import { CloseIcon, CloseIconLarge, ImageIcon } from './TimelineIcons.tsx';
-import type { UploadedMedia } from './types.ts';
+import { For, Show } from "solid-js";
+import type { Actor } from "../../types/index.ts";
+import { UserAvatar } from "../UserAvatar.tsx";
+import { CloseIcon, CloseIconLarge, ImageIcon } from "./TimelineIcons.tsx";
+import type { UploadedMedia } from "./types.ts";
 
 interface TimelinePostModalProps {
   isOpen: boolean;
@@ -16,7 +16,9 @@ interface TimelinePostModalProps {
   onSubmit: () => Promise<boolean>;
   posting: boolean;
   fileInputRef: HTMLInputElement | undefined;
-  onFileSelect: (event: InputEvent & { currentTarget: HTMLInputElement }) => void;
+  onFileSelect: (
+    event: InputEvent & { currentTarget: HTMLInputElement },
+  ) => void;
   uploadedMedia: UploadedMedia[];
   onRemoveMedia: (index: number) => void;
   uploading: boolean;
@@ -30,7 +32,11 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
         <div class="bg-neutral-900 w-full max-w-lg rounded-2xl border border-neutral-800">
           {/* Modal Header */}
           <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
-            <button onClick={props.onClose} aria-label="Close" class="text-white hover:text-neutral-400 transition-colors">
+            <button
+              onClick={props.onClose}
+              aria-label="Close"
+              class="text-white hover:text-neutral-400 transition-colors"
+            >
               <CloseIconLarge />
             </button>
             <button
@@ -40,7 +46,8 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                   props.onClose();
                 }
               }}
-              disabled={(!props.postContent.trim() && props.uploadedMedia.length === 0) || props.posting}
+              disabled={(!props.postContent.trim() &&
+                props.uploadedMedia.length === 0) || props.posting}
               class="px-4 py-1.5 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
             >
               {props.posting ? props.submittingLabel : props.submitLabel}
@@ -50,11 +57,16 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
           {/* Modal Content */}
           <div class="p-4">
             <div class="flex gap-3">
-              <UserAvatar avatarUrl={props.actor.icon_url} name={props.actor.name || props.actor.username} size={48} />
+              <UserAvatar
+                avatarUrl={props.actor.icon_url}
+                name={props.actor.name || props.actor.username}
+                size={48}
+              />
               <div class="flex-1">
                 <textarea
                   value={props.postContent}
-                  onInput={(e) => props.onPostContentChange(e.currentTarget.value)}
+                  onInput={(e) =>
+                    props.onPostContentChange(e.currentTarget.value)}
                   placeholder={props.placeholder}
                   class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none text-lg min-h-[120px]"
                   autofocus
@@ -64,7 +76,11 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                     <For each={props.uploadedMedia}>
                       {(media, idx) => (
                         <div class="relative">
-                          <img src={media.preview} alt="" class="w-20 h-20 object-cover rounded-lg" />
+                          <img
+                            src={media.preview}
+                            alt=""
+                            class="w-20 h-20 object-cover rounded-lg"
+                          />
                           <button
                             onClick={() => props.onRemoveMedia(idx())}
                             aria-label="Remove media"

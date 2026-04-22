@@ -1,11 +1,36 @@
 // Timeline routes for Yurucommu backend
-import { Hono } from 'hono';
-import { eq, and, or, ne, lt, desc, inArray, notInArray, isNull } from 'drizzle-orm';
-import type { Database } from '../../db/index.ts';
-import { actors, actorCache, objects, follows, likes, bookmarks, announces, blocks, mutes } from '../../db/index.ts';
-import type { Env, Variables } from '../types.ts';
-import { formatUsername, parseLimit, parseOffset, safeJsonParse } from '../federation-helpers.ts';
-import { withCache, CacheTTL, CacheTags } from '../middleware/cache.ts';
+import { Hono } from "hono";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  ne,
+  notInArray,
+  or,
+} from "drizzle-orm";
+import type { Database } from "../../db/index.ts";
+import {
+  actorCache,
+  actors,
+  announces,
+  blocks,
+  bookmarks,
+  follows,
+  likes,
+  mutes,
+  objects,
+} from "../../db/index.ts";
+import type { Env, Variables } from "../types.ts";
+import {
+  formatUsername,
+  parseLimit,
+  parseOffset,
+  safeJsonParse,
+} from "../federation-helpers.ts";
+import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
 
 const timeline = new Hono<{ Bindings: Env; Variables: Variables }>();
 const MAX_BLOCK_MUTE_FILTER_ENTRIES = 1000;
@@ -17,14 +42,22 @@ type Attachment = {
   [key: string]: unknown;
 };
 
-type AuthorInfo = { preferredUsername: string | null; name: string | null; iconUrl: string | null };
-const NULL_AUTHOR: AuthorInfo = { preferredUsername: null, name: null, iconUrl: null };
+type AuthorInfo = {
+  preferredUsername: string | null;
+  name: string | null;
+  iconUrl: string | null;
+};
+const NULL_AUTHOR: AuthorInfo = {
+  preferredUsername: null,
+  name: null,
+  iconUrl: null,
+};
 
 // Batch helper to get author info from either local actors or actor cache
 // This avoids N+1 queries by fetching all authors at once
 async function batchGetAuthorInfo(
   db: Database,
-  apIds: string[]
+  apIds: string[],
 ): Promise<Map<string, AuthorInfo>> {
   if (apIds.length === 0) return new Map();
 
@@ -53,10 +86,18 @@ async function batchGetAuthorInfo(
 
   // Cached actors first; local actors override
   for (const a of cachedActors) {
-    result.set(a.apId, { preferredUsername: a.preferredUsername, name: a.name, iconUrl: a.iconUrl });
+    result.set(a.apId, {
+      preferredUsername: a.preferredUsername,
+      name: a.name,
+      iconUrl: a.iconUrl,
+    });
   }
   for (const a of localActors) {
-    result.set(a.apId, { preferredUsername: a.preferredUsername, name: a.name, iconUrl: a.iconUrl });
+    result.set(a.apId, {
+      preferredUsername: a.preferredUsername,
+      name: a.name,
+      iconUrl: a.iconUrl,
+    });
   }
 
   return result;
@@ -67,22 +108,47 @@ async function batchGetAuthorInfo(
 async function batchGetInteractionStatus(
   db: Database,
   viewerApId: string,
-  objectApIds: string[]
-): Promise<{ likedSet: Set<string>; bookmarkedSet: Set<string>; repostedSet: Set<string> }> {
+  objectApIds: string[],
+): Promise<
+  {
+    likedSet: Set<string>;
+    bookmarkedSet: Set<string>;
+    repostedSet: Set<string>;
+  }
+> {
   if (!viewerApId || objectApIds.length === 0) {
-    return { likedSet: new Set(), bookmarkedSet: new Set(), repostedSet: new Set() };
+    return {
+      likedSet: new Set(),
+      bookmarkedSet: new Set(),
+      repostedSet: new Set(),
+    };
   }
 
   const [likeRows, bookmarkRows, announceRows] = await Promise.all([
     db.select({ objectApId: likes.objectApId })
       .from(likes)
-      .where(and(eq(likes.actorApId, viewerApId), inArray(likes.objectApId, objectApIds))),
+      .where(
+        and(
+          eq(likes.actorApId, viewerApId),
+          inArray(likes.objectApId, objectApIds),
+        ),
+      ),
     db.select({ objectApId: bookmarks.objectApId })
       .from(bookmarks)
-      .where(and(eq(bookmarks.actorApId, viewerApId), inArray(bookmarks.objectApId, objectApIds))),
+      .where(
+        and(
+          eq(bookmarks.actorApId, viewerApId),
+          inArray(bookmarks.objectApId, objectApIds),
+        ),
+      ),
     db.select({ objectApId: announces.objectApId })
       .from(announces)
-      .where(and(eq(announces.actorApId, viewerApId), inArray(announces.objectApId, objectApIds))),
+      .where(
+        and(
+          eq(announces.actorApId, viewerApId),
+          inArray(announces.objectApId, objectApIds),
+        ),
+      ),
   ]);
 
   return {
@@ -95,7 +161,7 @@ async function batchGetInteractionStatus(
 // Helper to get blocked and muted users
 async function getBlockedAndMutedUsers(
   db: Database,
-  viewerApId: string
+  viewerApId: string,
 ): Promise<{ blockedApIds: string[]; mutedApIds: string[] }> {
   if (!viewerApId) {
     return { blockedApIds: [], mutedApIds: [] };
@@ -119,21 +185,45 @@ async function getBlockedAndMutedUsers(
 }
 
 // Merge blocked + muted AP IDs into a single deduplicated exclusion list
-function buildExcludedApIds(blockedApIds: string[], mutedApIds: string[]): string[] {
+function buildExcludedApIds(
+  blockedApIds: string[],
+  mutedApIds: string[],
+): string[] {
   return Array.from(new Set([...blockedApIds, ...mutedApIds]));
 }
 
 // Paginate a fetched-with-extra-1 result set and determine has_more
-function paginateResults<T>(rows: T[], limit: number): { results: T[]; has_more: boolean } {
+function paginateResults<T>(
+  rows: T[],
+  limit: number,
+): { results: T[]; has_more: boolean } {
   const has_more = rows.length > limit;
   return { results: has_more ? rows.slice(0, limit) : rows, has_more };
 }
 
 // Format a post row and its resolved author/interaction data into the API response shape
 function formatPost(
-  p: { apId: string; type: string; attributedTo: string; content: string; summary: string | null; attachmentsJson: string | null; inReplyTo: string | null; visibility: string; communityApId: string | null; likeCount: number; replyCount: number; announceCount: number; published: string | null },
+  p: {
+    apId: string;
+    type: string;
+    attributedTo: string;
+    content: string;
+    summary: string | null;
+    attachmentsJson: string | null;
+    inReplyTo: string | null;
+    visibility: string;
+    communityApId: string | null;
+    likeCount: number;
+    replyCount: number;
+    announceCount: number;
+    published: string | null;
+  },
   authorMap: Map<string, AuthorInfo>,
-  interactions: { likedSet: Set<string>; bookmarkedSet: Set<string>; repostedSet: Set<string> },
+  interactions: {
+    likedSet: Set<string>;
+    bookmarkedSet: Set<string>;
+    repostedSet: Set<string>;
+  },
 ): Record<string, unknown> {
   const author = authorMap.get(p.attributedTo) || NULL_AUTHOR;
   return {
@@ -183,59 +273,78 @@ async function resolveAndFormatPosts(
 // Supports both cursor (before) and offset pagination
 // Returns: posts, limit, offset (if used), has_more
 // Cached for 2 minutes for unauthenticated users
-timeline.get('/', withCache({
-  ttl: CacheTTL.PUBLIC_TIMELINE,
-  cacheTag: CacheTags.TIMELINE,
-  queryParamsToInclude: ['limit', 'offset', 'before', 'community'],
-}), async (c) => {
-  const actor = c.get('actor');
-  const db = c.get('db');
-  const limit = parseLimit(c.req.query('limit'), 20, 100);
-  const offset = parseOffset(c.req.query('offset'), 0, 10000);
-  const before = c.req.query('before');
-  const communityApId = c.req.query('community');
-  const viewerApId = actor?.ap_id || '';
+timeline.get(
+  "/",
+  withCache({
+    ttl: CacheTTL.PUBLIC_TIMELINE,
+    cacheTag: CacheTags.TIMELINE,
+    queryParamsToInclude: ["limit", "offset", "before", "community"],
+  }),
+  async (c) => {
+    const actor = c.get("actor");
+    const db = c.get("db");
+    const limit = parseLimit(c.req.query("limit"), 20, 100);
+    const offset = parseOffset(c.req.query("offset"), 0, 10000);
+    const before = c.req.query("before");
+    const communityApId = c.req.query("community");
+    const viewerApId = actor?.ap_id || "";
 
-  const { blockedApIds, mutedApIds } = await getBlockedAndMutedUsers(db, viewerApId);
-  const excludedApIds = buildExcludedApIds(blockedApIds, mutedApIds);
+    const { blockedApIds, mutedApIds } = await getBlockedAndMutedUsers(
+      db,
+      viewerApId,
+    );
+    const excludedApIds = buildExcludedApIds(blockedApIds, mutedApIds);
 
-  const conditions = [
-    eq(objects.type, 'Note'),
-    eq(objects.visibility, 'public'),
-    isNull(objects.inReplyTo),
-    eq(objects.audienceJson, '[]'),
-    isNull(objects.deletedAt),
-  ];
-  if (excludedApIds.length > 0) conditions.push(notInArray(objects.attributedTo, excludedApIds));
-  if (communityApId) conditions.push(eq(objects.communityApId, communityApId));
-  if (before) conditions.push(lt(objects.published, before));
+    const conditions = [
+      eq(objects.type, "Note"),
+      eq(objects.visibility, "public"),
+      isNull(objects.inReplyTo),
+      eq(objects.audienceJson, "[]"),
+      isNull(objects.deletedAt),
+    ];
+    if (excludedApIds.length > 0) {
+      conditions.push(
+        notInArray(objects.attributedTo, excludedApIds),
+      );
+    }
+    if (communityApId) {
+      conditions.push(eq(objects.communityApId, communityApId));
+    }
+    if (before) conditions.push(lt(objects.published, before));
 
-  const posts = await db.select().from(objects).where(and(...conditions)).orderBy(desc(objects.published)).limit(limit + 1).offset(offset);
+    const posts = await db.select().from(objects).where(and(...conditions))
+      .orderBy(desc(objects.published)).limit(limit + 1).offset(offset);
 
-  const { results, has_more } = paginateResults(posts, limit);
-  const result = await resolveAndFormatPosts(db, results, viewerApId);
+    const { results, has_more } = paginateResults(posts, limit);
+    const result = await resolveAndFormatPosts(db, results, viewerApId);
 
-  return c.json({ posts: result, limit, offset, has_more });
-});
+    return c.json({ posts: result, limit, offset, has_more });
+  },
+);
 
 // Get following timeline
 // Supports both cursor (before) and offset pagination
 // Returns: posts, limit, offset (if used), has_more
-timeline.get('/following', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+timeline.get("/following", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const db = c.get('db');
-  const limit = parseLimit(c.req.query('limit'), 20, 100);
-  const offset = parseOffset(c.req.query('offset'), 0, 10000);
-  const before = c.req.query('before');
+  const db = c.get("db");
+  const limit = parseLimit(c.req.query("limit"), 20, 100);
+  const offset = parseOffset(c.req.query("offset"), 0, 10000);
+  const before = c.req.query("before");
   const viewerApId = actor.ap_id;
 
   const [{ blockedApIds, mutedApIds }, followRows] = await Promise.all([
     getBlockedAndMutedUsers(db, viewerApId),
     db.select({ followingApId: follows.followingApId })
       .from(follows)
-      .where(and(eq(follows.followerApId, viewerApId), eq(follows.status, 'accepted'))),
+      .where(
+        and(
+          eq(follows.followerApId, viewerApId),
+          eq(follows.status, "accepted"),
+        ),
+      ),
   ]);
 
   const excludedApIds = buildExcludedApIds(blockedApIds, mutedApIds);
@@ -245,23 +354,26 @@ timeline.get('/following', async (c) => {
   // Own posts: all visibilities except direct
   // Followed users' posts: public, unlisted, or followers visibility
   const conditions = [
-    eq(objects.type, 'Note'),
+    eq(objects.type, "Note"),
     isNull(objects.inReplyTo),
-    eq(objects.audienceJson, '[]'),
+    eq(objects.audienceJson, "[]"),
     inArray(objects.attributedTo, allowedAuthors),
     isNull(objects.deletedAt),
     or(
       eq(objects.attributedTo, viewerApId),
       and(
         ne(objects.attributedTo, viewerApId),
-        inArray(objects.visibility, ['public', 'unlisted', 'followers']),
+        inArray(objects.visibility, ["public", "unlisted", "followers"]),
       ),
     ),
   ];
-  if (excludedApIds.length > 0) conditions.push(notInArray(objects.attributedTo, excludedApIds));
+  if (excludedApIds.length > 0) {
+    conditions.push(notInArray(objects.attributedTo, excludedApIds));
+  }
   if (before) conditions.push(lt(objects.published, before));
 
-  const posts = await db.select().from(objects).where(and(...conditions)).orderBy(desc(objects.published)).limit(limit + 1).offset(offset);
+  const posts = await db.select().from(objects).where(and(...conditions))
+    .orderBy(desc(objects.published)).limit(limit + 1).offset(offset);
 
   const { results, has_more } = paginateResults(posts, limit);
   const result = await resolveAndFormatPosts(db, results, viewerApId);

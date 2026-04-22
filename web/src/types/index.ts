@@ -2,8 +2,8 @@
 
 // Actor represents a user (Person) in ActivityPub
 export interface Actor {
-  ap_id: string;  // Primary key: https://domain/ap/users/username
-  username: string;  // Formatted: user@domain
+  ap_id: string; // Primary key: https://domain/ap/users/username
+  username: string; // Formatted: user@domain
   preferred_username: string;
   name: string | null;
   summary: string | null;
@@ -13,7 +13,7 @@ export interface Actor {
   following_count: number;
   post_count: number;
   is_private?: boolean;
-  role?: 'owner' | 'moderator' | 'member';
+  role?: "owner" | "moderator" | "member";
   created_at: string;
   is_following?: boolean;
   is_followed_by?: boolean;
@@ -26,13 +26,14 @@ export interface Community {
   name: string;
   summary: string | null;
   icon_url: string | null;
-  visibility?: 'public' | 'private';
+  visibility?: "public" | "private";
   member_count?: number;
   created_at: string;
 }
 
 // Media attachment
 export interface MediaAttachment {
+  url?: string;
   r2_key: string;
   content_type: string;
 }
@@ -55,7 +56,7 @@ export interface Post {
   summary: string | null;
   attachments: MediaAttachment[];
   in_reply_to: string | null;
-  visibility: 'public' | 'unlisted' | 'followers' | 'direct';
+  visibility: "public" | "unlisted" | "followers" | "direct";
   community_ap_id: string | null;
   like_count: number;
   reply_count: number;
@@ -116,7 +117,7 @@ export interface NotificationActor {
 // Notification
 export interface Notification {
   id: string;
-  type: 'follow' | 'follow_request' | 'like' | 'announce' | 'reply' | 'mention';
+  type: "follow" | "follow_request" | "like" | "announce" | "reply" | "mention";
   actor: NotificationActor;
   object_ap_id: string | null;
   read: boolean;
@@ -125,6 +126,7 @@ export interface Notification {
 
 // Uploaded file
 export interface UploadedFile {
+  url?: string;
   r2_key: string;
   content_type: string;
   filename: string;
@@ -134,33 +136,33 @@ export interface UploadedFile {
 
 // Story attachment (image or video)
 export interface StoryAttachment {
-  type: string;       // "Document" or "Video"
-  mediaType: string;  // "image/jpeg", "video/mp4", etc.
+  type: string; // "Document" or "Video"
+  mediaType: string; // "image/jpeg", "video/mp4", etc.
   url: string;
   r2_key: string;
   width?: number;
   height?: number;
-  duration?: string;  // For video: ISO 8601 duration
+  duration?: string; // For video: ISO 8601 duration
 }
 
 // Overlay position (relative coordinates 0.0-1.0)
 export interface OverlayPosition {
-  x: number;       // Center X (0=left, 1=right)
-  y: number;       // Center Y (0=top, 1=bottom)
-  width: number;   // Width relative to canvas
-  height: number;  // Height relative to canvas
+  x: number; // Center X (0=left, 1=right)
+  y: number; // Center Y (0=top, 1=bottom)
+  width: number; // Width relative to canvas
+  height: number; // Height relative to canvas
 }
 
 // Story overlay (any AS2 object with position)
 export interface StoryOverlay {
-  type: string;               // "Question", "Note", "Link", etc.
+  type: string; // "Question", "Note", "Link", etc.
   position: OverlayPosition;
   // Question-specific
-  name?: string;              // Question text
-  oneOf?: Array<{ type: string; name: string }>;  // Options
-  closed?: string;            // Close time
+  name?: string; // Question text
+  oneOf?: Array<{ type: string; name: string }>; // Options
+  closed?: string; // Close time
   // Generic
-  [key: string]: unknown;     // Allow any AS2 properties
+  [key: string]: unknown; // Allow any AS2 properties
 }
 
 // Story (v2: 1 Story = 1 Media)
@@ -168,8 +170,8 @@ export interface Story {
   ap_id: string;
   author: PostAuthor;
   attachment: StoryAttachment;
-  displayDuration: string;    // ISO 8601 duration (e.g., "PT5S")
-  overlays?: StoryOverlay[];  // Optional interactive overlays
+  displayDuration: string; // ISO 8601 duration (e.g., "PT5S")
+  overlays?: StoryOverlay[]; // Optional interactive overlays
   published: string;
   end_time: string;
   viewed: boolean;
@@ -177,9 +179,9 @@ export interface Story {
   share_count?: number;
   liked?: boolean;
   // Poll/Question voting results
-  votes?: { [key: number]: number };  // Index -> vote count
-  votes_total?: number;               // Total vote count
-  user_vote?: number;                 // Current user's vote index (if voted)
+  votes?: { [key: number]: number }; // Index -> vote count
+  votes_total?: number; // Total vote count
+  user_vote?: number; // Current user's vote index (if voted)
 }
 
 // Actor with stories grouped
@@ -188,4 +190,3 @@ export interface ActorStories {
   stories: Story[];
   has_unviewed: boolean;
 }
-

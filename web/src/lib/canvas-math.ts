@@ -6,11 +6,11 @@
  * No React dependencies.
  */
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, type Layer } from './story-canvas.ts';
+import { CANVAS_HEIGHT, CANVAS_WIDTH, type Layer } from "./story-canvas.ts";
 
 // Snap guide types
 export interface SnapGuide {
-  type: 'vertical' | 'horizontal';
+  type: "vertical" | "horizontal";
   position: number; // Canvas coordinate
 }
 
@@ -68,12 +68,12 @@ export function calculateSnapGuides(layer: Layer): SnapGuide[] {
 
   // Center X snap
   if (Math.abs(centerX - SNAP_POSITIONS.centerX) < SNAP_THRESHOLD) {
-    guides.push({ type: 'vertical', position: SNAP_POSITIONS.centerX });
+    guides.push({ type: "vertical", position: SNAP_POSITIONS.centerX });
   }
 
   // Center Y snap
   if (Math.abs(centerY - SNAP_POSITIONS.centerY) < SNAP_THRESHOLD) {
-    guides.push({ type: 'horizontal', position: SNAP_POSITIONS.centerY });
+    guides.push({ type: "horizontal", position: SNAP_POSITIONS.centerY });
   }
 
   return guides;

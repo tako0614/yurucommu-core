@@ -1,17 +1,18 @@
-import { eq, and, or, sql } from 'drizzle-orm';
-import { actors, objects, follows, likes, announces } from '../../../../db/index.ts';
+import { and, eq, or, sql } from "drizzle-orm";
 import {
-  activityApId,
-  generateId,
-} from '../../../federation-helpers.ts';
+  actors,
+  announces,
+  follows,
+  likes,
+  objects,
+} from "../../../../db/index.ts";
+import { activityApId, generateId } from "../../../federation-helpers.ts";
 import {
-  type ActivityContext,
   type Activity,
+  type ActivityContext,
   getActivityObjectId,
-} from '../inbox-types.ts';
-import {
-  notifyLocalObjectOwner,
-} from './inbox-shared-helpers.ts';
+} from "../inbox-types.ts";
+import { notifyLocalObjectOwner } from "./inbox-shared-helpers.ts";
 
 type ActorRow = typeof actors.$inferSelect;
 
@@ -19,18 +20,18 @@ type ActorRow = typeof actors.$inferSelect;
 // Interaction table / count-field mapping
 // ---------------------------------------------------------------------------
 
-type InteractionKind = 'like' | 'announce';
+type InteractionKind = "like" | "announce";
 
 const INTERACTION_CONFIG = {
   like: {
     table: likes,
-    countField: 'likeCount' as const,
-    activityType: 'Like',
+    countField: "likeCount" as const,
+    activityType: "Like",
   },
   announce: {
     table: announces,
-    countField: 'announceCount' as const,
-    activityType: 'Announce',
+    countField: "announceCount" as const,
+    activityType: "Announce",
   },
 } as const;
 
@@ -43,9 +44,9 @@ async function handleInteraction(
   c: ActivityContext,
   activity: Activity,
   actor: string,
-  baseUrl: string
+  baseUrl: string,
 ): Promise<void> {
-  const db = c.get('db');
+  const db = c.get("db");
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
@@ -69,7 +70,15 @@ async function handleInteraction(
     .set({ [countField]: sql`${objects[countField]} + 1` })
     .where(eq(objects.apId, objectId));
 
-  await notifyLocalObjectOwner(db, objectId, activityId, activityType, actor, activity, baseUrl);
+  await notifyLocalObjectOwner(
+    db,
+    objectId,
+    activityId,
+    activityType,
+    actor,
+    activity,
+    baseUrl,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -81,9 +90,9 @@ export async function handleLike(
   activity: Activity,
   _recipient: ActorRow,
   actor: string,
-  baseUrl: string
+  baseUrl: string,
 ) {
-  await handleInteraction('like', c, activity, actor, baseUrl);
+  await handleInteraction("like", c, activity, actor, baseUrl);
 }
 
 // ---------------------------------------------------------------------------
@@ -95,9 +104,9 @@ export async function handleAnnounce(
   activity: Activity,
   _recipient: ActorRow,
   actor: string,
-  baseUrl: string
+  baseUrl: string,
 ) {
-  await handleInteraction('announce', c, activity, actor, baseUrl);
+  await handleInteraction("announce", c, activity, actor, baseUrl);
 }
 
 // ---------------------------------------------------------------------------
@@ -108,25 +117,25 @@ export async function handleAdd(
   c: ActivityContext,
   activity: Activity,
   recipient: ActorRow,
-  actor: string
+  actor: string,
 ) {
   const followingApId = resolveCollectionTarget(activity, recipient, actor);
   if (!followingApId) return;
 
-  const db = c.get('db');
+  const db = c.get("db");
   const now = new Date().toISOString();
   await db.insert(follows)
     .values({
       followerApId: recipient.apId,
       followingApId,
-      status: 'accepted',
+      status: "accepted",
       activityApId: activity.id || null,
       acceptedAt: now,
     })
     .onConflictDoUpdate({
       target: [follows.followerApId, follows.followingApId],
       set: {
-        status: 'accepted',
+        status: "accepted",
         acceptedAt: now,
         activityApId: activity.id || undefined,
       },
@@ -141,18 +150,18 @@ export async function handleRemove(
   c: ActivityContext,
   activity: Activity,
   recipient: ActorRow,
-  actor: string
+  actor: string,
 ) {
   const followingApId = resolveCollectionTarget(activity, recipient, actor);
   if (!followingApId) return;
 
-  const db = c.get('db');
+  const db = c.get("db");
   await db.delete(follows)
     .where(
       and(
         eq(follows.followerApId, recipient.apId),
         eq(follows.followingApId, followingApId),
-      )
+      ),
     );
 }
 
@@ -164,9 +173,9 @@ export async function handleBlock(
   c: ActivityContext,
   activity: Activity,
   recipient: ActorRow,
-  actor: string
+  actor: string,
 ) {
-  const db = c.get('db');
+  const db = c.get("db");
   const blockedId = getActivityObjectId(activity);
   if (!blockedId) return;
 
@@ -177,9 +186,15 @@ export async function handleBlock(
   await db.delete(follows)
     .where(
       or(
-        and(eq(follows.followerApId, recipient.apId), eq(follows.followingApId, actor)),
-        and(eq(follows.followerApId, actor), eq(follows.followingApId, recipient.apId)),
-      )
+        and(
+          eq(follows.followerApId, recipient.apId),
+          eq(follows.followingApId, actor),
+        ),
+        and(
+          eq(follows.followerApId, actor),
+          eq(follows.followingApId, recipient.apId),
+        ),
+      ),
     );
 }
 
@@ -187,11 +202,15 @@ export async function handleBlock(
 // Flag handler (report)
 // ---------------------------------------------------------------------------
 
-export async function handleFlag(_c: ActivityContext, activity: Activity, actor: string) {
+export async function handleFlag(
+  _c: ActivityContext,
+  activity: Activity,
+  actor: string,
+) {
   const objectId = getActivityObjectId(activity);
   const targetId = getActivityTargetId(activity);
   // No moderation subsystem yet: record is already stored in activities; log for operators.
-  console.warn('[ActivityPub] Flag received:', {
+  console.warn("[ActivityPub] Flag received:", {
     actor,
     object: objectId,
     target: targetId,
@@ -206,13 +225,13 @@ export async function handleFlag(_c: ActivityContext, activity: Activity, actor:
 function getActivityTargetId(activity: Activity): string | null {
   const target = activity.target;
   if (!target) return null;
-  if (typeof target === 'string') return target;
+  if (typeof target === "string") return target;
   return target.id || null;
 }
 
 function normalizeCollectionTarget(targetId: string): string {
-  if (targetId.endsWith('/followers')) {
-    return targetId.slice(0, -'/followers'.length);
+  if (targetId.endsWith("/followers")) {
+    return targetId.slice(0, -"/followers".length);
   }
   return targetId;
 }
@@ -225,7 +244,7 @@ function normalizeCollectionTarget(targetId: string): string {
 function resolveCollectionTarget(
   activity: Activity,
   recipient: ActorRow,
-  actor: string
+  actor: string,
 ): string | null {
   const objectId = getActivityObjectId(activity);
   if (!objectId || objectId !== recipient.apId) return null;

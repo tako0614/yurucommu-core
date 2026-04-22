@@ -1,7 +1,7 @@
-import { createEffect } from 'solid-js';
-import type { SnapGuide } from '../../../hooks/useCanvasInteraction.ts';
-import type { Layer, StoryCanvas } from '../../../lib/story-canvas.ts';
-import { CANVAS_HEIGHT, CANVAS_WIDTH } from '../../../lib/story-canvas.ts';
+import { createEffect } from "solid-js";
+import type { SnapGuide } from "../../../hooks/useCanvasInteraction.ts";
+import type { Layer, StoryCanvas } from "../../../lib/story-canvas.ts";
+import { CANVAS_HEIGHT, CANVAS_WIDTH } from "../../../lib/story-canvas.ts";
 
 interface StoryCanvasRendererOptions {
   storyCanvas: StoryCanvas | null;
@@ -15,7 +15,7 @@ const drawSelectionIndicator = (
   ctx: CanvasRenderingContext2D,
   storyCanvas: StoryCanvas,
   layer: Layer,
-  scale: number
+  scale: number,
 ) => {
   const corners = storyCanvas.getLayerCorners(layer);
   if (!corners) return;
@@ -25,7 +25,7 @@ const drawSelectionIndicator = (
     y: corner.y * scale,
   }));
 
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
   ctx.lineWidth = 1.5;
   ctx.setLineDash([6, 4]);
 
@@ -43,17 +43,17 @@ const drawSnapGuides = (
   scale: number,
   displayWidth: number,
   displayHeight: number,
-  snapGuides: SnapGuide[]
+  snapGuides: SnapGuide[],
 ) => {
   if (snapGuides.length === 0) return;
 
-  ctx.strokeStyle = '#FFD60A';
+  ctx.strokeStyle = "#FFD60A";
   ctx.lineWidth = 1;
   ctx.setLineDash([5, 5]);
 
   for (const guide of snapGuides) {
     ctx.beginPath();
-    if (guide.type === 'vertical') {
+    if (guide.type === "vertical") {
       const x = guide.position * scale;
       ctx.moveTo(x, 0);
       ctx.lineTo(x, displayHeight);
@@ -82,7 +82,7 @@ export function useStoryCanvasRenderer(opts: StoryCanvasRendererOptions) {
     const render = async () => {
       await storyCanvas.render();
 
-      const displayCtx = displayCanvas.getContext('2d');
+      const displayCtx = displayCanvas.getContext("2d");
       if (!displayCtx) return;
 
       const displayWidth = displayCanvas.width;
@@ -91,15 +91,27 @@ export function useStoryCanvasRenderer(opts: StoryCanvasRendererOptions) {
       displayCtx.clearRect(0, 0, displayWidth, displayHeight);
       displayCtx.drawImage(
         storyCanvas.getCanvas(),
-        0, 0, CANVAS_WIDTH, CANVAS_HEIGHT,
-        0, 0, displayWidth, displayHeight
+        0,
+        0,
+        CANVAS_WIDTH,
+        CANVAS_HEIGHT,
+        0,
+        0,
+        displayWidth,
+        displayHeight,
       );
 
       const scale = displayWidth / CANVAS_WIDTH;
-      drawSnapGuides(displayCtx, scale, displayWidth, displayHeight, snapGuides);
+      drawSnapGuides(
+        displayCtx,
+        scale,
+        displayWidth,
+        displayHeight,
+        snapGuides,
+      );
 
       const selectedLayer = opts.getSelectedLayer();
-      if (selectedLayer && selectedLayer.type !== 'background') {
+      if (selectedLayer && selectedLayer.type !== "background") {
         drawSelectionIndicator(displayCtx, storyCanvas, selectedLayer, scale);
       }
     };

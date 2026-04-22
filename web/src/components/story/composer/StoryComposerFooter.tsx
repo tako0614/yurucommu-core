@@ -1,4 +1,4 @@
-import { Show } from 'solid-js';
+import { Show } from "solid-js";
 
 interface StoryComposerFooterProps {
   caption: string;
@@ -20,12 +20,16 @@ const SendIcon = () => (
 );
 
 export function StoryComposerFooter(props: StoryComposerFooterProps) {
-  const postDisabled = () => !props.canPost || props.posting || !!(props.videoFile && !props.ffmpegReady);
+  const postDisabled = () =>
+    !props.canPost || props.posting ||
+    !!(props.videoFile && !props.ffmpegReady);
 
   return (
     <div
       class="absolute left-0 right-0 bottom-0 z-10 bg-gradient-to-t from-black via-black/90 to-transparent"
-      style={{ "padding-bottom": 'max(env(safe-area-inset-bottom, 0px), 16px)' }}
+      style={{
+        "padding-bottom": "max(env(safe-area-inset-bottom, 0px), 16px)",
+      }}
     >
       <div class="px-4 pt-8 pb-3">
         <input
@@ -46,7 +50,9 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
           <span class="w-7 h-7 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 flex items-center justify-center border-2 border-black">
             <span class="w-4 h-4 rounded-full bg-neutral-900"></span>
           </span>
-          <span>{props.posting ? `${Math.round(props.progress)}%` : 'ストーリーズ'}</span>
+          <span>
+            {props.posting ? `${Math.round(props.progress)}%` : "ストーリーズ"}
+          </span>
         </button>
 
         <button

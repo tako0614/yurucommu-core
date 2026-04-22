@@ -10,5 +10,4 @@
  * - Deno (deno.land/x/sqlite3, filesystem)
  */
 
-export * from './cloudflare.ts';
-
+export * from "./cloudflare.ts";

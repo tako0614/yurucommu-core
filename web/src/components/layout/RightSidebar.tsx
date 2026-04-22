@@ -1,10 +1,10 @@
-import { createSignal, createEffect, Show, For, on } from 'solid-js';
-import { A } from '@solidjs/router';
-import { useRequiredActor } from '../../hooks/useRequiredActor.ts';
-import type { RecommendedUser } from '../../lib/api/recommendations.ts';
-import { fetchRecommendedUsers, follow } from '../../lib/api.ts';
-import { UserAvatar } from '../UserAvatar.tsx';
-import { PluginSlot } from '../PluginSlot.tsx';
+import { createEffect, createSignal, For, on, Show } from "solid-js";
+import { A } from "@solidjs/router";
+import { useRequiredActor } from "../../hooks/useRequiredActor.ts";
+import type { RecommendedUser } from "../../lib/api/recommendations.ts";
+import { fetchRecommendedUsers, follow } from "../../lib/api.ts";
+import { UserAvatar } from "../UserAvatar.tsx";
+import { PluginSlot } from "../PluginSlot.tsx";
 
 function RecommendedUserCard(props: {
   user: RecommendedUser;
@@ -44,18 +44,20 @@ function RecommendedUserCard(props: {
         <div class="text-sm font-bold text-white truncate">
           {props.user.name || props.user.preferred_username}
         </div>
-        <div class="text-xs text-neutral-500 truncate">@{props.user.username}</div>
+        <div class="text-xs text-neutral-500 truncate">
+          @{props.user.username}
+        </div>
       </div>
       <button
         onClick={handleFollow}
         disabled={loading() || following()}
         class={`px-3 py-1 rounded-full text-xs font-bold transition-colors shrink-0 ${
           following()
-            ? 'bg-transparent text-neutral-500 border border-neutral-700'
-            : 'bg-white text-black hover:bg-neutral-200'
+            ? "bg-transparent text-neutral-500 border border-neutral-700"
+            : "bg-white text-black hover:bg-neutral-200"
         }`}
       >
-        {following() ? 'フォロー中' : 'フォロー'}
+        {following() ? "フォロー中" : "フォロー"}
       </button>
     </A>
   );
@@ -100,12 +102,14 @@ export function RightSidebar() {
                 </div>
               }
             >
-              <For each={users()}>{(user) => (
-                <RecommendedUserCard
-                  user={user}
-                  onFollowed={handleFollowed}
-                />
-              )}</For>
+              <For each={users()}>
+                {(user) => (
+                  <RecommendedUserCard
+                    user={user}
+                    onFollowed={handleFollowed}
+                  />
+                )}
+              </For>
             </Show>
           </div>
         </div>

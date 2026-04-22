@@ -7,14 +7,20 @@
  * - Addressing logic for ActivityPub delivery
  */
 
-import type { Database } from '../../../db/index.ts';
-import { actorCache, objects, likes, bookmarks, activities } from '../../../db/index.ts';
-import { eq, and, or, inArray } from 'drizzle-orm';
-import type { Env } from '../../types.ts';
-import { objectApId, formatUsername } from '../../federation-helpers.ts';
-import { PostRow, formatPost } from './transformers.ts';
-import { enqueueFanoutToFollowers } from '../../lib/delivery/queue.ts';
-import { isRecord, parseJsonObject } from '../../lib/parse-helpers.ts';
+import type { Database } from "../../../db/index.ts";
+import {
+  activities,
+  actorCache,
+  bookmarks,
+  likes,
+  objects,
+} from "../../../db/index.ts";
+import { and, eq, inArray, or } from "drizzle-orm";
+import type { Env } from "../../types.ts";
+import { formatUsername, objectApId } from "../../federation-helpers.ts";
+import { formatPost, PostRow } from "./transformers.ts";
+import { enqueueFanoutToFollowers } from "../../lib/delivery/queue.ts";
+import { isRecord, parseJsonObject } from "../../lib/parse-helpers.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,7 +49,7 @@ export type PostDetailRow = PostRow & {
 
 export type MentionFailure = {
   mention: string;
-  stage: 'resolve' | 'persist_activity' | 'persist_inbox';
+  stage: "resolve" | "persist_activity" | "persist_inbox";
   reason: string;
 };
 
@@ -82,9 +88,12 @@ export { isRecord, parseJsonObject };
  * Validate that a raw field is either absent, null, or a string.
  * Returns an error message string if invalid, or null if valid.
  */
-export function validateOptionalString(raw: Record<string, unknown>, field: string): string | null {
+export function validateOptionalString(
+  raw: Record<string, unknown>,
+  field: string,
+): string | null {
   const value = raw[field];
-  if (value !== undefined && value !== null && typeof value !== 'string') {
+  if (value !== undefined && value !== null && typeof value !== "string") {
     return `${field} must be a string`;
   }
   return null;
@@ -181,20 +190,25 @@ export function toPostRow(
     announce_count: post.announceCount,
     published: post.published,
     liked: flags.liked ? 1 : 0,
-    ...(flags.bookmarked !== undefined ? { bookmarked: flags.bookmarked ? 1 : 0 } : {}),
+    ...(flags.bookmarked !== undefined
+      ? { bookmarked: flags.bookmarked ? 1 : 0 }
+      : {}),
     ...(post.toJson !== undefined ? { to_json: post.toJson } : {}),
   };
 }
 
 /** Compute to/cc fields from visibility for ActivityPub delivery. */
-export function buildAddressing(visibility: string, followersUrl: string): { to: string[]; cc: string[] } {
-  const publicUrl = 'https://www.w3.org/ns/activitystreams#Public';
+export function buildAddressing(
+  visibility: string,
+  followersUrl: string,
+): { to: string[]; cc: string[] } {
+  const publicUrl = "https://www.w3.org/ns/activitystreams#Public";
   switch (visibility) {
-    case 'public':
+    case "public":
       return { to: [publicUrl], cc: [followersUrl] };
-    case 'unlisted':
+    case "unlisted":
       return { to: [followersUrl], cc: [publicUrl] };
-    case 'followers':
+    case "followers":
       return { to: [followersUrl], cc: [] };
     default:
       return { to: [], cc: [] };
@@ -213,10 +227,20 @@ export async function loadInteractionFlags(
   const [likeRows, bookmarkRows] = await Promise.all([
     db.select({ objectApId: likes.objectApId })
       .from(likes)
-      .where(and(eq(likes.actorApId, actorApId), inArray(likes.objectApId, objectApIds))),
+      .where(
+        and(
+          eq(likes.actorApId, actorApId),
+          inArray(likes.objectApId, objectApIds),
+        ),
+      ),
     db.select({ objectApId: bookmarks.objectApId })
       .from(bookmarks)
-      .where(and(eq(bookmarks.actorApId, actorApId), inArray(bookmarks.objectApId, objectApIds))),
+      .where(
+        and(
+          eq(bookmarks.actorApId, actorApId),
+          inArray(bookmarks.objectApId, objectApIds),
+        ),
+      ),
   ]);
   return {
     likedIds: new Set(likeRows.map((l) => l.objectApId)),
@@ -237,13 +261,16 @@ export async function persistAndFanout(
     actorApId: activity.actor,
     objectApId: objectApIdValue,
     rawJson: JSON.stringify(activity),
-    direction: 'outbound',
+    direction: "outbound",
   });
 
   try {
     await enqueueFanoutToFollowers(env, activity.id, activity.actor);
   } catch (err) {
-    console.error(`[Posts] Failed to enqueue ${activity.type} federation fanout:`, err);
+    console.error(
+      `[Posts] Failed to enqueue ${activity.type} federation fanout:`,
+      err,
+    );
   }
 }
 
@@ -252,9 +279,11 @@ export async function loadCachedAuthorMap(
   db: Database,
   posts: PostWithAuthor[],
 ): Promise<Map<string, AuthorInfo>> {
-  const remoteAttributedTos = [...new Set(
-    posts.filter((p) => !p.author).map((p) => p.attributedTo)
-  )];
+  const remoteAttributedTos = [
+    ...new Set(
+      posts.filter((p) => !p.author).map((p) => p.attributedTo),
+    ),
+  ];
   if (remoteAttributedTos.length === 0) return new Map();
   const cachedAuthors = await db.select({
     apId: actorCache.apId,

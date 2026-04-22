@@ -1,13 +1,24 @@
-import { Hono } from 'hono';
-import type { Context } from 'hono';
-import type { Env, Variables } from '../../types.ts';
-import { eq } from 'drizzle-orm';
-import { actorCache, activities, actors } from '../../../db/index.ts';
-import { activityApId, actorApId, generateId, isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../../federation-helpers.ts';
-import { getInstanceActor } from './query-helpers.ts';
-import type { Activity, RemoteActor } from './inbox-types.ts';
-import { getActivityObjectId } from './inbox-types.ts';
-import { handleGroupCreate, handleGroupFollow, handleGroupUndo } from './handlers/actor-inbox-handlers.ts';
+import { Hono } from "hono";
+import type { Context } from "hono";
+import type { Env, Variables } from "../../types.ts";
+import { eq } from "drizzle-orm";
+import { activities, actorCache, actors } from "../../../db/index.ts";
+import {
+  activityApId,
+  actorApId,
+  fetchWithTimeout,
+  generateId,
+  isLocal,
+  isSafeRemoteUrl,
+} from "../../federation-helpers.ts";
+import { getInstanceActor } from "./query-helpers.ts";
+import type { Activity, RemoteActor } from "./inbox-types.ts";
+import { getActivityObjectId } from "./inbox-types.ts";
+import {
+  handleGroupCreate,
+  handleGroupFollow,
+  handleGroupUndo,
+} from "./handlers/actor-inbox-handlers.ts";
 import {
   handleAccept,
   handleAdd,
@@ -17,19 +28,104 @@ import {
   handleDelete,
   handleFlag,
   handleFollow,
-  handleMove,
   handleLike,
-  handleRemove,
+  handleMove,
   handleReject,
+  handleRemove,
   handleUndo,
   handleUpdate,
-} from './handlers/user-inbox-handlers.ts';
+} from "./handlers/user-inbox-handlers.ts";
 
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 // Maximum allowed clock skew for HTTP signature validation (5 minutes)
 const MAX_SIGNATURE_AGE_MS = 5 * 60 * 1000;
 const MAX_PAYLOAD_BYTES = 512 * 1024;
+const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
+
+type RequestBodyResult =
+  | { ok: true; body: string }
+  | { ok: false; status: 400 | 413; error: string };
+
+function bufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 8192;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    for (const byte of chunk) {
+      binary += String.fromCharCode(byte);
+    }
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function hasSha256Digest(
+  digestHeader: string,
+  expectedBase64: string,
+): boolean {
+  for (const part of digestHeader.split(",")) {
+    const trimmed = part.trim();
+    const separator = trimmed.indexOf("=");
+    if (separator <= 0) continue;
+    const algorithm = trimmed.slice(0, separator).trim().toLowerCase();
+    const value = trimmed.slice(separator + 1).trim();
+    if (algorithm === "sha-256" && value === expectedBase64) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function readRequestBodyWithLimit(
+  request: Request,
+  maxBytes: number,
+): Promise<RequestBodyResult> {
+  const reader = request.body?.getReader();
+  if (!reader) return { ok: true, body: "" };
+
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel();
+      return { ok: false, status: 413, error: "Payload too large" };
+    }
+    chunks.push(value);
+  }
+
+  const bodyBytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bodyBytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    return { ok: true, body: TEXT_DECODER.decode(bodyBytes) };
+  } catch {
+    return { ok: false, status: 400, error: "Invalid UTF-8 body" };
+  }
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 // ---------------------------------------------------------------------------
 // Signature parsing & verification
@@ -54,20 +150,23 @@ function parseSignatureHeader(signatureHeader: string): {
 
   return {
     keyId: params.keyId,
-    algorithm: params.algorithm || 'rsa-sha256',
-    headers: params.headers.split(' '),
+    algorithm: (params.algorithm || "rsa-sha256").toLowerCase(),
+    headers: params.headers.trim().toLowerCase().split(/\s+/),
     signature: params.signature,
   };
 }
 
-async function fetchActorPublicKey(keyId: string, c: HonoContext): Promise<string | null> {
+async function fetchActorPublicKey(
+  keyId: string,
+  c: HonoContext,
+): Promise<string | null> {
   if (!isSafeRemoteUrl(keyId)) {
     console.warn(`[HTTP Signature] Blocked unsafe keyId URL: ${keyId}`);
     return null;
   }
 
-  const db = c.get('db');
-  const actorUrl = keyId.includes('#') ? keyId.split('#')[0] : keyId;
+  const db = c.get("db");
+  const actorUrl = keyId.includes("#") ? keyId.split("#")[0] : keyId;
 
   const cached = await db.query.actorCache.findFirst({
     where: eq(actorCache.apId, actorUrl),
@@ -80,7 +179,7 @@ async function fetchActorPublicKey(keyId: string, c: HonoContext): Promise<strin
 
   try {
     const res = await fetchWithTimeout(actorUrl, {
-      headers: { 'Accept': 'application/activity+json, application/ld+json' },
+      headers: { "Accept": "application/activity+json, application/ld+json" },
       timeout: 15000,
     });
 
@@ -96,9 +195,15 @@ async function fetchActorPublicKey(keyId: string, c: HonoContext): Promise<strin
     }
 
     // actorData.publicKey.publicKeyPem is guaranteed non-null by the guard above
-    const narrowed = actorData as RemoteActor & { inbox: string; publicKey: { publicKeyPem: string } };
+    const narrowed = actorData as RemoteActor & {
+      inbox: string;
+      publicKey: { publicKeyPem: string };
+    };
 
-    if (actorData.id && actorData.inbox && isSafeRemoteUrl(actorData.id) && isSafeRemoteUrl(actorData.inbox)) {
+    if (
+      actorData.id && actorData.inbox && isSafeRemoteUrl(actorData.id) &&
+      isSafeRemoteUrl(actorData.inbox)
+    ) {
       const cacheFields = buildActorCacheFields(narrowed);
       // Upsert: check existence then insert or update
       const existing = await db.query.actorCache.findFirst({
@@ -106,9 +211,14 @@ async function fetchActorPublicKey(keyId: string, c: HonoContext): Promise<strin
         columns: { apId: true },
       });
       if (existing) {
-        await db.update(actorCache).set(cacheFields).where(eq(actorCache.apId, actorData.id));
+        await db.update(actorCache).set(cacheFields).where(
+          eq(actorCache.apId, actorData.id),
+        );
       } else {
-        await db.insert(actorCache).values({ apId: actorData.id, ...cacheFields });
+        await db.insert(actorCache).values({
+          apId: actorData.id,
+          ...cacheFields,
+        });
       }
     }
 
@@ -121,54 +231,67 @@ async function fetchActorPublicKey(keyId: string, c: HonoContext): Promise<strin
 
 async function verifyHttpSignature(
   c: HonoContext,
-  body: string
+  body: string,
 ): Promise<{ valid: boolean; keyId?: string; error?: string }> {
-  const signatureHeader = c.req.header('Signature');
+  const signatureHeader = c.req.header("Signature");
   if (!signatureHeader) {
-    return { valid: false, error: 'Missing Signature header' };
+    return { valid: false, error: "Missing Signature header" };
   }
 
   const parsed = parseSignatureHeader(signatureHeader);
   if (!parsed) {
-    return { valid: false, error: 'Invalid Signature header format' };
+    return { valid: false, error: "Invalid Signature header format" };
   }
 
-  if (!parsed.headers.includes('date')) {
-    return { valid: false, error: 'date header must be included in signature' };
+  if (!parsed.headers.includes("date")) {
+    return { valid: false, error: "date header must be included in signature" };
   }
 
   // Validate Date header timestamp (prevents replay attacks)
-  const dateHeader = c.req.header('date');
+  const dateHeader = c.req.header("date");
   if (!dateHeader) {
-    return { valid: false, error: 'Missing Date header required by signature' };
+    return { valid: false, error: "Missing Date header required by signature" };
   }
   const requestDate = new Date(dateHeader);
   if (isNaN(requestDate.getTime())) {
-    return { valid: false, error: 'Invalid Date header format' };
+    return { valid: false, error: "Invalid Date header format" };
   }
   if (Math.abs(Date.now() - requestDate.getTime()) > MAX_SIGNATURE_AGE_MS) {
-    return { valid: false, error: 'Request timestamp outside acceptable window' };
+    return {
+      valid: false,
+      error: "Request timestamp outside acceptable window",
+    };
   }
 
-  if (parsed.algorithm !== 'rsa-sha256') {
-    return { valid: false, error: `Unsupported algorithm: ${parsed.algorithm}` };
+  if (parsed.algorithm !== "rsa-sha256") {
+    return {
+      valid: false,
+      error: `Unsupported algorithm: ${parsed.algorithm}`,
+    };
   }
 
-  if (!parsed.headers.includes('(request-target)')) {
-    return { valid: false, error: '(request-target) must be signed' };
+  if (!parsed.headers.includes("(request-target)")) {
+    return { valid: false, error: "(request-target) must be signed" };
   }
 
-  if (!parsed.headers.includes('digest')) {
-    return { valid: false, error: 'digest header must be included in signature to ensure body integrity' };
+  if (!parsed.headers.includes("digest")) {
+    return {
+      valid: false,
+      error:
+        "digest header must be included in signature to ensure body integrity",
+    };
   }
 
   // Build the signature string from headers
   const url = new URL(c.req.url);
+  const requestTarget = `${url.pathname}${url.search}`;
   const signatureParts: string[] = [];
 
   for (const headerName of parsed.headers) {
-    if (headerName === '(request-target)') {
-      signatureParts.push(`(request-target): ${c.req.method.toLowerCase()} ${url.pathname}`);
+    if (headerName === "(request-target)") {
+      signatureParts.push(
+        `(request-target): ${c.req.method.toLowerCase()} ${requestTarget}`,
+      );
       continue;
     }
     const headerValue = c.req.header(headerName);
@@ -178,52 +301,61 @@ async function verifyHttpSignature(
     signatureParts.push(`${headerName}: ${headerValue}`);
   }
 
-  const signatureString = signatureParts.join('\n');
+  const signatureString = signatureParts.join("\n");
 
   // Verify body digest
-  const digestHeader = c.req.header('digest');
+  const digestHeader = c.req.header("digest");
   if (!digestHeader) {
-    return { valid: false, error: 'Digest header missing but required by signature' };
+    return {
+      valid: false,
+      error: "Digest header missing but required by signature",
+    };
   }
-  const bodyHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body));
-  const expectedDigest = `SHA-256=${btoa(String.fromCharCode(...new Uint8Array(bodyHash)))}`;
-  if (digestHeader !== expectedDigest) {
-    return { valid: false, error: 'Digest mismatch' };
+  const bodyHash = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(body),
+  );
+  const expectedDigest = bufferToBase64(bodyHash);
+  if (!hasSha256Digest(digestHeader, expectedDigest)) {
+    return { valid: false, error: "Digest mismatch" };
   }
 
   // Fetch public key and verify
   const publicKeyPem = await fetchActorPublicKey(parsed.keyId, c);
   if (!publicKeyPem) {
-    return { valid: false, error: 'Could not fetch public key' };
+    return { valid: false, error: "Could not fetch public key" };
   }
 
   try {
-    const pemContents = publicKeyPem.replace(/-----[^-]+-----/g, '').replace(/\s/g, '');
-    const binaryKey = Uint8Array.from(atob(pemContents), ch => ch.charCodeAt(0));
+    const pemContents = publicKeyPem.replace(/-----[^-]+-----/g, "").replace(
+      /\s/g,
+      "",
+    );
+    const binaryKey = base64ToBytes(pemContents);
     const cryptoKey = await crypto.subtle.importKey(
-      'spki',
-      binaryKey,
-      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      "spki",
+      binaryKey.buffer as ArrayBuffer,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
       false,
-      ['verify']
+      ["verify"],
     );
 
-    const signatureBytes = Uint8Array.from(atob(parsed.signature), ch => ch.charCodeAt(0));
+    const signatureBytes = base64ToBytes(parsed.signature);
     const valid = await crypto.subtle.verify(
-      'RSASSA-PKCS1-v1_5',
+      "RSASSA-PKCS1-v1_5",
       cryptoKey,
-      signatureBytes,
-      new TextEncoder().encode(signatureString)
+      signatureBytes.buffer as ArrayBuffer,
+      new TextEncoder().encode(signatureString),
     );
 
     if (!valid) {
-      return { valid: false, error: 'Signature verification failed' };
+      return { valid: false, error: "Signature verification failed" };
     }
 
     return { valid: true, keyId: parsed.keyId };
   } catch (e) {
-    console.error('[HTTP Signature] Verification error:', e);
-    return { valid: false, error: 'Signature verification error' };
+    console.error("[HTTP Signature] Verification error:", e);
+    return { valid: false, error: "Signature verification error" };
   }
 }
 
@@ -236,14 +368,17 @@ async function verifyHttpSignature(
  */
 function signingActorFromKeyId(keyId: string | undefined): string | undefined {
   if (!keyId) return undefined;
-  return keyId.includes('#') ? keyId.split('#')[0] : keyId;
+  return keyId.includes("#") ? keyId.split("#")[0] : keyId;
 }
 
 /**
  * Returns true when the signing key and the activity actor belong to different
  * origins (domain-level key delegation is allowed).
  */
-function isActorMismatch(signingActorUrl: string | undefined, actor: string): boolean {
+function isActorMismatch(
+  signingActorUrl: string | undefined,
+  actor: string,
+): boolean {
   if (signingActorUrl === actor) return false;
   if (!signingActorUrl) return true;
 
@@ -251,7 +386,9 @@ function isActorMismatch(signingActorUrl: string | undefined, actor: string): bo
     const signingDomain = new URL(signingActorUrl).hostname;
     const actorDomain = new URL(actor).hostname;
     if (signingDomain === actorDomain) {
-      console.info(`[ActivityPub] Accepting key delegation: signing key ${signingActorUrl} for actor ${actor} (same domain: ${signingDomain})`);
+      console.info(
+        `[ActivityPub] Accepting key delegation: signing key ${signingActorUrl} for actor ${actor} (same domain: ${signingDomain})`,
+      );
       return false;
     }
   } catch {
@@ -273,39 +410,65 @@ type ParsedActivity = {
  * JSON parse, field extraction, and actor-mismatch check. Returns either a
  * parsed result or a Response that should be returned immediately.
  */
-async function verifyAndParseInbox(c: HonoContext, baseUrl: string): Promise<ParsedActivity | Response> {
-  const contentLength = parseInt(c.req.header('content-length') || '0');
-  if (contentLength > MAX_PAYLOAD_BYTES) {
-    return c.json({ error: 'Payload too large' }, 413);
+async function verifyAndParseInbox(
+  c: HonoContext,
+  baseUrl: string,
+): Promise<ParsedActivity | Response> {
+  const contentLengthHeader = c.req.header("content-length");
+  if (contentLengthHeader) {
+    const contentLength = Number(contentLengthHeader);
+    if (!Number.isInteger(contentLength) || contentLength < 0) {
+      return c.json({ error: "Invalid Content-Length" }, 400);
+    }
+    if (contentLength > MAX_PAYLOAD_BYTES) {
+      return c.json({ error: "Payload too large" }, 413);
+    }
   }
 
-  const body = await c.req.text();
+  const bodyResult = await readRequestBodyWithLimit(
+    c.req.raw,
+    MAX_PAYLOAD_BYTES,
+  );
+  if (!bodyResult.ok) {
+    return c.json({ error: bodyResult.error }, bodyResult.status);
+  }
+  const body = bodyResult.body;
 
   const signatureResult = await verifyHttpSignature(c, body);
   if (!signatureResult.valid) {
-    console.warn(`[ActivityPub] Signature verification failed: ${signatureResult.error}`);
-    return c.json({ error: 'Signature verification failed' }, 401);
+    console.warn(
+      `[ActivityPub] Signature verification failed: ${signatureResult.error}`,
+    );
+    return c.json({ error: "Signature verification failed" }, 401);
   }
 
   let activity: Activity;
   try {
-    activity = JSON.parse(body) as Activity;
+    const parsed = JSON.parse(body) as unknown;
+    if (!isJsonRecord(parsed)) {
+      return c.json({ error: "Invalid activity" }, 400);
+    }
+    activity = parsed as Activity;
   } catch {
-    return c.json({ error: 'Invalid JSON' }, 400);
+    return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const activityId = typeof activity.id === 'string' ? activity.id : activityApId(baseUrl, generateId());
-  const actor = typeof activity.actor === 'string' ? activity.actor : null;
-  const activityType = typeof activity.type === 'string' ? activity.type : null;
+  const activityId = typeof activity.id === "string"
+    ? activity.id
+    : activityApId(baseUrl, generateId());
+  const actor = typeof activity.actor === "string" ? activity.actor : null;
+  const activityType = typeof activity.type === "string" ? activity.type : null;
 
   if (!actor || !activityType) {
-    return c.json({ error: 'Invalid activity' }, 400);
+    return c.json({ error: "Invalid activity" }, 400);
   }
 
   const signingActor = signingActorFromKeyId(signatureResult.keyId);
   if (isActorMismatch(signingActor, actor)) {
-    console.warn(`[ActivityPub] Actor mismatch: activity actor ${actor} does not match signing key ${signingActor}`);
-    return c.json({ error: 'Actor mismatch' }, 401);
+    console.warn(
+      `[ActivityPub] Actor mismatch: activity actor ${actor} does not match signing key ${signingActor}`,
+    );
+    return c.json({ error: "Actor mismatch" }, 401);
   }
 
   return {
@@ -323,9 +486,10 @@ async function verifyAndParseInbox(c: HonoContext, baseUrl: string): Promise<Par
  */
 async function deduplicateAndStoreActivity(
   c: HonoContext,
-  { activityId, activityType, actor, activityObjectId, activity }: ParsedActivity
+  { activityId, activityType, actor, activityObjectId, activity }:
+    ParsedActivity,
 ): Promise<Response | null> {
-  const db = c.get('db');
+  const db = c.get("db");
   const rawJson = JSON.stringify(activity);
 
   const existing = await db.query.activities.findFirst({
@@ -335,7 +499,9 @@ async function deduplicateAndStoreActivity(
 
   if (existing) {
     if (existing.rawJson !== rawJson) {
-      console.warn(`[ActivityPub] Duplicate activity ${activityId} received with different content`);
+      console.warn(
+        `[ActivityPub] Duplicate activity ${activityId} received with different content`,
+      );
     }
     return c.body(null, 202);
   }
@@ -346,7 +512,7 @@ async function deduplicateAndStoreActivity(
     actorApId: actor,
     objectApId: activityObjectId,
     rawJson,
-    direction: 'inbound',
+    direction: "inbound",
   });
 
   return null;
@@ -356,9 +522,14 @@ async function deduplicateAndStoreActivity(
 // Remote actor caching
 // ---------------------------------------------------------------------------
 
-function buildActorCacheFields(actorData: RemoteActor & { inbox: string; publicKey: { publicKeyPem: string } }) {
+function buildActorCacheFields(
+  actorData: RemoteActor & {
+    inbox: string;
+    publicKey: { publicKeyPem: string };
+  },
+) {
   return {
-    type: actorData.type || 'Person',
+    type: actorData.type || "Person",
     preferredUsername: actorData.preferredUsername,
     name: actorData.name,
     summary: actorData.summary,
@@ -369,10 +540,14 @@ function buildActorCacheFields(actorData: RemoteActor & { inbox: string; publicK
   };
 }
 
-async function cacheRemoteActor(c: HonoContext, actorApIdUrl: string, baseUrl: string): Promise<void> {
+async function cacheRemoteActor(
+  c: HonoContext,
+  actorApIdUrl: string,
+  baseUrl: string,
+): Promise<void> {
   if (isLocal(actorApIdUrl, baseUrl)) return;
 
-  const db = c.get('db');
+  const db = c.get("db");
 
   const cached = await db.query.actorCache.findFirst({
     where: eq(actorCache.apId, actorApIdUrl),
@@ -387,7 +562,7 @@ async function cacheRemoteActor(c: HonoContext, actorApIdUrl: string, baseUrl: s
 
   try {
     const res = await fetchWithTimeout(actorApIdUrl, {
-      headers: { 'Accept': 'application/activity+json, application/ld+json' },
+      headers: { "Accept": "application/activity+json, application/ld+json" },
       timeout: 15000,
     });
     if (!res.ok) return;
@@ -395,22 +570,35 @@ async function cacheRemoteActor(c: HonoContext, actorApIdUrl: string, baseUrl: s
     const actorData = await res.json() as RemoteActor;
 
     if (actorData?.id !== actorApIdUrl) {
-      console.warn(`[ActivityPub] Actor ID mismatch: fetched ${actorApIdUrl} but got id ${actorData?.id}`);
+      console.warn(
+        `[ActivityPub] Actor ID mismatch: fetched ${actorApIdUrl} but got id ${actorData?.id}`,
+      );
       return;
     }
     if (!actorData?.publicKey?.publicKeyPem) {
-      console.warn(`[ActivityPub] Skipping actor cache for ${actorApIdUrl}: missing public key`);
+      console.warn(
+        `[ActivityPub] Skipping actor cache for ${actorApIdUrl}: missing public key`,
+      );
       return;
     }
-    if (!actorData.id || !actorData.inbox || !isSafeRemoteUrl(actorData.id) || !isSafeRemoteUrl(actorData.inbox)) {
+    if (
+      !actorData.id || !actorData.inbox || !isSafeRemoteUrl(actorData.id) ||
+      !isSafeRemoteUrl(actorData.inbox)
+    ) {
       return;
     }
 
     // publicKey.publicKeyPem and inbox are guaranteed by guards above
-    const narrowed = actorData as RemoteActor & { inbox: string; publicKey: { publicKeyPem: string } };
-    await db.insert(actorCache).values({ apId: actorData.id, ...buildActorCacheFields(narrowed) });
+    const narrowed = actorData as RemoteActor & {
+      inbox: string;
+      publicKey: { publicKeyPem: string };
+    };
+    await db.insert(actorCache).values({
+      apId: actorData.id,
+      ...buildActorCacheFields(narrowed),
+    });
   } catch (e) {
-    console.error('Failed to cache remote actor:', e);
+    console.error("Failed to cache remote actor:", e);
   }
 }
 
@@ -431,53 +619,55 @@ async function dispatchUserActivity(
   c: HonoContext,
   activityType: string,
   activity: Activity,
-  { recipient, actor, baseUrl }: UserInboxHandler
+  { recipient, actor, baseUrl }: UserInboxHandler,
 ): Promise<void> {
   switch (activityType) {
-    case 'Follow':
+    case "Follow":
       await handleFollow(c, activity, recipient, actor, baseUrl);
       break;
-    case 'Accept':
+    case "Accept":
       await handleAccept(c, activity);
       break;
-    case 'Undo':
+    case "Undo":
       await handleUndo(c, activity, recipient, actor, baseUrl);
       break;
-    case 'Like':
+    case "Like":
       await handleLike(c, activity, recipient, actor, baseUrl);
       break;
-    case 'Create':
+    case "Create":
       await handleCreate(c, activity, recipient, actor, baseUrl);
       break;
-    case 'Delete':
+    case "Delete":
       await handleDelete(c, activity);
       break;
-    case 'Announce':
+    case "Announce":
       await handleAnnounce(c, activity, recipient, actor, baseUrl);
       break;
-    case 'Update':
+    case "Update":
       await handleUpdate(c, activity, actor);
       break;
-    case 'Reject':
+    case "Reject":
       await handleReject(c, activity);
       break;
-    case 'Add':
+    case "Add":
       await handleAdd(c, activity, recipient, actor);
       break;
-    case 'Remove':
+    case "Remove":
       await handleRemove(c, activity, recipient, actor);
       break;
-    case 'Block':
+    case "Block":
       await handleBlock(c, activity, recipient, actor);
       break;
-    case 'Flag':
+    case "Flag":
       await handleFlag(c, activity, actor);
       break;
-    case 'Move':
+    case "Move":
       await handleMove(c, activity, actor);
       break;
     default:
-      console.warn(`[ActivityPub] Unhandled activity type: ${activityType} from ${actor}`);
+      console.warn(
+        `[ActivityPub] Unhandled activity type: ${activityType} from ${actor}`,
+      );
   }
 }
 
@@ -487,7 +677,7 @@ async function dispatchUserActivity(
 
 const ap = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-ap.post('/ap/actor/inbox', async (c) => {
+ap.post("/ap/actor/inbox", async (c) => {
   const instActor = await getInstanceActor(c);
   const baseUrl = c.env.APP_URL;
 
@@ -500,13 +690,20 @@ ap.post('/ap/actor/inbox', async (c) => {
   const { activity, activityType, actor } = result;
 
   switch (activityType) {
-    case 'Follow':
-      await handleGroupFollow(c, activity, instActor, actor, baseUrl, result.activityId);
+    case "Follow":
+      await handleGroupFollow(
+        c,
+        activity,
+        instActor,
+        actor,
+        baseUrl,
+        result.activityId,
+      );
       break;
-    case 'Undo':
+    case "Undo":
       await handleGroupUndo(c, activity, instActor);
       break;
-    case 'Create':
+    case "Create":
       await handleGroupCreate(c, activity, instActor, actor, baseUrl);
       break;
   }
@@ -514,14 +711,16 @@ ap.post('/ap/actor/inbox', async (c) => {
   return c.body(null, 202);
 });
 
-ap.post('/ap/users/:username/inbox', async (c) => {
-  const db = c.get('db');
-  const username = c.req.param('username');
+ap.post("/ap/users/:username/inbox", async (c) => {
+  const db = c.get("db");
+  const username = c.req.param("username");
   const baseUrl = c.env.APP_URL;
   const apId = actorApId(baseUrl, username);
 
-  const recipient = await db.query.actors.findFirst({ where: eq(actors.apId, apId) });
-  if (!recipient) return c.json({ error: 'Actor not found' }, 404);
+  const recipient = await db.query.actors.findFirst({
+    where: eq(actors.apId, apId),
+  });
+  if (!recipient) return c.json({ error: "Actor not found" }, 404);
 
   const result = await verifyAndParseInbox(c, baseUrl);
   if (result instanceof Response) return result;
@@ -533,7 +732,11 @@ ap.post('/ap/users/:username/inbox', async (c) => {
 
   await cacheRemoteActor(c, actor, baseUrl);
 
-  await dispatchUserActivity(c, activityType, activity, { recipient, actor, baseUrl });
+  await dispatchUserActivity(c, activityType, activity, {
+    recipient,
+    actor,
+    baseUrl,
+  });
 
   return c.body(null, 202);
 });

@@ -4,7 +4,7 @@
  * Hit testing, coordinate transformation, and bounding box calculations.
  */
 
-import type { Layer } from './story-canvas.ts';
+import type { Layer } from "./story-canvas.ts";
 
 // ---------------------------------------------------------------------------
 // Hit testing
@@ -44,7 +44,7 @@ export function isPointInLayer(px: number, py: number, layer: Layer): boolean {
 export function hitTest(layers: Layer[], x: number, y: number): Layer | null {
   // Check layers from top to bottom (reverse zIndex order)
   const sortedLayers = [...layers]
-    .filter(l => l.visible && !l.locked && l.type !== 'background')
+    .filter((l) => l.visible && !l.locked && l.type !== "background")
     .sort((a, b) => b.zIndex - a.zIndex);
 
   for (const layer of sortedLayers) {
@@ -75,12 +75,12 @@ export function getLayerCorners(layer: Layer): { x: number; y: number }[] {
 
   const corners = [
     { x: -hw, y: -hh }, // top-left
-    { x: hw, y: -hh },  // top-right
-    { x: hw, y: hh },   // bottom-right
-    { x: -hw, y: hh },  // bottom-left
+    { x: hw, y: -hh }, // top-right
+    { x: hw, y: hh }, // bottom-right
+    { x: -hw, y: hh }, // bottom-left
   ];
 
-  return corners.map(c => ({
+  return corners.map((c) => ({
     x: cx + c.x * cos - c.y * sin,
     y: cy + c.x * sin + c.y * cos,
   }));

@@ -1,9 +1,9 @@
-import { createEffect } from 'solid-js';
-import type { BackgroundFill, StoryCanvas } from '../../../lib/story-canvas.ts';
+import { createEffect } from "solid-js";
+import type { BackgroundFill, StoryCanvas } from "../../../lib/story-canvas.ts";
 
 interface StoryBackgroundOptions {
   storyCanvas: StoryCanvas | null;
-  backgroundType: 'solid' | 'gradient';
+  backgroundType: "solid" | "gradient";
   solidColor: string;
   gradientColors: string[];
   gradientAngle: number;
@@ -15,10 +15,14 @@ export function useStoryBackground(opts: StoryBackgroundOptions) {
     if (!opts.storyCanvas) return;
 
     let fill: BackgroundFill;
-    if (opts.backgroundType === 'solid') {
-      fill = { type: 'solid', color: opts.solidColor };
+    if (opts.backgroundType === "solid") {
+      fill = { type: "solid", color: opts.solidColor };
     } else {
-      fill = { type: 'gradient', colors: opts.gradientColors, angle: opts.gradientAngle };
+      fill = {
+        type: "gradient",
+        colors: opts.gradientColors,
+        angle: opts.gradientAngle,
+      };
     }
 
     opts.storyCanvas.setBackground(fill);

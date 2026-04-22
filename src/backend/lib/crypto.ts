@@ -8,13 +8,17 @@
 function isValidHexString(hex: string, expectedLength?: number): boolean {
   if (!/^[0-9a-fA-F]+$/.test(hex)) return false;
   if (hex.length % 2 !== 0) return false;
-  if (expectedLength !== undefined && hex.length !== expectedLength) return false;
+  if (expectedLength !== undefined && hex.length !== expectedLength) {
+    return false;
+  }
   return true;
 }
 
 function hexToBytes(hex: string): Uint8Array {
   if (!isValidHexString(hex)) {
-    throw new Error('Invalid hex string: must contain only hexadecimal characters (0-9, a-f, A-F) with even length');
+    throw new Error(
+      "Invalid hex string: must contain only hexadecimal characters (0-9, a-f, A-F) with even length",
+    );
   }
 
   const bytes = new Uint8Array(hex.length / 2);
@@ -30,40 +34,57 @@ function hexToBytes(hex: string): Uint8Array {
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
-async function getEncryptionKey(keyHex: string | undefined): Promise<CryptoKey | null> {
+export class EncryptionKeyError extends Error {
+  override name = "EncryptionKeyError";
+}
+
+export class DecryptionError extends Error {
+  override name = "DecryptionError";
+}
+
+async function getEncryptionKey(
+  keyHex: string | undefined,
+): Promise<CryptoKey | null> {
   if (!keyHex) return null;
 
   if (!isValidHexString(keyHex, 64)) {
-    console.error('Invalid encryption key format: must be exactly 64 hex characters (0-9, a-f, A-F)');
+    console.error(
+      "Invalid encryption key format: must be exactly 64 hex characters (0-9, a-f, A-F)",
+    );
     return null;
   }
 
   try {
     const keyBytes = hexToBytes(keyHex);
     if (keyBytes.byteLength !== 32) {
-      console.error('Invalid encryption key length: must decode to exactly 32 bytes');
+      console.error(
+        "Invalid encryption key length: must decode to exactly 32 bytes",
+      );
       return null;
     }
     return await crypto.subtle.importKey(
-      'raw',
+      "raw",
       keyBytes.buffer as ArrayBuffer,
-      { name: 'AES-GCM' },
+      { name: "AES-GCM" },
       false,
-      ['encrypt', 'decrypt']
+      ["encrypt", "decrypt"],
     );
   } catch (error) {
-    console.error('Failed to import encryption key:', error);
+    console.error("Failed to import encryption key:", error);
     return null;
   }
 }
 
-async function requireEncryptionKey(keyHex: string | undefined, errorMessage: string): Promise<CryptoKey> {
+async function requireEncryptionKey(
+  keyHex: string | undefined,
+  errorMessage: string,
+): Promise<CryptoKey> {
   const key = await getEncryptionKey(keyHex);
-  if (!key) throw new Error(errorMessage);
+  if (!key) throw new EncryptionKeyError(errorMessage);
   return key;
 }
 
@@ -71,20 +92,24 @@ async function requireEncryptionKey(keyHex: string | undefined, errorMessage: st
  * Encrypt a string value using AES-GCM.
  * Returns format: iv:ciphertext (both hex encoded)
  */
-export async function encrypt(plaintext: string, encryptionKey: string | undefined): Promise<string> {
-  const key = await requireEncryptionKey(encryptionKey,
-    'ENCRYPTION_KEY is not configured or invalid. ' +
-    'A 32-byte (64 hex character) key is required to encrypt sensitive data. ' +
-    'Generate one with: openssl rand -hex 32'
+export async function encrypt(
+  plaintext: string,
+  encryptionKey: string | undefined,
+): Promise<string> {
+  const key = await requireEncryptionKey(
+    encryptionKey,
+    "ENCRYPTION_KEY is not configured or invalid. " +
+      "A 32-byte (64 hex character) key is required to encrypt sensitive data. " +
+      "Generate one with: openssl rand -hex 32",
   );
 
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const data = new TextEncoder().encode(plaintext);
 
   const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv: iv.buffer as ArrayBuffer },
+    { name: "AES-GCM", iv: iv.buffer as ArrayBuffer },
     key,
-    data.buffer as ArrayBuffer
+    data.buffer as ArrayBuffer,
   );
 
   return `${bytesToHex(iv)}:${bytesToHex(new Uint8Array(ciphertext))}`;
@@ -94,22 +119,45 @@ export async function encrypt(plaintext: string, encryptionKey: string | undefin
  * Decrypt a string value encrypted with encrypt().
  * Expects format: iv:ciphertext (both hex encoded)
  */
-export async function decrypt(encrypted: string, encryptionKey: string | undefined): Promise<string> {
-  const key = await requireEncryptionKey(encryptionKey,
-    'ENCRYPTION_KEY is not configured or invalid. ' +
-    'Cannot decrypt data without the encryption key.'
+export async function decrypt(
+  encrypted: string,
+  encryptionKey: string | undefined,
+): Promise<string> {
+  const key = await requireEncryptionKey(
+    encryptionKey,
+    "ENCRYPTION_KEY is not configured or invalid. " +
+      "Cannot decrypt data without the encryption key.",
   );
 
-  if (!encrypted.includes(':')) {
-    throw new Error(
-      'Data appears to be unencrypted (legacy format). ' +
-      'Please re-authenticate to encrypt your tokens.'
+  if (!encrypted.includes(":")) {
+    throw new DecryptionError(
+      "Data appears to be unencrypted (legacy format). " +
+        "Please re-authenticate to encrypt your tokens.",
     );
   }
 
-  const [ivHex, ciphertextHex] = encrypted.split(':');
+  const parts = encrypted.split(":");
+  if (parts.length !== 2) {
+    throw new DecryptionError(
+      "Invalid encrypted data format. Please re-authenticate.",
+    );
+  }
+
+  const [ivHex, ciphertextHex] = parts;
   if (!ivHex || !ciphertextHex) {
-    return encrypted;
+    throw new DecryptionError(
+      "Invalid encrypted data format. Please re-authenticate.",
+    );
+  }
+  if (!isValidHexString(ivHex, 24)) {
+    throw new DecryptionError(
+      "Invalid encrypted data format. Please re-authenticate.",
+    );
+  }
+  if (!isValidHexString(ciphertextHex) || ciphertextHex.length < 32) {
+    throw new DecryptionError(
+      "Invalid encrypted data format. Please re-authenticate.",
+    );
   }
 
   try {
@@ -117,15 +165,15 @@ export async function decrypt(encrypted: string, encryptionKey: string | undefin
     const ciphertext = hexToBytes(ciphertextHex);
 
     const decrypted = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: iv.buffer as ArrayBuffer },
+      { name: "AES-GCM", iv: iv.buffer as ArrayBuffer },
       key,
-      ciphertext.buffer as ArrayBuffer
+      ciphertext.buffer as ArrayBuffer,
     );
 
     return new TextDecoder().decode(decrypted);
   } catch {
-    throw new Error(
-      'Failed to decrypt data. The encryption key may be incorrect or the data is corrupted.'
+    throw new DecryptionError(
+      "Failed to decrypt data. The encryption key may be incorrect or the data is corrupted.",
     );
   }
 }
@@ -139,24 +187,28 @@ const HASH_LENGTH = 32;
 /**
  * Derive bits from a password and salt using PBKDF2-SHA256.
  */
-async function derivePasswordBits(password: string, salt: Uint8Array, hashLengthBytes: number): Promise<Uint8Array> {
+async function derivePasswordBits(
+  password: string,
+  salt: Uint8Array,
+  hashLengthBytes: number,
+): Promise<Uint8Array> {
   const keyMaterial = await crypto.subtle.importKey(
-    'raw',
+    "raw",
     new TextEncoder().encode(password).buffer as ArrayBuffer,
-    'PBKDF2',
+    "PBKDF2",
     false,
-    ['deriveBits']
+    ["deriveBits"],
   );
 
   const derivedBits = await crypto.subtle.deriveBits(
     {
-      name: 'PBKDF2',
+      name: "PBKDF2",
       salt: salt.buffer as ArrayBuffer,
       iterations: PBKDF2_ITERATIONS,
-      hash: 'SHA-256',
+      hash: "SHA-256",
     },
     keyMaterial,
-    hashLengthBytes * 8
+    hashLengthBytes * 8,
   );
 
   return new Uint8Array(derivedBits);
@@ -187,17 +239,26 @@ export async function hashPassword(password: string): Promise<string> {
 /**
  * Verify a password against a stored hash (salt:hash, hex encoded).
  */
-export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
-  if (!storedHash.includes(':')) return false;
+export async function verifyPassword(
+  password: string,
+  storedHash: string,
+): Promise<boolean> {
+  if (!storedHash.includes(":")) return false;
 
-  const [saltHex, expectedHashHex] = storedHash.split(':');
+  const [saltHex, expectedHashHex] = storedHash.split(":");
   if (!saltHex || !expectedHashHex) return false;
-  if (!isValidHexString(saltHex) || !isValidHexString(expectedHashHex)) return false;
+  if (!isValidHexString(saltHex) || !isValidHexString(expectedHashHex)) {
+    return false;
+  }
 
   try {
     const salt = hexToBytes(saltHex);
     const expectedHash = hexToBytes(expectedHashHex);
-    const computedHash = await derivePasswordBits(password, salt, expectedHash.length);
+    const computedHash = await derivePasswordBits(
+      password,
+      salt,
+      expectedHash.length,
+    );
     return timingSafeEqual(computedHash, expectedHash);
   } catch {
     return false;

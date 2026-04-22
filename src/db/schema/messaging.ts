@@ -4,11 +4,11 @@
  */
 
 import {
+  index,
+  integer,
+  primaryKey,
   sqliteTable,
   text,
-  integer,
-  index,
-  primaryKey,
 } from "drizzle-orm/sqlite-core";
 import { nowIso } from "./date-utils.ts";
 
@@ -36,7 +36,11 @@ export const activities = sqliteTable(
     index("activities_type_idx").on(t.type),
     index("activities_type_created_idx").on(t.type, t.createdAt),
     index("activities_dir_processed_idx").on(t.direction, t.processed),
-    index("activities_dir_proc_created_idx").on(t.direction, t.processed, t.createdAt),
+    index("activities_dir_proc_created_idx").on(
+      t.direction,
+      t.processed,
+      t.createdAt,
+    ),
   ],
 );
 
@@ -78,10 +82,14 @@ export const deliveryCircuit = sqliteTable(
     consecutiveFailures: integer("consecutive_failures").notNull().default(0),
     recentOutcomesJson: text("recent_outcomes_json").notNull().default("[]"),
     openUntil: text("open_until"),
-    halfOpenProbeAttempts: integer("half_open_probe_attempts").notNull().default(0),
-    halfOpenProbeSuccesses: integer("half_open_probe_successes").notNull().default(0),
+    halfOpenProbeAttempts: integer("half_open_probe_attempts").notNull()
+      .default(0),
+    halfOpenProbeSuccesses: integer("half_open_probe_successes").notNull()
+      .default(0),
     createdAt: text("created_at").notNull().$defaultFn(nowIso),
-    updatedAt: text("updated_at").notNull().$defaultFn(nowIso).$onUpdateFn(nowIso),
+    updatedAt: text("updated_at").notNull().$defaultFn(nowIso).$onUpdateFn(
+      nowIso,
+    ),
   },
   (t) => [
     index("delivery_circuit_state_updated_idx").on(t.state, t.updatedAt),
@@ -121,7 +129,10 @@ export const notificationArchived = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.actorApId, t.activityApId] }),
     index("notification_archived_actor_idx").on(t.actorApId),
-    index("notification_archived_actor_archived_idx").on(t.actorApId, t.archivedAt),
+    index("notification_archived_actor_archived_idx").on(
+      t.actorApId,
+      t.archivedAt,
+    ),
   ],
 );
 

@@ -5,7 +5,14 @@
  * the same interface as Cloudflare R2.
  */
 
-import { loadNodeModules, getFs, getPath, toBuffer, readMetaFile } from './node-modules.ts';
+import { Buffer } from "node:buffer";
+import {
+  getFs,
+  getPath,
+  loadNodeModules,
+  readMetaFile,
+  toBuffer,
+} from "./node-modules.ts";
 
 export interface R2MetaFile {
   httpMetadata?: { contentType?: string };
@@ -55,7 +62,7 @@ export class R2CompatBucket {
     options?: {
       httpMetadata?: { contentType?: string };
       customMetadata?: Record<string, string>;
-    }
+    },
   ): Promise<{ key: string }> {
     const fs = getFs();
     const path = getPath();
@@ -73,7 +80,7 @@ export class R2CompatBucket {
           customMetadata: options.customMetadata,
           size: content.length,
           uploaded: new Date().toISOString(),
-        })
+        }),
       );
     }
 
@@ -94,8 +101,12 @@ export class R2CompatBucket {
     const fs = getFs();
     const keys = Array.isArray(key) ? key : [key];
     for (const k of keys) {
-      try { await fs.unlink(this.getFilePath(k)); } catch { /* ignore */ }
-      try { await fs.unlink(this.getMetaPath(k)); } catch { /* ignore */ }
+      try {
+        await fs.unlink(this.getFilePath(k));
+      } catch { /* ignore */ }
+      try {
+        await fs.unlink(this.getMetaPath(k));
+      } catch { /* ignore */ }
     }
   }
 
@@ -132,7 +143,7 @@ export class R2CompatBucket {
     const path = getPath();
     const objects: Array<{ key: string; size: number; uploaded: Date }> = [];
 
-    const readDir = async (dir: string, prefix: string = ''): Promise<void> => {
+    const readDir = async (dir: string, prefix: string = ""): Promise<void> => {
       try {
         const entries = await fs.readdir(dir, { withFileTypes: true });
         for (const entry of entries) {
@@ -141,7 +152,7 @@ export class R2CompatBucket {
 
           if (entry.isDirectory()) {
             await readDir(fullPath, key);
-          } else if (!entry.name.endsWith('.meta.json')) {
+          } else if (!entry.name.endsWith(".meta.json")) {
             if (!options?.prefix || key.startsWith(options.prefix)) {
               const stats = await fs.stat(fullPath);
               objects.push({ key, size: stats.size, uploaded: stats.mtime });
@@ -183,7 +194,9 @@ export class R2CompatObject {
     this.httpMetadata = metadata.httpMetadata;
     this.customMetadata = metadata.customMetadata;
     this.size = content.length;
-    this.uploaded = metadata.uploaded ? new Date(metadata.uploaded) : new Date();
+    this.uploaded = metadata.uploaded
+      ? new Date(metadata.uploaded)
+      : new Date();
     this.body = new ReadableStream({
       start: (controller) => {
         controller.enqueue(new Uint8Array(content));
@@ -196,17 +209,17 @@ export class R2CompatObject {
     this.bodyUsed = true;
     return this.content.buffer.slice(
       this.content.byteOffset,
-      this.content.byteOffset + this.content.byteLength
+      this.content.byteOffset + this.content.byteLength,
     ) as ArrayBuffer;
   }
 
   async text(): Promise<string> {
     this.bodyUsed = true;
-    return this.content.toString('utf-8');
+    return this.content.toString("utf-8");
   }
 
   async json<T>(): Promise<T> {
     this.bodyUsed = true;
-    return JSON.parse(this.content.toString('utf-8'));
+    return JSON.parse(this.content.toString("utf-8"));
   }
 }

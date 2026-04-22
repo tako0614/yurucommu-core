@@ -1,33 +1,42 @@
 // DM read status and archive management
 
-import { Hono } from 'hono';
-import { eq, and, desc } from 'drizzle-orm';
-import { objects, dmReadStatus, dmArchivedConversations } from '../../../db/index.ts';
-import { getConversationId, resolveConversationId } from './query-helpers.ts';
+import { Hono } from "hono";
+import { and, desc, eq } from "drizzle-orm";
 import {
-  type HonoEnv,
+  dmArchivedConversations,
+  dmReadStatus,
+  objects,
+} from "../../../db/index.ts";
+import { getConversationId, resolveConversationId } from "./query-helpers.ts";
+import {
   buildActorInfoMap,
-  formatActorProfile,
-  dmWhereForActor,
   byTimeDesc,
-  parseOtherApId,
+  dmWhereForActor,
+  formatActorProfile,
   groupConversations,
+  type HonoEnv,
+  parseOtherApId,
   uniqueValues,
-} from './conversations-helpers.ts';
+} from "./conversations-helpers.ts";
 
 const readArchive = new Hono<HonoEnv>();
 
 // Mark conversation as read
-readArchive.post('/user/:encodedApId/read', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const db = c.get('db');
+readArchive.post("/user/:encodedApId/read", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  const db = c.get("db");
 
   const otherApId = parseOtherApId(c);
-  if (!otherApId) return c.json({ error: 'ap_id required' }, 400);
+  if (!otherApId) return c.json({ error: "ap_id required" }, 400);
 
   const baseUrl = c.env.APP_URL;
-  const conversationId = await resolveConversationId(db, baseUrl, actor.ap_id, otherApId);
+  const conversationId = await resolveConversationId(
+    db,
+    baseUrl,
+    actor.ap_id,
+    otherApId,
+  );
   const now = new Date().toISOString();
 
   await db.insert(dmReadStatus)
@@ -45,13 +54,13 @@ readArchive.post('/user/:encodedApId/read', async (c) => {
 });
 
 // Archive a conversation (hide from inbox)
-readArchive.post('/user/:encodedApId/archive', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const db = c.get('db');
+readArchive.post("/user/:encodedApId/archive", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  const db = c.get("db");
 
   const otherApId = parseOtherApId(c);
-  if (!otherApId) return c.json({ error: 'ap_id required' }, 400);
+  if (!otherApId) return c.json({ error: "ap_id required" }, 400);
 
   const baseUrl = c.env.APP_URL;
   const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
@@ -69,13 +78,13 @@ readArchive.post('/user/:encodedApId/archive', async (c) => {
 });
 
 // Unarchive a conversation
-readArchive.delete('/user/:encodedApId/archive', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const db = c.get('db');
+readArchive.delete("/user/:encodedApId/archive", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  const db = c.get("db");
 
   const otherApId = parseOtherApId(c);
-  if (!otherApId) return c.json({ error: 'ap_id required' }, 400);
+  if (!otherApId) return c.json({ error: "ap_id required" }, 400);
 
   const baseUrl = c.env.APP_URL;
   const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
@@ -91,10 +100,10 @@ readArchive.delete('/user/:encodedApId/archive', async (c) => {
 });
 
 // Get archived conversations
-readArchive.get('/archived', async (c) => {
-  const actor = c.get('actor');
-  if (!actor) return c.json({ error: 'Unauthorized' }, 401);
-  const db = c.get('db');
+readArchive.get("/archived", async (c) => {
+  const actor = c.get("actor");
+  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  const db = c.get("db");
   const actorApIdJson = JSON.stringify(actor.ap_id);
 
   const archivedConversations = await db.select({
@@ -108,7 +117,9 @@ readArchive.get('/archived', async (c) => {
     return c.json({ archived: [] });
   }
 
-  const archivedSet = new Set(archivedConversations.map((a) => a.conversationId));
+  const archivedSet = new Set(
+    archivedConversations.map((a) => a.conversationId),
+  );
 
   const dmObjects = await db.select({
     conversation: objects.conversation,

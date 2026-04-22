@@ -1,10 +1,10 @@
-import { Show, For } from 'solid-js';
-import type { AccountInfo } from '../../lib/api.ts';
-import type { Actor } from '../../types/index.ts';
-import { UserAvatar } from '../UserAvatar.tsx';
-import { CheckIcon, CloseIcon, PlusIcon } from './SettingsIcons.tsx';
-import { SettingsSectionHeader } from './SettingsSectionHeader.tsx';
-import type { Translate } from '../../lib/i18n.tsx';
+import { For, Show } from "solid-js";
+import type { AccountInfo } from "../../lib/api.ts";
+import type { Actor } from "../../types/index.ts";
+import { UserAvatar } from "../UserAvatar.tsx";
+import { CheckIcon, CloseIcon, PlusIcon } from "./SettingsIcons.tsx";
+import { SettingsSectionHeader } from "./SettingsSectionHeader.tsx";
+import type { Translate } from "../../lib/i18n.tsx";
 
 interface SettingsAccountsSectionProps {
   actor: Actor;
@@ -33,7 +33,11 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
       <div class="flex-1 overflow-y-auto">
         <Show
           when={!props.loading}
-          fallback={<div class="p-8 text-center text-neutral-500">{props.t('common.loading')}</div>}
+          fallback={
+            <div class="p-8 text-center text-neutral-500">
+              {props.t("common.loading")}
+            </div>
+          }
         >
           {/* Account list */}
           <For each={props.accounts}>
@@ -52,7 +56,9 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
                   <div class="font-bold text-white truncate">
                     {account.name || account.preferred_username}
                   </div>
-                  <div class="text-neutral-500 truncate">@{account.preferred_username}</div>
+                  <div class="text-neutral-500 truncate">
+                    @{account.preferred_username}
+                  </div>
                 </div>
                 <Show when={account.ap_id === props.actor.ap_id}>
                   <CheckIcon />
@@ -94,24 +100,32 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
               </Show>
               <div class="space-y-3">
                 <div>
-                  <label class="block text-sm text-neutral-400 mb-1">ユーザー名 *</label>
+                  <label class="block text-sm text-neutral-400 mb-1">
+                    ユーザー名 *
+                  </label>
                   <input
                     type="text"
                     value={props.newUsername}
-                    onInput={(e) => props.onChangeUsername(e.currentTarget.value)}
+                    onInput={(e) =>
+                      props.onChangeUsername(e.currentTarget.value)}
                     placeholder="username"
                     pattern="^[a-zA-Z0-9_]+$"
                     required
                     class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <p class="text-xs text-neutral-500 mt-1">英数字とアンダースコアのみ</p>
+                  <p class="text-xs text-neutral-500 mt-1">
+                    英数字とアンダースコアのみ
+                  </p>
                 </div>
                 <div>
-                  <label class="block text-sm text-neutral-400 mb-1">表示名</label>
+                  <label class="block text-sm text-neutral-400 mb-1">
+                    表示名
+                  </label>
                   <input
                     type="text"
                     value={props.newDisplayName}
-                    onInput={(e) => props.onChangeDisplayName(e.currentTarget.value)}
+                    onInput={(e) =>
+                      props.onChangeDisplayName(e.currentTarget.value)}
                     placeholder="Display Name"
                     class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-blue-500"
                   />

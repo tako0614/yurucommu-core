@@ -9,29 +9,43 @@
  * - validateEditFields: content/summary validation for PATCH
  */
 
-import { actors, actorCache, objects, activities, inbox as inboxTable, communities, communityMembers } from '../../../db/index.ts';
-import { eq, and, or, sql, inArray, isNull } from 'drizzle-orm';
-import type { Variables } from '../../types.ts';
-import type { Database } from '../../../db/index.ts';
-import type { Env } from '../../types.ts';
-import { generateId, activityApId, isLocal } from '../../federation-helpers.ts';
-import { MAX_POST_CONTENT_LENGTH, MAX_POST_SUMMARY_LENGTH, extractMentions } from './transformers.ts';
 import {
-  type PostAttachment,
+  activities,
+  actorCache,
+  actors,
+  communities,
+  communityMembers,
+  inbox as inboxTable,
+  objects,
+} from "../../../db/index.ts";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import type { Variables } from "../../types.ts";
+import type { Database } from "../../../db/index.ts";
+import type { Env } from "../../types.ts";
+import { activityApId, generateId, isLocal } from "../../federation-helpers.ts";
+import {
+  extractMentions,
+  MAX_POST_CONTENT_LENGTH,
+  MAX_POST_SUMMARY_LENGTH,
+} from "./transformers.ts";
+import {
   type CreatePostBody,
-  type MentionFailure,
   isRecord,
+  type MentionFailure,
   parseJsonObject,
+  type PostAttachment,
   validateOptionalString,
-} from './queries.ts';
+} from "./queries.ts";
 
 // ---------------------------------------------------------------------------
 // Auth helper
 // ---------------------------------------------------------------------------
 
 /** Require an authenticated actor or return null (caller should 401). */
-export function requireActor(c: { get: (key: 'actor') => Variables['actor'] }): Variables['actor'] {
-  return c.get('actor');
+export function requireActor(
+  c: { get: (key: "actor") => Variables["actor"] },
+): Variables["actor"] {
+  return c.get("actor");
 }
 
 // ---------------------------------------------------------------------------
@@ -39,7 +53,12 @@ export function requireActor(c: { get: (key: 'actor') => Variables['actor'] }): 
 // ---------------------------------------------------------------------------
 
 export type CreatePostValidationResult =
-  | { ok: true; body: CreatePostBody; content: string; summary: string | undefined }
+  | {
+    ok: true;
+    body: CreatePostBody;
+    content: string;
+    summary: string | undefined;
+  }
   | { ok: false; error: string; code?: string };
 
 /**
@@ -51,45 +70,83 @@ export async function validateCreatePostBody(
 ): Promise<CreatePostValidationResult> {
   const rawBody = await parseJsonObject(c);
   if (!rawBody) {
-    return { ok: false, error: 'Invalid request body', code: 'BAD_REQUEST' };
+    return { ok: false, error: "Invalid request body", code: "BAD_REQUEST" };
   }
 
-  if (typeof rawBody.content !== 'string') {
-    return { ok: false, error: 'content must be a string', code: 'BAD_REQUEST' };
+  if (typeof rawBody.content !== "string") {
+    return {
+      ok: false,
+      error: "content must be a string",
+      code: "BAD_REQUEST",
+    };
   }
 
-  for (const field of ['summary', 'visibility', 'in_reply_to', 'community_ap_id'] as const) {
+  for (
+    const field of [
+      "summary",
+      "visibility",
+      "in_reply_to",
+      "community_ap_id",
+    ] as const
+  ) {
     const err = validateOptionalString(rawBody, field);
-    if (err) return { ok: false, error: err, code: 'BAD_REQUEST' };
+    if (err) return { ok: false, error: err, code: "BAD_REQUEST" };
   }
 
-  if (rawBody.attachments !== undefined && !Array.isArray(rawBody.attachments)) {
-    return { ok: false, error: 'attachments must be an array', code: 'BAD_REQUEST' };
+  if (
+    rawBody.attachments !== undefined && !Array.isArray(rawBody.attachments)
+  ) {
+    return {
+      ok: false,
+      error: "attachments must be an array",
+      code: "BAD_REQUEST",
+    };
   }
-  if (Array.isArray(rawBody.attachments) && rawBody.attachments.some((a) => !isRecord(a))) {
-    return { ok: false, error: 'attachments must be objects', code: 'BAD_REQUEST' };
+  if (
+    Array.isArray(rawBody.attachments) &&
+    rawBody.attachments.some((a) => !isRecord(a))
+  ) {
+    return {
+      ok: false,
+      error: "attachments must be objects",
+      code: "BAD_REQUEST",
+    };
   }
 
   const body: CreatePostBody = {
     content: rawBody.content,
-    summary: typeof rawBody.summary === 'string' ? rawBody.summary : undefined,
-    attachments: Array.isArray(rawBody.attachments) ? rawBody.attachments as PostAttachment[] : undefined,
-    in_reply_to: typeof rawBody.in_reply_to === 'string' ? rawBody.in_reply_to : undefined,
-    visibility: typeof rawBody.visibility === 'string' ? rawBody.visibility : undefined,
-    community_ap_id: typeof rawBody.community_ap_id === 'string' ? rawBody.community_ap_id : undefined,
+    summary: typeof rawBody.summary === "string" ? rawBody.summary : undefined,
+    attachments: Array.isArray(rawBody.attachments)
+      ? rawBody.attachments as PostAttachment[]
+      : undefined,
+    in_reply_to: typeof rawBody.in_reply_to === "string"
+      ? rawBody.in_reply_to
+      : undefined,
+    visibility: typeof rawBody.visibility === "string"
+      ? rawBody.visibility
+      : undefined,
+    community_ap_id: typeof rawBody.community_ap_id === "string"
+      ? rawBody.community_ap_id
+      : undefined,
   };
 
   const content = body.content.trim();
   const summary = body.summary?.trim();
 
   if (!content) {
-    return { ok: false, error: 'Content required' };
+    return { ok: false, error: "Content required" };
   }
   if (content.length > MAX_POST_CONTENT_LENGTH) {
-    return { ok: false, error: `Content too long (max ${MAX_POST_CONTENT_LENGTH} chars)` };
+    return {
+      ok: false,
+      error: `Content too long (max ${MAX_POST_CONTENT_LENGTH} chars)`,
+    };
   }
   if (summary && summary.length > MAX_POST_SUMMARY_LENGTH) {
-    return { ok: false, error: `Summary too long (max ${MAX_POST_SUMMARY_LENGTH} chars)` };
+    return {
+      ok: false,
+      error: `Summary too long (max ${MAX_POST_SUMMARY_LENGTH} chars)`,
+    };
   }
 
   return { ok: true, body, content, summary };
@@ -124,10 +181,12 @@ export async function checkCommunityPostPermission(
         eq(communities.preferredUsername, communityApId),
       ),
       isNull(communities.deletedAt),
-    )
+    ),
   ).get();
 
-  if (!community) return { allowed: false, error: 'Community not found', status: 404 };
+  if (!community) {
+    return { allowed: false, error: "Community not found", status: 404 };
+  }
 
   const membership = await db.select({
     role: communityMembers.role,
@@ -135,21 +194,21 @@ export async function checkCommunityPostPermission(
     and(
       eq(communityMembers.communityApId, community.apId),
       eq(communityMembers.actorApId, actorApId),
-    )
+    ),
   ).get();
 
-  const policy = community.postPolicy || 'members';
-  const role = membership?.role as 'owner' | 'moderator' | 'member' | undefined;
-  const isManager = role === 'owner' || role === 'moderator';
+  const policy = community.postPolicy || "members";
+  const role = membership?.role as "owner" | "moderator" | "member" | undefined;
+  const isManager = role === "owner" || role === "moderator";
 
-  if (policy !== 'anyone' && !membership) {
-    return { allowed: false, error: 'Not a community member', status: 403 };
+  if (policy !== "anyone" && !membership) {
+    return { allowed: false, error: "Not a community member", status: 403 };
   }
-  if (policy === 'mods' && !isManager) {
-    return { allowed: false, error: 'Moderator role required', status: 403 };
+  if (policy === "mods" && !isManager) {
+    return { allowed: false, error: "Moderator role required", status: 403 };
   }
-  if (policy === 'owners' && role !== 'owner') {
-    return { allowed: false, error: 'Owner role required', status: 403 };
+  if (policy === "owners" && role !== "owner") {
+    return { allowed: false, error: "Owner role required", status: 403 };
   }
 
   return { allowed: true, communityId: community.apId };
@@ -159,7 +218,7 @@ export async function checkCommunityPostPermission(
 // Reply handling
 // ---------------------------------------------------------------------------
 
-export const REPLY_TARGET_NOT_FOUND = 'REPLY_TARGET_NOT_FOUND';
+export const REPLY_TARGET_NOT_FOUND = "REPLY_TARGET_NOT_FOUND";
 
 /**
  * Insert the post object, increment author post count, and handle reply-chain
@@ -187,7 +246,7 @@ export async function insertPostAndHandleReply(
 
   await db.insert(objects).values({
     apId: params.apId,
-    type: 'Note',
+    type: "Note",
     attributedTo: params.actorApId,
     content: params.content,
     summary: params.summary,
@@ -217,17 +276,20 @@ export async function insertPostAndHandleReply(
       .set({ replyCount: sql`${objects.replyCount} + 1` })
       .where(eq(objects.apId, params.inReplyTo));
 
-    if (parentPost.attributedTo !== params.actorApId && isLocal(parentPost.attributedTo, params.baseUrl)) {
+    if (
+      parentPost.attributedTo !== params.actorApId &&
+      isLocal(parentPost.attributedTo, params.baseUrl)
+    ) {
       const replyActivityId = activityApId(params.baseUrl, generateId());
       await db.insert(activities).values({
         apId: replyActivityId,
-        type: 'Create',
+        type: "Create",
         actorApId: params.actorApId,
         objectApId: params.apId,
         rawJson: JSON.stringify({
-          '@context': 'https://www.w3.org/ns/activitystreams',
+          "@context": "https://www.w3.org/ns/activitystreams",
           id: replyActivityId,
-          type: 'Create',
+          type: "Create",
           actor: params.actorApId,
           object: params.apId,
         }),
@@ -271,30 +333,37 @@ export async function processMentions(
 
   if (mentions.length === 0) return mentionFailures;
 
-  const localMentions = mentions.filter((m) => !m.includes('@'));
-  const remoteMentions = mentions.filter((m) => m.includes('@'));
+  const localMentions = mentions.filter((m) => !m.includes("@"));
+  const remoteMentions = mentions.filter((m) => m.includes("@"));
 
   const [localActors, cachedActors] = await Promise.all([
     localMentions.length > 0
       ? db.select({
-          apId: actors.apId,
-          preferredUsername: actors.preferredUsername,
-        }).from(actors).where(inArray(actors.preferredUsername, localMentions))
+        apId: actors.apId,
+        preferredUsername: actors.preferredUsername,
+      }).from(actors).where(inArray(actors.preferredUsername, localMentions))
       : [],
     remoteMentions.length > 0
       ? db.select({
-          apId: actorCache.apId,
-          preferredUsername: actorCache.preferredUsername,
-        }).from(actorCache).where(inArray(actorCache.preferredUsername, remoteMentions.map((m) => m.split('@')[0])))
+        apId: actorCache.apId,
+        preferredUsername: actorCache.preferredUsername,
+      }).from(actorCache).where(
+        inArray(
+          actorCache.preferredUsername,
+          remoteMentions.map((m) => m.split("@")[0]),
+        ),
+      )
       : [],
   ]);
-  const localActorMap = new Map(localActors.map((a) => [a.preferredUsername, a.apId]));
+  const localActorMap = new Map(
+    localActors.map((a) => [a.preferredUsername, a.apId]),
+  );
 
   const remoteActorMap = new Map<string, string>();
   for (const mention of remoteMentions) {
-    const [username, domain] = mention.split('@');
+    const [username, domain] = mention.split("@");
     const matching = cachedActors.find(
-      (a) => a.preferredUsername === username && a.apId.includes(domain)
+      (a) => a.preferredUsername === username && a.apId.includes(domain),
     );
     if (matching) {
       remoteActorMap.set(mention, matching.apId);
@@ -318,11 +387,13 @@ export async function processMentions(
 
   for (const mention of mentions) {
     try {
-      const mentionedActorApId = mention.includes('@')
+      const mentionedActorApId = mention.includes("@")
         ? remoteActorMap.get(mention) || null
         : localActorMap.get(mention) || null;
 
-      if (!mentionedActorApId || mentionedActorApId === params.actorApId) continue;
+      if (!mentionedActorApId || mentionedActorApId === params.actorApId) {
+        continue;
+      }
       if (params.parentAuthor === mentionedActorApId) continue;
 
       if (!isLocal(mentionedActorApId, params.baseUrl)) continue;
@@ -330,13 +401,13 @@ export async function processMentions(
       const mentionActivityId = activityApId(params.baseUrl, generateId());
       activitiesToCreate.push({
         apId: mentionActivityId,
-        type: 'Create',
+        type: "Create",
         actorApId: params.actorApId,
         objectApId: params.postApId,
         rawJson: JSON.stringify({
-          '@context': 'https://www.w3.org/ns/activitystreams',
+          "@context": "https://www.w3.org/ns/activitystreams",
           id: mentionActivityId,
-          type: 'Create',
+          type: "Create",
           actor: params.actorApId,
           object: params.postApId,
         }),
@@ -353,8 +424,8 @@ export async function processMentions(
       console.error(`Failed to process mention ${mention}:`, e);
       mentionFailures.push({
         mention,
-        stage: 'resolve',
-        reason: 'mention_processing_failed',
+        stage: "resolve",
+        reason: "mention_processing_failed",
       });
     }
   }
@@ -363,11 +434,11 @@ export async function processMentions(
     try {
       await db.insert(activities).values(activitiesToCreate);
     } catch (e) {
-      console.error('[Posts] Failed to persist mention activities:', e);
+      console.error("[Posts] Failed to persist mention activities:", e);
       mentionFailures.push({
-        mention: '__batch__',
-        stage: 'persist_activity',
-        reason: 'mention_activity_persist_failed',
+        mention: "__batch__",
+        stage: "persist_activity",
+        reason: "mention_activity_persist_failed",
       });
     }
   }
@@ -375,11 +446,11 @@ export async function processMentions(
     try {
       await db.insert(inboxTable).values(inboxEntriesToCreate);
     } catch (e) {
-      console.error('[Posts] Failed to persist mention inbox entries:', e);
+      console.error("[Posts] Failed to persist mention inbox entries:", e);
       mentionFailures.push({
-        mention: '__batch__',
-        stage: 'persist_inbox',
-        reason: 'mention_inbox_persist_failed',
+        mention: "__batch__",
+        stage: "persist_inbox",
+        reason: "mention_inbox_persist_failed",
       });
     }
   }
@@ -392,7 +463,11 @@ export async function processMentions(
 // ---------------------------------------------------------------------------
 
 export type EditFieldsResult =
-  | { ok: true; rawBody: Record<string, unknown>; body: { content?: string; summary?: string } }
+  | {
+    ok: true;
+    rawBody: Record<string, unknown>;
+    body: { content?: string; summary?: string };
+  }
   | { ok: false; error: string; code?: string };
 
 /**
@@ -404,17 +479,17 @@ export async function validateEditBody(
 ): Promise<EditFieldsResult> {
   const rawBody = await parseJsonObject(c);
   if (!rawBody) {
-    return { ok: false, error: 'Invalid request body', code: 'BAD_REQUEST' };
+    return { ok: false, error: "Invalid request body", code: "BAD_REQUEST" };
   }
 
-  for (const field of ['content', 'summary'] as const) {
+  for (const field of ["content", "summary"] as const) {
     const err = validateOptionalString(rawBody, field);
-    if (err) return { ok: false, error: err, code: 'BAD_REQUEST' };
+    if (err) return { ok: false, error: err, code: "BAD_REQUEST" };
   }
 
   const body: { content?: string; summary?: string } = {
-    content: typeof rawBody.content === 'string' ? rawBody.content : undefined,
-    summary: typeof rawBody.summary === 'string' ? rawBody.summary : undefined,
+    content: typeof rawBody.content === "string" ? rawBody.content : undefined,
+    summary: typeof rawBody.summary === "string" ? rawBody.summary : undefined,
   };
 
   return { ok: true, rawBody, body };
@@ -424,14 +499,19 @@ export async function validateEditBody(
  * Validate trimmed content length for editing.
  * Returns { ok, trimmedContent } or error.
  */
-export function validateContentEdit(content: string | undefined): { ok: true; trimmed?: string } | { ok: false; error: string } {
+export function validateContentEdit(
+  content: string | undefined,
+): { ok: true; trimmed?: string } | { ok: false; error: string } {
   if (content === undefined) return { ok: true };
   const trimmed = content.trim();
   if (trimmed.length === 0) {
-    return { ok: false, error: 'Content cannot be empty' };
+    return { ok: false, error: "Content cannot be empty" };
   }
   if (trimmed.length > MAX_POST_CONTENT_LENGTH) {
-    return { ok: false, error: `Content too long (max ${MAX_POST_CONTENT_LENGTH} chars)` };
+    return {
+      ok: false,
+      error: `Content too long (max ${MAX_POST_CONTENT_LENGTH} chars)`,
+    };
   }
   return { ok: true, trimmed };
 }
@@ -440,11 +520,16 @@ export function validateContentEdit(content: string | undefined): { ok: true; tr
  * Validate trimmed summary length for editing.
  * Returns { ok, trimmed } or error.
  */
-export function validateSummaryEdit(summary: string | undefined): { ok: true; trimmed?: string } | { ok: false; error: string } {
+export function validateSummaryEdit(
+  summary: string | undefined,
+): { ok: true; trimmed?: string } | { ok: false; error: string } {
   if (summary === undefined) return { ok: true };
   const trimmed = summary.trim();
   if (trimmed.length > MAX_POST_SUMMARY_LENGTH) {
-    return { ok: false, error: `Summary too long (max ${MAX_POST_SUMMARY_LENGTH} chars)` };
+    return {
+      ok: false,
+      error: `Summary too long (max ${MAX_POST_SUMMARY_LENGTH} chars)`,
+    };
   }
   return { ok: true, trimmed };
 }

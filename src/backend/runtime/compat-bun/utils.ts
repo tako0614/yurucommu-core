@@ -4,12 +4,16 @@
  * Bun Cloudflare Compatibility Layer - Shared Utilities
  */
 
-export const { mkdir, unlink, readdir, stat, readFile } = await import('fs/promises');
+export const { mkdir, unlink, readdir, stat, readFile } = await import(
+  "fs/promises"
+);
 
 /**
  * Drain a ReadableStream into a single Uint8Array.
  */
-export async function drainStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+export async function drainStream(
+  stream: ReadableStream<Uint8Array>,
+): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   const reader = stream.getReader();
   while (true) {
@@ -32,9 +36,9 @@ export async function drainStream(stream: ReadableStream<Uint8Array>): Promise<U
  * Handles string, ArrayBuffer, ArrayBufferView, Blob, and ReadableStream.
  */
 export async function toUint8Array(
-  value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob
+  value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob,
 ): Promise<Uint8Array> {
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     return new TextEncoder().encode(value);
   }
   if (value instanceof ArrayBuffer) {
@@ -78,6 +82,8 @@ export function resolveExpiration(options?: {
   expiration?: number;
 }): number | undefined {
   if (options?.expiration) return options.expiration;
-  if (options?.expirationTtl) return Math.floor(Date.now() / 1000) + options.expirationTtl;
+  if (options?.expirationTtl) {
+    return Math.floor(Date.now() / 1000) + options.expirationTtl;
+  }
   return undefined;
 }

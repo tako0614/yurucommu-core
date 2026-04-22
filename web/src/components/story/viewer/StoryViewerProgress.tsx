@@ -1,4 +1,4 @@
-import { For } from 'solid-js';
+import { For } from "solid-js";
 
 interface StoryViewerProgressProps {
   totalStories: number;
@@ -16,10 +16,10 @@ export function StoryViewerProgress(props: StoryViewerProgressProps) {
               class="h-full bg-white transition-all duration-100"
               style={{
                 width: idx() < props.storyIndex
-                  ? '100%'
+                  ? "100%"
                   : idx() === props.storyIndex
-                    ? `${props.progress}%`
-                    : '0%',
+                  ? `${props.progress}%`
+                  : "0%",
               }}
             />
           </div>

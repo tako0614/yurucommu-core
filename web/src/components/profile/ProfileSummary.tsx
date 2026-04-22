@@ -1,11 +1,11 @@
-import { Show } from 'solid-js';
-import type { Actor } from '../../types/index.ts';
-import { formatMonthYear } from '../../lib/datetime.ts';
-import { UserAvatar } from '../UserAvatar.tsx';
-import { CalendarIcon, MoreIcon } from './ProfileIcons.tsx';
-import type { Translate } from '../../lib/i18n.tsx';
+import { Show } from "solid-js";
+import type { Actor } from "../../types/index.ts";
+import { formatMonthYear } from "../../lib/datetime.ts";
+import { UserAvatar } from "../UserAvatar.tsx";
+import { CalendarIcon, MoreIcon } from "./ProfileIcons.tsx";
+import type { Translate } from "../../lib/i18n.tsx";
 
-type FollowModalType = 'followers' | 'following';
+type FollowModalType = "followers" | "following";
 
 interface ProfileSummaryProps {
   profile: Actor;
@@ -26,7 +26,11 @@ export function ProfileSummary(props: ProfileSummaryProps) {
       {/* Header Image */}
       <div class="h-32 md:h-48 bg-neutral-800 relative">
         <Show when={props.profile.header_url}>
-          <img src={props.profile.header_url} alt="" class="w-full h-full object-cover" />
+          <img
+            src={props.profile.header_url ?? undefined}
+            alt=""
+            class="w-full h-full object-cover"
+          />
         </Show>
       </div>
 
@@ -69,11 +73,13 @@ export function ProfileSummary(props: ProfileSummaryProps) {
               onClick={props.onToggleFollow}
               class={`px-4 py-2 rounded-full font-bold transition-colors ${
                 props.isFollowing
-                  ? 'bg-transparent border border-neutral-600 text-white hover:border-red-500 hover:text-red-500'
-                  : 'bg-white text-black hover:bg-neutral-200'
+                  ? "bg-transparent border border-neutral-600 text-white hover:border-red-500 hover:text-red-500"
+                  : "bg-white text-black hover:bg-neutral-200"
               }`}
             >
-              {props.isFollowing ? props.t('profile.unfollow') : props.t('profile.follow')}
+              {props.isFollowing
+                ? props.t("profile.unfollow")
+                : props.t("profile.follow")}
             </button>
           </Show>
           <Show when={props.isOwnProfile}>
@@ -81,20 +87,24 @@ export function ProfileSummary(props: ProfileSummaryProps) {
               onClick={props.onOpenEdit}
               class="px-4 py-2 rounded-full font-bold border border-neutral-600 text-white hover:bg-neutral-900 transition-colors"
             >
-              {props.t('profile.editProfile')}
+              {props.t("profile.editProfile")}
             </button>
           </Show>
         </div>
 
         {/* Name & Username */}
         <div class="mb-3">
-          <div class="text-xl font-bold text-white">{props.profile.name || props.profile.preferred_username}</div>
+          <div class="text-xl font-bold text-white">
+            {props.profile.name || props.profile.preferred_username}
+          </div>
           <div class="text-neutral-500">@{props.profile.username}</div>
         </div>
 
         {/* Bio */}
         <Show when={props.profile.summary}>
-          <p class="text-neutral-200 mb-3 whitespace-pre-wrap">{props.profile.summary}</p>
+          <p class="text-neutral-200 mb-3 whitespace-pre-wrap">
+            {props.profile.summary}
+          </p>
         </Show>
 
         {/* Join Date */}
@@ -105,13 +115,27 @@ export function ProfileSummary(props: ProfileSummaryProps) {
 
         {/* Follow Stats */}
         <div class="flex gap-4 text-sm">
-          <button onClick={() => props.onOpenFollowModal('following')} class="hover:underline">
-            <span class="font-bold text-white">{props.profile.following_count}</span>
-            <span class="text-neutral-500 ml-1">{props.t('profile.following')}</span>
+          <button
+            onClick={() => props.onOpenFollowModal("following")}
+            class="hover:underline"
+          >
+            <span class="font-bold text-white">
+              {props.profile.following_count}
+            </span>
+            <span class="text-neutral-500 ml-1">
+              {props.t("profile.following")}
+            </span>
           </button>
-          <button onClick={() => props.onOpenFollowModal('followers')} class="hover:underline">
-            <span class="font-bold text-white">{props.profile.follower_count}</span>
-            <span class="text-neutral-500 ml-1">{props.t('profile.followers')}</span>
+          <button
+            onClick={() => props.onOpenFollowModal("followers")}
+            class="hover:underline"
+          >
+            <span class="font-bold text-white">
+              {props.profile.follower_count}
+            </span>
+            <span class="text-neutral-500 ml-1">
+              {props.t("profile.followers")}
+            </span>
           </button>
         </div>
       </div>

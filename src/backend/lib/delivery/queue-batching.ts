@@ -3,38 +3,46 @@
  * and batch dispatch of delivery messages.
  */
 
-import type { Message, MessageBatch } from '@cloudflare/workers-types';
-import type { Env } from '../../types.ts';
-import type { Database } from '../../../db/index.ts';
-import { eq, and, or, sql } from 'drizzle-orm';
-import { actorCache, follows, deliveryQueue } from '../../../db/index.ts';
-import { isLocal, isSafeRemoteUrl, fetchWithTimeout } from '../../federation-helpers.ts';
-import { planEndpointsFromActorCache } from './planner.ts';
+import type { Message, MessageBatch } from "@cloudflare/workers-types";
+import type { Env } from "../../types.ts";
+import type { Database } from "../../../db/index.ts";
+import { and, eq, or, sql } from "drizzle-orm";
+import { actorCache, deliveryQueue, follows } from "../../../db/index.ts";
+import {
+  fetchWithTimeout,
+  isLocal,
+  isSafeRemoteUrl,
+} from "../../federation-helpers.ts";
+import { planEndpointsFromActorCache } from "./planner.ts";
 import {
   DELIVERY_QUEUE_MESSAGE_VERSION,
   type DeliveryFanoutFollowersMessageV1,
-  type DeliveryResolveActorMessageV1,
-  type DeliveryReconcileJobMessageV1,
   type DeliveryQueueMessageV1,
-} from './types.ts';
+  type DeliveryReconcileJobMessageV1,
+  type DeliveryResolveActorMessageV1,
+} from "./types.ts";
 import {
+  computeDeliveryJobId,
   DELIVERY_ENDPOINT_CACHE_TTL_MS,
   safeParseIsoTimeMs,
-} from './transformers.ts';
+} from "./transformers.ts";
 import {
-  type QueueEnv,
-  requireQueue,
-  sendQueueMessage,
   buildDeliverEndpointMessage,
   buildResolveActorMessage,
   nowIso,
+  type QueueEnv,
+  requireQueue,
+  sendQueueMessage,
   upsertDeliveryJob,
-} from './queue.ts';
+} from "./queue.ts";
 
 const DELIVERY_HTTP_TIMEOUT_MS = 8000;
 const MAX_RECONCILE_ATTEMPTS = 5;
 
-async function fetchAndCacheRemoteActor(db: Database, actorApId: string): Promise<void> {
+async function fetchAndCacheRemoteActor(
+  db: Database,
+  actorApId: string,
+): Promise<void> {
   if (!isSafeRemoteUrl(actorApId)) return;
 
   type RemoteActorDoc = {
@@ -53,7 +61,7 @@ async function fetchAndCacheRemoteActor(db: Database, actorApId: string): Promis
   };
 
   const res = await fetchWithTimeout(actorApId, {
-    headers: { 'Accept': 'application/activity+json, application/ld+json' },
+    headers: { "Accept": "application/activity+json, application/ld+json" },
     timeout: DELIVERY_HTTP_TIMEOUT_MS,
   });
   if (!res.ok) return;
@@ -63,7 +71,7 @@ async function fetchAndCacheRemoteActor(db: Database, actorApId: string): Promis
   if (!data?.inbox || !isSafeRemoteUrl(data.inbox)) return;
 
   const actorFields = {
-    type: data.type || 'Person',
+    type: data.type || "Person",
     preferredUsername: data.preferredUsername || null,
     name: data.name || null,
     summary: data.summary || null,
@@ -84,8 +92,12 @@ async function fetchAndCacheRemoteActor(db: Database, actorApId: string): Promis
     .onConflictDoUpdate({ target: actorCache.apId, set: actorFields });
 }
 
-function resolvePreferredEndpoint(row: { inbox: string | null; sharedInbox: string | null } | null): string | null {
-  if (row?.sharedInbox && isSafeRemoteUrl(row.sharedInbox)) return row.sharedInbox;
+function resolvePreferredEndpoint(
+  row: { inbox: string | null; sharedInbox: string | null } | null,
+): string | null {
+  if (row?.sharedInbox && isSafeRemoteUrl(row.sharedInbox)) {
+    return row.sharedInbox;
+  }
   if (row?.inbox && isSafeRemoteUrl(row.inbox)) return row.inbox;
   return null;
 }
@@ -94,7 +106,7 @@ export async function processFanoutFollowers(
   db: Database,
   env: Env,
   msg: DeliveryFanoutFollowersMessageV1,
-  message: Message<DeliveryQueueMessageV1>
+  message: Message<DeliveryQueueMessageV1>,
 ): Promise<void> {
   const baseUrl = env.APP_URL;
 
@@ -103,8 +115,8 @@ export async function processFanoutFollowers(
     .where(
       and(
         eq(follows.followingApId, msg.followeeApId),
-        eq(follows.status, 'accepted'),
-      )
+        eq(follows.status, "accepted"),
+      ),
     );
   // Deduplicate followerApId
   const recipientApIds = [...new Set(followerRows.map((f) => f.followerApId))]
@@ -117,11 +129,10 @@ export async function processFanoutFollowers(
     },
   });
 
-  if (!requireQueue(env, 'fanout', message)) return;
+  if (!requireQueue(env, "fanout", message)) return;
 
   const deliverRequests: Array<{ body: DeliveryQueueMessageV1 }> = [];
   for (const group of planned.groups) {
-    const { computeDeliveryJobId } = await import('./utils.ts');
     const jobId = await computeDeliveryJobId(msg.activityId, group.endpoint);
     await upsertDeliveryJob(db, jobId, msg.activityId, group.endpoint);
     deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
@@ -132,8 +143,12 @@ export async function processFanoutFollowers(
   }));
 
   const queueEnv = env as QueueEnv;
-  if (deliverRequests.length > 0) await queueEnv.DELIVERY_QUEUE.sendBatch(deliverRequests);
-  if (resolveRequests.length > 0) await queueEnv.DELIVERY_QUEUE.sendBatch(resolveRequests);
+  if (deliverRequests.length > 0) {
+    await queueEnv.DELIVERY_QUEUE.sendBatch(deliverRequests);
+  }
+  if (resolveRequests.length > 0) {
+    await queueEnv.DELIVERY_QUEUE.sendBatch(resolveRequests);
+  }
 
   message.ack();
 }
@@ -142,9 +157,9 @@ export async function processResolveActor(
   db: Database,
   env: Env,
   msg: DeliveryResolveActorMessageV1,
-  message: Message<DeliveryQueueMessageV1>
+  message: Message<DeliveryQueueMessageV1>,
 ): Promise<void> {
-  if (!requireQueue(env, 'resolve_actor', message)) return;
+  if (!requireQueue(env, "resolve_actor", message)) return;
 
   const cached = await db.select({
     apId: actorCache.apId,
@@ -156,31 +171,41 @@ export async function processResolveActor(
     .where(eq(actorCache.apId, msg.recipientActorApId))
     .get();
   const lastFetchedMs = safeParseIsoTimeMs(cached?.lastFetchedAt ?? null);
-  const stale = lastFetchedMs === null || Date.now() - lastFetchedMs > DELIVERY_ENDPOINT_CACHE_TTL_MS;
+  const stale = lastFetchedMs === null ||
+    Date.now() - lastFetchedMs > DELIVERY_ENDPOINT_CACHE_TTL_MS;
   if (!cached || stale) {
     try {
       await fetchAndCacheRemoteActor(db, msg.recipientActorApId);
     } catch (e) {
-      console.warn('[DeliveryQueue] resolve_actor fetch failed:', e);
-      await sendQueueMessage(env, buildResolveActorMessage(msg.activityId, msg.recipientActorApId), 60);
+      console.warn("[DeliveryQueue] resolve_actor fetch failed:", e);
+      await sendQueueMessage(
+        env,
+        buildResolveActorMessage(msg.activityId, msg.recipientActorApId),
+        60,
+      );
       message.ack();
       return;
     }
   }
 
-  const row = await db.select({ inbox: actorCache.inbox, sharedInbox: actorCache.sharedInbox })
+  const row = await db.select({
+    inbox: actorCache.inbox,
+    sharedInbox: actorCache.sharedInbox,
+  })
     .from(actorCache)
     .where(eq(actorCache.apId, msg.recipientActorApId))
     .get();
   const endpoint = resolvePreferredEndpoint(row ?? null);
 
   if (!endpoint) {
-    console.warn('[DeliveryQueue] Could not resolve endpoint for actor:', msg.recipientActorApId);
+    console.warn(
+      "[DeliveryQueue] Could not resolve endpoint for actor:",
+      msg.recipientActorApId,
+    );
     message.ack();
     return;
   }
 
-  const { computeDeliveryJobId } = await import('./utils.ts');
   const jobId = await computeDeliveryJobId(msg.activityId, endpoint);
   await upsertDeliveryJob(db, jobId, msg.activityId, endpoint);
   await sendQueueMessage(env, buildDeliverEndpointMessage(jobId));
@@ -191,28 +216,31 @@ export async function processReconcileJob(
   db: Database,
   env: Env,
   msg: DeliveryReconcileJobMessageV1,
-  message: Message<DeliveryQueueMessageV1>
+  message: Message<DeliveryQueueMessageV1>,
 ): Promise<void> {
-  if (!requireQueue(env, 'reconcile', message)) return;
+  if (!requireQueue(env, "reconcile", message)) return;
 
   if (msg.reconcileAttempt > MAX_RECONCILE_ATTEMPTS) {
     message.ack();
     return;
   }
 
-  const job = await db.select({ id: deliveryQueue.id, status: deliveryQueue.status })
+  const job = await db.select({
+    id: deliveryQueue.id,
+    status: deliveryQueue.status,
+  })
     .from(deliveryQueue)
     .where(eq(deliveryQueue.id, msg.jobId))
     .get();
 
-  if (!job || job.status === 'delivered') {
+  if (!job || job.status === "delivered") {
     message.ack();
     return;
   }
 
   await db.update(deliveryQueue)
     .set({
-      status: 'pending',
+      status: "pending",
       error: null,
       lastAttemptAt: null,
       processingStartedAt: null,
@@ -227,7 +255,7 @@ export async function processReconcileJob(
 export async function runWithConcurrency<T>(
   items: T[],
   concurrency: number,
-  fn: (item: T) => Promise<void>
+  fn: (item: T) => Promise<void>,
 ): Promise<void> {
   const queue = items.slice();
   const workers: Promise<void>[] = [];

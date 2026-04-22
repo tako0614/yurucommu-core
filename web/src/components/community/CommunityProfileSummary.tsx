@@ -1,12 +1,12 @@
-import { Show } from 'solid-js';
-import { A } from '@solidjs/router';
-import type { CommunityDetail } from '../../lib/api.ts';
-import { formatMonthYear } from '../../lib/datetime.ts';
-import { CalendarIcon, ChatIcon, UsersIcon } from './CommunityIcons.tsx';
+import { Show } from "solid-js";
+import { A } from "@solidjs/router";
+import type { CommunityDetail } from "../../lib/api.ts";
+import { formatMonthYear } from "../../lib/datetime.ts";
+import { CalendarIcon, ChatIcon, UsersIcon } from "./CommunityIcons.tsx";
 
-type JoinPolicy = 'open' | 'approval' | 'invite';
+type JoinPolicy = "open" | "approval" | "invite";
 
-type Visibility = 'public' | 'private';
+type Visibility = "public" | "private";
 
 interface CommunityProfileSummaryProps {
   community: CommunityDetail;
@@ -18,24 +18,30 @@ interface CommunityProfileSummaryProps {
 
 function getJoinButtonLabel(
   joinPolicy: JoinPolicy,
-  joinStatus: 'pending' | null | undefined,
-  joining: boolean
+  joinStatus: "pending" | null | undefined,
+  joining: boolean,
 ): string {
-  if (joining) return '参加中...';
-  if (joinStatus === 'pending') return '承認待ち';
-  if (joinPolicy === 'invite') return '招待コードで参加';
-  return '参加する';
+  if (joining) return "参加中...";
+  if (joinStatus === "pending") return "承認待ち";
+  if (joinPolicy === "invite") return "招待コードで参加";
+  return "参加する";
 }
 
 export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
-  const joinLabel = () => getJoinButtonLabel(props.community.join_policy, props.community.join_status, props.joining);
-  const visibilityLabel = () => props.community.visibility === 'public' ? '公開' : '非公開';
+  const joinLabel = () =>
+    getJoinButtonLabel(
+      props.community.join_policy,
+      props.community.join_status,
+      props.joining,
+    );
+  const visibilityLabel = () =>
+    props.community.visibility === "public" ? "公開" : "非公開";
   const joinPolicyLabel = () =>
-    props.community.join_policy === 'open'
-      ? '誰でも参加可能'
-      : props.community.join_policy === 'approval'
-        ? '承認制'
-        : '招待制';
+    props.community.join_policy === "open"
+      ? "誰でも参加可能"
+      : props.community.join_policy === "approval"
+      ? "承認制"
+      : "招待制";
 
   return (
     <>
@@ -51,11 +57,16 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
               when={props.community.icon_url}
               fallback={
                 <span class="text-4xl font-bold text-white">
-                  {(props.community.display_name || props.community.name).charAt(0).toUpperCase()}
+                  {(props.community.display_name || props.community.name)
+                    .charAt(0).toUpperCase()}
                 </span>
               }
             >
-              <img src={props.community.icon_url} alt="" class="w-full h-full object-cover" />
+              <img
+                src={props.community.icon_url ?? undefined}
+                alt=""
+                class="w-full h-full object-cover"
+              />
             </Show>
           </div>
         </div>
@@ -67,7 +78,8 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
             fallback={
               <button
                 onClick={props.onJoin}
-                disabled={props.joining || props.community.join_status === 'pending'}
+                disabled={props.joining ||
+                  props.community.join_status === "pending"}
                 class="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-bold transition-colors disabled:opacity-50"
               >
                 {joinLabel()}
@@ -93,13 +105,17 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
 
         {/* Name */}
         <div class="mb-3">
-          <div class="text-xl font-bold text-white">{props.community.display_name || props.community.name}</div>
+          <div class="text-xl font-bold text-white">
+            {props.community.display_name || props.community.name}
+          </div>
           <div class="text-neutral-500">@{props.community.name}</div>
         </div>
 
         {/* Summary */}
         <Show when={props.community.summary}>
-          <p class="text-neutral-200 mb-3 whitespace-pre-wrap">{props.community.summary}</p>
+          <p class="text-neutral-200 mb-3 whitespace-pre-wrap">
+            {props.community.summary}
+          </p>
         </Show>
 
         {/* Meta Info */}
@@ -118,7 +134,9 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
         <div class="flex flex-wrap gap-2">
           <span
             class={`px-2 py-1 text-xs rounded-full ${
-              props.community.visibility === 'public' ? 'bg-green-500/20 text-green-400' : 'bg-neutral-700 text-neutral-300'
+              props.community.visibility === "public"
+                ? "bg-green-500/20 text-green-400"
+                : "bg-neutral-700 text-neutral-300"
             }`}
           >
             {visibilityLabel()}

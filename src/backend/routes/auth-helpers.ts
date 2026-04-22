@@ -1,24 +1,39 @@
-import type { Context } from 'hono';
-import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import type { Env, Variables } from '../types.ts';
-import { generateId, actorApId, generateKeyPair } from '../federation-helpers.ts';
-import { encrypt } from '../lib/crypto.ts';
-import { getClientCredentials } from '../lib/oauth-providers.ts';
-import type { Database } from '../../db/index.ts';
-import { eq, count } from 'drizzle-orm';
-import { actors, sessions } from '../../db/index.ts';
-import { parseJsonObject, parseNonEmptyString } from '../lib/parse-helpers.ts';
+import type { Context } from "hono";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import type { Env, Variables } from "../types.ts";
+import {
+  actorApId,
+  generateId,
+  generateKeyPair,
+} from "../federation-helpers.ts";
+import { encrypt } from "../lib/crypto.ts";
+import { getClientCredentials } from "../lib/oauth-providers.ts";
+import type { Database } from "../../db/index.ts";
+import { count, eq } from "drizzle-orm";
+import { actors, sessions } from "../../db/index.ts";
+import { parseJsonObject, parseNonEmptyString } from "../lib/parse-helpers.ts";
 
 /** Session lifetime: 30 days in seconds. */
 export const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
-export type OAuthTokens = { access_token: string; refresh_token?: string; expires_in?: number };
+export type OAuthTokens = {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+};
 
 export type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 export { parseJsonObject, parseNonEmptyString };
 
-export function formatAccountResponse(a: { apId: string; preferredUsername: string; name: string | null; iconUrl: string | null }): {
+export function formatAccountResponse(
+  a: {
+    apId: string;
+    preferredUsername: string;
+    name: string | null;
+    iconUrl: string | null;
+  },
+): {
   ap_id: string;
   preferred_username: string;
   name: string | null;
@@ -32,7 +47,11 @@ export function formatAccountResponse(a: { apId: string; preferredUsername: stri
   };
 }
 
-export async function deleteSessionSafely(db: Database, sessionId: string, context: string): Promise<void> {
+export async function deleteSessionSafely(
+  db: Database,
+  sessionId: string,
+  context: string,
+): Promise<void> {
   try {
     await db.delete(sessions).where(eq(sessions.id, sessionId));
   } catch (err) {
@@ -52,18 +71,19 @@ export async function rotateSession(
   encryptionKey: string | undefined,
   rotationContext: string,
 ): Promise<string> {
-  const db = c.get('db');
+  const db = c.get("db");
 
   // Invalidate existing session
-  const existingSessionId = getCookie(c, 'session');
+  const existingSessionId = getCookie(c, "session");
   if (existingSessionId) {
     await deleteSessionSafely(db, existingSessionId, rotationContext);
-    deleteCookie(c, 'session');
+    deleteCookie(c, "session");
   }
 
   // Create new session with encrypted tokens
   const sessionId = generateId();
-  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000)
+    .toISOString();
 
   await db.insert(sessions).values({
     id: sessionId,
@@ -83,11 +103,11 @@ export async function rotateSession(
   });
 
   // Set cookie
-  setCookie(c, 'session', sessionId, {
+  setCookie(c, "session", sessionId, {
     httpOnly: true,
     secure: true,
-    sameSite: 'Lax',
-    path: '/',
+    sameSite: "Lax",
+    path: "/",
     maxAge: SESSION_MAX_AGE_SECONDS,
   });
 
@@ -111,7 +131,11 @@ export async function resolveUniqueUsername(
 ): Promise<string> {
   let username = baseUsername;
   let counter = 1;
-  while (await db.select({ apId: actors.apId }).from(actors).where(eq(actors.apId, actorApId(baseUrl, username))).get()) {
+  while (
+    await db.select({ apId: actors.apId }).from(actors).where(
+      eq(actors.apId, actorApId(baseUrl, username)),
+    ).get()
+  ) {
     username = `${baseUsername}${counter}`;
     counter++;
   }
@@ -135,7 +159,7 @@ export async function createActor(
 
   return await db.insert(actors).values({
     apId,
-    type: 'Person',
+    type: "Person",
     preferredUsername: opts.username,
     name: opts.name,
     iconUrl: opts.iconUrl ?? null,
@@ -151,10 +175,17 @@ export async function createActor(
 export async function createActorFromOAuth(
   db: Database,
   env: Env,
-  userInfo: { id: string; name: string; email?: string; picture?: string; username?: string },
+  userInfo: {
+    id: string;
+    name: string;
+    email?: string;
+    picture?: string;
+    username?: string;
+  },
   providerUserId: string,
 ) {
-  const baseUsername = userInfo.username || userInfo.name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user';
+  const baseUsername = userInfo.username ||
+    userInfo.name.toLowerCase().replace(/[^a-z0-9]/g, "") || "user";
   const username = await resolveUniqueUsername(db, env.APP_URL, baseUsername);
   const result = await db.select({ count: count() }).from(actors).get();
   const actorCount = result?.count ?? 0;
@@ -164,7 +195,7 @@ export async function createActorFromOAuth(
     name: userInfo.name,
     iconUrl: userInfo.picture,
     takosUserId: providerUserId,
-    role: actorCount === 0 ? 'owner' : 'member',
+    role: actorCount === 0 ? "owner" : "member",
   });
 }
 
@@ -173,20 +204,33 @@ export async function fetchTakosUserInfo(
   takosUrl: string,
   accessToken: string,
 ): Promise<{ id: string; name: string; email?: string; picture?: string }> {
-  const res = await fetch(`${takosUrl.replace(/\/$/, '')}/oauth/userinfo`, {
+  const res = await fetch(`${takosUrl.replace(/\/$/, "")}/oauth/userinfo`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!res.ok) throw new Error(`Failed to fetch takos user info: ${res.status}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch takos user info: ${res.status}`);
+  }
 
-  const data = await res.json() as { user?: { id: string; name: string; email?: string; picture?: string } };
-  if (!data.user?.id || !data.user?.name) throw new Error('Invalid takos user info payload');
+  const data = await res.json() as {
+    user?: { id: string; name: string; email?: string; picture?: string };
+  };
+  if (!data.user?.id || !data.user?.name) {
+    throw new Error("Invalid takos user info payload");
+  }
 
-  return { id: data.user.id, name: data.user.name, email: data.user.email, picture: data.user.picture };
+  return {
+    id: data.user.id,
+    name: data.user.name,
+    email: data.user.email,
+    picture: data.user.picture,
+  };
 }
 
-export function lockoutErrorResponse(retryAfterSeconds: number): { error: string; retry_after: number } {
+export function lockoutErrorResponse(
+  retryAfterSeconds: number,
+): { error: string; retry_after: number } {
   return {
-    error: 'Too many failed login attempts. Please try again later.',
+    error: "Too many failed login attempts. Please try again later.",
     retry_after: retryAfterSeconds,
   };
 }
@@ -203,7 +247,7 @@ export async function exchangeOAuthToken(
   const redirectUri = `${env.APP_URL}/api/auth/callback/${providerId}`;
 
   const tokenBody: Record<string, string> = {
-    grant_type: 'authorization_code',
+    grant_type: "authorization_code",
     code,
     redirect_uri: redirectUri,
     client_id: clientId,
@@ -215,17 +259,19 @@ export async function exchangeOAuthToken(
   }
 
   const tokenHeaders: Record<string, string> = {
-    'Content-Type': 'application/x-www-form-urlencoded',
+    "Content-Type": "application/x-www-form-urlencoded",
   };
 
-  if (providerId === 'x') {
-    tokenHeaders['Authorization'] = `Basic ${btoa(`${clientId}:${clientSecret}`)}`;
+  if (providerId === "x") {
+    tokenHeaders["Authorization"] = `Basic ${
+      btoa(`${clientId}:${clientSecret}`)
+    }`;
     delete tokenBody.client_secret;
   }
 
   const tokenUrl = provider.tokenUrl;
   const requestInit: RequestInit = {
-    method: 'POST',
+    method: "POST",
     headers: tokenHeaders,
     body: new URLSearchParams(tokenBody),
   };
@@ -233,7 +279,7 @@ export async function exchangeOAuthToken(
   const res = await fetch(tokenUrl, requestInit);
 
   if (!res.ok) {
-    console.error('Token exchange failed:', {
+    console.error("Token exchange failed:", {
       status: res.status,
       statusText: res.statusText,
       body: await res.text(),
@@ -250,15 +296,27 @@ export async function findOrCreateOAuthActor(
   db: Database,
   env: Env,
   providerId: string,
-  userInfo: { id: string; name: string; email?: string; picture?: string; username?: string },
+  userInfo: {
+    id: string;
+    name: string;
+    email?: string;
+    picture?: string;
+    username?: string;
+  },
 ) {
-  const providerUserId = providerId === 'takos' ? userInfo.id : `${providerId}:${userInfo.id}`;
+  const providerUserId = providerId === "takos"
+    ? userInfo.id
+    : `${providerId}:${userInfo.id}`;
 
-  let actorData = await db.select().from(actors).where(eq(actors.takosUserId, providerUserId)).get();
+  let actorData = await db.select().from(actors).where(
+    eq(actors.takosUserId, providerUserId),
+  ).get();
 
   // Migrate legacy takos: prefixed IDs
-  if (!actorData && providerId === 'takos') {
-    const legacyActor = await db.select().from(actors).where(eq(actors.takosUserId, `takos:${userInfo.id}`)).get();
+  if (!actorData && providerId === "takos") {
+    const legacyActor = await db.select().from(actors).where(
+      eq(actors.takosUserId, `takos:${userInfo.id}`),
+    ).get();
     if (legacyActor) {
       actorData = await db.update(actors)
         .set({ takosUserId: providerUserId })

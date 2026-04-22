@@ -1,5 +1,5 @@
-import { ErrorBoundary as SolidErrorBoundary, Show } from 'solid-js';
-import type { JSX } from 'solid-js';
+import { ErrorBoundary as SolidErrorBoundary, Show } from "solid-js";
+import type { JSX } from "solid-js";
 
 interface AppErrorBoundaryProps {
   children: JSX.Element;
@@ -11,6 +11,10 @@ interface AppErrorBoundaryProps {
  * Prevents the entire app from crashing when a component throws an error
  */
 export function ErrorBoundary(props: AppErrorBoundaryProps) {
+  const isDev = Boolean(
+    (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV,
+  );
+
   return (
     <SolidErrorBoundary
       fallback={(err, reset) => {
@@ -19,7 +23,7 @@ export function ErrorBoundary(props: AppErrorBoundaryProps) {
         }
 
         const error = err instanceof Error ? err : new Error(String(err));
-        console.error('ErrorBoundary caught an error:', error);
+        console.error("ErrorBoundary caught an error:", error);
 
         const handleReload = (): void => {
           window.location.reload();
@@ -52,7 +56,7 @@ export function ErrorBoundary(props: AppErrorBoundaryProps) {
               </p>
 
               {/* Show error message in development */}
-              <Show when={import.meta.env.DEV && error}>
+              <Show when={isDev && error}>
                 <div class="mb-6 p-3 bg-neutral-800 rounded-lg text-left">
                   <p class="text-xs text-neutral-500 mb-1">Error details:</p>
                   <p class="text-sm text-red-400 font-mono break-all">

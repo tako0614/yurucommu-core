@@ -3,11 +3,11 @@
  */
 
 import {
+  index,
+  integer,
+  primaryKey,
   sqliteTable,
   text,
-  integer,
-  index,
-  primaryKey,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { nowIso } from "./date-utils.ts";

@@ -1,10 +1,10 @@
-import type { DMConversation, DMMessage } from '../../types/index.ts';
-import { normalizeActor } from './normalize.ts';
-import { apiFetch, apiPost, assertOk } from './fetch.ts';
+import type { DMConversation, DMMessage } from "../../types/index.ts";
+import { normalizeActor } from "./normalize.ts";
+import { apiFetch, apiPost, assertOk } from "./fetch.ts";
 
 // Contact types for the unified DM view
 export interface DMContact {
-  type: 'user' | 'community';
+  type: "user" | "community";
   ap_id: string;
   username: string;
   preferred_username: string;
@@ -41,7 +41,9 @@ const normalizeDmMessage = (message: DMMessage): DMMessage => ({
   sender: normalizeActor(message.sender),
 });
 
-const normalizeDmConversation = (conversation: DMConversation): DMConversation => ({
+const normalizeDmConversation = (
+  conversation: DMConversation,
+): DMConversation => ({
   ...conversation,
   other_participant: normalizeActor(conversation.other_participant),
 });
@@ -53,8 +55,12 @@ const normalizeDmRequest = (request: DMRequest): DMRequest => ({
 
 // Fetch contacts (followers + communities) - no room creation needed
 export async function fetchDMContacts(): Promise<DMContactsResponse> {
-  const res = await apiFetch('/api/dm/contacts');
-  const data = (await res.json()) as { mutual_followers?: DMContact[]; communities?: DMContact[]; request_count?: number };
+  const res = await apiFetch("/api/dm/contacts");
+  const data = (await res.json()) as {
+    mutual_followers?: DMContact[];
+    communities?: DMContact[];
+    request_count?: number;
+  };
   return {
     mutual_followers: (data.mutual_followers || []).map(normalizeActor),
     communities: (data.communities || []).map(normalizeActor),
@@ -64,53 +70,73 @@ export async function fetchDMContacts(): Promise<DMContactsResponse> {
 
 // Fetch message requests
 export async function fetchDMRequests(): Promise<DMRequest[]> {
-  const res = await apiFetch('/api/dm/requests');
+  const res = await apiFetch("/api/dm/requests");
   const data = (await res.json()) as { requests?: DMRequest[] };
   return (data.requests || []).map(normalizeDmRequest);
 }
 
 // Accept message request (by sender AP ID)
 export async function acceptDMRequest(senderApId: string): Promise<void> {
-  const res = await apiPost('/api/dm/requests/accept', { sender_ap_id: senderApId });
-  await assertOk(res, 'Failed to accept request');
+  const res = await apiPost("/api/dm/requests/accept", {
+    sender_ap_id: senderApId,
+  });
+  await assertOk(res, "Failed to accept request");
 }
 
 // Reject message request (by sender AP ID, optionally block)
-export async function rejectDMRequest(senderApId: string, block?: boolean): Promise<void> {
-  const res = await apiPost('/api/dm/requests/reject', { sender_ap_id: senderApId, block });
-  await assertOk(res, 'Failed to reject request');
+export async function rejectDMRequest(
+  senderApId: string,
+  block?: boolean,
+): Promise<void> {
+  const res = await apiPost("/api/dm/requests/reject", {
+    sender_ap_id: senderApId,
+    block,
+  });
+  await assertOk(res, "Failed to reject request");
 }
 
 // Legacy: Fetch conversations (for backwards compatibility)
 export async function fetchDMConversations(): Promise<DMConversation[]> {
-  const res = await apiFetch('/api/dm/conversations');
+  const res = await apiFetch("/api/dm/conversations");
   const data = (await res.json()) as { conversations?: DMConversation[] };
   return (data.conversations || []).map(normalizeDmConversation);
 }
 
-export async function createDMConversation(participantApId: string): Promise<DMConversation> {
-  const res = await apiPost('/api/dm/conversations', { participant_ap_id: participantApId });
-  await assertOk(res, 'Failed to create conversation');
+export async function createDMConversation(
+  participantApId: string,
+): Promise<DMConversation> {
+  const res = await apiPost("/api/dm/conversations", {
+    participant_ap_id: participantApId,
+  });
+  await assertOk(res, "Failed to create conversation");
   const data = (await res.json()) as { conversation: DMConversation };
   return normalizeDmConversation(data.conversation);
 }
 
 export async function fetchDMMessages(
   conversationId: string,
-  options?: { limit?: number; before?: string }
+  options?: { limit?: number; before?: string },
 ): Promise<DMMessage[]> {
   const params = new URLSearchParams();
-  if (options?.limit) params.set('limit', String(options.limit));
-  if (options?.before) params.set('before', options.before);
-  const query = params.toString() ? `?${params}` : '';
-  const res = await apiFetch(`/api/dm/conversations/${conversationId}/messages${query}`);
+  if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.before) params.set("before", options.before);
+  const query = params.toString() ? `?${params}` : "";
+  const res = await apiFetch(
+    `/api/dm/conversations/${conversationId}/messages${query}`,
+  );
   const data = (await res.json()) as { messages?: DMMessage[] };
   return (data.messages || []).map(normalizeDmMessage);
 }
 
-export async function sendDMMessage(conversationId: string, content: string): Promise<DMMessage> {
-  const res = await apiPost(`/api/dm/conversations/${conversationId}/messages`, { content });
-  await assertOk(res, 'Failed to send message');
+export async function sendDMMessage(
+  conversationId: string,
+  content: string,
+): Promise<DMMessage> {
+  const res = await apiPost(
+    `/api/dm/conversations/${conversationId}/messages`,
+    { content },
+  );
+  await assertOk(res, "Failed to send message");
   const data = (await res.json()) as { message: DMMessage };
   return normalizeDmMessage(data.message);
 }
@@ -118,14 +144,19 @@ export async function sendDMMessage(conversationId: string, content: string): Pr
 // User-based DM endpoints (no conversation creation needed)
 export async function fetchUserDMMessages(
   userApId: string,
-  options?: { limit?: number; before?: string }
+  options?: { limit?: number; before?: string },
 ): Promise<{ messages: DMMessage[]; conversation_id: string | null }> {
   const params = new URLSearchParams();
-  if (options?.limit) params.set('limit', String(options.limit));
-  if (options?.before) params.set('before', options.before);
-  const query = params.toString() ? `?${params}` : '';
-  const res = await apiFetch(`/api/dm/user/${encodeURIComponent(userApId)}/messages${query}`);
-  const data = (await res.json()) as { messages?: DMMessage[]; conversation_id?: string | null };
+  if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.before) params.set("before", options.before);
+  const query = params.toString() ? `?${params}` : "";
+  const res = await apiFetch(
+    `/api/dm/user/${encodeURIComponent(userApId)}/messages${query}`,
+  );
+  const data = (await res.json()) as {
+    messages?: DMMessage[];
+    conversation_id?: string | null;
+  };
   return {
     messages: (data.messages || []).map(normalizeDmMessage),
     conversation_id: data.conversation_id ?? null,
@@ -134,11 +165,17 @@ export async function fetchUserDMMessages(
 
 export async function sendUserDMMessage(
   userApId: string,
-  content: string
+  content: string,
 ): Promise<{ message: DMMessage; conversation_id: string }> {
-  const res = await apiPost(`/api/dm/user/${encodeURIComponent(userApId)}/messages`, { content });
-  await assertOk(res, 'Failed to send message');
-  const data = (await res.json()) as { message: DMMessage; conversation_id: string };
+  const res = await apiPost(
+    `/api/dm/user/${encodeURIComponent(userApId)}/messages`,
+    { content },
+  );
+  await assertOk(res, "Failed to send message");
+  const data = (await res.json()) as {
+    message: DMMessage;
+    conversation_id: string;
+  };
   return {
     message: normalizeDmMessage(data.message),
     conversation_id: data.conversation_id,
@@ -146,16 +183,23 @@ export async function sendUserDMMessage(
 }
 
 export async function sendUserDMTyping(userApId: string): Promise<void> {
-  const res = await apiPost(`/api/dm/user/${encodeURIComponent(userApId)}/typing`);
-  await assertOk(res, 'Failed to send typing');
+  const res = await apiPost(
+    `/api/dm/user/${encodeURIComponent(userApId)}/typing`,
+  );
+  await assertOk(res, "Failed to send typing");
 }
 
 export async function fetchUserDMTyping(
-  userApId: string
+  userApId: string,
 ): Promise<{ is_typing: boolean; last_typed_at: string | null }> {
-  const res = await apiFetch(`/api/dm/user/${encodeURIComponent(userApId)}/typing`);
-  await assertOk(res, 'Failed to fetch typing');
-  const data = (await res.json()) as { is_typing?: boolean; last_typed_at?: string | null };
+  const res = await apiFetch(
+    `/api/dm/user/${encodeURIComponent(userApId)}/typing`,
+  );
+  await assertOk(res, "Failed to fetch typing");
+  const data = (await res.json()) as {
+    is_typing?: boolean;
+    last_typed_at?: string | null;
+  };
   return {
     is_typing: !!data.is_typing,
     last_typed_at: data.last_typed_at ?? null,
@@ -163,6 +207,8 @@ export async function fetchUserDMTyping(
 }
 
 export async function markDMAsRead(userApId: string): Promise<void> {
-  const res = await apiPost(`/api/dm/user/${encodeURIComponent(userApId)}/read`);
-  await assertOk(res, 'Failed to mark as read');
+  const res = await apiPost(
+    `/api/dm/user/${encodeURIComponent(userApId)}/read`,
+  );
+  await assertOk(res, "Failed to mark as read");
 }

@@ -1,10 +1,15 @@
-import { Hono } from 'hono';
-import type { Context } from 'hono';
-import type { Env, Variables } from '../../types.ts';
-import { eq, and, desc, count } from 'drizzle-orm';
-import { activities, follows, actors, objects } from '../../../db/index.ts';
-import { actorApId, objectApId, parseLimit, safeJsonParse } from '../../federation-helpers.ts';
-import { getInstanceActor } from './query-helpers.ts';
+import { Hono } from "hono";
+import type { Context } from "hono";
+import type { Env, Variables } from "../../types.ts";
+import { and, count, desc, eq } from "drizzle-orm";
+import { activities, actors, follows, objects } from "../../../db/index.ts";
+import {
+  actorApId,
+  objectApId,
+  parseLimit,
+  safeJsonParse,
+} from "../../federation-helpers.ts";
+import { getInstanceActor } from "./query-helpers.ts";
 
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -31,41 +36,69 @@ function orderedCollectionResponse(
   page: string | undefined,
   pageNum: number,
   totalItems: number,
-  orderedItems: unknown[]
+  orderedItems: unknown[],
 ): Response {
   if (page) {
     return c.json({
-      '@context': 'https://www.w3.org/ns/activitystreams',
+      "@context": "https://www.w3.org/ns/activitystreams",
       id: `${collectionUrl}?page=${pageNum}`,
-      type: 'OrderedCollectionPage',
+      type: "OrderedCollectionPage",
       partOf: collectionUrl,
       orderedItems,
     });
   }
 
   return c.json({
-    '@context': 'https://www.w3.org/ns/activitystreams',
+    "@context": "https://www.w3.org/ns/activitystreams",
     id: collectionUrl,
-    type: 'OrderedCollection',
+    type: "OrderedCollection",
     totalItems,
     first: `${collectionUrl}?page=1`,
   });
+}
+
+function redactedCollectionResponse(
+  c: HonoContext,
+  collectionUrl: string,
+  page: string | undefined,
+  pageNum: number,
+): Response {
+  if (page) {
+    return c.json({
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: `${collectionUrl}?page=${pageNum}`,
+      type: "OrderedCollectionPage",
+      partOf: collectionUrl,
+      orderedItems: [],
+    });
+  }
+
+  return c.json({
+    "@context": "https://www.w3.org/ns/activitystreams",
+    id: collectionUrl,
+    type: "OrderedCollection",
+  });
+}
+
+function canViewPrivateCollection(c: HonoContext, actorApId: string): boolean {
+  const viewer = c.get("actor");
+  return viewer?.ap_id === actorApId;
 }
 
 // ---------------------------------------------------------------------------
 // Instance actor collections
 // ---------------------------------------------------------------------------
 
-ap.get('/ap/actor/outbox', async (c) => {
-  const db = c.get('db');
+ap.get("/ap/actor/outbox", async (c) => {
+  const db = c.get("db");
   const instActor = await getInstanceActor(c);
-  const page = c.req.query('page');
+  const page = c.req.query("page");
   const pageNum = parseLimit(page, 1, 100000);
   const limit = 20;
 
   const whereClause = and(
     eq(activities.actorApId, instActor.apId),
-    eq(activities.direction, 'outbound')
+    eq(activities.direction, "outbound"),
   );
 
   const [rows, totalCount] = await Promise.all([
@@ -85,20 +118,20 @@ ap.get('/ap/actor/outbox', async (c) => {
     page,
     pageNum,
     totalCount?.count ?? 0,
-    parseOrderedItems(rows)
+    parseOrderedItems(rows),
   );
 });
 
-ap.get('/ap/actor/followers', async (c) => {
-  const db = c.get('db');
+ap.get("/ap/actor/followers", async (c) => {
+  const db = c.get("db");
   const instActor = await getInstanceActor(c);
-  const page = c.req.query('page');
+  const page = c.req.query("page");
   const pageNum = parseLimit(page, 1, 100000);
   const limit = 50;
 
   const whereClause = and(
     eq(follows.followingApId, instActor.apId),
-    eq(follows.status, 'accepted')
+    eq(follows.status, "accepted"),
   );
 
   const [rows, totalCount] = await Promise.all([
@@ -118,18 +151,18 @@ ap.get('/ap/actor/followers', async (c) => {
     page,
     pageNum,
     totalCount?.count ?? 0,
-    rows.map((f) => f.followerApId)
+    rows.map((f) => f.followerApId),
   );
 });
 
-ap.get('/ap/actor/following', async (c) => {
+ap.get("/ap/actor/following", async (c) => {
   const instActor = await getInstanceActor(c);
   const followingUrl = `${instActor.apId}/following`;
 
   return c.json({
-    '@context': 'https://www.w3.org/ns/activitystreams',
+    "@context": "https://www.w3.org/ns/activitystreams",
     id: followingUrl,
-    type: 'OrderedCollection',
+    type: "OrderedCollection",
     totalItems: 0,
     first: `${followingUrl}?page=1`,
   });
@@ -139,24 +172,28 @@ ap.get('/ap/actor/following', async (c) => {
 // User collections
 // ---------------------------------------------------------------------------
 
-ap.get('/ap/users/:username/outbox', async (c) => {
-  const db = c.get('db');
-  const username = c.req.param('username');
+ap.get("/ap/users/:username/outbox", async (c) => {
+  const db = c.get("db");
+  const username = c.req.param("username");
   const apId = actorApId(c.env.APP_URL, username);
 
   const actor = await db.query.actors.findFirst({
     where: eq(actors.apId, apId),
-    columns: { apId: true },
+    columns: { apId: true, isPrivate: true },
   });
-  if (!actor) return c.json({ error: 'Actor not found' }, 404);
+  if (!actor) return c.json({ error: "Actor not found" }, 404);
 
-  const page = c.req.query('page');
+  const page = c.req.query("page");
   const pageNum = parseLimit(page, 1, 100000);
+  if (actor.isPrivate && !canViewPrivateCollection(c, actor.apId)) {
+    return redactedCollectionResponse(c, `${apId}/outbox`, page, pageNum);
+  }
+
   const limit = 20;
 
   const whereClause = and(
     eq(activities.actorApId, apId),
-    eq(activities.direction, 'outbound')
+    eq(activities.direction, "outbound"),
   );
 
   const [rows, totalCount] = await Promise.all([
@@ -176,28 +213,32 @@ ap.get('/ap/users/:username/outbox', async (c) => {
     page,
     pageNum,
     totalCount?.count ?? 0,
-    parseOrderedItems(rows)
+    parseOrderedItems(rows),
   );
 });
 
-ap.get('/ap/users/:username/followers', async (c) => {
-  const db = c.get('db');
-  const username = c.req.param('username');
+ap.get("/ap/users/:username/followers", async (c) => {
+  const db = c.get("db");
+  const username = c.req.param("username");
   const apId = actorApId(c.env.APP_URL, username);
 
   const actor = await db.query.actors.findFirst({
     where: eq(actors.apId, apId),
     columns: { apId: true, isPrivate: true },
   });
-  if (!actor) return c.json({ error: 'Actor not found' }, 404);
+  if (!actor) return c.json({ error: "Actor not found" }, 404);
 
-  const page = c.req.query('page');
+  const page = c.req.query("page");
   const pageNum = parseLimit(page, 1, 100000);
+  if (actor.isPrivate && !canViewPrivateCollection(c, actor.apId)) {
+    return redactedCollectionResponse(c, `${apId}/followers`, page, pageNum);
+  }
+
   const limit = 50;
 
   const whereClause = and(
     eq(follows.followingApId, apId),
-    eq(follows.status, 'accepted')
+    eq(follows.status, "accepted"),
   );
 
   const [rows, totalCount] = await Promise.all([
@@ -217,28 +258,32 @@ ap.get('/ap/users/:username/followers', async (c) => {
     page,
     pageNum,
     totalCount?.count ?? 0,
-    actor.isPrivate ? [] : rows.map((f) => f.followerApId)
+    actor.isPrivate ? [] : rows.map((f) => f.followerApId),
   );
 });
 
-ap.get('/ap/users/:username/following', async (c) => {
-  const db = c.get('db');
-  const username = c.req.param('username');
+ap.get("/ap/users/:username/following", async (c) => {
+  const db = c.get("db");
+  const username = c.req.param("username");
   const apId = actorApId(c.env.APP_URL, username);
 
   const actor = await db.query.actors.findFirst({
     where: eq(actors.apId, apId),
-    columns: { apId: true },
+    columns: { apId: true, isPrivate: true },
   });
-  if (!actor) return c.json({ error: 'Actor not found' }, 404);
+  if (!actor) return c.json({ error: "Actor not found" }, 404);
 
-  const page = c.req.query('page');
+  const page = c.req.query("page");
   const pageNum = parseLimit(page, 1, 100000);
+  if (actor.isPrivate && !canViewPrivateCollection(c, actor.apId)) {
+    return redactedCollectionResponse(c, `${apId}/following`, page, pageNum);
+  }
+
   const limit = 50;
 
   const whereClause = and(
     eq(follows.followerApId, apId),
-    eq(follows.status, 'accepted')
+    eq(follows.status, "accepted"),
   );
 
   const [rows, totalCount] = await Promise.all([
@@ -258,7 +303,7 @@ ap.get('/ap/users/:username/following', async (c) => {
     page,
     pageNum,
     totalCount?.count ?? 0,
-    rows.map((f) => f.followingApId)
+    rows.map((f) => f.followingApId),
   );
 });
 
@@ -266,9 +311,9 @@ ap.get('/ap/users/:username/following', async (c) => {
 // Object endpoint
 // ---------------------------------------------------------------------------
 
-ap.get('/ap/objects/:id', async (c) => {
-  const db = c.get('db');
-  const id = c.req.param('id');
+ap.get("/ap/objects/:id", async (c) => {
+  const db = c.get("db");
+  const id = c.req.param("id");
   const objApId = objectApId(c.env.APP_URL, id);
 
   const obj = await db.query.objects.findFirst({
@@ -288,19 +333,21 @@ ap.get('/ap/objects/:id', async (c) => {
       announceCount: true,
     },
   });
-  if (!obj) return c.json({ error: 'Object not found' }, 404);
+  if (!obj) return c.json({ error: "Object not found" }, 404);
 
   const attachments = safeJsonParse<unknown[]>(obj.attachmentsJson, []);
 
   const to = [
-    obj.visibility === 'public' ? 'https://www.w3.org/ns/activitystreams#Public' : undefined,
+    obj.visibility === "public"
+      ? "https://www.w3.org/ns/activitystreams#Public"
+      : undefined,
     `${obj.attributedTo}/followers`,
   ].filter(Boolean);
 
   const objectResponse: Record<string, unknown> = {
-    '@context': [
-      'https://www.w3.org/ns/activitystreams',
-      'https://w3id.org/security/v1',
+    "@context": [
+      "https://www.w3.org/ns/activitystreams",
+      "https://w3id.org/security/v1",
     ],
     id: obj.apId,
     type: obj.type,
@@ -313,12 +360,12 @@ ap.get('/ap/objects/:id', async (c) => {
     attachment: attachments.length > 0 ? attachments : undefined,
     likes: {
       id: `${obj.apId}/likes`,
-      type: 'Collection',
+      type: "Collection",
       totalItems: obj.likeCount,
     },
     replies: {
       id: `${obj.apId}/replies`,
-      type: 'Collection',
+      type: "Collection",
       totalItems: obj.replyCount,
     },
   };
@@ -329,7 +376,7 @@ ap.get('/ap/objects/:id', async (c) => {
     }
   }
 
-  c.header('Content-Type', 'application/activity+json');
+  c.header("Content-Type", "application/activity+json");
   return c.json(objectResponse);
 });
 

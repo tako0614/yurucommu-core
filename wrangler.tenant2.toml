@@ -6,12 +6,18 @@ compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 [vars]
 TAKOS_URL = "https://test.takos.jp"
 APP_URL = "https://test2.yurucommu.com"
-AUTH_MODE = "password"
+# Password authentication is enabled by setting AUTH_PASSWORD_HASH via wrangler secret put.
+# Format: saltHex:hashHex
+# AUTH_PASSWORD_HASH = "0123456789abcdef0123456789abcdef:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+#
+# Session and token encryption:
+# ENCRYPTION_KEY = "..."  # Generate with: openssl rand -hex 32
 
 # Secrets (set via wrangler secret put):
 # - TAKOS_CLIENT_ID
 # - TAKOS_CLIENT_SECRET
-# - AUTH_PASSWORD
+# - AUTH_PASSWORD_HASH
+# - ENCRYPTION_KEY
 
 # D1 Database
 [[d1_databases]]
@@ -57,6 +63,7 @@ max_retries = 1
 directory = "./dist"
 binding = "ASSETS"
 run_worker_first = true
+not_found_handling = "single-page-application"
 
 # Route - Using test subdomain
 [[routes]]

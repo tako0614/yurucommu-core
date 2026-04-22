@@ -7,19 +7,19 @@
  */
 export class D1CompatDatabase {
   // @ts-expect-error - bun:sqlite is only available in Bun runtime
-  private db: import('bun:sqlite').Database;
+  private db: import("bun:sqlite").Database;
 
   // @ts-expect-error - bun:sqlite is only available in Bun runtime
-  constructor(db: import('bun:sqlite').Database) {
+  constructor(db: import("bun:sqlite").Database) {
     this.db = db;
   }
 
-  static create(filename: string = ':memory:'): D1CompatDatabase {
-    // @ts-expect-error - Bun runtime
-    const { Database } = require('bun:sqlite');
+  static create(filename: string = ":memory:"): D1CompatDatabase {
+    // @ts-ignore - Bun runtime
+    const { Database } = require("bun:sqlite");
     const db = new Database(filename);
-    db.exec('PRAGMA journal_mode = WAL');
-    db.exec('PRAGMA foreign_keys = ON');
+    db.exec("PRAGMA journal_mode = WAL");
+    db.exec("PRAGMA foreign_keys = ON");
     return new D1CompatDatabase(db);
   }
 
@@ -31,7 +31,9 @@ export class D1CompatDatabase {
     this.db.exec(query);
   }
 
-  async batch<T = unknown>(statements: D1CompatPreparedStatement[]): Promise<Array<{ results: T[]; success: boolean; meta: object }>> {
+  async batch<T = unknown>(
+    statements: D1CompatPreparedStatement[],
+  ): Promise<Array<{ results: T[]; success: boolean; meta: object }>> {
     const results: Array<{ results: T[]; success: boolean; meta: object }> = [];
     this.db.transaction(() => {
       for (const stmt of statements) {
@@ -40,7 +42,10 @@ export class D1CompatDatabase {
           results.push({
             results: [],
             success: true,
-            meta: { changes: result.changes, last_row_id: result.lastInsertRowid },
+            meta: {
+              changes: result.changes,
+              last_row_id: result.lastInsertRowid,
+            },
           });
         } catch (e) {
           results.push({
@@ -55,7 +60,7 @@ export class D1CompatDatabase {
   }
 
   // @ts-expect-error - bun:sqlite is only available in Bun runtime
-  getRawDatabase(): import('bun:sqlite').Database {
+  getRawDatabase(): import("bun:sqlite").Database {
     return this.db;
   }
 }
@@ -65,12 +70,12 @@ export class D1CompatDatabase {
  */
 export class D1CompatPreparedStatement {
   // @ts-expect-error - bun:sqlite is only available in Bun runtime
-  private db: import('bun:sqlite').Database;
+  private db: import("bun:sqlite").Database;
   private query: string;
   private boundValues: unknown[] = [];
 
   // @ts-expect-error - bun:sqlite is only available in Bun runtime
-  constructor(db: import('bun:sqlite').Database, query: string) {
+  constructor(db: import("bun:sqlite").Database, query: string) {
     this.db = db;
     this.query = query;
   }
@@ -88,7 +93,9 @@ export class D1CompatPreparedStatement {
     return row as T;
   }
 
-  async all<T = unknown>(): Promise<{ results: T[]; success: boolean; meta: object }> {
+  async all<T = unknown>(): Promise<
+    { results: T[]; success: boolean; meta: object }
+  > {
     const stmt = this.db.prepare(this.query);
     const rows = stmt.all(...this.boundValues) as T[];
     return {
@@ -98,7 +105,9 @@ export class D1CompatPreparedStatement {
     };
   }
 
-  async run(): Promise<{ success: boolean; meta: { changes: number; last_row_id: number } }> {
+  async run(): Promise<
+    { success: boolean; meta: { changes: number; last_row_id: number } }
+  > {
     const result = this.runSync();
     return {
       success: true,
@@ -111,6 +120,9 @@ export class D1CompatPreparedStatement {
 
   runSync(): { changes: number; lastInsertRowid: number } {
     const stmt = this.db.prepare(this.query);
-    return stmt.run(...this.boundValues) as { changes: number; lastInsertRowid: number };
+    return stmt.run(...this.boundValues) as {
+      changes: number;
+      lastInsertRowid: number;
+    };
   }
 }

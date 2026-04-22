@@ -33,7 +33,7 @@ export type FirstResult<T> = T | null;
  */
 export interface RunResult {
   success: boolean;
-  meta?: Pick<ResultMeta, 'changes' | 'last_row_id'>;
+  meta?: Pick<ResultMeta, "changes" | "last_row_id">;
 }
 
 /**
@@ -52,7 +52,9 @@ export interface PreparedStatement {
 export interface IDatabase {
   prepare(query: string): PreparedStatement;
   exec(query: string): Promise<void>;
-  batch<T = unknown>(statements: PreparedStatement[]): Promise<QueryResult<T>[]>;
+  batch<T = unknown>(
+    statements: PreparedStatement[],
+  ): Promise<QueryResult<T>[]>;
 }
 
 /**
@@ -82,7 +84,7 @@ export interface StorageObject {
   arrayBuffer(): Promise<ArrayBuffer>;
   text(): Promise<string>;
   json<T = unknown>(): Promise<T>;
-  httpMetadata?: ObjectMetadata['httpMetadata'];
+  httpMetadata?: ObjectMetadata["httpMetadata"];
   customMetadata?: Record<string, string>;
 }
 
@@ -95,7 +97,7 @@ export interface ListObjectsResult {
     size: number;
     uploaded: Date;
     etag?: string;
-    httpMetadata?: ObjectMetadata['httpMetadata'];
+    httpMetadata?: ObjectMetadata["httpMetadata"];
   }>;
   truncated: boolean;
   cursor?: string;
@@ -110,9 +112,9 @@ export interface IObjectStorage {
     key: string,
     value: ReadableStream | ArrayBuffer | string,
     options?: {
-      httpMetadata?: ObjectMetadata['httpMetadata'];
+      httpMetadata?: ObjectMetadata["httpMetadata"];
       customMetadata?: Record<string, string>;
-    }
+    },
   ): Promise<void>;
 
   get(key: string): Promise<StorageObject | null>;
@@ -133,9 +135,12 @@ export interface IObjectStorage {
  * Key-value store interface - abstracts KVNamespace
  */
 export interface IKeyValueStore {
-  get(key: string, options?: { type?: 'text' }): Promise<string | null>;
-  get<T = unknown>(key: string, options: { type: 'json' }): Promise<T | null>;
-  get(key: string, options: { type: 'arrayBuffer' }): Promise<ArrayBuffer | null>;
+  get(key: string, options?: { type?: "text" }): Promise<string | null>;
+  get<T = unknown>(key: string, options: { type: "json" }): Promise<T | null>;
+  get(
+    key: string,
+    options: { type: "arrayBuffer" },
+  ): Promise<ArrayBuffer | null>;
 
   put(
     key: string,
@@ -144,7 +149,7 @@ export interface IKeyValueStore {
       expirationTtl?: number;
       expiration?: number;
       metadata?: Record<string, unknown>;
-    }
+    },
   ): Promise<void>;
 
   delete(key: string): Promise<void>;

@@ -1,7 +1,7 @@
-import type { JSX } from 'solid-js';
-import { Sidebar } from './Sidebar.tsx';
-import { BottomNav } from './BottomNav.tsx';
-import { RightSidebar } from './RightSidebar.tsx';
+import type { JSX } from "solid-js";
+import { Sidebar } from "./Sidebar.tsx";
+import { BottomNav } from "./BottomNav.tsx";
+import { RightSidebar } from "./RightSidebar.tsx";
 
 export function AppLayout(props: { children?: JSX.Element }) {
   return (

@@ -5,24 +5,27 @@
  * and common utilities used across the compatibility layer.
  */
 
-import type BetterSqlite3 from 'better-sqlite3';
+import { Buffer } from "node:buffer";
+import type BetterSqlite3 from "better-sqlite3";
 
 type DatabaseConstructor = typeof BetterSqlite3;
 
 let Database: DatabaseConstructor | null = null;
-let fs: typeof import('fs/promises') | null = null;
-let path: typeof import('path') | null = null;
+let fs: typeof import("fs/promises") | null = null;
+let path: typeof import("path") | null = null;
 
 export async function loadNodeModules(): Promise<void> {
   if (!Database) {
-    const sqlite = await import('better-sqlite3');
-    Database = (sqlite as unknown as { default: DatabaseConstructor }).default ?? sqlite as unknown as DatabaseConstructor;
+    const sqlite = await import("better-sqlite3");
+    Database =
+      (sqlite as unknown as { default: DatabaseConstructor }).default ??
+        sqlite as unknown as DatabaseConstructor;
   }
   if (!fs) {
-    fs = await import('fs/promises');
+    fs = await import("fs/promises");
   }
   if (!path) {
-    path = await import('path');
+    path = await import("path");
   }
 }
 
@@ -30,18 +33,20 @@ export function getDatabase(): DatabaseConstructor {
   return Database!;
 }
 
-export function getFs(): typeof import('fs/promises') {
+export function getFs(): typeof import("fs/promises") {
   return fs!;
 }
 
-export function getPath(): typeof import('path') {
+export function getPath(): typeof import("path") {
   return path!;
 }
 
 /**
  * Read a ReadableStream into a single Uint8Array.
  */
-export async function drainStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+export async function drainStream(
+  stream: ReadableStream<Uint8Array>,
+): Promise<Uint8Array> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   for (;;) {
@@ -65,9 +70,11 @@ export async function drainStream(stream: ReadableStream<Uint8Array>): Promise<U
 export async function toBuffer(
   value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob,
 ): Promise<Buffer> {
-  if (typeof value === 'string') return Buffer.from(value, 'utf-8');
+  if (typeof value === "string") return Buffer.from(value, "utf-8");
   if (value instanceof ArrayBuffer) return Buffer.from(value);
-  if (ArrayBuffer.isView(value)) return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+  if (ArrayBuffer.isView(value)) {
+    return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+  }
   if (value instanceof Blob) return Buffer.from(await value.arrayBuffer());
   // ReadableStream
   return Buffer.from(await drainStream(value as ReadableStream<Uint8Array>));
@@ -76,9 +83,11 @@ export async function toBuffer(
 /**
  * Read and parse a JSON metadata sidecar file, returning an empty object on failure.
  */
-export async function readMetaFile<T extends object>(metaPath: string): Promise<T> {
+export async function readMetaFile<T extends object>(
+  metaPath: string,
+): Promise<T> {
   try {
-    const content = await getFs().readFile(metaPath, 'utf-8');
+    const content = await getFs().readFile(metaPath, "utf-8");
     return JSON.parse(content) as T;
   } catch {
     return {} as T;

@@ -16,24 +16,24 @@
  * - Drawing mode
  */
 
-import { createSignal, createEffect, onCleanup } from 'solid-js';
-import type { JSX } from 'solid-js/jsx-runtime';
+import { createEffect, createSignal, onCleanup } from "solid-js";
+import type { JSX } from "solid-js/jsx-runtime";
 import {
-  StoryCanvas,
-  Layer,
   DrawingLayer,
   DrawingPath,
-} from '../lib/story-canvas.ts';
+  Layer,
+  StoryCanvas,
+} from "../lib/story-canvas.ts";
 import {
-  type SnapGuide,
-  displayToCanvas as displayToCanvasImpl,
-  calculateSnapGuides as calculateSnapGuidesImpl,
   applySnap as applySnapImpl,
+  calculateSnapGuides as calculateSnapGuidesImpl,
+  displayToCanvas as displayToCanvasImpl,
   getTouchInfo,
-} from '../lib/canvas-math.ts';
+  type SnapGuide,
+} from "../lib/canvas-math.ts";
 
 export type { SnapGuide };
-export type InteractionMode = 'select' | 'draw';
+export type InteractionMode = "select" | "draw";
 
 interface InteractionState {
   mode: InteractionMode;
@@ -63,7 +63,7 @@ export function useCanvasInteraction({
   onSnapGuidesChange,
 }: UseCanvasInteractionOptions) {
   const [state, setState] = createSignal<InteractionState>({
-    mode: 'select',
+    mode: "select",
     selectedLayerId: null,
     isDragging: false,
     isPinching: false,
@@ -71,7 +71,7 @@ export function useCanvasInteraction({
   });
 
   const [drawingSettings, setDrawingSettings] = createSignal<DrawingSettings>({
-    color: '#ffffff',
+    color: "#ffffff",
     width: 8,
     opacity: 1,
   });
@@ -116,7 +116,7 @@ export function useCanvasInteraction({
     setState((prev) => ({
       ...prev,
       mode,
-      selectedLayerId: mode === 'draw' ? null : prev.selectedLayerId,
+      selectedLayerId: mode === "draw" ? null : prev.selectedLayerId,
     }));
   };
 
@@ -136,22 +136,28 @@ export function useCanvasInteraction({
   const handlePointerDown = (e: MouseEvent | TouchEvent) => {
     if (!canvas) return;
 
-    const isTouchEvent = 'touches' in e;
+    const isTouchEvent = "touches" in e;
     const touchCount = isTouchEvent ? e.touches.length : 1;
     lastTouchCount = touchCount;
 
     const currentState = state();
     const currentDrawingSettings = drawingSettings();
 
-    if (currentState.mode === 'draw') {
+    if (currentState.mode === "draw") {
       // Drawing mode - single touch only
       e.preventDefault();
-      const clientX = isTouchEvent ? e.touches[0].clientX : (e as MouseEvent).clientX;
-      const clientY = isTouchEvent ? e.touches[0].clientY : (e as MouseEvent).clientY;
+      const clientX = isTouchEvent
+        ? e.touches[0].clientX
+        : (e as MouseEvent).clientX;
+      const clientY = isTouchEvent
+        ? e.touches[0].clientY
+        : (e as MouseEvent).clientY;
       const canvasPos = displayToCanvas(clientX, clientY);
 
       // Find or create drawing layer
-      let drawingLayer = canvas.getLayers().find((l) => l.type === 'drawing') as DrawingLayer | undefined;
+      let drawingLayer = canvas.getLayers().find((l) => l.type === "drawing") as
+        | DrawingLayer
+        | undefined;
       if (!drawingLayer) {
         drawingLayer = canvas.createDrawingLayer();
         canvas.addLayer(drawingLayer);
@@ -182,7 +188,8 @@ export function useCanvasInteraction({
       if (currentState.selectedLayerId) {
         const layer = canvas.getLayer(currentState.selectedLayerId);
         if (layer) {
-          initialScaleRef = layer.width / (startLayerStateRef.width || layer.width);
+          initialScaleRef = layer.width /
+            (startLayerStateRef.width || layer.width);
           initialRotationRef = layer.rotation;
           startLayerStateRef = {
             x: layer.x,
@@ -197,15 +204,19 @@ export function useCanvasInteraction({
       setState((prev) => ({ ...prev, isPinching: true }));
     } else {
       // Single finger - hit test and drag
-      const clientX = isTouchEvent ? e.touches[0].clientX : (e as MouseEvent).clientX;
-      const clientY = isTouchEvent ? e.touches[0].clientY : (e as MouseEvent).clientY;
+      const clientX = isTouchEvent
+        ? e.touches[0].clientX
+        : (e as MouseEvent).clientX;
+      const clientY = isTouchEvent
+        ? e.touches[0].clientY
+        : (e as MouseEvent).clientY;
       const canvasPos = displayToCanvas(clientX, clientY);
 
       startPos = canvasPos;
 
       const hitLayer = canvas.hitTest(canvasPos.x, canvasPos.y);
 
-      if (hitLayer && hitLayer.type !== 'background') {
+      if (hitLayer && hitLayer.type !== "background") {
         startLayerStateRef = {
           x: hitLayer.x,
           y: hitLayer.y,
@@ -235,13 +246,17 @@ export function useCanvasInteraction({
     if (!canvas) return;
 
     const currentState = state();
-    const isTouchEvent = 'touches' in e;
+    const isTouchEvent = "touches" in e;
     const touchCount = isTouchEvent ? e.touches.length : 1;
 
     if (currentState.isDrawing && currentDrawingPath && drawingLayerIdRef) {
       // Drawing
-      const clientX = isTouchEvent ? e.touches[0].clientX : (e as MouseEvent).clientX;
-      const clientY = isTouchEvent ? e.touches[0].clientY : (e as MouseEvent).clientY;
+      const clientX = isTouchEvent
+        ? e.touches[0].clientX
+        : (e as MouseEvent).clientX;
+      const clientY = isTouchEvent
+        ? e.touches[0].clientY
+        : (e as MouseEvent).clientY;
       const canvasPos = displayToCanvas(clientX, clientY);
 
       currentDrawingPath.points.push({
@@ -261,7 +276,10 @@ export function useCanvasInteraction({
         canvas.updateLayer(drawingLayerIdRef, { paths });
         onUpdate();
       }
-    } else if (currentState.isPinching && currentState.selectedLayerId && isTouchEvent && touchCount >= 2) {
+    } else if (
+      currentState.isPinching && currentState.selectedLayerId && isTouchEvent &&
+      touchCount >= 2
+    ) {
       // Pinch to resize and rotate
       const touchInfo = getTouchInfo(e.touches);
       const layer = canvas.getLayer(currentState.selectedLayerId);
@@ -277,8 +295,10 @@ export function useCanvasInteraction({
       const newRotation = (startLayerStateRef.rotation || 0) + angleChange;
 
       // Keep center position
-      const centerX = (startLayerStateRef.x || 0) + (startLayerStateRef.width || 0) / 2;
-      const centerY = (startLayerStateRef.y || 0) + (startLayerStateRef.height || 0) / 2;
+      const centerX = (startLayerStateRef.x || 0) +
+        (startLayerStateRef.width || 0) / 2;
+      const centerY = (startLayerStateRef.y || 0) +
+        (startLayerStateRef.height || 0) / 2;
       const newX = centerX - newWidth / 2;
       const newY = centerY - newHeight / 2;
 
@@ -296,8 +316,12 @@ export function useCanvasInteraction({
       }
     } else if (currentState.isDragging && currentState.selectedLayerId) {
       // Drag to move
-      const clientX = isTouchEvent ? e.touches[0].clientX : (e as MouseEvent).clientX;
-      const clientY = isTouchEvent ? e.touches[0].clientY : (e as MouseEvent).clientY;
+      const clientX = isTouchEvent
+        ? e.touches[0].clientX
+        : (e as MouseEvent).clientX;
+      const clientY = isTouchEvent
+        ? e.touches[0].clientY
+        : (e as MouseEvent).clientY;
       const canvasPos = displayToCanvas(clientX, clientY);
 
       const dx = canvasPos.x - startPos.x;
@@ -328,7 +352,10 @@ export function useCanvasInteraction({
 
     // Check if touch count changed (e.g., added second finger)
     if (isTouchEvent && touchCount !== lastTouchCount) {
-      if (touchCount >= 2 && currentState.isDragging && currentState.selectedLayerId) {
+      if (
+        touchCount >= 2 && currentState.isDragging &&
+        currentState.selectedLayerId
+      ) {
         // Transition from drag to pinch
         const touchInfo = getTouchInfo(e.touches);
         initialPinchDistance = touchInfo.distance;
@@ -346,9 +373,15 @@ export function useCanvasInteraction({
         }
 
         setState((prev) => ({ ...prev, isDragging: false, isPinching: true }));
-      } else if (touchCount === 1 && currentState.isPinching && currentState.selectedLayerId) {
+      } else if (
+        touchCount === 1 && currentState.isPinching &&
+        currentState.selectedLayerId
+      ) {
         // Transition from pinch to drag
-        const canvasPos = displayToCanvas(e.touches[0].clientX, e.touches[0].clientY);
+        const canvasPos = displayToCanvas(
+          e.touches[0].clientX,
+          e.touches[0].clientY,
+        );
         startPos = canvasPos;
 
         const layer = canvas.getLayer(currentState.selectedLayerId);
@@ -372,7 +405,10 @@ export function useCanvasInteraction({
   const handlePointerUp = () => {
     const currentState = state();
 
-    if (currentState.isDrawing && currentDrawingPath && drawingLayerIdRef && canvas) {
+    if (
+      currentState.isDrawing && currentDrawingPath && drawingLayerIdRef &&
+      canvas
+    ) {
       const drawingLayer = canvas.getLayer(drawingLayerIdRef) as DrawingLayer;
       if (drawingLayer) {
         const paths = [...drawingLayer.paths];
@@ -402,7 +438,7 @@ export function useCanvasInteraction({
   const clearDrawing = () => {
     if (!canvas) return;
 
-    const drawingLayer = canvas.getLayers().find((l) => l.type === 'drawing');
+    const drawingLayer = canvas.getLayers().find((l) => l.type === "drawing");
     if (drawingLayer) {
       canvas.removeLayer(drawingLayer.id);
       drawingLayerIdRef = null;
@@ -425,10 +461,12 @@ export function useCanvasInteraction({
   // Handle mouse wheel for resize (PC) or rotate (Shift + wheel)
   const handleWheel = (e: WheelEvent) => {
     const currentState = state();
-    if (!canvas || !currentState.selectedLayerId || currentState.mode === 'draw') return;
+    if (
+      !canvas || !currentState.selectedLayerId || currentState.mode === "draw"
+    ) return;
 
     const layer = canvas.getLayer(currentState.selectedLayerId);
-    if (!layer || layer.type === 'background') return;
+    if (!layer || layer.type === "background") return;
 
     e.preventDefault();
 
@@ -438,7 +476,9 @@ export function useCanvasInteraction({
       // Shift + wheel = rotate
       const rotationStep = 5; // degrees per scroll
       const newRotation = (layer.rotation + delta * rotationStep) % 360;
-      canvas.updateLayer(currentState.selectedLayerId, { rotation: newRotation });
+      canvas.updateLayer(currentState.selectedLayerId, {
+        rotation: newRotation,
+      });
     } else {
       // Wheel = resize (maintain aspect ratio)
       const scaleFactor = 1 + delta * 0.05; // 5% per scroll
@@ -466,7 +506,10 @@ export function useCanvasInteraction({
   createEffect(() => {
     const onMove = (e: MouseEvent | TouchEvent) => {
       const currentState = state();
-      if (currentState.isDragging || currentState.isPinching || currentState.isDrawing) {
+      if (
+        currentState.isDragging || currentState.isPinching ||
+        currentState.isDrawing
+      ) {
         e.preventDefault();
         handlePointerMove(e);
       }
@@ -474,21 +517,24 @@ export function useCanvasInteraction({
 
     const onUp = () => {
       const currentState = state();
-      if (currentState.isDragging || currentState.isPinching || currentState.isDrawing) {
+      if (
+        currentState.isDragging || currentState.isPinching ||
+        currentState.isDrawing
+      ) {
         handlePointerUp();
       }
     };
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    window.addEventListener('touchmove', onMove, { passive: false });
-    window.addEventListener('touchend', onUp);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onUp);
 
     onCleanup(() => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      window.removeEventListener('touchmove', onMove);
-      window.removeEventListener('touchend', onUp);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onUp);
     });
   });
 

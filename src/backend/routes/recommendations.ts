@@ -1,9 +1,9 @@
-import { Hono } from 'hono';
-import { sql } from 'drizzle-orm';
-import type { Env, Variables } from '../types.ts';
-import { formatUsername } from '../federation-helpers.ts';
-import { withCache, CacheTTL, CacheTags } from '../middleware/cache.ts';
-import { batchLoadActorInfo } from './communities/membership-shared.ts';
+import { Hono } from "hono";
+import { sql } from "drizzle-orm";
+import type { Env, Variables } from "../types.ts";
+import { formatUsername } from "../federation-helpers.ts";
+import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
+import { batchLoadActorInfo } from "./communities/membership-shared.ts";
 
 const recommendations = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -15,16 +15,21 @@ const recommendations = new Hono<{ Bindings: Env; Variables: Variables }>();
  * ranked by number of mutual connections.
  */
 recommendations.get(
-  '/users',
-  withCache({ ttl: CacheTTL.ACTOR_PROFILE, varyByActor: true, cacheTag: CacheTags.ACTOR }),
+  "/users",
+  withCache({
+    ttl: CacheTTL.ACTOR_PROFILE,
+    varyByActor: true,
+    cacheTag: CacheTags.ACTOR,
+  }),
   async (c) => {
-    const actor = c.get('actor');
-    if (!actor) return c.json({ error: 'Unauthorized' }, 401);
+    const actor = c.get("actor");
+    if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-    const db = c.get('db');
+    const db = c.get("db");
     const myApId = actor.ap_id;
 
-    const candidates = await db.all<{ ap_id: string; mutual_count: number }>(sql`
+    const candidates = await db.all<{ ap_id: string; mutual_count: number }>(
+      sql`
       SELECT f2.following_ap_id AS ap_id, COUNT(DISTINCT f2.follower_ap_id) AS mutual_count
       FROM follows f1
       JOIN follows f2 ON f1.following_ap_id = f2.follower_ap_id AND f2.status = 'accepted'
@@ -44,11 +49,15 @@ recommendations.get(
       GROUP BY f2.following_ap_id
       ORDER BY mutual_count DESC
       LIMIT 5
-    `);
+    `,
+    );
 
     if (candidates.length === 0) return c.json({ users: [] });
 
-    const actorMap = await batchLoadActorInfo(db, candidates.map(r => r.ap_id));
+    const actorMap = await batchLoadActorInfo(
+      db,
+      candidates.map((r) => r.ap_id),
+    );
 
     const users = candidates.map((row) => {
       const info = actorMap.get(row.ap_id);

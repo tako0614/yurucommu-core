@@ -1,26 +1,33 @@
-import { eq, and, or, sql } from 'drizzle-orm';
-import { follows, activities, communities, objects, objectRecipients } from '../../../../db/index.ts';
+import { and, eq, or, sql } from "drizzle-orm";
+import {
+  activities,
+  communities,
+  follows,
+  objectRecipients,
+  objects,
+} from "../../../../db/index.ts";
 import {
   activityApId,
   generateId,
   isLocal,
   objectApId,
-} from '../../../federation-helpers.ts';
-import { enqueueDeliveryToActor } from '../../../lib/delivery/queue.ts';
-import type { InstanceActorResult } from '../utils.ts';
+} from "../../../federation-helpers.ts";
+import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
+import type { InstanceActorResult } from "../utils.ts";
 import {
-  type ActivityContext,
   type Activity,
+  type ActivityContext,
   getActivityObject,
   getActivityObjectId,
-} from '../inbox-types.ts';
+} from "../inbox-types.ts";
 
-const AS_CONTEXT = 'https://www.w3.org/ns/activitystreams';
+const AS_CONTEXT = "https://www.w3.org/ns/activitystreams";
 
-const JOIN_POLICY_STATUS: Record<string, 'accepted' | 'pending' | 'rejected'> = {
-  approval: 'pending',
-  invite: 'rejected',
-};
+const JOIN_POLICY_STATUS: Record<string, "accepted" | "pending" | "rejected"> =
+  {
+    approval: "pending",
+    invite: "rejected",
+  };
 
 export async function handleGroupFollow(
   c: ActivityContext,
@@ -28,9 +35,9 @@ export async function handleGroupFollow(
   instanceActor: InstanceActorResult,
   actorApIdStr: string,
   baseUrl: string,
-  activityId: string
+  activityId: string,
 ) {
-  const db = c.get('db');
+  const db = c.get("db");
   const followerKey = {
     followerApId: actorApIdStr,
     followingApId: instanceActor.apId,
@@ -39,28 +46,29 @@ export async function handleGroupFollow(
   const existing = await db.query.follows.findFirst({
     where: and(
       eq(follows.followerApId, followerKey.followerApId),
-      eq(follows.followingApId, followerKey.followingApId)
+      eq(follows.followingApId, followerKey.followingApId),
     ),
   });
   if (existing) return;
 
-  const status = JOIN_POLICY_STATUS[instanceActor.joinPolicy ?? ''] ?? 'accepted';
+  const status = JOIN_POLICY_STATUS[instanceActor.joinPolicy ?? ""] ??
+    "accepted";
 
   const now = new Date().toISOString();
   await db.insert(follows).values({
     ...followerKey,
     status,
     activityApId: activityId,
-    acceptedAt: status === 'accepted' ? now : null,
+    acceptedAt: status === "accepted" ? now : null,
   });
 
   if (isLocal(actorApIdStr, baseUrl)) return;
-  if (status === 'pending') return;
+  if (status === "pending") return;
 
-  const responseType = status === 'accepted' ? 'Accept' : 'Reject';
+  const responseType = status === "accepted" ? "Accept" : "Reject";
   const responseId = activityApId(baseUrl, generateId());
   const responseActivity = {
-    '@context': AS_CONTEXT,
+    "@context": AS_CONTEXT,
     id: responseId,
     type: responseType,
     actor: instanceActor.apId,
@@ -73,7 +81,7 @@ export async function handleGroupFollow(
     actorApId: instanceActor.apId,
     objectApId: activityId,
     rawJson: JSON.stringify(responseActivity),
-    direction: 'outbound',
+    direction: "outbound",
   });
 
   // Outbound delivery must be async (no remote POST in request path).
@@ -83,9 +91,9 @@ export async function handleGroupFollow(
 export async function handleGroupUndo(
   c: ActivityContext,
   activity: Activity,
-  instanceActor: InstanceActorResult
+  instanceActor: InstanceActorResult,
 ) {
-  const db = c.get('db');
+  const db = c.get("db");
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
@@ -93,7 +101,7 @@ export async function handleGroupUndo(
   const follow = await db.query.follows.findFirst({
     where: and(
       eq(follows.activityApId, objectId),
-      eq(follows.followingApId, instanceActor.apId)
+      eq(follows.followingApId, instanceActor.apId),
     ),
   });
 
@@ -101,20 +109,20 @@ export async function handleGroupUndo(
     await db.delete(follows).where(
       and(
         eq(follows.followerApId, follow.followerApId),
-        eq(follows.followingApId, follow.followingApId)
-      )
+        eq(follows.followingApId, follow.followingApId),
+      ),
     );
     return;
   }
 
   // Fallback: if the undone object is a Follow, delete by actor pair.
-  if (getActivityObject(activity)?.type !== 'Follow') return;
+  if (getActivityObject(activity)?.type !== "Follow") return;
 
   await db.delete(follows).where(
     and(
       eq(follows.followerApId, activity.actor as string),
-      eq(follows.followingApId, instanceActor.apId)
-    )
+      eq(follows.followingApId, instanceActor.apId),
+    ),
   );
 }
 
@@ -123,14 +131,14 @@ export async function handleGroupCreate(
   activity: Activity,
   instanceActor: InstanceActorResult,
   actorApIdStr: string,
-  baseUrl: string
+  baseUrl: string,
 ) {
-  const db = c.get('db');
+  const db = c.get("db");
   const object = getActivityObject(activity);
-  if (!object || object.type !== 'Note') return;
+  if (!object || object.type !== "Note") return;
 
   const roomUrl = object.room || activity.room;
-  if (!roomUrl || typeof roomUrl !== 'string') return;
+  if (!roomUrl || typeof roomUrl !== "string") return;
   const match = roomUrl.match(/\/ap\/rooms\/([^\/]+)$/);
   if (!match) return;
   const roomId = match[1];
@@ -138,23 +146,23 @@ export async function handleGroupCreate(
   const community = await db.query.communities.findFirst({
     where: or(
       eq(communities.preferredUsername, roomId),
-      eq(communities.apId, roomId)
+      eq(communities.apId, roomId),
     ),
     columns: { apId: true, preferredUsername: true },
   });
   if (!community) return;
 
-  const postingPolicy = instanceActor.postingPolicy || 'members';
-  if (postingPolicy !== 'anyone') {
+  const postingPolicy = instanceActor.postingPolicy || "members";
+  if (postingPolicy !== "anyone") {
     const followRecord = await db.query.follows.findFirst({
       where: and(
         eq(follows.followerApId, actorApIdStr),
         eq(follows.followingApId, instanceActor.apId),
-        eq(follows.status, 'accepted')
+        eq(follows.status, "accepted"),
       ),
     });
     if (!followRecord) return;
-    if (postingPolicy === 'mods' || postingPolicy === 'owners') return;
+    if (postingPolicy === "mods" || postingPolicy === "owners") return;
   }
 
   const newObjectId = object.id || objectApId(baseUrl, generateId());
@@ -163,17 +171,19 @@ export async function handleGroupCreate(
   });
   if (existingObj) return;
 
-  const attachments = object.attachment ? JSON.stringify(object.attachment) : '[]';
+  const attachments = object.attachment
+    ? JSON.stringify(object.attachment)
+    : "[]";
   const now = object.published || new Date().toISOString();
 
   await db.insert(objects).values({
     apId: newObjectId,
-    type: 'Note',
+    type: "Note",
     attributedTo: actorApIdStr,
-    content: object.content || '',
+    content: object.content || "",
     summary: object.summary || null,
     attachmentsJson: attachments,
-    visibility: 'group',
+    visibility: "group",
     communityApId: community.apId,
     published: now,
     isLocal: 0,

@@ -1,28 +1,28 @@
-import { onMount } from 'solid-js';
-import { useAtomValue, useSetAtom } from 'solid-jotai';
+import { onMount } from "solid-js";
+import { useAtomValue, useSetAtom } from "solid-jotai";
 import {
   actorAtom,
   authLoadingAtom,
-  loginErrorAtom,
-  needsSetupAtom,
-  instancePendingAtom,
-  instanceMissingAtom,
+  checkAuthAtom,
+  completeSetupAtom,
+  hostedUserAtom,
+  initAuthAtom,
   instanceBlockedAtom,
   instanceHealthAtom,
-  hostedUserAtom,
+  instanceMissingAtom,
+  instancePendingAtom,
   instancesAtom,
-  selectedInstanceIdAtom,
   instancesLoadingAtom,
   IS_HOSTED,
-  initAuthAtom,
   loginAtom,
+  loginErrorAtom,
   logoutAtom,
-  completeSetupAtom,
-  selectInstanceAtom,
+  needsSetupAtom,
   rebuildInstanceAtom,
-  checkAuthAtom,
-} from '../atoms/auth.ts';
-import type { HostedInstance } from '../atoms/auth.ts';
+  selectedInstanceIdAtom,
+  selectInstanceAtom,
+} from "../atoms/auth.ts";
+import type { HostedInstance } from "../atoms/auth.ts";
 
 export type { HostedInstance };
 

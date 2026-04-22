@@ -1,7 +1,7 @@
 // FFmpeg utility for Story composition
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from './story-canvas.ts';
+import { FFmpeg } from "@ffmpeg/ffmpeg";
+import { fetchFile, toBlobURL } from "@ffmpeg/util";
+import { CANVAS_HEIGHT, CANVAS_WIDTH } from "./story-canvas.ts";
 
 // Timeout constants
 const FFMPEG_TIMEOUT = 120000; // 2分（120秒）
@@ -10,7 +10,11 @@ const FFMPEG_DOWNLOAD_CORE_TIMEOUT = 30000; // 30秒（コアダウンロード�
 const FFMPEG_DOWNLOAD_WASM_TIMEOUT = 60000; // 1分（WASMダウンロード用）
 
 // Timeout utility
-function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  message: string,
+): Promise<T> {
   const timeout = new Promise<never>((_, reject) => {
     setTimeout(() => reject(new FFmpegError(message)), ms);
   });
@@ -24,9 +28,9 @@ let loading: Promise<void> | null = null;
 
 // Custom error class for FFmpeg operations
 export class FFmpegError extends Error {
-  constructor(message: string, public readonly cause?: unknown) {
+  constructor(message: string, public override readonly cause?: unknown) {
     super(message);
-    this.name = 'FFmpegError';
+    this.name = "FFmpegError";
   }
 }
 
@@ -36,7 +40,11 @@ export async function initFFmpeg(): Promise<FFmpeg> {
 
   if (loading) {
     // 初期化待ちにもタイムアウト
-    await withTimeout(loading, FFMPEG_INIT_TIMEOUT, 'FFmpegの初期化がタイムアウトしました。ページを再読み込みしてください。');
+    await withTimeout(
+      loading,
+      FFMPEG_INIT_TIMEOUT,
+      "FFmpegの初期化がタイムアウトしました。ページを再読み込みしてください。",
+    );
     return ffmpeg!;
   }
 
@@ -44,19 +52,19 @@ export async function initFFmpeg(): Promise<FFmpeg> {
 
   loading = (async () => {
     try {
-      const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
+      const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
 
       // 各ファイルのダウンロードにもタイムアウト
       const [coreURL, wasmURL] = await Promise.all([
         withTimeout(
-          toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+          toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
           FFMPEG_DOWNLOAD_CORE_TIMEOUT,
-          'FFmpegコアのダウンロードがタイムアウトしました'
+          "FFmpegコアのダウンロードがタイムアウトしました",
         ),
         withTimeout(
-          toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+          toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
           FFMPEG_DOWNLOAD_WASM_TIMEOUT,
-          'FFmpeg WASMのダウンロードがタイムアウトしました'
+          "FFmpeg WASMのダウンロードがタイムアウトしました",
         ),
       ]);
 
@@ -66,7 +74,7 @@ export async function initFFmpeg(): Promise<FFmpeg> {
       loading = null;
       ffmpeg = null;
       if (error instanceof FFmpegError) throw error;
-      throw new FFmpegError('Failed to initialize FFmpeg', error);
+      throw new FFmpegError("Failed to initialize FFmpeg", error);
     }
   })();
 
@@ -77,20 +85,20 @@ export async function initFFmpeg(): Promise<FFmpeg> {
 // Get file extension from MIME type
 function getExtensionFromMimeType(mimeType: string): string {
   const mimeToExt: Record<string, string> = {
-    'video/mp4': 'mp4',
-    'video/webm': 'webm',
-    'video/quicktime': 'mov',
-    'video/x-msvideo': 'avi',
-    'video/x-matroska': 'mkv',
-    'video/ogg': 'ogv',
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+    "video/quicktime": "mov",
+    "video/x-msvideo": "avi",
+    "video/x-matroska": "mkv",
+    "video/ogg": "ogv",
   };
-  return mimeToExt[mimeType] || 'mp4';
+  return mimeToExt[mimeType] || "mp4";
 }
 
 // Get video duration
 export async function getVideoDuration(file: File): Promise<number> {
   return new Promise((resolve) => {
-    const video = document.createElement('video');
+    const video = document.createElement("video");
     const objectUrl = URL.createObjectURL(file);
     video.src = objectUrl;
     video.onloadedmetadata = () => {
@@ -107,7 +115,7 @@ export async function getVideoDuration(file: File): Promise<number> {
 
 // Check if file is video
 export function isVideoFile(file: File): boolean {
-  return file.type.startsWith('video/');
+  return file.type.startsWith("video/");
 }
 
 /**
@@ -117,14 +125,14 @@ export function isVideoFile(file: File): boolean {
 export async function exportCanvasToJpeg(
   canvas: HTMLCanvasElement,
   quality: number = 92,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
 ): Promise<Blob> {
   const ff = await initFFmpeg();
 
   const progressHandler = ({ progress }: { progress: number }) => {
     onProgress?.(progress * 100);
   };
-  ff.on('progress', progressHandler);
+  ff.on("progress", progressHandler);
 
   try {
     // Convert canvas to PNG blob (lossless intermediate)
@@ -132,42 +140,48 @@ export async function exportCanvasToJpeg(
       canvas.toBlob(
         (blob) => {
           if (blob) resolve(blob);
-          else reject(new Error('Failed to create PNG blob'));
+          else reject(new Error("Failed to create PNG blob"));
         },
-        'image/png'
+        "image/png",
       );
     });
 
     // Write to FFmpeg filesystem
     const pngData = new Uint8Array(await pngBlob.arrayBuffer());
-    await ff.writeFile('input.png', pngData);
+    await ff.writeFile("input.png", pngData);
 
     // Convert to JPEG with FFmpeg
     await withTimeout(
       ff.exec([
-        '-i', 'input.png',
-        '-q:v', String(Math.round((100 - quality) / 100 * 31)), // FFmpeg quality scale (0-31, lower is better)
-        '-y',
-        'output.jpg',
+        "-i",
+        "input.png",
+        "-q:v",
+        String(Math.round((100 - quality) / 100 * 31)), // FFmpeg quality scale (0-31, lower is better)
+        "-y",
+        "output.jpg",
       ]),
       FFMPEG_TIMEOUT,
-      '画像のエクスポートがタイムアウトしました'
+      "画像のエクスポートがタイムアウトしました",
     );
 
     // Read output
-    const data = await ff.readFile('output.jpg');
+    const data = await ff.readFile("output.jpg");
 
     // Cleanup
-    try { await ff.deleteFile('input.png'); } catch { /* ignore */ }
-    try { await ff.deleteFile('output.jpg'); } catch { /* ignore */ }
+    try {
+      await ff.deleteFile("input.png");
+    } catch { /* ignore */ }
+    try {
+      await ff.deleteFile("output.jpg");
+    } catch { /* ignore */ }
 
     const blobData = data instanceof Uint8Array ? new Uint8Array(data) : data;
-    return new Blob([blobData], { type: 'image/jpeg' });
+    return new Blob([blobData], { type: "image/jpeg" });
   } catch (error) {
     if (error instanceof FFmpegError) throw error;
-    throw new FFmpegError('Failed to export canvas to JPEG', error);
+    throw new FFmpegError("Failed to export canvas to JPEG", error);
   } finally {
-    ff.off('progress', progressHandler);
+    ff.off("progress", progressHandler);
   }
 }
 
@@ -189,14 +203,14 @@ export async function exportCanvasWithVideo(
   canvas: HTMLCanvasElement,
   videoFile: File,
   onProgress?: (progress: number) => void,
-  videoTransform?: VideoTransform
+  videoTransform?: VideoTransform,
 ): Promise<{ blob: Blob; duration: number }> {
   const ff = await initFFmpeg();
 
   const progressHandler = ({ progress }: { progress: number }) => {
     onProgress?.(progress * 100);
   };
-  ff.on('progress', progressHandler);
+  ff.on("progress", progressHandler);
 
   try {
     // Get video duration
@@ -207,9 +221,9 @@ export async function exportCanvasWithVideo(
       canvas.toBlob(
         (blob) => {
           if (blob) resolve(blob);
-          else reject(new Error('Failed to create PNG blob'));
+          else reject(new Error("Failed to create PNG blob"));
         },
-        'image/png'
+        "image/png",
       );
     });
 
@@ -219,7 +233,7 @@ export async function exportCanvasWithVideo(
     const pngData = new Uint8Array(await pngBlob.arrayBuffer());
 
     await ff.writeFile(`input.${ext}`, videoData);
-    await ff.writeFile('overlay.png', pngData);
+    await ff.writeFile("overlay.png", pngData);
 
     // Build video filter with transform
     let videoFilter: string;
@@ -233,8 +247,12 @@ export async function exportCanvasWithVideo(
     if (hasTransform && videoTransform) {
       // Convert display coordinates to canvas coordinates
       const scale = videoTransform.scale;
-      const offsetX = Math.round(videoTransform.position.x * videoTransform.displayScale);
-      const offsetY = Math.round(videoTransform.position.y * videoTransform.displayScale);
+      const offsetX = Math.round(
+        videoTransform.position.x * videoTransform.displayScale,
+      );
+      const offsetY = Math.round(
+        videoTransform.position.y * videoTransform.displayScale,
+      );
       const rotationRad = (videoTransform.rotation * Math.PI) / 180;
 
       // Calculate scaled video dimensions (larger to accommodate rotation)
@@ -248,54 +266,74 @@ export async function exportCanvasWithVideo(
       // Scale video, rotate, then position on black background
       if (videoTransform.rotation !== 0) {
         // With rotation: scale -> rotate -> crop -> overlay
-        videoFilter = `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,crop=${scaledW}:${scaledH},rotate=${rotationRad}:c=black:ow=${scaledW}:oh=${scaledH}[scaled];color=black:s=${CANVAS_WIDTH}x${CANVAS_HEIGHT}[bg];[bg][scaled]overlay=${posX}:${posY}[v];[v][1:v]overlay=0:0[out]`;
+        videoFilter =
+          `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,crop=${scaledW}:${scaledH},rotate=${rotationRad}:c=black:ow=${scaledW}:oh=${scaledH}[scaled];color=black:s=${CANVAS_WIDTH}x${CANVAS_HEIGHT}[bg];[bg][scaled]overlay=${posX}:${posY}[v];[v][1:v]overlay=0:0[out]`;
       } else {
         // Without rotation: scale -> crop -> overlay
-        videoFilter = `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,crop=${scaledW}:${scaledH}[scaled];color=black:s=${CANVAS_WIDTH}x${CANVAS_HEIGHT}[bg];[bg][scaled]overlay=${posX}:${posY}[v];[v][1:v]overlay=0:0[out]`;
+        videoFilter =
+          `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,crop=${scaledW}:${scaledH}[scaled];color=black:s=${CANVAS_WIDTH}x${CANVAS_HEIGHT}[bg];[bg][scaled]overlay=${posX}:${posY}[v];[v][1:v]overlay=0:0[out]`;
       }
     } else {
       // Default: scale to fit and center
-      videoFilter = `[0:v]scale=${CANVAS_WIDTH}:${CANVAS_HEIGHT}:force_original_aspect_ratio=decrease,pad=${CANVAS_WIDTH}:${CANVAS_HEIGHT}:(ow-iw)/2:(oh-ih)/2[v];[v][1:v]overlay=0:0[out]`;
+      videoFilter =
+        `[0:v]scale=${CANVAS_WIDTH}:${CANVAS_HEIGHT}:force_original_aspect_ratio=decrease,pad=${CANVAS_WIDTH}:${CANVAS_HEIGHT}:(ow-iw)/2:(oh-ih)/2[v];[v][1:v]overlay=0:0[out]`;
     }
 
     // Compose video with canvas overlay
     await withTimeout(
       ff.exec([
-        '-i', `input.${ext}`,
-        '-i', 'overlay.png',
-        '-filter_complex', videoFilter,
-        '-map', '[out]',
-        '-map', '0:a?',
-        '-c:v', 'libx264',
-        '-preset', 'fast',
-        '-crf', '23',
-        '-c:a', 'aac',
-        '-movflags', '+faststart',
-        '-t', '60',
-        '-y',
-        'output.mp4',
+        "-i",
+        `input.${ext}`,
+        "-i",
+        "overlay.png",
+        "-filter_complex",
+        videoFilter,
+        "-map",
+        "[out]",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "fast",
+        "-crf",
+        "23",
+        "-c:a",
+        "aac",
+        "-movflags",
+        "+faststart",
+        "-t",
+        "60",
+        "-y",
+        "output.mp4",
       ]),
       FFMPEG_TIMEOUT * 2,
-      '動画のエクスポートがタイムアウトしました'
+      "動画のエクスポートがタイムアウトしました",
     );
 
     // Read output
-    const data = await ff.readFile('output.mp4');
+    const data = await ff.readFile("output.mp4");
 
     // Cleanup
-    try { await ff.deleteFile(`input.${ext}`); } catch { /* ignore */ }
-    try { await ff.deleteFile('overlay.png'); } catch { /* ignore */ }
-    try { await ff.deleteFile('output.mp4'); } catch { /* ignore */ }
+    try {
+      await ff.deleteFile(`input.${ext}`);
+    } catch { /* ignore */ }
+    try {
+      await ff.deleteFile("overlay.png");
+    } catch { /* ignore */ }
+    try {
+      await ff.deleteFile("output.mp4");
+    } catch { /* ignore */ }
 
     const blobData = data instanceof Uint8Array ? new Uint8Array(data) : data;
     return {
-      blob: new Blob([blobData], { type: 'video/mp4' }),
+      blob: new Blob([blobData], { type: "video/mp4" }),
       duration: Math.min(duration, 60),
     };
   } catch (error) {
     if (error instanceof FFmpegError) throw error;
-    throw new FFmpegError('Failed to export video', error);
+    throw new FFmpegError("Failed to export video", error);
   } finally {
-    ff.off('progress', progressHandler);
+    ff.off("progress", progressHandler);
   }
 }

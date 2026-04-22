@@ -4,7 +4,11 @@
  * transport behavior (URL resolution, auth headers, credentials mode).
  */
 
-import { getApiTransport } from '../plugin.ts';
+import { getApiTransport } from "../plugin.ts";
+import {
+  fetchWithTimeout,
+  type FetchWithTimeoutInit,
+} from "../fetch-with-timeout.ts";
 
 /**
  * Custom error class for API responses that includes the HTTP status code.
@@ -15,7 +19,7 @@ export class ApiError extends Error {
     message: string,
   ) {
     super(`${status}: ${message}`);
-    this.name = 'ApiError';
+    this.name = "ApiError";
   }
 }
 
@@ -23,7 +27,10 @@ export class ApiError extends Error {
  * Read an error message from a failed API response. Attempts to parse JSON
  * with an `error` field; falls back to `statusText`.
  */
-export async function extractErrorMessage(res: Response, fallback: string): Promise<string> {
+export async function extractErrorMessage(
+  res: Response,
+  fallback: string,
+): Promise<string> {
   try {
     const data = (await res.json()) as { error?: string };
     return data.error || fallback;
@@ -43,7 +50,12 @@ export async function assertOk(res: Response, fallback: string): Promise<void> {
   }
 }
 
-export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
+export interface ApiRequestInit extends FetchWithTimeoutInit {}
+
+export function apiFetch(
+  url: string,
+  options: ApiRequestInit = {},
+): Promise<Response> {
   const transport = getApiTransport();
   const apiUrl = transport.resolveUrl(url);
   const headers = new Headers(options.headers);
@@ -55,7 +67,7 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
     }
   }
 
-  return fetch(apiUrl, {
+  return fetchWithTimeout(apiUrl, {
     ...options,
     headers,
     credentials: options.credentials ?? transport.credentials,
@@ -66,14 +78,14 @@ function createApiMethod(method: string) {
   return async (
     url: string,
     body?: unknown,
-    options: Omit<RequestInit, 'method' | 'body'> = {}
+    options: Omit<ApiRequestInit, "method" | "body"> = {},
   ): Promise<Response> => {
     const headers = new Headers(options.headers);
     if (body) {
-      headers.set('Content-Type', 'application/json');
+      headers.set("Content-Type", "application/json");
     }
 
-    return apiFetch(url, {
+    return await apiFetch(url, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
@@ -82,7 +94,7 @@ function createApiMethod(method: string) {
   };
 }
 
-export const apiPost = createApiMethod('POST');
-export const apiPut = createApiMethod('PUT');
-export const apiPatch = createApiMethod('PATCH');
-export const apiDelete = createApiMethod('DELETE');
+export const apiPost = createApiMethod("POST");
+export const apiPut = createApiMethod("PUT");
+export const apiPatch = createApiMethod("PATCH");
+export const apiDelete = createApiMethod("DELETE");

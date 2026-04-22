@@ -1,8 +1,21 @@
-import { Actor, Post, Story, Notification, ActorStories } from '../../types/index.ts';
+import {
+  Actor,
+  ActorStories,
+  Notification,
+  Post,
+  Story,
+} from "../../types/index.ts";
 
-type ActorLike = { ap_id: string; username?: string; preferred_username?: string };
+type ActorLike = {
+  ap_id: string;
+  username?: string;
+  preferred_username?: string;
+};
 
-function formatUsernameFromApId(apId: string, preferred?: string): string | null {
+function formatUsernameFromApId(
+  apId: string,
+  preferred?: string,
+): string | null {
   try {
     const url = new URL(apId);
     const match = apId.match(/\/(users|groups)\/([^/]+)$/);
@@ -17,15 +30,13 @@ function formatUsernameFromApId(apId: string, preferred?: string): string | null
 export function normalizeActor<T extends ActorLike>(actor: T): T {
   if (!actor || !actor.ap_id) return actor;
   const rawUsername = actor.username?.trim();
-  const formatted =
-    rawUsername ||
+  const formatted = rawUsername ||
     formatUsernameFromApId(actor.ap_id, actor.preferred_username) ||
     actor.preferred_username ||
     actor.username ||
     actor.ap_id;
-  const preferred =
-    actor.preferred_username?.trim() ||
-    (formatted.includes('@') ? formatted.split('@')[0] : formatted);
+  const preferred = actor.preferred_username?.trim() ||
+    (formatted.includes("@") ? formatted.split("@")[0] : formatted);
 
   return {
     ...actor,
@@ -50,7 +61,9 @@ export const normalizeActorStories = (stories: ActorStories): ActorStories => ({
   stories: (stories.stories || []).map(normalizeStory),
 });
 
-export const normalizeNotification = (notification: Notification): Notification => ({
+export const normalizeNotification = (
+  notification: Notification,
+): Notification => ({
   ...notification,
   actor: normalizeActor(notification.actor),
 });

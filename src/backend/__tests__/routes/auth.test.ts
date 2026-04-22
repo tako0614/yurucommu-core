@@ -1,10 +1,10 @@
-import { Hono } from 'hono';
-import { assertEquals } from 'jsr:@std/assert';
-import { spy, stub, assertSpyCalls } from 'jsr:@std/testing/mock';
-import { FakeTime } from 'jsr:@std/testing/time';
-import authRoutes from '../../routes/auth.ts';
-import { LOGIN_LOCKOUT_CONFIG } from '../../lib/auth-lockout.ts';
-import { hashPassword } from '../../lib/crypto.ts';
+import { Hono } from "hono";
+import { assertEquals } from "jsr:@std/assert";
+import { assertSpyCalls, spy, stub } from "jsr:@std/testing/mock";
+import { FakeTime } from "jsr:@std/testing/time";
+import authRoutes from "../../routes/auth.ts";
+import { LOGIN_LOCKOUT_CONFIG } from "../../lib/auth-lockout.ts";
+import { hashPassword } from "../../lib/crypto.ts";
 
 class MockKVNamespace {
   private store = new Map<string, { value: string; expiration?: number }>();
@@ -19,7 +19,11 @@ class MockKVNamespace {
     return record.value;
   }
 
-  async put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void> {
+  async put(
+    key: string,
+    value: string,
+    options?: { expirationTtl?: number },
+  ): Promise<void> {
     const expiration = options?.expirationTtl
       ? Math.floor(Date.now() / 1000) + options.expirationTtl
       : undefined;
@@ -36,16 +40,19 @@ async function request(
   env: Record<string, unknown>,
   path: string,
   body: unknown,
-  headers: Record<string, string>
+  headers: Record<string, string>,
 ) {
-  const res = await app.fetch(new Request(`https://test.local${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...headers,
-    },
-    body: JSON.stringify(body),
-  }), env);
+  const res = await app.fetch(
+    new Request(`https://test.local${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...headers,
+      },
+      body: JSON.stringify(body),
+    }),
+    env,
+  );
 
   const text = await res.text();
   let json: unknown = null;
@@ -57,24 +64,27 @@ async function request(
   return { res, body: json };
 }
 
-function createAuthTestApp(hashedPassword: string, envOverrides: Record<string, unknown> = {}) {
+function createAuthTestApp(
+  hashedPassword: string,
+  envOverrides: Record<string, unknown> = {},
+) {
   const env = {
     KV: new MockKVNamespace(),
     AUTH_PASSWORD_HASH: hashedPassword,
-    APP_URL: 'https://test.yurucommu.com',
+    APP_URL: "https://test.yurucommu.com",
     ...envOverrides,
   };
 
   const app = new Hono();
-  app.use('/api/auth/*', async (c, next) => {
+  app.use("/api/auth/*", async (c, next) => {
     const actorData = {
-      apId: 'https://test.yurucommu.com/ap/users/tako',
-      type: 'Person',
-      preferredUsername: 'tako',
-      name: 'tako',
+      apId: "https://test.yurucommu.com/ap/users/tako",
+      type: "Person",
+      preferredUsername: "tako",
+      name: "tako",
       iconUrl: null,
-      role: 'owner',
-      takosUserId: 'password:owner',
+      role: "owner",
+      takosUserId: "password:owner",
     };
 
     const mockGet = spy(() => Promise.resolve(actorData));
@@ -100,80 +110,102 @@ function createAuthTestApp(hashedPassword: string, envOverrides: Record<string, 
       then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
     }));
 
-    (c as unknown as { set: (key: string, value: unknown) => void }).set('db', {
+    (c as unknown as { set: (key: string, value: unknown) => void }).set("db", {
       select: mockSelect,
       insert: mockInsert,
       delete: mockDelete,
     });
     await next();
   });
-  app.route('/api/auth', authRoutes);
+  app.route("/api/auth", authRoutes);
 
   return { app, env };
 }
 
-Deno.test('auth login lockout - locks out after 5 failed login attempts', async () => {
-  const hashedPassword = await hashPassword('correct-password');
-  const time = new FakeTime(new Date('2026-02-18T00:00:00.000Z'));
+Deno.test("auth login lockout - locks out after 5 failed login attempts", async () => {
+  const hashedPassword = await hashPassword("correct-password");
+  const time = new FakeTime(new Date("2026-02-18T00:00:00.000Z"));
   try {
     const { app, env } = createAuthTestApp(hashedPassword);
-    const headers = { 'CF-Connecting-IP': '198.51.100.24' };
+    const headers = { "CF-Connecting-IP": "198.51.100.24" };
 
     for (let i = 0; i < 4; i++) {
-      const { res } = await request(app, env, '/api/auth/login', { password: 'wrong-password' }, headers);
+      const { res } = await request(app, env, "/api/auth/login", {
+        password: "wrong-password",
+      }, headers);
       assertEquals(res.status, 401);
     }
 
-    const { res: lockoutRes } = await request(app, env, '/api/auth/login', { password: 'wrong-password' }, headers);
+    const { res: lockoutRes } = await request(app, env, "/api/auth/login", {
+      password: "wrong-password",
+    }, headers);
     assertEquals(lockoutRes.status, 429);
-    assert_not_null(lockoutRes.headers.get('Retry-After'));
+    assert_not_null(lockoutRes.headers.get("Retry-After"));
 
-    const { res: blockedRes } = await request(app, env, '/api/auth/login', { password: 'correct-password' }, headers);
+    const { res: blockedRes } = await request(app, env, "/api/auth/login", {
+      password: "correct-password",
+    }, headers);
     assertEquals(blockedRes.status, 429);
   } finally {
     time.restore();
   }
 });
 
-Deno.test('auth login lockout - clears lockout state after successful login', async () => {
-  const hashedPassword = await hashPassword('correct-password');
-  const time = new FakeTime(new Date('2026-02-18T00:00:00.000Z'));
+Deno.test("auth login lockout - clears lockout state after successful login", async () => {
+  const hashedPassword = await hashPassword("correct-password");
+  const time = new FakeTime(new Date("2026-02-18T00:00:00.000Z"));
   try {
     const { app, env } = createAuthTestApp(hashedPassword);
-    const headers = { 'CF-Connecting-IP': '198.51.100.25' };
+    const headers = { "CF-Connecting-IP": "198.51.100.25" };
 
     for (let i = 0; i < 4; i++) {
-      const { res } = await request(app, env, '/api/auth/login', { password: 'wrong-password' }, headers);
+      const { res } = await request(app, env, "/api/auth/login", {
+        password: "wrong-password",
+      }, headers);
       assertEquals(res.status, 401);
     }
 
-    const { res: successRes } = await request(app, env, '/api/auth/login', { password: 'correct-password' }, headers);
+    const { res: successRes } = await request(app, env, "/api/auth/login", {
+      password: "correct-password",
+    }, headers);
     assertEquals(successRes.status, 200);
 
-    const { res: retryRes } = await request(app, env, '/api/auth/login', { password: 'wrong-password' }, headers);
+    const { res: retryRes } = await request(app, env, "/api/auth/login", {
+      password: "wrong-password",
+    }, headers);
     assertEquals(retryRes.status, 401);
   } finally {
     time.restore();
   }
 });
 
-Deno.test('auth login lockout - allows retries again after lockout window passes', async () => {
-  const hashedPassword = await hashPassword('correct-password');
-  const time = new FakeTime(new Date('2026-02-18T00:00:00.000Z'));
+Deno.test("auth login lockout - allows retries again after lockout window passes", async () => {
+  const hashedPassword = await hashPassword("correct-password");
+  const time = new FakeTime(new Date("2026-02-18T00:00:00.000Z"));
   try {
     const { app, env } = createAuthTestApp(hashedPassword);
-    const headers = { 'CF-Connecting-IP': '198.51.100.26' };
+    const headers = { "CF-Connecting-IP": "198.51.100.26" };
 
     for (let i = 0; i < LOGIN_LOCKOUT_CONFIG.maxFailedAttempts; i++) {
-      await request(app, env, '/api/auth/login', { password: 'wrong-password' }, headers);
+      await request(
+        app,
+        env,
+        "/api/auth/login",
+        { password: "wrong-password" },
+        headers,
+      );
     }
 
-    const { res: lockedRes } = await request(app, env, '/api/auth/login', { password: 'wrong-password' }, headers);
+    const { res: lockedRes } = await request(app, env, "/api/auth/login", {
+      password: "wrong-password",
+    }, headers);
     assertEquals(lockedRes.status, 429);
 
     time.tick(LOGIN_LOCKOUT_CONFIG.lockoutMs + 1_000);
 
-    const { res: postWindowRes } = await request(app, env, '/api/auth/login', { password: 'wrong-password' }, headers);
+    const { res: postWindowRes } = await request(app, env, "/api/auth/login", {
+      password: "wrong-password",
+    }, headers);
     assertEquals(postWindowRes.status, 401);
   } finally {
     time.restore();
@@ -183,6 +215,6 @@ Deno.test('auth login lockout - allows retries again after lockout window passes
 /** Helper: assert value is not null */
 function assert_not_null<T>(value: T | null): asserts value is T {
   if (value === null) {
-    throw new Error('Expected value to not be null');
+    throw new Error("Expected value to not be null");
   }
 }

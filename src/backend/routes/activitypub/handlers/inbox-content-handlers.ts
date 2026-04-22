@@ -1,22 +1,31 @@
-import type { Database } from '../../../../db/index.ts';
-import { eq, and, or, sql, inArray } from 'drizzle-orm';
-import { actors, actorCache, objects, follows, likes, storyVotes, storyViews, activities } from '../../../../db/index.ts';
-import { upsertActivityAndNotify } from './inbox-shared-helpers.ts';
+import type { Database } from "../../../../db/index.ts";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
+import {
+  activities,
+  actorCache,
+  actors,
+  follows,
+  likes,
+  objects,
+  storyViews,
+  storyVotes,
+} from "../../../../db/index.ts";
+import { upsertActivityAndNotify } from "./inbox-shared-helpers.ts";
 import {
   activityApId,
+  fetchWithTimeout,
   generateId,
   isLocal,
   isSafeRemoteUrl,
   objectApId,
-  fetchWithTimeout,
-} from '../../../federation-helpers.ts';
+} from "../../../federation-helpers.ts";
 import {
-  type ActivityContext,
   type Activity,
-  type StoryOverlay,
+  type ActivityContext,
   getActivityObject,
   getActivityObjectId,
-} from '../inbox-types.ts';
+  type StoryOverlay,
+} from "../inbox-types.ts";
 
 type ActorRow = typeof actors.$inferSelect;
 
@@ -26,7 +35,7 @@ type ActorRow = typeof actors.$inferSelect;
 
 function isStoryType(type: string | string[] | undefined): boolean {
   if (!type) return false;
-  return Array.isArray(type) ? type.includes('Story') : type === 'Story';
+  return Array.isArray(type) ? type.includes("Story") : type === "Story";
 }
 
 // ---------------------------------------------------------------------------
@@ -38,9 +47,9 @@ export async function handleCreate(
   activity: Activity,
   _recipient: ActorRow,
   actor: string,
-  baseUrl: string
+  baseUrl: string,
 ) {
-  const db = c.get('db');
+  const db = c.get("db");
   const object = getActivityObject(activity);
   if (!object) return;
 
@@ -51,7 +60,7 @@ export async function handleCreate(
   }
 
   // Handle Note type
-  if (object.type !== 'Note') return;
+  if (object.type !== "Note") return;
 
   const objectId = object.id || objectApId(baseUrl, generateId());
 
@@ -62,28 +71,36 @@ export async function handleCreate(
     .get();
   if (existing) return;
 
-  const attachments = object.attachment ? JSON.stringify(object.attachment) : '[]';
+  const attachments = object.attachment
+    ? JSON.stringify(object.attachment)
+    : "[]";
   const publishedAt = object.published || new Date().toISOString();
   const parentObj = object.inReplyTo
     ? await db.select({ attributedTo: objects.attributedTo })
-        .from(objects)
-        .where(eq(objects.apId, object.inReplyTo))
-        .get()
+      .from(objects)
+      .where(eq(objects.apId, object.inReplyTo))
+      .get()
     : null;
-  const shouldNotifyParent = !!(parentObj && isLocal(parentObj.attributedTo, baseUrl));
-  const replyActivityId = shouldNotifyParent ? activity.id || activityApId(baseUrl, generateId()) : null;
+  const shouldNotifyParent =
+    !!(parentObj && isLocal(parentObj.attributedTo, baseUrl));
+  const replyActivityId = shouldNotifyParent
+    ? activity.id || activityApId(baseUrl, generateId())
+    : null;
 
   // Try to insert object; if duplicate, skip
   const insertResult = await db.insert(objects)
     .values({
       apId: objectId,
-      type: 'Note',
+      type: "Note",
       attributedTo: actor,
-      content: object.content || '',
+      content: object.content || "",
       summary: object.summary || null,
       attachmentsJson: attachments,
       inReplyTo: object.inReplyTo || null,
-      visibility: object.to?.includes('https://www.w3.org/ns/activitystreams#Public') ? 'public' : 'unlisted',
+      visibility:
+        object.to?.includes("https://www.w3.org/ns/activitystreams#Public")
+          ? "public"
+          : "unlisted",
       communityApId: null,
       published: publishedAt,
       isLocal: 0,
@@ -106,7 +123,13 @@ export async function handleCreate(
 
   if (shouldNotifyParent && parentObj && replyActivityId) {
     await upsertActivityAndNotify(
-      db, replyActivityId, 'Create', actor, objectId, activity, parentObj.attributedTo
+      db,
+      replyActivityId,
+      "Create",
+      actor,
+      objectId,
+      activity,
+      parentObj.attributedTo,
     );
   }
 }
@@ -119,9 +142,9 @@ export async function handleCreateStory(
   c: ActivityContext,
   activity: Activity,
   actor: string,
-  baseUrl: string
+  baseUrl: string,
 ) {
-  const db = c.get('db');
+  const db = c.get("db");
   const object = getActivityObject(activity);
   if (!object) return;
   const objectId = object.id || objectApId(baseUrl, generateId());
@@ -135,7 +158,7 @@ export async function handleCreateStory(
 
   // attachment validation (required)
   if (!object.attachment) {
-    console.error('Remote story has no attachment:', objectId);
+    console.error("Remote story has no attachment:", objectId);
     return;
   }
 
@@ -143,10 +166,15 @@ export async function handleCreateStory(
   const attachmentArray = Array.isArray(object.attachment)
     ? object.attachment
     : [object.attachment];
-  const attachment = attachmentArray[0] as { url?: string; mediaType?: string; width?: number; height?: number };
+  const attachment = attachmentArray[0] as {
+    url?: string;
+    mediaType?: string;
+    width?: number;
+    height?: number;
+  };
 
   if (!attachment || !attachment.url) {
-    console.error('Remote story attachment has no URL:', objectId);
+    console.error("Remote story attachment has no URL:", objectId);
     return;
   }
 
@@ -156,8 +184,8 @@ export async function handleCreateStory(
     const filtered = (object.overlays as StoryOverlay[]).filter(
       (o: StoryOverlay) =>
         o && o.position &&
-        typeof o.position.x === 'number' &&
-        typeof o.position.y === 'number'
+        typeof o.position.x === "number" &&
+        typeof o.position.y === "number",
     );
     if (filtered.length > 0) overlays = filtered;
   }
@@ -165,25 +193,27 @@ export async function handleCreateStory(
   // Build attachments_json
   const attachmentData = {
     attachment: {
-      r2_key: '', // Remote stories don't have local R2 key
-      content_type: attachment.mediaType || 'image/jpeg',
+      r2_key: "", // Remote stories don't have local R2 key
+      content_type: attachment.mediaType || "image/jpeg",
       url: attachment.url,
       width: attachment.width || 1080,
       height: attachment.height || 1920,
     },
-    displayDuration: (object as { displayDuration?: string }).displayDuration || 'PT5S',
+    displayDuration: (object as { displayDuration?: string }).displayDuration ||
+      "PT5S",
     overlays,
   };
 
   const now = new Date().toISOString();
-  const endTime = object.endTime || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const endTime = object.endTime ||
+    new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
   await db.insert(objects)
     .values({
       apId: objectId,
-      type: 'Story',
+      type: "Story",
       attributedTo: actor,
-      content: '',
+      content: "",
       attachmentsJson: JSON.stringify(attachmentData),
       endTime,
       published: object.published || now,
@@ -196,11 +226,11 @@ export async function handleCreateStory(
 // ---------------------------------------------------------------------------
 
 export async function handleDelete(c: ActivityContext, activity: Activity) {
-  const db = c.get('db');
+  const db = c.get("db");
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
-  const actorId = typeof activity.actor === 'string' ? activity.actor : null;
+  const actorId = typeof activity.actor === "string" ? activity.actor : null;
   if (!actorId) {
     console.warn(`[ActivityPub] Delete activity missing actor`);
     return;
@@ -218,12 +248,14 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
 
   // Verify actor owns the object before deleting
   if (delObj.attributedTo !== actorId) {
-    console.warn(`[ActivityPub] Delete rejected: actor ${actorId} does not own object ${objectId} (owned by ${delObj.attributedTo})`);
+    console.warn(
+      `[ActivityPub] Delete rejected: actor ${actorId} does not own object ${objectId} (owned by ${delObj.attributedTo})`,
+    );
     return;
   }
 
   // Story-specific cleanup
-  if (delObj.type === 'Story') {
+  if (delObj.type === "Story") {
     await db.delete(storyVotes).where(eq(storyVotes.storyApId, objectId));
     await db.delete(storyViews).where(eq(storyViews.storyApId, objectId));
   }
@@ -242,8 +274,12 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
 // Update handler
 // ---------------------------------------------------------------------------
 
-export async function handleUpdate(c: ActivityContext, activity: Activity, actor: string) {
-  const db = c.get('db');
+export async function handleUpdate(
+  c: ActivityContext,
+  activity: Activity,
+  actor: string,
+) {
+  const db = c.get("db");
   const object = getActivityObject(activity);
   if (!object) return;
 
@@ -257,8 +293,10 @@ export async function handleUpdate(c: ActivityContext, activity: Activity, actor
   if (!existing || existing.attributedTo !== actor) return;
 
   // Update object content
-  if (object.type === 'Note') {
-    const attachments = object.attachment ? JSON.stringify(object.attachment) : undefined;
+  if (object.type === "Note") {
+    const attachments = object.attachment
+      ? JSON.stringify(object.attachment)
+      : undefined;
     await db.update(objects)
       .set({
         content: object.content || undefined,
@@ -274,8 +312,12 @@ export async function handleUpdate(c: ActivityContext, activity: Activity, actor
 // Move handler (account migration)
 // ---------------------------------------------------------------------------
 
-export async function handleMove(c: ActivityContext, activity: Activity, actor: string) {
-  const db = c.get('db');
+export async function handleMove(
+  c: ActivityContext,
+  activity: Activity,
+  actor: string,
+) {
+  const db = c.get("db");
   const oldActorApId = getActivityObjectId(activity);
   const newActorApId = getActivityTargetId(activity);
   if (!oldActorApId || !newActorApId) return;
@@ -319,17 +361,31 @@ export async function handleMove(c: ActivityContext, activity: Activity, actor: 
 
   const existingFollowerPairs = followerTargets.length > 0
     ? await db.select({ followingApId: follows.followingApId })
-        .from(follows)
-        .where(and(eq(follows.followerApId, newActorApId), inArray(follows.followingApId, followerTargets)))
+      .from(follows)
+      .where(
+        and(
+          eq(follows.followerApId, newActorApId),
+          inArray(follows.followingApId, followerTargets),
+        ),
+      )
     : [];
   const existingFollowingPairs = followingSources.length > 0
     ? await db.select({ followerApId: follows.followerApId })
-        .from(follows)
-        .where(and(inArray(follows.followerApId, followingSources), eq(follows.followingApId, newActorApId)))
+      .from(follows)
+      .where(
+        and(
+          inArray(follows.followerApId, followingSources),
+          eq(follows.followingApId, newActorApId),
+        ),
+      )
     : [];
 
-  const existingFollowerTargetSet = new Set(existingFollowerPairs.map((row) => row.followingApId));
-  const existingFollowingSourceSet = new Set(existingFollowingPairs.map((row) => row.followerApId));
+  const existingFollowerTargetSet = new Set(
+    existingFollowerPairs.map((row) => row.followingApId),
+  );
+  const existingFollowingSourceSet = new Set(
+    existingFollowingPairs.map((row) => row.followerApId),
+  );
 
   const followerRewrites = followerRows
     .filter((row) => !existingFollowerTargetSet.has(row.followingApId))
@@ -374,14 +430,14 @@ export async function handleMove(c: ActivityContext, activity: Activity, actor: 
 function getActivityTargetId(activity: Activity): string | null {
   const target = activity.target;
   if (!target) return null;
-  if (typeof target === 'string') return target;
+  if (typeof target === "string") return target;
   return target.id || null;
 }
 
 /** Fetch a remote actor document and cache it locally. Best-effort (errors are logged, not thrown). */
 async function refreshActorCache(
   db: Database,
-  actorApIdValue: string
+  actorApIdValue: string,
 ): Promise<void> {
   type RemoteActorDoc = {
     id: string;
@@ -398,16 +454,19 @@ async function refreshActorCache(
 
   try {
     const res = await fetchWithTimeout(actorApIdValue, {
-      headers: { 'Accept': 'application/activity+json, application/ld+json' },
+      headers: { "Accept": "application/activity+json, application/ld+json" },
       timeout: 15000,
     });
     if (!res.ok) return;
 
     const data = await res.json() as RemoteActorDoc;
-    if (!data?.id || data.id !== actorApIdValue || !data.inbox || !isSafeRemoteUrl(data.inbox)) return;
+    if (
+      !data?.id || data.id !== actorApIdValue || !data.inbox ||
+      !isSafeRemoteUrl(data.inbox)
+    ) return;
 
     const cacheFields = {
-      type: data.type || 'Person',
+      type: data.type || "Person",
       preferredUsername: data.preferredUsername || null,
       name: data.name || null,
       summary: data.summary || null,
@@ -425,6 +484,6 @@ async function refreshActorCache(
       .values({ apId: data.id, ...cacheFields })
       .onConflictDoUpdate({ target: actorCache.apId, set: cacheFields });
   } catch (e) {
-    console.warn('[ActivityPub] Failed to refresh Move target actor cache:', e);
+    console.warn("[ActivityPub] Failed to refresh Move target actor cache:", e);
   }
 }

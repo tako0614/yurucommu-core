@@ -3,11 +3,22 @@
  */
 
 import { relations } from "drizzle-orm";
-import { actors, actorCache, sessions } from "./actors.ts";
-import { objects, likes, announces, bookmarks, objectRecipients } from "./posts.ts";
-import { follows, blocks, mutes } from "./social.ts";
-import { communities, communityMembers, communityJoinRequests, communityInvites } from "./communities.ts";
-import { storyViews, storyVotes, storyShares } from "./stories.ts";
+import { actorCache, actors, sessions } from "./actors.ts";
+import {
+  announces,
+  bookmarks,
+  likes,
+  objectRecipients,
+  objects,
+} from "./posts.ts";
+import { blocks, follows, mutes } from "./social.ts";
+import {
+  communities,
+  communityInvites,
+  communityJoinRequests,
+  communityMembers,
+} from "./communities.ts";
+import { storyShares, storyViews, storyVotes } from "./stories.ts";
 import { activities, inbox } from "./messaging.ts";
 
 // ===========================================================================
@@ -147,49 +158,61 @@ export const communitiesRelations = relations(communities, ({ many }) => ({
   invites: many(communityInvites),
 }));
 
-export const communityMembersRelations = relations(communityMembers, ({ one }) => ({
-  community: one(communities, {
-    fields: [communityMembers.communityApId],
-    references: [communities.apId],
+export const communityMembersRelations = relations(
+  communityMembers,
+  ({ one }) => ({
+    community: one(communities, {
+      fields: [communityMembers.communityApId],
+      references: [communities.apId],
+    }),
+    actor: one(actors, {
+      fields: [communityMembers.actorApId],
+      references: [actors.apId],
+    }),
   }),
-  actor: one(actors, {
-    fields: [communityMembers.actorApId],
-    references: [actors.apId],
-  }),
-}));
+);
 
-export const communityJoinRequestsRelations = relations(communityJoinRequests, ({ one }) => ({
-  community: one(communities, {
-    fields: [communityJoinRequests.communityApId],
-    references: [communities.apId],
+export const communityJoinRequestsRelations = relations(
+  communityJoinRequests,
+  ({ one }) => ({
+    community: one(communities, {
+      fields: [communityJoinRequests.communityApId],
+      references: [communities.apId],
+    }),
+    actor: one(actors, {
+      fields: [communityJoinRequests.actorApId],
+      references: [actors.apId],
+    }),
   }),
-  actor: one(actors, {
-    fields: [communityJoinRequests.actorApId],
-    references: [actors.apId],
-  }),
-}));
+);
 
-export const communityInvitesRelations = relations(communityInvites, ({ one }) => ({
-  community: one(communities, {
-    fields: [communityInvites.communityApId],
-    references: [communities.apId],
+export const communityInvitesRelations = relations(
+  communityInvites,
+  ({ one }) => ({
+    community: one(communities, {
+      fields: [communityInvites.communityApId],
+      references: [communities.apId],
+    }),
+    invitedBy: one(actors, {
+      fields: [communityInvites.invitedByApId],
+      references: [actors.apId],
+    }),
   }),
-  invitedBy: one(actors, {
-    fields: [communityInvites.invitedByApId],
-    references: [actors.apId],
-  }),
-}));
+);
 
-export const objectRecipientsRelations = relations(objectRecipients, ({ one }) => ({
-  object: one(objects, {
-    fields: [objectRecipients.objectApId],
-    references: [objects.apId],
+export const objectRecipientsRelations = relations(
+  objectRecipients,
+  ({ one }) => ({
+    object: one(objects, {
+      fields: [objectRecipients.objectApId],
+      references: [objects.apId],
+    }),
+    recipient: one(actors, {
+      fields: [objectRecipients.recipientApId],
+      references: [actors.apId],
+    }),
   }),
-  recipient: one(actors, {
-    fields: [objectRecipients.recipientApId],
-    references: [actors.apId],
-  }),
-}));
+);
 
 export const inboxRelations = relations(inbox, ({ one }) => ({
   actor: one(actors, {
