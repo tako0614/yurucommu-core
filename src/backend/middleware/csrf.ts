@@ -23,6 +23,18 @@ function isDevLocalhost(appUrl: string | undefined): boolean {
     (appUrl.includes("localhost") || appUrl.includes("127.0.0.1"));
 }
 
+function isBearerApiRequest(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+) {
+  const auth = c.req.header("Authorization");
+  if (!auth?.startsWith("Bearer ")) return false;
+
+  // Browser session requests must still satisfy CSRF checks even if a script
+  // adds an Authorization header. Server-to-server bearer calls should not
+  // carry cookies.
+  return !c.req.header("Cookie");
+}
+
 /**
  * CSRF protection middleware.
  * Validates Origin/Referer for state-changing requests as defense-in-depth
@@ -35,6 +47,7 @@ export function csrfProtection() {
   ) => {
     if (!STATE_CHANGING_METHODS.has(c.req.method.toUpperCase())) return next();
     if (isActivityPubInbox(c.req.path)) return next();
+    if (isBearerApiRequest(c)) return next();
 
     const appUrl = c.env.APP_URL;
     const expectedOrigin = getOrigin(appUrl);

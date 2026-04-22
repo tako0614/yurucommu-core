@@ -76,7 +76,6 @@
         "jsx-button-has-type",
         "jsx-boolean-value",
         "jsx-curly-braces",
-        "no-explicit-any",
         "no-import-prefix",
         "no-slow-types",
         "no-unused-vars",

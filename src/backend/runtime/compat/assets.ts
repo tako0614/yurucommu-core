@@ -6,6 +6,7 @@
  */
 
 import { getFs, getPath, loadNodeModules } from "./node-modules.ts";
+import { isPathWithinBasePath, resolvePathWithinBasePath } from "../shared.ts";
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html",
@@ -36,6 +37,7 @@ function getMimeType(ext: string): string {
  */
 export class AssetsCompatFetcher {
   private basePath: string;
+  private realBasePath: string | null = null;
 
   constructor(basePath: string) {
     this.basePath = basePath;
@@ -46,29 +48,59 @@ export class AssetsCompatFetcher {
     return new AssetsCompatFetcher(basePath);
   }
 
+  private getResolvedBasePath(): string {
+    return getPath().resolve(this.basePath);
+  }
+
+  private async getRealBasePath(): Promise<string> {
+    if (this.realBasePath) return this.realBasePath;
+    try {
+      this.realBasePath = await getFs().realpath(this.getResolvedBasePath());
+    } catch {
+      this.realBasePath = this.getResolvedBasePath();
+    }
+    return this.realBasePath;
+  }
+
   async fetch(request: Request): Promise<Response> {
     const fs = getFs();
     const path = getPath();
     const url = new URL(request.url);
-    let filePath = path.join(this.basePath, url.pathname);
-
-    // Security: prevent directory traversal
-    const resolvedPath = path.resolve(filePath);
-    if (!resolvedPath.startsWith(path.resolve(this.basePath))) {
+    let filePath: string;
+    try {
+      filePath = resolvePathWithinBasePath(
+        this.getResolvedBasePath(),
+        `.${url.pathname}`,
+      );
+    } catch {
       return new Response("Forbidden", { status: 403 });
     }
 
+    const realBasePath = await this.getRealBasePath();
+
     try {
-      const stats = await fs.stat(filePath);
+      const realFilePath = await fs.realpath(filePath);
+      if (!isPathWithinBasePath(realBasePath, realFilePath)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+
+      const stats = await fs.stat(realFilePath);
       if (stats.isDirectory()) {
-        filePath = path.join(filePath, "index.html");
+        const indexPath = path.join(realFilePath, "index.html");
+        const realIndexPath = await fs.realpath(indexPath);
+        if (!isPathWithinBasePath(realBasePath, realIndexPath)) {
+          return new Response("Forbidden", { status: 403 });
+        }
+        filePath = realIndexPath;
+      } else {
+        filePath = realFilePath;
       }
 
       const content = await fs.readFile(filePath);
       const ext = path.extname(filePath).toLowerCase();
       const contentType = getMimeType(ext);
 
-      return new Response(content, {
+      return new Response(new Uint8Array(content), {
         headers: {
           "Content-Type": contentType,
           "Content-Length": String(content.length),
@@ -77,9 +109,13 @@ export class AssetsCompatFetcher {
     } catch {
       // SPA fallback
       try {
-        const indexPath = path.join(this.basePath, "index.html");
-        const content = await fs.readFile(indexPath);
-        return new Response(content, {
+        const indexPath = path.join(this.getResolvedBasePath(), "index.html");
+        const realIndexPath = await fs.realpath(indexPath);
+        if (!isPathWithinBasePath(realBasePath, realIndexPath)) {
+          return new Response("Forbidden", { status: 403 });
+        }
+        const content = await fs.readFile(realIndexPath);
+        return new Response(new Uint8Array(content), {
           headers: { "Content-Type": "text/html" },
         });
       } catch {

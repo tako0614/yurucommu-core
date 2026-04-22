@@ -1,5 +1,3 @@
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck - This file is Bun-specific and should be type-checked by Bun's TypeScript
 /**
  * Bun Cloudflare Compatibility Layer
  *

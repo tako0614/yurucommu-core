@@ -1,5 +1,3 @@
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck - This file is Deno-specific and should be type-checked by Deno's TypeScript
 /**
  * Deno Runtime Adapters
  *
@@ -22,31 +20,64 @@ import type {
 } from "./types.ts";
 import { MemoryKV } from "./memory-kv.ts";
 import {
+  assertPathChainWithinBasePath,
   DEFAULT_LIST_LIMIT,
   getMimeType,
+  isPathWithinBasePath,
   META_SUFFIX,
   readStream,
+  resolvePathWithinBasePath,
 } from "./shared.ts";
+import path from "node:path";
+
+type DenoSQLiteRunResult = {
+  changes: number;
+  lastInsertRowid: number;
+};
+
+interface DenoSQLiteStatement {
+  get(...values: unknown[]): unknown;
+  all(...values: unknown[]): unknown[];
+  run(...values: unknown[]): void;
+  finalize(): void;
+}
+
+interface DenoSQLiteDatabase {
+  exec(query: string): void;
+  prepare(query: string): DenoSQLiteStatement;
+  transaction(callback: () => void): () => void;
+  readonly changes: number;
+  readonly lastInsertRowId: number;
+}
+
+type DenoSQLiteDatabaseConstructor = {
+  new (filename: string): DenoSQLiteDatabase;
+};
+
+type DenoSQLiteModule = {
+  Database: DenoSQLiteDatabaseConstructor;
+};
+
+function asDenoSQLiteDatabase(db: unknown): DenoSQLiteDatabase {
+  return db as DenoSQLiteDatabase;
+}
 
 /**
  * Deno SQLite Database Adapter
  * Uses Deno's built-in SQLite via FFI or x/sqlite3
  */
 export class DenoDatabase implements IDatabase {
-  // @ts-expect-error - Deno SQLite type
-  private db: unknown;
+  private db: DenoSQLiteDatabase;
 
-  // @ts-expect-error - Deno SQLite type
   constructor(db: unknown) {
-    this.db = db;
+    this.db = asDenoSQLiteDatabase(db);
   }
 
   static async create(filename: string = ":memory:"): Promise<DenoDatabase> {
-    // @ts-expect-error - Deno import
-    const { Database } = await import(
+    const sqliteModule = await import(
       "https://deno.land/x/sqlite3@0.12.0/mod.ts"
-    );
-    const db = new Database(filename);
+    ) as unknown as DenoSQLiteModule;
+    const db = new sqliteModule.Database(filename);
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA foreign_keys = ON");
     return new DenoDatabase(db);
@@ -57,7 +88,6 @@ export class DenoDatabase implements IDatabase {
   }
 
   async exec(query: string): Promise<void> {
-    // @ts-expect-error - Deno SQLite type
     this.db.exec(query);
   }
 
@@ -65,7 +95,6 @@ export class DenoDatabase implements IDatabase {
     statements: PreparedStatement[],
   ): Promise<QueryResult<T>[]> {
     const results: QueryResult<T>[] = [];
-    // @ts-expect-error - Deno SQLite type
     this.db.transaction(() => {
       for (const stmt of statements) {
         if (stmt instanceof DenoPreparedStatement) {
@@ -90,14 +119,12 @@ export class DenoDatabase implements IDatabase {
  * Deno SQLite Prepared Statement Adapter
  */
 class DenoPreparedStatement implements PreparedStatement {
-  // @ts-expect-error - Deno SQLite type
-  private db: unknown;
+  private db: DenoSQLiteDatabase;
   private query: string;
   private boundValues: unknown[] = [];
 
-  // @ts-expect-error - Deno SQLite type
   constructor(db: unknown, query: string) {
-    this.db = db;
+    this.db = asDenoSQLiteDatabase(db);
     this.query = query;
   }
 
@@ -107,7 +134,6 @@ class DenoPreparedStatement implements PreparedStatement {
   }
 
   async first<T = unknown>(colName?: string): Promise<FirstResult<T>> {
-    // @ts-expect-error - Deno SQLite type
     const stmt = this.db.prepare(this.query);
     const row = stmt.get(...this.boundValues) as
       | Record<string, unknown>
@@ -119,7 +145,6 @@ class DenoPreparedStatement implements PreparedStatement {
   }
 
   async all<T = unknown>(): Promise<QueryResult<T>> {
-    // @ts-expect-error - Deno SQLite type
     const stmt = this.db.prepare(this.query);
     const rows = stmt.all(...this.boundValues) as T[];
     stmt.finalize();
@@ -140,13 +165,10 @@ class DenoPreparedStatement implements PreparedStatement {
     };
   }
 
-  runSync(): { changes: number; lastInsertRowid: number } {
-    // @ts-expect-error - Deno SQLite type
+  runSync(): DenoSQLiteRunResult {
     const stmt = this.db.prepare(this.query);
     stmt.run(...this.boundValues);
-    // @ts-expect-error - Deno SQLite type
     const changes = this.db.changes;
-    // @ts-expect-error - Deno SQLite type
     const lastInsertRowid = this.db.lastInsertRowId;
     stmt.finalize();
     return { changes, lastInsertRowid };
@@ -164,30 +186,61 @@ type StorageMeta = {
  */
 export class DenoStorage implements IObjectStorage {
   private basePath: string;
+  private realBasePath: string | null = null;
 
   constructor(basePath: string) {
     this.basePath = basePath;
   }
 
   static async create(basePath: string): Promise<DenoStorage> {
-    // @ts-expect-error - Deno API
     await Deno.mkdir(basePath, { recursive: true });
     return new DenoStorage(basePath);
   }
 
   private getFilePath(key: string): string {
-    return `${this.basePath}/${key}`;
+    return resolvePathWithinBasePath(this.getResolvedBasePath(), key);
   }
 
   private getMetaPath(key: string): string {
-    return `${this.basePath}/${key}${META_SUFFIX}`;
+    return resolvePathWithinBasePath(
+      this.getResolvedBasePath(),
+      `${key}${META_SUFFIX}`,
+    );
+  }
+
+  private getResolvedBasePath(): string {
+    return path.resolve(this.basePath);
+  }
+
+  private async getRealBasePath(): Promise<string> {
+    if (this.realBasePath) return this.realBasePath;
+    try {
+      this.realBasePath = await Deno.realPath(this.getResolvedBasePath());
+    } catch {
+      this.realBasePath = this.getResolvedBasePath();
+    }
+    return this.realBasePath;
+  }
+
+  private async resolveExistingPath(filePath: string): Promise<string | null> {
+    try {
+      const realPath = await Deno.realPath(filePath);
+      const realBasePath = await this.getRealBasePath();
+      if (!isPathWithinBasePath(realBasePath, realPath)) {
+        throw new Error("Path escapes base directory");
+      }
+      return realPath;
+    } catch {
+      return null;
+    }
   }
 
   /** Read and parse the .meta.json sidecar, returning empty object on failure. */
   private async loadMeta(key: string): Promise<StorageMeta> {
     try {
-      // @ts-expect-error - Deno API
-      const raw = await Deno.readTextFile(this.getMetaPath(key));
+      const metaPath = await this.resolveExistingPath(this.getMetaPath(key));
+      if (!metaPath) return {};
+      const raw = await Deno.readTextFile(metaPath);
       return JSON.parse(raw);
     } catch {
       return {};
@@ -203,10 +256,33 @@ export class DenoStorage implements IObjectStorage {
     },
   ): Promise<void> {
     const filePath = this.getFilePath(key);
-
-    const dir = filePath.substring(0, filePath.lastIndexOf("/"));
-    // @ts-expect-error - Deno API
+    const dir = path.dirname(filePath);
+    await assertPathChainWithinBasePath(
+      await this.getRealBasePath(),
+      filePath,
+      async (p) => {
+        return await Deno.realPath(p);
+      },
+    );
     await Deno.mkdir(dir, { recursive: true });
+
+    const realBasePath = await this.getRealBasePath();
+    let realFilePath: string | null = null;
+    try {
+      realFilePath = await Deno.realPath(filePath);
+    } catch {
+      realFilePath = null;
+    }
+    if (realFilePath) {
+      if (!isPathWithinBasePath(realBasePath, realFilePath)) {
+        throw new Error("Path escapes base directory");
+      }
+    } else {
+      const realDirPath = await Deno.realPath(dir);
+      if (!isPathWithinBasePath(realBasePath, realDirPath)) {
+        throw new Error("Path escapes base directory");
+      }
+    }
 
     let content: Uint8Array;
     if (typeof value === "string") {
@@ -217,11 +293,9 @@ export class DenoStorage implements IObjectStorage {
       content = await readStream(value);
     }
 
-    // @ts-expect-error - Deno API
     await Deno.writeFile(filePath, content);
 
     if (options?.httpMetadata || options?.customMetadata) {
-      // @ts-expect-error - Deno API
       await Deno.writeTextFile(
         this.getMetaPath(key),
         JSON.stringify({
@@ -234,8 +308,9 @@ export class DenoStorage implements IObjectStorage {
 
   async get(key: string): Promise<StorageObject | null> {
     try {
-      // @ts-expect-error - Deno API
-      const content = await Deno.readFile(this.getFilePath(key));
+      const filePath = await this.resolveExistingPath(this.getFilePath(key));
+      if (!filePath) return null;
+      const content = await Deno.readFile(filePath);
       const metadata = await this.loadMeta(key);
 
       let bodyUsed = false;
@@ -272,9 +347,15 @@ export class DenoStorage implements IObjectStorage {
   async delete(key: string | string[]): Promise<void> {
     const keys = Array.isArray(key) ? key : [key];
     for (const k of keys) {
-      for (const filePath of [this.getFilePath(k), this.getMetaPath(k)]) {
+      for (
+        const getPath of [
+          () => this.getFilePath(k),
+          () => this.getMetaPath(k),
+        ]
+      ) {
         try {
-          // @ts-expect-error - Deno API
+          const filePath = await this.resolveExistingPath(getPath());
+          if (!filePath) continue;
           await Deno.remove(filePath);
         } catch {
           // Ignore if not exists
@@ -290,19 +371,20 @@ export class DenoStorage implements IObjectStorage {
     delimiter?: string;
   }): Promise<ListObjectsResult> {
     const objects: ListObjectsResult["objects"] = [];
+    const realBasePath = await this.getRealBasePath();
 
     const readDirRecursive = async (dir: string, prefix: string = "") => {
       try {
-        // @ts-expect-error - Deno API
         for await (const entry of Deno.readDir(dir)) {
           const fullPath = `${dir}/${entry.name}`;
+          const realFullPath = await Deno.realPath(fullPath);
+          if (!isPathWithinBasePath(realBasePath, realFullPath)) continue;
           const key = prefix ? `${prefix}/${entry.name}` : entry.name;
 
           if (entry.isDirectory) {
             await readDirRecursive(fullPath, key);
           } else if (!entry.name.endsWith(META_SUFFIX)) {
             if (!options?.prefix || key.startsWith(options.prefix)) {
-              // @ts-expect-error - Deno API
               const stats = await Deno.stat(fullPath);
               objects.push({
                 key,
@@ -317,7 +399,7 @@ export class DenoStorage implements IObjectStorage {
       }
     };
 
-    await readDirRecursive(this.basePath);
+    await readDirRecursive(realBasePath);
 
     const limit = options?.limit ?? DEFAULT_LIST_LIMIT;
     const truncated = objects.length > limit;
@@ -331,8 +413,9 @@ export class DenoStorage implements IObjectStorage {
 
   async head(key: string): Promise<ObjectMetadata | null> {
     try {
-      // @ts-expect-error - Deno API
-      const stats = await Deno.stat(this.getFilePath(key));
+      const filePath = await this.resolveExistingPath(this.getFilePath(key));
+      if (!filePath) return null;
+      const stats = await Deno.stat(filePath);
       const metadata = await this.loadMeta(key);
 
       return {
@@ -351,6 +434,7 @@ export class DenoStorage implements IObjectStorage {
  */
 export class DenoAssets implements IStaticAssets {
   private basePath: string;
+  private realBasePath: string | null = null;
 
   constructor(basePath: string) {
     this.basePath = basePath;
@@ -360,26 +444,54 @@ export class DenoAssets implements IStaticAssets {
     return new DenoAssets(basePath);
   }
 
+  private getResolvedBasePath(): string {
+    return path.resolve(this.basePath);
+  }
+
+  private async getRealBasePath(): Promise<string> {
+    if (this.realBasePath) return this.realBasePath;
+    try {
+      this.realBasePath = await Deno.realPath(this.getResolvedBasePath());
+    } catch {
+      this.realBasePath = this.getResolvedBasePath();
+    }
+    return this.realBasePath;
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    let filePath = `${this.basePath}${url.pathname}`;
-
-    // Security: prevent directory traversal
-    const normalizedPath = filePath.replace(/\.\./g, "");
-    if (normalizedPath !== filePath) {
+    let filePath: string;
+    try {
+      filePath = resolvePathWithinBasePath(
+        this.getResolvedBasePath(),
+        `.${url.pathname}`,
+      );
+    } catch {
       return new Response("Forbidden", { status: 403 });
     }
 
+    const realBasePath = await this.getRealBasePath();
+
     try {
-      // @ts-expect-error - Deno API
-      const stats = await Deno.stat(filePath);
+      const realFilePath = await Deno.realPath(filePath);
+      if (!isPathWithinBasePath(realBasePath, realFilePath)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+
+      const stats = await Deno.stat(realFilePath);
 
       // If directory, try index.html
       if (stats.isDirectory) {
-        filePath = `${filePath}/index.html`;
+        const indexPath = path.join(realFilePath, "index.html");
+        const realIndexPath = await Deno.realPath(indexPath);
+        if (!isPathWithinBasePath(realBasePath, realIndexPath)) {
+          return new Response("Forbidden", { status: 403 });
+        }
+        filePath = realIndexPath;
+      } else {
+        filePath = realFilePath;
       }
 
-      // @ts-expect-error - Deno API
       const content = await Deno.readFile(filePath);
       const ext = filePath.substring(filePath.lastIndexOf("."));
       const contentType = getMimeType(ext);
@@ -393,8 +505,12 @@ export class DenoAssets implements IStaticAssets {
     } catch {
       // SPA fallback - serve index.html for non-existent paths
       try {
-        // @ts-expect-error - Deno API
-        const content = await Deno.readFile(`${this.basePath}/index.html`);
+        const indexPath = path.join(this.getResolvedBasePath(), "index.html");
+        const realIndexPath = await Deno.realPath(indexPath);
+        if (!isPathWithinBasePath(realBasePath, realIndexPath)) {
+          return new Response("Forbidden", { status: 403 });
+        }
+        const content = await Deno.readFile(realIndexPath);
         return new Response(content, {
           headers: { "Content-Type": "text/html" },
         });

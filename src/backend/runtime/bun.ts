@@ -1,5 +1,3 @@
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck - This file is Bun-specific and should be type-checked by Bun's TypeScript
 /**
  * Bun Runtime Adapters
  *
@@ -10,7 +8,6 @@
 import type {
   FirstResult,
   IDatabase,
-  IKeyValueStore,
   IObjectStorage,
   IStaticAssets,
   ListObjectsResult,
@@ -21,11 +18,23 @@ import type {
   RuntimeEnv,
   StorageObject,
 } from "./types.ts";
+import {
+  assertPathChainWithinBasePath,
+  isPathWithinBasePath,
+  resolvePathWithinBasePath,
+} from "./shared.ts";
+import { MemoryKV } from "./memory-kv.ts";
+import { loadBunSqlite } from "./compat-bun/types.ts";
+import type { BunRuntime, BunSQLiteDatabase } from "./compat-bun/types.ts";
+import path from "node:path";
 
-// Re-export MemoryKV from node.ts as it works in Bun too
-export { MemoryKV } from "./node.ts";
+declare const Bun: BunRuntime;
+declare const require: (specifier: string) => unknown;
 
-const { mkdir, unlink, readdir, stat } = await import("fs/promises");
+// Re-export MemoryKV as it works in Bun too.
+export { MemoryKV };
+
+const { mkdir, unlink, readdir, stat, realpath } = await import("fs/promises");
 
 /**
  * Drain a ReadableStream into a single Uint8Array.
@@ -84,15 +93,14 @@ async function readMetadata(metaPath: string): Promise<{
  * Bun SQLite Database Adapter (using bun:sqlite)
  */
 export class BunDatabase implements IDatabase {
-  private db: import("bun:sqlite").Database;
+  private db: BunSQLiteDatabase;
 
-  constructor(db: import("bun:sqlite").Database) {
-    this.db = db;
+  constructor(db: unknown) {
+    this.db = db as BunSQLiteDatabase;
   }
 
   static create(filename: string = ":memory:"): BunDatabase {
-    // @ts-expect-error - Bun.sql is available in Bun runtime
-    const { Database } = require("bun:sqlite");
+    const Database = loadBunSqlite(require);
     const db = new Database(filename);
     db.exec("PRAGMA journal_mode = WAL");
     return new BunDatabase(db);
@@ -130,11 +138,11 @@ export class BunDatabase implements IDatabase {
  * Bun SQLite Prepared Statement Adapter
  */
 class BunPreparedStatement implements PreparedStatement {
-  private db: import("bun:sqlite").Database;
+  private db: BunSQLiteDatabase;
   private query: string;
   private boundValues: unknown[] = [];
 
-  constructor(db: import("bun:sqlite").Database, query: string) {
+  constructor(db: BunSQLiteDatabase, query: string) {
     this.db = db;
     this.query = query;
   }
@@ -186,6 +194,7 @@ class BunPreparedStatement implements PreparedStatement {
  */
 export class BunStorage implements IObjectStorage {
   private basePath: string;
+  private realBasePath: string | null = null;
 
   constructor(basePath: string) {
     this.basePath = basePath;
@@ -197,11 +206,42 @@ export class BunStorage implements IObjectStorage {
   }
 
   private getFilePath(key: string): string {
-    return `${this.basePath}/${key}`;
+    return resolvePathWithinBasePath(this.getResolvedBasePath(), key);
   }
 
   private getMetaPath(key: string): string {
-    return `${this.basePath}/${key}.meta.json`;
+    return resolvePathWithinBasePath(
+      this.getResolvedBasePath(),
+      `${key}.meta.json`,
+    );
+  }
+
+  private getResolvedBasePath(): string {
+    return path.resolve(this.basePath);
+  }
+
+  private async getRealBasePath(): Promise<string> {
+    if (this.realBasePath) return this.realBasePath;
+    try {
+      await mkdir(this.getResolvedBasePath(), { recursive: true });
+      this.realBasePath = await realpath(this.getResolvedBasePath());
+    } catch {
+      this.realBasePath = this.getResolvedBasePath();
+    }
+    return this.realBasePath;
+  }
+
+  private async resolveExistingPath(filePath: string): Promise<string | null> {
+    try {
+      const realPath = await realpath(filePath);
+      const realBasePath = await this.getRealBasePath();
+      if (!isPathWithinBasePath(realBasePath, realPath)) {
+        throw new Error("Path escapes base directory");
+      }
+      return realPath;
+    } catch {
+      return null;
+    }
   }
 
   async put(
@@ -213,8 +253,33 @@ export class BunStorage implements IObjectStorage {
     },
   ): Promise<void> {
     const filePath = this.getFilePath(key);
-    const dir = filePath.substring(0, filePath.lastIndexOf("/"));
+    const dir = path.dirname(filePath);
+
+    await assertPathChainWithinBasePath(
+      await this.getRealBasePath(),
+      filePath,
+      realpath,
+    );
+
     await mkdir(dir, { recursive: true });
+
+    const realBasePath = await this.getRealBasePath();
+    let realFilePath: string | null = null;
+    try {
+      realFilePath = await realpath(filePath);
+    } catch {
+      realFilePath = null;
+    }
+    if (realFilePath) {
+      if (!isPathWithinBasePath(realBasePath, realFilePath)) {
+        throw new Error("Path escapes base directory");
+      }
+    } else {
+      const realDirPath = await realpath(dir);
+      if (!isPathWithinBasePath(realBasePath, realDirPath)) {
+        throw new Error("Path escapes base directory");
+      }
+    }
 
     const content = await toUint8Array(value);
     await Bun.write(filePath, content);
@@ -234,11 +299,18 @@ export class BunStorage implements IObjectStorage {
     const filePath = this.getFilePath(key);
 
     try {
-      const file = Bun.file(filePath);
+      const resolvedFilePath = await this.resolveExistingPath(filePath);
+      if (!resolvedFilePath) return null;
+      const file = Bun.file(resolvedFilePath);
       if (!(await file.exists())) return null;
 
       const content = new Uint8Array(await file.arrayBuffer());
-      const metadata = await readMetadata(this.getMetaPath(key));
+      const resolvedMetaPath = await this.resolveExistingPath(
+        this.getMetaPath(key),
+      );
+      const metadata = resolvedMetaPath
+        ? await readMetadata(resolvedMetaPath)
+        : {};
 
       let bodyUsed = false;
 
@@ -275,10 +347,12 @@ export class BunStorage implements IObjectStorage {
     const keys = Array.isArray(key) ? key : [key];
     for (const k of keys) {
       try {
-        await unlink(this.getFilePath(k));
+        const filePath = await this.resolveExistingPath(this.getFilePath(k));
+        if (filePath) await unlink(filePath);
       } catch { /* ignore */ }
       try {
-        await unlink(this.getMetaPath(k));
+        const metaPath = await this.resolveExistingPath(this.getMetaPath(k));
+        if (metaPath) await unlink(metaPath);
       } catch { /* ignore */ }
     }
   }
@@ -290,12 +364,15 @@ export class BunStorage implements IObjectStorage {
     delimiter?: string;
   }): Promise<ListObjectsResult> {
     const objects: ListObjectsResult["objects"] = [];
+    const realBasePath = await this.getRealBasePath();
 
     const readDirRecursive = async (dir: string, prefix: string = "") => {
       try {
         const entries = await readdir(dir, { withFileTypes: true });
         for (const entry of entries) {
           const fullPath = `${dir}/${entry.name}`;
+          const realFullPath = await realpath(fullPath);
+          if (!isPathWithinBasePath(realBasePath, realFullPath)) continue;
           const key = prefix ? `${prefix}/${entry.name}` : entry.name;
 
           if (entry.isDirectory()) {
@@ -316,7 +393,7 @@ export class BunStorage implements IObjectStorage {
       }
     };
 
-    await readDirRecursive(this.basePath);
+    await readDirRecursive(realBasePath);
 
     const limit = options?.limit ?? 1000;
     const truncated = objects.length > limit;
@@ -332,10 +409,17 @@ export class BunStorage implements IObjectStorage {
     const filePath = this.getFilePath(key);
 
     try {
-      const file = Bun.file(filePath);
+      const resolvedFilePath = await this.resolveExistingPath(filePath);
+      if (!resolvedFilePath) return null;
+      const file = Bun.file(resolvedFilePath);
       if (!(await file.exists())) return null;
 
-      const metadata = await readMetadata(this.getMetaPath(key));
+      const resolvedMetaPath = await this.resolveExistingPath(
+        this.getMetaPath(key),
+      );
+      const metadata = resolvedMetaPath
+        ? await readMetadata(resolvedMetaPath)
+        : {};
       return {
         contentLength: file.size,
         httpMetadata: metadata.httpMetadata,
@@ -352,6 +436,7 @@ export class BunStorage implements IObjectStorage {
  */
 export class BunAssets implements IStaticAssets {
   private basePath: string;
+  private realBasePath: string | null = null;
 
   constructor(basePath: string) {
     this.basePath = basePath;
@@ -361,23 +446,54 @@ export class BunAssets implements IStaticAssets {
     return new BunAssets(basePath);
   }
 
+  private getResolvedBasePath(): string {
+    return path.resolve(this.basePath);
+  }
+
+  private async getRealBasePath(): Promise<string> {
+    if (this.realBasePath) return this.realBasePath;
+    try {
+      this.realBasePath = await realpath(this.getResolvedBasePath());
+    } catch {
+      this.realBasePath = this.getResolvedBasePath();
+    }
+    return this.realBasePath;
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    let filePath = `${this.basePath}${url.pathname}`;
-
-    // Security: prevent directory traversal
-    const normalizedPath = filePath.replace(/\.\./g, "");
-    if (normalizedPath !== filePath) {
+    let filePath: string;
+    try {
+      filePath = resolvePathWithinBasePath(
+        this.getResolvedBasePath(),
+        `.${url.pathname}`,
+      );
+    } catch {
       return new Response("Forbidden", { status: 403 });
     }
 
+    const realBasePath = await this.getRealBasePath();
+
     try {
-      let file = Bun.file(filePath);
+      const realFilePath = await realpath(filePath);
+      if (!isPathWithinBasePath(realBasePath, realFilePath)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+
+      const stats = await stat(realFilePath);
+      let file = Bun.file(realFilePath);
 
       // If directory, try index.html
-      if (!(await file.exists())) {
-        filePath = `${filePath}/index.html`;
+      if (stats.isDirectory()) {
+        const indexPath = path.join(realFilePath, "index.html");
+        const realIndexPath = await realpath(indexPath);
+        if (!isPathWithinBasePath(realBasePath, realIndexPath)) {
+          return new Response("Forbidden", { status: 403 });
+        }
+        filePath = realIndexPath;
         file = Bun.file(filePath);
+      } else {
+        filePath = realFilePath;
       }
 
       if (await file.exists()) {
@@ -385,7 +501,12 @@ export class BunAssets implements IStaticAssets {
       }
 
       // SPA fallback - serve index.html for non-existent paths
-      const indexFile = Bun.file(`${this.basePath}/index.html`);
+      const indexPath = path.join(this.getResolvedBasePath(), "index.html");
+      const realIndexPath = await realpath(indexPath);
+      if (!isPathWithinBasePath(realBasePath, realIndexPath)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      const indexFile = Bun.file(realIndexPath);
       if (await indexFile.exists()) {
         return new Response(indexFile, {
           headers: { "Content-Type": "text/html" },
@@ -419,8 +540,6 @@ export function createBunRuntime(config: {
     AUTH_MODE?: string;
   };
 }): RuntimeEnv {
-  const { MemoryKV } = require("./node");
-
   return {
     db: BunDatabase.create(config.databasePath || ":memory:"),
     storage: config.storagePath

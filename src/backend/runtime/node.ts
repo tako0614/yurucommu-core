@@ -21,10 +21,13 @@ import type {
 } from "./types.ts";
 import { MemoryKV } from "./memory-kv.ts";
 import {
+  assertPathChainWithinBasePath,
   DEFAULT_LIST_LIMIT,
   getMimeType,
+  isPathWithinBasePath,
   META_SUFFIX,
   readStream,
+  resolvePathWithinBasePath,
 } from "./shared.ts";
 
 // Dynamic imports for Node.js modules (only loaded when needed)
@@ -160,6 +163,7 @@ type StorageMeta = {
  */
 export class NodeStorage implements IObjectStorage {
   private basePath: string;
+  private realBasePath: string | null = null;
 
   constructor(basePath: string) {
     this.basePath = basePath;
@@ -172,17 +176,49 @@ export class NodeStorage implements IObjectStorage {
   }
 
   private getFilePath(key: string): string {
-    return path!.join(this.basePath, key);
+    return resolvePathWithinBasePath(this.getResolvedBasePath(), key);
   }
 
   private getMetaPath(key: string): string {
-    return path!.join(this.basePath, `${key}${META_SUFFIX}`);
+    return resolvePathWithinBasePath(
+      this.getResolvedBasePath(),
+      `${key}${META_SUFFIX}`,
+    );
+  }
+
+  private getResolvedBasePath(): string {
+    return path!.resolve(this.basePath);
+  }
+
+  private async getRealBasePath(): Promise<string> {
+    if (this.realBasePath) return this.realBasePath;
+    try {
+      this.realBasePath = await fs!.realpath(this.getResolvedBasePath());
+    } catch {
+      this.realBasePath = this.getResolvedBasePath();
+    }
+    return this.realBasePath;
+  }
+
+  private async resolveExistingPath(filePath: string): Promise<string | null> {
+    try {
+      const realPath = await fs!.realpath(filePath);
+      const realBasePath = await this.getRealBasePath();
+      if (!isPathWithinBasePath(realBasePath, realPath)) {
+        throw new Error("Path escapes base directory");
+      }
+      return realPath;
+    } catch {
+      return null;
+    }
   }
 
   /** Read and parse the .meta.json sidecar, returning empty object on failure. */
   private async loadMeta(key: string): Promise<StorageMeta> {
     try {
-      const raw = await fs!.readFile(this.getMetaPath(key), "utf-8");
+      const metaPath = await this.resolveExistingPath(this.getMetaPath(key));
+      if (!metaPath) return {};
+      const raw = await fs!.readFile(metaPath, "utf-8");
       return JSON.parse(raw);
     } catch {
       return {};
@@ -198,8 +234,33 @@ export class NodeStorage implements IObjectStorage {
     },
   ): Promise<void> {
     const filePath = this.getFilePath(key);
+    const dir = path!.dirname(filePath);
 
-    await fs!.mkdir(path!.dirname(filePath), { recursive: true });
+    await assertPathChainWithinBasePath(
+      await this.getRealBasePath(),
+      filePath,
+      fs!.realpath.bind(fs!),
+    );
+
+    await fs!.mkdir(dir, { recursive: true });
+
+    const realBasePath = await this.getRealBasePath();
+    let realFilePath: string | null = null;
+    try {
+      realFilePath = await fs!.realpath(filePath);
+    } catch {
+      realFilePath = null;
+    }
+    if (realFilePath) {
+      if (!isPathWithinBasePath(realBasePath, realFilePath)) {
+        throw new Error("Path escapes base directory");
+      }
+    } else {
+      const realDirPath = await fs!.realpath(dir);
+      if (!isPathWithinBasePath(realBasePath, realDirPath)) {
+        throw new Error("Path escapes base directory");
+      }
+    }
 
     let content: Buffer;
     if (typeof value === "string") {
@@ -225,7 +286,9 @@ export class NodeStorage implements IObjectStorage {
 
   async get(key: string): Promise<StorageObject | null> {
     try {
-      const content = await fs!.readFile(this.getFilePath(key));
+      const filePath = await this.resolveExistingPath(this.getFilePath(key));
+      if (!filePath) return null;
+      const content = await fs!.readFile(filePath);
       const metadata = await this.loadMeta(key);
 
       let bodyUsed = false;
@@ -266,9 +329,15 @@ export class NodeStorage implements IObjectStorage {
   async delete(key: string | string[]): Promise<void> {
     const keys = Array.isArray(key) ? key : [key];
     for (const k of keys) {
-      for (const filePath of [this.getFilePath(k), this.getMetaPath(k)]) {
+      for (
+        const getPath of [
+          () => this.getFilePath(k),
+          () => this.getMetaPath(k),
+        ]
+      ) {
         try {
-          await fs!.unlink(filePath);
+          const filePath = await this.resolveExistingPath(getPath());
+          if (filePath) await fs!.unlink(filePath);
         } catch {
           // Ignore if not exists
         }
@@ -283,12 +352,15 @@ export class NodeStorage implements IObjectStorage {
     delimiter?: string;
   }): Promise<ListObjectsResult> {
     const objects: ListObjectsResult["objects"] = [];
+    const realBasePath = await this.getRealBasePath();
 
     const readDir = async (dir: string, prefix: string = "") => {
       try {
         const entries = await fs!.readdir(dir, { withFileTypes: true });
         for (const entry of entries) {
           const fullPath = path!.join(dir, entry.name);
+          const realFullPath = await fs!.realpath(fullPath);
+          if (!isPathWithinBasePath(realBasePath, realFullPath)) continue;
           const key = path!.join(prefix, entry.name);
 
           if (entry.isDirectory()) {
@@ -309,7 +381,7 @@ export class NodeStorage implements IObjectStorage {
       }
     };
 
-    await readDir(this.basePath);
+    await readDir(realBasePath);
 
     const limit = options?.limit ?? DEFAULT_LIST_LIMIT;
     const truncated = objects.length > limit;
@@ -323,7 +395,9 @@ export class NodeStorage implements IObjectStorage {
 
   async head(key: string): Promise<ObjectMetadata | null> {
     try {
-      const stats = await fs!.stat(this.getFilePath(key));
+      const filePath = await this.resolveExistingPath(this.getFilePath(key));
+      if (!filePath) return null;
+      const stats = await fs!.stat(filePath);
       const metadata = await this.loadMeta(key);
 
       return {
@@ -342,6 +416,7 @@ export class NodeStorage implements IObjectStorage {
  */
 export class NodeAssets implements IStaticAssets {
   private basePath: string;
+  private realBasePath: string | null = null;
 
   constructor(basePath: string) {
     this.basePath = basePath;
@@ -352,28 +427,59 @@ export class NodeAssets implements IStaticAssets {
     return new NodeAssets(basePath);
   }
 
+  private getResolvedBasePath(): string {
+    return path!.resolve(this.basePath);
+  }
+
+  private async getRealBasePath(): Promise<string> {
+    if (this.realBasePath) return this.realBasePath;
+    try {
+      this.realBasePath = await fs!.realpath(this.getResolvedBasePath());
+    } catch {
+      this.realBasePath = this.getResolvedBasePath();
+    }
+    return this.realBasePath;
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    let filePath = path!.join(this.basePath, url.pathname);
-
-    // Security: prevent directory traversal
-    if (!filePath.startsWith(this.basePath)) {
+    let filePath: string;
+    try {
+      filePath = resolvePathWithinBasePath(
+        this.getResolvedBasePath(),
+        `.${url.pathname}`,
+      );
+    } catch {
       return new Response("Forbidden", { status: 403 });
     }
 
+    const realBasePath = await this.getRealBasePath();
+
     try {
-      const stats = await fs!.stat(filePath);
+      const realFilePath = await fs!.realpath(filePath);
+      if (!isPathWithinBasePath(realBasePath, realFilePath)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+
+      const stats = await fs!.stat(realFilePath);
 
       // If directory, try index.html
       if (stats.isDirectory()) {
-        filePath = path!.join(filePath, "index.html");
+        const indexPath = path!.join(realFilePath, "index.html");
+        const realIndexPath = await fs!.realpath(indexPath);
+        if (!isPathWithinBasePath(realBasePath, realIndexPath)) {
+          return new Response("Forbidden", { status: 403 });
+        }
+        filePath = realIndexPath;
+      } else {
+        filePath = realFilePath;
       }
 
       const content = await fs!.readFile(filePath);
       const ext = path!.extname(filePath).toLowerCase();
       const contentType = getMimeType(ext);
 
-      return new Response(content, {
+      return new Response(new Uint8Array(content), {
         headers: {
           "Content-Type": contentType,
           "Content-Length": String(content.length),
@@ -382,9 +488,13 @@ export class NodeAssets implements IStaticAssets {
     } catch {
       // SPA fallback - serve index.html for non-existent paths
       try {
-        const indexPath = path!.join(this.basePath, "index.html");
-        const content = await fs!.readFile(indexPath);
-        return new Response(content, {
+        const indexPath = path!.join(this.getResolvedBasePath(), "index.html");
+        const realIndexPath = await fs!.realpath(indexPath);
+        if (!isPathWithinBasePath(realBasePath, realIndexPath)) {
+          return new Response("Forbidden", { status: 403 });
+        }
+        const content = await fs!.readFile(realIndexPath);
+        return new Response(new Uint8Array(content), {
           headers: { "Content-Type": "text/html" },
         });
       } catch {

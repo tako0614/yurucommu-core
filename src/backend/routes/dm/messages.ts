@@ -56,6 +56,16 @@ type SenderInfo = {
   icon_url: string | null;
 };
 
+type DmMessageRow = typeof objects.$inferSelect;
+
+type DmMessageResponse = {
+  id: string;
+  sender: SenderInfo;
+  content: string | null;
+  attachments?: Attachment[];
+  created_at: string | null;
+};
+
 /** Validate trimmed DM content; returns the trimmed string or an error response. */
 function validateContent(
   raw: string | undefined,
@@ -96,7 +106,7 @@ async function fetchAuthorizedMessages(
   conversationId: string,
   limit: number,
   before: string | undefined,
-): Promise<Array<any>> {
+): Promise<DmMessageRow[]> {
   // Build where clause: filter by conversation + visibility + type
   // Authorization is re-validated in code below (defense-in-depth)
   const baseCondition = and(
@@ -162,15 +172,9 @@ async function resolveAuthorInfoMap(
 
 /** Map raw DB message rows to the API response shape (chronological order). */
 function formatMessages(
-  messages: any[],
+  messages: DmMessageRow[],
   authorMap: Map<string, ActorInfo>,
-): Array<{
-  id: string;
-  sender: SenderInfo;
-  content: string | null;
-  attachments?: Attachment[];
-  created_at: string | null;
-}> {
+): DmMessageResponse[] {
   return messages.reverse().map((msg) => {
     const info = authorMap.get(msg.attributedTo);
     return {
@@ -196,7 +200,7 @@ async function fetchAndFormatMessages(
   conversationId: string,
   limit: number,
   before: string | undefined,
-): Promise<Array<any>> {
+): Promise<DmMessageResponse[]> {
   const messages = await fetchAuthorizedMessages(
     db,
     actorApId,
@@ -204,7 +208,7 @@ async function fetchAndFormatMessages(
     limit,
     before,
   );
-  const authorApIds = [...new Set(messages.map((m: any) => m.attributedTo))];
+  const authorApIds = [...new Set(messages.map((m) => m.attributedTo))];
   const authorMap = await resolveAuthorInfoMap(db, authorApIds);
   return formatMessages(messages, authorMap);
 }

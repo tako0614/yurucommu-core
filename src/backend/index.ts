@@ -136,8 +136,16 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
   app.use("*", async (c, next) => {
     await next();
 
-    c.header("Cross-Origin-Opener-Policy", "same-origin");
-    c.header("Cross-Origin-Embedder-Policy", "credentialless");
+    const preserveRouteSecurityHeaders = c.req.path.startsWith("/hosted/");
+    const setSecurityHeader = (name: string, value: string) => {
+      if (preserveRouteSecurityHeaders && c.res.headers.has(name)) {
+        return;
+      }
+      c.header(name, value);
+    };
+
+    setSecurityHeader("Cross-Origin-Opener-Policy", "same-origin");
+    setSecurityHeader("Cross-Origin-Embedder-Policy", "credentialless");
 
     const takosUrl = c.env.TAKOS_URL?.trim();
     const connectSrc = ["'self'", "https://unpkg.com", "wss:"];
@@ -159,12 +167,15 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
       `form-action ${formAction.join(" ")}`,
       "base-uri 'self'",
     ].join("; ");
-    c.header("Content-Security-Policy", csp);
+    setSecurityHeader("Content-Security-Policy", csp);
 
-    c.header("X-Content-Type-Options", "nosniff");
-    c.header("X-Frame-Options", "DENY");
-    c.header("Referrer-Policy", "strict-origin-when-cross-origin");
-    c.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    setSecurityHeader("X-Content-Type-Options", "nosniff");
+    setSecurityHeader("X-Frame-Options", "DENY");
+    setSecurityHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    setSecurityHeader(
+      "Permissions-Policy",
+      "camera=(), microphone=(), geolocation=()",
+    );
   });
 
   app.use("*", async (c, next) => {

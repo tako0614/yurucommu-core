@@ -2,21 +2,23 @@
  * Bun Cloudflare Compatibility Layer - D1 Database
  */
 
+import { loadBunSqlite } from "./types.ts";
+import type { BunSQLiteDatabase } from "./types.ts";
+
+declare const require: (specifier: string) => unknown;
+
 /**
  * D1Database-compatible SQLite implementation for Bun
  */
 export class D1CompatDatabase {
-  // @ts-expect-error - bun:sqlite is only available in Bun runtime
-  private db: import("bun:sqlite").Database;
+  private db: BunSQLiteDatabase;
 
-  // @ts-expect-error - bun:sqlite is only available in Bun runtime
-  constructor(db: import("bun:sqlite").Database) {
-    this.db = db;
+  constructor(db: unknown) {
+    this.db = db as BunSQLiteDatabase;
   }
 
   static create(filename: string = ":memory:"): D1CompatDatabase {
-    // @ts-ignore - Bun runtime
-    const { Database } = require("bun:sqlite");
+    const Database = loadBunSqlite(require);
     const db = new Database(filename);
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA foreign_keys = ON");
@@ -59,8 +61,7 @@ export class D1CompatDatabase {
     return results;
   }
 
-  // @ts-expect-error - bun:sqlite is only available in Bun runtime
-  getRawDatabase(): import("bun:sqlite").Database {
+  getRawDatabase(): BunSQLiteDatabase {
     return this.db;
   }
 }
@@ -69,13 +70,11 @@ export class D1CompatDatabase {
  * D1PreparedStatement-compatible implementation for Bun
  */
 export class D1CompatPreparedStatement {
-  // @ts-expect-error - bun:sqlite is only available in Bun runtime
-  private db: import("bun:sqlite").Database;
+  private db: BunSQLiteDatabase;
   private query: string;
   private boundValues: unknown[] = [];
 
-  // @ts-expect-error - bun:sqlite is only available in Bun runtime
-  constructor(db: import("bun:sqlite").Database, query: string) {
+  constructor(db: BunSQLiteDatabase, query: string) {
     this.db = db;
     this.query = query;
   }

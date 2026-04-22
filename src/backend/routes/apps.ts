@@ -30,9 +30,81 @@ const MIME_TYPES: Record<string, string> = {
   ".map": "application/json; charset=utf-8",
 };
 
+const HOSTED_APP_DOCUMENT_CSP = [
+  "sandbox allow-scripts allow-downloads",
+  "default-src 'self' data: blob:",
+  "script-src 'self' 'unsafe-inline' blob:",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join("; ");
+
+const SANDBOXED_CONTENT_TYPES = new Set([
+  "text/html",
+  "application/xhtml+xml",
+  "image/svg+xml",
+]);
+
 function inferContentType(path: string): string {
   const ext = path.slice(path.lastIndexOf(".")).toLowerCase();
   return MIME_TYPES[ext] ?? "application/octet-stream";
+}
+
+function normalizeContentType(contentType: string): string {
+  return contentType.split(";")[0].trim().toLowerCase();
+}
+
+function shouldSandboxHostedResponse(contentType: string): boolean {
+  return SANDBOXED_CONTENT_TYPES.has(normalizeContentType(contentType));
+}
+
+function applyHostedSecurityHeaders(
+  headers: Headers,
+  contentType: string,
+): void {
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Frame-Options", "DENY");
+  headers.set("Referrer-Policy", "no-referrer");
+  headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  headers.set("Cross-Origin-Embedder-Policy", "credentialless");
+  headers.set(
+    "Permissions-Policy",
+    [
+      "camera=()",
+      "microphone=()",
+      "geolocation=()",
+      "payment=()",
+      "usb=()",
+      "serial=()",
+      "display-capture=()",
+    ].join(", "),
+  );
+
+  if (shouldSandboxHostedResponse(contentType)) {
+    headers.set("Content-Security-Policy", HOSTED_APP_DOCUMENT_CSP);
+  }
+}
+
+function createHostedHeaders(
+  contentType: string,
+  cacheControl: string,
+  etag?: string,
+): Headers {
+  const headers = new Headers();
+  headers.set("Content-Type", contentType);
+  headers.set("Cache-Control", cacheControl);
+  if (etag) {
+    headers.set("ETag", etag);
+  }
+  applyHostedSecurityHeaders(headers, contentType);
+  return headers;
 }
 
 // Deploy API (mounted at /api/apps)
@@ -173,17 +245,13 @@ appsServeRoutes.get("/:clientId/:appName/*", async (c) => {
   if (object) {
     const contentType = object.httpMetadata?.contentType ??
       inferContentType(filePath);
-    const headers = new Headers();
-    headers.set("Content-Type", contentType);
-    headers.set(
-      "Cache-Control",
+    const headers = createHostedHeaders(
+      contentType,
       filePath.includes("/assets/")
         ? "public, max-age=31536000, immutable"
         : "public, max-age=3600",
+      object.httpEtag,
     );
-    if (object.httpEtag) {
-      headers.set("ETag", object.httpEtag);
-    }
     return new Response(object.body, { headers });
   }
 
@@ -192,9 +260,11 @@ appsServeRoutes.get("/:clientId/:appName/*", async (c) => {
     const indexKey = `hosted/${clientId}/${appName}/index.html`;
     const indexObject = await c.env.MEDIA.get(indexKey);
     if (indexObject) {
-      const headers = new Headers();
-      headers.set("Content-Type", "text/html; charset=utf-8");
-      headers.set("Cache-Control", "no-cache");
+      const headers = createHostedHeaders(
+        "text/html; charset=utf-8",
+        "no-cache",
+        indexObject.httpEtag,
+      );
       return new Response(indexObject.body, { headers });
     }
   }

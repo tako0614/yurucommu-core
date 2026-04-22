@@ -1,17 +1,25 @@
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck - This file is Bun-specific and should be type-checked by Bun's TypeScript
 /**
  * Bun Cloudflare Compatibility Layer - R2 Bucket
  */
 
-import { mkdir, readdir, stat, unlink } from "./utils.ts";
+import { mkdir, readdir, realpath, stat, unlink } from "./utils.ts";
 import { readMetadata, toUint8Array } from "./utils.ts";
+import type { BunRuntime } from "./types.ts";
+import {
+  assertPathChainWithinBasePath,
+  isPathWithinBasePath,
+  resolvePathWithinBasePath,
+} from "../shared.ts";
+import path from "node:path";
+
+declare const Bun: BunRuntime;
 
 /**
  * R2Bucket-compatible filesystem implementation for Bun
  */
 export class R2CompatBucket {
   private basePath: string;
+  private realBasePath: string | null = null;
 
   constructor(basePath: string) {
     this.basePath = basePath;
@@ -23,11 +31,41 @@ export class R2CompatBucket {
   }
 
   private getFilePath(key: string): string {
-    return `${this.basePath}/${key}`;
+    return resolvePathWithinBasePath(this.getResolvedBasePath(), key);
   }
 
   private getMetaPath(key: string): string {
-    return `${this.basePath}/${key}.meta.json`;
+    return resolvePathWithinBasePath(
+      this.getResolvedBasePath(),
+      `${key}.meta.json`,
+    );
+  }
+
+  private getResolvedBasePath(): string {
+    return path.resolve(this.basePath);
+  }
+
+  private async getRealBasePath(): Promise<string> {
+    if (this.realBasePath) return this.realBasePath;
+    try {
+      this.realBasePath = await realpath(this.getResolvedBasePath());
+    } catch {
+      this.realBasePath = this.getResolvedBasePath();
+    }
+    return this.realBasePath;
+  }
+
+  private async resolveExistingPath(filePath: string): Promise<string | null> {
+    try {
+      const realPath = await realpath(filePath);
+      const realBasePath = await this.getRealBasePath();
+      if (!isPathWithinBasePath(realBasePath, realPath)) {
+        throw new Error("Path escapes base directory");
+      }
+      return realPath;
+    } catch {
+      return null;
+    }
   }
 
   async put(
@@ -39,8 +77,31 @@ export class R2CompatBucket {
     },
   ): Promise<{ key: string }> {
     const filePath = this.getFilePath(key);
-    const dir = filePath.substring(0, filePath.lastIndexOf("/"));
+    const dir = path.dirname(filePath);
+    await assertPathChainWithinBasePath(
+      await this.getRealBasePath(),
+      filePath,
+      realpath,
+    );
     await mkdir(dir, { recursive: true });
+
+    const realBasePath = await this.getRealBasePath();
+    let realFilePath: string | null = null;
+    try {
+      realFilePath = await realpath(filePath);
+    } catch {
+      realFilePath = null;
+    }
+    if (realFilePath) {
+      if (!isPathWithinBasePath(realBasePath, realFilePath)) {
+        throw new Error("Path escapes base directory");
+      }
+    } else {
+      const realDirPath = await realpath(dir);
+      if (!isPathWithinBasePath(realBasePath, realDirPath)) {
+        throw new Error("Path escapes base directory");
+      }
+    }
 
     const content = await toUint8Array(value);
     await Bun.write(filePath, content);
@@ -64,11 +125,18 @@ export class R2CompatBucket {
     const filePath = this.getFilePath(key);
 
     try {
-      const file = Bun.file(filePath);
+      const resolvedFilePath = await this.resolveExistingPath(filePath);
+      if (!resolvedFilePath) return null;
+      const file = Bun.file(resolvedFilePath);
       if (!(await file.exists())) return null;
 
       const content = new Uint8Array(await file.arrayBuffer());
-      const metadata = await readMetadata(this.getMetaPath(key));
+      const resolvedMetaPath = await this.resolveExistingPath(
+        this.getMetaPath(key),
+      );
+      const metadata = resolvedMetaPath
+        ? await readMetadata(resolvedMetaPath)
+        : {};
       return new R2CompatObject(key, content, metadata);
     } catch {
       return null;
@@ -79,10 +147,12 @@ export class R2CompatBucket {
     const keys = Array.isArray(key) ? key : [key];
     for (const k of keys) {
       try {
-        await unlink(this.getFilePath(k));
+        const filePath = await this.resolveExistingPath(this.getFilePath(k));
+        if (filePath) await unlink(filePath);
       } catch { /* ignore */ }
       try {
-        await unlink(this.getMetaPath(k));
+        const metaPath = await this.resolveExistingPath(this.getMetaPath(k));
+        if (metaPath) await unlink(metaPath);
       } catch { /* ignore */ }
     }
   }
@@ -91,10 +161,17 @@ export class R2CompatBucket {
     const filePath = this.getFilePath(key);
 
     try {
-      const file = Bun.file(filePath);
+      const resolvedFilePath = await this.resolveExistingPath(filePath);
+      if (!resolvedFilePath) return null;
+      const file = Bun.file(resolvedFilePath);
       if (!(await file.exists())) return null;
 
-      const metadata = await readMetadata(this.getMetaPath(key));
+      const resolvedMetaPath = await this.resolveExistingPath(
+        this.getMetaPath(key),
+      );
+      const metadata = resolvedMetaPath
+        ? await readMetadata(resolvedMetaPath)
+        : {};
       return {
         key,
         size: file.size,
@@ -119,12 +196,15 @@ export class R2CompatBucket {
     delimitedPrefixes?: string[];
   }> {
     const objects: Array<{ key: string; size: number; uploaded: Date }> = [];
+    const realBasePath = await this.getRealBasePath();
 
     const readDirRecursive = async (dir: string, prefix: string = "") => {
       try {
         const entries = await readdir(dir, { withFileTypes: true });
         for (const entry of entries) {
           const fullPath = `${dir}/${entry.name}`;
+          const realFullPath = await realpath(fullPath);
+          if (!isPathWithinBasePath(realBasePath, realFullPath)) continue;
           const key = prefix ? `${prefix}/${entry.name}` : entry.name;
 
           if (entry.isDirectory()) {
@@ -139,7 +219,7 @@ export class R2CompatBucket {
       } catch { /* ignore */ }
     };
 
-    await readDirRecursive(this.basePath);
+    await readDirRecursive(realBasePath);
 
     const limit = options?.limit ?? 1000;
     const truncated = objects.length > limit;

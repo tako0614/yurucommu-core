@@ -1,5 +1,3 @@
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck - This file is Bun-specific and should be type-checked by Bun's TypeScript
 /**
  * Bun Cloudflare Compatibility Layer - KV Namespace
  */
@@ -68,7 +66,7 @@ export class KVCompatNamespace {
     } else if (value instanceof ArrayBuffer) {
       storedValue = value;
     } else {
-      storedValue = (await drainStream(value)).buffer;
+      storedValue = toOwnedArrayBuffer(await drainStream(value));
     }
 
     this.store.set(key, {
@@ -113,4 +111,15 @@ export class KVCompatNamespace {
       cursor: keys.length > limit ? String(limit) : undefined,
     };
   }
+}
+
+function toOwnedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  if (
+    bytes.byteOffset === 0 &&
+    bytes.byteLength === bytes.buffer.byteLength &&
+    bytes.buffer instanceof ArrayBuffer
+  ) {
+    return bytes.buffer;
+  }
+  return bytes.slice().buffer as ArrayBuffer;
 }
