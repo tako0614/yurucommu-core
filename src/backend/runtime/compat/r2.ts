@@ -13,6 +13,11 @@ import {
   readMetaFile,
   toBuffer,
 } from "./node-modules.ts";
+import {
+  assertPathChainWithinBasePath,
+  isPathWithinBasePath,
+  resolvePathWithinBasePath,
+} from "../shared.ts";
 
 export interface R2MetaFile {
   httpMetadata?: { contentType?: string };
@@ -37,6 +42,7 @@ export interface R2CompatObjectHead {
  */
 export class R2CompatBucket {
   private basePath: string;
+  private realBasePath: string | null = null;
 
   constructor(basePath: string) {
     this.basePath = basePath;
@@ -49,11 +55,41 @@ export class R2CompatBucket {
   }
 
   private getFilePath(key: string): string {
-    return getPath().join(this.basePath, key);
+    return resolvePathWithinBasePath(this.getResolvedBasePath(), key);
   }
 
   private getMetaPath(key: string): string {
-    return getPath().join(this.basePath, `${key}.meta.json`);
+    return resolvePathWithinBasePath(
+      this.getResolvedBasePath(),
+      `${key}.meta.json`,
+    );
+  }
+
+  private getResolvedBasePath(): string {
+    return getPath().resolve(this.basePath);
+  }
+
+  private async getRealBasePath(): Promise<string> {
+    if (this.realBasePath) return this.realBasePath;
+    try {
+      this.realBasePath = await getFs().realpath(this.getResolvedBasePath());
+    } catch {
+      this.realBasePath = this.getResolvedBasePath();
+    }
+    return this.realBasePath;
+  }
+
+  private async resolveExistingPath(filePath: string): Promise<string | null> {
+    try {
+      const realPath = await getFs().realpath(filePath);
+      const realBasePath = await this.getRealBasePath();
+      if (!isPathWithinBasePath(realBasePath, realPath)) {
+        throw new Error("Path escapes base directory");
+      }
+      return realPath;
+    } catch {
+      return null;
+    }
   }
 
   async put(
@@ -67,7 +103,30 @@ export class R2CompatBucket {
     const fs = getFs();
     const path = getPath();
     const filePath = this.getFilePath(key);
+    await assertPathChainWithinBasePath(
+      await this.getRealBasePath(),
+      filePath,
+      fs.realpath.bind(fs),
+    );
     await fs.mkdir(path.dirname(filePath), { recursive: true });
+
+    const realBasePath = await this.getRealBasePath();
+    let realFilePath: string | null = null;
+    try {
+      realFilePath = await fs.realpath(filePath);
+    } catch {
+      realFilePath = null;
+    }
+    if (realFilePath) {
+      if (!isPathWithinBasePath(realBasePath, realFilePath)) {
+        throw new Error("Path escapes base directory");
+      }
+    } else {
+      const realDirPath = await fs.realpath(path.dirname(filePath));
+      if (!isPathWithinBasePath(realBasePath, realDirPath)) {
+        throw new Error("Path escapes base directory");
+      }
+    }
 
     const content = await toBuffer(value);
     await fs.writeFile(filePath, content);
@@ -89,8 +148,11 @@ export class R2CompatBucket {
 
   async get(key: string): Promise<R2CompatObject | null> {
     try {
-      const content = await getFs().readFile(this.getFilePath(key));
-      const metadata = await readMetaFile<R2MetaFile>(this.getMetaPath(key));
+      const filePath = await this.resolveExistingPath(this.getFilePath(key));
+      if (!filePath) return null;
+      const content = await getFs().readFile(filePath);
+      const metaPath = await this.resolveExistingPath(this.getMetaPath(key));
+      const metadata = metaPath ? await readMetaFile<R2MetaFile>(metaPath) : {};
       return new R2CompatObject(key, content, metadata);
     } catch {
       return null;
@@ -102,10 +164,12 @@ export class R2CompatBucket {
     const keys = Array.isArray(key) ? key : [key];
     for (const k of keys) {
       try {
-        await fs.unlink(this.getFilePath(k));
+        const filePath = await this.resolveExistingPath(this.getFilePath(k));
+        if (filePath) await fs.unlink(filePath);
       } catch { /* ignore */ }
       try {
-        await fs.unlink(this.getMetaPath(k));
+        const metaPath = await this.resolveExistingPath(this.getMetaPath(k));
+        if (metaPath) await fs.unlink(metaPath);
       } catch { /* ignore */ }
     }
   }
@@ -113,8 +177,11 @@ export class R2CompatBucket {
   async head(key: string): Promise<R2CompatObjectHead | null> {
     try {
       const fs = getFs();
-      const stats = await fs.stat(this.getFilePath(key));
-      const metadata = await readMetaFile<R2MetaFile>(this.getMetaPath(key));
+      const filePath = await this.resolveExistingPath(this.getFilePath(key));
+      if (!filePath) return null;
+      const stats = await fs.stat(filePath);
+      const metaPath = await this.resolveExistingPath(this.getMetaPath(key));
+      const metadata = metaPath ? await readMetaFile<R2MetaFile>(metaPath) : {};
 
       return {
         key,
@@ -142,12 +209,15 @@ export class R2CompatBucket {
     const fs = getFs();
     const path = getPath();
     const objects: Array<{ key: string; size: number; uploaded: Date }> = [];
+    const realBasePath = await this.getRealBasePath();
 
     const readDir = async (dir: string, prefix: string = ""): Promise<void> => {
       try {
         const entries = await fs.readdir(dir, { withFileTypes: true });
         for (const entry of entries) {
           const fullPath = path.join(dir, entry.name);
+          const realFullPath = await fs.realpath(fullPath);
+          if (!isPathWithinBasePath(realBasePath, realFullPath)) continue;
           const key = prefix ? `${prefix}/${entry.name}` : entry.name;
 
           if (entry.isDirectory()) {
@@ -162,7 +232,7 @@ export class R2CompatBucket {
       } catch { /* ignore */ }
     };
 
-    await readDir(this.basePath);
+    await readDir(realBasePath);
 
     const limit = options?.limit ?? 1000;
     const truncated = objects.length > limit;

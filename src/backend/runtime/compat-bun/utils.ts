@@ -1,12 +1,15 @@
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck - This file is Bun-specific and should be type-checked by Bun's TypeScript
 /**
  * Bun Cloudflare Compatibility Layer - Shared Utilities
  */
 
-export const { mkdir, unlink, readdir, stat, readFile } = await import(
-  "fs/promises"
-);
+import type { BunRuntime } from "./types.ts";
+
+declare const Bun: BunRuntime;
+
+export const { mkdir, unlink, readdir, stat, readFile, realpath } =
+  await import(
+    "fs/promises"
+  );
 
 /**
  * Drain a ReadableStream into a single Uint8Array.

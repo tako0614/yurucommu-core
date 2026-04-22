@@ -1,14 +1,20 @@
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck - This file is Bun-specific and should be type-checked by Bun's TypeScript
 /**
  * Bun Cloudflare Compatibility Layer - Assets Fetcher
  */
+
+import { realpath, stat } from "./utils.ts";
+import type { BunRuntime } from "./types.ts";
+import { isPathWithinBasePath, resolvePathWithinBasePath } from "../shared.ts";
+import path from "node:path";
+
+declare const Bun: BunRuntime;
 
 /**
  * Fetcher-compatible static assets implementation for Bun
  */
 export class AssetsCompatFetcher {
   private basePath: string;
+  private realBasePath: string | null = null;
 
   constructor(basePath: string) {
     this.basePath = basePath;
@@ -18,22 +24,53 @@ export class AssetsCompatFetcher {
     return new AssetsCompatFetcher(basePath);
   }
 
+  private getResolvedBasePath(): string {
+    return path.resolve(this.basePath);
+  }
+
+  private async getRealBasePath(): Promise<string> {
+    if (this.realBasePath) return this.realBasePath;
+    try {
+      this.realBasePath = await realpath(this.getResolvedBasePath());
+    } catch {
+      this.realBasePath = this.getResolvedBasePath();
+    }
+    return this.realBasePath;
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    let filePath = `${this.basePath}${url.pathname}`;
-
-    // Security: prevent directory traversal
-    const normalizedPath = filePath.replace(/\.\./g, "");
-    if (normalizedPath !== filePath) {
+    let filePath: string;
+    try {
+      filePath = resolvePathWithinBasePath(
+        this.getResolvedBasePath(),
+        `.${url.pathname}`,
+      );
+    } catch {
       return new Response("Forbidden", { status: 403 });
     }
 
-    try {
-      let file = Bun.file(filePath);
+    const realBasePath = await this.getRealBasePath();
 
-      if (!(await file.exists())) {
-        filePath = `${filePath}/index.html`;
+    try {
+      const realFilePath = await realpath(filePath);
+      if (!isPathWithinBasePath(realBasePath, realFilePath)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+
+      const fileStats = await stat(realFilePath);
+      let file = Bun.file(realFilePath);
+
+      if (fileStats.isDirectory()) {
+        const indexPath = path.join(realFilePath, "index.html");
+        const realIndexPath = await realpath(indexPath);
+        if (!isPathWithinBasePath(realBasePath, realIndexPath)) {
+          return new Response("Forbidden", { status: 403 });
+        }
+        filePath = realIndexPath;
         file = Bun.file(filePath);
+      } else {
+        filePath = realFilePath;
       }
 
       if (await file.exists()) {
@@ -41,7 +78,12 @@ export class AssetsCompatFetcher {
       }
 
       // SPA fallback
-      const indexFile = Bun.file(`${this.basePath}/index.html`);
+      const indexPath = path.join(this.getResolvedBasePath(), "index.html");
+      const realIndexPath = await realpath(indexPath);
+      if (!isPathWithinBasePath(realBasePath, realIndexPath)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      const indexFile = Bun.file(realIndexPath);
       if (await indexFile.exists()) {
         return new Response(indexFile, {
           headers: { "Content-Type": "text/html" },

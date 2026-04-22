@@ -5,22 +5,11 @@ publish:
   - name: yurucommu-ui
     publisher: web
     type: UiSurface
-    path: /
+    outputs:
+      url:
+        route: /
     title: Yurucommu
     spec: {}
-  - name: yurucommu-oauth
-    publisher: takos
-    type: oauth-client
-    spec:
-      clientName: Yurucommu
-      redirectUris:
-        - /api/auth/callback/takos
-      scopes:
-        - openid
-        - profile
-        - email
-        - spaces:read
-        - repos:read
 
 compute:
   web:
@@ -39,7 +28,18 @@ compute:
       - publication: yurucommu-ui
         env:
           url: APP_URL
-      - publication: yurucommu-oauth
+      - publication: takos.oauth-client
+        as: yurucommu-oauth
+        request:
+          clientName: Yurucommu
+          redirectUris:
+            - /api/auth/callback/takos
+          scopes:
+            - openid
+            - profile
+            - email
+            - spaces:read
+            - repos:read
         env:
           clientId: TAKOS_CLIENT_ID
           clientSecret: TAKOS_CLIENT_SECRET
