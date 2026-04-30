@@ -3,6 +3,8 @@
 Yurucommu はセルフホスト型・一人用の ActivityPub プロダクトです。
 
 自分のドメイン、自分のデータ、小さなコミュニティ単位のつながりを前提に設計されています。
+Takos では default app distribution の一部として扱われますが、この repository
+は独立 product root として管理します。
 
 この repo 単体で、runtime model、ローカル開発、deploy
 の大枠が追える状態を保つことを目指します。
@@ -91,29 +93,30 @@ deno task deploy
 `.env.example` の `APP_URL=https://app.yurucommu.com` は self-host
 用の例であり、 checked-in `wrangler*.toml` の実デプロイ先とは別です。
 
-Takos 向け experimental bundle:
+Takos 向け bundle:
 
 ```bash
 cd yurucommu
 deno task build:takos-worker
 ```
 
+Takos default app manifest は `.takos/app.yml` にあります。
+
 `.takos/app.yml` は `dist/takos-worker.js` を deploy artifact として扱います。
 この bundle は web UI を worker に内包するため、Takos 側で `ASSETS` が無くても
-画面は配信できます。`/healthz` は bootstrap 用の liveness probe で、binding
-欠落がある場合も `degraded` を 200 で返します。Takos manifest readiness は初回
-resource bootstrap が詰まらないよう `/healthz` を使います。runtime binding の
-strict 確認には `/readyz` を使います。 `YURUCOMMU_STRICT_READINESS=1`
-を設定すると `/healthz` も binding 欠落時に 503 を返します。
+画面は配信できます。`/healthz` は liveness probe で、binding 欠落がある場合も
+通常は `degraded` を 200 で返します。runtime binding の strict 確認には
+`/readyz` を使い、Takos default app manifest の readiness も `/readyz`
+を使います。 `YURUCOMMU_STRICT_READINESS=1` を設定すると `/healthz` も binding
+欠落時に 503 を返します。
 
 ただし canonical ActivityPub identity を固定する production では `APP_URL` を
 deploy env / manifest override で明示してください。runtime binding は
 `.takos/app.yml` の `resources` で `DB` / `MEDIA` / `KV` / `DELIVERY_QUEUE` /
-`DELIVERY_DLQ` として宣言済みです。queue consumer は
-`.takos/app.yml` の `compute.web.triggers.queues` で `DELIVERY_QUEUE` を primary
+`DELIVERY_DLQ` として宣言済みです。queue consumer は `.takos/app.yml` の
+`compute.web.triggers.queues` で `DELIVERY_QUEUE` を primary
 consumer、`DELIVERY_DLQ` を dead-letter queue かつ DLQ reconciliation consumer
-として宣言します。manifest は
-`DELIVERY_QUEUE_NAME=yurucommu-delivery` と
+として宣言します。manifest は `DELIVERY_QUEUE_NAME=yurucommu-delivery` と
 `DELIVERY_DLQ_NAME=yurucommu-delivery-dlq` も明示し、Takos resource 名と runtime
 dispatch 名を一致させます。
 
