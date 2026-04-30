@@ -5,6 +5,7 @@ import { FakeTime } from "jsr:@std/testing/time";
 import authRoutes from "../../routes/auth.ts";
 import { LOGIN_LOCKOUT_CONFIG } from "../../lib/auth-lockout.ts";
 import { hashPassword } from "../../lib/crypto.ts";
+import { actors } from "../../../db/index.ts";
 
 class MockKVNamespace {
   private store = new Map<string, { value: string; expiration?: number }>();
@@ -67,6 +68,7 @@ async function request(
 function createAuthTestApp(
   hashedPassword: string,
   envOverrides: Record<string, unknown> = {},
+  options: { existingOwner?: boolean } = {},
 ) {
   const env = {
     KV: new MockKVNamespace(),
@@ -87,9 +89,16 @@ function createAuthTestApp(
       takosUserId: "password:owner",
     };
 
+    const mockOwnerGet = spy(() =>
+      Promise.resolve(options.existingOwner === false ? null : actorData)
+    );
     const mockGet = spy(() => Promise.resolve(actorData));
     const mockWhere = spy(() => ({ get: mockGet }));
-    const mockFrom = spy(() => ({ where: mockWhere, get: mockGet }));
+    const mockActorWhere = spy(() => ({ get: mockOwnerGet }));
+    const mockFrom = spy((table?: unknown) => {
+      if (table === actors) return { where: mockActorWhere, get: mockGet };
+      return { where: mockWhere, get: mockGet };
+    });
     const mockSelect = spy(() => ({ from: mockFrom }));
 
     type ThenResolve = ((value: unknown) => unknown) | null | undefined;
@@ -210,6 +219,20 @@ Deno.test("auth login lockout - allows retries again after lockout window passes
   } finally {
     time.restore();
   }
+});
+
+Deno.test("password login first run creates the fixed owner actor", async () => {
+  const hashedPassword = await hashPassword("correct-password");
+  const { app, env } = createAuthTestApp(hashedPassword, {}, {
+    existingOwner: false,
+  });
+
+  const { res, body } = await request(app, env, "/api/auth/login", {
+    password: "correct-password",
+  }, { "CF-Connecting-IP": "198.51.100.27" });
+
+  assertEquals(res.status, 200);
+  assertEquals(body, { success: true });
 });
 
 /** Helper: assert value is not null */

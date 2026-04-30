@@ -104,29 +104,36 @@
 
       <h3>WebFinger</h3>
       <p>
-        <code>@alice@alice.example</code> のようなアドレスでユーザーを特定できます。
-        Single-User Instanceでは、任意のユーザー名でも同じアクターを返すことが推奨されます。
+        <code>@tako@example.com</code> のようなアドレスでオーナーアクターを特定できます。
+        Yurucommu の Single-User Instance では、既存のローカル actor 名はその actor に解決し、
+        存在しない任意の <code>acct:&lt;name&gt;@host</code> は同じオーナーアクターへの alias として解決します。
       </p>
-      <pre><code>GET /.well-known/webfinger?resource=acct:alice@alice.example
+      <pre><code>GET /.well-known/webfinger?resource=acct:any@example.com
 
 {
-  "subject": "acct:alice@alice.example",
+  "subject": "acct:any@example.com",
+  "aliases": ["https://example.com/ap/users/tako"],
   "links": [
     {
       "rel": "self",
       "type": "application/activity+json",
-      "href": "https://alice.example/users/alice"
+      "href": "https://example.com/ap/users/tako"
+    },
+    {
+      "rel": "http://webfinger.net/rel/profile-page",
+      "type": "text/html",
+      "href": "https://example.com/users/tako"
     }
   ]
 }</code></pre>
 
       <h2>認証</h2>
       <p>
-        Single-User Instanceでは、複雑なユーザー管理は不要です。
-        シンプルなパスワード認証やマジックリンク認証が適しています。
+        Yurucommu の標準運用では、複雑なユーザー登録フローは持たず、
+        <code>AUTH_PASSWORD_HASH</code> に設定した単一パスワードでオーナーとしてログインします。
       </p>
 
-      <h3>推奨される認証方式</h3>
+      <h3>対応する認証方式</h3>
       <table class="docs-table">
         <thead>
           <tr>
@@ -138,18 +145,13 @@
         <tbody>
           <tr>
             <td>パスワード認証</td>
-            <td>シンプルなパスワードベース認証</td>
-            <td>基本的な保護</td>
+            <td><code>AUTH_PASSWORD_HASH</code> による単一パスワード認証</td>
+            <td>標準運用</td>
           </tr>
           <tr>
-            <td>マジックリンク</td>
-            <td>メールで送られるワンタイムリンク</td>
-            <td>パスワード不要の運用</td>
-          </tr>
-          <tr>
-            <td>Passkey/WebAuthn</td>
-            <td>生体認証やハードウェアキー</td>
-            <td>高セキュリティ</td>
+            <td>OAuth</td>
+            <td>設定済みプロバイダを使うログイン</td>
+            <td>外部 ID 連携が必要な場合</td>
           </tr>
         </tbody>
       </table>
@@ -162,17 +164,18 @@
 
       <h2>初期セットアップ</h2>
       <p>
-        インスタンスの初回起動時に、オーナーアカウントを作成します。
-        以降の新規ユーザー登録は無効化されます。
+        現行実装では、ブラウザ上の初回セットアップ画面からユーザー名・表示名・パスワードを登録する flow は提供しません。
+        パスワードは deploy 時に <code>AUTH_PASSWORD_HASH</code> として設定します。
       </p>
 
-      <h3>セットアップフロー</h3>
+      <h3>初回ログインフロー</h3>
       <ol>
         <li>インスタンスをデプロイ</li>
-        <li>初回アクセス時にセットアップ画面を表示</li>
-        <li>ユーザー名、表示名、パスワードを設定</li>
+        <li><code>AUTH_PASSWORD_HASH</code> を secret として設定</li>
+        <li>初回アクセス時は通常のログイン画面を表示</li>
+        <li>正しいパスワードでログイン</li>
+        <li>オーナー actor が未作成の場合、固定 username <code>tako</code> / 表示名 <code>tako</code> で作成</li>
         <li>キーペア（公開鍵/秘密鍵）を自動生成</li>
-        <li>セットアップ完了、以降は通常のログイン画面</li>
       </ol>
 
       <h2>インスタンス情報</h2>

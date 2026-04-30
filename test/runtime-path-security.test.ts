@@ -12,6 +12,10 @@ async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
+async function symlinkDirectory(target: string, link: string): Promise<void> {
+  await Deno.symlink(target, link, { type: "dir" });
+}
+
 Deno.test("resolvePathWithinBasePath rejects traversal and absolute paths", () => {
   const basePath = path.resolve(Deno.cwd(), "takos-path-security");
 
@@ -25,8 +29,6 @@ Deno.test("resolvePathWithinBasePath rejects traversal and absolute paths", () =
 });
 
 Deno.test("DenoStorage blocks symlink escapes", async () => {
-  if (Deno.build.os === "windows") return;
-
   const root = await Deno.makeTempDir();
   const storagePath = path.join(root, "storage");
   const outsidePath = path.join(root, "outside");
@@ -36,7 +38,7 @@ Deno.test("DenoStorage blocks symlink escapes", async () => {
     await Deno.mkdir(storagePath, { recursive: true });
     await Deno.mkdir(outsidePath, { recursive: true });
     await Deno.writeTextFile(path.join(outsidePath, "keep.txt"), "keep");
-    await Deno.symlink(outsidePath, linkPath);
+    await symlinkDirectory(outsidePath, linkPath);
 
     const storage = await DenoStorage.create(storagePath);
     await assertRejects(() => storage.put("link/evil.txt", "payload"));
@@ -57,8 +59,6 @@ Deno.test("DenoStorage blocks symlink escapes", async () => {
 });
 
 Deno.test("DenoAssets blocks symlink escapes and still serves normal files", async () => {
-  if (Deno.build.os === "windows") return;
-
   const root = await Deno.makeTempDir();
   const assetsPath = path.join(root, "assets");
   const outsidePath = path.join(root, "outside");
@@ -70,7 +70,7 @@ Deno.test("DenoAssets blocks symlink escapes and still serves normal files", asy
     await Deno.writeTextFile(path.join(assetsPath, "index.html"), "home");
     await Deno.writeTextFile(path.join(assetsPath, "app.txt"), "ok");
     await Deno.writeTextFile(path.join(outsidePath, "secret.txt"), "secret");
-    await Deno.symlink(outsidePath, linkPath);
+    await symlinkDirectory(outsidePath, linkPath);
 
     const assets = DenoAssets.create(assetsPath);
     const okResponse = await assets.fetch(

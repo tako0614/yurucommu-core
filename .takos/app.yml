@@ -3,16 +3,21 @@ version: "1.0.0"
 
 publish:
   - name: yurucommu-ui
-    publisher: web
-    type: UiSurface
+    type: takos.ui-surface.v1
+    display:
+      title: Yurucommu
+      description: Self-hosted ActivityPub community social
+      icon: /icons/yurucommu.svg
+      category: social
+      sortOrder: 40
     outputs:
       url:
-        route: /
-    title: Yurucommu
-    spec: {}
+        kind: url
+        routeRef: ui
 
 compute:
   web:
+    icon: /icons/yurucommu.svg
     build:
       fromWorkflow:
         path: .takos/workflows/deploy.yml
@@ -84,5 +89,6 @@ resources:
     to: web
 
 routes:
-  - target: web
+  - id: ui
+    target: web
     path: /

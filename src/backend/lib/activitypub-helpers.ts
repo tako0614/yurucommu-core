@@ -62,11 +62,11 @@ export function storyToActivityPub(
     "published": story.published,
     "endTime": story.endTime,
     "to": [`${actor.ap_id}/followers`],
-    "attachment": [{
+    "attachment": {
       "type": story.attachment.type,
       "mediaType": story.attachment.mediaType,
       "url": attachmentUrl,
-    }],
+    },
     "displayDuration": story.displayDuration,
     ...(story.overlays && story.overlays.length > 0
       ? { "overlays": story.overlays }
