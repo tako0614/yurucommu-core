@@ -1,9 +1,9 @@
 name: yurucommu
 version: "1.0.0"
 
-publish:
+publications:
   - name: yurucommu-ui
-    type: takos.ui-surface.v1
+    type: publication.http-endpoint@v1
     display:
       title: Yurucommu
       description: Self-hosted ActivityPub community social
@@ -31,8 +31,9 @@ compute:
       YURUCOMMU_STRICT_READINESS: "1"
     consume:
       - publication: yurucommu-ui
-        env:
-          url: APP_URL
+        inject:
+          env:
+            url: APP_URL
       - publication: takos.oauth-client
         as: yurucommu-oauth
         request:
@@ -45,10 +46,11 @@ compute:
             - email
             - spaces:read
             - repos:read
-        env:
-          clientId: TAKOS_CLIENT_ID
-          clientSecret: TAKOS_CLIENT_SECRET
-          issuer: TAKOS_URL
+        inject:
+          env:
+            clientId: TAKOS_CLIENT_ID
+            clientSecret: TAKOS_CLIENT_SECRET
+            issuer: TAKOS_URL
     triggers:
       queues:
         - binding: DELIVERY_QUEUE
