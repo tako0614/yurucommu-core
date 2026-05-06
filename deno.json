@@ -1,6 +1,7 @@
 {
   "name": "@takos/yurucommu",
   "version": "1.0.0",
+  "license": "GPL-3.0-only",
   "exports": {
     ".": "./src/backend/public.ts",
     "./server": "./src/backend/public.ts",
