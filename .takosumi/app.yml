@@ -1,0 +1,65 @@
+apiVersion: app.takosumi.dev/v1
+kind: InstallableApp
+metadata:
+  id: com.yurucommu.app
+  name: Yurucommu
+  description: Self-hosted ActivityPub community social app for small communities.
+  publisher: takos
+  homepage: https://github.com/tako0614/yurucommu
+source:
+  git: https://github.com/tako0614/yurucommu.git
+  ref: v1.2.2
+entry:
+  manifest: .takosumi/manifest.yml
+runtime:
+  modes:
+    - dedicated
+    - self-hosted
+bindings:
+  auth:
+    type: identity.oidc@v1
+    required: true
+    redirectPaths:
+      - /api/auth/callback/takos
+    allowedScopes:
+      - openid
+      - profile
+      - email
+      - spaces:read
+      - repos:read
+    subjectMode: pairwise
+  media:
+    type: object-store.s3-compatible@v1
+    required: true
+    plan: standard
+    lifecycleDays: 0
+  domain:
+    type: domain.http@v1
+    required: true
+    hostname: auto
+    tlsMode: auto
+serviceImports:
+  - binding: account-auth
+    service: takosumi.account.auth@v1
+    alias: account-auth
+    endpointRoles:
+      - oidc-issuer
+    refreshPolicy:
+      kind: ttl
+      ttl: 300s
+install:
+  healthcheckPath: /readyz
+  postInstallLaunchPath: /api/auth/login/takos
+permissions:
+  requested:
+    - spaces:read
+    - repos:read
+    - logs.read.own
+upgrade:
+  policy:
+    securityPatch: ask
+    minor: ask
+    major: manual
+compatibility:
+  takosumi-git: ">=0.4.0"
+  kernel: ">=1.0.0"

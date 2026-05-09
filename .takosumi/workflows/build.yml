@@ -1,0 +1,10 @@
+version: "0"
+jobs:
+  - name: build
+    steps:
+      - name: build-yurucommu-worker
+        run: |
+          deno task build:takos-worker
+          echo "TAKOSUMI_ARTIFACT=dist/takos-worker.js"
+    artifact:
+      name: yurucommu-worker
