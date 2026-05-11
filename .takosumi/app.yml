@@ -8,7 +8,7 @@ metadata:
   homepage: https://github.com/tako0614/yurucommu
 source:
   git: https://github.com/tako0614/yurucommu.git
-  ref: v1.2.2
+  ref: v1.2.3
 entry:
   manifest: .takosumi/manifest.yml
 runtime:
