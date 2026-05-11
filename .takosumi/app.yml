@@ -38,15 +38,11 @@ bindings:
     required: true
     hostname: auto
     tlsMode: auto
-serviceImports:
-  - binding: account-auth
-    service: takosumi.account.auth@v1
-    alias: account-auth
-    endpointRoles:
-      - oidc-issuer
-    refreshPolicy:
-      kind: ttl
-      ttl: 300s
+  bootstrap:
+    type: install-launch-token@v1
+    required: true
+    consumePath: /api/auth/login/takos
+    maxLifetimeSeconds: 300
 install:
   healthcheckPath: /readyz
   postInstallLaunchPath: /api/auth/login/takos
