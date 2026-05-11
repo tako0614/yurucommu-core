@@ -5,6 +5,6 @@ jobs:
       - name: build-yurucommu-worker
         run: |
           deno task build:takos-worker
-          echo "TAKOSUMI_ARTIFACT=dist/takos-worker.js"
+          echo "TAKOSUMI_ARTIFACT=sha256:$(sha256sum dist/takos-worker.js | cut -d ' ' -f 1)"
     artifact:
       name: yurucommu-worker
