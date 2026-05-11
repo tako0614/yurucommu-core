@@ -75,7 +75,7 @@ function createEnv(media: MemoryR2Bucket) {
     APP_URL: "https://test.local",
     DB_INSTANCE: {},
     MEDIA: media,
-    TAKOS_URL: "https://takos.example.com",
+    OIDC_ISSUER_URL: "https://accounts.example.com",
     CLIENT_ID: "takos-client",
     CLIENT_SECRET: "takos-secret",
   } as never;

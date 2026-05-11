@@ -199,33 +199,6 @@ export async function createActorFromOAuth(
   });
 }
 
-/** Fetches user info from Takos public userinfo endpoint. */
-export async function fetchTakosUserInfo(
-  takosUrl: string,
-  accessToken: string,
-): Promise<{ id: string; name: string; email?: string; picture?: string }> {
-  const res = await fetch(`${takosUrl.replace(/\/$/, "")}/oauth/userinfo`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) {
-    throw new Error(`Failed to fetch takos user info: ${res.status}`);
-  }
-
-  const data = await res.json() as {
-    user?: { id: string; name: string; email?: string; picture?: string };
-  };
-  if (!data.user?.id || !data.user?.name) {
-    throw new Error("Invalid takos user info payload");
-  }
-
-  return {
-    id: data.user.id,
-    name: data.user.name,
-    email: data.user.email,
-    picture: data.user.picture,
-  };
-}
-
 export function lockoutErrorResponse(
   retryAfterSeconds: number,
 ): { error: string; retry_after: number } {

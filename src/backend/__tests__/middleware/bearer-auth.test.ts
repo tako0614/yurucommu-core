@@ -13,7 +13,7 @@ function createApp() {
   return app;
 }
 
-Deno.test("requireBearerAuth fails closed when Takos OAuth config is missing", async () => {
+Deno.test("requireBearerAuth fails closed when Accounts OIDC config is missing", async () => {
   const app = createApp();
   const fetchSpy = spy(globalThis, "fetch");
 
@@ -36,7 +36,7 @@ Deno.test("requireBearerAuth fails closed when Takos OAuth config is missing", a
   }
 });
 
-Deno.test("requireBearerAuth introspects against the configured Takos origin", async () => {
+Deno.test("requireBearerAuth introspects against the configured Accounts issuer", async () => {
   const app = createApp();
   const fetchImpl = spy((_input: string | URL | Request) =>
     Promise.resolve(
@@ -63,7 +63,7 @@ Deno.test("requireBearerAuth introspects against the configured Takos origin", a
         headers: { Authorization: "Bearer token" },
       }),
       {
-        TAKOS_URL: "https://takos.example.com",
+        OIDC_ISSUER_URL: "https://accounts.example.com",
         CLIENT_ID: "takos-client",
         CLIENT_SECRET: "takos-secret",
       } as never,
@@ -74,7 +74,7 @@ Deno.test("requireBearerAuth introspects against the configured Takos origin", a
     assertSpyCalls(fetchImpl, 1);
     assertStringIncludes(
       String(fetchImpl.calls[0].args[0]),
-      "https://takos.example.com/oauth/introspect",
+      "https://accounts.example.com/oauth/introspect",
     );
   } finally {
     fetchStub.restore();

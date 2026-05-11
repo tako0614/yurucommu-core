@@ -15,7 +15,8 @@
  *   AUTH_PASSWORD_HASH - PBKDF2-hashed password authentication
  *   GOOGLE_CLIENT_ID/SECRET - Google OAuth
  *   X_CLIENT_ID/SECRET - X (Twitter) OAuth
- *   TAKOS_URL/CLIENT_ID/SECRET - Takos OAuth
+ *   OIDC_ISSUER_URL/CLIENT_ID/SECRET - Takosumi Accounts OIDC
+ *   TAKOS_URL       - Optional Takos API base URL for proxy/tool integration
  */
 
 import { DenoAssets, DenoDatabase, DenoStorage } from "./runtime/deno.ts";
@@ -64,11 +65,16 @@ const ENV_PASSTHROUGH_KEYS = [
   "GOOGLE_CLIENT_SECRET",
   "X_CLIENT_ID",
   "X_CLIENT_SECRET",
-  "TAKOS_URL",
-  "TAKOS_CLIENT_ID",
-  "TAKOS_CLIENT_SECRET",
+  "OIDC_ISSUER_URL",
+  "OIDC_CLIENT_ID",
+  "OIDC_CLIENT_SECRET",
+  "OAUTH_ISSUER_URL",
+  "TAKOSUMI_ACCOUNTS_ISSUER_URL",
+  "TAKOSUMI_ACCOUNTS_CLIENT_ID",
+  "TAKOSUMI_ACCOUNTS_CLIENT_SECRET",
   "CLIENT_ID",
   "CLIENT_SECRET",
+  "TAKOS_URL",
   "AUTH_MODE",
   "ENABLE_TAKOS_PROXY",
   "ENABLE_TAKOS_TOOLS",

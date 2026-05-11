@@ -17,13 +17,44 @@ export interface OAuthProvider {
   scopes: string[];
   // PKCE対応
   supportsPkce: boolean;
-  // takos固有: APIアクセス用
-  apiBaseUrl?: string;
 }
 
 export interface AuthConfig {
   passwordEnabled: boolean;
   providers: OAuthProvider[];
+}
+
+function envValue(env: Env, key: keyof Env): string | undefined {
+  const value = env[key];
+  return typeof value === "string" && value.trim() !== ""
+    ? value.trim()
+    : undefined;
+}
+
+export function getOidcIssuerUrl(env: Env): string | null {
+  return envValue(env, "OIDC_ISSUER_URL") ??
+    envValue(env, "OAUTH_ISSUER_URL") ??
+    envValue(env, "TAKOSUMI_ACCOUNTS_ISSUER_URL") ??
+    null;
+}
+
+export function getOidcClientCredentials(
+  env: Env,
+): { clientId: string; clientSecret: string } {
+  return {
+    clientId: envValue(env, "OIDC_CLIENT_ID") ??
+      envValue(env, "TAKOSUMI_ACCOUNTS_CLIENT_ID") ??
+      envValue(env, "CLIENT_ID") ??
+      "",
+    clientSecret: envValue(env, "OIDC_CLIENT_SECRET") ??
+      envValue(env, "TAKOSUMI_ACCOUNTS_CLIENT_SECRET") ??
+      envValue(env, "CLIENT_SECRET") ??
+      "",
+  };
+}
+
+export function issuerEndpoint(issuer: string, path: string): string {
+  return `${issuer.replace(/\/$/, "")}${path}`;
 }
 
 /**
@@ -60,21 +91,20 @@ export function getAuthConfig(env: Env): AuthConfig {
     });
   }
 
-  // Takos OAuth
-  const takosUrl = env.TAKOS_URL;
-  const takosClientId = env.TAKOS_CLIENT_ID || env.CLIENT_ID;
-  const takosClientSecret = env.TAKOS_CLIENT_SECRET || env.CLIENT_SECRET;
-  if (takosUrl && takosClientId && takosClientSecret) {
+  // Takosumi Accounts OIDC
+  const oidcIssuer = getOidcIssuerUrl(env);
+  const { clientId: oidcClientId, clientSecret: oidcClientSecret } =
+    getOidcClientCredentials(env);
+  if (oidcIssuer && oidcClientId && oidcClientSecret) {
     providers.push({
       id: "takos",
-      name: "Takos",
+      name: "Takosumi Accounts",
       icon: "/icons/takos.svg",
-      authorizeUrl: `${takosUrl}/oauth/authorize`,
-      tokenUrl: `${takosUrl}/oauth/token`,
-      userInfoUrl: `${takosUrl}/oauth/userinfo`,
-      scopes: ["openid", "profile", "email", "spaces:read", "repos:read"],
+      authorizeUrl: issuerEndpoint(oidcIssuer, "/oauth/authorize"),
+      tokenUrl: issuerEndpoint(oidcIssuer, "/oauth/token"),
+      userInfoUrl: issuerEndpoint(oidcIssuer, "/oauth/userinfo"),
+      scopes: ["openid", "profile", "email"],
       supportsPkce: true,
-      apiBaseUrl: takosUrl,
     });
   }
 
@@ -114,10 +144,7 @@ export function getClientCredentials(
         clientSecret: env.X_CLIENT_SECRET || "",
       };
     case "takos":
-      return {
-        clientId: env.TAKOS_CLIENT_ID || env.CLIENT_ID || "",
-        clientSecret: env.TAKOS_CLIENT_SECRET || env.CLIENT_SECRET || "",
-      };
+      return getOidcClientCredentials(env);
     default:
       return { clientId: "", clientSecret: "" };
   }
@@ -179,13 +206,22 @@ export async function fetchUserInfo(
     }
     case "takos": {
       const t = data as {
-        user: { id: string; name: string; email: string; picture?: string };
+        user?: { id?: string; name?: string; email?: string; picture?: string };
+        sub?: string;
+        name?: string;
+        email?: string;
+        picture?: string;
       };
+      const id = t.user?.id ?? t.sub;
+      const name = t.user?.name ?? t.name ?? id;
+      if (!id || !name) {
+        throw new Error("Takosumi Accounts userinfo response missing subject");
+      }
       return {
-        id: t.user.id,
-        name: t.user.name,
-        email: t.user.email,
-        picture: t.user.picture,
+        id,
+        name,
+        email: t.user?.email ?? t.email,
+        picture: t.user?.picture ?? t.picture,
       };
     }
     default:

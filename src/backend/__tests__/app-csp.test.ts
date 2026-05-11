@@ -24,13 +24,13 @@ Deno.test("backend CSP omits Takos origins when TAKOS_URL is not configured", as
   }
 });
 
-Deno.test("backend CSP includes the configured Takos origin when enabled", async () => {
+Deno.test("backend CSP includes the configured Accounts issuer when enabled", async () => {
   const app = createYurucommuBackendApp();
   const res = await app.fetch(
     new Request("https://test.local/"),
     {
       APP_URL: "https://test.local",
-      TAKOS_URL: "https://takos.example.com",
+      OIDC_ISSUER_URL: "https://accounts.example.com",
       DB_INSTANCE: {},
     } as never,
   );
@@ -38,7 +38,7 @@ Deno.test("backend CSP includes the configured Takos origin when enabled", async
   assertEquals(res.status, 503);
   const csp = res.headers.get("Content-Security-Policy");
   assert(csp);
-  assertStringIncludes(csp, "https://takos.example.com");
+  assertStringIncludes(csp, "https://accounts.example.com");
   if (csp.includes("script-src 'self' 'unsafe-inline'")) {
     throw new Error("CSP must not allow inline scripts");
   }
@@ -94,7 +94,7 @@ Deno.test("backend readyz reports missing runtime bindings before DB middleware"
   });
 });
 
-Deno.test("backend readyz accepts Takos OAuth as a provisioned auth method", async () => {
+Deno.test("backend readyz accepts Accounts OIDC as a provisioned auth method", async () => {
   const app = createYurucommuBackendApp();
   const res = await app.fetch(
     new Request("https://test.local/readyz"),
@@ -106,9 +106,9 @@ Deno.test("backend readyz accepts Takos OAuth as a provisioned auth method", asy
       DELIVERY_QUEUE: {},
       DELIVERY_DLQ: {},
       ENCRYPTION_KEY: "test-encryption-key",
-      TAKOS_URL: "https://takos.example.com",
-      TAKOS_CLIENT_ID: "client",
-      TAKOS_CLIENT_SECRET: "secret",
+      OIDC_ISSUER_URL: "https://accounts.example.com",
+      CLIENT_ID: "client",
+      CLIENT_SECRET: "secret",
     } as never,
   );
 

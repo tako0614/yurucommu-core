@@ -188,8 +188,15 @@ export interface RuntimeEnv {
   GOOGLE_CLIENT_SECRET?: string;
   X_CLIENT_ID?: string;
   X_CLIENT_SECRET?: string;
+  OIDC_ISSUER_URL?: string;
+  OIDC_CLIENT_ID?: string;
+  OIDC_CLIENT_SECRET?: string;
+  OAUTH_ISSUER_URL?: string;
+  TAKOSUMI_ACCOUNTS_ISSUER_URL?: string;
+  TAKOSUMI_ACCOUNTS_CLIENT_ID?: string;
+  TAKOSUMI_ACCOUNTS_CLIENT_SECRET?: string;
+  CLIENT_ID?: string;
+  CLIENT_SECRET?: string;
   TAKOS_URL?: string;
-  TAKOS_CLIENT_ID?: string;
-  TAKOS_CLIENT_SECRET?: string;
   AUTH_MODE?: string;
 }
