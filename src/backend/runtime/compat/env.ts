@@ -24,9 +24,16 @@ export async function createNodeEnv(config: {
   GOOGLE_CLIENT_SECRET?: string;
   X_CLIENT_ID?: string;
   X_CLIENT_SECRET?: string;
+  OIDC_ISSUER_URL?: string;
+  OIDC_CLIENT_ID?: string;
+  OIDC_CLIENT_SECRET?: string;
+  OAUTH_ISSUER_URL?: string;
+  TAKOSUMI_ACCOUNTS_ISSUER_URL?: string;
+  TAKOSUMI_ACCOUNTS_CLIENT_ID?: string;
+  TAKOSUMI_ACCOUNTS_CLIENT_SECRET?: string;
+  CLIENT_ID?: string;
+  CLIENT_SECRET?: string;
   TAKOS_URL?: string;
-  TAKOS_CLIENT_ID?: string;
-  TAKOS_CLIENT_SECRET?: string;
 }) {
   const db = await D1CompatDatabase.create(
     config.databasePath || "./data/yurucommu.db",
@@ -56,9 +63,16 @@ export async function createNodeEnv(config: {
     GOOGLE_CLIENT_SECRET: config.GOOGLE_CLIENT_SECRET,
     X_CLIENT_ID: config.X_CLIENT_ID,
     X_CLIENT_SECRET: config.X_CLIENT_SECRET,
+    OIDC_ISSUER_URL: config.OIDC_ISSUER_URL,
+    OIDC_CLIENT_ID: config.OIDC_CLIENT_ID,
+    OIDC_CLIENT_SECRET: config.OIDC_CLIENT_SECRET,
+    OAUTH_ISSUER_URL: config.OAUTH_ISSUER_URL,
+    TAKOSUMI_ACCOUNTS_ISSUER_URL: config.TAKOSUMI_ACCOUNTS_ISSUER_URL,
+    TAKOSUMI_ACCOUNTS_CLIENT_ID: config.TAKOSUMI_ACCOUNTS_CLIENT_ID,
+    TAKOSUMI_ACCOUNTS_CLIENT_SECRET: config.TAKOSUMI_ACCOUNTS_CLIENT_SECRET,
+    CLIENT_ID: config.CLIENT_ID,
+    CLIENT_SECRET: config.CLIENT_SECRET,
     TAKOS_URL: config.TAKOS_URL,
-    TAKOS_CLIENT_ID: config.TAKOS_CLIENT_ID,
-    TAKOS_CLIENT_SECRET: config.TAKOS_CLIENT_SECRET,
   };
 }
 

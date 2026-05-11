@@ -14,6 +14,11 @@ import {
   encrypt,
   EncryptionKeyError,
 } from "./crypto.ts";
+import {
+  getOidcClientCredentials,
+  getOidcIssuerUrl,
+  issuerEndpoint,
+} from "./oauth-providers.ts";
 
 interface TokenResponse {
   access_token: string;
@@ -211,15 +216,15 @@ async function refreshTakosToken(
   env: Env,
   refreshToken: string,
 ): Promise<TokenResponse | null> {
-  const clientId = env.TAKOS_CLIENT_ID || env.CLIENT_ID;
-  const clientSecret = env.TAKOS_CLIENT_SECRET || env.CLIENT_SECRET;
+  const issuer = getOidcIssuerUrl(env);
+  const { clientId, clientSecret } = getOidcClientCredentials(env);
 
-  if (!env.TAKOS_URL || !clientId || !clientSecret) {
+  if (!issuer || !clientId || !clientSecret) {
     return null;
   }
 
   try {
-    const url = `${env.TAKOS_URL}/oauth/token`;
+    const url = issuerEndpoint(issuer, "/oauth/token");
     const init: RequestInit = {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },

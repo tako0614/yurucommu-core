@@ -30,7 +30,6 @@ import {
   createActor,
   deleteSessionSafely,
   exchangeOAuthToken,
-  fetchTakosUserInfo,
   findOrCreateOAuthActor,
   formatAccountResponse,
   lockoutErrorResponse,
@@ -269,21 +268,9 @@ auth.get("/callback/:provider", async (c) => {
   );
   if (!tokens) return c.redirect("/?error=token_exchange_failed");
 
-  const takosApiBaseUrl = providerId === "takos"
-    ? provider.apiBaseUrl ?? c.env.TAKOS_URL?.trim()
-    : null;
-  if (providerId === "takos" && !takosApiBaseUrl) {
-    return c.redirect("/?error=provider_misconfigured");
-  }
-
   let userInfo;
   try {
-    userInfo = providerId === "takos"
-      ? await fetchTakosUserInfo(
-        takosApiBaseUrl!,
-        tokens.access_token,
-      )
-      : await fetchUserInfo(provider, tokens.access_token);
+    userInfo = await fetchUserInfo(provider, tokens.access_token);
   } catch (err) {
     console.error("Failed to fetch user info:", err);
     return c.redirect("/?error=user_info_failed");

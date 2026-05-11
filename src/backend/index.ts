@@ -2,6 +2,10 @@ import { Hono } from "hono";
 import type { Env, Variables } from "./types.ts";
 import { getDb } from "../db/index.ts";
 import { extractActorFromSession } from "./lib/session-actor.ts";
+import {
+  getOidcClientCredentials,
+  getOidcIssuerUrl,
+} from "./lib/oauth-providers.ts";
 
 import authRoutes from "./routes/auth.ts";
 import actorsRoutes from "./routes/actors.ts";
@@ -91,10 +95,11 @@ function collectMissingRuntimeBindings(env: Env): string[] {
   const hasGoogle = hasValue(env.GOOGLE_CLIENT_ID) &&
     hasValue(env.GOOGLE_CLIENT_SECRET);
   const hasX = hasValue(env.X_CLIENT_ID) && hasValue(env.X_CLIENT_SECRET);
-  const hasTakos = hasValue(env.TAKOS_URL) &&
-    hasValue(env.TAKOS_CLIENT_ID || env.CLIENT_ID) &&
-    hasValue(env.TAKOS_CLIENT_SECRET || env.CLIENT_SECRET);
-  if (!hasPassword && !hasGoogle && !hasX && !hasTakos) {
+  const oidcCredentials = getOidcClientCredentials(env);
+  const hasAccountsOidc = hasValue(getOidcIssuerUrl(env) ?? undefined) &&
+    hasValue(oidcCredentials.clientId) &&
+    hasValue(oidcCredentials.clientSecret);
+  if (!hasPassword && !hasGoogle && !hasX && !hasAccountsOidc) {
     missing.push("AUTH_METHOD");
   }
   return missing;
@@ -148,11 +153,16 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
     setSecurityHeader("Cross-Origin-Embedder-Policy", "credentialless");
 
     const takosUrl = c.env.TAKOS_URL?.trim();
+    const oidcIssuer = getOidcIssuerUrl(c.env);
     const connectSrc = ["'self'", "https://unpkg.com", "wss:"];
     const formAction = ["'self'"];
     if (takosUrl) {
       connectSrc.push(takosUrl);
       formAction.push(takosUrl);
+    }
+    if (oidcIssuer) {
+      connectSrc.push(oidcIssuer);
+      formAction.push(oidcIssuer);
     }
     const csp = [
       "default-src 'self'",

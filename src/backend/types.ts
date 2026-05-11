@@ -21,12 +21,17 @@ export interface EnvVars {
   GOOGLE_CLIENT_SECRET?: string;
   X_CLIENT_ID?: string;
   X_CLIENT_SECRET?: string;
-  TAKOS_URL?: string;
-  TAKOS_CLIENT_ID?: string;
-  TAKOS_CLIENT_SECRET?: string;
-  // OAuth autoEnv compatibility (CLIENT_ID/CLIENT_SECRET)
+  OIDC_ISSUER_URL?: string;
+  OIDC_CLIENT_ID?: string;
+  OIDC_CLIENT_SECRET?: string;
+  OAUTH_ISSUER_URL?: string;
+  TAKOSUMI_ACCOUNTS_ISSUER_URL?: string;
+  TAKOSUMI_ACCOUNTS_CLIENT_ID?: string;
+  TAKOSUMI_ACCOUNTS_CLIENT_SECRET?: string;
+  // OIDC autoEnv compatibility (CLIENT_ID/CLIENT_SECRET)
   CLIENT_ID?: string;
   CLIENT_SECRET?: string;
+  TAKOS_URL?: string; // Optional Takos API base URL; not the OIDC issuer.
   AUTH_MODE?: string;
   ENCRYPTION_KEY?: string; // 32-byte hex key for encrypting sensitive data
 

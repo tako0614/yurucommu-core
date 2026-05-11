@@ -8,7 +8,7 @@ metadata:
   homepage: https://github.com/tako0614/yurucommu
 source:
   git: https://github.com/tako0614/yurucommu.git
-  ref: v1.2.3
+  ref: v1.2.4
 entry:
   manifest: .takosumi/manifest.yml
 runtime:
@@ -25,8 +25,6 @@ bindings:
       - openid
       - profile
       - email
-      - spaces:read
-      - repos:read
     subjectMode: pairwise
   media:
     type: object-store.s3-compatible@v1
@@ -48,8 +46,6 @@ install:
   postInstallLaunchPath: /api/auth/login/takos
 permissions:
   requested:
-    - spaces:read
-    - repos:read
     - logs.read.own
 upgrade:
   policy:

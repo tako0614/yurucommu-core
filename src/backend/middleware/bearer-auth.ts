@@ -1,5 +1,10 @@
 import type { MiddlewareHandler } from "hono";
 import type { Env, Variables } from "../types.ts";
+import {
+  getOidcClientCredentials,
+  getOidcIssuerUrl,
+  issuerEndpoint,
+} from "../lib/oauth-providers.ts";
 
 export function requireBearerAuth(
   requiredScope: string,
@@ -10,17 +15,16 @@ export function requireBearerAuth(
       return c.json({ error: "unauthorized" }, 401);
     }
     const token = auth.slice(7);
-    const takosUrl = c.env.TAKOS_URL?.trim();
-    const clientId = c.env.TAKOS_CLIENT_ID ?? c.env.CLIENT_ID;
-    const clientSecret = c.env.TAKOS_CLIENT_SECRET ?? c.env.CLIENT_SECRET;
-    if (!takosUrl || !clientId || !clientSecret) {
+    const issuer = getOidcIssuerUrl(c.env);
+    const { clientId, clientSecret } = getOidcClientCredentials(c.env);
+    if (!issuer || !clientId || !clientSecret) {
       return c.json({
         error: "server_error",
-        error_description: "Takos OAuth client not configured",
+        error_description: "Takosumi Accounts OIDC client not configured",
       }, 500);
     }
 
-    const res = await fetch(`${takosUrl}/oauth/introspect`, {
+    const res = await fetch(issuerEndpoint(issuer, "/oauth/introspect"), {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
