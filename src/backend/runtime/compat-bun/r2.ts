@@ -1,5 +1,9 @@
 /**
  * Bun Cloudflare Compatibility Layer - R2 Bucket
+ *
+ * Implements the runtime `IObjectStorage` contract using the local
+ * filesystem via Bun's APIs. The nominal Cloudflare `R2Bucket` is
+ * reached through `runtime/cloudflare-binding.ts#toCloudflareBindings`.
  */
 
 import { mkdir, readdir, realpath, stat, unlink } from "./utils.ts";
@@ -11,13 +15,16 @@ import {
   resolvePathWithinBasePath,
 } from "../shared.ts";
 import path from "node:path";
+import type {
+  IObjectStorage,
+  ListObjectsResult,
+  ObjectMetadata,
+  StorageObject,
+} from "../types.ts";
 
 declare const Bun: BunRuntime;
 
-/**
- * R2Bucket-compatible filesystem implementation for Bun
- */
-export class R2CompatBucket {
+export class R2CompatBucket implements IObjectStorage {
   private basePath: string;
   private realBasePath: string | null = null;
 
@@ -70,12 +77,12 @@ export class R2CompatBucket {
 
   async put(
     key: string,
-    value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob,
+    value: ReadableStream | ArrayBuffer | string,
     options?: {
-      httpMetadata?: { contentType?: string };
+      httpMetadata?: ObjectMetadata["httpMetadata"];
       customMetadata?: Record<string, string>;
     },
-  ): Promise<{ key: string }> {
+  ): Promise<void> {
     const filePath = this.getFilePath(key);
     const dir = path.dirname(filePath);
     await assertPathChainWithinBasePath(
@@ -117,8 +124,6 @@ export class R2CompatBucket {
         }),
       );
     }
-
-    return { key };
   }
 
   async get(key: string): Promise<R2CompatObject | null> {

@@ -1,20 +1,52 @@
 /**
  * Bun Cloudflare Compatibility Layer - D1 Database
+ *
+ * Implements the runtime `IDatabase` contract on top of Bun's built-in
+ * `bun:sqlite` module. The nominal Cloudflare `D1Database` is reached
+ * through `runtime/cloudflare-binding.ts#toCloudflareBindings`.
  */
 
 import { loadBunSqlite } from "./types.ts";
 import type { BunSQLiteDatabase } from "./types.ts";
+import type {
+  FirstResult,
+  IDatabase,
+  PreparedStatement,
+  QueryResult,
+  RunResult,
+} from "../types.ts";
 
 declare const require: (specifier: string) => unknown;
 
-/**
- * D1Database-compatible SQLite implementation for Bun
- */
-export class D1CompatDatabase {
+interface BunRunResult {
+  changes: number;
+  lastInsertRowid: number;
+}
+
+function asRow(
+  row: unknown,
+): Record<string, unknown> | null {
+  if (row === undefined || row === null) return null;
+  if (typeof row !== "object") return null;
+  return row as Record<string, unknown>;
+}
+
+function asBunRunResult(value: unknown): BunRunResult {
+  if (
+    typeof value !== "object" || value === null ||
+    typeof (value as { changes?: unknown }).changes !== "number" ||
+    typeof (value as { lastInsertRowid?: unknown }).lastInsertRowid !== "number"
+  ) {
+    return { changes: 0, lastInsertRowid: 0 };
+  }
+  return value as BunRunResult;
+}
+
+export class D1CompatDatabase implements IDatabase {
   private db: BunSQLiteDatabase;
 
-  constructor(db: unknown) {
-    this.db = db as BunSQLiteDatabase;
+  constructor(db: BunSQLiteDatabase) {
+    this.db = db;
   }
 
   static create(filename: string = ":memory:"): D1CompatDatabase {
@@ -34,11 +66,17 @@ export class D1CompatDatabase {
   }
 
   async batch<T = unknown>(
-    statements: D1CompatPreparedStatement[],
-  ): Promise<Array<{ results: T[]; success: boolean; meta: object }>> {
-    const results: Array<{ results: T[]; success: boolean; meta: object }> = [];
+    statements: PreparedStatement[],
+  ): Promise<QueryResult<T>[]> {
+    const compats = statements.map((s) => {
+      if (s instanceof D1CompatPreparedStatement) return s;
+      throw new Error(
+        "D1CompatDatabase.batch requires D1CompatPreparedStatement",
+      );
+    });
+    const results: QueryResult<T>[] = [];
     this.db.transaction(() => {
-      for (const stmt of statements) {
+      for (const stmt of compats) {
         try {
           const result = stmt.runSync();
           results.push({
@@ -49,12 +87,8 @@ export class D1CompatDatabase {
               last_row_id: result.lastInsertRowid,
             },
           });
-        } catch (e) {
-          results.push({
-            results: [],
-            success: false,
-            meta: { error: String(e) },
-          });
+        } catch {
+          results.push({ results: [], success: false });
         }
       }
     })();
@@ -66,10 +100,7 @@ export class D1CompatDatabase {
   }
 }
 
-/**
- * D1PreparedStatement-compatible implementation for Bun
- */
-export class D1CompatPreparedStatement {
+export class D1CompatPreparedStatement implements PreparedStatement {
   private db: BunSQLiteDatabase;
   private query: string;
   private boundValues: unknown[] = [];
@@ -84,29 +115,24 @@ export class D1CompatPreparedStatement {
     return this;
   }
 
-  async first<T = unknown>(colName?: string): Promise<T | null> {
+  async first<T = unknown>(colName?: string): Promise<FirstResult<T>> {
     const stmt = this.db.prepare(this.query);
-    const row = stmt.get(...this.boundValues) as Record<string, unknown> | null;
+    const row = asRow(stmt.get(...this.boundValues));
     if (!row) return null;
-    if (colName) return row[colName] as T;
+    if (colName !== undefined) return row[colName] as T;
     return row as T;
   }
 
-  async all<T = unknown>(): Promise<
-    { results: T[]; success: boolean; meta: object }
-  > {
+  async all<T = unknown>(): Promise<QueryResult<T>> {
     const stmt = this.db.prepare(this.query);
-    const rows = stmt.all(...this.boundValues) as T[];
+    const rows = stmt.all(...this.boundValues);
     return {
-      results: rows,
+      results: rows as T[],
       success: true,
-      meta: {},
     };
   }
 
-  async run(): Promise<
-    { success: boolean; meta: { changes: number; last_row_id: number } }
-  > {
+  async run(): Promise<RunResult> {
     const result = this.runSync();
     return {
       success: true,
@@ -117,11 +143,8 @@ export class D1CompatPreparedStatement {
     };
   }
 
-  runSync(): { changes: number; lastInsertRowid: number } {
+  runSync(): BunRunResult {
     const stmt = this.db.prepare(this.query);
-    return stmt.run(...this.boundValues) as {
-      changes: number;
-      lastInsertRowid: number;
-    };
+    return asBunRunResult(stmt.run(...this.boundValues));
   }
 }

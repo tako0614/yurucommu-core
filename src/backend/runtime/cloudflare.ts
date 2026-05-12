@@ -6,9 +6,12 @@
 
 import type {
   D1Database,
+  D1PreparedStatement,
+  D1Result,
   Fetcher,
   KVNamespace,
   R2Bucket,
+  R2Object,
 } from "@cloudflare/workers-types";
 import type {
   FirstResult,
@@ -23,8 +26,6 @@ import type {
   RunResult,
   StorageObject,
 } from "./types.ts";
-
-type D1BatchResult = Awaited<ReturnType<D1Database["batch"]>>[number];
 
 /**
  * Cloudflare D1 Database Adapter
@@ -48,9 +49,9 @@ class CloudflareDatabase implements IDatabase {
       throw new Error("Invalid statement type for Cloudflare batch");
     });
 
-    const results = await this.db.batch(d1Statements);
-    return results.map((r: D1BatchResult) => ({
-      results: (r.results ?? []) as T[],
+    const results = await this.db.batch<T>(d1Statements);
+    return results.map((r: D1Result<T>) => ({
+      results: r.results,
       success: r.success,
       meta: r.meta,
     }));
@@ -61,9 +62,9 @@ class CloudflareDatabase implements IDatabase {
  * Cloudflare D1 Prepared Statement Adapter
  */
 class CloudflarePreparedStatement implements PreparedStatement {
-  private stmt: ReturnType<D1Database["prepare"]>;
+  private stmt: D1PreparedStatement;
 
-  constructor(stmt: ReturnType<D1Database["prepare"]>) {
+  constructor(stmt: D1PreparedStatement) {
     this.stmt = stmt;
   }
 
@@ -73,19 +74,15 @@ class CloudflarePreparedStatement implements PreparedStatement {
   }
 
   async first<T = unknown>(colName?: string): Promise<FirstResult<T>> {
-    const stmt = this.stmt as {
-      first(columnName?: string): Promise<unknown | null>;
-    };
-    return await stmt.first(colName) as FirstResult<T>;
+    return colName !== undefined
+      ? await this.stmt.first<T>(colName)
+      : await this.stmt.first<T>();
   }
 
   async all<T = unknown>(): Promise<QueryResult<T>> {
-    const stmt = this.stmt as {
-      all(): Promise<QueryResult<unknown>>;
-    };
-    const result = await stmt.all();
+    const result = await this.stmt.all<T>();
     return {
-      results: (result.results ?? []) as T[],
+      results: result.results,
       success: result.success,
       meta: result.meta,
     };
@@ -99,7 +96,7 @@ class CloudflarePreparedStatement implements PreparedStatement {
     };
   }
 
-  getD1Statement(): ReturnType<D1Database["prepare"]> {
+  getD1Statement(): D1PreparedStatement {
     return this.stmt;
   }
 }
@@ -118,7 +115,7 @@ class CloudflareStorage implements IObjectStorage {
       customMetadata?: Record<string, string>;
     },
   ): Promise<void> {
-    await this.bucket.put(key, value as Parameters<R2Bucket["put"]>[1], {
+    await this.bucket.put(key, value, {
       httpMetadata: options?.httpMetadata,
       customMetadata: options?.customMetadata,
     });
@@ -130,7 +127,7 @@ class CloudflareStorage implements IObjectStorage {
 
     return {
       key,
-      body: obj.body as ReadableStream<Uint8Array> | null,
+      body: obj.body,
       bodyUsed: obj.bodyUsed,
       arrayBuffer: () => obj.arrayBuffer(),
       text: () => obj.text(),
@@ -150,22 +147,9 @@ class CloudflareStorage implements IObjectStorage {
     cursor?: string;
     delimiter?: string;
   }): Promise<ListObjectsResult> {
-    const result = await this.bucket.list(options) as {
-      objects: Array<
-        {
-          key: string;
-          size: number;
-          uploaded: Date;
-          etag: string;
-          httpMetadata?: ObjectMetadata["httpMetadata"];
-        }
-      >;
-      truncated: boolean;
-      cursor?: string;
-      delimitedPrefixes?: string[];
-    };
+    const result = await this.bucket.list(options);
     return {
-      objects: result.objects.map((obj) => ({
+      objects: result.objects.map((obj: R2Object) => ({
         key: obj.key,
         size: obj.size,
         uploaded: obj.uploaded,
@@ -173,7 +157,7 @@ class CloudflareStorage implements IObjectStorage {
         httpMetadata: obj.httpMetadata,
       })),
       truncated: result.truncated,
-      cursor: result.cursor,
+      cursor: result.truncated ? result.cursor : undefined,
       delimitedPrefixes: result.delimitedPrefixes,
     };
   }
@@ -225,7 +209,7 @@ class CloudflareKV implements IKeyValueStore {
       metadata?: Record<string, unknown>;
     },
   ): Promise<void> {
-    await this.kv.put(key, value as string, {
+    await this.kv.put(key, value, {
       expirationTtl: options?.expirationTtl,
       expiration: options?.expiration,
       metadata: options?.metadata,
@@ -245,11 +229,12 @@ class CloudflareKV implements IKeyValueStore {
     list_complete: boolean;
     cursor?: string;
   }> {
-    return this.kv.list(options) as Promise<{
-      keys: Array<{ name: string; expiration?: number; metadata?: unknown }>;
-      list_complete: boolean;
-      cursor?: string;
-    }>;
+    const result = await this.kv.list(options);
+    return {
+      keys: result.keys,
+      list_complete: result.list_complete,
+      cursor: result.list_complete ? undefined : result.cursor,
+    };
   }
 }
 
@@ -259,26 +244,9 @@ class CloudflareKV implements IKeyValueStore {
 class CloudflareAssets implements IStaticAssets {
   constructor(private assets: Fetcher) {}
 
-  async fetch(request: Request): Promise<Response> {
-    // DOM `Request` / `Response` and `@cloudflare/workers-types`
-    // `Fetcher.fetch` parameters / return are the same runtime objects but
-    // nominally different at compile time. The bridge is concentrated here.
-    return await toDomResponse(
-      this.assets.fetch(toFetcherRequest(request)),
-    );
+  fetch(request: Request): Promise<Response> {
+    return this.assets.fetch(request);
   }
-}
-
-function toFetcherRequest(
-  request: Request,
-): Parameters<Fetcher["fetch"]>[0] {
-  return request as unknown as Parameters<Fetcher["fetch"]>[0];
-}
-
-async function toDomResponse(
-  response: ReturnType<Fetcher["fetch"]>,
-): Promise<Response> {
-  return (await response) as unknown as Response;
 }
 
 /**

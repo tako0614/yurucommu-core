@@ -1,25 +1,31 @@
 /**
  * KVNamespace-compatible in-memory implementation
  *
- * Provides KVCompatNamespace class that implements the same interface
- * as Cloudflare Workers KV.
+ * Implements the runtime `IKeyValueStore` contract using an in-memory
+ * Map. The nominal Cloudflare `KVNamespace` is reached through
+ * `runtime/cloudflare-binding.ts#toCloudflareBindings`.
  */
 
 import { drainStream } from "./node-modules.ts";
+import type { IKeyValueStore } from "../types.ts";
 
-/**
- * KVNamespace-compatible in-memory implementation
- */
-export class KVCompatNamespace {
-  private store = new Map<string, {
-    value: string | ArrayBuffer;
-    expiration?: number;
-    metadata?: unknown;
-  }>();
+interface KVEntry {
+  value: string | ArrayBuffer;
+  expiration?: number;
+  metadata?: unknown;
+}
 
-  private getEntry(
-    key: string,
-  ): { value: string | ArrayBuffer; metadata?: unknown } | null {
+async function readStreamAsArrayBuffer(
+  stream: ReadableStream,
+): Promise<ArrayBuffer> {
+  const drained = await drainStream(stream as ReadableStream<Uint8Array>);
+  return drained.buffer as ArrayBuffer;
+}
+
+export class KVCompatNamespace implements IKeyValueStore {
+  private store = new Map<string, KVEntry>();
+
+  private getEntry(key: string): KVEntry | null {
     const entry = this.store.get(key);
     if (!entry) return null;
     if (entry.expiration && entry.expiration < Date.now() / 1000) {
@@ -33,13 +39,21 @@ export class KVCompatNamespace {
     return typeof value === "string" ? value : new TextDecoder().decode(value);
   }
 
+  get(key: string, options?: { type?: "text" }): Promise<string | null>;
+  get<T = unknown>(
+    key: string,
+    options: { type: "json" },
+  ): Promise<T | null>;
+  get(
+    key: string,
+    options: { type: "arrayBuffer" },
+  ): Promise<ArrayBuffer | null>;
   async get(
     key: string,
-    options?: { type?: "text" | "json" | "arrayBuffer" | "stream" },
-  ): Promise<unknown> {
+    options?: { type?: "text" | "json" | "arrayBuffer" },
+  ): Promise<string | ArrayBuffer | unknown | null> {
     const entry = this.getEntry(key);
     if (!entry) return null;
-
     const type = options?.type ?? "text";
     if (type === "json") return JSON.parse(this.decodeAsText(entry.value));
     if (type === "arrayBuffer") {
@@ -56,15 +70,14 @@ export class KVCompatNamespace {
     options?: {
       expirationTtl?: number;
       expiration?: number;
-      metadata?: unknown;
+      metadata?: Record<string, unknown>;
     },
   ): Promise<void> {
     let storedValue: string | ArrayBuffer;
     if (typeof value === "string" || value instanceof ArrayBuffer) {
       storedValue = value;
     } else {
-      storedValue = (await drainStream(value as ReadableStream<Uint8Array>))
-        .buffer as ArrayBuffer;
+      storedValue = await readStreamAsArrayBuffer(value);
     }
 
     let expiration: number | undefined;

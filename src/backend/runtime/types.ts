@@ -79,7 +79,7 @@ export interface ObjectMetadata {
  */
 export interface StorageObject {
   key: string;
-  body: ReadableStream<Uint8Array> | null;
+  body: ReadableStream | null;
   bodyUsed: boolean;
   arrayBuffer(): Promise<ArrayBuffer>;
   text(): Promise<string>;

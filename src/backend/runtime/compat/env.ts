@@ -10,6 +10,7 @@ import { D1CompatDatabase } from "./d1.ts";
 import { R2CompatBucket } from "./r2.ts";
 import { KVCompatNamespace } from "./kv.ts";
 import { AssetsCompatFetcher } from "./assets.ts";
+import { toCloudflareBindings } from "../cloudflare-binding.ts";
 
 /**
  * Create Cloudflare-compatible environment from Node.js
@@ -51,14 +52,8 @@ export async function createNodeEnv(config: {
     config.databasePath || "./data/yurucommu.db",
   );
 
-  // Cloudflare/Node runtime boundary: see runtime/cloudflare-binding.ts
-  // for the rationale. The compat classes are signature-compatible with the
-  // nominal Workers types but TypeScript cannot prove it without `unknown`.
   return {
-    DB: db as unknown as D1Database,
-    MEDIA: storage as unknown as R2Bucket,
-    KV: kv as unknown as KVNamespace,
-    ASSETS: assets as unknown as Fetcher,
+    ...toCloudflareBindings({ db, media: storage, kv, assets }),
     DB_INSTANCE: dbInstance,
     APP_URL: config.APP_URL,
     AUTH_PASSWORD_HASH: config.AUTH_PASSWORD_HASH,

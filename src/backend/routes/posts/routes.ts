@@ -1,5 +1,10 @@
 import { Hono } from "hono";
-import { actors, follows, objects } from "../../../db/index.ts";
+import {
+  actors,
+  affectedRowCount,
+  follows,
+  objects,
+} from "../../../db/index.ts";
 import { and, desc, eq, or, sql } from "drizzle-orm";
 import type { Env, Variables } from "../../types.ts";
 import {
@@ -410,7 +415,7 @@ posts.delete("/:id", async (c) => {
       .where(
         and(eq(objects.apId, post.inReplyTo), sql`${objects.replyCount} > 0`),
       );
-    parentUpdated = (result?.meta?.changes ?? 0) > 0;
+    parentUpdated = affectedRowCount(result) > 0;
   }
 
   if (post.inReplyTo && !parentUpdated) {

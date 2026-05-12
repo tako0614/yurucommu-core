@@ -1,18 +1,20 @@
 /**
  * Bun Cloudflare Compatibility Layer - Assets Fetcher
+ *
+ * Implements the runtime `IStaticAssets` contract using the local
+ * filesystem via Bun's APIs. The nominal Cloudflare `Fetcher` is
+ * reached through `runtime/cloudflare-binding.ts#toCloudflareBindings`.
  */
 
 import { realpath, stat } from "./utils.ts";
 import type { BunRuntime } from "./types.ts";
 import { isPathWithinBasePath, resolvePathWithinBasePath } from "../shared.ts";
 import path from "node:path";
+import type { IStaticAssets } from "../types.ts";
 
 declare const Bun: BunRuntime;
 
-/**
- * Fetcher-compatible static assets implementation for Bun
- */
-export class AssetsCompatFetcher {
+export class AssetsCompatFetcher implements IStaticAssets {
   private basePath: string;
   private realBasePath: string | null = null;
 

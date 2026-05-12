@@ -1,8 +1,9 @@
 /**
  * R2Bucket-compatible filesystem implementation
  *
- * Provides R2CompatBucket and R2CompatObject classes that implement
- * the same interface as Cloudflare R2.
+ * Implements the runtime `IObjectStorage` contract on top of the local
+ * filesystem. The nominal Cloudflare `R2Bucket` is reached through
+ * `runtime/cloudflare-binding.ts#toCloudflareBindings`.
  */
 
 import { Buffer } from "node:buffer";
@@ -18,6 +19,12 @@ import {
   isPathWithinBasePath,
   resolvePathWithinBasePath,
 } from "../shared.ts";
+import type {
+  IObjectStorage,
+  ListObjectsResult,
+  ObjectMetadata,
+  StorageObject,
+} from "../types.ts";
 
 export interface R2MetaFile {
   httpMetadata?: { contentType?: string };
@@ -29,18 +36,13 @@ export interface R2MetaFile {
 /**
  * R2ObjectHead-compatible implementation
  */
-export interface R2CompatObjectHead {
+export interface R2CompatObjectHead extends ObjectMetadata {
   key: string;
   size: number;
   uploaded: Date;
-  httpMetadata?: { contentType?: string };
-  customMetadata?: Record<string, string>;
 }
 
-/**
- * R2Bucket-compatible filesystem implementation
- */
-export class R2CompatBucket {
+export class R2CompatBucket implements IObjectStorage {
   private basePath: string;
   private realBasePath: string | null = null;
 
@@ -94,12 +96,12 @@ export class R2CompatBucket {
 
   async put(
     key: string,
-    value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob,
+    value: ReadableStream | ArrayBuffer | string,
     options?: {
-      httpMetadata?: { contentType?: string };
+      httpMetadata?: ObjectMetadata["httpMetadata"];
       customMetadata?: Record<string, string>;
     },
-  ): Promise<{ key: string }> {
+  ): Promise<void> {
     const fs = getFs();
     const path = getPath();
     const filePath = this.getFilePath(key);
@@ -142,8 +144,6 @@ export class R2CompatBucket {
         }),
       );
     }
-
-    return { key };
   }
 
   async get(key: string): Promise<R2CompatObject | null> {

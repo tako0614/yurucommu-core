@@ -1,6 +1,7 @@
 import type { Context, Hono } from "hono";
 import { and, count, eq, gt, isNull, or, sql } from "drizzle-orm";
 import {
+  affectedRowCount,
   communities,
   communityInvites,
   communityJoinRequests,
@@ -138,7 +139,7 @@ export function registerMembershipJoinRoutes(
                 eq(communityInvites.invitedApId, actor.ap_id),
               ),
             ));
-          if (claimResult.meta.changes !== 1) {
+          if (affectedRowCount(claimResult) !== 1) {
             throw new Error("INVITE_CLAIM_FAILED");
           }
 

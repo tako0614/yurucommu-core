@@ -2,37 +2,43 @@
  * Drizzle ORM Database Client for Yurucommu
  *
  * Multi-runtime support:
- * - Cloudflare Workers (D1)
- * - Node.js / Bun (libsql)
+ * - Cloudflare Workers (D1) via `drizzle-orm/d1`
+ * - Node.js / Bun (libsql) via `drizzle-orm/libsql`
+ *
+ * Both factories return distinct subclasses of `BaseSQLiteDatabase`, with
+ * different concrete result-row types (`D1Result` vs libsql's `ResultSet`).
+ * The query-builder surface this app uses (`select`, `insert`, `update`,
+ * `delete`, transactions) is inherited from the common base. The `Database`
+ * union below preserves both result-row types; consumers that need to
+ * inspect post-mutation metadata go through `affectedRowCount`.
  */
 
-import type { D1Database } from "@cloudflare/workers-types";
-import { drizzle as drizzleD1 } from "drizzle-orm/d1";
+import type { D1Database, D1Result } from "@cloudflare/workers-types";
+import { drizzle as drizzleD1, type DrizzleD1Database } from "drizzle-orm/d1";
+import type { LibSQLDatabase } from "drizzle-orm/libsql";
+import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
+import type { ResultSet } from "@libsql/client";
 import { isNull } from "drizzle-orm";
 import * as schema from "./schema.ts";
 
-export type Database = ReturnType<typeof getDb>;
+export type Database = BaseSQLiteDatabase<
+  "async",
+  D1Result | ResultSet,
+  typeof schema
+>;
 
 /**
  * Create a Drizzle client for Cloudflare D1
  */
-export function getDb(d1: D1Database) {
+export function getDb(d1: D1Database): DrizzleD1Database<typeof schema> {
   return drizzleD1(d1, { schema });
 }
 
 // Singleton for non-D1 runtimes
-let sqliteDb: Database | null = null;
+let sqliteDb: LibSQLDatabase<typeof schema> | null = null;
 
 /**
- * Create or get a Drizzle client for Node.js/Bun with SQLite file (libsql)
- *
- * The `drizzle-orm/libsql` factory returns a wrapper that mirrors the
- * `drizzle-orm/d1` wrapper's query surface but with its own runtime-specific
- * generics. The two are intentionally structurally compatible across the
- * subset of methods this codebase invokes (CRUD via the SQL builder), so we
- * funnel through a single bridging assignment to project libsql results onto
- * the D1 `Database` alias the rest of the codebase consumes. Update
- * `routes/**.ts` if libsql ever diverges on the result-meta shape.
+ * Create or get a Drizzle client for Node.js/Bun with SQLite file (libsql).
  */
 export async function getDbSQLite(databasePath: string): Promise<Database> {
   if (sqliteDb) return sqliteDb;
@@ -41,8 +47,28 @@ export async function getDbSQLite(databasePath: string): Promise<Database> {
   const { drizzle } = await import("drizzle-orm/libsql");
 
   const client = createClient({ url: `file:${databasePath}` });
-  sqliteDb = drizzle(client, { schema }) as unknown as Database;
+  sqliteDb = drizzle(client, { schema });
   return sqliteDb;
+}
+
+/**
+ * Cross-runtime rows-affected accessor.
+ *
+ * Drizzle D1 returns `D1Result` with `meta.changes`; drizzle libsql returns
+ * `ResultSet` with `rowsAffected`. Use this helper to read affected-row
+ * counts portably after `update`/`delete`/`insert` builders.
+ */
+export function affectedRowCount(result: unknown): number {
+  if (typeof result !== "object" || result === null) return 0;
+  const candidate = result as {
+    meta?: { changes?: number };
+    rowsAffected?: number;
+  };
+  if (typeof candidate.meta?.changes === "number") {
+    return candidate.meta.changes;
+  }
+  if (typeof candidate.rowsAffected === "number") return candidate.rowsAffected;
+  return 0;
 }
 
 /**

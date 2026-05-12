@@ -1,19 +1,33 @@
 /**
  * D1Database-compatible SQLite implementation
  *
- * Provides D1CompatDatabase and D1CompatPreparedStatement classes
- * that implement the same interface as Cloudflare D1.
+ * Implements the runtime `IDatabase` contract on top of better-sqlite3.
+ * Downstream code that needs the nominal Cloudflare `D1Database` type
+ * goes through `runtime/cloudflare-binding.ts#toCloudflareBindings`.
  */
 
+import type { Database, RunResult, Statement } from "better-sqlite3";
 import { getDatabase, loadNodeModules } from "./node-modules.ts";
+import type {
+  FirstResult,
+  IDatabase,
+  PreparedStatement,
+  QueryResult,
+  RunResult as RuntimeRunResult,
+} from "../types.ts";
 
-/**
- * D1Database-compatible SQLite implementation
- */
-export class D1CompatDatabase {
-  private db: import("better-sqlite3").Database;
+function asRow(
+  row: unknown,
+): Record<string, unknown> | undefined {
+  if (row === undefined || row === null) return undefined;
+  if (typeof row !== "object") return undefined;
+  return row as Record<string, unknown>;
+}
 
-  constructor(db: import("better-sqlite3").Database) {
+export class D1CompatDatabase implements IDatabase {
+  private db: Database;
+
+  constructor(db: Database) {
     this.db = db;
   }
 
@@ -36,11 +50,17 @@ export class D1CompatDatabase {
   }
 
   async batch<T = unknown>(
-    statements: D1CompatPreparedStatement[],
-  ): Promise<Array<{ results: T[]; success: boolean; meta: object }>> {
-    const results: Array<{ results: T[]; success: boolean; meta: object }> = [];
+    statements: PreparedStatement[],
+  ): Promise<QueryResult<T>[]> {
+    const compats = statements.map((s) => {
+      if (s instanceof D1CompatPreparedStatement) return s;
+      throw new Error(
+        "D1CompatDatabase.batch requires D1CompatPreparedStatement",
+      );
+    });
+    const results: QueryResult<T>[] = [];
     const transaction = this.db.transaction(() => {
-      for (const stmt of statements) {
+      for (const stmt of compats) {
         try {
           const result = stmt.runSync();
           results.push({
@@ -51,12 +71,8 @@ export class D1CompatDatabase {
               last_row_id: Number(result.lastInsertRowid),
             },
           });
-        } catch (e) {
-          results.push({
-            results: [],
-            success: false,
-            meta: { error: String(e) },
-          });
+        } catch {
+          results.push({ results: [], success: false });
         }
       }
     });
@@ -64,22 +80,23 @@ export class D1CompatDatabase {
     return results;
   }
 
-  getRawDatabase(): import("better-sqlite3").Database {
+  getRawDatabase(): Database {
     return this.db;
   }
 }
 
-/**
- * D1PreparedStatement-compatible implementation
- */
-export class D1CompatPreparedStatement {
-  private db: import("better-sqlite3").Database;
+export class D1CompatPreparedStatement implements PreparedStatement {
+  private db: Database;
   private query: string;
   private boundValues: unknown[] = [];
 
-  constructor(db: import("better-sqlite3").Database, query: string) {
+  constructor(db: Database, query: string) {
     this.db = db;
     this.query = query;
+  }
+
+  private getStatement(): Statement {
+    return this.db.prepare(this.query);
   }
 
   bind(...values: unknown[]): D1CompatPreparedStatement {
@@ -87,31 +104,22 @@ export class D1CompatPreparedStatement {
     return this;
   }
 
-  async first<T = unknown>(colName?: string): Promise<T | null> {
-    const stmt = this.db.prepare(this.query);
-    const row = stmt.get(...this.boundValues) as
-      | Record<string, unknown>
-      | undefined;
+  async first<T = unknown>(colName?: string): Promise<FirstResult<T>> {
+    const row = asRow(this.getStatement().get(...this.boundValues));
     if (!row) return null;
-    if (colName) return row[colName] as T;
+    if (colName !== undefined) return row[colName] as T;
     return row as T;
   }
 
-  async all<T = unknown>(): Promise<
-    { results: T[]; success: boolean; meta: object }
-  > {
-    const stmt = this.db.prepare(this.query);
-    const rows = stmt.all(...this.boundValues) as T[];
+  async all<T = unknown>(): Promise<QueryResult<T>> {
+    const rows = this.getStatement().all(...this.boundValues);
     return {
-      results: rows,
+      results: rows as T[],
       success: true,
-      meta: {},
     };
   }
 
-  async run(): Promise<
-    { success: boolean; meta: { changes: number; last_row_id: number } }
-  > {
+  async run(): Promise<RuntimeRunResult> {
     const result = this.runSync();
     return {
       success: true,
@@ -122,8 +130,7 @@ export class D1CompatPreparedStatement {
     };
   }
 
-  runSync(): import("better-sqlite3").RunResult {
-    const stmt = this.db.prepare(this.query);
-    return stmt.run(...this.boundValues);
+  runSync(): RunResult {
+    return this.getStatement().run(...this.boundValues);
   }
 }

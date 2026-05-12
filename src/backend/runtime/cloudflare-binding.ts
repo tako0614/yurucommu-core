@@ -2,10 +2,13 @@
  * Cloudflare Workers binding boundary
  *
  * The Workers types (`D1Database`, `R2Bucket`, `KVNamespace`, `Fetcher`) are
- * nominal interfaces from `@cloudflare/workers-types`. The Deno / Node / Bun
- * runtime adapters in this directory implement the same surface area
- * structurally but are independently authored, so TypeScript cannot prove
- * assignability automatically.
+ * nominal abstract classes / type aliases from `@cloudflare/workers-types`.
+ * The Deno / Node / Bun runtime adapters in this directory implement the
+ * runtime `I*` contracts (`IDatabase`, `IObjectStorage`, ...), which are a
+ * subset of the Workers surface area. Because the I-contracts and the
+ * Workers types are independent declarations, TypeScript cannot prove
+ * assignability automatically — the actual app only ever calls into the
+ * intersection of methods present on both.
  *
  * `toCloudflareBindings` is the single, named place where the
  * runtime-adapter -> Workers-binding bridge is acknowledged. Downstream code
@@ -21,9 +24,9 @@ import type {
 
 export interface RuntimeAdapters {
   db: IDatabase;
-  media: IObjectStorage;
+  media?: IObjectStorage;
   kv: IKeyValueStore;
-  assets: IStaticAssets;
+  assets?: IStaticAssets;
 }
 
 export interface CloudflareBindings {

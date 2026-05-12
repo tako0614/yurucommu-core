@@ -1,22 +1,24 @@
 /**
  * Bun Cloudflare Compatibility Layer - KV Namespace
+ *
+ * Implements the runtime `IKeyValueStore` contract using an in-memory
+ * Map. The nominal Cloudflare `KVNamespace` is reached through
+ * `runtime/cloudflare-binding.ts#toCloudflareBindings`.
  */
 
 import { drainStream, resolveExpiration } from "./utils.ts";
+import type { IKeyValueStore } from "../types.ts";
 
-/**
- * KVNamespace-compatible in-memory implementation
- */
-export class KVCompatNamespace {
-  private store = new Map<string, {
-    value: string | ArrayBuffer;
-    expiration?: number;
-    metadata?: unknown;
-  }>();
+interface KVEntry {
+  value: string | ArrayBuffer;
+  expiration?: number;
+  metadata?: unknown;
+}
 
-  private getValid(
-    key: string,
-  ): { value: string | ArrayBuffer; metadata?: unknown } | null {
+export class KVCompatNamespace implements IKeyValueStore {
+  private store = new Map<string, KVEntry>();
+
+  private getValid(key: string): KVEntry | null {
     const entry = this.store.get(key);
     if (!entry) return null;
     if (entry.expiration && entry.expiration < Date.now() / 1000) {
@@ -26,29 +28,33 @@ export class KVCompatNamespace {
     return entry;
   }
 
+  private decodeAsText(value: string | ArrayBuffer): string {
+    return typeof value === "string" ? value : new TextDecoder().decode(value);
+  }
+
+  get(key: string, options?: { type?: "text" }): Promise<string | null>;
+  get<T = unknown>(
+    key: string,
+    options: { type: "json" },
+  ): Promise<T | null>;
+  get(
+    key: string,
+    options: { type: "arrayBuffer" },
+  ): Promise<ArrayBuffer | null>;
   async get(
     key: string,
-    options?: { type?: "text" | "json" | "arrayBuffer" | "stream" },
-  ): Promise<unknown> {
+    options?: { type?: "text" | "json" | "arrayBuffer" },
+  ): Promise<string | ArrayBuffer | unknown | null> {
     const entry = this.getValid(key);
     if (!entry) return null;
-
     const type = options?.type ?? "text";
-    const value = entry.value;
-
-    if (type === "json") {
-      return typeof value === "string"
-        ? JSON.parse(value)
-        : JSON.parse(new TextDecoder().decode(value as ArrayBuffer));
-    }
+    if (type === "json") return JSON.parse(this.decodeAsText(entry.value));
     if (type === "arrayBuffer") {
-      return typeof value === "string"
-        ? new TextEncoder().encode(value).buffer
-        : value;
+      return typeof entry.value === "string"
+        ? new TextEncoder().encode(entry.value).buffer
+        : entry.value;
     }
-    return typeof value === "string"
-      ? value
-      : new TextDecoder().decode(value as ArrayBuffer);
+    return this.decodeAsText(entry.value);
   }
 
   async put(
@@ -57,7 +63,7 @@ export class KVCompatNamespace {
     options?: {
       expirationTtl?: number;
       expiration?: number;
-      metadata?: unknown;
+      metadata?: Record<string, unknown>;
     },
   ): Promise<void> {
     let storedValue: string | ArrayBuffer;

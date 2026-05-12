@@ -1,12 +1,14 @@
 /**
  * Fetcher-compatible static assets implementation
  *
- * Provides AssetsCompatFetcher that serves static files from the
- * filesystem, mimicking Cloudflare Workers Assets binding.
+ * Implements the runtime `IStaticAssets` contract using the local
+ * filesystem. The nominal Cloudflare `Fetcher` is reached through
+ * `runtime/cloudflare-binding.ts#toCloudflareBindings`.
  */
 
 import { getFs, getPath, loadNodeModules } from "./node-modules.ts";
 import { isPathWithinBasePath, resolvePathWithinBasePath } from "../shared.ts";
+import type { IStaticAssets } from "../types.ts";
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html",
@@ -35,7 +37,7 @@ function getMimeType(ext: string): string {
 /**
  * Fetcher-compatible static assets implementation
  */
-export class AssetsCompatFetcher {
+export class AssetsCompatFetcher implements IStaticAssets {
   private basePath: string;
   private realBasePath: string | null = null;
 
