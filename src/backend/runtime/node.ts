@@ -39,10 +39,7 @@ let path: typeof import("path") | null = null;
 
 async function loadNodeModules() {
   if (!Database) {
-    const sqlite = await import("better-sqlite3");
-    Database =
-      (sqlite as unknown as { default: DatabaseConstructor }).default ??
-        sqlite as unknown as DatabaseConstructor;
+    Database = asDatabaseConstructor(await import("better-sqlite3"));
   }
   if (!fs) {
     fs = await import("fs/promises");
@@ -50,6 +47,22 @@ async function loadNodeModules() {
   if (!path) {
     path = await import("path");
   }
+}
+
+function asDatabaseConstructor(module: unknown): DatabaseConstructor {
+  if (typeof module !== "object" || module === null) {
+    throw new Error("better-sqlite3 module must be an object");
+  }
+  const namespace = module as { default?: unknown };
+  const candidate = typeof namespace.default === "function"
+    ? namespace.default
+    : module;
+  if (typeof candidate !== "function") {
+    throw new Error(
+      "better-sqlite3 must export a Database constructor (default or namespace)",
+    );
+  }
+  return candidate as DatabaseConstructor;
 }
 
 /**

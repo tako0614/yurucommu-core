@@ -25,6 +25,14 @@ let sqliteDb: Database | null = null;
 
 /**
  * Create or get a Drizzle client for Node.js/Bun with SQLite file (libsql)
+ *
+ * The `drizzle-orm/libsql` factory returns a wrapper that mirrors the
+ * `drizzle-orm/d1` wrapper's query surface but with its own runtime-specific
+ * generics. The two are intentionally structurally compatible across the
+ * subset of methods this codebase invokes (CRUD via the SQL builder), so we
+ * funnel through a single bridging assignment to project libsql results onto
+ * the D1 `Database` alias the rest of the codebase consumes. Update
+ * `routes/**.ts` if libsql ever diverges on the result-meta shape.
  */
 export async function getDbSQLite(databasePath: string): Promise<Database> {
   if (sqliteDb) return sqliteDb;
@@ -33,7 +41,6 @@ export async function getDbSQLite(databasePath: string): Promise<Database> {
   const { drizzle } = await import("drizzle-orm/libsql");
 
   const client = createClient({ url: `file:${databasePath}` });
-  // libsql drizzle returns a compatible type
   sqliteDb = drizzle(client, { schema }) as unknown as Database;
   return sqliteDb;
 }

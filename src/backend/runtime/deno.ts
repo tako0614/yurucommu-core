@@ -62,6 +62,19 @@ function asDenoSQLiteDatabase(db: unknown): DenoSQLiteDatabase {
   return db as DenoSQLiteDatabase;
 }
 
+function asDenoSQLiteModule(module: unknown): DenoSQLiteModule {
+  if (typeof module !== "object" || module === null) {
+    throw new Error("deno sqlite3 module must be an object");
+  }
+  const candidate = (module as { Database?: unknown }).Database;
+  if (typeof candidate !== "function") {
+    throw new Error(
+      "deno sqlite3 module must export a `Database` constructor",
+    );
+  }
+  return { Database: candidate as DenoSQLiteDatabaseConstructor };
+}
+
 /**
  * Deno SQLite Database Adapter
  * Uses Deno's built-in SQLite via FFI or x/sqlite3
@@ -74,9 +87,9 @@ export class DenoDatabase implements IDatabase {
   }
 
   static async create(filename: string = ":memory:"): Promise<DenoDatabase> {
-    const sqliteModule = await import(
-      "https://deno.land/x/sqlite3@0.12.0/mod.ts"
-    ) as unknown as DenoSQLiteModule;
+    const sqliteModule = asDenoSQLiteModule(
+      await import("https://deno.land/x/sqlite3@0.12.0/mod.ts"),
+    );
     const db = new sqliteModule.Database(filename);
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA foreign_keys = ON");

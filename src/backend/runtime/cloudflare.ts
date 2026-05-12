@@ -260,11 +260,25 @@ class CloudflareAssets implements IStaticAssets {
   constructor(private assets: Fetcher) {}
 
   async fetch(request: Request): Promise<Response> {
-    const response = await this.assets.fetch(
-      request as unknown as Parameters<Fetcher["fetch"]>[0],
+    // DOM `Request` / `Response` and `@cloudflare/workers-types`
+    // `Fetcher.fetch` parameters / return are the same runtime objects but
+    // nominally different at compile time. The bridge is concentrated here.
+    return await toDomResponse(
+      this.assets.fetch(toFetcherRequest(request)),
     );
-    return response as unknown as Response;
   }
+}
+
+function toFetcherRequest(
+  request: Request,
+): Parameters<Fetcher["fetch"]>[0] {
+  return request as unknown as Parameters<Fetcher["fetch"]>[0];
+}
+
+async function toDomResponse(
+  response: ReturnType<Fetcher["fetch"]>,
+): Promise<Response> {
+  return (await response) as unknown as Response;
 }
 
 /**
