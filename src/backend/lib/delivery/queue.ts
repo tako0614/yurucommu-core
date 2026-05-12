@@ -92,9 +92,7 @@ export type QueueEnv = Env & {
 };
 
 function queueAvailable(env: Env): env is QueueEnv {
-  return Boolean(
-    (env as unknown as { DELIVERY_QUEUE?: unknown }).DELIVERY_QUEUE,
-  ) && Boolean((env as unknown as { DELIVERY_DLQ?: unknown }).DELIVERY_DLQ);
+  return Boolean(env.DELIVERY_QUEUE) && Boolean(env.DELIVERY_DLQ);
 }
 
 export function requireQueue(

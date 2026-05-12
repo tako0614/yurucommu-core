@@ -123,25 +123,21 @@ export function renderStoryOverlay(
     );
   }
 
-  if (
-    overlay.type === "Link" && (overlay as unknown as { href?: string }).href
-  ) {
-    const linkOverlay = overlay as unknown as { href: string; name?: string };
-
-    if (!isValidUrl(linkOverlay.href)) {
+  if (overlay.type === "Link" && typeof overlay.href === "string") {
+    if (!isValidUrl(overlay.href)) {
       return null;
     }
 
     return (
       <div style={style}>
         <a
-          href={linkOverlay.href}
+          href={overlay.href}
           target="_blank"
           rel="noopener noreferrer"
           class="bg-white text-black text-sm font-medium px-4 py-2 rounded-full hover:bg-neutral-200 transition-colors"
           onClick={(e) => e.stopPropagation()}
         >
-          {linkOverlay.name || "リンクを開く"}
+          {overlay.name || "リンクを開く"}
         </a>
       </div>
     );

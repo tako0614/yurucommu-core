@@ -181,7 +181,7 @@ export function useCanvasInteraction({
     if (isTouchEvent && touchCount >= 2) {
       // Two finger gesture - pinch/rotate
       e.preventDefault();
-      const touchInfo = getTouchInfo(e.touches as unknown as TouchList);
+      const touchInfo = getTouchInfo(e.touches);
       initialPinchDistance = touchInfo.distance;
       initialPinchAngle = touchInfo.angle;
 

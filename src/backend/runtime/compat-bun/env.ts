@@ -48,6 +48,9 @@ export async function createBunEnv(config: {
     config.databasePath || "./data/yurucommu.db",
   );
 
+  // Cloudflare/Bun runtime boundary: see runtime/cloudflare-binding.ts
+  // for the rationale. The compat classes are signature-compatible with the
+  // nominal Workers types but TypeScript cannot prove it without `unknown`.
   return {
     DB: db as unknown as D1Database,
     MEDIA: storage as unknown as R2Bucket,

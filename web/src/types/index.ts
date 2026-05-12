@@ -161,6 +161,8 @@ export interface StoryOverlay {
   name?: string; // Question text
   oneOf?: Array<{ type: string; name: string }>; // Options
   closed?: string; // Close time
+  // Link-specific
+  href?: string;
   // Generic
   [key: string]: unknown; // Allow any AS2 properties
 }

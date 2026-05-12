@@ -21,6 +21,7 @@
 
 import { DenoAssets, DenoDatabase, DenoStorage } from "./runtime/deno.ts";
 import { MemoryKV } from "./runtime/memory-kv.ts";
+import { toCloudflareBindings } from "./runtime/cloudflare-binding.ts";
 
 // ---------------------------------------------------------------------------
 // Deno sqlite3 type definitions (subset of https://deno.land/x/sqlite3 API)
@@ -87,7 +88,7 @@ async function createDenoEnv(config: {
   storagePath: string;
   assetsPath: string;
   appUrl: string;
-}) {
+}): Promise<{ env: DenoEnv; rawDb: DenoDatabase }> {
   const db = await DenoDatabase.create(config.databasePath);
   const kv = new MemoryKV();
   const assets = DenoAssets.create(config.assetsPath);
@@ -98,15 +99,23 @@ async function createDenoEnv(config: {
     passthrough[key] = Deno.env.get(key);
   }
 
-  return {
-    DB: db as unknown as D1Database,
-    MEDIA: media as unknown as R2Bucket,
-    KV: kv as unknown as KVNamespace,
-    ASSETS: assets as unknown as Fetcher,
+  const bindings = toCloudflareBindings({ db, media, kv, assets });
+  const env: DenoEnv = {
+    ...bindings,
     APP_URL: config.appUrl,
     ...passthrough,
   };
+
+  return { env, rawDb: db };
 }
+
+type DenoEnv = {
+  DB: D1Database;
+  MEDIA: R2Bucket;
+  KV: KVNamespace;
+  ASSETS: Fetcher;
+  APP_URL: string;
+} & Partial<Record<typeof ENV_PASSTHROUGH_KEYS[number], string | undefined>>;
 
 // ---------------------------------------------------------------------------
 // Run migrations from SQL files
@@ -184,7 +193,7 @@ async function main() {
     await Deno.mkdir(dataDir, { recursive: true });
   } catch { /* ignore if exists */ }
 
-  const env = await createDenoEnv({
+  const { env, rawDb } = await createDenoEnv({
     databasePath: DATABASE_PATH,
     storagePath: STORAGE_PATH,
     assetsPath: ASSETS_PATH,
@@ -204,13 +213,13 @@ async function main() {
   }
 
   console.log("Running database migrations...");
-  await runMigrations(env.DB as unknown as DenoDatabase, MIGRATIONS_PATH);
+  await runMigrations(rawDb, MIGRATIONS_PATH);
   console.log("Migrations complete");
 
   await startServer(env);
 }
 
-async function startServer(env: Awaited<ReturnType<typeof createDenoEnv>>) {
+async function startServer(env: DenoEnv) {
   console.log(`\nServer starting on http://localhost:${PORT}`);
   console.log(`  APP_URL: ${APP_URL}`);
   console.log(`  Database: ${DATABASE_PATH}`);
