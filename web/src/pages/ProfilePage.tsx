@@ -1,4 +1,4 @@
-import { createEffect, onMount, Show } from "solid-js";
+import { createEffect, on, onMount, Show } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { atom } from "jotai";
 import { useAtom } from "solid-jotai";
@@ -140,9 +140,7 @@ export function ProfilePage() {
     }
   };
 
-  createEffect(() => {
-    // Track targetActorId for reactivity
-    const _id = targetActorId();
+  createEffect(on(targetActorId, () => {
     setProfile(null);
     setPosts([]);
     setIsFollowing(false);
@@ -153,7 +151,7 @@ export function ProfilePage() {
     setShowMenu(false);
     setActiveTab("posts");
     loadProfile();
-  });
+  }));
 
   const handleFollow = async () => {
     if (!profile()) return;

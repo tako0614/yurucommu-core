@@ -1,4 +1,4 @@
-import { createEffect, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, For, on, onCleanup, onMount, Show } from "solid-js";
 import { A, useNavigate, useParams } from "@solidjs/router";
 import { atom } from "jotai";
 import { useAtom } from "solid-jotai";
@@ -169,11 +169,7 @@ export function CommunityChatPage() {
     loadData();
   });
 
-  createEffect(() => {
-    // Scroll to bottom when messages change
-    const _msgs = messages();
-    scrollToBottom();
-  });
+  createEffect(on(messages, () => scrollToBottom()));
 
   const loadData = async () => {
     const name = params.name;
