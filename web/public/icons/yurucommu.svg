@@ -1,7 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Yurucommu">
-  <rect width="64" height="64" rx="14" fill="#f7c948"/>
-  <path d="M18 28c0-8.3 6.7-15 15-15h2c8.3 0 15 6.7 15 15s-6.7 15-15 15h-5.6L19 51.5V41.1A14.9 14.9 0 0 1 18 28Z" fill="#16324f"/>
-  <circle cx="28" cy="29" r="3" fill="#fff"/>
-  <circle cx="40" cy="29" r="3" fill="#fff"/>
-  <path d="M27 37c3.7 2.8 10.3 2.8 14 0" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 64 64"
+  role="img"
+  aria-label="Yurucommu"
+>
+  <rect width="64" height="64" rx="14" fill="#f7c948" />
+  <path
+    d="M18 28c0-8.3 6.7-15 15-15h2c8.3 0 15 6.7 15 15s-6.7 15-15 15h-5.6L19 51.5V41.1A14.9 14.9 0 0 1 18 28Z"
+    fill="#16324f"
+  />
+  <circle cx="28" cy="29" r="3" fill="#fff" />
+  <circle cx="40" cy="29" r="3" fill="#fff" />
+  <path
+    d="M27 37c3.7 2.8 10.3 2.8 14 0"
+    fill="none"
+    stroke="#fff"
+    stroke-width="4"
+    stroke-linecap="round"
+  />
 </svg>

@@ -72,6 +72,13 @@
     "types": ["@cloudflare/workers-types"]
   },
   "lint": {
+    "exclude": [
+      "test/",
+      "dist/",
+      "build/",
+      "node_modules/",
+      "web/dist/"
+    ],
     "rules": {
       "exclude": [
         "jsx-button-has-type",
@@ -88,6 +95,17 @@
         "verbatim-module-syntax"
       ]
     }
+  },
+  "fmt": {
+    "exclude": [
+      "dist/",
+      "build/",
+      "node_modules/",
+      "web/dist/",
+      "scripts/",
+      "site/",
+      "test/"
+    ]
   },
   "tasks": {
     "dev": "deno run -A npm:wrangler dev --config wrangler.local.toml",
