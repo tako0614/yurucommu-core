@@ -13,6 +13,7 @@ entry:
   manifest: .takosumi/manifest.yml
 runtime:
   modes:
+    - shared-cell
     - dedicated
     - self-hosted
 bindings:

@@ -149,6 +149,7 @@ takosumi-git install preview --cwd .
 
 `.takosumi/app.yml` は Git URL install 用 metadata です。OIDC binding、media
 object-store binding、domain binding、Takos resource AppGrant を宣言し、
+shared-cell / dedicated / self-hosted runtime modes を明示します。
 `.takosumi/manifest.yml` は `dist/takos-worker.js` を host Worker resource
 として 扱います。D1 / KV / Queue は現行 Takosumi portable binding catalog にまだ
 first-class type がないため、manifest metadata に Cloudflare provider specific
