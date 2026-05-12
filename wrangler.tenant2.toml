@@ -4,7 +4,16 @@ compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
 [vars]
+# NOTE: TAKOS_URL は example operator host です。 test.takos.jp は 1 つの
+# self-host instance であり、 yurucommu が baked-in default として持つ identity
+# ではありません (design-principles.md §0.6, §7 hostnames = operator-deployment
+# choice)。 自分の Takos host に置き換えるか、 Takos 連携を使わない場合はこの行を
+# 削除して ENABLE_TAKOS_PROXY / ENABLE_TAKOS_TOOLS を false (default) のままに
+# してください。
 TAKOS_URL = "https://test.takos.jp"
+# NOTE: APP_URL は example test deployment 値です。 hostname は
+# operator-deployment choice (architectural fixed point ではない)。
+# 別 hostname で運用する場合は self-host 先の canonical hostname に変更してください。
 APP_URL = "https://test2.yurucommu.com"
 # Password authentication is enabled by setting AUTH_PASSWORD_HASH via wrangler secret put.
 # Format: saltHex:hashHex
@@ -66,6 +75,10 @@ run_worker_first = true
 not_found_handling = "single-page-application"
 
 # Route - Using test subdomain
+# NOTE: 以下は example test deployment route です。 yurucommu.com は 1 つの
+# operator-deployment hostname であり、 yurucommu product の identity ではありません
+# (design-principles.md §0.6, §7)。
+# production deployer は自分の hostname / zone に置き換えてください。
 [[routes]]
 pattern = "test2.yurucommu.com/*"
 zone_name = "yurucommu.com"

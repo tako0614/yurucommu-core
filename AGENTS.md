@@ -2,9 +2,9 @@
 
 `yurucommu` は **self-hosted ActivityPub / community social app** で、
 自分のドメイン / 自分のデータ / 小さなコミュニティ
-単位のつながりを前提に設計された独立 product。 Takos では bundled app として新規
-space 作成時に auto-install されるが、 product root は独立管理で Takos core
-には吸収しない。
+単位のつながりを前提に設計された独立 product。 Takos distribution は新規 space
+作成時に bundled 1st-party InstallableApp として Takosumi 上へ auto-install
+するが、 product root は独立管理で Takos core には吸収しない。
 
 ## 責務
 
@@ -26,8 +26,8 @@ space 作成時に auto-install されるが、 product root は独立管理で 
 
 ## 隣接 product との contract
 
-- **Bundled app**: Takos が新規 space 作成時に auto-install する一 app (consumer
-  立場)
+- **Bundled app**: Takos distribution が新規 space 作成時に Takosumi 上へ
+  auto-install する通常 AppInstallation (consumer 立場)
 - **Upstream**: Takosumi Accounts OIDC consumer (operator namespace export /
   OIDC discovery で issuer を解決)、 Takos public API
 - **Downstream**: ActivityPub federated network (他の Mastodon / Misskey

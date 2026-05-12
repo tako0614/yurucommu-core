@@ -484,7 +484,7 @@ export function createMockEnv(overrides: Partial<Record<string, unknown>> = {}) 
     },
     DB_CLIENT: createMockDbClient(),
     APP_URL: 'https://test.yurucommu.com',
-    TAKOS_URL: 'https://takos.jp',
+    TAKOS_URL: 'https://takos.example.com',
     ...overrides,
   };
 }

@@ -3,8 +3,10 @@
 Yurucommu はセルフホスト型・一人用の ActivityPub プロダクトです。
 
 自分のドメイン、自分のデータ、小さなコミュニティ単位のつながりを前提に設計されています。
-Takos では bundled app (新規 space 作成時に auto-install)
-として扱われますが、この repository は独立 product root として管理します。
+Takos では bundled 1st-party InstallableApp (新規 space 作成時に auto-install
+される user-facing convenience) として扱われます。通常の AppInstallation entry
+なので uninstall 可能ですが、この repository は独立 product root
+として管理します。
 
 この repo 単体で、runtime model、ローカル開発、deploy
 の大枠が追える状態を保つことを目指します。
@@ -87,11 +89,14 @@ deno task deploy
 ```
 
 現在 commit されている `wrangler.toml` は `test.yurucommu.com` 向けの本体 Worker
-設定です。別の production hostname で運用する場合は、`APP_URL` と
-`[[routes]].pattern` をその canonical hostname に合わせてから deploy します。
-`wrangler.tenant2.toml` は `test2.yurucommu.com` 向けの別 tenant/test 設定です。
-`.env.example` の `APP_URL=https://app.yurucommu.com` は self-host
-用の例であり、 checked-in `wrangler*.toml` の実デプロイ先とは別です。
+設定です。別の production hostname で運用する場合は、`APP_URL`、
+`[[routes]].pattern`、`TAKOS_URL` (Takos 連携を使う場合) をその canonical
+hostname に合わせてから deploy します。`takos.jp` / `yurucommu.com` の値は
+example operator deployment 値であり、yurucommu 自体の identity ではありません
+(hostnames は operator-deployment choice。`docs/reference/design-principles.md`
+§0.6, §7 参照)。 `wrangler.tenant2.toml` は `test2.yurucommu.com` 向けの別
+tenant/test 設定です。 `.env.example` の `APP_URL=https://app.yurucommu.com` は
+self-host 用の例であり、 checked-in `wrangler*.toml` の実デプロイ先とは別です。
 
 Takos 向け bundle:
 
