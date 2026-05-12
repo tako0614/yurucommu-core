@@ -28,8 +28,8 @@ space 作成時に auto-install されるが、 product root は独立管理で 
 
 - **Bundled app**: Takos が新規 space 作成時に auto-install する一 app (consumer
   立場)
-- **Upstream**: Takosumi Accounts OIDC consumer (operator が anchor URL を
-  inject)、 Takos public API
+- **Upstream**: Takosumi Accounts OIDC consumer (operator namespace export /
+  OIDC discovery で issuer を解決)、 Takos public API
 - **Downstream**: ActivityPub federated network (他の Mastodon / Misskey
   instance と相互接続)
 - **Independence**: Takos core には吸収しない、 product root として独立を保つ
