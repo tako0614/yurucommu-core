@@ -1,6 +1,7 @@
 import type { Context, Next } from "hono";
 
 import { getClientIP } from "../lib/client-ip.ts";
+import type { IKeyValueStore } from "../runtime/types.ts";
 import type { Env, Variables } from "../types.ts";
 
 interface RateLimitEntry {
@@ -54,7 +55,7 @@ function consumeLocalFallback(
 }
 
 async function consumeDistributed(
-  kv: KVNamespace,
+  kv: IKeyValueStore,
   key: string,
   windowMs: number,
   now: number,
@@ -75,7 +76,7 @@ async function consumeDistributed(
 }
 
 async function consumeRateLimit(
-  kv: KVNamespace | undefined,
+  kv: IKeyValueStore | undefined,
   key: string,
   windowMs: number,
   now: number,

@@ -13,6 +13,7 @@ import type {
   R2Bucket,
   R2Object,
 } from "@cloudflare/workers-types";
+import { getDb } from "../../db/index.ts";
 import type {
   FirstResult,
   IDatabase,
@@ -129,6 +130,7 @@ class CloudflareStorage implements IObjectStorage {
       key,
       body: obj.body,
       bodyUsed: obj.bodyUsed,
+      httpEtag: obj.httpEtag,
       arrayBuffer: () => obj.arrayBuffer(),
       text: () => obj.text(),
       json: <T>() => obj.json<T>(),
@@ -247,6 +249,37 @@ class CloudflareAssets implements IStaticAssets {
   fetch(request: Request): Promise<Response> {
     return this.assets.fetch(request);
   }
+}
+
+/**
+ * Wrap a native Cloudflare Workers binding env into the app's runtime
+ * `Env` shape. The Hono app and all helper functions speak the runtime
+ * `I*` contracts, so every binding flows through this adapter before
+ * reaching app code. Pre-creates the drizzle wrapper as `DB_INSTANCE`.
+ */
+export function wrapCloudflareBindings<
+  T extends {
+    DB: D1Database;
+    MEDIA?: R2Bucket;
+    KV: KVNamespace;
+    ASSETS?: Fetcher;
+  },
+>(
+  bindings: T,
+): Omit<T, "DB" | "MEDIA" | "KV" | "ASSETS"> & {
+  DB_INSTANCE: ReturnType<typeof getDb>;
+  MEDIA?: IObjectStorage;
+  KV: IKeyValueStore;
+  ASSETS?: IStaticAssets;
+} {
+  const { DB, MEDIA, KV, ASSETS, ...rest } = bindings;
+  return {
+    ...rest,
+    DB_INSTANCE: getDb(DB),
+    MEDIA: MEDIA ? new CloudflareStorage(MEDIA) : undefined,
+    KV: new CloudflareKV(KV),
+    ASSETS: ASSETS ? new CloudflareAssets(ASSETS) : undefined,
+  };
 }
 
 /**

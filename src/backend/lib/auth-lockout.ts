@@ -1,3 +1,5 @@
+import type { IKeyValueStore } from "../runtime/types.ts";
+
 export interface LoginLockoutStatus {
   locked: boolean;
   failedAttempts: number;
@@ -101,7 +103,7 @@ function fallbackWrite(storageKey: string, record: LoginLockoutRecord): void {
 }
 
 async function readRecord(
-  kv: KVNamespace,
+  kv: IKeyValueStore,
   storageKey: string,
   now: number,
 ): Promise<LoginLockoutRecord | null> {
@@ -122,7 +124,7 @@ async function readRecord(
 }
 
 async function writeRecord(
-  kv: KVNamespace,
+  kv: IKeyValueStore,
   storageKey: string,
   record: LoginLockoutRecord,
   now: number,
@@ -144,7 +146,7 @@ async function writeRecord(
 }
 
 async function deleteRecord(
-  kv: KVNamespace,
+  kv: IKeyValueStore,
   storageKey: string,
 ): Promise<void> {
   lockoutFallbackStore.delete(storageKey);
@@ -156,7 +158,7 @@ async function deleteRecord(
 }
 
 export async function getLoginLockoutStatus(
-  kv: KVNamespace,
+  kv: IKeyValueStore,
   clientKey: string,
   now = Date.now(),
 ): Promise<LoginLockoutStatus> {
@@ -166,7 +168,7 @@ export async function getLoginLockoutStatus(
 }
 
 export async function recordFailedLoginAttempt(
-  kv: KVNamespace,
+  kv: IKeyValueStore,
   clientKey: string,
   now = Date.now(),
 ): Promise<LoginLockoutStatus> {
@@ -196,7 +198,7 @@ export async function recordFailedLoginAttempt(
 }
 
 export async function clearLoginLockout(
-  kv: KVNamespace,
+  kv: IKeyValueStore,
   clientKey: string,
 ): Promise<void> {
   const storageKey = getLockoutStorageKey(clientKey);

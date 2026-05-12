@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import type { Env, Variables } from "./types.ts";
-import { getDb } from "../db/index.ts";
+import type { Env, EnvVars, Variables } from "./types.ts";
 import { extractActorFromSession } from "./lib/session-actor.ts";
+import { wrapCloudflareBindings } from "./runtime/cloudflare.ts";
 import {
   getOidcClientCredentials,
   getOidcIssuerUrl,
@@ -84,7 +84,7 @@ function getMimeType(path: string): string {
 function collectMissingRuntimeBindings(env: Env): string[] {
   const missing: string[] = [];
   const hasValue = (value: string | undefined): boolean => !!value?.trim();
-  if (!env.DB && !env.DB_INSTANCE) missing.push("DB");
+  if (!env.DB_INSTANCE) missing.push("DB");
   if (!env.MEDIA) missing.push("MEDIA");
   if (!env.KV) missing.push("KV");
   if (!env.DELIVERY_QUEUE) missing.push("DELIVERY_QUEUE");
@@ -189,8 +189,7 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
   });
 
   app.use("*", async (c, next) => {
-    const db = c.env.DB_INSTANCE ?? getDb(c.env.DB);
-    c.set("db", db);
+    c.set("db", c.env.DB_INSTANCE);
     await next();
   });
 
@@ -367,19 +366,28 @@ export async function handleYurucommuQueueBatch(
   batch.ackAll();
 }
 
+type WorkerBindings = EnvVars & {
+  DB: D1Database;
+  MEDIA?: R2Bucket;
+  KV: KVNamespace;
+  ASSETS?: Fetcher;
+  DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1>;
+  DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1>;
+};
+
 export default {
   async fetch(
     request: Request,
-    env: Env,
+    bindings: WorkerBindings,
     ctx: ExecutionContext,
   ): Promise<Response> {
-    return app.fetch(request, env, ctx);
+    return app.fetch(request, wrapCloudflareBindings(bindings), ctx);
   },
 
   async queue(
     batch: MessageBatch<DeliveryQueueMessageV1 | DeliveryDlqMessageV1>,
-    env: Env,
+    bindings: WorkerBindings,
   ): Promise<void> {
-    return handleYurucommuQueueBatch(batch, env);
+    return handleYurucommuQueueBatch(batch, wrapCloudflareBindings(bindings));
   },
 };

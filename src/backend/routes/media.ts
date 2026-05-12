@@ -178,7 +178,11 @@ media.post("/upload", async (c) => {
     const filename = `${id}.${ext}`;
     const r2Key = `uploads/${filename}`;
 
-    const r2Upload = c.env.MEDIA.put(r2Key, arrayBuffer, {
+    const media = c.env.MEDIA;
+    if (!media) {
+      return c.json({ error: "Object storage unavailable" }, 503);
+    }
+    const r2Upload = media.put(r2Key, arrayBuffer, {
       httpMetadata: { contentType },
     });
 
@@ -325,7 +329,11 @@ async function serveMediaByR2Key(
       return c.json({ error: authResult.reason || "Forbidden" }, 403);
     }
 
-    const object = await c.env.MEDIA.get(r2Key);
+    const media = c.env.MEDIA;
+    if (!media) {
+      return c.json({ error: "Object storage unavailable" }, 503);
+    }
+    const object = await media.get(r2Key);
     if (!object) return c.notFound();
 
     const contentType = object.httpMetadata?.contentType ||
@@ -334,8 +342,15 @@ async function serveMediaByR2Key(
     const maxAge = contentType.startsWith("video/")
       ? CACHE_MAX_AGE_VIDEO
       : CACHE_MAX_AGE_IMAGE;
-    const etag = object.httpEtag || object.etag;
+    const etag = object.httpEtag;
 
+    if (!object.body) {
+      return c.body(null, 200, {
+        "Content-Type": contentType,
+        "Cache-Control": `${cacheScope}, max-age=${maxAge}`,
+        ...(etag ? { "ETag": etag } : {}),
+      });
+    }
     return c.body(object.body, 200, {
       "Content-Type": contentType,
       "Cache-Control": `${cacheScope}, max-age=${maxAge}`,

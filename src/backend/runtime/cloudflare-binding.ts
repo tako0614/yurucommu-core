@@ -1,18 +1,15 @@
 /**
  * Cloudflare Workers binding boundary
  *
- * The Workers types (`D1Database`, `R2Bucket`, `KVNamespace`, `Fetcher`) are
- * nominal abstract classes / type aliases from `@cloudflare/workers-types`.
- * The Deno / Node / Bun runtime adapters in this directory implement the
- * runtime `I*` contracts (`IDatabase`, `IObjectStorage`, ...), which are a
- * subset of the Workers surface area. Because the I-contracts and the
- * Workers types are independent declarations, TypeScript cannot prove
- * assignability automatically — the actual app only ever calls into the
- * intersection of methods present on both.
+ * Maps a tuple of runtime adapters (concrete classes implementing
+ * `IDatabase` / `IObjectStorage` / `IKeyValueStore` / `IStaticAssets`)
+ * into the env-shape that the Hono app consumes via `Env.DB / MEDIA /
+ * KV / ASSETS`. Identity mapping — the app's `Env` is declared in terms
+ * of the same `I*` contracts, so no nominal cast is required.
  *
- * `toCloudflareBindings` is the single, named place where the
- * runtime-adapter -> Workers-binding bridge is acknowledged. Downstream code
- * always sees the Workers binding types, never re-casts.
+ * Native Cloudflare bindings (`D1Database` / `R2Bucket` / `KVNamespace`
+ * / `Fetcher`) are wrapped by the adapter classes in `cloudflare.ts`
+ * before reaching this function.
  */
 
 import type {
@@ -29,20 +26,20 @@ export interface RuntimeAdapters {
   assets?: IStaticAssets;
 }
 
-export interface CloudflareBindings {
-  DB: D1Database;
-  MEDIA: R2Bucket;
-  KV: KVNamespace;
-  ASSETS: Fetcher;
+export interface RuntimeBindings {
+  DB: IDatabase;
+  MEDIA?: IObjectStorage;
+  KV: IKeyValueStore;
+  ASSETS?: IStaticAssets;
 }
 
 export function toCloudflareBindings(
   adapters: RuntimeAdapters,
-): CloudflareBindings {
+): RuntimeBindings {
   return {
-    DB: adapters.db as unknown as D1Database,
-    MEDIA: adapters.media as unknown as R2Bucket,
-    KV: adapters.kv as unknown as KVNamespace,
-    ASSETS: adapters.assets as unknown as Fetcher,
+    DB: adapters.db,
+    MEDIA: adapters.media,
+    KV: adapters.kv,
+    ASSETS: adapters.assets,
   };
 }

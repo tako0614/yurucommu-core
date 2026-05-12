@@ -81,6 +81,11 @@ export interface StorageObject {
   key: string;
   body: ReadableStream | null;
   bodyUsed: boolean;
+  /**
+   * HTTP `ETag` value to send to clients. Optional because not every
+   * backend (e.g. the in-memory test stub) tracks an etag.
+   */
+  httpEtag?: string;
   arrayBuffer(): Promise<ArrayBuffer>;
   text(): Promise<string>;
   json<T = unknown>(): Promise<T>;

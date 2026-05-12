@@ -21,7 +21,8 @@
 
 import { DenoAssets, DenoDatabase, DenoStorage } from "./runtime/deno.ts";
 import { MemoryKV } from "./runtime/memory-kv.ts";
-import { toCloudflareBindings } from "./runtime/cloudflare-binding.ts";
+import type { Env } from "./types.ts";
+import { getDbSQLite } from "../db/index.ts";
 
 // ---------------------------------------------------------------------------
 // Deno sqlite3 type definitions (subset of https://deno.land/x/sqlite3 API)
@@ -99,9 +100,12 @@ async function createDenoEnv(config: {
     passthrough[key] = Deno.env.get(key);
   }
 
-  const bindings = toCloudflareBindings({ db, media, kv, assets });
+  const dbInstance = await getDbSQLite(config.databasePath);
   const env: DenoEnv = {
-    ...bindings,
+    DB_INSTANCE: dbInstance,
+    MEDIA: media,
+    KV: kv,
+    ASSETS: assets,
     APP_URL: config.appUrl,
     ...passthrough,
   };
@@ -109,13 +113,10 @@ async function createDenoEnv(config: {
   return { env, rawDb: db };
 }
 
-type DenoEnv = {
-  DB: D1Database;
-  MEDIA: R2Bucket;
-  KV: KVNamespace;
-  ASSETS: Fetcher;
-  APP_URL: string;
-} & Partial<Record<typeof ENV_PASSTHROUGH_KEYS[number], string | undefined>>;
+type DenoEnv =
+  & Pick<Env, "DB_INSTANCE" | "MEDIA" | "KV" | "ASSETS">
+  & { APP_URL: string }
+  & Partial<Record<typeof ENV_PASSTHROUGH_KEYS[number], string | undefined>>;
 
 // ---------------------------------------------------------------------------
 // Run migrations from SQL files
@@ -227,18 +228,19 @@ async function startServer(env: DenoEnv) {
   console.log(`  Assets: ${ASSETS_PATH}`);
   console.log("");
 
-  const { default: app } = await import("./index.ts");
+  const { backendApp } = await import("./index.ts");
 
   Deno.serve({ port: PORT }, (request: Request) => {
-    const ctx = {
+    const ctx: ExecutionContext = {
       waitUntil: (promise: Promise<unknown>) => {
         promise.catch((error) => {
           console.error("Background task failed:", error);
         });
       },
       passThroughOnException: () => {},
-    } as ExecutionContext;
-    return app.fetch(request, env, ctx);
+      props: {},
+    };
+    return backendApp.fetch(request, env, ctx);
   });
 
   console.log(`Server is running at http://localhost:${PORT}`);

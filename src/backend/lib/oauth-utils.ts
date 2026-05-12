@@ -7,6 +7,8 @@
  *      against KV eventual-consistency delays.
  */
 
+import type { IKeyValueStore } from "../runtime/types.ts";
+
 const ALPHANUMERIC =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const PKCE_CHARSET = ALPHANUMERIC + "-._~";
@@ -99,7 +101,7 @@ function oauthKey(state: string): string {
 }
 
 export async function saveOAuthState(
-  kv: KVNamespace,
+  kv: IKeyValueStore,
   state: string,
   data: OAuthState,
 ): Promise<void> {
@@ -109,7 +111,7 @@ export async function saveOAuthState(
 }
 
 export async function getOAuthState(
-  kv: KVNamespace,
+  kv: IKeyValueStore,
   state: string,
 ): Promise<OAuthState | null> {
   const stored = await kv.get(oauthKey(state));
@@ -127,7 +129,7 @@ export async function getOAuthState(
 }
 
 export async function deleteOAuthState(
-  kv: KVNamespace,
+  kv: IKeyValueStore,
   state: string,
 ): Promise<void> {
   await kv.delete(oauthKey(state));

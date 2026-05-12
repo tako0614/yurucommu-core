@@ -200,8 +200,12 @@ appsApiRoutes.post(
           ? file.contentType
           : inferContentType(normalizedPath);
 
+      const media = c.env.MEDIA;
+      if (!media) {
+        return c.json({ error: "object_storage_unavailable" }, 503);
+      }
       const r2Key = `${appPrefix}${normalizedPath}`;
-      await c.env.MEDIA.put(r2Key, contentBytes, {
+      await media.put(r2Key, contentBytes, {
         httpMetadata: { contentType },
       });
 
@@ -241,7 +245,12 @@ appsServeRoutes.get("/:clientId/:appName/*", async (c) => {
 
   const r2Key = `hosted/${clientId}/${appName}/${filePath}`;
 
-  const object = await c.env.MEDIA.get(r2Key);
+  const media = c.env.MEDIA;
+  if (!media) {
+    return c.json({ error: "object_storage_unavailable" }, 503);
+  }
+
+  const object = await media.get(r2Key);
   if (object) {
     const contentType = object.httpMetadata?.contentType ??
       inferContentType(filePath);
@@ -258,7 +267,7 @@ appsServeRoutes.get("/:clientId/:appName/*", async (c) => {
   // SPA fallback: serve index.html for paths without a file extension
   if (!filePath.includes(".")) {
     const indexKey = `hosted/${clientId}/${appName}/index.html`;
-    const indexObject = await c.env.MEDIA.get(indexKey);
+    const indexObject = await media.get(indexKey);
     if (indexObject) {
       const headers = createHostedHeaders(
         "text/html; charset=utf-8",

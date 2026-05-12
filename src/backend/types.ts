@@ -1,6 +1,11 @@
 import type { TakosClient } from "./lib/takos-client.ts";
 import type { Database } from "../db/index.ts";
 import type {
+  IKeyValueStore,
+  IObjectStorage,
+  IStaticAssets,
+} from "./runtime/types.ts";
+import type {
   DeliveryDlqMessageV1,
   DeliveryQueueMessageV1,
 } from "./lib/delivery/types.ts";
@@ -47,19 +52,21 @@ export interface EnvVars {
 /**
  * Application Environment
  *
- * Uses Cloudflare Workers API (DB, MEDIA, KV, ASSETS).
- * For non-Cloudflare runtimes (Node.js, Bun, Deno), the compatibility layers
- * in runtime/compat*.ts provide implementations that are cast to these types.
+ * Uses the runtime-neutral `I*` contracts. The Cloudflare worker entry
+ * wraps the native `D1Database` / `R2Bucket` / `KVNamespace` / `Fetcher`
+ * bindings with the adapters in `runtime/cloudflare.ts` before handing
+ * the Env to Hono. The Node / Bun / Deno compatibility classes already
+ * implement these contracts directly.
  *
- * DB_INSTANCE: Optional pre-created database instance for non-Cloudflare runtimes.
- * If provided, the middleware will use this instead of creating a new one with D1 adapter.
+ * `DB_INSTANCE` is the drizzle wrapper that the app calls; it is built
+ * by each runtime entry point (Cloudflare `fetch` or `createDenoEnv` /
+ * `createNodeEnv` / `createBunEnv`).
  */
 export type Env = {
-  DB: D1Database;
-  MEDIA: R2Bucket;
-  KV: KVNamespace;
-  ASSETS: Fetcher;
-  DB_INSTANCE?: Database;
+  DB_INSTANCE: Database;
+  MEDIA?: IObjectStorage;
+  KV: IKeyValueStore;
+  ASSETS?: IStaticAssets;
   DELIVERY_QUEUE?: Queue<DeliveryQueueMessageV1>;
   DELIVERY_DLQ?: Queue<DeliveryDlqMessageV1>;
 } & EnvVars;

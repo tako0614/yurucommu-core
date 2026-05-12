@@ -5,7 +5,7 @@
 
 import type { Message, MessageBatch, Queue } from "@cloudflare/workers-types";
 import type { Env } from "../../types.ts";
-import { type Database, getDb } from "../../../db/index.ts";
+import type { Database } from "../../../db/index.ts";
 import { and, eq, notInArray, or, sql } from "drizzle-orm";
 import { actorCache, deliveryQueue } from "../../../db/index.ts";
 import { isSafeRemoteUrl } from "../../federation-helpers.ts";
@@ -327,7 +327,7 @@ export async function handleDeliveryQueueBatch(
   batch: MessageBatch<DeliveryQueueMessageV1>,
   env: Env,
 ): Promise<void> {
-  const db = (env as { DB_INSTANCE?: Database }).DB_INSTANCE ?? getDb(env.DB);
+  const db = env.DB_INSTANCE;
   const bulkhead = new Bulkhead(
     BULKHEAD_GLOBAL_CONCURRENCY,
     BULKHEAD_PER_DOMAIN,
