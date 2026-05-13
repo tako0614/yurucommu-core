@@ -264,7 +264,7 @@ export async function exchangeOAuthToken(
   return await res.json() as OAuthTokens;
 }
 
-/** Look up an existing actor by provider user ID (with legacy migration), or create a new one. */
+/** Look up an existing actor by provider user ID, or create a new one. */
 export async function findOrCreateOAuthActor(
   db: Database,
   env: Env,
@@ -284,19 +284,6 @@ export async function findOrCreateOAuthActor(
   let actorData = await db.select().from(actors).where(
     eq(actors.takosUserId, providerUserId),
   ).get();
-
-  // Migrate legacy takos: prefixed IDs
-  if (!actorData && providerId === "takos") {
-    const legacyActor = await db.select().from(actors).where(
-      eq(actors.takosUserId, `takos:${userInfo.id}`),
-    ).get();
-    if (legacyActor) {
-      actorData = await db.update(actors)
-        .set({ takosUserId: providerUserId })
-        .where(eq(actors.apId, legacyActor.apId))
-        .returning().get();
-    }
-  }
 
   if (!actorData) {
     actorData = await createActorFromOAuth(db, env, userInfo, providerUserId);

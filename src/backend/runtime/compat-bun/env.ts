@@ -29,8 +29,6 @@ export async function createBunEnv(config: {
   TAKOSUMI_ACCOUNTS_ISSUER_URL?: string;
   TAKOSUMI_ACCOUNTS_CLIENT_ID?: string;
   TAKOSUMI_ACCOUNTS_CLIENT_SECRET?: string;
-  CLIENT_ID?: string;
-  CLIENT_SECRET?: string;
   TAKOS_URL?: string;
 }) {
   const db = D1CompatDatabase.create(
@@ -65,8 +63,6 @@ export async function createBunEnv(config: {
     TAKOSUMI_ACCOUNTS_ISSUER_URL: config.TAKOSUMI_ACCOUNTS_ISSUER_URL,
     TAKOSUMI_ACCOUNTS_CLIENT_ID: config.TAKOSUMI_ACCOUNTS_CLIENT_ID,
     TAKOSUMI_ACCOUNTS_CLIENT_SECRET: config.TAKOSUMI_ACCOUNTS_CLIENT_SECRET,
-    CLIENT_ID: config.CLIENT_ID,
-    CLIENT_SECRET: config.CLIENT_SECRET,
     TAKOS_URL: config.TAKOS_URL,
   };
 }

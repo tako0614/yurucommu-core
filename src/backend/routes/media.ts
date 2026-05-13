@@ -362,14 +362,7 @@ async function serveMediaByR2Key(
   }
 }
 
-// Serve media files from R2 with cache headers. `/media/:filename` is the
-// canonical URL returned by uploads; `/media/uploads/:filename` keeps stored
-// r2_key-based clients working.
-media.get("/uploads/:filename", async (c) => {
-  const filename = c.req.param("filename");
-  return serveMediaByR2Key(c, `uploads/${filename}`);
-});
-
+// Serve media files from R2 with cache headers.
 media.get("/:id", async (c) => {
   const id = c.req.param("id");
   return serveMediaByR2Key(c, `uploads/${id}`);

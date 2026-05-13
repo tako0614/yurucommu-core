@@ -251,7 +251,6 @@
 
       <h3>GET /media/:filename</h3>
       <p>アップロードされたメディアファイルを取得。アップロードレスポンスの <code>url</code> を使う。</p>
-      <p>互換用に <code>/media/uploads/:filename</code> でも保存済み <code>r2_key</code> を取得できる。</p>
 
       <h2>通知</h2>
 
@@ -285,25 +284,12 @@
       <h3>GET /api/dm/contacts</h3>
       <p>DM連絡先と会話一覧を取得（要認証）</p>
 
-      <h3>GET /api/dm/conversations</h3>
-      <p>後方互換用。<code>/api/dm/contacts</code> にリダイレクトします（要認証）</p>
-
       <h3>GET /api/dm/user/:encodedApId/messages</h3>
       <p>特定の相手とのメッセージ一覧を取得（要認証）</p>
       <p><code>:encodedApId</code> は相手の ActivityPub ID を URL エンコードした値です。</p>
 
       <h3>POST /api/dm/user/:encodedApId/messages</h3>
       <p>DMを送信（要認証）</p>
-      <pre><code>{
-  "content": "string"       // メッセージ本文
-}</code></pre>
-
-      <h3>GET /api/dm/conversations/:id/messages</h3>
-      <p>会話IDを指定してメッセージ一覧を取得（後方互換用、要認証）</p>
-      <p><code>:id</code> は会話IDであり、相手の ActivityPub ID ではありません。</p>
-
-      <h3>POST /api/dm/conversations/:id/messages</h3>
-      <p>会話IDを指定してDMを送信（後方互換用、要認証）</p>
       <pre><code>{
   "content": "string"       // メッセージ本文
 }</code></pre>

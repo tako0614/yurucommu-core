@@ -126,19 +126,19 @@ consumer、 `DELIVERY_DLQ` を dead-letter queue かつ DLQ reconciliation consu
 `DELIVERY_DLQ_NAME=yurucommu-delivery-dlq` も明示し、Takos resource 名と runtime
 dispatch 名を一致させます。
 
-Takos deploy の目安:
+Takosumi install/deploy の目安:
 
 ```bash
 cd yurucommu
 
-# 1. manifest resources / bindings / queue consumers を含めて deploy する
-takos deploy --group yurucommu
+# 1. InstallableApp metadata と manifest resources / bindings / queue consumers を検証する
+takosumi-git install . --ref <pinned-tag> --mode shared-cell
 
 # 2. D1 migration を適用する
 deno task takos:migrate
 
-# 3. migration 後の strict readiness を確認し、必要なら再 deploy する
-takos deploy --group yurucommu
+# 3. strict readiness を確認し、必要なら takosumi-git / Takosumi Accounts 経由で再 apply する
+deno task check
 ```
 
 queue 名を変えた環境では `DELIVERY_QUEUE_NAME` / `DELIVERY_DLQ_NAME` を worker

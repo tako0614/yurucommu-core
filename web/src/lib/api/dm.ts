@@ -1,4 +1,4 @@
-import type { DMConversation, DMMessage } from "../../types/index.ts";
+import type { DMMessage } from "../../types/index.ts";
 import { normalizeActor } from "./normalize.ts";
 import { apiFetch, apiPost, assertOk } from "./fetch.ts";
 
@@ -39,13 +39,6 @@ export interface DMRequest {
 const normalizeDmMessage = (message: DMMessage): DMMessage => ({
   ...message,
   sender: normalizeActor(message.sender),
-});
-
-const normalizeDmConversation = (
-  conversation: DMConversation,
-): DMConversation => ({
-  ...conversation,
-  other_participant: normalizeActor(conversation.other_participant),
 });
 
 const normalizeDmRequest = (request: DMRequest): DMRequest => ({
@@ -93,52 +86,6 @@ export async function rejectDMRequest(
     block,
   });
   await assertOk(res, "Failed to reject request");
-}
-
-// Legacy: Fetch conversations (for backwards compatibility)
-export async function fetchDMConversations(): Promise<DMConversation[]> {
-  const res = await apiFetch("/api/dm/conversations");
-  const data = (await res.json()) as { conversations?: DMConversation[] };
-  return (data.conversations || []).map(normalizeDmConversation);
-}
-
-export async function createDMConversation(
-  participantApId: string,
-): Promise<DMConversation> {
-  const res = await apiPost("/api/dm/conversations", {
-    participant_ap_id: participantApId,
-  });
-  await assertOk(res, "Failed to create conversation");
-  const data = (await res.json()) as { conversation: DMConversation };
-  return normalizeDmConversation(data.conversation);
-}
-
-export async function fetchDMMessages(
-  conversationId: string,
-  options?: { limit?: number; before?: string },
-): Promise<DMMessage[]> {
-  const params = new URLSearchParams();
-  if (options?.limit) params.set("limit", String(options.limit));
-  if (options?.before) params.set("before", options.before);
-  const query = params.toString() ? `?${params}` : "";
-  const res = await apiFetch(
-    `/api/dm/conversations/${conversationId}/messages${query}`,
-  );
-  const data = (await res.json()) as { messages?: DMMessage[] };
-  return (data.messages || []).map(normalizeDmMessage);
-}
-
-export async function sendDMMessage(
-  conversationId: string,
-  content: string,
-): Promise<DMMessage> {
-  const res = await apiPost(
-    `/api/dm/conversations/${conversationId}/messages`,
-    { content },
-  );
-  await assertOk(res, "Failed to send message");
-  const data = (await res.json()) as { message: DMMessage };
-  return normalizeDmMessage(data.message);
 }
 
 // User-based DM endpoints (no conversation creation needed)

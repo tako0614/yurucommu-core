@@ -4,12 +4,11 @@ import { apiDelete, apiFetch, apiPost, assertOk } from "./fetch.ts";
 
 type PostListResponse = {
   posts?: Post[];
-  bookmarks?: Post[];
 };
 
 type CreatePostResponse = {
-  post?: Post;
-} & Partial<Post>;
+  post: Post;
+};
 
 export async function fetchTimeline(options?: {
   limit?: number;
@@ -65,8 +64,7 @@ export async function createPost(data: {
   const res = await apiPost("/api/posts", data);
   await assertOk(res, "Failed to create post");
   const result = (await res.json()) as CreatePostResponse;
-  const post = result.post ?? result;
-  return normalizePost(post as Post);
+  return normalizePost(result.post);
 }
 
 export async function deletePost(apId: string): Promise<void> {
@@ -115,5 +113,5 @@ export async function fetchBookmarks(
   const query = params.toString() ? `?${params}` : "";
   const res = await apiFetch(`/api/bookmarks${query}`);
   const data = (await res.json()) as PostListResponse;
-  return (data.posts ?? data.bookmarks ?? []).map(normalizePost);
+  return (data.posts ?? []).map(normalizePost);
 }

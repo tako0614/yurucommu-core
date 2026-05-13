@@ -200,8 +200,6 @@ export interface RuntimeEnv {
   TAKOSUMI_ACCOUNTS_ISSUER_URL?: string;
   TAKOSUMI_ACCOUNTS_CLIENT_ID?: string;
   TAKOSUMI_ACCOUNTS_CLIENT_SECRET?: string;
-  CLIENT_ID?: string;
-  CLIENT_SECRET?: string;
   TAKOS_URL?: string;
   AUTH_MODE?: string;
 }

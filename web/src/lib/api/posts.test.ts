@@ -54,22 +54,22 @@ async function withMockFetch<T>(
   }
 }
 
-Deno.test("createPost accepts legacy raw post response", async () => {
+Deno.test("createPost reads the current wrapped post response", async () => {
   const post = makePost();
 
   const result = await withMockFetch(
-    post,
+    { post },
     () => createPost({ content: "hello" }),
   );
 
   assertEquals(result.ap_id, post.ap_id);
 });
 
-Deno.test("fetchBookmarks accepts legacy bookmarks response", async () => {
+Deno.test("fetchBookmarks reads the current posts response", async () => {
   const post = makePost({ bookmarked: true });
 
   const result = await withMockFetch(
-    { bookmarks: [post] },
+    { posts: [post] },
     () => fetchBookmarks(),
   );
 

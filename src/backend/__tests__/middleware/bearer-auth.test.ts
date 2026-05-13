@@ -24,8 +24,8 @@ Deno.test("requireBearerAuth fails closed when Accounts OIDC config is missing",
         headers: { Authorization: "Bearer token" },
       }),
       {
-        CLIENT_ID: "takos-client",
-        CLIENT_SECRET: "takos-secret",
+        OIDC_CLIENT_ID: "takos-client",
+        OIDC_CLIENT_SECRET: "takos-secret",
       } as never,
     );
 
@@ -64,8 +64,8 @@ Deno.test("requireBearerAuth introspects against the configured Accounts issuer"
       }),
       {
         OIDC_ISSUER_URL: "https://accounts.example.com",
-        CLIENT_ID: "takos-client",
-        CLIENT_SECRET: "takos-secret",
+        OIDC_CLIENT_ID: "takos-client",
+        OIDC_CLIENT_SECRET: "takos-secret",
       } as never,
     );
 

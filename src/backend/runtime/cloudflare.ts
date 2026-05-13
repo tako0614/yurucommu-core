@@ -303,8 +303,6 @@ export function createCloudflareRuntime(env: {
   TAKOSUMI_ACCOUNTS_ISSUER_URL?: string;
   TAKOSUMI_ACCOUNTS_CLIENT_ID?: string;
   TAKOSUMI_ACCOUNTS_CLIENT_SECRET?: string;
-  CLIENT_ID?: string;
-  CLIENT_SECRET?: string;
   TAKOS_URL?: string;
   AUTH_MODE?: string;
 }) {
@@ -326,8 +324,6 @@ export function createCloudflareRuntime(env: {
     TAKOSUMI_ACCOUNTS_ISSUER_URL,
     TAKOSUMI_ACCOUNTS_CLIENT_ID,
     TAKOSUMI_ACCOUNTS_CLIENT_SECRET,
-    CLIENT_ID,
-    CLIENT_SECRET,
     TAKOS_URL,
     AUTH_MODE,
   } = env;
@@ -350,8 +346,6 @@ export function createCloudflareRuntime(env: {
     TAKOSUMI_ACCOUNTS_ISSUER_URL,
     TAKOSUMI_ACCOUNTS_CLIENT_ID,
     TAKOSUMI_ACCOUNTS_CLIENT_SECRET,
-    CLIENT_ID,
-    CLIENT_SECRET,
     TAKOS_URL,
     AUTH_MODE,
   };

@@ -486,7 +486,7 @@ posts.get("/bookmarks", async (c) => {
     };
   });
 
-  return c.json({ bookmarks: result, posts: result });
+  return c.json({ posts: result });
 });
 
 export default posts;

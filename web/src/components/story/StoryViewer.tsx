@@ -443,7 +443,9 @@ export function StoryViewer(props: StoryViewerProps) {
             >
               <img
                 src={currentStory()!.attachment.url ||
-                  `/media/${currentStory()!.attachment.r2_key}`}
+                  `/media/${
+                    currentStory()!.attachment.r2_key.replace(/^uploads\//, "")
+                  }`}
                 alt=""
                 class="w-full h-full object-cover"
                 draggable={false}
@@ -456,7 +458,9 @@ export function StoryViewer(props: StoryViewerProps) {
             >
               <video
                 src={currentStory()!.attachment.url ||
-                  `/media/${currentStory()!.attachment.r2_key}`}
+                  `/media/${
+                    currentStory()!.attachment.r2_key.replace(/^uploads\//, "")
+                  }`}
                 class="w-full h-full object-cover"
                 autoplay={videoReady()}
                 muted={isMuted()}

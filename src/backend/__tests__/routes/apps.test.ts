@@ -76,8 +76,8 @@ function createEnv(media: MemoryR2Bucket) {
     DB_INSTANCE: {},
     MEDIA: media,
     OIDC_ISSUER_URL: "https://accounts.example.com",
-    CLIENT_ID: "takos-client",
-    CLIENT_SECRET: "takos-secret",
+    OIDC_CLIENT_ID: "takos-client",
+    OIDC_CLIENT_SECRET: "takos-secret",
   } as never;
 }
 

@@ -37,7 +37,7 @@ Deno.test("takos client - clears Takos auth when access token cannot be decrypte
   const client = await getTakosClient(createEnv(), db, {
     id: "session-1",
     provider: "takos",
-    providerAccessToken: "legacy-token",
+    providerAccessToken: "malformed-token",
     providerRefreshToken: null,
     providerTokenExpiresAt: null,
   });

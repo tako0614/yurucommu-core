@@ -44,11 +44,9 @@ export function getOidcClientCredentials(
   return {
     clientId: envValue(env, "OIDC_CLIENT_ID") ??
       envValue(env, "TAKOSUMI_ACCOUNTS_CLIENT_ID") ??
-      envValue(env, "CLIENT_ID") ??
       "",
     clientSecret: envValue(env, "OIDC_CLIENT_SECRET") ??
       envValue(env, "TAKOSUMI_ACCOUNTS_CLIENT_SECRET") ??
-      envValue(env, "CLIENT_SECRET") ??
       "",
   };
 }

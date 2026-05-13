@@ -131,8 +131,7 @@ export async function decrypt(
 
   if (!encrypted.includes(":")) {
     throw new DecryptionError(
-      "Data appears to be unencrypted (legacy format). " +
-        "Please re-authenticate to encrypt your tokens.",
+      "Invalid encrypted data format. Please re-authenticate.",
     );
   }
 

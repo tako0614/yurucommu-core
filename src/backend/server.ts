@@ -15,7 +15,7 @@
  *   AUTH_PASSWORD_HASH - PBKDF2-hashed password authentication
  *   GOOGLE_CLIENT_ID/SECRET - Google OAuth
  *   X_CLIENT_ID/SECRET - X (Twitter) OAuth
- *   OIDC_ISSUER_URL/CLIENT_ID/SECRET - Takosumi Accounts OIDC
+ *   OIDC_ISSUER_URL / OIDC_CLIENT_ID / OIDC_CLIENT_SECRET - OIDC login
  *   TAKOS_URL       - Optional Takos API base URL for proxy/tool integration
  */
 
@@ -74,8 +74,6 @@ const ENV_PASSTHROUGH_KEYS = [
   "TAKOSUMI_ACCOUNTS_ISSUER_URL",
   "TAKOSUMI_ACCOUNTS_CLIENT_ID",
   "TAKOSUMI_ACCOUNTS_CLIENT_SECRET",
-  "CLIENT_ID",
-  "CLIENT_SECRET",
   "TAKOS_URL",
   "AUTH_MODE",
   "ENABLE_TAKOS_PROXY",

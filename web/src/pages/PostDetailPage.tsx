@@ -275,7 +275,8 @@ export function PostDetailPage() {
                 <For each={post()!.attachments}>
                   {(m, idx) => (
                     <img
-                      src={m.url || `/media/${m.r2_key}`}
+                      src={m.url ||
+                        `/media/${m.r2_key.replace(/^uploads\//, "")}`}
                       alt=""
                       class={`w-full object-cover ${
                         post()!.attachments.length === 1

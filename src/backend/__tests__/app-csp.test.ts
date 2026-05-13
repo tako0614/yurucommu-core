@@ -107,8 +107,8 @@ Deno.test("backend readyz accepts Accounts OIDC as a provisioned auth method", a
       DELIVERY_DLQ: {},
       ENCRYPTION_KEY: "test-encryption-key",
       OIDC_ISSUER_URL: "https://accounts.example.com",
-      CLIENT_ID: "client",
-      CLIENT_SECRET: "secret",
+      OIDC_CLIENT_ID: "client",
+      OIDC_CLIENT_SECRET: "secret",
     } as never,
   );
 

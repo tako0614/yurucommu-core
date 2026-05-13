@@ -7,7 +7,7 @@ const OTHER_KEY = "11".repeat(32);
 Deno.test("crypto decrypt - rejects malformed encrypted payloads without plaintext fallback", async () => {
   for (
     const payload of [
-      "legacy-plaintext-token",
+      "plaintext-token",
       "abcd:",
       ":abcd",
       "abcd:efgh",
