@@ -85,26 +85,6 @@ export async function findAndDeleteInteractionByActivityId(
   return record;
 }
 
-/** @deprecated Use findAndDeleteInteractionByActivityId(db, 'like', ...) */
-export function findAndDeleteLikeByActivityId(
-  db: Database,
-  activityApIdValue: string,
-): Promise<{ actorApId: string; objectApId: string } | null> {
-  return findAndDeleteInteractionByActivityId(db, "like", activityApIdValue);
-}
-
-/** @deprecated Use findAndDeleteInteractionByActivityId(db, 'announce', ...) */
-export function findAndDeleteAnnounceByActivityId(
-  db: Database,
-  activityApIdValue: string,
-): Promise<{ actorApId: string; objectApId: string } | null> {
-  return findAndDeleteInteractionByActivityId(
-    db,
-    "announce",
-    activityApIdValue,
-  );
-}
-
 /** Find a follow by activityApId and return it (or null). */
 export async function findFollowByActivityId(
   db: Database,
