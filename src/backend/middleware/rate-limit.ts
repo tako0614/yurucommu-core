@@ -13,7 +13,39 @@ interface RateLimitEntry {
 }
 
 const RATE_LIMIT_KV_PREFIX = "rate-limit:v1";
+
+/**
+ * In-memory fallback rate-limit store used only when distributed KV is
+ * unavailable. Entries expire once `resetAt` passes; we sweep expired
+ * entries on every access. A hard cap also bounds worst-case growth
+ * when many distinct keys hit the limiter within a single window.
+ */
+const FALLBACK_RATE_LIMIT_MAX_ENTRIES = 10_000;
 const fallbackRateLimitStore = new Map<string, RateLimitEntry>();
+
+function evictExpiredFallbackEntries(now: number): void {
+  for (const [key, entry] of fallbackRateLimitStore) {
+    if (entry.resetAt <= now) {
+      fallbackRateLimitStore.delete(key);
+    }
+  }
+  if (fallbackRateLimitStore.size >= FALLBACK_RATE_LIMIT_MAX_ENTRIES) {
+    // Safety: every entry is still within its window but the cap is hit.
+    // Clear to bound memory; the worst that happens is in-flight counters
+    // for evicted keys reset early (more permissive in degraded mode).
+    fallbackRateLimitStore.clear();
+  }
+}
+
+/** @internal Test-only inspector for the fallback store. */
+export const __fallbackRateLimitInternals = {
+  size: () => fallbackRateLimitStore.size,
+  clear: () => fallbackRateLimitStore.clear(),
+  set: (key: string, entry: RateLimitEntry) =>
+    fallbackRateLimitStore.set(key, entry),
+  evict: evictExpiredFallbackEntries,
+  maxEntries: FALLBACK_RATE_LIMIT_MAX_ENTRIES,
+};
 
 let hasWarnedKvFailure = false;
 
@@ -47,6 +79,7 @@ function consumeLocalFallback(
   windowMs: number,
   now: number,
 ): RateLimitEntry {
+  evictExpiredFallbackEntries(now);
   const existing = fallbackRateLimitStore.get(key);
   if (!existing || existing.resetAt <= now) {
     const created = { count: 1, resetAt: now + windowMs };
