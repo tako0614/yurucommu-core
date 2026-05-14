@@ -13,6 +13,7 @@ import {
   isLocal,
 } from "../../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
+import { logger } from "../../../lib/logger.ts";
 import {
   type Activity,
   type ActivityContext,
@@ -28,6 +29,8 @@ import {
 } from "./inbox-shared-helpers.ts";
 
 type ActorRow = typeof actors.$inferSelect;
+
+const log = logger.child({ component: "activitypub.inbox.follow" });
 
 // ---------------------------------------------------------------------------
 // Follow handler
@@ -142,7 +145,10 @@ export async function handleAccept(c: ActivityContext, activity: Activity) {
       .set({ followerCount: sql`${actors.followerCount} + 1` })
       .where(eq(actors.apId, follow.followingApId));
   } catch (e) {
-    console.error("[ActivityPub] Error in handleAccept:", e);
+    log.error("Error in handleAccept", {
+      event: "ap.accept.handler_error",
+      error: e,
+    });
   }
 }
 
@@ -227,9 +233,12 @@ async function resolveUndoByActivityId(
   if (!originalActivity) return false;
 
   if (originalActivity.actorApId && originalActivity.actorApId !== actor) {
-    console.warn(
-      `[ActivityPub] Undo actor mismatch: ${actor} tried to undo activity by ${originalActivity.actorApId}`,
-    );
+    log.warn("Undo actor mismatch", {
+      event: "ap.undo.actor_mismatch",
+      actor,
+      originalActor: originalActivity.actorApId,
+      activityId: objectId,
+    });
     return true;
   }
 

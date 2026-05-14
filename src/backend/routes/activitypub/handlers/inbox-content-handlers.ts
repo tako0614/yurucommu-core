@@ -20,6 +20,7 @@ import {
   objectApId,
 } from "../../../federation-helpers.ts";
 import { tryParseRemoteActor } from "../../../lib/activitypub-validators.ts";
+import { logger } from "../../../lib/logger.ts";
 import {
   type Activity,
   type ActivityContext,
@@ -27,6 +28,8 @@ import {
   getActivityObjectId,
   type StoryOverlay,
 } from "../inbox-types.ts";
+
+const log = logger.child({ component: "activitypub.inbox.content" });
 
 type ActorRow = typeof actors.$inferSelect;
 
@@ -159,7 +162,10 @@ export async function handleCreateStory(
 
   // attachment validation (required)
   if (!object.attachment) {
-    console.error("Remote story has no attachment:", objectId);
+    log.error("Remote story has no attachment", {
+      event: "ap.story.missing_attachment",
+      objectId,
+    });
     return;
   }
 
@@ -175,7 +181,10 @@ export async function handleCreateStory(
   };
 
   if (!attachment || !attachment.url) {
-    console.error("Remote story attachment has no URL:", objectId);
+    log.error("Remote story attachment has no URL", {
+      event: "ap.story.attachment_missing_url",
+      objectId,
+    });
     return;
   }
 
@@ -233,7 +242,10 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
 
   const actorId = typeof activity.actor === "string" ? activity.actor : null;
   if (!actorId) {
-    console.warn(`[ActivityPub] Delete activity missing actor`);
+    log.warn("Delete activity missing actor", {
+      event: "ap.delete.missing_actor",
+      objectId,
+    });
     return;
   }
 
@@ -249,9 +261,12 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
 
   // Verify actor owns the object before deleting
   if (delObj.attributedTo !== actorId) {
-    console.warn(
-      `[ActivityPub] Delete rejected: actor ${actorId} does not own object ${objectId} (owned by ${delObj.attributedTo})`,
-    );
+    log.warn("Delete rejected: actor does not own object", {
+      event: "ap.delete.actor_ownership_mismatch",
+      actor: actorId,
+      objectId,
+      ownedBy: delObj.attributedTo,
+    });
     return;
   }
 
@@ -329,7 +344,11 @@ export async function handleMove(
   if (oldActorApId === newActorApId) return;
 
   if (!isSafeRemoteUrl(newActorApId)) {
-    console.warn(`[ActivityPub] Blocked unsafe Move target: ${newActorApId}`);
+    log.warn("Blocked unsafe Move target", {
+      event: "ap.move.unsafe_target",
+      newActor: newActorApId,
+      oldActor: oldActorApId,
+    });
     return;
   }
 
@@ -473,6 +492,10 @@ async function refreshActorCache(
       .values({ apId: data.id, ...cacheFields })
       .onConflictDoUpdate({ target: actorCache.apId, set: cacheFields });
   } catch (e) {
-    console.warn("[ActivityPub] Failed to refresh Move target actor cache:", e);
+    log.warn("Failed to refresh Move target actor cache", {
+      event: "ap.move.cache_refresh_failed",
+      actor: actorApIdValue,
+      error: e,
+    });
   }
 }

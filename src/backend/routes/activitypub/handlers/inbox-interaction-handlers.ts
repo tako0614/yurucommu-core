@@ -13,8 +13,11 @@ import {
   getActivityObjectId,
 } from "../inbox-types.ts";
 import { notifyLocalObjectOwner } from "./inbox-shared-helpers.ts";
+import { logger } from "../../../lib/logger.ts";
 
 type ActorRow = typeof actors.$inferSelect;
+
+const log = logger.child({ component: "activitypub.inbox.interaction" });
 
 // ---------------------------------------------------------------------------
 // Interaction table / count-field mapping
@@ -210,11 +213,12 @@ export async function handleFlag(
   const objectId = getActivityObjectId(activity);
   const targetId = getActivityTargetId(activity);
   // No moderation subsystem yet: record is already stored in activities; log for operators.
-  console.warn("[ActivityPub] Flag received:", {
+  log.warn("Flag received", {
+    event: "ap.flag.received",
     actor,
     object: objectId,
     target: targetId,
-    id: activity.id || null,
+    activityId: activity.id || null,
   });
 }
 
