@@ -19,6 +19,7 @@ import {
   parseActivity,
   tryParseRemoteActor,
 } from "../../lib/activitypub-validators.ts";
+import { logger } from "../../lib/logger.ts";
 import {
   handleGroupCreate,
   handleGroupFollow,
@@ -40,6 +41,8 @@ import {
   handleUndo,
   handleUpdate,
 } from "./handlers/user-inbox-handlers.ts";
+
+const log = logger.child({ component: "activitypub.inbox" });
 
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -162,7 +165,10 @@ async function fetchActorPublicKey(
   c: HonoContext,
 ): Promise<string | null> {
   if (!isSafeRemoteUrl(keyId)) {
-    console.warn(`[HTTP Signature] Blocked unsafe keyId URL: ${keyId}`);
+    log.warn("Blocked unsafe keyId URL", {
+      event: "ap.signature.unsafe_key_id",
+      keyId,
+    });
     return null;
   }
 
@@ -185,18 +191,32 @@ async function fetchActorPublicKey(
     });
 
     if (!res.ok) {
-      console.warn(`[HTTP Signature] Failed to fetch actor: ${res.status}`);
+      log.warn("Failed to fetch actor for signature key", {
+        event: "ap.signature.actor_fetch_failed",
+        keyId,
+        actorUrl,
+        status: res.status,
+      });
       return null;
     }
 
     const rawActor: unknown = await res.json();
     const actorData = tryParseRemoteActor(rawActor);
     if (!actorData) {
-      console.warn(`[HTTP Signature] Invalid actor document at ${actorUrl}`);
+      log.warn("Invalid actor document for signature key", {
+        event: "ap.signature.actor_invalid",
+        keyId,
+        actorUrl,
+      });
       return null;
     }
     if (!actorData.publicKey?.publicKeyPem) {
-      console.warn(`[HTTP Signature] Actor has no public key`);
+      log.warn("Actor has no public key", {
+        event: "ap.actor.no_public_key",
+        keyId,
+        actorUrl,
+        actor: actorData.id,
+      });
       return null;
     }
     const publicKeyPem = actorData.publicKey.publicKeyPem;
@@ -229,7 +249,12 @@ async function fetchActorPublicKey(
 
     return publicKeyPem;
   } catch (e) {
-    console.error(`[HTTP Signature] Error fetching actor:`, e);
+    log.error("Error fetching actor for signature key", {
+      event: "ap.signature.actor_fetch_error",
+      keyId,
+      actorUrl,
+      error: e,
+    });
     return null;
   }
 }
@@ -359,7 +384,11 @@ async function verifyHttpSignature(
 
     return { valid: true, keyId: parsed.keyId };
   } catch (e) {
-    console.error("[HTTP Signature] Verification error:", e);
+    log.error("Signature verification error", {
+      event: "ap.signature.verification_error",
+      keyId: parsed.keyId,
+      error: e,
+    });
     return { valid: false, error: "Signature verification error" };
   }
 }
@@ -391,9 +420,12 @@ function isActorMismatch(
     const signingDomain = new URL(signingActorUrl).hostname;
     const actorDomain = new URL(actor).hostname;
     if (signingDomain === actorDomain) {
-      console.info(
-        `[ActivityPub] Accepting key delegation: signing key ${signingActorUrl} for actor ${actor} (same domain: ${signingDomain})`,
-      );
+      log.info("Accepting key delegation for same-domain actor", {
+        event: "ap.signature.key_delegation_accepted",
+        signingActor: signingActorUrl,
+        actor,
+        domain: signingDomain,
+      });
       return false;
     }
   } catch {
@@ -441,9 +473,10 @@ async function verifyAndParseInbox(
 
   const signatureResult = await verifyHttpSignature(c, body);
   if (!signatureResult.valid) {
-    console.warn(
-      `[ActivityPub] Signature verification failed: ${signatureResult.error}`,
-    );
+    log.warn("Signature verification failed", {
+      event: "ap.signature.verification_failed",
+      reason: signatureResult.error,
+    });
     return c.json({ error: "Signature verification failed" }, 401);
   }
 
@@ -453,7 +486,10 @@ async function verifyAndParseInbox(
     activity = parseActivity(parsed);
   } catch (e) {
     if (e instanceof ActivityPubContractError) {
-      console.warn(`[ActivityPub] Rejected activity: ${e.message}`);
+      log.warn("Rejected activity (contract error)", {
+        event: "ap.activity.contract_rejected",
+        reason: e.message,
+      });
       return c.json({ error: "Invalid activity" }, 400);
     }
     return c.json({ error: "Invalid JSON" }, 400);
@@ -471,9 +507,12 @@ async function verifyAndParseInbox(
 
   const signingActor = signingActorFromKeyId(signatureResult.keyId);
   if (isActorMismatch(signingActor, actor)) {
-    console.warn(
-      `[ActivityPub] Actor mismatch: activity actor ${actor} does not match signing key ${signingActor}`,
-    );
+    log.warn("Actor mismatch between activity and signing key", {
+      event: "ap.signature.actor_mismatch",
+      actor,
+      signingActor,
+      keyId: signatureResult.keyId,
+    });
     return c.json({ error: "Actor mismatch" }, 401);
   }
 
@@ -505,9 +544,12 @@ async function deduplicateAndStoreActivity(
 
   if (existing) {
     if (existing.rawJson !== rawJson) {
-      console.warn(
-        `[ActivityPub] Duplicate activity ${activityId} received with different content`,
-      );
+      log.warn("Duplicate activity received with different content", {
+        event: "ap.activity.duplicate_content_mismatch",
+        activityId,
+        activityType,
+        actor,
+      });
     }
     return c.body(null, 202);
   }
@@ -562,7 +604,10 @@ async function cacheRemoteActor(
   if (cached) return;
 
   if (!isSafeRemoteUrl(actorApIdUrl)) {
-    console.warn(`[ActivityPub] Blocked unsafe actor fetch: ${actorApIdUrl}`);
+    log.warn("Blocked unsafe actor fetch", {
+      event: "ap.actor.unsafe_fetch_blocked",
+      actor: actorApIdUrl,
+    });
     return;
   }
 
@@ -576,21 +621,25 @@ async function cacheRemoteActor(
     const rawActor: unknown = await res.json();
     const actorData = tryParseRemoteActor(rawActor);
     if (!actorData) {
-      console.warn(
-        `[ActivityPub] Skipping actor cache for ${actorApIdUrl}: invalid actor document`,
-      );
+      log.warn("Skipping actor cache: invalid actor document", {
+        event: "ap.actor.cache_invalid_document",
+        actor: actorApIdUrl,
+      });
       return;
     }
     if (actorData.id !== actorApIdUrl) {
-      console.warn(
-        `[ActivityPub] Actor ID mismatch: fetched ${actorApIdUrl} but got id ${actorData.id}`,
-      );
+      log.warn("Actor ID mismatch during cache", {
+        event: "ap.actor.cache_id_mismatch",
+        actor: actorApIdUrl,
+        receivedId: actorData.id,
+      });
       return;
     }
     if (!actorData.publicKey?.publicKeyPem) {
-      console.warn(
-        `[ActivityPub] Skipping actor cache for ${actorApIdUrl}: missing public key`,
-      );
+      log.warn("Skipping actor cache: missing public key", {
+        event: "ap.actor.cache_missing_public_key",
+        actor: actorApIdUrl,
+      });
       return;
     }
     if (
@@ -610,7 +659,11 @@ async function cacheRemoteActor(
       ...buildActorCacheFields(narrowed),
     });
   } catch (e) {
-    console.error("Failed to cache remote actor:", e);
+    log.error("Failed to cache remote actor", {
+      event: "ap.actor.cache_failed",
+      actor: actorApIdUrl,
+      error: e,
+    });
   }
 }
 
@@ -677,9 +730,11 @@ async function dispatchUserActivity(
       await handleMove(c, activity, actor);
       break;
     default:
-      console.warn(
-        `[ActivityPub] Unhandled activity type: ${activityType} from ${actor}`,
-      );
+      log.warn("Unhandled activity type", {
+        event: "ap.activity.unhandled_type",
+        activityType,
+        actor,
+      });
   }
 }
 
