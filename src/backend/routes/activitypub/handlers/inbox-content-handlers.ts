@@ -19,6 +19,7 @@ import {
   isSafeRemoteUrl,
   objectApId,
 } from "../../../federation-helpers.ts";
+import { tryParseRemoteActor } from "../../../lib/activitypub-validators.ts";
 import {
   type Activity,
   type ActivityContext,
@@ -439,19 +440,6 @@ async function refreshActorCache(
   db: Database,
   actorApIdValue: string,
 ): Promise<void> {
-  type RemoteActorDoc = {
-    id: string;
-    type?: string;
-    preferredUsername?: string;
-    name?: string;
-    summary?: string;
-    icon?: { url?: string };
-    inbox?: string;
-    outbox?: string;
-    publicKey?: { id?: string; publicKeyPem?: string };
-    endpoints?: { sharedInbox?: string };
-  };
-
   try {
     const res = await fetchWithTimeout(actorApIdValue, {
       headers: { "Accept": "application/activity+json, application/ld+json" },
@@ -459,9 +447,10 @@ async function refreshActorCache(
     });
     if (!res.ok) return;
 
-    const data = await res.json() as RemoteActorDoc;
+    const raw: unknown = await res.json();
+    const data = tryParseRemoteActor(raw);
     if (
-      !data?.id || data.id !== actorApIdValue || !data.inbox ||
+      !data || data.id !== actorApIdValue || !data.inbox ||
       !isSafeRemoteUrl(data.inbox)
     ) return;
 

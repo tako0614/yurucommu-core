@@ -22,6 +22,7 @@ import {
   parseJsonObject,
   parseNonEmptyString,
 } from "../lib/parse-helpers.ts";
+import { tryParseRemoteActor } from "../lib/activitypub-validators.ts";
 
 const REMOTE_FETCH_TIMEOUT_MS = 10000;
 
@@ -274,10 +275,11 @@ export async function handleRemoteFollow(
         return c.json({ error: "Could not fetch remote actor" }, 400);
       }
 
-      const actorData = await res.json() as RemoteActor;
+      const rawActor: unknown = await res.json();
+      const actorData = tryParseRemoteActor(rawActor);
       if (
-        !actorData?.id ||
-        !actorData?.inbox ||
+        !actorData ||
+        !actorData.inbox ||
         !isSafeRemoteUrl(actorData.id) ||
         !isSafeRemoteUrl(actorData.inbox)
       ) {

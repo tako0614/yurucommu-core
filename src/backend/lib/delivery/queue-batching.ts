@@ -14,6 +14,7 @@ import {
   isSafeRemoteUrl,
 } from "../../federation-helpers.ts";
 import { planEndpointsFromActorCache } from "./planner.ts";
+import { tryParseRemoteActor } from "../activitypub-validators.ts";
 import {
   DELIVERY_QUEUE_MESSAGE_VERSION,
   type DeliveryFanoutFollowersMessageV1,
@@ -45,30 +46,16 @@ async function fetchAndCacheRemoteActor(
 ): Promise<void> {
   if (!isSafeRemoteUrl(actorApId)) return;
 
-  type RemoteActorDoc = {
-    id: string;
-    type?: string;
-    preferredUsername?: string;
-    name?: string;
-    summary?: string;
-    icon?: { url?: string };
-    inbox?: string;
-    outbox?: string;
-    followers?: string;
-    following?: string;
-    publicKey?: { id?: string; publicKeyPem?: string };
-    endpoints?: { sharedInbox?: string };
-  };
-
   const res = await fetchWithTimeout(actorApId, {
     headers: { "Accept": "application/activity+json, application/ld+json" },
     timeout: DELIVERY_HTTP_TIMEOUT_MS,
   });
   if (!res.ok) return;
 
-  const data = await res.json() as RemoteActorDoc;
-  if (!data?.id || data.id !== actorApId) return;
-  if (!data?.inbox || !isSafeRemoteUrl(data.inbox)) return;
+  const raw: unknown = await res.json();
+  const data = tryParseRemoteActor(raw);
+  if (!data || data.id !== actorApId) return;
+  if (!data.inbox || !isSafeRemoteUrl(data.inbox)) return;
 
   const actorFields = {
     type: data.type || "Person",
