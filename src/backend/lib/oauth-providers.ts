@@ -124,12 +124,35 @@ export function getProvider(
 }
 
 /**
+ * 既知のプロバイダーID 集合。 caller boundary は `string` で受けるが、
+ * switch では narrowed union で exhaustive に分岐する。
+ */
+export type ProviderId = "google" | "x" | "takos";
+
+const KNOWN_PROVIDER_IDS: ReadonlySet<ProviderId> = new Set<ProviderId>([
+  "google",
+  "x",
+  "takos",
+]);
+
+function isKnownProviderId(value: string): value is ProviderId {
+  return KNOWN_PROVIDER_IDS.has(value as ProviderId);
+}
+
+function assertNeverProvider(x: never): never {
+  throw new Error(`Unhandled provider id: ${JSON.stringify(x)}`);
+}
+
+/**
  * プロバイダーIDからクライアント認証情報を取得
  */
 export function getClientCredentials(
   env: Env,
   providerId: string,
 ): { clientId: string; clientSecret: string } {
+  if (!isKnownProviderId(providerId)) {
+    return { clientId: "", clientSecret: "" };
+  }
   switch (providerId) {
     case "google":
       return {
@@ -144,7 +167,7 @@ export function getClientCredentials(
     case "takos":
       return getOidcClientCredentials(env);
     default:
-      return { clientId: "", clientSecret: "" };
+      return assertNeverProvider(providerId);
   }
 }
 

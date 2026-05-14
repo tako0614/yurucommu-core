@@ -200,21 +200,45 @@ export function toPostRow(
   };
 }
 
+type Visibility = "public" | "unlisted" | "followers" | "direct";
+
+function assertNever(x: never): never {
+  throw new Error(`Unhandled visibility: ${JSON.stringify(x)}`);
+}
+
+function classifyVisibility(value: string): Visibility {
+  switch (value) {
+    case "public":
+    case "unlisted":
+    case "followers":
+    case "direct":
+      return value;
+    default:
+      // Unknown visibility (e.g. from external AP server) — fail closed
+      // by treating as direct (no public delivery, equivalent to the
+      // previous `{to:[], cc:[]}` default).
+      return "direct";
+  }
+}
+
 /** Compute to/cc fields from visibility for ActivityPub delivery. */
 export function buildAddressing(
   visibility: string,
   followersUrl: string,
 ): { to: string[]; cc: string[] } {
   const publicUrl = "https://www.w3.org/ns/activitystreams#Public";
-  switch (visibility) {
+  const narrowed = classifyVisibility(visibility);
+  switch (narrowed) {
     case "public":
       return { to: [publicUrl], cc: [followersUrl] };
     case "unlisted":
       return { to: [followersUrl], cc: [publicUrl] };
     case "followers":
       return { to: [followersUrl], cc: [] };
-    default:
+    case "direct":
       return { to: [], cc: [] };
+    default:
+      return assertNever(narrowed);
   }
 }
 

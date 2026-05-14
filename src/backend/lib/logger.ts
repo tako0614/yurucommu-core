@@ -63,6 +63,10 @@ export interface Logger {
 // Helpers
 // ---------------------------------------------------------------------------
 
+function assertNever(x: never): never {
+  throw new Error(`Unhandled log level: ${JSON.stringify(x)}`);
+}
+
 function normalizeError(value: unknown): Record<string, unknown> {
   if (value instanceof Error) {
     return {
@@ -197,6 +201,8 @@ class LoggerImpl implements Logger {
       case "error":
         console.error(line);
         break;
+      default:
+        assertNever(level);
     }
   }
 
