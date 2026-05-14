@@ -22,6 +22,12 @@ import { logger } from "../logger.ts";
 
 const log = logger.child({ component: "delivery.queue" });
 
+function assertNever(x: never): never {
+  throw new Error(
+    `Unhandled delivery queue message type: ${JSON.stringify(x)}`,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Concurrency primitives
 // ---------------------------------------------------------------------------
@@ -376,7 +382,7 @@ export async function handleDeliveryQueueBatch(
           await processReconcileJob(db, env, body, message);
           break;
         default:
-          message.ack();
+          assertNever(body);
       }
     } catch (e) {
       log.error("Non-delivery message failed", {
