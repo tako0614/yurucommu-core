@@ -24,6 +24,36 @@ Deno.test("backend CSP omits Takos origins when TAKOS_URL is not configured", as
   }
 });
 
+Deno.test("backend CSP does not list unpkg.com in script-src (only connect-src for FFmpeg fetch)", async () => {
+  const app = createYurucommuBackendApp();
+  const res = await app.fetch(
+    new Request("https://test.local/"),
+    {
+      APP_URL: "https://test.local",
+      DB_INSTANCE: {},
+    } as never,
+  );
+
+  const csp = res.headers.get("Content-Security-Policy");
+  assert(csp);
+  const scriptSrc = csp.split(";").map((d) => d.trim()).find((d) =>
+    d.startsWith("script-src ")
+  );
+  assert(scriptSrc, "script-src directive missing");
+  if (scriptSrc.includes("unpkg.com")) {
+    throw new Error(
+      "script-src must not whitelist unpkg.com: compromised npm packages would become executable on this origin",
+    );
+  }
+  // connect-src may still list unpkg.com because toBlobURL() fetches the
+  // FFmpeg core from there and wraps the body in a blob: URL before import.
+  const connectSrc = csp.split(";").map((d) => d.trim()).find((d) =>
+    d.startsWith("connect-src ")
+  );
+  assert(connectSrc);
+  assertStringIncludes(connectSrc, "https://unpkg.com");
+});
+
 Deno.test("backend CSP includes the configured Accounts issuer when enabled", async () => {
   const app = createYurucommuBackendApp();
   const res = await app.fetch(

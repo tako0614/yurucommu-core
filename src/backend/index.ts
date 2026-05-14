@@ -157,6 +157,12 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
 
     const takosUrl = c.env.TAKOS_URL?.trim();
     const oidcIssuer = getOidcIssuerUrl(c.env);
+    // unpkg.com is only used by web/src/lib/ffmpeg.ts to fetch @ffmpeg/core
+    // assets (JS + WASM). The fetched body is wrapped in a blob: URL via
+    // toBlobURL before being imported, so script-src does NOT need unpkg —
+    // only connect-src (for fetch) and blob: in script-src (for the wrapped
+    // worker script). Pinning unpkg in script-src would make any compromised
+    // npm package directly executable on this origin.
     const connectSrc = ["'self'", "https://unpkg.com", "wss:"];
     const formAction = ["'self'"];
     if (takosUrl) {
@@ -169,7 +175,7 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
     }
     const csp = [
       "default-src 'self'",
-      "script-src 'self' https://unpkg.com https://static.cloudflareinsights.com",
+      "script-src 'self' blob: https://static.cloudflareinsights.com",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "media-src 'self' data: blob:",
