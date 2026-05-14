@@ -26,7 +26,40 @@ const MAX_ARCHIVE_BATCH_SIZE = 100;
 const ARCHIVE_CREATE_BATCH_SIZE = 100;
 const ARCHIVE_ALL_CAP = 1000;
 const NOTIFICATION_ACTIVITY_TYPES = ["Follow", "Like", "Announce", "Create"];
+
+/**
+ * Tracks the last cleanup timestamp per actor so cleanup is throttled to one
+ * run per `ARCHIVED_CLEANUP_INTERVAL_MS`. Entries older than the interval no
+ * longer gate work and can be evicted. A hard cap also bounds worst-case
+ * growth when many unique actors hit notifications in a single window.
+ */
+const ARCHIVED_CLEANUP_TIMESTAMPS_MAX = 10_000;
 const archivedCleanupTimestamps = new Map<string, number>();
+
+function pruneArchivedCleanupTimestamps(now: number): void {
+  for (const [actor, lastRun] of archivedCleanupTimestamps) {
+    if (now - lastRun >= ARCHIVED_CLEANUP_INTERVAL_MS) {
+      archivedCleanupTimestamps.delete(actor);
+    }
+  }
+  if (archivedCleanupTimestamps.size >= ARCHIVED_CLEANUP_TIMESTAMPS_MAX) {
+    // Last-resort: every entry is still fresh but cap is hit. Clear to bound
+    // memory; the worst that happens is duplicate cleanup work within the
+    // window for actors evicted here.
+    archivedCleanupTimestamps.clear();
+  }
+}
+
+/** @internal Test-only inspector for the cleanup-timestamps bookkeeping. */
+export const __archivedCleanupInternals = {
+  size: () => archivedCleanupTimestamps.size,
+  clear: () => archivedCleanupTimestamps.clear(),
+  set: (key: string, value: number) =>
+    archivedCleanupTimestamps.set(key, value),
+  prune: pruneArchivedCleanupTimestamps,
+  maxEntries: ARCHIVED_CLEANUP_TIMESTAMPS_MAX,
+  intervalMs: ARCHIVED_CLEANUP_INTERVAL_MS,
+};
 
 /** Require authenticated actor or return 401. */
 function requireActor(
@@ -95,6 +128,7 @@ async function maybeCleanupArchivedNotifications(
   const lastRun = archivedCleanupTimestamps.get(actorApId) ?? 0;
   if (now - lastRun < ARCHIVED_CLEANUP_INTERVAL_MS) return;
 
+  pruneArchivedCleanupTimestamps(now);
   archivedCleanupTimestamps.set(actorApId, now);
   await cleanupArchivedNotifications(db, actorApId);
 }
