@@ -5,6 +5,10 @@
  * The encryption key should be set via ENCRYPTION_KEY environment variable.
  */
 
+import { logger } from "./logger.ts";
+
+const log = logger.child({ component: "crypto" });
+
 function isValidHexString(hex: string, expectedLength?: number): boolean {
   if (!/^[0-9a-fA-F]+$/.test(hex)) return false;
   if (hex.length % 2 !== 0) return false;
@@ -52,18 +56,21 @@ async function getEncryptionKey(
   if (!keyHex) return null;
 
   if (!isValidHexString(keyHex, 64)) {
-    console.error(
-      "Invalid encryption key format: must be exactly 64 hex characters (0-9, a-f, A-F)",
-    );
+    log.error("Invalid encryption key format", {
+      event: "crypto.key.invalid_format",
+      reason: "must be exactly 64 hex characters (0-9, a-f, A-F)",
+    });
     return null;
   }
 
   try {
     const keyBytes = hexToBytes(keyHex);
     if (keyBytes.byteLength !== 32) {
-      console.error(
-        "Invalid encryption key length: must decode to exactly 32 bytes",
-      );
+      log.error("Invalid encryption key length", {
+        event: "crypto.key.invalid_length",
+        reason: "must decode to exactly 32 bytes",
+        actualLength: keyBytes.byteLength,
+      });
       return null;
     }
     return await crypto.subtle.importKey(
@@ -74,7 +81,10 @@ async function getEncryptionKey(
       ["encrypt", "decrypt"],
     );
   } catch (error) {
-    console.error("Failed to import encryption key:", error);
+    log.error("Failed to import encryption key", {
+      event: "crypto.key.import_failed",
+      error,
+    });
     return null;
   }
 }

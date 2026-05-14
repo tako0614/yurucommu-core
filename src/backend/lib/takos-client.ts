@@ -14,6 +14,9 @@ import {
   encrypt,
   EncryptionKeyError,
 } from "./crypto.ts";
+import { logger } from "./logger.ts";
+
+const log = logger.child({ component: "takos.client" });
 import {
   getOidcClientCredentials,
   getOidcIssuerUrl,
@@ -72,9 +75,11 @@ async function clearTakosAuth(
   sessionId: string,
   reason: string,
 ): Promise<void> {
-  console.warn(
-    `[TakosClient] Clearing Takos auth for session ${sessionId}: ${reason}`,
-  );
+  log.warn("Clearing Takos auth", {
+    event: "takos.auth.cleared",
+    sessionId,
+    reason,
+  });
   await db.update(sessions)
     .set({
       provider: null,
@@ -101,17 +106,19 @@ async function decryptTakosToken(
     }
 
     if (error instanceof EncryptionKeyError) {
-      console.error(
-        `[TakosClient] Cannot decrypt ${tokenName}:`,
-        error.message,
-      );
+      log.error("Cannot decrypt token", {
+        event: "takos.token.decrypt_key_error",
+        tokenName,
+        message: error.message,
+      });
       return null;
     }
 
-    console.error(
-      `[TakosClient] Unexpected ${tokenName} decrypt error:`,
+    log.error("Unexpected token decrypt error", {
+      event: "takos.token.decrypt_unexpected_error",
+      tokenName,
       error,
-    );
+    });
     return null;
   }
 }
@@ -239,13 +246,20 @@ async function refreshTakosToken(
     const res = await fetch(url, init);
 
     if (!res.ok) {
-      console.error("Failed to refresh takos token:", await res.text());
+      log.error("Failed to refresh takos token", {
+        event: "takos.token.refresh_failed",
+        status: res.status,
+        body: await res.text(),
+      });
       return null;
     }
 
     return res.json();
   } catch (err) {
-    console.error("Error refreshing takos token:", err);
+    log.error("Error refreshing takos token", {
+      event: "takos.token.refresh_error",
+      error: err,
+    });
     return null;
   }
 }

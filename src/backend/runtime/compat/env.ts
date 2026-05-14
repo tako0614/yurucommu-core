@@ -11,6 +11,9 @@ import { R2CompatBucket } from "./r2.ts";
 import { KVCompatNamespace } from "./kv.ts";
 import { AssetsCompatFetcher } from "./assets.ts";
 import { toCloudflareBindings } from "../cloudflare-binding.ts";
+import { logger } from "../../lib/logger.ts";
+
+const log = logger.child({ component: "runtime.compat.node" });
 
 /**
  * Create Cloudflare-compatible environment from Node.js
@@ -102,11 +105,14 @@ export async function runMigrations(
 
   for (const file of sqlFiles) {
     if (appliedSet.has(file)) {
-      console.log(`Migration ${file} already applied, skipping`);
+      log.info("Migration already applied, skipping", {
+        event: "migration.skip",
+        file,
+      });
       continue;
     }
 
-    console.log(`Applying migration: ${file}`);
+    log.info("Applying migration", { event: "migration.apply", file });
     const sql = await fs.readFile(path.join(migrationsDir, file), "utf-8");
 
     const statements = sql
@@ -118,7 +124,11 @@ export async function runMigrations(
       try {
         db.getRawDatabase().exec(stmt);
       } catch (e) {
-        console.error(`Error executing statement in ${file}:`, stmt);
+        log.error("Error executing statement", {
+          event: "migration.statement_failed",
+          file,
+          statement: stmt,
+        });
         throw e;
       }
     }
@@ -127,6 +137,9 @@ export async function runMigrations(
       .prepare("INSERT INTO _cf_migrations (name) VALUES (?)")
       .run(file);
 
-    console.log(`Migration ${file} applied successfully`);
+    log.info("Migration applied successfully", {
+      event: "migration.applied",
+      file,
+    });
   }
 }
