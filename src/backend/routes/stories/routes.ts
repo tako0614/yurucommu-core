@@ -32,6 +32,9 @@ import {
   validateOverlays,
 } from "./query-helpers.ts";
 import { enqueueFanoutToFollowers } from "../../lib/delivery/queue.ts";
+import { logger } from "../../lib/logger.ts";
+
+const log = logger.child({ component: "stories.routes" });
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -197,7 +200,10 @@ stories.get("/", async (c) => {
   // Probabilistic cleanup: 1% chance per request
   if (Math.random() < 0.01) {
     cleanupExpiredStories(db).catch((err) => {
-      console.warn("[Stories] Failed to cleanup expired stories", err);
+      log.warn("Failed to cleanup expired stories", {
+        event: "stories.cleanup.failed",
+        error: err,
+      });
     });
   }
 

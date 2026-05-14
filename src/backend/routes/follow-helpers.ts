@@ -23,6 +23,9 @@ import {
   parseNonEmptyString,
 } from "../lib/parse-helpers.ts";
 import { tryParseRemoteActor } from "../lib/activitypub-validators.ts";
+import { logger } from "../lib/logger.ts";
+
+const log = logger.child({ component: "follow.helpers" });
 
 const REMOTE_FETCH_TIMEOUT_MS = 10000;
 
@@ -332,7 +335,12 @@ export async function handleRemoteFollow(
       direction: "outbound",
     });
   } catch (e) {
-    console.error("[Follow] Failed to create remote follow:", e);
+    log.error("Failed to create remote follow", {
+      event: "follow.remote.create_failed",
+      actor: actor.ap_id,
+      target: targetApId,
+      error: e,
+    });
     return c.json({ error: "Failed to follow remote actor" }, 500);
   }
 

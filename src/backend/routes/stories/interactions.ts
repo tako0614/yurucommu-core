@@ -24,6 +24,9 @@ import {
   sumVotes,
 } from "./query-helpers.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
+import { logger } from "../../lib/logger.ts";
+
+const log = logger.child({ component: "stories.interactions" });
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -222,7 +225,12 @@ stories.post("/:id/like", async (c) => {
     try {
       await enqueueDeliveryToActor(c.env, likeActivityApId, story.attributedTo);
     } catch (e) {
-      console.error("[Stories] Failed to enqueue Like activity for story:", e);
+      log.error("Failed to enqueue Like activity for story", {
+        event: "stories.like.enqueue_failed",
+        storyApId: apId,
+        recipient: story.attributedTo,
+        error: e,
+      });
     }
   }
 
@@ -295,7 +303,12 @@ stories.delete("/:id/like", async (c) => {
         story.attributedTo,
       );
     } catch (e) {
-      console.error("[Stories] Failed to enqueue Undo Like for story:", e);
+      log.error("Failed to enqueue Undo Like for story", {
+        event: "stories.unlike.enqueue_failed",
+        storyApId: apId,
+        recipient: story.attributedTo,
+        error: e,
+      });
     }
   }
 
