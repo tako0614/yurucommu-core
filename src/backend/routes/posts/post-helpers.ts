@@ -508,41 +508,45 @@ export async function validateEditBody(
   return { ok: true, rawBody, body };
 }
 
-/**
- * Validate trimmed content length for editing.
- * Returns { ok, trimmedContent } or error.
- */
-export function validateContentEdit(
-  content: string | undefined,
-): { ok: true; trimmed?: string } | { ok: false; error: string } {
-  if (content === undefined) return { ok: true };
-  const trimmed = content.trim();
-  if (trimmed.length === 0) {
-    return { ok: false, error: "Content cannot be empty" };
+type EditValidation =
+  | { ok: true; trimmed?: string }
+  | { ok: false; error: string };
+
+function validateTrimmedEdit(
+  value: string | undefined,
+  label: string,
+  maxLength: number,
+  allowEmpty: boolean,
+): EditValidation {
+  if (value === undefined) return { ok: true };
+  const trimmed = value.trim();
+  if (!allowEmpty && trimmed.length === 0) {
+    return { ok: false, error: `${label} cannot be empty` };
   }
-  if (trimmed.length > MAX_POST_CONTENT_LENGTH) {
+  if (trimmed.length > maxLength) {
     return {
       ok: false,
-      error: `Content too long (max ${MAX_POST_CONTENT_LENGTH} chars)`,
+      error: `${label} too long (max ${maxLength} chars)`,
     };
   }
   return { ok: true, trimmed };
 }
 
-/**
- * Validate trimmed summary length for editing.
- * Returns { ok, trimmed } or error.
- */
+/** Validate trimmed content length for editing. */
+export function validateContentEdit(
+  content: string | undefined,
+): EditValidation {
+  return validateTrimmedEdit(
+    content,
+    "Content",
+    MAX_POST_CONTENT_LENGTH,
+    false,
+  );
+}
+
+/** Validate trimmed summary length for editing. */
 export function validateSummaryEdit(
   summary: string | undefined,
-): { ok: true; trimmed?: string } | { ok: false; error: string } {
-  if (summary === undefined) return { ok: true };
-  const trimmed = summary.trim();
-  if (trimmed.length > MAX_POST_SUMMARY_LENGTH) {
-    return {
-      ok: false,
-      error: `Summary too long (max ${MAX_POST_SUMMARY_LENGTH} chars)`,
-    };
-  }
-  return { ok: true, trimmed };
+): EditValidation {
+  return validateTrimmedEdit(summary, "Summary", MAX_POST_SUMMARY_LENGTH, true);
 }
