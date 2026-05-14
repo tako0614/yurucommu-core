@@ -162,10 +162,11 @@ deno run -A npm:wrangler deploy --config wrangler.site.toml
 リポジトリに同梱されている `wrangler*.toml` は **example operator deployment**
 の値を含みます。 hostname は operator-deployment choice であり、yurucommu 自体の
 identity ではありません (`docs/reference/design-principles.md` §0.6, §7 参照)。
-自分のデプロイでは以下の値を実際の hostname / tenant に置き換えてから deploy してください。
+自分のデプロイでは以下の値を実際の hostname / tenant に置き換えてから deploy
+してください。
 
-- `wrangler.toml`: 本体 Worker 設定 (`APP_URL`、`[[routes]].pattern`、Takos 連携を
-  使う場合は `TAKOS_URL` を canonical hostname に合わせる)
+- `wrangler.toml`: 本体 Worker 設定 (`APP_URL`、`[[routes]].pattern`、Takos
+  連携を 使う場合は `TAKOS_URL` を canonical hostname に合わせる)
 - `wrangler.tenant2.toml`: 別 tenant 向けの設定例
 - `.env.example` の `APP_URL` は self-host 用の例であり、checked-in
   `wrangler*.toml` の値とは独立して上書きしてください
