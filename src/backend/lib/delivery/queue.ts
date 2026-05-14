@@ -18,6 +18,9 @@ import {
   isDeliveryQueueMessageV1,
 } from "./types.ts";
 import { computeDeliveryJobId, safeEndpointHost } from "./transformers.ts";
+import { logger } from "../logger.ts";
+
+const log = logger.child({ component: "delivery.queue" });
 
 // ---------------------------------------------------------------------------
 // Concurrency primitives
@@ -101,9 +104,10 @@ export function requireQueue(
   message: Message<DeliveryQueueMessageV1>,
 ): env is QueueEnv {
   if (queueAvailable(env)) return true;
-  console.warn(
-    `[DeliveryQueue] Missing DELIVERY_QUEUE/DELIVERY_DLQ bindings. Dropping ${label} job.`,
-  );
+  log.warn("Missing DELIVERY_QUEUE/DELIVERY_DLQ bindings; dropping job", {
+    event: "delivery.queue.bindings_missing",
+    label,
+  });
   message.ack();
   return false;
 }
@@ -276,9 +280,10 @@ export async function enqueueResolveForEndpointActors(
   }
 
   if (enqueued >= MAX_ACTORS) {
-    console.warn(
-      "[DeliveryQueue] endpoint invalidation affected many actors; capped re-resolution enqueue:",
+    log.warn(
+      "Endpoint invalidation affected many actors; capped re-resolution enqueue",
       {
+        event: "delivery.queue.reresolution_capped",
         endpoint,
         activityId,
         enqueued,
@@ -346,10 +351,10 @@ export async function handleDeliveryQueueBatch(
   for (const message of batch.messages) {
     const body = message.body;
     if (!isDeliveryQueueMessageV1(body)) {
-      console.warn(
-        "[DeliveryQueue] Invalid message format, skipping:",
-        JSON.stringify(body).slice(0, 200),
-      );
+      log.warn("Invalid delivery message format, skipping", {
+        event: "delivery.queue.invalid_message",
+        bodyPreview: JSON.stringify(body).slice(0, 200),
+      });
       message.ack();
       continue;
     }
@@ -374,7 +379,11 @@ export async function handleDeliveryQueueBatch(
           message.ack();
       }
     } catch (e) {
-      console.error("[DeliveryQueue] Non-delivery message failed:", e);
+      log.error("Non-delivery message failed", {
+        event: "delivery.queue.non_delivery_failed",
+        messageType: body.type,
+        error: e,
+      });
       message.retry({ delaySeconds: 60 });
     }
   }
@@ -397,7 +406,12 @@ export async function handleDeliveryQueueBatch(
           bulkhead,
         );
       } catch (e) {
-        console.error("[DeliveryQueue] deliver_endpoint failed:", e);
+        const body = m.body as DeliveryDeliverEndpointMessageV1;
+        log.error("deliver_endpoint failed", {
+          event: "delivery.queue.deliver_endpoint_failed",
+          jobId: body?.jobId,
+          error: e,
+        });
         m.retry({ delaySeconds: 60 });
       }
     },
@@ -411,16 +425,17 @@ export async function handleDeliveryDlqBatch(
   for (const message of batch.messages) {
     const body = message.body;
     if (!isDeliveryDlqMessageV1(body)) {
-      console.warn(
-        "[DeliveryDLQ] Invalid message format, skipping:",
-        JSON.stringify(body).slice(0, 200),
-      );
+      log.warn("Invalid DLQ message format, skipping", {
+        event: "delivery.dlq.invalid_message",
+        bodyPreview: JSON.stringify(body).slice(0, 200),
+      });
       message.ack();
       continue;
     }
 
     // Structured log for alerting/monitoring.
-    console.error("[DeliveryDLQ] job dead-lettered:", {
+    log.error("Delivery job dead-lettered", {
+      event: "delivery.dlq.job_dead_lettered",
       jobId: body.jobId,
       activityId: body.activityId,
       endpoint: body.endpoint,
@@ -437,7 +452,11 @@ export async function handleDeliveryDlqBatch(
         6 * 60 * 60,
       );
     } catch (e) {
-      console.warn("[DeliveryDLQ] Failed to schedule reconciliation:", e);
+      log.warn("Failed to schedule DLQ reconciliation", {
+        event: "delivery.dlq.reconciliation_schedule_failed",
+        jobId: body.jobId,
+        error: e,
+      });
     }
 
     message.ack();
