@@ -3,6 +3,10 @@
  * All errors extend AppError with code, message, statusCode, and optional details.
  */
 
+import { logger } from "./logger.ts";
+
+const log = logger.child({ component: "errors" });
+
 const ErrorCodes = {
   NOT_FOUND: "NOT_FOUND",
   RATE_LIMITED: "RATE_LIMITED",
@@ -98,9 +102,9 @@ export function logError(
       stack: error instanceof Error ? error.stack : undefined,
     };
 
-  console.error("[Error]", {
+  log.error("AppError", {
+    event: "app.error",
     ...errorInfo,
     context,
-    timestamp: new Date().toISOString(),
   });
 }

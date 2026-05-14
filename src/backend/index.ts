@@ -27,6 +27,9 @@ import { appsApiRoutes, appsServeRoutes } from "./routes/apps.ts";
 import { rateLimit, RateLimitConfigs } from "./middleware/rate-limit.ts";
 import { csrfProtection } from "./middleware/csrf.ts";
 import { createErrorMiddleware } from "./middleware/error-handler.ts";
+import { logger } from "./lib/logger.ts";
+
+const log = logger.child({ component: "backend.index" });
 import type { MessageBatch } from "@cloudflare/workers-types";
 import type {
   DeliveryDlqMessageV1,
@@ -291,7 +294,10 @@ function mountStaticFallback(app: YurucommuApp): void {
           }
         }
       } catch (err) {
-        console.error("Failed to serve asset from R2:", err);
+        log.error("Failed to serve asset from R2", {
+          event: "assets.r2.serve_failed",
+          error: err,
+        });
       }
     }
 
@@ -362,7 +368,10 @@ export async function handleYurucommuQueueBatch(
     );
   }
 
-  console.warn("[Queue] Unknown queue:", batch.queue);
+  log.warn("Unknown queue", {
+    event: "queue.unknown",
+    queue: batch.queue,
+  });
   batch.ackAll();
 }
 

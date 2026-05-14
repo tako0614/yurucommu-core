@@ -1,3 +1,7 @@
+import { logger } from "./lib/logger.ts";
+
+const utilsLog = logger.child({ component: "utils" });
+
 export function safeJsonParse<T>(
   json: string | null | undefined,
   defaultValue: T,
@@ -7,7 +11,10 @@ export function safeJsonParse<T>(
     return JSON.parse(json) as T;
   } catch (err) {
     // MEDIUM FIX: Log the error for debugging
-    console.warn("[Utils] safeJsonParse failed:", err);
+    utilsLog.warn("safeJsonParse failed", {
+      event: "utils.json.parse_failed",
+      error: err,
+    });
     return defaultValue;
   }
 }

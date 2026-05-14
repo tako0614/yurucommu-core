@@ -30,6 +30,9 @@ import {
   parseStringArray,
   requireActorAndBody,
 } from "./follow-helpers.ts";
+import { logger } from "../lib/logger.ts";
+
+const log = logger.child({ component: "follow" });
 
 const MAX_BATCH_ACCEPT_SIZE = 100;
 
@@ -183,7 +186,10 @@ follow.post("/accept", async (c) => {
       pendingFollow = found;
     }
   } catch (e) {
-    console.error("[Follow] Error in accept:", e);
+    log.error("Error in accept", {
+      event: "follow.accept.error",
+      error: e,
+    });
     return c.json({ error: "Internal error" }, 500);
   }
 
@@ -296,7 +302,10 @@ follow.post("/accept/batch", async (c) => {
         });
         remoteEnqueues.push({ activityId: id, recipientApId: requesterApId });
       } else {
-        console.warn(`[Follow] Blocked unsafe remote actor: ${requesterApId}`);
+        log.warn("Blocked unsafe remote actor", {
+          event: "follow.accept.unsafe_remote_actor",
+          actor: requesterApId,
+        });
       }
 
       results.push({ ap_id: requesterApId, success: true });
