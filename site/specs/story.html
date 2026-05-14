@@ -87,7 +87,7 @@
         <li><strong>テキスト/スタンプは焼き込み</strong> - メディアに合成済みの状態で配信</li>
         <li><strong>インタラクティブ要素は分離</strong> - 投票などは <code>overlays</code> で定義</li>
         <li><strong>連続再生はUIの責務</strong> - 同一ユーザーの複数Storyをクライアントが連続表示</li>
-        <li><strong>AS2互換</strong> - Story非対応の実装でも通常のNoteとして表示可能</li>
+        <li><strong>AS2相互運用</strong> - Story非対応の実装でも通常のNoteとして表示可能</li>
       </ul>
 
       <h2>名前空間</h2>
@@ -375,7 +375,7 @@ for (const [userId, userStories] of storiesByUser) {
 
       <h2>実装上の注意</h2>
       <ul>
-        <li><strong>下位互換性</strong> - <code>type: ["Story", "Note"]</code> とすることで、Story非対応の実装でもNoteとして表示可能</li>
+        <li><strong>標準実装での扱い</strong> - <code>type: ["Story", "Note"]</code> とすることで、Story非対応の実装でもNoteとして表示可能</li>
         <li><strong>期限管理</strong> - <code>endTime</code> を必ず設定し、期限切れコンテンツは表示しない</li>
         <li><strong>displayDuration形式</strong> - ISO 8601 duration形式（<code>PT5S</code> = 5秒、<code>PT1M30S</code> = 1分30秒）</li>
         <li><strong>動画の尺</strong> - 動画の実際の長さはAS2標準の <code>duration</code> プロパティを使用</li>
