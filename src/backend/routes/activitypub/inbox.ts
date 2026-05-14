@@ -15,6 +15,11 @@ import { getInstanceActor } from "./query-helpers.ts";
 import type { Activity, RemoteActor } from "./inbox-types.ts";
 import { getActivityObjectId } from "./inbox-types.ts";
 import {
+  ActivityPubContractError,
+  parseActivity,
+  tryParseRemoteActor,
+} from "../../lib/activitypub-validators.ts";
+import {
   handleGroupCreate,
   handleGroupFollow,
   handleGroupUndo,
@@ -123,10 +128,6 @@ async function readRequestBodyWithLimit(
   }
 }
 
-function isJsonRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 // ---------------------------------------------------------------------------
 // Signature parsing & verification
 // ---------------------------------------------------------------------------
@@ -188,22 +189,26 @@ async function fetchActorPublicKey(
       return null;
     }
 
-    const actorData = await res.json() as RemoteActor;
-    if (!actorData?.publicKey?.publicKeyPem) {
+    const rawActor: unknown = await res.json();
+    const actorData = tryParseRemoteActor(rawActor);
+    if (!actorData) {
+      console.warn(`[HTTP Signature] Invalid actor document at ${actorUrl}`);
+      return null;
+    }
+    if (!actorData.publicKey?.publicKeyPem) {
       console.warn(`[HTTP Signature] Actor has no public key`);
       return null;
     }
-
-    // actorData.publicKey.publicKeyPem is guaranteed non-null by the guard above
-    const narrowed = actorData as RemoteActor & {
-      inbox: string;
-      publicKey: { publicKeyPem: string };
-    };
+    const publicKeyPem = actorData.publicKey.publicKeyPem;
 
     if (
       actorData.id && actorData.inbox && isSafeRemoteUrl(actorData.id) &&
       isSafeRemoteUrl(actorData.inbox)
     ) {
+      const narrowed = actorData as RemoteActor & {
+        inbox: string;
+        publicKey: { publicKeyPem: string };
+      };
       const cacheFields = buildActorCacheFields(narrowed);
       // Upsert: check existence then insert or update
       const existing = await db.query.actorCache.findFirst({
@@ -222,7 +227,7 @@ async function fetchActorPublicKey(
       }
     }
 
-    return narrowed.publicKey.publicKeyPem;
+    return publicKeyPem;
   } catch (e) {
     console.error(`[HTTP Signature] Error fetching actor:`, e);
     return null;
@@ -444,12 +449,13 @@ async function verifyAndParseInbox(
 
   let activity: Activity;
   try {
-    const parsed = JSON.parse(body) as unknown;
-    if (!isJsonRecord(parsed)) {
+    const parsed: unknown = JSON.parse(body);
+    activity = parseActivity(parsed);
+  } catch (e) {
+    if (e instanceof ActivityPubContractError) {
+      console.warn(`[ActivityPub] Rejected activity: ${e.message}`);
       return c.json({ error: "Invalid activity" }, 400);
     }
-    activity = parsed as Activity;
-  } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
@@ -567,22 +573,28 @@ async function cacheRemoteActor(
     });
     if (!res.ok) return;
 
-    const actorData = await res.json() as RemoteActor;
-
-    if (actorData?.id !== actorApIdUrl) {
+    const rawActor: unknown = await res.json();
+    const actorData = tryParseRemoteActor(rawActor);
+    if (!actorData) {
       console.warn(
-        `[ActivityPub] Actor ID mismatch: fetched ${actorApIdUrl} but got id ${actorData?.id}`,
+        `[ActivityPub] Skipping actor cache for ${actorApIdUrl}: invalid actor document`,
       );
       return;
     }
-    if (!actorData?.publicKey?.publicKeyPem) {
+    if (actorData.id !== actorApIdUrl) {
+      console.warn(
+        `[ActivityPub] Actor ID mismatch: fetched ${actorApIdUrl} but got id ${actorData.id}`,
+      );
+      return;
+    }
+    if (!actorData.publicKey?.publicKeyPem) {
       console.warn(
         `[ActivityPub] Skipping actor cache for ${actorApIdUrl}: missing public key`,
       );
       return;
     }
     if (
-      !actorData.id || !actorData.inbox || !isSafeRemoteUrl(actorData.id) ||
+      !actorData.inbox || !isSafeRemoteUrl(actorData.id) ||
       !isSafeRemoteUrl(actorData.inbox)
     ) {
       return;
