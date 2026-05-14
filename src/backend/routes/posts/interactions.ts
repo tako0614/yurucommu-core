@@ -24,6 +24,9 @@ import {
 } from "../../federation-helpers.ts";
 import { MAX_POSTS_PAGE_LIMIT } from "./transformers.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
+import { logger } from "../../lib/logger.ts";
+
+const log = logger.child({ component: "posts.interactions" });
 
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -68,7 +71,12 @@ async function deliverToRemote(
   try {
     await enqueueDeliveryToActor(env, activityId, recipientApId);
   } catch (err) {
-    console.error("[Posts] Failed to enqueue delivery:", err);
+    log.error("Failed to enqueue delivery", {
+      event: "posts.delivery.enqueue_failed",
+      activityId,
+      recipient: recipientApId,
+      error: err,
+    });
   }
 }
 

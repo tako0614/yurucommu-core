@@ -36,6 +36,9 @@ import {
   type PostAttachment,
   validateOptionalString,
 } from "./queries.ts";
+import { logger } from "../../lib/logger.ts";
+
+const log = logger.child({ component: "posts.helpers" });
 
 // ---------------------------------------------------------------------------
 // Auth helper
@@ -421,7 +424,11 @@ export async function processMentions(
         createdAt: params.now,
       });
     } catch (e) {
-      console.error(`Failed to process mention ${mention}:`, e);
+      log.error("Failed to process mention", {
+        event: "posts.mention.processing_failed",
+        mention,
+        error: e,
+      });
       mentionFailures.push({
         mention,
         stage: "resolve",
@@ -434,7 +441,10 @@ export async function processMentions(
     try {
       await db.insert(activities).values(activitiesToCreate);
     } catch (e) {
-      console.error("[Posts] Failed to persist mention activities:", e);
+      log.error("Failed to persist mention activities", {
+        event: "posts.mention.activity_persist_failed",
+        error: e,
+      });
       mentionFailures.push({
         mention: "__batch__",
         stage: "persist_activity",
@@ -446,7 +456,10 @@ export async function processMentions(
     try {
       await db.insert(inboxTable).values(inboxEntriesToCreate);
     } catch (e) {
-      console.error("[Posts] Failed to persist mention inbox entries:", e);
+      log.error("Failed to persist mention inbox entries", {
+        event: "posts.mention.inbox_persist_failed",
+        error: e,
+      });
       mentionFailures.push({
         mention: "__batch__",
         stage: "persist_inbox",
