@@ -80,6 +80,10 @@ export function formatUsername(apId: string): string {
 
 const HOSTNAME_PATTERN = /^[a-z0-9.-]+$/i;
 const DOH_ENDPOINT = "https://cloudflare-dns.com/dns-query";
+// DoH lookups gate every outbound federation request. A stalled DoH call
+// would let an unreachable upstream hang inbox/delivery loops, so cap each
+// lookup at 5s.
+const DOH_TIMEOUT_MS = 5_000;
 
 function parseIPv4(hostname: string): number[] | null {
   if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return null;
@@ -194,6 +198,7 @@ async function dohResolve(
     {
       headers: { Accept: "application/dns-json" },
       redirect: "manual",
+      signal: AbortSignal.timeout(DOH_TIMEOUT_MS),
     },
   );
 
