@@ -2,6 +2,9 @@ import type { Database } from "../../../db/index.ts";
 import { eq } from "drizzle-orm";
 import { deliveryCircuit } from "../../../db/index.ts";
 import { safeParseIsoTimeMs } from "./transformers.ts";
+import { logger } from "../logger.ts";
+
+const log = logger.child({ component: "delivery.circuit" });
 
 export type CircuitState = "closed" | "open" | "half_open";
 
@@ -222,12 +225,12 @@ export async function recordCircuitFailure(
       endpoint,
       buildOpenData(recent, consecutiveFailures),
     );
-    console.warn("[DeliveryCircuit] OPEN", {
+    log.warn("Circuit opened", {
+      event: "delivery.circuit.opened",
       endpoint,
-      at: new Date().toISOString(),
       consecutiveFailures,
       failures,
-      window: window.length,
+      windowSize: window.length,
     });
     return;
   }

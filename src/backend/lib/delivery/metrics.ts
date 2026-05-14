@@ -1,9 +1,13 @@
+import { logger } from "../logger.ts";
+
 type MetricPayload = {
   metric: string;
   value: number;
   at: string;
   tags?: Record<string, string | number | boolean | null | undefined>;
 };
+
+const log = logger.child({ component: "delivery.metrics" });
 
 export function emitMetric(
   metric: string,
@@ -18,5 +22,9 @@ export function emitMetric(
   };
   // Logs are the portable, zero-dependency metrics channel across Workers + local runtimes.
   // Downstream (Cloudflare / log shipper) can derive p50/p95/p99 and rates from these points.
-  console.log(JSON.stringify({ type: "metric", ...payload }));
+  log.info("metric", {
+    event: "delivery.metric",
+    type: "metric",
+    ...payload,
+  });
 }

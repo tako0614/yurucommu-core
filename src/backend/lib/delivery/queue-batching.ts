@@ -36,9 +36,12 @@ import {
   sendQueueMessage,
   upsertDeliveryJob,
 } from "./queue.ts";
+import { logger } from "../logger.ts";
 
 const DELIVERY_HTTP_TIMEOUT_MS = 8000;
 const MAX_RECONCILE_ATTEMPTS = 5;
+
+const log = logger.child({ component: "delivery.batching" });
 
 async function fetchAndCacheRemoteActor(
   db: Database,
@@ -164,7 +167,12 @@ export async function processResolveActor(
     try {
       await fetchAndCacheRemoteActor(db, msg.recipientActorApId);
     } catch (e) {
-      console.warn("[DeliveryQueue] resolve_actor fetch failed:", e);
+      log.warn("resolve_actor fetch failed", {
+        event: "delivery.resolve_actor.failed",
+        actor: msg.recipientActorApId,
+        activityId: msg.activityId,
+        error: e,
+      });
       await sendQueueMessage(
         env,
         buildResolveActorMessage(msg.activityId, msg.recipientActorApId),
@@ -185,10 +193,11 @@ export async function processResolveActor(
   const endpoint = resolvePreferredEndpoint(row ?? null);
 
   if (!endpoint) {
-    console.warn(
-      "[DeliveryQueue] Could not resolve endpoint for actor:",
-      msg.recipientActorApId,
-    );
+    log.warn("Could not resolve endpoint for actor", {
+      event: "delivery.endpoint.unresolved",
+      actor: msg.recipientActorApId,
+      activityId: msg.activityId,
+    });
     message.ack();
     return;
   }

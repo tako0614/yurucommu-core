@@ -21,11 +21,14 @@ import {
   signRequest,
 } from "../../federation-helpers.ts";
 import { emitMetric } from "./metrics.ts";
+import { logger } from "../logger.ts";
 import {
   checkCircuit,
   recordCircuitFailure,
   recordCircuitSuccess,
 } from "./circuit.ts";
+
+const log = logger.child({ component: "delivery.queue" });
 import {
   type DeliveryDeliverEndpointMessageV1,
   type DeliveryQueueMessageV1,
@@ -402,7 +405,13 @@ export async function processDeliverEndpoint(
             body,
           });
         } catch (e) {
-          console.warn("[DeliveryQueue] shadow probe failed:", e);
+          log.warn("Shadow probe failed", {
+            event: "delivery.shadow_probe.failed",
+            activityId: job.activityApId,
+            endpoint,
+            endpointHost: host,
+            error: e,
+          });
         }
       }
 
@@ -429,7 +438,13 @@ export async function processDeliverEndpoint(
           .set({ lastFetchedAt: EPOCH_ISO })
           .where(eq(actorCache.inbox, endpoint));
       } catch (e) {
-        console.warn("[DeliveryQueue] endpoint invalidation failed:", e);
+        log.warn("Endpoint invalidation failed", {
+          event: "delivery.endpoint.invalidation_failed",
+          endpoint,
+          endpointHost: host,
+          status,
+          error: e,
+        });
       }
     }
 
