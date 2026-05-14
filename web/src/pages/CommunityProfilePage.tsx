@@ -296,13 +296,9 @@ export function CommunityProfilePage() {
       setSettingsForm({
         display_name: comm.display_name || comm.name,
         summary: comm.summary || "",
-        visibility: comm.visibility as "public" | "private",
-        join_policy: comm.join_policy as "open" | "approval" | "invite",
-        post_policy: comm.post_policy as
-          | "anyone"
-          | "members"
-          | "mods"
-          | "owners",
+        visibility: comm.visibility,
+        join_policy: comm.join_policy,
+        post_policy: comm.post_policy,
       });
     }
   });

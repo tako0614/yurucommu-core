@@ -143,7 +143,11 @@ export async function joinCommunity(
   if (!res.ok) {
     throw new ApiError(res.status, data.error || "Failed to join community");
   }
-  return { status: (data.status as JoinCommunityResult["status"]) || "joined" };
+  const status: JoinCommunityResult["status"] =
+    data.status === "pending" || data.status === "invite_required"
+      ? data.status
+      : "joined";
+  return { status };
 }
 
 export async function leaveCommunity(identifier: string): Promise<void> {
