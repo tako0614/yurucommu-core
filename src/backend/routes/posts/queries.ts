@@ -21,6 +21,9 @@ import { formatUsername, objectApId } from "../../federation-helpers.ts";
 import { formatPost, PostRow } from "./transformers.ts";
 import { enqueueFanoutToFollowers } from "../../lib/delivery/queue.ts";
 import { isRecord, parseJsonObject } from "../../lib/parse-helpers.ts";
+import { logger } from "../../lib/logger.ts";
+
+const log = logger.child({ component: "posts.queries" });
 
 // ---------------------------------------------------------------------------
 // Types
@@ -267,10 +270,13 @@ export async function persistAndFanout(
   try {
     await enqueueFanoutToFollowers(env, activity.id, activity.actor);
   } catch (err) {
-    console.error(
-      `[Posts] Failed to enqueue ${activity.type} federation fanout:`,
-      err,
-    );
+    log.error("Failed to enqueue federation fanout", {
+      event: "posts.fanout.enqueue_failed",
+      activityType: activity.type,
+      activityId: activity.id,
+      actor: activity.actor,
+      error: err,
+    });
   }
 }
 

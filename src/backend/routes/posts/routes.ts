@@ -45,6 +45,9 @@ import {
   validateEditBody,
   validateSummaryEdit,
 } from "./post-helpers.ts";
+import { logger } from "../../lib/logger.ts";
+
+const log = logger.child({ component: "posts.routes" });
 
 const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -100,7 +103,12 @@ posts.post("/", async (c) => {
     if (e instanceof Error && e.message === REPLY_TARGET_NOT_FOUND) {
       return c.json({ error: "Reply target not found" }, 404);
     }
-    console.error("[Posts] Failed to create post transaction:", e);
+    log.error("Failed to create post transaction", {
+      event: "posts.create.transaction_failed",
+      actor: actor.ap_id,
+      communityId,
+      error: e,
+    });
     return c.json({ error: "Failed to create post" }, 500);
   }
 
@@ -419,9 +427,11 @@ posts.delete("/:id", async (c) => {
   }
 
   if (post.inReplyTo && !parentUpdated) {
-    console.warn(
-      "[Posts] Failed to decrement parent reply count (parent may not exist)",
-    );
+    log.warn("Failed to decrement parent reply count", {
+      event: "posts.delete.parent_reply_count_stale",
+      postApId: post.apId,
+      parentApId: post.inReplyTo,
+    });
   }
 
   const deleteActivity = {

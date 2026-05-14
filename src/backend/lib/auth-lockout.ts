@@ -1,4 +1,7 @@
 import type { IKeyValueStore } from "../runtime/types.ts";
+import { logger } from "./logger.ts";
+
+const log = logger.child({ component: "auth.lockout" });
 
 export interface LoginLockoutStatus {
   locked: boolean;
@@ -115,10 +118,10 @@ async function readRecord(
     }
     return record;
   } catch (err) {
-    console.warn(
-      "[Auth] Failed to read login lockout from KV, using local fallback",
-      err,
-    );
+    log.warn("Failed to read login lockout from KV, using local fallback", {
+      event: "auth.lockout.kv_read_failed",
+      error: err,
+    });
     return fallbackRead(storageKey, now);
   }
 }
@@ -137,10 +140,10 @@ async function writeRecord(
   try {
     await kv.put(storageKey, JSON.stringify(record), { expirationTtl });
   } catch (err) {
-    console.warn(
-      "[Auth] Failed to write login lockout to KV, using local fallback",
-      err,
-    );
+    log.warn("Failed to write login lockout to KV, using local fallback", {
+      event: "auth.lockout.kv_write_failed",
+      error: err,
+    });
     fallbackWrite(storageKey, record);
   }
 }
@@ -153,7 +156,10 @@ async function deleteRecord(
   try {
     await kv.delete(storageKey);
   } catch (err) {
-    console.warn("[Auth] Failed to clear login lockout from KV", err);
+    log.warn("Failed to clear login lockout from KV", {
+      event: "auth.lockout.kv_delete_failed",
+      error: err,
+    });
   }
 }
 

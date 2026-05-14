@@ -12,6 +12,9 @@ import type { Database } from "../../db/index.ts";
 import { count, eq } from "drizzle-orm";
 import { actors, sessions } from "../../db/index.ts";
 import { parseJsonObject, parseNonEmptyString } from "../lib/parse-helpers.ts";
+import { logger } from "../lib/logger.ts";
+
+const log = logger.child({ component: "auth.helpers" });
 
 /** Session lifetime: 30 days in seconds. */
 export const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
@@ -55,7 +58,11 @@ export async function deleteSessionSafely(
   try {
     await db.delete(sessions).where(eq(sessions.id, sessionId));
   } catch (err) {
-    console.warn(`[Auth] Failed to delete session during ${context}`, err);
+    log.warn("Failed to delete session", {
+      event: "auth.session.delete_failed",
+      context,
+      error: err,
+    });
   }
 }
 
@@ -252,11 +259,13 @@ export async function exchangeOAuthToken(
   const res = await fetch(tokenUrl, requestInit);
 
   if (!res.ok) {
-    console.error("Token exchange failed:", {
+    log.error("Token exchange failed", {
+      event: "auth.oauth.token_exchange_failed",
+      provider: providerId,
       status: res.status,
       statusText: res.statusText,
       body: await res.text(),
-      url: provider.tokenUrl,
+      tokenUrl: provider.tokenUrl,
     });
     return null;
   }

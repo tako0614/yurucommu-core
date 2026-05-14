@@ -37,6 +37,9 @@ import {
   parseNonEmptyString,
   rotateSession,
 } from "./auth-helpers.ts";
+import { logger } from "../lib/logger.ts";
+
+const log = logger.child({ component: "auth" });
 
 const KNOWN_OAUTH_ERRORS = new Set([
   "access_denied",
@@ -228,7 +231,12 @@ auth.get("/callback/:provider", async (c) => {
   const error = c.req.query("error");
 
   if (error) {
-    console.error("OAuth error:", error, c.req.query("error_description"));
+    log.error("OAuth provider returned error", {
+      event: "auth.oauth.callback_error",
+      provider: providerId,
+      oauthError: error,
+      errorDescription: c.req.query("error_description"),
+    });
     const safeError = KNOWN_OAUTH_ERRORS.has(error) ? error : "oauth_error";
     return c.redirect(`/?error=${safeError}`);
   }
@@ -272,7 +280,11 @@ auth.get("/callback/:provider", async (c) => {
   try {
     userInfo = await fetchUserInfo(provider, tokens.access_token);
   } catch (err) {
-    console.error("Failed to fetch user info:", err);
+    log.error("Failed to fetch user info", {
+      event: "auth.oauth.user_info_failed",
+      provider: providerId,
+      error: err,
+    });
     return c.redirect("/?error=user_info_failed");
   }
 
