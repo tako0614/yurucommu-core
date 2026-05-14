@@ -3,6 +3,9 @@ import type { Context, Next } from "hono";
 import { getClientIP } from "../lib/client-ip.ts";
 import type { IKeyValueStore } from "../runtime/types.ts";
 import type { Env, Variables } from "../types.ts";
+import { logger } from "../lib/logger.ts";
+
+const log = logger.child({ component: "middleware.rate_limit" });
 
 interface RateLimitEntry {
   count: number;
@@ -92,10 +95,10 @@ async function consumeRateLimit(
   } catch (err) {
     if (!hasWarnedKvFailure) {
       hasWarnedKvFailure = true;
-      console.warn(
-        "[RateLimit] KV unavailable, falling back to in-memory limiter",
-        err,
-      );
+      log.warn("KV unavailable, falling back to in-memory limiter", {
+        event: "rate_limit.kv.unavailable",
+        error: err,
+      });
     }
     return consumeLocalFallback(key, windowMs, now);
   }

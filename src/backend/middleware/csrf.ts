@@ -1,6 +1,9 @@
 import type { Context, Next } from "hono";
 
 import type { Env, Variables } from "../types.ts";
+import { logger } from "../lib/logger.ts";
+
+const log = logger.child({ component: "middleware.csrf" });
 
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "DELETE", "PATCH"]);
 
@@ -55,7 +58,11 @@ export function csrfProtection() {
     const requestOrigin = c.req.header("Origin") ||
       getOrigin(c.req.header("Referer") ?? null);
     if (!requestOrigin) {
-      console.warn("CSRF check failed");
+      log.warn("CSRF check failed: missing origin", {
+        event: "csrf.check.missing_origin",
+        method: c.req.method,
+        path: c.req.path,
+      });
       return c.json(
         { error: "CSRF validation failed: missing Origin header" },
         403,
@@ -66,7 +73,13 @@ export function csrfProtection() {
       if (isDevLocalhost(appUrl) && requestOrigin.includes("localhost")) {
         return next();
       }
-      console.warn("CSRF check failed");
+      log.warn("CSRF check failed: origin mismatch", {
+        event: "csrf.check.origin_mismatch",
+        method: c.req.method,
+        path: c.req.path,
+        expectedOrigin,
+        requestOrigin,
+      });
       return c.json({ error: "CSRF validation failed" }, 403);
     }
 

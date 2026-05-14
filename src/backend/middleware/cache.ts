@@ -14,6 +14,9 @@
 
 import type { Context, MiddlewareHandler, Next } from "hono";
 import type { Env, Variables } from "../types.ts";
+import { logger } from "../lib/logger.ts";
+
+const log = logger.child({ component: "middleware.cache" });
 
 declare global {
   interface CacheStorage {
@@ -339,7 +342,11 @@ async function handleCloudflareCache(
   if (ctx && typeof ctx.waitUntil === "function") {
     ctx.waitUntil(
       cache.put(fullCacheKey, responseToCache.clone()).catch((err) => {
-        console.error("Failed to store response in cache:", err);
+        log.error("Failed to store response in cache", {
+          event: "cache.put.failed",
+          cacheKey: fullCacheKey,
+          error: err,
+        });
       }),
     );
   }
