@@ -88,16 +88,6 @@ cd yurucommu
 deno task deploy
 ```
 
-現在 commit されている `wrangler.toml` は `test.yurucommu.com` 向けの本体 Worker
-設定です。別の production hostname で運用する場合は、`APP_URL`、
-`[[routes]].pattern`、`TAKOS_URL` (Takos 連携を使う場合) をその canonical
-hostname に合わせてから deploy します。`takos.jp` / `yurucommu.com` の値は
-example operator deployment 値であり、yurucommu 自体の identity ではありません
-(hostnames は operator-deployment choice。`docs/reference/design-principles.md`
-§0.6, §7 参照)。 `wrangler.tenant2.toml` は `test2.yurucommu.com` 向けの別
-tenant/test 設定です。 `.env.example` の `APP_URL=https://app.yurucommu.com` は
-self-host 用の例であり、 checked-in `wrangler*.toml` の実デプロイ先とは別です。
-
 Takos 向け bundle:
 
 ```bash
@@ -166,6 +156,19 @@ requirement として記録しています。
 cd yurucommu
 deno run -A npm:wrangler deploy --config wrangler.site.toml
 ```
+
+### デプロイ設定の例 (example operator deployment 値)
+
+リポジトリに同梱されている `wrangler*.toml` は **example operator deployment**
+の値を含みます。 hostname は operator-deployment choice であり、yurucommu 自体の
+identity ではありません (`docs/reference/design-principles.md` §0.6, §7 参照)。
+自分のデプロイでは以下の値を実際の hostname / tenant に置き換えてから deploy してください。
+
+- `wrangler.toml`: 本体 Worker 設定 (`APP_URL`、`[[routes]].pattern`、Takos 連携を
+  使う場合は `TAKOS_URL` を canonical hostname に合わせる)
+- `wrangler.tenant2.toml`: 別 tenant 向けの設定例
+- `.env.example` の `APP_URL` は self-host 用の例であり、checked-in
+  `wrangler*.toml` の値とは独立して上書きしてください
 
 ## 設定メモ
 
