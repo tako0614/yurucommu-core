@@ -18,8 +18,10 @@ function getRateLimitStorageKey(key: string): string {
   return `${RATE_LIMIT_KV_PREFIX}:${encodeURIComponent(key)}`;
 }
 
-function isValidEntry(v: Partial<RateLimitEntry>): v is RateLimitEntry {
-  return typeof v.count === "number" && typeof v.resetAt === "number";
+function isValidEntry(v: unknown): v is RateLimitEntry {
+  if (typeof v !== "object" || v === null) return false;
+  const entry = v as Record<string, unknown>;
+  return typeof entry.count === "number" && typeof entry.resetAt === "number";
 }
 
 function parseRateLimitEntry(
@@ -29,7 +31,7 @@ function parseRateLimitEntry(
   if (!raw) return null;
 
   try {
-    const parsed = JSON.parse(raw) as Partial<RateLimitEntry>;
+    const parsed: unknown = JSON.parse(raw);
     if (!isValidEntry(parsed) || parsed.resetAt <= now) return null;
     return parsed;
   } catch {

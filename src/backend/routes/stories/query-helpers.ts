@@ -245,6 +245,10 @@ export async function cleanupExpiredStories(db: Database): Promise<number> {
 
 const POSITION_FIELDS = ["x", "y", "width", "height"] as const;
 
+function isOverlayRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function validateOverlays(
   overlays: unknown[],
 ): { valid: boolean; error?: string } {
@@ -253,17 +257,20 @@ export function validateOverlays(
   }
 
   for (const [i, raw] of overlays.entries()) {
-    const overlay = raw as Record<string, unknown>;
+    if (!isOverlayRecord(raw)) {
+      return { valid: false, error: `overlay[${i}] must be an object` };
+    }
+    const overlay = raw;
 
-    if (!overlay.type || typeof overlay.type !== "string") {
+    if (typeof overlay.type !== "string" || overlay.type === "") {
       return { valid: false, error: `overlay[${i}].type is required` };
     }
 
-    if (!overlay.position || typeof overlay.position !== "object") {
+    if (!isOverlayRecord(overlay.position)) {
       return { valid: false, error: `overlay[${i}].position is required` };
     }
 
-    const position = overlay.position as Partial<OverlayPosition>;
+    const position = overlay.position;
     for (const field of POSITION_FIELDS) {
       const val = position[field];
       if (typeof val !== "number" || val < 0 || val > 1) {
@@ -275,9 +282,9 @@ export function validateOverlays(
     }
 
     if (overlay.type === "Question") {
-      const oneOf = overlay.oneOf as unknown[] | undefined;
+      const oneOf = overlay.oneOf;
       if (
-        !oneOf || !Array.isArray(oneOf) || oneOf.length < 2 || oneOf.length > 4
+        !Array.isArray(oneOf) || oneOf.length < 2 || oneOf.length > 4
       ) {
         return {
           valid: false,
@@ -287,7 +294,7 @@ export function validateOverlays(
     }
 
     if (overlay.type === "Link") {
-      if (!overlay.href || typeof overlay.href !== "string") {
+      if (typeof overlay.href !== "string" || overlay.href === "") {
         return { valid: false, error: `overlay[${i}].href is required` };
       }
       try {

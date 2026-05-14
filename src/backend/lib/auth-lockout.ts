@@ -25,13 +25,13 @@ function getLockoutStorageKey(clientKey: string): string {
   return `${LOCKOUT_KEY_PREFIX}:${encodeURIComponent(clientKey)}`;
 }
 
-function isValidRecord(
-  v: Partial<LoginLockoutRecord>,
-): v is LoginLockoutRecord {
+function isValidRecord(v: unknown): v is LoginLockoutRecord {
+  if (typeof v !== "object" || v === null) return false;
+  const entry = v as Record<string, unknown>;
   return (
-    typeof v.failedAttempts === "number" &&
-    typeof v.firstFailedAt === "number" &&
-    (v.lockoutUntil === null || typeof v.lockoutUntil === "number")
+    typeof entry.failedAttempts === "number" &&
+    typeof entry.firstFailedAt === "number" &&
+    (entry.lockoutUntil === null || typeof entry.lockoutUntil === "number")
   );
 }
 
@@ -39,7 +39,7 @@ function parseLockoutRecord(raw: string | null): LoginLockoutRecord | null {
   if (!raw) return null;
 
   try {
-    const parsed = JSON.parse(raw) as Partial<LoginLockoutRecord>;
+    const parsed: unknown = JSON.parse(raw);
     return isValidRecord(parsed) ? parsed : null;
   } catch {
     return null;

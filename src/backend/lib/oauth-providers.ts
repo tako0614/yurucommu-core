@@ -159,6 +159,82 @@ export interface NormalizedUserInfo {
   username?: string;
 }
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getString(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function getObject(
+  record: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> | undefined {
+  const value = record[key];
+  return isJsonObject(value) ? value : undefined;
+}
+
+function parseGoogleUserInfo(
+  data: Record<string, unknown>,
+): NormalizedUserInfo {
+  const id = getString(data, "id");
+  const name = getString(data, "name");
+  if (!id || !name) {
+    throw new Error("Google userinfo response missing required fields");
+  }
+  return {
+    id,
+    name,
+    email: getString(data, "email"),
+    picture: getString(data, "picture"),
+  };
+}
+
+function parseXUserInfo(data: Record<string, unknown>): NormalizedUserInfo {
+  const inner = getObject(data, "data");
+  if (!inner) {
+    throw new Error("X userinfo response missing data field");
+  }
+  const id = getString(inner, "id");
+  const name = getString(inner, "name");
+  const username = getString(inner, "username");
+  if (!id || !name || !username) {
+    throw new Error("X userinfo response missing required fields");
+  }
+  return {
+    id,
+    name,
+    username,
+    picture: getString(inner, "profile_image_url"),
+  };
+}
+
+function parseTakosUserInfo(data: Record<string, unknown>): NormalizedUserInfo {
+  const user = getObject(data, "user");
+  const id = user ? getString(user, "id") : undefined;
+  const sub = getString(data, "sub");
+  const resolvedId = id ?? sub;
+  const userName = user ? getString(user, "name") : undefined;
+  const topName = getString(data, "name");
+  const resolvedName = userName ?? topName ?? resolvedId;
+  if (!resolvedId || !resolvedName) {
+    throw new Error("Takosumi Accounts userinfo response missing subject");
+  }
+  return {
+    id: resolvedId,
+    name: resolvedName,
+    email: (user ? getString(user, "email") : undefined) ??
+      getString(data, "email"),
+    picture: (user ? getString(user, "picture") : undefined) ??
+      getString(data, "picture"),
+  };
+}
+
 export async function fetchUserInfo(
   provider: OAuthProvider,
   accessToken: string,
@@ -174,54 +250,18 @@ export async function fetchUserInfo(
     throw new Error(`Failed to fetch user info: ${res.status}`);
   }
 
-  const data = await res.json() as Record<string, unknown>;
+  const raw: unknown = await res.json();
+  if (!isJsonObject(raw)) {
+    throw new Error(`Invalid userinfo response from provider: ${provider.id}`);
+  }
 
   switch (provider.id) {
-    case "google": {
-      const g = data as {
-        id: string;
-        name: string;
-        email: string;
-        picture: string;
-      };
-      return { id: g.id, name: g.name, email: g.email, picture: g.picture };
-    }
-    case "x": {
-      const x = data as {
-        data: {
-          id: string;
-          name: string;
-          username: string;
-          profile_image_url?: string;
-        };
-      };
-      return {
-        id: x.data.id,
-        name: x.data.name,
-        username: x.data.username,
-        picture: x.data.profile_image_url,
-      };
-    }
-    case "takos": {
-      const t = data as {
-        user?: { id?: string; name?: string; email?: string; picture?: string };
-        sub?: string;
-        name?: string;
-        email?: string;
-        picture?: string;
-      };
-      const id = t.user?.id ?? t.sub;
-      const name = t.user?.name ?? t.name ?? id;
-      if (!id || !name) {
-        throw new Error("Takosumi Accounts userinfo response missing subject");
-      }
-      return {
-        id,
-        name,
-        email: t.user?.email ?? t.email,
-        picture: t.user?.picture ?? t.picture,
-      };
-    }
+    case "google":
+      return parseGoogleUserInfo(raw);
+    case "x":
+      return parseXUserInfo(raw);
+    case "takos":
+      return parseTakosUserInfo(raw);
     default:
       throw new Error(`Unknown provider: ${provider.id}`);
   }
