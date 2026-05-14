@@ -23,6 +23,9 @@ import { DenoAssets, DenoDatabase, DenoStorage } from "./runtime/deno.ts";
 import { MemoryKV } from "./runtime/memory-kv.ts";
 import type { Env } from "./types.ts";
 import { getDbSQLite } from "../db/index.ts";
+import { logger } from "./lib/logger.ts";
+
+const log = logger.child({ component: "server.bootstrap" });
 
 // ---------------------------------------------------------------------------
 // Deno sqlite3 type definitions (subset of https://deno.land/x/sqlite3 API)
@@ -153,17 +156,27 @@ export async function runMigrations(
 
   for (const file of entries) {
     if (appliedSet.has(file)) {
-      console.log(`Migration ${file} already applied, skipping`);
+      log.debug("Migration already applied, skipping", {
+        event: "server.migration.skipped",
+        migration: file,
+      });
       continue;
     }
 
-    console.log(`Applying migration: ${file}`);
+    log.info("Applying migration", {
+      event: "server.migration.applying",
+      migration: file,
+    });
     const sql = await Deno.readTextFile(`${migrationsDir}/${file}`);
 
     try {
       rawDb.exec(sql);
     } catch (e) {
-      console.error(`Error executing migration ${file}`);
+      log.error("Error executing migration", {
+        event: "server.migration.error",
+        migration: file,
+        error: e,
+      });
       throw e;
     }
 
@@ -175,7 +188,10 @@ export async function runMigrations(
     } finally {
       markAppliedStmt.finalize();
     }
-    console.log(`Migration ${file} applied successfully`);
+    log.info("Migration applied successfully", {
+      event: "server.migration.applied",
+      migration: file,
+    });
   }
 }
 
@@ -184,7 +200,10 @@ export async function runMigrations(
 // ---------------------------------------------------------------------------
 
 async function main() {
-  console.log("Starting Yurucommu server (Deno mode)...");
+  log.info("Starting Yurucommu server (Deno mode)", {
+    event: "server.bootstrap.start",
+    mode: "deno",
+  });
 
   // Ensure data directory exists
   const dataDir = DATABASE_PATH.substring(0, DATABASE_PATH.lastIndexOf("/"));
@@ -206,25 +225,33 @@ async function main() {
     if (!(error instanceof Deno.errors.NotFound)) {
       throw error;
     }
-    console.log("No migrations directory found, skipping migrations");
+    log.info("No migrations directory found, skipping migrations", {
+      event: "server.migrations.absent",
+      migrationsPath: MIGRATIONS_PATH,
+    });
     await startServer(env);
     return;
   }
 
-  console.log("Running database migrations...");
+  log.info("Running database migrations", {
+    event: "server.migrations.running",
+    migrationsPath: MIGRATIONS_PATH,
+  });
   await runMigrations(rawDb, MIGRATIONS_PATH);
-  console.log("Migrations complete");
+  log.info("Migrations complete", { event: "server.migrations.complete" });
 
   await startServer(env);
 }
 
 async function startServer(env: DenoEnv) {
-  console.log(`\nServer starting on http://localhost:${PORT}`);
-  console.log(`  APP_URL: ${APP_URL}`);
-  console.log(`  Database: ${DATABASE_PATH}`);
-  console.log(`  Storage: ${STORAGE_PATH}`);
-  console.log(`  Assets: ${ASSETS_PATH}`);
-  console.log("");
+  log.info("Server starting", {
+    event: "server.bootstrap.starting",
+    port: PORT,
+    appUrl: APP_URL,
+    databasePath: DATABASE_PATH,
+    storagePath: STORAGE_PATH,
+    assetsPath: ASSETS_PATH,
+  });
 
   const { backendApp } = await import("./index.ts");
 
@@ -232,7 +259,10 @@ async function startServer(env: DenoEnv) {
     const ctx: ExecutionContext = {
       waitUntil: (promise: Promise<unknown>) => {
         promise.catch((error) => {
-          console.error("Background task failed:", error);
+          log.error("Background task failed", {
+            event: "server.background_task.failed",
+            error,
+          });
         });
       },
       passThroughOnException: () => {},
@@ -241,12 +271,19 @@ async function startServer(env: DenoEnv) {
     return backendApp.fetch(request, env, ctx);
   });
 
-  console.log(`Server is running at http://localhost:${PORT}`);
+  log.info("Server is running", {
+    event: "server.bootstrap.running",
+    port: PORT,
+    appUrl: APP_URL,
+  });
 }
 
 if (import.meta.main) {
   main().catch((error) => {
-    console.error("Failed to start server:", error);
+    log.error("Failed to start server", {
+      event: "server.bootstrap.failed",
+      error,
+    });
     Deno.exit(1);
   });
 }
