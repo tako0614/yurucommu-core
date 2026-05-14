@@ -11,6 +11,10 @@ import {
 } from "../federation-helpers.ts";
 import type { Database } from "../../db/index.ts";
 import { actorCache, actors, likes, objects } from "../../db/index.ts";
+import {
+  parseWebFinger,
+  tryParseRemoteActor,
+} from "../lib/activitypub-validators.ts";
 
 const search = new Hono<{ Bindings: Env; Variables: Variables }>();
 const REMOTE_FETCH_TIMEOUT_MS = 10000;
@@ -39,28 +43,6 @@ function validateSort<T extends string>(
 // ---------------------------------------------------------------------------
 // Shared types
 // ---------------------------------------------------------------------------
-
-type WebFingerLink = {
-  rel?: string;
-  type?: string;
-  href?: string;
-};
-
-type WebFingerResponse = {
-  links?: WebFingerLink[];
-};
-
-type RemoteActor = {
-  id: string;
-  type?: string;
-  preferredUsername?: string;
-  name?: string;
-  summary?: string;
-  icon?: { url?: string };
-  inbox?: string;
-  outbox?: string;
-  publicKey?: { id?: string; publicKeyPem?: string };
-};
 
 type ActorInfo = {
   apId: string;
@@ -319,7 +301,13 @@ search.get("/remote", async (c) => {
     });
     if (!wfRes.ok) return c.json({ actors: [] });
 
-    const wfData = (await wfRes.json()) as WebFingerResponse;
+    const wfRaw: unknown = await wfRes.json();
+    let wfData;
+    try {
+      wfData = parseWebFinger(wfRaw);
+    } catch {
+      return c.json({ actors: [] });
+    }
     const actorLink = wfData.links?.find((l) =>
       l.rel === "self" && l.type === "application/activity+json"
     );
@@ -334,7 +322,9 @@ search.get("/remote", async (c) => {
     });
     if (!actorRes.ok) return c.json({ actors: [] });
 
-    const actorData = (await actorRes.json()) as RemoteActor;
+    const actorRaw: unknown = await actorRes.json();
+    const actorData = tryParseRemoteActor(actorRaw);
+    if (!actorData) return c.json({ actors: [] });
 
     // Cache the actor (upsert: check if exists, then insert or update)
     const db = c.get("db");
@@ -348,7 +338,7 @@ search.get("/remote", async (c) => {
       outbox: actorData.outbox || null,
       publicKeyId: actorData.publicKey?.id || null,
       publicKeyPem: actorData.publicKey?.publicKeyPem || null,
-      rawJson: JSON.stringify(actorData),
+      rawJson: JSON.stringify(actorRaw),
     };
 
     const existing = await db
