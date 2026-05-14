@@ -56,6 +56,9 @@ import {
   requireActor,
   resolveActorApId,
 } from "./actors-helpers.ts";
+import { logger } from "../lib/logger.ts";
+
+const log = logger.child({ component: "actors" });
 
 const actorsRoute = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -280,10 +283,11 @@ actorsRoute.post("/me/delete", async (c) => {
 
     return c.json({ success: true });
   } catch (error) {
-    console.error(
-      "Account deletion failed:",
-      error instanceof Error ? error.message : "Unknown error",
-    );
+    log.error("Account deletion failed", {
+      event: "actors.account.delete_failed",
+      actor: actorApIdVal,
+      error,
+    });
     return c.json({ error: "Account deletion failed" }, 500);
   }
 });

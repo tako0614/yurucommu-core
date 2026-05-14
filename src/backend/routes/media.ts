@@ -4,6 +4,9 @@ import type { Env, Variables } from "../types.ts";
 import type { Database } from "../../db/index.ts";
 import { follows, mediaUploads, objects } from "../../db/index.ts";
 import { generateId, safeJsonParse } from "../federation-helpers.ts";
+import { logger } from "../lib/logger.ts";
+
+const log = logger.child({ component: "media" });
 
 const media = new Hono<{ Bindings: Env; Variables: Variables }>();
 type MediaContext = Context<{ Bindings: Env; Variables: Variables }>;
@@ -208,7 +211,11 @@ media.post("/upload", async (c) => {
     });
   } catch (error) {
     // Log error internally but don't expose details to client
-    console.error("Media upload failed:", errorMessage(error));
+    log.error("Media upload failed", {
+      event: "media.upload.failed",
+      reason: errorMessage(error),
+      error,
+    });
     return c.json({ error: "Upload failed" }, 500);
   }
 });
@@ -357,7 +364,11 @@ async function serveMediaByR2Key(
       ...(etag ? { "ETag": etag } : {}),
     });
   } catch (error) {
-    console.error("Media fetch failed:", errorMessage(error));
+    log.error("Media fetch failed", {
+      event: "media.fetch.failed",
+      reason: errorMessage(error),
+      error,
+    });
     return c.json({ error: "Failed to fetch media" }, 500);
   }
 }

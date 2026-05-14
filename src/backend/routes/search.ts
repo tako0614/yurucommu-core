@@ -15,6 +15,9 @@ import {
   parseWebFinger,
   tryParseRemoteActor,
 } from "../lib/activitypub-validators.ts";
+import { logger } from "../lib/logger.ts";
+
+const log = logger.child({ component: "search" });
 
 const search = new Hono<{ Bindings: Env; Variables: Variables }>();
 const REMOTE_FETCH_TIMEOUT_MS = 10000;
@@ -371,7 +374,10 @@ search.get("/remote", async (c) => {
       ],
     });
   } catch (e) {
-    console.error("Remote search failed:", e);
+    log.error("Remote search failed", {
+      event: "search.remote.failed",
+      error: e,
+    });
     return c.json({ actors: [] });
   }
 });

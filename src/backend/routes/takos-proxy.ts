@@ -12,6 +12,9 @@ import { eq } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import { sessions } from "../../db/index.ts";
 import { getTakosClient, type TakosSession } from "../lib/takos-client.ts";
+import { logger } from "../lib/logger.ts";
+
+const log = logger.child({ component: "takos.proxy" });
 
 const takosProxy = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -91,7 +94,11 @@ function proxyRoute<K extends "getSpaces" | "getUser">(method: K) {
       const data = await client[method]();
       return c.json(data);
     } catch (err) {
-      console.error(`Failed to ${method}:`, err);
+      log.error("Takos proxy method failed", {
+        event: "takos.proxy.method_failed",
+        method,
+        error: err,
+      });
       return c.json({ error: `Failed to ${method}` }, 500);
     }
   };
@@ -107,7 +114,11 @@ takosProxy.get("/spaces/:spaceId/repos", async (c) => {
   try {
     return c.json(await client.getRepos(c.req.param("spaceId")));
   } catch (err) {
-    console.error("Failed to getRepos:", err);
+    log.error("Failed to getRepos", {
+      event: "takos.proxy.get_repos_failed",
+      spaceId: c.req.param("spaceId"),
+      error: err,
+    });
     return c.json({ error: "Failed to getRepos" }, 500);
   }
 });

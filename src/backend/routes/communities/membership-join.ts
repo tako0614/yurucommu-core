@@ -10,6 +10,9 @@ import {
 import type { Env, Variables } from "../../types.ts";
 import { fetchCommunityDetails, memberWhere } from "./membership-shared.ts";
 import { isUniqueConstraintError } from "../../lib/parse-helpers.ts";
+import { logger } from "../../lib/logger.ts";
+
+const log = logger.child({ component: "communities.join" });
 
 export function registerMembershipJoinRoutes(
   communitiesRouter: Hono<{ Bindings: Env; Variables: Variables }>,
@@ -148,7 +151,12 @@ export function registerMembershipJoinRoutes(
           if (isUniqueConstraintError(error)) {
             return c.json({ error: "Already a member" }, 409);
           }
-          console.error("[Communities] Failed to join with invite:", error);
+          log.error("Failed to join with invite", {
+            event: "communities.join.invite_failed",
+            community: community.apId,
+            actor: actor.ap_id,
+            error,
+          });
           return c.json({ error: "Failed to join community" }, 500);
         }
       }
@@ -171,7 +179,12 @@ export function registerMembershipJoinRoutes(
         if (isUniqueConstraintError(error)) {
           return c.json({ error: "Already a member" }, 409);
         }
-        console.error("[Communities] Failed to join community:", error);
+        log.error("Failed to join community", {
+          event: "communities.join.failed",
+          community: community.apId,
+          actor: actor.ap_id,
+          error,
+        });
         return c.json({ error: "Failed to join community" }, 500);
       }
     },

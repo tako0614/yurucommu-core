@@ -10,6 +10,7 @@
 import { Hono } from "hono";
 import type { Env, Variables } from "../types.ts";
 import type { ToolResponse } from "./takos-tools-response.ts";
+import { logger } from "../lib/logger.ts";
 
 // Handler modules
 import {
@@ -42,6 +43,7 @@ import {
 type HonoEnv = { Bindings: Env; Variables: Variables };
 
 const takosTools = new Hono<HonoEnv>();
+const log = logger.child({ component: "takos.tools" });
 
 // Feature flag gate (fail-close).
 takosTools.use("*", async (c, next) => {
@@ -132,7 +134,11 @@ takosTools.post("/:name", async (c) => {
         );
     }
   } catch (error) {
-    console.error(`Tool ${toolName} error:`, error);
+    log.error("Takos tool failed", {
+      event: "takos.tools.failed",
+      toolName,
+      error,
+    });
     return c.json({
       success: false,
       error: error instanceof Error ? error.message : "Internal error",

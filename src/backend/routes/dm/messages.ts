@@ -29,6 +29,9 @@ import {
   MAX_DM_PAGE_LIMIT,
 } from "./query-helpers.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
+import { logger } from "../../lib/logger.ts";
+
+const log = logger.child({ component: "dm.messages" });
 
 const dm = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -400,7 +403,12 @@ dm.post("/user/:encodedApId/messages", async (c) => {
       });
     }
   } catch (e) {
-    console.error("[DM] Failed to insert message:", e);
+    log.error("Failed to insert message", {
+      event: "dm.message.insert_failed",
+      actor: actor.ap_id,
+      recipient: otherApId,
+      error: e,
+    });
     return c.json({ error: "Failed to send message" }, 500);
   }
 
