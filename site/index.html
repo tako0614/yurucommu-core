@@ -451,9 +451,42 @@
       font-size: 1.125rem;
       color: var(--text-secondary);
       margin-bottom: 2rem;
-      max-width: 500px;
+      max-width: 540px;
       margin-left: auto;
       margin-right: auto;
+      line-height: 1.7;
+    }
+
+    .cta-buttons {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+    }
+
+    .cta-meta {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      margin-top: 1rem;
+    }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 1rem 2rem;
+      background: transparent;
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-weight: 600;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--accent);
+      background: rgba(59, 130, 246, 0.06);
     }
 
     /* Footer */
@@ -541,13 +574,14 @@
       <div class="header-links">
         <a href="#philosophy" class="header-link">思想</a>
         <a href="#features" class="header-link">機能</a>
+        <a href="#install" class="header-link">Install</a>
         <a href="/help/" class="header-link">Docs</a>
         <a href="/specs/" class="header-link">Specs</a>
       </div>
-      <a href="https://github.com/tako0614/yurucommu" class="header-cta">
-        GitHub
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+      <a href="https://cloud.takosumi.com/apps/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autopreview=1" class="header-cta" rel="noopener">
+        Cloud で install
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12h14M13 6l6 6-6 6"/>
         </svg>
       </a>
     </div>
@@ -857,19 +891,31 @@
     </div>
   </section>
 
-  <!-- CTA -->
-  <section class="cta">
+  <!-- CTA / Install -->
+  <section class="cta" id="install">
     <div class="section-inner">
       <h2 class="cta-title">自分だけのSNSを始めよう</h2>
       <p class="cta-description">
-        アルゴリズムに支配されない、本当の繋がりを
+        アルゴリズムに支配されない、本当の繋がりを。<br>
+        Takosumi Cloud から 1-click で install するか、 自前 substrate に直接 deploy。
       </p>
-      <a href="https://github.com/tako0614/yurucommu" class="btn-primary">
-        GitHubで始める
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
-        </svg>
-      </a>
+      <div class="cta-buttons">
+        <a href="https://cloud.takosumi.com/apps/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autopreview=1" class="btn-primary" rel="noopener">
+          Takosumi Cloud で install
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14M13 6l6 6-6 6"/>
+          </svg>
+        </a>
+        <a href="https://github.com/tako0614/yurucommu" class="btn-secondary" rel="noopener">
+          GitHub で見る
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+          </svg>
+        </a>
+      </div>
+      <p class="cta-meta">
+        yurucommu は Takos の bundled app の 1 つ。 単体でも、 Takos と一緒にでも install できる。
+      </p>
     </div>
   </section>
 
