@@ -961,6 +961,16 @@
         }
       });
     });
+
+    // When this landing page is served from a local-substrate test domain
+    // (any *.test hostname or localhost), rewrite cloud.takosumi.com links
+    // to cloud.takosumi.test so the install button reaches the local cloud
+    // mirror instead of leaving the test environment.
+    if (location.hostname.endsWith('.test') || location.hostname === 'localhost') {
+      document.querySelectorAll('a[href*="cloud.takosumi.com"]').forEach(a => {
+        a.href = a.href.replace('cloud.takosumi.com', 'cloud.takosumi.test');
+      });
+    }
   </script>
 </body>
 </html>
