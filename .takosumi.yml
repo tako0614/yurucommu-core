@@ -1,0 +1,62 @@
+apiVersion: takosumi.dev/v1
+kind: App
+
+metadata:
+  id: com.yurucommu.app
+  name: Yurucommu
+  description: Self-hosted ActivityPub community social app for small communities.
+  publisher: takos
+  homepage: https://github.com/tako0614/yurucommu
+
+components:
+  web:
+    kind: worker
+    build:
+      command: deno task build:worker
+      output: dist/worker.mjs
+    routes:
+      - /
+      - /api
+      - /media
+      - /.well-known
+      - /ap
+      - /users
+      - /communities
+      - /inbox
+    use:
+      db:
+        envPrefix: DB_
+      media:
+        envPrefix: MEDIA_
+      auth:
+        mount: oidc
+
+  db:
+    kind: postgres
+    spec:
+      class: standard
+
+  media:
+    kind: object-store
+
+  auth:
+    kind: oidc
+    redirectPaths:
+      - /api/auth/callback/takos
+    scopes:
+      - openid
+      - profile
+      - email
+
+interfaces:
+  launch:
+    target: web
+    path: /api/auth/login/takos
+
+  health:
+    target: web
+    path: /readyz
+
+permissions:
+  requested:
+    - logs.read.own
