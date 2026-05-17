@@ -19,9 +19,14 @@
  *   TAKOS_URL       - Optional Takos API base URL for proxy/tool integration
  */
 
+import type { Message, MessageBatch, Queue } from "@cloudflare/workers-types";
 import { DenoAssets, DenoDatabase, DenoStorage } from "./runtime/deno.ts";
 import { MemoryKV } from "./runtime/memory-kv.ts";
 import type { Env } from "./types.ts";
+import type {
+  DeliveryDlqMessageV1,
+  DeliveryQueueMessageV1,
+} from "./lib/delivery/types.ts";
 import { getDbSQLite } from "../db/index.ts";
 import { logger } from "./lib/logger.ts";
 
@@ -83,7 +88,142 @@ const ENV_PASSTHROUGH_KEYS = [
   "ENABLE_TAKOS_TOOLS",
   "DELIVERY_SHADOW_PROBE_HOSTS",
   "DELIVERY_SHADOW_PROBE_SAMPLE_RATE",
+  "DELIVERY_QUEUE_NAME",
+  "DELIVERY_DLQ_NAME",
+  "YURUCOMMU_ENABLE_LOCAL_SUBSTRATE_REMOTE_FETCHES",
+  "YURUCOMMU_ENABLE_DENO_DELIVERY_QUEUE",
 ] as const;
+
+function isTruthyEnv(value: string | undefined): boolean {
+  if (!value) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+type LocalQueueBody = DeliveryQueueMessageV1 | DeliveryDlqMessageV1;
+
+type LocalQueueSendOptions = {
+  delaySeconds?: number;
+};
+
+type LocalQueueBatchItem<T> = {
+  body: T;
+  delaySeconds?: number;
+};
+
+function createLocalMessageBatch<T extends LocalQueueBody>(
+  queueName: string,
+  bodies: T[],
+  requeue: (body: T, delaySeconds?: number) => void,
+): MessageBatch<T> {
+  const messages = bodies.map((body): Message<T> => {
+    let settled = false;
+    return {
+      id: crypto.randomUUID(),
+      timestamp: new Date(),
+      attempts: 1,
+      body,
+      ack: () => {
+        settled = true;
+      },
+      retry: (options?: { delaySeconds?: number }) => {
+        if (settled) return;
+        settled = true;
+        requeue(body, options?.delaySeconds);
+      },
+    } as Message<T>;
+  });
+
+  return {
+    queue: queueName,
+    messages,
+    ackAll: () => {
+      for (const message of messages) message.ack();
+    },
+    retryAll: (options?: { delaySeconds?: number }) => {
+      for (const message of messages) message.retry(options);
+    },
+  } as MessageBatch<T>;
+}
+
+function createLocalQueue<T extends LocalQueueBody>(
+  env: DenoEnv,
+  queueName: string,
+): Queue<T> {
+  const pending: T[] = [];
+  let draining = false;
+  let drainScheduled = false;
+
+  const enqueue = (body: T, delaySeconds?: number) => {
+    if (delaySeconds && delaySeconds > 0) {
+      setTimeout(() => enqueue(body), delaySeconds * 1000);
+      return;
+    }
+    pending.push(body);
+    scheduleDrain();
+  };
+
+  const drain = async () => {
+    if (draining) return;
+    draining = true;
+    try {
+      while (pending.length > 0) {
+        const batchBodies = pending.splice(0, 100);
+        const { handleYurucommuQueueBatch } = await import("./index.ts");
+        await handleYurucommuQueueBatch(
+          createLocalMessageBatch(queueName, batchBodies, enqueue),
+          env,
+        );
+      }
+    } catch (error) {
+      log.error("Local Deno delivery queue drain failed", {
+        event: "server.local_delivery_queue.drain_failed",
+        queueName,
+        error,
+      });
+    } finally {
+      draining = false;
+      if (pending.length > 0) scheduleDrain();
+    }
+  };
+
+  function scheduleDrain() {
+    if (drainScheduled) return;
+    drainScheduled = true;
+    queueMicrotask(() => {
+      drainScheduled = false;
+      void drain();
+    });
+  }
+
+  return {
+    send: async (body: T, options?: LocalQueueSendOptions) => {
+      enqueue(body, options?.delaySeconds);
+    },
+    sendBatch: async (messages: Array<LocalQueueBatchItem<T>>) => {
+      for (const message of messages) {
+        enqueue(message.body, message.delaySeconds);
+      }
+    },
+  } as unknown as Queue<T>;
+}
+
+function attachLocalDeliveryQueues(env: DenoEnv): void {
+  const deliveryQueueName = env.DELIVERY_QUEUE_NAME ?? "yurucommu-delivery";
+  const deliveryDlqName = env.DELIVERY_DLQ_NAME ?? "yurucommu-delivery-dlq";
+  env.DELIVERY_QUEUE = createLocalQueue<DeliveryQueueMessageV1>(
+    env,
+    deliveryQueueName,
+  );
+  env.DELIVERY_DLQ = createLocalQueue<DeliveryDlqMessageV1>(
+    env,
+    deliveryDlqName,
+  );
+  log.info("Enabled local Deno delivery queue bindings", {
+    event: "server.local_delivery_queue.enabled",
+    deliveryQueueName,
+    deliveryDlqName,
+  });
+}
 
 async function createDenoEnv(config: {
   databasePath: string;
@@ -111,11 +251,23 @@ async function createDenoEnv(config: {
     ...passthrough,
   };
 
+  if (isTruthyEnv(Deno.env.get("YURUCOMMU_ENABLE_DENO_DELIVERY_QUEUE"))) {
+    attachLocalDeliveryQueues(env);
+  }
+
   return { env, rawDb: db };
 }
 
 type DenoEnv =
-  & Pick<Env, "DB_INSTANCE" | "MEDIA" | "KV" | "ASSETS">
+  & Pick<
+    Env,
+    | "DB_INSTANCE"
+    | "MEDIA"
+    | "KV"
+    | "ASSETS"
+    | "DELIVERY_QUEUE"
+    | "DELIVERY_DLQ"
+  >
   & { APP_URL: string }
   & Partial<Record<typeof ENV_PASSTHROUGH_KEYS[number], string | undefined>>;
 

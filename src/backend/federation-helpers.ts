@@ -84,6 +84,19 @@ const DOH_ENDPOINT = "https://cloudflare-dns.com/dns-query";
 // would let an unreachable upstream hang inbox/delivery loops, so cap each
 // lookup at 5s.
 const DOH_TIMEOUT_MS = 5_000;
+const LOCAL_SUBSTRATE_REMOTE_FETCH_ENV =
+  "YURUCOMMU_ENABLE_LOCAL_SUBSTRATE_REMOTE_FETCHES";
+
+type DnsRecordType = "A" | "AAAA";
+
+export type RemoteUrlSafetyOptions = {
+  allowLocalSubstrateRemoteFetches?: boolean;
+  localResolver?: (
+    hostname: string,
+    recordType: DnsRecordType,
+  ) => Promise<string[]>;
+  remoteResolver?: (hostname: string) => Promise<string[]>;
+};
 
 function parseIPv4(hostname: string): number[] | null {
   if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return null;
@@ -138,6 +151,20 @@ function isPrivateIpAddress(host: string): boolean {
 function normalizeHostname(hostname: string): string {
   const normalized = hostname.trim().toLowerCase();
   return normalized.endsWith(".") ? normalized.slice(0, -1) : normalized;
+}
+
+function isTruthyEnv(value: string | undefined): boolean {
+  if (!value) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+function localSubstrateRemoteFetchesEnabled(): boolean {
+  if (typeof Deno === "undefined") return false;
+  try {
+    return isTruthyEnv(Deno.env.get(LOCAL_SUBSTRATE_REMOTE_FETCH_ENV));
+  } catch {
+    return false;
+  }
 }
 
 const BLOCKED_HOSTNAME_SUFFIXES = [
@@ -249,15 +276,87 @@ async function resolveRemoteHostnameIPs(hostname: string): Promise<string[]> {
   return Array.from(ips);
 }
 
-export async function assertSafeRemoteUrlResolved(url: string): Promise<void> {
+function isTakosTestHostname(hostname: string): boolean {
+  const normalized = normalizeHostname(hostname);
+  return normalized === "takos.test" || normalized.endsWith(".takos.test");
+}
+
+function isLocalSubstrateUrlShape(parsed: URL): boolean {
+  return parsed.protocol === "https:" &&
+    (parsed.port === "" || parsed.port === "443");
+}
+
+function isAllowedLocalSubstrateIp(ip: string): boolean {
+  const parts = parseIPv4(ip);
+  if (!parts) return false;
+  const [a, b, c, d] = parts;
+  if (a === 127 && b === 0 && c === 0 && d === 1) return true;
+  return a === 172 && b >= 16 && b <= 31;
+}
+
+async function resolveLocalSubstrateHostnameIPs(
+  hostname: string,
+  resolver?: RemoteUrlSafetyOptions["localResolver"],
+): Promise<string[]> {
+  const resolve = resolver ??
+    (async (name: string, recordType: DnsRecordType): Promise<string[]> => {
+      if (typeof Deno === "undefined" || !Deno.resolveDns) {
+        throw new Error("Local DNS resolver unavailable");
+      }
+      try {
+        return await Deno.resolveDns(name, recordType);
+      } catch {
+        return [];
+      }
+    });
+
+  const [aRecords, aaaaRecords] = await Promise.all([
+    resolve(hostname, "A"),
+    resolve(hostname, "AAAA"),
+  ]);
+  return [...aRecords, ...aaaaRecords];
+}
+
+export async function assertSafeRemoteUrlResolved(
+  url: string,
+  options: RemoteUrlSafetyOptions = {},
+): Promise<void> {
   if (!isSafeRemoteUrl(url)) {
     throw new Error(`Unsafe remote URL: ${url}`);
   }
 
   // isSafeRemoteUrl already validated the hostname is not blocked,
   // so we only need to verify resolved IPs are not private.
-  const hostname = normalizeHostname(new URL(url).hostname);
-  const resolvedIps = await resolveRemoteHostnameIPs(hostname);
+  const parsed = new URL(url);
+  const hostname = normalizeHostname(parsed.hostname);
+  const allowLocalSubstrate = options.allowLocalSubstrateRemoteFetches ??
+    localSubstrateRemoteFetchesEnabled();
+
+  if (allowLocalSubstrate && isTakosTestHostname(hostname)) {
+    if (!isLocalSubstrateUrlShape(parsed)) {
+      throw new Error(`Unsafe local-substrate remote URL: ${url}`);
+    }
+    const resolvedIps = await resolveLocalSubstrateHostnameIPs(
+      hostname,
+      options.localResolver,
+    );
+    if (resolvedIps.length === 0) {
+      throw new Error(`Failed to resolve hostname: ${hostname}`);
+    }
+    for (const ip of resolvedIps) {
+      if (!isAllowedLocalSubstrateIp(ip)) {
+        throw new Error(
+          `Hostname ${hostname} resolved outside local-substrate allowlist: ${ip}`,
+        );
+      }
+    }
+    return;
+  }
+
+  const resolvedIps =
+    await (options.remoteResolver ?? resolveRemoteHostnameIPs)(
+      hostname,
+    );
   if (resolvedIps.length === 0) {
     throw new Error(`Failed to resolve hostname: ${hostname}`);
   }
