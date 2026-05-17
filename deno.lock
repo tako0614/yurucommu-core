@@ -28,6 +28,7 @@
     "npm:@tailwindcss/vite@^4.1.18": "4.2.2_vite@6.4.2",
     "npm:babel-preset-solid@^1.9.12": "1.9.12_@babel+core@7.29.0_solid-js@1.9.12",
     "npm:better-sqlite3@^12.4.1": "12.9.0",
+    "npm:drizzle-kit@*": "0.31.10",
     "npm:drizzle-kit@~0.31.9": "0.31.10",
     "npm:drizzle-orm@~0.45.1": "0.45.2_@cloudflare+workers-types@4.20260420.1_@libsql+client@0.17.2_better-sqlite3@12.9.0",
     "npm:esbuild@*": "0.27.3",
