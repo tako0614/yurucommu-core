@@ -13,7 +13,7 @@ components:
     kind: worker
     build:
       command: deno task build:worker
-      output: dist/worker.mjs
+      output: dist/worker.js
     routes:
       - /
       - /api
@@ -23,30 +23,30 @@ components:
       - /users
       - /communities
       - /inbox
-    use:
-      db:
-        envPrefix: DB_
-      media:
-        envPrefix: MEDIA_
-      auth:
-        mount: oidc
+      - /api/auth/callback/takos
+    listen:
+      com.yurucommu.app.db:
+        as: env
+        prefix: DB_
+      com.yurucommu.app.media:
+        as: env
+        prefix: MEDIA_
+      operator.identity.oidc:
+        as: env
 
   db:
     kind: postgres
     spec:
-      class: standard
+      size: small
+    publish:
+      - com.yurucommu.app.db
 
   media:
     kind: object-store
-
-  auth:
-    kind: oidc
-    redirectPaths:
-      - /api/auth/callback/takos
-    scopes:
-      - openid
-      - profile
-      - email
+    spec:
+      name: yurucommu-media
+    publish:
+      - com.yurucommu.app.media
 
 interfaces:
   launch:
