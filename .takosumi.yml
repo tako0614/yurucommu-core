@@ -14,16 +14,17 @@ components:
     build:
       command: deno task build:worker
       output: dist/worker.js
-    routes:
-      - /
-      - /api
-      - /media
-      - /.well-known
-      - /ap
-      - /users
-      - /communities
-      - /inbox
-      - /api/auth/callback/takos
+    spec:
+      routes:
+        - /
+        - /api
+        - /media
+        - /.well-known
+        - /ap
+        - /users
+        - /communities
+        - /inbox
+        - /api/auth/callback/takos
     listen:
       com.yurucommu.app.db:
         as: env
@@ -47,16 +48,3 @@ components:
       name: yurucommu-media
     publish:
       - com.yurucommu.app.media
-
-interfaces:
-  launch:
-    target: web
-    path: /api/auth/login/takos
-
-  health:
-    target: web
-    path: /readyz
-
-permissions:
-  requested:
-    - logs.read.own
