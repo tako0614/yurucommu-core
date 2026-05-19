@@ -1,4 +1,4 @@
-apiVersion: takosumi.dev/v1
+apiVersion: v1
 
 metadata:
   id: com.yurucommu.app
