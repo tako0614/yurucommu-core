@@ -46,6 +46,12 @@ export interface EnvVars {
   YURUCOMMU_STRICT_READINESS?: string;
   YURUCOMMU_ENABLE_LOCAL_SUBSTRATE_REMOTE_FETCHES?: string;
   YURUCOMMU_ENABLE_DENO_DELIVERY_QUEUE?: string;
+
+  // CSRF allowed origins (comma-separated). APP_URL の origin に加えて
+  // 受け付ける追加 origin (= dev hostname (`https://yurucommu.test`) を
+  // production-equivalent な strict CSRF check 経由で踏むため)。 未設定なら
+  // 既存動作と同じ (= APP_URL 単一 origin のみ accept、 production 影響ゼロ)。
+  CSRF_ALLOWED_ORIGINS?: string;
 }
 
 /**

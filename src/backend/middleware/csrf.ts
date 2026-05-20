@@ -26,6 +26,34 @@ function isDevLocalhost(appUrl: string | undefined): boolean {
     (appUrl.includes("localhost") || appUrl.includes("127.0.0.1"));
 }
 
+/**
+ * Build the set of allowed origins for CSRF Origin / Referer check.
+ *
+ * Sources (= union):
+ * - `APP_URL` env (= 既存 production-equivalent origin)
+ * - `CSRF_ALLOWED_ORIGINS` env (= comma-separated 追加 origin、 dev hostname
+ *   を register するための env、 default 未設定で backward compat)
+ *
+ * 未正規化 / 空文字 / 構文不正な URL は skip。 trailing slash は正規化される
+ * (= `getOrigin` が `protocol//host` 形式に戻すため)。
+ */
+function buildAllowedOrigins(env: {
+  APP_URL?: string;
+  CSRF_ALLOWED_ORIGINS?: string;
+}): Set<string> {
+  const origins = new Set<string>();
+  const appOrigin = getOrigin(env.APP_URL ?? null);
+  if (appOrigin) origins.add(appOrigin);
+
+  const extra = env.CSRF_ALLOWED_ORIGINS?.split(",").map((s) => s.trim())
+    .filter(Boolean) ?? [];
+  for (const raw of extra) {
+    const normalized = getOrigin(raw);
+    if (normalized) origins.add(normalized);
+  }
+  return origins;
+}
+
 function isBearerApiRequest(
   c: Context<{ Bindings: Env; Variables: Variables }>,
 ) {
@@ -53,7 +81,7 @@ export function csrfProtection() {
     if (isBearerApiRequest(c)) return next();
 
     const appUrl = c.env.APP_URL;
-    const expectedOrigin = getOrigin(appUrl);
+    const allowedOrigins = buildAllowedOrigins(c.env);
 
     const requestOrigin = c.req.header("Origin") ||
       getOrigin(c.req.header("Referer") ?? null);
@@ -69,7 +97,7 @@ export function csrfProtection() {
       );
     }
 
-    if (requestOrigin !== expectedOrigin) {
+    if (!allowedOrigins.has(requestOrigin)) {
       if (isDevLocalhost(appUrl) && requestOrigin.includes("localhost")) {
         return next();
       }
@@ -77,7 +105,7 @@ export function csrfProtection() {
         event: "csrf.check.origin_mismatch",
         method: c.req.method,
         path: c.req.path,
-        expectedOrigin,
+        allowedOrigins: [...allowedOrigins],
         requestOrigin,
       });
       return c.json({ error: "CSRF validation failed" }, 403);
