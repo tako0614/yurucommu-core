@@ -16,6 +16,7 @@
     "jsr:@std/path@1": "1.1.4",
     "jsr:@std/path@^1.1.4": "1.1.4",
     "jsr:@std/testing@*": "1.0.17",
+    "jsr:@std/yaml@1": "1.1.0",
     "npm:@aws-sdk/client-s3@^3.971.0": "3.1032.0",
     "npm:@babel/core@^7.29.0": "7.29.0",
     "npm:@cloudflare/workers-types@^4.20260420.1": "4.20260420.1",
@@ -112,6 +113,9 @@
         "jsr:@std/async",
         "jsr:@std/data-structures"
       ]
+    },
+    "@std/yaml@1.1.0": {
+      "integrity": "fc1c5c63e05c4c5eb6118355f557958035d41940d6c29d35b306ef7155d6edb0"
     }
   },
   "npm": {
