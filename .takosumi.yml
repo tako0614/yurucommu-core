@@ -10,10 +10,8 @@ metadata:
 components:
   web:
     kind: worker
-    build:
-      command: deno task build:worker
-      output: dist/worker.js
     spec:
+      entrypoint: dist/worker.js
       routes:
         - /
         - /api
@@ -25,13 +23,16 @@ components:
         - /inbox
         - /api/auth/callback/takos
     listen:
-      com.yurucommu.app.db:
+      db:
+        from: db.connection
         as: env
-        prefix: DB_
-      com.yurucommu.app.media:
+        prefix: DB
+      media:
+        from: media.bucket
         as: env
-        prefix: MEDIA_
-      operator.identity.oidc:
+        prefix: MEDIA
+      oidc:
+        from: namespace:operator.identity.oidc
         as: env
 
   db:
@@ -39,11 +40,13 @@ components:
     spec:
       size: small
     publish:
-      - com.yurucommu.app.db
+      connection:
+        as: service-binding
 
   media:
     kind: object-store
     spec:
       name: yurucommu-media
     publish:
-      - com.yurucommu.app.media
+      bucket:
+        as: object-store

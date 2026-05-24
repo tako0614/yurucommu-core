@@ -92,38 +92,36 @@ Takos 向け bundle:
 
 ```bash
 cd yurucommu
-deno task build:takos-worker
+deno task build:worker
 ```
 
 Takos bundled app packaging は `.takosumi.yml` AppSpec にあります。
 
-`.takosumi.yml` は `dist/takos-worker.js` を worker component の build output
-として扱います。 この bundle は web UI を worker に内包するため、Takos 側で
-`ASSETS` が無くても 画面は配信できます。`/healthz` は liveness probe で、binding
-欠落がある場合も 通常は `degraded` を 200 で返します。runtime binding の strict
-確認には `/readyz` を使い、Takos bundled app manifest の readiness も `/readyz`
-を使います。 `YURUCOMMU_STRICT_READINESS=1` を設定すると `/healthz` も binding
-欠落時に 503 を返します。
+`.takosumi.yml` は worker component の `spec.entrypoint` として prepared source
+内の `dist/worker.js` を指します。build command は `.takosumi.build.yml`
+にあり、 `deno task build:worker` で `dist/worker.js` を生成します。`/healthz`
+は liveness probe で、binding 欠落がある場合も 通常は `degraded` を 200
+で返します。runtime binding の strict 確認には `/readyz` を使います。
+`YURUCOMMU_STRICT_READINESS=1` を設定すると `/healthz` も binding 欠落時に 503
+を 返します。
 
 ただし canonical ActivityPub identity を固定する production では `APP_URL` を
-deploy env / AppSpec override で明示してください。runtime binding は
-`.takosumi.yml` の provider metadata で `DB` / `MEDIA` / `KV` / `DELIVERY_QUEUE`
-/ `DELIVERY_DLQ` として宣言済みです。queue consumer は同 AppSpec の Cloudflare
-provider metadata で `DELIVERY_QUEUE` を primary consumer、 `DELIVERY_DLQ` を
-dead-letter queue かつ DLQ reconciliation consumer として 宣言します。AppSpec は
-`DELIVERY_QUEUE_NAME=yurucommu-delivery` と
-`DELIVERY_DLQ_NAME=yurucommu-delivery-dlq` も明示し、Takos resource 名と runtime
-dispatch 名を一致させます。
+deploy env で明示してください。`.takosumi.yml` は postgres component の
+`db.connection`、object-store component の `media.bucket` を local publication
+として publish し、worker はそれらと `namespace:operator.identity.oidc` を
+listen します。KV / delivery queue bindings が必要な operator distribution
+では、AppSpec 外の deploy config で `KV` / `DELIVERY_QUEUE` / `DELIVERY_DLQ` と
+queue 名 env を供給してください。
 
 Takosumi install/deploy の目安:
 
 ```bash
 cd yurucommu
 
-# 1. AppSpec metadata / bindings / queue consumers を検証する
+# 1. AppSpec metadata / components / publication-listen wiring を検証する
 takosumi install dry-run git:https://github.com/tako0614/yurucommu.git#<pinned-tag> --space <space-id>
 
-# 2. D1 migration を適用する
+# 2. Takosumi が provision した database に migration を適用する
 deno task takos:migrate
 
 # 3. strict readiness を確認し、必要なら Takosumi installer / Accounts 経由で再 apply する
@@ -141,10 +139,10 @@ cd yurucommu
 takosumi install dry-run --source . --space <space-id>
 ```
 
-`.takosumi.yml` は Git URL install 用 AppSpec です。OIDC binding、media
-object-store binding、domain binding、Takos resource permission grant、runtime
-mode、worker component を宣言します。D1 / KV / Queue は provider requirement
-として記録しています。
+`.takosumi.yml` は Git URL install 用 AppSpec です。worker component、postgres
+component、media object-store component、routes、OIDC / database / media の
+publication-listen wiring を宣言します。permissions、build command、provider
+metadata は AppSpec に含めません。
 
 静的サイト:
 

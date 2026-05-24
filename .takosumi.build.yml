@@ -1,0 +1,12 @@
+apiVersion: v1
+
+metadata:
+  id: com.yurucommu.app.build
+  name: Yurucommu build
+
+components:
+  web:
+    kind: linux-container
+    spec:
+      image: denoland/deno:alpine
+      command: deno task build:worker
