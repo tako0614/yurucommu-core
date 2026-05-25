@@ -1,5 +1,7 @@
 apiVersion: v1
 
+# Short kind names are operator-profile aliases. Gateway listeners/routes are
+# gateway descriptor spec fields, not AppSpec core fields.
 metadata:
   id: com.yurucommu.app
   name: Yurucommu
@@ -12,28 +14,41 @@ components:
     kind: worker
     spec:
       entrypoint: dist/worker.js
-      routes:
-        - /
-        - /api
-        - /media
-        - /.well-known
-        - /ap
-        - /users
-        - /communities
-        - /inbox
-        - /api/auth/callback/takos
+    publish:
+      http:
+        as: http-endpoint
     listen:
       db:
         from: db.connection
-        as: env
+        as: secret-env
         prefix: DB
       media:
         from: media.bucket
-        as: env
+        as: secret-env
         prefix: MEDIA
       oidc:
-        from: namespace:operator.identity.oidc
-        as: env
+        from: operator.identity.oidc
+        as: secret-env
+        prefix: OIDC
+        required: true
+
+  public:
+    kind: gateway
+    listen:
+      upstream:
+        from: web.http
+        as: upstream
+    publish:
+      public:
+        as: http-endpoint
+    spec:
+      listeners:
+        public:
+          protocol: https
+      routes:
+        - listener: public
+          path: /
+          to: upstream
 
   db:
     kind: postgres

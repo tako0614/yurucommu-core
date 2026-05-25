@@ -18,6 +18,6 @@ Yurucommu へのコントリビューションを歓迎します。
 ## エコシステム全体のガイダンス
 
 このリポジトリは [takos-ecosystem](https://github.com/tako0614/takos-ecosystem)
-の一部です。 エコシステム全体のコントリビューション方針は
+の一部です。エコシステム全体のコントリビューション方針は
 [CONTRIBUTING.md](https://github.com/tako0614/takos-ecosystem/blob/master/CONTRIBUTING.md)
 を参照してください。
