@@ -14,33 +14,28 @@ components:
     kind: worker
     spec:
       entrypoint: dist/worker.js
-    publish:
-      http:
-        as: http-endpoint
-    listen:
+    connect:
       db:
-        from: db.connection
-        as: secret-env
+        output: db.connection
+        inject: secret-env
         prefix: DB
       media:
-        from: media.bucket
-        as: secret-env
+        output: media.bucket
+        inject: secret-env
         prefix: MEDIA
+    listen:
       oidc:
-        from: operator.identity.oidc
-        as: secret-env
+        path: identity.primary.oidc
+        inject: secret-env
         prefix: OIDC
         required: true
 
   public:
     kind: gateway
-    listen:
+    connect:
       upstream:
-        from: web.http
-        as: upstream
-    publish:
-      public:
-        as: http-endpoint
+        output: web.http
+        inject: upstream
     spec:
       listeners:
         public:
@@ -53,15 +48,15 @@ components:
   db:
     kind: postgres
     spec:
+      version: "16"
       size: small
-    publish:
-      connection:
-        as: service-binding
 
   media:
     kind: object-store
     spec:
       name: yurucommu-media
-    publish:
-      bucket:
-        as: object-store
+
+publish:
+  public:
+    output: public.public
+    path: yurucommu.http.public

@@ -26,6 +26,7 @@ const SearchPage = lazy(() => import("./pages/SearchPage.tsx"));
 function AppContent() {
   const { actor, loading, loginError, login } = useAuth();
   const t = useAtomValue(tAtom);
+  const installUrl = yurucommuTakosumiCloudInstallUrl();
 
   return (
     <Show
@@ -43,6 +44,13 @@ function AppContent() {
             <h1 class="text-4xl font-bold mb-4">Yurucommu</h1>
             <p class="text-neutral-500 mb-8">Social Network</p>
             <LoginForm onLogin={login} error={loginError()} />
+            <a
+              href={installUrl}
+              class="mt-6 inline-flex items-center justify-center rounded-lg border border-green-400/50 px-4 py-2 text-sm font-medium text-green-200 transition-colors hover:border-green-300 hover:bg-green-400/10"
+              rel="noopener"
+            >
+              Takosumi Cloud で install
+            </a>
           </div>
         }
       >
@@ -67,6 +75,19 @@ function AppContent() {
       </Show>
     </Show>
   );
+}
+
+function yurucommuTakosumiCloudInstallUrl(): string {
+  const host = typeof location === "undefined" ? "" : location.hostname;
+  const cloudHost = host.endsWith(".test") || host === "localhost"
+    ? "cloud.takosumi.test"
+    : "cloud.takosumi.com";
+  const url = new URL(`https://${cloudHost}/apps/install`);
+  url.searchParams.set("git", "https://github.com/tako0614/yurucommu.git");
+  url.searchParams.set("ref", "main");
+  url.searchParams.set("mode", "shared-cell");
+  url.searchParams.set("autodryrun", "1");
+  return url.toString();
 }
 
 export default function App() {

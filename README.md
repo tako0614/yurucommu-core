@@ -108,11 +108,11 @@ liveness probe で、binding 欠落がある場合も通常は `degraded` を 20
 
 ただし canonical ActivityPub identity を固定する production では `APP_URL` を
 deploy env で明示してください。`.takosumi.yml` は postgres component の
-`db.connection`、object-store component の `media.bucket` を local publication
-として publish し、worker はそれらと `operator.identity.oidc` external
-publication を listen します。KV / delivery queue bindings が必要な operator
-distribution では、AppSpec 外の deploy config で `KV` / `DELIVERY_QUEUE` /
-`DELIVERY_DLQ` と queue 名 env を供給してください。
+`db.connection`、object-store component の `media.bucket` を `connect` し、
+worker はそれらと `identity.primary.oidc` platform service を受け取ります。KV /
+delivery queue bindings が必要な operator distribution では、AppSpec 外の deploy
+config で `KV` / `DELIVERY_QUEUE` / `DELIVERY_DLQ` と queue 名 env
+を供給してください。
 
 Takosumi install/deploy の目安。Git URL dry-run は catalog discovery / metadata
 lint 用です。`dist/worker.js` は Git source に含めず `.takosumi.build.yml`
@@ -123,7 +123,7 @@ source を使います。local `--source .` は build 後に `dist/worker.js`
 ```bash
 cd yurucommu
 
-# 1. AppSpec metadata / components / publication-listen wiring を検証する
+# 1. AppSpec metadata / components / connect-listen wiring を検証する
 takosumi install dry-run --source git:https://github.com/tako0614/yurucommu.git#<pinned-tag> --space <space-id>
 
 # 2. build service / CI が prepared source を作り、Installer API に source.kind=prepared と archive payload source.digest を渡す
@@ -149,8 +149,8 @@ takosumi install dry-run --source . --space <space-id>
 
 `.takosumi.yml` は Installer API に渡す AppSpec です。operator-resolved worker
 component、gateway component、postgres component、media object-store
-component、worker の `publish.http`、gateway の listener / route intent、OIDC /
-database / media の publication-listen wiring を宣言します。permissions、build
+component、worker の `http` output、gateway の listener / route intent、OIDC /
+database / media の connect / listen wiring を宣言します。permissions、build
 command、provider metadata は AppSpec に含めません。
 
 静的サイト:

@@ -14,6 +14,7 @@ export default defineConfig({
     // local-substrate Caddy が yurucommu.test → host.docker.internal:5173
     // で TLS 終端 + reverse proxy する前提)。 localhost access も影響受けない。
     host: true,
+    allowedHosts: ["yurucommu.test"],
     proxy: {
       "/api": "http://localhost:8787",
     },
