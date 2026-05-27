@@ -7,6 +7,7 @@ import { tAtom } from "./atoms/i18n.ts";
 import { LoginForm } from "./components/LoginForm.tsx";
 import { AppLayout } from "./components/layout/index.ts";
 import { LoadingSpinner } from "./components/LoadingSpinner.tsx";
+import { yurucommuTakosumiCloudInstallUrl } from "./lib/takosumi-cloud-install.ts";
 
 // Lazy load page components for code splitting
 const TimelinePage = lazy(() => import("./pages/TimelinePage.tsx"));
@@ -75,19 +76,6 @@ function AppContent() {
       </Show>
     </Show>
   );
-}
-
-function yurucommuTakosumiCloudInstallUrl(): string {
-  const host = typeof location === "undefined" ? "" : location.hostname;
-  const cloudHost = host.endsWith(".test") || host === "localhost"
-    ? "cloud.takosumi.test"
-    : "cloud.takosumi.com";
-  const url = new URL(`https://${cloudHost}/apps/install`);
-  url.searchParams.set("git", "https://github.com/tako0614/yurucommu.git");
-  url.searchParams.set("ref", "main");
-  url.searchParams.set("mode", "shared-cell");
-  url.searchParams.set("autodryrun", "1");
-  return url.toString();
 }
 
 export default function App() {
