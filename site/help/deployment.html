@@ -91,7 +91,24 @@
           ディレクトリに静的ファイルが生成されます。
         </p>
 
-        <h2>デプロイ</h2>
+        <p>
+          Takosumi Cloud install 用の worker entrypoint は <code>.takosumi.build.yml</code>
+          と同じ流れで生成します。
+        </p>
+        <pre><code>deno task build:worker</code></pre>
+        <p>
+          <code>.takosumi.yml</code> の <code>web.spec.entrypoint</code> は
+          prepared source 内の <code>dist/worker.js</code> を指します。
+        </p>
+
+        <h2>Takosumi Cloudでinstall</h2>
+        <p>
+          Takosumi Cloudを使う場合は、Cloud install wizardでdry-runを確認してからInstallationを作成します。
+          起動はTakosumiがactivateしたpublic HTTP endpointを開き、Yurucommu側のTakosumi Accounts OIDCでサインインします。
+        </p>
+        <pre><code>https://cloud.takosumi.com/apps/install?git=https://github.com/tako0614/yurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autodryrun=1</code></pre>
+
+        <h2>Cloudflareへ直接デプロイ</h2>
         <pre><code>deno task deploy</code></pre>
 
         <p>成功すると以下のように表示されます：</p>

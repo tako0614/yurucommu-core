@@ -78,39 +78,48 @@
         <li>Git</li>
       </ul>
 
-      <h2>Step 1: リポジトリをクローン</h2>
+      <h2>Takosumi Cloudから始める</h2>
+      <p>
+        Takosumi Cloudを使う場合は、Cloud install wizardでdry-runを確認してからInstallationを作成します。
+        起動先はTakosumiがactivateしたpublic HTTP endpointで、サインインはYurucommu側のTakosumi Accounts OIDCで行います。
+      </p>
+      <pre><code>https://cloud.takosumi.com/apps/install?git=https://github.com/tako0614/yurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autodryrun=1</code></pre>
+
+      <h2>直接デプロイする場合</h2>
+
+      <h3>Step 1: リポジトリをクローン</h3>
       <pre><code>git clone https://github.com/tako0614/yurucommu.git
 cd yurucommu
 deno task dev</code></pre>
       <p><code>deno task dev</code> は <code>wrangler.local.toml</code> を使ってローカル Worker を起動します。開発時の基本タスクは <code>deno task build</code>、<code>deno task deploy</code>、<code>deno task db:generate</code> です。</p>
 
-      <h2>Step 2: Cloudflare CLIでログイン</h2>
+      <h3>Step 2: Cloudflare CLIでログイン</h3>
       <pre><code>deno run -A npm:wrangler login</code></pre>
       <p>ブラウザが開くので、Cloudflareアカウントで認証してください。</p>
 
-      <h2>Step 3: D1データベースを作成</h2>
+      <h3>Step 3: D1データベースを作成</h3>
       <pre><code>deno run -A npm:wrangler d1 create yurucommu-db</code></pre>
       <p>作成後、表示される <code>database_id</code> をメモしてください。</p>
 
-      <h2>Step 4: R2バケットを作成</h2>
+      <h3>Step 4: R2バケットを作成</h3>
       <pre><code>deno run -A npm:wrangler r2 bucket create yurucommu-media</code></pre>
 
-      <h2>Step 5: wrangler.tomlを設定</h2>
+      <h3>Step 5: wrangler.tomlを設定</h3>
       <p><code>wrangler.toml</code>を開き、D1のIDを設定します：</p>
       <pre><code>[[d1_databases]]
 binding = "DB"
 database_name = "yurucommu-db"
 database_id = "ここにStep 3でメモしたIDを入力"</code></pre>
 
-      <h2>Step 6: データベースマイグレーション</h2>
+      <h3>Step 6: データベースマイグレーション</h3>
       <pre><code>deno run -A npm:wrangler d1 migrations apply yurucommu-db --remote</code></pre>
 
-      <h2>Step 7: デプロイ</h2>
+      <h3>Step 7: デプロイ</h3>
       <pre><code>deno task build
 deno task deploy</code></pre>
       <p>デプロイが完了すると、URLが表示されます（例: <code>yurucommu.xxx.workers.dev</code>）</p>
 
-      <h2>Step 8: 初期設定</h2>
+      <h3>Step 8: 初期設定</h3>
       <p>デプロイしたURLにアクセスし、初回セットアップを行います：</p>
       <ol>
         <li>ユーザー名を設定</li>
