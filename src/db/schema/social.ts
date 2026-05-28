@@ -71,3 +71,36 @@ export const mutes = sqliteTable(
     index("mutes_muted_idx").on(t.mutedApId),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// BLOCKED_DOMAINS / BLOCKED_ACTORS (federation moderation blocklist)
+// ---------------------------------------------------------------------------
+//
+// `blockedDomains` blocks every actor whose AP-ID hostname matches; the row
+// is checked once per inbound activity. `blockedActors` blocks individual
+// remote actors and exists alongside per-user `blocks` so that operator-level
+// moderation can override what a single user can revoke.
+
+export const blockedDomains = sqliteTable(
+  "blocked_domains",
+  {
+    domain: text("domain").primaryKey(),
+    reason: text("reason"),
+    createdAt: text("created_at").notNull().$defaultFn(nowIso),
+  },
+  (t) => [
+    index("blocked_domains_created_idx").on(t.createdAt),
+  ],
+);
+
+export const blockedActors = sqliteTable(
+  "blocked_actors",
+  {
+    actorApId: text("actor_ap_id").primaryKey(),
+    reason: text("reason"),
+    createdAt: text("created_at").notNull().$defaultFn(nowIso),
+  },
+  (t) => [
+    index("blocked_actors_created_idx").on(t.createdAt),
+  ],
+);

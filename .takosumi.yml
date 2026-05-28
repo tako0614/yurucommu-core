@@ -9,6 +9,26 @@ metadata:
   publisher: takos
   homepage: https://github.com/tako0614/yurucommu
 
+# ---------------------------------------------------------------------------
+# Known gap (tracked, not yet resolved):
+#
+# Yurucommu's worker runtime also requires the following runtime bindings,
+# which the operator must currently supply via deploy-config (e.g. the
+# accompanying wrangler.toml `[[kv_namespaces]]` / `[[queues.producers]]` /
+# `[vars]` sections) rather than via AppSpec components:
+#
+#   - KV               (session / OAuth state / rate-limit counters)
+#   - DELIVERY_QUEUE   (outbound ActivityPub delivery queue)
+#   - DELIVERY_DLQ     (delivery dead-letter queue)
+#   - ENCRYPTION_KEY   (secret env; encrypts session + sensitive tokens)
+#
+# These are NOT yet declared here as `kv-store` / `message-queue` /
+# secret-env components because the deploy facade still passes them through
+# directly. See README.md lines 122-128 for the operator-side note on this
+# split. Future work: introduce explicit AppSpec components for KV /
+# delivery queues / ENCRYPTION_KEY so the install/deploy path can provision
+# them through the kernel without bespoke wrangler.toml editing.
+# ---------------------------------------------------------------------------
 components:
   web:
     kind: worker

@@ -120,14 +120,23 @@ export async function runMigrations(
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
 
-    for (const stmt of statements) {
+    for (
+      let statementIndex = 0;
+      statementIndex < statements.length;
+      statementIndex++
+    ) {
+      const stmt = statements[statementIndex];
       try {
         db.getRawDatabase().exec(stmt);
       } catch (e) {
+        // Do NOT log the raw `stmt`: migration SQL can carry inline
+        // values (seed data, default keys, etc). Log structured fields
+        // only.
         log.error("Error executing statement", {
           event: "migration.statement_failed",
           file,
-          statement: stmt,
+          statementIndex,
+          errorMessage: e instanceof Error ? e.message : String(e),
         });
         throw e;
       }

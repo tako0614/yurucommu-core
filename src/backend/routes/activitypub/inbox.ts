@@ -21,6 +21,10 @@ import {
 } from "../../lib/activitypub-validators.ts";
 import { logger } from "../../lib/logger.ts";
 import {
+  consumeRateLimitProgrammatic,
+  RateLimitConfigs,
+} from "../../middleware/rate-limit.ts";
+import {
   handleGroupCreate,
   handleGroupFollow,
   handleGroupUndo,
@@ -50,6 +54,35 @@ type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 const MAX_SIGNATURE_AGE_MS = 5 * 60 * 1000;
 const MAX_PAYLOAD_BYTES = 512 * 1024;
 const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
+
+// ---------------------------------------------------------------------------
+// Actor public-key cache (TTL + in-flight de-dup + key-rotation detection)
+// ---------------------------------------------------------------------------
+//
+// `fetchActorPublicKey` runs on every inbound activity, so a cold-cache
+// thundering herd against a misbehaving peer used to be able to fan out
+// `O(activities_received)` HTTP fetches against the same actor URL. We
+// dedupe in-flight fetches with a Promise-coalesced cache and refresh
+// cached rows once they pass `ACTOR_CACHE_TTL_MS`.
+//
+// Key rotation: when we re-fetch and the actor document advertises a
+// different `publicKey.id` than what we have cached, we log it as a
+// rotation event so operators can audit (and the new key takes effect
+// because we overwrite the cached row).
+const ACTOR_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const inFlightActorFetches = new Map<string, Promise<string | null>>();
+
+interface ActorFetchResult {
+  publicKeyPem: string;
+  publicKeyId: string | null;
+}
+
+function isCachedActorFresh(lastFetchedAt: string | null): boolean {
+  if (!lastFetchedAt) return false;
+  const fetchedTime = Date.parse(lastFetchedAt);
+  if (!Number.isFinite(fetchedTime)) return false;
+  return Date.now() - fetchedTime < ACTOR_CACHE_TTL_MS;
+}
 
 type RequestBodyResult =
   | { ok: true; body: string }
@@ -132,6 +165,64 @@ async function readRequestBodyWithLimit(
 }
 
 // ---------------------------------------------------------------------------
+// HTTP Date parsing (RFC 7231 IMF-fixdate, strict)
+// ---------------------------------------------------------------------------
+
+const IMF_FIXDATE_RE =
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), (\d{2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/;
+
+const IMF_MONTH_INDEX: Record<string, number> = {
+  Jan: 0,
+  Feb: 1,
+  Mar: 2,
+  Apr: 3,
+  May: 4,
+  Jun: 5,
+  Jul: 6,
+  Aug: 7,
+  Sep: 8,
+  Oct: 9,
+  Nov: 10,
+  Dec: 11,
+};
+
+function parseImfFixdate(value: string): Date | null {
+  const match = IMF_FIXDATE_RE.exec(value);
+  if (!match) return null;
+  const [, dayStr, monthName, yearStr, hourStr, minuteStr, secondStr] = match;
+  const day = Number(dayStr);
+  const month = IMF_MONTH_INDEX[monthName];
+  const year = Number(yearStr);
+  const hour = Number(hourStr);
+  const minute = Number(minuteStr);
+  const second = Number(secondStr);
+
+  if (
+    !Number.isFinite(day) || !Number.isFinite(year) ||
+    !Number.isFinite(hour) || !Number.isFinite(minute) ||
+    !Number.isFinite(second) || month === undefined
+  ) {
+    return null;
+  }
+
+  const timestamp = Date.UTC(year, month, day, hour, minute, second);
+  const date = new Date(timestamp);
+  // Reject rollovers (e.g. "32 Jan" -> "1 Feb"): the produced date must
+  // round-trip back to the same calendar components.
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month ||
+    date.getUTCDate() !== day ||
+    date.getUTCHours() !== hour ||
+    date.getUTCMinutes() !== minute ||
+    date.getUTCSeconds() !== second
+  ) {
+    return null;
+  }
+  return date;
+}
+
+// ---------------------------------------------------------------------------
 // Signature parsing & verification
 // ---------------------------------------------------------------------------
 
@@ -177,85 +268,236 @@ async function fetchActorPublicKey(
 
   const cached = await db.query.actorCache.findFirst({
     where: eq(actorCache.apId, actorUrl),
-    columns: { publicKeyPem: true },
+    columns: {
+      publicKeyPem: true,
+      publicKeyId: true,
+      lastFetchedAt: true,
+    },
   });
 
-  if (cached?.publicKeyPem) {
+  if (cached?.publicKeyPem && isCachedActorFresh(cached.lastFetchedAt)) {
     return cached.publicKeyPem;
   }
 
-  try {
-    const res = await fetchWithTimeout(actorUrl, {
-      headers: { "Accept": "application/activity+json, application/ld+json" },
-      timeout: 15000,
-    });
+  // Coalesce concurrent fetches for the same actor URL. Without this a
+  // burst of inbound activities from the same peer would all miss the
+  // cache simultaneously and each open its own HTTP fetch.
+  const existingFetch = inFlightActorFetches.get(actorUrl);
+  if (existingFetch) {
+    return await existingFetch;
+  }
 
-    if (!res.ok) {
-      log.warn("Failed to fetch actor for signature key", {
-        event: "ap.signature.actor_fetch_failed",
-        keyId,
-        actorUrl,
-        status: res.status,
+  const fetchPromise = (async (): Promise<string | null> => {
+    try {
+      const res = await fetchWithTimeout(actorUrl, {
+        headers: { "Accept": "application/activity+json, application/ld+json" },
+        timeout: 15000,
       });
-      return null;
-    }
 
-    const rawActor: unknown = await res.json();
-    const actorData = tryParseRemoteActor(rawActor);
-    if (!actorData) {
-      log.warn("Invalid actor document for signature key", {
-        event: "ap.signature.actor_invalid",
-        keyId,
-        actorUrl,
-      });
-      return null;
-    }
-    if (!actorData.publicKey?.publicKeyPem) {
-      log.warn("Actor has no public key", {
-        event: "ap.actor.no_public_key",
-        keyId,
-        actorUrl,
-        actor: actorData.id,
-      });
-      return null;
-    }
-    const publicKeyPem = actorData.publicKey.publicKeyPem;
-
-    if (
-      actorData.id && actorData.inbox && isSafeRemoteUrl(actorData.id) &&
-      isSafeRemoteUrl(actorData.inbox)
-    ) {
-      const narrowed = actorData as RemoteActor & {
-        inbox: string;
-        publicKey: { publicKeyPem: string };
-      };
-      const cacheFields = buildActorCacheFields(narrowed);
-      // Upsert: check existence then insert or update
-      const existing = await db.query.actorCache.findFirst({
-        where: eq(actorCache.apId, actorData.id),
-        columns: { apId: true },
-      });
-      if (existing) {
-        await db.update(actorCache).set(cacheFields).where(
-          eq(actorCache.apId, actorData.id),
-        );
-      } else {
-        await db.insert(actorCache).values({
-          apId: actorData.id,
-          ...cacheFields,
+      if (!res.ok) {
+        log.warn("Failed to fetch actor for signature key", {
+          event: "ap.signature.actor_fetch_failed",
+          keyId,
+          actorUrl,
+          status: res.status,
         });
+        // Fall back to the stale cached key (if any) so a transient
+        // upstream failure does not bring federation to a halt.
+        return cached?.publicKeyPem ?? null;
       }
-    }
 
-    return publicKeyPem;
+      const rawActor: unknown = await res.json();
+      const actorData = tryParseRemoteActor(rawActor);
+      if (!actorData) {
+        log.warn("Invalid actor document for signature key", {
+          event: "ap.signature.actor_invalid",
+          keyId,
+          actorUrl,
+        });
+        return cached?.publicKeyPem ?? null;
+      }
+      if (!actorData.publicKey?.publicKeyPem) {
+        log.warn("Actor has no public key", {
+          event: "ap.actor.no_public_key",
+          keyId,
+          actorUrl,
+          actor: actorData.id,
+        });
+        return cached?.publicKeyPem ?? null;
+      }
+
+      const result: ActorFetchResult = {
+        publicKeyPem: actorData.publicKey.publicKeyPem,
+        publicKeyId: actorData.publicKey.id ?? null,
+      };
+
+      // Key rotation detection: log whenever a fresh fetch produces a
+      // different `publicKey.id` (or a different PEM under the same id)
+      // than the cached row. This lets operators audit unexpected key
+      // changes that might indicate an actor compromise.
+      if (cached?.publicKeyPem) {
+        const previousKeyId = cached.publicKeyId ?? null;
+        const keyIdChanged = result.publicKeyId !== previousKeyId;
+        const pemChanged = cached.publicKeyPem !== result.publicKeyPem;
+        if (keyIdChanged || pemChanged) {
+          log.warn("Detected actor public-key rotation", {
+            event: "ap.actor.key_rotation",
+            actorUrl,
+            previousKeyId,
+            newKeyId: result.publicKeyId,
+            pemChanged,
+          });
+        }
+      }
+
+      if (
+        actorData.id && actorData.inbox && isSafeRemoteUrl(actorData.id) &&
+        isSafeRemoteUrl(actorData.inbox)
+      ) {
+        const narrowed = actorData as RemoteActor & {
+          inbox: string;
+          publicKey: { publicKeyPem: string };
+        };
+        const cacheFields = buildActorCacheFields(narrowed);
+        // Upsert: check existence then insert or update
+        const existing = await db.query.actorCache.findFirst({
+          where: eq(actorCache.apId, actorData.id),
+          columns: { apId: true },
+        });
+        if (existing) {
+          await db.update(actorCache).set(cacheFields).where(
+            eq(actorCache.apId, actorData.id),
+          );
+        } else {
+          await db.insert(actorCache).values({
+            apId: actorData.id,
+            ...cacheFields,
+          });
+        }
+      }
+
+      return result.publicKeyPem;
+    } catch (e) {
+      log.error("Error fetching actor for signature key", {
+        event: "ap.signature.actor_fetch_error",
+        keyId,
+        actorUrl,
+        error: e,
+      });
+      return cached?.publicKeyPem ?? null;
+    } finally {
+      inFlightActorFetches.delete(actorUrl);
+    }
+  })();
+
+  inFlightActorFetches.set(actorUrl, fetchPromise);
+  return await fetchPromise;
+}
+
+/**
+ * Verify the HTTP Signature on a GET request (no body digest required).
+ * Returns the resolved signing actor URL on success. Used to gate
+ * non-public object reads.
+ */
+export async function verifyGetHttpSignature(
+  c: HonoContext,
+): Promise<{ valid: boolean; signingActor?: string; error?: string }> {
+  const signatureHeader = c.req.header("Signature");
+  if (!signatureHeader) {
+    return { valid: false, error: "Missing Signature header" };
+  }
+
+  const parsed = parseSignatureHeader(signatureHeader);
+  if (!parsed) {
+    return { valid: false, error: "Invalid Signature header format" };
+  }
+
+  if (!parsed.headers.includes("date")) {
+    return { valid: false, error: "date header must be included in signature" };
+  }
+  if (!parsed.headers.includes("(request-target)")) {
+    return { valid: false, error: "(request-target) must be signed" };
+  }
+  if (parsed.algorithm !== "rsa-sha256") {
+    return {
+      valid: false,
+      error: `Unsupported algorithm: ${parsed.algorithm}`,
+    };
+  }
+
+  const dateHeader = c.req.header("date");
+  if (!dateHeader) {
+    return { valid: false, error: "Missing Date header required by signature" };
+  }
+  const requestDate = parseImfFixdate(dateHeader);
+  if (!requestDate) {
+    return { valid: false, error: "unable_to_parse_date" };
+  }
+  if (Math.abs(Date.now() - requestDate.getTime()) > MAX_SIGNATURE_AGE_MS) {
+    return {
+      valid: false,
+      error: "Request timestamp outside acceptable window",
+    };
+  }
+
+  const url = new URL(c.req.url);
+  const requestTarget = `${url.pathname}${url.search}`;
+  const signatureParts: string[] = [];
+  for (const headerName of parsed.headers) {
+    if (headerName === "(request-target)") {
+      signatureParts.push(
+        `(request-target): ${c.req.method.toLowerCase()} ${requestTarget}`,
+      );
+      continue;
+    }
+    const headerValue = c.req.header(headerName);
+    if (!headerValue) {
+      return { valid: false, error: `Missing required header: ${headerName}` };
+    }
+    signatureParts.push(`${headerName}: ${headerValue}`);
+  }
+  const signatureString = signatureParts.join("\n");
+
+  const publicKeyPem = await fetchActorPublicKey(parsed.keyId, c);
+  if (!publicKeyPem) {
+    return { valid: false, error: "Could not fetch public key" };
+  }
+
+  try {
+    const pemContents = publicKeyPem.replace(/-----[^-]+-----/g, "").replace(
+      /\s/g,
+      "",
+    );
+    const binaryKey = base64ToBytes(pemContents);
+    const cryptoKey = await crypto.subtle.importKey(
+      "spki",
+      binaryKey.buffer as ArrayBuffer,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["verify"],
+    );
+
+    const signatureBytes = base64ToBytes(parsed.signature);
+    const valid = await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      cryptoKey,
+      signatureBytes.buffer as ArrayBuffer,
+      new TextEncoder().encode(signatureString),
+    );
+    if (!valid) {
+      return { valid: false, error: "Signature verification failed" };
+    }
+    return {
+      valid: true,
+      signingActor: signingActorFromKeyId(parsed.keyId),
+    };
   } catch (e) {
-    log.error("Error fetching actor for signature key", {
-      event: "ap.signature.actor_fetch_error",
-      keyId,
-      actorUrl,
+    log.error("GET signature verification error", {
+      event: "ap.signature.get_verification_error",
+      keyId: parsed.keyId,
       error: e,
     });
-    return null;
+    return { valid: false, error: "Signature verification error" };
   }
 }
 
@@ -277,14 +519,17 @@ async function verifyHttpSignature(
     return { valid: false, error: "date header must be included in signature" };
   }
 
-  // Validate Date header timestamp (prevents replay attacks)
+  // Validate Date header timestamp (prevents replay attacks). RFC 7231
+  // requires IMF-fixdate (e.g. "Sun, 06 Nov 1994 08:49:37 GMT"). We parse
+  // strictly to reject ambiguous/locale-dependent inputs that `new Date()`
+  // would otherwise accept (rfc850 / asctime / arbitrary strings).
   const dateHeader = c.req.header("date");
   if (!dateHeader) {
     return { valid: false, error: "Missing Date header required by signature" };
   }
-  const requestDate = new Date(dateHeader);
-  if (isNaN(requestDate.getTime())) {
-    return { valid: false, error: "Invalid Date header format" };
+  const requestDate = parseImfFixdate(dateHeader);
+  if (!requestDate) {
+    return { valid: false, error: "unable_to_parse_date" };
   }
   if (Math.abs(Date.now() - requestDate.getTime()) > MAX_SIGNATURE_AGE_MS) {
     return {
@@ -583,8 +828,10 @@ function buildActorCacheFields(
     summary: actorData.summary,
     iconUrl: actorData.icon?.url,
     inbox: actorData.inbox,
+    publicKeyId: actorData.publicKey.id ?? null,
     publicKeyPem: actorData.publicKey.publicKeyPem,
     rawJson: JSON.stringify(actorData),
+    lastFetchedAt: new Date().toISOString(),
   };
 }
 
@@ -739,6 +986,59 @@ async function dispatchUserActivity(
 }
 
 // ---------------------------------------------------------------------------
+// Per-domain inbox throttling
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply a per-domain rate limit to an already-parsed inbox activity. This
+ * runs after signature verification so the bucket key is derived from the
+ * authenticated actor hostname rather than a spoofable header. Returns
+ * a 429 Response when the domain budget is exhausted.
+ */
+async function applyInboxDomainRateLimit(
+  c: HonoContext,
+  actor: string,
+): Promise<Response | null> {
+  let domain: string;
+  try {
+    domain = new URL(actor).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (!domain) return null;
+
+  const { entry, limited, retryAfter } = await consumeRateLimitProgrammatic(
+    c.env.KV,
+    RateLimitConfigs.inboxDomain,
+    domain,
+  );
+
+  c.header(
+    "X-RateLimit-Domain-Limit",
+    RateLimitConfigs.inboxDomain.maxRequests.toString(),
+  );
+  c.header(
+    "X-RateLimit-Domain-Remaining",
+    Math.max(0, RateLimitConfigs.inboxDomain.maxRequests - entry.count)
+      .toString(),
+  );
+
+  if (limited) {
+    log.warn("Per-domain inbox throttle exceeded", {
+      event: "ap.inbox.domain_rate_limited",
+      domain,
+      retryAfter,
+    });
+    c.header("Retry-After", retryAfter.toString());
+    return c.json({
+      error: "Too many requests from this domain",
+      retry_after: retryAfter,
+    }, 429);
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
 
@@ -750,6 +1050,9 @@ ap.post("/ap/actor/inbox", async (c) => {
 
   const result = await verifyAndParseInbox(c, baseUrl);
   if (result instanceof Response) return result;
+
+  const throttled = await applyInboxDomainRateLimit(c, result.actor);
+  if (throttled) return throttled;
 
   const duplicate = await deduplicateAndStoreActivity(c, result);
   if (duplicate) return duplicate;
@@ -791,6 +1094,9 @@ ap.post("/ap/users/:username/inbox", async (c) => {
 
   const result = await verifyAndParseInbox(c, baseUrl);
   if (result instanceof Response) return result;
+
+  const throttled = await applyInboxDomainRateLimit(c, result.actor);
+  if (throttled) return throttled;
 
   const duplicate = await deduplicateAndStoreActivity(c, result);
   if (duplicate) return duplicate;

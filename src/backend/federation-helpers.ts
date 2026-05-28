@@ -66,7 +66,21 @@ export function getDomain(apId: string): string {
 }
 
 export function isLocal(apId: string, baseUrl: string): boolean {
-  return apId.startsWith(baseUrl);
+  // Compare hostname (and port, if specified by `baseUrl`) rather than
+  // string-prefix `baseUrl`. Prefix comparison is unsafe because a remote
+  // host like `https://yurucommu.example.evil` would match a baseUrl of
+  // `https://yurucommu.example`.
+  try {
+    const apUrl = new URL(apId);
+    const baseUrlObj = new URL(baseUrl);
+    if (apUrl.hostname !== baseUrlObj.hostname) return false;
+    if (baseUrlObj.port !== "") {
+      return apUrl.port === baseUrlObj.port;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function formatUsername(apId: string): string {

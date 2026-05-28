@@ -52,6 +52,12 @@ export interface EnvVars {
   // production-equivalent な strict CSRF check 経由で踏むため)。 未設定なら
   // 既存動作と同じ (= APP_URL 単一 origin のみ accept、 production 影響ゼロ)。
   CSRF_ALLOWED_ORIGINS?: string;
+
+  // Honour upstream `X-Forwarded-For` / `X-Real-IP` headers. Opt-in so that
+  // a worker fronted directly by an attacker-controlled client cannot
+  // spoof its own IP. On Cloudflare we still prefer `CF-Connecting-IP`
+  // unconditionally because that header is set by the edge itself.
+  TAKOS_TRUST_PROXY?: string;
 }
 
 /**

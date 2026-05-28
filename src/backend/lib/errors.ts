@@ -4,6 +4,7 @@
  */
 
 import { logger } from "./logger.ts";
+import { maskSensitiveData, maskSensitiveString } from "./log-mask.ts";
 
 const log = logger.child({ component: "errors" });
 
@@ -88,23 +89,31 @@ export function logError(
   error: unknown,
   context?: Record<string, unknown>,
 ): void {
+  // Pass message / stack / details through the PII masker before
+  // emitting. The logger applies the same masker again as a safety net,
+  // but masking here keeps the structured `details` shape (which may be
+  // a nested object) honest even if logger transports change.
   const errorInfo = isAppError(error)
     ? {
       name: error.name,
       code: error.code,
-      message: error.message,
+      message: maskSensitiveString(error.message),
       statusCode: error.statusCode,
-      details: error.details,
-      stack: error.stack,
+      details: maskSensitiveData(error.details),
+      stack: error.stack ? maskSensitiveString(error.stack) : undefined,
     }
     : {
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      message: error instanceof Error
+        ? maskSensitiveString(error.message)
+        : maskSensitiveString(String(error)),
+      stack: error instanceof Error && error.stack
+        ? maskSensitiveString(error.stack)
+        : undefined,
     };
 
   log.error("AppError", {
     event: "app.error",
     ...errorInfo,
-    context,
+    context: context ? maskSensitiveData(context) : undefined,
   });
 }

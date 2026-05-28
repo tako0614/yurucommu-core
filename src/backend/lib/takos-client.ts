@@ -32,6 +32,17 @@ interface TokenResponse {
 // Token refresh lock to prevent concurrent refresh for the same session
 const refreshLocks = new Map<string, Promise<TokenResponse | null>>();
 
+/** Classify HTTP status into a coarse error kind safe to log. */
+function classifyTokenErrorKind(status: number): string {
+  if (status === 400) return "bad_request";
+  if (status === 401) return "unauthorized";
+  if (status === 403) return "forbidden";
+  if (status === 404) return "not_found";
+  if (status === 429) return "rate_limited";
+  if (status >= 500) return "upstream_error";
+  return "client_error";
+}
+
 export interface TakosSession {
   id: string;
   provider: string | null;
@@ -246,10 +257,14 @@ async function refreshTakosToken(
     const res = await fetch(url, init);
 
     if (!res.ok) {
+      // Do NOT log the raw response body; OIDC token endpoints can echo
+      // back the refresh_token or client_secret on misconfiguration. Log
+      // structured status / statusText / a kind-tag only.
       log.error("Failed to refresh takos token", {
         event: "takos.token.refresh_failed",
         status: res.status,
-        body: await res.text(),
+        statusText: res.statusText,
+        error_kind: classifyTokenErrorKind(res.status),
       });
       return null;
     }

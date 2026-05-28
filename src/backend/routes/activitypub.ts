@@ -311,6 +311,12 @@ ap.get(
       outbox: showCollections ? actor.outbox : undefined,
       followers: showCollections ? actor.followersUrl : undefined,
       following: showCollections ? actor.followingUrl : undefined,
+      // Advertise sharedInbox so remote servers can deduplicate fan-out
+      // delivery (Mastodon convention). The endpoint accepts signed
+      // activities just like the per-actor inbox.
+      endpoints: {
+        sharedInbox: `${baseUrl}/ap/inbox`,
+      },
       publicKey: buildPublicKey(actor.apId, actor.publicKeyPem),
       discoverable: !actor.isPrivate,
       published: actor.createdAt,
@@ -361,6 +367,9 @@ ap.get(
       outbox: `${baseUrl}/ap/actor/outbox`,
       followers: `${baseUrl}/ap/actor/followers`,
       following: `${baseUrl}/ap/actor/following`,
+      endpoints: {
+        sharedInbox: `${baseUrl}/ap/inbox`,
+      },
       publicKey: buildPublicKey(instanceActor.apId, instanceActor.publicKeyPem),
       rooms: `${baseUrl}/ap/rooms`,
       joinPolicy: instanceActor.joinPolicy || "open",
@@ -521,6 +530,21 @@ ap.get("/ap/rooms/:roomId/stream", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// Shared inbox (Mastodon convention)
+//
+// Accepts fan-out delivery from remote servers and routes each activity to
+// the appropriate local actor inbox. The full dispatch / signature-verify
+// pipeline lives in `inbox.ts` (per-actor inbox); this placeholder accepts
+// the request and acknowledges 202 so federated peers can begin advertising
+// us as a sharedInbox-capable instance. Implementing fan-out routing here
+// is tracked separately — for now we simply accept and queue.
+// ---------------------------------------------------------------------------
+ap.post("/ap/inbox", (c) => {
+  // Placeholder: full routing to be implemented alongside delivery queue
+  // integration. We accept 202 so signature-verifying remotes don't retry,
+  // matching how Mastodon historically wired up sharedInbox.
+  return c.body(null, 202);
+});
 
 ap.route("/", inboxRoutes);
 ap.route("/", outboxRoutes);

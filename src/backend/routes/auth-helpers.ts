@@ -16,6 +16,17 @@ import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "auth.helpers" });
 
+/** Classify HTTP status into a coarse error kind safe to log. */
+function classifyOAuthErrorKind(status: number): string {
+  if (status === 400) return "invalid_request";
+  if (status === 401) return "invalid_client";
+  if (status === 403) return "forbidden";
+  if (status === 404) return "endpoint_not_found";
+  if (status === 429) return "rate_limited";
+  if (status >= 500) return "upstream_error";
+  return "client_error";
+}
+
 /** Session lifetime: 30 days in seconds. */
 export const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
@@ -259,12 +270,15 @@ export async function exchangeOAuthToken(
   const res = await fetch(tokenUrl, requestInit);
 
   if (!res.ok) {
+    // Do NOT log the raw response body. Upstream OAuth providers can
+    // echo the supplied `client_secret` / `code` / refresh tokens on
+    // validation failures. Log structured fields only.
     log.error("Token exchange failed", {
       event: "auth.oauth.token_exchange_failed",
       provider: providerId,
       status: res.status,
       statusText: res.statusText,
-      body: await res.text(),
+      error_kind: classifyOAuthErrorKind(res.status),
       tokenUrl: provider.tokenUrl,
     });
     return null;

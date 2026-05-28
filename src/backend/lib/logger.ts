@@ -8,7 +8,13 @@
  * - Human-readable output in development
  * - Uses console.warn/console.error (ESLint-allowed) for warn/error levels
  * - Uses console.log (with eslint-disable) only for debug/info levels
+ * - All emitted payloads pass through `maskSensitiveData` so JWTs,
+ *   bearer tokens, password/secret/token/cookie/authorization-keyed
+ *   fields, PEM keys, AWS access keys, emails, and Luhn credit cards
+ *   are redacted before they reach stdout.
  */
+
+import { maskSensitiveData, maskSensitiveString } from "./log-mask.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -154,13 +160,23 @@ class LoggerImpl implements Logger {
     msg: string,
     data?: Record<string, unknown>,
   ): void {
-    const entry: LogEntry = {
+    const rawEntry: LogEntry = {
       level,
       msg,
       ts: new Date().toISOString(),
       ...(this.service ? { service: this.service } : {}),
       ...this.fields,
       ...formatData(data),
+    };
+    // Mask before serialization. `level` / `ts` / `service` are safe and
+    // are restored after masking so they always retain canonical shape.
+    const masked = maskSensitiveData(rawEntry) as Record<string, unknown>;
+    const entry: LogEntry = {
+      ...masked,
+      level: rawEntry.level,
+      msg: maskSensitiveString(rawEntry.msg),
+      ts: rawEntry.ts,
+      ...(rawEntry.service ? { service: rawEntry.service } : {}),
     };
     const line = JSON.stringify(entry);
     this.write(level, line);
@@ -177,12 +193,15 @@ class LoggerImpl implements Logger {
     const tag = PRETTY_LEVEL_TAG[level];
     const svc = this.service ? ` [${this.service}]` : "";
 
-    const merged = { ...this.fields, ...formatData(data) };
+    const merged = maskSensitiveData({
+      ...this.fields,
+      ...formatData(data),
+    }) as Record<string, unknown>;
     const extra = Object.keys(merged).length > 0
       ? " " + JSON.stringify(merged)
       : "";
 
-    const line = `${ts} ${tag}${svc} ${msg}${extra}`;
+    const line = `${ts} ${tag}${svc} ${maskSensitiveString(msg)}${extra}`;
     this.write(level, line);
   }
 

@@ -27,6 +27,7 @@ import { appsApiRoutes, appsServeRoutes } from "./routes/apps.ts";
 import { rateLimit, RateLimitConfigs } from "./middleware/rate-limit.ts";
 import { csrfProtection } from "./middleware/csrf.ts";
 import { createErrorMiddleware } from "./middleware/error-handler.ts";
+import { bodyLimit, DEFAULT_BODY_LIMIT_BYTES } from "./middleware/body-limit.ts";
 import { logger } from "./lib/logger.ts";
 
 const log = logger.child({ component: "backend.index" });
@@ -138,6 +139,26 @@ function mountReadinessRoutes(app: YurucommuApp): void {
   });
 }
 
+const MEDIA_UPLOAD_BODY_LIMIT_BYTES = 10 * 1024 * 1024; // 10 MiB
+const INBOX_BODY_LIMIT_BYTES = 512 * 1024; // 512 KiB
+
+function applyBodyLimits(app: YurucommuApp): void {
+  // Per-route caps are registered BEFORE the global default cap so that the
+  // larger media-upload cap wins for /api/media/* and the stricter inbox cap
+  // wins for /ap/*/inbox. The default 1 MiB cap then applies everywhere else.
+  // ActivityPub inbox is unauthenticated and federation peers can hammer it,
+  // so the cap matches the rate-limit assumption (small JSON activities).
+  app.use("/ap/*/inbox", bodyLimit({ maxBytes: INBOX_BODY_LIMIT_BYTES }));
+  // Media uploads carry binary payloads (images, short videos). Cap is well
+  // below the Workers per-request budget but above typical post media.
+  app.use(
+    "/api/media/*",
+    bodyLimit({ maxBytes: MEDIA_UPLOAD_BODY_LIMIT_BYTES }),
+  );
+  // Default global cap: 1 MiB covers JSON-shaped API traffic.
+  app.use("*", bodyLimit({ maxBytes: DEFAULT_BODY_LIMIT_BYTES }));
+}
+
 function applyGlobalMiddleware(app: YurucommuApp): void {
   app.onError(createErrorMiddleware());
 
@@ -225,6 +246,28 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
   app.use("/api/dm/*", rateLimit(RateLimitConfigs.dm));
   app.post("/api/posts", rateLimit(RateLimitConfigs.postCreate));
   app.use("/ap/*/inbox", rateLimit(RateLimitConfigs.inbox));
+
+  // Federation discovery endpoints are unauthenticated and can be probed by
+  // any remote actor. Throttle them per-IP to mitigate enumeration / DoS.
+  app.use(
+    "/.well-known/webfinger",
+    rateLimit(RateLimitConfigs.federationDiscovery),
+  );
+  app.use(
+    "/.well-known/nodeinfo",
+    rateLimit(RateLimitConfigs.federationDiscovery),
+  );
+  app.use("/nodeinfo/*", rateLimit(RateLimitConfigs.federationDiscovery));
+  app.use("/ap/users/*", rateLimit(RateLimitConfigs.federationDiscovery));
+  app.use("/ap/objects/*", rateLimit(RateLimitConfigs.federationDiscovery));
+  app.use(
+    "/ap/users/*/outbox",
+    rateLimit(RateLimitConfigs.federationDiscovery),
+  );
+  app.use(
+    "/ap/rooms/*/stream",
+    rateLimit(RateLimitConfigs.federationDiscovery),
+  );
 }
 
 function mountCoreRoutes(app: YurucommuApp): void {
@@ -333,6 +376,11 @@ export function createYurucommuBackendApp(
   }
 
   mountReadinessRoutes(app);
+  // Body-size cap must run BEFORE any handler reads the body or executes
+  // expensive auth / rate-limit logic. Mounted after readiness probes so
+  // /healthz and /readyz stay reachable even when payload validation
+  // misbehaves.
+  applyBodyLimits(app);
   applyGlobalMiddleware(app);
   for (const plugin of plugins) {
     plugin.setup?.(pluginContext);

@@ -15,6 +15,12 @@ TAKOS_URL = "https://test.takos.jp"
 # operator-deployment choice (architectural fixed point ではない)。
 # 別 hostname で運用する場合は self-host 先の canonical hostname に変更してください。
 APP_URL = "https://test2.yurucommu.com"
+# Queue names must match the [[queues.*]] bindings below so the
+# `handleYurucommuQueueBatch` dispatcher routes batches to the correct
+# handler. Each tenant runs its own queue pair to avoid cross-tenant
+# delivery.
+DELIVERY_QUEUE_NAME = "yurucommu-delivery-2"
+DELIVERY_DLQ_NAME = "yurucommu-delivery-dlq-2"
 # Password authentication is enabled by setting AUTH_PASSWORD_HASH via wrangler secret put.
 # Format: saltHex:hashHex
 # AUTH_PASSWORD_HASH = "0123456789abcdef0123456789abcdef:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
