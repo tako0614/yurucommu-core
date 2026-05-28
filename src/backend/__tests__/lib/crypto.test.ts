@@ -1,5 +1,11 @@
-import { assertEquals, assertRejects } from "jsr:@std/assert";
-import { decrypt, DecryptionError, encrypt } from "../../lib/crypto.ts";
+import { assertEquals, assertNotEquals, assertRejects } from "jsr:@std/assert";
+import {
+  decrypt,
+  DecryptionError,
+  encrypt,
+  hashSessionId,
+  hashSessionIdForEnv,
+} from "../../lib/crypto.ts";
 
 const KEY = "00".repeat(32);
 const OTHER_KEY = "11".repeat(32);
@@ -33,4 +39,48 @@ Deno.test("crypto decrypt - rejects valid payloads with the wrong key", async ()
     () => decrypt(encrypted, OTHER_KEY),
     DecryptionError,
   );
+});
+
+Deno.test("hashSessionId - prefixes sha256: and never returns the raw id", async () => {
+  const raw = "a".repeat(64);
+  const hashed = await hashSessionId(raw, "salt-1");
+  assertEquals(hashed.startsWith("sha256:"), true);
+  assertNotEquals(hashed, raw);
+  assertEquals(hashed.includes(raw), false);
+});
+
+Deno.test("hashSessionId - deterministic for a given salt", async () => {
+  const raw = "deadbeef";
+  const a = await hashSessionId(raw, "salt-1");
+  const b = await hashSessionId(raw, "salt-1");
+  assertEquals(a, b);
+});
+
+Deno.test("hashSessionId - salt separates the hash space", async () => {
+  const raw = "deadbeef";
+  const a = await hashSessionId(raw, "salt-1");
+  const b = await hashSessionId(raw, "salt-2");
+  assertNotEquals(a, b);
+});
+
+Deno.test("hashSessionIdForEnv - uses the configured per-deployment salt", async () => {
+  const raw = "deadbeef";
+  const withSalt = await hashSessionIdForEnv(
+    { YURUCOMMU_SESSION_HASH_SALT: "salt-1" },
+    raw,
+  );
+  const expected = await hashSessionId(raw, "salt-1");
+  assertEquals(withSalt, expected);
+});
+
+Deno.test("hashSessionIdForEnv - falls back to the dev salt when unset", async () => {
+  const raw = "deadbeef";
+  const fallback = await hashSessionIdForEnv({}, raw);
+  // The dev fallback must differ from a real per-deployment salt.
+  const real = await hashSessionIdForEnv(
+    { YURUCOMMU_SESSION_HASH_SALT: "salt-1" },
+    raw,
+  );
+  assertEquals(fallback.startsWith("sha256:"), true);
+  assertNotEquals(fallback, real);
 });

@@ -138,8 +138,27 @@ export function maskSensitiveData(value: unknown): unknown {
 }
 
 function walk(value: unknown, seen: WeakSet<object>): unknown {
+  try {
+    return walkInner(value, seen);
+  } catch {
+    // Masking must NEVER throw — a single un-serializable field would
+    // otherwise crash the entire log call (and the request that triggered
+    // it). Fall back to an opaque placeholder for any value we cannot walk.
+    return "[unserializable]";
+  }
+}
+
+function walkInner(value: unknown, seen: WeakSet<object>): unknown {
   if (value === null || value === undefined) return value;
   if (typeof value === "string") return maskSensitiveString(value);
+  // `bigint` is not JSON-serializable: `JSON.stringify` throws on it, which
+  // would crash the log call. Coerce to a string with the canonical `n`
+  // suffix so the value (and its bigint-ness) survives in the log.
+  if (typeof value === "bigint") return maskSensitiveString(`${value}n`);
+  // `symbol` / `function` are not JSON-serializable either; stringify them
+  // rather than letting them silently disappear or throw.
+  if (typeof value === "symbol") return value.toString();
+  if (typeof value === "function") return "[function]";
   if (typeof value !== "object") return value;
 
   if (seen.has(value as object)) return "[circular]";
@@ -156,6 +175,33 @@ function walk(value: unknown, seen: WeakSet<object>): unknown {
       message: maskSensitiveString(value.message),
       stack: value.stack ? maskSensitiveString(value.stack) : undefined,
     };
+  }
+
+  // `Date` JSON-serializes to its ISO string already, but going through the
+  // object branch below would flatten it to `{}`. Keep the ISO string.
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime())
+      ? "[invalid-date]"
+      : value.toISOString();
+  }
+
+  // `Map` / `Set` have no enumerable own properties, so the object branch
+  // would silently flatten them to `{}` (fidelity loss). Represent them as
+  // their entry/value collections with masked contents.
+  if (value instanceof Map) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of value.entries()) {
+      const key = typeof k === "string" ? k : String(k);
+      if (SENSITIVE_KEY_RE.test(key)) {
+        out[key] = "[redacted]";
+        continue;
+      }
+      out[key] = walk(v, seen);
+    }
+    return out;
+  }
+  if (value instanceof Set) {
+    return Array.from(value, (entry) => walk(entry, seen));
   }
 
   const out: Record<string, unknown> = {};

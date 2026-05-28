@@ -26,6 +26,7 @@ import {
 import { getClientIP } from "../lib/client-ip.ts";
 import { asc, eq, or } from "drizzle-orm";
 import { actors, sessions } from "../../db/index.ts";
+import { hashSessionIdForEnv } from "../lib/crypto.ts";
 import {
   createActor,
   deleteSessionSafely,
@@ -80,10 +81,11 @@ auth.get("/me", async (c) => {
 
   if (sessionId) {
     const db = c.get("db");
+    const sessionKey = await hashSessionIdForEnv(c.env, sessionId);
     const session = await db.select({
       provider: sessions.provider,
       providerAccessToken: sessions.providerAccessToken,
-    }).from(sessions).where(eq(sessions.id, sessionId)).get();
+    }).from(sessions).where(eq(sessions.id, sessionKey)).get();
     if (session) {
       provider = session.provider;
       hasTakosAccess = session.provider === "takos" &&
@@ -312,7 +314,7 @@ auth.get("/callback/:provider", async (c) => {
 auth.post("/logout", async (c) => {
   const sessionId = getCookie(c, "session");
   if (sessionId) {
-    await deleteSessionSafely(c.get("db"), sessionId, "logout");
+    await deleteSessionSafely(c.get("db"), c.env, sessionId, "logout");
     deleteCookie(c, "session");
   }
   return c.json({ success: true });
@@ -401,9 +403,10 @@ auth.post("/switch", async (c) => {
     targetActor.ownerActorApId === rootOwnerApId;
   if (!isAllowed) return c.json({ error: "Forbidden" }, 403);
 
+  const sessionKey = await hashSessionIdForEnv(c.env, sessionId);
   await db.update(sessions)
     .set({ memberId: targetApId })
-    .where(eq(sessions.id, sessionId))
+    .where(eq(sessions.id, sessionKey))
     .run();
 
   return c.json({ success: true });

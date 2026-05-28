@@ -129,14 +129,21 @@ export async function handleAccept(c: ActivityContext, activity: Activity) {
   const now = new Date().toISOString();
 
   try {
-    await db.update(follows)
+    // Conditional pending->accepted transition. The `status='pending'` guard
+    // makes a duplicate Accept a no-op (zero rows), so concurrent duplicate
+    // Accepts cannot increment the follower/following counts more than once.
+    const accepted = await db.update(follows)
       .set({ status: "accepted", acceptedAt: now })
       .where(
         and(
           eq(follows.followerApId, follow.followerApId),
           eq(follows.followingApId, follow.followingApId),
+          eq(follows.status, "pending"),
         ),
-      );
+      )
+      .returning()
+      .get();
+    if (!accepted) return;
 
     await db.update(actors)
       .set({ followingCount: sql`${actors.followingCount} + 1` })
@@ -267,10 +274,18 @@ async function resolveUndoByActivityId(
     const countField = kind === "like"
       ? "likeCount" as const
       : "announceCount" as const;
-    await findAndDeleteInteractionByActivityId(db, kind, objectId);
-    await db.update(objects)
-      .set({ [countField]: sql`${objects[countField]} - 1` })
-      .where(eq(objects.apId, originalActivity.objectApId));
+    // Only decrement when a row was actually deleted, so a duplicate Undo or
+    // an Undo of an interaction we never recorded cannot drift the count.
+    const removed = await findAndDeleteInteractionByActivityId(
+      db,
+      kind,
+      objectId,
+    );
+    if (removed) {
+      await db.update(objects)
+        .set({ [countField]: sql`${objects[countField]} - 1` })
+        .where(eq(objects.apId, originalActivity.objectApId));
+    }
     return true;
   }
 

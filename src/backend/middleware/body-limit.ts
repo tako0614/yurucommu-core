@@ -17,9 +17,14 @@ const log = logger.child({ component: "middleware.body_limit" });
  *
  * Missing `Content-Length` is allowed by default because Deno's `Request`
  * constructor does not auto-populate the header for string bodies in tests,
- * and many real callers omit it for chunked encoded uploads. Set
- * `requireContentLength: true` on routes that must refuse chunked-only
- * requests (= the strict mode mitigates declarative-bypass DoS).
+ * and many real callers omit it for chunked encoded uploads. A declared
+ * `Content-Length` is NOT trusted as the only line of defense: when the
+ * header is absent (chunked transfer-encoding), the request body is wrapped
+ * in a streaming counter that aborts once the byte count exceeds the cap, so
+ * an attacker cannot bypass the limit by simply omitting `Content-Length`.
+ * Set `requireContentLength: true` on routes that must refuse chunked-only
+ * requests outright with 411 instead (= the strict mode rejects the request
+ * before the body is even read).
  *
  * Per-route caps stack on top of the global default cap — the middleware is
  * normally registered globally first, with stricter caps mounted on specific
@@ -101,6 +106,59 @@ export function evaluateBodyLimit(
   return { ok: true };
 }
 
+/** Sentinel error thrown by the stream counter when the cap is exceeded. */
+export class BodyTooLargeError extends Error {
+  readonly limit: number;
+  constructor(limit: number) {
+    super(`Request body exceeds the ${limit} byte cap`);
+    this.name = "BodyTooLargeError";
+    this.limit = limit;
+  }
+}
+
+/**
+ * Wrap a request body stream so that it errors (cancelling the source) once
+ * more than `maxBytes` have flowed through. This closes the chunked-transfer
+ * bypass: a request without a trusted `Content-Length` is still capped while
+ * its body is consumed downstream, instead of relying on the (omittable)
+ * header alone.
+ */
+export function capRequestBodyStream(
+  request: Request,
+  maxBytes: number,
+): Request {
+  const body = request.body;
+  if (!body) return request;
+
+  let seen = 0;
+  const capped = body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        seen += chunk.byteLength;
+        if (seen > maxBytes) {
+          controller.error(new BodyTooLargeError(maxBytes));
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+
+  // `duplex: "half"` is required when constructing a Request with a stream
+  // body. The cloned Request keeps method / headers / url so downstream
+  // handlers and signature verification see an unchanged request shape.
+  return new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body: capped,
+    redirect: request.redirect,
+    signal: request.signal,
+    // @ts-expect-error duplex is a valid RequestInit field at runtime but is
+    // not yet in the lib.dom typings shipped with this Deno version.
+    duplex: "half",
+  });
+}
+
 export function bodyLimit(
   options: BodyLimitOptions,
 ): MiddlewareHandler<{ Bindings: Env; Variables: Variables }> {
@@ -109,7 +167,25 @@ export function bodyLimit(
     next: Next,
   ) => {
     const decision = evaluateBodyLimit(c.req.raw, options);
-    if (decision.ok) return await next();
+    if (decision.ok) {
+      // The header check above only guards declared `Content-Length`. For
+      // body-bearing requests that omit it (chunked transfer-encoding), wrap
+      // the stream so the cap is still enforced as the body is consumed.
+      const method = c.req.method.toUpperCase();
+      if (
+        BODY_BEARING_METHODS.has(method) &&
+        c.req.raw.headers.get("content-length") === null &&
+        c.req.raw.body !== null
+      ) {
+        const capped = capRequestBodyStream(c.req.raw, options.maxBytes);
+        if (capped !== c.req.raw) {
+          // Replace the underlying Request so downstream `c.req.*` readers
+          // consume the length-capped stream.
+          c.req.raw = capped;
+        }
+      }
+      return await next();
+    }
 
     log.warn("body limit exceeded", {
       event: "body_limit.rejected",

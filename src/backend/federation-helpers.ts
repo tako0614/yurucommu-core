@@ -40,7 +40,9 @@ export function parseOffset(
 }
 
 export function generateId(): string {
-  const bytes = new Uint8Array(12);
+  // 256-bit (32-byte) session/OAuth identifiers. Session ids in particular are
+  // bearer credentials, so we keep the entropy high; 96-bit was too low.
+  const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
 }

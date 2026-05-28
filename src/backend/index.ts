@@ -27,7 +27,10 @@ import { appsApiRoutes, appsServeRoutes } from "./routes/apps.ts";
 import { rateLimit, RateLimitConfigs } from "./middleware/rate-limit.ts";
 import { csrfProtection } from "./middleware/csrf.ts";
 import { createErrorMiddleware } from "./middleware/error-handler.ts";
-import { bodyLimit, DEFAULT_BODY_LIMIT_BYTES } from "./middleware/body-limit.ts";
+import {
+  bodyLimit,
+  DEFAULT_BODY_LIMIT_BYTES,
+} from "./middleware/body-limit.ts";
 import { logger } from "./lib/logger.ts";
 
 const log = logger.child({ component: "backend.index" });
@@ -148,7 +151,21 @@ function applyBodyLimits(app: YurucommuApp): void {
   // wins for /ap/*/inbox. The default 1 MiB cap then applies everywhere else.
   // ActivityPub inbox is unauthenticated and federation peers can hammer it,
   // so the cap matches the rate-limit assumption (small JSON activities).
-  app.use("/ap/*/inbox", bodyLimit({ maxBytes: INBOX_BODY_LIMIT_BYTES }));
+  //
+  // This is the highest-risk route: the cap runs pre-auth, so a chunked body
+  // with no `Content-Length` could otherwise bypass the declared-length check
+  // entirely. We require `Content-Length` here and reject with 411 when it is
+  // missing — a conformant ActivityPub delivery always sets it, so this only
+  // refuses chunked-only senders (which are the DoS vector). Legitimate
+  // authenticated upload routes keep the default streaming cap instead so
+  // chunked uploads are not broken.
+  app.use(
+    "/ap/*/inbox",
+    bodyLimit({
+      maxBytes: INBOX_BODY_LIMIT_BYTES,
+      requireContentLength: true,
+    }),
+  );
   // Media uploads carry binary payloads (images, short videos). Cap is well
   // below the Workers per-request budget but above typical post media.
   app.use(

@@ -23,6 +23,7 @@ const notifications = new Hono<{ Bindings: Env; Variables: Variables }>();
 const ARCHIVE_RETENTION_DAYS = 90;
 const ARCHIVED_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const MAX_ARCHIVE_BATCH_SIZE = 100;
+const MAX_READ_BATCH_SIZE = 100;
 const ARCHIVE_CREATE_BATCH_SIZE = 100;
 const ARCHIVE_ALL_CAP = 1000;
 const NOTIFICATION_ACTIVITY_TYPES = ["Follow", "Like", "Announce", "Create"];
@@ -365,6 +366,12 @@ notifications.post("/read", async (c) => {
       .set({ read: 1 })
       .where(eq(inboxTable.actorApId, actor.ap_id));
   } else if (body.ids && body.ids.length > 0) {
+    if (body.ids.length > MAX_READ_BATCH_SIZE) {
+      return c.json({
+        error: "array_too_long",
+        message: `Batch size exceeds maximum of ${MAX_READ_BATCH_SIZE}`,
+      }, 400);
+    }
     await db.update(inboxTable)
       .set({ read: 1 })
       .where(and(
@@ -441,6 +448,12 @@ notifications.delete("/archive", async (c) => {
   const body = await c.req.json<{ ids: string[] }>();
   if (!body.ids || body.ids.length === 0) {
     return c.json({ error: "ids array is required" }, 400);
+  }
+  if (body.ids.length > MAX_ARCHIVE_BATCH_SIZE) {
+    return c.json({
+      error: "array_too_long",
+      message: `Batch size exceeds maximum of ${MAX_ARCHIVE_BATCH_SIZE}`,
+    }, 400);
   }
 
   await db.delete(notificationArchived).where(and(

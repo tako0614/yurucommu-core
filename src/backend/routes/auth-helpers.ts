@@ -6,7 +6,7 @@ import {
   generateId,
   generateKeyPair,
 } from "../federation-helpers.ts";
-import { encrypt } from "../lib/crypto.ts";
+import { encrypt, hashSessionIdForEnv } from "../lib/crypto.ts";
 import { getClientCredentials } from "../lib/oauth-providers.ts";
 import type { Database } from "../../db/index.ts";
 import { count, eq } from "drizzle-orm";
@@ -61,13 +61,19 @@ export function formatAccountResponse(
   };
 }
 
+/**
+ * Delete a session row by its raw (cookie) id. The raw id is hashed before
+ * the lookup because the stored key is `sha256:<salt:rawId>`, never the raw id.
+ */
 export async function deleteSessionSafely(
   db: Database,
-  sessionId: string,
+  env: Env,
+  rawSessionId: string,
   context: string,
 ): Promise<void> {
   try {
-    await db.delete(sessions).where(eq(sessions.id, sessionId));
+    const sessionKey = await hashSessionIdForEnv(env, rawSessionId);
+    await db.delete(sessions).where(eq(sessions.id, sessionKey));
   } catch (err) {
     log.warn("Failed to delete session", {
       event: "auth.session.delete_failed",
@@ -94,19 +100,25 @@ export async function rotateSession(
   // Invalidate existing session
   const existingSessionId = getCookie(c, "session");
   if (existingSessionId) {
-    await deleteSessionSafely(db, existingSessionId, rotationContext);
+    await deleteSessionSafely(db, c.env, existingSessionId, rotationContext);
     deleteCookie(c, "session");
   }
 
-  // Create new session with encrypted tokens
+  // Create new session with encrypted tokens.
+  //
+  // SECURITY: the raw session id is a bearer credential and only ever lives in
+  // the client cookie. We persist SHA-256(salt:rawId) as the row key so a
+  // read-only leak of the sessions table cannot be replayed. `accessToken`
+  // mirrors the same hashed key (it was a duplicate of the lookup id).
   const sessionId = generateId();
+  const sessionKey = await hashSessionIdForEnv(c.env, sessionId);
   const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000)
     .toISOString();
 
   await db.insert(sessions).values({
-    id: sessionId,
+    id: sessionKey,
     memberId: memberApId,
-    accessToken: sessionId,
+    accessToken: sessionKey,
     expiresAt,
     provider,
     providerAccessToken: tokens?.access_token
@@ -120,11 +132,13 @@ export async function rotateSession(
       : null,
   });
 
-  // Set cookie
+  // Set cookie. The cookie carries the RAW session id (the only place it
+  // exists); the DB stores only its salted hash. SameSite=Strict to reduce
+  // CSRF / cross-site leakage surface.
   setCookie(c, "session", sessionId, {
     httpOnly: true,
     secure: true,
-    sameSite: "Lax",
+    sameSite: "Strict",
     path: "/",
     maxAge: SESSION_MAX_AGE_SECONDS,
   });

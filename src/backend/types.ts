@@ -37,6 +37,14 @@ export interface EnvVars {
   AUTH_MODE?: string;
   ENCRYPTION_KEY?: string; // 32-byte hex key for encrypting sensitive data
 
+  // Per-deployment salt mixed into the SHA-256 of the session id before it is
+  // persisted as the session-row lookup key. The raw session id only ever
+  // lives in the client cookie; a read-only DB leak cannot be replayed without
+  // also recovering the raw id. Production deployments MUST set this to a
+  // high-entropy value (see hashSessionId in lib/crypto.ts). When
+  // YURUCOMMU_STRICT_READINESS is enabled and this is unset, the app warns.
+  YURUCOMMU_SESSION_HASH_SALT?: string;
+
   // Shadow delivery probes (staging-only). Comma-separated hosts.
   DELIVERY_SHADOW_PROBE_HOSTS?: string;
   // 0.0-1.0 sampling rate for probes (default: 1.0)

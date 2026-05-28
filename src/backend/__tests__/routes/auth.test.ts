@@ -103,12 +103,19 @@ function createAuthTestApp(
 
     type ThenResolve = ((value: unknown) => unknown) | null | undefined;
 
-    const mockInsertValues = spy(() => ({
-      returning: spy(() => ({
-        get: spy(() => Promise.resolve(actorData)),
-      })),
-      then: (resolve: ThenResolve) => Promise.resolve(undefined).then(resolve),
-    }));
+    const capturedInserts =
+      (env as { _capturedInserts?: Array<Record<string, unknown>> })
+        ._capturedInserts;
+    const mockInsertValues = spy((values?: Record<string, unknown>) => {
+      if (capturedInserts && values) capturedInserts.push(values);
+      return {
+        returning: spy(() => ({
+          get: spy(() => Promise.resolve(actorData)),
+        })),
+        then: (resolve: ThenResolve) =>
+          Promise.resolve(undefined).then(resolve),
+      };
+    });
     const mockInsert = spy(() => ({ values: mockInsertValues }));
 
     const mockDeleteWhere = spy(() => ({
@@ -233,6 +240,39 @@ Deno.test("password login first run creates the fixed owner actor", async () => 
 
   assertEquals(res.status, 200);
   assertEquals(body, { success: true });
+});
+
+Deno.test("password login - stores a hashed session id and sets SameSite=Strict cookie", async () => {
+  const hashedPassword = await hashPassword("correct-password");
+  const inserted: Array<Record<string, unknown>> = [];
+  const { app, env } = createAuthTestApp(
+    hashedPassword,
+    { YURUCOMMU_SESSION_HASH_SALT: "test-salt", _capturedInserts: inserted },
+  );
+
+  const { res } = await request(app, env, "/api/auth/login", {
+    password: "correct-password",
+  }, { "CF-Connecting-IP": "198.51.100.40" });
+
+  assertEquals(res.status, 200);
+
+  // The persisted session-row key must be the salted SHA-256, never the raw id.
+  assertEquals(inserted.length, 1);
+  const storedId = inserted[0].id;
+  if (typeof storedId !== "string") {
+    throw new Error("expected stored session id to be a string");
+  }
+  assertEquals(storedId.startsWith("sha256:"), true);
+  // accessToken mirrors the same hashed key.
+  assertEquals(inserted[0].accessToken, storedId);
+
+  const setCookie = res.headers.get("set-cookie") ?? "";
+  // The cookie carries the raw id (not the hashed key) with Strict flags.
+  assertEquals(/(^|[^a-z])session=/i.test(setCookie), true);
+  assertEquals(setCookie.includes(storedId), false);
+  assertEquals(/SameSite=Strict/i.test(setCookie), true);
+  assertEquals(/HttpOnly/i.test(setCookie), true);
+  assertEquals(/Secure/i.test(setCookie), true);
 });
 
 /** Helper: assert value is not null */

@@ -42,6 +42,71 @@ function bytesToHex(bytes: Uint8Array): string {
     .join("");
 }
 
+/**
+ * Dev-only fallback salt used when YURUCOMMU_SESSION_HASH_SALT is unset.
+ * Mirrors the takosumi-cloud F7 pattern: fresh-DB tests still work, but a
+ * loud warning fires in strict / production mode so operators notice.
+ */
+const DEV_SESSION_HASH_SALT = "yurucommu:dev-only-session-hash-salt";
+
+let warnedMissingSessionSalt = false;
+
+/**
+ * Hash a session id for at-rest storage / lookup. The persisted session-row
+ * key is `sha256:<hex>` of `salt:sessionId`; the raw session id only ever
+ * lives in the client cookie. A read-only leak of the session table therefore
+ * cannot be replayed against the API without also recovering the raw id.
+ *
+ * BREAKING CHANGE: rows written before this change stored the raw id as the
+ * key, so existing sessions no longer resolve and users must re-login. This is
+ * acceptable; truncating the sessions table has the same effect.
+ *
+ * `salt` should be the per-deployment YURUCOMMU_SESSION_HASH_SALT env value.
+ * When unset we fall back to a fixed dev salt and (in strict mode) warn.
+ */
+export async function hashSessionId(
+  sessionId: string,
+  salt: string | undefined,
+  strict = false,
+): Promise<string> {
+  let effectiveSalt = salt;
+  if (!effectiveSalt) {
+    if (strict && !warnedMissingSessionSalt) {
+      warnedMissingSessionSalt = true;
+      log.error(
+        "YURUCOMMU_SESSION_HASH_SALT is unset in strict/production mode; " +
+          "using an insecure shared dev fallback salt. Set a high-entropy " +
+          "value to make leaked session rows non-replayable.",
+        { event: "crypto.session_salt.missing" },
+      );
+    }
+    effectiveSalt = DEV_SESSION_HASH_SALT;
+  }
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${effectiveSalt}:${sessionId}`),
+  );
+  return `sha256:${bytesToHex(new Uint8Array(digest))}`;
+}
+
+/**
+ * Resolve the session-hash salt + strict flag from an Env-like object and hash
+ * the raw session id. Centralises the salt/strict derivation so every lookup
+ * and write site hashes identically.
+ */
+export function hashSessionIdForEnv(
+  env: {
+    YURUCOMMU_SESSION_HASH_SALT?: string;
+    YURUCOMMU_STRICT_READINESS?: string;
+  },
+  sessionId: string,
+): Promise<string> {
+  const strictValue = env.YURUCOMMU_STRICT_READINESS?.trim().toLowerCase();
+  const strict = strictValue === "1" || strictValue === "true" ||
+    strictValue === "yes";
+  return hashSessionId(sessionId, env.YURUCOMMU_SESSION_HASH_SALT, strict);
+}
+
 export class EncryptionKeyError extends Error {
   override name = "EncryptionKeyError";
 }

@@ -9,6 +9,7 @@ import {
   activities,
   actorCache,
   actors,
+  blocks,
   inbox as inboxTable,
   objectRecipients,
   objects,
@@ -332,6 +333,20 @@ dm.post("/user/:encodedApId/messages", async (c) => {
 
   const otherActor = localActor || cachedActor;
   if (!otherActor) return c.json({ error: "User not found" }, 404);
+
+  // Reject if the recipient has blocked the sender. Respond with 404 (the same
+  // shape as a non-existent recipient) so the sender cannot distinguish a block
+  // from a missing user and thereby learn they were blocked.
+  const blockedBy = await db.select({ blockerApId: blocks.blockerApId })
+    .from(blocks)
+    .where(
+      and(
+        eq(blocks.blockerApId, otherApId),
+        eq(blocks.blockedApId, actor.ap_id),
+      ),
+    )
+    .get();
+  if (blockedBy) return c.json({ error: "User not found" }, 404);
 
   const apId = objectApId(baseUrl, generateId());
   const now = new Date().toISOString();

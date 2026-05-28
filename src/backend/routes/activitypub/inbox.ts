@@ -20,6 +20,7 @@ import {
   tryParseRemoteActor,
 } from "../../lib/activitypub-validators.ts";
 import { logger } from "../../lib/logger.ts";
+import { isActorBlocked, isDomainBlocked } from "../../lib/blocklist.ts";
 import {
   consumeRateLimitProgrammatic,
   RateLimitConfigs,
@@ -761,6 +762,17 @@ async function verifyAndParseInbox(
     return c.json({ error: "Actor mismatch" }, 401);
   }
 
+  // Central federation blocklist gate. Applied once here so every activity
+  // type (Follow / Like / Announce / Undo / content / group inbox / ...) is
+  // covered regardless of which handler dispatches it. Blocked traffic is
+  // silently discarded with a 202 ACK (never 4xx) — a 4xx would make the
+  // sending instance retry on a backoff and keep redelivering blocked
+  // traffic. The blocklist helpers fail open on a DB read error (see
+  // lib/blocklist.ts), so a transient DB fault never black-holes federation.
+  if (await isActivityBlocked(c, actor, activityType)) {
+    return c.body(null, 202);
+  }
+
   return {
     activity,
     activityId,
@@ -768,6 +780,48 @@ async function verifyAndParseInbox(
     activityType,
     activityObjectId: getActivityObjectId(activity),
   };
+}
+
+/**
+ * Return `true` when an inbound activity must be silently discarded because
+ * the sending actor (or its domain) is on the operator blocklist. Callers
+ * should 202-discard rather than 4xx — federation peers retry 4xx responses
+ * on a backoff and would otherwise keep redelivering blocked traffic.
+ */
+async function isActivityBlocked(
+  c: HonoContext,
+  actor: string,
+  activityType: string,
+): Promise<boolean> {
+  const db = c.get("db");
+
+  if (await isActorBlocked(db, actor)) {
+    log.info("Discarding activity from blocked actor", {
+      event: "ap.blocklist.actor_discard",
+      actor,
+      activityType,
+    });
+    return true;
+  }
+
+  let hostname: string | null = null;
+  try {
+    hostname = new URL(actor).hostname;
+  } catch {
+    return false;
+  }
+
+  if (await isDomainBlocked(db, hostname)) {
+    log.info("Discarding activity from blocked domain", {
+      event: "ap.blocklist.domain_discard",
+      actor,
+      domain: hostname,
+      activityType,
+    });
+    return true;
+  }
+
+  return false;
 }
 
 /**

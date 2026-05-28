@@ -175,12 +175,20 @@ export async function undoInteraction(
   const cf = countField ?? COUNT_FIELDS[kind];
 
   if (directObjectId) {
-    await db.delete(table).where(
-      and(eq(table.actorApId, actor), eq(table.objectApId, directObjectId)),
-    );
-    await db.update(objects)
-      .set({ [cf]: sql`${objects[cf]} - 1` })
-      .where(eq(objects.apId, directObjectId));
+    // Gate the count decrement on a row actually being deleted, so a
+    // duplicate Undo (or an Undo of an interaction we never recorded) does
+    // not drift the count negative. `.returning()` yields the deleted rows
+    // across both D1 and libsql backends.
+    const deleted = await db.delete(table)
+      .where(
+        and(eq(table.actorApId, actor), eq(table.objectApId, directObjectId)),
+      )
+      .returning({ objectApId: table.objectApId });
+    if (deleted.length > 0) {
+      await db.update(objects)
+        .set({ [cf]: sql`${objects[cf]} - 1` })
+        .where(eq(objects.apId, directObjectId));
+    }
     return true;
   }
 

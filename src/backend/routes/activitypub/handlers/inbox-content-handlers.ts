@@ -1,5 +1,5 @@
 import type { Database } from "../../../../db/index.ts";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   activities,
   actorCache,
@@ -20,7 +20,6 @@ import {
   objectApId,
 } from "../../../federation-helpers.ts";
 import { tryParseRemoteActor } from "../../../lib/activitypub-validators.ts";
-import { isActorBlocked, isDomainBlocked } from "../../../lib/blocklist.ts";
 import { logger } from "../../../lib/logger.ts";
 import {
   type Activity,
@@ -34,52 +33,10 @@ const log = logger.child({ component: "activitypub.inbox.content" });
 
 type ActorRow = typeof actors.$inferSelect;
 
-// ---------------------------------------------------------------------------
-// Blocklist gate
-// ---------------------------------------------------------------------------
-
-/**
- * Return `true` when an activity should be silently discarded because the
- * sender (or their domain) is on the operator blocklist. Callers should
- * 200/202-discard the activity rather than 4xx — federation peers retry
- * 4xx responses on a backoff and would otherwise keep delivering blocked
- * traffic.
- */
-async function isActivityBlocked(
-  db: Database,
-  activity: Activity,
-): Promise<boolean> {
-  const actor = typeof activity.actor === "string" ? activity.actor : null;
-  if (!actor) return false;
-
-  if (await isActorBlocked(db, actor)) {
-    log.info("Discarding activity from blocked actor", {
-      event: "ap.blocklist.actor_discard",
-      actor,
-      activityType: typeof activity.type === "string" ? activity.type : null,
-    });
-    return true;
-  }
-
-  let hostname: string | null = null;
-  try {
-    hostname = new URL(actor).hostname;
-  } catch {
-    return false;
-  }
-
-  if (hostname && await isDomainBlocked(db, hostname)) {
-    log.info("Discarding activity from blocked domain", {
-      event: "ap.blocklist.domain_discard",
-      actor,
-      domain: hostname,
-      activityType: typeof activity.type === "string" ? activity.type : null,
-    });
-    return true;
-  }
-
-  return false;
-}
+// Federation blocklist enforcement lives centrally in
+// `verifyAndParseInbox` (routes/activitypub/inbox.ts): every inbound
+// activity is gated once there before any handler runs, so the per-handler
+// gate that previously lived here is intentionally absent.
 
 // ---------------------------------------------------------------------------
 // Inline helpers
@@ -102,7 +59,6 @@ export async function handleCreate(
   baseUrl: string,
 ) {
   const db = c.get("db");
-  if (await isActivityBlocked(db, activity)) return;
   const object = getActivityObject(activity);
   if (!object) return;
 
@@ -198,7 +154,6 @@ export async function handleCreateStory(
   baseUrl: string,
 ) {
   const db = c.get("db");
-  if (await isActivityBlocked(db, activity)) return;
   const object = getActivityObject(activity);
   if (!object) return;
   const objectId = object.id || objectApId(baseUrl, generateId());
@@ -287,7 +242,6 @@ export async function handleCreateStory(
 
 export async function handleDelete(c: ActivityContext, activity: Activity) {
   const db = c.get("db");
-  if (await isActivityBlocked(db, activity)) return;
   const objectId = getActivityObjectId(activity);
   if (!objectId) return;
 
@@ -347,7 +301,6 @@ export async function handleUpdate(
   actor: string,
 ) {
   const db = c.get("db");
-  if (await isActivityBlocked(db, activity)) return;
   const object = getActivityObject(activity);
   if (!object) return;
 
@@ -386,7 +339,6 @@ export async function handleMove(
   actor: string,
 ) {
   const db = c.get("db");
-  if (await isActivityBlocked(db, activity)) return;
   const oldActorApId = getActivityObjectId(activity);
   const newActorApId = getActivityTargetId(activity);
   if (!oldActorApId || !newActorApId) return;

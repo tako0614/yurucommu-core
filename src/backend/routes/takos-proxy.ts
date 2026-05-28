@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import { sessions } from "../../db/index.ts";
 import { getTakosClient, type TakosSession } from "../lib/takos-client.ts";
+import { hashSessionIdForEnv } from "../lib/crypto.ts";
 import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "takos.proxy" });
@@ -44,8 +45,9 @@ takosProxy.use("*", async (c, next) => {
   }
 
   const db = c.get("db");
+  const sessionKey = await hashSessionIdForEnv(c.env, sessionId);
   const session = await db.query.sessions.findFirst({
-    where: eq(sessions.id, sessionId),
+    where: eq(sessions.id, sessionKey),
     columns: {
       id: true,
       memberId: true,

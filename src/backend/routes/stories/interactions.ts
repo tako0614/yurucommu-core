@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Env, Variables } from "../../types.ts";
 import {
   activities,
+  blocks,
   inbox,
   likes,
   objects,
@@ -169,6 +170,20 @@ stories.post("/:id/like", async (c) => {
 
   const story = await findStory(db, apId);
   if (!story) return c.json({ error: "Story not found" }, 404);
+
+  // Reject if the story author has blocked the liker, so a blocked actor
+  // cannot insert into the author's inbox. Respond with 404 (matching a
+  // non-existent story) so the block is not leaked to the liker.
+  const blockedBy = await db.select({ blockerApId: blocks.blockerApId })
+    .from(blocks)
+    .where(
+      and(
+        eq(blocks.blockerApId, story.attributedTo),
+        eq(blocks.blockedApId, actor.ap_id),
+      ),
+    )
+    .get();
+  if (blockedBy) return c.json({ error: "Story not found" }, 404);
 
   const existing = await db.select()
     .from(likes)

@@ -3,6 +3,7 @@ import { getCookie } from "hono/cookie";
 import { eq } from "drizzle-orm";
 import type { Actor, Env, Variables } from "../types.ts";
 import { sessions } from "../../db/index.ts";
+import { hashSessionIdForEnv } from "./crypto.ts";
 
 function isExpired(expiresAt: string): boolean {
   const expiresMs = Date.parse(expiresAt);
@@ -20,8 +21,9 @@ export async function extractActorFromSession(
   if (!sessionId) return;
 
   const db = c.get("db");
+  const sessionKey = await hashSessionIdForEnv(c.env, sessionId);
   const session = await db.query.sessions.findFirst({
-    where: eq(sessions.id, sessionId),
+    where: eq(sessions.id, sessionKey),
     with: { member: true },
   });
 

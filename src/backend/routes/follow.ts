@@ -153,26 +153,24 @@ follow.post("/accept", async (c) => {
 
   let pendingFollow: Awaited<ReturnType<typeof findPendingFollow>>;
   try {
-    const found = await db.select().from(follows).where(
+    // Single conditional pending->accepted transition. The `status='pending'`
+    // guard makes the transition idempotent: a concurrent duplicate Accept
+    // observes zero rows and skips the count increment, so counts cannot drift
+    // upward. `.returning()` yields the transitioned row across D1 and libsql.
+    const accepted = await db.update(follows).set({
+      status: "accepted",
+      acceptedAt: new Date().toISOString(),
+    }).where(
       and(
         eq(follows.followerApId, requesterApId),
         eq(follows.followingApId, actor.ap_id),
         eq(follows.status, "pending"),
       ),
-    ).get();
-    if (!found) {
+    ).returning().get();
+
+    if (!accepted) {
       pendingFollow = undefined;
     } else {
-      await db.update(follows).set({
-        status: "accepted",
-        acceptedAt: new Date().toISOString(),
-      }).where(
-        and(
-          eq(follows.followerApId, requesterApId),
-          eq(follows.followingApId, actor.ap_id),
-        ),
-      );
-
       await db.update(actors).set({
         followerCount: sql`${actors.followerCount} + 1`,
       }).where(eq(actors.apId, actor.ap_id));
@@ -183,7 +181,7 @@ follow.post("/accept", async (c) => {
         }).where(eq(actors.apId, requesterApId));
       }
 
-      pendingFollow = found;
+      pendingFollow = accepted;
     }
   } catch (e) {
     log.error("Error in accept", {
@@ -269,15 +267,28 @@ follow.post("/accept/batch", async (c) => {
     }
 
     try {
-      await db.update(follows).set({
+      // Conditional pending->accepted transition; only count the accept when
+      // this request actually performed the transition (rows-affected === 1),
+      // so a concurrent duplicate batch Accept cannot over-count.
+      const accepted = await db.update(follows).set({
         status: "accepted",
         acceptedAt: new Date().toISOString(),
       }).where(
         and(
           eq(follows.followerApId, requesterApId),
           eq(follows.followingApId, actor.ap_id),
+          eq(follows.status, "pending"),
         ),
-      );
+      ).returning().get();
+
+      if (!accepted) {
+        results.push({
+          ap_id: requesterApId,
+          success: false,
+          error: "No pending follow request",
+        });
+        continue;
+      }
 
       followerCountIncrement++;
 
