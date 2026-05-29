@@ -22,6 +22,7 @@ import {
   objectApId,
 } from "../../federation-helpers.ts";
 import { storyToActivityPub } from "../../lib/activitypub-helpers.ts";
+import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 import {
   cleanupExpiredStories,
   fetchActorCache,
@@ -37,6 +38,41 @@ import { logger } from "../../lib/logger.ts";
 const log = logger.child({ component: "stories.routes" });
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// Best-effort, opportunistic retention of expired stories.
+//
+// This is NOT a substitute for a scheduled job: this Worker has no `scheduled`
+// handler / cron trigger, so expiry cleanup is triggered probabilistically on
+// the read path. Expired stories are already excluded from every read query
+// (the feed/single-story handlers filter on `endTime`), so the only impact of
+// a missed sweep is storage growth, not stale data leaking to users. The guard
+// below ensures at most one sweep runs at a time per isolate, so a burst of
+// feed requests cannot kick off several concurrent full-table delete sweeps.
+let expiredStoryCleanupInFlight = false;
+
+function maybeCleanupExpiredStories(db: Database): void {
+  if (expiredStoryCleanupInFlight) return;
+  if (Math.random() >= 0.01) return; // ~1% of feed requests per isolate
+
+  expiredStoryCleanupInFlight = true;
+  cleanupExpiredStories(db)
+    .catch((err) => {
+      log.warn("Failed to cleanup expired stories", {
+        event: "stories.cleanup.failed",
+        error: err,
+      });
+    })
+    .finally(() => {
+      expiredStoryCleanupInFlight = false;
+    });
+}
+
+// Rate-limit story write paths (publish-like / fanout) per-actor, instead of
+// letting them share the generous general read bucket. Registered as POST
+// middleware ahead of the handlers below so it runs before each write.
+const storyWriteLimiter = rateLimit(RateLimitConfigs.storyWrite);
+stories.post("/", storyWriteLimiter);
+stories.post("/delete", storyWriteLimiter);
 
 type VoteResults = Record<number, number>;
 
@@ -197,15 +233,8 @@ stories.get("/", async (c) => {
   const db = c.get("db");
   const now = new Date().toISOString();
 
-  // Probabilistic cleanup: 1% chance per request
-  if (Math.random() < 0.01) {
-    cleanupExpiredStories(db).catch((err) => {
-      log.warn("Failed to cleanup expired stories", {
-        event: "stories.cleanup.failed",
-        error: err,
-      });
-    });
-  }
+  // Opportunistic, best-effort expiry cleanup (see maybeCleanupExpiredStories).
+  maybeCleanupExpiredStories(db);
 
   // Get followed user IDs
   const followRows = await db.select({ followingApId: follows.followingApId })

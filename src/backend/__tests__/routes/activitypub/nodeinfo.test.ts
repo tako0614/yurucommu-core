@@ -53,11 +53,15 @@ Deno.test("nodeinfo 2.1 returns required schema fields", async () => {
   );
   const body = await res.json() as {
     version: string;
-    software: { name: string };
+    software: { name: string; version: string };
     protocols: string[];
     services: { inbound: string[]; outbound: string[] };
     usage: {
-      users: { total: number; activeMonth: number; activeHalfyear: number };
+      users: {
+        total: number;
+        activeMonth?: number;
+        activeHalfyear?: number;
+      };
       localPosts: number;
     };
     openRegistrations: boolean;
@@ -67,12 +71,31 @@ Deno.test("nodeinfo 2.1 returns required schema fields", async () => {
   assertEquals(res.status, 200);
   assertEquals(body.version, "2.1");
   assertEquals(body.software.name, "yurucommu");
+  // Falls back to the in-sync default constant when no build version env set.
+  assertEquals(body.software.version, "1.0.0");
   assertEquals(body.protocols, ["activitypub"]);
   assertEquals(body.services, { inbound: [], outbound: [] });
   assertEquals(body.usage.users.total, 1);
-  assertEquals(body.usage.users.activeMonth, 1);
-  assertEquals(body.usage.users.activeHalfyear, 1);
+  // activeMonth / activeHalfyear are omitted (not faked) because we do not
+  // track per-user activity windows.
+  assertEquals(body.usage.users.activeMonth, undefined);
+  assertEquals(body.usage.users.activeHalfyear, undefined);
   assertEquals(body.usage.localPosts, 42);
   assertEquals(body.openRegistrations, false);
   assertEquals(body.metadata.singleUser, true);
+});
+
+Deno.test("nodeinfo 2.1 reports build-injected software version", async () => {
+  const app = createApp(createCountDb([1, 42]));
+  const res = await app.fetch(
+    new Request("https://example.test/nodeinfo/2.1"),
+    {
+      APP_URL: "https://example.test",
+      YURUCOMMU_SOFTWARE_VERSION: "1.4.2+build7",
+    },
+  );
+  const body = await res.json() as { software: { version: string } };
+
+  assertEquals(res.status, 200);
+  assertEquals(body.software.version, "1.4.2+build7");
 });

@@ -7,7 +7,6 @@ import {
   desc,
   eq,
   inArray,
-  like,
   ne,
   notInArray,
   sql,
@@ -28,6 +27,7 @@ import {
   formatActorProfile,
   groupConversations,
   type HonoEnv,
+  recipientToJsonLike,
   uniqueValues,
 } from "./conversations-helpers.ts";
 
@@ -37,8 +37,7 @@ contacts.get("/contacts", async (c) => {
   const actor = c.get("actor");
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
   const db = c.get("db");
-  const actorApIdJson = JSON.stringify(actor.ap_id);
-  const dmWhere = dmWhereForActor(actor.ap_id, actorApIdJson);
+  const dmWhere = dmWhereForActor(actor.ap_id);
 
   // Clean up orphaned read status entries for conversations that no longer exist
   const validConversations = await db.selectDistinct({
@@ -242,7 +241,7 @@ contacts.get("/contacts", async (c) => {
       and(
         eq(objects.visibility, "direct"),
         eq(objects.type, "Note"),
-        like(objects.toJson, `%${actorApIdJson}%`),
+        recipientToJsonLike(actor.ap_id),
       ),
     );
 

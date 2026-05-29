@@ -115,36 +115,36 @@ export async function runMigrations(
     log.info("Applying migration", { event: "migration.apply", file });
     const sql = await fs.readFile(path.join(migrationsDir, file), "utf-8");
 
-    const statements = sql
-      .split(";")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+    const rawDb = db.getRawDatabase();
 
-    for (
-      let statementIndex = 0;
-      statementIndex < statements.length;
-      statementIndex++
-    ) {
-      const stmt = statements[statementIndex];
-      try {
-        db.getRawDatabase().exec(stmt);
-      } catch (e) {
-        // Do NOT log the raw `stmt`: migration SQL can carry inline
-        // values (seed data, default keys, etc). Log structured fields
-        // only.
-        log.error("Error executing statement", {
-          event: "migration.statement_failed",
-          file,
-          statementIndex,
-          errorMessage: e instanceof Error ? e.message : String(e),
-        });
-        throw e;
-      }
+    // Apply the whole migration file atomically. We let SQLite's own
+    // multi-statement `exec()` tokenize the file (it correctly handles `;`
+    // inside string literals, comments, and `CREATE TRIGGER ... BEGIN ...
+    // END;` bodies) instead of naively splitting on `;`, and we wrap the
+    // file in a transaction so a mid-file failure rolls back every statement
+    // and the `_cf_migrations` ledger row is only written on full success.
+    // Without this, a failure at statement N would leave statements 1..N-1
+    // committed but unledgered, and a re-run would replay the whole file
+    // (e.g. a non-idempotent `DROP TABLE` / `RENAME`) against a half-applied
+    // schema, risking a wedged deploy or data loss.
+    rawDb.exec("BEGIN IMMEDIATE");
+    try {
+      rawDb.exec(sql);
+      rawDb
+        .prepare("INSERT INTO _cf_migrations (name) VALUES (?)")
+        .run(file);
+      rawDb.exec("COMMIT");
+    } catch (e) {
+      rawDb.exec("ROLLBACK");
+      // Do NOT log the raw SQL: migration files can carry inline values
+      // (seed data, default keys, etc). Log structured fields only.
+      log.error("Error applying migration", {
+        event: "migration.failed",
+        file,
+        errorMessage: e instanceof Error ? e.message : String(e),
+      });
+      throw e;
     }
-
-    db.getRawDatabase()
-      .prepare("INSERT INTO _cf_migrations (name) VALUES (?)")
-      .run(file);
 
     log.info("Migration applied successfully", {
       event: "migration.applied",

@@ -166,6 +166,18 @@ function applyBodyLimits(app: YurucommuApp): void {
       requireContentLength: true,
     }),
   );
+  // The advertised shared inbox is `/ap/inbox` (no middle path segment), which
+  // the `/ap/*/inbox` pattern above does NOT match. It runs the same
+  // verify/dispatch pipeline as the per-actor inboxes and is the primary
+  // fan-out target for large servers, so it needs the same strict pre-auth
+  // body cap.
+  app.use(
+    "/ap/inbox",
+    bodyLimit({
+      maxBytes: INBOX_BODY_LIMIT_BYTES,
+      requireContentLength: true,
+    }),
+  );
   // Media uploads carry binary payloads (images, short videos). Cap is well
   // below the Workers per-request budget but above typical post media.
   app.use(
@@ -263,6 +275,10 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
   app.use("/api/dm/*", rateLimit(RateLimitConfigs.dm));
   app.post("/api/posts", rateLimit(RateLimitConfigs.postCreate));
   app.use("/ap/*/inbox", rateLimit(RateLimitConfigs.inbox));
+  // `/ap/inbox` (shared inbox) is not matched by `/ap/*/inbox`; apply the same
+  // per-IP inbox throttle since it is unauthenticated and federation peers can
+  // hammer it.
+  app.use("/ap/inbox", rateLimit(RateLimitConfigs.inbox));
 
   // Federation discovery endpoints are unauthenticated and can be probed by
   // any remote actor. Throttle them per-IP to mitigate enumeration / DoS.

@@ -9,6 +9,7 @@ import {
 } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import { formatUsername, generateId } from "../../federation-helpers.ts";
+import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 import {
   batchLoadActorInfo,
   communityWhere,
@@ -26,6 +27,11 @@ const messagesRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 /**
  * Enforce post policy against the actor's membership and role.
  * Returns an error message string if denied, or null if allowed.
+ *
+ * This is a WRITE policy and must only gate POST/PATCH. Read access is
+ * governed separately by `checkReadAccess` (membership / `visibility`), so
+ * that e.g. a `post_policy: "mods"` community does not lock ordinary members
+ * out of reading channels they are entitled to see.
  */
 function checkPostPolicy(
   policy: string,
@@ -37,6 +43,21 @@ function checkPostPolicy(
   if (policy !== "anyone" && !membership) return "Not a community member";
   if (policy === "mods" && !isManager) return "Moderator role required";
   if (policy === "owners" && role !== "owner") return "Owner role required";
+  return null;
+}
+
+/**
+ * Authorize READING community messages based on `visibility` and membership,
+ * independent of who may post. Public communities are readable by anyone;
+ * private communities require membership. Returns an error message string if
+ * denied, or null if allowed.
+ */
+function checkReadAccess(
+  visibility: string,
+  membership: { role: string } | null,
+): string | null {
+  if (visibility === "public") return null;
+  if (!membership) return "Not a community member";
   return null;
 }
 
@@ -66,12 +87,14 @@ messagesRouter.get("/:identifier/messages", async (c) => {
     .where(memberWhere(community.apId, actor.ap_id))
     .get();
 
-  const policyError = checkPostPolicy(
-    community.postPolicy || "members",
+  // Read access is governed by community visibility + membership, NOT by the
+  // post policy (which only controls who may write).
+  const readError = checkReadAccess(
+    community.visibility || "public",
     membership ?? null,
   );
-  if (policyError) {
-    return c.json({ error: policyError }, 403);
+  if (readError) {
+    return c.json({ error: readError }, 403);
   }
 
   // Query objects addressed to this community (via object_recipients)
@@ -125,103 +148,108 @@ messagesRouter.get("/:identifier/messages", async (c) => {
 });
 
 // POST /api/communities/:name/messages - Send a chat message
-messagesRouter.post("/:identifier/messages", async (c) => {
-  const actor = c.get("actor");
-  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+// Rate-limited as a publish-like write (per-actor), not under the general bucket.
+messagesRouter.post(
+  "/:identifier/messages",
+  rateLimit(RateLimitConfigs.communityMessage),
+  async (c) => {
+    const actor = c.get("actor");
+    if (!actor) return c.json({ error: "Unauthorized" }, 401);
 
-  const identifier = c.req.param("identifier")!;
-  const db = c.get("db");
-  const baseUrl = c.env.APP_URL;
-  const apId = resolveCommunityApId(baseUrl, identifier);
-  const body = await c.req.json<{ content: string }>();
+    const identifier = c.req.param("identifier")!;
+    const db = c.get("db");
+    const baseUrl = c.env.APP_URL;
+    const apId = resolveCommunityApId(baseUrl, identifier);
+    const body = await c.req.json<{ content: string }>();
 
-  const content = body.content?.trim();
-  if (!content) {
-    return c.json({ error: "Message content is required" }, 400);
-  }
-  if (content.length > MAX_COMMUNITY_MESSAGE_LENGTH) {
-    return c.json({
-      error: `Message too long (max ${MAX_COMMUNITY_MESSAGE_LENGTH} chars)`,
-    }, 400);
-  }
+    const content = body.content?.trim();
+    if (!content) {
+      return c.json({ error: "Message content is required" }, 400);
+    }
+    if (content.length > MAX_COMMUNITY_MESSAGE_LENGTH) {
+      return c.json({
+        error: `Message too long (max ${MAX_COMMUNITY_MESSAGE_LENGTH} chars)`,
+      }, 400);
+    }
 
-  const community = await db.select().from(communities)
-    .where(communityWhere(apId, identifier))
-    .get();
-  if (!community) {
-    return c.json({ error: "Community not found" }, 404);
-  }
+    const community = await db.select().from(communities)
+      .where(communityWhere(apId, identifier))
+      .get();
+    if (!community) {
+      return c.json({ error: "Community not found" }, 404);
+    }
 
-  const membership = await db.select().from(communityMembers)
-    .where(memberWhere(community.apId, actor.ap_id))
-    .get();
+    const membership = await db.select().from(communityMembers)
+      .where(memberWhere(community.apId, actor.ap_id))
+      .get();
 
-  const policyError = checkPostPolicy(
-    community.postPolicy || "members",
-    membership ?? null,
-  );
-  if (policyError) {
-    return c.json({
-      error: policyError === "Not a community member"
-        ? "Not a member"
-        : policyError,
-    }, 403);
-  }
+    const policyError = checkPostPolicy(
+      community.postPolicy || "members",
+      membership ?? null,
+    );
+    if (policyError) {
+      return c.json({
+        error: policyError === "Not a community member"
+          ? "Not a member"
+          : policyError,
+      }, 403);
+    }
 
-  const objectId = generateId();
-  const objectApId = `${baseUrl}/ap/objects/${objectId}`;
-  const now = new Date().toISOString();
+    const objectId = generateId();
+    const objectApId = `${baseUrl}/ap/objects/${objectId}`;
+    const now = new Date().toISOString();
 
-  const toJson = JSON.stringify([community.apId]);
-  const audienceJson = JSON.stringify([community.apId]);
+    const toJson = JSON.stringify([community.apId]);
+    const audienceJson = JSON.stringify([community.apId]);
 
-  await db.insert(objects).values({
-    apId: objectApId,
-    type: "Note",
-    attributedTo: actor.ap_id,
-    content,
-    toJson,
-    audienceJson,
-    visibility: "unlisted",
-    published: now,
-    isLocal: 1,
-  });
+    await db.insert(objects).values({
+      apId: objectApId,
+      type: "Note",
+      attributedTo: actor.ap_id,
+      content,
+      toJson,
+      audienceJson,
+      visibility: "unlisted",
+      published: now,
+      isLocal: 1,
+    });
 
-  // Insert object_recipient using raw SQL to bypass FK constraint (ObjectRecipient FK expects Actor, not Community)
-  await db.run(sql`
+    // Insert object_recipient using raw SQL to bypass FK constraint (ObjectRecipient FK expects Actor, not Community)
+    await db.run(sql`
     INSERT INTO object_recipients (object_ap_id, recipient_ap_id, type, created_at)
     VALUES (${objectApId}, ${community.apId}, 'audience', ${now})
   `);
 
-  const activityId = generateId();
-  const activityApIdVal = `${baseUrl}/ap/activities/${activityId}`;
-  await db.insert(activities).values({
-    apId: activityApIdVal,
-    type: "Create",
-    actorApId: actor.ap_id,
-    objectApId,
-    rawJson: JSON.stringify({ to: JSON.parse(toJson) }),
-  });
+    const activityId = generateId();
+    const activityApIdVal = `${baseUrl}/ap/activities/${activityId}`;
+    await db.insert(activities).values({
+      apId: activityApIdVal,
+      type: "Create",
+      actorApId: actor.ap_id,
+      objectApId,
+      rawJson: JSON.stringify({ to: JSON.parse(toJson) }),
+    });
 
-  await db.update(communities)
-    .set({ lastMessageAt: now })
-    .where(eq(communities.apId, community.apId));
+    await db.update(communities)
+      .set({ lastMessageAt: now })
+      .where(eq(communities.apId, community.apId));
 
-  return c.json({
-    message: {
-      id: objectApId,
-      sender: {
-        ap_id: actor.ap_id,
-        username: formatUsername(actor.ap_id),
-        preferred_username: actor.preferred_username,
-        name: actor.name,
-        icon_url: actor.icon_url,
+    return c.json({
+      message: {
+        id: objectApId,
+        sender: {
+          ap_id: actor.ap_id,
+          username: formatUsername(actor.ap_id),
+          preferred_username: actor.preferred_username,
+          name: actor.name,
+          icon_url: actor.icon_url,
+        },
+        content,
+        created_at: now,
       },
-      content,
-      created_at: now,
-    },
-  }, 201);
-});
+    }, 201);
+  },
+);
 
 // PATCH /api/communities/:identifier/messages/:messageId - Edit a message
 messagesRouter.patch("/:identifier/messages/:messageId", async (c) => {

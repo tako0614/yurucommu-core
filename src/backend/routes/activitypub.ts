@@ -33,6 +33,12 @@ const ap = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const AP_CONTENT_TYPE = "application/activity+json";
 
+// Default software.version advertised in NodeInfo when the deploy pipeline
+// does not inject `YURUCOMMU_SOFTWARE_VERSION`. Keep this in sync with the
+// `version` field in yurucommu/deno.json; the env override lets the build
+// report the real build version without editing source.
+const YURUCOMMU_VERSION = "1.0.0";
+
 const AP_CONTEXT = [
   "https://www.w3.org/ns/activitystreams",
   "https://w3id.org/security/v1",
@@ -136,7 +142,9 @@ ap.get("/nodeinfo/2.1", async (c) => {
     version: "2.1",
     software: {
       name: "yurucommu",
-      version: "1.0.0",
+      // Real running version (build-injected env, else the in-sync default
+      // constant) instead of a hardcoded literal that silently goes stale.
+      version: c.env.YURUCOMMU_SOFTWARE_VERSION || YURUCOMMU_VERSION,
       repository: "https://github.com/tako0614/yurucommu",
     },
     protocols: ["activitypub"],
@@ -145,10 +153,13 @@ ap.get("/nodeinfo/2.1", async (c) => {
       outbound: [],
     },
     usage: {
+      // We do not track per-user last-activity timestamps, so we report only
+      // the total user count and OMIT activeMonth / activeHalfyear rather than
+      // fabricating them (NodeInfo permits omitting the active-window fields).
+      // Reporting total as "active" would advertise false liveness telemetry
+      // to relay/instance directories.
       users: {
         total: totalUsers,
-        activeMonth: totalUsers,
-        activeHalfyear: totalUsers,
       },
       localPosts,
     },
@@ -532,19 +543,10 @@ ap.get("/ap/rooms/:roomId/stream", async (c) => {
 // ---------------------------------------------------------------------------
 // Shared inbox (Mastodon convention)
 //
-// Accepts fan-out delivery from remote servers and routes each activity to
-// the appropriate local actor inbox. The full dispatch / signature-verify
-// pipeline lives in `inbox.ts` (per-actor inbox); this placeholder accepts
-// the request and acknowledges 202 so federated peers can begin advertising
-// us as a sharedInbox-capable instance. Implementing fan-out routing here
-// is tracked separately — for now we simply accept and queue.
+// The shared inbox POST handler (`/ap/inbox`) lives in `inbox.ts` alongside
+// the per-actor inbox so it reuses the same signature-verify / dedup / store
+// pipeline and dispatch logic. It is mounted via `inboxRoutes` below.
 // ---------------------------------------------------------------------------
-ap.post("/ap/inbox", (c) => {
-  // Placeholder: full routing to be implemented alongside delivery queue
-  // integration. We accept 202 so signature-verifying remotes don't retry,
-  // matching how Mastodon historically wired up sharedInbox.
-  return c.body(null, 202);
-});
 
 ap.route("/", inboxRoutes);
 ap.route("/", outboxRoutes);

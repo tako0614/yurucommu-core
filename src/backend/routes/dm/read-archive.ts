@@ -104,7 +104,6 @@ readArchive.get("/archived", async (c) => {
   const actor = c.get("actor");
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
   const db = c.get("db");
-  const actorApIdJson = JSON.stringify(actor.ap_id);
 
   const archivedConversations = await db.select({
     conversationId: dmArchivedConversations.conversationId,
@@ -128,7 +127,7 @@ readArchive.get("/archived", async (c) => {
     published: objects.published,
   })
     .from(objects)
-    .where(dmWhereForActor(actor.ap_id, actorApIdJson)!)
+    .where(dmWhereForActor(actor.ap_id)!)
     .orderBy(desc(objects.published))
     .limit(2000);
 

@@ -1,7 +1,7 @@
 // DM requests - list, accept, reject
 
 import { Hono } from "hono";
-import { and, desc, eq, inArray, like } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { blocks, objectRecipients, objects } from "../../../db/index.ts";
 import { getConversationId } from "./query-helpers.ts";
 import {
@@ -9,6 +9,7 @@ import {
   findRepliedConversations,
   formatActorProfile,
   type HonoEnv,
+  recipientToJsonLike,
 } from "./conversations-helpers.ts";
 
 const requests = new Hono<HonoEnv>();
@@ -18,7 +19,6 @@ requests.get("/requests", async (c) => {
   const actor = c.get("actor");
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
   const db = c.get("db");
-  const actorApIdJson = JSON.stringify(actor.ap_id);
 
   const incomingDMs = await db.select({
     apId: objects.apId,
@@ -32,7 +32,7 @@ requests.get("/requests", async (c) => {
       and(
         eq(objects.visibility, "direct"),
         eq(objects.type, "Note"),
-        like(objects.toJson, `%${actorApIdJson}%`),
+        recipientToJsonLike(actor.ap_id),
       ),
     )
     .orderBy(desc(objects.published))
@@ -89,9 +89,6 @@ requests.get("/requests", async (c) => {
   return c.json({ requests: result });
 });
 
-// Accept request = just reply to the message (creates conversation)
-// No separate accept action needed in AP model
-
 // Reject request = delete messages from a sender and optionally block
 requests.post("/requests/reject", async (c) => {
   const actor = c.get("actor");
@@ -147,7 +144,19 @@ requests.post("/requests/reject", async (c) => {
   return c.json({ success: true });
 });
 
-// Accept request = reply and mark as accepted (alternative to just sending a message)
+// Accept request.
+//
+// In this AP-native DM model there is no separate "accepted" state to persist:
+// a conversation is treated as a pending request precisely until the recipient
+// sends their first reply (see findRepliedConversations / the /requests list),
+// at which point it leaves the request list and the sender becomes a contact.
+// There is therefore nothing this endpoint can record server-side that would
+// make the request "accepted" without actually sending a reply.
+//
+// Rather than fake a success that immediately reverts on the next reload (the
+// previous behaviour returned { success: true } while changing no state, so the
+// request reappeared and no contact was created), respond honestly: acceptance
+// is performed by replying via POST /api/dm/user/:encodedApId/messages.
 requests.post("/requests/accept", async (c) => {
   const actor = c.get("actor");
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
@@ -158,9 +167,11 @@ requests.post("/requests/accept", async (c) => {
   }
 
   return c.json({
-    success: true,
-    message: "Reply to the conversation to accept",
-  });
+    error: "not_implemented",
+    message: "Accepting a request is done by replying to the conversation " +
+      "(POST /api/dm/user/:encodedApId/messages). There is no separate " +
+      "accept action in this DM model.",
+  }, 501);
 });
 
 export default requests;

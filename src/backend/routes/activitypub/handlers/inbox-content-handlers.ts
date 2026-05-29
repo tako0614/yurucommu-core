@@ -5,7 +5,9 @@ import {
   actorCache,
   actors,
   follows,
+  inbox as inboxTable,
   likes,
+  objectRecipients,
   objects,
   storyViews,
   storyVotes,
@@ -15,15 +17,18 @@ import {
   activityApId,
   fetchWithTimeout,
   generateId,
+  getDomain,
   isLocal,
   isSafeRemoteUrl,
   objectApId,
 } from "../../../federation-helpers.ts";
+import { getConversationId } from "../../dm/query-helpers.ts";
 import { tryParseRemoteActor } from "../../../lib/activitypub-validators.ts";
 import { logger } from "../../../lib/logger.ts";
 import {
   type Activity,
   type ActivityContext,
+  type ActivityObject,
   getActivityObject,
   getActivityObjectId,
   type StoryOverlay,
@@ -47,6 +52,148 @@ function isStoryType(type: string | string[] | undefined): boolean {
   return Array.isArray(type) ? type.includes("Story") : type === "Story";
 }
 
+// The ActivityStreams public-collection magic value, including the legacy
+// short forms some implementations still emit.
+const PUBLIC_COLLECTION = new Set([
+  "https://www.w3.org/ns/activitystreams#Public",
+  "as:Public",
+  "Public",
+]);
+
+function addressesPublic(addresses: string[]): boolean {
+  return addresses.some((a) => PUBLIC_COLLECTION.has(a));
+}
+
+/**
+ * Reject an inbound object whose `object.id` is asserted under a host the
+ * delivering actor does not control (object-ID squatting / cross-origin
+ * injection). A remote actor may only Create objects under its own origin, and
+ * never under the local domain. Returns true when the object id must be
+ * rejected. Mirrors the ownership checks already enforced for Delete/Update.
+ */
+function isObjectIdOriginMismatch(
+  objectId: string | undefined,
+  actor: string,
+  baseUrl: string,
+): boolean {
+  if (!objectId) return false;
+  // A remote actor must never assert a local-domain object id.
+  if (isLocal(objectId, baseUrl)) return true;
+  try {
+    return getDomain(objectId) !== getDomain(actor);
+  } catch {
+    // Unparseable object id: treat as a mismatch (reject) rather than insert.
+    return true;
+  }
+}
+
+/**
+ * Detect an inbound direct (DM) Note: it is addressed (in `to`/`cc`) to one or
+ * more recipients but NOT to the Public collection and NOT to a followers
+ * collection. The local addressed recipient is the inbox owner (`recipient`),
+ * who is necessarily a known local actor row. Mirrors the outbound DM contract
+ * in dm/messages.ts (visibility="direct", to=[recipient]).
+ */
+function isDirectNote(
+  object: { to?: string[]; cc?: string[] },
+  recipient: ActorRow,
+): boolean {
+  const to = object.to ?? [];
+  const cc = object.cc ?? [];
+  const all = [...to, ...cc];
+  if (all.length === 0) return false;
+  // Direct notes are never addressed to the Public collection...
+  if (addressesPublic(all)) return false;
+  // ...nor to a followers collection (follower-only posts are not DMs).
+  if (all.some((a) => a.endsWith("/followers"))) return false;
+  if (recipient.followersUrl && all.includes(recipient.followersUrl)) {
+    return false;
+  }
+  // The inbox owner must be explicitly addressed in `to` (the recipient set
+  // that defines a DM); a mere `cc` mention is not treated as a DM.
+  return to.includes(recipient.apId);
+}
+
+/**
+ * Route an inbound direct (DM) Note into the recipient's DM inbox /
+ * message-request flow, mirroring the local outbound path in
+ * dm/messages.ts: a direct-visibility Note row, an objectRecipients row, a
+ * stored inbound Create activity, and an inbox row so it surfaces.
+ *
+ * Scope: a single local recipient (the inbox owner). The outbound DM model is
+ * strictly 1:1 (to=[otherApId]) and `objects.conversation` is a single column,
+ * so multi-recipient / group direct Notes are intentionally out of scope and
+ * fall back to the generic Note insert.
+ */
+async function insertDirectNote(
+  db: Database,
+  activity: Activity,
+  object: ActivityObject,
+  objectId: string,
+  actor: string,
+  recipient: ActorRow,
+  baseUrl: string,
+): Promise<void> {
+  // Derive the conversation. Honour a sender-supplied `object.conversation`
+  // only when it matches the value yurucommu itself would compute for this
+  // (sender, localRecipient) pair — otherwise a remote actor could force a
+  // message into an arbitrary thread (spoof a reply context). Fall back to the
+  // computed id for foreign-origin DMs that carry no/invalid conversation.
+  const computedConversation = getConversationId(baseUrl, actor, recipient.apId);
+  const conversationId = object.conversation === computedConversation
+    ? object.conversation
+    : computedConversation;
+
+  const attachments = object.attachment
+    ? JSON.stringify(object.attachment)
+    : "[]";
+  const publishedAt = object.published || new Date().toISOString();
+  const toJson = JSON.stringify([recipient.apId]);
+
+  const inserted = await db.insert(objects)
+    .values({
+      apId: objectId,
+      type: "Note",
+      attributedTo: actor,
+      content: object.content || "",
+      summary: object.summary || null,
+      attachmentsJson: attachments,
+      inReplyTo: object.inReplyTo || null,
+      visibility: "direct",
+      toJson,
+      conversation: conversationId,
+      communityApId: null,
+      published: publishedAt,
+      isLocal: 0,
+    })
+    .onConflictDoNothing()
+    .returning()
+    .get();
+
+  if (!inserted) return; // duplicate
+
+  await db.update(actors)
+    .set({ postCount: sql`${actors.postCount} + 1` })
+    .where(eq(actors.apId, actor));
+
+  await db.insert(objectRecipients)
+    .values({ objectApId: objectId, recipientApId: recipient.apId, type: "to" })
+    .onConflictDoNothing();
+
+  // Store the inbound Create and surface it in the recipient's inbox so the DM
+  // appears in the conversation / message-requests view.
+  const activityId = activity.id || activityApId(baseUrl, generateId());
+  await upsertActivityAndNotify(
+    db,
+    activityId,
+    "Create",
+    actor,
+    objectId,
+    activity,
+    recipient.apId,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Create handler
 // ---------------------------------------------------------------------------
@@ -54,7 +201,7 @@ function isStoryType(type: string | string[] | undefined): boolean {
 export async function handleCreate(
   c: ActivityContext,
   activity: Activity,
-  _recipient: ActorRow,
+  recipient: ActorRow,
   actor: string,
   baseUrl: string,
 ) {
@@ -70,6 +217,40 @@ export async function handleCreate(
 
   // Handle Note type
   if (object.type !== "Note") return;
+
+  // Same-origin guard: a remote actor may only Create objects under its own
+  // origin, never under another host or the local domain. This closes the
+  // object-ID squatting / cross-origin injection vector and mirrors the
+  // ownership checks already enforced for Delete/Update.
+  if (isObjectIdOriginMismatch(object.id, actor, baseUrl)) {
+    log.warn("Create rejected: object id origin does not match actor", {
+      event: "ap.create.object_origin_mismatch",
+      actor,
+      objectId: object.id,
+    });
+    return;
+  }
+
+  // Direct (DM) Note routing: a Note addressed to the local inbox owner that
+  // is neither public nor follower-only belongs in the recipient's DM inbox /
+  // message-request flow rather than the generic public Note insert.
+  if (object.id && isDirectNote(object, recipient)) {
+    const existing = await db.select({ apId: objects.apId })
+      .from(objects)
+      .where(eq(objects.apId, object.id))
+      .get();
+    if (existing) return;
+    await insertDirectNote(
+      db,
+      activity,
+      object,
+      object.id,
+      actor,
+      recipient,
+      baseUrl,
+    );
+    return;
+  }
 
   const objectId = object.id || objectApId(baseUrl, generateId());
 
@@ -156,6 +337,18 @@ export async function handleCreateStory(
   const db = c.get("db");
   const object = getActivityObject(activity);
   if (!object) return;
+
+  // Same-origin guard: reject a story whose object id is squatted under another
+  // host or the local domain (see handleCreate for rationale).
+  if (isObjectIdOriginMismatch(object.id, actor, baseUrl)) {
+    log.warn("Create(Story) rejected: object id origin does not match actor", {
+      event: "ap.story.object_origin_mismatch",
+      actor,
+      objectId: object.id,
+    });
+    return;
+  }
+
   const objectId = object.id || objectApId(baseUrl, generateId());
 
   // Check if story already exists

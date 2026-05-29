@@ -19,7 +19,10 @@ import type { Actor, Env, Variables } from "../../types.ts";
 import dmRoutes from "../../routes/dm/messages.ts";
 import storyRoutes from "../../routes/stories/interactions.ts";
 import { undoInteraction } from "../../routes/activitypub/handlers/inbox-shared-helpers.ts";
-import { handleAccept } from "../../routes/activitypub/handlers/inbox-follow-handlers.ts";
+import {
+  handleAccept,
+  handleUndo,
+} from "../../routes/activitypub/handlers/inbox-follow-handlers.ts";
 import type {
   Activity as InboxActivity,
   ActivityContext,
@@ -294,4 +297,81 @@ Deno.test("duplicate Accept does not over-count follower/following counts", asyn
   // Exactly one increment despite two Accepts.
   assertEquals(target?.followerCount, 1);
   assertEquals(requester?.followingCount, 1);
+});
+
+async function loadActorRow(db: Database, apId: string) {
+  const row = await db.select().from(actors).where(eq(actors.apId, apId)).get();
+  if (!row) throw new Error(`actor not found: ${apId}`);
+  return row;
+}
+
+Deno.test("Undo of a never-accepted (pending) follow does not drift followerCount negative", async () => {
+  const db = await freshDb();
+  const targetApId = await insertLocalActor(db, "target");
+  const followerApId = "https://remote.example/users/alice";
+
+  // A pending follow never incremented followerCount (count stays 0).
+  const followActivityId = `${APP_URL}/ap/activities/follow-pending`;
+  await db.insert(follows).values({
+    followerApId,
+    followingApId: targetApId,
+    status: "pending",
+    activityApId: followActivityId,
+  });
+
+  const ctx = {
+    get: (key: string) => (key === "db" ? db : undefined),
+  } as unknown as ActivityContext;
+  const recipient = await loadActorRow(db, targetApId);
+  const undoActivity: InboxActivity = {
+    type: "Undo",
+    actor: followerApId,
+    object: { type: "Follow", id: followActivityId },
+  };
+
+  await handleUndo(ctx, undoActivity, recipient, followerApId, APP_URL);
+
+  const target = await db.select({ followerCount: actors.followerCount })
+    .from(actors).where(eq(actors.apId, targetApId)).get();
+  // Never incremented -> must NOT go negative on Undo.
+  assertEquals(target?.followerCount, 0);
+});
+
+Deno.test("duplicate Undo of an accepted follow decrements followerCount exactly once", async () => {
+  const db = await freshDb();
+  const targetApId = await insertLocalActor(db, "target");
+  const followerApId = "https://remote.example/users/bob";
+
+  // Seed an accepted follow with followerCount already reflecting it.
+  const followActivityId = `${APP_URL}/ap/activities/follow-accepted`;
+  await db.insert(follows).values({
+    followerApId,
+    followingApId: targetApId,
+    status: "accepted",
+    activityApId: followActivityId,
+    acceptedAt: new Date().toISOString(),
+  });
+  await db.update(actors)
+    .set({ followerCount: 1 })
+    .where(eq(actors.apId, targetApId));
+
+  const ctx = {
+    get: (key: string) => (key === "db" ? db : undefined),
+  } as unknown as ActivityContext;
+  const recipient = await loadActorRow(db, targetApId);
+  const undoActivity: InboxActivity = {
+    type: "Undo",
+    actor: followerApId,
+    object: { type: "Follow", id: followActivityId },
+  };
+
+  await handleUndo(ctx, undoActivity, recipient, followerApId, APP_URL);
+  // Retried/duplicate Undo: the follow row is already gone, so the second
+  // Undo must be a no-op for the count.
+  await handleUndo(ctx, undoActivity, recipient, followerApId, APP_URL);
+
+  const target = await db.select({ followerCount: actors.followerCount })
+    .from(actors).where(eq(actors.apId, targetApId)).get();
+  // Exactly one decrement despite two Undos: 1 -> 0 (not -1).
+  assertEquals(target?.followerCount, 0);
 });

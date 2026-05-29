@@ -9,6 +9,8 @@ export type ActivityObject = {
   object?: string;
   inReplyTo?: string;
   to?: string[];
+  cc?: string[];
+  conversation?: string;
   content?: string;
   summary?: string | null;
   attachment?: unknown;

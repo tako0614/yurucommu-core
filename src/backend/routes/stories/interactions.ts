@@ -15,7 +15,6 @@ import {
   activityApId,
   generateId,
   isLocal,
-  objectApId,
   safeJsonParse,
 } from "../../federation-helpers.ts";
 import {
@@ -25,11 +24,23 @@ import {
   sumVotes,
 } from "./query-helpers.ts";
 import { enqueueDeliveryToActor } from "../../lib/delivery/queue.ts";
+import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "stories.interactions" });
 
 const stories = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// Rate-limit story interaction write paths per-actor (same budget as story
+// create), rather than leaving them in the general read bucket. Registered as
+// POST middleware ahead of the handlers below. `/:id/votes` and `/:id/shares`
+// are reads and are intentionally not limited here.
+const storyWriteLimiter = rateLimit(RateLimitConfigs.storyWrite);
+stories.post("/view", storyWriteLimiter);
+stories.post("/vote", storyWriteLimiter);
+stories.post("/:id/like", storyWriteLimiter);
+stories.delete("/:id/like", storyWriteLimiter);
+stories.post("/:id/share", storyWriteLimiter);
 
 type StoryOverlay = {
   type?: string;
@@ -403,7 +414,10 @@ stories.get("/:id/votes", async (c) => {
   const db = c.get("db");
   const actor = c.get("actor");
   const baseUrl = c.env.APP_URL;
-  const apId = objectApId(baseUrl, c.req.param("id"));
+  // Resolve the id the same way every sibling /:id/* route does, so a full
+  // story ap_id (the form the like/share routes accept) is matched instead of
+  // being double-prefixed into a non-existent objects row.
+  const apId = resolveStoryApId(c.req.param("id"), baseUrl);
 
   const story = await findStory(db, apId);
   if (!story) return c.json({ error: "Story not found" }, 404);

@@ -324,7 +324,14 @@ export function transformStoryData(attachmentsJson: string): {
 
   let url = "";
   if (r2Key) {
-    url = `/media/${r2Key.replace("uploads/", "")}`;
+    // Strip the known leading `uploads/` prefix explicitly. `String.replace`
+    // with a string argument only removes the first, anywhere-matching
+    // occurrence, which would mangle keys whose remainder contains the token.
+    const UPLOADS_PREFIX = "uploads/";
+    const publicPath = r2Key.startsWith(UPLOADS_PREFIX)
+      ? r2Key.slice(UPLOADS_PREFIX.length)
+      : r2Key;
+    url = `/media/${publicPath}`;
   } else if (externalUrl) {
     url = externalUrl;
   }

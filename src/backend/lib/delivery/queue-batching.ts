@@ -92,6 +92,24 @@ function resolvePreferredEndpoint(
   return null;
 }
 
+// Fan-out is paginated and chunked so a single popular-actor delivery cannot
+// (a) materialize an unbounded follower set in one Worker invocation, nor
+// (b) exceed Cloudflare Queues' 100-messages-per-`sendBatch` limit (which
+// would throw before `message.ack()` and retry-loop forever). Mirrors the
+// page/chunk/cap pattern in `enqueueResolveForEndpointActors`.
+const FANOUT_FOLLOWER_PAGE_SIZE = 200;
+const FANOUT_SEND_BATCH_SIZE = 100;
+const FANOUT_MAX_FOLLOWERS = 20_000;
+
+async function sendQueueBatchChunked(
+  queue: QueueEnv["DELIVERY_QUEUE"],
+  requests: Array<{ body: DeliveryQueueMessageV1 }>,
+): Promise<void> {
+  for (let i = 0; i < requests.length; i += FANOUT_SEND_BATCH_SIZE) {
+    await queue.sendBatch(requests.slice(i, i + FANOUT_SEND_BATCH_SIZE));
+  }
+}
+
 export async function processFanoutFollowers(
   db: Database,
   env: Env,
@@ -100,44 +118,90 @@ export async function processFanoutFollowers(
 ): Promise<void> {
   const baseUrl = env.APP_URL;
 
-  const followerRows = await db.select({ followerApId: follows.followerApId })
-    .from(follows)
-    .where(
-      and(
-        eq(follows.followingApId, msg.followeeApId),
-        eq(follows.status, "accepted"),
-      ),
-    );
-  // Deduplicate followerApId
-  const recipientApIds = [...new Set(followerRows.map((f) => f.followerApId))]
-    .filter((apId) => !isLocal(apId, baseUrl));
-
-  const planned = await planEndpointsFromActorCache(db, recipientApIds, {
-    metricTags: {
-      followee: msg.followeeApId,
-      activity: msg.activityId,
-    },
-  });
-
   if (!requireQueue(env, "fanout", message)) return;
-
-  const deliverRequests: Array<{ body: DeliveryQueueMessageV1 }> = [];
-  for (const group of planned.groups) {
-    const jobId = await computeDeliveryJobId(msg.activityId, group.endpoint);
-    await upsertDeliveryJob(db, jobId, msg.activityId, group.endpoint);
-    deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
-  }
-
-  const resolveRequests = planned.unknownRecipients.map((apId) => ({
-    body: buildResolveActorMessage(msg.activityId, apId),
-  }));
-
   const queueEnv = env as QueueEnv;
-  if (deliverRequests.length > 0) {
-    await queueEnv.DELIVERY_QUEUE.sendBatch(deliverRequests);
+
+  // Page through accepted followers with a keyset cursor instead of loading
+  // every row into memory at once. Each page is planned and dispatched in
+  // ≤100-message chunks before the next page is read, bounding both memory
+  // and per-call batch size.
+  let cursor: string | null = null;
+  let processed = 0;
+  let capped = false;
+
+  while (processed < FANOUT_MAX_FOLLOWERS) {
+    const conditions = [
+      eq(follows.followingApId, msg.followeeApId),
+      eq(follows.status, "accepted"),
+    ];
+    if (cursor !== null) {
+      conditions.push(sql`${follows.followerApId} > ${cursor}`);
+    }
+
+    const page = await db.select({ followerApId: follows.followerApId })
+      .from(follows)
+      .where(and(...conditions))
+      .orderBy(follows.followerApId)
+      .limit(FANOUT_FOLLOWER_PAGE_SIZE);
+
+    if (page.length === 0) break;
+
+    cursor = page[page.length - 1].followerApId;
+
+    // Deduplicate within the page and drop local recipients (no remote
+    // delivery needed for local followers).
+    const recipientApIds = [...new Set(page.map((f) => f.followerApId))]
+      .filter((apId) => !isLocal(apId, baseUrl));
+
+    if (recipientApIds.length > 0) {
+      const planned = await planEndpointsFromActorCache(db, recipientApIds, {
+        metricTags: {
+          followee: msg.followeeApId,
+          activity: msg.activityId,
+        },
+      });
+
+      const deliverRequests: Array<{ body: DeliveryQueueMessageV1 }> = [];
+      for (const group of planned.groups) {
+        const jobId = await computeDeliveryJobId(
+          msg.activityId,
+          group.endpoint,
+        );
+        await upsertDeliveryJob(db, jobId, msg.activityId, group.endpoint);
+        deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
+      }
+
+      const resolveRequests = planned.unknownRecipients.map((apId) => ({
+        body: buildResolveActorMessage(msg.activityId, apId),
+      }));
+
+      await sendQueueBatchChunked(queueEnv.DELIVERY_QUEUE, deliverRequests);
+      await sendQueueBatchChunked(queueEnv.DELIVERY_QUEUE, resolveRequests);
+    }
+
+    processed += page.length;
+
+    if (page.length < FANOUT_FOLLOWER_PAGE_SIZE) break;
+    if (processed >= FANOUT_MAX_FOLLOWERS) {
+      capped = true;
+      break;
+    }
   }
-  if (resolveRequests.length > 0) {
-    await queueEnv.DELIVERY_QUEUE.sendBatch(resolveRequests);
+
+  if (capped) {
+    // Extremely large follower sets are capped per invocation to keep the
+    // Worker within CPU/time limits. Endpoint-deduped delivery jobs are
+    // idempotent (computeDeliveryJobId + upsertDeliveryJob), and the planner
+    // re-enqueues any still-unknown recipients on the next fanout, so capped
+    // followers are re-planned on the actor's next delivery rather than lost
+    // silently.
+    log.warn("Fanout capped at max followers for one invocation", {
+      event: "delivery.fanout.capped",
+      followee: msg.followeeApId,
+      activityId: msg.activityId,
+      processed,
+      max: FANOUT_MAX_FOLLOWERS,
+    });
   }
 
   message.ack();

@@ -252,15 +252,22 @@ async function resolveUndoByActivityId(
   if (originalActivity.type === "Follow") {
     const follow = await findFollowByActivityId(db, objectId);
     if (follow) {
-      await deleteFollowByCompoundKey(
+      const deleted = await deleteFollowByCompoundKey(
         db,
         follow.followerApId,
         follow.followingApId,
       );
+      // Only decrement when a row was actually removed AND it had been
+      // counted. `handleFollow` only increments followerCount for an
+      // 'accepted' follow (a 'pending' follow never bumped the count), so a
+      // duplicate Undo or an Undo of a never-accepted follow must not drift
+      // the count negative. Mirrors the gating in `undoInteraction`.
+      if (deleted.some((row) => row.status === "accepted")) {
+        await db.update(actors)
+          .set({ followerCount: sql`${actors.followerCount} - 1` })
+          .where(eq(actors.apId, recipient.apId));
+      }
     }
-    await db.update(actors)
-      .set({ followerCount: sql`${actors.followerCount} - 1` })
-      .where(eq(actors.apId, recipient.apId));
     return true;
   }
 
@@ -300,25 +307,34 @@ async function undoFollow(
 ): Promise<void> {
   const follow = objectId ? await findFollowByActivityId(db, objectId) : null;
 
+  let deleted: Array<{ status: string }>;
   if (follow) {
-    await deleteFollowByCompoundKey(
+    deleted = await deleteFollowByCompoundKey(
       db,
       follow.followerApId,
       follow.followingApId,
     );
   } else {
-    await db.delete(follows)
+    deleted = await db.delete(follows)
       .where(
         and(
           eq(follows.followerApId, actor),
           eq(follows.followingApId, recipient.apId),
         ),
-      );
+      )
+      .returning({ status: follows.status });
   }
 
-  await db.update(actors)
-    .set({ followerCount: sql`${actors.followerCount} - 1` })
-    .where(eq(actors.apId, recipient.apId));
+  // Only decrement when a row was actually removed AND it had been counted.
+  // `handleFollow` increments followerCount only for an 'accepted' follow, so
+  // a duplicate Undo, an Undo of a never-accepted (pending) follow, or an Undo
+  // of an unknown follow must not drift the count negative. Mirrors
+  // `undoInteraction`'s rows-affected gating.
+  if (deleted.some((row) => row.status === "accepted")) {
+    await db.update(actors)
+      .set({ followerCount: sql`${actors.followerCount} - 1` })
+      .where(eq(actors.apId, recipient.apId));
+  }
 }
 
 async function undoLike(

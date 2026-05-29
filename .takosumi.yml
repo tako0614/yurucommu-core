@@ -10,24 +10,20 @@ metadata:
   homepage: https://github.com/tako0614/yurucommu
 
 # ---------------------------------------------------------------------------
-# Known gap (tracked, not yet resolved):
+# Runtime bindings declared as AppSpec components:
 #
-# Yurucommu's worker runtime also requires the following runtime bindings,
-# which the operator must currently supply via deploy-config (e.g. the
-# accompanying wrangler.toml `[[kv_namespaces]]` / `[[queues.producers]]` /
-# `[vars]` sections) rather than via AppSpec components:
+# The worker runtime hard-requires KV (session / OAuth state / rate-limit
+# counters) and the outbound ActivityPub delivery queues (DELIVERY_QUEUE +
+# DELIVERY_DLQ). These are now declared below as `kv-store` / `message-queue`
+# components and `connect`-ed into the worker, so the Takosumi install/deploy
+# path provisions them through the kernel instead of requiring bespoke
+# wrangler.toml `[[kv_namespaces]]` / `[[queues.producers]]` editing.
 #
-#   - KV               (session / OAuth state / rate-limit counters)
-#   - DELIVERY_QUEUE   (outbound ActivityPub delivery queue)
-#   - DELIVERY_DLQ     (delivery dead-letter queue)
-#   - ENCRYPTION_KEY   (secret env; encrypts session + sensitive tokens)
-#
-# These are NOT yet declared here as `kv-store` / `message-queue` /
-# secret-env components because the deploy facade still passes them through
-# directly. See README.md lines 122-128 for the operator-side note on this
-# split. Future work: introduce explicit AppSpec components for KV /
-# delivery queues / ENCRYPTION_KEY so the install/deploy path can provision
-# them through the kernel without bespoke wrangler.toml editing.
+# Remaining operator-supplied secret (not a provisionable AppSpec component
+# kind): ENCRYPTION_KEY (encrypts session + sensitive tokens). The official
+# catalog has no `secret-env` component kind to declare a bare operator
+# secret, so ENCRYPTION_KEY is still supplied via deploy-config `[vars]` /
+# secret. See README.md for the operator-side note on this remaining split.
 # ---------------------------------------------------------------------------
 components:
   web:
@@ -43,6 +39,18 @@ components:
         output: media.bucket
         inject: secret-env
         prefix: MEDIA
+      kv:
+        output: kv.store
+        inject: secret-env
+        prefix: KV
+      delivery-queue:
+        output: delivery-queue.producer
+        inject: secret-env
+        prefix: DELIVERY_QUEUE
+      delivery-dlq:
+        output: delivery-dlq.producer
+        inject: secret-env
+        prefix: DELIVERY_DLQ
     listen:
       oidc:
         path: identity.primary.oidc
@@ -75,6 +83,21 @@ components:
     kind: object-store
     spec:
       name: yurucommu-media
+
+  kv:
+    kind: kv-store
+    spec:
+      name: yurucommu-kv
+
+  delivery-queue:
+    kind: message-queue
+    spec:
+      name: yurucommu-delivery
+
+  delivery-dlq:
+    kind: message-queue
+    spec:
+      name: yurucommu-delivery-dlq
 
 publish:
   public:

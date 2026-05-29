@@ -192,6 +192,13 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
  *    egress, but we keep a sub-budget here for abuse detection.
  *  - `dm` (600/min): direct message send. Tight enough to make a spam
  *    bot visible without breaking an active human conversation.
+ *  - `communityMessage` (600/min): community chat send. A publish-like write
+ *    (inserts an object + recipient + Create activity); mirrors `dm` so a spam
+ *    bot is visible without breaking an active human conversation, instead of
+ *    sharing the generous `general` read budget.
+ *  - `storyWrite` (200/min): story create + interactions (vote/like/share).
+ *    Story create fans out to followers, so it is publish-like; matched to
+ *    `postCreate` rather than left in the `general` read bucket.
  *  - `inbox` (1k/min): per-IP inbound federation. Previously 20k which
  *    effectively disabled the limiter — a misbehaving peer instance
  *    behind a single egress IP could DoS us. 1k/min is well above any
@@ -211,6 +218,8 @@ const RATE_LIMITS = {
   search: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 3_000 },
   mediaUpload: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 2_000 },
   dm: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 600 },
+  communityMessage: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 600 },
+  storyWrite: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 200 },
   inbox: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 1_000 },
   inboxDomain: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 1_000 },
   federationDiscovery: { windowMs: RATE_LIMIT_WINDOW_MS, maxRequests: 60 },
@@ -223,6 +232,11 @@ export const RateLimitConfigs = {
   search: { ...RATE_LIMITS.search, keyPrefix: "search:" },
   mediaUpload: { ...RATE_LIMITS.mediaUpload, keyPrefix: "media:" },
   dm: { ...RATE_LIMITS.dm, keyPrefix: "dm:" },
+  communityMessage: {
+    ...RATE_LIMITS.communityMessage,
+    keyPrefix: "community-msg:",
+  },
+  storyWrite: { ...RATE_LIMITS.storyWrite, keyPrefix: "story-write:" },
   inbox: { ...RATE_LIMITS.inbox, keyPrefix: "inbox:" },
   inboxDomain: { ...RATE_LIMITS.inboxDomain, keyPrefix: "inbox-domain:" },
   federationDiscovery: {

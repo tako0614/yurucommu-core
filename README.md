@@ -121,11 +121,14 @@ liveness probe で、binding 欠落がある場合も通常は `degraded` を 20
 
 ただし canonical ActivityPub identity を固定する production では `APP_URL` を
 deploy env で明示してください。`.takosumi.yml` は postgres component の
-`db.connection`、object-store component の `media.bucket` を `connect` し、
-worker はそれらと `identity.primary.oidc` platform service を受け取ります。KV /
-delivery queue bindings が必要な operator distribution では、AppSpec 外の deploy
-config で `KV` / `DELIVERY_QUEUE` / `DELIVERY_DLQ` と queue 名 env
-を供給してください。
+`db.connection`、object-store component の `media.bucket`、kv-store component の
+`kv.store`、message-queue component の `delivery-queue.producer` /
+`delivery-dlq.producer` を `connect` し、worker はそれらと
+`identity.primary.oidc` platform service を受け取ります。KV / delivery queue
+bindings は AppSpec component として宣言されるため、install/deploy path が
+kernel 経由で provision します。残る operator-supplied secret は
+`ENCRYPTION_KEY` のみで、catalog に bare secret 用の component kind が無いため
+deploy config の `[vars]` / secret で供給してください。
 
 Takosumi install/deploy の目安。Git URL dry-run は AppSpec metadata と connect /
 listen wiring の確認に使えます。`dist/worker.js` は Git source に含めず

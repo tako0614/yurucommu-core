@@ -103,19 +103,26 @@ export async function findFollowByActivityId(
   return row ?? null;
 }
 
-/** Delete a follow using its compound key. */
+/**
+ * Delete a follow using its compound key. Returns the deleted rows (with their
+ * prior status) so callers can gate denormalized count updates on a row
+ * actually being removed AND on whether it had been counted (status
+ * 'accepted'). `.returning()` yields the deleted rows across both D1 and
+ * libsql backends.
+ */
 export async function deleteFollowByCompoundKey(
   db: Database,
   followerApId: string,
   followingApId: string,
-): Promise<void> {
-  await db.delete(follows)
+): Promise<Array<{ status: string }>> {
+  return await db.delete(follows)
     .where(
       and(
         eq(follows.followerApId, followerApId),
         eq(follows.followingApId, followingApId),
       ),
-    );
+    )
+    .returning({ status: follows.status });
 }
 
 /**

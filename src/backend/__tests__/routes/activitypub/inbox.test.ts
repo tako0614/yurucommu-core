@@ -195,6 +195,118 @@ Deno.test("activitypub inbox - silently discards a blocked actor's Like", async 
   assertSpyCalls(db.query.activities.findFirst, 0);
 });
 
+function createSharedInboxDbMock(
+  publicKeyPem: string,
+  localFollowerApIds: string[],
+) {
+  const insertValues = spy((..._args: unknown[]) => Promise.resolve(undefined));
+  // select(...).from(...).where(...).orderBy(...).limit(...) returns the
+  // accepted-follower rows that the shared inbox pages over.
+  const limit = spy((..._args: unknown[]) =>
+    Promise.resolve(
+      localFollowerApIds.map((followerApId) => ({ followerApId })),
+    )
+  );
+  const findMany = spy((..._args: unknown[]) =>
+    Promise.resolve(
+      localFollowerApIds.map((apId) => ({ apId, isPrivate: false })),
+    )
+  );
+  // The follower-page query is `select().from().where().orderBy().limit()`.
+  // The Like dispatch (handleInteraction) issues other select/update chains
+  // against the same mock; those run inside the route's per-recipient
+  // try/catch and are not the subject of this test, so the chain below is
+  // made broadly chainable to keep the dispatch from throwing uncaught.
+  const followerWhere = {
+    orderBy: () => ({ limit }),
+    limit,
+    get: () => Promise.resolve(null),
+    then: (resolve: (rows: unknown[]) => void) => resolve([]),
+  };
+  const chainableSet = { where: () => Promise.resolve(undefined) };
+  const db = {
+    query: {
+      actors: {
+        findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
+        findMany,
+      },
+      actorCache: {
+        findFirst: spy((..._args: unknown[]) =>
+          Promise.resolve({
+            apId: "https://remote.example/users/alice",
+            publicKeyPem,
+          })
+        ),
+      },
+      activities: {
+        findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
+      },
+    },
+    insert: spy((..._args: unknown[]) => ({
+      values: insertValues,
+    })),
+    update: spy((..._args: unknown[]) => ({ set: () => chainableSet })),
+    select: spy((..._args: unknown[]) => ({
+      from: () => ({ where: () => followerWhere }),
+    })),
+  };
+
+  return { db, insertValues, limit, findMany };
+}
+
+Deno.test("activitypub shared inbox - verifies, stores, and fans out to local followers (not black-holed)", async () => {
+  const { publicKeyPem, privateKeyPem } = await generateKeyPair();
+  const actorApId = "https://remote.example/users/alice";
+  const { db, insertValues, limit, findMany } = createSharedInboxDbMock(
+    publicKeyPem,
+    ["https://test.local/ap/users/bob"],
+  );
+  const app = new Hono();
+
+  app.use("*", async (c, next) => {
+    (c as unknown as { set: (key: string, value: unknown) => void }).set(
+      "db",
+      db,
+    );
+    await next();
+  });
+  app.route("/", inboxRoutes);
+
+  const body = JSON.stringify({
+    id: "https://remote.example/activities/shared-1",
+    type: "Like",
+    actor: actorApId,
+    object: "https://test.local/ap/objects/one",
+  });
+
+  const url = "https://test.local/ap/inbox";
+  const headers = await signRequest(
+    privateKeyPem,
+    `${actorApId}#main-key`,
+    "POST",
+    url,
+    body,
+  );
+  const res = await app.fetch(
+    new Request(url, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/activity+json" },
+      body,
+    }),
+    { APP_URL: "https://test.local" },
+  );
+
+  assertEquals(res.status, 202);
+  // The activity was deduped/stored (proves it ran the real pipeline, not the
+  // old bare-202 black hole).
+  assertSpyCalls(db.query.activities.findFirst, 1);
+  // Local followers of the sending actor were resolved and loaded for fan-out.
+  assertSpyCalls(limit, 1);
+  assertSpyCalls(findMany, 1);
+  // At least the inbound activity insert ran.
+  assertEquals(insertValues.calls.length >= 1, true);
+});
+
 Deno.test("activitypub inbox - rejects signed JSON that is not an activity object", async () => {
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
   const actorApId = "https://remote.example/users/alice";

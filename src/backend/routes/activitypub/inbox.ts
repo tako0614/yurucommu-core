@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import type { Env, Variables } from "../../types.ts";
-import { eq } from "drizzle-orm";
-import { activities, actorCache, actors } from "../../../db/index.ts";
+import { and, eq, inArray } from "drizzle-orm";
+import { activities, actorCache, actors, follows } from "../../../db/index.ts";
 import {
   activityApId,
   actorApId,
@@ -65,6 +65,14 @@ const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
 // `O(activities_received)` HTTP fetches against the same actor URL. We
 // dedupe in-flight fetches with a Promise-coalesced cache and refresh
 // cached rows once they pass `ACTOR_CACHE_TTL_MS`.
+//
+// Caveat: `inFlightActorFetches` is a process-local Map. On Cloudflare
+// Workers each isolate/replica has its own Map, so this coalescing is a
+// best-effort same-isolate optimization, NOT a cross-isolate correctness
+// mechanism — a burst spread across isolates can still fan out one fetch per
+// isolate. Cross-isolate correctness comes from the persistent `actorCache`
+// row (the durable dedup) plus the race-safe `onConflictDoUpdate` upsert
+// below; the in-flight Map only trims redundant fetches within one isolate.
 //
 // Key rotation: when we re-fetch and the actor document advertises a
 // different `publicKey.id` than what we have cached, we log it as a
@@ -360,21 +368,16 @@ async function fetchActorPublicKey(
           publicKey: { publicKeyPem: string };
         };
         const cacheFields = buildActorCacheFields(narrowed);
-        // Upsert: check existence then insert or update
-        const existing = await db.query.actorCache.findFirst({
-          where: eq(actorCache.apId, actorData.id),
-          columns: { apId: true },
-        });
-        if (existing) {
-          await db.update(actorCache).set(cacheFields).where(
-            eq(actorCache.apId, actorData.id),
-          );
-        } else {
-          await db.insert(actorCache).values({
-            apId: actorData.id,
-            ...cacheFields,
-          });
-        }
+        // Single atomic upsert. A check-then-insert/update is racy across
+        // Worker isolates: two isolates racing the same cold actor can both
+        // miss the existence check and then both INSERT, and the loser hits a
+        // primary-key violation that would null out a successfully-fetched
+        // key and spuriously reject a validly-signed activity.
+        // `onConflictDoUpdate` collapses that to one race-safe statement
+        // (same pattern as fetchAndCacheRemoteActor in queue-batching.ts).
+        await db.insert(actorCache)
+          .values({ apId: actorData.id, ...cacheFields })
+          .onConflictDoUpdate({ target: actorCache.apId, set: cacheFields });
       }
 
       return result.publicKeyPem;
@@ -955,10 +958,17 @@ async function cacheRemoteActor(
       inbox: string;
       publicKey: { publicKeyPem: string };
     };
-    await db.insert(actorCache).values({
-      apId: actorData.id,
-      ...buildActorCacheFields(narrowed),
-    });
+    // `onConflictDoNothing` keeps this race-safe: the early `cached` check is
+    // best-effort only, so two isolates racing the same cold actor can both
+    // reach this insert. Without the conflict clause the loser would throw a
+    // primary-key violation; doing nothing on conflict matches the intent
+    // (cache only when absent) and avoids the spurious error log.
+    await db.insert(actorCache)
+      .values({
+        apId: actorData.id,
+        ...buildActorCacheFields(narrowed),
+      })
+      .onConflictDoNothing();
   } catch (e) {
     log.error("Failed to cache remote actor", {
       event: "ap.actor.cache_failed",
@@ -1164,6 +1174,144 @@ ap.post("/ap/users/:username/inbox", async (c) => {
     actor,
     baseUrl,
   });
+
+  return c.body(null, 202);
+});
+
+// ---------------------------------------------------------------------------
+// Shared inbox (Mastodon convention)
+// ---------------------------------------------------------------------------
+//
+// Both the user actor and the group/instance actor advertise
+// `endpoints.sharedInbox = <baseUrl>/ap/inbox`. Mastodon and most large
+// servers use sharedInbox as the PRIMARY fan-out delivery target, so a
+// federated peer following a yurucommu user delivers Create/Like/Announce/
+// Follow/Undo here. This endpoint runs the SAME verify/dedup/store pipeline as
+// the per-actor inbox (`verifyAndParseInbox`) and then routes the activity to
+// the appropriate local recipients, instead of black-holing it with a bare
+// 202.
+//
+// Recipient resolution: the parsed activity envelope does not carry
+// `to`/`cc`/`audience`, so for recipient-scoped activity types we fan out to
+// every LOCAL actor that follows the activity actor (the standard sharedInbox
+// semantic — the sending server delivers once and the receiving server
+// distributes to its own followers). Recipient-independent types (Accept,
+// Delete, Update, Reject, Flag, Move) are dispatched exactly once.
+
+// Bound on the number of local followers fanned out per shared-inbox activity,
+// so a single delivery cannot trigger an unbounded number of handler runs in
+// one request. Local follower sets are small (this is a single-instance
+// community app), so this ceiling is generous.
+const MAX_SHARED_INBOX_FANOUT = 1000;
+
+// Activity types whose handlers do not depend on the recipient actor; these
+// are dispatched once rather than per local follower.
+const RECIPIENT_INDEPENDENT_TYPES = new Set([
+  "Accept",
+  "Delete",
+  "Update",
+  "Reject",
+  "Flag",
+  "Move",
+]);
+
+/**
+ * Resolve the local actor rows that follow `actorApIdValue` (an accepted
+ * follow), capped at MAX_SHARED_INBOX_FANOUT. Used to fan a shared-inbox
+ * activity out to the local recipients that subscribed to the sending actor.
+ */
+async function resolveLocalFollowerRecipients(
+  c: HonoContext,
+  actorApIdValue: string,
+  baseUrl: string,
+): Promise<ActorRow[]> {
+  const db = c.get("db");
+
+  const followerRows = await db.select({
+    followerApId: follows.followerApId,
+  })
+    .from(follows)
+    .where(
+      and(
+        eq(follows.followingApId, actorApIdValue),
+        eq(follows.status, "accepted"),
+      ),
+    )
+    .limit(MAX_SHARED_INBOX_FANOUT);
+
+  const localFollowerApIds = followerRows
+    .map((row) => row.followerApId)
+    .filter((apId) => isLocal(apId, baseUrl));
+  if (localFollowerApIds.length === 0) return [];
+
+  return await db.query.actors.findMany({
+    where: inArray(actors.apId, localFollowerApIds),
+  });
+}
+
+ap.post("/ap/inbox", async (c) => {
+  const baseUrl = c.env.APP_URL;
+
+  const result = await verifyAndParseInbox(c, baseUrl);
+  if (result instanceof Response) return result;
+
+  const throttled = await applyInboxDomainRateLimit(c, result.actor);
+  if (throttled) return throttled;
+
+  const duplicate = await deduplicateAndStoreActivity(c, result);
+  if (duplicate) return duplicate;
+
+  const { activity, activityType, actor } = result;
+
+  await cacheRemoteActor(c, actor, baseUrl);
+
+  if (RECIPIENT_INDEPENDENT_TYPES.has(activityType)) {
+    // These handlers ignore the recipient; dispatch once. We pass a synthetic
+    // recipient context derived from the activity actor so the handler
+    // signature is satisfied without implying a specific local target.
+    await dispatchUserActivity(c, activityType, activity, {
+      recipient: { apId: actor } as ActorRow,
+      actor,
+      baseUrl,
+    });
+    return c.body(null, 202);
+  }
+
+  // Recipient-scoped: fan out to every local follower of the sending actor.
+  const recipients = await resolveLocalFollowerRecipients(c, actor, baseUrl);
+  if (recipients.length === 0) {
+    // No local subscribers for this actor. We have still verified + stored
+    // the activity (dedup ledger), so this is an honest no-op delivery, not a
+    // black hole — a 202 here means "accepted, nothing to route locally".
+    log.info("Shared-inbox activity had no local recipients", {
+      event: "ap.shared_inbox.no_recipients",
+      activityType,
+      actor,
+    });
+    return c.body(null, 202);
+  }
+
+  for (const recipient of recipients) {
+    // Isolate per-recipient failures: a single local recipient whose handler
+    // throws must not abort fan-out to the others or turn the whole shared
+    // delivery into a 5xx (which would make the sending peer retry and
+    // redeliver to every recipient).
+    try {
+      await dispatchUserActivity(c, activityType, activity, {
+        recipient,
+        actor,
+        baseUrl,
+      });
+    } catch (e) {
+      log.error("Shared-inbox dispatch failed for one recipient", {
+        event: "ap.shared_inbox.dispatch_error",
+        activityType,
+        actor,
+        recipient: recipient.apId,
+        error: e,
+      });
+    }
+  }
 
   return c.body(null, 202);
 });

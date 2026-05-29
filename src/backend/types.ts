@@ -54,6 +54,10 @@ export interface EnvVars {
   YURUCOMMU_STRICT_READINESS?: string;
   YURUCOMMU_ENABLE_LOCAL_SUBSTRATE_REMOTE_FETCHES?: string;
   YURUCOMMU_ENABLE_DENO_DELIVERY_QUEUE?: string;
+  // Software version advertised in NodeInfo (software.version). The build /
+  // deploy pipeline should inject the real build version here; when unset the
+  // app falls back to the YURUCOMMU_VERSION default constant.
+  YURUCOMMU_SOFTWARE_VERSION?: string;
 
   // CSRF allowed origins (comma-separated). APP_URL の origin に加えて
   // 受け付ける追加 origin (= dev hostname (`https://yurucommu.test`) を

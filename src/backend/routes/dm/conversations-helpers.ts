@@ -1,11 +1,35 @@
 // Shared helpers for DM conversations
 
 import type { Context } from "hono";
-import { and, eq, inArray, isNotNull, like, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, or, type SQL, sql } from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import { actorCache, actors, objects } from "../../../db/index.ts";
 import type { Env, Variables } from "../../types.ts";
 import { safeJsonParse } from "../../federation-helpers.ts";
+
+/**
+ * Build a safe LIKE condition that matches the JSON-quoted token for an AP-ID
+ * inside the recipient `toJson` array (e.g. `"https://host/ap/users/alice"`).
+ *
+ * The AP-ID can be an attacker-influenceable remote URL, so the LIKE pattern
+ * MUST escape the `%` / `_` wildcards (and the escape char itself) — otherwise
+ * those characters would act as wildcards and broaden or break the match. We
+ * anchor on the JSON-stringified token (surrounding double quotes act as
+ * delimiters) so a recipient ID that is a textual prefix of another cannot
+ * cross-match. This is a substring scan of a JSON array column and is used only
+ * to enumerate which conversations involve an actor; message-content access is
+ * authorized separately by exact conversation + recipient checks.
+ */
+export function recipientToJsonLike(apId: string): SQL {
+  // JSON.stringify yields a quoted token whose surrounding quotes delimit the
+  // value; escaping the LIKE metacharacters keeps the wildcard semantics from
+  // leaking out of the caller-supplied AP-ID.
+  const token = JSON.stringify(apId)
+    .replace(/\\/g, "\\\\")
+    .replace(/%/g, "\\%")
+    .replace(/_/g, "\\_");
+  return sql`${objects.toJson} LIKE ${"%" + token + "%"} ESCAPE '\\'`;
+}
 
 export type HonoEnv = { Bindings: Env; Variables: Variables };
 
@@ -40,15 +64,21 @@ export function getOtherParticipant(
   return obj.attributedTo;
 }
 
-/** Drizzle where clause for DM objects involving a given actor. */
-export function dmWhereForActor(actorApId: string, actorApIdJson: string) {
+/**
+ * Drizzle where clause for DM objects involving a given actor.
+ *
+ * `actorApIdJson` is accepted for backwards compatibility but the recipient
+ * match is now built from `actorApId` via {@link recipientToJsonLike} so LIKE
+ * metacharacters in the AP-ID are escaped.
+ */
+export function dmWhereForActor(actorApId: string, _actorApIdJson?: string) {
   return and(
     eq(objects.visibility, "direct"),
     eq(objects.type, "Note"),
     isNotNull(objects.conversation),
     or(
       eq(objects.attributedTo, actorApId),
-      like(objects.toJson, `%${actorApIdJson}%`),
+      recipientToJsonLike(actorApId),
     ),
   );
 }
