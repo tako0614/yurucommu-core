@@ -46,11 +46,11 @@ product root は独立管理で Takos core には吸収しない。
 
 ```bash
 cd yurucommu
-deno task check
-deno task test
-deno task lint
-deno task fmt:check
-deno task deploy   # Cloudflare deploy
+bun run check
+bun test
+bun run lint
+bun run fmt
+bun run deploy   # Cloudflare deploy
 ```
 
 ## 関連 docs
