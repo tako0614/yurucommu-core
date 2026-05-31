@@ -89,20 +89,20 @@
 
       <h3>Step 1: リポジトリをクローン</h3>
       <pre><code>git clone https://github.com/tako0614/yurucommu.git
-cd yurucommu
-deno task dev</code></pre>
-      <p><code>deno task dev</code> は <code>wrangler.local.toml</code> を使ってローカル Worker を起動します。開発時の基本タスクは <code>deno task build</code>、<code>deno task deploy</code>、<code>deno task db:generate</code> です。</p>
+	cd yurucommu
+	bun run dev</code></pre>
+      <p>Worker を直接確認する場合は <code>bunx wrangler dev --config wrangler.local.toml</code> を使います。開発時の基本タスクは <code>bun run build</code>、<code>bun run build:worker</code>、<code>bun run deploy</code>、<code>bun run db:generate</code> です。</p>
 
       <h3>Step 2: Cloudflare CLIでログイン</h3>
-      <pre><code>deno run -A npm:wrangler login</code></pre>
+      <pre><code>bunx wrangler login</code></pre>
       <p>ブラウザが開くので、Cloudflareアカウントで認証してください。</p>
 
       <h3>Step 3: D1データベースを作成</h3>
-      <pre><code>deno run -A npm:wrangler d1 create yurucommu-db</code></pre>
+      <pre><code>bunx wrangler d1 create yurucommu-db</code></pre>
       <p>作成後、表示される <code>database_id</code> をメモしてください。</p>
 
       <h3>Step 4: R2バケットを作成</h3>
-      <pre><code>deno run -A npm:wrangler r2 bucket create yurucommu-media</code></pre>
+      <pre><code>bunx wrangler r2 bucket create yurucommu-media</code></pre>
 
       <h3>Step 5: wrangler.tomlを設定</h3>
       <p><code>wrangler.toml</code>を開き、D1のIDを設定します：</p>
@@ -112,11 +112,11 @@ database_name = "yurucommu-db"
 database_id = "ここにStep 3でメモしたIDを入力"</code></pre>
 
       <h3>Step 6: データベースマイグレーション</h3>
-      <pre><code>deno run -A npm:wrangler d1 migrations apply yurucommu-db --remote</code></pre>
+      <pre><code>bunx wrangler d1 migrations apply yurucommu-db --remote</code></pre>
 
       <h3>Step 7: デプロイ</h3>
-      <pre><code>deno task build
-deno task deploy</code></pre>
+      <pre><code>bun run build:worker
+	bun run deploy</code></pre>
       <p>デプロイが完了すると、URLが表示されます（例: <code>yurucommu.xxx.workers.dev</code>）</p>
 
       <h3>Step 8: 初期設定</h3>

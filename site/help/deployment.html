@@ -85,7 +85,7 @@
 
         <h2>ビルド</h2>
         <p>フロントエンドとバックエンドをビルドします。</p>
-        <pre><code>deno task build</code></pre>
+        <pre><code>bun run build</code></pre>
         <p>
           これにより <code>dist/</code>
           ディレクトリに静的ファイルが生成されます。
@@ -95,7 +95,7 @@
           Takosumi Cloud install 用の worker entrypoint は <code>.takosumi.build.yml</code>
           と同じ流れで生成します。
         </p>
-        <pre><code>deno task build:worker</code></pre>
+        <pre><code>bun run build:worker</code></pre>
         <p>
           <code>.takosumi.yml</code> の <code>web.spec.entrypoint</code> は
           prepared source 内の <code>dist/worker.js</code> を指します。
@@ -109,7 +109,7 @@
         <pre><code>https://cloud.takosumi.com/apps/install?git=https://github.com/tako0614/yurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autodryrun=1</code></pre>
 
         <h2>Cloudflareへ直接デプロイ</h2>
-        <pre><code>deno task deploy</code></pre>
+        <pre><code>bun run deploy</code></pre>
 
         <p>成功すると以下のように表示されます：</p>
         <pre><code>Uploaded yurucommu (X.XX sec)
@@ -131,9 +131,9 @@ Published yurucommu (X.XX sec)
           <li><code>wrangler.site.toml</code> - 静的サイト用設定</li>
         </ul>
         <p>
-          ローカルで Worker を起動する場合は <code>deno task dev</code> を使います
+          ローカルで Worker を起動する場合は <code>bunx wrangler dev --config wrangler.local.toml</code> を使います
           （内部では <code>wrangler.local.toml</code> を参照します）。<code
-            >deno task deploy</code> は <code>wrangler.toml</code> を使って本体
+            >bun run deploy</code> は <code>wrangler.toml</code> を使って本体
           Worker を <code>test.yurucommu.com</code> にデプロイします。別の
           production hostname で運用する場合は、deploy 前に <code>APP_URL</code>
           と <code>[[routes]].pattern</code> を canonical hostname に合わせます。
@@ -142,17 +142,17 @@ Published yurucommu (X.XX sec)
         <h2>デプロイオプション</h2>
 
         <h3>ドライラン（実際にはデプロイしない）</h3>
-        <pre><code>deno run -A npm:wrangler deploy --dry-run</code></pre>
+        <pre><code>bunx wrangler deploy --dry-run</code></pre>
 
         <h3>設定ファイルを切り替える</h3>
         <pre><code># test.yurucommu.com 向け本体 Worker を明示的にデプロイ
-deno run -A npm:wrangler deploy --config wrangler.toml
+	bunx wrangler deploy --config wrangler.toml
 
 # test2.yurucommu.com 向け tenant/test Worker をデプロイ
-deno run -A npm:wrangler deploy --config wrangler.tenant2.toml
+bunx wrangler deploy --config wrangler.tenant2.toml
 
 # 静的サイトをデプロイ
-deno run -A npm:wrangler deploy --config wrangler.site.toml</code></pre>
+bunx wrangler deploy --config wrangler.site.toml</code></pre>
 
         <h2>CI/CDパイプライン</h2>
         <p>GitHub Actionsを使った自動デプロイの設定例：</p>
@@ -170,13 +170,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Deno
-        uses: denoland/setup-deno@v1
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          deno-version: '2.x'
+          bun-version: latest
 
       - name: Build
-        run: deno task build
+        run: bun run build:worker
 
       - name: Deploy to Cloudflare
         uses: cloudflare/wrangler-action@v3
@@ -194,17 +194,17 @@ jobs:
         <h2>ロールバック</h2>
         <p>問題が発生した場合、前のバージョンにロールバックできます。</p>
         <pre><code># デプロイ履歴を確認
-deno run -A npm:wrangler deployments list
+	bunx wrangler deployments list
 
 # 特定のバージョンにロールバック
-deno run -A npm:wrangler rollback</code></pre>
+	bunx wrangler rollback</code></pre>
 
         <h2>ログの確認</h2>
         <pre><code># リアルタイムログ
-deno run -A npm:wrangler tail
+	bunx wrangler tail
 
 # フィルタリング
-deno run -A npm:wrangler tail --status error</code></pre>
+	bunx wrangler tail --status error</code></pre>
 
         <h2>よくあるエラー</h2>
 

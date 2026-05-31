@@ -8,6 +8,6 @@ nodes:
   web:
     kind: linux-container
     spec:
-      image: denoland/deno:alpine
-      command: deno task build:worker
+      image: oven/bun:1.3.14-alpine
+      command: bun install --frozen-lockfile && bun run build:worker
     dependsOn: []
