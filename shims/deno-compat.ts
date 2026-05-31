@@ -13,6 +13,28 @@ import * as fsp from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import process from "node:process";
+import { createRequire } from "node:module";
+
+// Bun migration: some framework runtime-adapter code (e.g.
+// src/kernel/shared/runtime/node.ts) resolves `node:fs` synchronously through a
+// `globalThis.require` when one is present (its documented "CommonJS bootstrap
+// exposes one" path), falling back to an async-warmed createRequire otherwise.
+// Under `bun test`, the async warm-up has not resolved by the time a lazy
+// synchronous descriptor read runs, so the adapter throws "node:fs synchronous
+// read not available". Installing a real `require` on the global here (before any
+// module evaluates, via the bunfig preload) lights up the adapter's existing
+// synchronous path with identical behavior — we do not edit framework code.
+{
+  const g = globalThis as { require?: (specifier: string) => unknown };
+  if (typeof g.require !== "function") {
+    try {
+      g.require = createRequire(import.meta.url);
+    } catch {
+      // Runtime without node:module support — leave require unset; the adapter's
+      // documented fallback then surfaces its normal "not available" error.
+    }
+  }
+}
 
 type StdioStr = "piped" | "inherit" | "null";
 
@@ -98,20 +120,78 @@ class DenoCommand {
 
   spawn() {
     const o = this.#opts;
+    // Deno's Command.spawn() exposes stdin/stdout/stderr as WHATWG web streams
+    // (stdin is a WritableStream with getWriter(); stdout/stderr are
+    // ReadableStreams). It is NOT detached. We model that here so call sites that
+    // do `child.stdin.getWriter()` (e.g. piping a tar archive to a subprocess)
+    // behave the same under bun as under Deno.
     const child = spawn(this.#cmd, o.args ?? [], {
       cwd: o.cwd instanceof URL ? o.cwd.pathname : o.cwd,
       env: buildEnv(o),
       stdio: [mapStdio(o.stdin), mapStdio(o.stdout), mapStdio(o.stderr)],
-      detached: true,
       signal: o.signal,
     });
-    child.unref?.();
+
+    const stdin: WritableStream<Uint8Array> | null = child.stdin
+      ? new WritableStream<Uint8Array>({
+        write(chunk) {
+          return new Promise<void>((resolve, reject) => {
+            child.stdin!.write(chunk, (err) => (err ? reject(err) : resolve()));
+          });
+        },
+        close() {
+          return new Promise<void>((resolve) => child.stdin!.end(() => resolve()));
+        },
+        abort() {
+          child.stdin!.destroy();
+        },
+      })
+      : null;
+
+    function toReadable(
+      stream: NodeJS.ReadableStream | null,
+    ): ReadableStream<Uint8Array> | null {
+      if (!stream) return null;
+      return new ReadableStream<Uint8Array>({
+        start(controller) {
+          stream.on("data", (c: Buffer) => controller.enqueue(new Uint8Array(c)));
+          stream.on("end", () => controller.close());
+          stream.on("error", (e) => controller.error(e));
+        },
+        cancel() {
+          (stream as { destroy?: () => void }).destroy?.();
+        },
+      });
+    }
+
+    const status = new Promise<{ code: number; success: boolean; signal: string | null }>(
+      (res) => child.on("close", (code, sig) => res({ code: code ?? 0, success: (code ?? 0) === 0, signal: sig })),
+    );
+
     return {
       pid: child.pid,
-      status: new Promise<{ code: number; success: boolean; signal: string | null }>((res) =>
-        child.on("close", (code, sig) => res({ code: code ?? 0, success: (code ?? 0) === 0, signal: sig }))
-      ),
+      stdin,
+      stdout: toReadable(child.stdout),
+      stderr: toReadable(child.stderr),
+      status,
+      output: () =>
+        new Promise<CommandOutput>((resolve) => {
+          const out: Uint8Array[] = [];
+          const err: Uint8Array[] = [];
+          child.stdout?.on("data", (c: Buffer) => out.push(c));
+          child.stderr?.on("data", (c: Buffer) => err.push(c));
+          child.on("close", (code, sig) =>
+            resolve({
+              code: code ?? 0,
+              signal: sig,
+              success: (code ?? 0) === 0,
+              stdout: out.length ? new Uint8Array(Buffer.concat(out)) : new Uint8Array(),
+              stderr: err.length ? new Uint8Array(Buffer.concat(err)) : new Uint8Array(),
+            }));
+        }),
       kill: (sig?: NodeJS.Signals) => child.kill(sig),
+      unref: () => child.unref?.(),
+      ref: () => child.ref?.(),
     };
   }
 }
@@ -251,6 +331,26 @@ const DenoCompat = {
     }
     for (const e of ents) {
       yield { name: e.name, isFile: e.isFile(), isDirectory: e.isDirectory(), isSymlink: e.isSymbolicLink() };
+    }
+  },
+
+  readDirSync: function* (p: string | URL): IterableIterator<DirEntry> {
+    let ents: fs.Dirent[];
+    try {
+      ents = fs.readdirSync(p, { withFileTypes: true });
+    } catch (e) {
+      throw remap(e);
+    }
+    for (const e of ents) {
+      yield { name: e.name, isFile: e.isFile(), isDirectory: e.isDirectory(), isSymlink: e.isSymbolicLink() };
+    }
+  },
+
+  lstatSync: (p: string | URL) => {
+    try {
+      return toFileInfo(fs.lstatSync(p));
+    } catch (e) {
+      throw remap(e);
     }
   },
 

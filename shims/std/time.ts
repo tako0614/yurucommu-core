@@ -17,6 +17,11 @@ interface QueuedTimer {
   args: unknown[];
 }
 
+// Tracks the most recently constructed, not-yet-restored FakeTime so a
+// bun:test afterEach safety net can force-restore a clock that a test forgot
+// to (or whose afterEach hook did not fire) before the next test runs.
+let activeFakeTime: FakeTime | undefined;
+
 export class FakeTime {
   #now: number;
   #timers: QueuedTimer[] = [];
@@ -78,6 +83,10 @@ export class FakeTime {
     (globalThis as any).clearTimeout = (id?: number) => self.#cancel(id);
     // deno-lint-ignore no-explicit-any
     (globalThis as any).clearInterval = (id?: number) => self.#cancel(id);
+
+    // Record as the active (installed) fake clock so a forgotten/late restore
+    // can be cleaned up at test-scope exit before it leaks into the next test.
+    activeFakeTime = this;
   }
 
   get now(): number {
@@ -158,6 +167,7 @@ export class FakeTime {
   restore(): void {
     if (this.#restored) return;
     this.#restored = true;
+    if (activeFakeTime === this) activeFakeTime = undefined;
     Date.now = this.#realDateNow;
     // deno-lint-ignore no-explicit-any
     (globalThis as any).Date = this.#realDate;
@@ -175,4 +185,51 @@ export class FakeTime {
   [Symbol.dispose](): void {
     this.restore();
   }
+}
+
+// Pristine globals captured at module-eval time, before any FakeTime is
+// constructed. These are the ground-truth real implementations we restore to.
+const PRISTINE_DATE = globalThis.Date;
+const PRISTINE_DATE_NOW = globalThis.Date.now;
+const PRISTINE_SET_TIMEOUT = globalThis.setTimeout;
+const PRISTINE_CLEAR_TIMEOUT = globalThis.clearTimeout;
+const PRISTINE_SET_INTERVAL = globalThis.setInterval;
+const PRISTINE_CLEAR_INTERVAL = globalThis.clearInterval;
+
+// Safety net for bun:test. A suite that installs FakeTime (e.g.
+// `const t = new FakeTime(new Date("2026-02-18..."))`) and restores it in a
+// try/finally works fine in isolation, but under bun:test the global Date
+// patch can still be observed by a LATER test file before the restore is
+// visible across the file boundary — freezing new Date()/Date.now() at the
+// fake clock. That silently breaks time-sensitive assertions downstream (the
+// activitypub inbox HTTP-signature freshness window: a frozen 2026-02 clock
+// vs a real-time signed Date header exceeds MAX_SIGNATURE_AGE_MS => 401).
+//
+// To make the leak impossible regardless of lifecycle timing, hard-reset the
+// global time primitives to the pristine implementations after EVERY test —
+// unconditionally, not only when a FakeTime is still flagged active. A test
+// that genuinely needs fake time installs it inside its own body and tears it
+// down before asserting, so a post-test reset never interferes. Best-effort
+// and bun-only: under Deno the `bun:test` import throws (caught) and native
+// FakeTime restore / `using` [Symbol.dispose] semantics already hold.
+try {
+  const bunTest = (await import("bun:test")) as {
+    afterEach?: (fn: () => void) => void;
+  };
+  bunTest.afterEach?.(() => {
+    activeFakeTime?.restore();
+    // Unconditional hard reset in case restore() did not run or did not take
+    // effect across the test/file boundary.
+    if (globalThis.Date !== PRISTINE_DATE) globalThis.Date = PRISTINE_DATE;
+    if (globalThis.Date.now !== PRISTINE_DATE_NOW) {
+      globalThis.Date.now = PRISTINE_DATE_NOW;
+    }
+    globalThis.setTimeout = PRISTINE_SET_TIMEOUT;
+    globalThis.clearTimeout = PRISTINE_CLEAR_TIMEOUT;
+    globalThis.setInterval = PRISTINE_SET_INTERVAL;
+    globalThis.clearInterval = PRISTINE_CLEAR_INTERVAL;
+    activeFakeTime = undefined;
+  });
+} catch {
+  // Not running under bun:test (e.g. Deno) — nothing to install.
 }
