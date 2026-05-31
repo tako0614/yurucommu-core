@@ -41,7 +41,6 @@ export class FakeTime {
       ? start.getTime()
       : (typeof start === "number" ? start : Date.now());
 
-    const self = this;
     this.#realDateNow = Date.now;
     this.#realDate = Date;
     this.#realSetTimeout = globalThis.setTimeout;
@@ -49,8 +48,10 @@ export class FakeTime {
     this.#realSetInterval = globalThis.setInterval;
     this.#realClearInterval = globalThis.clearInterval;
 
+    const now = () => this.#now;
+
     // Patch Date.now to the virtual clock.
-    Date.now = () => self.#now;
+    Date.now = () => now();
 
     // Patch new Date()/Date() with no args to the virtual clock; preserve all
     // other construction forms and static members.
@@ -60,13 +61,13 @@ export class FakeTime {
       ...args: unknown[]
     ): unknown {
       if (args.length === 0) {
-        return new RealDate(self.#now);
+        return new RealDate(now());
       }
       // deno-lint-ignore no-explicit-any
       return new (RealDate as any)(...args);
     } as unknown as DateConstructor;
-    FakeDateCtor.prototype = RealDate.prototype;
-    FakeDateCtor.now = () => self.#now;
+    (FakeDateCtor as { prototype: Date }).prototype = RealDate.prototype;
+    FakeDateCtor.now = () => now();
     FakeDateCtor.parse = RealDate.parse;
     FakeDateCtor.UTC = RealDate.UTC;
     // deno-lint-ignore no-explicit-any
@@ -74,15 +75,21 @@ export class FakeTime {
 
     // Patch timers to the virtual queue.
     // deno-lint-ignore no-explicit-any
-    (globalThis as any).setTimeout = (cb: TimerCallback, ms = 0, ...a: unknown[]) =>
-      self.#schedule(cb, ms, null, a);
+    (globalThis as any).setTimeout = (
+      cb: TimerCallback,
+      ms = 0,
+      ...a: unknown[]
+    ) => this.#schedule(cb, ms, null, a);
     // deno-lint-ignore no-explicit-any
-    (globalThis as any).setInterval = (cb: TimerCallback, ms = 0, ...a: unknown[]) =>
-      self.#schedule(cb, ms, ms, a);
+    (globalThis as any).setInterval = (
+      cb: TimerCallback,
+      ms = 0,
+      ...a: unknown[]
+    ) => this.#schedule(cb, ms, ms, a);
     // deno-lint-ignore no-explicit-any
-    (globalThis as any).clearTimeout = (id?: number) => self.#cancel(id);
+    (globalThis as any).clearTimeout = (id?: number) => this.#cancel(id);
     // deno-lint-ignore no-explicit-any
-    (globalThis as any).clearInterval = (id?: number) => self.#cancel(id);
+    (globalThis as any).clearInterval = (id?: number) => this.#cancel(id);
 
     // Record as the active (installed) fake clock so a forgotten/late restore
     // can be cleaned up at test-scope exit before it leaks into the next test.

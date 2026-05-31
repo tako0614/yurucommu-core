@@ -1,6 +1,8 @@
 // Bun migration shim: @std/fmt/colors -> minimal ANSI implementation.
 // Honors NO_COLOR / TERM=dumb like @std/fmt/colors. Wired via tsconfig "paths".
-const noColor = typeof process !== "undefined" && (process.env.NO_COLOR != null || process.env.TERM === "dumb");
+import process from "node:process";
+const noColor = typeof process !== "undefined" &&
+  (process.env.NO_COLOR != null || process.env.TERM === "dumb");
 let enabled = !noColor;
 
 export function setColorEnabled(value: boolean): void {
@@ -11,7 +13,9 @@ export function getColorEnabled(): boolean {
 }
 
 function code(open: number, close: number) {
-  return (str: string): string => (enabled ? `\x1b[${open}m${str}\x1b[${close}m` : str);
+  return (
+    str: string,
+  ): string => (enabled ? `\x1b[${open}m${str}\x1b[${close}m` : str);
 }
 
 export const reset = code(0, 0);

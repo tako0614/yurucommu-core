@@ -1,3 +1,4 @@
+import { expect, test } from "bun:test";
 import {
   assertEquals,
   assertInstanceOf,
@@ -16,7 +17,7 @@ import {
 // parseRemoteActor — real-world fixtures
 // ---------------------------------------------------------------------------
 
-Deno.test("parseRemoteActor parses Mastodon actor", () => {
+test("parseRemoteActor parses Mastodon actor", () => {
   const mastodon = {
     "@context": [
       "https://www.w3.org/ns/activitystreams",
@@ -47,18 +48,15 @@ Deno.test("parseRemoteActor parses Mastodon actor", () => {
     },
   };
   const actor = parseRemoteActor(mastodon);
-  assertEquals(actor.id, "https://mastodon.example/users/alice");
-  assertEquals(actor.preferredUsername, "alice");
-  assertEquals(actor.inbox, "https://mastodon.example/users/alice/inbox");
-  assertEquals(actor.endpoints?.sharedInbox, "https://mastodon.example/inbox");
-  assertEquals(
-    actor.publicKey?.publicKeyPem,
-    "-----BEGIN PUBLIC KEY-----\nMIIB...\n-----END PUBLIC KEY-----",
-  );
-  assertEquals(actor.icon?.url, "https://mastodon.example/avatars/alice.png");
+  expect(actor.id).toEqual("https://mastodon.example/users/alice");
+  expect(actor.preferredUsername).toEqual("alice");
+  expect(actor.inbox).toEqual("https://mastodon.example/users/alice/inbox");
+  expect(actor.endpoints?.sharedInbox).toEqual("https://mastodon.example/inbox");
+  expect(actor.publicKey?.publicKeyPem).toEqual("-----BEGIN PUBLIC KEY-----\nMIIB...\n-----END PUBLIC KEY-----");
+  expect(actor.icon?.url).toEqual("https://mastodon.example/avatars/alice.png");
 });
 
-Deno.test("parseRemoteActor parses Misskey actor (icon optional fields)", () => {
+test("parseRemoteActor parses Misskey actor (icon optional fields)", () => {
   const misskey = {
     id: "https://misskey.example/users/9abc",
     type: "Person",
@@ -73,11 +71,11 @@ Deno.test("parseRemoteActor parses Misskey actor (icon optional fields)", () => 
     // Misskey can omit icon entirely or send a bare object
   };
   const actor = parseRemoteActor(misskey);
-  assertEquals(actor.id, "https://misskey.example/users/9abc");
-  assertEquals(actor.icon, undefined);
+  expect(actor.id).toEqual("https://misskey.example/users/9abc");
+  expect(actor.icon).toEqual(undefined);
 });
 
-Deno.test("parseRemoteActor accepts unknown extension fields", () => {
+test("parseRemoteActor accepts unknown extension fields", () => {
   const extended = {
     id: "https://pleroma.example/users/dave",
     type: "Person",
@@ -89,59 +87,59 @@ Deno.test("parseRemoteActor accepts unknown extension fields", () => {
     customField: { nested: "value" },
   };
   const actor = parseRemoteActor(extended);
-  assertEquals(actor.id, "https://pleroma.example/users/dave");
-  assertEquals(actor.preferredUsername, "dave");
+  expect(actor.id).toEqual("https://pleroma.example/users/dave");
+  expect(actor.preferredUsername).toEqual("dave");
 });
 
-Deno.test("parseRemoteActor throws on missing id", () => {
+test("parseRemoteActor throws on missing id", () => {
   const err = assertThrows(
     () => parseRemoteActor({ type: "Person", preferredUsername: "alice" }),
     ActivityPubContractError,
   );
-  assertEquals(err.path, "$.id");
+  expect(err.path).toEqual("$.id");
 });
 
-Deno.test("parseRemoteActor throws on non-string id", () => {
+test("parseRemoteActor throws on non-string id", () => {
   const err = assertThrows(
     () => parseRemoteActor({ id: 42, type: "Person" }),
     ActivityPubContractError,
   );
-  assertEquals(err.path, "$.id");
+  expect(err.path).toEqual("$.id");
 });
 
-Deno.test("parseRemoteActor throws on non-object input", () => {
+test("parseRemoteActor throws on non-object input", () => {
   for (const value of [null, undefined, "string", 42, [], true]) {
     const err = assertThrows(
       () => parseRemoteActor(value),
       ActivityPubContractError,
     );
-    assertInstanceOf(err, ActivityPubContractError);
+    expect(err).toBeInstanceOf(ActivityPubContractError);
   }
 });
 
-Deno.test("parseRemoteActor drops malformed optional fields silently", () => {
+test("parseRemoteActor drops malformed optional fields silently", () => {
   const actor = parseRemoteActor({
     id: "https://example/users/x",
     preferredUsername: 42, // wrong type
     inbox: ["array", "not", "string"], // wrong type
     publicKey: { id: "key", publicKeyPem: 123 }, // pem wrong type
   });
-  assertEquals(actor.id, "https://example/users/x");
-  assertEquals(actor.preferredUsername, undefined);
-  assertEquals(actor.inbox, undefined);
-  assertEquals(actor.publicKey?.publicKeyPem, undefined);
+  expect(actor.id).toEqual("https://example/users/x");
+  expect(actor.preferredUsername).toEqual(undefined);
+  expect(actor.inbox).toEqual(undefined);
+  expect(actor.publicKey?.publicKeyPem).toEqual(undefined);
 });
 
-Deno.test("tryParseRemoteActor returns null instead of throwing", () => {
-  assertStrictEquals(tryParseRemoteActor({ type: "Person" }), null);
-  assertStrictEquals(tryParseRemoteActor("not an object"), null);
+test("tryParseRemoteActor returns null instead of throwing", () => {
+  expect(tryParseRemoteActor({ type: "Person" })).toBe(null);
+  expect(tryParseRemoteActor("not an object")).toBe(null);
 });
 
 // ---------------------------------------------------------------------------
 // parseActivity — real-world fixtures
 // ---------------------------------------------------------------------------
 
-Deno.test("parseActivity parses Mastodon Follow activity (object as IRI)", () => {
+test("parseActivity parses Mastodon Follow activity (object as IRI)", () => {
   const follow = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: "https://mastodon.example/users/alice#follows/123",
@@ -150,12 +148,12 @@ Deno.test("parseActivity parses Mastodon Follow activity (object as IRI)", () =>
     object: "https://yurucommu.example/users/bob",
   };
   const activity = parseActivity(follow);
-  assertEquals(activity.type, "Follow");
-  assertEquals(activity.actor, "https://mastodon.example/users/alice");
-  assertEquals(activity.object, "https://yurucommu.example/users/bob");
+  expect(activity.type).toEqual("Follow");
+  expect(activity.actor).toEqual("https://mastodon.example/users/alice");
+  expect(activity.object).toEqual("https://yurucommu.example/users/bob");
 });
 
-Deno.test("parseActivity parses Pleroma Create(Note) activity (nested object)", () => {
+test("parseActivity parses Pleroma Create(Note) activity (nested object)", () => {
   const create = {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: "https://pleroma.example/activities/abc",
@@ -172,22 +170,22 @@ Deno.test("parseActivity parses Pleroma Create(Note) activity (nested object)", 
     },
   };
   const activity = parseActivity(create);
-  assertEquals(activity.type, "Create");
+  expect(activity.type).toEqual("Create");
   const obj = activity.object;
   if (typeof obj === "string" || !obj) {
     throw new Error("expected nested object");
   }
-  assertEquals(obj.type, "Note");
-  assertEquals(obj.content, "<p>hello fediverse</p>");
-  assertEquals(obj.inReplyTo, "https://yurucommu.example/objects/parent");
-  assertEquals(obj.to, ["https://www.w3.org/ns/activitystreams#Public"]);
+  expect(obj.type).toEqual("Note");
+  expect(obj.content).toEqual("<p>hello fediverse</p>");
+  expect(obj.inReplyTo).toEqual("https://yurucommu.example/objects/parent");
+  expect(obj.to).toEqual(["https://www.w3.org/ns/activitystreams#Public"]);
   // attachment is passed through opaquely
   if (!Array.isArray(obj.attachment)) {
     throw new Error("expected attachment array");
   }
 });
 
-Deno.test("parseActivity parses Undo(Follow)", () => {
+test("parseActivity parses Undo(Follow)", () => {
   const undo = {
     id: "https://mastodon.example/users/alice#undo/123",
     type: "Undo",
@@ -200,16 +198,16 @@ Deno.test("parseActivity parses Undo(Follow)", () => {
     },
   };
   const activity = parseActivity(undo);
-  assertEquals(activity.type, "Undo");
+  expect(activity.type).toEqual("Undo");
   const inner = activity.object;
   if (typeof inner === "string" || !inner) {
     throw new Error("expected nested undo object");
   }
-  assertEquals(inner.type, "Follow");
-  assertEquals(inner.object, "https://yurucommu.example/users/bob");
+  expect(inner.type).toEqual("Follow");
+  expect(inner.object).toEqual("https://yurucommu.example/users/bob");
 });
 
-Deno.test("parseActivity drops null/wrong-typed summary on nested object gracefully", () => {
+test("parseActivity drops null/wrong-typed summary on nested object gracefully", () => {
   const create = {
     type: "Create",
     actor: "https://example/u/a",
@@ -218,21 +216,21 @@ Deno.test("parseActivity drops null/wrong-typed summary on nested object gracefu
   const activity = parseActivity(create);
   const obj = activity.object;
   if (typeof obj === "string" || !obj) throw new Error("nested object missing");
-  assertStrictEquals(obj.summary, null);
-  assertEquals(obj.content, "text");
+  expect(obj.summary).toBe(null);
+  expect(obj.content).toEqual("text");
 });
 
-Deno.test("parseActivity drops nested object when neither IRI nor record", () => {
+test("parseActivity drops nested object when neither IRI nor record", () => {
   const malformed = {
     type: "Create",
     actor: "https://example/u/a",
     object: 42,
   };
   const activity = parseActivity(malformed);
-  assertStrictEquals(activity.object, undefined);
+  expect(activity.object).toBe(undefined);
 });
 
-Deno.test("parseActivity throws on non-object body", () => {
+test("parseActivity throws on non-object body", () => {
   assertThrows(() => parseActivity(null), ActivityPubContractError);
   assertThrows(() => parseActivity("string"), ActivityPubContractError);
   assertThrows(() => parseActivity([]), ActivityPubContractError);
@@ -242,7 +240,7 @@ Deno.test("parseActivity throws on non-object body", () => {
 // parseWebFinger
 // ---------------------------------------------------------------------------
 
-Deno.test("parseWebFinger extracts self link", () => {
+test("parseWebFinger extracts self link", () => {
   const jrd = {
     subject: "acct:alice@mastodon.example",
     links: [
@@ -259,19 +257,19 @@ Deno.test("parseWebFinger extracts self link", () => {
     ],
   };
   const wf = parseWebFinger(jrd);
-  assertEquals(wf.links?.length, 2);
+  expect(wf.links?.length).toEqual(2);
   const selfLink = wf.links?.find((l) =>
     l.rel === "self" && l.type === "application/activity+json"
   );
-  assertEquals(selfLink?.href, "https://mastodon.example/users/alice");
+  expect(selfLink?.href).toEqual("https://mastodon.example/users/alice");
 });
 
-Deno.test("parseWebFinger returns empty when links is missing or wrong type", () => {
-  assertEquals(parseWebFinger({ subject: "acct:x@y" }).links, undefined);
-  assertEquals(parseWebFinger({ links: "not an array" }).links, undefined);
+test("parseWebFinger returns empty when links is missing or wrong type", () => {
+  expect(parseWebFinger({ subject: "acct:x@y" }).links).toEqual(undefined);
+  expect(parseWebFinger({ links: "not an array" }).links).toEqual(undefined);
 });
 
-Deno.test("parseWebFinger skips non-object link entries", () => {
+test("parseWebFinger skips non-object link entries", () => {
   const wf = parseWebFinger({
     links: [
       "not an object",
@@ -279,10 +277,10 @@ Deno.test("parseWebFinger skips non-object link entries", () => {
       { rel: "self", href: "https://example" },
     ],
   });
-  assertEquals(wf.links?.length, 1);
-  assertEquals(wf.links?.[0].href, "https://example");
+  expect(wf.links?.length).toEqual(1);
+  expect(wf.links?.[0].href).toEqual("https://example");
 });
 
-Deno.test("parseWebFinger throws on non-object body", () => {
+test("parseWebFinger throws on non-object body", () => {
   assertThrows(() => parseWebFinger(null), ActivityPubContractError);
 });

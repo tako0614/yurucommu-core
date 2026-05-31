@@ -116,7 +116,7 @@ class CloudflareStorage implements IObjectStorage {
       customMetadata?: Record<string, string>;
     },
   ): Promise<void> {
-    await this.bucket.put(key, value, {
+    await this.bucket.put(key, value as Parameters<R2Bucket["put"]>[1], {
       httpMetadata: options?.httpMetadata,
       customMetadata: options?.customMetadata,
     });
@@ -128,7 +128,7 @@ class CloudflareStorage implements IObjectStorage {
 
     return {
       key,
-      body: obj.body,
+      body: obj.body as unknown as ReadableStream,
       bodyUsed: obj.bodyUsed,
       httpEtag: obj.httpEtag,
       arrayBuffer: () => obj.arrayBuffer(),
@@ -211,7 +211,7 @@ class CloudflareKV implements IKeyValueStore {
       metadata?: Record<string, unknown>;
     },
   ): Promise<void> {
-    await this.kv.put(key, value, {
+    await this.kv.put(key, value as Parameters<KVNamespace["put"]>[1], {
       expirationTtl: options?.expirationTtl,
       expiration: options?.expiration,
       metadata: options?.metadata,
@@ -247,7 +247,7 @@ class CloudflareAssets implements IStaticAssets {
   constructor(private assets: Fetcher) {}
 
   fetch(request: Request): Promise<Response> {
-    return this.assets.fetch(request);
+    return this.assets.fetch(request as never) as unknown as Promise<Response>;
   }
 }
 

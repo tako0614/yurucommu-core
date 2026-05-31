@@ -1,4 +1,10 @@
-import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  type JSX,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { QRCodeSVG } from "qrcode.react";
 import { Html5Qrcode } from "html5-qrcode";
 import { Actor } from "../types/index.ts";
@@ -9,6 +15,13 @@ interface QRCodeModalProps {
   actor: Actor;
   onClose: () => void;
 }
+
+const SolidQRCodeSVG = QRCodeSVG as unknown as (props: {
+  value: string;
+  size: number;
+  level: "L" | "M" | "Q" | "H";
+  includeMargin: boolean;
+}) => JSX.Element;
 
 const CloseIcon = () => (
   <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -382,7 +395,7 @@ export function QRCodeModal(props: QRCodeModalProps) {
 
               {/* QR Code */}
               <div class="bg-white p-4 rounded-2xl">
-                <QRCodeSVG
+                <SolidQRCodeSVG
                   value={qrUrl()}
                   size={200}
                   level="M"

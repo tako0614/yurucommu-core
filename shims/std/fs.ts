@@ -56,7 +56,10 @@ export async function* walk(
     return true;
   }
 
-  async function* visit(dir: string, depth: number): AsyncIterableIterator<WalkEntry> {
+  async function* visit(
+    dir: string,
+    depth: number,
+  ): AsyncIterableIterator<WalkEntry> {
     if (depth > maxDepth) return;
     let entries: fs.Dirent[];
     try {
@@ -66,7 +69,7 @@ export async function* walk(
     }
     for (const ent of entries) {
       const full = path.join(dir, ent.name);
-      let isSymlink = ent.isSymbolicLink();
+      const isSymlink = ent.isSymbolicLink();
       let isDirectory = ent.isDirectory();
       let isFile = ent.isFile();
       if (isSymlink && followSymlinks) {
@@ -78,18 +81,36 @@ export async function* walk(
       }
       if (isDirectory) {
         if (includeDirs && matches(full)) {
-          yield { path: full, name: ent.name, isFile: false, isDirectory: true, isSymlink };
+          yield {
+            path: full,
+            name: ent.name,
+            isFile: false,
+            isDirectory: true,
+            isSymlink,
+          };
         }
         if (!isSymlink || followSymlinks) {
           yield* visit(full, depth + 1);
         }
       } else if (isSymlink && !followSymlinks) {
         if (includeSymlinks && matches(full)) {
-          yield { path: full, name: ent.name, isFile: false, isDirectory: false, isSymlink: true };
+          yield {
+            path: full,
+            name: ent.name,
+            isFile: false,
+            isDirectory: false,
+            isSymlink: true,
+          };
         }
       } else if (isFile) {
         if (includeFiles && matches(full)) {
-          yield { path: full, name: ent.name, isFile: true, isDirectory: false, isSymlink };
+          yield {
+            path: full,
+            name: ent.name,
+            isFile: true,
+            isDirectory: false,
+            isSymlink,
+          };
         }
       }
     }
@@ -126,6 +147,9 @@ export function ensureDirSync(p: string | URL): void {
   fs.mkdirSync(p, { recursive: true });
 }
 
-export async function copy(src: string | URL, dest: string | URL): Promise<void> {
+export async function copy(
+  src: string | URL,
+  dest: string | URL,
+): Promise<void> {
   await fsp.cp(src, dest, { recursive: true });
 }

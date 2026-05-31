@@ -509,7 +509,7 @@ export class DenoAssets implements IStaticAssets {
       const ext = filePath.substring(filePath.lastIndexOf("."));
       const contentType = getMimeType(ext);
 
-      return new Response(content, {
+      return new Response(content as unknown as BodyInit, {
         headers: {
           "Content-Type": contentType,
           "Content-Length": String(content.length),
@@ -524,7 +524,7 @@ export class DenoAssets implements IStaticAssets {
           return new Response("Forbidden", { status: 403 });
         }
         const content = await Deno.readFile(realIndexPath);
-        return new Response(content, {
+        return new Response(content as unknown as BodyInit, {
           headers: { "Content-Type": "text/html" },
         });
       } catch {

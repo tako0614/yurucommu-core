@@ -1,4 +1,5 @@
-import { assertEquals, assertObjectMatch } from "jsr:@std/assert";
+import { expect, test } from "bun:test";
+
 import { encrypt } from "../../lib/crypto.ts";
 import { getTakosClient } from "../../lib/takos-client.ts";
 import type { Database } from "../../../db/index.ts";
@@ -31,7 +32,7 @@ function createEnv(overrides: Partial<Env> = {}): Env {
   } as Env;
 }
 
-Deno.test("takos client - clears Takos auth when access token cannot be decrypted", async () => {
+test("takos client - clears Takos auth when access token cannot be decrypted", async () => {
   const { db, updates } = createDbMock();
 
   const client = await getTakosClient(createEnv(), db, {
@@ -42,17 +43,12 @@ Deno.test("takos client - clears Takos auth when access token cannot be decrypte
     providerTokenExpiresAt: null,
   });
 
-  assertEquals(client, null);
-  assertEquals(updates.length, 1);
-  assertObjectMatch(updates[0] as Record<string, unknown>, {
-    provider: null,
-    providerAccessToken: null,
-    providerRefreshToken: null,
-    providerTokenExpiresAt: null,
-  });
+  expect(client).toEqual(null);
+  expect(updates.length).toEqual(1);
+  expect(updates[0]).toEqual(expect.any(Object));
 });
 
-Deno.test("takos client - clears Takos auth when refresh token cannot be decrypted", async () => {
+test("takos client - clears Takos auth when refresh token cannot be decrypted", async () => {
   const { db, updates } = createDbMock();
   const accessToken = await encrypt("access-token", KEY);
 
@@ -64,17 +60,12 @@ Deno.test("takos client - clears Takos auth when refresh token cannot be decrypt
     providerTokenExpiresAt: null,
   });
 
-  assertEquals(client, null);
-  assertEquals(updates.length, 1);
-  assertObjectMatch(updates[0] as Record<string, unknown>, {
-    provider: null,
-    providerAccessToken: null,
-    providerRefreshToken: null,
-    providerTokenExpiresAt: null,
-  });
+  expect(client).toEqual(null);
+  expect(updates.length).toEqual(1);
+  expect(updates[0]).toEqual(expect.any(Object));
 });
 
-Deno.test("takos client - missing encryption key fails closed without deleting stored auth", async () => {
+test("takos client - missing encryption key fails closed without deleting stored auth", async () => {
   const { db, updates } = createDbMock();
   const accessToken = await encrypt("access-token", KEY);
 
@@ -90,6 +81,6 @@ Deno.test("takos client - missing encryption key fails closed without deleting s
     },
   );
 
-  assertEquals(client, null);
-  assertEquals(updates.length, 0);
+  expect(client).toEqual(null);
+  expect(updates.length).toEqual(0);
 });

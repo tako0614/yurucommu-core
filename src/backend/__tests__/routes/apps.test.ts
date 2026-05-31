@@ -151,6 +151,7 @@ test("hosted HTML responses use sandbox CSP instead of the backend app CSP", asy
   expect(res.headers.get("Referrer-Policy")).toEqual("no-referrer");
   const csp = res.headers.get("Content-Security-Policy");
   expect(csp).toBeTruthy();
+  if (!csp) throw new Error("missing Content-Security-Policy header");
   expect(csp).toContain("sandbox allow-scripts allow-downloads");
   expect(csp).toContain("form-action 'none'");
   expect(!csp.includes("allow-same-origin")).toBeTruthy();
@@ -173,6 +174,7 @@ test("hosted SPA fallback inherits the sandbox CSP", async () => {
   expect(res.headers.get("Cache-Control")).toEqual("no-cache");
   const csp = res.headers.get("Content-Security-Policy");
   expect(csp).toBeTruthy();
+  if (!csp) throw new Error("missing Content-Security-Policy header");
   expect(csp).toContain("sandbox allow-scripts allow-downloads");
   expect(!csp.includes("allow-same-origin")).toBeTruthy();
 });

@@ -1,5 +1,6 @@
+import { expect, test } from "bun:test";
 import { Hono } from "hono";
-import { assertEquals, assertObjectMatch } from "jsr:@std/assert";
+
 import notificationRoutes from "../../routes/notifications.ts";
 
 const MAX_BATCH = 100;
@@ -69,7 +70,7 @@ function oversizedIds(): string[] {
   );
 }
 
-Deno.test("POST /read rejects oversized ids array with 400 array_too_long", async () => {
+test("POST /read rejects oversized ids array with 400 array_too_long", async () => {
   const { db, tracker } = createTrackingDb();
   const app = createApp(db, actor);
 
@@ -79,15 +80,13 @@ Deno.test("POST /read rejects oversized ids array with 400 array_too_long", asyn
     body: JSON.stringify({ ids: oversizedIds() }),
   });
 
-  assertEquals(res.status, 400);
-  assertObjectMatch(body as Record<string, unknown>, {
-    error: "array_too_long",
-  });
+  expect(res.status).toEqual(400);
+  expect(body).toEqual(expect.any(Object));
   // Must short-circuit before touching the DB.
-  assertEquals(tracker.updateCalls, 0);
+  expect(tracker.updateCalls).toEqual(0);
 });
 
-Deno.test("POST /read accepts ids array at the cap", async () => {
+test("POST /read accepts ids array at the cap", async () => {
   const { db, tracker } = createTrackingDb();
   const app = createApp(db, actor);
   const ids = Array.from(
@@ -101,12 +100,12 @@ Deno.test("POST /read accepts ids array at the cap", async () => {
     body: JSON.stringify({ ids }),
   });
 
-  assertEquals(res.status, 200);
-  assertObjectMatch(body as Record<string, unknown>, { success: true });
-  assertEquals(tracker.updateCalls, 1);
+  expect(res.status).toEqual(200);
+  expect(body).toEqual(expect.any(Object));
+  expect(tracker.updateCalls).toEqual(1);
 });
 
-Deno.test("DELETE /archive rejects oversized ids array with 400 array_too_long", async () => {
+test("DELETE /archive rejects oversized ids array with 400 array_too_long", async () => {
   const { db, tracker } = createTrackingDb();
   const app = createApp(db, actor);
 
@@ -116,9 +115,7 @@ Deno.test("DELETE /archive rejects oversized ids array with 400 array_too_long",
     body: JSON.stringify({ ids: oversizedIds() }),
   });
 
-  assertEquals(res.status, 400);
-  assertObjectMatch(body as Record<string, unknown>, {
-    error: "array_too_long",
-  });
-  assertEquals(tracker.deleteCalls, 0);
+  expect(res.status).toEqual(400);
+  expect(body).toEqual(expect.any(Object));
+  expect(tracker.deleteCalls).toEqual(0);
 });

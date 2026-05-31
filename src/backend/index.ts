@@ -363,7 +363,7 @@ function mountStaticFallback(app: YurucommuApp): void {
           if (object.httpEtag) {
             headers.set("ETag", object.httpEtag);
           }
-          return new Response(object.body, { headers });
+          return new Response(object.body as unknown as BodyInit, { headers });
         }
 
         if (!assetPath.includes(".")) {
@@ -372,7 +372,9 @@ function mountStaticFallback(app: YurucommuApp): void {
             const headers = new Headers();
             headers.set("Content-Type", "text/html; charset=utf-8");
             headers.set("Cache-Control", "no-cache");
-            return new Response(indexObject.body, { headers });
+            return new Response(indexObject.body as unknown as BodyInit, {
+              headers,
+            });
           }
         }
       } catch (err) {

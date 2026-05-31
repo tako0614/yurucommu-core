@@ -82,7 +82,11 @@ class DenoCommand {
       const child = spawn(this.#cmd, o.args ?? [], {
         cwd: o.cwd instanceof URL ? o.cwd.pathname : o.cwd,
         env: buildEnv(o),
-        stdio: [mapStdio(o.stdin), mapStdio(o.stdout ?? "piped"), mapStdio(o.stderr ?? "piped")],
+        stdio: [
+          mapStdio(o.stdin),
+          mapStdio(o.stdout ?? "piped"),
+          mapStdio(o.stderr ?? "piped"),
+        ],
         signal: o.signal,
       });
       const out: Uint8Array[] = [];
@@ -95,8 +99,12 @@ class DenoCommand {
           code: code ?? 0,
           signal: sig,
           success: (code ?? 0) === 0,
-          stdout: out.length ? new Uint8Array(Buffer.concat(out)) : new Uint8Array(),
-          stderr: err.length ? new Uint8Array(Buffer.concat(err)) : new Uint8Array(),
+          stdout: out.length
+            ? new Uint8Array(Buffer.concat(out))
+            : new Uint8Array(),
+          stderr: err.length
+            ? new Uint8Array(Buffer.concat(err))
+            : new Uint8Array(),
         });
       });
     });
@@ -107,7 +115,11 @@ class DenoCommand {
     const r = spawnSync(this.#cmd, o.args ?? [], {
       cwd: o.cwd instanceof URL ? o.cwd.pathname : o.cwd,
       env: buildEnv(o),
-      stdio: [mapStdio(o.stdin), mapStdio(o.stdout ?? "piped"), mapStdio(o.stderr ?? "piped")],
+      stdio: [
+        mapStdio(o.stdin),
+        mapStdio(o.stdout ?? "piped"),
+        mapStdio(o.stderr ?? "piped"),
+      ],
     });
     return {
       code: r.status ?? 0,
@@ -140,7 +152,9 @@ class DenoCommand {
           });
         },
         close() {
-          return new Promise<void>((resolve) => child.stdin!.end(() => resolve()));
+          return new Promise<void>((resolve) =>
+            child.stdin!.end(() => resolve())
+          );
         },
         abort() {
           child.stdin!.destroy();
@@ -154,7 +168,10 @@ class DenoCommand {
       if (!stream) return null;
       return new ReadableStream<Uint8Array>({
         start(controller) {
-          stream.on("data", (c: Buffer) => controller.enqueue(new Uint8Array(c)));
+          stream.on(
+            "data",
+            (c: Buffer) => controller.enqueue(new Uint8Array(c)),
+          );
           stream.on("end", () => controller.close());
           stream.on("error", (e) => controller.error(e));
         },
@@ -164,8 +181,15 @@ class DenoCommand {
       });
     }
 
-    const status = new Promise<{ code: number; success: boolean; signal: string | null }>(
-      (res) => child.on("close", (code, sig) => res({ code: code ?? 0, success: (code ?? 0) === 0, signal: sig })),
+    const status = new Promise<
+      { code: number; success: boolean; signal: string | null }
+    >(
+      (res) =>
+        child.on(
+          "close",
+          (code, sig) =>
+            res({ code: code ?? 0, success: (code ?? 0) === 0, signal: sig }),
+        ),
     );
 
     return {
@@ -185,8 +209,12 @@ class DenoCommand {
               code: code ?? 0,
               signal: sig,
               success: (code ?? 0) === 0,
-              stdout: out.length ? new Uint8Array(Buffer.concat(out)) : new Uint8Array(),
-              stderr: err.length ? new Uint8Array(Buffer.concat(err)) : new Uint8Array(),
+              stdout: out.length
+                ? new Uint8Array(Buffer.concat(out))
+                : new Uint8Array(),
+              stderr: err.length
+                ? new Uint8Array(Buffer.concat(err))
+                : new Uint8Array(),
             }));
         }),
       kill: (sig?: NodeJS.Signals) => child.kill(sig),
@@ -208,9 +236,17 @@ class PermissionDenied extends Error {
 
 function remap(e: unknown): unknown {
   const code = (e as { code?: string })?.code;
-  if (code === "ENOENT") return Object.assign(new NotFound((e as Error).message), { cause: e });
-  if (code === "EEXIST") return Object.assign(new AlreadyExists((e as Error).message), { cause: e });
-  if (code === "EACCES" || code === "EPERM") return Object.assign(new PermissionDenied((e as Error).message), { cause: e });
+  if (code === "ENOENT") {
+    return Object.assign(new NotFound((e as Error).message), { cause: e });
+  }
+  if (code === "EEXIST") {
+    return Object.assign(new AlreadyExists((e as Error).message), { cause: e });
+  }
+  if (code === "EACCES" || code === "EPERM") {
+    return Object.assign(new PermissionDenied((e as Error).message), {
+      cause: e,
+    });
+  }
   return e;
 }
 
@@ -225,7 +261,12 @@ const DenoCompat = {
   args: process.argv.slice(2),
   pid: process.pid,
   build: {
-    os: (process.platform === "win32" ? "windows" : process.platform === "darwin" ? "darwin" : process.platform) as string,
+    os:
+      (process.platform === "win32"
+        ? "windows"
+        : process.platform === "darwin"
+        ? "darwin"
+        : process.platform) as string,
     arch: process.arch,
   },
   errors: { NotFound, AlreadyExists, PermissionDenied },
@@ -239,12 +280,16 @@ const DenoCompat = {
     delete: (k: string): void => {
       delete process.env[k];
     },
-    toObject: (): Record<string, string> => ({ ...process.env } as Record<string, string>),
+    toObject: (): Record<
+      string,
+      string
+    > => ({ ...process.env } as Record<string, string>),
   },
 
   exit: (code = 0): never => process.exit(code) as never,
   cwd: (): string => process.cwd(),
-  chdir: (dir: string | URL): void => process.chdir(dir instanceof URL ? dir.pathname : dir),
+  chdir: (dir: string | URL): void =>
+    process.chdir(dir instanceof URL ? dir.pathname : dir),
   execPath: (): string => process.execPath,
 
   addSignalListener: (sig: NodeJS.Signals, handler: () => void): void => {
@@ -264,27 +309,50 @@ const DenoCompat = {
     }
   },
   readFile: (p: string | URL): Promise<Uint8Array> =>
-    fsp.readFile(p).then((b) => new Uint8Array(b)).catch((e) => Promise.reject(remap(e))),
+    fsp.readFile(p).then((b) => new Uint8Array(b)).catch((e) =>
+      Promise.reject(remap(e))
+    ),
 
   writeTextFile: (
     p: string | URL,
     data: string,
     opts?: { append?: boolean; create?: boolean; mode?: number },
-  ): Promise<void> => fsp.writeFile(p, data, { flag: opts?.append ? "a" : "w", mode: opts?.mode }),
+  ): Promise<void> =>
+    fsp.writeFile(p, data, {
+      flag: opts?.append ? "a" : "w",
+      mode: opts?.mode,
+    }),
   writeTextFileSync: (
     p: string | URL,
     data: string,
     opts?: { append?: boolean; create?: boolean; mode?: number },
-  ): void => fs.writeFileSync(p, data, { flag: opts?.append ? "a" : "w", mode: opts?.mode }),
-  writeFile: (p: string | URL, data: Uint8Array, opts?: { mode?: number }): Promise<void> =>
-    fsp.writeFile(p, data, { mode: opts?.mode }),
-  writeFileSync: (p: string | URL, data: Uint8Array, opts?: { mode?: number }): void =>
-    fs.writeFileSync(p, data, { mode: opts?.mode }),
+  ): void =>
+    fs.writeFileSync(p, data, {
+      flag: opts?.append ? "a" : "w",
+      mode: opts?.mode,
+    }),
+  writeFile: (
+    p: string | URL,
+    data: Uint8Array,
+    opts?: { mode?: number },
+  ): Promise<void> => fsp.writeFile(p, data, { mode: opts?.mode }),
+  writeFileSync: (
+    p: string | URL,
+    data: Uint8Array,
+    opts?: { mode?: number },
+  ): void => fs.writeFileSync(p, data, { mode: opts?.mode }),
 
-  mkdir: (p: string | URL, opts?: { recursive?: boolean; mode?: number }): Promise<void> =>
-    fsp.mkdir(p, { recursive: opts?.recursive, mode: opts?.mode }).then(() => undefined),
+  mkdir: (
+    p: string | URL,
+    opts?: { recursive?: boolean; mode?: number },
+  ): Promise<void> =>
+    fsp.mkdir(p, { recursive: opts?.recursive, mode: opts?.mode }).then(() =>
+      undefined
+    ),
   remove: (p: string | URL, opts?: { recursive?: boolean }): Promise<void> =>
-    fsp.rm(p, { recursive: opts?.recursive ?? false, force: false }).catch((e) => Promise.reject(remap(e))),
+    fsp.rm(p, { recursive: opts?.recursive ?? false, force: false }).catch((
+      e,
+    ) => Promise.reject(remap(e))),
   removeSync: (p: string | URL, opts?: { recursive?: boolean }): void => {
     try {
       fs.rmSync(p, { recursive: opts?.recursive ?? false, force: false });
@@ -297,15 +365,25 @@ const DenoCompat = {
     fsp.mkdtemp(path.join(opts?.dir ?? os.tmpdir(), opts?.prefix ?? "")),
   makeTempDirSync: (opts?: { dir?: string; prefix?: string }): string =>
     fs.mkdtempSync(path.join(opts?.dir ?? os.tmpdir(), opts?.prefix ?? "")),
-  makeTempFile: async (opts?: { dir?: string; prefix?: string; suffix?: string }): Promise<string> => {
+  makeTempFile: async (
+    opts?: { dir?: string; prefix?: string; suffix?: string },
+  ): Promise<string> => {
     const dir = opts?.dir ?? os.tmpdir();
-    const p = path.join(dir, `${opts?.prefix ?? ""}${crypto.randomUUID()}${opts?.suffix ?? ""}`);
+    const p = path.join(
+      dir,
+      `${opts?.prefix ?? ""}${crypto.randomUUID()}${opts?.suffix ?? ""}`,
+    );
     await fsp.writeFile(p, "");
     return p;
   },
-  makeTempFileSync: (opts?: { dir?: string; prefix?: string; suffix?: string }): string => {
+  makeTempFileSync: (
+    opts?: { dir?: string; prefix?: string; suffix?: string },
+  ): string => {
     const dir = opts?.dir ?? os.tmpdir();
-    const p = path.join(dir, `${opts?.prefix ?? ""}${crypto.randomUUID()}${opts?.suffix ?? ""}`);
+    const p = path.join(
+      dir,
+      `${opts?.prefix ?? ""}${crypto.randomUUID()}${opts?.suffix ?? ""}`,
+    );
     fs.writeFileSync(p, "");
     return p;
   },
@@ -330,7 +408,12 @@ const DenoCompat = {
       throw remap(e);
     }
     for (const e of ents) {
-      yield { name: e.name, isFile: e.isFile(), isDirectory: e.isDirectory(), isSymlink: e.isSymbolicLink() };
+      yield {
+        name: e.name,
+        isFile: e.isFile(),
+        isDirectory: e.isDirectory(),
+        isSymlink: e.isSymbolicLink(),
+      };
     }
   },
 
@@ -342,7 +425,12 @@ const DenoCompat = {
       throw remap(e);
     }
     for (const e of ents) {
-      yield { name: e.name, isFile: e.isFile(), isDirectory: e.isDirectory(), isSymlink: e.isSymbolicLink() };
+      yield {
+        name: e.name,
+        isFile: e.isFile(),
+        isDirectory: e.isDirectory(),
+        isSymlink: e.isSymbolicLink(),
+      };
     }
   },
 
@@ -354,9 +442,12 @@ const DenoCompat = {
     }
   },
 
-  copyFile: (from: string | URL, to: string | URL): Promise<void> => fsp.copyFile(from, to),
-  rename: (from: string | URL, to: string | URL): Promise<void> => fsp.rename(from, to),
-  symlink: (target: string | URL, p: string | URL): Promise<void> => fsp.symlink(target, p),
+  copyFile: (from: string | URL, to: string | URL): Promise<void> =>
+    fsp.copyFile(from, to),
+  rename: (from: string | URL, to: string | URL): Promise<void> =>
+    fsp.rename(from, to),
+  symlink: (target: string | URL, p: string | URL): Promise<void> =>
+    fsp.symlink(target, p),
   chmod: (p: string | URL, mode: number): Promise<void> => fsp.chmod(p, mode),
   realPath: (p: string | URL): Promise<string> => fsp.realpath(p),
 

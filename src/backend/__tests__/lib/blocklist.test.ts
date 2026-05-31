@@ -1,3 +1,4 @@
+import { expect, test } from "bun:test";
 import { assert, assertEquals, assertRejects } from "jsr:@std/assert";
 import { spy } from "jsr:@std/testing/mock";
 
@@ -81,17 +82,14 @@ function extractEqValue(where: unknown): string {
   return "";
 }
 
-Deno.test("normalizeDomain accepts bare hostnames and URLs", () => {
-  assertEquals(normalizeDomain("Example.ORG"), "example.org");
-  assertEquals(
-    normalizeDomain("https://Example.ORG/users/alice"),
-    "example.org",
-  );
-  assertEquals(normalizeDomain("example.org."), "example.org");
-  assertEquals(normalizeDomain(""), null);
+test("normalizeDomain accepts bare hostnames and URLs", () => {
+  expect(normalizeDomain("Example.ORG")).toEqual("example.org");
+  expect(normalizeDomain("https://Example.ORG/users/alice")).toEqual("example.org");
+  expect(normalizeDomain("example.org.")).toEqual("example.org");
+  expect(normalizeDomain("")).toEqual(null);
 });
 
-Deno.test("isDomainBlocked returns true for blocked hostnames", async () => {
+test("isDomainBlocked returns true for blocked hostnames", async () => {
   const state: MockBlocklistDb = {
     domains: new Set(["bad.example"]),
     actors: new Set(),
@@ -100,15 +98,12 @@ Deno.test("isDomainBlocked returns true for blocked hostnames", async () => {
   };
   const db = createBlocklistDb(state);
 
-  assertEquals(await isDomainBlocked(db, "bad.example"), true);
-  assertEquals(
-    await isDomainBlocked(db, "https://bad.example/users/eve"),
-    true,
-  );
-  assertEquals(await isDomainBlocked(db, "good.example"), false);
+  expect(await isDomainBlocked(db, "bad.example")).toEqual(true);
+  expect(await isDomainBlocked(db, "https://bad.example/users/eve")).toEqual(true);
+  expect(await isDomainBlocked(db, "good.example")).toEqual(false);
 });
 
-Deno.test("isActorBlocked falls through to the domain blocklist", async () => {
+test("isActorBlocked falls through to the domain blocklist", async () => {
   const state: MockBlocklistDb = {
     domains: new Set(["bad.example"]),
     actors: new Set(["https://other.example/users/eve"]),
@@ -117,23 +112,12 @@ Deno.test("isActorBlocked falls through to the domain blocklist", async () => {
   };
   const db = createBlocklistDb(state);
 
-  assertEquals(
-    await isActorBlocked(db, "https://other.example/users/eve"),
-    true,
-    "direct actor block must match",
-  );
-  assertEquals(
-    await isActorBlocked(db, "https://bad.example/users/mallory"),
-    true,
-    "domain-level block must apply transitively",
-  );
-  assertEquals(
-    await isActorBlocked(db, "https://good.example/users/alice"),
-    false,
-  );
+  expect(await isActorBlocked(db, "https://other.example/users/eve")).toEqual(true);
+  expect(await isActorBlocked(db, "https://bad.example/users/mallory")).toEqual(true);
+  expect(await isActorBlocked(db, "https://good.example/users/alice")).toEqual(false);
 });
 
-Deno.test("isActorBlocked returns false on empty/invalid input", async () => {
+test("isActorBlocked returns false on empty/invalid input", async () => {
   const state: MockBlocklistDb = {
     domains: new Set(),
     actors: new Set(),
@@ -142,11 +126,11 @@ Deno.test("isActorBlocked returns false on empty/invalid input", async () => {
   };
   const db = createBlocklistDb(state);
 
-  assertEquals(await isActorBlocked(db, ""), false);
-  assertEquals(await isActorBlocked(db, "not-a-url"), false);
+  expect(await isActorBlocked(db, "")).toEqual(false);
+  expect(await isActorBlocked(db, "not-a-url")).toEqual(false);
 });
 
-Deno.test("isDomainBlocked falls back to false on DB errors", async () => {
+test("isDomainBlocked falls back to false on DB errors", async () => {
   const failingDb = {
     query: {
       blockedDomains: {
@@ -158,15 +142,11 @@ Deno.test("isDomainBlocked falls back to false on DB errors", async () => {
     },
   } as unknown as Database;
 
-  assertEquals(await isDomainBlocked(failingDb, "bad.example"), false);
-  assertEquals(
-    await isActorBlocked(failingDb, "https://bad.example/users/eve"),
-    false,
-  );
+  expect(await isDomainBlocked(failingDb, "bad.example")).toEqual(false);
+  expect(await isActorBlocked(failingDb, "https://bad.example/users/eve")).toEqual(false);
 });
 
-Deno.test(
-  "blockDomain / unblockDomain reject invalid hostname input",
+test("blockDomain / unblockDomain reject invalid hostname input",
   async () => {
     const noopDb = {
       insert: () => ({
@@ -193,6 +173,6 @@ Deno.test(
     // valid hostname should not throw with the noop db
     await mod.blockDomain(noopDb, "bad.example", "spam");
     await mod.unblockDomain(noopDb, "bad.example");
-    assert(true);
+    expect(true).toBeTruthy();
   },
 );

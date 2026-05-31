@@ -555,9 +555,7 @@ async function readBodyBytesWithCap(
     try {
       await response.body.cancel();
     } catch { /* ignore */ }
-    throw signal.reason instanceof Error
-      ? signal.reason
-      : new Error("Aborted");
+    throw signal.reason instanceof Error ? signal.reason : new Error("Aborted");
   }
 
   const reader = response.body.getReader();
@@ -631,7 +629,9 @@ function wrapResponseWithCap(
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
         throw new Error(
-          `Response body read timed out after ${timeout / 1000} seconds: ${url}`,
+          `Response body read timed out after ${
+            timeout / 1000
+          } seconds: ${url}`,
         );
       }
       throw err;

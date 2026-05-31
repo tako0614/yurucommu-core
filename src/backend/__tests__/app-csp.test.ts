@@ -15,6 +15,7 @@ test("backend CSP omits Takos origins when TAKOS_URL is not configured", async (
   expect(res.status).toEqual(503);
   const csp = res.headers.get("Content-Security-Policy");
   expect(csp).toBeTruthy();
+  if (!csp) throw new Error("missing Content-Security-Policy header");
   if (csp.includes("takos.jp")) {
     throw new Error(
       "CSP must not hardcode takos.jp when Takos integration is disabled",
@@ -37,10 +38,12 @@ test("backend CSP does not list unpkg.com in script-src (only connect-src for FF
 
   const csp = res.headers.get("Content-Security-Policy");
   expect(csp).toBeTruthy();
+  if (!csp) throw new Error("missing Content-Security-Policy header");
   const scriptSrc = csp.split(";").map((d) => d.trim()).find((d) =>
     d.startsWith("script-src ")
   );
   expect(scriptSrc).toBeTruthy();
+  if (!scriptSrc) throw new Error("missing script-src directive");
   if (scriptSrc.includes("unpkg.com")) {
     throw new Error(
       "script-src must not whitelist unpkg.com: compromised npm packages would become executable on this origin",
@@ -69,6 +72,7 @@ test("backend CSP includes the configured Accounts issuer when enabled", async (
   expect(res.status).toEqual(503);
   const csp = res.headers.get("Content-Security-Policy");
   expect(csp).toBeTruthy();
+  if (!csp) throw new Error("missing Content-Security-Policy header");
   expect(csp).toContain("https://accounts.example.com");
   if (csp.includes("script-src 'self' 'unsafe-inline'")) {
     throw new Error("CSP must not allow inline scripts");

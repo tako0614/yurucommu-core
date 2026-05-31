@@ -84,7 +84,7 @@ async function batchArchiveInsert(
     const batch = rows.slice(i, i + batchSize);
     const result = await db.insert(notificationArchived).values(batch)
       .onConflictDoNothing();
-    inserted += result.meta?.changes ?? 0;
+    inserted += (result as { meta?: { changes?: number } }).meta?.changes ?? 0;
   }
 
   return inserted;

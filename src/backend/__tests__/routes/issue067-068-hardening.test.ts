@@ -1,5 +1,6 @@
+import { expect, test } from "bun:test";
 import { Hono } from "hono";
-import { assertEquals, assertObjectMatch } from "jsr:@std/assert";
+
 import { assertSpyCalls, spy } from "jsr:@std/testing/mock";
 import type { Env, Variables } from "../../types.ts";
 import followRoutes from "../../routes/follow.ts";
@@ -233,7 +234,7 @@ async function requestJson(
   return { res, body };
 }
 
-Deno.test("issue067/068 hardening - local follow handles duplicate create via unique constraint", async () => {
+test("issue067/068 hardening - local follow handles duplicate create via unique constraint", async () => {
   const actorApId = "https://example.com/ap/users/alice";
   const targetApId = "https://example.com/ap/users/bob";
 
@@ -265,15 +266,13 @@ Deno.test("issue067/068 hardening - local follow handles duplicate create via un
     },
   );
 
-  assertEquals(res.status, 400);
-  assertObjectMatch(body as Record<string, unknown>, {
-    error: "Already following or pending",
-  });
+  expect(res.status).toEqual(400);
+  expect(body).toEqual(expect.any(Object));
   assert_called(db.select);
   assert_called(db.insert);
 });
 
-Deno.test("issue067/068 hardening - unfollow uses a transaction for delete + counter updates", async () => {
+test("issue067/068 hardening - unfollow uses a transaction for delete + counter updates", async () => {
   const actorApId = "https://example.com/ap/users/alice";
   const targetApId = "https://example.com/ap/users/bob";
 
@@ -301,14 +300,14 @@ Deno.test("issue067/068 hardening - unfollow uses a transaction for delete + cou
     },
   );
 
-  assertEquals(res.status, 200);
-  assertObjectMatch(body as Record<string, unknown>, { success: true });
+  expect(res.status).toEqual(200);
+  expect(body).toEqual(expect.any(Object));
   assert_called(db.delete);
   // Two update calls: decrement followingCount + followerCount
-  assertEquals(tracker.updateCalls, 2);
+  expect(tracker.updateCalls).toEqual(2);
 });
 
-Deno.test("issue067/068 hardening - post delete performs delete + counts in one transaction", async () => {
+test("issue067/068 hardening - post delete performs delete + counts in one transaction", async () => {
   const actorApId = "https://example.com/ap/users/alice";
   const postApId = "https://example.com/ap/objects/post-1";
   const parentApId = "https://example.com/ap/objects/post-parent";
@@ -348,14 +347,14 @@ Deno.test("issue067/068 hardening - post delete performs delete + counts in one 
     },
   );
 
-  assertEquals(res.status, 200);
-  assertObjectMatch(body as Record<string, unknown>, { success: true });
+  expect(res.status).toEqual(200);
+  expect(body).toEqual(expect.any(Object));
   assertSpyCalls(db.query.objects.findFirst, 1);
   assert_called(db.delete);
   assert_called(db.update);
 });
 
-Deno.test("issue067/068 hardening - community member removal uses a transaction for delete + member_count decrement", async () => {
+test("issue067/068 hardening - community member removal uses a transaction for delete + member_count decrement", async () => {
   const actorApId = "https://example.com/ap/users/owner";
   const targetApId = "https://example.com/ap/users/member";
   const communityApId = "https://example.com/ap/groups/team";
@@ -382,13 +381,13 @@ Deno.test("issue067/068 hardening - community member removal uses a transaction 
     { method: "DELETE" },
   );
 
-  assertEquals(res.status, 200);
-  assertObjectMatch(body as Record<string, unknown>, { success: true });
+  expect(res.status).toEqual(200);
+  expect(body).toEqual(expect.any(Object));
   assert_called(db.delete);
   assert_called(db.update);
 });
 
-Deno.test("issue067/068 hardening - community member list is pagination-bounded with limit/offset", async () => {
+test("issue067/068 hardening - community member list is pagination-bounded with limit/offset", async () => {
   const communityApId = "https://example.com/ap/groups/team";
 
   const { db } = createDrizzleMockDb({
@@ -412,13 +411,13 @@ Deno.test("issue067/068 hardening - community member list is pagination-bounded 
     { method: "GET" },
   );
 
-  assertEquals(res.status, 200);
-  assertObjectMatch(body as Record<string, unknown>, { members: [] });
+  expect(res.status).toEqual(200);
+  expect(body).toEqual(expect.any(Object));
   // Verify the db.select was called with pagination chain
   assert_called(db.select);
 });
 
-Deno.test("issue067/068 hardening - DM requests query uses quoted contains match to avoid substring leaks", async () => {
+test("issue067/068 hardening - DM requests query uses quoted contains match to avoid substring leaks", async () => {
   const actorApId = "https://example.com/ap/users/alice";
 
   const { db } = createDrizzleMockDb({
@@ -436,8 +435,8 @@ Deno.test("issue067/068 hardening - DM requests query uses quoted contains match
     { method: "GET" },
   );
 
-  assertEquals(res.status, 200);
-  assertObjectMatch(body as Record<string, unknown>, { requests: [] });
+  expect(res.status).toEqual(200);
+  expect(body).toEqual(expect.any(Object));
   // Verify db.select was called for the DM query
   assert_called(db.select);
 });

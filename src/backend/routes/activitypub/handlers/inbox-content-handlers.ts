@@ -139,7 +139,11 @@ async function insertDirectNote(
   // (sender, localRecipient) pair — otherwise a remote actor could force a
   // message into an arbitrary thread (spoof a reply context). Fall back to the
   // computed id for foreign-origin DMs that carry no/invalid conversation.
-  const computedConversation = getConversationId(baseUrl, actor, recipient.apId);
+  const computedConversation = getConversationId(
+    baseUrl,
+    actor,
+    recipient.apId,
+  );
   const conversationId = object.conversation === computedConversation
     ? object.conversation
     : computedConversation;

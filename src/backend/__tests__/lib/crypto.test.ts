@@ -1,3 +1,4 @@
+import { expect, test } from "bun:test";
 import { assertEquals, assertNotEquals, assertRejects } from "jsr:@std/assert";
 import {
   decrypt,
@@ -10,7 +11,7 @@ import {
 const KEY = "00".repeat(32);
 const OTHER_KEY = "11".repeat(32);
 
-Deno.test("crypto decrypt - rejects malformed encrypted payloads without plaintext fallback", async () => {
+test("crypto decrypt - rejects malformed encrypted payloads without plaintext fallback", async () => {
   for (
     const payload of [
       "plaintext-token",
@@ -28,12 +29,12 @@ Deno.test("crypto decrypt - rejects malformed encrypted payloads without plainte
   }
 });
 
-Deno.test("crypto decrypt - round trips valid encrypted values", async () => {
+test("crypto decrypt - round trips valid encrypted values", async () => {
   const encrypted = await encrypt("sensitive-token", KEY);
-  assertEquals(await decrypt(encrypted, KEY), "sensitive-token");
+  expect(await decrypt(encrypted, KEY)).toEqual("sensitive-token");
 });
 
-Deno.test("crypto decrypt - rejects valid payloads with the wrong key", async () => {
+test("crypto decrypt - rejects valid payloads with the wrong key", async () => {
   const encrypted = await encrypt("sensitive-token", KEY);
   await assertRejects(
     () => decrypt(encrypted, OTHER_KEY),
@@ -41,39 +42,39 @@ Deno.test("crypto decrypt - rejects valid payloads with the wrong key", async ()
   );
 });
 
-Deno.test("hashSessionId - prefixes sha256: and never returns the raw id", async () => {
+test("hashSessionId - prefixes sha256: and never returns the raw id", async () => {
   const raw = "a".repeat(64);
   const hashed = await hashSessionId(raw, "salt-1");
-  assertEquals(hashed.startsWith("sha256:"), true);
-  assertNotEquals(hashed, raw);
-  assertEquals(hashed.includes(raw), false);
+  expect(hashed.startsWith("sha256:")).toEqual(true);
+  expect(hashed).not.toEqual(raw);
+  expect(hashed.includes(raw)).toEqual(false);
 });
 
-Deno.test("hashSessionId - deterministic for a given salt", async () => {
+test("hashSessionId - deterministic for a given salt", async () => {
   const raw = "deadbeef";
   const a = await hashSessionId(raw, "salt-1");
   const b = await hashSessionId(raw, "salt-1");
-  assertEquals(a, b);
+  expect(a).toEqual(b);
 });
 
-Deno.test("hashSessionId - salt separates the hash space", async () => {
+test("hashSessionId - salt separates the hash space", async () => {
   const raw = "deadbeef";
   const a = await hashSessionId(raw, "salt-1");
   const b = await hashSessionId(raw, "salt-2");
-  assertNotEquals(a, b);
+  expect(a).not.toEqual(b);
 });
 
-Deno.test("hashSessionIdForEnv - uses the configured per-deployment salt", async () => {
+test("hashSessionIdForEnv - uses the configured per-deployment salt", async () => {
   const raw = "deadbeef";
   const withSalt = await hashSessionIdForEnv(
     { YURUCOMMU_SESSION_HASH_SALT: "salt-1" },
     raw,
   );
   const expected = await hashSessionId(raw, "salt-1");
-  assertEquals(withSalt, expected);
+  expect(withSalt).toEqual(expected);
 });
 
-Deno.test("hashSessionIdForEnv - falls back to the dev salt when unset", async () => {
+test("hashSessionIdForEnv - falls back to the dev salt when unset", async () => {
   const raw = "deadbeef";
   const fallback = await hashSessionIdForEnv({}, raw);
   // The dev fallback must differ from a real per-deployment salt.
@@ -81,6 +82,6 @@ Deno.test("hashSessionIdForEnv - falls back to the dev salt when unset", async (
     { YURUCOMMU_SESSION_HASH_SALT: "salt-1" },
     raw,
   );
-  assertEquals(fallback.startsWith("sha256:"), true);
-  assertNotEquals(fallback, real);
+  expect(fallback.startsWith("sha256:")).toEqual(true);
+  expect(fallback).not.toEqual(real);
 });

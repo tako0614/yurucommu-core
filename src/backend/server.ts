@@ -142,7 +142,7 @@ function createLocalMessageBatch<T extends LocalQueueBody>(
     retryAll: (options?: { delaySeconds?: number }) => {
       for (const message of messages) message.retry(options);
     },
-  } as MessageBatch<T>;
+  } as unknown as MessageBatch<T>;
 }
 
 function createLocalQueue<T extends LocalQueueBody>(

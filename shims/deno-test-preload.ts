@@ -20,8 +20,13 @@ interface TestDef {
 }
 interface TestContext {
   name: string;
-  step(name: string, fn: (t: TestContext) => unknown | Promise<unknown>): Promise<boolean>;
-  step(def: { name: string; fn: (t: TestContext) => unknown | Promise<unknown> }): Promise<boolean>;
+  step(
+    name: string,
+    fn: (t: TestContext) => unknown | Promise<unknown>,
+  ): Promise<boolean>;
+  step(
+    def: { name: string; fn: (t: TestContext) => unknown | Promise<unknown> },
+  ): Promise<boolean>;
 }
 
 function makeContext(name: string): TestContext {
@@ -29,13 +34,16 @@ function makeContext(name: string): TestContext {
     name,
     async step(a: unknown, b?: unknown): Promise<boolean> {
       const stepName = typeof a === "string" ? a : (a as { name: string }).name;
-      const stepFn = (typeof a === "string" ? b : (a as { fn: TestTopFn }).fn) as TestFn;
+      const stepFn =
+        (typeof a === "string" ? b : (a as { fn: TestTopFn }).fn) as TestFn;
       try {
         await stepFn(makeContext(`${name} > ${stepName}`));
         return true;
       } catch (err) {
         // Surface the step name on failure so the bun report is legible.
-        if (err instanceof Error) err.message = `[step: ${stepName}] ${err.message}`;
+        if (err instanceof Error) {
+          err.message = `[step: ${stepName}] ${err.message}`;
+        }
         throw err;
       }
     },
@@ -74,7 +82,9 @@ function register(a: unknown, b?: unknown, c?: unknown): void {
     }
   }
 
-  const wrapped = () => fn(makeContext(name));
+  const wrapped = async (): Promise<void> => {
+    await fn(makeContext(name));
+  };
   if (ignore) bunTest.skip(name, wrapped);
   else if (only) bunTest.only(name, wrapped);
   else bunTest(name, wrapped);

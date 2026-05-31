@@ -9,6 +9,7 @@ function createApp() {
   app.post("/deploy", requireBearerAuth("apps:deploy"), (c) => {
     const token = c.get("oauthToken");
     expect(token).toBeTruthy();
+    if (!token) throw new Error("oauthToken was not set");
     return c.json({ sub: token.sub });
   });
   return app;
