@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+    "target": "ESNext",
+    "types": ["bun", "node"],
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": false,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "paths": {
+      "@std/assert": ["./shims/std/assert.ts"],
+      "@std/assert/equals": ["./shims/std/assert/equals.ts"],
+      "@std/fmt/colors": ["./shims/std/colors.ts"],
+      "@std/testing/mock": ["./shims/std/mock.ts"],
+      "@std/testing/time": ["./shims/std/time.ts"],
+      "jsr:@std/assert": ["./shims/std/assert.ts"],
+      "jsr:@std/assert@1.0.19": ["./shims/std/assert.ts"],
+      "jsr:@std/assert/equals": ["./shims/std/assert/equals.ts"],
+      "jsr:@std/fmt/colors": ["./shims/std/colors.ts"],
+      "jsr:@std/testing/mock": ["./shims/std/mock.ts"],
+      "jsr:@std/testing/time": ["./shims/std/time.ts"]
+    }
+  },
+  "include": ["src", "test", "web/src", "shims"]
+}
