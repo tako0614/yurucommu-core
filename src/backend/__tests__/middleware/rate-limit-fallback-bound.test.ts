@@ -1,8 +1,8 @@
-import { assert, assertEquals } from "jsr:@std/assert";
+import { expect, test } from "bun:test";
 
 import { __fallbackRateLimitInternals } from "../../middleware/rate-limit.ts";
 
-Deno.test("fallbackRateLimitStore evicts expired entries on sweep", () => {
+test("fallbackRateLimitStore evicts expired entries on sweep", () => {
   __fallbackRateLimitInternals.clear();
   const now = Date.now();
 
@@ -16,13 +16,12 @@ Deno.test("fallbackRateLimitStore evicts expired entries on sweep", () => {
     resetAt: now - 1000,
   });
 
-  assertEquals(__fallbackRateLimitInternals.size(), 3);
+  expect(__fallbackRateLimitInternals.size()).toEqual(3);
   __fallbackRateLimitInternals.evict(now);
-  assertEquals(__fallbackRateLimitInternals.size(), 1);
+  expect(__fallbackRateLimitInternals.size()).toEqual(1);
 });
 
-Deno.test(
-  "fallbackRateLimitStore evicts oldest entries via LRU when over cap",
+test("fallbackRateLimitStore evicts oldest entries via LRU when over cap",
   () => {
     __fallbackRateLimitInternals.clear();
     const max = __fallbackRateLimitInternals.maxEntries;
@@ -35,7 +34,7 @@ Deno.test(
         resetAt: now + 60_000,
       });
     }
-    assertEquals(__fallbackRateLimitInternals.size(), max);
+    expect(__fallbackRateLimitInternals.size()).toEqual(max);
 
     // Push one more entry through the touch helper to move it to the
     // most-recent end. LRU eviction must then drop "key:0" rather than
@@ -46,12 +45,11 @@ Deno.test(
     });
     __fallbackRateLimitInternals.enforceCap();
 
-    assertEquals(__fallbackRateLimitInternals.size(), max);
+    expect(__fallbackRateLimitInternals.size()).toEqual(max);
   },
 );
 
-Deno.test(
-  "fallbackRateLimitStore.touch promotes a key to most-recently-used",
+test("fallbackRateLimitStore.touch promotes a key to most-recently-used",
   () => {
     __fallbackRateLimitInternals.clear();
     const max = __fallbackRateLimitInternals.maxEntries;
@@ -82,14 +80,11 @@ Deno.test(
     });
     __fallbackRateLimitInternals.enforceCap();
 
-    assert(
-      __fallbackRateLimitInternals.size() === max,
-      "LRU cap must hold size at max",
-    );
+    expect(__fallbackRateLimitInternals.size() === max).toBeTruthy();
   },
 );
 
-Deno.test("fallbackRateLimitStore stays bounded under mixed churn", () => {
+test("fallbackRateLimitStore stays bounded under mixed churn", () => {
   __fallbackRateLimitInternals.clear();
   const max = __fallbackRateLimitInternals.maxEntries;
   const now = Date.now();
@@ -105,9 +100,6 @@ Deno.test("fallbackRateLimitStore stays bounded under mixed churn", () => {
     });
   }
   __fallbackRateLimitInternals.evict(now);
-  assert(
-    __fallbackRateLimitInternals.size() <= max,
-    "fallback store must stay within max",
-  );
-  assertEquals(__fallbackRateLimitInternals.size(), 500);
+  expect(__fallbackRateLimitInternals.size() <= max).toBeTruthy();
+  expect(__fallbackRateLimitInternals.size()).toEqual(500);
 });

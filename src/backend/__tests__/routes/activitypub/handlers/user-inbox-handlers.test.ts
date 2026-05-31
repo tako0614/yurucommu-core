@@ -1,4 +1,5 @@
-import { assertEquals, assertNotEquals } from "jsr:@std/assert";
+import { test } from "bun:test";
+
 import { assertSpyCalls, spy } from "jsr:@std/testing/mock";
 import {
   handleDelete,
@@ -107,7 +108,7 @@ function createMockContext(
   } as unknown as ActivityContext;
 }
 
-Deno.test("userInboxHandlers hardening - handleLike writes like/count/inbox in a single transaction", async () => {
+test("userInboxHandlers hardening - handleLike writes like/count/inbox in a single transaction", async () => {
   const actorApId = "https://example.com/ap/users/alice";
   const targetApId = "https://example.com/ap/users/bob";
   const objectApId = "https://example.com/ap/objects/note-1";
@@ -142,7 +143,7 @@ Deno.test("userInboxHandlers hardening - handleLike writes like/count/inbox in a
   assert_called(db.update);
 });
 
-Deno.test("userInboxHandlers hardening - handleLike treats unique conflicts as idempotent", async () => {
+test("userInboxHandlers hardening - handleLike treats unique conflicts as idempotent", async () => {
   const { db } = createMockDb({
     selectResults: [{ attributedTo: "https://example.com/ap/users/bob" }],
     insertReturningResult: undefined,
@@ -171,7 +172,7 @@ Deno.test("userInboxHandlers hardening - handleLike treats unique conflicts as i
   assertSpyCalls(db.update, 0);
 });
 
-Deno.test("userInboxHandlers hardening - handleDelete performs dependent deletes and counter update", async () => {
+test("userInboxHandlers hardening - handleDelete performs dependent deletes and counter update", async () => {
   const { db } = createMockDb({
     selectResults: [{
       attributedTo: "https://example.com/ap/users/alice",

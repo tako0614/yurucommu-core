@@ -1,5 +1,6 @@
+import { expect, test } from "bun:test";
 import { Hono } from "hono";
-import { assert, assertEquals } from "jsr:@std/assert";
+
 import { assertSpyCalls, spy } from "jsr:@std/testing/mock";
 import activityPubRoutes from "../../../routes/activitypub.ts";
 
@@ -78,47 +79,47 @@ async function getJson(path: string, db = createDbMock()) {
   return { res, body: await res.json(), db };
 }
 
-Deno.test("activitypub private actor omits public collection URLs", async () => {
+test("activitypub private actor omits public collection URLs", async () => {
   const { res, body } = await getJson("/ap/users/private-user");
   const actor = body as Record<string, unknown>;
 
-  assertEquals(res.status, 200);
-  assertEquals(actor.discoverable, false);
-  assert(!("outbox" in actor));
-  assert(!("followers" in actor));
-  assert(!("following" in actor));
+  expect(res.status).toEqual(200);
+  expect(actor.discoverable).toEqual(false);
+  expect(!("outbox" in actor)).toBeTruthy();
+  expect(!("followers" in actor)).toBeTruthy();
+  expect(!("following" in actor)).toBeTruthy();
 });
 
-Deno.test("activitypub private actor outbox does not expose unauthenticated contents or counts", async () => {
+test("activitypub private actor outbox does not expose unauthenticated contents or counts", async () => {
   const { res, body, db } = await getJson("/ap/users/private-user/outbox");
   const collection = body as Record<string, unknown>;
 
-  assertEquals(res.status, 200);
-  assertEquals(collection.type, "OrderedCollection");
-  assert(!("totalItems" in collection));
-  assert(!("first" in collection));
+  expect(res.status).toEqual(200);
+  expect(collection.type).toEqual("OrderedCollection");
+  expect(!("totalItems" in collection)).toBeTruthy();
+  expect(!("first" in collection)).toBeTruthy();
   assertSpyCalls(db.activitiesFindMany, 0);
   assertSpyCalls(db.countSelect, 0);
 });
 
-Deno.test("activitypub private actor followers and following do not expose unauthenticated contents or counts", async () => {
+test("activitypub private actor followers and following do not expose unauthenticated contents or counts", async () => {
   const followers = await getJson("/ap/users/private-user/followers?page=1");
   const followersPage = followers.body as Record<string, unknown>;
 
-  assertEquals(followers.res.status, 200);
-  assertEquals(followersPage.type, "OrderedCollectionPage");
-  assertEquals(followersPage.orderedItems, []);
-  assert(!("totalItems" in followersPage));
+  expect(followers.res.status).toEqual(200);
+  expect(followersPage.type).toEqual("OrderedCollectionPage");
+  expect(followersPage.orderedItems).toEqual([]);
+  expect(!("totalItems" in followersPage)).toBeTruthy();
   assertSpyCalls(followers.db.followsFindMany, 0);
   assertSpyCalls(followers.db.countSelect, 0);
 
   const following = await getJson("/ap/users/private-user/following");
   const followingCollection = following.body as Record<string, unknown>;
 
-  assertEquals(following.res.status, 200);
-  assertEquals(followingCollection.type, "OrderedCollection");
-  assert(!("totalItems" in followingCollection));
-  assert(!("first" in followingCollection));
+  expect(following.res.status).toEqual(200);
+  expect(followingCollection.type).toEqual("OrderedCollection");
+  expect(!("totalItems" in followingCollection)).toBeTruthy();
+  expect(!("first" in followingCollection)).toBeTruthy();
   assertSpyCalls(following.db.followsFindMany, 0);
   assertSpyCalls(following.db.countSelect, 0);
 });

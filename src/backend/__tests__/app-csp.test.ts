@@ -1,7 +1,8 @@
-import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert";
+import { expect, test } from "bun:test";
+
 import { createYurucommuBackendApp } from "../index.ts";
 
-Deno.test("backend CSP omits Takos origins when TAKOS_URL is not configured", async () => {
+test("backend CSP omits Takos origins when TAKOS_URL is not configured", async () => {
   const app = createYurucommuBackendApp();
   const res = await app.fetch(
     new Request("https://test.local/"),
@@ -11,9 +12,9 @@ Deno.test("backend CSP omits Takos origins when TAKOS_URL is not configured", as
     } as never,
   );
 
-  assertEquals(res.status, 503);
+  expect(res.status).toEqual(503);
   const csp = res.headers.get("Content-Security-Policy");
-  assert(csp);
+  expect(csp).toBeTruthy();
   if (csp.includes("takos.jp")) {
     throw new Error(
       "CSP must not hardcode takos.jp when Takos integration is disabled",
@@ -24,7 +25,7 @@ Deno.test("backend CSP omits Takos origins when TAKOS_URL is not configured", as
   }
 });
 
-Deno.test("backend CSP does not list unpkg.com in script-src (only connect-src for FFmpeg fetch)", async () => {
+test("backend CSP does not list unpkg.com in script-src (only connect-src for FFmpeg fetch)", async () => {
   const app = createYurucommuBackendApp();
   const res = await app.fetch(
     new Request("https://test.local/"),
@@ -35,11 +36,11 @@ Deno.test("backend CSP does not list unpkg.com in script-src (only connect-src f
   );
 
   const csp = res.headers.get("Content-Security-Policy");
-  assert(csp);
+  expect(csp).toBeTruthy();
   const scriptSrc = csp.split(";").map((d) => d.trim()).find((d) =>
     d.startsWith("script-src ")
   );
-  assert(scriptSrc, "script-src directive missing");
+  expect(scriptSrc).toBeTruthy();
   if (scriptSrc.includes("unpkg.com")) {
     throw new Error(
       "script-src must not whitelist unpkg.com: compromised npm packages would become executable on this origin",
@@ -50,11 +51,11 @@ Deno.test("backend CSP does not list unpkg.com in script-src (only connect-src f
   const connectSrc = csp.split(";").map((d) => d.trim()).find((d) =>
     d.startsWith("connect-src ")
   );
-  assert(connectSrc);
-  assertStringIncludes(connectSrc, "https://unpkg.com");
+  expect(connectSrc).toBeTruthy();
+  expect(connectSrc).toContain("https://unpkg.com");
 });
 
-Deno.test("backend CSP includes the configured Accounts issuer when enabled", async () => {
+test("backend CSP includes the configured Accounts issuer when enabled", async () => {
   const app = createYurucommuBackendApp();
   const res = await app.fetch(
     new Request("https://test.local/"),
@@ -65,16 +66,16 @@ Deno.test("backend CSP includes the configured Accounts issuer when enabled", as
     } as never,
   );
 
-  assertEquals(res.status, 503);
+  expect(res.status).toEqual(503);
   const csp = res.headers.get("Content-Security-Policy");
-  assert(csp);
-  assertStringIncludes(csp, "https://accounts.example.com");
+  expect(csp).toBeTruthy();
+  expect(csp).toContain("https://accounts.example.com");
   if (csp.includes("script-src 'self' 'unsafe-inline'")) {
     throw new Error("CSP must not allow inline scripts");
   }
 });
 
-Deno.test("backend healthz reports degraded runtime bindings before DB middleware", async () => {
+test("backend healthz reports degraded runtime bindings before DB middleware", async () => {
   const app = createYurucommuBackendApp();
   const res = await app.fetch(
     new Request("https://test.local/healthz"),
@@ -84,8 +85,8 @@ Deno.test("backend healthz reports degraded runtime bindings before DB middlewar
     } as never,
   );
 
-  assertEquals(res.status, 200);
-  assertEquals(await res.json(), {
+  expect(res.status).toEqual(200);
+  expect(await res.json()).toEqual({
     status: "degraded",
     service: "yurucommu",
     missingBindings: [
@@ -99,7 +100,7 @@ Deno.test("backend healthz reports degraded runtime bindings before DB middlewar
   });
 });
 
-Deno.test("backend readyz reports missing runtime bindings before DB middleware", async () => {
+test("backend readyz reports missing runtime bindings before DB middleware", async () => {
   const app = createYurucommuBackendApp();
   const res = await app.fetch(
     new Request("https://test.local/readyz"),
@@ -109,8 +110,8 @@ Deno.test("backend readyz reports missing runtime bindings before DB middleware"
     } as never,
   );
 
-  assertEquals(res.status, 503);
-  assertEquals(await res.json(), {
+  expect(res.status).toEqual(503);
+  expect(await res.json()).toEqual({
     status: "misconfigured",
     service: "yurucommu",
     missingBindings: [
@@ -124,7 +125,7 @@ Deno.test("backend readyz reports missing runtime bindings before DB middleware"
   });
 });
 
-Deno.test("backend readyz accepts Accounts OIDC as a provisioned auth method", async () => {
+test("backend readyz accepts Accounts OIDC as a provisioned auth method", async () => {
   const app = createYurucommuBackendApp();
   const res = await app.fetch(
     new Request("https://test.local/readyz"),
@@ -142,15 +143,15 @@ Deno.test("backend readyz accepts Accounts OIDC as a provisioned auth method", a
     } as never,
   );
 
-  assertEquals(res.status, 200);
-  assertEquals(await res.json(), {
+  expect(res.status).toEqual(200);
+  expect(await res.json()).toEqual({
     status: "ok",
     service: "yurucommu",
     missingBindings: [],
   });
 });
 
-Deno.test("backend healthz can be strict after bootstrap", async () => {
+test("backend healthz can be strict after bootstrap", async () => {
   const app = createYurucommuBackendApp();
   const res = await app.fetch(
     new Request("https://test.local/healthz"),
@@ -161,8 +162,8 @@ Deno.test("backend healthz can be strict after bootstrap", async () => {
     } as never,
   );
 
-  assertEquals(res.status, 503);
-  assertEquals(await res.json(), {
+  expect(res.status).toEqual(503);
+  expect(await res.json()).toEqual({
     status: "misconfigured",
     service: "yurucommu",
     missingBindings: [

@@ -1,8 +1,8 @@
-import { assert, assertEquals } from "jsr:@std/assert";
+import { expect, test } from "bun:test";
 
 import { __archivedCleanupInternals } from "../../routes/notifications.ts";
 
-Deno.test("archivedCleanupTimestamps prune evicts stale entries", () => {
+test("archivedCleanupTimestamps prune evicts stale entries", () => {
   __archivedCleanupInternals.clear();
   const interval = __archivedCleanupInternals.intervalMs;
   const now = Date.now();
@@ -11,12 +11,12 @@ Deno.test("archivedCleanupTimestamps prune evicts stale entries", () => {
   __archivedCleanupInternals.set("actor:stale", now - interval - 1);
   __archivedCleanupInternals.set("actor:also-stale", now - interval * 10);
 
-  assertEquals(__archivedCleanupInternals.size(), 3);
+  expect(__archivedCleanupInternals.size()).toEqual(3);
   __archivedCleanupInternals.prune(now);
-  assertEquals(__archivedCleanupInternals.size(), 1);
+  expect(__archivedCleanupInternals.size()).toEqual(1);
 });
 
-Deno.test("archivedCleanupTimestamps prune clears at hard cap", () => {
+test("archivedCleanupTimestamps prune clears at hard cap", () => {
   __archivedCleanupInternals.clear();
   const max = __archivedCleanupInternals.maxEntries;
   const now = Date.now();
@@ -25,14 +25,14 @@ Deno.test("archivedCleanupTimestamps prune clears at hard cap", () => {
   for (let i = 0; i < max; i++) {
     __archivedCleanupInternals.set(`actor:${i}`, now);
   }
-  assertEquals(__archivedCleanupInternals.size(), max);
+  expect(__archivedCleanupInternals.size()).toEqual(max);
 
   __archivedCleanupInternals.prune(now);
   // Fresh entries cannot be evicted by age; the safety-clear must fire.
-  assertEquals(__archivedCleanupInternals.size(), 0);
+  expect(__archivedCleanupInternals.size()).toEqual(0);
 });
 
-Deno.test("archivedCleanupTimestamps size stays bounded under churn", () => {
+test("archivedCleanupTimestamps size stays bounded under churn", () => {
   __archivedCleanupInternals.clear();
   const max = __archivedCleanupInternals.maxEntries;
   const interval = __archivedCleanupInternals.intervalMs;
@@ -44,9 +44,6 @@ Deno.test("archivedCleanupTimestamps size stays bounded under churn", () => {
     __archivedCleanupInternals.set(`stale:${i}`, now - interval - i);
   }
   __archivedCleanupInternals.prune(now);
-  assert(
-    __archivedCleanupInternals.size() <= max,
-    "size must stay within cap",
-  );
-  assertEquals(__archivedCleanupInternals.size(), 100);
+  expect(__archivedCleanupInternals.size() <= max).toBeTruthy();
+  expect(__archivedCleanupInternals.size()).toEqual(100);
 });

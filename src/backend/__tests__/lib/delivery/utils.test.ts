@@ -1,9 +1,5 @@
-import {
-  assert,
-  assertEquals,
-  assertMatch,
-  assertNotEquals,
-} from "jsr:@std/assert";
+import { expect, test } from "bun:test";
+
 import { stub } from "jsr:@std/testing/mock";
 import {
   computeDeliveryJobId,
@@ -13,17 +9,17 @@ import {
   safeParseIsoTimeMs,
 } from "../../../lib/delivery/transformers.ts";
 
-Deno.test("delivery/utils - computeRetryDelaySeconds uses exponential series and jitter bounds", () => {
+test("delivery/utils - computeRetryDelaySeconds uses exponential series and jitter bounds", () => {
   const rand = stub(Math, "random", () => 0);
   try {
-    assertEquals(computeRetryDelaySeconds(1), 48); // 60s * 0.8
-    assertEquals(computeRetryDelaySeconds(DELIVERY_MAX_ATTEMPTS), 6144); // 7680s * 0.8
+    expect(computeRetryDelaySeconds(1)).toEqual(48); // 60s * 0.8
+    expect(computeRetryDelaySeconds(DELIVERY_MAX_ATTEMPTS)).toEqual(6144); // 7680s * 0.8
 
     rand.restore();
     const rand2 = stub(Math, "random", () => 1);
     try {
-      assertEquals(computeRetryDelaySeconds(1), 72); // 60s * 1.2
-      assertEquals(computeRetryDelaySeconds(DELIVERY_MAX_ATTEMPTS), 9216); // 7680s * 1.2
+      expect(computeRetryDelaySeconds(1)).toEqual(72); // 60s * 1.2
+      expect(computeRetryDelaySeconds(DELIVERY_MAX_ATTEMPTS)).toEqual(9216); // 7680s * 1.2
     } finally {
       rand2.restore();
     }
@@ -34,16 +30,16 @@ Deno.test("delivery/utils - computeRetryDelaySeconds uses exponential series and
   }
 });
 
-Deno.test("delivery/utils - computeRetryDelaySeconds clamps attempts", () => {
+test("delivery/utils - computeRetryDelaySeconds clamps attempts", () => {
   const rand = stub(Math, "random", () => 0);
   try {
-    assertEquals(computeRetryDelaySeconds(999), 6144);
+    expect(computeRetryDelaySeconds(999)).toEqual(6144);
   } finally {
     rand.restore();
   }
 });
 
-Deno.test("delivery/utils - computeDeliveryJobId is deterministic and hex", async () => {
+test("delivery/utils - computeDeliveryJobId is deterministic and hex", async () => {
   const id1 = await computeDeliveryJobId(
     "activity-1",
     "https://example.com/inbox",
@@ -57,23 +53,23 @@ Deno.test("delivery/utils - computeDeliveryJobId is deterministic and hex", asyn
     "https://example.com/inbox2",
   );
 
-  assertEquals(id1, id2);
-  assertNotEquals(id1, id3);
-  assertMatch(id1, /^[0-9a-f]{64}$/);
+  expect(id1).toEqual(id2);
+  expect(id1).not.toEqual(id3);
+  expect(id1).toMatch(/^[0-9a-f]{64}$/);
 });
 
-Deno.test("delivery/utils - safeParseIsoTimeMs returns ms or null", () => {
+test("delivery/utils - safeParseIsoTimeMs returns ms or null", () => {
   const ms = safeParseIsoTimeMs("2026-02-15T00:00:00.000Z");
-  assertEquals(typeof ms, "number");
-  assert(Number.isFinite(ms));
+  expect(typeof ms).toEqual("number");
+  expect(Number.isFinite(ms)).toBeTruthy();
 
-  assertEquals(safeParseIsoTimeMs("not-a-date"), null);
-  assertEquals(safeParseIsoTimeMs(null), null);
-  assertEquals(safeParseIsoTimeMs(undefined), null);
+  expect(safeParseIsoTimeMs("not-a-date")).toEqual(null);
+  expect(safeParseIsoTimeMs(null)).toEqual(null);
+  expect(safeParseIsoTimeMs(undefined)).toEqual(null);
 });
 
-Deno.test("delivery/utils - safeEndpointHost returns host only for safe remote urls", () => {
-  assertEquals(safeEndpointHost("https://example.com/inbox"), "example.com");
-  assertEquals(safeEndpointHost("http://127.0.0.1/inbox"), null);
-  assertEquals(safeEndpointHost("ftp://example.com/x"), null);
+test("delivery/utils - safeEndpointHost returns host only for safe remote urls", () => {
+  expect(safeEndpointHost("https://example.com/inbox")).toEqual("example.com");
+  expect(safeEndpointHost("http://127.0.0.1/inbox")).toEqual(null);
+  expect(safeEndpointHost("ftp://example.com/x")).toEqual(null);
 });

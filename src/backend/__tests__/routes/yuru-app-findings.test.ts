@@ -1,3 +1,4 @@
+import { expect, test } from "bun:test";
 /**
  * Regression tests for the YURU-APP findings fix wave:
  *
@@ -14,7 +15,7 @@
  */
 
 import { Hono } from "hono";
-import { assertEquals, assertNotEquals } from "jsr:@std/assert";
+
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 
@@ -148,7 +149,7 @@ async function insertCommunity(
 // getConversationId collision resistance
 // ---------------------------------------------------------------------------
 
-Deno.test("getConversationId: distinct same-host pairs produce distinct IDs", () => {
+test("getConversationId: distinct same-host pairs produce distinct IDs", () => {
   const names = ["alice", "bob", "carol", "dave", "erin", "frank"];
   const ids = new Set<string>();
   for (let i = 0; i < names.length; i++) {
@@ -159,19 +160,16 @@ Deno.test("getConversationId: distinct same-host pairs produce distinct IDs", ()
     }
   }
   // 6 actors -> 15 distinct unordered pairs, all must be distinct.
-  assertEquals(ids.size, 15);
+  expect(ids.size).toEqual(15);
 });
 
-Deno.test("getConversationId: order-independent and stable", () => {
+test("getConversationId: order-independent and stable", () => {
   const a = localApId("alice");
   const b = localApId("bob");
-  assertEquals(
-    getConversationId(APP_URL, a, b),
-    getConversationId(APP_URL, b, a),
-  );
+  expect(getConversationId(APP_URL, a, b)).toEqual(getConversationId(APP_URL, b, a));
 });
 
-Deno.test("getConversationId: different pairs that previously collided now differ", () => {
+test("getConversationId: different pairs that previously collided now differ", () => {
   // Under the old scheme every same-host pair collapsed onto the prefix
   // "aHR0cHM6Ly95dXJ1"; assert two such pairs no longer share an ID.
   const idAB = getConversationId(APP_URL, localApId("alice"), localApId("bob"));
@@ -180,14 +178,14 @@ Deno.test("getConversationId: different pairs that previously collided now diffe
     localApId("carol"),
     localApId("dave"),
   );
-  assertNotEquals(idAB, idCD);
+  expect(idAB).not.toEqual(idCD);
 });
 
 // ---------------------------------------------------------------------------
 // recipientToJsonLike escapes LIKE metacharacters
 // ---------------------------------------------------------------------------
 
-Deno.test("resolveConversationId: wildcard in AP-ID does not broaden the match", async () => {
+test("resolveConversationId: wildcard in AP-ID does not broaden the match", async () => {
   const db = await freshDb();
   const alice = await insertLocalActor(db, "alice");
   // A remote actor whose AP-ID contains a LIKE wildcard.
@@ -209,10 +207,10 @@ Deno.test("resolveConversationId: wildcard in AP-ID does not broaden the match",
   // Resolving a conversation with the wildcard AP-ID must NOT match the
   // unrelated mallory message (which it would if `%` acted as a wildcard).
   const resolved = await resolveConversationId(db, APP_URL, alice, wildcard);
-  assertEquals(resolved, getConversationId(APP_URL, alice, wildcard));
+  expect(resolved).toEqual(getConversationId(APP_URL, alice, wildcard));
 });
 
-Deno.test("recipientToJsonLike: exact JSON token still matches the stored value", async () => {
+test("recipientToJsonLike: exact JSON token still matches the stored value", async () => {
   const db = await freshDb();
   const alice = await insertLocalActor(db, "alice");
   const bob = localApId("bob");
@@ -230,14 +228,14 @@ Deno.test("recipientToJsonLike: exact JSON token still matches the stored value"
   const rows = await db.select({ apId: objects.apId })
     .from(objects)
     .where(recipientToJsonLike(bob));
-  assertEquals(rows.length, 1);
+  expect(rows.length).toEqual(1);
 });
 
 // ---------------------------------------------------------------------------
 // POST /requests/accept is honest (not a fake success)
 // ---------------------------------------------------------------------------
 
-Deno.test("POST /requests/accept responds 501 instead of faking success", async () => {
+test("POST /requests/accept responds 501 instead of faking success", async () => {
   const db = await freshDb();
   const alice = await insertLocalActor(db, "alice");
   const app = appWith(db, fakeActor(alice, "alice"), dmRequestRoutes);
@@ -251,17 +249,17 @@ Deno.test("POST /requests/accept responds 501 instead of faking success", async 
     envFor(db),
   );
 
-  assertEquals(res.status, 501);
+  expect(res.status).toEqual(501);
   const body = await res.json() as { error?: string; success?: unknown };
-  assertEquals(body.error, "not_implemented");
-  assertEquals(body.success, undefined);
+  expect(body.error).toEqual("not_implemented");
+  expect(body.success).toEqual(undefined);
 });
 
 // ---------------------------------------------------------------------------
 // Community message READ access governed by visibility, not post_policy
 // ---------------------------------------------------------------------------
 
-Deno.test("community messages: member can READ a community with post_policy=owners", async () => {
+test("community messages: member can READ a community with post_policy=owners", async () => {
   const db = await freshDb();
   const member = await insertLocalActor(db, "member");
   const communityApId = await insertCommunity(db, "town", {
@@ -281,10 +279,10 @@ Deno.test("community messages: member can READ a community with post_policy=owne
   );
 
   // Previously checkPostPolicy("owners") returned 403 for ordinary members.
-  assertEquals(res.status, 200);
+  expect(res.status).toEqual(200);
 });
 
-Deno.test("community messages: private community read still requires membership", async () => {
+test("community messages: private community read still requires membership", async () => {
   const db = await freshDb();
   const outsider = await insertLocalActor(db, "outsider");
   await insertCommunity(db, "secret", {
@@ -302,14 +300,14 @@ Deno.test("community messages: private community read still requires membership"
     envFor(db),
   );
 
-  assertEquals(res.status, 403);
+  expect(res.status).toEqual(403);
 });
 
 // ---------------------------------------------------------------------------
 // Story GET /:id/votes resolves a full ap_id like its sibling routes
 // ---------------------------------------------------------------------------
 
-Deno.test("story /:id/votes accepts a full story ap_id (matches like/share routes)", async () => {
+test("story /:id/votes accepts a full story ap_id (matches like/share routes)", async () => {
   const db = await freshDb();
   const author = await insertLocalActor(db, "author");
   const voter = await insertLocalActor(db, "voter");
@@ -341,26 +339,26 @@ Deno.test("story /:id/votes accepts a full story ap_id (matches like/share route
   );
 
   // Previously objectApId() double-prefixed the URL -> 404 "Story not found".
-  assertEquals(res.status, 200);
+  expect(res.status).toEqual(200);
   const body = await res.json() as { total: number; user_vote?: number };
-  assertEquals(body.total, 1);
-  assertEquals(body.user_vote, 0);
+  expect(body.total).toEqual(1);
+  expect(body.user_vote).toEqual(0);
 });
 
 // ---------------------------------------------------------------------------
 // transformStoryData strips only the leading uploads/ prefix
 // ---------------------------------------------------------------------------
 
-Deno.test("transformStoryData: strips only the leading uploads/ prefix", () => {
+test("transformStoryData: strips only the leading uploads/ prefix", () => {
   const out = transformStoryData(
     JSON.stringify({
       attachment: { r2_key: "uploads/abc.jpg", content_type: "image/jpeg" },
     }),
   );
-  assertEquals(out.attachment.url, "/media/abc.jpg");
+  expect(out.attachment.url).toEqual("/media/abc.jpg");
 });
 
-Deno.test("transformStoryData: leaves a non-prefixed key untouched", () => {
+test("transformStoryData: leaves a non-prefixed key untouched", () => {
   const out = transformStoryData(
     JSON.stringify({
       attachment: {
@@ -370,5 +368,5 @@ Deno.test("transformStoryData: leaves a non-prefixed key untouched", () => {
     }),
   );
   // The old naive replace would have produced "/media/user-/x.jpg".
-  assertEquals(out.attachment.url, "/media/user-uploads/x.jpg");
+  expect(out.attachment.url).toEqual("/media/user-uploads/x.jpg");
 });

@@ -1,4 +1,5 @@
-import { assertEquals } from "jsr:@std/assert";
+import { expect, test } from "bun:test";
+
 import { stub } from "jsr:@std/testing/mock";
 import type { Database } from "../../../../db/index.ts";
 import { planEndpointsFromActorCache } from "../../../lib/delivery/planner.ts";
@@ -49,7 +50,7 @@ function createMockPlannerDb(rows: ActorCacheRow[]) {
   };
 }
 
-Deno.test("delivery/planner - aggregates by sharedInbox and prefers sharedInbox", async () => {
+test("delivery/planner - aggregates by sharedInbox and prefers sharedInbox", async () => {
   const nowMs = Date.now();
   const dateNowStub = stub(Date, "now", () => nowMs);
   try {
@@ -82,21 +83,21 @@ Deno.test("delivery/planner - aggregates by sharedInbox and prefers sharedInbox"
       "https://b.example/ap/users/u3",
     ]);
 
-    assertEquals(res.totalRecipients, 3);
-    assertEquals(res.sharedInboxRecipients, 2);
-    assertEquals(res.unknownRecipients, []);
+    expect(res.totalRecipients).toEqual(3);
+    expect(res.sharedInboxRecipients).toEqual(2);
+    expect(res.unknownRecipients).toEqual([]);
 
     const byEndpoint = new Map(
       res.groups.map((g) => [g.endpoint, g.recipientCount]),
     );
-    assertEquals(byEndpoint.get("https://a.example/shared"), 2);
-    assertEquals(byEndpoint.get("https://b.example/inbox"), 1);
+    expect(byEndpoint.get("https://a.example/shared")).toEqual(2);
+    expect(byEndpoint.get("https://b.example/inbox")).toEqual(1);
   } finally {
     dateNowStub.restore();
   }
 });
 
-Deno.test("delivery/planner - marks stale and missing recipients as unknown", async () => {
+test("delivery/planner - marks stale and missing recipients as unknown", async () => {
   const nowMs = Date.now();
   const dateNowStub = stub(Date, "now", () => nowMs);
   try {
@@ -117,13 +118,10 @@ Deno.test("delivery/planner - marks stale and missing recipients as unknown", as
       "https://missing.example/ap/users/u2",
     ]);
 
-    assertEquals(res.groups, []);
-    assertEquals(res.totalRecipients, 2);
-    assertEquals(
-      res.unknownRecipients.sort(),
-      ["https://a.example/ap/users/u1", "https://missing.example/ap/users/u2"]
-        .sort(),
-    );
+    expect(res.groups).toEqual([]);
+    expect(res.totalRecipients).toEqual(2);
+    expect(res.unknownRecipients.sort()).toEqual(["https://a.example/ap/users/u1", "https://missing.example/ap/users/u2"]
+        .sort());
   } finally {
     dateNowStub.restore();
   }

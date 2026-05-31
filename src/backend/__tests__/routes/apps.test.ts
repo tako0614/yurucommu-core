@@ -1,4 +1,5 @@
-import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert";
+import { expect, test } from "bun:test";
+
 import { stub } from "jsr:@std/testing/mock";
 import { createYurucommuBackendApp } from "../../index.ts";
 
@@ -81,7 +82,7 @@ function createEnv(media: MemoryR2Bucket) {
   } as never;
 }
 
-Deno.test("apps deploy accepts cookie-less bearer requests without Origin", async () => {
+test("apps deploy accepts cookie-less bearer requests without Origin", async () => {
   const app = createYurucommuBackendApp();
   const media = new MemoryR2Bucket();
   const fetchStub = stub(
@@ -122,18 +123,18 @@ Deno.test("apps deploy accepts cookie-less bearer requests without Origin", asyn
       createEnv(media),
     );
 
-    assertEquals(res.status, 200);
-    assertEquals(await res.json(), {
+    expect(res.status).toEqual(200);
+    expect(await res.json()).toEqual({
       url: "https://test.local/hosted/client-1/demo/",
       files: 1,
     });
-    assert(await media.get("hosted/client-1/demo/index.html"));
+    expect(await media.get("hosted/client-1/demo/index.html")).toBeTruthy();
   } finally {
     fetchStub.restore();
   }
 });
 
-Deno.test("hosted HTML responses use sandbox CSP instead of the backend app CSP", async () => {
+test("hosted HTML responses use sandbox CSP instead of the backend app CSP", async () => {
   const app = createYurucommuBackendApp();
   const media = new MemoryR2Bucket();
   await media.put("hosted/client-1/demo/index.html", "<!doctype html>", {
@@ -145,18 +146,18 @@ Deno.test("hosted HTML responses use sandbox CSP instead of the backend app CSP"
     createEnv(media),
   );
 
-  assertEquals(res.status, 200);
-  assertEquals(res.headers.get("Content-Type"), "text/html; charset=utf-8");
-  assertEquals(res.headers.get("Referrer-Policy"), "no-referrer");
+  expect(res.status).toEqual(200);
+  expect(res.headers.get("Content-Type")).toEqual("text/html; charset=utf-8");
+  expect(res.headers.get("Referrer-Policy")).toEqual("no-referrer");
   const csp = res.headers.get("Content-Security-Policy");
-  assert(csp);
-  assertStringIncludes(csp, "sandbox allow-scripts allow-downloads");
-  assertStringIncludes(csp, "form-action 'none'");
-  assert(!csp.includes("allow-same-origin"));
-  assert(!csp.includes("https://unpkg.com"));
+  expect(csp).toBeTruthy();
+  expect(csp).toContain("sandbox allow-scripts allow-downloads");
+  expect(csp).toContain("form-action 'none'");
+  expect(!csp.includes("allow-same-origin")).toBeTruthy();
+  expect(!csp.includes("https://unpkg.com")).toBeTruthy();
 });
 
-Deno.test("hosted SPA fallback inherits the sandbox CSP", async () => {
+test("hosted SPA fallback inherits the sandbox CSP", async () => {
   const app = createYurucommuBackendApp();
   const media = new MemoryR2Bucket();
   await media.put("hosted/client-1/demo/index.html", "<!doctype html>", {
@@ -168,15 +169,15 @@ Deno.test("hosted SPA fallback inherits the sandbox CSP", async () => {
     createEnv(media),
   );
 
-  assertEquals(res.status, 200);
-  assertEquals(res.headers.get("Cache-Control"), "no-cache");
+  expect(res.status).toEqual(200);
+  expect(res.headers.get("Cache-Control")).toEqual("no-cache");
   const csp = res.headers.get("Content-Security-Policy");
-  assert(csp);
-  assertStringIncludes(csp, "sandbox allow-scripts allow-downloads");
-  assert(!csp.includes("allow-same-origin"));
+  expect(csp).toBeTruthy();
+  expect(csp).toContain("sandbox allow-scripts allow-downloads");
+  expect(!csp.includes("allow-same-origin")).toBeTruthy();
 });
 
-Deno.test("hosted static assets preserve content type and cache headers", async () => {
+test("hosted static assets preserve content type and cache headers", async () => {
   const app = createYurucommuBackendApp();
   const media = new MemoryR2Bucket();
   await media.put("hosted/client-1/demo/assets/main.js", "export default 1", {
@@ -188,13 +189,7 @@ Deno.test("hosted static assets preserve content type and cache headers", async 
     createEnv(media),
   );
 
-  assertEquals(res.status, 200);
-  assertEquals(
-    res.headers.get("Content-Type"),
-    "application/javascript; charset=utf-8",
-  );
-  assertEquals(
-    res.headers.get("Cache-Control"),
-    "public, max-age=3600",
-  );
+  expect(res.status).toEqual(200);
+  expect(res.headers.get("Content-Type")).toEqual("application/javascript; charset=utf-8");
+  expect(res.headers.get("Cache-Control")).toEqual("public, max-age=3600");
 });

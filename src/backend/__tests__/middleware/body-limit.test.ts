@@ -1,40 +1,41 @@
-import { assertEquals } from "jsr:@std/assert";
+import { expect, test } from "bun:test";
+
 import {
   bodyLimit,
   DEFAULT_BODY_LIMIT_BYTES,
   evaluateBodyLimit,
 } from "../../middleware/body-limit.ts";
 
-Deno.test("evaluateBodyLimit allows GET / HEAD without Content-Length", () => {
+test("evaluateBodyLimit allows GET / HEAD without Content-Length", () => {
   for (const method of ["GET", "HEAD", "OPTIONS", "DELETE"]) {
     const decision = evaluateBodyLimit(
       new Request("https://t.local/x", { method }),
       { maxBytes: 1024 },
     );
-    assertEquals(decision.ok, true);
+    expect(decision.ok).toEqual(true);
   }
 });
 
-Deno.test("evaluateBodyLimit allows POST without Content-Length by default", () => {
+test("evaluateBodyLimit allows POST without Content-Length by default", () => {
   const decision = evaluateBodyLimit(
     new Request("https://t.local/x", { method: "POST" }),
     { maxBytes: 1024 },
   );
-  assertEquals(decision.ok, true);
+  expect(decision.ok).toEqual(true);
 });
 
-Deno.test("evaluateBodyLimit rejects missing Content-Length in strict mode", () => {
+test("evaluateBodyLimit rejects missing Content-Length in strict mode", () => {
   const decision = evaluateBodyLimit(
     new Request("https://t.local/x", { method: "POST" }),
     { maxBytes: 1024, requireContentLength: true },
   );
-  assertEquals(decision.ok, false);
+  expect(decision.ok).toEqual(false);
   if (!decision.ok) {
-    assertEquals(decision.reason, "body_length_required");
+    expect(decision.reason).toEqual("body_length_required");
   }
 });
 
-Deno.test("evaluateBodyLimit rejects oversize body", () => {
+test("evaluateBodyLimit rejects oversize body", () => {
   const decision = evaluateBodyLimit(
     new Request("https://t.local/x", {
       method: "POST",
@@ -43,15 +44,15 @@ Deno.test("evaluateBodyLimit rejects oversize body", () => {
     }),
     { maxBytes: 1024 },
   );
-  assertEquals(decision.ok, false);
+  expect(decision.ok).toEqual(false);
   if (!decision.ok) {
-    assertEquals(decision.reason, "body_too_large");
-    assertEquals(decision.limit, 1024);
-    assertEquals(decision.declared, 2048);
+    expect(decision.reason).toEqual("body_too_large");
+    expect(decision.limit).toEqual(1024);
+    expect(decision.declared).toEqual(2048);
   }
 });
 
-Deno.test("evaluateBodyLimit accepts body at the cap", () => {
+test("evaluateBodyLimit accepts body at the cap", () => {
   const decision = evaluateBodyLimit(
     new Request("https://t.local/x", {
       method: "POST",
@@ -60,10 +61,10 @@ Deno.test("evaluateBodyLimit accepts body at the cap", () => {
     }),
     { maxBytes: 1024 },
   );
-  assertEquals(decision.ok, true);
+  expect(decision.ok).toEqual(true);
 });
 
-Deno.test("evaluateBodyLimit treats malformed Content-Length as missing in strict mode", () => {
+test("evaluateBodyLimit treats malformed Content-Length as missing in strict mode", () => {
   const decision = evaluateBodyLimit(
     new Request("https://t.local/x", {
       method: "POST",
@@ -71,17 +72,17 @@ Deno.test("evaluateBodyLimit treats malformed Content-Length as missing in stric
     }),
     { maxBytes: 1024, requireContentLength: true },
   );
-  assertEquals(decision.ok, false);
+  expect(decision.ok).toEqual(false);
   if (!decision.ok) {
-    assertEquals(decision.reason, "body_length_required");
+    expect(decision.reason).toEqual("body_length_required");
   }
 });
 
-Deno.test("DEFAULT_BODY_LIMIT_BYTES is 1 MiB", () => {
-  assertEquals(DEFAULT_BODY_LIMIT_BYTES, 1 * 1024 * 1024);
+test("DEFAULT_BODY_LIMIT_BYTES is 1 MiB", () => {
+  expect(DEFAULT_BODY_LIMIT_BYTES).toEqual(1 * 1024 * 1024);
 });
 
-Deno.test("bodyLimit middleware returns the 413 envelope shape", async () => {
+test("bodyLimit middleware returns the 413 envelope shape", async () => {
   const { Hono } = await import("hono");
   const app = new Hono();
   app.use("*", bodyLimit({ maxBytes: 16 }));
@@ -94,8 +95,8 @@ Deno.test("bodyLimit middleware returns the 413 envelope shape", async () => {
     }),
     {} as never,
   );
-  assertEquals(res.status, 413);
+  expect(res.status).toEqual(413);
   const json = await res.json() as { error: string; limit: number };
-  assertEquals(json.error, "body_too_large");
-  assertEquals(json.limit, 16);
+  expect(json.error).toEqual("body_too_large");
+  expect(json.limit).toEqual(16);
 });

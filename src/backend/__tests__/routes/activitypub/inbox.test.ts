@@ -1,5 +1,6 @@
+import { expect, test } from "bun:test";
 import { Hono } from "hono";
-import { assertEquals } from "jsr:@std/assert";
+
 import { assertSpyCalls, spy } from "jsr:@std/testing/mock";
 import inboxRoutes from "../../../routes/activitypub/inbox.ts";
 import { generateKeyPair, signRequest } from "../../../federation-helpers.ts";
@@ -53,7 +54,7 @@ async function signedInboxRequest(
   });
 }
 
-Deno.test("activitypub inbox - accepts signed object activities and stores them once", async () => {
+test("activitypub inbox - accepts signed object activities and stores them once", async () => {
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
   const actorApId = "https://remote.example/users/alice";
   const { db, insertValues } = createDbMock(publicKeyPem);
@@ -80,7 +81,7 @@ Deno.test("activitypub inbox - accepts signed object activities and stores them 
     { APP_URL: "https://test.local" },
   );
 
-  assertEquals(res.status, 202);
+  expect(res.status).toEqual(202);
   assertSpyCalls(db.query.activities.findFirst, 1);
   assertSpyCalls(insertValues, 1);
 });
@@ -129,7 +130,7 @@ function createBlocklistDbMock(
   return { db, insertValues };
 }
 
-Deno.test("activitypub inbox - silently discards a blocked actor's Follow", async () => {
+test("activitypub inbox - silently discards a blocked actor's Follow", async () => {
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
   const actorApId = "https://remote.example/users/alice";
   const { db, insertValues } = createBlocklistDbMock(publicKeyPem, actorApId);
@@ -158,12 +159,12 @@ Deno.test("activitypub inbox - silently discards a blocked actor's Follow", asyn
 
   // 202 discard (never 4xx) so the peer does not retry, and the activity is
   // never stored or dispatched to the Follow handler.
-  assertEquals(res.status, 202);
+  expect(res.status).toEqual(202);
   assertSpyCalls(insertValues, 0);
   assertSpyCalls(db.query.activities.findFirst, 0);
 });
 
-Deno.test("activitypub inbox - silently discards a blocked actor's Like", async () => {
+test("activitypub inbox - silently discards a blocked actor's Like", async () => {
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
   const actorApId = "https://remote.example/users/alice";
   const { db, insertValues } = createBlocklistDbMock(publicKeyPem, actorApId);
@@ -190,7 +191,7 @@ Deno.test("activitypub inbox - silently discards a blocked actor's Like", async 
     { APP_URL: "https://test.local" },
   );
 
-  assertEquals(res.status, 202);
+  expect(res.status).toEqual(202);
   assertSpyCalls(insertValues, 0);
   assertSpyCalls(db.query.activities.findFirst, 0);
 });
@@ -254,7 +255,7 @@ function createSharedInboxDbMock(
   return { db, insertValues, limit, findMany };
 }
 
-Deno.test("activitypub shared inbox - verifies, stores, and fans out to local followers (not black-holed)", async () => {
+test("activitypub shared inbox - verifies, stores, and fans out to local followers (not black-holed)", async () => {
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
   const actorApId = "https://remote.example/users/alice";
   const { db, insertValues, limit, findMany } = createSharedInboxDbMock(
@@ -296,7 +297,7 @@ Deno.test("activitypub shared inbox - verifies, stores, and fans out to local fo
     { APP_URL: "https://test.local" },
   );
 
-  assertEquals(res.status, 202);
+  expect(res.status).toEqual(202);
   // The activity was deduped/stored (proves it ran the real pipeline, not the
   // old bare-202 black hole).
   assertSpyCalls(db.query.activities.findFirst, 1);
@@ -304,10 +305,10 @@ Deno.test("activitypub shared inbox - verifies, stores, and fans out to local fo
   assertSpyCalls(limit, 1);
   assertSpyCalls(findMany, 1);
   // At least the inbound activity insert ran.
-  assertEquals(insertValues.calls.length >= 1, true);
+  expect(insertValues.calls.length >= 1).toEqual(true);
 });
 
-Deno.test("activitypub inbox - rejects signed JSON that is not an activity object", async () => {
+test("activitypub inbox - rejects signed JSON that is not an activity object", async () => {
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
   const actorApId = "https://remote.example/users/alice";
   const { db, insertValues } = createDbMock(publicKeyPem);
@@ -327,6 +328,6 @@ Deno.test("activitypub inbox - rejects signed JSON that is not an activity objec
     { APP_URL: "https://test.local" },
   );
 
-  assertEquals(res.status, 400);
+  expect(res.status).toEqual(400);
   assertSpyCalls(insertValues, 0);
 });

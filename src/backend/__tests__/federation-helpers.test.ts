@@ -1,3 +1,4 @@
+import { expect, test } from "bun:test";
 import { assertEquals, assertRejects } from "jsr:@std/assert";
 import {
   assertSafeRemoteUrlResolved,
@@ -20,7 +21,7 @@ function remoteResolver(
   return async () => ips;
 }
 
-Deno.test("federation helpers - isSafeRemoteUrl rejects obvious local and malformed URLs", () => {
+test("federation helpers - isSafeRemoteUrl rejects obvious local and malformed URLs", () => {
   const unsafe = [
     "http://localhost/inbox",
     "https://127.0.0.1/inbox",
@@ -33,12 +34,12 @@ Deno.test("federation helpers - isSafeRemoteUrl rejects obvious local and malfor
   ];
 
   for (const url of unsafe) {
-    assertEquals(isSafeRemoteUrl(url), false, url);
+    expect(isSafeRemoteUrl(url)).toEqual(false);
   }
-  assertEquals(isSafeRemoteUrl("https://example.com/inbox"), true);
+  expect(isSafeRemoteUrl("https://example.com/inbox")).toEqual(true);
 });
 
-Deno.test("federation helpers - private resolved IPs stay blocked without the local-substrate flag", async () => {
+test("federation helpers - private resolved IPs stay blocked without the local-substrate flag", async () => {
   await assertRejects(
     () =>
       assertSafeRemoteUrlResolved("https://inst-b.takos.test/ap/users/tako", {
@@ -49,7 +50,7 @@ Deno.test("federation helpers - private resolved IPs stay blocked without the lo
   );
 });
 
-Deno.test("federation helpers - local-substrate flag allows only takos.test HTTPS actors on loopback or Docker bridge", async () => {
+test("federation helpers - local-substrate flag allows only takos.test HTTPS actors on loopback or Docker bridge", async () => {
   for (
     const ip of ["127.0.0.1", "172.16.0.2", "172.17.0.2", "172.31.255.254"]
   ) {
@@ -63,7 +64,7 @@ Deno.test("federation helpers - local-substrate flag allows only takos.test HTTP
   }
 });
 
-Deno.test("federation helpers - local-substrate flag rejects private ranges outside the allowlist", async () => {
+test("federation helpers - local-substrate flag rejects private ranges outside the allowlist", async () => {
   for (
     const ip of [
       "10.0.0.2",
@@ -89,7 +90,7 @@ Deno.test("federation helpers - local-substrate flag rejects private ranges outs
   }
 });
 
-Deno.test("federation helpers - local-substrate flag rejects non-local-substrate URL shapes", async () => {
+test("federation helpers - local-substrate flag rejects non-local-substrate URL shapes", async () => {
   const localOptions: RemoteUrlSafetyOptions = {
     allowLocalSubstrateRemoteFetches: true,
     localResolver: localResolver(["127.0.0.1"]),

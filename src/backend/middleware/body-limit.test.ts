@@ -1,4 +1,5 @@
-import { assertEquals } from "jsr:@std/assert";
+import { expect, test } from "bun:test";
+
 import { Hono } from "hono";
 
 import type { Env, Variables } from "../types.ts";
@@ -25,7 +26,7 @@ function chunkedRequest(url: string, chunks: Uint8Array[]): Request {
   });
 }
 
-Deno.test("inbox-style strict mode rejects a chunked body with no Content-Length (411)", async () => {
+test("inbox-style strict mode rejects a chunked body with no Content-Length (411)", async () => {
   const app: App = new Hono();
   // Mirrors the unauthenticated /ap/*/inbox registration.
   app.use(
@@ -37,12 +38,12 @@ Deno.test("inbox-style strict mode rejects a chunked body with no Content-Length
   const res = await app.fetch(
     chunkedRequest("https://t.local/ap/u/inbox", [new Uint8Array(1024 * 1024)]),
   );
-  assertEquals(res.status, 411);
+  expect(res.status).toEqual(411);
   const json = await res.json() as { error: string };
-  assertEquals(json.error, "body_length_required");
+  expect(json.error).toEqual("body_length_required");
 });
 
-Deno.test("strict mode accepts a request that declares Content-Length", () => {
+test("strict mode accepts a request that declares Content-Length", () => {
   const decision = evaluateBodyLimit(
     new Request("https://t.local/ap/u/inbox", {
       method: "POST",
@@ -51,10 +52,10 @@ Deno.test("strict mode accepts a request that declares Content-Length", () => {
     }),
     { maxBytes: 512 * 1024, requireContentLength: true },
   );
-  assertEquals(decision.ok, true);
+  expect(decision.ok).toEqual(true);
 });
 
-Deno.test("default (non-strict) middleware caps a chunked oversize body via stream counter", async () => {
+test("default (non-strict) middleware caps a chunked oversize body via stream counter", async () => {
   const app: App = new Hono();
   app.use("*", bodyLimit({ maxBytes: 8 }));
   app.post("/api/x", async (c) => {
@@ -68,10 +69,10 @@ Deno.test("default (non-strict) middleware caps a chunked oversize body via stre
   // The capped stream errors while being consumed; the handler's success body
   // must NOT be returned.
   const text = await res.text();
-  assertEquals(text.includes('"ok":true'), false);
+  expect(text.includes('"ok":true')).toEqual(false);
 });
 
-Deno.test("default middleware lets a chunked under-cap body through", async () => {
+test("default middleware lets a chunked under-cap body through", async () => {
   const app: App = new Hono();
   app.use("*", bodyLimit({ maxBytes: 64 }));
   app.post("/api/x", async (c) => {
@@ -82,11 +83,11 @@ Deno.test("default middleware lets a chunked under-cap body through", async () =
   const res = await app.fetch(
     chunkedRequest("https://t.local/api/x", [new Uint8Array(8)]),
   );
-  assertEquals(res.status, 200);
+  expect(res.status).toEqual(200);
   const json = await res.json() as { size: number };
-  assertEquals(json.size, 8);
+  expect(json.size).toEqual(8);
 });
 
-Deno.test("default cap stays at 1 MiB", () => {
-  assertEquals(DEFAULT_BODY_LIMIT_BYTES, 1 * 1024 * 1024);
+test("default cap stays at 1 MiB", () => {
+  expect(DEFAULT_BODY_LIMIT_BYTES).toEqual(1 * 1024 * 1024);
 });

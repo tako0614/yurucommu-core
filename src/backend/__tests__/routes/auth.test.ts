@@ -1,5 +1,6 @@
+import { expect, test } from "bun:test";
 import { Hono } from "hono";
-import { assertEquals } from "jsr:@std/assert";
+
 import { assertSpyCalls, spy, stub } from "jsr:@std/testing/mock";
 import { FakeTime } from "jsr:@std/testing/time";
 import authRoutes from "../../routes/auth.ts";
@@ -138,7 +139,7 @@ function createAuthTestApp(
   return { app, env };
 }
 
-Deno.test("auth login lockout - locks out after 5 failed login attempts", async () => {
+test("auth login lockout - locks out after 5 failed login attempts", async () => {
   const hashedPassword = await hashPassword("correct-password");
   const time = new FakeTime(new Date("2026-02-18T00:00:00.000Z"));
   try {
@@ -149,25 +150,25 @@ Deno.test("auth login lockout - locks out after 5 failed login attempts", async 
       const { res } = await request(app, env, "/api/auth/login", {
         password: "wrong-password",
       }, headers);
-      assertEquals(res.status, 401);
+      expect(res.status).toEqual(401);
     }
 
     const { res: lockoutRes } = await request(app, env, "/api/auth/login", {
       password: "wrong-password",
     }, headers);
-    assertEquals(lockoutRes.status, 429);
+    expect(lockoutRes.status).toEqual(429);
     assert_not_null(lockoutRes.headers.get("Retry-After"));
 
     const { res: blockedRes } = await request(app, env, "/api/auth/login", {
       password: "correct-password",
     }, headers);
-    assertEquals(blockedRes.status, 429);
+    expect(blockedRes.status).toEqual(429);
   } finally {
     time.restore();
   }
 });
 
-Deno.test("auth login lockout - clears lockout state after successful login", async () => {
+test("auth login lockout - clears lockout state after successful login", async () => {
   const hashedPassword = await hashPassword("correct-password");
   const time = new FakeTime(new Date("2026-02-18T00:00:00.000Z"));
   try {
@@ -178,24 +179,24 @@ Deno.test("auth login lockout - clears lockout state after successful login", as
       const { res } = await request(app, env, "/api/auth/login", {
         password: "wrong-password",
       }, headers);
-      assertEquals(res.status, 401);
+      expect(res.status).toEqual(401);
     }
 
     const { res: successRes } = await request(app, env, "/api/auth/login", {
       password: "correct-password",
     }, headers);
-    assertEquals(successRes.status, 200);
+    expect(successRes.status).toEqual(200);
 
     const { res: retryRes } = await request(app, env, "/api/auth/login", {
       password: "wrong-password",
     }, headers);
-    assertEquals(retryRes.status, 401);
+    expect(retryRes.status).toEqual(401);
   } finally {
     time.restore();
   }
 });
 
-Deno.test("auth login lockout - allows retries again after lockout window passes", async () => {
+test("auth login lockout - allows retries again after lockout window passes", async () => {
   const hashedPassword = await hashPassword("correct-password");
   const time = new FakeTime(new Date("2026-02-18T00:00:00.000Z"));
   try {
@@ -215,20 +216,20 @@ Deno.test("auth login lockout - allows retries again after lockout window passes
     const { res: lockedRes } = await request(app, env, "/api/auth/login", {
       password: "wrong-password",
     }, headers);
-    assertEquals(lockedRes.status, 429);
+    expect(lockedRes.status).toEqual(429);
 
     time.tick(LOGIN_LOCKOUT_CONFIG.lockoutMs + 1_000);
 
     const { res: postWindowRes } = await request(app, env, "/api/auth/login", {
       password: "wrong-password",
     }, headers);
-    assertEquals(postWindowRes.status, 401);
+    expect(postWindowRes.status).toEqual(401);
   } finally {
     time.restore();
   }
 });
 
-Deno.test("password login first run creates the fixed owner actor", async () => {
+test("password login first run creates the fixed owner actor", async () => {
   const hashedPassword = await hashPassword("correct-password");
   const { app, env } = createAuthTestApp(hashedPassword, {}, {
     existingOwner: false,
@@ -238,11 +239,11 @@ Deno.test("password login first run creates the fixed owner actor", async () => 
     password: "correct-password",
   }, { "CF-Connecting-IP": "198.51.100.27" });
 
-  assertEquals(res.status, 200);
-  assertEquals(body, { success: true });
+  expect(res.status).toEqual(200);
+  expect(body).toEqual({ success: true });
 });
 
-Deno.test("password login - stores a hashed session id and sets SameSite=Strict cookie", async () => {
+test("password login - stores a hashed session id and sets SameSite=Strict cookie", async () => {
   const hashedPassword = await hashPassword("correct-password");
   const inserted: Array<Record<string, unknown>> = [];
   const { app, env } = createAuthTestApp(
@@ -254,25 +255,25 @@ Deno.test("password login - stores a hashed session id and sets SameSite=Strict 
     password: "correct-password",
   }, { "CF-Connecting-IP": "198.51.100.40" });
 
-  assertEquals(res.status, 200);
+  expect(res.status).toEqual(200);
 
   // The persisted session-row key must be the salted SHA-256, never the raw id.
-  assertEquals(inserted.length, 1);
+  expect(inserted.length).toEqual(1);
   const storedId = inserted[0].id;
   if (typeof storedId !== "string") {
     throw new Error("expected stored session id to be a string");
   }
-  assertEquals(storedId.startsWith("sha256:"), true);
+  expect(storedId.startsWith("sha256:")).toEqual(true);
   // accessToken mirrors the same hashed key.
-  assertEquals(inserted[0].accessToken, storedId);
+  expect(inserted[0].accessToken).toEqual(storedId);
 
   const setCookie = res.headers.get("set-cookie") ?? "";
   // The cookie carries the raw id (not the hashed key) with Strict flags.
-  assertEquals(/(^|[^a-z])session=/i.test(setCookie), true);
-  assertEquals(setCookie.includes(storedId), false);
-  assertEquals(/SameSite=Strict/i.test(setCookie), true);
-  assertEquals(/HttpOnly/i.test(setCookie), true);
-  assertEquals(/Secure/i.test(setCookie), true);
+  expect(/(^|[^a-z])session=/i.test(setCookie)).toEqual(true);
+  expect(setCookie.includes(storedId)).toEqual(false);
+  expect(/SameSite=Strict/i.test(setCookie)).toEqual(true);
+  expect(/HttpOnly/i.test(setCookie)).toEqual(true);
+  expect(/Secure/i.test(setCookie)).toEqual(true);
 });
 
 /** Helper: assert value is not null */

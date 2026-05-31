@@ -1,4 +1,5 @@
-import { assertEquals } from "jsr:@std/assert";
+import { expect, test } from "bun:test";
+
 import { runMigrations } from "../server.ts";
 
 function createMigrationDb(applied: string[] = []) {
@@ -32,7 +33,7 @@ function createMigrationDb(applied: string[] = []) {
   return { db, execCalls, markedApplied, finalizedStatements };
 }
 
-Deno.test("server migrations - executes each SQL migration as one script", async () => {
+test("server migrations - executes each SQL migration as one script", async () => {
   const dir = await Deno.makeTempDir();
   const sql = `
     CREATE TABLE demo (value TEXT);
@@ -51,16 +52,16 @@ Deno.test("server migrations - executes each SQL migration as one script", async
 
     await runMigrations(db as never, dir);
 
-    assertEquals(execCalls.length, 2);
-    assertEquals(execCalls[1], sql);
-    assertEquals(markedApplied, ["001_semicolons.sql"]);
-    assertEquals(finalizedStatements.length, 2);
+    expect(execCalls.length).toEqual(2);
+    expect(execCalls[1]).toEqual(sql);
+    expect(markedApplied).toEqual(["001_semicolons.sql"]);
+    expect(finalizedStatements.length).toEqual(2);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
 });
 
-Deno.test("server migrations - skips files already recorded as applied", async () => {
+test("server migrations - skips files already recorded as applied", async () => {
   const dir = await Deno.makeTempDir();
 
   try {
@@ -74,8 +75,8 @@ Deno.test("server migrations - skips files already recorded as applied", async (
 
     await runMigrations(db as never, dir);
 
-    assertEquals(execCalls.length, 1);
-    assertEquals(markedApplied, []);
+    expect(execCalls.length).toEqual(1);
+    expect(markedApplied).toEqual([]);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }

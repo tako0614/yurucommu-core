@@ -1,5 +1,6 @@
+import { expect, test } from "bun:test";
 import { Hono } from "hono";
-import { assertEquals } from "jsr:@std/assert";
+
 import activitypubRoutes from "../../../routes/activitypub.ts";
 
 function createCommunityDb() {
@@ -40,7 +41,7 @@ function createApp() {
   return app;
 }
 
-Deno.test("APC room collection uses Group and apc:postPolicy", async () => {
+test("APC room collection uses Group and apc:postPolicy", async () => {
   const res = await createApp().fetch(
     new Request("https://example.test/ap/rooms"),
     { APP_URL: "https://example.test" },
@@ -49,12 +50,12 @@ Deno.test("APC room collection uses Group and apc:postPolicy", async () => {
     orderedItems: Array<{ type: string; postPolicy: string }>;
   };
 
-  assertEquals(res.status, 200);
-  assertEquals(body.orderedItems[0].type, "Group");
-  assertEquals(body.orderedItems[0].postPolicy, "members");
+  expect(res.status).toEqual(200);
+  expect(body.orderedItems[0].type).toEqual("Group");
+  expect(body.orderedItems[0].postPolicy).toEqual("members");
 });
 
-Deno.test("APC room object uses Group and apc:postPolicy", async () => {
+test("APC room object uses Group and apc:postPolicy", async () => {
   const res = await createApp().fetch(
     new Request("https://example.test/ap/rooms/books"),
     { APP_URL: "https://example.test" },
@@ -65,8 +66,8 @@ Deno.test("APC room object uses Group and apc:postPolicy", async () => {
     "@context": Array<Record<string, unknown>>;
   };
 
-  assertEquals(res.status, 200);
-  assertEquals(body.type, "Group");
-  assertEquals(body.postPolicy, "members");
-  assertEquals(body["@context"][1].postPolicy, "apc:postPolicy");
+  expect(res.status).toEqual(200);
+  expect(body.type).toEqual("Group");
+  expect(body.postPolicy).toEqual("members");
+  expect(body["@context"][1].postPolicy).toEqual("apc:postPolicy");
 });

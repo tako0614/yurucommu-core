@@ -1,4 +1,5 @@
-import { assertEquals } from "jsr:@std/assert";
+import { expect, test } from "bun:test";
+
 import { Hono } from "hono";
 
 import { getClientIP } from "../../lib/client-ip.ts";
@@ -22,86 +23,55 @@ async function whoami(
   return await res.text();
 }
 
-Deno.test("CF-Connecting-IP is always honoured (set by the edge)", async () => {
-  assertEquals(
-    await whoami({}, { "CF-Connecting-IP": "203.0.113.10" }),
-    "203.0.113.10",
-  );
+test("CF-Connecting-IP is always honoured (set by the edge)", async () => {
+  expect(await whoami({}, { "CF-Connecting-IP": "203.0.113.10" })).toEqual("203.0.113.10");
 });
 
-Deno.test(
-  "X-Forwarded-For is ignored when TAKOS_TRUST_PROXY is unset",
+test("X-Forwarded-For is ignored when TAKOS_TRUST_PROXY is unset",
   async () => {
-    assertEquals(
-      await whoami({}, { "X-Forwarded-For": "203.0.113.20" }),
-      "unknown",
-    );
-    assertEquals(
-      await whoami({}, { "X-Real-IP": "203.0.113.21" }),
-      "unknown",
-    );
+    expect(await whoami({}, { "X-Forwarded-For": "203.0.113.20" })).toEqual("unknown");
+    expect(await whoami({}, { "X-Real-IP": "203.0.113.21" })).toEqual("unknown");
   },
 );
 
-Deno.test(
-  "X-Forwarded-For / X-Real-IP are honoured when TAKOS_TRUST_PROXY=true",
+test("X-Forwarded-For / X-Real-IP are honoured when TAKOS_TRUST_PROXY=true",
   async () => {
-    assertEquals(
-      await whoami(
+    expect(await whoami(
         { TAKOS_TRUST_PROXY: "true" },
         { "X-Forwarded-For": "203.0.113.30, 10.0.0.1" },
-      ),
-      "203.0.113.30",
-    );
-    assertEquals(
-      await whoami(
+      )).toEqual("203.0.113.30");
+    expect(await whoami(
         { TAKOS_TRUST_PROXY: "true" },
         { "X-Real-IP": "203.0.113.31" },
-      ),
-      "203.0.113.31",
-    );
+      )).toEqual("203.0.113.31");
   },
 );
 
-Deno.test(
-  "CF-Connecting-IP wins even when proxy headers are trusted",
+test("CF-Connecting-IP wins even when proxy headers are trusted",
   async () => {
-    assertEquals(
-      await whoami(
+    expect(await whoami(
         { TAKOS_TRUST_PROXY: "true" },
         {
           "CF-Connecting-IP": "203.0.113.40",
           "X-Forwarded-For": "203.0.113.41",
         },
-      ),
-      "203.0.113.40",
-    );
+      )).toEqual("203.0.113.40");
   },
 );
 
-Deno.test("Invalid IPs fall back to unknown", async () => {
-  assertEquals(
-    await whoami({}, { "CF-Connecting-IP": "not-an-ip" }),
-    "unknown",
-  );
+test("Invalid IPs fall back to unknown", async () => {
+  expect(await whoami({}, { "CF-Connecting-IP": "not-an-ip" })).toEqual("unknown");
 });
 
-Deno.test(
-  "TAKOS_TRUST_PROXY=false / 0 / unset all reject proxy headers",
+test("TAKOS_TRUST_PROXY=false / 0 / unset all reject proxy headers",
   async () => {
-    assertEquals(
-      await whoami(
+    expect(await whoami(
         { TAKOS_TRUST_PROXY: "false" },
         { "X-Forwarded-For": "203.0.113.50" },
-      ),
-      "unknown",
-    );
-    assertEquals(
-      await whoami(
+      )).toEqual("unknown");
+    expect(await whoami(
         { TAKOS_TRUST_PROXY: "0" },
         { "X-Forwarded-For": "203.0.113.51" },
-      ),
-      "unknown",
-    );
+      )).toEqual("unknown");
   },
 );

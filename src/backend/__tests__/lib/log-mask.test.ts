@@ -1,77 +1,78 @@
-import { assert, assertEquals } from "jsr:@std/assert";
+import { expect, test } from "bun:test";
+
 import { maskSensitiveData, maskSensitiveString } from "../../lib/log-mask.ts";
 
-Deno.test("maskSensitiveString redacts JWTs", () => {
+test("maskSensitiveString redacts JWTs", () => {
   const input =
     "received eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyMSJ9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c ok";
   const out = maskSensitiveString(input);
-  assert(out.includes("[REDACTED_JWT]"));
-  assert(!out.includes("eyJzdWIiOiJ1c2VyMSJ9"));
+  expect(out.includes("[REDACTED_JWT]")).toBeTruthy();
+  expect(!out.includes("eyJzdWIiOiJ1c2VyMSJ9")).toBeTruthy();
 });
 
-Deno.test("maskSensitiveString redacts Bearer tokens", () => {
+test("maskSensitiveString redacts Bearer tokens", () => {
   const out = maskSensitiveString(
     "authorization: Bearer abc123def456ghi789jklmnop",
   );
-  assert(out.includes("Bearer [redacted]"));
-  assert(!out.includes("abc123def456ghi789jklmnop"));
+  expect(out.includes("Bearer [redacted]")).toBeTruthy();
+  expect(!out.includes("abc123def456ghi789jklmnop")).toBeTruthy();
 });
 
-Deno.test("maskSensitiveString redacts Stripe sk_live / sk_test keys", () => {
+test("maskSensitiveString redacts Stripe sk_live / sk_test keys", () => {
   const live = maskSensitiveString(
     "key=sk_" + "live_abcdefghijklmnop12345678",
   );
   const test = maskSensitiveString(
     "key=sk_" + "test_abcdefghijklmnop12345678",
   );
-  assert(live.includes("[REDACTED_STRIPE_LIVE]"));
-  assert(test.includes("[REDACTED_STRIPE_TEST]"));
-  assert(!live.includes("abcdefghijklmnop12345678"));
+  expect(live.includes("[REDACTED_STRIPE_LIVE]")).toBeTruthy();
+  expect(test.includes("[REDACTED_STRIPE_TEST]")).toBeTruthy();
+  expect(!live.includes("abcdefghijklmnop12345678")).toBeTruthy();
 });
 
-Deno.test("maskSensitiveString redacts GitHub ghp_ tokens", () => {
+test("maskSensitiveString redacts GitHub ghp_ tokens", () => {
   const out = maskSensitiveString(
     "token=ghp_abcdefghijklmnopqrstuvwxyz01234567",
   );
-  assert(out.includes("[REDACTED_GHP]"));
-  assert(!out.includes("ghp_abcdefghijklmnopqrstuvwxyz01234567"));
+  expect(out.includes("[REDACTED_GHP]")).toBeTruthy();
+  expect(!out.includes("ghp_abcdefghijklmnopqrstuvwxyz01234567")).toBeTruthy();
 });
 
-Deno.test("maskSensitiveString redacts AWS AKIA access keys", () => {
+test("maskSensitiveString redacts AWS AKIA access keys", () => {
   // Build the AKIA-shape token at runtime so the literal does not appear
   // in source (avoids tripping repo-level secret-leakage scanners).
   const fakeKey = `${"AK" + "IA"}${"F".repeat(16)}`;
   const out = maskSensitiveString(`aws=${fakeKey}`);
-  assert(out.includes("[REDACTED_AWS_ACCESS_KEY]"));
-  assert(!out.includes(fakeKey));
+  expect(out.includes("[REDACTED_AWS_ACCESS_KEY]")).toBeTruthy();
+  expect(!out.includes(fakeKey)).toBeTruthy();
 });
 
-Deno.test("maskSensitiveString redacts PEM private key blocks", () => {
+test("maskSensitiveString redacts PEM private key blocks", () => {
   const pem =
     "-----BEGIN RSA PRIVATE KEY-----\nMIIBIwIBAAKBgQC...\n-----END RSA PRIVATE KEY-----";
   const out = maskSensitiveString(pem);
-  assertEquals(out, "[REDACTED_PRIVATE_KEY]");
+  expect(out).toEqual("[REDACTED_PRIVATE_KEY]");
 });
 
-Deno.test("maskSensitiveString redacts email addresses", () => {
+test("maskSensitiveString redacts email addresses", () => {
   const out = maskSensitiveString("contact alice@example.com today");
-  assert(out.includes("***@example.com"));
-  assert(!out.includes("alice@example.com"));
+  expect(out.includes("***@example.com")).toBeTruthy();
+  expect(!out.includes("alice@example.com")).toBeTruthy();
 });
 
-Deno.test("maskSensitiveString redacts Luhn-valid credit cards", () => {
+test("maskSensitiveString redacts Luhn-valid credit cards", () => {
   // 4111 1111 1111 1111 is the canonical Visa test card (Luhn-valid).
   const out = maskSensitiveString("card=4111 1111 1111 1111 end");
-  assert(out.includes("[REDACTED_CC]"));
-  assert(!out.includes("4111 1111 1111 1111"));
+  expect(out.includes("[REDACTED_CC]")).toBeTruthy();
+  expect(!out.includes("4111 1111 1111 1111")).toBeTruthy();
 });
 
-Deno.test("maskSensitiveString leaves non-Luhn 16-digit runs alone", () => {
+test("maskSensitiveString leaves non-Luhn 16-digit runs alone", () => {
   const out = maskSensitiveString("order=1234567890123456");
-  assert(out.includes("1234567890123456"));
+  expect(out.includes("1234567890123456")).toBeTruthy();
 });
 
-Deno.test("maskSensitiveData redacts sensitive object keys", () => {
+test("maskSensitiveData redacts sensitive object keys", () => {
   const out = maskSensitiveData({
     user: "alice",
     password: "hunter2",
@@ -83,62 +84,62 @@ Deno.test("maskSensitiveData redacts sensitive object keys", () => {
     authorization: "Bearer ...",
     nested: { secret: "s", credential: "c", normal: "ok" },
   }) as Record<string, unknown>;
-  assertEquals(out.password, "[redacted]");
-  assertEquals(out.api_key, "[redacted]");
-  assertEquals(out.apiKey, "[redacted]");
-  assertEquals(out.accessToken, "[redacted]");
-  assertEquals(out.private_key, "[redacted]");
-  assertEquals(out.cookie, "[redacted]");
-  assertEquals(out.authorization, "[redacted]");
+  expect(out.password).toEqual("[redacted]");
+  expect(out.api_key).toEqual("[redacted]");
+  expect(out.apiKey).toEqual("[redacted]");
+  expect(out.accessToken).toEqual("[redacted]");
+  expect(out.private_key).toEqual("[redacted]");
+  expect(out.cookie).toEqual("[redacted]");
+  expect(out.authorization).toEqual("[redacted]");
   const nested = out.nested as Record<string, unknown>;
-  assertEquals(nested.secret, "[redacted]");
-  assertEquals(nested.credential, "[redacted]");
-  assertEquals(nested.normal, "ok");
+  expect(nested.secret).toEqual("[redacted]");
+  expect(nested.credential).toEqual("[redacted]");
+  expect(nested.normal).toEqual("ok");
 });
 
-Deno.test("maskSensitiveData masks strings within nested arrays", () => {
+test("maskSensitiveData masks strings within nested arrays", () => {
   const out = maskSensitiveData({
     items: [
       { note: "alice@example.com" },
       { note: "Bearer abc123def456ghi789jklmnop" },
     ],
   }) as { items: Array<{ note: string }> };
-  assert(out.items[0].note.includes("***@example.com"));
-  assert(out.items[1].note.includes("Bearer [redacted]"));
+  expect(out.items[0].note.includes("***@example.com")).toBeTruthy();
+  expect(out.items[1].note.includes("Bearer [redacted]")).toBeTruthy();
 });
 
-Deno.test("maskSensitiveData handles circular references safely", () => {
+test("maskSensitiveData handles circular references safely", () => {
   const obj: Record<string, unknown> = { name: "x" };
   obj.self = obj;
   const out = maskSensitiveData(obj) as Record<string, unknown>;
-  assertEquals(out.name, "x");
-  assertEquals(out.self, "[circular]");
+  expect(out.name).toEqual("x");
+  expect(out.self).toEqual("[circular]");
 });
 
-Deno.test("maskSensitiveData preserves Error name + message + stack", () => {
+test("maskSensitiveData preserves Error name + message + stack", () => {
   const err = new Error("got Bearer abc123def456ghi789jklmnop here");
   const out = maskSensitiveData(err) as {
     name: string;
     message: string;
     stack?: string;
   };
-  assertEquals(out.name, "Error");
-  assert(out.message.includes("Bearer [redacted]"));
+  expect(out.name).toEqual("Error");
+  expect(out.message.includes("Bearer [redacted]")).toBeTruthy();
 });
 
-Deno.test("maskSensitiveData passes primitives through", () => {
-  assertEquals(maskSensitiveData(null), null);
-  assertEquals(maskSensitiveData(undefined), undefined);
-  assertEquals(maskSensitiveData(0), 0);
-  assertEquals(maskSensitiveData(true), true);
+test("maskSensitiveData passes primitives through", () => {
+  expect(maskSensitiveData(null)).toEqual(null);
+  expect(maskSensitiveData(undefined)).toEqual(undefined);
+  expect(maskSensitiveData(0)).toEqual(0);
+  expect(maskSensitiveData(true)).toEqual(true);
 });
 
-Deno.test("maskSensitiveString returns empty input unchanged", () => {
-  assertEquals(maskSensitiveString(""), "");
+test("maskSensitiveString returns empty input unchanged", () => {
+  expect(maskSensitiveString("")).toEqual("");
 });
 
-Deno.test("maskSensitiveString masks password=value pairs", () => {
+test("maskSensitiveString masks password=value pairs", () => {
   const out = maskSensitiveString("config password=hunter2 ok");
-  assert(out.includes("password=[redacted]"));
-  assert(!out.includes("hunter2"));
+  expect(out.includes("password=[redacted]")).toBeTruthy();
+  expect(!out.includes("hunter2")).toBeTruthy();
 });

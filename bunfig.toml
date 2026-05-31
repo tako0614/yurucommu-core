@@ -1,8 +1,9 @@
 # Bun migration: install the Deno runtime/test compat globals before any module
-# evaluates, so existing Deno.* and Deno.test(...) call sites work under bun
-# without source edits. std-jsr-resolver maps `jsr:@std/*` specifiers (incl.
-# version-pinned) to the local shims; deno-compat installs the runtime
-# namespace; the test preload adds Deno.test backed by bun:test.
+# evaluates, so existing Deno.* and the few remaining Deno.test(...) call sites
+# (3 assertThrows-heavy files kept shim-backed) work under bun without source
+# edits. std-jsr-resolver maps `jsr:@std/*` specifiers (incl. version-pinned) to
+# the local shims; deno-compat installs the runtime namespace; the test preload
+# adds Deno.test backed by bun:test.
 [test]
 preload = ["./shims/std-jsr-resolver.ts", "./shims/deno-compat.ts", "./shims/deno-test-preload.ts"]
 

@@ -1,3 +1,4 @@
+import { expect, test } from "bun:test";
 /**
  * G10 regression tests: DM/story block-bypass and follower-count races.
  *
@@ -7,7 +8,7 @@
  */
 
 import { Hono } from "hono";
-import { assertEquals } from "jsr:@std/assert";
+
 import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
@@ -114,7 +115,7 @@ function envFor(db: Database): Env {
   return { APP_URL, DB_INSTANCE: db } as unknown as Env;
 }
 
-Deno.test("DM send is rejected when recipient has blocked the sender", async () => {
+test("DM send is rejected when recipient has blocked the sender", async () => {
   const db = await freshDb();
   const senderApId = await insertLocalActor(db, "sender");
   const recipientApId = await insertLocalActor(db, "recipient");
@@ -139,16 +140,16 @@ Deno.test("DM send is rejected when recipient has blocked the sender", async () 
   );
 
   // 404 (same as missing user) so the block is not leaked.
-  assertEquals(res.status, 404);
+  expect(res.status).toEqual(404);
 
   // No DM Note row should have been created.
   const notes = await db.select().from(objects).where(
     eq(objects.type, "Note"),
   );
-  assertEquals(notes.length, 0);
+  expect(notes.length).toEqual(0);
 });
 
-Deno.test("DM send succeeds when there is no block", async () => {
+test("DM send succeeds when there is no block", async () => {
   const db = await freshDb();
   const senderApId = await insertLocalActor(db, "sender");
   const recipientApId = await insertLocalActor(db, "recipient");
@@ -166,12 +167,12 @@ Deno.test("DM send succeeds when there is no block", async () => {
     envFor(db),
   );
 
-  assertEquals(res.status, 201);
+  expect(res.status).toEqual(201);
   const notes = await db.select().from(objects).where(eq(objects.type, "Note"));
-  assertEquals(notes.length, 1);
+  expect(notes.length).toEqual(1);
 });
 
-Deno.test("story like is rejected when author has blocked the liker", async () => {
+test("story like is rejected when author has blocked the liker", async () => {
   const db = await freshDb();
   const authorApId = await insertLocalActor(db, "author");
   const likerApId = await insertLocalActor(db, "liker");
@@ -197,19 +198,19 @@ Deno.test("story like is rejected when author has blocked the liker", async () =
     envFor(db),
   );
 
-  assertEquals(res.status, 404);
+  expect(res.status).toEqual(404);
 
   // No like row and no count change.
   const likeRows = await db.select().from(likes).where(
     eq(likes.objectApId, storyApId),
   );
-  assertEquals(likeRows.length, 0);
+  expect(likeRows.length).toEqual(0);
   const story = await db.select({ likeCount: objects.likeCount }).from(objects)
     .where(eq(objects.apId, storyApId)).get();
-  assertEquals(story?.likeCount, 0);
+  expect(story?.likeCount).toEqual(0);
 });
 
-Deno.test("double Undo of a Like does not drift likeCount below the real value", async () => {
+test("double Undo of a Like does not drift likeCount below the real value", async () => {
   const db = await freshDb();
   const authorApId = await insertLocalActor(db, "author");
   const likerApId = await insertLocalActor(db, "liker");
@@ -237,7 +238,7 @@ Deno.test("double Undo of a Like does not drift likeCount below the real value",
     null,
     likerApId,
   );
-  assertEquals(first, true);
+  expect(first).toEqual(true);
 
   // Duplicate undo: no row to delete, so the count must stay at 0.
   const second = await undoInteraction(
@@ -248,14 +249,14 @@ Deno.test("double Undo of a Like does not drift likeCount below the real value",
     null,
     likerApId,
   );
-  assertEquals(second, true);
+  expect(second).toEqual(true);
 
   const after = await db.select({ likeCount: objects.likeCount }).from(objects)
     .where(eq(objects.apId, storyApId)).get();
-  assertEquals(after?.likeCount, 0);
+  expect(after?.likeCount).toEqual(0);
 });
 
-Deno.test("duplicate Accept does not over-count follower/following counts", async () => {
+test("duplicate Accept does not over-count follower/following counts", async () => {
   const db = await freshDb();
   const requesterApId = await insertLocalActor(db, "requester");
   const targetApId = await insertLocalActor(db, "target");
@@ -287,7 +288,7 @@ Deno.test("duplicate Accept does not over-count follower/following counts", asyn
       eq(follows.followingApId, targetApId),
     ),
   ).get();
-  assertEquals(follow?.status, "accepted");
+  expect(follow?.status).toEqual("accepted");
 
   const target = await db.select({ followerCount: actors.followerCount })
     .from(actors).where(eq(actors.apId, targetApId)).get();
@@ -295,8 +296,8 @@ Deno.test("duplicate Accept does not over-count follower/following counts", asyn
     .from(actors).where(eq(actors.apId, requesterApId)).get();
 
   // Exactly one increment despite two Accepts.
-  assertEquals(target?.followerCount, 1);
-  assertEquals(requester?.followingCount, 1);
+  expect(target?.followerCount).toEqual(1);
+  expect(requester?.followingCount).toEqual(1);
 });
 
 async function loadActorRow(db: Database, apId: string) {
@@ -305,7 +306,7 @@ async function loadActorRow(db: Database, apId: string) {
   return row;
 }
 
-Deno.test("Undo of a never-accepted (pending) follow does not drift followerCount negative", async () => {
+test("Undo of a never-accepted (pending) follow does not drift followerCount negative", async () => {
   const db = await freshDb();
   const targetApId = await insertLocalActor(db, "target");
   const followerApId = "https://remote.example/users/alice";
@@ -334,10 +335,10 @@ Deno.test("Undo of a never-accepted (pending) follow does not drift followerCoun
   const target = await db.select({ followerCount: actors.followerCount })
     .from(actors).where(eq(actors.apId, targetApId)).get();
   // Never incremented -> must NOT go negative on Undo.
-  assertEquals(target?.followerCount, 0);
+  expect(target?.followerCount).toEqual(0);
 });
 
-Deno.test("duplicate Undo of an accepted follow decrements followerCount exactly once", async () => {
+test("duplicate Undo of an accepted follow decrements followerCount exactly once", async () => {
   const db = await freshDb();
   const targetApId = await insertLocalActor(db, "target");
   const followerApId = "https://remote.example/users/bob";
@@ -373,5 +374,5 @@ Deno.test("duplicate Undo of an accepted follow decrements followerCount exactly
   const target = await db.select({ followerCount: actors.followerCount })
     .from(actors).where(eq(actors.apId, targetApId)).get();
   // Exactly one decrement despite two Undos: 1 -> 0 (not -1).
-  assertEquals(target?.followerCount, 0);
+  expect(target?.followerCount).toEqual(0);
 });

@@ -1,5 +1,6 @@
+import { expect, test } from "bun:test";
 import { Hono } from "hono";
-import { assertEquals, assertNotEquals } from "jsr:@std/assert";
+
 import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 
 class MockKVNamespace {
@@ -45,7 +46,7 @@ async function request(
   return res;
 }
 
-Deno.test("rateLimit middleware - shares counters across middleware instances via KV", async () => {
+test("rateLimit middleware - shares counters across middleware instances via KV", async () => {
   const env = { KV: new MockKVNamespace() };
   const headers = { "CF-Connecting-IP": "203.0.113.10" };
   const config = { windowMs: 60_000, maxRequests: 2, keyPrefix: "test:" };
@@ -59,19 +60,19 @@ Deno.test("rateLimit middleware - shares counters across middleware instances vi
   appB.get("/limited", (c) => c.json({ ok: true }));
 
   const res1 = await request(appA, env, "/limited", headers);
-  assertEquals(res1.status, 200);
-  assertEquals(res1.headers.get("X-RateLimit-Remaining"), "1");
+  expect(res1.status).toEqual(200);
+  expect(res1.headers.get("X-RateLimit-Remaining")).toEqual("1");
 
   const res2 = await request(appB, env, "/limited", headers);
-  assertEquals(res2.status, 200);
-  assertEquals(res2.headers.get("X-RateLimit-Remaining"), "0");
+  expect(res2.status).toEqual(200);
+  expect(res2.headers.get("X-RateLimit-Remaining")).toEqual("0");
 
   const res3 = await request(appA, env, "/limited", headers);
-  assertEquals(res3.status, 429);
-  assertNotEquals(res3.headers.get("Retry-After"), null);
+  expect(res3.status).toEqual(429);
+  expect(res3.headers.get("Retry-After")).not.toEqual(null);
 });
 
-Deno.test("rateLimit middleware - hardens auth limit to 20 requests per minute", () => {
-  assertEquals(RateLimitConfigs.auth.maxRequests, 20);
-  assertEquals(RateLimitConfigs.auth.windowMs, 60_000);
+test("rateLimit middleware - hardens auth limit to 20 requests per minute", () => {
+  expect(RateLimitConfigs.auth.maxRequests).toEqual(20);
+  expect(RateLimitConfigs.auth.windowMs).toEqual(60_000);
 });

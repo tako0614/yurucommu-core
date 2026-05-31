@@ -1,5 +1,6 @@
+import { expect, test } from "bun:test";
 import { Hono } from "hono";
-import { assertEquals } from "jsr:@std/assert";
+
 import { csrfProtection } from "../../middleware/csrf.ts";
 import type { Env, Variables } from "../../types.ts";
 
@@ -10,7 +11,7 @@ function createApp() {
   return app;
 }
 
-Deno.test("csrfProtection permits cookie-less bearer API requests without browser origin", async () => {
+test("csrfProtection permits cookie-less bearer API requests without browser origin", async () => {
   const app = createApp();
   const res = await app.fetch(
     new Request("https://test.local/api/resource", {
@@ -20,11 +21,11 @@ Deno.test("csrfProtection permits cookie-less bearer API requests without browse
     { APP_URL: "https://test.local" } as never,
   );
 
-  assertEquals(res.status, 200);
-  assertEquals(await res.json(), { ok: true });
+  expect(res.status).toEqual(200);
+  expect(await res.json()).toEqual({ ok: true });
 });
 
-Deno.test("csrfProtection keeps Origin checks for cookie-backed requests with Authorization", async () => {
+test("csrfProtection keeps Origin checks for cookie-backed requests with Authorization", async () => {
   const app = createApp();
   const res = await app.fetch(
     new Request("https://test.local/api/resource", {
@@ -37,21 +38,21 @@ Deno.test("csrfProtection keeps Origin checks for cookie-backed requests with Au
     { APP_URL: "https://test.local" } as never,
   );
 
-  assertEquals(res.status, 403);
-  assertEquals(await res.json(), {
+  expect(res.status).toEqual(403);
+  expect(await res.json()).toEqual({
     error: "CSRF validation failed: missing Origin header",
   });
 });
 
-Deno.test("csrfProtection still rejects state-changing API requests missing Origin", async () => {
+test("csrfProtection still rejects state-changing API requests missing Origin", async () => {
   const app = createApp();
   const res = await app.fetch(
     new Request("https://test.local/api/resource", { method: "POST" }),
     { APP_URL: "https://test.local" } as never,
   );
 
-  assertEquals(res.status, 403);
-  assertEquals(await res.json(), {
+  expect(res.status).toEqual(403);
+  expect(await res.json()).toEqual({
     error: "CSRF validation failed: missing Origin header",
   });
 });
@@ -61,7 +62,7 @@ Deno.test("csrfProtection still rejects state-changing API requests missing Orig
 // が allowed origin set。 既存 production 動作は CSRF_ALLOWED_ORIGINS 未設定で
 // 維持される (= 下の 2 test と上の existing test で確認)。
 
-Deno.test("csrfProtection (backward compat): CSRF_ALLOWED_ORIGINS 未設定なら APP_URL の origin のみ accept", async () => {
+test("csrfProtection (backward compat): CSRF_ALLOWED_ORIGINS 未設定なら APP_URL の origin のみ accept", async () => {
   const app = createApp();
   const res = await app.fetch(
     new Request("https://test.local/api/resource", {
@@ -75,11 +76,11 @@ Deno.test("csrfProtection (backward compat): CSRF_ALLOWED_ORIGINS 未設定な�
   );
 
   // APP_URL=https://test.local のみが allowlist、 dev hostname は reject。
-  assertEquals(res.status, 403);
-  assertEquals(await res.json(), { error: "CSRF validation failed" });
+  expect(res.status).toEqual(403);
+  expect(await res.json()).toEqual({ error: "CSRF validation failed" });
 });
 
-Deno.test("csrfProtection (Wave M-D multi-origin): CSRF_ALLOWED_ORIGINS で追加 origin を accept", async () => {
+test("csrfProtection (Wave M-D multi-origin): CSRF_ALLOWED_ORIGINS で追加 origin を accept", async () => {
   const app = createApp();
   const res = await app.fetch(
     new Request("https://test.local/api/resource", {
@@ -96,11 +97,11 @@ Deno.test("csrfProtection (Wave M-D multi-origin): CSRF_ALLOWED_ORIGINS で追�
   );
 
   // dev hostname が allowlist に append されたので accept。
-  assertEquals(res.status, 200);
-  assertEquals(await res.json(), { ok: true });
+  expect(res.status).toEqual(200);
+  expect(await res.json()).toEqual({ ok: true });
 });
 
-Deno.test("csrfProtection (Wave M-D multi-origin): allowlist 外の origin は reject 継続", async () => {
+test("csrfProtection (Wave M-D multi-origin): allowlist 外の origin は reject 継続", async () => {
   const app = createApp();
   const res = await app.fetch(
     new Request("https://test.local/api/resource", {
@@ -116,6 +117,6 @@ Deno.test("csrfProtection (Wave M-D multi-origin): allowlist 外の origin は r
     } as never,
   );
 
-  assertEquals(res.status, 403);
-  assertEquals(await res.json(), { error: "CSRF validation failed" });
+  expect(res.status).toEqual(403);
+  expect(await res.json()).toEqual({ error: "CSRF validation failed" });
 });

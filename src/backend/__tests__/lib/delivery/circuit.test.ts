@@ -1,4 +1,5 @@
-import { assert, assertEquals } from "jsr:@std/assert";
+import { expect, test } from "bun:test";
+
 import { stub } from "jsr:@std/testing/mock";
 import {
   checkCircuit,
@@ -112,7 +113,7 @@ function extractValueFromEq(condition: unknown): string | null {
   return null;
 }
 
-Deno.test("delivery/circuit - opens after 5 consecutive failures, then transitions to half-open", async () => {
+test("delivery/circuit - opens after 5 consecutive failures, then transitions to half-open", async () => {
   const endpoint = "https://remote.example/inbox";
   const db = createMockCircuitDb();
 
@@ -123,9 +124,9 @@ Deno.test("delivery/circuit - opens after 5 consecutive failures, then transitio
     }
 
     const res = await checkCircuit(db, endpoint);
-    assertEquals(res.allow, false);
+    expect(res.allow).toEqual(false);
     if (!res.allow) {
-      assert(res.deferSeconds > 0);
+      expect(res.deferSeconds > 0).toBeTruthy();
     }
 
     // Open window elapsed -> half-open and allow probes.
@@ -133,8 +134,8 @@ Deno.test("delivery/circuit - opens after 5 consecutive failures, then transitio
     const dateNowStub2 = stub(Date, "now", () => 5 * 60 * 1000 + 1);
     try {
       const res2 = await checkCircuit(db, endpoint);
-      assertEquals(res2.allow, true);
-      assertEquals(db.__store.get(endpoint)?.state, "half_open");
+      expect(res2.allow).toEqual(true);
+      expect(db.__store.get(endpoint)?.state).toEqual("half_open");
     } finally {
       dateNowStub2.restore();
     }
@@ -146,7 +147,7 @@ Deno.test("delivery/circuit - opens after 5 consecutive failures, then transitio
   }
 });
 
-Deno.test("delivery/circuit - closes after 3 successful half-open probes", async () => {
+test("delivery/circuit - closes after 3 successful half-open probes", async () => {
   const endpoint = "https://remote.example/inbox";
   const db = createMockCircuitDb();
 
@@ -166,10 +167,10 @@ Deno.test("delivery/circuit - closes after 3 successful half-open probes", async
       await recordCircuitSuccess(db, endpoint);
 
       const row = db.__store.get(endpoint);
-      assertEquals(row?.state, "closed");
-      assertEquals(row?.consecutiveFailures, 0);
-      assertEquals(row?.halfOpenProbeAttempts, 0);
-      assertEquals(row?.halfOpenProbeSuccesses, 0);
+      expect(row?.state).toEqual("closed");
+      expect(row?.consecutiveFailures).toEqual(0);
+      expect(row?.halfOpenProbeAttempts).toEqual(0);
+      expect(row?.halfOpenProbeSuccesses).toEqual(0);
     } finally {
       dateNowStub2.restore();
     }
@@ -180,7 +181,7 @@ Deno.test("delivery/circuit - closes after 3 successful half-open probes", async
   }
 });
 
-Deno.test("delivery/circuit - re-opens immediately on half-open failure", async () => {
+test("delivery/circuit - re-opens immediately on half-open failure", async () => {
   const endpoint = "https://remote.example/inbox";
   const db = createMockCircuitDb();
 
@@ -197,9 +198,9 @@ Deno.test("delivery/circuit - re-opens immediately on half-open failure", async 
 
       await recordCircuitFailure(db, endpoint);
       const row = db.__store.get(endpoint);
-      assertEquals(row?.state, "open");
-      assert((row?.consecutiveFailures ?? 0) >= 5);
-      assert(row?.openUntil);
+      expect(row?.state).toEqual("open");
+      expect((row?.consecutiveFailures ?? 0) >= 5).toBeTruthy();
+      expect(row?.openUntil).toBeTruthy();
     } finally {
       dateNowStub2.restore();
     }

@@ -1,8 +1,9 @@
-import { assert, assertEquals } from "jsr:@std/assert";
+import { expect, test } from "bun:test";
+
 import { storyToActivityPub } from "../../lib/activitypub-helpers.ts";
 import type { Actor } from "../../types.ts";
 
-Deno.test("storyToActivityPub emits a single attachment object", () => {
+test("storyToActivityPub emits a single attachment object", () => {
   const actor = {
     ap_id: "https://example.test/ap/users/alice",
   } as Actor;
@@ -25,8 +26,8 @@ Deno.test("storyToActivityPub emits a single attachment object", () => {
     "https://example.test",
   ) as { attachment: unknown };
 
-  assert(!Array.isArray(object.attachment));
-  assertEquals(object.attachment, {
+  expect(!Array.isArray(object.attachment)).toBeTruthy();
+  expect(object.attachment).toEqual({
     type: "Document",
     mediaType: "image/jpeg",
     url: "https://example.test/media/story.jpg",

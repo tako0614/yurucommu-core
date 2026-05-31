@@ -1,5 +1,6 @@
+import { expect, test } from "bun:test";
 import { Hono } from "hono";
-import { assertEquals } from "jsr:@std/assert";
+
 import activitypubRoutes from "../../../routes/activitypub.ts";
 
 function createCountDb(counts: number[]) {
@@ -26,7 +27,7 @@ function createApp(db = createCountDb([1, 42])) {
   return app;
 }
 
-Deno.test("nodeinfo discovery returns schema 2.1 link", async () => {
+test("nodeinfo discovery returns schema 2.1 link", async () => {
   const app = createApp();
   const res = await app.fetch(
     new Request("https://example.test/.well-known/nodeinfo"),
@@ -34,8 +35,8 @@ Deno.test("nodeinfo discovery returns schema 2.1 link", async () => {
   );
   const body = await res.json() as Record<string, unknown>;
 
-  assertEquals(res.status, 200);
-  assertEquals(body, {
+  expect(res.status).toEqual(200);
+  expect(body).toEqual({
     links: [
       {
         rel: "http://nodeinfo.diaspora.software/ns/schema/2.1",
@@ -45,7 +46,7 @@ Deno.test("nodeinfo discovery returns schema 2.1 link", async () => {
   });
 });
 
-Deno.test("nodeinfo 2.1 returns required schema fields", async () => {
+test("nodeinfo 2.1 returns required schema fields", async () => {
   const app = createApp(createCountDb([1, 42]));
   const res = await app.fetch(
     new Request("https://example.test/nodeinfo/2.1"),
@@ -68,24 +69,24 @@ Deno.test("nodeinfo 2.1 returns required schema fields", async () => {
     metadata: { singleUser: boolean };
   };
 
-  assertEquals(res.status, 200);
-  assertEquals(body.version, "2.1");
-  assertEquals(body.software.name, "yurucommu");
+  expect(res.status).toEqual(200);
+  expect(body.version).toEqual("2.1");
+  expect(body.software.name).toEqual("yurucommu");
   // Falls back to the in-sync default constant when no build version env set.
-  assertEquals(body.software.version, "1.0.0");
-  assertEquals(body.protocols, ["activitypub"]);
-  assertEquals(body.services, { inbound: [], outbound: [] });
-  assertEquals(body.usage.users.total, 1);
+  expect(body.software.version).toEqual("1.0.0");
+  expect(body.protocols).toEqual(["activitypub"]);
+  expect(body.services).toEqual({ inbound: [], outbound: [] });
+  expect(body.usage.users.total).toEqual(1);
   // activeMonth / activeHalfyear are omitted (not faked) because we do not
   // track per-user activity windows.
-  assertEquals(body.usage.users.activeMonth, undefined);
-  assertEquals(body.usage.users.activeHalfyear, undefined);
-  assertEquals(body.usage.localPosts, 42);
-  assertEquals(body.openRegistrations, false);
-  assertEquals(body.metadata.singleUser, true);
+  expect(body.usage.users.activeMonth).toEqual(undefined);
+  expect(body.usage.users.activeHalfyear).toEqual(undefined);
+  expect(body.usage.localPosts).toEqual(42);
+  expect(body.openRegistrations).toEqual(false);
+  expect(body.metadata.singleUser).toEqual(true);
 });
 
-Deno.test("nodeinfo 2.1 reports build-injected software version", async () => {
+test("nodeinfo 2.1 reports build-injected software version", async () => {
   const app = createApp(createCountDb([1, 42]));
   const res = await app.fetch(
     new Request("https://example.test/nodeinfo/2.1"),
@@ -96,6 +97,6 @@ Deno.test("nodeinfo 2.1 reports build-injected software version", async () => {
   );
   const body = await res.json() as { software: { version: string } };
 
-  assertEquals(res.status, 200);
-  assertEquals(body.software.version, "1.4.2+build7");
+  expect(res.status).toEqual(200);
+  expect(body.software.version).toEqual("1.4.2+build7");
 });

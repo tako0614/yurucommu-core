@@ -1,5 +1,6 @@
+import { expect, test } from "bun:test";
 import { Hono } from "hono";
-import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert";
+
 import { assertSpyCalls, spy, stub } from "jsr:@std/testing/mock";
 import { requireBearerAuth } from "../../middleware/bearer-auth.ts";
 
@@ -7,13 +8,13 @@ function createApp() {
   const app = new Hono();
   app.post("/deploy", requireBearerAuth("apps:deploy"), (c) => {
     const token = c.get("oauthToken");
-    assert(token);
+    expect(token).toBeTruthy();
     return c.json({ sub: token.sub });
   });
   return app;
 }
 
-Deno.test("requireBearerAuth fails closed when Accounts OIDC config is missing", async () => {
+test("requireBearerAuth fails closed when Accounts OIDC config is missing", async () => {
   const app = createApp();
   const fetchSpy = spy(globalThis, "fetch");
 
@@ -29,14 +30,14 @@ Deno.test("requireBearerAuth fails closed when Accounts OIDC config is missing",
       } as never,
     );
 
-    assertEquals(res.status, 500);
+    expect(res.status).toEqual(500);
     assertSpyCalls(fetchSpy, 0);
   } finally {
     fetchSpy.restore();
   }
 });
 
-Deno.test("requireBearerAuth introspects against the configured Accounts issuer", async () => {
+test("requireBearerAuth introspects against the configured Accounts issuer", async () => {
   const app = createApp();
   const fetchImpl = spy((_input: string | URL | Request) =>
     Promise.resolve(
@@ -69,13 +70,10 @@ Deno.test("requireBearerAuth introspects against the configured Accounts issuer"
       } as never,
     );
 
-    assertEquals(res.status, 200);
-    assertEquals(await res.json(), { sub: "user-1" });
+    expect(res.status).toEqual(200);
+    expect(await res.json()).toEqual({ sub: "user-1" });
     assertSpyCalls(fetchImpl, 1);
-    assertStringIncludes(
-      String(fetchImpl.calls[0].args[0]),
-      "https://accounts.example.com/oauth/introspect",
-    );
+    expect(String(fetchImpl.calls[0].args[0])).toContain("https://accounts.example.com/oauth/introspect");
   } finally {
     fetchStub.restore();
   }

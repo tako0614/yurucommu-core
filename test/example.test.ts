@@ -1,3 +1,4 @@
+import { expect, test } from "bun:test";
 /**
  * Example Test File for yurucommu
  *
@@ -8,7 +9,6 @@
  * - Cloudflare bindings mocking
  */
 
-import { assertEquals, assert, assertNotEquals } from 'jsr:@std/assert';
 import { spy } from 'jsr:@std/testing/mock';
 import { Hono } from 'hono';
 import {
@@ -27,41 +27,41 @@ import type { MockActor } from './setup.ts';
 // Mock D1 Database Tests
 // ============================================================================
 
-Deno.test('MockD1Database - should prepare and execute queries', async () => {
+test('MockD1Database - should prepare and execute queries', async () => {
   const db = new MockD1Database();
 
   const result = await db.prepare('SELECT * FROM actors WHERE ap_id = ?')
     .bind('https://example.com/users/test')
     .first();
 
-  assertEquals(result, null);
+  expect(result).toEqual(null);
 });
 
-Deno.test('MockD1Database - should return success for run operations', async () => {
+test('MockD1Database - should return success for run operations', async () => {
   const db = new MockD1Database();
 
   const result = await db.prepare('INSERT INTO actors (ap_id, type) VALUES (?, ?)')
     .bind('https://example.com/users/test', 'Person')
     .run();
 
-  assertEquals(result.success, true);
-  assertEquals(result.meta.changes, 1);
+  expect(result.success).toEqual(true);
+  expect(result.meta.changes).toEqual(1);
 });
 
-Deno.test('MockD1Database - should return empty results for all queries', async () => {
+test('MockD1Database - should return empty results for all queries', async () => {
   const db = new MockD1Database();
 
   const result = await db.prepare('SELECT * FROM actors').all();
 
-  assertEquals(result.results, []);
-  assertEquals(result.success, true);
+  expect(result.results).toEqual([]);
+  expect(result.success).toEqual(true);
 });
 
 // ============================================================================
 // Mock R2 Bucket Tests
 // ============================================================================
 
-Deno.test('MockR2Bucket - should store and retrieve media files', async () => {
+test('MockR2Bucket - should store and retrieve media files', async () => {
   const r2 = new MockR2Bucket();
 
   const imageData = new Uint8Array([1, 2, 3, 4]);
@@ -71,12 +71,12 @@ Deno.test('MockR2Bucket - should store and retrieve media files', async () => {
 
   const obj = await r2.get('media/image.jpg');
 
-  assertNotEquals(obj, null);
+  expect(obj).not.toEqual(null);
   const buffer = await obj!.arrayBuffer();
-  assertEquals(new Uint8Array(buffer), imageData);
+  expect(new Uint8Array(buffer)).toEqual(imageData);
 });
 
-Deno.test('MockR2Bucket - should list objects with prefix', async () => {
+test('MockR2Bucket - should list objects with prefix', async () => {
   const r2 = new MockR2Bucket();
 
   await r2.put('media/images/a.jpg', 'image a');
@@ -85,17 +85,17 @@ Deno.test('MockR2Bucket - should list objects with prefix', async () => {
 
   const result = await r2.list({ prefix: 'media/images/' });
 
-  assertEquals(result.objects.length, 2);
+  expect(result.objects.length).toEqual(2);
   const keys = result.objects.map((o) => o.key);
-  assert(keys.includes('media/images/a.jpg'));
-  assert(keys.includes('media/images/b.jpg'));
+  expect(keys.includes('media/images/a.jpg')).toBeTruthy();
+  expect(keys.includes('media/images/b.jpg')).toBeTruthy();
 });
 
 // ============================================================================
 // Mock KV Namespace Tests
 // ============================================================================
 
-Deno.test('MockKVNamespace - should store session data', async () => {
+test('MockKVNamespace - should store session data', async () => {
   const kv = new MockKVNamespace();
 
   await kv.put('session:abc123', JSON.stringify({ userId: 'user-1' }), {
@@ -103,10 +103,10 @@ Deno.test('MockKVNamespace - should store session data', async () => {
   });
 
   const value = await kv.get('session:abc123');
-  assertEquals(JSON.parse(value!), { userId: 'user-1' });
+  expect(JSON.parse(value!)).toEqual({ userId: 'user-1' });
 });
 
-Deno.test('MockKVNamespace - should handle OAuth state', async () => {
+test('MockKVNamespace - should handle OAuth state', async () => {
   const kv = new MockKVNamespace();
 
   const state = { nonce: 'xyz', returnTo: '/home' };
@@ -115,14 +115,14 @@ Deno.test('MockKVNamespace - should handle OAuth state', async () => {
   });
 
   const value = await kv.get('oauth:state:abc');
-  assertEquals(JSON.parse(value!), state);
+  expect(JSON.parse(value!)).toEqual(state);
 });
 
 // ============================================================================
 // Mock Database Client Tests
 // ============================================================================
 
-Deno.test('MockDbClient - should mock findUnique', async () => {
+test('MockDbClient - should mock findUnique', async () => {
   const db = createMockDbClient();
 
   const mockActor = createMockActor({ preferred_username: 'testuser' });
@@ -132,10 +132,10 @@ Deno.test('MockDbClient - should mock findUnique', async () => {
     where: { ap_id: mockActor.ap_id },
   });
 
-  assertEquals(result, mockActor);
+  expect(result).toEqual(mockActor);
 });
 
-Deno.test('MockDbClient - should mock findMany', async () => {
+test('MockDbClient - should mock findMany', async () => {
   const db = createMockDbClient();
 
   const mockActors = [
@@ -148,10 +148,10 @@ Deno.test('MockDbClient - should mock findMany', async () => {
     where: { is_private: 0 },
   });
 
-  assertEquals(result.length, 2);
+  expect(result.length).toEqual(2);
 });
 
-Deno.test('MockDbClient - should mock create', async () => {
+test('MockDbClient - should mock create', async () => {
   const db = createMockDbClient();
 
   const newActor = createMockActor();
@@ -160,76 +160,76 @@ Deno.test('MockDbClient - should mock create', async () => {
     data: newActor,
   });
 
-  assertEquals(result, newActor);
+  expect(result).toEqual(newActor);
 });
 
-Deno.test('MockDbClient - should mock transactions', async () => {
+test('MockDbClient - should mock transactions', async () => {
   const db = createMockDbClient();
 
   const result = await db.$transaction(async (_tx) => {
     return { success: true };
   });
 
-  assertEquals(result, { success: true });
+  expect(result).toEqual({ success: true });
 });
 
 // ============================================================================
 // ActivityPub Factory Tests
 // ============================================================================
 
-Deno.test('createMockActor - should create a valid actor with defaults', () => {
+test('createMockActor - should create a valid actor with defaults', () => {
   const actor = createMockActor();
 
-  assertEquals(actor.type, 'Person');
-  assert(actor.ap_id.includes('/ap/users/'));
-  assert(actor.inbox.includes('/inbox'));
-  assert(actor.outbox.includes('/outbox'));
+  expect(actor.type).toEqual('Person');
+  expect(actor.ap_id.includes('/ap/users/')).toBeTruthy();
+  expect(actor.inbox.includes('/inbox')).toBeTruthy();
+  expect(actor.outbox.includes('/outbox')).toBeTruthy();
 });
 
-Deno.test('createMockActor - should allow overriding properties', () => {
+test('createMockActor - should allow overriding properties', () => {
   const actor = createMockActor({
     preferred_username: 'customuser',
     name: 'Custom Name',
     is_private: 1,
   });
 
-  assertEquals(actor.preferred_username, 'customuser');
-  assertEquals(actor.name, 'Custom Name');
-  assertEquals(actor.is_private, 1);
+  expect(actor.preferred_username).toEqual('customuser');
+  expect(actor.name).toEqual('Custom Name');
+  expect(actor.is_private).toEqual(1);
 });
 
-Deno.test('createMockAPObject - should create a valid Note', () => {
+test('createMockAPObject - should create a valid Note', () => {
   const note = createMockAPObject();
 
-  assertEquals(note.type, 'Note');
-  assertEquals(note.is_local, 1);
-  assertEquals(note.visibility, 'public');
+  expect(note.type).toEqual('Note');
+  expect(note.is_local).toEqual(1);
+  expect(note.visibility).toEqual('public');
 });
 
-Deno.test('createMockAPObject - should create a reply', () => {
+test('createMockAPObject - should create a reply', () => {
   const reply = createMockAPObject({
     in_reply_to: 'https://example.com/posts/1',
     content: '<p>This is a reply</p>',
   });
 
-  assertEquals(reply.in_reply_to, 'https://example.com/posts/1');
+  expect(reply.in_reply_to).toEqual('https://example.com/posts/1');
 });
 
-Deno.test('createMockAPObject - should create a community post', () => {
+test('createMockAPObject - should create a community post', () => {
   const post = createMockAPObject({
     community_ap_id: 'https://test.yurucommu.com/ap/groups/test-community',
     visibility: 'followers_only',
   });
 
-  assert(post.community_ap_id!.includes('/groups/'));
-  assertEquals(post.visibility, 'followers_only');
+  expect(post.community_ap_id!.includes('/groups/')).toBeTruthy();
+  expect(post.visibility).toEqual('followers_only');
 });
 
 // ============================================================================
 // Hono Route Tests
 // ============================================================================
 
-Deno.test('Hono Route Testing - should test a health endpoint', async () => {
+test('Hono Route Testing - should test a health endpoint', async () => {
   const app = new Hono<{ Bindings: ReturnType<typeof createMockEnv> }>();
   app.get('/health', (c) => c.json({ status: 'ok' }));
 
@@ -239,11 +239,11 @@ Deno.test('Hono Route Testing - should test a health endpoint', async () => {
     path: '/health',
   });
 
-  assertEquals(response.status, 200);
-  assertEquals(response.body, { status: 'ok' });
+  expect(response.status).toEqual(200);
+  expect(response.body).toEqual({ status: 'ok' });
 });
 
-Deno.test('Hono Route Testing - should test authenticated endpoints', async () => {
+test('Hono Route Testing - should test authenticated endpoints', async () => {
   const app = new Hono<{ Bindings: ReturnType<typeof createMockEnv> }>();
 
   // Simple auth middleware
@@ -264,7 +264,7 @@ Deno.test('Hono Route Testing - should test authenticated endpoints', async () =
     method: 'GET',
     path: '/api/me',
   });
-  assertEquals(unauthorized.status, 401);
+  expect(unauthorized.status).toEqual(401);
 
   // With auth
   const authorized = await testHonoRequest(app, env, {
@@ -272,11 +272,11 @@ Deno.test('Hono Route Testing - should test authenticated endpoints', async () =
     path: '/api/me',
     headers: { Authorization: 'Bearer test-token' },
   });
-  assertEquals(authorized.status, 200);
-  assertEquals(authorized.body, { user: 'test' });
+  expect(authorized.status).toEqual(200);
+  expect(authorized.body).toEqual({ user: 'test' });
 });
 
-Deno.test('Hono Route Testing - should test POST endpoints with body', async () => {
+test('Hono Route Testing - should test POST endpoints with body', async () => {
   const app = new Hono<{ Bindings: ReturnType<typeof createMockEnv> }>();
 
   app.post('/api/posts', async (c) => {
@@ -291,15 +291,15 @@ Deno.test('Hono Route Testing - should test POST endpoints with body', async () 
     body: { content: 'Hello, World!' },
   });
 
-  assertEquals(response.status, 200);
-  assertEquals(response.body, { created: true, content: 'Hello, World!' });
+  expect(response.status).toEqual(200);
+  expect(response.body).toEqual({ created: true, content: 'Hello, World!' });
 });
 
 // ============================================================================
 // Integration Test Pattern
 // ============================================================================
 
-Deno.test('Integration Test Pattern - should demonstrate a full integration test', async () => {
+test('Integration Test Pattern - should demonstrate a full integration test', async () => {
   // 1. Set up environment
   const env = createMockEnv();
   const db = env.DB_CLIENT as ReturnType<typeof createMockDbClient>;
@@ -352,18 +352,18 @@ Deno.test('Integration Test Pattern - should demonstrate a full integration test
     path: '/api/users/testuser',
   });
 
-  assertEquals(userResponse.status, 200);
-  assertEquals((userResponse.body as MockActor).preferred_username, 'testuser');
+  expect(userResponse.status).toEqual(200);
+  expect((userResponse.body as MockActor).preferred_username).toEqual('testuser');
 
   const postsResponse = await testHonoRequest(app, env, {
     path: '/api/users/testuser/posts',
   });
 
-  assertEquals(postsResponse.status, 200);
-  assertEquals((postsResponse.body as { posts: unknown[] }).posts.length, 2);
+  expect(postsResponse.status).toEqual(200);
+  expect((postsResponse.body as { posts: unknown[] }).posts.length).toEqual(2);
 });
 
-Deno.test('Integration Test Pattern - should test media upload flow', async () => {
+test('Integration Test Pattern - should test media upload flow', async () => {
   const env = createMockEnv();
 
   const app = new Hono<{ Bindings: typeof env }>();
@@ -387,5 +387,5 @@ Deno.test('Integration Test Pattern - should test media upload flow', async () =
 
   // Note: In real tests, you'd need to properly mock FormData
   // This is a simplified example
-  assert(app !== undefined);
+  expect(app !== undefined).toBeTruthy();
 });

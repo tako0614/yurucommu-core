@@ -1,5 +1,6 @@
+import { expect, test } from "bun:test";
 import { Hono } from "hono";
-import { assertEquals } from "jsr:@std/assert";
+
 import activitypubRoutes from "../../../routes/activitypub.ts";
 
 function createActorDb(
@@ -28,7 +29,7 @@ function createApp(db: unknown) {
   return app;
 }
 
-Deno.test("webfinger resolves unknown local acct username to owner actor", async () => {
+test("webfinger resolves unknown local acct username to owner actor", async () => {
   const owner = {
     apId: "https://example.test/ap/users/tako",
     preferredUsername: "tako",
@@ -46,21 +47,15 @@ Deno.test("webfinger resolves unknown local acct username to owner actor", async
     links: Array<{ rel: string; href: string }>;
   };
 
-  assertEquals(res.status, 200);
-  assertEquals(body.subject, "acct:any@example.test");
-  assertEquals(
-    body.links.find((link) => link.rel === "self")?.href,
-    "https://example.test/ap/users/tako",
-  );
-  assertEquals(
-    body.links.find((link) =>
+  expect(res.status).toEqual(200);
+  expect(body.subject).toEqual("acct:any@example.test");
+  expect(body.links.find((link) => link.rel === "self")?.href).toEqual("https://example.test/ap/users/tako");
+  expect(body.links.find((link) =>
       link.rel === "http://webfinger.net/rel/profile-page"
-    )?.href,
-    "https://example.test/users/tako",
-  );
+    )?.href).toEqual("https://example.test/users/tako");
 });
 
-Deno.test("webfinger keeps exact local actor resolution when username exists", async () => {
+test("webfinger keeps exact local actor resolution when username exists", async () => {
   const alice = {
     apId: "https://example.test/ap/users/alice",
     preferredUsername: "alice",
@@ -78,10 +73,7 @@ Deno.test("webfinger keeps exact local actor resolution when username exists", a
     links: Array<{ rel: string; href: string }>;
   };
 
-  assertEquals(res.status, 200);
-  assertEquals(body.subject, "acct:alice@example.test");
-  assertEquals(
-    body.links.find((link) => link.rel === "self")?.href,
-    "https://example.test/ap/users/alice",
-  );
+  expect(res.status).toEqual(200);
+  expect(body.subject).toEqual("acct:alice@example.test");
+  expect(body.links.find((link) => link.rel === "self")?.href).toEqual("https://example.test/ap/users/alice");
 });
