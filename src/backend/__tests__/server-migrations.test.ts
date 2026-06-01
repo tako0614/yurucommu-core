@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { runMigrations } from "../server.ts";
 
@@ -34,7 +37,7 @@ function createMigrationDb(applied: string[] = []) {
 }
 
 test("server migrations - executes each SQL migration as one script", async () => {
-  const dir = await Deno.makeTempDir();
+  const dir = await mkdtemp(join(tmpdir(), "yurucommu-migrations-"));
   const sql = `
     CREATE TABLE demo (value TEXT);
     INSERT INTO demo (value) VALUES ('literal; semicolon');
@@ -46,7 +49,7 @@ test("server migrations - executes each SQL migration as one script", async () =
   `;
 
   try {
-    await Deno.writeTextFile(`${dir}/001_semicolons.sql`, sql);
+    await writeFile(`${dir}/001_semicolons.sql`, sql);
     const { db, execCalls, markedApplied, finalizedStatements } =
       createMigrationDb();
 
@@ -57,15 +60,15 @@ test("server migrations - executes each SQL migration as one script", async () =
     expect(markedApplied).toEqual(["001_semicolons.sql"]);
     expect(finalizedStatements.length).toEqual(2);
   } finally {
-    await Deno.remove(dir, { recursive: true });
+    await rm(dir, { recursive: true, force: true });
   }
 });
 
 test("server migrations - skips files already recorded as applied", async () => {
-  const dir = await Deno.makeTempDir();
+  const dir = await mkdtemp(join(tmpdir(), "yurucommu-migrations-"));
 
   try {
-    await Deno.writeTextFile(
+    await writeFile(
       `${dir}/001_done.sql`,
       "CREATE TABLE done (id TEXT);",
     );
@@ -78,6 +81,6 @@ test("server migrations - skips files already recorded as applied", async () => 
     expect(execCalls.length).toEqual(1);
     expect(markedApplied).toEqual([]);
   } finally {
-    await Deno.remove(dir, { recursive: true });
+    await rm(dir, { recursive: true, force: true });
   }
 });

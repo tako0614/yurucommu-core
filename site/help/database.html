@@ -605,29 +605,29 @@
           ディレクトリにあります。
         </p>
         <p>
-          ローカルの Deno サーバーは起動時に <code>MIGRATIONS_PATH</code> の SQL
+          ローカルの Bun サーバーは起動時に <code>MIGRATIONS_PATH</code> の SQL
           を自動適用します。Cloudflare D1
           に対して手動で適用したい場合だけ、以下の <code>wrangler d1 migrations
             apply</code> を使います。
         </p>
         <pre><code># マイグレーション状態を確認
-deno run -A npm:wrangler d1 migrations list yurucommu-db --remote
+bunx wrangler d1 migrations list yurucommu-db --remote
 
 # マイグレーションを適用
-deno run -A npm:wrangler d1 migrations apply yurucommu-db --remote</code></pre>
+bunx wrangler d1 migrations apply yurucommu-db --remote</code></pre>
 
         <h2>データの確認</h2>
         <pre><code># テーブル一覧
-deno run -A npm:wrangler d1 execute yurucommu-db --remote \
+bunx wrangler d1 execute yurucommu-db --remote \
   --command "SELECT name FROM sqlite_master WHERE type='table'"
 
 # データ確認
-deno run -A npm:wrangler d1 execute yurucommu-db --remote \
+bunx wrangler d1 execute yurucommu-db --remote \
   --command "SELECT * FROM actors LIMIT 5"</code></pre>
 
         <h2>バックアップ</h2>
         <p>D1のデータをエクスポートするには：</p>
-        <pre><code>deno run -A npm:wrangler d1 export yurucommu-db --remote --output backup.sql</code></pre>
+        <pre><code>bunx wrangler d1 export yurucommu-db --remote --output backup.sql</code></pre>
       </main>
     </div>
 

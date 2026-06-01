@@ -44,7 +44,7 @@ function bytesToHex(bytes: Uint8Array): string {
 
 /**
  * Dev-only fallback salt used when YURUCOMMU_SESSION_HASH_SALT is unset.
- * Mirrors the takosumi-cloud F7 pattern: fresh-DB tests still work, but a
+ * Mirrors the takosumi F7 pattern: fresh-DB tests still work, but a
  * loud warning fires in strict / production mode so operators notice.
  */
 const DEV_SESSION_HASH_SALT = "yurucommu:dev-only-session-hash-salt";

@@ -1,7 +1,5 @@
-// Bun migration shim: @std/path -> node:path (+ node:url for file URL helpers).
-// Wired via tsconfig.json "paths". Covers the @std/path surface used across the
-// ecosystem. Deno's @std/path defaults to POSIX semantics on POSIX hosts, which
-// matches node:path on Linux.
+// Bun path helpers backed by node:path (+ node:url for file URL helpers).
+// Defaults to POSIX semantics on POSIX hosts, which matches node:path on Linux.
 import * as nodePath from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -27,7 +25,7 @@ export function toFileUrl(path: string): URL {
   return pathToFileURL(path);
 }
 
-/** @std/path `globToRegExp` is rarely used; provide a minimal best-effort. */
+/** Minimal best-effort glob-to-RegExp helper. */
 export function globToRegExp(glob: string): RegExp {
   const escaped = glob
     .replace(/[.+^${}()|[\]\\]/g, "\\$&")

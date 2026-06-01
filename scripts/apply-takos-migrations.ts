@@ -1,3 +1,6 @@
+import { readdir, readFile } from "node:fs/promises";
+import { argv, env } from "node:process";
+
 type Options = {
   resource: string;
   migrationsDir: string;
@@ -6,8 +9,8 @@ type Options = {
 
 function parseArgs(args: string[]): Options {
   const options: Options = {
-    resource: Deno.env.get("TAKOS_D1_RESOURCE") ?? "yurucommu-db",
-    migrationsDir: Deno.env.get("MIGRATIONS_DIR") ?? "migrations",
+    resource: env.TAKOS_D1_RESOURCE ?? "yurucommu-db",
+    migrationsDir: env.MIGRATIONS_DIR ?? "migrations",
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -36,8 +39,8 @@ function parseArgs(args: string[]): Options {
 
 async function listMigrationFiles(migrationsDir: string): Promise<string[]> {
   const files: string[] = [];
-  for await (const entry of Deno.readDir(migrationsDir)) {
-    if (entry.isFile && entry.name.endsWith(".sql")) {
+  for (const entry of await readdir(migrationsDir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith(".sql")) {
       files.push(entry.name);
     }
   }
@@ -54,19 +57,18 @@ async function runTakosSql(
   args.push(options.resource, sql);
 
   console.log(`[takos:migrate] Applying ${file} to ${options.resource}`);
-  const child = new Deno.Command("takos", {
-    args,
+  const child = Bun.spawn(["takos", ...args], {
     stdout: "inherit",
     stderr: "inherit",
-  }).spawn();
-  const status = await child.status;
-  if (!status.success) {
+  });
+  const code = await child.exited;
+  if (code !== 0) {
     throw new Error(`Migration failed: ${file}`);
   }
 }
 
 async function main(): Promise<void> {
-  const options = parseArgs(Deno.args);
+  const options = parseArgs(argv.slice(2));
   const files = await listMigrationFiles(options.migrationsDir);
   if (files.length === 0) {
     throw new Error(`No .sql migrations found in ${options.migrationsDir}`);
@@ -74,7 +76,7 @@ async function main(): Promise<void> {
 
   for (const file of files) {
     const path = `${options.migrationsDir.replace(/\/+$/, "")}/${file}`;
-    const sql = await Deno.readTextFile(path);
+    const sql = await readFile(path, "utf8");
     await runTakosSql(options, file, sql);
   }
 }

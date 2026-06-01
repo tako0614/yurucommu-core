@@ -1,6 +1,6 @@
 import { test } from "bun:test";
 
-import { assertSpyCalls, spy } from "jsr:@std/testing/mock";
+import { assertSpyCalls, spy } from "#test/mock";
 import {
   handleDelete,
   handleLike,

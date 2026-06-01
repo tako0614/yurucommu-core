@@ -1,7 +1,8 @@
-import { assertEquals, assertRejects } from "jsr:@std/assert@1.0.19";
+import { assertEquals, assertRejects } from "#test/assert";
+import { test } from "bun:test";
 import { fetchWithTimeout } from "./fetch-with-timeout.ts";
 
-Deno.test("fetchWithTimeout - aborts pending requests after timeout", async () => {
+test("fetchWithTimeout - aborts pending requests after timeout", async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;
 

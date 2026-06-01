@@ -53,7 +53,7 @@ export interface EnvVars {
   DELIVERY_DLQ_NAME?: string;
   YURUCOMMU_STRICT_READINESS?: string;
   YURUCOMMU_ENABLE_LOCAL_SUBSTRATE_REMOTE_FETCHES?: string;
-  YURUCOMMU_ENABLE_DENO_DELIVERY_QUEUE?: string;
+  YURUCOMMU_ENABLE_LOCAL_DELIVERY_QUEUE?: string;
   // Software version advertised in NodeInfo (software.version). The build /
   // deploy pipeline should inject the real build version here; when unset the
   // app falls back to the YURUCOMMU_VERSION default constant.
@@ -78,12 +78,12 @@ export interface EnvVars {
  * Uses the runtime-neutral `I*` contracts. The Cloudflare worker entry
  * wraps the native `D1Database` / `R2Bucket` / `KVNamespace` / `Fetcher`
  * bindings with the adapters in `runtime/cloudflare.ts` before handing
- * the Env to Hono. The Node / Bun / Deno compatibility classes already
+   * the Env to Hono. The local runtime compatibility classes already
  * implement these contracts directly.
  *
  * `DB_INSTANCE` is the drizzle wrapper that the app calls; it is built
- * by each runtime entry point (Cloudflare `fetch` or `createDenoEnv` /
- * `createNodeEnv` / `createBunEnv`).
+   * by each runtime entry point (Cloudflare `fetch`, local server, or
+   * runtime-specific wrappers).
  */
 export type Env = {
   DB_INSTANCE: Database;

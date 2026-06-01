@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Hono } from "hono";
 
-import { assertSpyCalls, spy } from "jsr:@std/testing/mock";
+import { assertSpyCalls, spy } from "#test/mock";
 import inboxRoutes from "../../../routes/activitypub/inbox.ts";
 import { generateKeyPair, signRequest } from "../../../federation-helpers.ts";
 

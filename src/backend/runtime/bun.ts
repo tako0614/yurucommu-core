@@ -110,6 +110,10 @@ export class BunDatabase implements IDatabase {
     return new BunPreparedStatement(this.db, query);
   }
 
+  getRawDatabase(): unknown {
+    return this.db;
+  }
+
   async exec(query: string): Promise<void> {
     this.db.exec(query);
   }

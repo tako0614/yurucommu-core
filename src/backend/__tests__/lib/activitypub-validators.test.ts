@@ -4,7 +4,7 @@ import {
   assertInstanceOf,
   assertStrictEquals,
   assertThrows,
-} from "jsr:@std/assert";
+} from "#test/assert";
 import {
   ActivityPubContractError,
   parseActivity,

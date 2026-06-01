@@ -2,7 +2,7 @@
  * Structured Logger for Yurucommu
  *
  * Zero-dependency structured logging compatible with all runtimes
- * (Cloudflare Workers, Node.js, Bun, Deno).
+ * (Cloudflare Workers, Node.js, Bun).
  *
  * - JSON output in production for observability pipelines
  * - Human-readable output in development
@@ -97,9 +97,13 @@ function formatData(
 
 /** Detect whether we are likely running in a production environment. */
 function detectProduction(): boolean {
-  // Cloudflare Workers have no Deno/process – treat as production by default
-  if (typeof Deno === "undefined") return true;
-  const env = Deno.env.get("NODE_ENV") || "";
+  // Cloudflare Workers have no Node process; treat that path as production by
+  // default.
+  const processEnv = (globalThis as {
+    process?: { env?: Record<string, string | undefined> };
+  }).process?.env;
+  if (!processEnv) return true;
+  const env = processEnv.NODE_ENV || "";
   return env === "production";
 }
 

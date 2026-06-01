@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { assertEquals, assertRejects } from "jsr:@std/assert";
+import { assertEquals, assertRejects } from "#test/assert";
 import {
   assertSafeRemoteUrlResolved,
   isSafeRemoteUrl,

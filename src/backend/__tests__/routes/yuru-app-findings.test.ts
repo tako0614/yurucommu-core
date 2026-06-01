@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 /**
  * Regression tests for the YURU-APP findings fix wave:
  *
@@ -50,7 +51,7 @@ async function freshDb(): Promise<Database> {
   const client = createClient({ url: ":memory:" });
   const root = new URL("../../../../migrations/", import.meta.url);
   for (const file of MIGRATIONS) {
-    const sql = await Deno.readTextFile(new URL(file, root));
+    const sql = await readFile(new URL(file, root), "utf8");
     await client.executeMultiple(sql);
   }
   return drizzle(client, { schema }) as unknown as Database;

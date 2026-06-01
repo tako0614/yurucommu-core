@@ -104,17 +104,17 @@
         <p>
           Wranglerは、Cloudflare Workers/D1/R2を管理するためのCLIツールです。
         </p>
-        <pre><code>deno run -A npm:wrangler --version</code></pre>
+        <pre><code>bunx wrangler --version</code></pre>
 
         <h3>ログイン</h3>
-        <pre><code>deno run -A npm:wrangler login</code></pre>
+        <pre><code>bunx wrangler login</code></pre>
         <p>ブラウザが開くので、Cloudflareアカウントで認証します。</p>
 
         <h2>D1データベースの作成</h2>
         <p>D1はCloudflareのサーバーレスSQLiteデータベースです。</p>
 
         <h3>データベース作成</h3>
-        <pre><code>deno run -A npm:wrangler d1 create yurucommu-db</code></pre>
+        <pre><code>bunx wrangler d1 create yurucommu-db</code></pre>
 
         <p>出力例：</p>
         <pre><code>✅ Successfully created DB 'yurucommu-db'
@@ -134,10 +134,10 @@ migrations_dir = "migrations"</code></pre>
 
         <h3>マイグレーション実行</h3>
         <pre><code># ローカルDBでテスト
-deno run -A npm:wrangler d1 migrations apply yurucommu-db --local
+bunx wrangler d1 migrations apply yurucommu-db --local
 
 # 本番DBに適用
-deno run -A npm:wrangler d1 migrations apply yurucommu-db --remote</code></pre>
+bunx wrangler d1 migrations apply yurucommu-db --remote</code></pre>
 
         <h2>R2バケットの作成</h2>
         <p>
@@ -145,7 +145,7 @@ deno run -A npm:wrangler d1 migrations apply yurucommu-db --remote</code></pre>
         </p>
 
         <h3>バケット作成</h3>
-        <pre><code>deno run -A npm:wrangler r2 bucket create yurucommu-media</code></pre>
+        <pre><code>bunx wrangler r2 bucket create yurucommu-media</code></pre>
 
         <h3>wrangler.tomlへの設定</h3>
         <pre><code>[[r2_buckets]]
@@ -210,11 +210,11 @@ zone_name = "your-domain.com"</code></pre>
         <h2>トラブルシューティング</h2>
 
         <h3>「認証エラー」が出る場合</h3>
-        <pre><code>deno run -A npm:wrangler logout
-deno run -A npm:wrangler login</code></pre>
+        <pre><code>bunx wrangler logout
+bunx wrangler login</code></pre>
 
         <h3>D1のクエリを確認したい場合</h3>
-        <pre><code>deno run -A npm:wrangler d1 execute yurucommu-db --remote --command "SELECT * FROM actors LIMIT 5"</code></pre>
+        <pre><code>bunx wrangler d1 execute yurucommu-db --remote --command "SELECT * FROM actors LIMIT 5"</code></pre>
 
         <h3>R2の内容を確認したい場合</h3>
         <p>

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { stub } from "jsr:@std/testing/mock";
+import { stub } from "#test/mock";
 import type { Database } from "../../../../db/index.ts";
 import { planEndpointsFromActorCache } from "../../../lib/delivery/planner.ts";
 import { DELIVERY_ENDPOINT_CACHE_TTL_MS } from "../../../lib/delivery/transformers.ts";

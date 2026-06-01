@@ -1,4 +1,5 @@
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "#test/assert";
+import { test } from "bun:test";
 import { clearYurucommuFrontendPlugin } from "../plugin.ts";
 import type { Post } from "../../types/index.ts";
 import { createPost, fetchBookmarks } from "./posts.ts";
@@ -54,7 +55,7 @@ async function withMockFetch<T>(
   }
 }
 
-Deno.test("createPost reads the current wrapped post response", async () => {
+test("createPost reads the current wrapped post response", async () => {
   const post = makePost();
 
   const result = await withMockFetch(
@@ -65,7 +66,7 @@ Deno.test("createPost reads the current wrapped post response", async () => {
   assertEquals(result.ap_id, post.ap_id);
 });
 
-Deno.test("fetchBookmarks reads the current posts response", async () => {
+test("fetchBookmarks reads the current posts response", async () => {
   const post = makePost({ bookmarked: true });
 
   const result = await withMockFetch(

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Hono } from "hono";
 
-import { assertSpyCalls, spy } from "jsr:@std/testing/mock";
+import { assertSpyCalls, spy } from "#test/mock";
 import type { Env, Variables } from "../../types.ts";
 import followRoutes from "../../routes/follow.ts";
 import postRoutes from "../../routes/posts/routes.ts";

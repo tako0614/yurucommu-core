@@ -151,10 +151,10 @@
           </tbody>
         </table>
 
-        <h2>Denoサーバー</h2>
+        <h2>ローカルBunサーバー</h2>
         <p>
-          Cloudflare を使わずにローカルで起動する場合は <code>deno task
-            dev:deno</code> または <code>deno task start</code>
+          Cloudflare を使わずにローカルで起動する場合は <code>bun run
+            dev:server</code> または <code>bun run start</code>
           を使います。どちらも <code>src/backend/server.ts</code>
           を起動し、起動時に <code>MIGRATIONS_PATH</code> の SQL
           を自動適用します。
@@ -243,22 +243,22 @@
 APP_URL = "https://yurucommu.example.com"
 TAKOS_URL = "https://takos.example.com"
 
-# シークレットは deno run -A npm:wrangler secret put で設定
+# シークレットは bunx wrangler secret put で設定
 # AUTH_PASSWORD_HASH, ENCRYPTION_KEY などはコードに含めない</code></pre>
 
         <h2>シークレットの設定</h2>
         <p>
-          パスワードなどの機密情報は <code>deno run -A npm:wrangler secret
+          パスワードなどの機密情報は <code>bunx wrangler secret
             put</code> で設定します：
         </p>
         <pre><code># パスワードハッシュを設定
-deno run -A npm:wrangler secret put AUTH_PASSWORD_HASH
+bunx wrangler secret put AUTH_PASSWORD_HASH
 
 # 暗号化キーを設定
-deno run -A npm:wrangler secret put ENCRYPTION_KEY
+bunx wrangler secret put ENCRYPTION_KEY
 
 # Takos連携用シークレット
-deno run -A npm:wrangler secret put TAKOS_CLIENT_SECRET</code></pre>
+bunx wrangler secret put TAKOS_CLIENT_SECRET</code></pre>
 
         <h2>設定の補足</h2>
         <p>
@@ -272,7 +272,7 @@ deno run -A npm:wrangler secret put TAKOS_CLIENT_SECRET</code></pre>
 cat wrangler.toml
 
 # シークレットの一覧（値は表示されない）
-deno run -A npm:wrangler secret list</code></pre>
+bunx wrangler secret list</code></pre>
       </main>
     </div>
 

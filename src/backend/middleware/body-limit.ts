@@ -15,7 +15,7 @@ const log = logger.child({ component: "middleware.body_limit" });
  * - HEAD / GET / OPTIONS / DELETE without a body are skipped.
  * - The cap is bytes. `1 MiB = 1024 * 1024`.
  *
- * Missing `Content-Length` is allowed by default because Deno's `Request`
+ * Missing `Content-Length` is allowed by default because the Fetch `Request`
  * constructor does not auto-populate the header for string bodies in tests,
  * and many real callers omit it for chunked encoded uploads. A declared
  * `Content-Length` is NOT trusted as the only line of defense: when the
@@ -154,7 +154,7 @@ export function capRequestBodyStream(
     redirect: request.redirect,
     signal: request.signal,
     // @ts-expect-error duplex is a valid RequestInit field at runtime but is
-    // not yet in the lib.dom typings shipped with this Deno version.
+    // not yet in the lib.dom typings shipped with this TypeScript target.
     duplex: "half",
   });
 }

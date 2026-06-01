@@ -3,7 +3,7 @@
  *
  * Supports multiple runtimes:
  * - Cloudflare Workers: Uses Cache API
- * - Node.js/Bun/Deno: Uses in-memory LRU cache
+ * - Node.js/Bun: Uses in-memory LRU cache
  *
  * Features:
  * - TTL-based caching

@@ -1,5 +1,5 @@
-// Bun migration shim: @std/fmt/colors -> minimal ANSI implementation.
-// Honors NO_COLOR / TERM=dumb like @std/fmt/colors. Wired via tsconfig "paths".
+// Minimal ANSI color helpers for Bun.
+// Honors NO_COLOR / TERM=dumb.
 import process from "node:process";
 const noColor = typeof process !== "undefined" &&
   (process.env.NO_COLOR != null || process.env.TERM === "dumb");
@@ -53,7 +53,6 @@ export const bgCyan = code(46, 49);
 export const bgWhite = code(47, 49);
 
 export function stripAnsiCode(str: string): string {
-  // deno-lint-ignore no-control-regex
   return str.replace(/\x1b\[[0-9;]*m/g, "");
 }
 export const stripColor = stripAnsiCode;

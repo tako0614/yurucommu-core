@@ -9,7 +9,7 @@ import { expect, test } from "bun:test";
  * - Cloudflare bindings mocking
  */
 
-import { spy } from 'jsr:@std/testing/mock';
+import { spy } from "#test/mock";
 import { Hono } from 'hono';
 import {
   MockD1Database,

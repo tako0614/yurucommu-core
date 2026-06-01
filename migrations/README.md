@@ -29,7 +29,7 @@ file name (not the numeric version) in `_cf_migrations`.
 
    ```bash
    cd yurucommu
-   deno task start
+   bun run start
    ```
 
    Migrations run lazily on the first DB connect.

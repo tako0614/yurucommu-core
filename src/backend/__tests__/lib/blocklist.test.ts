@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { assert, assertEquals, assertRejects } from "jsr:@std/assert";
-import { spy } from "jsr:@std/testing/mock";
+import { assert, assertEquals, assertRejects } from "#test/assert";
+import { spy } from "#test/mock";
 
 import {
   isActorBlocked,

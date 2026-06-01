@@ -1,6 +1,5 @@
-// Bun migration shim: @std/fs (and @std/fs/walk) -> node:fs based implementation.
-// Wired via tsconfig.json "paths". Covers the @std/fs surface used across the
-// ecosystem: the `walk` async iterator plus a few common helpers.
+// Bun filesystem helpers backed by node:fs.
+// Covers the `walk` async iterator plus a few common helpers.
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
@@ -31,7 +30,7 @@ function toWalkEntry(p: string, st: fs.Stats | fs.Dirent): WalkEntry {
   return { path: p, name: path.basename(p), isFile, isDirectory, isSymlink };
 }
 
-/** Mirrors @std/fs `walk`: recursive async directory traversal. */
+/** Recursive async directory traversal. */
 export async function* walk(
   root: string | URL,
   options: WalkOptions = {},

@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { Hono } from "hono";
 
-import { assertSpyCalls, spy, stub } from "jsr:@std/testing/mock";
-import { FakeTime } from "jsr:@std/testing/time";
+import { assertSpyCalls, spy, stub } from "#test/mock";
+import { FakeTime } from "#test/time";
 import authRoutes from "../../routes/auth.ts";
 import { LOGIN_LOCKOUT_CONFIG } from "../../lib/auth-lockout.ts";
 import { hashPassword } from "../../lib/crypto.ts";

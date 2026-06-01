@@ -1,210 +1,37 @@
 # Yurucommu
 
-Yurucommu はセルフホスト型・一人用の ActivityPub プロダクトです。
+This page has been reset for Takosumi v1. Takosumi installs a **Source** (Git, prepared archive, or local source) and records an **Installation** plus append-only **Deployment** entries. Source display metadata comes from generic repository information such as Git URL, ref, commit, tag, and package metadata.
 
-自分のドメイン、自分のデータ、小さなコミュニティ単位のつながりを前提に設計されています。
-Takos では bundled 1st-party app (新規 space 作成時に auto-install される
-user-facing convenience) として扱われます。通常の Installation なので uninstall
-可能ですが、この repository は独立 product root として管理します。
+## Current Flow
 
-この repo 単体で、runtime model、ローカル開発、deploy
-の大枠が追える状態を保つことを目指します。
+1. Choose a Git URL/ref or a prepared source archive.
+2. Run install dry-run and review the returned InstallPlan, changes, warnings, and `planSnapshotDigest`.
+3. Apply with the reviewed expected guard. Git sources use `expected.commit` + `expected.planSnapshotDigest`; prepared sources use `expected.sourceDigest` + `expected.planSnapshotDigest`.
+4. Deployment dry-run/apply uses the same source guard plus `expected.currentDeploymentId` to prevent stale approvals.
+5. Provider materialization, credentials, OIDC clients, billing, domains, Terraform/OpenTofu/Helm state, and PlatformService inventory belong to the operator distribution.
 
-## 特徴
+## Takos Boundary
 
-- セルフホスト前提で、Cloudflare ベースの低コスト運用を目指す
-- ActivityPub 互換で、Mastodon や Misskey 系との相互接続を意識する
-- アルゴリズムよりも小さなコミュニティや趣味単位のつながりを重視する
+Takos owns product UI, chat, agent, memory, spaces, Git hosting, bundled app launcher metadata, file-handler metadata, and MCP-facing product metadata. Takosumi owns Source / Installation / Deployment records. Takosumi or another operator distribution owns account-plane policy and provider bindings.
 
-## 目指す方向
+## API Shape
 
-- recommendation feed より human-scale な関係性
-- mass-audience timeline より community-sized な場
-- identity、domain、data を自分で持てる self-hosted 性
-- ActivityPub による standards-based federation
-
-## 技術スタック
-
-- Runtime: Cloudflare Workers
-- Database: Cloudflare D1
-- Storage: Cloudflare R2
-- Backend: Hono
-- Web UI: SolidJS + Vite
-- Protocol: ActivityPub
-
-## Repository Map
-
-- `src/backend`: Hono route、middleware、runtime code、backend test
-- `src/db`: schema と database 関連コード
-- `src/plugin`: 再利用可能な plugin surface
-- `src/runtime`: runtime helper
-- `web/`: Vite ベースの web UI
-- `site/`: プロジェクトサイト用の静的ファイル
-- `migrations/`: database migration
-- `wrangler.toml`、`wrangler.tenant2.toml`、`wrangler.local.toml`、`wrangler.site.toml`:
-  deploy / environment 別設定
-
-## Quickstart
-
-```bash
-cd yurucommu
-bun run dev
+```json
+{
+  "spaceId": "space_1",
+  "source": {
+    "kind": "git",
+    "url": "https://github.com/example/app.git",
+    "ref": "main"
+  }
+}
 ```
 
-これは `wrangler.local.toml` を使った Cloudflare Worker
-前提のローカル開発フローを起動します。
+Apply requests add the expected guard returned by dry-run. Takos product routes should call the Takosumi installer or Takosumi account-plane install flow instead of exposing a separate deployment proxy.
 
-web UI の開発:
+## References
 
-```bash
-cd yurucommu
-bun run dev:web
-```
-
-テスト・lint:
-
-```bash
-cd yurucommu
-bun test
-bun run check
-```
-
-database helper:
-
-```bash
-cd yurucommu
-bun run db:generate
-bun run db:push
-bun run db:studio
-```
-
-## Deploy
-
-Takosumi Cloud から install する場合:
-
-```text
-https://cloud.takosumi.com/apps/install?git=https://github.com/tako0614/yurucommu.git&ref=main&mode=shared-cell&autodryrun=1
-```
-
-ローカル substrate では同じ link が `cloud.takosumi.test`
-に書き換わります。Cloud install wizard が dry-run と apply を行い、Installation
-が ready になったら、起動先は Takosumi が activate した public HTTP endpoint
-です。yurucommu はその endpoint 上で Takosumi Accounts OIDC sign-in
-を行います。Takos product 用の `/_takosumi/launch` token bootstrap は yurucommu
-の起動 path ではありません。
-
-自前 Cloudflare 環境へ直接 deploy する場合:
-
-```bash
-cd yurucommu
-bun run deploy
-```
-
-Takos 向け bundle:
-
-```bash
-cd yurucommu
-bun run build:worker
-```
-
-Takos bundled app packaging は `.takosumi.yml` AppSpec にあります。
-
-`.takosumi.yml` は operator-resolved worker component の `spec.entrypoint`
-として prepared source 内の `dist/worker.js` を指し、worker が `web.http` を
-publish し、gateway component が public listener / route intent
-を宣言します。build command は `.takosumi.build.yml` にあり、
-`bun run build:worker` で `dist/worker.js` を生成します。`/healthz` は
-liveness probe で、binding 欠落がある場合も通常は `degraded` を 200
-で返します。runtime binding の strict 確認には `/readyz` を 使います。
-`YURUCOMMU_STRICT_READINESS=1` を設定すると `/healthz` も binding 欠落時に 503
-を返します。
-
-ただし canonical ActivityPub identity を固定する production では `APP_URL` を
-deploy env で明示してください。`.takosumi.yml` は postgres component の
-`db.connection`、object-store component の `media.bucket`、kv-store component の
-`kv.store`、message-queue component の `delivery-queue.producer` /
-`delivery-dlq.producer` を `connect` し、worker はそれらと
-`identity.primary.oidc` platform service を受け取ります。KV / delivery queue
-bindings は AppSpec component として宣言されるため、install/deploy path が
-kernel 経由で provision します。残る operator-supplied secret は
-`ENCRYPTION_KEY` のみで、catalog に bare secret 用の component kind が無いため
-deploy config の `[vars]` / secret で供給してください。
-
-Takosumi install/deploy の目安。Git URL dry-run は AppSpec metadata と connect /
-listen wiring の確認に使えます。`dist/worker.js` は Git source に含めず
-`.takosumi.build.yml` で生成するため、apply では build service / CI が作った
-prepared source を渡します。local `--source .` は build 後に `dist/worker.js`
-が存在する場合だけ使います。
-
-```bash
-cd yurucommu
-
-# 1. AppSpec metadata / components / connect-listen wiring を検証する
-takosumi install dry-run --source git:https://github.com/tako0614/yurucommu.git#<pinned-tag> --space <space-id>
-
-# 2. build service / CI と同じ worker artifact を生成する
-bun run build:worker
-
-# 3. Takosumi が provision した database に migration を適用する
-bun run takos:migrate
-
-# 4. strict readiness を確認し、必要なら Takosumi Cloud install wizard から再 apply する
-bun run check
-```
-
-queue 名を変えた環境では `DELIVERY_QUEUE_NAME` / `DELIVERY_DLQ_NAME` を worker
-env に設定してください。未設定時は `yurucommu-delivery` /
-`yurucommu-delivery-dlq` を consumer queue 名として扱います。
-
-ローカル checkout の AppSpec shape だけを確認する場合:
-
-```bash
-cd yurucommu
-takosumi install dry-run --source . --space <space-id>
-```
-
-`.takosumi.yml` は Installer API に渡す AppSpec です。operator-resolved worker
-component、gateway component、postgres component、media object-store
-component、worker の `http` output、gateway の listener / route intent、OIDC /
-database / media の connect / listen wiring を宣言します。permissions、build
-command、provider metadata は AppSpec に含めません。
-
-静的サイト:
-
-```bash
-cd yurucommu
-bunx wrangler deploy --config wrangler.site.toml
-```
-
-### デプロイ設定の例 (example operator deployment 値)
-
-リポジトリに同梱されている `wrangler*.toml` は **example operator deployment**
-の値を含みます。 hostname は operator-deployment choice であり、yurucommu 自体の
-identity ではありません (`docs/reference/design-principles.md` §0.6, §7 参照)。
-自分のデプロイでは以下の値を実際の hostname / tenant に置き換えてから deploy
-してください。
-
-- `wrangler.toml`: 本体 Worker 設定 (`APP_URL`、`[[routes]].pattern`、Takos
-  連携を使う場合は `TAKOS_URL` を canonical hostname に合わせる)
-- `wrangler.tenant2.toml`: 別 tenant 向けの設定例
-- `.env.example` の `APP_URL` は self-host 用の例であり、checked-in
-  `wrangler*.toml` の値とは独立して上書きしてください
-
-## 設定メモ
-
-- ローカル設定は `.env.example` を起点にする
-- tracked config は OSS に安全な値だけを置き、secret や本番専用 ID は commit
-  しない
-- public behavior を変えたら、コードと一緒に `README.md` や example も更新する
-
-## ドキュメント方針
-
-現状の Yurucommu は、README と in-repo config example を public entrypoint
-の中心にしています。今後 docs を増やしても、この README は短い overview と
-navigation の役割を維持します。
-
-## ライセンスと貢献
-
-ライセンスは GNU AGPL v3 です。詳細は `LICENSE` を参照してください。
-
-貢献方針は `CONTRIBUTING.md`、脆弱性報告は `SECURITY.md` を参照してください。
+- [Deploy overview](/deploy/)
+- [Install paths](/apps/install-paths)
+- [Takosumi core specification](https://takosumi.com/docs/reference/core-spec)
+- [Takosumi installer API](https://takosumi.com/docs/reference/installer-api)

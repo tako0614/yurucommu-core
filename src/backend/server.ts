@@ -1,10 +1,10 @@
 /**
- * Deno Server Entry Point (unified)
+ * Bun Server Entry Point (unified)
  *
- * This file starts the yurucommu backend on Deno.
+ * This file starts the yurucommu backend on Bun.
  *
  * Usage:
- *   deno run --allow-net --allow-read --allow-write --allow-env src/backend/server.ts
+ *   bun src/backend/server.ts
  *
  * Environment variables:
  *   PORT             - Server port (default: 3000)
@@ -20,7 +20,9 @@
  */
 
 import type { Message, MessageBatch, Queue } from "@cloudflare/workers-types";
-import { DenoAssets, DenoDatabase, DenoStorage } from "./runtime/deno.ts";
+import { mkdir, readdir, readFile, stat } from "node:fs/promises";
+import process from "node:process";
+import { BunAssets, BunDatabase, BunStorage } from "./runtime/bun.ts";
 import { MemoryKV } from "./runtime/memory-kv.ts";
 import type { Env } from "./types.ts";
 import type {
@@ -33,39 +35,39 @@ import { logger } from "./lib/logger.ts";
 const log = logger.child({ component: "server.bootstrap" });
 
 // ---------------------------------------------------------------------------
-// Deno sqlite3 type definitions (subset of https://deno.land/x/sqlite3 API)
+// sqlite3 type definitions used by the local database adapter
 // ---------------------------------------------------------------------------
 
-/** Minimal interface for a Deno sqlite3 prepared statement. */
-interface DenoSqlite3Statement {
+/** Minimal interface for a sqlite3 prepared statement. */
+interface LocalSqlite3Statement {
   get(...params: unknown[]): Record<string, unknown> | undefined;
   all(...params: unknown[]): Record<string, unknown>[];
   run(...params: unknown[]): void;
-  finalize(): void;
+  finalize?(): void;
 }
 
-/** Minimal interface for a Deno sqlite3 Database (https://deno.land/x/sqlite3). */
-interface DenoSqlite3Database {
+/** Minimal interface for a sqlite3 database. */
+interface LocalSqlite3Database {
   exec(sql: string): void;
-  prepare(sql: string): DenoSqlite3Statement;
+  prepare(sql: string): LocalSqlite3Statement;
   transaction<T>(fn: () => T): () => T;
   changes: number;
   lastInsertRowId: number;
 }
 
 // ---------------------------------------------------------------------------
-// Deno env helpers
+// Runtime env helpers
 // ---------------------------------------------------------------------------
 
-const PORT = parseInt(Deno.env.get("PORT") ?? "3000", 10);
-const DATABASE_PATH = Deno.env.get("DATABASE_PATH") ?? "./data/yurucommu.db";
-const STORAGE_PATH = Deno.env.get("STORAGE_PATH") ?? "./data/storage";
-const ASSETS_PATH = Deno.env.get("ASSETS_PATH") ?? "./dist";
-const MIGRATIONS_PATH = Deno.env.get("MIGRATIONS_PATH") ?? "./migrations";
-const APP_URL = Deno.env.get("APP_URL") ?? `http://localhost:${PORT}`;
+const PORT = parseInt(process.env.PORT ?? "3000", 10);
+const DATABASE_PATH = process.env.DATABASE_PATH ?? "./data/yurucommu.db";
+const STORAGE_PATH = process.env.STORAGE_PATH ?? "./data/storage";
+const ASSETS_PATH = process.env.ASSETS_PATH ?? "./dist";
+const MIGRATIONS_PATH = process.env.MIGRATIONS_PATH ?? "./migrations";
+const APP_URL = process.env.APP_URL ?? `http://localhost:${PORT}`;
 
 // ---------------------------------------------------------------------------
-// Create Cloudflare-compatible environment from Deno
+// Create Cloudflare-compatible environment from the local runtime
 // ---------------------------------------------------------------------------
 
 const ENV_PASSTHROUGH_KEYS = [
@@ -91,7 +93,7 @@ const ENV_PASSTHROUGH_KEYS = [
   "DELIVERY_QUEUE_NAME",
   "DELIVERY_DLQ_NAME",
   "YURUCOMMU_ENABLE_LOCAL_SUBSTRATE_REMOTE_FETCHES",
-  "YURUCOMMU_ENABLE_DENO_DELIVERY_QUEUE",
+  "YURUCOMMU_ENABLE_LOCAL_DELIVERY_QUEUE",
 ] as const;
 
 function isTruthyEnv(value: string | undefined): boolean {
@@ -146,7 +148,7 @@ function createLocalMessageBatch<T extends LocalQueueBody>(
 }
 
 function createLocalQueue<T extends LocalQueueBody>(
-  env: DenoEnv,
+  env: LocalServerEnv,
   queueName: string,
 ): Queue<T> {
   const pending: T[] = [];
@@ -175,7 +177,7 @@ function createLocalQueue<T extends LocalQueueBody>(
         );
       }
     } catch (error) {
-      log.error("Local Deno delivery queue drain failed", {
+      log.error("Local delivery queue drain failed", {
         event: "server.local_delivery_queue.drain_failed",
         queueName,
         error,
@@ -207,7 +209,7 @@ function createLocalQueue<T extends LocalQueueBody>(
   } as unknown as Queue<T>;
 }
 
-function attachLocalDeliveryQueues(env: DenoEnv): void {
+function attachLocalDeliveryQueues(env: LocalServerEnv): void {
   const deliveryQueueName = env.DELIVERY_QUEUE_NAME ?? "yurucommu-delivery";
   const deliveryDlqName = env.DELIVERY_DLQ_NAME ?? "yurucommu-delivery-dlq";
   env.DELIVERY_QUEUE = createLocalQueue<DeliveryQueueMessageV1>(
@@ -218,31 +220,31 @@ function attachLocalDeliveryQueues(env: DenoEnv): void {
     env,
     deliveryDlqName,
   );
-  log.info("Enabled local Deno delivery queue bindings", {
+  log.info("Enabled local delivery queue bindings", {
     event: "server.local_delivery_queue.enabled",
     deliveryQueueName,
     deliveryDlqName,
   });
 }
 
-async function createDenoEnv(config: {
+async function createLocalServerEnv(config: {
   databasePath: string;
   storagePath: string;
   assetsPath: string;
   appUrl: string;
-}): Promise<{ env: DenoEnv; rawDb: DenoDatabase }> {
-  const db = await DenoDatabase.create(config.databasePath);
+}): Promise<{ env: LocalServerEnv; rawDb: BunDatabase }> {
+  const db = BunDatabase.create(config.databasePath);
   const kv = new MemoryKV();
-  const assets = DenoAssets.create(config.assetsPath);
-  const media = await DenoStorage.create(config.storagePath);
+  const assets = BunAssets.create(config.assetsPath);
+  const media = await BunStorage.create(config.storagePath);
 
   const passthrough: Record<string, string | undefined> = {};
   for (const key of ENV_PASSTHROUGH_KEYS) {
-    passthrough[key] = Deno.env.get(key);
+    passthrough[key] = process.env[key];
   }
 
   const dbInstance = await getDbSQLite(config.databasePath);
-  const env: DenoEnv = {
+  const env: LocalServerEnv = {
     DB_INSTANCE: dbInstance,
     MEDIA: media,
     KV: kv,
@@ -251,14 +253,14 @@ async function createDenoEnv(config: {
     ...passthrough,
   };
 
-  if (isTruthyEnv(Deno.env.get("YURUCOMMU_ENABLE_DENO_DELIVERY_QUEUE"))) {
+  if (isTruthyEnv(process.env.YURUCOMMU_ENABLE_LOCAL_DELIVERY_QUEUE)) {
     attachLocalDeliveryQueues(env);
   }
 
   return { env, rawDb: db };
 }
 
-type DenoEnv =
+type LocalServerEnv =
   & Pick<
     Env,
     | "DB_INSTANCE"
@@ -276,18 +278,18 @@ type DenoEnv =
 // ---------------------------------------------------------------------------
 
 export async function runMigrations(
-  db: DenoDatabase,
+  db: BunDatabase,
   migrationsDir: string,
 ): Promise<void> {
   const entries: string[] = [];
-  for await (const entry of Deno.readDir(migrationsDir)) {
-    if (entry.isFile && entry.name.endsWith(".sql")) {
+  for (const entry of await readdir(migrationsDir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith(".sql")) {
       entries.push(entry.name);
     }
   }
   entries.sort();
 
-  const rawDb = db.getRawDatabase() as DenoSqlite3Database;
+  const rawDb = db.getRawDatabase() as LocalSqlite3Database;
 
   rawDb.exec(`
     CREATE TABLE IF NOT EXISTS _cf_migrations (
@@ -302,7 +304,7 @@ export async function runMigrations(
   try {
     applied = appliedStmt.all() as Array<{ name: string }>;
   } finally {
-    appliedStmt.finalize();
+    appliedStmt.finalize?.();
   }
   const appliedSet = new Set(applied.map((r) => r.name));
 
@@ -319,7 +321,7 @@ export async function runMigrations(
       event: "server.migration.applying",
       migration: file,
     });
-    const sql = await Deno.readTextFile(`${migrationsDir}/${file}`);
+    const sql = await readFile(`${migrationsDir}/${file}`, "utf8");
 
     try {
       rawDb.exec(sql);
@@ -338,7 +340,7 @@ export async function runMigrations(
     try {
       markAppliedStmt.run(file);
     } finally {
-      markAppliedStmt.finalize();
+      markAppliedStmt.finalize?.();
     }
     log.info("Migration applied successfully", {
       event: "server.migration.applied",
@@ -352,18 +354,18 @@ export async function runMigrations(
 // ---------------------------------------------------------------------------
 
 async function main() {
-  log.info("Starting Yurucommu server (Deno mode)", {
+  log.info("Starting Yurucommu server (Bun mode)", {
     event: "server.bootstrap.start",
-    mode: "deno",
+    mode: "bun",
   });
 
   // Ensure data directory exists
   const dataDir = DATABASE_PATH.substring(0, DATABASE_PATH.lastIndexOf("/"));
   try {
-    await Deno.mkdir(dataDir, { recursive: true });
+    await mkdir(dataDir, { recursive: true });
   } catch { /* ignore if exists */ }
 
-  const { env, rawDb } = await createDenoEnv({
+  const { env, rawDb } = await createLocalServerEnv({
     databasePath: DATABASE_PATH,
     storagePath: STORAGE_PATH,
     assetsPath: ASSETS_PATH,
@@ -372,9 +374,9 @@ async function main() {
 
   // Run migrations
   try {
-    await Deno.stat(MIGRATIONS_PATH);
+    await stat(MIGRATIONS_PATH);
   } catch (error) {
-    if (!(error instanceof Deno.errors.NotFound)) {
+    if (!isNotFoundError(error)) {
       throw error;
     }
     log.info("No migrations directory found, skipping migrations", {
@@ -395,7 +397,7 @@ async function main() {
   await startServer(env);
 }
 
-async function startServer(env: DenoEnv) {
+async function startServer(env: LocalServerEnv) {
   log.info("Server starting", {
     event: "server.bootstrap.starting",
     port: PORT,
@@ -407,7 +409,7 @@ async function startServer(env: DenoEnv) {
 
   const { backendApp } = await import("./index.ts");
 
-  Deno.serve({ port: PORT }, (request: Request) => {
+  bunLike().serve({ port: PORT, fetch: (request: Request) => {
     const ctx: ExecutionContext = {
       waitUntil: (promise: Promise<unknown>) => {
         promise.catch((error) => {
@@ -421,7 +423,7 @@ async function startServer(env: DenoEnv) {
       props: {},
     };
     return backendApp.fetch(request, env, ctx);
-  });
+  } });
 
   log.info("Server is running", {
     event: "server.bootstrap.running",
@@ -436,6 +438,25 @@ if (import.meta.main) {
       event: "server.bootstrap.failed",
       error,
     });
-    Deno.exit(1);
+    process.exit(1);
   });
+}
+
+type BunLike = {
+  serve(options: {
+    port: number;
+    fetch: (request: Request) => Response | Promise<Response>;
+  }): unknown;
+};
+
+function bunLike(): BunLike {
+  const bun = (globalThis as { Bun?: BunLike }).Bun;
+  if (!bun) throw new Error("Bun runtime is required to start yurucommu");
+  return bun;
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return typeof error === "object" && error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "ENOENT";
 }

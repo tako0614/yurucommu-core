@@ -578,7 +578,7 @@
         <a href="/help/" class="header-link">Docs</a>
         <a href="/specs/" class="header-link">Specs</a>
       </div>
-      <a href="https://cloud.takosumi.com/apps/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autodryrun=1" class="header-cta" rel="noopener">
+      <a href="https://accounts.takosumi.com/apps/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autodryrun=1" class="header-cta" rel="noopener">
         Cloud で install
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M5 12h14M13 6l6 6-6 6"/>
@@ -897,11 +897,11 @@
       <h2 class="cta-title">自分だけのSNSを始めよう</h2>
       <p class="cta-description">
         アルゴリズムに支配されない、本当の繋がりを。<br>
-        Takosumi Cloud から 1-click で install するか、 自前 substrate に直接 deploy。
+        Takosumi から 1-click で install するか、 自前 substrate に直接 deploy。
       </p>
       <div class="cta-buttons">
-        <a href="https://cloud.takosumi.com/apps/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autodryrun=1" class="btn-primary" rel="noopener">
-          Takosumi Cloud で install
+        <a href="https://accounts.takosumi.com/apps/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autodryrun=1" class="btn-primary" rel="noopener">
+          Takosumi で install
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M5 12h14M13 6l6 6-6 6"/>
           </svg>
@@ -963,12 +963,12 @@
     });
 
     // When this landing page is served from a local-substrate test domain
-    // (any *.test hostname or localhost), rewrite cloud.takosumi.com links
-    // to cloud.takosumi.test so the install button reaches the local cloud
+    // (any *.test hostname or localhost), rewrite accounts.takosumi.com links
+    // to accounts.takosumi.test so the install button reaches the local cloud
     // mirror instead of leaving the test environment.
     if (location.hostname.endsWith('.test') || location.hostname === 'localhost') {
-      document.querySelectorAll('a[href*="cloud.takosumi.com"]').forEach(a => {
-        a.href = a.href.replace('cloud.takosumi.com', 'cloud.takosumi.test');
+      document.querySelectorAll('a[href*="accounts.takosumi.com"]').forEach(a => {
+        a.href = a.href.replace('accounts.takosumi.com', 'accounts.takosumi.test');
       });
     }
   </script>

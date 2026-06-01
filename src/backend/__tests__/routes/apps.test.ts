@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { stub } from "jsr:@std/testing/mock";
+import { stub } from "#test/mock";
 import { createYurucommuBackendApp } from "../../index.ts";
 
 class MemoryR2ObjectBody {

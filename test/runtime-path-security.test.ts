@@ -1,12 +1,14 @@
 import { expect, test } from "bun:test";
-import { assertEquals, assertRejects, assertThrows } from "jsr:@std/assert";
+import { assertRejects, assertThrows } from "#test/assert";
+import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { DenoAssets, DenoStorage } from "../src/backend/runtime/deno.ts";
+import { BunAssets, BunStorage } from "../src/backend/runtime/bun.ts";
 import { resolvePathWithinBasePath } from "../src/backend/runtime/shared.ts";
 
 async function pathExists(filePath: string): Promise<boolean> {
   try {
-    await Deno.stat(filePath);
+    await stat(filePath);
     return true;
   } catch {
     return false;
@@ -14,11 +16,11 @@ async function pathExists(filePath: string): Promise<boolean> {
 }
 
 async function symlinkDirectory(target: string, link: string): Promise<void> {
-  await Deno.symlink(target, link, { type: "dir" });
+  await symlink(target, link, "dir");
 }
 
 test("resolvePathWithinBasePath rejects traversal and absolute paths", () => {
-  const basePath = path.resolve(Deno.cwd(), "takos-path-security");
+  const basePath = path.resolve(process.cwd(), "takos-path-security");
 
   expect(resolvePathWithinBasePath(basePath, "nested/file.txt")).toEqual(path.resolve(basePath, "nested/file.txt"));
   assertThrows(() => resolvePathWithinBasePath(basePath, "../escape.txt"));
@@ -26,19 +28,19 @@ test("resolvePathWithinBasePath rejects traversal and absolute paths", () => {
   assertThrows(() => resolvePathWithinBasePath(basePath, "nested\0file.txt"));
 });
 
-test("DenoStorage blocks symlink escapes", async () => {
-  const root = await Deno.makeTempDir();
+test("BunStorage blocks symlink escapes", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "yurucommu-path-"));
   const storagePath = path.join(root, "storage");
   const outsidePath = path.join(root, "outside");
   const linkPath = path.join(storagePath, "link");
 
   try {
-    await Deno.mkdir(storagePath, { recursive: true });
-    await Deno.mkdir(outsidePath, { recursive: true });
-    await Deno.writeTextFile(path.join(outsidePath, "keep.txt"), "keep");
+    await mkdir(storagePath, { recursive: true });
+    await mkdir(outsidePath, { recursive: true });
+    await writeFile(path.join(outsidePath, "keep.txt"), "keep");
     await symlinkDirectory(outsidePath, linkPath);
 
-    const storage = await DenoStorage.create(storagePath);
+    const storage = await BunStorage.create(storagePath);
     await assertRejects(() => storage.put("link/evil.txt", "payload"));
     expect(await pathExists(path.join(outsidePath, "evil.txt"))).toEqual(false);
     expect(await storage.get("link/evil.txt")).toEqual(null);
@@ -52,25 +54,25 @@ test("DenoStorage blocks symlink escapes", async () => {
     );
     expect(listedKeys.includes("link")).toEqual(false);
   } finally {
-    await Deno.remove(root, { recursive: true });
+    await rm(root, { recursive: true, force: true });
   }
 });
 
-test("DenoAssets blocks symlink escapes and still serves normal files", async () => {
-  const root = await Deno.makeTempDir();
+test("BunAssets blocks symlink escapes and still serves normal files", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "yurucommu-assets-"));
   const assetsPath = path.join(root, "assets");
   const outsidePath = path.join(root, "outside");
   const linkPath = path.join(assetsPath, "link");
 
   try {
-    await Deno.mkdir(assetsPath, { recursive: true });
-    await Deno.mkdir(outsidePath, { recursive: true });
-    await Deno.writeTextFile(path.join(assetsPath, "index.html"), "home");
-    await Deno.writeTextFile(path.join(assetsPath, "app.txt"), "ok");
-    await Deno.writeTextFile(path.join(outsidePath, "secret.txt"), "secret");
+    await mkdir(assetsPath, { recursive: true });
+    await mkdir(outsidePath, { recursive: true });
+    await writeFile(path.join(assetsPath, "index.html"), "home");
+    await writeFile(path.join(assetsPath, "app.txt"), "ok");
+    await writeFile(path.join(outsidePath, "secret.txt"), "secret");
     await symlinkDirectory(outsidePath, linkPath);
 
-    const assets = DenoAssets.create(assetsPath);
+    const assets = BunAssets.create(assetsPath);
     const okResponse = await assets.fetch(
       new Request("https://example.test/app.txt"),
     );
@@ -82,6 +84,6 @@ test("DenoAssets blocks symlink escapes and still serves normal files", async ()
     );
     expect(forbiddenResponse.status).toEqual(403);
   } finally {
-    await Deno.remove(root, { recursive: true });
+    await rm(root, { recursive: true, force: true });
   }
 });

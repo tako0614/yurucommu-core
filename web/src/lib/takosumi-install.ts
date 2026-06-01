@@ -1,10 +1,10 @@
-export function yurucommuTakosumiCloudInstallUrl(
+export function yurucommuTakosumiInstallUrl(
   hostname = browserHostname(),
 ): string {
-  const cloudHost = isLocalSubstrateHostname(hostname)
-    ? "cloud.takosumi.test"
-    : "cloud.takosumi.com";
-  const url = new URL(`https://${cloudHost}/apps/install`);
+  const installHost = isLocalSubstrateHostname(hostname)
+    ? "accounts.takosumi.test"
+    : "accounts.takosumi.com";
+  const url = new URL(`https://${installHost}/apps/install`);
   url.searchParams.set("git", "https://github.com/tako0614/yurucommu.git");
   url.searchParams.set("ref", "main");
   url.searchParams.set("mode", "shared-cell");

@@ -1,7 +1,5 @@
-// Bun migration shim: @std/yaml -> the npm `yaml` package.
-// Lets Deno source keep `import { parse, stringify } from "@std/yaml"` while
-// running under bun, wired via tsconfig.json "paths". @std/yaml's parse/stringify
-// surface maps onto the `yaml` package's parse/stringify with compatible defaults.
+// Bun YAML helpers backed by the npm `yaml` package.
+// parse/stringify map onto the package's compatible defaults.
 import { parse as yamlParse, stringify as yamlStringify } from "yaml";
 
 export interface ParseOptions {
@@ -16,12 +14,12 @@ export interface StringifyOptions {
   sortKeys?: boolean | ((a: string, b: string) => number);
 }
 
-/** Parse a single YAML document. Mirrors @std/yaml `parse`. */
+/** Parse a single YAML document. */
 export function parse(content: string, _options?: ParseOptions): unknown {
   return yamlParse(content);
 }
 
-/** Parse a multi-document YAML stream. Mirrors @std/yaml `parseAll`. */
+/** Parse a multi-document YAML stream. */
 export function parseAll(content: string, _options?: ParseOptions): unknown[] {
   // `yaml` exposes parseAllDocuments via the document API; emulate with a split
   // on the document separator and per-doc parse to keep a dependency-light shim.
@@ -40,7 +38,7 @@ export function parseAll(content: string, _options?: ParseOptions): unknown[] {
   return docs;
 }
 
-/** Serialize a value to a YAML document. Mirrors @std/yaml `stringify`. */
+/** Serialize a value to a YAML document. */
 export function stringify(data: unknown, options?: StringifyOptions): string {
   return yamlStringify(data, {
     indent: options?.indent,

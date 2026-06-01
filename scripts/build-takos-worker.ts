@@ -1,4 +1,6 @@
 import { build, stop } from "esbuild";
+import { readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 type StaticAsset = {
   contentType: string;
@@ -43,22 +45,22 @@ async function collectAssets(
   assets: Record<string, StaticAsset>,
   prefix = "",
 ): Promise<void> {
-  for await (const entry of Deno.readDir(dir)) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
     const relativePath = `${prefix}${entry.name}`;
     const url = new URL(entry.name, dir);
-    if (entry.isDirectory) {
+    if (entry.isDirectory()) {
       await collectAssets(new URL(`${entry.name}/`, dir), assets, `${relativePath}/`);
       continue;
     }
     if (
-      !entry.isFile ||
+      !entry.isFile() ||
       relativePath === "takos-worker.js" ||
       relativePath === "takos-entry.generated.ts"
     ) {
       continue;
     }
 
-    const bytes = await Deno.readFile(url);
+    const bytes = await readFile(url);
     assets[relativePath] = {
       contentType: contentTypeFor(relativePath),
       body: bytesToBase64(bytes),
@@ -67,15 +69,13 @@ async function collectAssets(
 }
 
 async function run(command: string[], cwd: URL): Promise<void> {
-  const [cmd, ...args] = command;
-  const child = new Deno.Command(cmd, {
-    args,
-    cwd,
+  const child = Bun.spawn(command, {
+    cwd: fileURLToPath(cwd),
     stdout: "inherit",
     stderr: "inherit",
-  }).spawn();
-  const status = await child.status;
-  if (!status.success) {
+  });
+  const code = await child.exited;
+  if (code !== 0) {
     throw new Error(`Command failed: ${command.join(" ")}`);
   }
 }
@@ -186,13 +186,13 @@ export default {
 
 async function main(): Promise<void> {
   await run(
-    ["deno", "run", "-A", "npm:vite", "build", "--config", "web/vite.config.ts"],
+    ["bunx", "vite", "build", "--config", "web/vite.config.ts"],
     new URL("../", import.meta.url),
   );
 
   const assets: Record<string, StaticAsset> = {};
   await collectAssets(distDir, assets);
-  await Deno.writeTextFile(tempEntryFile, createEntrySource(assets));
+  await writeFile(tempEntryFile, createEntrySource(assets));
 
   try {
     await build({
@@ -207,7 +207,7 @@ async function main(): Promise<void> {
     });
   } finally {
     stop();
-    await Deno.remove(tempEntryFile).catch(() => undefined);
+    await rm(tempEntryFile).catch(() => undefined);
   }
 }
 

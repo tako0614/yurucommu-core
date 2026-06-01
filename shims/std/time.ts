@@ -1,11 +1,9 @@
-// Bun migration shim: @std/testing/time -> self-contained FakeTime.
+// Bun test time helpers with a self-contained FakeTime.
 //
-// Deno std's FakeTime installs a controllable virtual clock: it freezes
-// Date.now()/new Date(), and queues timers so the test can advance time
-// deterministically via tick()/tickAsync(). bun:test does not expose an
-// @std-compatible FakeTime, so this provides the subset used by yurucommu
-// tests: `new FakeTime(now?)`, `.now`, `.tick(ms)`, `.tickAsync(ms)`,
-// `.restore()`. Wired via tsconfig.json "paths".
+// FakeTime installs a controllable virtual clock: it freezes Date.now()/
+// new Date(), and queues timers so tests can advance time deterministically via
+// tick()/tickAsync(). This provides the subset used by yurucommu tests:
+// `new FakeTime(now?)`, `.now`, `.tick(ms)`, `.tickAsync(ms)`, `.restore()`.
 
 type TimerCallback = (...args: unknown[]) => void;
 
@@ -63,32 +61,26 @@ export class FakeTime {
       if (args.length === 0) {
         return new RealDate(now());
       }
-      // deno-lint-ignore no-explicit-any
       return new (RealDate as any)(...args);
     } as unknown as DateConstructor;
     (FakeDateCtor as { prototype: Date }).prototype = RealDate.prototype;
     FakeDateCtor.now = () => now();
     FakeDateCtor.parse = RealDate.parse;
     FakeDateCtor.UTC = RealDate.UTC;
-    // deno-lint-ignore no-explicit-any
     (globalThis as any).Date = FakeDateCtor;
 
     // Patch timers to the virtual queue.
-    // deno-lint-ignore no-explicit-any
     (globalThis as any).setTimeout = (
       cb: TimerCallback,
       ms = 0,
       ...a: unknown[]
     ) => this.#schedule(cb, ms, null, a);
-    // deno-lint-ignore no-explicit-any
     (globalThis as any).setInterval = (
       cb: TimerCallback,
       ms = 0,
       ...a: unknown[]
     ) => this.#schedule(cb, ms, ms, a);
-    // deno-lint-ignore no-explicit-any
     (globalThis as any).clearTimeout = (id?: number) => this.#cancel(id);
-    // deno-lint-ignore no-explicit-any
     (globalThis as any).clearInterval = (id?: number) => this.#cancel(id);
 
     // Record as the active (installed) fake clock so a forgotten/late restore
@@ -176,15 +168,10 @@ export class FakeTime {
     this.#restored = true;
     if (activeFakeTime === this) activeFakeTime = undefined;
     Date.now = this.#realDateNow;
-    // deno-lint-ignore no-explicit-any
     (globalThis as any).Date = this.#realDate;
-    // deno-lint-ignore no-explicit-any
     (globalThis as any).setTimeout = this.#realSetTimeout;
-    // deno-lint-ignore no-explicit-any
     (globalThis as any).clearTimeout = this.#realClearTimeout;
-    // deno-lint-ignore no-explicit-any
     (globalThis as any).setInterval = this.#realSetInterval;
-    // deno-lint-ignore no-explicit-any
     (globalThis as any).clearInterval = this.#realClearInterval;
     this.#timers = [];
   }
@@ -217,8 +204,7 @@ const PRISTINE_CLEAR_INTERVAL = globalThis.clearInterval;
 // unconditionally, not only when a FakeTime is still flagged active. A test
 // that genuinely needs fake time installs it inside its own body and tears it
 // down before asserting, so a post-test reset never interferes. Best-effort
-// and bun-only: under Deno the `bun:test` import throws (caught) and native
-// FakeTime restore / `using` [Symbol.dispose] semantics already hold.
+// and Bun-only: when the `bun:test` import throws (caught), no reset is needed.
 try {
   const bunTest = (await import("bun:test")) as {
     afterEach?: (fn: () => void) => void;
@@ -238,5 +224,5 @@ try {
     activeFakeTime = undefined;
   });
 } catch {
-  // Not running under bun:test (e.g. Deno) — nothing to install.
+  // Not running under bun:test — nothing to install.
 }

@@ -34,9 +34,9 @@ const ap = new Hono<{ Bindings: Env; Variables: Variables }>();
 const AP_CONTENT_TYPE = "application/activity+json";
 
 // Default software.version advertised in NodeInfo when the deploy pipeline
-// does not inject `YURUCOMMU_SOFTWARE_VERSION`. Keep this in sync with the
-// `version` field in yurucommu/deno.json; the env override lets the build
-// report the real build version without editing source.
+// does not inject `YURUCOMMU_SOFTWARE_VERSION`. Keep this in sync with
+// package.json; the env override lets the build report the real build version
+// without editing source.
 const YURUCOMMU_VERSION = "1.0.0";
 
 const AP_CONTEXT = [

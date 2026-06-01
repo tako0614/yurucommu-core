@@ -2,7 +2,7 @@
  * Cloudflare Compatibility Layer
  *
  * These classes implement the same interface as Cloudflare D1/R2/KV
- * so existing code can work without changes on Node.js, Bun, Deno.
+ * so existing code can work without changes on Node.js and Bun.
  *
  * This module re-exports everything from the compat/ subdirectory.
  */

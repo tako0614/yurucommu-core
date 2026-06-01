@@ -91,15 +91,15 @@
       <h3>1. リポジトリをクローン</h3>
       <pre><code>git clone https://github.com/tako0614/yurucommu.git
 cd yurucommu
-deno task dev</code></pre>
-      <p><code>deno task dev</code> は <code>wrangler.local.toml</code> を使ってローカル Worker を起動します。よく使うタスクは <code>deno task build</code>、<code>deno task deploy</code>、<code>deno task db:generate</code> です。</p>
+bun run dev</code></pre>
+      <p><code>bun run dev</code> は <code>wrangler.local.toml</code> を使ってローカル Worker を起動します。よく使うタスクは <code>bun run build</code>、<code>bun run deploy</code>、<code>bun run db:generate</code> です。</p>
 
       <h3>2. Cloudflareリソースを作成</h3>
       <pre><code># D1データベース作成
-deno run -A npm:wrangler d1 create yurucommu-db
+bunx wrangler d1 create yurucommu-db
 
 # R2バケット作成
-deno run -A npm:wrangler r2 bucket create yurucommu-media</code></pre>
+bunx wrangler r2 bucket create yurucommu-media</code></pre>
 
       <h3>3. wrangler.tomlを設定</h3>
       <p>
@@ -107,7 +107,7 @@ deno run -A npm:wrangler r2 bucket create yurucommu-media</code></pre>
       </p>
 
       <h3>4. デプロイ</h3>
-      <pre><code>deno task deploy</code></pre>
+      <pre><code>bun run deploy</code></pre>
 
       <h2>ドキュメント一覧</h2>
       <div class="card-grid">

@@ -1,5 +1,5 @@
 /**
- * Test Setup for yurucommu (Deno)
+ * Test setup for yurucommu (Bun)
  *
  * This file provides:
  * - Mock Cloudflare Workers bindings (D1, R2, KV)
@@ -7,7 +7,7 @@
  * - Hono app testing utilities
  * - ActivityPub test helpers
  */
-import { spy } from 'jsr:@std/testing/mock';
+import { spy } from "#test/mock";
 import { Hono } from 'hono';
 
 // ============================================================================

@@ -175,12 +175,10 @@ function isTruthyEnv(value: string | undefined): boolean {
 }
 
 function localSubstrateRemoteFetchesEnabled(): boolean {
-  if (typeof Deno === "undefined") return false;
-  try {
-    return isTruthyEnv(Deno.env.get(LOCAL_SUBSTRATE_REMOTE_FETCH_ENV));
-  } catch {
-    return false;
-  }
+  const processEnv = (globalThis as {
+    process?: { env?: Record<string, string | undefined> };
+  }).process?.env;
+  return isTruthyEnv(processEnv?.[LOCAL_SUBSTRATE_REMOTE_FETCH_ENV]);
 }
 
 const BLOCKED_HOSTNAME_SUFFIXES = [
@@ -316,14 +314,7 @@ async function resolveLocalSubstrateHostnameIPs(
 ): Promise<string[]> {
   const resolve = resolver ??
     (async (name: string, recordType: DnsRecordType): Promise<string[]> => {
-      if (typeof Deno === "undefined" || !Deno.resolveDns) {
-        throw new Error("Local DNS resolver unavailable");
-      }
-      try {
-        return await Deno.resolveDns(name, recordType);
-      } catch {
-        return [];
-      }
+      return await nodeLookupByRecordType(name, recordType);
     });
 
   const [aRecords, aaaaRecords] = await Promise.all([
@@ -493,18 +484,16 @@ const DEFAULT_MAX_FEDERATION_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_FEDERATION_BODY_BYTES_ENV = "YURUCOMMU_MAX_FEDERATION_BODY_BYTES";
 
 function maxFederationBodyBytes(): number {
-  if (typeof Deno === "undefined") return DEFAULT_MAX_FEDERATION_BODY_BYTES;
-  try {
-    const raw = Deno.env.get(MAX_FEDERATION_BODY_BYTES_ENV);
-    if (!raw) return DEFAULT_MAX_FEDERATION_BODY_BYTES;
-    const parsed = Number(raw);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-      return DEFAULT_MAX_FEDERATION_BODY_BYTES;
-    }
-    return Math.floor(parsed);
-  } catch {
+  const processEnv = (globalThis as {
+    process?: { env?: Record<string, string | undefined> };
+  }).process?.env;
+  const raw = processEnv?.[MAX_FEDERATION_BODY_BYTES_ENV];
+  if (!raw) return DEFAULT_MAX_FEDERATION_BODY_BYTES;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
     return DEFAULT_MAX_FEDERATION_BODY_BYTES;
   }
+  return Math.floor(parsed);
 }
 
 export class FederationBodyTooLargeError extends Error {
@@ -671,18 +660,18 @@ function wrapResponseWithCap(
  * DNS-rebinding TOCTOU has two distinct vectors here:
  *
  *  1. Resolver split — validating via Cloudflare DoH while `fetch` connects
- *     using the host OS resolver. An attacker who controls authoritative DNS
+   *     using the host OS resolver. An attacker who controls authoritative DNS
  *     can deterministically serve a public IP to DoH and a private IP to the
- *     OS resolver. On Deno (where `fetch` resolves via the host OS, not DoH)
- *     we close this deterministic split by validating with `Deno.resolveDns`
- *     instead of DoH, so validation and the connection both go through the
+   *     OS resolver. On a Bun/Node host, we close this deterministic split by
+   *     validating with the host resolver instead of DoH, so validation and the
+   *     connection both go through the
  *     host's configured DNS rather than two different trust domains. (This
  *     removes the resolver-split exploit; it does not by itself guarantee
  *     fetch reuses the identical IP — see vector 2.) On Workers `fetch`
  *     resolves at the edge with no host-OS resolver to diverge from, so DoH
  *     and the connection resolve in the same trust domain.
  *  2. Low-TTL flip — the record changes between validation and connection.
- *     Neither Workers' nor Deno's `fetch` exposes a hook to pin the
+   *     Neither Workers' nor host `fetch` exposes a hook to pin the
  *     connection to an already-resolved IP, so we cannot eliminate this
  *     sub-resolution window through `fetch`; we minimize it by resolving
  *     immediately before the request with no other awaited work in between.
@@ -690,18 +679,31 @@ function wrapResponseWithCap(
 async function resolveConnectionResolverIPs(hostname: string): Promise<
   string[]
 > {
-  if (typeof Deno !== "undefined" && Deno.resolveDns) {
-    const settled = await Promise.allSettled([
-      Deno.resolveDns(hostname, "A"),
-      Deno.resolveDns(hostname, "AAAA"),
-    ]);
-    const ips: string[] = [];
-    for (const result of settled) {
-      if (result.status === "fulfilled") ips.push(...result.value);
-    }
-    return ips;
-  }
+  const processLike = (globalThis as { process?: unknown }).process;
+  if (processLike) return await nodeLookupAll(hostname);
   return resolveRemoteHostnameIPs(hostname);
+}
+
+async function nodeLookupAll(hostname: string): Promise<string[]> {
+  const { lookup } = await import("node:dns/promises");
+  const records = await lookup(hostname, { all: true });
+  return records.map((record) => record.address);
+}
+
+async function nodeLookupByRecordType(
+  hostname: string,
+  recordType: DnsRecordType,
+): Promise<string[]> {
+  try {
+    const { lookup } = await import("node:dns/promises");
+    const records = await lookup(hostname, {
+      all: true,
+      family: recordType === "A" ? 4 : 6,
+    });
+    return records.map((record) => record.address);
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchWithTimeout(

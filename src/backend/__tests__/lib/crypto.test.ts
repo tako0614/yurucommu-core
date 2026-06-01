@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { assertEquals, assertNotEquals, assertRejects } from "jsr:@std/assert";
+import { assertEquals, assertNotEquals, assertRejects } from "#test/assert";
 import {
   decrypt,
   DecryptionError,

@@ -92,21 +92,19 @@
         </p>
 
         <p>
-          Takosumi Cloud install 用の worker entrypoint は <code>.takosumi.build.yml</code>
-          と同じ流れで生成します。
+          Takosumi install 用の worker entrypoint は CI / build service と同じ流れで生成します。
         </p>
         <pre><code>bun run build:worker</code></pre>
         <p>
-          <code>.takosumi.yml</code> の <code>web.spec.entrypoint</code> は
-          prepared source 内の <code>dist/worker.js</code> を指します。
+          prepared source 内の worker entrypoint は <code>dist/worker.js</code> です。
         </p>
 
-        <h2>Takosumi Cloudでinstall</h2>
+        <h2>Takosumiでinstall</h2>
         <p>
-          Takosumi Cloudを使う場合は、Cloud install wizardでdry-runを確認してからInstallationを作成します。
+          Takosumiを使う場合は、Takosumi install wizardでdry-runを確認してからInstallationを作成します。
           起動はTakosumiがactivateしたpublic HTTP endpointを開き、Yurucommu側のTakosumi Accounts OIDCでサインインします。
         </p>
-        <pre><code>https://cloud.takosumi.com/apps/install?git=https://github.com/tako0614/yurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autodryrun=1</code></pre>
+        <pre><code>https://accounts.takosumi.com/apps/install?git=https://github.com/tako0614/yurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autodryrun=1</code></pre>
 
         <h2>Cloudflareへ直接デプロイ</h2>
         <pre><code>bun run deploy</code></pre>

@@ -1,4 +1,5 @@
-import { assert, assertAlmostEquals, assertEquals } from "jsr:@std/assert";
+import { assert, assertAlmostEquals, assertEquals } from "#test/assert";
+import { test } from "bun:test";
 import type { Layer } from "./story-canvas.ts";
 import {
   getLayerCorners,
@@ -26,14 +27,14 @@ function mediaLayer(overrides: Partial<Layer> = {}): Layer {
   } as Layer;
 }
 
-Deno.test("isPointInLayer accounts for layer rotation", () => {
+test("isPointInLayer accounts for layer rotation", () => {
   const layer = mediaLayer();
 
   assert(isPointInLayer(150, 170, layer));
   assertEquals(isPointInLayer(195, 125, layer), false);
 });
 
-Deno.test("hitTest uses rotated layer bounds and zIndex order", () => {
+test("hitTest uses rotated layer bounds and zIndex order", () => {
   const lower = mediaLayer({ id: "lower", zIndex: 1 });
   const upper = mediaLayer({ id: "upper", zIndex: 2 });
 
@@ -41,7 +42,7 @@ Deno.test("hitTest uses rotated layer bounds and zIndex order", () => {
   assertEquals(hitTest([lower, upper], 195, 125), null);
 });
 
-Deno.test("getLayerCorners returns rotated canvas-space corners", () => {
+test("getLayerCorners returns rotated canvas-space corners", () => {
   const corners = getLayerCorners(mediaLayer());
   const expected = [
     { x: 175, y: 75 },

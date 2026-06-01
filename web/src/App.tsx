@@ -7,7 +7,7 @@ import { tAtom } from "./atoms/i18n.ts";
 import { LoginForm } from "./components/LoginForm.tsx";
 import { AppLayout } from "./components/layout/index.ts";
 import { LoadingSpinner } from "./components/LoadingSpinner.tsx";
-import { yurucommuTakosumiCloudInstallUrl } from "./lib/takosumi-cloud-install.ts";
+import { yurucommuTakosumiInstallUrl } from "./lib/takosumi-install.ts";
 
 // Lazy load page components for code splitting
 const TimelinePage = lazy(() => import("./pages/TimelinePage.tsx"));
@@ -27,7 +27,7 @@ const SearchPage = lazy(() => import("./pages/SearchPage.tsx"));
 function AppContent() {
   const { actor, loading, loginError, login } = useAuth();
   const t = useAtomValue(tAtom);
-  const installUrl = yurucommuTakosumiCloudInstallUrl();
+  const installUrl = yurucommuTakosumiInstallUrl();
 
   return (
     <Show
@@ -50,7 +50,7 @@ function AppContent() {
               class="mt-6 inline-flex items-center justify-center rounded-lg border border-green-400/50 px-4 py-2 text-sm font-medium text-green-200 transition-colors hover:border-green-300 hover:bg-green-400/10"
               rel="noopener"
             >
-              Takosumi Cloud で install
+              Takosumi で install
             </a>
           </div>
         }

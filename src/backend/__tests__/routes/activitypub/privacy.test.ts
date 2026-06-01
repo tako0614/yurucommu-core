@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Hono } from "hono";
 
-import { assertSpyCalls, spy } from "jsr:@std/testing/mock";
+import { assertSpyCalls, spy } from "#test/mock";
 import activityPubRoutes from "../../../routes/activitypub.ts";
 
 const actorApId = "https://test.local/ap/users/private-user";

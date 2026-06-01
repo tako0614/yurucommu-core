@@ -10,6 +10,11 @@
     "./web/styles.css": "./web/styles.css",
     "./plugins": "./src/plugin/public.ts"
   },
+  "imports": {
+    "#test/assert": "./shims/std/assert.ts",
+    "#test/mock": "./shims/std/mock.ts",
+    "#test/time": "./shims/std/time.ts"
+  },
   "scripts": {
     "start": "bun src/backend/server.ts",
     "dev": "bunx wrangler dev --config wrangler.local.toml",
@@ -20,9 +25,12 @@
     "test:backend": "bun test src/backend/",
     "build": "bunx vite build --config web/vite.config.ts",
     "build:worker": "bun x esbuild src/backend/index.ts --bundle --format=esm --outfile=dist/worker.js --platform=browser --target=es2022 --conditions=workerd,worker,browser --external:cloudflare:* --external:node:*",
-    "build:takos-worker": "bun --preload ./shims/deno-compat.ts scripts/build-takos-worker.ts",
-    "takos:migrate": "bun --preload ./shims/deno-compat.ts scripts/apply-takos-migrations.ts",
+    "build:takos-worker": "bun scripts/build-takos-worker.ts",
+    "takos:migrate": "bun scripts/apply-takos-migrations.ts",
     "deploy": "bun run build && bunx wrangler deploy --config wrangler.toml",
+    "lint": "bun run check",
+    "fmt": "bunx prettier --write src web test site",
+    "fmt:check": "bunx prettier --check src web test site",
     "db:generate": "bunx drizzle-kit generate",
     "db:push": "bunx drizzle-kit push",
     "db:migrate": "bunx drizzle-kit migrate",

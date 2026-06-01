@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Hono } from "hono";
 
-import { assertSpyCalls, spy, stub } from "jsr:@std/testing/mock";
+import { assertSpyCalls, spy, stub } from "#test/mock";
 import { requireBearerAuth } from "../../middleware/bearer-auth.ts";
 
 function createApp() {

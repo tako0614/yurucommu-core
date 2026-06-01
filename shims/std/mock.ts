@@ -1,7 +1,7 @@
-// Bun migration shim: @std/testing/mock -> standalone implementation.
+// Bun test mock helpers with local call records.
 // Subset used across the tree: spy, stub, returnsNext, returnsThis,
 // assertSpyCalls, assertSpyCall(Args). Standalone (not built on bun:test mock)
-// so @std call-record semantics (.calls[].args / .returned / .restore()) match.
+// so call-record semantics (.calls[].args / .returned / .restore()) match.
 export interface SpyCall<Args extends unknown[] = unknown[], Return = unknown> {
   args: Args;
   returned?: Return;
