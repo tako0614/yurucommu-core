@@ -33,5 +33,5 @@ Apply requests add the expected guard returned by dry-run. Takos product routes 
 
 - [Deploy overview](/deploy/)
 - [Install paths](/apps/install-paths)
-- [Takosumi core specification](https://takosumi.com/docs/reference/core-spec)
+- [Takosumi specification](https://takosumi.com/docs/reference/core-spec)
 - [Takosumi installer API](https://takosumi.com/docs/reference/installer-api)
