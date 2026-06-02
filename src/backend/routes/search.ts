@@ -27,10 +27,10 @@ const REMOTE_FETCH_TIMEOUT_MS = 10000;
 // ---------------------------------------------------------------------------
 
 const ALLOWED_ACTOR_SORTS = ["relevance", "followers", "recent"] as const;
-type ActorSort = typeof ALLOWED_ACTOR_SORTS[number];
+type ActorSort = (typeof ALLOWED_ACTOR_SORTS)[number];
 
 const ALLOWED_POST_SORTS = ["recent", "popular"] as const;
-type PostSort = typeof ALLOWED_POST_SORTS[number];
+type PostSort = (typeof ALLOWED_POST_SORTS)[number];
 
 function validateSort<T extends string>(
   value: string | undefined,
@@ -72,18 +72,24 @@ async function buildAuthorMap(
   apIds: string[],
 ): Promise<Map<string, ActorInfo>> {
   const [localAuthors, cachedAuthors] = await Promise.all([
-    db.select({
-      apId: actors.apId,
-      preferredUsername: actors.preferredUsername,
-      name: actors.name,
-      iconUrl: actors.iconUrl,
-    }).from(actors).where(inArray(actors.apId, apIds)),
-    db.select({
-      apId: actorCache.apId,
-      preferredUsername: actorCache.preferredUsername,
-      name: actorCache.name,
-      iconUrl: actorCache.iconUrl,
-    }).from(actorCache).where(inArray(actorCache.apId, apIds)),
+    db
+      .select({
+        apId: actors.apId,
+        preferredUsername: actors.preferredUsername,
+        name: actors.name,
+        iconUrl: actors.iconUrl,
+      })
+      .from(actors)
+      .where(inArray(actors.apId, apIds)),
+    db
+      .select({
+        apId: actorCache.apId,
+        preferredUsername: actorCache.preferredUsername,
+        name: actorCache.name,
+        iconUrl: actorCache.iconUrl,
+      })
+      .from(actorCache)
+      .where(inArray(actorCache.apId, apIds)),
   ]);
 
   const map = new Map<string, ActorInfo>();
@@ -104,10 +110,9 @@ async function loadLikedPostIds(
   const likeRows = await db
     .select({ objectApId: likes.objectApId })
     .from(likes)
-    .where(and(
-      eq(likes.actorApId, actorApId),
-      inArray(likes.objectApId, postApIds),
-    ));
+    .where(
+      and(eq(likes.actorApId, actorApId), inArray(likes.objectApId, postApIds)),
+    );
   return new Set(likeRows.map((l) => l.objectApId));
 }
 
@@ -166,7 +171,11 @@ async function enrichPosts(
   const authorApIds = [...new Set(posts.map((p) => p.attributedTo))];
   const [authorMap, likedPostIds] = await Promise.all([
     buildAuthorMap(db, authorApIds),
-    loadLikedPostIds(db, actorApId, posts.map((p) => p.apId)),
+    loadLikedPostIds(
+      db,
+      actorApId,
+      posts.map((p) => p.apId),
+    ),
   ]);
 
   return posts.map((p) => formatPost(p, authorMap, likedPostIds));
@@ -192,9 +201,8 @@ search.get("/actors", async (c) => {
   );
   const lowerQuery = query.toLowerCase();
 
-  const orderByClause = sort === "recent"
-    ? [desc(actors.createdAt)]
-    : [desc(actors.followerCount)];
+  const orderByClause =
+    sort === "recent" ? [desc(actors.createdAt)] : [desc(actors.followerCount)];
 
   const actorRows = await db
     .select({
@@ -268,11 +276,13 @@ search.get("/posts", async (c) => {
       likeCount: objects.likeCount,
     })
     .from(objects)
-    .where(and(
-      like(objects.content, "%" + query + "%"),
-      eq(objects.visibility, "public"),
-      eq(objects.audienceJson, "[]"),
-    ))
+    .where(
+      and(
+        like(objects.content, "%" + query + "%"),
+        eq(objects.visibility, "public"),
+        eq(objects.audienceJson, "[]"),
+      ),
+    )
     .orderBy(...postOrderByDrizzle(sort))
     .limit(50);
 
@@ -296,8 +306,7 @@ search.get("/remote", async (c) => {
 
   try {
     // WebFinger lookup
-    const webfingerUrl =
-      `https://${safeDomain}/.well-known/webfinger?resource=acct:${username}@${safeDomain}`;
+    const webfingerUrl = `https://${safeDomain}/.well-known/webfinger?resource=acct:${username}@${safeDomain}`;
     const wfRes = await fetchWithTimeout(webfingerUrl, {
       headers: { Accept: "application/jrd+json" },
       timeout: REMOTE_FETCH_TIMEOUT_MS,
@@ -311,8 +320,8 @@ search.get("/remote", async (c) => {
     } catch {
       return c.json({ actors: [] });
     }
-    const actorLink = wfData.links?.find((l) =>
-      l.rel === "self" && l.type === "application/activity+json"
+    const actorLink = wfData.links?.find(
+      (l) => l.rel === "self" && l.type === "application/activity+json",
     );
     if (!actorLink?.href || !isSafeRemoteUrl(actorLink.href)) {
       return c.json({ actors: [] });
@@ -351,7 +360,8 @@ search.get("/remote", async (c) => {
       .get();
 
     if (existing) {
-      await db.update(actorCache)
+      await db
+        .update(actorCache)
         .set(cacheFields)
         .where(eq(actorCache.apId, actorData.id));
     } else {
@@ -403,17 +413,15 @@ search.get("/hashtag/:tag", async (c) => {
   );
 
   const [totalResult, posts] = await Promise.all([
-    db.select({ count: count() })
-      .from(objects)
-      .where(postWhere)
-      .get(),
-    db.select({
-      apId: objects.apId,
-      attributedTo: objects.attributedTo,
-      content: objects.content,
-      published: objects.published,
-      likeCount: objects.likeCount,
-    })
+    db.select({ count: count() }).from(objects).where(postWhere).get(),
+    db
+      .select({
+        apId: objects.apId,
+        attributedTo: objects.attributedTo,
+        content: objects.content,
+        published: objects.published,
+        likeCount: objects.likeCount,
+      })
       .from(objects)
       .where(postWhere)
       .orderBy(...postOrderByDrizzle(sort))
@@ -440,18 +448,18 @@ search.get("/hashtag/:tag", async (c) => {
 search.get("/hashtags/trending", async (c) => {
   const limit = parseLimit(c.req.query("limit"), 10, 50);
   const days = parseLimit(c.req.query("days"), 7, 30);
-  const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-    .toISOString();
+  const sinceDate = new Date(
+    Date.now() - days * 24 * 60 * 60 * 1000,
+  ).toISOString();
 
   const db = c.get("db");
 
   const posts = await db
     .select({ content: objects.content })
     .from(objects)
-    .where(and(
-      eq(objects.visibility, "public"),
-      gt(objects.published, sinceDate),
-    ))
+    .where(
+      and(eq(objects.visibility, "public"), gt(objects.published, sinceDate)),
+    )
     .orderBy(desc(objects.published))
     .limit(1000);
 

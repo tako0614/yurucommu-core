@@ -55,7 +55,8 @@ export async function handleCreatePost(
     isLocal: 1,
   });
 
-  await db.update(actors)
+  await db
+    .update(actors)
     .set({ postCount: sql`${actors.postCount} + 1` })
     .where(eq(actors.apId, actor.ap_id));
 
@@ -73,7 +74,8 @@ export async function handleDeletePost(
   const postId = requireString(input, "post_id");
   if (!postId) return c.json(errRequired("Post ID"), 400);
 
-  const post = await db.select()
+  const post = await db
+    .select()
     .from(objects)
     .where(and(eq(objects.apId, postId), eq(objects.attributedTo, actor.ap_id)))
     .get();
@@ -88,7 +90,8 @@ export async function handleDeletePost(
   }
 
   await db.delete(objects).where(eq(objects.apId, postId));
-  await db.update(actors)
+  await db
+    .update(actors)
     .set({ postCount: sql`${actors.postCount} - 1` })
     .where(eq(actors.apId, actor.ap_id));
 
@@ -108,7 +111,8 @@ export async function handleLikePost(
 
   if (!postId) return c.json(errRequired("Post ID"), 400);
 
-  const post = await db.select()
+  const post = await db
+    .select()
     .from(objects)
     .where(eq(objects.apId, postId))
     .get();
@@ -116,14 +120,13 @@ export async function handleLikePost(
 
   await togglePostRelation(db, likes, actor.ap_id, post.apId, likeActive);
 
-  const likeCountResult = await db.select({ count: count() })
+  const likeCountResult = await db
+    .select({ count: count() })
     .from(likes)
     .where(eq(likes.objectApId, post.apId))
     .get();
   const likeCount = likeCountResult?.count ?? 0;
-  await db.update(objects)
-    .set({ likeCount })
-    .where(eq(objects.apId, postId));
+  await db.update(objects).set({ likeCount }).where(eq(objects.apId, postId));
 
   return c.json(ok({ liked: likeActive, like_count: likeCount }));
 }
@@ -141,7 +144,8 @@ export async function handleBookmarkPost(
 
   if (!postId) return c.json(errRequired("Post ID"), 400);
 
-  const post = await db.select()
+  const post = await db
+    .select()
     .from(objects)
     .where(eq(objects.apId, postId))
     .get();

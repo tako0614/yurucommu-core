@@ -49,27 +49,27 @@ export function storyToActivityPub(
     "@context": [
       "https://www.w3.org/ns/activitystreams",
       {
-        "story": "https://yurucommu.com/ns/story#",
-        "Story": "story:Story",
-        "displayDuration": "story:displayDuration",
-        "overlays": { "@id": "story:overlays", "@container": "@list" },
-        "position": "story:position",
+        story: "https://yurucommu.com/ns/story#",
+        Story: "story:Story",
+        displayDuration: "story:displayDuration",
+        overlays: { "@id": "story:overlays", "@container": "@list" },
+        position: "story:position",
       },
     ],
-    "id": story.apId,
-    "type": ["Story", "Note"],
-    "attributedTo": actor.ap_id,
-    "published": story.published,
-    "endTime": story.endTime,
-    "to": [`${actor.ap_id}/followers`],
-    "attachment": {
-      "type": story.attachment.type,
-      "mediaType": story.attachment.mediaType,
-      "url": attachmentUrl,
+    id: story.apId,
+    type: ["Story", "Note"],
+    attributedTo: actor.ap_id,
+    published: story.published,
+    endTime: story.endTime,
+    to: [`${actor.ap_id}/followers`],
+    attachment: {
+      type: story.attachment.type,
+      mediaType: story.attachment.mediaType,
+      url: attachmentUrl,
     },
-    "displayDuration": story.displayDuration,
+    displayDuration: story.displayDuration,
     ...(story.overlays && story.overlays.length > 0
-      ? { "overlays": story.overlays }
+      ? { overlays: story.overlays }
       : {}),
   };
 }

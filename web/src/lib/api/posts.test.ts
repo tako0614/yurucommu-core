@@ -58,9 +58,8 @@ async function withMockFetch<T>(
 test("createPost reads the current wrapped post response", async () => {
   const post = makePost();
 
-  const result = await withMockFetch(
-    { post },
-    () => createPost({ content: "hello" }),
+  const result = await withMockFetch({ post }, () =>
+    createPost({ content: "hello" }),
   );
 
   assertEquals(result.ap_id, post.ap_id);
@@ -69,10 +68,10 @@ test("createPost reads the current wrapped post response", async () => {
 test("fetchBookmarks reads the current posts response", async () => {
   const post = makePost({ bookmarked: true });
 
-  const result = await withMockFetch(
-    { posts: [post] },
-    () => fetchBookmarks(),
-  );
+  const result = await withMockFetch({ posts: [post] }, () => fetchBookmarks());
 
-  assertEquals(result.map((p) => p.ap_id), [post.ap_id]);
+  assertEquals(
+    result.map((p) => p.ap_id),
+    [post.ap_id],
+  );
 });

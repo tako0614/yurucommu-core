@@ -43,7 +43,3 @@ Thumbs.db
 *.swp
 *.swo
 *~
-
-/src/generated/prisma
-prisma/dev.db
-prisma/dev.db-journal

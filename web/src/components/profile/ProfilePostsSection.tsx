@@ -140,8 +140,10 @@ function ProfilePostItem(props: ProfilePostItemProps) {
           >
             <HeartIcon filled={props.post.liked || false} />
             <Show
-              when={props.post.author.ap_id === props.actorApId &&
-                props.post.like_count > 0}
+              when={
+                props.post.author.ap_id === props.actorApId &&
+                props.post.like_count > 0
+              }
             >
               <span class="text-sm">{props.post.like_count}</span>
             </Show>

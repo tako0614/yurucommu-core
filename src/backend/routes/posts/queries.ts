@@ -146,11 +146,15 @@ export async function resolveAuthorWithCache(
   db: Database,
 ): Promise<AuthorInfo> {
   if (localAuthor?.preferredUsername) return localAuthor;
-  const cached = await db.select({
-    preferredUsername: actorCache.preferredUsername,
-    name: actorCache.name,
-    iconUrl: actorCache.iconUrl,
-  }).from(actorCache).where(eq(actorCache.apId, attributedTo)).get();
+  const cached = await db
+    .select({
+      preferredUsername: actorCache.preferredUsername,
+      name: actorCache.name,
+      iconUrl: actorCache.iconUrl,
+    })
+    .from(actorCache)
+    .where(eq(actorCache.apId, attributedTo))
+    .get();
   return cached ?? { preferredUsername: null, name: null, iconUrl: null };
 }
 
@@ -252,7 +256,8 @@ export async function loadInteractionFlags(
     return { likedIds: new Set(), bookmarkedIds: new Set() };
   }
   const [likeRows, bookmarkRows] = await Promise.all([
-    db.select({ objectApId: likes.objectApId })
+    db
+      .select({ objectApId: likes.objectApId })
       .from(likes)
       .where(
         and(
@@ -260,7 +265,8 @@ export async function loadInteractionFlags(
           inArray(likes.objectApId, objectApIds),
         ),
       ),
-    db.select({ objectApId: bookmarks.objectApId })
+    db
+      .select({ objectApId: bookmarks.objectApId })
       .from(bookmarks)
       .where(
         and(
@@ -310,16 +316,17 @@ export async function loadCachedAuthorMap(
   posts: PostWithAuthor[],
 ): Promise<Map<string, AuthorInfo>> {
   const remoteAttributedTos = [
-    ...new Set(
-      posts.filter((p) => !p.author).map((p) => p.attributedTo),
-    ),
+    ...new Set(posts.filter((p) => !p.author).map((p) => p.attributedTo)),
   ];
   if (remoteAttributedTos.length === 0) return new Map();
-  const cachedAuthors = await db.select({
-    apId: actorCache.apId,
-    preferredUsername: actorCache.preferredUsername,
-    name: actorCache.name,
-    iconUrl: actorCache.iconUrl,
-  }).from(actorCache).where(inArray(actorCache.apId, remoteAttributedTos));
+  const cachedAuthors = await db
+    .select({
+      apId: actorCache.apId,
+      preferredUsername: actorCache.preferredUsername,
+      name: actorCache.name,
+      iconUrl: actorCache.iconUrl,
+    })
+    .from(actorCache)
+    .where(inArray(actorCache.apId, remoteAttributedTos));
   return new Map(cachedAuthors.map((a) => [a.apId, a]));
 }

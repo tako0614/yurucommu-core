@@ -63,8 +63,9 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
               <For each={props.post.attachments}>
                 {(m) => (
                   <img
-                    src={m.url ||
-                      `/media/${m.r2_key.replace(/^uploads\//, "")}`}
+                    src={
+                      m.url || `/media/${m.r2_key.replace(/^uploads\//, "")}`
+                    }
                     alt=""
                     class="w-full object-cover max-h-96"
                   />

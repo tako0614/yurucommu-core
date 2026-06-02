@@ -2,9 +2,10 @@ import type { Actor } from "../../types/index.ts";
 import { normalizeActor } from "./normalize.ts";
 import { apiFetch, apiPost, assertOk } from "./fetch.ts";
 
-export async function fetchMe(): Promise<
-  { authenticated: boolean; actor?: Actor }
-> {
+export async function fetchMe(): Promise<{
+  authenticated: boolean;
+  actor?: Actor;
+}> {
   const res = await apiFetch("/api/auth/me");
   if (!res.ok) return { authenticated: false };
   const data = (await res.json()) as { actor?: Actor };
@@ -32,9 +33,10 @@ export interface AccountInfo {
   icon_url: string | null;
 }
 
-export async function fetchAccounts(): Promise<
-  { accounts: AccountInfo[]; current_ap_id: string }
-> {
+export async function fetchAccounts(): Promise<{
+  accounts: AccountInfo[];
+  current_ap_id: string;
+}> {
   const res = await apiFetch("/api/auth/accounts");
   await assertOk(res, "Failed to fetch accounts");
   return (await res.json()) as {

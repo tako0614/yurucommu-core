@@ -4,13 +4,10 @@ import { createYurucommuBackendApp } from "../index.ts";
 
 test("backend CSP omits Takos origins when TAKOS_URL is not configured", async () => {
   const app = createYurucommuBackendApp();
-  const res = await app.fetch(
-    new Request("https://test.local/"),
-    {
-      APP_URL: "https://test.local",
-      DB_INSTANCE: {},
-    } as never,
-  );
+  const res = await app.fetch(new Request("https://test.local/"), {
+    APP_URL: "https://test.local",
+    DB_INSTANCE: {},
+  } as never);
 
   expect(res.status).toEqual(503);
   const csp = res.headers.get("Content-Security-Policy");
@@ -28,20 +25,18 @@ test("backend CSP omits Takos origins when TAKOS_URL is not configured", async (
 
 test("backend CSP does not list unpkg.com in script-src (only connect-src for FFmpeg fetch)", async () => {
   const app = createYurucommuBackendApp();
-  const res = await app.fetch(
-    new Request("https://test.local/"),
-    {
-      APP_URL: "https://test.local",
-      DB_INSTANCE: {},
-    } as never,
-  );
+  const res = await app.fetch(new Request("https://test.local/"), {
+    APP_URL: "https://test.local",
+    DB_INSTANCE: {},
+  } as never);
 
   const csp = res.headers.get("Content-Security-Policy");
   expect(csp).toBeTruthy();
   if (!csp) throw new Error("missing Content-Security-Policy header");
-  const scriptSrc = csp.split(";").map((d) => d.trim()).find((d) =>
-    d.startsWith("script-src ")
-  );
+  const scriptSrc = csp
+    .split(";")
+    .map((d) => d.trim())
+    .find((d) => d.startsWith("script-src "));
   expect(scriptSrc).toBeTruthy();
   if (!scriptSrc) throw new Error("missing script-src directive");
   if (scriptSrc.includes("unpkg.com")) {
@@ -51,23 +46,21 @@ test("backend CSP does not list unpkg.com in script-src (only connect-src for FF
   }
   // connect-src may still list unpkg.com because toBlobURL() fetches the
   // FFmpeg core from there and wraps the body in a blob: URL before import.
-  const connectSrc = csp.split(";").map((d) => d.trim()).find((d) =>
-    d.startsWith("connect-src ")
-  );
+  const connectSrc = csp
+    .split(";")
+    .map((d) => d.trim())
+    .find((d) => d.startsWith("connect-src "));
   expect(connectSrc).toBeTruthy();
   expect(connectSrc).toContain("https://unpkg.com");
 });
 
 test("backend CSP includes the configured Accounts issuer when enabled", async () => {
   const app = createYurucommuBackendApp();
-  const res = await app.fetch(
-    new Request("https://test.local/"),
-    {
-      APP_URL: "https://test.local",
-      OIDC_ISSUER_URL: "https://accounts.example.com",
-      DB_INSTANCE: {},
-    } as never,
-  );
+  const res = await app.fetch(new Request("https://test.local/"), {
+    APP_URL: "https://test.local",
+    OIDC_ISSUER_URL: "https://accounts.example.com",
+    DB_INSTANCE: {},
+  } as never);
 
   expect(res.status).toEqual(503);
   const csp = res.headers.get("Content-Security-Policy");
@@ -81,13 +74,10 @@ test("backend CSP includes the configured Accounts issuer when enabled", async (
 
 test("backend healthz reports degraded runtime bindings before DB middleware", async () => {
   const app = createYurucommuBackendApp();
-  const res = await app.fetch(
-    new Request("https://test.local/healthz"),
-    {
-      APP_URL: "https://test.local",
-      DB_INSTANCE: {},
-    } as never,
-  );
+  const res = await app.fetch(new Request("https://test.local/healthz"), {
+    APP_URL: "https://test.local",
+    DB_INSTANCE: {},
+  } as never);
 
   expect(res.status).toEqual(200);
   expect(await res.json()).toEqual({
@@ -106,13 +96,10 @@ test("backend healthz reports degraded runtime bindings before DB middleware", a
 
 test("backend readyz reports missing runtime bindings before DB middleware", async () => {
   const app = createYurucommuBackendApp();
-  const res = await app.fetch(
-    new Request("https://test.local/readyz"),
-    {
-      APP_URL: "https://test.local",
-      DB_INSTANCE: {},
-    } as never,
-  );
+  const res = await app.fetch(new Request("https://test.local/readyz"), {
+    APP_URL: "https://test.local",
+    DB_INSTANCE: {},
+  } as never);
 
   expect(res.status).toEqual(503);
   expect(await res.json()).toEqual({
@@ -131,21 +118,18 @@ test("backend readyz reports missing runtime bindings before DB middleware", asy
 
 test("backend readyz accepts Accounts OIDC as a provisioned auth method", async () => {
   const app = createYurucommuBackendApp();
-  const res = await app.fetch(
-    new Request("https://test.local/readyz"),
-    {
-      APP_URL: "https://test.local",
-      DB_INSTANCE: {},
-      MEDIA: {},
-      KV: {},
-      DELIVERY_QUEUE: {},
-      DELIVERY_DLQ: {},
-      ENCRYPTION_KEY: "test-encryption-key",
-      OIDC_ISSUER_URL: "https://accounts.example.com",
-      OIDC_CLIENT_ID: "client",
-      OIDC_CLIENT_SECRET: "secret",
-    } as never,
-  );
+  const res = await app.fetch(new Request("https://test.local/readyz"), {
+    APP_URL: "https://test.local",
+    DB_INSTANCE: {},
+    MEDIA: {},
+    KV: {},
+    DELIVERY_QUEUE: {},
+    DELIVERY_DLQ: {},
+    ENCRYPTION_KEY: "test-encryption-key",
+    OIDC_ISSUER_URL: "https://accounts.example.com",
+    OIDC_CLIENT_ID: "client",
+    OIDC_CLIENT_SECRET: "secret",
+  } as never);
 
   expect(res.status).toEqual(200);
   expect(await res.json()).toEqual({
@@ -157,14 +141,11 @@ test("backend readyz accepts Accounts OIDC as a provisioned auth method", async 
 
 test("backend healthz can be strict after bootstrap", async () => {
   const app = createYurucommuBackendApp();
-  const res = await app.fetch(
-    new Request("https://test.local/healthz"),
-    {
-      APP_URL: "https://test.local",
-      DB_INSTANCE: {},
-      YURUCOMMU_STRICT_READINESS: "1",
-    } as never,
-  );
+  const res = await app.fetch(new Request("https://test.local/healthz"), {
+    APP_URL: "https://test.local",
+    DB_INSTANCE: {},
+    YURUCOMMU_STRICT_READINESS: "1",
+  } as never);
 
   expect(res.status).toEqual(503);
   expect(await res.json()).toEqual({

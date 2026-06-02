@@ -167,7 +167,9 @@ test("getConversationId: distinct same-host pairs produce distinct IDs", () => {
 test("getConversationId: order-independent and stable", () => {
   const a = localApId("alice");
   const b = localApId("bob");
-  expect(getConversationId(APP_URL, a, b)).toEqual(getConversationId(APP_URL, b, a));
+  expect(getConversationId(APP_URL, a, b)).toEqual(
+    getConversationId(APP_URL, b, a),
+  );
 });
 
 test("getConversationId: different pairs that previously collided now differ", () => {
@@ -226,7 +228,8 @@ test("recipientToJsonLike: exact JSON token still matches the stored value", asy
     published: new Date().toISOString(),
   });
 
-  const rows = await db.select({ apId: objects.apId })
+  const rows = await db
+    .select({ apId: objects.apId })
     .from(objects)
     .where(recipientToJsonLike(bob));
   expect(rows.length).toEqual(1);
@@ -251,7 +254,7 @@ test("POST /requests/accept responds 501 instead of faking success", async () =>
   );
 
   expect(res.status).toEqual(501);
-  const body = await res.json() as { error?: string; success?: unknown };
+  const body = (await res.json()) as { error?: string; success?: unknown };
   expect(body.error).toEqual("not_implemented");
   expect(body.success).toEqual(undefined);
 });
@@ -332,16 +335,15 @@ test("story /:id/votes accepts a full story ap_id (matches like/share routes)", 
 
   const app = appWith(db, fakeActor(voter, "voter"), storyInteractionRoutes);
   const res = await app.fetch(
-    new Request(
-      `${APP_URL}/${encodeURIComponent(storyApId)}/votes`,
-      { method: "GET" },
-    ),
+    new Request(`${APP_URL}/${encodeURIComponent(storyApId)}/votes`, {
+      method: "GET",
+    }),
     envFor(db),
   );
 
   // Previously objectApId() double-prefixed the URL -> 404 "Story not found".
   expect(res.status).toEqual(200);
-  const body = await res.json() as { total: number; user_vote?: number };
+  const body = (await res.json()) as { total: number; user_vote?: number };
   expect(body.total).toEqual(1);
   expect(body.user_vote).toEqual(0);
 });

@@ -21,14 +21,14 @@ function createBlocklistDb(state: MockBlocklistDb): Database {
     query: {
       blockedDomains: {
         findFirst: spy(
-          (
-            { where }: {
-              where: {
-                _value?: string;
-                queryChunks?: Array<{ value: unknown }>;
-              };
-            },
-          ) => {
+          ({
+            where,
+          }: {
+            where: {
+              _value?: string;
+              queryChunks?: Array<{ value: unknown }>;
+            };
+          }) => {
             // The Drizzle eq() expression we pass exposes the comparison
             // value through internal symbol-keyed fields. We don't need
             // those here — we extract the value by re-reading the lookup
@@ -43,14 +43,14 @@ function createBlocklistDb(state: MockBlocklistDb): Database {
       },
       blockedActors: {
         findFirst: spy(
-          (
-            { where }: {
-              where: {
-                _value?: string;
-                queryChunks?: Array<{ value: unknown }>;
-              };
-            },
-          ) => {
+          ({
+            where,
+          }: {
+            where: {
+              _value?: string;
+              queryChunks?: Array<{ value: unknown }>;
+            };
+          }) => {
             return Promise.resolve(
               state.actors.has(extractEqValue(where))
                 ? { actorApId: "x" }
@@ -84,7 +84,9 @@ function extractEqValue(where: unknown): string {
 
 test("normalizeDomain accepts bare hostnames and URLs", () => {
   expect(normalizeDomain("Example.ORG")).toEqual("example.org");
-  expect(normalizeDomain("https://Example.ORG/users/alice")).toEqual("example.org");
+  expect(normalizeDomain("https://Example.ORG/users/alice")).toEqual(
+    "example.org",
+  );
   expect(normalizeDomain("example.org.")).toEqual("example.org");
   expect(normalizeDomain("")).toEqual(null);
 });
@@ -99,7 +101,9 @@ test("isDomainBlocked returns true for blocked hostnames", async () => {
   const db = createBlocklistDb(state);
 
   expect(await isDomainBlocked(db, "bad.example")).toEqual(true);
-  expect(await isDomainBlocked(db, "https://bad.example/users/eve")).toEqual(true);
+  expect(await isDomainBlocked(db, "https://bad.example/users/eve")).toEqual(
+    true,
+  );
   expect(await isDomainBlocked(db, "good.example")).toEqual(false);
 });
 
@@ -112,9 +116,15 @@ test("isActorBlocked falls through to the domain blocklist", async () => {
   };
   const db = createBlocklistDb(state);
 
-  expect(await isActorBlocked(db, "https://other.example/users/eve")).toEqual(true);
-  expect(await isActorBlocked(db, "https://bad.example/users/mallory")).toEqual(true);
-  expect(await isActorBlocked(db, "https://good.example/users/alice")).toEqual(false);
+  expect(await isActorBlocked(db, "https://other.example/users/eve")).toEqual(
+    true,
+  );
+  expect(await isActorBlocked(db, "https://bad.example/users/mallory")).toEqual(
+    true,
+  );
+  expect(await isActorBlocked(db, "https://good.example/users/alice")).toEqual(
+    false,
+  );
 });
 
 test("isActorBlocked returns false on empty/invalid input", async () => {
@@ -143,36 +153,36 @@ test("isDomainBlocked falls back to false on DB errors", async () => {
   } as unknown as Database;
 
   expect(await isDomainBlocked(failingDb, "bad.example")).toEqual(false);
-  expect(await isActorBlocked(failingDb, "https://bad.example/users/eve")).toEqual(false);
+  expect(
+    await isActorBlocked(failingDb, "https://bad.example/users/eve"),
+  ).toEqual(false);
 });
 
-test("blockDomain / unblockDomain reject invalid hostname input",
-  async () => {
-    const noopDb = {
-      insert: () => ({
-        values: () => ({
-          onConflictDoUpdate: () => Promise.resolve(),
-        }),
+test("blockDomain / unblockDomain reject invalid hostname input", async () => {
+  const noopDb = {
+    insert: () => ({
+      values: () => ({
+        onConflictDoUpdate: () => Promise.resolve(),
       }),
-      delete: () => ({ where: () => Promise.resolve() }),
-    } as unknown as Database;
+    }),
+    delete: () => ({ where: () => Promise.resolve() }),
+  } as unknown as Database;
 
-    // Re-import to access the mutator helpers without a real connection.
-    const mod = await import("../../lib/blocklist.ts");
+  // Re-import to access the mutator helpers without a real connection.
+  const mod = await import("../../lib/blocklist.ts");
 
-    await assertRejects(
-      () => mod.blockDomain(noopDb, "", null),
-      Error,
-      "invalid input",
-    );
-    await assertRejects(
-      () => mod.unblockDomain(noopDb, ""),
-      Error,
-      "invalid input",
-    );
-    // valid hostname should not throw with the noop db
-    await mod.blockDomain(noopDb, "bad.example", "spam");
-    await mod.unblockDomain(noopDb, "bad.example");
-    expect(true).toBeTruthy();
-  },
-);
+  await assertRejects(
+    () => mod.blockDomain(noopDb, "", null),
+    Error,
+    "invalid input",
+  );
+  await assertRejects(
+    () => mod.unblockDomain(noopDb, ""),
+    Error,
+    "invalid input",
+  );
+  // valid hostname should not throw with the noop db
+  await mod.blockDomain(noopDb, "bad.example", "spam");
+  await mod.unblockDomain(noopDb, "bad.example");
+  expect(true).toBeTruthy();
+});

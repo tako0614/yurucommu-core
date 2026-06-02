@@ -78,12 +78,12 @@ export interface EnvVars {
  * Uses the runtime-neutral `I*` contracts. The Cloudflare worker entry
  * wraps the native `D1Database` / `R2Bucket` / `KVNamespace` / `Fetcher`
  * bindings with the adapters in `runtime/cloudflare.ts` before handing
-   * the Env to Hono. The local runtime compatibility classes already
+ * the Env to Hono. The local runtime compatibility classes already
  * implement these contracts directly.
  *
  * `DB_INSTANCE` is the drizzle wrapper that the app calls; it is built
-   * by each runtime entry point (Cloudflare `fetch`, local server, or
-   * runtime-specific wrappers).
+ * by each runtime entry point (Cloudflare `fetch`, local server, or
+ * runtime-specific wrappers).
  */
 export type Env = {
   DB_INSTANCE: Database;

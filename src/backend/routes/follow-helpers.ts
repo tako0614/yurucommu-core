@@ -180,13 +180,17 @@ export async function findPendingFollow(
   requesterApId: string,
   targetApId: string,
 ) {
-  return db.select().from(follows).where(
-    and(
-      eq(follows.followerApId, requesterApId),
-      eq(follows.followingApId, targetApId),
-      eq(follows.status, "pending"),
-    ),
-  ).get();
+  return db
+    .select()
+    .from(follows)
+    .where(
+      and(
+        eq(follows.followerApId, requesterApId),
+        eq(follows.followingApId, targetApId),
+        eq(follows.status, "pending"),
+      ),
+    )
+    .get();
 }
 
 // ---------------------------------------------------------------------------
@@ -200,10 +204,11 @@ export async function handleLocalFollow(
   actor: { ap_id: string },
   targetApId: string,
 ) {
-  const target = await db.select({ isPrivate: actors.isPrivate }).from(actors)
-    .where(
-      eq(actors.apId, targetApId),
-    ).get();
+  const target = await db
+    .select({ isPrivate: actors.isPrivate })
+    .from(actors)
+    .where(eq(actors.apId, targetApId))
+    .get();
   if (!target) return c.json({ error: "Target actor not found" }, 404);
 
   const status = target.isPrivate ? "pending" : "accepted";
@@ -221,12 +226,18 @@ export async function handleLocalFollow(
     });
 
     if (status === "accepted") {
-      await db.update(actors).set({
-        followingCount: sql`${actors.followingCount} + 1`,
-      }).where(eq(actors.apId, actor.ap_id));
-      await db.update(actors).set({
-        followerCount: sql`${actors.followerCount} + 1`,
-      }).where(eq(actors.apId, targetApId));
+      await db
+        .update(actors)
+        .set({
+          followingCount: sql`${actors.followingCount} + 1`,
+        })
+        .where(eq(actors.apId, actor.ap_id));
+      await db
+        .update(actors)
+        .set({
+          followerCount: sql`${actors.followerCount} + 1`,
+        })
+        .where(eq(actors.apId, targetApId));
     }
 
     await db.insert(activities).values({
@@ -264,14 +275,16 @@ export async function handleRemoteFollow(
     return c.json({ error: "Invalid target_ap_id" }, 400);
   }
 
-  let cachedActorRow = await db.select().from(actorCache).where(
-    eq(actorCache.apId, targetApId),
-  ).get();
+  let cachedActorRow = await db
+    .select()
+    .from(actorCache)
+    .where(eq(actorCache.apId, targetApId))
+    .get();
 
   if (!cachedActorRow) {
     try {
       const res = await fetchWithTimeout(targetApId, {
-        headers: { "Accept": "application/activity+json, application/ld+json" },
+        headers: { Accept: "application/activity+json, application/ld+json" },
         timeout: REMOTE_FETCH_TIMEOUT_MS,
       });
       if (!res.ok) {
@@ -289,23 +302,27 @@ export async function handleRemoteFollow(
         return c.json({ error: "Invalid remote actor data" }, 400);
       }
 
-      cachedActorRow = await db.insert(actorCache).values({
-        apId: actorData.id,
-        type: actorData.type || "Person",
-        preferredUsername: actorData.preferredUsername || null,
-        name: actorData.name || null,
-        summary: actorData.summary || null,
-        iconUrl: actorData.icon?.url || null,
-        inbox: actorData.inbox,
-        outbox: actorData.outbox || null,
-        followersUrl: actorData.followers || null,
-        followingUrl: actorData.following || null,
-        sharedInbox: actorData.endpoints?.sharedInbox || null,
-        publicKeyId: actorData.publicKey?.id || null,
-        publicKeyPem: actorData.publicKey?.publicKeyPem || null,
-        rawJson: JSON.stringify(actorData),
-        lastFetchedAt: new Date().toISOString(),
-      }).returning().get();
+      cachedActorRow = await db
+        .insert(actorCache)
+        .values({
+          apId: actorData.id,
+          type: actorData.type || "Person",
+          preferredUsername: actorData.preferredUsername || null,
+          name: actorData.name || null,
+          summary: actorData.summary || null,
+          iconUrl: actorData.icon?.url || null,
+          inbox: actorData.inbox,
+          outbox: actorData.outbox || null,
+          followersUrl: actorData.followers || null,
+          followingUrl: actorData.following || null,
+          sharedInbox: actorData.endpoints?.sharedInbox || null,
+          publicKeyId: actorData.publicKey?.id || null,
+          publicKeyPem: actorData.publicKey?.publicKeyPem || null,
+          rawJson: JSON.stringify(actorData),
+          lastFetchedAt: new Date().toISOString(),
+        })
+        .returning()
+        .get();
     } catch {
       return c.json({ error: "Failed to fetch remote actor" }, 400);
     }

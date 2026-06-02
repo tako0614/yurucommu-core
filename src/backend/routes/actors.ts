@@ -78,18 +78,19 @@ actorsRoute.get(
     const limit = parseLimit(c.req.query("limit"), 100, 500);
     const offset = parseOffset(c.req.query("offset"), 0, 10000);
 
-    const actorsList = await db.select({
-      apId: actors.apId,
-      preferredUsername: actors.preferredUsername,
-      name: actors.name,
-      summary: actors.summary,
-      iconUrl: actors.iconUrl,
-      role: actors.role,
-      followerCount: actors.followerCount,
-      followingCount: actors.followingCount,
-      postCount: actors.postCount,
-      createdAt: actors.createdAt,
-    })
+    const actorsList = await db
+      .select({
+        apId: actors.apId,
+        preferredUsername: actors.preferredUsername,
+        name: actors.name,
+        summary: actors.summary,
+        iconUrl: actors.iconUrl,
+        role: actors.role,
+        followerCount: actors.followerCount,
+        followingCount: actors.followingCount,
+        postCount: actors.postCount,
+        createdAt: actors.createdAt,
+      })
       .from(actors)
       .where(notDeleted(actors))
       .orderBy(asc(actors.createdAt))
@@ -119,10 +120,11 @@ actorsRoute.get("/me/blocked", async (c) => {
   return listRelation(
     c,
     (db, actorId, limit, offset) =>
-      db.select({
-        blockedApId: blocks.blockedApId,
-        createdAt: blocks.createdAt,
-      })
+      db
+        .select({
+          blockedApId: blocks.blockedApId,
+          createdAt: blocks.createdAt,
+        })
         .from(blocks)
         .where(eq(blocks.blockerApId, actorId))
         .orderBy(desc(blocks.createdAt))
@@ -135,22 +137,20 @@ actorsRoute.get("/me/blocked", async (c) => {
 
 // Block a user
 actorsRoute.post("/me/blocked", async (c) => {
-  return createRelation(
-    c,
-    "block",
-    (db, actorId, targetId) =>
-      db.insert(blocks).values({ blockerApId: actorId, blockedApId: targetId })
-        .onConflictDoNothing(),
+  return createRelation(c, "block", (db, actorId, targetId) =>
+    db
+      .insert(blocks)
+      .values({ blockerApId: actorId, blockedApId: targetId })
+      .onConflictDoNothing(),
   );
 });
 
 // Unblock a user
 actorsRoute.delete("/me/blocked", async (c) => {
-  return deleteRelation(
-    c,
-    "block",
-    (db, actorId, targetId) =>
-      db.delete(blocks).where(
+  return deleteRelation(c, "block", (db, actorId, targetId) =>
+    db
+      .delete(blocks)
+      .where(
         and(eq(blocks.blockerApId, actorId), eq(blocks.blockedApId, targetId)),
       ),
   );
@@ -161,10 +161,11 @@ actorsRoute.get("/me/muted", async (c) => {
   return listRelation(
     c,
     (db, actorId, limit, offset) =>
-      db.select({
-        mutedApId: mutes.mutedApId,
-        createdAt: mutes.createdAt,
-      })
+      db
+        .select({
+          mutedApId: mutes.mutedApId,
+          createdAt: mutes.createdAt,
+        })
         .from(mutes)
         .where(eq(mutes.muterApId, actorId))
         .orderBy(desc(mutes.createdAt))
@@ -177,24 +178,20 @@ actorsRoute.get("/me/muted", async (c) => {
 
 // Mute a user
 actorsRoute.post("/me/muted", async (c) => {
-  return createRelation(
-    c,
-    "mute",
-    (db, actorId, targetId) =>
-      db.insert(mutes).values({ muterApId: actorId, mutedApId: targetId })
-        .onConflictDoNothing(),
+  return createRelation(c, "mute", (db, actorId, targetId) =>
+    db
+      .insert(mutes)
+      .values({ muterApId: actorId, mutedApId: targetId })
+      .onConflictDoNothing(),
   );
 });
 
 // Unmute a user
 actorsRoute.delete("/me/muted", async (c) => {
-  return deleteRelation(
-    c,
-    "mute",
-    (db, actorId, targetId) =>
-      db.delete(mutes).where(
-        and(eq(mutes.muterApId, actorId), eq(mutes.mutedApId, targetId)),
-      ),
+  return deleteRelation(c, "mute", (db, actorId, targetId) =>
+    db
+      .delete(mutes)
+      .where(and(eq(mutes.muterApId, actorId), eq(mutes.mutedApId, targetId))),
   );
 });
 
@@ -211,22 +208,31 @@ actorsRoute.post("/me/delete", async (c) => {
     // Phase 1: remove dependent records sequentially.
     await db.delete(sessions).where(eq(sessions.memberId, actorApIdVal));
 
-    await db.delete(follows).where(
-      or(
-        eq(follows.followerApId, actorApIdVal),
-        eq(follows.followingApId, actorApIdVal),
-      ),
-    );
+    await db
+      .delete(follows)
+      .where(
+        or(
+          eq(follows.followerApId, actorApIdVal),
+          eq(follows.followingApId, actorApIdVal),
+        ),
+      );
 
-    await db.delete(blocks).where(
-      or(
-        eq(blocks.blockerApId, actorApIdVal),
-        eq(blocks.blockedApId, actorApIdVal),
-      ),
-    );
-    await db.delete(mutes).where(
-      or(eq(mutes.muterApId, actorApIdVal), eq(mutes.mutedApId, actorApIdVal)),
-    );
+    await db
+      .delete(blocks)
+      .where(
+        or(
+          eq(blocks.blockerApId, actorApIdVal),
+          eq(blocks.blockedApId, actorApIdVal),
+        ),
+      );
+    await db
+      .delete(mutes)
+      .where(
+        or(
+          eq(mutes.muterApId, actorApIdVal),
+          eq(mutes.mutedApId, actorApIdVal),
+        ),
+      );
 
     await db.delete(likes).where(eq(likes.actorApId, actorApIdVal));
     await db.delete(bookmarks).where(eq(bookmarks.actorApId, actorApIdVal));
@@ -234,45 +240,48 @@ actorsRoute.post("/me/delete", async (c) => {
 
     await db.delete(inbox).where(eq(inbox.actorApId, actorApIdVal));
 
-    const memberships = await db.select({
-      communityApId: communityMembers.communityApId,
-    })
+    const memberships = await db
+      .select({
+        communityApId: communityMembers.communityApId,
+      })
       .from(communityMembers)
       .where(eq(communityMembers.actorApId, actorApIdVal));
     const communityApIds = memberships.map((m) => m.communityApId);
     if (communityApIds.length > 0) {
-      await db.update(communities)
+      await db
+        .update(communities)
         .set({ memberCount: sql`${communities.memberCount} - 1` })
         .where(inArray(communities.apId, communityApIds));
     }
-    await db.delete(communityMembers).where(
-      eq(communityMembers.actorApId, actorApIdVal),
-    );
+    await db
+      .delete(communityMembers)
+      .where(eq(communityMembers.actorApId, actorApIdVal));
 
-    await db.delete(objectRecipients).where(
-      eq(objectRecipients.recipientApId, actorApIdVal),
-    );
+    await db
+      .delete(objectRecipients)
+      .where(eq(objectRecipients.recipientApId, actorApIdVal));
     await db.delete(activities).where(eq(activities.actorApId, actorApIdVal));
 
-    const authoredObjects = await db.select({ apId: objects.apId })
+    const authoredObjects = await db
+      .select({ apId: objects.apId })
       .from(objects)
       .where(eq(objects.attributedTo, actorApIdVal));
     const objectIds = authoredObjects.map((o) => o.apId);
 
     if (objectIds.length > 0) {
       await db.delete(likes).where(inArray(likes.objectApId, objectIds));
-      await db.delete(announces).where(
-        inArray(announces.objectApId, objectIds),
-      );
-      await db.delete(bookmarks).where(
-        inArray(bookmarks.objectApId, objectIds),
-      );
-      await db.delete(storyVotes).where(
-        inArray(storyVotes.storyApId, objectIds),
-      );
-      await db.delete(storyViews).where(
-        inArray(storyViews.storyApId, objectIds),
-      );
+      await db
+        .delete(announces)
+        .where(inArray(announces.objectApId, objectIds));
+      await db
+        .delete(bookmarks)
+        .where(inArray(bookmarks.objectApId, objectIds));
+      await db
+        .delete(storyVotes)
+        .where(inArray(storyVotes.storyApId, objectIds));
+      await db
+        .delete(storyViews)
+        .where(inArray(storyViews.storyApId, objectIds));
     }
 
     // Phase 2: explicit ordered hard-delete to satisfy trigger expectations.
@@ -301,7 +310,7 @@ actorsRoute.get("/:identifier/posts", async (c) => {
   const apId = await resolveActorApId(db, c.env.APP_URL, identifier);
   if (!apId) return c.json({ error: "Actor not found" }, 404);
 
-  if (!await actorExists(db, apId)) {
+  if (!(await actorExists(db, apId))) {
     return c.json({ error: "Actor not found" }, 404);
   }
 
@@ -323,8 +332,12 @@ actorsRoute.get("/:identifier/posts", async (c) => {
     conditions.push(lt(objects.published, before));
   }
 
-  const posts = await db.select().from(objects).where(and(...conditions))
-    .orderBy(desc(objects.published)).limit(limit);
+  const posts = await db
+    .select()
+    .from(objects)
+    .where(and(...conditions))
+    .orderBy(desc(objects.published))
+    .limit(limit);
 
   const postApIds = posts.map((p) => p.apId);
   const authorApIds = [...new Set(posts.map((p) => p.attributedTo))];
@@ -378,28 +391,31 @@ actorsRoute.get("/:identifier", async (c) => {
   if (!apId) return c.json({ error: "Actor not found" }, 404);
 
   // Try local actor first
-  const localActor = await db.select({
-    apId: actors.apId,
-    preferredUsername: actors.preferredUsername,
-    name: actors.name,
-    summary: actors.summary,
-    iconUrl: actors.iconUrl,
-    headerUrl: actors.headerUrl,
-    role: actors.role,
-    followerCount: actors.followerCount,
-    followingCount: actors.followingCount,
-    postCount: actors.postCount,
-    isPrivate: actors.isPrivate,
-    createdAt: actors.createdAt,
-  })
+  const localActor = await db
+    .select({
+      apId: actors.apId,
+      preferredUsername: actors.preferredUsername,
+      name: actors.name,
+      summary: actors.summary,
+      iconUrl: actors.iconUrl,
+      headerUrl: actors.headerUrl,
+      role: actors.role,
+      followerCount: actors.followerCount,
+      followingCount: actors.followingCount,
+      postCount: actors.postCount,
+      isPrivate: actors.isPrivate,
+      createdAt: actors.createdAt,
+    })
     .from(actors)
     .where(eq(actors.apId, apId))
     .get();
 
   if (!localActor) {
-    const cachedActor = await db.select().from(actorCache).where(
-      eq(actorCache.apId, apId),
-    ).get();
+    const cachedActor = await db
+      .select()
+      .from(actorCache)
+      .where(eq(actorCache.apId, apId))
+      .get();
     if (!cachedActor) return c.json({ error: "Actor not found" }, 404);
 
     return c.json({
@@ -422,21 +438,27 @@ actorsRoute.get("/:identifier", async (c) => {
 
   if (currentActor && currentActor.ap_id !== apId) {
     const [followingStatus, followedByStatus] = await Promise.all([
-      db.select({ followerApId: follows.followerApId })
+      db
+        .select({ followerApId: follows.followerApId })
         .from(follows)
-        .where(and(
-          eq(follows.followerApId, currentActor.ap_id),
-          eq(follows.followingApId, apId),
-          eq(follows.status, "accepted"),
-        ))
+        .where(
+          and(
+            eq(follows.followerApId, currentActor.ap_id),
+            eq(follows.followingApId, apId),
+            eq(follows.status, "accepted"),
+          ),
+        )
         .get(),
-      db.select({ followerApId: follows.followerApId })
+      db
+        .select({ followerApId: follows.followerApId })
         .from(follows)
-        .where(and(
-          eq(follows.followerApId, apId),
-          eq(follows.followingApId, currentActor.ap_id),
-          eq(follows.status, "accepted"),
-        ))
+        .where(
+          and(
+            eq(follows.followerApId, apId),
+            eq(follows.followingApId, currentActor.ap_id),
+            eq(follows.status, "accepted"),
+          ),
+        )
         .get(),
     ]);
     is_following = !!followingStatus;
@@ -483,34 +505,41 @@ actorsRoute.put("/me", async (c) => {
   if (body.name !== undefined) {
     const name = body.name.trim();
     if (name.length > MAX_PROFILE_NAME_LENGTH) {
-      return c.json({
-        error: `Name too long (max ${MAX_PROFILE_NAME_LENGTH} chars)`,
-      }, 400);
+      return c.json(
+        {
+          error: `Name too long (max ${MAX_PROFILE_NAME_LENGTH} chars)`,
+        },
+        400,
+      );
     }
     updates.name = name;
   }
   if (body.summary !== undefined) {
     const summary = body.summary.trim();
     if (summary.length > MAX_PROFILE_SUMMARY_LENGTH) {
-      return c.json({
-        error: `Summary too long (max ${MAX_PROFILE_SUMMARY_LENGTH} chars)`,
-      }, 400);
+      return c.json(
+        {
+          error: `Summary too long (max ${MAX_PROFILE_SUMMARY_LENGTH} chars)`,
+        },
+        400,
+      );
     }
     updates.summary = summary.length > 0 ? summary : null;
   }
-  for (
-    const [bodyKey, dbKey, label] of [
-      ["icon_url", "iconUrl", "Icon URL"],
-      ["header_url", "headerUrl", "Header URL"],
-    ] as const
-  ) {
+  for (const [bodyKey, dbKey, label] of [
+    ["icon_url", "iconUrl", "Icon URL"],
+    ["header_url", "headerUrl", "Header URL"],
+  ] as const) {
     const raw = body[bodyKey];
     if (raw !== undefined) {
       const trimmed = raw.trim();
       if (trimmed.length > MAX_PROFILE_URL_LENGTH) {
-        return c.json({
-          error: `${label} too long (max ${MAX_PROFILE_URL_LENGTH} chars)`,
-        }, 400);
+        return c.json(
+          {
+            error: `${label} too long (max ${MAX_PROFILE_URL_LENGTH} chars)`,
+          },
+          400,
+        );
       }
       if (trimmed.length > 0 && !isValidHttpUrl(trimmed)) {
         return c.json({ error: `Invalid ${bodyKey}` }, 400);
@@ -533,15 +562,13 @@ actorsRoute.put("/me", async (c) => {
 });
 
 // Get actor's followers
-actorsRoute.get(
-  "/:identifier/followers",
-  async (c) => listFollowRelation(c, "followers"),
+actorsRoute.get("/:identifier/followers", async (c) =>
+  listFollowRelation(c, "followers"),
 );
 
 // Get actor's following
-actorsRoute.get(
-  "/:identifier/following",
-  async (c) => listFollowRelation(c, "following"),
+actorsRoute.get("/:identifier/following", async (c) =>
+  listFollowRelation(c, "following"),
 );
 
 export default actorsRoute;

@@ -68,10 +68,7 @@ test("server migrations - skips files already recorded as applied", async () => 
   const dir = await mkdtemp(join(tmpdir(), "yurucommu-migrations-"));
 
   try {
-    await writeFile(
-      `${dir}/001_done.sql`,
-      "CREATE TABLE done (id TEXT);",
-    );
+    await writeFile(`${dir}/001_done.sql`, "CREATE TABLE done (id TEXT);");
     const { db, execCalls, markedApplied } = createMigrationDb([
       "001_done.sql",
     ]);

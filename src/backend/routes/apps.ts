@@ -122,62 +122,83 @@ appsApiRoutes.post(
 
     // Validate app name: alphanumeric, hyphens, underscores only
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(appName)) {
-      return c.json({
-        error: "invalid_request",
-        error_description: "Invalid app name",
-      }, 400);
+      return c.json(
+        {
+          error: "invalid_request",
+          error_description: "Invalid app name",
+        },
+        400,
+      );
     }
 
     let body: { files?: unknown };
     try {
       body = await c.req.json();
     } catch {
-      return c.json({
-        error: "invalid_request",
-        error_description: "Invalid JSON body",
-      }, 400);
+      return c.json(
+        {
+          error: "invalid_request",
+          error_description: "Invalid JSON body",
+        },
+        400,
+      );
     }
 
     if (!Array.isArray(body.files)) {
-      return c.json({
-        error: "invalid_request",
-        error_description: "files must be an array",
-      }, 400);
+      return c.json(
+        {
+          error: "invalid_request",
+          error_description: "files must be an array",
+        },
+        400,
+      );
     }
 
     if (body.files.length > MAX_FILES) {
-      return c.json({
-        error: "invalid_request",
-        error_description: `Too many files (max ${MAX_FILES})`,
-      }, 400);
+      return c.json(
+        {
+          error: "invalid_request",
+          error_description: `Too many files (max ${MAX_FILES})`,
+        },
+        400,
+      );
     }
 
-    const files = body.files as Array<
-      { path?: unknown; content?: unknown; contentType?: unknown }
-    >;
+    const files = body.files as Array<{
+      path?: unknown;
+      content?: unknown;
+      contentType?: unknown;
+    }>;
     const appPrefix = `hosted/${token.sub}/${appName}/`;
 
     const results: Array<{ path: string; status: string }> = [];
 
     for (const file of files) {
       if (typeof file.path !== "string" || typeof file.content !== "string") {
-        return c.json({
-          error: "invalid_request",
-          error_description:
-            "Each file must have path (string) and content (base64 string)",
-        }, 400);
+        return c.json(
+          {
+            error: "invalid_request",
+            error_description:
+              "Each file must have path (string) and content (base64 string)",
+          },
+          400,
+        );
       }
 
       // Normalize path: strip leading slashes, reject traversal
       const normalizedPath = file.path.replace(/^\/+/, "");
       if (
-        !normalizedPath || normalizedPath.includes("..") ||
+        !normalizedPath ||
+        normalizedPath.includes("..") ||
         normalizedPath.startsWith("/")
       ) {
-        return c.json({
-          error: "invalid_request",
-          error_description: `Invalid file path: ${file.path}`,
-        }, 400);
+        return c.json(
+          {
+            error: "invalid_request",
+            error_description: `Invalid file path: ${file.path}`,
+          },
+          400,
+        );
       }
 
       let contentBytes: ArrayBuffer;
@@ -189,10 +210,13 @@ appsApiRoutes.post(
         }
         contentBytes = bytes.buffer;
       } catch {
-        return c.json({
-          error: "invalid_request",
-          error_description: `Invalid base64 content for file: ${file.path}`,
-        }, 400);
+        return c.json(
+          {
+            error: "invalid_request",
+            error_description: `Invalid base64 content for file: ${file.path}`,
+          },
+          400,
+        );
       }
 
       const contentType =
@@ -252,8 +276,8 @@ appsServeRoutes.get("/:clientId/:appName/*", async (c) => {
 
   const object = await media.get(r2Key);
   if (object) {
-    const contentType = object.httpMetadata?.contentType ??
-      inferContentType(filePath);
+    const contentType =
+      object.httpMetadata?.contentType ?? inferContentType(filePath);
     const headers = createHostedHeaders(
       contentType,
       filePath.includes("/assets/")

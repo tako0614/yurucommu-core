@@ -22,8 +22,9 @@ function isActivityPubInbox(path: string): boolean {
 }
 
 function isDevLocalhost(appUrl: string | undefined): boolean {
-  return !!appUrl &&
-    (appUrl.includes("localhost") || appUrl.includes("127.0.0.1"));
+  return (
+    !!appUrl && (appUrl.includes("localhost") || appUrl.includes("127.0.0.1"))
+  );
 }
 
 /**
@@ -45,8 +46,10 @@ function buildAllowedOrigins(env: {
   const appOrigin = getOrigin(env.APP_URL ?? null);
   if (appOrigin) origins.add(appOrigin);
 
-  const extra = env.CSRF_ALLOWED_ORIGINS?.split(",").map((s) => s.trim())
-    .filter(Boolean) ?? [];
+  const extra =
+    env.CSRF_ALLOWED_ORIGINS?.split(",")
+      .map((s) => s.trim())
+      .filter(Boolean) ?? [];
   for (const raw of extra) {
     const normalized = getOrigin(raw);
     if (normalized) origins.add(normalized);
@@ -83,8 +86,8 @@ export function csrfProtection() {
     const appUrl = c.env.APP_URL;
     const allowedOrigins = buildAllowedOrigins(c.env);
 
-    const requestOrigin = c.req.header("Origin") ||
-      getOrigin(c.req.header("Referer") ?? null);
+    const requestOrigin =
+      c.req.header("Origin") || getOrigin(c.req.header("Referer") ?? null);
     if (!requestOrigin) {
       log.warn("CSRF check failed: missing origin", {
         event: "csrf.check.missing_origin",

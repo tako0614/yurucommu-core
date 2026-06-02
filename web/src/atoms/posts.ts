@@ -30,20 +30,20 @@ export async function toggleLike(
   if (post.liked) {
     await unlikePost(post.ap_id);
     setPosts((prev) =>
-      updatePost(
-        prev,
-        post.ap_id,
-        (p) => ({ ...p, liked: false, like_count: p.like_count - 1 }),
-      )
+      updatePost(prev, post.ap_id, (p) => ({
+        ...p,
+        liked: false,
+        like_count: p.like_count - 1,
+      })),
     );
   } else {
     await likePost(post.ap_id);
     setPosts((prev) =>
-      updatePost(
-        prev,
-        post.ap_id,
-        (p) => ({ ...p, liked: true, like_count: p.like_count + 1 }),
-      )
+      updatePost(prev, post.ap_id, (p) => ({
+        ...p,
+        liked: true,
+        like_count: p.like_count + 1,
+      })),
     );
   }
 }
@@ -55,24 +55,20 @@ export async function toggleRepost(
   if (post.reposted) {
     await unrepostPost(post.ap_id);
     setPosts((prev) =>
-      updatePost(
-        prev,
-        post.ap_id,
-        (p) => ({
-          ...p,
-          reposted: false,
-          announce_count: p.announce_count - 1,
-        }),
-      )
+      updatePost(prev, post.ap_id, (p) => ({
+        ...p,
+        reposted: false,
+        announce_count: p.announce_count - 1,
+      })),
     );
   } else {
     await repostPost(post.ap_id);
     setPosts((prev) =>
-      updatePost(
-        prev,
-        post.ap_id,
-        (p) => ({ ...p, reposted: true, announce_count: p.announce_count + 1 }),
-      )
+      updatePost(prev, post.ap_id, (p) => ({
+        ...p,
+        reposted: true,
+        announce_count: p.announce_count + 1,
+      })),
     );
   }
 }
@@ -84,12 +80,12 @@ export async function toggleBookmark(
   if (post.bookmarked) {
     await unbookmarkPost(post.ap_id);
     setPosts((prev) =>
-      updatePost(prev, post.ap_id, (p) => ({ ...p, bookmarked: false }))
+      updatePost(prev, post.ap_id, (p) => ({ ...p, bookmarked: false })),
     );
   } else {
     await bookmarkPost(post.ap_id);
     setPosts((prev) =>
-      updatePost(prev, post.ap_id, (p) => ({ ...p, bookmarked: true }))
+      updatePost(prev, post.ap_id, (p) => ({ ...p, bookmarked: true })),
     );
   }
 }

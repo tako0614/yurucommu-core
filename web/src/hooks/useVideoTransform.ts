@@ -112,8 +112,8 @@ export function useVideoTransform({
       const distance = Math.sqrt(dx * dx + dy * dy);
       const angle = Math.atan2(dy, dx) * (180 / Math.PI);
 
-      const nextScale = (distance / pinchRef.startDistance) *
-        pinchRef.startScale;
+      const nextScale =
+        (distance / pinchRef.startDistance) * pinchRef.startScale;
       setScale(Math.max(MIN_SCALE, Math.min(MAX_SCALE, nextScale)));
 
       const angleDelta = angle - pinchRef.startAngle;

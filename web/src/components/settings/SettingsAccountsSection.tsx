@@ -107,7 +107,8 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
                     type="text"
                     value={props.newUsername}
                     onInput={(e) =>
-                      props.onChangeUsername(e.currentTarget.value)}
+                      props.onChangeUsername(e.currentTarget.value)
+                    }
                     placeholder="username"
                     pattern="^[a-zA-Z0-9_]+$"
                     required
@@ -125,7 +126,8 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
                     type="text"
                     value={props.newDisplayName}
                     onInput={(e) =>
-                      props.onChangeDisplayName(e.currentTarget.value)}
+                      props.onChangeDisplayName(e.currentTarget.value)
+                    }
                     placeholder="Display Name"
                     class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-blue-500"
                   />

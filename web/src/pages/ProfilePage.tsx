@@ -140,18 +140,20 @@ export function ProfilePage() {
     }
   };
 
-  createEffect(on(targetActorId, () => {
-    setProfile(null);
-    setPosts([]);
-    setIsFollowing(false);
-    setError(null);
-    setLoading(true);
-    setShowEditModal(false);
-    setShowFollowModal(null);
-    setShowMenu(false);
-    setActiveTab("posts");
-    loadProfile();
-  }));
+  createEffect(
+    on(targetActorId, () => {
+      setProfile(null);
+      setPosts([]);
+      setIsFollowing(false);
+      setError(null);
+      setLoading(true);
+      setShowEditModal(false);
+      setShowFollowModal(null);
+      setShowMenu(false);
+      setActiveTab("posts");
+      loadProfile();
+    }),
+  );
 
   const handleFollow = async () => {
     if (!profile()) return;
@@ -160,13 +162,13 @@ export function ProfilePage() {
         await unfollow(profile()!.ap_id);
         setIsFollowing(false);
         setProfile((prev) =>
-          prev ? { ...prev, follower_count: prev.follower_count - 1 } : null
+          prev ? { ...prev, follower_count: prev.follower_count - 1 } : null,
         );
       } else {
         await follow(profile()!.ap_id);
         setIsFollowing(true);
         setProfile((prev) =>
-          prev ? { ...prev, follower_count: prev.follower_count + 1 } : null
+          prev ? { ...prev, follower_count: prev.follower_count + 1 } : null,
         );
       }
     } catch (e) {
@@ -183,8 +185,8 @@ export function ProfilePage() {
           prev.map((p) =>
             p.ap_id === post.ap_id
               ? { ...p, liked: false, like_count: p.like_count - 1 }
-              : p
-          )
+              : p,
+          ),
         );
       } else {
         await likePost(post.ap_id);
@@ -192,8 +194,8 @@ export function ProfilePage() {
           prev.map((p) =>
             p.ap_id === post.ap_id
               ? { ...p, liked: true, like_count: p.like_count + 1 }
-              : p
-          )
+              : p,
+          ),
         );
       }
     } catch (e) {
@@ -224,12 +226,12 @@ export function ProfilePage() {
       setProfile((prev) =>
         prev
           ? {
-            ...prev,
-            name: editName().trim() || prev.preferred_username,
-            summary: editSummary().trim(),
-            is_private: editIsPrivate(),
-          }
-          : null
+              ...prev,
+              name: editName().trim() || prev.preferred_username,
+              summary: editSummary().trim(),
+              is_private: editIsPrivate(),
+            }
+          : null,
       );
       setShowEditModal(false);
     } catch (e) {
@@ -245,9 +247,10 @@ export function ProfilePage() {
     setFollowModalLoading(true);
     setFollowModalActors([]);
     try {
-      const data = type === "followers"
-        ? await fetchFollowers(targetActorId())
-        : await fetchFollowing(targetActorId());
+      const data =
+        type === "followers"
+          ? await fetchFollowers(targetActorId())
+          : await fetchFollowing(targetActorId());
       setFollowModalActors(data);
     } catch (e) {
       console.error(`Failed to load ${type}:`, e);

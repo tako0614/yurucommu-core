@@ -40,10 +40,7 @@ export type InstanceActorResult = {
  * cheap when the same worker isolate receives a burst of concurrent
  * requests.
  */
-const inFlightInstanceActor = new Map<
-  string,
-  Promise<InstanceActorResult>
->();
+const inFlightInstanceActor = new Map<string, Promise<InstanceActorResult>>();
 
 export async function getInstanceActor(
   c: Context<{ Bindings: Env; Variables: Variables }>,
@@ -107,19 +104,22 @@ export async function getInstanceActor(
 
         const { publicKeyPem, privateKeyPem } = await generateKeyPair();
         const now = new Date().toISOString();
-        await tx.insert(instanceActor).values({
-          apId,
-          preferredUsername: INSTANCE_ACTOR_USERNAME,
-          name: "Yurucommu",
-          summary: "Yurucommu Community",
-          publicKeyPem,
-          privateKeyPem,
-          joinPolicy: "open",
-          postingPolicy: "members",
-          visibility: "public",
-          createdAt: now,
-          updatedAt: now,
-        }).onConflictDoNothing({ target: instanceActor.apId });
+        await tx
+          .insert(instanceActor)
+          .values({
+            apId,
+            preferredUsername: INSTANCE_ACTOR_USERNAME,
+            name: "Yurucommu",
+            summary: "Yurucommu Community",
+            publicKeyPem,
+            privateKeyPem,
+            joinPolicy: "open",
+            postingPolicy: "members",
+            visibility: "public",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing({ target: instanceActor.apId });
 
         const final = await tx.query.instanceActor.findFirst({
           where: eq(instanceActor.apId, apId),

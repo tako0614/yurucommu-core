@@ -55,12 +55,16 @@ follow.post("/", async (c) => {
     return c.json({ error: "Cannot follow yourself" }, 400);
   }
 
-  const existing = await db.select().from(follows).where(
-    and(
-      eq(follows.followerApId, actor.ap_id),
-      eq(follows.followingApId, targetApId),
-    ),
-  ).get();
+  const existing = await db
+    .select()
+    .from(follows)
+    .where(
+      and(
+        eq(follows.followerApId, actor.ap_id),
+        eq(follows.followingApId, targetApId),
+      ),
+    )
+    .get();
   if (existing) return c.json({ error: "Already following or pending" }, 400);
 
   if (isLocal(targetApId, baseUrl)) {
@@ -83,33 +87,45 @@ follow.delete("/", async (c) => {
     return c.json({ error: "target_ap_id required", code: "BAD_REQUEST" }, 400);
   }
 
-  const existingFollow = await db.select().from(follows).where(
-    and(
-      eq(follows.followerApId, actor.ap_id),
-      eq(follows.followingApId, targetApId),
-    ),
-  ).get();
+  const existingFollow = await db
+    .select()
+    .from(follows)
+    .where(
+      and(
+        eq(follows.followerApId, actor.ap_id),
+        eq(follows.followingApId, targetApId),
+      ),
+    )
+    .get();
   if (!existingFollow) return c.json({ error: "Not following" }, 400);
 
   const wasAccepted = existingFollow.status === "accepted";
   const targetIsLocal = isLocal(targetApId, baseUrl);
 
-  await db.delete(follows).where(
-    and(
-      eq(follows.followerApId, actor.ap_id),
-      eq(follows.followingApId, targetApId),
-    ),
-  );
+  await db
+    .delete(follows)
+    .where(
+      and(
+        eq(follows.followerApId, actor.ap_id),
+        eq(follows.followingApId, targetApId),
+      ),
+    );
 
   if (wasAccepted) {
-    await db.update(actors).set({
-      followingCount: sql`${actors.followingCount} - 1`,
-    }).where(eq(actors.apId, actor.ap_id));
+    await db
+      .update(actors)
+      .set({
+        followingCount: sql`${actors.followingCount} - 1`,
+      })
+      .where(eq(actors.apId, actor.ap_id));
 
     if (targetIsLocal) {
-      await db.update(actors).set({
-        followerCount: sql`${actors.followerCount} - 1`,
-      }).where(eq(actors.apId, targetApId));
+      await db
+        .update(actors)
+        .set({
+          followerCount: sql`${actors.followerCount} - 1`,
+        })
+        .where(eq(actors.apId, targetApId));
     }
   }
 
@@ -157,28 +173,39 @@ follow.post("/accept", async (c) => {
     // guard makes the transition idempotent: a concurrent duplicate Accept
     // observes zero rows and skips the count increment, so counts cannot drift
     // upward. `.returning()` yields the transitioned row across D1 and libsql.
-    const accepted = await db.update(follows).set({
-      status: "accepted",
-      acceptedAt: new Date().toISOString(),
-    }).where(
-      and(
-        eq(follows.followerApId, requesterApId),
-        eq(follows.followingApId, actor.ap_id),
-        eq(follows.status, "pending"),
-      ),
-    ).returning().get();
+    const accepted = await db
+      .update(follows)
+      .set({
+        status: "accepted",
+        acceptedAt: new Date().toISOString(),
+      })
+      .where(
+        and(
+          eq(follows.followerApId, requesterApId),
+          eq(follows.followingApId, actor.ap_id),
+          eq(follows.status, "pending"),
+        ),
+      )
+      .returning()
+      .get();
 
     if (!accepted) {
       pendingFollow = undefined;
     } else {
-      await db.update(actors).set({
-        followerCount: sql`${actors.followerCount} + 1`,
-      }).where(eq(actors.apId, actor.ap_id));
+      await db
+        .update(actors)
+        .set({
+          followerCount: sql`${actors.followerCount} + 1`,
+        })
+        .where(eq(actors.apId, actor.ap_id));
 
       if (isLocal(requesterApId, baseUrl)) {
-        await db.update(actors).set({
-          followingCount: sql`${actors.followingCount} + 1`,
-        }).where(eq(actors.apId, requesterApId));
+        await db
+          .update(actors)
+          .set({
+            followingCount: sql`${actors.followingCount} + 1`,
+          })
+          .where(eq(actors.apId, requesterApId));
       }
 
       pendingFollow = accepted;
@@ -219,24 +246,33 @@ follow.post("/accept/batch", async (c) => {
 
   const requesterApIds = parseStringArray(body.requester_ap_ids);
   if (!requesterApIds || requesterApIds.length === 0) {
-    return c.json({
-      error: "requester_ap_ids array required",
-      code: "BAD_REQUEST",
-    }, 400);
+    return c.json(
+      {
+        error: "requester_ap_ids array required",
+        code: "BAD_REQUEST",
+      },
+      400,
+    );
   }
   if (requesterApIds.length > MAX_BATCH_ACCEPT_SIZE) {
-    return c.json({
-      error: `Batch size exceeds maximum of ${MAX_BATCH_ACCEPT_SIZE}`,
-    }, 400);
+    return c.json(
+      {
+        error: `Batch size exceeds maximum of ${MAX_BATCH_ACCEPT_SIZE}`,
+      },
+      400,
+    );
   }
 
-  const pendingFollows = await db.select().from(follows).where(
-    and(
-      inArray(follows.followerApId, requesterApIds),
-      eq(follows.followingApId, actor.ap_id),
-      eq(follows.status, "pending"),
-    ),
-  );
+  const pendingFollows = await db
+    .select()
+    .from(follows)
+    .where(
+      and(
+        inArray(follows.followerApId, requesterApIds),
+        eq(follows.followingApId, actor.ap_id),
+        eq(follows.status, "pending"),
+      ),
+    );
   const pendingFollowMap = new Map(
     pendingFollows.map((f) => [f.followerApId, f]),
   );
@@ -270,16 +306,21 @@ follow.post("/accept/batch", async (c) => {
       // Conditional pending->accepted transition; only count the accept when
       // this request actually performed the transition (rows-affected === 1),
       // so a concurrent duplicate batch Accept cannot over-count.
-      const accepted = await db.update(follows).set({
-        status: "accepted",
-        acceptedAt: new Date().toISOString(),
-      }).where(
-        and(
-          eq(follows.followerApId, requesterApId),
-          eq(follows.followingApId, actor.ap_id),
-          eq(follows.status, "pending"),
-        ),
-      ).returning().get();
+      const accepted = await db
+        .update(follows)
+        .set({
+          status: "accepted",
+          acceptedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(follows.followerApId, requesterApId),
+            eq(follows.followingApId, actor.ap_id),
+            eq(follows.status, "pending"),
+          ),
+        )
+        .returning()
+        .get();
 
       if (!accepted) {
         results.push({
@@ -330,14 +371,20 @@ follow.post("/accept/batch", async (c) => {
   }
 
   if (followerCountIncrement > 0) {
-    await db.update(actors).set({
-      followerCount: sql`${actors.followerCount} + ${followerCountIncrement}`,
-    }).where(eq(actors.apId, actor.ap_id));
+    await db
+      .update(actors)
+      .set({
+        followerCount: sql`${actors.followerCount} + ${followerCountIncrement}`,
+      })
+      .where(eq(actors.apId, actor.ap_id));
   }
   if (localFollowerIds.length > 0) {
-    await db.update(actors).set({
-      followingCount: sql`${actors.followingCount} + 1`,
-    }).where(inArray(actors.apId, localFollowerIds));
+    await db
+      .update(actors)
+      .set({
+        followingCount: sql`${actors.followingCount} + 1`,
+      })
+      .where(inArray(actors.apId, localFollowerIds));
   }
 
   if (activitiesToCreate.length > 0) {
@@ -347,7 +394,7 @@ follow.post("/accept/batch", async (c) => {
   if (remoteEnqueues.length > 0) {
     await Promise.allSettled(
       remoteEnqueues.map((e) =>
-        enqueueDeliveryToActor(c.env, e.activityId, e.recipientApId)
+        enqueueDeliveryToActor(c.env, e.activityId, e.recipientApId),
       ),
     );
   }
@@ -380,20 +427,26 @@ follow.post("/reject", async (c) => {
     return c.json({ error: "No pending follow request" }, 404);
   }
 
-  await db.update(follows).set({ status: "rejected" }).where(
-    and(
-      eq(follows.followerApId, requesterApId),
-      eq(follows.followingApId, actor.ap_id),
-    ),
-  );
-
-  if (pendingFollow.activityApId) {
-    await db.update(inbox).set({ read: 1 }).where(
+  await db
+    .update(follows)
+    .set({ status: "rejected" })
+    .where(
       and(
-        eq(inbox.actorApId, actor.ap_id),
-        eq(inbox.activityApId, pendingFollow.activityApId),
+        eq(follows.followerApId, requesterApId),
+        eq(follows.followingApId, actor.ap_id),
       ),
     );
+
+  if (pendingFollow.activityApId) {
+    await db
+      .update(inbox)
+      .set({ read: 1 })
+      .where(
+        and(
+          eq(inbox.actorApId, actor.ap_id),
+          eq(inbox.activityApId, pendingFollow.activityApId),
+        ),
+      );
   }
 
   await deliverResponseIfRemote(
@@ -421,27 +474,42 @@ follow.get("/requests", async (c) => {
   const limit = parseLimit(c.req.query("limit"), 100, 500);
   const offset = parseOffset(c.req.query("offset"), 0, 10000);
 
-  const followRows = await db.select().from(follows).where(
-    and(eq(follows.followingApId, actor.ap_id), eq(follows.status, "pending")),
-  ).orderBy(desc(follows.createdAt)).limit(limit).offset(offset);
+  const followRows = await db
+    .select()
+    .from(follows)
+    .where(
+      and(
+        eq(follows.followingApId, actor.ap_id),
+        eq(follows.status, "pending"),
+      ),
+    )
+    .orderBy(desc(follows.createdAt))
+    .limit(limit)
+    .offset(offset);
 
   const followerApIds = followRows.map((f) => f.followerApId);
   const [localActors, cachedActors] = await Promise.all([
     followerApIds.length > 0
-      ? db.select({
-        apId: actors.apId,
-        preferredUsername: actors.preferredUsername,
-        name: actors.name,
-        iconUrl: actors.iconUrl,
-      }).from(actors).where(inArray(actors.apId, followerApIds))
+      ? db
+          .select({
+            apId: actors.apId,
+            preferredUsername: actors.preferredUsername,
+            name: actors.name,
+            iconUrl: actors.iconUrl,
+          })
+          .from(actors)
+          .where(inArray(actors.apId, followerApIds))
       : Promise.resolve([]),
     followerApIds.length > 0
-      ? db.select({
-        apId: actorCache.apId,
-        preferredUsername: actorCache.preferredUsername,
-        name: actorCache.name,
-        iconUrl: actorCache.iconUrl,
-      }).from(actorCache).where(inArray(actorCache.apId, followerApIds))
+      ? db
+          .select({
+            apId: actorCache.apId,
+            preferredUsername: actorCache.preferredUsername,
+            name: actorCache.name,
+            iconUrl: actorCache.iconUrl,
+          })
+          .from(actorCache)
+          .where(inArray(actorCache.apId, followerApIds))
       : Promise.resolve([]),
   ]);
 

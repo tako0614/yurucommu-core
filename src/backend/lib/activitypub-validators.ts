@@ -213,11 +213,12 @@ function parseActivityObjectFields(
     inReplyTo: getString(record, "inReplyTo"),
     to: getStringArray(record, "to"),
     content: getString(record, "content"),
-    summary: typeof summaryRaw === "string"
-      ? summaryRaw
-      : summaryRaw === null
-      ? null
-      : undefined,
+    summary:
+      typeof summaryRaw === "string"
+        ? summaryRaw
+        : summaryRaw === null
+          ? null
+          : undefined,
     attachment: record["attachment"],
     overlays: record["overlays"],
     endTime: getString(record, "endTime"),
@@ -272,10 +273,7 @@ export interface WebFingerDocument {
  * Narrow an `unknown` from a `.well-known/webfinger` response into
  * {@link WebFingerDocument}. Links with non-string fields are dropped.
  */
-export function parseWebFinger(
-  value: unknown,
-  path = "$",
-): WebFingerDocument {
+export function parseWebFinger(value: unknown, path = "$"): WebFingerDocument {
   const record = requireRecord(value, path);
   const rawLinks = record["links"];
   if (!Array.isArray(rawLinks)) return {};

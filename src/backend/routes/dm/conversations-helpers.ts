@@ -76,10 +76,7 @@ export function dmWhereForActor(actorApId: string, _actorApIdJson?: string) {
     eq(objects.visibility, "direct"),
     eq(objects.type, "Note"),
     isNotNull(objects.conversation),
-    or(
-      eq(objects.attributedTo, actorApId),
-      recipientToJsonLike(actorApId),
-    ),
+    or(eq(objects.attributedTo, actorApId), recipientToJsonLike(actorApId)),
   );
 }
 
@@ -142,9 +139,11 @@ export function groupConversations(
 
   for (const obj of dmObjects) {
     if (
-      !obj.conversation || !filterFn(obj.conversation) ||
+      !obj.conversation ||
+      !filterFn(obj.conversation) ||
       map.has(obj.conversation)
-    ) continue;
+    )
+      continue;
 
     const otherApId = getOtherParticipant(obj, actorApId);
     if (!otherApId) continue;
@@ -169,9 +168,10 @@ export async function findRepliedConversations(
 ): Promise<Set<string | null>> {
   if (conversationIds.length === 0) return new Set();
 
-  const replies = await db.selectDistinct({
-    conversation: objects.conversation,
-  })
+  const replies = await db
+    .selectDistinct({
+      conversation: objects.conversation,
+    })
     .from(objects)
     .where(
       and(

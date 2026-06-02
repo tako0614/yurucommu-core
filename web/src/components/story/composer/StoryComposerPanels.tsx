@@ -76,14 +76,17 @@ export function StoryComposerDrawingPanel(
           width={props.drawingSettings.width}
           opacity={props.drawingSettings.opacity}
           onColorChange={(color) =>
-            props.onDrawingSettingsChange({ ...props.drawingSettings, color })}
+            props.onDrawingSettingsChange({ ...props.drawingSettings, color })
+          }
           onWidthChange={(width) =>
-            props.onDrawingSettingsChange({ ...props.drawingSettings, width })}
+            props.onDrawingSettingsChange({ ...props.drawingSettings, width })
+          }
           onOpacityChange={(opacity) =>
             props.onDrawingSettingsChange({
               ...props.drawingSettings,
               opacity,
-            })}
+            })
+          }
           onClear={props.onClear}
           onUndo={props.onUndo}
         />

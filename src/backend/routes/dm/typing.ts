@@ -16,7 +16,8 @@ typing.post("/user/:encodedApId/typing", async (c) => {
   if (!otherApId) return c.json({ error: "ap_id required" }, 400);
 
   const now = new Date().toISOString();
-  await db.insert(dmTyping)
+  await db
+    .insert(dmTyping)
     .values({
       actorApId: actor.ap_id,
       recipientApId: otherApId,
@@ -38,7 +39,8 @@ typing.get("/user/:encodedApId/typing", async (c) => {
   const otherApId = parseOtherApId(c);
   if (!otherApId) return c.json({ error: "ap_id required" }, 400);
 
-  const typingRecord = await db.select({ lastTypedAt: dmTyping.lastTypedAt })
+  const typingRecord = await db
+    .select({ lastTypedAt: dmTyping.lastTypedAt })
     .from(dmTyping)
     .where(
       and(
@@ -59,12 +61,14 @@ typing.get("/user/:encodedApId/typing", async (c) => {
   const isExpired = !isValid || elapsedMs > 5 * 60 * 1000;
 
   if (isExpired) {
-    await db.delete(dmTyping).where(
-      and(
-        eq(dmTyping.actorApId, otherApId),
-        eq(dmTyping.recipientApId, actor.ap_id),
-      ),
-    );
+    await db
+      .delete(dmTyping)
+      .where(
+        and(
+          eq(dmTyping.actorApId, otherApId),
+          eq(dmTyping.recipientApId, actor.ap_id),
+        ),
+      );
     return c.json({ is_typing: false, last_typed_at: null });
   }
 

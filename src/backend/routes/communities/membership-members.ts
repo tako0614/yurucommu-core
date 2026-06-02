@@ -65,7 +65,9 @@ export function registerMembershipMemberRoutes(
         );
       }
 
-      const targetMembership = await db.select().from(communityMembers)
+      const targetMembership = await db
+        .select()
+        .from(communityMembers)
         .where(memberWhere(community.apId, targetApId))
         .get();
       if (!targetMembership) {
@@ -73,15 +75,18 @@ export function registerMembershipMemberRoutes(
       }
 
       if (
-        targetMembership.role === "owner" && actorMembership.role !== "owner"
+        targetMembership.role === "owner" &&
+        actorMembership.role !== "owner"
       ) {
         return c.json({ error: "Only owners can remove other owners" }, 403);
       }
 
-      await db.delete(communityMembers)
+      await db
+        .delete(communityMembers)
         .where(memberWhere(community.apId, targetApId));
 
-      await db.update(communities)
+      await db
+        .update(communities)
         .set({ memberCount: sql`${communities.memberCount} - 1` })
         .where(eq(communities.apId, community.apId));
 
@@ -99,9 +104,9 @@ export function registerMembershipMemberRoutes(
       const identifier = c.req.param("identifier")!;
       const targetApId = decodeURIComponent(c.req.param("actorApId")!);
       const db = c.get("db");
-      const body = await c.req.json<
-        { role: "owner" | "moderator" | "member" }
-      >();
+      const body = await c.req.json<{
+        role: "owner" | "moderator" | "member";
+      }>();
 
       if (!body.role || !["owner", "moderator", "member"].includes(body.role)) {
         return c.json({ error: "Invalid role" }, 400);
@@ -113,14 +118,18 @@ export function registerMembershipMemberRoutes(
       }
 
       // Only owners can change roles
-      const actorMembership = await db.select().from(communityMembers)
+      const actorMembership = await db
+        .select()
+        .from(communityMembers)
         .where(memberWhere(community.apId, actor.ap_id))
         .get();
       if (!actorMembership || actorMembership.role !== "owner") {
         return c.json({ error: "Only owners can change member roles" }, 403);
       }
 
-      const targetMembership = await db.select().from(communityMembers)
+      const targetMembership = await db
+        .select()
+        .from(communityMembers)
         .where(memberWhere(community.apId, targetApId))
         .get();
       if (!targetMembership) {
@@ -129,16 +138,19 @@ export function registerMembershipMemberRoutes(
 
       // Can't demote yourself if you're the last owner
       if (
-        targetApId === actor.ap_id && targetMembership.role === "owner" &&
+        targetApId === actor.ap_id &&
+        targetMembership.role === "owner" &&
         body.role !== "owner"
       ) {
-        const ownerCountResult = await db.select({ count: count() }).from(
-          communityMembers,
-        )
-          .where(and(
-            eq(communityMembers.communityApId, community.apId),
-            eq(communityMembers.role, "owner"),
-          ))
+        const ownerCountResult = await db
+          .select({ count: count() })
+          .from(communityMembers)
+          .where(
+            and(
+              eq(communityMembers.communityApId, community.apId),
+              eq(communityMembers.role, "owner"),
+            ),
+          )
           .get();
         if ((ownerCountResult?.count ?? 0) <= 1) {
           return c.json(
@@ -148,7 +160,8 @@ export function registerMembershipMemberRoutes(
         }
       }
 
-      await db.update(communityMembers)
+      await db
+        .update(communityMembers)
         .set({ role: body.role })
         .where(memberWhere(community.apId, targetApId));
 
@@ -167,9 +180,9 @@ export function registerMembershipMemberRoutes(
       const limit = parseLimit(c.req.query("limit"), 100, 500);
       const offset = parseOffset(c.req.query("offset"), 0, 10000);
 
-      const community = await db.select({ apId: communities.apId }).from(
-        communities,
-      )
+      const community = await db
+        .select({ apId: communities.apId })
+        .from(communities)
         .where(
           or(
             eq(communities.apId, apId),
@@ -181,7 +194,9 @@ export function registerMembershipMemberRoutes(
         return c.json({ members: [] });
       }
 
-      const members = await db.select().from(communityMembers)
+      const members = await db
+        .select()
+        .from(communityMembers)
         .where(eq(communityMembers.communityApId, community.apId))
         .orderBy(desc(communityMembers.role), asc(communityMembers.joinedAt))
         .limit(limit)
@@ -248,7 +263,9 @@ export function registerMembershipMemberRoutes(
             continue;
           }
 
-          const targetMembership = await db.select().from(communityMembers)
+          const targetMembership = await db
+            .select()
+            .from(communityMembers)
             .where(memberWhere(community.apId, targetApId))
             .get();
           if (!targetMembership) {
@@ -272,10 +289,12 @@ export function registerMembershipMemberRoutes(
             continue;
           }
 
-          await db.delete(communityMembers)
+          await db
+            .delete(communityMembers)
             .where(memberWhere(community.apId, targetApId));
 
-          await db.update(communities)
+          await db
+            .update(communities)
             .set({ memberCount: sql`${communities.memberCount} - 1` })
             .where(eq(communities.apId, community.apId));
 
@@ -303,9 +322,10 @@ export function registerMembershipMemberRoutes(
 
       const identifier = c.req.param("identifier")!;
       const db = c.get("db");
-      const body = await c.req.json<
-        { actor_ap_ids: string[]; role: "owner" | "moderator" | "member" }
-      >();
+      const body = await c.req.json<{
+        actor_ap_ids: string[];
+        role: "owner" | "moderator" | "member";
+      }>();
 
       const validationError = validateBatchApIds(body.actor_ap_ids);
       if (validationError) return c.json({ error: validationError }, 400);
@@ -320,7 +340,9 @@ export function registerMembershipMemberRoutes(
       }
 
       // Only owners can change roles
-      const actorMembership = await db.select().from(communityMembers)
+      const actorMembership = await db
+        .select()
+        .from(communityMembers)
         .where(memberWhere(community.apId, actor.ap_id))
         .get();
       if (!actorMembership || actorMembership.role !== "owner") {
@@ -331,7 +353,9 @@ export function registerMembershipMemberRoutes(
 
       for (const targetApId of body.actor_ap_ids) {
         try {
-          const targetMembership = await db.select().from(communityMembers)
+          const targetMembership = await db
+            .select()
+            .from(communityMembers)
             .where(memberWhere(community.apId, targetApId))
             .get();
           if (!targetMembership) {
@@ -345,16 +369,19 @@ export function registerMembershipMemberRoutes(
 
           // Can't demote yourself if you're the last owner
           if (
-            targetApId === actor.ap_id && targetMembership.role === "owner" &&
+            targetApId === actor.ap_id &&
+            targetMembership.role === "owner" &&
             body.role !== "owner"
           ) {
-            const ownerCountResult = await db.select({ count: count() }).from(
-              communityMembers,
-            )
-              .where(and(
-                eq(communityMembers.communityApId, community.apId),
-                eq(communityMembers.role, "owner"),
-              ))
+            const ownerCountResult = await db
+              .select({ count: count() })
+              .from(communityMembers)
+              .where(
+                and(
+                  eq(communityMembers.communityApId, community.apId),
+                  eq(communityMembers.role, "owner"),
+                ),
+              )
               .get();
             if ((ownerCountResult?.count ?? 0) <= 1) {
               results.push({
@@ -366,7 +393,8 @@ export function registerMembershipMemberRoutes(
             }
           }
 
-          await db.update(communityMembers)
+          await db
+            .update(communityMembers)
             .set({ role: body.role })
             .where(memberWhere(community.apId, targetApId));
 

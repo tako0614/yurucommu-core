@@ -52,7 +52,8 @@ export async function handleFollow(
   const now = new Date().toISOString();
 
   // Use insert + onConflictDoNothing to atomically create follow record (prevents race condition)
-  const insertResult = await db.insert(follows)
+  const insertResult = await db
+    .insert(follows)
     .values({
       followerApId: actor,
       followingApId: recipient.apId,
@@ -70,7 +71,8 @@ export async function handleFollow(
 
   // Update counts if accepted
   if (status === "accepted") {
-    await db.update(actors)
+    await db
+      .update(actors)
       .set({ followerCount: sql`${actors.followerCount} + 1` })
       .where(eq(actors.apId, recipient.apId));
   }
@@ -99,15 +101,14 @@ export async function handleFollow(
     };
 
     // Store accept activity before enqueue.
-    await db.insert(activities)
-      .values({
-        apId: acceptId,
-        type: "Accept",
-        actorApId: recipient.apId,
-        objectApId: activityId,
-        rawJson: JSON.stringify(acceptActivity),
-        direction: "outbound",
-      });
+    await db.insert(activities).values({
+      apId: acceptId,
+      type: "Accept",
+      actorApId: recipient.apId,
+      objectApId: activityId,
+      rawJson: JSON.stringify(acceptActivity),
+      direction: "outbound",
+    });
 
     // Outbound delivery must be async (no remote POST in request path).
     await enqueueDeliveryToActor(c.env, acceptId, actor);
@@ -132,7 +133,8 @@ export async function handleAccept(c: ActivityContext, activity: Activity) {
     // Conditional pending->accepted transition. The `status='pending'` guard
     // makes a duplicate Accept a no-op (zero rows), so concurrent duplicate
     // Accepts cannot increment the follower/following counts more than once.
-    const accepted = await db.update(follows)
+    const accepted = await db
+      .update(follows)
       .set({ status: "accepted", acceptedAt: now })
       .where(
         and(
@@ -145,10 +147,12 @@ export async function handleAccept(c: ActivityContext, activity: Activity) {
       .get();
     if (!accepted) return;
 
-    await db.update(actors)
+    await db
+      .update(actors)
       .set({ followingCount: sql`${actors.followingCount} + 1` })
       .where(eq(actors.apId, follow.followerApId));
-    await db.update(actors)
+    await db
+      .update(actors)
       .set({ followerCount: sql`${actors.followerCount} + 1` })
       .where(eq(actors.apId, follow.followingApId));
   } catch (e) {
@@ -229,11 +233,12 @@ async function resolveUndoByActivityId(
   actor: string,
   recipient: ActorRow,
 ): Promise<boolean> {
-  const originalActivity = await db.select({
-    type: activities.type,
-    objectApId: activities.objectApId,
-    actorApId: activities.actorApId,
-  })
+  const originalActivity = await db
+    .select({
+      type: activities.type,
+      objectApId: activities.objectApId,
+      actorApId: activities.actorApId,
+    })
     .from(activities)
     .where(eq(activities.apId, objectId))
     .get();
@@ -263,7 +268,8 @@ async function resolveUndoByActivityId(
       // duplicate Undo or an Undo of a never-accepted follow must not drift
       // the count negative. Mirrors the gating in `undoInteraction`.
       if (deleted.some((row) => row.status === "accepted")) {
-        await db.update(actors)
+        await db
+          .update(actors)
           .set({ followerCount: sql`${actors.followerCount} - 1` })
           .where(eq(actors.apId, recipient.apId));
       }
@@ -273,14 +279,15 @@ async function resolveUndoByActivityId(
 
   if (
     (originalActivity.type === "Like" ||
-      originalActivity.type === "Announce") && originalActivity.objectApId
+      originalActivity.type === "Announce") &&
+    originalActivity.objectApId
   ) {
-    const kind = originalActivity.type === "Like"
-      ? "like" as const
-      : "announce" as const;
-    const countField = kind === "like"
-      ? "likeCount" as const
-      : "announceCount" as const;
+    const kind =
+      originalActivity.type === "Like"
+        ? ("like" as const)
+        : ("announce" as const);
+    const countField =
+      kind === "like" ? ("likeCount" as const) : ("announceCount" as const);
     // Only decrement when a row was actually deleted, so a duplicate Undo or
     // an Undo of an interaction we never recorded cannot drift the count.
     const removed = await findAndDeleteInteractionByActivityId(
@@ -289,7 +296,8 @@ async function resolveUndoByActivityId(
       objectId,
     );
     if (removed) {
-      await db.update(objects)
+      await db
+        .update(objects)
         .set({ [countField]: sql`${objects[countField]} - 1` })
         .where(eq(objects.apId, originalActivity.objectApId));
     }
@@ -315,7 +323,8 @@ async function undoFollow(
       follow.followingApId,
     );
   } else {
-    deleted = await db.delete(follows)
+    deleted = await db
+      .delete(follows)
       .where(
         and(
           eq(follows.followerApId, actor),
@@ -331,7 +340,8 @@ async function undoFollow(
   // of an unknown follow must not drift the count negative. Mirrors
   // `undoInteraction`'s rows-affected gating.
   if (deleted.some((row) => row.status === "accepted")) {
-    await db.update(actors)
+    await db
+      .update(actors)
       .set({ followerCount: sql`${actors.followerCount} - 1` })
       .where(eq(actors.apId, recipient.apId));
   }
@@ -355,17 +365,20 @@ async function undoLike(
   if (handled) return;
 
   // Last resort: delete any like from this actor for the recipient's objects
-  const recipientObjects = await db.select({ apId: objects.apId })
+  const recipientObjects = await db
+    .select({ apId: objects.apId })
     .from(objects)
     .where(eq(objects.attributedTo, recipient.apId));
   if (recipientObjects.length > 0) {
-    await db.delete(likes)
-      .where(
-        and(
-          eq(likes.actorApId, actor),
-          inArray(likes.objectApId, recipientObjects.map((o) => o.apId)),
+    await db.delete(likes).where(
+      and(
+        eq(likes.actorApId, actor),
+        inArray(
+          likes.objectApId,
+          recipientObjects.map((o) => o.apId),
         ),
-      );
+      ),
+    );
   }
 }
 

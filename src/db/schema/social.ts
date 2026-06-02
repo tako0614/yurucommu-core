@@ -88,9 +88,7 @@ export const blockedDomains = sqliteTable(
     reason: text("reason"),
     createdAt: text("created_at").notNull().$defaultFn(nowIso),
   },
-  (t) => [
-    index("blocked_domains_created_idx").on(t.createdAt),
-  ],
+  (t) => [index("blocked_domains_created_idx").on(t.createdAt)],
 );
 
 export const blockedActors = sqliteTable(
@@ -100,7 +98,5 @@ export const blockedActors = sqliteTable(
     reason: text("reason"),
     createdAt: text("created_at").notNull().$defaultFn(nowIso),
   },
-  (t) => [
-    index("blocked_actors_created_idx").on(t.createdAt),
-  ],
+  (t) => [index("blocked_actors_created_idx").on(t.createdAt)],
 );

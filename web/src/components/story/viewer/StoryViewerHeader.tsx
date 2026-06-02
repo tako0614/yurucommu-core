@@ -35,9 +35,7 @@ export function StoryViewerHeader(props: StoryViewerHeaderProps) {
           <p class="text-white text-sm font-medium">
             {props.actor.name || props.actor.preferred_username}
           </p>
-          <p class="text-neutral-400 text-xs">
-            {props.timeLabel}
-          </p>
+          <p class="text-neutral-400 text-xs">{props.timeLabel}</p>
         </div>
       </div>
       <div class="flex items-center gap-1">

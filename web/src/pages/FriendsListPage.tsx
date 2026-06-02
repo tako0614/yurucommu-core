@@ -97,11 +97,12 @@ export function FriendsListPage() {
     const query = searchQuery();
     const list = currentList();
     return query
-      ? list.filter((f) =>
-        (f.name?.toLowerCase().includes(query.toLowerCase())) ||
-        f.preferred_username.toLowerCase().includes(query.toLowerCase()) ||
-        f.username.toLowerCase().includes(query.toLowerCase())
-      )
+      ? list.filter(
+          (f) =>
+            f.name?.toLowerCase().includes(query.toLowerCase()) ||
+            f.preferred_username.toLowerCase().includes(query.toLowerCase()) ||
+            f.username.toLowerCase().includes(query.toLowerCase()),
+        )
       : list;
   };
 
@@ -185,8 +186,8 @@ export function FriendsListPage() {
                 {searchQuery()
                   ? "No results found"
                   : activeTab() === "following"
-                  ? "Not following anyone yet"
-                  : "No followers yet"}
+                    ? "Not following anyone yet"
+                    : "No followers yet"}
               </div>
             }
           >

@@ -105,13 +105,14 @@ export const createPostAtom = atom(null, async (get, set, content: string) => {
   try {
     const newPost = await createPost({
       content: content.trim(),
-      attachments: media.length > 0
-        ? media.map((m) => ({
-          url: m.url,
-          r2_key: m.r2_key,
-          content_type: m.content_type,
-        }))
-        : undefined,
+      attachments:
+        media.length > 0
+          ? media.map((m) => ({
+              url: m.url,
+              r2_key: m.r2_key,
+              content_type: m.content_type,
+            }))
+          : undefined,
     });
     if (newPost) {
       set(timelinePostsAtom, (prev) => [newPost, ...prev]);
@@ -145,17 +146,15 @@ export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
   try {
     const result = await uploadMedia(file);
     const preview = URL.createObjectURL(file);
-    set(
-      uploadedMediaAtom,
-      (
-        prev,
-      ) => [...prev, {
+    set(uploadedMediaAtom, (prev) => [
+      ...prev,
+      {
         url: result.url,
         r2_key: result.r2_key,
         content_type: result.content_type,
         preview,
-      }],
-    );
+      },
+    ]);
   } catch (e) {
     console.error("Failed to upload:", e);
     set(uploadErrorAtom, "アップロードに失敗しました");

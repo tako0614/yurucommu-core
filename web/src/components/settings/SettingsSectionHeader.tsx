@@ -7,7 +7,7 @@ interface SettingsSectionHeaderProps {
 }
 
 export function SettingsSectionHeader(props: SettingsSectionHeaderProps) {
-  const titleClass = () => props.accent === "danger" ? "text-red-500" : "";
+  const titleClass = () => (props.accent === "danger" ? "text-red-500" : "");
 
   return (
     <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">

@@ -64,20 +64,22 @@ async function batchGetAuthorInfo(
   const uniqueApIds = [...new Set(apIds)];
 
   const [localActors, cachedActors] = await Promise.all([
-    db.select({
-      apId: actors.apId,
-      preferredUsername: actors.preferredUsername,
-      name: actors.name,
-      iconUrl: actors.iconUrl,
-    })
+    db
+      .select({
+        apId: actors.apId,
+        preferredUsername: actors.preferredUsername,
+        name: actors.name,
+        iconUrl: actors.iconUrl,
+      })
       .from(actors)
       .where(inArray(actors.apId, uniqueApIds)),
-    db.select({
-      apId: actorCache.apId,
-      preferredUsername: actorCache.preferredUsername,
-      name: actorCache.name,
-      iconUrl: actorCache.iconUrl,
-    })
+    db
+      .select({
+        apId: actorCache.apId,
+        preferredUsername: actorCache.preferredUsername,
+        name: actorCache.name,
+        iconUrl: actorCache.iconUrl,
+      })
       .from(actorCache)
       .where(inArray(actorCache.apId, uniqueApIds)),
   ]);
@@ -109,13 +111,11 @@ async function batchGetInteractionStatus(
   db: Database,
   viewerApId: string,
   objectApIds: string[],
-): Promise<
-  {
-    likedSet: Set<string>;
-    bookmarkedSet: Set<string>;
-    repostedSet: Set<string>;
-  }
-> {
+): Promise<{
+  likedSet: Set<string>;
+  bookmarkedSet: Set<string>;
+  repostedSet: Set<string>;
+}> {
   if (!viewerApId || objectApIds.length === 0) {
     return {
       likedSet: new Set(),
@@ -125,7 +125,8 @@ async function batchGetInteractionStatus(
   }
 
   const [likeRows, bookmarkRows, announceRows] = await Promise.all([
-    db.select({ objectApId: likes.objectApId })
+    db
+      .select({ objectApId: likes.objectApId })
       .from(likes)
       .where(
         and(
@@ -133,7 +134,8 @@ async function batchGetInteractionStatus(
           inArray(likes.objectApId, objectApIds),
         ),
       ),
-    db.select({ objectApId: bookmarks.objectApId })
+    db
+      .select({ objectApId: bookmarks.objectApId })
       .from(bookmarks)
       .where(
         and(
@@ -141,7 +143,8 @@ async function batchGetInteractionStatus(
           inArray(bookmarks.objectApId, objectApIds),
         ),
       ),
-    db.select({ objectApId: announces.objectApId })
+    db
+      .select({ objectApId: announces.objectApId })
       .from(announces)
       .where(
         and(
@@ -168,11 +171,13 @@ async function getBlockedAndMutedUsers(
   }
 
   const [blockRows, muteRows] = await Promise.all([
-    db.select({ blockedApId: blocks.blockedApId })
+    db
+      .select({ blockedApId: blocks.blockedApId })
       .from(blocks)
       .where(eq(blocks.blockerApId, viewerApId))
       .limit(MAX_BLOCK_MUTE_FILTER_ENTRIES),
-    db.select({ mutedApId: mutes.mutedApId })
+    db
+      .select({ mutedApId: mutes.mutedApId })
       .from(mutes)
       .where(eq(mutes.muterApId, viewerApId))
       .limit(MAX_BLOCK_MUTE_FILTER_ENTRIES),
@@ -303,17 +308,20 @@ timeline.get(
       isNull(objects.deletedAt),
     ];
     if (excludedApIds.length > 0) {
-      conditions.push(
-        notInArray(objects.attributedTo, excludedApIds),
-      );
+      conditions.push(notInArray(objects.attributedTo, excludedApIds));
     }
     if (communityApId) {
       conditions.push(eq(objects.communityApId, communityApId));
     }
     if (before) conditions.push(lt(objects.published, before));
 
-    const posts = await db.select().from(objects).where(and(...conditions))
-      .orderBy(desc(objects.published)).limit(limit + 1).offset(offset);
+    const posts = await db
+      .select()
+      .from(objects)
+      .where(and(...conditions))
+      .orderBy(desc(objects.published))
+      .limit(limit + 1)
+      .offset(offset);
 
     const { results, has_more } = paginateResults(posts, limit);
     const result = await resolveAndFormatPosts(db, results, viewerApId);
@@ -337,7 +345,8 @@ timeline.get("/following", async (c) => {
 
   const [{ blockedApIds, mutedApIds }, followRows] = await Promise.all([
     getBlockedAndMutedUsers(db, viewerApId),
-    db.select({ followingApId: follows.followingApId })
+    db
+      .select({ followingApId: follows.followingApId })
       .from(follows)
       .where(
         and(
@@ -372,8 +381,13 @@ timeline.get("/following", async (c) => {
   }
   if (before) conditions.push(lt(objects.published, before));
 
-  const posts = await db.select().from(objects).where(and(...conditions))
-    .orderBy(desc(objects.published)).limit(limit + 1).offset(offset);
+  const posts = await db
+    .select()
+    .from(objects)
+    .where(and(...conditions))
+    .orderBy(desc(objects.published))
+    .limit(limit + 1)
+    .offset(offset);
 
   const { results, has_more } = paginateResults(posts, limit);
   const result = await resolveAndFormatPosts(db, results, viewerApId);

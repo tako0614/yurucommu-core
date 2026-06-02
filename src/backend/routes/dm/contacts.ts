@@ -40,9 +40,10 @@ contacts.get("/contacts", async (c) => {
   const dmWhere = dmWhereForActor(actor.ap_id);
 
   // Clean up orphaned read status entries for conversations that no longer exist
-  const validConversations = await db.selectDistinct({
-    conversation: objects.conversation,
-  })
+  const validConversations = await db
+    .selectDistinct({
+      conversation: objects.conversation,
+    })
     .from(objects)
     .where(dmWhere!);
 
@@ -51,22 +52,25 @@ contacts.get("/contacts", async (c) => {
     .filter((c): c is string => c !== null);
 
   if (validConversationIds.length > 0) {
-    await db.delete(dmReadStatus).where(
-      and(
-        eq(dmReadStatus.actorApId, actor.ap_id),
-        notInArray(dmReadStatus.conversationId, validConversationIds),
-      ),
-    );
+    await db
+      .delete(dmReadStatus)
+      .where(
+        and(
+          eq(dmReadStatus.actorApId, actor.ap_id),
+          notInArray(dmReadStatus.conversationId, validConversationIds),
+        ),
+      );
   } else {
-    await db.delete(dmReadStatus).where(
-      eq(dmReadStatus.actorApId, actor.ap_id),
-    );
+    await db
+      .delete(dmReadStatus)
+      .where(eq(dmReadStatus.actorApId, actor.ap_id));
   }
 
   // Get archived conversation IDs to exclude
-  const archivedConversations = await db.select({
-    conversationId: dmArchivedConversations.conversationId,
-  })
+  const archivedConversations = await db
+    .select({
+      conversationId: dmArchivedConversations.conversationId,
+    })
     .from(dmArchivedConversations)
     .where(eq(dmArchivedConversations.actorApId, actor.ap_id));
   const archivedSet = new Set(
@@ -74,13 +78,14 @@ contacts.get("/contacts", async (c) => {
   );
 
   // Get DM conversations for this actor with limit to prevent DoS
-  const dmObjects = await db.select({
-    conversation: objects.conversation,
-    attributedTo: objects.attributedTo,
-    toJson: objects.toJson,
-    published: objects.published,
-    content: objects.content,
-  })
+  const dmObjects = await db
+    .select({
+      conversation: objects.conversation,
+      attributedTo: objects.attributedTo,
+      toJson: objects.toJson,
+      published: objects.published,
+      content: objects.content,
+    })
     .from(objects)
     .where(dmWhere!)
     .orderBy(desc(objects.published))
@@ -93,7 +98,8 @@ contacts.get("/contacts", async (c) => {
   );
 
   // Get read status for all conversations
-  const readStatuses = await db.select()
+  const readStatuses = await db
+    .select()
     .from(dmReadStatus)
     .where(eq(dmReadStatus.actorApId, actor.ap_id));
   const readStatusMap = new Map(
@@ -116,10 +122,11 @@ contacts.get("/contacts", async (c) => {
 
     await Promise.all(
       Array.from(lastReadAtMap.entries()).map(async ([lastReadAt, convIds]) => {
-        const unreadMessages = await db.select({
-          conversation: objects.conversation,
-          count: count(),
-        })
+        const unreadMessages = await db
+          .select({
+            conversation: objects.conversation,
+            count: count(),
+          })
           .from(objects)
           .where(
             and(
@@ -150,9 +157,9 @@ contacts.get("/contacts", async (c) => {
       conversation_id: conv.conversation,
       last_message: conv.lastContent
         ? {
-          content: conv.lastContent,
-          is_mine: conv.lastSender === actor.ap_id,
-        }
+            content: conv.lastContent,
+            is_mine: conv.lastSender === actor.ap_id,
+          }
         : null,
       last_message_at: conv.lastMessageAt,
       unread_count: unreadCounts.get(conv.conversation) || 0,
@@ -160,16 +167,17 @@ contacts.get("/contacts", async (c) => {
     .sort((a, b) => byTimeDesc(a.last_message_at, b.last_message_at));
 
   // Get communities the user is a member of (for group chat)
-  const communityMemberships = await db.select({
-    communityApId: communityMembers.communityApId,
-    community: {
-      apId: communities.apId,
-      preferredUsername: communities.preferredUsername,
-      name: communities.name,
-      iconUrl: communities.iconUrl,
-      memberCount: communities.memberCount,
-    },
-  })
+  const communityMemberships = await db
+    .select({
+      communityApId: communityMembers.communityApId,
+      community: {
+        apId: communities.apId,
+        preferredUsername: communities.preferredUsername,
+        name: communities.name,
+        iconUrl: communities.iconUrl,
+        memberCount: communities.memberCount,
+      },
+    })
     .from(communityMembers)
     .innerJoin(
       communities,
@@ -185,12 +193,13 @@ contacts.get("/contacts", async (c) => {
   >();
 
   if (communityApIds.length > 0) {
-    const recentMessages = await db.select({
-      communityApId: objects.communityApId,
-      content: objects.content,
-      attributedTo: objects.attributedTo,
-      published: objects.published,
-    })
+    const recentMessages = await db
+      .select({
+        communityApId: objects.communityApId,
+        content: objects.content,
+        attributedTo: objects.attributedTo,
+        published: objects.published,
+      })
       .from(objects)
       .where(inArray(objects.communityApId, communityApIds))
       .orderBy(desc(objects.published))
@@ -220,22 +229,24 @@ contacts.get("/contacts", async (c) => {
         member_count: cm.community.memberCount,
         last_message: lastMessage?.content
           ? {
-            content: lastMessage.content,
-            is_mine: lastMessage.attributedTo === actor.ap_id,
-          }
+              content: lastMessage.content,
+              is_mine: lastMessage.attributedTo === actor.ap_id,
+            }
           : null,
         last_message_at: lastMessage?.published || null,
       };
     })
-    .sort((a, b) =>
-      byTimeDesc(a.last_message_at, b.last_message_at) ||
-      a.name.localeCompare(b.name)
+    .sort(
+      (a, b) =>
+        byTimeDesc(a.last_message_at, b.last_message_at) ||
+        a.name.localeCompare(b.name),
     );
 
   // Count pending requests: DMs from people we haven't replied to
-  const incomingDMs = await db.selectDistinct({
-    conversation: objects.conversation,
-  })
+  const incomingDMs = await db
+    .selectDistinct({
+      conversation: objects.conversation,
+    })
     .from(objects)
     .where(
       and(
@@ -254,8 +265,8 @@ contacts.get("/contacts", async (c) => {
     incomingConversations,
     actor.ap_id,
   );
-  const requestCount = incomingConversations.filter((c) =>
-    !repliedConversations.has(c)
+  const requestCount = incomingConversations.filter(
+    (c) => !repliedConversations.has(c),
   ).length;
 
   return c.json({

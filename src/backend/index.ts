@@ -99,11 +99,12 @@ function collectMissingRuntimeBindings(env: Env): string[] {
   if (!hasValue(env.APP_URL)) missing.push("APP_URL");
   if (!hasValue(env.ENCRYPTION_KEY)) missing.push("ENCRYPTION_KEY");
   const hasPassword = hasValue(env.AUTH_PASSWORD_HASH);
-  const hasGoogle = hasValue(env.GOOGLE_CLIENT_ID) &&
-    hasValue(env.GOOGLE_CLIENT_SECRET);
+  const hasGoogle =
+    hasValue(env.GOOGLE_CLIENT_ID) && hasValue(env.GOOGLE_CLIENT_SECRET);
   const hasX = hasValue(env.X_CLIENT_ID) && hasValue(env.X_CLIENT_SECRET);
   const oidcCredentials = getOidcClientCredentials(env);
-  const hasAccountsOidc = hasValue(getOidcIssuerUrl(env) ?? undefined) &&
+  const hasAccountsOidc =
+    hasValue(getOidcIssuerUrl(env) ?? undefined) &&
     hasValue(oidcCredentials.clientId) &&
     hasValue(oidcCredentials.clientSecret);
   if (!hasPassword && !hasGoogle && !hasX && !hasAccountsOidc) {
@@ -121,24 +122,27 @@ function mountReadinessRoutes(app: YurucommuApp): void {
   app.get("/healthz", (c) => {
     const missing = collectMissingRuntimeBindings(c.env);
     const strict = isStrictReadinessEnabled(c.env);
-    return c.json({
-      status: missing.length === 0
-        ? "ok"
-        : strict
-        ? "misconfigured"
-        : "degraded",
-      service: "yurucommu",
-      missingBindings: missing,
-    }, strict && missing.length > 0 ? 503 : 200);
+    return c.json(
+      {
+        status:
+          missing.length === 0 ? "ok" : strict ? "misconfigured" : "degraded",
+        service: "yurucommu",
+        missingBindings: missing,
+      },
+      strict && missing.length > 0 ? 503 : 200,
+    );
   });
 
   app.get("/readyz", (c) => {
     const missing = collectMissingRuntimeBindings(c.env);
-    return c.json({
-      status: missing.length === 0 ? "ok" : "misconfigured",
-      service: "yurucommu",
-      missingBindings: missing,
-    }, missing.length === 0 ? 200 : 503);
+    return c.json(
+      {
+        status: missing.length === 0 ? "ok" : "misconfigured",
+        service: "yurucommu",
+        missingBindings: missing,
+      },
+      missing.length === 0 ? 200 : 503,
+    );
   });
 }
 
@@ -385,12 +389,15 @@ function mountStaticFallback(app: YurucommuApp): void {
       }
     }
 
-    return c.json({
-      error: "Static assets not configured",
-      message:
-        "This instance is running in API-only mode. Frontend assets are not available.",
-      hint: "Access /api/* endpoints for API functionality.",
-    }, 503);
+    return c.json(
+      {
+        error: "Static assets not configured",
+        message:
+          "This instance is running in API-only mode. Frontend assets are not available.",
+        hint: "Access /api/* endpoints for API functionality.",
+      },
+      503,
+    );
   });
 }
 

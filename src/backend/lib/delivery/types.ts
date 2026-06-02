@@ -58,18 +58,25 @@ export function isDeliveryQueueMessageV1(
 
   switch (v.type) {
     case "fanout_followers":
-      return typeof v.activityId === "string" &&
-        typeof v.followeeApId === "string" && typeof v.scheduledAt === "string";
+      return (
+        typeof v.activityId === "string" &&
+        typeof v.followeeApId === "string" &&
+        typeof v.scheduledAt === "string"
+      );
     case "resolve_actor":
-      return typeof v.activityId === "string" &&
+      return (
+        typeof v.activityId === "string" &&
         typeof v.recipientActorApId === "string" &&
-        typeof v.scheduledAt === "string";
+        typeof v.scheduledAt === "string"
+      );
     case "deliver_endpoint":
       return typeof v.jobId === "string" && typeof v.scheduledAt === "string";
     case "reconcile_job":
-      return typeof v.jobId === "string" &&
+      return (
+        typeof v.jobId === "string" &&
         typeof v.reconcileAttempt === "number" &&
-        typeof v.scheduledAt === "string";
+        typeof v.scheduledAt === "string"
+      );
     default:
       return false;
   }

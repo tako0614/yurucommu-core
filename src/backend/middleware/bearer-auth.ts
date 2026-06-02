@@ -18,10 +18,13 @@ export function requireBearerAuth(
     const issuer = getOidcIssuerUrl(c.env);
     const { clientId, clientSecret } = getOidcClientCredentials(c.env);
     if (!issuer || !clientId || !clientSecret) {
-      return c.json({
-        error: "server_error",
-        error_description: "Takosumi Accounts OIDC client not configured",
-      }, 500);
+      return c.json(
+        {
+          error: "server_error",
+          error_description: "Takosumi Accounts OIDC client not configured",
+        },
+        500,
+      );
     }
 
     const res = await fetch(issuerEndpoint(issuer, "/oauth/introspect"), {
@@ -34,13 +37,16 @@ export function requireBearerAuth(
       }).toString(),
     });
     if (!res.ok) {
-      return c.json({
-        error: "server_error",
-        error_description: "Introspect failed",
-      }, 500);
+      return c.json(
+        {
+          error: "server_error",
+          error_description: "Introspect failed",
+        },
+        500,
+      );
     }
 
-    const info = await res.json() as {
+    const info = (await res.json()) as {
       active: boolean;
       scope?: string;
       sub?: string;

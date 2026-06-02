@@ -47,8 +47,7 @@ export function StoryComposerCanvas(props: StoryComposerCanvasProps) {
             src={props.videoPreview!}
             class="absolute w-full h-full object-cover origin-center"
             style={{
-              transform:
-                `translate(${props.videoPosition.x}px, ${props.videoPosition.y}px) scale(${props.videoScale}) rotate(${props.videoRotation}deg)`,
+              transform: `translate(${props.videoPosition.x}px, ${props.videoPosition.y}px) scale(${props.videoScale}) rotate(${props.videoRotation}deg)`,
             }}
             autoplay
             loop
@@ -56,8 +55,12 @@ export function StoryComposerCanvas(props: StoryComposerCanvasProps) {
             playsinline
           />
           <Show
-            when={props.videoScale === 1 && props.videoPosition.x === 0 &&
-              props.videoPosition.y === 0 && props.videoRotation === 0}
+            when={
+              props.videoScale === 1 &&
+              props.videoPosition.x === 0 &&
+              props.videoPosition.y === 0 &&
+              props.videoRotation === 0
+            }
           >
             <div class="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-black/70 rounded-full pointer-events-none">
               <span class="text-white/80 text-xs">
@@ -75,9 +78,11 @@ export function StoryComposerCanvas(props: StoryComposerCanvasProps) {
         class={`w-full h-full object-contain ${
           props.videoPreview ? "absolute inset-0" : ""
         }`}
-        style={props.videoPreview
-          ? { "mix-blend-mode": "normal", "pointer-events": "none" }
-          : undefined}
+        style={
+          props.videoPreview
+            ? { "mix-blend-mode": "normal", "pointer-events": "none" }
+            : undefined
+        }
       />
     </div>
   );

@@ -260,18 +260,12 @@ async function createLocalServerEnv(config: {
   return { env, rawDb: db };
 }
 
-type LocalServerEnv =
-  & Pick<
-    Env,
-    | "DB_INSTANCE"
-    | "MEDIA"
-    | "KV"
-    | "ASSETS"
-    | "DELIVERY_QUEUE"
-    | "DELIVERY_DLQ"
-  >
-  & { APP_URL: string }
-  & Partial<Record<typeof ENV_PASSTHROUGH_KEYS[number], string | undefined>>;
+type LocalServerEnv = Pick<
+  Env,
+  "DB_INSTANCE" | "MEDIA" | "KV" | "ASSETS" | "DELIVERY_QUEUE" | "DELIVERY_DLQ"
+> & { APP_URL: string } & Partial<
+    Record<(typeof ENV_PASSTHROUGH_KEYS)[number], string | undefined>
+  >;
 
 // ---------------------------------------------------------------------------
 // Run migrations from SQL files
@@ -363,7 +357,9 @@ async function main() {
   const dataDir = DATABASE_PATH.substring(0, DATABASE_PATH.lastIndexOf("/"));
   try {
     await mkdir(dataDir, { recursive: true });
-  } catch { /* ignore if exists */ }
+  } catch {
+    /* ignore if exists */
+  }
 
   const { env, rawDb } = await createLocalServerEnv({
     databasePath: DATABASE_PATH,
@@ -409,21 +405,24 @@ async function startServer(env: LocalServerEnv) {
 
   const { backendApp } = await import("./index.ts");
 
-  bunLike().serve({ port: PORT, fetch: (request: Request) => {
-    const ctx: ExecutionContext = {
-      waitUntil: (promise: Promise<unknown>) => {
-        promise.catch((error) => {
-          log.error("Background task failed", {
-            event: "server.background_task.failed",
-            error,
+  bunLike().serve({
+    port: PORT,
+    fetch: (request: Request) => {
+      const ctx: ExecutionContext = {
+        waitUntil: (promise: Promise<unknown>) => {
+          promise.catch((error) => {
+            log.error("Background task failed", {
+              event: "server.background_task.failed",
+              error,
+            });
           });
-        });
-      },
-      passThroughOnException: () => {},
-      props: {},
-    };
-    return backendApp.fetch(request, env, ctx);
-  } });
+        },
+        passThroughOnException: () => {},
+        props: {},
+      };
+      return backendApp.fetch(request, env, ctx);
+    },
+  });
 
   log.info("Server is running", {
     event: "server.bootstrap.running",
@@ -456,7 +455,10 @@ function bunLike(): BunLike {
 }
 
 function isNotFoundError(error: unknown): boolean {
-  return typeof error === "object" && error !== null &&
+  return (
+    typeof error === "object" &&
+    error !== null &&
     "code" in error &&
-    (error as { code?: unknown }).code === "ENOENT";
+    (error as { code?: unknown }).code === "ENOENT"
+  );
 }

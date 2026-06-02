@@ -139,10 +139,13 @@ takosTools.post("/:name", async (c) => {
       toolName,
       error,
     });
-    return c.json({
-      success: false,
-      error: error instanceof Error ? error.message : "Internal error",
-    } as ToolResponse, 500);
+    return c.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Internal error",
+      } as ToolResponse,
+      500,
+    );
   }
 });
 

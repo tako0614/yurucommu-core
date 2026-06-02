@@ -40,9 +40,9 @@ export function validateFile(file: File): void {
   // Check file type
   if (!allowedMimeTypes.includes(file.type as AllowedMimeType)) {
     throw new FileValidationError(
-      `Invalid file type: ${file.type}. Allowed types: ${
-        allowedMimeTypes.join(", ")
-      }`,
+      `Invalid file type: ${file.type}. Allowed types: ${allowedMimeTypes.join(
+        ", ",
+      )}`,
       "INVALID_TYPE",
     );
   }

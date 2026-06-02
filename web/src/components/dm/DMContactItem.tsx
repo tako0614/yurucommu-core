@@ -20,8 +20,8 @@ export function DMContactItem(props: DMContactItemProps) {
           when={props.contact.icon_url}
           fallback={
             <div class="w-14 h-14 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-xl">
-              {(props.contact.name || props.contact.preferred_username)?.[0]
-                ?.toUpperCase() || "?"}
+              {(props.contact.name ||
+                props.contact.preferred_username)?.[0]?.toUpperCase() || "?"}
             </div>
           }
         >
@@ -61,8 +61,10 @@ export function DMContactItem(props: DMContactItemProps) {
             {props.contact.name || props.contact.preferred_username}
           </span>
           <Show
-            when={props.contact.type === "community" &&
-              props.contact.member_count !== undefined}
+            when={
+              props.contact.type === "community" &&
+              props.contact.member_count !== undefined
+            }
           >
             <span class="text-xs text-neutral-500">
               ({props.contact.member_count})

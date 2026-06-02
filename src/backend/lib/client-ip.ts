@@ -9,7 +9,10 @@ const IPV6_PATTERN = /^[0-9a-fA-F:]+$/;
  */
 function isValidIP(ip: string): boolean {
   if (IPV4_PATTERN.test(ip)) {
-    return ip.split(".").map(Number).every((part) => part >= 0 && part <= 255);
+    return ip
+      .split(".")
+      .map(Number)
+      .every((part) => part >= 0 && part <= 255);
   }
   return IPV6_PATTERN.test(ip) && ip.includes(":");
 }

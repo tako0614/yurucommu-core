@@ -4,14 +4,7 @@ export const DELIVERY_ENDPOINT_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 // 1m, 2m, 4m, 8m, 16m, 32m, 64m, 128m (contract)
 const BACKOFF_SERIES_SECONDS = [
-  60,
-  120,
-  240,
-  480,
-  960,
-  1920,
-  3840,
-  7680,
+  60, 120, 240, 480, 960, 1920, 3840, 7680,
 ] as const;
 
 export const DELIVERY_MAX_ATTEMPTS = BACKOFF_SERIES_SECONDS.length;

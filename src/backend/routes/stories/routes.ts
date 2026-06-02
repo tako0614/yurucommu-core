@@ -117,10 +117,10 @@ function buildAuthor(
   apId: string,
   data:
     | {
-      preferredUsername?: string | null;
-      name?: string | null;
-      iconUrl?: string | null;
-    }
+        preferredUsername?: string | null;
+        name?: string | null;
+        iconUrl?: string | null;
+      }
     | null
     | undefined,
 ): StoryAuthor {
@@ -237,7 +237,8 @@ stories.get("/", async (c) => {
   maybeCleanupExpiredStories(db);
 
   // Get followed user IDs
-  const followRows = await db.select({ followingApId: follows.followingApId })
+  const followRows = await db
+    .select({ followingApId: follows.followingApId })
     .from(follows)
     .where(
       and(
@@ -268,7 +269,8 @@ stories.get("/", async (c) => {
     );
   }
 
-  const storiesData = await db.select()
+  const storiesData = await db
+    .select()
     .from(objects)
     .where(storiesWhere!)
     .orderBy(desc(objects.endTime));
@@ -278,24 +280,26 @@ stories.get("/", async (c) => {
 
   const [viewedRows, likedRows] = await Promise.all([
     storyApIds.length > 0
-      ? db.select({ storyApId: storyViews.storyApId })
-        .from(storyViews)
-        .where(
-          and(
-            eq(storyViews.actorApId, actor.ap_id),
-            inArray(storyViews.storyApId, storyApIds),
-          ),
-        )
+      ? db
+          .select({ storyApId: storyViews.storyApId })
+          .from(storyViews)
+          .where(
+            and(
+              eq(storyViews.actorApId, actor.ap_id),
+              inArray(storyViews.storyApId, storyApIds),
+            ),
+          )
       : [],
     storyApIds.length > 0
-      ? db.select({ objectApId: likes.objectApId })
-        .from(likes)
-        .where(
-          and(
-            eq(likes.actorApId, actor.ap_id),
-            inArray(likes.objectApId, storyApIds),
-          ),
-        )
+      ? db
+          .select({ objectApId: likes.objectApId })
+          .from(likes)
+          .where(
+            and(
+              eq(likes.actorApId, actor.ap_id),
+              inArray(likes.objectApId, storyApIds),
+            ),
+          )
       : [],
   ]);
 
@@ -306,12 +310,15 @@ stories.get("/", async (c) => {
   const authorApIds = [...new Set(storiesData.map((s) => s.attributedTo))];
   const [localAuthors, remoteAuthorCache] = await Promise.all([
     authorApIds.length > 0
-      ? db.select({
-        apId: actors.apId,
-        preferredUsername: actors.preferredUsername,
-        name: actors.name,
-        iconUrl: actors.iconUrl,
-      }).from(actors).where(inArray(actors.apId, authorApIds))
+      ? db
+          .select({
+            apId: actors.apId,
+            preferredUsername: actors.preferredUsername,
+            name: actors.name,
+            iconUrl: actors.iconUrl,
+          })
+          .from(actors)
+          .where(inArray(actors.apId, authorApIds))
       : [],
     Promise.resolve().then(async () => {
       // We'll resolve after we know which are remote
@@ -419,7 +426,8 @@ stories.get("/:actorId", async (c) => {
   }
 
   // Get stories for the target user
-  const userStories = await db.select()
+  const userStories = await db
+    .select()
     .from(objects)
     .where(
       and(
@@ -435,24 +443,26 @@ stories.get("/:actorId", async (c) => {
   // Batch fetch views and likes for current user
   const [viewedRows, likedRows] = await Promise.all([
     actor && storyApIds.length > 0
-      ? db.select({ storyApId: storyViews.storyApId })
-        .from(storyViews)
-        .where(
-          and(
-            eq(storyViews.actorApId, actor.ap_id),
-            inArray(storyViews.storyApId, storyApIds),
-          ),
-        )
+      ? db
+          .select({ storyApId: storyViews.storyApId })
+          .from(storyViews)
+          .where(
+            and(
+              eq(storyViews.actorApId, actor.ap_id),
+              inArray(storyViews.storyApId, storyApIds),
+            ),
+          )
       : [],
     actor && storyApIds.length > 0
-      ? db.select({ objectApId: likes.objectApId })
-        .from(likes)
-        .where(
-          and(
-            eq(likes.actorApId, actor.ap_id),
-            inArray(likes.objectApId, storyApIds),
-          ),
-        )
+      ? db
+          .select({ objectApId: likes.objectApId })
+          .from(likes)
+          .where(
+            and(
+              eq(likes.actorApId, actor.ap_id),
+              inArray(likes.objectApId, storyApIds),
+            ),
+          )
       : [],
   ]);
 
@@ -461,14 +471,18 @@ stories.get("/:actorId", async (c) => {
 
   // Batch fetch author info
   const authorApIds = [...new Set(userStories.map((s) => s.attributedTo))];
-  const localAuthors = authorApIds.length > 0
-    ? await db.select({
-      apId: actors.apId,
-      preferredUsername: actors.preferredUsername,
-      name: actors.name,
-      iconUrl: actors.iconUrl,
-    }).from(actors).where(inArray(actors.apId, authorApIds))
-    : [];
+  const localAuthors =
+    authorApIds.length > 0
+      ? await db
+          .select({
+            apId: actors.apId,
+            preferredUsername: actors.preferredUsername,
+            name: actors.name,
+            iconUrl: actors.iconUrl,
+          })
+          .from(actors)
+          .where(inArray(actors.apId, authorApIds))
+      : [];
 
   const authorLocalMap = new Map(localAuthors.map((a) => [a.apId, a]));
   const missingIds = authorApIds.filter((id) => !authorLocalMap.has(id));
@@ -479,8 +493,8 @@ stories.get("/:actorId", async (c) => {
   ]);
 
   const result = userStories.map((s) => {
-    const authorData = authorLocalMap.get(s.attributedTo) ||
-      actorCacheMap[s.attributedTo];
+    const authorData =
+      authorLocalMap.get(s.attributedTo) || actorCacheMap[s.attributedTo];
     const author = buildAuthor(s.attributedTo, authorData);
 
     return buildStoryResponse(
@@ -544,7 +558,8 @@ stories.post("/", async (c) => {
     isLocal: 1,
   });
 
-  await db.update(actors)
+  await db
+    .update(actors)
     .set({ postCount: sql`${actors.postCount} + 1` })
     .where(eq(actors.apId, actor.ap_id));
 
@@ -606,7 +621,10 @@ stories.post("/delete", async (c) => {
   const apId = body.ap_id;
 
   // Verify ownership
-  const story = await db.select().from(objects).where(eq(objects.apId, apId))
+  const story = await db
+    .select()
+    .from(objects)
+    .where(eq(objects.apId, apId))
     .get();
   if (!story) return c.json({ error: "Story not found" }, 404);
   if (story.attributedTo !== actor.ap_id) {
@@ -627,7 +645,8 @@ stories.post("/delete", async (c) => {
 
   await deleteStoryAndRelatedData(db, apId);
 
-  await db.update(actors)
+  await db
+    .update(actors)
     .set({ postCount: sql`${actors.postCount} - 1` })
     .where(eq(actors.apId, actor.ap_id));
 

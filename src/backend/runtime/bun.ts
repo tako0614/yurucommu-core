@@ -353,11 +353,15 @@ export class BunStorage implements IObjectStorage {
       try {
         const filePath = await this.resolveExistingPath(this.getFilePath(k));
         if (filePath) await unlink(filePath);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       try {
         const metaPath = await this.resolveExistingPath(this.getMetaPath(k));
         if (metaPath) await unlink(metaPath);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }
 

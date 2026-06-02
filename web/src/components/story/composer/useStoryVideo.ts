@@ -23,9 +23,8 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
   const [videoPreview, setVideoPreview] = createSignal<string | null>(null);
   let videoPreviewRef: string | null = null;
   const [videoDuration, setVideoDuration] = createSignal<number>(5);
-  const [savedBackground, setSavedBackground] = createSignal<
-    BackgroundFill | null
-  >(null);
+  const [savedBackground, setSavedBackground] =
+    createSignal<BackgroundFill | null>(null);
   const [videoScale, setVideoScale] = createSignal(1);
   const [videoPosition, setVideoPosition] = createSignal({ x: 0, y: 0 });
   const [videoRotation, setVideoRotation] = createSignal(0);
@@ -97,9 +96,11 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
       const preview = URL.createObjectURL(file);
       const duration = await getVideoDuration(file);
 
-      const bgLayer = opts.storyCanvas.getLayers().find((layer) =>
-        layer.type === "background"
-      ) as BackgroundLayer | undefined;
+      const bgLayer = opts.storyCanvas
+        .getLayers()
+        .find((layer) => layer.type === "background") as
+        | BackgroundLayer
+        | undefined;
       if (bgLayer) {
         setSavedBackground(bgLayer.fill);
         opts.storyCanvas.setBackground({ type: "transparent" });

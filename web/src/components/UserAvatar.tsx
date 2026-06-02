@@ -25,10 +25,10 @@ export function UserAvatar(props: UserAvatarProps) {
     return px < 32
       ? "text-xs"
       : px < 40
-      ? "text-sm"
-      : px < 56
-      ? "text-base"
-      : "text-xl";
+        ? "text-sm"
+        : px < 56
+          ? "text-base"
+          : "text-xl";
   };
 
   return (

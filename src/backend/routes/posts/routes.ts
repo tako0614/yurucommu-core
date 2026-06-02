@@ -60,10 +60,13 @@ posts.post("/", async (c) => {
 
   const validation = await validateCreatePostBody(c);
   if (!validation.ok) {
-    return c.json({
-      error: validation.error,
-      ...(validation.code ? { code: validation.code } : {}),
-    }, 400);
+    return c.json(
+      {
+        error: validation.error,
+        ...(validation.code ? { code: validation.code } : {}),
+      },
+      400,
+    );
   }
   const { body, content, summary } = validation;
 
@@ -175,11 +178,11 @@ posts.post("/", async (c) => {
     bookmarked: false,
     ...(mentionFailures.length > 0
       ? {
-        mention_processing: {
-          failed_count: mentionFailures.length,
-          failures: mentionFailures,
-        },
-      }
+          mention_processing: {
+            failed_count: mentionFailures.length,
+            failures: mentionFailures,
+          },
+        }
       : {}),
   };
 
@@ -215,7 +218,8 @@ posts.get("/:id", async (c) => {
   if (post.visibility === "followers") {
     if (!currentActor) return c.json({ error: "Post not found" }, 404);
     if (currentActor.ap_id !== post.attributedTo) {
-      const followRow = await db.select({ followerApId: follows.followerApId })
+      const followRow = await db
+        .select({ followerApId: follows.followerApId })
         .from(follows)
         .where(
           and(
@@ -240,11 +244,7 @@ posts.get("/:id", async (c) => {
     }
   }
 
-  const postRow: PostDetailRow = toPostRow(
-    post,
-    author,
-    { liked, bookmarked },
-  );
+  const postRow: PostDetailRow = toPostRow(post, author, { liked, bookmarked });
 
   return c.json({ post: formatPost(postRow, currentActor?.ap_id) });
 });
@@ -258,7 +258,8 @@ posts.get("/:id/replies", async (c) => {
   const before = c.req.query("before");
   const db = c.get("db");
 
-  const parentPost = await db.select({ apId: objects.apId })
+  const parentPost = await db
+    .select({ apId: objects.apId })
     .from(objects)
     .where(postWhereByIdOrApId(baseUrl, postId)!)
     .get();
@@ -267,9 +268,9 @@ posts.get("/:id/replies", async (c) => {
 
   const whereCondition = before
     ? and(
-      eq(objects.inReplyTo, parentPost.apId),
-      sql`${objects.published} < ${before}`,
-    )
+        eq(objects.inReplyTo, parentPost.apId),
+        sql`${objects.published} < ${before}`,
+      )
     : eq(objects.inReplyTo, parentPost.apId);
 
   const replies = await db.query.objects.findMany({
@@ -311,10 +312,13 @@ posts.patch("/:id", async (c) => {
 
   const editValidation = await validateEditBody(c);
   if (!editValidation.ok) {
-    return c.json({
-      error: editValidation.error,
-      ...(editValidation.code ? { code: editValidation.code } : {}),
-    }, 400);
+    return c.json(
+      {
+        error: editValidation.error,
+        ...(editValidation.code ? { code: editValidation.code } : {}),
+      },
+      400,
+    );
   }
   const { body } = editValidation;
 
@@ -338,12 +342,10 @@ posts.patch("/:id", async (c) => {
   if (!summaryCheck.ok) return c.json({ error: summaryCheck.error }, 400);
   const trimmedSummary = summaryCheck.ok ? summaryCheck.trimmed : undefined;
 
-  const nextContent = body.content !== undefined
-    ? (trimmedContent as string)
-    : post.content;
-  const nextSummary = body.summary !== undefined
-    ? trimmedSummary || null
-    : post.summary;
+  const nextContent =
+    body.content !== undefined ? (trimmedContent as string) : post.content;
+  const nextSummary =
+    body.summary !== undefined ? trimmedSummary || null : post.summary;
   const now = new Date().toISOString();
 
   const updateData: {
@@ -359,9 +361,7 @@ posts.patch("/:id", async (c) => {
     return c.json({ error: "No changes provided" }, 400);
   }
 
-  await db.update(objects)
-    .set(updateData)
-    .where(eq(objects.apId, post.apId));
+  await db.update(objects).set(updateData).where(eq(objects.apId, post.apId));
 
   const updateActivity = {
     "@context": "https://www.w3.org/ns/activitystreams",
@@ -412,13 +412,15 @@ posts.delete("/:id", async (c) => {
   // D1 doesn't support interactive transactions; use sequential operations
   await db.delete(objects).where(eq(objects.apId, post.apId));
 
-  await db.update(actors)
+  await db
+    .update(actors)
     .set({ postCount: sql`${actors.postCount} - 1` })
     .where(eq(actors.apId, actor.ap_id));
 
   let parentUpdated = true;
   if (post.inReplyTo) {
-    const result = await db.update(objects)
+    const result = await db
+      .update(objects)
       .set({ replyCount: sql`${objects.replyCount} - 1` })
       .where(
         and(eq(objects.apId, post.inReplyTo), sql`${objects.replyCount} > 0`),

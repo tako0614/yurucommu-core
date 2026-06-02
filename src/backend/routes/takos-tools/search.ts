@@ -60,29 +60,34 @@ async function searchUsers(c: ToolContext, input: Input) {
 
   if (!query) return c.json(ok({ actors: [] }));
 
-  const results = await db.select({
-    ...ACTOR_SUMMARY_COLUMNS,
-    summary: actors.summary,
-    followerCount: actors.followerCount,
-  })
+  const results = await db
+    .select({
+      ...ACTOR_SUMMARY_COLUMNS,
+      summary: actors.summary,
+      followerCount: actors.followerCount,
+    })
     .from(actors)
-    .where(and(
-      eq(actors.isPrivate, 0),
-      or(
-        like(actors.preferredUsername, `%${query}%`),
-        like(actors.name, `%${query}%`),
+    .where(
+      and(
+        eq(actors.isPrivate, 0),
+        or(
+          like(actors.preferredUsername, `%${query}%`),
+          like(actors.name, `%${query}%`),
+        ),
       ),
-    ))
+    )
     .orderBy(desc(actors.followerCount))
     .limit(limit);
 
-  return c.json(ok({
-    actors: results.map((a) => ({
-      ...formatActorSummary(a),
-      summary: a.summary,
-      follower_count: a.followerCount,
-    })),
-  }));
+  return c.json(
+    ok({
+      actors: results.map((a) => ({
+        ...formatActorSummary(a),
+        summary: a.summary,
+        follower_count: a.followerCount,
+      })),
+    }),
+  );
 }
 
 async function searchPosts(c: ToolContext, input: Input) {
@@ -92,37 +97,46 @@ async function searchPosts(c: ToolContext, input: Input) {
 
   if (!query) return c.json(ok({ posts: [] }));
 
-  const posts = await db.select()
+  const posts = await db
+    .select()
     .from(objects)
-    .where(and(
-      like(objects.content, `%${query}%`),
-      eq(objects.visibility, "public"),
-    ))
+    .where(
+      and(
+        like(objects.content, `%${query}%`),
+        eq(objects.visibility, "public"),
+      ),
+    )
     .orderBy(desc(objects.published))
     .limit(limit);
 
-  return c.json(ok({
-    posts: posts.map((p) => ({
-      ap_id: p.apId,
-      content: p.content,
-      published: p.published,
-      like_count: p.likeCount,
-    })),
-  }));
+  return c.json(
+    ok({
+      posts: posts.map((p) => ({
+        ap_id: p.apId,
+        content: p.content,
+        published: p.published,
+        like_count: p.likeCount,
+      })),
+    }),
+  );
 }
 
 async function getTrending(c: ToolContext, input: Input) {
   const db = c.get("db");
   const limit = toolLimit(input.limit, 10, 50);
-  const sinceDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-    .toISOString();
+  const sinceDate = new Date(
+    Date.now() - 7 * 24 * 60 * 60 * 1000,
+  ).toISOString();
 
-  const posts = await db.select({ content: objects.content })
+  const posts = await db
+    .select({ content: objects.content })
     .from(objects)
-    .where(and(
-      eq(objects.visibility, "public"),
-      sql`${objects.published} > ${sinceDate}`,
-    ))
+    .where(
+      and(
+        eq(objects.visibility, "public"),
+        sql`${objects.published} > ${sinceDate}`,
+      ),
+    )
     .orderBy(desc(objects.published))
     .limit(1000);
 
@@ -155,14 +169,15 @@ async function getUserProfile(
   const username = requireString(input, "username");
   if (!username) return c.json(errRequired("Username"), 400);
 
-  const actorRecord = await db.select({
-    ...ACTOR_SUMMARY_COLUMNS,
-    summary: actors.summary,
-    followerCount: actors.followerCount,
-    followingCount: actors.followingCount,
-    postCount: actors.postCount,
-    isPrivate: actors.isPrivate,
-  })
+  const actorRecord = await db
+    .select({
+      ...ACTOR_SUMMARY_COLUMNS,
+      summary: actors.summary,
+      followerCount: actors.followerCount,
+      followingCount: actors.followingCount,
+      postCount: actors.postCount,
+      isPrivate: actors.isPrivate,
+    })
     .from(actors)
     .where(eq(actors.preferredUsername, username))
     .get();
@@ -174,11 +189,13 @@ async function getUserProfile(
     return c.json(errNotFound("User"), 404);
   }
 
-  return c.json(ok({
-    ...formatActorSummary(actorRecord),
-    summary: actorRecord.summary,
-    follower_count: actorRecord.followerCount,
-    following_count: actorRecord.followingCount,
-    post_count: actorRecord.postCount,
-  }));
+  return c.json(
+    ok({
+      ...formatActorSummary(actorRecord),
+      summary: actorRecord.summary,
+      follower_count: actorRecord.followerCount,
+      following_count: actorRecord.followingCount,
+      post_count: actorRecord.postCount,
+    }),
+  );
 }

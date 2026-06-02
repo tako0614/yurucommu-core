@@ -213,9 +213,12 @@ ap.get(
     }
 
     if (!username || !domain) {
-      return c.json({
-        error: "Invalid resource format",
-      }, 400);
+      return c.json(
+        {
+          error: "Invalid resource format",
+        },
+        400,
+      );
     }
 
     const baseUrl = c.env.APP_URL;
@@ -227,12 +230,14 @@ ap.get(
 
     if (username === INSTANCE_ACTOR_USERNAME) {
       const instanceActor = await getInstanceActor(c);
-      return c.json(buildWebFingerResponse(
-        INSTANCE_ACTOR_USERNAME,
-        domain,
-        instanceActor.apId,
-        `${baseUrl}/groups`,
-      ));
+      return c.json(
+        buildWebFingerResponse(
+          INSTANCE_ACTOR_USERNAME,
+          domain,
+          instanceActor.apId,
+          `${baseUrl}/groups`,
+        ),
+      );
     }
 
     const actor = await db.query.actors.findFirst({
@@ -240,24 +245,27 @@ ap.get(
       columns: { apId: true, preferredUsername: true },
     });
 
-    const resolvedActor = actor ??
+    const resolvedActor =
+      actor ??
       (isAcctResource
         ? await db.query.actors.findFirst({
-          where: and(eq(actors.role, "owner"), notDeleted(actors)),
-          columns: { apId: true, preferredUsername: true },
-          orderBy: [asc(actors.createdAt)],
-        })
+            where: and(eq(actors.role, "owner"), notDeleted(actors)),
+            columns: { apId: true, preferredUsername: true },
+            orderBy: [asc(actors.createdAt)],
+          })
         : null);
 
     if (!resolvedActor) return c.json({ error: "Actor not found" }, 404);
 
     const canonicalUsername = resolvedActor.preferredUsername;
-    return c.json(buildWebFingerResponse(
-      username,
-      domain,
-      resolvedActor.apId,
-      `${baseUrl}/users/${canonicalUsername}`,
-    ));
+    return c.json(
+      buildWebFingerResponse(
+        username,
+        domain,
+        resolvedActor.apId,
+        `${baseUrl}/users/${canonicalUsername}`,
+      ),
+    );
   },
 );
 
@@ -303,8 +311,8 @@ ap.get(
 
     if (!actor) return c.json({ error: "Actor not found" }, 404);
 
-    const showCollections = !actor.isPrivate ||
-      canViewPrivateActorCollections(c, actor.apId);
+    const showCollections =
+      !actor.isPrivate || canViewPrivateActorCollections(c, actor.apId);
 
     const actorResponse: Record<string, unknown> = {
       "@context": AP_CONTEXT,

@@ -110,7 +110,8 @@ export async function blockDomain(
     throw new Error(`blocklist.blockDomain: invalid input "${hostnameOrUrl}"`);
   }
 
-  await db.insert(blockedDomains)
+  await db
+    .insert(blockedDomains)
     .values({ domain, reason })
     .onConflictDoUpdate({
       target: blockedDomains.domain,
@@ -145,7 +146,8 @@ export async function blockActor(
   if (typeof actorApId !== "string" || actorApId.length === 0) {
     throw new Error("blocklist.blockActor: actorApId is required");
   }
-  await db.insert(blockedActors)
+  await db
+    .insert(blockedActors)
     .values({ actorApId, reason })
     .onConflictDoUpdate({
       target: blockedActors.actorApId,

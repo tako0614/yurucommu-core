@@ -21,7 +21,8 @@ const SendIcon = () => (
 
 export function StoryComposerFooter(props: StoryComposerFooterProps) {
   const postDisabled = () =>
-    !props.canPost || props.posting ||
+    !props.canPost ||
+    props.posting ||
     !!(props.videoFile && !props.ffmpegReady);
 
   return (

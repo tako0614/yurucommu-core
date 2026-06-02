@@ -99,9 +99,11 @@ function formatData(
 function detectProduction(): boolean {
   // Cloudflare Workers have no Node process; treat that path as production by
   // default.
-  const processEnv = (globalThis as {
-    process?: { env?: Record<string, string | undefined> };
-  }).process?.env;
+  const processEnv = (
+    globalThis as {
+      process?: { env?: Record<string, string | undefined> };
+    }
+  ).process?.env;
   if (!processEnv) return true;
   const env = processEnv.NODE_ENV || "";
   return env === "production";
@@ -201,9 +203,8 @@ class LoggerImpl implements Logger {
       ...this.fields,
       ...formatData(data),
     }) as Record<string, unknown>;
-    const extra = Object.keys(merged).length > 0
-      ? " " + JSON.stringify(merged)
-      : "";
+    const extra =
+      Object.keys(merged).length > 0 ? " " + JSON.stringify(merged) : "";
 
     const line = `${ts} ${tag}${svc} ${maskSensitiveString(msg)}${extra}`;
     this.write(level, line);

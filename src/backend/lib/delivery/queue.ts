@@ -189,7 +189,8 @@ export async function upsertDeliveryJob(
   activityId: string,
   endpoint: string,
 ): Promise<void> {
-  await db.insert(deliveryQueue)
+  await db
+    .insert(deliveryQueue)
     .values({
       id: jobId,
       inboxUrl: endpoint,
@@ -201,7 +202,8 @@ export async function upsertDeliveryJob(
     .onConflictDoNothing();
 
   // Guard against overwriting in-flight or completed jobs.
-  await db.update(deliveryQueue)
+  await db
+    .update(deliveryQueue)
     .set({
       inboxUrl: endpoint,
       activityApId: activityId,
@@ -230,7 +232,8 @@ export async function enqueueResolveForEndpointActors(
   let enqueued = 0;
 
   while (enqueued < MAX_ACTORS) {
-    let query = db.select({ apId: actorCache.apId })
+    let query = db
+      .select({ apId: actorCache.apId })
       .from(actorCache)
       .where(
         or(
@@ -242,7 +245,8 @@ export async function enqueueResolveForEndpointActors(
       .limit(PAGE_SIZE);
 
     if (cursor) {
-      query = db.select({ apId: actorCache.apId })
+      query = db
+        .select({ apId: actorCache.apId })
         .from(actorCache)
         .where(
           and(

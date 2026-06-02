@@ -94,15 +94,12 @@ function isValidLuhn(digits: string): boolean {
 
 /** Mask 13-19 digit numbers that pass Luhn (credit card). */
 function maskCreditCards(input: string): string {
-  return input.replace(
-    /\b(?:\d[ -]?){13,19}\b/g,
-    (match) => {
-      const digits = match.replace(/[ \-]/g, "");
-      if (digits.length < 13 || digits.length > 19) return match;
-      if (!isValidLuhn(digits)) return match;
-      return "[REDACTED_CC]";
-    },
-  );
+  return input.replace(/\b(?:\d[ -]?){13,19}\b/g, (match) => {
+    const digits = match.replace(/[ \-]/g, "");
+    if (digits.length < 13 || digits.length > 19) return match;
+    if (!isValidLuhn(digits)) return match;
+    return "[REDACTED_CC]";
+  });
 }
 
 /**

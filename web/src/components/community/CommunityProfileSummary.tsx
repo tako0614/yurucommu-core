@@ -40,8 +40,8 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
     props.community.join_policy === "open"
       ? "誰でも参加可能"
       : props.community.join_policy === "approval"
-      ? "承認制"
-      : "招待制";
+        ? "承認制"
+        : "招待制";
 
   return (
     <>
@@ -58,7 +58,8 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
               fallback={
                 <span class="text-4xl font-bold text-white">
                   {(props.community.display_name || props.community.name)
-                    .charAt(0).toUpperCase()}
+                    .charAt(0)
+                    .toUpperCase()}
                 </span>
               }
             >
@@ -78,8 +79,9 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
             fallback={
               <button
                 onClick={props.onJoin}
-                disabled={props.joining ||
-                  props.community.join_status === "pending"}
+                disabled={
+                  props.joining || props.community.join_status === "pending"
+                }
                 class="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-bold transition-colors disabled:opacity-50"
               >
                 {joinLabel()}

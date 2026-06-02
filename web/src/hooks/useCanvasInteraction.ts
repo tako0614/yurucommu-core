@@ -155,9 +155,9 @@ export function useCanvasInteraction({
       const canvasPos = displayToCanvas(clientX, clientY);
 
       // Find or create drawing layer
-      let drawingLayer = canvas.getLayers().find((l) => l.type === "drawing") as
-        | DrawingLayer
-        | undefined;
+      let drawingLayer = canvas
+        .getLayers()
+        .find((l) => l.type === "drawing") as DrawingLayer | undefined;
       if (!drawingLayer) {
         drawingLayer = canvas.createDrawingLayer();
         canvas.addLayer(drawingLayer);
@@ -188,8 +188,8 @@ export function useCanvasInteraction({
       if (currentState.selectedLayerId) {
         const layer = canvas.getLayer(currentState.selectedLayerId);
         if (layer) {
-          initialScaleRef = layer.width /
-            (startLayerStateRef.width || layer.width);
+          initialScaleRef =
+            layer.width / (startLayerStateRef.width || layer.width);
           initialRotationRef = layer.rotation;
           startLayerStateRef = {
             x: layer.x,
@@ -277,7 +277,9 @@ export function useCanvasInteraction({
         onUpdate();
       }
     } else if (
-      currentState.isPinching && currentState.selectedLayerId && isTouchEvent &&
+      currentState.isPinching &&
+      currentState.selectedLayerId &&
+      isTouchEvent &&
       touchCount >= 2
     ) {
       // Pinch to resize and rotate
@@ -295,10 +297,10 @@ export function useCanvasInteraction({
       const newRotation = (startLayerStateRef.rotation || 0) + angleChange;
 
       // Keep center position
-      const centerX = (startLayerStateRef.x || 0) +
-        (startLayerStateRef.width || 0) / 2;
-      const centerY = (startLayerStateRef.y || 0) +
-        (startLayerStateRef.height || 0) / 2;
+      const centerX =
+        (startLayerStateRef.x || 0) + (startLayerStateRef.width || 0) / 2;
+      const centerY =
+        (startLayerStateRef.y || 0) + (startLayerStateRef.height || 0) / 2;
       const newX = centerX - newWidth / 2;
       const newY = centerY - newHeight / 2;
 
@@ -353,7 +355,8 @@ export function useCanvasInteraction({
     // Check if touch count changed (e.g., added second finger)
     if (isTouchEvent && touchCount !== lastTouchCount) {
       if (
-        touchCount >= 2 && currentState.isDragging &&
+        touchCount >= 2 &&
+        currentState.isDragging &&
         currentState.selectedLayerId
       ) {
         // Transition from drag to pinch
@@ -374,7 +377,8 @@ export function useCanvasInteraction({
 
         setState((prev) => ({ ...prev, isDragging: false, isPinching: true }));
       } else if (
-        touchCount === 1 && currentState.isPinching &&
+        touchCount === 1 &&
+        currentState.isPinching &&
         currentState.selectedLayerId
       ) {
         // Transition from pinch to drag
@@ -406,7 +410,9 @@ export function useCanvasInteraction({
     const currentState = state();
 
     if (
-      currentState.isDrawing && currentDrawingPath && drawingLayerIdRef &&
+      currentState.isDrawing &&
+      currentDrawingPath &&
+      drawingLayerIdRef &&
       canvas
     ) {
       const drawingLayer = canvas.getLayer(drawingLayerIdRef) as DrawingLayer;
@@ -462,8 +468,11 @@ export function useCanvasInteraction({
   const handleWheel = (e: WheelEvent) => {
     const currentState = state();
     if (
-      !canvas || !currentState.selectedLayerId || currentState.mode === "draw"
-    ) return;
+      !canvas ||
+      !currentState.selectedLayerId ||
+      currentState.mode === "draw"
+    )
+      return;
 
     const layer = canvas.getLayer(currentState.selectedLayerId);
     if (!layer || layer.type === "background") return;
@@ -507,7 +516,8 @@ export function useCanvasInteraction({
     const onMove = (e: MouseEvent | TouchEvent) => {
       const currentState = state();
       if (
-        currentState.isDragging || currentState.isPinching ||
+        currentState.isDragging ||
+        currentState.isPinching ||
         currentState.isDrawing
       ) {
         e.preventDefault();
@@ -518,7 +528,8 @@ export function useCanvasInteraction({
     const onUp = () => {
       const currentState = state();
       if (
-        currentState.isDragging || currentState.isPinching ||
+        currentState.isDragging ||
+        currentState.isPinching ||
         currentState.isDrawing
       ) {
         handlePointerUp();

@@ -20,6 +20,7 @@ import {
   tryParseRemoteActor,
 } from "../../lib/activitypub-validators.ts";
 import { logger } from "../../lib/logger.ts";
+import { base64ToBytes, bufferToBase64 } from "../../lib/base64.ts";
 import { isActorBlocked, isDomainBlocked } from "../../lib/blocklist.ts";
 import {
   consumeRateLimitProgrammatic,
@@ -96,28 +97,6 @@ function isCachedActorFresh(lastFetchedAt: string | null): boolean {
 type RequestBodyResult =
   | { ok: true; body: string }
   | { ok: false; status: 400 | 413; error: string };
-
-function bufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 8192;
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
-    for (const byte of chunk) {
-      binary += String.fromCharCode(byte);
-    }
-  }
-  return btoa(binary);
-}
-
-function base64ToBytes(value: string): Uint8Array {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
 
 function hasSha256Digest(
   digestHeader: string,
@@ -207,9 +186,12 @@ function parseImfFixdate(value: string): Date | null {
   const second = Number(secondStr);
 
   if (
-    !Number.isFinite(day) || !Number.isFinite(year) ||
-    !Number.isFinite(hour) || !Number.isFinite(minute) ||
-    !Number.isFinite(second) || month === undefined
+    !Number.isFinite(day) ||
+    !Number.isFinite(year) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    !Number.isFinite(second) ||
+    month === undefined
   ) {
     return null;
   }
@@ -299,7 +281,7 @@ async function fetchActorPublicKey(
   const fetchPromise = (async (): Promise<string | null> => {
     try {
       const res = await fetchWithTimeout(actorUrl, {
-        headers: { "Accept": "application/activity+json, application/ld+json" },
+        headers: { Accept: "application/activity+json, application/ld+json" },
         timeout: 15000,
       });
 
@@ -360,7 +342,9 @@ async function fetchActorPublicKey(
       }
 
       if (
-        actorData.id && actorData.inbox && isSafeRemoteUrl(actorData.id) &&
+        actorData.id &&
+        actorData.inbox &&
+        isSafeRemoteUrl(actorData.id) &&
         isSafeRemoteUrl(actorData.inbox)
       ) {
         const narrowed = actorData as RemoteActor & {
@@ -375,7 +359,8 @@ async function fetchActorPublicKey(
         // key and spuriously reject a validly-signed activity.
         // `onConflictDoUpdate` collapses that to one race-safe statement
         // (same pattern as fetchAndCacheRemoteActor in queue-batching.ts).
-        await db.insert(actorCache)
+        await db
+          .insert(actorCache)
           .values({ apId: actorData.id, ...cacheFields })
           .onConflictDoUpdate({ target: actorCache.apId, set: cacheFields });
       }
@@ -468,10 +453,9 @@ export async function verifyGetHttpSignature(
   }
 
   try {
-    const pemContents = publicKeyPem.replace(/-----[^-]+-----/g, "").replace(
-      /\s/g,
-      "",
-    );
+    const pemContents = publicKeyPem
+      .replace(/-----[^-]+-----/g, "")
+      .replace(/\s/g, "");
     const binaryKey = base64ToBytes(pemContents);
     const cryptoKey = await crypto.subtle.importKey(
       "spki",
@@ -606,10 +590,9 @@ async function verifyHttpSignature(
   }
 
   try {
-    const pemContents = publicKeyPem.replace(/-----[^-]+-----/g, "").replace(
-      /\s/g,
-      "",
-    );
+    const pemContents = publicKeyPem
+      .replace(/-----[^-]+-----/g, "")
+      .replace(/\s/g, "");
     const binaryKey = base64ToBytes(pemContents);
     const cryptoKey = await crypto.subtle.importKey(
       "spki",
@@ -744,9 +727,10 @@ async function verifyAndParseInbox(
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const activityId = typeof activity.id === "string"
-    ? activity.id
-    : activityApId(baseUrl, generateId());
+  const activityId =
+    typeof activity.id === "string"
+      ? activity.id
+      : activityApId(baseUrl, generateId());
   const actor = typeof activity.actor === "string" ? activity.actor : null;
   const activityType = typeof activity.type === "string" ? activity.type : null;
 
@@ -833,8 +817,13 @@ async function isActivityBlocked(
  */
 async function deduplicateAndStoreActivity(
   c: HonoContext,
-  { activityId, activityType, actor, activityObjectId, activity }:
-    ParsedActivity,
+  {
+    activityId,
+    activityType,
+    actor,
+    activityObjectId,
+    activity,
+  }: ParsedActivity,
 ): Promise<Response | null> {
   const db = c.get("db");
   const rawJson = JSON.stringify(activity);
@@ -917,7 +906,7 @@ async function cacheRemoteActor(
 
   try {
     const res = await fetchWithTimeout(actorApIdUrl, {
-      headers: { "Accept": "application/activity+json, application/ld+json" },
+      headers: { Accept: "application/activity+json, application/ld+json" },
       timeout: 15000,
     });
     if (!res.ok) return;
@@ -947,7 +936,8 @@ async function cacheRemoteActor(
       return;
     }
     if (
-      !actorData.inbox || !isSafeRemoteUrl(actorData.id) ||
+      !actorData.inbox ||
+      !isSafeRemoteUrl(actorData.id) ||
       !isSafeRemoteUrl(actorData.inbox)
     ) {
       return;
@@ -963,7 +953,8 @@ async function cacheRemoteActor(
     // reach this insert. Without the conflict clause the loser would throw a
     // primary-key violation; doing nothing on conflict matches the intent
     // (cache only when absent) and avoids the spurious error log.
-    await db.insert(actorCache)
+    await db
+      .insert(actorCache)
       .values({
         apId: actorData.id,
         ...buildActorCacheFields(narrowed),
@@ -1083,8 +1074,10 @@ async function applyInboxDomainRateLimit(
   );
   c.header(
     "X-RateLimit-Domain-Remaining",
-    Math.max(0, RateLimitConfigs.inboxDomain.maxRequests - entry.count)
-      .toString(),
+    Math.max(
+      0,
+      RateLimitConfigs.inboxDomain.maxRequests - entry.count,
+    ).toString(),
   );
 
   if (limited) {
@@ -1094,10 +1087,13 @@ async function applyInboxDomainRateLimit(
       retryAfter,
     });
     c.header("Retry-After", retryAfter.toString());
-    return c.json({
-      error: "Too many requests from this domain",
-      retry_after: retryAfter,
-    }, 429);
+    return c.json(
+      {
+        error: "Too many requests from this domain",
+        retry_after: retryAfter,
+      },
+      429,
+    );
   }
   return null;
 }
@@ -1227,9 +1223,10 @@ async function resolveLocalFollowerRecipients(
 ): Promise<ActorRow[]> {
   const db = c.get("db");
 
-  const followerRows = await db.select({
-    followerApId: follows.followerApId,
-  })
+  const followerRows = await db
+    .select({
+      followerApId: follows.followerApId,
+    })
     .from(follows)
     .where(
       and(

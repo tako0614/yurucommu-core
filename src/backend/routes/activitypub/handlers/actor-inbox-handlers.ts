@@ -51,8 +51,8 @@ export async function handleGroupFollow(
   });
   if (existing) return;
 
-  const status = JOIN_POLICY_STATUS[instanceActor.joinPolicy ?? ""] ??
-    "accepted";
+  const status =
+    JOIN_POLICY_STATUS[instanceActor.joinPolicy ?? ""] ?? "accepted";
 
   const now = new Date().toISOString();
   await db.insert(follows).values({
@@ -106,24 +106,28 @@ export async function handleGroupUndo(
   });
 
   if (follow) {
-    await db.delete(follows).where(
-      and(
-        eq(follows.followerApId, follow.followerApId),
-        eq(follows.followingApId, follow.followingApId),
-      ),
-    );
+    await db
+      .delete(follows)
+      .where(
+        and(
+          eq(follows.followerApId, follow.followerApId),
+          eq(follows.followingApId, follow.followingApId),
+        ),
+      );
     return;
   }
 
   // Fallback: if the undone object is a Follow, delete by actor pair.
   if (getActivityObject(activity)?.type !== "Follow") return;
 
-  await db.delete(follows).where(
-    and(
-      eq(follows.followerApId, activity.actor as string),
-      eq(follows.followingApId, instanceActor.apId),
-    ),
-  );
+  await db
+    .delete(follows)
+    .where(
+      and(
+        eq(follows.followerApId, activity.actor as string),
+        eq(follows.followingApId, instanceActor.apId),
+      ),
+    );
 }
 
 export async function handleGroupCreate(

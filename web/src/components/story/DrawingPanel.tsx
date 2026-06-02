@@ -81,7 +81,8 @@ export function DrawingPanel(props: DrawingPanelProps) {
           max="100"
           value={props.opacity * 100}
           onInput={(e) =>
-            props.onOpacityChange(parseInt(e.currentTarget.value) / 100)}
+            props.onOpacityChange(parseInt(e.currentTarget.value) / 100)
+          }
           class="w-full mt-1 accent-blue-500"
         />
       </div>

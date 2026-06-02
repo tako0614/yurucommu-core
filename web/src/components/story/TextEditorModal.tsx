@@ -165,7 +165,8 @@ export function TextEditorModal(props: TextEditorModalProps) {
                 {(font) => (
                   <button
                     onClick={() =>
-                      setText((prev) => ({ ...prev, fontFamily: font.family }))}
+                      setText((prev) => ({ ...prev, fontFamily: font.family }))
+                    }
                     class={`px-4 py-2 rounded-full whitespace-nowrap text-sm transition-colors ${
                       text().fontFamily === font.family
                         ? "bg-white text-black"
@@ -207,7 +208,8 @@ export function TextEditorModal(props: TextEditorModalProps) {
                     setText((prev) => ({
                       ...prev,
                       color: e.currentTarget.value,
-                    }))}
+                    }))
+                  }
                   class="opacity-0 absolute w-0 h-0"
                 />
                 <span class="text-white text-xs">+</span>
@@ -233,7 +235,8 @@ export function TextEditorModal(props: TextEditorModalProps) {
                 setText((prev) => ({
                   ...prev,
                   content: e.currentTarget.value,
-                }))}
+                }))
+              }
               placeholder="テキストを入力"
               class="w-full bg-transparent border-none outline-none resize-none text-center"
               style={{
@@ -246,17 +249,17 @@ export function TextEditorModal(props: TextEditorModalProps) {
                 "text-shadow": text().stroke
                   ? `
                     -${text().stroke!.width}px -${text().stroke!.width}px 0 ${
-                    text().stroke!.color
-                  },
+                      text().stroke!.color
+                    },
                     ${text().stroke!.width}px -${text().stroke!.width}px 0 ${
-                    text().stroke!.color
-                  },
+                      text().stroke!.color
+                    },
                     -${text().stroke!.width}px ${text().stroke!.width}px 0 ${
-                    text().stroke!.color
-                  },
+                      text().stroke!.color
+                    },
                     ${text().stroke!.width}px ${text().stroke!.width}px 0 ${
-                    text().stroke!.color
-                  }
+                      text().stroke!.color
+                    }
                   `
                   : "none",
                 "line-height": "1.4",
@@ -281,13 +284,13 @@ export function TextEditorModal(props: TextEditorModalProps) {
                       : ""
                   }`}
                   style={{
-                    "background-color": style.id === "none"
-                      ? "transparent"
-                      : style.bg,
+                    "background-color":
+                      style.id === "none" ? "transparent" : style.bg,
                     color: "#fff",
-                    border: style.id === "none"
-                      ? "2px solid rgba(255,255,255,0.5)"
-                      : "none",
+                    border:
+                      style.id === "none"
+                        ? "2px solid rgba(255,255,255,0.5)"
+                        : "none",
                   }}
                 >
                   A
@@ -302,7 +305,8 @@ export function TextEditorModal(props: TextEditorModalProps) {
               {(align) => (
                 <button
                   onClick={() =>
-                    setText((prev) => ({ ...prev, textAlign: align }))}
+                    setText((prev) => ({ ...prev, textAlign: align }))
+                  }
                   class={`w-12 h-10 rounded-lg flex items-center justify-center transition-colors ${
                     text().textAlign === align
                       ? "bg-white text-black"
@@ -365,7 +369,8 @@ export function TextEditorModal(props: TextEditorModalProps) {
                 setText((prev) => ({
                   ...prev,
                   fontSize: parseInt(e.currentTarget.value),
-                }))}
+                }))
+              }
               class="flex-1 accent-white h-1"
             />
             <span class="text-white text-sm">A</span>
@@ -378,7 +383,8 @@ export function TextEditorModal(props: TextEditorModalProps) {
                 setText((prev) => ({
                   ...prev,
                   fontWeight: prev.fontWeight === "bold" ? "normal" : "bold",
-                }))}
+                }))
+              }
               class={`w-12 h-10 rounded-lg flex items-center justify-center font-bold transition-colors ${
                 text().fontWeight === "bold"
                   ? "bg-white text-black"
@@ -392,7 +398,8 @@ export function TextEditorModal(props: TextEditorModalProps) {
                 setText((prev) => ({
                   ...prev,
                   fontStyle: prev.fontStyle === "italic" ? "normal" : "italic",
-                }))}
+                }))
+              }
               class={`w-12 h-10 rounded-lg flex items-center justify-center italic transition-colors ${
                 text().fontStyle === "italic"
                   ? "bg-white text-black"
@@ -408,7 +415,8 @@ export function TextEditorModal(props: TextEditorModalProps) {
                   stroke: prev.stroke
                     ? undefined
                     : { color: "#000000", width: 3 },
-                }))}
+                }))
+              }
               class={`w-12 h-10 rounded-lg flex items-center justify-center font-bold transition-colors ${
                 text().stroke ? "bg-white text-black" : "bg-white/20 text-white"
               }`}

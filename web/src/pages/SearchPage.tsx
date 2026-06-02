@@ -105,13 +105,15 @@ export function SearchPage() {
     setSearched(false);
     setSearchUsersResult([]);
     setSearchPostsResult([]);
-    fetchTrendingHashtags(10).catch(() => []).then(setTrendingHashtags);
-    fetchCommunities().then(setCommunities).catch((e) =>
-      console.error("Failed to fetch communities", e)
-    );
-    fetchFollowing(actor.ap_id).then(setFollowing).catch((e) =>
-      console.error("Failed to fetch following", e)
-    );
+    fetchTrendingHashtags(10)
+      .catch(() => [])
+      .then(setTrendingHashtags);
+    fetchCommunities()
+      .then(setCommunities)
+      .catch((e) => console.error("Failed to fetch communities", e));
+    fetchFollowing(actor.ap_id)
+      .then(setFollowing)
+      .catch((e) => console.error("Failed to fetch following", e));
   });
 
   // Handle search query parameter from URL
@@ -184,8 +186,8 @@ export function SearchPage() {
           prev.map((p) =>
             p.ap_id === post.ap_id
               ? { ...p, liked: false, like_count: p.like_count - 1 }
-              : p
-          )
+              : p,
+          ),
         );
       } else {
         await likePost(post.ap_id);
@@ -193,8 +195,8 @@ export function SearchPage() {
           prev.map((p) =>
             p.ap_id === post.ap_id
               ? { ...p, liked: true, like_count: p.like_count + 1 }
-              : p
-          )
+              : p,
+          ),
         );
       }
     } catch (e) {
@@ -210,7 +212,7 @@ export function SearchPage() {
       await follow(targetActor.ap_id);
       setFollowing((prev) => [...prev, targetActor]);
       setSearchUsersResult((prev) =>
-        prev.filter((u) => u.ap_id !== targetActor.ap_id)
+        prev.filter((u) => u.ap_id !== targetActor.ap_id),
       );
     } catch (e) {
       console.error("Failed to follow:", e);
@@ -318,41 +320,39 @@ export function SearchPage() {
             fallback={
               /* Trending hashtags when not searching */
 
-
-                <div class="px-4 py-4">
-                  <h2 class="text-lg font-bold text-white mb-4">
-                    {t("search.trending")}
-                  </h2>
-                  <Show
-                    when={trendingHashtags().length > 0}
-                    fallback={
-                      <div class="text-neutral-500 text-sm">
-                        {t("search.noResults")}
-                      </div>
-                    }
-                  >
-                    <div class="space-y-3">
-                      <For each={trendingHashtags()}>
-                        {({ tag, count }) => (
-                          <button
-                            onClick={() => {
-                              setSearchQuery(`#${tag}`);
-                              setSearchTab("posts");
-                              performSearch(`#${tag}`);
-                            }}
-                            class="block w-full text-left px-3 py-2.5 rounded-lg hover:bg-neutral-900/50 transition-colors"
-                          >
-                            <div class="font-medium text-white">#{tag}</div>
-                            <div class="text-xs text-neutral-500 mt-0.5">
-                              {count} {t("profile.posts").toLowerCase()}
-                            </div>
-                          </button>
-                        )}
-                      </For>
+              <div class="px-4 py-4">
+                <h2 class="text-lg font-bold text-white mb-4">
+                  {t("search.trending")}
+                </h2>
+                <Show
+                  when={trendingHashtags().length > 0}
+                  fallback={
+                    <div class="text-neutral-500 text-sm">
+                      {t("search.noResults")}
                     </div>
-                  </Show>
-                </div>
-
+                  }
+                >
+                  <div class="space-y-3">
+                    <For each={trendingHashtags()}>
+                      {({ tag, count }) => (
+                        <button
+                          onClick={() => {
+                            setSearchQuery(`#${tag}`);
+                            setSearchTab("posts");
+                            performSearch(`#${tag}`);
+                          }}
+                          class="block w-full text-left px-3 py-2.5 rounded-lg hover:bg-neutral-900/50 transition-colors"
+                        >
+                          <div class="font-medium text-white">#{tag}</div>
+                          <div class="text-xs text-neutral-500 mt-0.5">
+                            {count} {t("profile.posts").toLowerCase()}
+                          </div>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </div>
             }
           >
             {/* Users tab */}
@@ -394,8 +394,9 @@ export function SearchPage() {
                         </Show>
                       </div>
                       <Show
-                        when={user.ap_id !== actor.ap_id &&
-                          !isFollowing(user.ap_id)}
+                        when={
+                          user.ap_id !== actor.ap_id && !isFollowing(user.ap_id)
+                        }
                       >
                         <button
                           onClick={(e) => handleFollow(user, e)}
@@ -429,23 +430,24 @@ export function SearchPage() {
                   {(post) => (
                     <div class="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
                       <A
-                        href={`/profile/${
-                          encodeURIComponent(post.author.ap_id)
-                        }`}
+                        href={`/profile/${encodeURIComponent(
+                          post.author.ap_id,
+                        )}`}
                       >
                         <UserAvatar
                           avatarUrl={post.author.icon_url}
-                          name={post.author.name ||
-                            post.author.preferred_username}
+                          name={
+                            post.author.name || post.author.preferred_username
+                          }
                           size={48}
                         />
                       </A>
                       <div class="flex-1 min-w-0">
                         <div class="flex items-baseline gap-2">
                           <A
-                            href={`/profile/${
-                              encodeURIComponent(post.author.ap_id)
-                            }`}
+                            href={`/profile/${encodeURIComponent(
+                              post.author.ap_id,
+                            )}`}
                             class="font-bold text-white truncate hover:underline"
                           >
                             {post.author.name || post.author.preferred_username}
@@ -477,8 +479,10 @@ export function SearchPage() {
                           >
                             <HeartIcon filled={post.liked || false} />
                             <Show
-                              when={post.author.ap_id === actor.ap_id &&
-                                post.like_count > 0}
+                              when={
+                                post.author.ap_id === actor.ap_id &&
+                                post.like_count > 0
+                              }
                             >
                               <span class="text-sm">{post.like_count}</span>
                             </Show>
@@ -513,7 +517,8 @@ export function SearchPage() {
                           fallback={
                             <span class="text-lg font-medium text-white">
                               {(community.display_name || community.name)
-                                .charAt(0).toUpperCase()}
+                                .charAt(0)
+                                .toUpperCase()}
                             </span>
                           }
                         >

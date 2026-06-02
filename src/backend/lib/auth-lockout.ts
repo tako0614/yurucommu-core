@@ -183,7 +183,8 @@ export async function recordFailedLoginAttempt(
 
   // Already locked out -- return current status without extending
   if (
-    existing?.lockoutUntil !== null && existing?.lockoutUntil !== undefined &&
+    existing?.lockoutUntil !== null &&
+    existing?.lockoutUntil !== undefined &&
     existing.lockoutUntil > now
   ) {
     return toStatus(existing, now);

@@ -40,14 +40,12 @@ export type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 export { parseJsonObject, parseNonEmptyString };
 
-export function formatAccountResponse(
-  a: {
-    apId: string;
-    preferredUsername: string;
-    name: string | null;
-    iconUrl: string | null;
-  },
-): {
+export function formatAccountResponse(a: {
+  apId: string;
+  preferredUsername: string;
+  name: string | null;
+  iconUrl: string | null;
+}): {
   ap_id: string;
   preferred_username: string;
   name: string | null;
@@ -112,8 +110,9 @@ export async function rotateSession(
   // mirrors the same hashed key (it was a duplicate of the lookup id).
   const sessionId = generateId();
   const sessionKey = await hashSessionIdForEnv(c.env, sessionId);
-  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000)
-    .toISOString();
+  const expiresAt = new Date(
+    Date.now() + SESSION_MAX_AGE_SECONDS * 1000,
+  ).toISOString();
 
   await db.insert(sessions).values({
     id: sessionKey,
@@ -164,9 +163,11 @@ export async function resolveUniqueUsername(
   let username = baseUsername;
   let counter = 1;
   while (
-    await db.select({ apId: actors.apId }).from(actors).where(
-      eq(actors.apId, actorApId(baseUrl, username)),
-    ).get()
+    await db
+      .select({ apId: actors.apId })
+      .from(actors)
+      .where(eq(actors.apId, actorApId(baseUrl, username)))
+      .get()
   ) {
     username = `${baseUsername}${counter}`;
     counter++;
@@ -189,19 +190,23 @@ export async function createActor(
   const apId = actorApId(env.APP_URL, opts.username);
   const { publicKeyPem, privateKeyPem } = await generateKeyPair();
 
-  return await db.insert(actors).values({
-    apId,
-    type: "Person",
-    preferredUsername: opts.username,
-    name: opts.name,
-    iconUrl: opts.iconUrl ?? null,
-    ...actorEndpoints(apId),
-    publicKeyPem,
-    privateKeyPem,
-    takosUserId: opts.takosUserId,
-    role: opts.role,
-    ownerActorApId: opts.ownerActorApId ?? null,
-  }).returning().get();
+  return await db
+    .insert(actors)
+    .values({
+      apId,
+      type: "Person",
+      preferredUsername: opts.username,
+      name: opts.name,
+      iconUrl: opts.iconUrl ?? null,
+      ...actorEndpoints(apId),
+      publicKeyPem,
+      privateKeyPem,
+      takosUserId: opts.takosUserId,
+      role: opts.role,
+      ownerActorApId: opts.ownerActorApId ?? null,
+    })
+    .returning()
+    .get();
 }
 
 export async function createActorFromOAuth(
@@ -216,8 +221,10 @@ export async function createActorFromOAuth(
   },
   providerUserId: string,
 ) {
-  const baseUsername = userInfo.username ||
-    userInfo.name.toLowerCase().replace(/[^a-z0-9]/g, "") || "user";
+  const baseUsername =
+    userInfo.username ||
+    userInfo.name.toLowerCase().replace(/[^a-z0-9]/g, "") ||
+    "user";
   const username = await resolveUniqueUsername(db, env.APP_URL, baseUsername);
   const result = await db.select({ count: count() }).from(actors).get();
   const actorCount = result?.count ?? 0;
@@ -231,9 +238,10 @@ export async function createActorFromOAuth(
   });
 }
 
-export function lockoutErrorResponse(
-  retryAfterSeconds: number,
-): { error: string; retry_after: number } {
+export function lockoutErrorResponse(retryAfterSeconds: number): {
+  error: string;
+  retry_after: number;
+} {
   return {
     error: "Too many failed login attempts. Please try again later.",
     retry_after: retryAfterSeconds,
@@ -268,9 +276,9 @@ export async function exchangeOAuthToken(
   };
 
   if (providerId === "x") {
-    tokenHeaders["Authorization"] = `Basic ${
-      btoa(`${clientId}:${clientSecret}`)
-    }`;
+    tokenHeaders["Authorization"] = `Basic ${btoa(
+      `${clientId}:${clientSecret}`,
+    )}`;
     delete tokenBody.client_secret;
   }
 
@@ -298,7 +306,7 @@ export async function exchangeOAuthToken(
     return null;
   }
 
-  return await res.json() as OAuthTokens;
+  return (await res.json()) as OAuthTokens;
 }
 
 /** Look up an existing actor by provider user ID, or create a new one. */
@@ -314,18 +322,20 @@ export async function findOrCreateOAuthActor(
     username?: string;
   },
 ) {
-  const providerUserId = providerId === "takos"
-    ? userInfo.id
-    : `${providerId}:${userInfo.id}`;
+  const providerUserId =
+    providerId === "takos" ? userInfo.id : `${providerId}:${userInfo.id}`;
 
-  let actorData = await db.select().from(actors).where(
-    eq(actors.takosUserId, providerUserId),
-  ).get();
+  let actorData = await db
+    .select()
+    .from(actors)
+    .where(eq(actors.takosUserId, providerUserId))
+    .get();
 
   if (!actorData) {
     actorData = await createActorFromOAuth(db, env, userInfo, providerUserId);
   } else {
-    await db.update(actors)
+    await db
+      .update(actors)
       .set({
         name: userInfo.name,
         ...(userInfo.picture ? { iconUrl: userInfo.picture } : {}),

@@ -217,9 +217,10 @@ function wrapText(
 
     chars.forEach((char) => {
       const testLine = currentLine + char;
-      const testWidth = letterSpacing === 0
-        ? ctx.measureText(testLine).width
-        : measureTextWithSpacing(ctx, testLine, letterSpacing);
+      const testWidth =
+        letterSpacing === 0
+          ? ctx.measureText(testLine).width
+          : measureTextWithSpacing(ctx, testLine, letterSpacing);
 
       if (testWidth > maxWidth && currentLine !== "") {
         lines.push(currentLine);
@@ -363,8 +364,7 @@ export function drawSticker(
   if (layer.isEmoji) {
     // Draw emoji as text
     const fontSize = Math.min(layer.width, layer.height) * 0.8;
-    ctx.font =
-      `${fontSize}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+    ctx.font = `${fontSize}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(layer.src, 0, 0);

@@ -68,7 +68,8 @@ export function resolveStoryApId(storyId: string, baseUrl: string): string {
 
 /** Find a single Story object by ap_id. Returns null/undefined when not found. */
 export function findStory(db: Database, apId: string) {
-  return db.select()
+  return db
+    .select()
     .from(objects)
     .where(and(eq(objects.apId, apId), eq(objects.type, "Story")))
     .get();
@@ -84,10 +85,12 @@ export async function fetchBlockedAndMutedIds(
   actorApId: string,
 ): Promise<{ blockedIds: string[]; mutedIds: string[] }> {
   const [blockRows, muteRows] = await Promise.all([
-    db.select({ blockedApId: blocks.blockedApId })
+    db
+      .select({ blockedApId: blocks.blockedApId })
       .from(blocks)
       .where(eq(blocks.blockerApId, actorApId)),
-    db.select({ mutedApId: mutes.mutedApId })
+    db
+      .select({ mutedApId: mutes.mutedApId })
       .from(mutes)
       .where(eq(mutes.muterApId, actorApId)),
   ]);
@@ -107,10 +110,11 @@ export async function getVoteCounts(
   db: Database,
   storyApId: string,
 ): Promise<VoteResults> {
-  const votes = await db.select({
-    optionIndex: storyVotes.optionIndex,
-    count: count(),
-  })
+  const votes = await db
+    .select({
+      optionIndex: storyVotes.optionIndex,
+      count: count(),
+    })
     .from(storyVotes)
     .where(eq(storyVotes.storyApId, storyApId))
     .groupBy(storyVotes.optionIndex);
@@ -131,18 +135,20 @@ export async function fetchBatchVotes(
   db: Database,
   storyApIds: string[],
   actorApId?: string,
-): Promise<
-  { allVotes: Record<string, VoteResults>; userVotes: Record<string, number> }
-> {
+): Promise<{
+  allVotes: Record<string, VoteResults>;
+  userVotes: Record<string, number>;
+}> {
   if (storyApIds.length === 0) {
     return { allVotes: {}, userVotes: {} };
   }
 
-  const voteCounts = await db.select({
-    storyApId: storyVotes.storyApId,
-    optionIndex: storyVotes.optionIndex,
-    count: count(),
-  })
+  const voteCounts = await db
+    .select({
+      storyApId: storyVotes.storyApId,
+      optionIndex: storyVotes.optionIndex,
+      count: count(),
+    })
     .from(storyVotes)
     .where(inArray(storyVotes.storyApId, storyApIds))
     .groupBy(storyVotes.storyApId, storyVotes.optionIndex);
@@ -155,10 +161,11 @@ export async function fetchBatchVotes(
 
   let userVotes: Record<string, number> = {};
   if (actorApId) {
-    const rows = await db.select({
-      storyApId: storyVotes.storyApId,
-      optionIndex: storyVotes.optionIndex,
-    })
+    const rows = await db
+      .select({
+        storyApId: storyVotes.storyApId,
+        optionIndex: storyVotes.optionIndex,
+      })
       .from(storyVotes)
       .where(
         and(
@@ -185,12 +192,13 @@ export async function fetchActorCache(
 ): Promise<Record<string, ActorCacheEntry>> {
   if (remoteApIds.length === 0) return {};
 
-  const cached = await db.select({
-    apId: actorCache.apId,
-    preferredUsername: actorCache.preferredUsername,
-    name: actorCache.name,
-    iconUrl: actorCache.iconUrl,
-  })
+  const cached = await db
+    .select({
+      apId: actorCache.apId,
+      preferredUsername: actorCache.preferredUsername,
+      name: actorCache.name,
+      iconUrl: actorCache.iconUrl,
+    })
     .from(actorCache)
     .where(inArray(actorCache.apId, remoteApIds));
 
@@ -213,7 +221,8 @@ export async function fetchActorCache(
 export async function cleanupExpiredStories(db: Database): Promise<number> {
   const now = new Date().toISOString();
 
-  const expiredStories = await db.select({ apId: objects.apId })
+  const expiredStories = await db
+    .select({ apId: objects.apId })
     .from(objects)
     .where(and(eq(objects.type, "Story"), lt(objects.endTime, now)));
 
@@ -221,20 +230,20 @@ export async function cleanupExpiredStories(db: Database): Promise<number> {
 
   const expiredApIds = expiredStories.map((s) => s.apId);
 
-  await db.delete(storyVotes).where(
-    inArray(storyVotes.storyApId, expiredApIds),
-  );
+  await db
+    .delete(storyVotes)
+    .where(inArray(storyVotes.storyApId, expiredApIds));
   await db.delete(likes).where(inArray(likes.objectApId, expiredApIds));
-  await db.delete(storyViews).where(
-    inArray(storyViews.storyApId, expiredApIds),
-  );
-  await db.delete(storyShares).where(
-    inArray(storyShares.storyApId, expiredApIds),
-  );
+  await db
+    .delete(storyViews)
+    .where(inArray(storyViews.storyApId, expiredApIds));
+  await db
+    .delete(storyShares)
+    .where(inArray(storyShares.storyApId, expiredApIds));
 
-  await db.delete(objects).where(
-    and(eq(objects.type, "Story"), lt(objects.endTime, now)),
-  );
+  await db
+    .delete(objects)
+    .where(and(eq(objects.type, "Story"), lt(objects.endTime, now)));
 
   return expiredApIds.length;
 }
@@ -249,9 +258,10 @@ function isOverlayRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function validateOverlays(
-  overlays: unknown[],
-): { valid: boolean; error?: string } {
+export function validateOverlays(overlays: unknown[]): {
+  valid: boolean;
+  error?: string;
+} {
   if (!Array.isArray(overlays)) {
     return { valid: false, error: "overlays must be an array" };
   }
@@ -283,9 +293,7 @@ export function validateOverlays(
 
     if (overlay.type === "Question") {
       const oneOf = overlay.oneOf;
-      if (
-        !Array.isArray(oneOf) || oneOf.length < 2 || oneOf.length > 4
-      ) {
+      if (!Array.isArray(oneOf) || oneOf.length < 2 || oneOf.length > 4) {
         return {
           valid: false,
           error: `overlay[${i}].oneOf must have 2-4 options`,

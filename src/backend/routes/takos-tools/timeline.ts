@@ -29,34 +29,39 @@ export async function handleGetTimeline(
     whereConditions.push(lt(objects.published, before));
   }
 
-  const posts = await db.select()
+  const posts = await db
+    .select()
     .from(objects)
     .where(and(...whereConditions))
     .orderBy(desc(objects.published))
     .limit(limit);
 
   const authorIds = [...new Set(posts.map((p) => p.attributedTo))];
-  const authorRows = authorIds.length > 0
-    ? await db.select(ACTOR_SUMMARY_COLUMNS)
-      .from(actors)
-      .where(inArray(actors.apId, authorIds))
-    : [];
+  const authorRows =
+    authorIds.length > 0
+      ? await db
+          .select(ACTOR_SUMMARY_COLUMNS)
+          .from(actors)
+          .where(inArray(actors.apId, authorIds))
+      : [];
 
   const authorMap = new Map(authorRows.map((a) => [a.apId, a]));
 
-  return c.json(ok({
-    posts: posts.map((p) => {
-      const author = authorMap.get(p.attributedTo);
-      return {
-        ap_id: p.apId,
-        content: p.content,
-        published: p.published,
-        like_count: p.likeCount,
-        author: author ? formatActorSummary(author) : null,
-      };
+  return c.json(
+    ok({
+      posts: posts.map((p) => {
+        const author = authorMap.get(p.attributedTo);
+        return {
+          ap_id: p.apId,
+          content: p.content,
+          published: p.published,
+          like_count: p.likeCount,
+          author: author ? formatActorSummary(author) : null,
+        };
+      }),
+      next_cursor: posts.length > 0 ? posts[posts.length - 1].published : null,
     }),
-    next_cursor: posts.length > 0 ? posts[posts.length - 1].published : null,
-  }));
+  );
 }
 
 export async function handleGetNotifications(
@@ -85,20 +90,23 @@ export async function handleGetNotifications(
 
   // Filter: activity must not be from self and must be one of the expected types
   const allowedTypes = new Set(["Follow", "Like", "Announce", "Create"]);
-  const filtered = inboxEntries.filter((entry) =>
-    entry.activity &&
-    entry.activity.actorApId !== actor.ap_id &&
-    allowedTypes.has(entry.activity.type)
+  const filtered = inboxEntries.filter(
+    (entry) =>
+      entry.activity &&
+      entry.activity.actorApId !== actor.ap_id &&
+      allowedTypes.has(entry.activity.type),
   );
 
-  return c.json(ok({
-    notifications: filtered.map((entry) => ({
-      id: entry.activityApId,
-      type: entry.activity.type.toLowerCase(),
-      from_actor: entry.activity.actorApId,
-      object: entry.activity.objectApId,
-      read: !!entry.read,
-      created_at: entry.createdAt,
-    })),
-  }));
+  return c.json(
+    ok({
+      notifications: filtered.map((entry) => ({
+        id: entry.activityApId,
+        type: entry.activity.type.toLowerCase(),
+        from_actor: entry.activity.actorApId,
+        object: entry.activity.objectApId,
+        read: !!entry.read,
+        created_at: entry.createdAt,
+      })),
+    }),
+  );
 }

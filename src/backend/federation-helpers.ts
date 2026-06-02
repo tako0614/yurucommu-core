@@ -1,4 +1,5 @@
 import { logger } from "./lib/logger.ts";
+import { bufferToBase64 } from "./lib/base64.ts";
 
 const utilsLog = logger.child({ component: "utils" });
 
@@ -44,7 +45,9 @@ export function generateId(): string {
   // bearer credentials, so we keep the entropy high; 96-bit was too low.
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
-  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 export function actorApId(baseUrl: string, username: string): string {
@@ -175,9 +178,11 @@ function isTruthyEnv(value: string | undefined): boolean {
 }
 
 function localSubstrateRemoteFetchesEnabled(): boolean {
-  const processEnv = (globalThis as {
-    process?: { env?: Record<string, string | undefined> };
-  }).process?.env;
+  const processEnv = (
+    globalThis as {
+      process?: { env?: Record<string, string | undefined> };
+    }
+  ).process?.env;
   return isTruthyEnv(processEnv?.[LOCAL_SUBSTRATE_REMOTE_FETCH_ENV]);
 }
 
@@ -247,14 +252,14 @@ async function dohResolve(
     throw new Error(`DoH lookup failed (${response.status})`);
   }
 
-  const json = await response.json() as {
+  const json = (await response.json()) as {
     Answer?: Array<{ type?: number; data?: string }>;
   };
 
-  return (json.Answer ?? [])
-    .filter((answer): answer is { type: number; data: string } =>
-      typeof answer.type === "number" && typeof answer.data === "string"
-    );
+  return (json.Answer ?? []).filter(
+    (answer): answer is { type: number; data: string } =>
+      typeof answer.type === "number" && typeof answer.data === "string",
+  );
 }
 
 async function resolveRemoteHostnameIPs(hostname: string): Promise<string[]> {
@@ -296,8 +301,10 @@ function isTakosTestHostname(hostname: string): boolean {
 }
 
 function isLocalSubstrateUrlShape(parsed: URL): boolean {
-  return parsed.protocol === "https:" &&
-    (parsed.port === "" || parsed.port === "443");
+  return (
+    parsed.protocol === "https:" &&
+    (parsed.port === "" || parsed.port === "443")
+  );
 }
 
 function isAllowedLocalSubstrateIp(ip: string): boolean {
@@ -312,7 +319,8 @@ async function resolveLocalSubstrateHostnameIPs(
   hostname: string,
   resolver?: RemoteUrlSafetyOptions["localResolver"],
 ): Promise<string[]> {
-  const resolve = resolver ??
+  const resolve =
+    resolver ??
     (async (name: string, recordType: DnsRecordType): Promise<string[]> => {
       return await nodeLookupByRecordType(name, recordType);
     });
@@ -342,7 +350,8 @@ export async function assertSafeRemoteUrlResolved(
   // so we only need to verify resolved IPs are not private.
   const parsed = new URL(url);
   const hostname = normalizeHostname(parsed.hostname);
-  const allowLocalSubstrate = options.allowLocalSubstrateRemoteFetches ??
+  const allowLocalSubstrate =
+    options.allowLocalSubstrateRemoteFetches ??
     localSubstrateRemoteFetchesEnabled();
 
   if (allowLocalSubstrate && isTakosTestHostname(hostname)) {
@@ -366,10 +375,9 @@ export async function assertSafeRemoteUrlResolved(
     return resolvedIps;
   }
 
-  const resolvedIps =
-    await (options.remoteResolver ?? resolveRemoteHostnameIPs)(
-      hostname,
-    );
+  const resolvedIps = await (
+    options.remoteResolver ?? resolveRemoteHostnameIPs
+  )(hostname);
   if (resolvedIps.length === 0) {
     throw new Error(`Failed to resolve hostname: ${hostname}`);
   }
@@ -385,18 +393,15 @@ export async function assertSafeRemoteUrlResolved(
 
 const RSA_ALGORITHM = { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" };
 
-function bufferToBase64(buffer: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buffer)));
-}
-
 function wrapPem(label: string, base64: string): string {
   const lines = base64.match(/.{1,64}/g)?.join("\n") ?? base64;
   return `-----BEGIN ${label}-----\n${lines}\n-----END ${label}-----`;
 }
 
-export async function generateKeyPair(): Promise<
-  { publicKeyPem: string; privateKeyPem: string }
-> {
+export async function generateKeyPair(): Promise<{
+  publicKeyPem: string;
+  privateKeyPem: string;
+}> {
   const keyPair = await crypto.subtle.generateKey(
     {
       ...RSA_ALGORITHM,
@@ -428,24 +433,20 @@ export async function signRequest(
   const urlObj = new URL(url);
   const date = new Date().toUTCString();
   const digest = body
-    ? `SHA-256=${
-      bufferToBase64(
+    ? `SHA-256=${bufferToBase64(
         await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body)),
-      )
-    }`
+      )}`
     : undefined;
 
   const signedHeaders = digest
     ? "(request-target) host date digest"
     : "(request-target) host date";
-  let signatureString =
-    `(request-target): ${method.toLowerCase()} ${urlObj.pathname}\nhost: ${urlObj.host}\ndate: ${date}`;
+  let signatureString = `(request-target): ${method.toLowerCase()} ${urlObj.pathname}\nhost: ${urlObj.host}\ndate: ${date}`;
   if (digest) signatureString += `\ndigest: ${digest}`;
 
-  const pemContents = privateKeyPem.replace(/-----[^-]+-----/g, "").replace(
-    /\s/g,
-    "",
-  );
+  const pemContents = privateKeyPem
+    .replace(/-----[^-]+-----/g, "")
+    .replace(/\s/g, "");
   const binaryKey = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
   const cryptoKey = await crypto.subtle.importKey(
     "pkcs8",
@@ -462,10 +463,9 @@ export async function signRequest(
   const signature = bufferToBase64(signatureBuffer);
 
   const headers: Record<string, string> = {
-    "Date": date,
-    "Host": urlObj.host,
-    "Signature":
-      `keyId="${keyId}",algorithm="rsa-sha256",headers="${signedHeaders}",signature="${signature}"`,
+    Date: date,
+    Host: urlObj.host,
+    Signature: `keyId="${keyId}",algorithm="rsa-sha256",headers="${signedHeaders}",signature="${signature}"`,
   };
   if (digest) headers["Digest"] = digest;
 
@@ -484,9 +484,11 @@ const DEFAULT_MAX_FEDERATION_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_FEDERATION_BODY_BYTES_ENV = "YURUCOMMU_MAX_FEDERATION_BODY_BYTES";
 
 function maxFederationBodyBytes(): number {
-  const processEnv = (globalThis as {
-    process?: { env?: Record<string, string | undefined> };
-  }).process?.env;
+  const processEnv = (
+    globalThis as {
+      process?: { env?: Record<string, string | undefined> };
+    }
+  ).process?.env;
   const raw = processEnv?.[MAX_FEDERATION_BODY_BYTES_ENV];
   if (!raw) return DEFAULT_MAX_FEDERATION_BODY_BYTES;
   const parsed = Number(raw);
@@ -497,10 +499,11 @@ function maxFederationBodyBytes(): number {
 }
 
 export class FederationBodyTooLargeError extends Error {
-  constructor(public readonly url: string, public readonly limit: number) {
-    super(
-      `Remote federation response body exceeded ${limit} bytes: ${url}`,
-    );
+  constructor(
+    public readonly url: string,
+    public readonly limit: number,
+  ) {
+    super(`Remote federation response body exceeded ${limit} bytes: ${url}`);
     this.name = "FederationBodyTooLargeError";
   }
 }
@@ -530,7 +533,9 @@ async function readBodyBytesWithCap(
       // Drain/cancel so the connection isn't left half-read.
       try {
         await response.body?.cancel();
-      } catch { /* ignore cancel failures */ }
+      } catch {
+        /* ignore cancel failures */
+      }
       throw new FederationBodyTooLargeError(url, limit);
     }
   }
@@ -543,7 +548,9 @@ async function readBodyBytesWithCap(
   if (signal.aborted) {
     try {
       await response.body.cancel();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     throw signal.reason instanceof Error ? signal.reason : new Error("Aborted");
   }
 
@@ -660,25 +667,25 @@ function wrapResponseWithCap(
  * DNS-rebinding TOCTOU has two distinct vectors here:
  *
  *  1. Resolver split — validating via Cloudflare DoH while `fetch` connects
-   *     using the host OS resolver. An attacker who controls authoritative DNS
+ *     using the host OS resolver. An attacker who controls authoritative DNS
  *     can deterministically serve a public IP to DoH and a private IP to the
-   *     OS resolver. On a Bun/Node host, we close this deterministic split by
-   *     validating with the host resolver instead of DoH, so validation and the
-   *     connection both go through the
+ *     OS resolver. On a Bun/Node host, we close this deterministic split by
+ *     validating with the host resolver instead of DoH, so validation and the
+ *     connection both go through the
  *     host's configured DNS rather than two different trust domains. (This
  *     removes the resolver-split exploit; it does not by itself guarantee
  *     fetch reuses the identical IP — see vector 2.) On Workers `fetch`
  *     resolves at the edge with no host-OS resolver to diverge from, so DoH
  *     and the connection resolve in the same trust domain.
  *  2. Low-TTL flip — the record changes between validation and connection.
-   *     Neither Workers' nor host `fetch` exposes a hook to pin the
+ *     Neither Workers' nor host `fetch` exposes a hook to pin the
  *     connection to an already-resolved IP, so we cannot eliminate this
  *     sub-resolution window through `fetch`; we minimize it by resolving
  *     immediately before the request with no other awaited work in between.
  */
-async function resolveConnectionResolverIPs(hostname: string): Promise<
-  string[]
-> {
+async function resolveConnectionResolverIPs(
+  hostname: string,
+): Promise<string[]> {
   const processLike = (globalThis as { process?: unknown }).process;
   if (processLike) return await nodeLookupAll(hostname);
   return resolveRemoteHostnameIPs(hostname);
@@ -724,8 +731,9 @@ export async function fetchWithTimeout(
     const parsed = new URL(url);
     const hostname = normalizeHostname(parsed.hostname);
     const allowLocalSubstrate = localSubstrateRemoteFetchesEnabled();
-    const useConnectionResolver = !(allowLocalSubstrate &&
-      isTakosTestHostname(hostname));
+    const useConnectionResolver = !(
+      allowLocalSubstrate && isTakosTestHostname(hostname)
+    );
 
     await assertSafeRemoteUrlResolved(
       url,
@@ -747,9 +755,9 @@ export async function fetchWithTimeout(
     // Reject redirects to prevent SSRF via open redirects on remote servers
     if (response.status >= 300 && response.status < 400) {
       throw new Error(
-        `Redirect not allowed from remote URL: ${url} -> ${
-          response.headers.get("location")
-        }`,
+        `Redirect not allowed from remote URL: ${url} -> ${response.headers.get(
+          "location",
+        )}`,
       );
     }
     // The headers-phase timer is cleared in `finally` below, but a raw

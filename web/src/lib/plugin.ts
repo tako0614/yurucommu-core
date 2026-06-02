@@ -131,7 +131,7 @@ class DefaultSelfHostedStrategy implements AuthStrategy {
       if (!res.ok) {
         return EMPTY_RESULT;
       }
-      const data = await res.json() as { actor?: Actor };
+      const data = (await res.json()) as { actor?: Actor };
       return { ...EMPTY_RESULT, actor: data.actor ?? null };
     } catch {
       return EMPTY_RESULT;
@@ -149,7 +149,7 @@ class DefaultSelfHostedStrategy implements AuthStrategy {
         credentials: "include",
         body: JSON.stringify({ password }),
       });
-      const data = await res.json() as { success?: boolean; error?: string };
+      const data = (await res.json()) as { success?: boolean; error?: string };
       if (data.success) return { success: true };
       return { error: data.error || "Login failed" };
     } catch {
@@ -277,7 +277,10 @@ function buildSlotCache(): Map<string, Component<Record<string, unknown>>[]> {
   const result = new Map<string, Component<Record<string, unknown>>[]>();
   for (const [name, entries] of map) {
     entries.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
-    result.set(name, entries.map((e) => e.component));
+    result.set(
+      name,
+      entries.map((e) => e.component),
+    );
   }
   return result;
 }

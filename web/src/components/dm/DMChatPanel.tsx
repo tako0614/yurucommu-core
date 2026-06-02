@@ -49,9 +49,8 @@ export function DMChatPanel(props: DMChatPanelProps) {
             setMessages(data);
           }
         } else {
-          const { messages: loadedMessages } = await fetchUserDMMessages(
-            contactApId,
-          );
+          const { messages: loadedMessages } =
+            await fetchUserDMMessages(contactApId);
           if (!cancelled) {
             setMessages(loadedMessages);
           }
@@ -200,8 +199,8 @@ export function DMChatPanel(props: DMChatPanelProps) {
           when={props.contact.icon_url}
           fallback={
             <div class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold">
-              {(props.contact.name || props.contact.preferred_username)?.[0]
-                ?.toUpperCase() || "?"}
+              {(props.contact.name ||
+                props.contact.preferred_username)?.[0]?.toUpperCase() || "?"}
             </div>
           }
         >
@@ -218,8 +217,10 @@ export function DMChatPanel(props: DMChatPanelProps) {
           <div class="text-xs text-neutral-500 truncate">
             @{props.contact.preferred_username}
             <Show
-              when={props.contact.type === "community" &&
-                props.contact.member_count !== undefined}
+              when={
+                props.contact.type === "community" &&
+                props.contact.member_count !== undefined
+              }
             >
               <span class="ml-2">{props.contact.member_count}人</span>
             </Show>
@@ -245,10 +246,11 @@ export function DMChatPanel(props: DMChatPanelProps) {
             <For each={messages()}>
               {(msg, index) => {
                 const isMine = getSenderApId(msg) === props.actor.ap_id;
-                const showAvatar = !isMine && (
-                  index() === 0 ||
-                  getSenderApId(messages()[index() - 1]) !== getSenderApId(msg)
-                );
+                const showAvatar =
+                  !isMine &&
+                  (index() === 0 ||
+                    getSenderApId(messages()[index() - 1]) !==
+                      getSenderApId(msg));
 
                 return (
                   <div

@@ -55,15 +55,16 @@ export function StoryViewer(props: StoryViewerProps) {
   let timerRef: ReturnType<typeof setTimeout> | null = null;
   let progressTimerRef: ReturnType<typeof setInterval> | null = null;
 
-  const currentActorStories = createMemo(() =>
-    localActorStories()[actorIndex()]
+  const currentActorStories = createMemo(
+    () => localActorStories()[actorIndex()],
   );
-  const currentStory = createMemo(() =>
-    currentActorStories()?.stories[storyIndex()]
+  const currentStory = createMemo(
+    () => currentActorStories()?.stories[storyIndex()],
   );
-  const isOwnStory = createMemo(() =>
-    props.currentUserApId != null &&
-    currentActorStories()?.actor.ap_id === props.currentUserApId
+  const isOwnStory = createMemo(
+    () =>
+      props.currentUserApId != null &&
+      currentActorStories()?.actor.ap_id === props.currentUserApId,
   );
   const isLiked = createMemo(() => !!currentStory()?.liked);
 
@@ -113,8 +114,8 @@ export function StoryViewer(props: StoryViewerProps) {
   });
 
   // Check if current story is a video
-  const isVideo = createMemo(() =>
-    currentStory()?.attachment?.mediaType?.startsWith("video/") ?? false
+  const isVideo = createMemo(
+    () => currentStory()?.attachment?.mediaType?.startsWith("video/") ?? false,
   );
 
   // Keep ref in sync with state for use in interval callback
@@ -224,7 +225,7 @@ export function StoryViewer(props: StoryViewerProps) {
             user_vote: result.user_vote,
           };
         }),
-      }))
+      })),
     );
   };
 
@@ -241,9 +242,9 @@ export function StoryViewer(props: StoryViewerProps) {
           stories: group.stories.map((s) =>
             s.ap_id === story.ap_id
               ? { ...s, liked: result.liked, like_count: result.like_count }
-              : s
+              : s,
           ),
-        }))
+        })),
       );
     } catch (err) {
       console.error("Failed to toggle story like:", err);
@@ -260,7 +261,8 @@ export function StoryViewer(props: StoryViewerProps) {
         await navigator.share({
           title: `${
             currentActorStories()?.actor?.name ||
-            currentActorStories()?.actor?.preferred_username || "Story"
+            currentActorStories()?.actor?.preferred_username ||
+            "Story"
           }`,
           url: shareUrl,
         });
@@ -272,9 +274,9 @@ export function StoryViewer(props: StoryViewerProps) {
               stories: group.stories.map((s) =>
                 s.ap_id === story.ap_id
                   ? { ...s, share_count: result.share_count }
-                  : s
+                  : s,
               ),
-            }))
+            })),
           );
         } catch (err) {
           console.error("Failed to record story share:", err);
@@ -291,9 +293,9 @@ export function StoryViewer(props: StoryViewerProps) {
               stories: group.stories.map((s) =>
                 s.ap_id === story.ap_id
                   ? { ...s, share_count: result.share_count }
-                  : s
+                  : s,
               ),
-            }))
+            })),
           );
         } catch (err) {
           console.error("Failed to record story share:", err);
@@ -438,14 +440,19 @@ export function StoryViewer(props: StoryViewerProps) {
           >
             {/* Media content - directly from story.attachment */}
             <Show
-              when={!mediaError() &&
-                currentStory()!.attachment.mediaType.startsWith("image/")}
+              when={
+                !mediaError() &&
+                currentStory()!.attachment.mediaType.startsWith("image/")
+              }
             >
               <img
-                src={currentStory()!.attachment.url ||
-                  `/media/${
-                    currentStory()!.attachment.r2_key.replace(/^uploads\//, "")
-                  }`}
+                src={
+                  currentStory()!.attachment.url ||
+                  `/media/${currentStory()!.attachment.r2_key.replace(
+                    /^uploads\//,
+                    "",
+                  )}`
+                }
                 alt=""
                 class="w-full h-full object-cover"
                 draggable={false}
@@ -453,14 +460,19 @@ export function StoryViewer(props: StoryViewerProps) {
               />
             </Show>
             <Show
-              when={!mediaError() &&
-                currentStory()!.attachment.mediaType.startsWith("video/")}
+              when={
+                !mediaError() &&
+                currentStory()!.attachment.mediaType.startsWith("video/")
+              }
             >
               <video
-                src={currentStory()!.attachment.url ||
-                  `/media/${
-                    currentStory()!.attachment.r2_key.replace(/^uploads\//, "")
-                  }`}
+                src={
+                  currentStory()!.attachment.url ||
+                  `/media/${currentStory()!.attachment.r2_key.replace(
+                    /^uploads\//,
+                    "",
+                  )}`
+                }
                 class="w-full h-full object-cover"
                 autoplay={videoReady()}
                 muted={isMuted()}

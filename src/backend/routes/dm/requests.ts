@@ -20,13 +20,14 @@ requests.get("/requests", async (c) => {
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
   const db = c.get("db");
 
-  const incomingDMs = await db.select({
-    apId: objects.apId,
-    attributedTo: objects.attributedTo,
-    content: objects.content,
-    published: objects.published,
-    conversation: objects.conversation,
-  })
+  const incomingDMs = await db
+    .select({
+      apId: objects.apId,
+      attributedTo: objects.attributedTo,
+      content: objects.content,
+      published: objects.published,
+      conversation: objects.conversation,
+    })
     .from(objects)
     .where(
       and(
@@ -40,9 +41,9 @@ requests.get("/requests", async (c) => {
 
   const allConversations = [
     ...new Set(
-      incomingDMs.map((dm) => dm.conversation).filter((c): c is string =>
-        c !== null
-      ),
+      incomingDMs
+        .map((dm) => dm.conversation)
+        .filter((c): c is string => c !== null),
     ),
   ];
   const repliedConversationsSet = await findRepliedConversations(
@@ -107,7 +108,8 @@ requests.post("/requests/reject", async (c) => {
     body.sender_ap_id,
   );
 
-  const messagesToDelete = await db.select({ apId: objects.apId })
+  const messagesToDelete = await db
+    .select({ apId: objects.apId })
     .from(objects)
     .where(
       and(
@@ -119,21 +121,24 @@ requests.post("/requests/reject", async (c) => {
   const messageApIds = messagesToDelete.map((m) => m.apId);
 
   if (messageApIds.length > 0) {
-    await db.delete(objectRecipients).where(
-      inArray(objectRecipients.objectApId, messageApIds),
-    );
+    await db
+      .delete(objectRecipients)
+      .where(inArray(objectRecipients.objectApId, messageApIds));
   }
 
-  await db.delete(objects).where(
-    and(
-      eq(objects.conversation, conversationId),
-      eq(objects.visibility, "direct"),
-      eq(objects.attributedTo, body.sender_ap_id),
-    ),
-  );
+  await db
+    .delete(objects)
+    .where(
+      and(
+        eq(objects.conversation, conversationId),
+        eq(objects.visibility, "direct"),
+        eq(objects.attributedTo, body.sender_ap_id),
+      ),
+    );
 
   if (body.block) {
-    await db.insert(blocks)
+    await db
+      .insert(blocks)
       .values({
         blockerApId: actor.ap_id,
         blockedApId: body.sender_ap_id,
@@ -166,12 +171,16 @@ requests.post("/requests/accept", async (c) => {
     return c.json({ error: "sender_ap_id is required" }, 400);
   }
 
-  return c.json({
-    error: "not_implemented",
-    message: "Accepting a request is done by replying to the conversation " +
-      "(POST /api/dm/user/:encodedApId/messages). There is no separate " +
-      "accept action in this DM model.",
-  }, 501);
+  return c.json(
+    {
+      error: "not_implemented",
+      message:
+        "Accepting a request is done by replying to the conversation " +
+        "(POST /api/dm/user/:encodedApId/messages). There is no separate " +
+        "accept action in this DM model.",
+    },
+    501,
+  );
 });
 
 export default requests;

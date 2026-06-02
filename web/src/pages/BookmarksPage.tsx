@@ -56,8 +56,8 @@ export function BookmarksPage() {
           prev.map((p) =>
             p.ap_id === post.ap_id
               ? { ...p, liked: false, like_count: p.like_count - 1 }
-              : p
-          )
+              : p,
+          ),
         );
       } else {
         await likePost(post.ap_id);
@@ -65,8 +65,8 @@ export function BookmarksPage() {
           prev.map((p) =>
             p.ap_id === post.ap_id
               ? { ...p, liked: true, like_count: p.like_count + 1 }
-              : p
-          )
+              : p,
+          ),
         );
       }
     } catch (e) {
@@ -124,9 +124,9 @@ export function BookmarksPage() {
                   <div class="flex-1 min-w-0">
                     <div class="flex items-baseline gap-2">
                       <A
-                        href={`/profile/${
-                          encodeURIComponent(post.author.ap_id)
-                        }`}
+                        href={`/profile/${encodeURIComponent(
+                          post.author.ap_id,
+                        )}`}
                         class="font-bold text-white truncate hover:underline"
                       >
                         {post.author.name || post.author.preferred_username}
@@ -158,8 +158,10 @@ export function BookmarksPage() {
                       >
                         <HeartIcon filled={post.liked || false} />
                         <Show
-                          when={post.author.ap_id === actor.ap_id &&
-                            post.like_count > 0}
+                          when={
+                            post.author.ap_id === actor.ap_id &&
+                            post.like_count > 0
+                          }
                         >
                           <span class="text-sm">{post.like_count}</span>
                         </Show>

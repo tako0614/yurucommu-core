@@ -95,21 +95,23 @@ export function logError(
   // a nested object) honest even if logger transports change.
   const errorInfo = isAppError(error)
     ? {
-      name: error.name,
-      code: error.code,
-      message: maskSensitiveString(error.message),
-      statusCode: error.statusCode,
-      details: maskSensitiveData(error.details),
-      stack: error.stack ? maskSensitiveString(error.stack) : undefined,
-    }
+        name: error.name,
+        code: error.code,
+        message: maskSensitiveString(error.message),
+        statusCode: error.statusCode,
+        details: maskSensitiveData(error.details),
+        stack: error.stack ? maskSensitiveString(error.stack) : undefined,
+      }
     : {
-      message: error instanceof Error
-        ? maskSensitiveString(error.message)
-        : maskSensitiveString(String(error)),
-      stack: error instanceof Error && error.stack
-        ? maskSensitiveString(error.stack)
-        : undefined,
-    };
+        message:
+          error instanceof Error
+            ? maskSensitiveString(error.message)
+            : maskSensitiveString(String(error)),
+        stack:
+          error instanceof Error && error.stack
+            ? maskSensitiveString(error.stack)
+            : undefined,
+      };
 
   log.error("AppError", {
     event: "app.error",

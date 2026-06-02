@@ -15,8 +15,11 @@ interface ErrorMiddlewareOptions {
 }
 
 function getCorrelationId(c: Context): string {
-  return c.req.header("x-request-id") ?? c.req.header("CF-Ray") ??
-    crypto.randomUUID();
+  return (
+    c.req.header("x-request-id") ??
+    c.req.header("CF-Ray") ??
+    crypto.randomUUID()
+  );
 }
 
 /**

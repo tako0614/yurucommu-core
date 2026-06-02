@@ -1,17 +1,17 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
   <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>環境変数 - Yurucommu</title>
-    <meta name="description" content="Yurucommuの設定可能な環境変数一覧">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <meta name="description" content="Yurucommuの設定可能な環境変数一覧" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
-    >
-    <link rel="stylesheet" href="../styles.css">
+    />
+    <link rel="stylesheet" href="../styles.css" />
   </head>
   <body>
     <header class="header">
@@ -153,11 +153,11 @@
 
         <h2>ローカルBunサーバー</h2>
         <p>
-          Cloudflare を使わずにローカルで起動する場合は <code>bun run
-            dev:server</code> または <code>bun run start</code>
-          を使います。どちらも <code>src/backend/server.ts</code>
-          を起動し、起動時に <code>MIGRATIONS_PATH</code> の SQL
-          を自動適用します。
+          Cloudflare を使わずにローカルで起動する場合は
+          <code>bun run dev:server</code> または
+          <code>bun run start</code> を使います。どちらも
+          <code>src/backend/server.ts</code> を起動し、起動時に
+          <code>MIGRATIONS_PATH</code> の SQL を自動適用します。
         </p>
         <table class="docs-table">
           <thead>
@@ -225,11 +225,17 @@
             </tr>
             <tr>
               <td><code>ENABLE_TAKOS_PROXY</code></td>
-              <td><code>true</code> にすると <code>/api/takos/*</code> proxy を有効化</td>
+              <td>
+                <code>true</code> にすると <code>/api/takos/*</code> proxy
+                を有効化
+              </td>
             </tr>
             <tr>
               <td><code>ENABLE_TAKOS_TOOLS</code></td>
-              <td><code>true</code> にすると <code>/.takos/tools/:name</code> tool endpoint を有効化</td>
+              <td>
+                <code>true</code> にすると <code>/.takos/tools/:name</code> tool
+                endpoint を有効化
+              </td>
             </tr>
           </tbody>
         </table>
@@ -239,7 +245,7 @@
           環境変数は <code>wrangler.toml</code> の <code>[vars]</code>
           セクションで設定します：
         </p>
-<pre><code>[vars]
+        <pre><code>[vars]
 APP_URL = "https://yurucommu.example.com"
 TAKOS_URL = "https://takos.example.com"
 
@@ -248,8 +254,8 @@ TAKOS_URL = "https://takos.example.com"
 
         <h2>シークレットの設定</h2>
         <p>
-          パスワードなどの機密情報は <code>bunx wrangler secret
-            put</code> で設定します：
+          パスワードなどの機密情報は
+          <code>bunx wrangler secret put</code> で設定します：
         </p>
         <pre><code># パスワードハッシュを設定
 bunx wrangler secret put AUTH_PASSWORD_HASH
@@ -262,8 +268,8 @@ bunx wrangler secret put TAKOS_CLIENT_SECRET</code></pre>
 
         <h2>設定の補足</h2>
         <p>
-          環境ごとに値を切り替える場合でも、<code>AUTH_PASSWORD_HASH</code>
-          や <code>ENCRYPTION_KEY</code> などの認証情報は secret で管理します。
+          環境ごとに値を切り替える場合でも、<code>AUTH_PASSWORD_HASH</code> や
+          <code>ENCRYPTION_KEY</code> などの認証情報は secret で管理します。
         </p>
 
         <h2>設定の確認</h2>
@@ -284,7 +290,8 @@ bunx wrangler secret list</code></pre>
           <a href="/help/" class="footer-link">Docs</a>
           <a href="/specs/" class="footer-link">Specs</a>
           <a href="https://github.com/tako0614/yurucommu" class="footer-link"
-          >GitHub</a>
+            >GitHub</a
+          >
         </div>
         <p class="footer-copy">&copy; 2026 Yurucommu. AGPL v3.</p>
       </div>

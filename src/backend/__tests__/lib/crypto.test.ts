@@ -12,20 +12,15 @@ const KEY = "00".repeat(32);
 const OTHER_KEY = "11".repeat(32);
 
 test("crypto decrypt - rejects malformed encrypted payloads without plaintext fallback", async () => {
-  for (
-    const payload of [
-      "plaintext-token",
-      "abcd:",
-      ":abcd",
-      "abcd:efgh",
-      "00:11",
-      `${"00".repeat(12)}:${"11".repeat(16)}:extra`,
-    ]
-  ) {
-    await assertRejects(
-      () => decrypt(payload, KEY),
-      DecryptionError,
-    );
+  for (const payload of [
+    "plaintext-token",
+    "abcd:",
+    ":abcd",
+    "abcd:efgh",
+    "00:11",
+    `${"00".repeat(12)}:${"11".repeat(16)}:extra`,
+  ]) {
+    await assertRejects(() => decrypt(payload, KEY), DecryptionError);
   }
 });
 
@@ -36,10 +31,7 @@ test("crypto decrypt - round trips valid encrypted values", async () => {
 
 test("crypto decrypt - rejects valid payloads with the wrong key", async () => {
   const encrypted = await encrypt("sensitive-token", KEY);
-  await assertRejects(
-    () => decrypt(encrypted, OTHER_KEY),
-    DecryptionError,
-  );
+  await assertRejects(() => decrypt(encrypted, OTHER_KEY), DecryptionError);
 });
 
 test("hashSessionId - prefixes sha256: and never returns the raw id", async () => {

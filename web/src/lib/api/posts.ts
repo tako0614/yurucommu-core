@@ -104,9 +104,10 @@ export async function unbookmarkPost(apId: string): Promise<void> {
   await assertOk(res, "Failed to unbookmark");
 }
 
-export async function fetchBookmarks(
-  options?: { limit?: number; before?: string },
-): Promise<Post[]> {
+export async function fetchBookmarks(options?: {
+  limit?: number;
+  before?: string;
+}): Promise<Post[]> {
   const params = new URLSearchParams();
   if (options?.limit) params.set("limit", String(options.limit));
   if (options?.before) params.set("before", options.before);

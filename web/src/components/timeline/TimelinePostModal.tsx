@@ -46,8 +46,11 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                   props.onClose();
                 }
               }}
-              disabled={(!props.postContent.trim() &&
-                props.uploadedMedia.length === 0) || props.posting}
+              disabled={
+                (!props.postContent.trim() &&
+                  props.uploadedMedia.length === 0) ||
+                props.posting
+              }
               class="px-4 py-1.5 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 disabled:text-neutral-500 rounded-full font-bold text-sm transition-colors"
             >
               {props.posting ? props.submittingLabel : props.submitLabel}
@@ -66,7 +69,8 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
                 <textarea
                   value={props.postContent}
                   onInput={(e) =>
-                    props.onPostContentChange(e.currentTarget.value)}
+                    props.onPostContentChange(e.currentTarget.value)
+                  }
                   placeholder={props.placeholder}
                   class="w-full bg-transparent text-white placeholder-neutral-500 resize-none outline-none text-lg min-h-[120px]"
                   autofocus

@@ -160,10 +160,11 @@ export function GradientPicker(props: GradientPickerProps) {
             type="color"
             value={props.colors[0] || "#667eea"}
             onInput={(e) =>
-              props.onChange([
-                e.currentTarget.value,
-                props.colors[1] || "#764ba2",
-              ], props.angle)}
+              props.onChange(
+                [e.currentTarget.value, props.colors[1] || "#764ba2"],
+                props.angle,
+              )
+            }
             class="w-full h-8 rounded cursor-pointer bg-transparent"
           />
         </div>
@@ -173,10 +174,11 @@ export function GradientPicker(props: GradientPickerProps) {
             type="color"
             value={props.colors[props.colors.length - 1] || "#764ba2"}
             onInput={(e) =>
-              props.onChange([
-                props.colors[0] || "#667eea",
-                e.currentTarget.value,
-              ], props.angle)}
+              props.onChange(
+                [props.colors[0] || "#667eea", e.currentTarget.value],
+                props.angle,
+              )
+            }
             class="w-full h-8 rounded cursor-pointer bg-transparent"
           />
         </div>
@@ -191,7 +193,8 @@ export function GradientPicker(props: GradientPickerProps) {
           max="360"
           value={props.angle}
           onInput={(e) =>
-            props.onChange(props.colors, parseInt(e.currentTarget.value))}
+            props.onChange(props.colors, parseInt(e.currentTarget.value))
+          }
           class="w-full accent-blue-500"
         />
       </div>

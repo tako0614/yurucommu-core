@@ -118,7 +118,9 @@ export function NewConversationModal(props: NewConversationModalProps) {
                       }
                     >
                       <div class="p-8 text-center text-neutral-500">
-                        {"\u30E6\u30FC\u30B6\u30FC\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093"}
+                        {
+                          "\u30E6\u30FC\u30B6\u30FC\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093"
+                        }
                       </div>
                     </Show>
                   }

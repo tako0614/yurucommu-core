@@ -8,9 +8,9 @@ Cloudflare D1, depending on deployment).
   the legacy wrangler-style ledger that yurucommu adopted before the ecosystem
   migration runner contract; it does **not** carry a checksum column.
 - **Runner sources**:
-  - `yurucommu/src/backend/runtime/compat/env.ts` (libSQL path)
-  - `yurucommu/src/backend/runtime/compat-bun/env.ts` (Bun path)
-  - `yurucommu/src/backend/server.ts` (D1 path)
+  - `yurucommu/src/backend/server.ts` (Bun/libSQL local path)
+  - `yurucommu/scripts/apply-takos-migrations.ts` (Takos-managed D1 path)
+  - `wrangler d1 migrations apply` (operator-managed Cloudflare D1 path)
 
 ## Naming convention
 

@@ -144,9 +144,7 @@ test("DM send is rejected when recipient has blocked the sender", async () => {
   expect(res.status).toEqual(404);
 
   // No DM Note row should have been created.
-  const notes = await db.select().from(objects).where(
-    eq(objects.type, "Note"),
-  );
+  const notes = await db.select().from(objects).where(eq(objects.type, "Note"));
   expect(notes.length).toEqual(0);
 });
 
@@ -202,12 +200,16 @@ test("story like is rejected when author has blocked the liker", async () => {
   expect(res.status).toEqual(404);
 
   // No like row and no count change.
-  const likeRows = await db.select().from(likes).where(
-    eq(likes.objectApId, storyApId),
-  );
+  const likeRows = await db
+    .select()
+    .from(likes)
+    .where(eq(likes.objectApId, storyApId));
   expect(likeRows.length).toEqual(0);
-  const story = await db.select({ likeCount: objects.likeCount }).from(objects)
-    .where(eq(objects.apId, storyApId)).get();
+  const story = await db
+    .select({ likeCount: objects.likeCount })
+    .from(objects)
+    .where(eq(objects.apId, storyApId))
+    .get();
   expect(story?.likeCount).toEqual(0);
 });
 
@@ -252,8 +254,11 @@ test("double Undo of a Like does not drift likeCount below the real value", asyn
   );
   expect(second).toEqual(true);
 
-  const after = await db.select({ likeCount: objects.likeCount }).from(objects)
-    .where(eq(objects.apId, storyApId)).get();
+  const after = await db
+    .select({ likeCount: objects.likeCount })
+    .from(objects)
+    .where(eq(objects.apId, storyApId))
+    .get();
   expect(after?.likeCount).toEqual(0);
 });
 
@@ -283,18 +288,28 @@ test("duplicate Accept does not over-count follower/following counts", async () 
   // Duplicate Accept (e.g. retried federation delivery).
   await handleAccept(ctx, acceptActivity);
 
-  const follow = await db.select().from(follows).where(
-    and(
-      eq(follows.followerApId, requesterApId),
-      eq(follows.followingApId, targetApId),
-    ),
-  ).get();
+  const follow = await db
+    .select()
+    .from(follows)
+    .where(
+      and(
+        eq(follows.followerApId, requesterApId),
+        eq(follows.followingApId, targetApId),
+      ),
+    )
+    .get();
   expect(follow?.status).toEqual("accepted");
 
-  const target = await db.select({ followerCount: actors.followerCount })
-    .from(actors).where(eq(actors.apId, targetApId)).get();
-  const requester = await db.select({ followingCount: actors.followingCount })
-    .from(actors).where(eq(actors.apId, requesterApId)).get();
+  const target = await db
+    .select({ followerCount: actors.followerCount })
+    .from(actors)
+    .where(eq(actors.apId, targetApId))
+    .get();
+  const requester = await db
+    .select({ followingCount: actors.followingCount })
+    .from(actors)
+    .where(eq(actors.apId, requesterApId))
+    .get();
 
   // Exactly one increment despite two Accepts.
   expect(target?.followerCount).toEqual(1);
@@ -333,8 +348,11 @@ test("Undo of a never-accepted (pending) follow does not drift followerCount neg
 
   await handleUndo(ctx, undoActivity, recipient, followerApId, APP_URL);
 
-  const target = await db.select({ followerCount: actors.followerCount })
-    .from(actors).where(eq(actors.apId, targetApId)).get();
+  const target = await db
+    .select({ followerCount: actors.followerCount })
+    .from(actors)
+    .where(eq(actors.apId, targetApId))
+    .get();
   // Never incremented -> must NOT go negative on Undo.
   expect(target?.followerCount).toEqual(0);
 });
@@ -353,7 +371,8 @@ test("duplicate Undo of an accepted follow decrements followerCount exactly once
     activityApId: followActivityId,
     acceptedAt: new Date().toISOString(),
   });
-  await db.update(actors)
+  await db
+    .update(actors)
     .set({ followerCount: 1 })
     .where(eq(actors.apId, targetApId));
 
@@ -372,8 +391,11 @@ test("duplicate Undo of an accepted follow decrements followerCount exactly once
   // Undo must be a no-op for the count.
   await handleUndo(ctx, undoActivity, recipient, followerApId, APP_URL);
 
-  const target = await db.select({ followerCount: actors.followerCount })
-    .from(actors).where(eq(actors.apId, targetApId)).get();
+  const target = await db
+    .select({ followerCount: actors.followerCount })
+    .from(actors)
+    .where(eq(actors.apId, targetApId))
+    .get();
   // Exactly one decrement despite two Undos: 1 -> 0 (not -1).
   expect(target?.followerCount).toEqual(0);
 });

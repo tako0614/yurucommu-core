@@ -35,10 +35,10 @@ const CACHE_MAX_AGE_VIDEO = 604800; // 1 week for videos
 // These are the first bytes of valid files - used to verify actual content type
 const MAGIC_BYTES: Record<string, { bytes: number[]; mask?: number[] }[]> = {
   "image/jpeg": [
-    { bytes: [0xFF, 0xD8, 0xFF] }, // JPEG/JFIF
+    { bytes: [0xff, 0xd8, 0xff] }, // JPEG/JFIF
   ],
   "image/png": [
-    { bytes: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] }, // PNG
+    { bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] }, // PNG
   ],
   "image/gif": [
     { bytes: [0x47, 0x49, 0x46, 0x38, 0x37, 0x61] }, // GIF87a
@@ -54,7 +54,7 @@ const MAGIC_BYTES: Record<string, { bytes: number[]; mask?: number[] }[]> = {
     { bytes: [0x66, 0x74, 0x79, 0x70] }, // 'ftyp' at various offsets
   ],
   "video/webm": [
-    { bytes: [0x1A, 0x45, 0xDF, 0xA3] }, // EBML/WebM/Matroska
+    { bytes: [0x1a, 0x45, 0xdf, 0xa3] }, // EBML/WebM/Matroska
   ],
 };
 
@@ -128,9 +128,12 @@ function isValidMediaFilename(filename: string): boolean {
   if (!VALID_MEDIA_FILENAME.test(filename)) return false;
   // Defense in depth: reject path traversal characters
   if (
-    filename.includes("..") || filename.includes("/") ||
-    filename.includes("\\") || filename.includes("\x00")
-  ) return false;
+    filename.includes("..") ||
+    filename.includes("/") ||
+    filename.includes("\\") ||
+    filename.includes("\x00")
+  )
+    return false;
   return true;
 }
 
@@ -156,21 +159,27 @@ media.post("/upload", async (c) => {
     const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
     if (file.size > maxSize) {
       const maxMB = maxSize / 1024 / 1024;
-      return c.json({
-        error: `File too large. Maximum size is ${maxMB}MB for ${
-          isVideo ? "videos" : "images"
-        }`,
-      }, 413);
+      return c.json(
+        {
+          error: `File too large. Maximum size is ${maxMB}MB for ${
+            isVideo ? "videos" : "images"
+          }`,
+        },
+        413,
+      );
     }
 
     const arrayBuffer = await file.arrayBuffer();
 
     // Validate actual content against declared MIME type via magic bytes
     if (!validateMagicBytes(arrayBuffer, contentType)) {
-      return c.json({
-        error: "File content does not match declared type",
-        hint: "The file appears to be a different format than specified",
-      }, 400);
+      return c.json(
+        {
+          error: "File content does not match declared type",
+          hint: "The file appears to be a different format than specified",
+        },
+        400,
+      );
     }
 
     const id = generateId();
@@ -249,10 +258,12 @@ async function checkMediaAuthorization(
       toJson: objects.toJson,
     })
     .from(objects)
-    .where(or(
-      like(objects.attachmentsJson, "%" + mediaUrl + "%"),
-      like(objects.attachmentsJson, "%" + r2Key + "%"),
-    ))
+    .where(
+      or(
+        like(objects.attachmentsJson, "%" + mediaUrl + "%"),
+        like(objects.attachmentsJson, "%" + r2Key + "%"),
+      ),
+    )
     .get();
 
   // Unattached media: only the uploader may access
@@ -262,16 +273,20 @@ async function checkMediaAuthorization(
     const uploadRecord = await db
       .select()
       .from(mediaUploads)
-      .where(and(
-        eq(mediaUploads.r2Key, r2Key),
-        eq(mediaUploads.uploaderApId, currentActorApId),
-      ))
+      .where(
+        and(
+          eq(mediaUploads.r2Key, r2Key),
+          eq(mediaUploads.uploaderApId, currentActorApId),
+        ),
+      )
       .get();
-    return uploadRecord ? ALLOW_PRIVATE : {
-      allowed: false,
-      reason: "Not authorized to access this media",
-      isPublic: false,
-    };
+    return uploadRecord
+      ? ALLOW_PRIVATE
+      : {
+          allowed: false,
+          reason: "Not authorized to access this media",
+          isPublic: false,
+        };
   }
 
   if (obj.visibility === "public" || obj.visibility === "unlisted") {
@@ -288,11 +303,13 @@ async function checkMediaAuthorization(
     const follow = await db
       .select()
       .from(follows)
-      .where(and(
-        eq(follows.followerApId, currentActorApId),
-        eq(follows.followingApId, obj.attributedTo),
-        eq(follows.status, "accepted"),
-      ))
+      .where(
+        and(
+          eq(follows.followerApId, currentActorApId),
+          eq(follows.followingApId, obj.attributedTo),
+          eq(follows.status, "accepted"),
+        ),
+      )
       .get();
     return follow ? ALLOW_PRIVATE : DENY_NOT_AUTHORIZED;
   }
@@ -308,10 +325,7 @@ async function checkMediaAuthorization(
   return DENY_NOT_AUTHORIZED;
 }
 
-async function serveMediaByR2Key(
-  c: MediaContext,
-  r2Key: string,
-) {
+async function serveMediaByR2Key(c: MediaContext, r2Key: string) {
   try {
     if (!r2Key.startsWith("uploads/")) return c.notFound();
     const filename = r2Key.slice("uploads/".length);
@@ -343,8 +357,8 @@ async function serveMediaByR2Key(
     const object = await media.get(r2Key);
     if (!object) return c.notFound();
 
-    const contentType = object.httpMetadata?.contentType ||
-      "application/octet-stream";
+    const contentType =
+      object.httpMetadata?.contentType || "application/octet-stream";
     const cacheScope = authResult.isPublic ? "public" : "private";
     const maxAge = contentType.startsWith("video/")
       ? CACHE_MAX_AGE_VIDEO
@@ -355,13 +369,13 @@ async function serveMediaByR2Key(
       return c.body(null, 200, {
         "Content-Type": contentType,
         "Cache-Control": `${cacheScope}, max-age=${maxAge}`,
-        ...(etag ? { "ETag": etag } : {}),
+        ...(etag ? { ETag: etag } : {}),
       });
     }
     return c.body(object.body, 200, {
       "Content-Type": contentType,
       "Cache-Control": `${cacheScope}, max-age=${maxAge}`,
-      ...(etag ? { "ETag": etag } : {}),
+      ...(etag ? { ETag: etag } : {}),
     });
   } catch (error) {
     log.error("Media fetch failed", {

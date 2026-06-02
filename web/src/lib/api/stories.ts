@@ -40,9 +40,11 @@ export async function markStoryViewed(apId: string): Promise<void> {
 export async function voteOnStory(
   apId: string,
   optionIndex: number,
-): Promise<
-  { votes: Record<number, number>; total: number; user_vote: number }
-> {
+): Promise<{
+  votes: Record<number, number>;
+  total: number;
+  user_vote: number;
+}> {
   const res = await apiPost("/api/stories/vote", {
     ap_id: apId,
     option_index: optionIndex,

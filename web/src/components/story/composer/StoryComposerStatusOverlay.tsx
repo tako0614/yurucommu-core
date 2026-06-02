@@ -14,8 +14,7 @@ export function StoryComposerStatusOverlay(
       <Show when={props.ffmpegLoading}>
         <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 bg-black/80 backdrop-blur-sm rounded-2xl px-6 py-4">
           <div class="flex items-center gap-3">
-            <div class="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin">
-            </div>
+            <div class="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
             <span class="text-white">動画機能を準備中...</span>
           </div>
         </div>

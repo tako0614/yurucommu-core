@@ -79,18 +79,18 @@ export function PostDetailPage() {
     setLoading(true);
 
     const decodedPostId = decodeURIComponent(postId);
-    Promise.all([
-      fetchPost(decodedPostId),
-      fetchReplies(decodedPostId),
-    ]).then(([postData, repliesData]) => {
-      setPost(postData);
-      setReplies(repliesData);
-    }).catch((e) => {
-      console.error("Failed to load post:", e);
-      setError(t("common.error"));
-    }).finally(() => {
-      setLoading(false);
-    });
+    Promise.all([fetchPost(decodedPostId), fetchReplies(decodedPostId)])
+      .then(([postData, repliesData]) => {
+        setPost(postData);
+        setReplies(repliesData);
+      })
+      .catch((e) => {
+        console.error("Failed to load post:", e);
+        setError(t("common.error"));
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   });
 
   const handleLike = async (targetPost: Post, isReply: boolean = false) => {
@@ -102,14 +102,14 @@ export function PostDetailPage() {
             prev.map((r) =>
               r.ap_id === targetPost.ap_id
                 ? { ...r, liked: false, like_count: r.like_count - 1 }
-                : r
-            )
+                : r,
+            ),
           );
         } else {
           setPost((prev) =>
             prev
               ? { ...prev, liked: false, like_count: prev.like_count - 1 }
-              : null
+              : null,
           );
         }
       } else {
@@ -119,14 +119,14 @@ export function PostDetailPage() {
             prev.map((r) =>
               r.ap_id === targetPost.ap_id
                 ? { ...r, liked: true, like_count: r.like_count + 1 }
-                : r
-            )
+                : r,
+            ),
           );
         } else {
           setPost((prev) =>
             prev
               ? { ...prev, liked: true, like_count: prev.like_count + 1 }
-              : null
+              : null,
           );
         }
       }
@@ -147,7 +147,7 @@ export function PostDetailPage() {
       setReplies((prev) => [...prev, newReply]);
       setReplyContent("");
       setPost((prev) =>
-        prev ? { ...prev, reply_count: prev.reply_count + 1 } : null
+        prev ? { ...prev, reply_count: prev.reply_count + 1 } : null,
       );
     } catch (e) {
       console.error("Failed to reply:", e);
@@ -232,8 +232,9 @@ export function PostDetailPage() {
               <A href={`/profile/${encodeURIComponent(post()!.author.ap_id)}`}>
                 <UserAvatar
                   avatarUrl={post()!.author.icon_url}
-                  name={post()!.author.name ||
-                    post()!.author.preferred_username}
+                  name={
+                    post()!.author.name || post()!.author.preferred_username
+                  }
                   size={48}
                 />
               </A>
@@ -266,24 +267,25 @@ export function PostDetailPage() {
                   post()!.attachments.length === 1
                     ? "grid-cols-1"
                     : post()!.attachments.length === 2
-                    ? "grid-cols-2"
-                    : post()!.attachments.length === 3
-                    ? "grid-cols-2"
-                    : "grid-cols-2"
+                      ? "grid-cols-2"
+                      : post()!.attachments.length === 3
+                        ? "grid-cols-2"
+                        : "grid-cols-2"
                 }`}
               >
                 <For each={post()!.attachments}>
                   {(m, idx) => (
                     <img
-                      src={m.url ||
-                        `/media/${m.r2_key.replace(/^uploads\//, "")}`}
+                      src={
+                        m.url || `/media/${m.r2_key.replace(/^uploads\//, "")}`
+                      }
                       alt=""
                       class={`w-full object-cover ${
                         post()!.attachments.length === 1
                           ? "max-h-[500px]"
                           : post()!.attachments.length === 3 && idx() === 0
-                          ? "row-span-2 h-full"
-                          : "h-48"
+                            ? "row-span-2 h-full"
+                            : "h-48"
                       }`}
                     />
                   )}
@@ -382,9 +384,9 @@ export function PostDetailPage() {
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2">
                     <A
-                      href={`/profile/${
-                        encodeURIComponent(reply.author.ap_id)
-                      }`}
+                      href={`/profile/${encodeURIComponent(
+                        reply.author.ap_id,
+                      )}`}
                       class="font-bold text-white truncate hover:underline"
                     >
                       {reply.author.name || reply.author.preferred_username}
@@ -423,8 +425,10 @@ export function PostDetailPage() {
                     >
                       <HeartIcon filled={reply.liked || false} />
                       <Show
-                        when={reply.author.ap_id === actor.ap_id &&
-                          reply.like_count > 0}
+                        when={
+                          reply.author.ap_id === actor.ap_id &&
+                          reply.like_count > 0
+                        }
                       >
                         <span class="text-sm">{reply.like_count}</span>
                       </Show>
@@ -436,9 +440,7 @@ export function PostDetailPage() {
           </For>
 
           <Show when={replies().length === 0}>
-            <div class="p-8 text-center text-neutral-500">
-              No replies yet
-            </div>
+            <div class="p-8 text-center text-neutral-500">No replies yet</div>
           </Show>
         </div>
       </Show>

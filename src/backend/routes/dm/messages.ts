@@ -86,14 +86,12 @@ function validateContent(
 }
 
 /** Build a sender info object from a current-session actor. */
-function buildSenderFromActor(
-  actor: {
-    ap_id: string;
-    preferred_username: string | null;
-    name: string | null;
-    icon_url: string | null;
-  },
-): SenderInfo {
+function buildSenderFromActor(actor: {
+  ap_id: string;
+  preferred_username: string | null;
+  name: string | null;
+  icon_url: string | null;
+}): SenderInfo {
   return {
     ap_id: actor.ap_id,
     username: formatUsername(actor.ap_id),
@@ -123,7 +121,8 @@ async function fetchAuthorizedMessages(
     ? and(baseCondition!, lt(objects.published, before))
     : baseCondition;
 
-  const messages = await db.select()
+  const messages = await db
+    .select()
     .from(objects)
     .where(whereClause!)
     .orderBy(desc(objects.published))
@@ -142,12 +141,13 @@ async function resolveAuthorInfoMap(
   db: Database,
   authorApIds: string[],
 ): Promise<Map<string, ActorInfo>> {
-  const localActors = await db.select({
-    apId: actors.apId,
-    preferredUsername: actors.preferredUsername,
-    name: actors.name,
-    iconUrl: actors.iconUrl,
-  })
+  const localActors = await db
+    .select({
+      apId: actors.apId,
+      preferredUsername: actors.preferredUsername,
+      name: actors.name,
+      iconUrl: actors.iconUrl,
+    })
     .from(actors)
     .where(inArray(actors.apId, authorApIds));
 
@@ -157,12 +157,13 @@ async function resolveAuthorInfoMap(
 
   const remoteApIds = authorApIds.filter((id) => !localMap.has(id));
   if (remoteApIds.length > 0) {
-    const cached = await db.select({
-      apId: actorCache.apId,
-      preferredUsername: actorCache.preferredUsername,
-      name: actorCache.name,
-      iconUrl: actorCache.iconUrl,
-    })
+    const cached = await db
+      .select({
+        apId: actorCache.apId,
+        preferredUsername: actorCache.preferredUsername,
+        name: actorCache.name,
+        iconUrl: actorCache.iconUrl,
+      })
       .from(actorCache)
       .where(inArray(actorCache.apId, remoteApIds));
 
@@ -223,16 +224,18 @@ async function findOwnedDmMessage(
   messageId: string,
   actorApId: string,
 ): Promise<
-  { apId: string; attributedTo: string; conversation: string | null } | {
-    error: string;
-    status: 403 | 404;
-  }
+  | { apId: string; attributedTo: string; conversation: string | null }
+  | {
+      error: string;
+      status: 403 | 404;
+    }
 > {
-  const message = await db.select({
-    apId: objects.apId,
-    attributedTo: objects.attributedTo,
-    conversation: objects.conversation,
-  })
+  const message = await db
+    .select({
+      apId: objects.apId,
+      attributedTo: objects.attributedTo,
+      conversation: objects.conversation,
+    })
     .from(objects)
     .where(
       and(
@@ -319,16 +322,18 @@ dm.post("/user/:encodedApId/messages", async (c) => {
   const content = contentOrError;
 
   // Verify other user exists (check both local actors and cached remote actors)
-  const localActor = await db.select({ apId: actors.apId, inbox: actors.inbox })
+  const localActor = await db
+    .select({ apId: actors.apId, inbox: actors.inbox })
     .from(actors)
     .where(eq(actors.apId, otherApId))
     .get();
 
   const cachedActor = !localActor
-    ? await db.select({ apId: actorCache.apId, inbox: actorCache.inbox })
-      .from(actorCache)
-      .where(eq(actorCache.apId, otherApId))
-      .get()
+    ? await db
+        .select({ apId: actorCache.apId, inbox: actorCache.inbox })
+        .from(actorCache)
+        .where(eq(actorCache.apId, otherApId))
+        .get()
     : null;
 
   const otherActor = localActor || cachedActor;
@@ -337,7 +342,8 @@ dm.post("/user/:encodedApId/messages", async (c) => {
   // Reject if the recipient has blocked the sender. Respond with 404 (the same
   // shape as a non-existent recipient) so the sender cannot distinguish a block
   // from a missing user and thereby learn they were blocked.
-  const blockedBy = await db.select({ blockerApId: blocks.blockerApId })
+  const blockedBy = await db
+    .select({ blockerApId: blocks.blockerApId })
     .from(blocks)
     .where(
       and(
@@ -357,21 +363,21 @@ dm.post("/user/:encodedApId/messages", async (c) => {
   const deliveryActivityId = activityApId(baseUrl, generateId());
   const remoteCreateActivity = !isRecipientLocal
     ? {
-      "@context": "https://www.w3.org/ns/activitystreams",
-      id: deliveryActivityId,
-      type: "Create",
-      actor: actor.ap_id,
-      to: [otherApId],
-      object: {
-        id: apId,
-        type: "Note",
-        attributedTo: actor.ap_id,
+        "@context": "https://www.w3.org/ns/activitystreams",
+        id: deliveryActivityId,
+        type: "Create",
+        actor: actor.ap_id,
         to: [otherApId],
-        content,
-        published: now,
-        conversation: conversationId,
-      },
-    }
+        object: {
+          id: apId,
+          type: "Note",
+          attributedTo: actor.ap_id,
+          to: [otherApId],
+          content,
+          published: now,
+          conversation: conversationId,
+        },
+      }
     : null;
 
   try {
@@ -386,7 +392,8 @@ dm.post("/user/:encodedApId/messages", async (c) => {
     });
 
     if (isRecipientLocal) {
-      await db.insert(objectRecipients)
+      await db
+        .insert(objectRecipients)
         .values({ objectApId: apId, recipientApId: otherApId, type: "to" })
         .onConflictDoNothing();
 
@@ -431,15 +438,18 @@ dm.post("/user/:encodedApId/messages", async (c) => {
     await enqueueDeliveryToActor(c.env, deliveryActivityId, otherApId);
   }
 
-  return c.json({
-    message: {
-      id: apId,
-      sender: buildSenderFromActor(actor),
-      content,
-      created_at: now,
+  return c.json(
+    {
+      message: {
+        id: apId,
+        sender: buildSenderFromActor(actor),
+        content,
+        created_at: now,
+      },
+      conversation_id: conversationId,
     },
-    conversation_id: conversationId,
-  }, 201);
+    201,
+  );
 });
 
 // Edit a DM message
@@ -467,7 +477,8 @@ dm.patch("/messages/:messageId", async (c) => {
   const message = messageOrError;
 
   const now = new Date().toISOString();
-  await db.update(objects)
+  await db
+    .update(objects)
     .set({ content, updated: now })
     .where(eq(objects.apId, message.apId));
 
@@ -495,9 +506,9 @@ dm.delete("/messages/:messageId", async (c) => {
   const message = messageOrError;
 
   // Sequential operations (D1 doesn't support interactive transactions)
-  await db.delete(objectRecipients).where(
-    eq(objectRecipients.objectApId, message.apId),
-  );
+  await db
+    .delete(objectRecipients)
+    .where(eq(objectRecipients.objectApId, message.apId));
   await db.delete(objects).where(eq(objects.apId, message.apId));
 
   return c.json({ success: true });

@@ -112,7 +112,9 @@ communitiesRouter.get("/", async (c) => {
 
   const actorApIdVal = actor?.ap_id || "";
 
-  const communitiesList = await db.select().from(communities)
+  const communitiesList = await db
+    .select()
+    .from(communities)
     .orderBy(
       sql`CASE WHEN ${communities.lastMessageAt} IS NULL THEN 1 ELSE 0 END`,
       desc(communities.lastMessageAt),
@@ -128,19 +130,25 @@ communitiesRouter.get("/", async (c) => {
 
   if (actorApIdVal && communityApIds.length > 0) {
     const [memberships, joinRequests] = await Promise.all([
-      db.select({ communityApId: communityMembers.communityApId })
+      db
+        .select({ communityApId: communityMembers.communityApId })
         .from(communityMembers)
-        .where(and(
-          eq(communityMembers.actorApId, actorApIdVal),
-          inArray(communityMembers.communityApId, communityApIds),
-        )),
-      db.select({ communityApId: communityJoinRequests.communityApId })
+        .where(
+          and(
+            eq(communityMembers.actorApId, actorApIdVal),
+            inArray(communityMembers.communityApId, communityApIds),
+          ),
+        ),
+      db
+        .select({ communityApId: communityJoinRequests.communityApId })
         .from(communityJoinRequests)
-        .where(and(
-          eq(communityJoinRequests.actorApId, actorApIdVal),
-          inArray(communityJoinRequests.communityApId, communityApIds),
-          eq(communityJoinRequests.status, "pending"),
-        )),
+        .where(
+          and(
+            eq(communityJoinRequests.actorApId, actorApIdVal),
+            inArray(communityJoinRequests.communityApId, communityApIds),
+            eq(communityJoinRequests.status, "pending"),
+          ),
+        ),
     ]);
 
     for (const m of memberships) membershipSet.add(m.communityApId);
@@ -149,9 +157,8 @@ communitiesRouter.get("/", async (c) => {
 
   const result = communitiesList.map((community) => {
     const isMember = membershipSet.has(community.apId);
-    const joinStatus = !isMember && pendingRequestSet.has(community.apId)
-      ? "pending"
-      : null;
+    const joinStatus =
+      !isMember && pendingRequestSet.has(community.apId) ? "pending" : null;
 
     return {
       ap_id: community.apId,
@@ -235,21 +242,24 @@ communitiesRouter.post("/", async (c) => {
     throw error;
   }
 
-  return c.json({
-    community: {
-      ap_id: apId,
-      name: body.name,
-      display_name: body.display_name || body.name,
-      summary: body.summary || "",
-      icon_url: null,
-      visibility: "public",
-      join_policy: "open",
-      post_policy: "members",
-      member_count: 1,
-      created_at: now,
-      is_member: true,
+  return c.json(
+    {
+      community: {
+        ap_id: apId,
+        name: body.name,
+        display_name: body.display_name || body.name,
+        summary: body.summary || "",
+        icon_url: null,
+        visibility: "public",
+        join_policy: "open",
+        post_policy: "members",
+        member_count: 1,
+        created_at: now,
+        is_member: true,
+      },
     },
-  }, 201);
+    201,
+  );
 });
 
 // GET /api/communities/:name - Get community by name or ap_id
@@ -263,7 +273,9 @@ communitiesRouter.get("/:identifier", async (c) => {
     ? identifier
     : communityApId(baseUrl, identifier);
 
-  const community = await db.select().from(communities)
+  const community = await db
+    .select()
+    .from(communities)
     .where(
       or(
         eq(communities.apId, apId),
@@ -282,18 +294,24 @@ communitiesRouter.get("/:identifier", async (c) => {
   let joinStatus: string | null = null;
 
   if (actor) {
-    const membership = await db.select().from(communityMembers)
+    const membership = await db
+      .select()
+      .from(communityMembers)
       .where(memberWhere(community.apId, actor.ap_id))
       .get();
     if (membership) {
       isMember = true;
       memberRole = membership.role;
     } else {
-      const joinRequest = await db.select().from(communityJoinRequests)
-        .where(and(
-          eq(communityJoinRequests.communityApId, community.apId),
-          eq(communityJoinRequests.actorApId, actor.ap_id),
-        ))
+      const joinRequest = await db
+        .select()
+        .from(communityJoinRequests)
+        .where(
+          and(
+            eq(communityJoinRequests.communityApId, community.apId),
+            eq(communityJoinRequests.actorApId, actor.ap_id),
+          ),
+        )
         .get();
       if (joinRequest?.status === "pending") {
         joinStatus = "pending";
@@ -302,10 +320,14 @@ communitiesRouter.get("/:identifier", async (c) => {
   }
 
   const [memberCountResult, postsCountResult] = await Promise.all([
-    db.select({ count: count() }).from(communityMembers)
+    db
+      .select({ count: count() })
+      .from(communityMembers)
       .where(eq(communityMembers.communityApId, community.apId))
       .get(),
-    db.select({ count: count() }).from(objects)
+    db
+      .select({ count: count() })
+      .from(objects)
       .where(eq(objects.communityApId, community.apId))
       .get(),
   ]);
@@ -403,7 +425,8 @@ communitiesRouter.patch("/:identifier/settings", async (c) => {
     return c.json({ error: "No fields to update" }, 400);
   }
 
-  await db.update(communities)
+  await db
+    .update(communities)
     .set(updates)
     .where(eq(communities.apId, community.apId));
 

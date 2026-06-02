@@ -38,9 +38,10 @@ export const actors = sqliteTable(
     isPrivate: integer("is_private").notNull().default(0),
     role: text("role").notNull().default("member"),
     createdAt: text("created_at").notNull().$defaultFn(nowIso),
-    updatedAt: text("updated_at").notNull().$defaultFn(nowIso).$onUpdateFn(
-      nowIso,
-    ),
+    updatedAt: text("updated_at")
+      .notNull()
+      .$defaultFn(nowIso)
+      .$onUpdateFn(nowIso),
     deletedAt: text("deleted_at"),
     ownerActorApId: text("owner_actor_ap_id"),
   },
@@ -89,9 +90,10 @@ export const instanceActor = sqliteTable("instance_actor", {
   postingPolicy: text("posting_policy").notNull().default("members"),
   visibility: text("visibility").notNull().default("public"),
   createdAt: text("created_at").notNull().$defaultFn(nowIso),
-  updatedAt: text("updated_at").notNull().$defaultFn(nowIso).$onUpdateFn(
-    nowIso,
-  ),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(nowIso)
+    .$onUpdateFn(nowIso),
 });
 
 // ---------------------------------------------------------------------------

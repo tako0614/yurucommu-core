@@ -19,8 +19,8 @@ const PostDetailPage = lazy(() => import("./pages/PostDetailPage.tsx"));
 const BookmarksPage = lazy(() => import("./pages/BookmarksPage.tsx"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage.tsx"));
 const FriendsListPage = lazy(() => import("./pages/FriendsListPage.tsx"));
-const CommunityProfilePage = lazy(() =>
-  import("./pages/CommunityProfilePage.tsx")
+const CommunityProfilePage = lazy(
+  () => import("./pages/CommunityProfilePage.tsx"),
 );
 const SearchPage = lazy(() => import("./pages/SearchPage.tsx"));
 

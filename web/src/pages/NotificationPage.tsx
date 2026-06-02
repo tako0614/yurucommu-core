@@ -136,8 +136,8 @@ export function NotificationPage() {
   };
 
   const getNotificationText = (notification: Notification): JSX.Element => {
-    const actorName = notification.actor.name ||
-      notification.actor.preferred_username;
+    const actorName =
+      notification.actor.name || notification.actor.preferred_username;
     switch (notification.type) {
       case "follow":
         return (
@@ -149,8 +149,8 @@ export function NotificationPage() {
       case "follow_request":
         return (
           <>
-            <span class="font-bold text-white">{actorName}</span>{" "}
-            sent you a follow request
+            <span class="font-bold text-white">{actorName}</span> sent you a
+            follow request
           </>
         );
       case "like":
@@ -315,8 +315,10 @@ export function NotificationPage() {
                   <div class="relative shrink-0">
                     <UserAvatar
                       avatarUrl={notification.actor.icon_url}
-                      name={notification.actor.name ||
-                        notification.actor.preferred_username}
+                      name={
+                        notification.actor.name ||
+                        notification.actor.preferred_username
+                      }
                       size={40}
                     />
                     <span class="absolute -bottom-1 -right-1">
@@ -331,7 +333,8 @@ export function NotificationPage() {
                       <div class="mt-2 flex gap-2">
                         <button
                           onClick={() =>
-                            handleFollowRequest(notification, "accept")}
+                            handleFollowRequest(notification, "accept")
+                          }
                           disabled={pendingAction()[notification.id]}
                           class="px-3 py-1 text-xs bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
                         >
@@ -339,7 +342,8 @@ export function NotificationPage() {
                         </button>
                         <button
                           onClick={() =>
-                            handleFollowRequest(notification, "reject")}
+                            handleFollowRequest(notification, "reject")
+                          }
                           disabled={pendingAction()[notification.id]}
                           class="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
                         >

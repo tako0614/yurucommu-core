@@ -22,7 +22,9 @@ async function symlinkDirectory(target: string, link: string): Promise<void> {
 test("resolvePathWithinBasePath rejects traversal and absolute paths", () => {
   const basePath = path.resolve(process.cwd(), "takos-path-security");
 
-  expect(resolvePathWithinBasePath(basePath, "nested/file.txt")).toEqual(path.resolve(basePath, "nested/file.txt"));
+  expect(resolvePathWithinBasePath(basePath, "nested/file.txt")).toEqual(
+    path.resolve(basePath, "nested/file.txt"),
+  );
   assertThrows(() => resolvePathWithinBasePath(basePath, "../escape.txt"));
   assertThrows(() => resolvePathWithinBasePath(basePath, "/etc/passwd"));
   assertThrows(() => resolvePathWithinBasePath(basePath, "nested\0file.txt"));
@@ -49,8 +51,8 @@ test("BunStorage blocks symlink escapes", async () => {
     await storage.delete("../outside/keep.txt");
     expect(await pathExists(path.join(outsidePath, "keep.txt"))).toEqual(true);
 
-    const listedKeys = (await storage.list()).objects.map((object) =>
-      object.key
+    const listedKeys = (await storage.list()).objects.map(
+      (object) => object.key,
     );
     expect(listedKeys.includes("link")).toEqual(false);
   } finally {

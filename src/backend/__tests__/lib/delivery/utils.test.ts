@@ -26,7 +26,9 @@ test("delivery/utils - computeRetryDelaySeconds uses exponential series and jitt
   } finally {
     try {
       rand.restore();
-    } catch { /* already restored */ }
+    } catch {
+      /* already restored */
+    }
   }
 });
 

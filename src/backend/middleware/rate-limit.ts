@@ -275,10 +275,13 @@ export function rateLimit(config: RateLimitConfig) {
       const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
       c.header("Retry-After", retryAfter.toString());
 
-      return c.json({
-        error: "Too many requests",
-        retry_after: retryAfter,
-      }, 429);
+      return c.json(
+        {
+          error: "Too many requests",
+          retry_after: retryAfter,
+        },
+        429,
+      );
     }
 
     await next();

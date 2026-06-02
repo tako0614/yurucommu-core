@@ -14,12 +14,14 @@ import { registerMembershipMemberRoutes } from "../../routes/communities/members
  * Call sequences resolve results from a queue. Each time a terminal method
  * (.get(), implicit array return) is hit, the next result from the queue is used.
  */
-function createDrizzleMockDb(options: {
-  results?: unknown[];
-  insertErrors?: Map<number, Error>;
-  queryFindFirstResult?: unknown;
-  updateMeta?: { changes: number };
-} = {}) {
+function createDrizzleMockDb(
+  options: {
+    results?: unknown[];
+    insertErrors?: Map<number, Error>;
+    queryFindFirstResult?: unknown;
+    updateMeta?: { changes: number };
+  } = {},
+) {
   const {
     results = [],
     insertErrors = new Map(),
@@ -65,24 +67,21 @@ function createDrizzleMockDb(options: {
     const resolved = result !== undefined ? result : nextResult();
     const arrayResult = Array.isArray(resolved) ? resolved : [];
     const terminalObj = {} as TerminalChain;
-    Object.assign(
-      terminalObj,
-      {
-        get: spy((..._args: unknown[]) => Promise.resolve(resolved)),
-        all: spy((..._args: unknown[]) =>
-          Promise.resolve(Array.isArray(resolved) ? resolved : [])
-        ),
-        then: ((onfulfilled, onrejected) =>
-          Promise.resolve(arrayResult).then(
-            onfulfilled,
-            onrejected,
-          )) as TerminalChain["then"],
-        where: spy((..._args: unknown[]) => terminalObj),
-        orderBy: spy((..._args: unknown[]) => terminalObj),
-        limit: spy((..._args: unknown[]) => terminalObj),
-        offset: spy((..._args: unknown[]) => terminalObj),
-      } satisfies TerminalChain,
-    );
+    Object.assign(terminalObj, {
+      get: spy((..._args: unknown[]) => Promise.resolve(resolved)),
+      all: spy((..._args: unknown[]) =>
+        Promise.resolve(Array.isArray(resolved) ? resolved : []),
+      ),
+      then: ((onfulfilled, onrejected) =>
+        Promise.resolve(arrayResult).then(
+          onfulfilled,
+          onrejected,
+        )) as TerminalChain["then"],
+      where: spy((..._args: unknown[]) => terminalObj),
+      orderBy: spy((..._args: unknown[]) => terminalObj),
+      limit: spy((..._args: unknown[]) => terminalObj),
+      offset: spy((..._args: unknown[]) => terminalObj),
+    } satisfies TerminalChain);
     return terminalObj;
   }
 
@@ -186,7 +185,7 @@ function createDrizzleMockDb(options: {
     query: {
       objects: {
         findFirst: spy((..._args: unknown[]) =>
-          Promise.resolve(queryFindFirstResult)
+          Promise.resolve(queryFindFirstResult),
         ),
         findMany: spy((..._args: unknown[]) => Promise.resolve([])),
       },
@@ -256,15 +255,11 @@ test("issue067/068 hardening - local follow handles duplicate create via unique 
   const app = createApp(db, { ap_id: actorApId });
   app.route("/api/follow", followRoutes);
 
-  const { res, body } = await requestJson(
-    app,
-    "/api/follow",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target_ap_id: targetApId }),
-    },
-  );
+  const { res, body } = await requestJson(app, "/api/follow", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_ap_id: targetApId }),
+  });
 
   expect(res.status).toEqual(400);
   expect(body).toEqual(expect.any(Object));
@@ -290,15 +285,11 @@ test("issue067/068 hardening - unfollow uses a transaction for delete + counter 
   const app = createApp(db, { ap_id: actorApId });
   app.route("/api/follow", followRoutes);
 
-  const { res, body } = await requestJson(
-    app,
-    "/api/follow",
-    {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target_ap_id: targetApId }),
-    },
-  );
+  const { res, body } = await requestJson(app, "/api/follow", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_ap_id: targetApId }),
+  });
 
   expect(res.status).toEqual(200);
   expect(body).toEqual(expect.any(Object));
@@ -429,11 +420,9 @@ test("issue067/068 hardening - DM requests query uses quoted contains match to a
   const app = createApp(db, { ap_id: actorApId });
   app.route("/api/dm", dmConversationsRoutes);
 
-  const { res, body } = await requestJson(
-    app,
-    "/api/dm/requests",
-    { method: "GET" },
-  );
+  const { res, body } = await requestJson(app, "/api/dm/requests", {
+    method: "GET",
+  });
 
   expect(res.status).toEqual(200);
   expect(body).toEqual(expect.any(Object));

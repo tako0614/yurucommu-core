@@ -45,7 +45,8 @@ export async function handleSendDm(
     return c.json(errRequired("Recipient and content"), 400);
   }
 
-  const target = await db.select({ apId: actors.apId })
+  const target = await db
+    .select({ apId: actors.apId })
     .from(actors)
     .where(eq(actors.preferredUsername, recipient))
     .get();
@@ -77,7 +78,8 @@ export async function handleSendDm(
     isLocal: 1,
   });
 
-  await db.insert(objectRecipients)
+  await db
+    .insert(objectRecipients)
     .values({ objectApId: apId, recipientApId: target.apId, type: "to" })
     .onConflictDoNothing();
 
@@ -112,18 +114,21 @@ export async function handleGetDmThreads(
   const db = c.get("db");
   const limit = toolLimit(input.limit, 20, 50);
 
-  const dms = await db.select({
-    attributedTo: objects.attributedTo,
-    toJson: objects.toJson,
-    published: objects.published,
-    content: objects.content,
-  })
+  const dms = await db
+    .select({
+      attributedTo: objects.attributedTo,
+      toJson: objects.toJson,
+      published: objects.published,
+      content: objects.content,
+    })
     .from(objects)
-    .where(and(
-      eq(objects.visibility, "direct"),
-      eq(objects.type, "Note"),
-      isNotNull(objects.conversation),
-    ))
+    .where(
+      and(
+        eq(objects.visibility, "direct"),
+        eq(objects.type, "Note"),
+        isNotNull(objects.conversation),
+      ),
+    )
     .orderBy(desc(objects.published))
     .limit(2000);
 
@@ -162,13 +167,16 @@ export async function handleGetDmMessages(
   const baseUrl = c.env.APP_URL;
   const conversationId = getConversationId(baseUrl, actor.ap_id, threadId);
 
-  const messages = await db.select()
+  const messages = await db
+    .select()
     .from(objects)
-    .where(and(
-      eq(objects.visibility, "direct"),
-      eq(objects.type, "Note"),
-      eq(objects.conversation, conversationId),
-    ))
+    .where(
+      and(
+        eq(objects.visibility, "direct"),
+        eq(objects.type, "Note"),
+        eq(objects.conversation, conversationId),
+      ),
+    )
     .orderBy(desc(objects.published))
     .limit(limit);
 
@@ -177,13 +185,15 @@ export async function handleGetDmMessages(
     return safeJsonParse<string[]>(m.toJson, []).includes(actor.ap_id);
   });
 
-  return c.json(ok({
-    messages: filtered.map((m) => ({
-      ap_id: m.apId,
-      content: m.content,
-      from: m.attributedTo,
-      published: m.published,
-    })),
-    conversation_id: conversationId,
-  }));
+  return c.json(
+    ok({
+      messages: filtered.map((m) => ({
+        ap_id: m.apId,
+        content: m.content,
+        from: m.attributedTo,
+        published: m.published,
+      })),
+      conversation_id: conversationId,
+    }),
+  );
 }

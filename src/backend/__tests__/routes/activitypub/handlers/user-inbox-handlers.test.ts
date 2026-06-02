@@ -174,11 +174,13 @@ test("userInboxHandlers hardening - handleLike treats unique conflicts as idempo
 
 test("userInboxHandlers hardening - handleDelete performs dependent deletes and counter update", async () => {
   const { db } = createMockDb({
-    selectResults: [{
-      attributedTo: "https://example.com/ap/users/alice",
-      type: "Note",
-      replyCount: 0,
-    }],
+    selectResults: [
+      {
+        attributedTo: "https://example.com/ap/users/alice",
+        type: "Note",
+        replyCount: 0,
+      },
+    ],
   });
 
   const context = createMockContext(db);
@@ -190,10 +192,7 @@ test("userInboxHandlers hardening - handleDelete performs dependent deletes and 
     object: "https://example.com/ap/objects/note-3",
   };
 
-  await handleDelete(
-    context,
-    activity,
-  );
+  await handleDelete(context, activity);
 
   // Verify select was called (lookup object)
   assertSpyCalls(db.select, 1);

@@ -143,7 +143,9 @@ test("delivery/circuit - opens after 5 consecutive failures, then transitions to
     // Ensure restore even if inner stub wasn't created
     try {
       dateNowStub.restore();
-    } catch { /* already restored */ }
+    } catch {
+      /* already restored */
+    }
   }
 });
 
@@ -177,7 +179,9 @@ test("delivery/circuit - closes after 3 successful half-open probes", async () =
   } finally {
     try {
       dateNowStub.restore();
-    } catch { /* already restored */ }
+    } catch {
+      /* already restored */
+    }
   }
 });
 
@@ -207,6 +211,8 @@ test("delivery/circuit - re-opens immediately on half-open failure", async () =>
   } finally {
     try {
       dateNowStub.restore();
-    } catch { /* already restored */ }
+    } catch {
+      /* already restored */
+    }
   }
 });

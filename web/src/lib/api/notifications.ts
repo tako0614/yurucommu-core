@@ -2,9 +2,10 @@ import type { Notification } from "../../types/index.ts";
 import { normalizeNotification } from "./normalize.ts";
 import { apiFetch, apiPost, assertOk } from "./fetch.ts";
 
-export async function fetchNotifications(
-  options?: { limit?: number; type?: string },
-): Promise<Notification[]> {
+export async function fetchNotifications(options?: {
+  limit?: number;
+  type?: string;
+}): Promise<Notification[]> {
   const params = new URLSearchParams();
   if (options?.limit) params.set("limit", options.limit.toString());
   if (options?.type && options.type !== "all") params.set("type", options.type);

@@ -82,9 +82,12 @@ export function formatPost(
   };
 }
 
-const VALID_VISIBILITIES = new Set(
-  ["public", "unlisted", "followers", "direct"] as const,
-);
+const VALID_VISIBILITIES = new Set([
+  "public",
+  "unlisted",
+  "followers",
+  "direct",
+] as const);
 
 export function normalizeVisibility(
   value?: string,

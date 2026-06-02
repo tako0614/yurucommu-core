@@ -27,7 +27,8 @@ export async function upsertActivityAndNotify(
 ): Promise<void> {
   const now = new Date().toISOString();
 
-  await db.insert(activities)
+  await db
+    .insert(activities)
     .values({
       apId: activityId,
       type,
@@ -37,13 +38,12 @@ export async function upsertActivityAndNotify(
     })
     .onConflictDoNothing();
 
-  await db.insert(inboxTable)
-    .values({
-      actorApId: recipientApId,
-      activityApId: activityId,
-      read: 0,
-      createdAt: now,
-    });
+  await db.insert(inboxTable).values({
+    actorApId: recipientApId,
+    activityApId: activityId,
+    read: 0,
+    createdAt: now,
+  });
 }
 
 /**
@@ -67,15 +67,17 @@ export async function findAndDeleteInteractionByActivityId(
   activityApIdValue: string,
 ): Promise<{ actorApId: string; objectApId: string } | null> {
   const table = INTERACTION_TABLES[kind];
-  const record = await db.select({
-    actorApId: table.actorApId,
-    objectApId: table.objectApId,
-  })
+  const record = await db
+    .select({
+      actorApId: table.actorApId,
+      objectApId: table.objectApId,
+    })
     .from(table)
     .where(eq(table.activityApId, activityApIdValue))
     .get();
   if (!record) return null;
-  await db.delete(table)
+  await db
+    .delete(table)
     .where(
       and(
         eq(table.actorApId, record.actorApId),
@@ -89,14 +91,17 @@ export async function findAndDeleteInteractionByActivityId(
 export async function findFollowByActivityId(
   db: Database,
   activityApIdValue: string,
-): Promise<
-  { followerApId: string; followingApId: string; status: string } | null
-> {
-  const row = await db.select({
-    followerApId: follows.followerApId,
-    followingApId: follows.followingApId,
-    status: follows.status,
-  })
+): Promise<{
+  followerApId: string;
+  followingApId: string;
+  status: string;
+} | null> {
+  const row = await db
+    .select({
+      followerApId: follows.followerApId,
+      followingApId: follows.followingApId,
+      status: follows.status,
+    })
     .from(follows)
     .where(eq(follows.activityApId, activityApIdValue))
     .get();
@@ -115,7 +120,8 @@ export async function deleteFollowByCompoundKey(
   followerApId: string,
   followingApId: string,
 ): Promise<Array<{ status: string }>> {
-  return await db.delete(follows)
+  return await db
+    .delete(follows)
     .where(
       and(
         eq(follows.followerApId, followerApId),
@@ -138,7 +144,8 @@ export async function notifyLocalObjectOwner(
   rawActivity: Activity,
   baseUrl: string,
 ): Promise<string | null> {
-  const obj = await db.select({ attributedTo: objects.attributedTo })
+  const obj = await db
+    .select({ attributedTo: objects.attributedTo })
     .from(objects)
     .where(eq(objects.apId, objectApIdValue))
     .get();
@@ -186,13 +193,15 @@ export async function undoInteraction(
     // duplicate Undo (or an Undo of an interaction we never recorded) does
     // not drift the count negative. `.returning()` yields the deleted rows
     // across both D1 and libsql backends.
-    const deleted = await db.delete(table)
+    const deleted = await db
+      .delete(table)
       .where(
         and(eq(table.actorApId, actor), eq(table.objectApId, directObjectId)),
       )
       .returning({ objectApId: table.objectApId });
     if (deleted.length > 0) {
-      await db.update(objects)
+      await db
+        .update(objects)
         .set({ [cf]: sql`${objects[cf]} - 1` })
         .where(eq(objects.apId, directObjectId));
     }
@@ -207,7 +216,8 @@ export async function undoInteraction(
     activityId,
   );
   if (record) {
-    await db.update(objects)
+    await db
+      .update(objects)
       .set({ [cf]: sql`${objects[cf]} - 1` })
       .where(eq(objects.apId, record.objectApId));
     return true;

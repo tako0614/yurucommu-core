@@ -32,7 +32,8 @@ export async function handleFollowUser(
   const username = requireString(input, "username");
   if (!username) return c.json(errRequired("Username"), 400);
 
-  const target = await db.select()
+  const target = await db
+    .select()
     .from(actors)
     .where(eq(actors.preferredUsername, username))
     .get();
@@ -45,7 +46,8 @@ export async function handleFollowUser(
     );
   }
 
-  const existingFollow = await db.select()
+  const existingFollow = await db
+    .select()
     .from(follows)
     .where(
       and(
@@ -58,27 +60,30 @@ export async function handleFollowUser(
   if (!existingFollow) {
     const status = target.isPrivate ? "pending" : "accepted";
 
-    await db.insert(follows)
-      .values({
-        followerApId: actor.ap_id,
-        followingApId: target.apId,
-        status,
-      });
+    await db.insert(follows).values({
+      followerApId: actor.ap_id,
+      followingApId: target.apId,
+      status,
+    });
 
     if (status === "accepted") {
-      await db.update(actors)
+      await db
+        .update(actors)
         .set({ followingCount: sql`${actors.followingCount} + 1` })
         .where(eq(actors.apId, actor.ap_id));
-      await db.update(actors)
+      await db
+        .update(actors)
         .set({ followerCount: sql`${actors.followerCount} + 1` })
         .where(eq(actors.apId, target.apId));
     }
   }
 
-  return c.json(ok({
-    following: true,
-    status: target.isPrivate ? "pending" : "accepted",
-  }));
+  return c.json(
+    ok({
+      following: true,
+      status: target.isPrivate ? "pending" : "accepted",
+    }),
+  );
 }
 
 export async function handleUnfollowUser(
@@ -92,13 +97,15 @@ export async function handleUnfollowUser(
   const username = requireString(input, "username");
   if (!username) return c.json(errRequired("Username"), 400);
 
-  const target = await db.select()
+  const target = await db
+    .select()
     .from(actors)
     .where(eq(actors.preferredUsername, username))
     .get();
   if (!target) return c.json(errNotFound("User"), 404);
 
-  const follow = await db.select()
+  const follow = await db
+    .select()
     .from(follows)
     .where(
       and(
@@ -109,7 +116,8 @@ export async function handleUnfollowUser(
     .get();
 
   if (follow) {
-    await db.delete(follows)
+    await db
+      .delete(follows)
       .where(
         and(
           eq(follows.followerApId, actor.ap_id),
@@ -118,10 +126,12 @@ export async function handleUnfollowUser(
       );
 
     if (follow.status === "accepted") {
-      await db.update(actors)
+      await db
+        .update(actors)
         .set({ followingCount: sql`${actors.followingCount} - 1` })
         .where(eq(actors.apId, actor.ap_id));
-      await db.update(actors)
+      await db
+        .update(actors)
         .set({ followerCount: sql`${actors.followerCount} - 1` })
         .where(eq(actors.apId, target.apId));
     }
@@ -142,7 +152,8 @@ export async function handleGetFollowList(
 
   if (!username) return c.json(errRequired("Username"), 400);
 
-  const target = await db.select()
+  const target = await db
+    .select()
     .from(actors)
     .where(eq(actors.preferredUsername, username))
     .get();

@@ -30,12 +30,10 @@ export async function acceptFollowRequest(
 
 export async function acceptFollowRequestsBatch(
   requesterApIds: string[],
-): Promise<
-  {
-    results: { ap_id: string; success: boolean; error?: string }[];
-    accepted_count: number;
-  }
-> {
+): Promise<{
+  results: { ap_id: string; success: boolean; error?: string }[];
+  accepted_count: number;
+}> {
   const res = await apiPost("/api/follow/accept/batch", {
     requester_ap_ids: requesterApIds,
   });

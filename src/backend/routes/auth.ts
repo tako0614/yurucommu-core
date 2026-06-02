@@ -82,14 +82,18 @@ auth.get("/me", async (c) => {
   if (sessionId) {
     const db = c.get("db");
     const sessionKey = await hashSessionIdForEnv(c.env, sessionId);
-    const session = await db.select({
-      provider: sessions.provider,
-      providerAccessToken: sessions.providerAccessToken,
-    }).from(sessions).where(eq(sessions.id, sessionKey)).get();
+    const session = await db
+      .select({
+        provider: sessions.provider,
+        providerAccessToken: sessions.providerAccessToken,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, sessionKey))
+      .get();
     if (session) {
       provider = session.provider;
-      hasTakosAccess = session.provider === "takos" &&
-        !!session.providerAccessToken;
+      hasTakosAccess =
+        session.provider === "takos" && !!session.providerAccessToken;
     }
   }
 
@@ -158,13 +162,13 @@ auth.post("/login", async (c) => {
 
   // Single-user instance: find existing owner or create default
   const actorData =
-    await db.select().from(actors).where(eq(actors.role, "owner")).get() ??
-      await createActor(db, c.env, {
-        username: "tako",
-        name: "tako",
-        takosUserId: "password:owner",
-        role: "owner",
-      });
+    (await db.select().from(actors).where(eq(actors.role, "owner")).get()) ??
+    (await createActor(db, c.env, {
+      username: "tako",
+      name: "tako",
+      takosUserId: "password:owner",
+      role: "owner",
+    }));
 
   await rotateSession(
     c,
@@ -328,21 +332,23 @@ auth.get("/accounts", async (c) => {
 
   // Find the root owner ap_id: current actor may be a sub-account.
   // ownerActorApId is set on actors created via POST /accounts; root actors have null.
-  const currentActorRecord = await db.select({
-    ownerActorApId: actors.ownerActorApId,
-  })
+  const currentActorRecord = await db
+    .select({
+      ownerActorApId: actors.ownerActorApId,
+    })
     .from(actors)
     .where(eq(actors.apId, actor.ap_id))
     .get();
   const rootOwnerApId = currentActorRecord?.ownerActorApId ?? actor.ap_id;
 
   // Return only the root actor and any sub-accounts they own (Issue 106).
-  const accounts = await db.select({
-    apId: actors.apId,
-    preferredUsername: actors.preferredUsername,
-    name: actors.name,
-    iconUrl: actors.iconUrl,
-  })
+  const accounts = await db
+    .select({
+      apId: actors.apId,
+      preferredUsername: actors.preferredUsername,
+      name: actors.name,
+      iconUrl: actors.iconUrl,
+    })
     .from(actors)
     .where(
       or(
@@ -379,19 +385,21 @@ auth.post("/switch", async (c) => {
   const db = c.get("db");
 
   // Resolve the root owner of the current session to enforce ownership (Issue 106).
-  const currentActorRecord = await db.select({
-    ownerActorApId: actors.ownerActorApId,
-  })
+  const currentActorRecord = await db
+    .select({
+      ownerActorApId: actors.ownerActorApId,
+    })
     .from(actors)
     .where(eq(actors.apId, currentActor.ap_id))
     .get();
-  const rootOwnerApId = currentActorRecord?.ownerActorApId ??
-    currentActor.ap_id;
+  const rootOwnerApId =
+    currentActorRecord?.ownerActorApId ?? currentActor.ap_id;
 
-  const targetActor = await db.select({
-    apId: actors.apId,
-    ownerActorApId: actors.ownerActorApId,
-  })
+  const targetActor = await db
+    .select({
+      apId: actors.apId,
+      ownerActorApId: actors.ownerActorApId,
+    })
     .from(actors)
     .where(eq(actors.apId, targetApId))
     .get();
@@ -399,12 +407,14 @@ auth.post("/switch", async (c) => {
   if (!targetActor) return c.json({ error: "Account not found" }, 404);
 
   // Only allow switching to the root account or its own sub-accounts.
-  const isAllowed = targetActor.apId === rootOwnerApId ||
+  const isAllowed =
+    targetActor.apId === rootOwnerApId ||
     targetActor.ownerActorApId === rootOwnerApId;
   if (!isAllowed) return c.json({ error: "Forbidden" }, 403);
 
   const sessionKey = await hashSessionIdForEnv(c.env, sessionId);
-  await db.update(sessions)
+  await db
+    .update(sessions)
     .set({ memberId: targetApId })
     .where(eq(sessions.id, sessionKey))
     .run();
@@ -426,22 +436,25 @@ auth.post("/accounts", async (c) => {
     return c.json({ error: "username required", code: "BAD_REQUEST" }, 400);
   }
   if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-    return c.json({
-      error: "Invalid username. Use only letters, numbers, and underscores.",
-    }, 400);
+    return c.json(
+      {
+        error: "Invalid username. Use only letters, numbers, and underscores.",
+      },
+      400,
+    );
   }
 
   if (body.name !== undefined && typeof body.name !== "string") {
     return c.json({ error: "name must be a string", code: "BAD_REQUEST" }, 400);
   }
-  const name: string | undefined = typeof body.name === "string"
-    ? body.name
-    : undefined;
+  const name: string | undefined =
+    typeof body.name === "string" ? body.name : undefined;
 
   const db = c.get("db");
   const apId = actorApId(c.env.APP_URL, username);
 
-  const existing = await db.select({ apId: actors.apId })
+  const existing = await db
+    .select({ apId: actors.apId })
     .from(actors)
     .where(eq(actors.apId, apId))
     .get();
@@ -449,9 +462,10 @@ auth.post("/accounts", async (c) => {
   if (existing) return c.json({ error: "Username already taken" }, 400);
 
   // Resolve root owner to set ownership link on the sub-account (Issue 106).
-  const creatorRecord = await db.select({
-    ownerActorApId: actors.ownerActorApId,
-  })
+  const creatorRecord = await db
+    .select({
+      ownerActorApId: actors.ownerActorApId,
+    })
     .from(actors)
     .where(eq(actors.apId, currentActor.ap_id))
     .get();

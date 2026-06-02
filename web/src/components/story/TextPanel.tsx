@@ -91,7 +91,8 @@ export function TextPanel(props: TextPanelProps) {
           max="200"
           value={props.layer.fontSize}
           onInput={(e) =>
-            props.onUpdate({ fontSize: parseInt(e.currentTarget.value) })}
+            props.onUpdate({ fontSize: parseInt(e.currentTarget.value) })
+          }
           class="w-full mt-1 accent-blue-500"
         />
       </div>
@@ -102,7 +103,8 @@ export function TextPanel(props: TextPanelProps) {
           onClick={() =>
             props.onUpdate({
               fontWeight: props.layer.fontWeight === "bold" ? "normal" : "bold",
-            })}
+            })
+          }
           class={`flex-1 py-2 rounded-lg font-bold transition-colors ${
             props.layer.fontWeight === "bold"
               ? "bg-blue-500 text-white"
@@ -114,10 +116,10 @@ export function TextPanel(props: TextPanelProps) {
         <button
           onClick={() =>
             props.onUpdate({
-              fontStyle: props.layer.fontStyle === "italic"
-                ? "normal"
-                : "italic",
-            })}
+              fontStyle:
+                props.layer.fontStyle === "italic" ? "normal" : "italic",
+            })
+          }
           class={`flex-1 py-2 rounded-lg italic transition-colors ${
             props.layer.fontStyle === "italic"
               ? "bg-blue-500 text-white"
@@ -172,7 +174,8 @@ export function TextPanel(props: TextPanelProps) {
           </button>
           <button
             onClick={() =>
-              props.onUpdate({ backgroundColor: "rgba(0,0,0,0.5)" })}
+              props.onUpdate({ backgroundColor: "rgba(0,0,0,0.5)" })
+            }
             class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
               props.layer.backgroundColor
                 ? "bg-blue-500 text-white"
@@ -206,7 +209,8 @@ export function TextPanel(props: TextPanelProps) {
           </button>
           <button
             onClick={() =>
-              props.onUpdate({ stroke: { color: "#000000", width: 4 } })}
+              props.onUpdate({ stroke: { color: "#000000", width: 4 } })
+            }
             class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
               props.layer.stroke
                 ? "bg-blue-500 text-white"
@@ -220,9 +224,11 @@ export function TextPanel(props: TextPanelProps) {
           <div class="mt-2 space-y-2">
             <ColorPicker
               color={props.layer.stroke!.color}
-              onChange={(color) => props.onUpdate({
-                stroke: { color, width: props.layer.stroke?.width ?? 4 },
-              })}
+              onChange={(color) =>
+                props.onUpdate({
+                  stroke: { color, width: props.layer.stroke?.width ?? 4 },
+                })
+              }
             />
             <div>
               <label class="text-neutral-500 text-xs">
@@ -239,7 +245,8 @@ export function TextPanel(props: TextPanelProps) {
                       color: props.layer.stroke?.color ?? "#000000",
                       width: parseInt(e.currentTarget.value),
                     },
-                  })}
+                  })
+                }
                 class="w-full accent-blue-500"
               />
             </div>
@@ -270,7 +277,8 @@ export function TextPanel(props: TextPanelProps) {
                   offsetX: 2,
                   offsetY: 2,
                 },
-              })}
+              })
+            }
             class={`flex-1 py-2 rounded-lg text-sm transition-colors ${
               props.layer.shadow
                 ? "bg-blue-500 text-white"

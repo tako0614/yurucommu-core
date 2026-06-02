@@ -126,11 +126,13 @@ export async function togglePostRelation(
 ): Promise<void> {
   if (active) {
     // Upsert: insert if not exists, ignore conflict
-    await db.insert(table)
+    await db
+      .insert(table)
       .values({ actorApId: actorApIdVal, objectApId: objectApIdVal })
       .onConflictDoNothing();
   } else {
-    await db.delete(table)
+    await db
+      .delete(table)
       .where(
         and(
           eq(table.actorApId, actorApIdVal),
@@ -150,23 +152,27 @@ export async function fetchFollowList(
   limit: number,
 ): Promise<ActorSummary[]> {
   const isFollowers = direction === "followers";
-  const followRows = await db.select()
+  const followRows = await db
+    .select()
     .from(follows)
-    .where(and(
-      eq(
-        isFollowers ? follows.followingApId : follows.followerApId,
-        targetApId,
+    .where(
+      and(
+        eq(
+          isFollowers ? follows.followingApId : follows.followerApId,
+          targetApId,
+        ),
+        eq(follows.status, "accepted"),
       ),
-      eq(follows.status, "accepted"),
-    ))
+    )
     .limit(limit);
 
   const relatedIds = followRows.map((f) =>
-    isFollowers ? f.followerApId : f.followingApId
+    isFollowers ? f.followerApId : f.followingApId,
   );
   if (relatedIds.length === 0) return [];
 
-  return db.select(ACTOR_SUMMARY_COLUMNS)
+  return db
+    .select(ACTOR_SUMMARY_COLUMNS)
     .from(actors)
     .where(inArray(actors.apId, relatedIds));
 }

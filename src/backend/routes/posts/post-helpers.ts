@@ -45,9 +45,9 @@ const log = logger.child({ component: "posts.helpers" });
 // ---------------------------------------------------------------------------
 
 /** Require an authenticated actor or return null (caller should 401). */
-export function requireActor(
-  c: { get: (key: "actor") => Variables["actor"] },
-): Variables["actor"] {
+export function requireActor(c: {
+  get: (key: "actor") => Variables["actor"];
+}): Variables["actor"] {
   return c.get("actor");
 }
 
@@ -57,20 +57,20 @@ export function requireActor(
 
 export type CreatePostValidationResult =
   | {
-    ok: true;
-    body: CreatePostBody;
-    content: string;
-    summary: string | undefined;
-  }
+      ok: true;
+      body: CreatePostBody;
+      content: string;
+      summary: string | undefined;
+    }
   | { ok: false; error: string; code?: string };
 
 /**
  * Parse and validate the raw request body for creating a post.
  * Returns a discriminated union: ok with parsed body, or error details.
  */
-export async function validateCreatePostBody(
-  c: { req: { json: () => Promise<unknown> } },
-): Promise<CreatePostValidationResult> {
+export async function validateCreatePostBody(c: {
+  req: { json: () => Promise<unknown> };
+}): Promise<CreatePostValidationResult> {
   const rawBody = await parseJsonObject(c);
   if (!rawBody) {
     return { ok: false, error: "Invalid request body", code: "BAD_REQUEST" };
@@ -84,20 +84,19 @@ export async function validateCreatePostBody(
     };
   }
 
-  for (
-    const field of [
-      "summary",
-      "visibility",
-      "in_reply_to",
-      "community_ap_id",
-    ] as const
-  ) {
+  for (const field of [
+    "summary",
+    "visibility",
+    "in_reply_to",
+    "community_ap_id",
+  ] as const) {
     const err = validateOptionalString(rawBody, field);
     if (err) return { ok: false, error: err, code: "BAD_REQUEST" };
   }
 
   if (
-    rawBody.attachments !== undefined && !Array.isArray(rawBody.attachments)
+    rawBody.attachments !== undefined &&
+    !Array.isArray(rawBody.attachments)
   ) {
     return {
       ok: false,
@@ -120,17 +119,16 @@ export async function validateCreatePostBody(
     content: rawBody.content,
     summary: typeof rawBody.summary === "string" ? rawBody.summary : undefined,
     attachments: Array.isArray(rawBody.attachments)
-      ? rawBody.attachments as PostAttachment[]
+      ? (rawBody.attachments as PostAttachment[])
       : undefined,
-    in_reply_to: typeof rawBody.in_reply_to === "string"
-      ? rawBody.in_reply_to
-      : undefined,
-    visibility: typeof rawBody.visibility === "string"
-      ? rawBody.visibility
-      : undefined,
-    community_ap_id: typeof rawBody.community_ap_id === "string"
-      ? rawBody.community_ap_id
-      : undefined,
+    in_reply_to:
+      typeof rawBody.in_reply_to === "string" ? rawBody.in_reply_to : undefined,
+    visibility:
+      typeof rawBody.visibility === "string" ? rawBody.visibility : undefined,
+    community_ap_id:
+      typeof rawBody.community_ap_id === "string"
+        ? rawBody.community_ap_id
+        : undefined,
   };
 
   const content = body.content.trim();
@@ -174,31 +172,39 @@ export async function checkCommunityPostPermission(
 ): Promise<CommunityCheckResult> {
   if (!communityApId) return { allowed: true, communityId: null };
 
-  const community = await db.select({
-    apId: communities.apId,
-    postPolicy: communities.postPolicy,
-  }).from(communities).where(
-    and(
-      or(
-        eq(communities.apId, communityApId),
-        eq(communities.preferredUsername, communityApId),
+  const community = await db
+    .select({
+      apId: communities.apId,
+      postPolicy: communities.postPolicy,
+    })
+    .from(communities)
+    .where(
+      and(
+        or(
+          eq(communities.apId, communityApId),
+          eq(communities.preferredUsername, communityApId),
+        ),
+        isNull(communities.deletedAt),
       ),
-      isNull(communities.deletedAt),
-    ),
-  ).get();
+    )
+    .get();
 
   if (!community) {
     return { allowed: false, error: "Community not found", status: 404 };
   }
 
-  const membership = await db.select({
-    role: communityMembers.role,
-  }).from(communityMembers).where(
-    and(
-      eq(communityMembers.communityApId, community.apId),
-      eq(communityMembers.actorApId, actorApId),
-    ),
-  ).get();
+  const membership = await db
+    .select({
+      role: communityMembers.role,
+    })
+    .from(communityMembers)
+    .where(
+      and(
+        eq(communityMembers.communityApId, community.apId),
+        eq(communityMembers.actorApId, actorApId),
+      ),
+    )
+    .get();
 
   const policy = community.postPolicy || "members";
   const role = membership?.role as "owner" | "moderator" | "member" | undefined;
@@ -261,12 +267,14 @@ export async function insertPostAndHandleReply(
     isLocal: 1,
   });
 
-  await db.update(actors)
+  await db
+    .update(actors)
     .set({ postCount: sql`${actors.postCount} + 1` })
     .where(eq(actors.apId, params.actorApId));
 
   if (params.inReplyTo) {
-    const parentPost = await db.select({ attributedTo: objects.attributedTo })
+    const parentPost = await db
+      .select({ attributedTo: objects.attributedTo })
       .from(objects)
       .where(eq(objects.apId, params.inReplyTo))
       .get();
@@ -275,7 +283,8 @@ export async function insertPostAndHandleReply(
 
     parentAuthor = parentPost.attributedTo;
 
-    await db.update(objects)
+    await db
+      .update(objects)
       .set({ replyCount: sql`${objects.replyCount} + 1` })
       .where(eq(objects.apId, params.inReplyTo));
 
@@ -341,21 +350,27 @@ export async function processMentions(
 
   const [localActors, cachedActors] = await Promise.all([
     localMentions.length > 0
-      ? db.select({
-        apId: actors.apId,
-        preferredUsername: actors.preferredUsername,
-      }).from(actors).where(inArray(actors.preferredUsername, localMentions))
+      ? db
+          .select({
+            apId: actors.apId,
+            preferredUsername: actors.preferredUsername,
+          })
+          .from(actors)
+          .where(inArray(actors.preferredUsername, localMentions))
       : [],
     remoteMentions.length > 0
-      ? db.select({
-        apId: actorCache.apId,
-        preferredUsername: actorCache.preferredUsername,
-      }).from(actorCache).where(
-        inArray(
-          actorCache.preferredUsername,
-          remoteMentions.map((m) => m.split("@")[0]),
-        ),
-      )
+      ? db
+          .select({
+            apId: actorCache.apId,
+            preferredUsername: actorCache.preferredUsername,
+          })
+          .from(actorCache)
+          .where(
+            inArray(
+              actorCache.preferredUsername,
+              remoteMentions.map((m) => m.split("@")[0]),
+            ),
+          )
       : [],
   ]);
   const localActorMap = new Map(
@@ -477,19 +492,19 @@ export async function processMentions(
 
 export type EditFieldsResult =
   | {
-    ok: true;
-    rawBody: Record<string, unknown>;
-    body: { content?: string; summary?: string };
-  }
+      ok: true;
+      rawBody: Record<string, unknown>;
+      body: { content?: string; summary?: string };
+    }
   | { ok: false; error: string; code?: string };
 
 /**
  * Parse and validate the request body for PATCH (edit post).
  * Returns a discriminated union with the parsed body or error details.
  */
-export async function validateEditBody(
-  c: { req: { json: () => Promise<unknown> } },
-): Promise<EditFieldsResult> {
+export async function validateEditBody(c: {
+  req: { json: () => Promise<unknown> };
+}): Promise<EditFieldsResult> {
   const rawBody = await parseJsonObject(c);
   if (!rawBody) {
     return { ok: false, error: "Invalid request body", code: "BAD_REQUEST" };

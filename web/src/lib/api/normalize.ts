@@ -30,12 +30,14 @@ function formatUsernameFromApId(
 export function normalizeActor<T extends ActorLike>(actor: T): T {
   if (!actor || !actor.ap_id) return actor;
   const rawUsername = actor.username?.trim();
-  const formatted = rawUsername ||
+  const formatted =
+    rawUsername ||
     formatUsernameFromApId(actor.ap_id, actor.preferred_username) ||
     actor.preferred_username ||
     actor.username ||
     actor.ap_id;
-  const preferred = actor.preferred_username?.trim() ||
+  const preferred =
+    actor.preferred_username?.trim() ||
     (formatted.includes("@") ? formatted.split("@")[0] : formatted);
 
   return {

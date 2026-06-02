@@ -101,8 +101,9 @@ test("delivery/planner - marks stale and missing recipients as unknown", async (
   const nowMs = Date.now();
   const dateNowStub = stub(Date, "now", () => nowMs);
   try {
-    const staleIso = new Date(nowMs - DELIVERY_ENDPOINT_CACHE_TTL_MS - 1000)
-      .toISOString();
+    const staleIso = new Date(
+      nowMs - DELIVERY_ENDPOINT_CACHE_TTL_MS - 1000,
+    ).toISOString();
 
     const db = createMockPlannerDb([
       {
@@ -120,8 +121,12 @@ test("delivery/planner - marks stale and missing recipients as unknown", async (
 
     expect(res.groups).toEqual([]);
     expect(res.totalRecipients).toEqual(2);
-    expect(res.unknownRecipients.sort()).toEqual(["https://a.example/ap/users/u1", "https://missing.example/ap/users/u2"]
-        .sort());
+    expect(res.unknownRecipients.sort()).toEqual(
+      [
+        "https://a.example/ap/users/u1",
+        "https://missing.example/ap/users/u2",
+      ].sort(),
+    );
   } finally {
     dateNowStub.restore();
   }

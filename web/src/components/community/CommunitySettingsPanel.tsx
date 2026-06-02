@@ -36,7 +36,8 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
               fallback={
                 <span class="text-2xl font-bold text-white">
                   {(props.community.display_name || props.community.name)
-                    .charAt(0).toUpperCase()}
+                    .charAt(0)
+                    .toUpperCase()}
                 </span>
               }
             >
@@ -72,7 +73,8 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
             props.onChangeSettings((prev) => ({
               ...prev,
               display_name: e.currentTarget.value,
-            }))}
+            }))
+          }
           class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:border-blue-500 focus:outline-none"
           placeholder="グループの表示名"
         />
@@ -89,7 +91,8 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
             props.onChangeSettings((prev) => ({
               ...prev,
               summary: e.currentTarget.value,
-            }))}
+            }))
+          }
           rows={4}
           class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:border-blue-500 focus:outline-none resize-none"
           placeholder="グループの説明"
@@ -111,7 +114,8 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                 props.onChangeSettings((prev) => ({
                   ...prev,
                   visibility: "public",
-                }))}
+                }))
+              }
               class="w-4 h-4 text-blue-500"
             />
             <div>
@@ -130,7 +134,8 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                 props.onChangeSettings((prev) => ({
                   ...prev,
                   visibility: "private",
-                }))}
+                }))
+              }
               class="w-4 h-4 text-blue-500"
             />
             <div>
@@ -158,7 +163,8 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                 props.onChangeSettings((prev) => ({
                   ...prev,
                   join_policy: "open",
-                }))}
+                }))
+              }
               class="w-4 h-4 text-blue-500"
             />
             <div>
@@ -175,7 +181,8 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                 props.onChangeSettings((prev) => ({
                   ...prev,
                   join_policy: "approval",
-                }))}
+                }))
+              }
               class="w-4 h-4 text-blue-500"
             />
             <div>
@@ -194,7 +201,8 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                 props.onChangeSettings((prev) => ({
                   ...prev,
                   join_policy: "invite",
-                }))}
+                }))
+              }
               class="w-4 h-4 text-blue-500"
             />
             <div>
@@ -222,7 +230,8 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                 props.onChangeSettings((prev) => ({
                   ...prev,
                   post_policy: "anyone",
-                }))}
+                }))
+              }
               class="w-4 h-4 text-blue-500"
             />
             <div>
@@ -239,7 +248,8 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                 props.onChangeSettings((prev) => ({
                   ...prev,
                   post_policy: "members",
-                }))}
+                }))
+              }
               class="w-4 h-4 text-blue-500"
             />
             <div>
@@ -258,7 +268,8 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                 props.onChangeSettings((prev) => ({
                   ...prev,
                   post_policy: "mods",
-                }))}
+                }))
+              }
               class="w-4 h-4 text-blue-500"
             />
             <div>
@@ -277,7 +288,8 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
                 props.onChangeSettings((prev) => ({
                   ...prev,
                   post_policy: "owners",
-                }))}
+                }))
+              }
               class="w-4 h-4 text-blue-500"
             />
             <div>

@@ -208,9 +208,9 @@ export function SettingsPage() {
   };
 
   const errorBanner = () =>
-    error()
-      ? <InlineErrorBanner message={error()!} onClose={clearError} />
-      : null;
+    error() ? (
+      <InlineErrorBanner message={error()!} onClose={clearError} />
+    ) : null;
 
   return (
     <div class="flex flex-col h-full">

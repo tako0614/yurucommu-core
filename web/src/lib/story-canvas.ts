@@ -295,20 +295,22 @@ export class StoryCanvas {
     this.ctx = this.canvas.getContext("2d")!;
 
     // Initialize with default background
-    this.layers = [{
-      id: "background",
-      type: "background",
-      x: 0,
-      y: 0,
-      width: CANVAS_WIDTH,
-      height: CANVAS_HEIGHT,
-      rotation: 0,
-      opacity: 1,
-      zIndex: 0,
-      visible: true,
-      locked: true,
-      fill: { type: "solid", color: "#000000" },
-    }];
+    this.layers = [
+      {
+        id: "background",
+        type: "background",
+        x: 0,
+        y: 0,
+        width: CANVAS_WIDTH,
+        height: CANVAS_HEIGHT,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 0,
+        visible: true,
+        locked: true,
+        fill: { type: "solid", color: "#000000" },
+      },
+    ];
   }
 
   // Get the canvas element
@@ -360,17 +362,17 @@ export class StoryCanvas {
   // Move layer to back
   sendToBack(id: string): void {
     const minZIndex = Math.min(
-      ...this.layers.filter((l) => l.type !== "background").map((l) =>
-        l.zIndex
-      ),
+      ...this.layers
+        .filter((l) => l.type !== "background")
+        .map((l) => l.zIndex),
     );
     this.updateLayer(id, { zIndex: minZIndex - 1 });
   }
 
   // Set background
   setBackground(fill: BackgroundFill): void {
-    const bgLayer = this.layers.find((l) =>
-      l.type === "background"
+    const bgLayer = this.layers.find(
+      (l) => l.type === "background",
     ) as BackgroundLayer;
     if (bgLayer) {
       bgLayer.fill = fill;

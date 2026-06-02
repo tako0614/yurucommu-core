@@ -85,21 +85,18 @@ function createEnv(media: MemoryR2Bucket) {
 test("apps deploy accepts cookie-less bearer requests without Origin", async () => {
   const app = createYurucommuBackendApp();
   const media = new MemoryR2Bucket();
-  const fetchStub = stub(
-    globalThis,
-    "fetch",
-    () =>
-      Promise.resolve(
-        new Response(
-          JSON.stringify({
-            active: true,
-            scope: "apps:deploy",
-            sub: "client-1",
-            client_id: "takos-client",
-          }),
-          { headers: { "Content-Type": "application/json" } },
-        ),
+  const fetchStub = stub(globalThis, "fetch", () =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          active: true,
+          scope: "apps:deploy",
+          sub: "client-1",
+          client_id: "takos-client",
+        }),
+        { headers: { "Content-Type": "application/json" } },
       ),
+    ),
   );
 
   try {
@@ -192,6 +189,8 @@ test("hosted static assets preserve content type and cache headers", async () =>
   );
 
   expect(res.status).toEqual(200);
-  expect(res.headers.get("Content-Type")).toEqual("application/javascript; charset=utf-8");
+  expect(res.headers.get("Content-Type")).toEqual(
+    "application/javascript; charset=utf-8",
+  );
   expect(res.headers.get("Cache-Control")).toEqual("public, max-age=3600");
 });

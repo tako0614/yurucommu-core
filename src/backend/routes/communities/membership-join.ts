@@ -41,7 +41,9 @@ export function registerMembershipJoinRoutes(
       }
 
       // Check if already member
-      const existing = await db.select().from(communityMembers)
+      const existing = await db
+        .select()
+        .from(communityMembers)
         .where(memberWhere(community.apId, actor.ap_id))
         .get();
       if (existing) {
@@ -52,20 +54,27 @@ export function registerMembershipJoinRoutes(
 
       if (community.joinPolicy === "approval") {
         // Upsert: check if exists, then insert or update
-        const existingRequest = await db.select().from(communityJoinRequests)
-          .where(and(
-            eq(communityJoinRequests.communityApId, community.apId),
-            eq(communityJoinRequests.actorApId, actor.ap_id),
-          ))
+        const existingRequest = await db
+          .select()
+          .from(communityJoinRequests)
+          .where(
+            and(
+              eq(communityJoinRequests.communityApId, community.apId),
+              eq(communityJoinRequests.actorApId, actor.ap_id),
+            ),
+          )
           .get();
 
         if (existingRequest) {
-          await db.update(communityJoinRequests)
+          await db
+            .update(communityJoinRequests)
             .set({ status: "pending", createdAt: now, processedAt: null })
-            .where(and(
-              eq(communityJoinRequests.communityApId, community.apId),
-              eq(communityJoinRequests.actorApId, actor.ap_id),
-            ));
+            .where(
+              and(
+                eq(communityJoinRequests.communityApId, community.apId),
+                eq(communityJoinRequests.actorApId, actor.ap_id),
+              ),
+            );
         } else {
           await db.insert(communityJoinRequests).values({
             communityApId: community.apId,
@@ -88,29 +97,39 @@ export function registerMembershipJoinRoutes(
 
         try {
           // Find the invite
-          const invite = await db.select().from(communityInvites)
-            .where(and(
-              eq(communityInvites.id, inviteId),
-              eq(communityInvites.communityApId, community.apId),
-              isNull(communityInvites.usedAt),
-              or(
-                isNull(communityInvites.expiresAt),
-                gt(communityInvites.expiresAt, now),
+          const invite = await db
+            .select()
+            .from(communityInvites)
+            .where(
+              and(
+                eq(communityInvites.id, inviteId),
+                eq(communityInvites.communityApId, community.apId),
+                isNull(communityInvites.usedAt),
+                or(
+                  isNull(communityInvites.expiresAt),
+                  gt(communityInvites.expiresAt, now),
+                ),
               ),
-            ))
+            )
             .get();
 
           if (!invite) {
-            return c.json({
-              error: "Invalid or expired invite",
-              status: "invite_required",
-            }, 403);
+            return c.json(
+              {
+                error: "Invalid or expired invite",
+                status: "invite_required",
+              },
+              403,
+            );
           }
           if (invite.invitedApId && invite.invitedApId !== actor.ap_id) {
-            return c.json({
-              error: "Invite not for this account",
-              status: "invite_required",
-            }, 403);
+            return c.json(
+              {
+                error: "Invite not for this account",
+                status: "invite_required",
+              },
+              403,
+            );
           }
 
           // Create member
@@ -122,26 +141,30 @@ export function registerMembershipJoinRoutes(
           });
 
           // Increment member count
-          await db.update(communities)
+          await db
+            .update(communities)
             .set({ memberCount: sql`${communities.memberCount} + 1` })
             .where(eq(communities.apId, community.apId));
 
           // Claim the invite - update only if conditions still match
-          const claimResult = await db.update(communityInvites)
+          const claimResult = await db
+            .update(communityInvites)
             .set({ usedByApId: actor.ap_id, usedAt: now })
-            .where(and(
-              eq(communityInvites.id, inviteId),
-              eq(communityInvites.communityApId, community.apId),
-              isNull(communityInvites.usedAt),
-              or(
-                isNull(communityInvites.expiresAt),
-                gt(communityInvites.expiresAt, now),
+            .where(
+              and(
+                eq(communityInvites.id, inviteId),
+                eq(communityInvites.communityApId, community.apId),
+                isNull(communityInvites.usedAt),
+                or(
+                  isNull(communityInvites.expiresAt),
+                  gt(communityInvites.expiresAt, now),
+                ),
+                or(
+                  isNull(communityInvites.invitedApId),
+                  eq(communityInvites.invitedApId, actor.ap_id),
+                ),
               ),
-              or(
-                isNull(communityInvites.invitedApId),
-                eq(communityInvites.invitedApId, actor.ap_id),
-              ),
-            ));
+            );
           if (affectedRowCount(claimResult) !== 1) {
             throw new Error("INVITE_CLAIM_FAILED");
           }
@@ -170,7 +193,8 @@ export function registerMembershipJoinRoutes(
           joinedAt: now,
         });
 
-        await db.update(communities)
+        await db
+          .update(communities)
           .set({ memberCount: sql`${communities.memberCount} + 1` })
           .where(eq(communities.apId, community.apId));
 
@@ -205,7 +229,9 @@ export function registerMembershipJoinRoutes(
         return c.json({ error: "Community not found" }, 404);
       }
 
-      const membership = await db.select().from(communityMembers)
+      const membership = await db
+        .select()
+        .from(communityMembers)
         .where(memberWhere(community.apId, actor.ap_id))
         .get();
       if (!membership) {
@@ -214,23 +240,27 @@ export function registerMembershipJoinRoutes(
 
       // Don't allow the last owner to leave
       if (membership.role === "owner") {
-        const ownerCountResult = await db.select({ count: count() }).from(
-          communityMembers,
-        )
-          .where(and(
-            eq(communityMembers.communityApId, community.apId),
-            eq(communityMembers.role, "owner"),
-          ))
+        const ownerCountResult = await db
+          .select({ count: count() })
+          .from(communityMembers)
+          .where(
+            and(
+              eq(communityMembers.communityApId, community.apId),
+              eq(communityMembers.role, "owner"),
+            ),
+          )
           .get();
         if ((ownerCountResult?.count ?? 0) <= 1) {
           return c.json({ error: "Cannot leave: you are the only owner" }, 400);
         }
       }
 
-      await db.delete(communityMembers)
+      await db
+        .delete(communityMembers)
         .where(memberWhere(community.apId, actor.ap_id));
 
-      await db.update(communities)
+      await db
+        .update(communities)
         .set({ memberCount: sql`${communities.memberCount} - 1` })
         .where(eq(communities.apId, community.apId));
 

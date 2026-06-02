@@ -68,11 +68,11 @@ function parseContentLength(header: string | null): number | null {
 export type BodyLimitDecision =
   | { ok: true }
   | {
-    ok: false;
-    reason: "body_too_large" | "body_length_required";
-    limit: number;
-    declared: number | null;
-  };
+      ok: false;
+      reason: "body_too_large" | "body_length_required";
+      limit: number;
+      declared: number | null;
+    };
 
 /**
  * Pure decision function. Exposed for unit tests; the middleware below is a
@@ -200,9 +200,10 @@ export function bodyLimit(
     return c.json(
       {
         error: decision.reason,
-        message: decision.reason === "body_too_large"
-          ? `Request body exceeds the ${decision.limit} byte cap`
-          : "Content-Length header is required",
+        message:
+          decision.reason === "body_too_large"
+            ? `Request body exceeds the ${decision.limit} byte cap`
+            : "Content-Length header is required",
         limit: decision.limit,
       },
       status,

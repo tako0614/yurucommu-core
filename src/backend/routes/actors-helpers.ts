@@ -103,9 +103,10 @@ export async function loadActorInfoMap(
 
   const [local, cached] = await Promise.all([
     db.select(localSelect).from(actors).where(inArray(actors.apId, apIds)),
-    db.select(cacheSelect).from(actorCache).where(
-      inArray(actorCache.apId, apIds),
-    ),
+    db
+      .select(cacheSelect)
+      .from(actorCache)
+      .where(inArray(actorCache.apId, apIds)),
   ]);
 
   const map = new Map<string, ActorInfo>();
@@ -117,7 +118,10 @@ export async function loadActorInfoMap(
 /**
  * Format a looked-up actor into the common JSON shape used by blocked/muted/followers/following lists.
  */
-export function formatActorSummary(apId: string, info: ActorInfo | undefined): {
+export function formatActorSummary(
+  apId: string,
+  info: ActorInfo | undefined,
+): {
   ap_id: string;
   username: string;
   preferred_username: string | null;
@@ -159,12 +163,15 @@ export async function resolveActorApId(
   if (!domain) return null;
   if (domain === getDomain(baseUrl)) return actorApId(baseUrl, username);
 
-  const cached = await db.select({ apId: actorCache.apId })
+  const cached = await db
+    .select({ apId: actorCache.apId })
     .from(actorCache)
-    .where(and(
-      eq(actorCache.preferredUsername, username),
-      sql`${actorCache.apId} LIKE ${"%" + domain + "%"}`,
-    ))
+    .where(
+      and(
+        eq(actorCache.preferredUsername, username),
+        sql`${actorCache.apId} LIKE ${"%" + domain + "%"}`,
+      ),
+    )
     .get();
   return cached?.apId || null;
 }
@@ -177,11 +184,16 @@ export async function actorExists(
   apId: string,
 ): Promise<boolean> {
   const [local, cached] = await Promise.all([
-    db.select({ apId: actors.apId }).from(actors).where(eq(actors.apId, apId))
+    db
+      .select({ apId: actors.apId })
+      .from(actors)
+      .where(eq(actors.apId, apId))
       .get(),
-    db.select({ apId: actorCache.apId }).from(actorCache).where(
-      eq(actorCache.apId, apId),
-    ).get(),
+    db
+      .select({ apId: actorCache.apId })
+      .from(actorCache)
+      .where(eq(actorCache.apId, apId))
+      .get(),
   ]);
   return !!(local || cached);
 }
@@ -203,13 +215,11 @@ export async function loadPostInteractions(
   db: Database,
   actorApIdVal: string | null,
   postApIds: string[],
-): Promise<
-  {
-    likedIds: Set<string>;
-    bookmarkedIds: Set<string>;
-    repostedIds: Set<string>;
-  }
-> {
+): Promise<{
+  likedIds: Set<string>;
+  bookmarkedIds: Set<string>;
+  repostedIds: Set<string>;
+}> {
   if (!actorApIdVal || postApIds.length === 0) {
     return {
       likedIds: new Set(),
@@ -219,7 +229,8 @@ export async function loadPostInteractions(
   }
 
   const [likeRows, bookmarkRows, announceRows] = await Promise.all([
-    db.select({ objectApId: likes.objectApId })
+    db
+      .select({ objectApId: likes.objectApId })
       .from(likes)
       .where(
         and(
@@ -227,7 +238,8 @@ export async function loadPostInteractions(
           inArray(likes.objectApId, postApIds),
         ),
       ),
-    db.select({ objectApId: bookmarks.objectApId })
+    db
+      .select({ objectApId: bookmarks.objectApId })
       .from(bookmarks)
       .where(
         and(
@@ -235,7 +247,8 @@ export async function loadPostInteractions(
           inArray(bookmarks.objectApId, postApIds),
         ),
       ),
-    db.select({ objectApId: announces.objectApId })
+    db
+      .select({ objectApId: announces.objectApId })
       .from(announces)
       .where(
         and(
@@ -284,7 +297,7 @@ export async function listRelation<
 
   return c.json({
     [responseKey]: rows.map((r) =>
-      formatActorSummary(r[apIdKey], infoMap.get(r[apIdKey]))
+      formatActorSummary(r[apIdKey], infoMap.get(r[apIdKey])),
     ),
   });
 }
@@ -364,16 +377,14 @@ export async function listFollowRelation(
     : and(eq(follows.followerApId, apId), eq(follows.status, "accepted"));
 
   const [followRows, totalResult] = await Promise.all([
-    db.select()
+    db
+      .select()
       .from(follows)
       .where(whereCondition)
       .orderBy(desc(follows.createdAt))
       .offset(offset)
       .limit(limit),
-    db.select({ count: count() })
-      .from(follows)
-      .where(whereCondition)
-      .get(),
+    db.select({ count: count() }).from(follows).where(whereCondition).get(),
   ]);
 
   const total = totalResult?.count ?? 0;

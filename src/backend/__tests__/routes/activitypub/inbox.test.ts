@@ -14,7 +14,7 @@ function createDbMock(publicKeyPem: string) {
           Promise.resolve({
             apId: "https://test.local/ap/users/bob",
             preferredUsername: "bob",
-          })
+          }),
         ),
       },
       actorCache: {
@@ -22,7 +22,7 @@ function createDbMock(publicKeyPem: string) {
           Promise.resolve({
             apId: "https://remote.example/users/alice",
             publicKeyPem,
-          })
+          }),
         ),
       },
       activities: {
@@ -86,10 +86,7 @@ test("activitypub inbox - accepts signed object activities and stores them once"
   assertSpyCalls(insertValues, 1);
 });
 
-function createBlocklistDbMock(
-  publicKeyPem: string,
-  blockedActorApId: string,
-) {
+function createBlocklistDbMock(publicKeyPem: string, blockedActorApId: string) {
   const insertValues = spy((..._args: unknown[]) => Promise.resolve(undefined));
   const db = {
     query: {
@@ -98,7 +95,7 @@ function createBlocklistDbMock(
           Promise.resolve({
             apId: "https://test.local/ap/users/bob",
             preferredUsername: "bob",
-          })
+          }),
         ),
       },
       actorCache: {
@@ -106,7 +103,7 @@ function createBlocklistDbMock(
           Promise.resolve({
             apId: blockedActorApId,
             publicKeyPem,
-          })
+          }),
         ),
       },
       activities: {
@@ -115,7 +112,7 @@ function createBlocklistDbMock(
       blockedActors: {
         // Sender is on the actor blocklist.
         findFirst: spy((..._args: unknown[]) =>
-          Promise.resolve({ actorApId: blockedActorApId })
+          Promise.resolve({ actorApId: blockedActorApId }),
         ),
       },
       blockedDomains: {
@@ -206,12 +203,12 @@ function createSharedInboxDbMock(
   const limit = spy((..._args: unknown[]) =>
     Promise.resolve(
       localFollowerApIds.map((followerApId) => ({ followerApId })),
-    )
+    ),
   );
   const findMany = spy((..._args: unknown[]) =>
     Promise.resolve(
       localFollowerApIds.map((apId) => ({ apId, isPrivate: false })),
-    )
+    ),
   );
   // The follower-page query is `select().from().where().orderBy().limit()`.
   // The Like dispatch (handleInteraction) issues other select/update chains
@@ -236,7 +233,7 @@ function createSharedInboxDbMock(
           Promise.resolve({
             apId: "https://remote.example/users/alice",
             publicKeyPem,
-          })
+          }),
         ),
       },
       activities: {

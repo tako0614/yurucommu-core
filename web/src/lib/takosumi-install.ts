@@ -17,8 +17,10 @@ function browserHostname(): string {
 }
 
 function isLocalSubstrateHostname(hostname: string): boolean {
-  return hostname.endsWith(".test") ||
+  return (
+    hostname.endsWith(".test") ||
     hostname === "localhost" ||
     hostname === "127.0.0.1" ||
-    hostname === "::1";
+    hostname === "::1"
+  );
 }

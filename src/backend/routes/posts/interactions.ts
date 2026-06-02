@@ -48,15 +48,20 @@ async function findPost(c: AppContext, selectFields?: "apIdOnly") {
   );
 
   if (selectFields === "apIdOnly") {
-    return db.select({ apId: objects.apId, attributedTo: objects.attributedTo })
-      .from(objects)
-      .where(whereCondition)
-      .get() ?? null;
+    return (
+      db
+        .select({ apId: objects.apId, attributedTo: objects.attributedTo })
+        .from(objects)
+        .where(whereCondition)
+        .get() ?? null
+    );
   }
 
-  return db.query.objects.findFirst({
-    where: whereCondition,
-  }) ?? null;
+  return (
+    db.query.objects.findFirst({
+      where: whereCondition,
+    }) ?? null
+  );
 }
 
 /**
@@ -94,7 +99,8 @@ posts.post("/:id/like", async (c) => {
   const db = c.get("db");
   const baseUrl = c.env.APP_URL;
 
-  const existingLike = await db.select({ actorApId: likes.actorApId })
+  const existingLike = await db
+    .select({ actorApId: likes.actorApId })
     .from(likes)
     .where(
       and(eq(likes.actorApId, actor.ap_id), eq(likes.objectApId, post.apId)),
@@ -112,8 +118,8 @@ posts.post("/:id/like", async (c) => {
     object: post.apId,
   };
   const now = new Date().toISOString();
-  const shouldNotifyLocal = post.attributedTo !== actor.ap_id &&
-    isLocal(post.attributedTo, baseUrl);
+  const shouldNotifyLocal =
+    post.attributedTo !== actor.ap_id && isLocal(post.attributedTo, baseUrl);
 
   // D1 doesn't support interactive transactions; use sequential operations
   await db.insert(likes).values({
@@ -122,7 +128,8 @@ posts.post("/:id/like", async (c) => {
     activityApId: likeActivityId,
   });
 
-  await db.update(objects)
+  await db
+    .update(objects)
     .set({ likeCount: sql`${objects.likeCount} + 1` })
     .where(eq(objects.apId, post.apId));
 
@@ -161,10 +168,12 @@ posts.delete("/:id/like", async (c) => {
   const db = c.get("db");
   const baseUrl = c.env.APP_URL;
 
-  const like = await db.select({
-    actorApId: likes.actorApId,
-    activityApId: likes.activityApId,
-  }).from(likes)
+  const like = await db
+    .select({
+      actorApId: likes.actorApId,
+      activityApId: likes.activityApId,
+    })
+    .from(likes)
     .where(
       and(eq(likes.actorApId, actor.ap_id), eq(likes.objectApId, post.apId)),
     )
@@ -172,12 +181,14 @@ posts.delete("/:id/like", async (c) => {
   if (!like) return c.json({ error: "Not liked" }, 400);
 
   // D1 doesn't support interactive transactions; use sequential operations
-  await db.delete(likes)
+  await db
+    .delete(likes)
     .where(
       and(eq(likes.actorApId, actor.ap_id), eq(likes.objectApId, post.apId)),
     );
 
-  await db.update(objects)
+  await db
+    .update(objects)
     .set({ likeCount: sql`${objects.likeCount} - 1` })
     .where(and(eq(objects.apId, post.apId), gt(objects.likeCount, 0)));
 
@@ -194,14 +205,17 @@ posts.delete("/:id/like", async (c) => {
       object: undoObject,
     };
 
-    await db.insert(activities).values({
-      apId: undoActivity.id,
-      type: "Undo",
-      actorApId: actor.ap_id,
-      objectApId: post.apId,
-      rawJson: JSON.stringify(undoActivity),
-      direction: "outbound",
-    }).onConflictDoNothing();
+    await db
+      .insert(activities)
+      .values({
+        apId: undoActivity.id,
+        type: "Undo",
+        actorApId: actor.ap_id,
+        objectApId: post.apId,
+        rawJson: JSON.stringify(undoActivity),
+        direction: "outbound",
+      })
+      .onConflictDoNothing();
 
     await deliverToRemote(c.env, undoActivity.id, post.attributedTo);
   }
@@ -223,7 +237,8 @@ posts.post("/:id/repost", async (c) => {
   const db = c.get("db");
   const baseUrl = c.env.APP_URL;
 
-  const existingRepost = await db.select({ actorApId: announces.actorApId })
+  const existingRepost = await db
+    .select({ actorApId: announces.actorApId })
     .from(announces)
     .where(
       and(
@@ -246,8 +261,8 @@ posts.post("/:id/repost", async (c) => {
     cc: [actor.ap_id + "/followers"],
   };
   const now = new Date().toISOString();
-  const shouldNotifyLocal = post.attributedTo !== actor.ap_id &&
-    isLocal(post.attributedTo, baseUrl);
+  const shouldNotifyLocal =
+    post.attributedTo !== actor.ap_id && isLocal(post.attributedTo, baseUrl);
 
   // D1 doesn't support interactive transactions; use sequential operations
   await db.insert(announces).values({
@@ -256,7 +271,8 @@ posts.post("/:id/repost", async (c) => {
     activityApId: announceActivityId,
   });
 
-  await db.update(objects)
+  await db
+    .update(objects)
     .set({ announceCount: sql`${objects.announceCount} + 1` })
     .where(eq(objects.apId, post.apId));
 
@@ -295,7 +311,8 @@ posts.delete("/:id/repost", async (c) => {
   const db = c.get("db");
   const baseUrl = c.env.APP_URL;
 
-  const announce = await db.select({ actorApId: announces.actorApId })
+  const announce = await db
+    .select({ actorApId: announces.actorApId })
     .from(announces)
     .where(
       and(
@@ -307,7 +324,8 @@ posts.delete("/:id/repost", async (c) => {
   if (!announce) return c.json({ error: "Not reposted" }, 400);
 
   // D1 doesn't support interactive transactions; use sequential operations
-  await db.delete(announces)
+  await db
+    .delete(announces)
     .where(
       and(
         eq(announces.actorApId, actor.ap_id),
@@ -315,7 +333,8 @@ posts.delete("/:id/repost", async (c) => {
       ),
     );
 
-  await db.update(objects)
+  await db
+    .update(objects)
     .set({ announceCount: sql`${objects.announceCount} - 1` })
     .where(and(eq(objects.apId, post.apId), gt(objects.announceCount, 0)));
 
@@ -328,14 +347,17 @@ posts.delete("/:id/repost", async (c) => {
       object: { type: "Announce", actor: actor.ap_id, object: post.apId },
     };
 
-    await db.insert(activities).values({
-      apId: undoActivity.id,
-      type: "Undo",
-      actorApId: actor.ap_id,
-      objectApId: post.apId,
-      rawJson: JSON.stringify(undoActivity),
-      direction: "outbound",
-    }).onConflictDoNothing();
+    await db
+      .insert(activities)
+      .values({
+        apId: undoActivity.id,
+        type: "Undo",
+        actorApId: actor.ap_id,
+        objectApId: post.apId,
+        rawJson: JSON.stringify(undoActivity),
+        direction: "outbound",
+      })
+      .onConflictDoNothing();
 
     await deliverToRemote(c.env, undoActivity.id, post.attributedTo);
   }
@@ -356,7 +378,8 @@ posts.post("/:id/bookmark", async (c) => {
 
   const db = c.get("db");
 
-  const existing = await db.select({ actorApId: bookmarks.actorApId })
+  const existing = await db
+    .select({ actorApId: bookmarks.actorApId })
     .from(bookmarks)
     .where(
       and(
@@ -384,7 +407,8 @@ posts.delete("/:id/bookmark", async (c) => {
 
   const db = c.get("db");
 
-  const bookmark = await db.select({ actorApId: bookmarks.actorApId })
+  const bookmark = await db
+    .select({ actorApId: bookmarks.actorApId })
     .from(bookmarks)
     .where(
       and(
@@ -395,7 +419,8 @@ posts.delete("/:id/bookmark", async (c) => {
     .get();
   if (!bookmark) return c.json({ error: "Not bookmarked" }, 400);
 
-  await db.delete(bookmarks)
+  await db
+    .delete(bookmarks)
     .where(
       and(
         eq(bookmarks.actorApId, actor.ap_id),
@@ -416,9 +441,9 @@ posts.get("/bookmarks", async (c) => {
 
   const whereCondition = before
     ? and(
-      eq(bookmarks.actorApId, actor.ap_id),
-      sql`${bookmarks.createdAt} < ${before}`,
-    )
+        eq(bookmarks.actorApId, actor.ap_id),
+        sql`${bookmarks.createdAt} < ${before}`,
+      )
     : eq(bookmarks.actorApId, actor.ap_id);
 
   const bookmarkRows = await db.query.bookmarks.findMany({
@@ -433,18 +458,24 @@ posts.get("/bookmarks", async (c) => {
     ...new Set(bookmarkRows.map((b) => b.object.attributedTo)),
   ];
   const [localActors, cachedActors] = await Promise.all([
-    db.select({
-      apId: actors.apId,
-      preferredUsername: actors.preferredUsername,
-      name: actors.name,
-      iconUrl: actors.iconUrl,
-    }).from(actors).where(inArray(actors.apId, authorApIds)),
-    db.select({
-      apId: actorCache.apId,
-      preferredUsername: actorCache.preferredUsername,
-      name: actorCache.name,
-      iconUrl: actorCache.iconUrl,
-    }).from(actorCache).where(inArray(actorCache.apId, authorApIds)),
+    db
+      .select({
+        apId: actors.apId,
+        preferredUsername: actors.preferredUsername,
+        name: actors.name,
+        iconUrl: actors.iconUrl,
+      })
+      .from(actors)
+      .where(inArray(actors.apId, authorApIds)),
+    db
+      .select({
+        apId: actorCache.apId,
+        preferredUsername: actorCache.preferredUsername,
+        name: actorCache.name,
+        iconUrl: actorCache.iconUrl,
+      })
+      .from(actorCache)
+      .where(inArray(actorCache.apId, authorApIds)),
   ]);
 
   const actorMap = new Map([
@@ -454,7 +485,8 @@ posts.get("/bookmarks", async (c) => {
 
   // Batch-load likes for all bookmarked posts
   const postApIds = bookmarkRows.map((b) => b.object.apId);
-  const likeRows = await db.select({ objectApId: likes.objectApId })
+  const likeRows = await db
+    .select({ objectApId: likes.objectApId })
     .from(likes)
     .where(
       and(

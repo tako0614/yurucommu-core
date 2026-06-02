@@ -32,7 +32,9 @@ export function registerMembershipInviteRoutes(
         return c.json({ error: "Forbidden" }, 403);
       }
 
-      const invites = await db.select().from(communityInvites)
+      const invites = await db
+        .select()
+        .from(communityInvites)
         .where(eq(communityInvites.communityApId, community.apId))
         .orderBy(desc(communityInvites.createdAt));
 
@@ -56,7 +58,8 @@ export function registerMembershipInviteRoutes(
           expires_at: inv.expiresAt,
           used_at: inv.usedAt,
           used_by_ap_id: inv.usedByApId,
-          is_valid: !inv.usedAt &&
+          is_valid:
+            !inv.usedAt &&
             (!inv.expiresAt || new Date(inv.expiresAt) > new Date()),
         };
       });
@@ -77,9 +80,10 @@ export function registerMembershipInviteRoutes(
       let invitedApId: string | null = null;
       let expiresInHours: number | null = null;
       try {
-        const body = await c.req.json<
-          { invited_ap_id?: string; expires_in_hours?: number }
-        >();
+        const body = await c.req.json<{
+          invited_ap_id?: string;
+          expires_in_hours?: number;
+        }>();
         invitedApId = body.invited_ap_id?.trim() || null;
         expiresInHours = body.expires_in_hours || null;
       } catch {
@@ -100,8 +104,9 @@ export function registerMembershipInviteRoutes(
       const inviteId = generateId();
       const now = new Date();
       const expiresAt = expiresInHours
-        ? new Date(now.getTime() + expiresInHours * 60 * 60 * 1000)
-          .toISOString()
+        ? new Date(
+            now.getTime() + expiresInHours * 60 * 60 * 1000,
+          ).toISOString()
         : null;
 
       await db.insert(communityInvites).values({
@@ -138,17 +143,22 @@ export function registerMembershipInviteRoutes(
         return c.json({ error: "Forbidden" }, 403);
       }
 
-      const invite = await db.select().from(communityInvites)
-        .where(and(
-          eq(communityInvites.id, inviteId),
-          eq(communityInvites.communityApId, community.apId),
-        ))
+      const invite = await db
+        .select()
+        .from(communityInvites)
+        .where(
+          and(
+            eq(communityInvites.id, inviteId),
+            eq(communityInvites.communityApId, community.apId),
+          ),
+        )
         .get();
       if (!invite) {
         return c.json({ error: "Invite not found" }, 404);
       }
 
-      await db.delete(communityInvites)
+      await db
+        .delete(communityInvites)
         .where(eq(communityInvites.id, inviteId));
 
       return c.json({ success: true });

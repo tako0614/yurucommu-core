@@ -68,19 +68,24 @@ export function RightSidebar() {
   const [users, setUsers] = createSignal<RecommendedUser[]>([]);
   const [loading, setLoading] = createSignal(true);
 
-  createEffect(on(() => actor.ap_id, () => {
-    let cancelled = false;
-    fetchRecommendedUsers()
-      .then((data) => {
-        if (!cancelled) setUsers(data);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }));
+  createEffect(
+    on(
+      () => actor.ap_id,
+      () => {
+        let cancelled = false;
+        fetchRecommendedUsers()
+          .then((data) => {
+            if (!cancelled) setUsers(data);
+          })
+          .finally(() => {
+            if (!cancelled) setLoading(false);
+          });
+        return () => {
+          cancelled = true;
+        };
+      },
+    ),
+  );
 
   const handleFollowed = (apId: string) => {
     setUsers((prev) => prev.filter((u) => u.ap_id !== apId));

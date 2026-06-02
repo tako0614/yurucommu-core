@@ -32,20 +32,25 @@ function envValue(env: Env, key: keyof Env): string | undefined {
 }
 
 export function getOidcIssuerUrl(env: Env): string | null {
-  return envValue(env, "OIDC_ISSUER_URL") ??
+  return (
+    envValue(env, "OIDC_ISSUER_URL") ??
     envValue(env, "OAUTH_ISSUER_URL") ??
     envValue(env, "TAKOSUMI_ACCOUNTS_ISSUER_URL") ??
-    null;
+    null
+  );
 }
 
-export function getOidcClientCredentials(
-  env: Env,
-): { clientId: string; clientSecret: string } {
+export function getOidcClientCredentials(env: Env): {
+  clientId: string;
+  clientSecret: string;
+} {
   return {
-    clientId: envValue(env, "OIDC_CLIENT_ID") ??
+    clientId:
+      envValue(env, "OIDC_CLIENT_ID") ??
       envValue(env, "TAKOSUMI_ACCOUNTS_CLIENT_ID") ??
       "",
-    clientSecret: envValue(env, "OIDC_CLIENT_SECRET") ??
+    clientSecret:
+      envValue(env, "OIDC_CLIENT_SECRET") ??
       envValue(env, "TAKOSUMI_ACCOUNTS_CLIENT_SECRET") ??
       "",
   };
@@ -251,9 +256,10 @@ function parseTakosUserInfo(data: Record<string, unknown>): NormalizedUserInfo {
   return {
     id: resolvedId,
     name: resolvedName,
-    email: (user ? getString(user, "email") : undefined) ??
-      getString(data, "email"),
-    picture: (user ? getString(user, "picture") : undefined) ??
+    email:
+      (user ? getString(user, "email") : undefined) ?? getString(data, "email"),
+    picture:
+      (user ? getString(user, "picture") : undefined) ??
       getString(data, "picture"),
   };
 }
@@ -262,9 +268,10 @@ export async function fetchUserInfo(
   provider: OAuthProvider,
   accessToken: string,
 ): Promise<NormalizedUserInfo> {
-  const url = provider.id === "x"
-    ? `${provider.userInfoUrl}?user.fields=profile_image_url`
-    : provider.userInfoUrl;
+  const url =
+    provider.id === "x"
+      ? `${provider.userInfoUrl}?user.fields=profile_image_url`
+      : provider.userInfoUrl;
 
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },

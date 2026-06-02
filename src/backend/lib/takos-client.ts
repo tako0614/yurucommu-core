@@ -91,7 +91,8 @@ async function clearTakosAuth(
     sessionId,
     reason,
   });
-  await db.update(sessions)
+  await db
+    .update(sessions)
     .set({
       provider: null,
       providerAccessToken: null,
@@ -156,17 +157,18 @@ export async function getTakosClient(
 
   const refreshToken = session.providerRefreshToken
     ? await decryptTakosToken(
-      db,
-      session.id,
-      session.providerRefreshToken,
-      env.ENCRYPTION_KEY,
-      "refresh token",
-    )
+        db,
+        session.id,
+        session.providerRefreshToken,
+        env.ENCRYPTION_KEY,
+        "refresh token",
+      )
     : null;
   if (session.providerRefreshToken && !refreshToken) return null;
 
   // トークン有効期限チェック（5分前にリフレッシュ）
-  const tokenExpired = session.providerTokenExpiresAt &&
+  const tokenExpired =
+    session.providerTokenExpiresAt &&
     new Date(session.providerTokenExpiresAt).getTime() - Date.now() <
       5 * 60 * 1000;
 
@@ -301,11 +303,13 @@ async function updateSessionTokens(
     ? await encrypt(tokens.refresh_token, encryptionKey)
     : undefined;
 
-  await db.update(sessions)
+  await db
+    .update(sessions)
     .set({
       providerAccessToken: encryptedAccessToken,
-      ...(encryptedRefreshToken &&
-        { providerRefreshToken: encryptedRefreshToken }),
+      ...(encryptedRefreshToken && {
+        providerRefreshToken: encryptedRefreshToken,
+      }),
       ...(tokenExpiresAt && { providerTokenExpiresAt: tokenExpiresAt }),
     })
     .where(eq(sessions.id, sessionId));

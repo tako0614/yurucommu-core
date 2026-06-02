@@ -146,7 +146,8 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                     props.onUpdateMemberRole(
                       member,
                       e.currentTarget.value as "owner" | "moderator" | "member",
-                    )}
+                    )
+                  }
                   disabled={props.updatingMemberRole[member.ap_id]}
                   class="ml-auto bg-neutral-900 border border-neutral-700 text-xs text-white rounded-lg px-2 py-1"
                 >

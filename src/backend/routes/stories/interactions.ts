@@ -68,7 +68,8 @@ stories.post("/view", async (c) => {
 
   try {
     // Upsert: check existence then insert if not found
-    const existing = await db.select()
+    const existing = await db
+      .select()
       .from(storyViews)
       .where(
         and(
@@ -120,8 +121,8 @@ stories.post("/vote", async (c) => {
 
   // Validate option_index against the first Question overlay
   const storyData = safeJsonParse<StoryData>(story.attachmentsJson, {});
-  const questionOverlays = (storyData.overlays || []).filter((o) =>
-    o.type === "Question"
+  const questionOverlays = (storyData.overlays || []).filter(
+    (o) => o.type === "Question",
   );
 
   if (questionOverlays.length === 0) {
@@ -137,7 +138,8 @@ stories.post("/vote", async (c) => {
   }
 
   // Upsert vote
-  const existingVote = await db.select()
+  const existingVote = await db
+    .select()
     .from(storyVotes)
     .where(
       and(
@@ -148,7 +150,8 @@ stories.post("/vote", async (c) => {
     .get();
 
   if (existingVote) {
-    await db.update(storyVotes)
+    await db
+      .update(storyVotes)
       .set({ optionIndex: body.option_index, createdAt: now })
       .where(eq(storyVotes.id, existingVote.id));
   } else {
@@ -185,7 +188,8 @@ stories.post("/:id/like", async (c) => {
   // Reject if the story author has blocked the liker, so a blocked actor
   // cannot insert into the author's inbox. Respond with 404 (matching a
   // non-existent story) so the block is not leaked to the liker.
-  const blockedBy = await db.select({ blockerApId: blocks.blockerApId })
+  const blockedBy = await db
+    .select({ blockerApId: blocks.blockerApId })
     .from(blocks)
     .where(
       and(
@@ -196,7 +200,8 @@ stories.post("/:id/like", async (c) => {
     .get();
   if (blockedBy) return c.json({ error: "Story not found" }, 404);
 
-  const existing = await db.select()
+  const existing = await db
+    .select()
     .from(likes)
     .where(and(eq(likes.actorApId, actor.ap_id), eq(likes.objectApId, apId)))
     .get();
@@ -215,7 +220,8 @@ stories.post("/:id/like", async (c) => {
     createdAt: now,
   });
 
-  await db.update(objects)
+  await db
+    .update(objects)
     .set({ likeCount: sql`${objects.likeCount} + 1` })
     .where(eq(objects.apId, apId));
 
@@ -237,7 +243,8 @@ stories.post("/:id/like", async (c) => {
   });
 
   if (
-    story.attributedTo !== actor.ap_id && isLocal(story.attributedTo, baseUrl)
+    story.attributedTo !== actor.ap_id &&
+    isLocal(story.attributedTo, baseUrl)
   ) {
     await db.insert(inbox).values({
       actorApId: story.attributedTo,
@@ -279,16 +286,19 @@ stories.delete("/:id/like", async (c) => {
   const story = await findStory(db, apId);
   if (!story) return c.json({ error: "Story not found" }, 404);
 
-  const like = await db.select()
+  const like = await db
+    .select()
     .from(likes)
     .where(and(eq(likes.actorApId, actor.ap_id), eq(likes.objectApId, apId)))
     .get();
   if (!like) return c.json({ error: "Not liked" }, 400);
 
-  await db.delete(likes)
+  await db
+    .delete(likes)
     .where(and(eq(likes.actorApId, actor.ap_id), eq(likes.objectApId, apId)));
 
-  await db.update(objects)
+  await db
+    .update(objects)
     .set({ likeCount: sql`${objects.likeCount} - 1` })
     .where(eq(objects.apId, apId));
 
@@ -306,7 +316,8 @@ stories.delete("/:id/like", async (c) => {
 
     // Store activity first (queue consumer loads rawJson by activityId).
     // Upsert: check existence then insert if not found
-    const existingActivity = await db.select()
+    const existingActivity = await db
+      .select()
       .from(activities)
       .where(eq(activities.apId, undoLikeActivity.id))
       .get();
@@ -357,7 +368,8 @@ stories.post("/:id/share", async (c) => {
   const story = await findStory(db, apId);
   if (!story) return c.json({ error: "Story not found" }, 404);
 
-  const existing = await db.select()
+  const existing = await db
+    .select()
     .from(storyShares)
     .where(
       and(
@@ -383,7 +395,8 @@ stories.post("/:id/share", async (c) => {
     sharedAt: now,
   });
 
-  await db.update(objects)
+  await db
+    .update(objects)
     .set({ shareCount: sql`${objects.shareCount} + 1` })
     .where(eq(objects.apId, apId));
 
@@ -400,7 +413,8 @@ stories.get("/:id/shares", async (c) => {
   const baseUrl = c.env.APP_URL;
   const apId = resolveStoryApId(c.req.param("id"), baseUrl);
 
-  const story = await db.select({ shareCount: objects.shareCount })
+  const story = await db
+    .select({ shareCount: objects.shareCount })
     .from(objects)
     .where(and(eq(objects.apId, apId), eq(objects.type, "Story")))
     .get();
@@ -426,7 +440,8 @@ stories.get("/:id/votes", async (c) => {
 
   let user_vote: number | undefined;
   if (actor) {
-    const userVote = await db.select({ optionIndex: storyVotes.optionIndex })
+    const userVote = await db
+      .select({ optionIndex: storyVotes.optionIndex })
       .from(storyVotes)
       .where(
         and(

@@ -35,7 +35,9 @@ export async function fetchCommunityDetails(
 ) {
   const db = c.get("db");
   const apId = resolveCommunityApId(c.env.APP_URL, identifier);
-  const community = await db.select().from(communities)
+  const community = await db
+    .select()
+    .from(communities)
     .where(communityWhere(apId, identifier))
     .get();
   return { apId, community };
@@ -47,9 +49,9 @@ export async function fetchCommunityId(
 ) {
   const db = c.get("db");
   const apId = resolveCommunityApId(c.env.APP_URL, identifier);
-  const community = await db.select({ apId: communities.apId }).from(
-    communities,
-  )
+  const community = await db
+    .select({ apId: communities.apId })
+    .from(communities)
     .where(communityWhere(apId, identifier))
     .get();
   return { apId, community };
@@ -72,7 +74,9 @@ export async function requireManager(
   communityApIdVal: string,
   actorApId: string,
 ) {
-  const member = await db.select().from(communityMembers)
+  const member = await db
+    .select()
+    .from(communityMembers)
     .where(memberWhere(communityApIdVal, actorApId))
     .get();
   if (!member || !managerRoles.has(member.role)) return null;
@@ -120,9 +124,10 @@ export async function batchLoadActorInfo(
 
   const [localActors, cachedActors] = await Promise.all([
     db.select(selectLocalBase).from(actors).where(inArray(actors.apId, apIds)),
-    db.select(selectCachedBase).from(actorCache).where(
-      inArray(actorCache.apId, apIds),
-    ),
+    db
+      .select(selectCachedBase)
+      .from(actorCache)
+      .where(inArray(actorCache.apId, apIds)),
   ]);
 
   // Cached first so local overrides

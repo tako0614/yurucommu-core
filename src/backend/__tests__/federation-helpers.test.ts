@@ -11,7 +11,7 @@ function localResolver(
 ): NonNullable<RemoteUrlSafetyOptions["localResolver"]> {
   return async (_hostname, recordType) =>
     ips.filter((ip) =>
-      recordType === "AAAA" ? ip.includes(":") : !ip.includes(":")
+      recordType === "AAAA" ? ip.includes(":") : !ip.includes(":"),
     );
 }
 
@@ -51,9 +51,12 @@ test("federation helpers - private resolved IPs stay blocked without the local-s
 });
 
 test("federation helpers - local-substrate flag allows only takos.test HTTPS actors on loopback or Docker bridge", async () => {
-  for (
-    const ip of ["127.0.0.1", "172.16.0.2", "172.17.0.2", "172.31.255.254"]
-  ) {
+  for (const ip of [
+    "127.0.0.1",
+    "172.16.0.2",
+    "172.17.0.2",
+    "172.31.255.254",
+  ]) {
     await assertSafeRemoteUrlResolved(
       "https://inst-b.takos.test/ap/users/tako",
       {
@@ -65,18 +68,16 @@ test("federation helpers - local-substrate flag allows only takos.test HTTPS act
 });
 
 test("federation helpers - local-substrate flag rejects private ranges outside the allowlist", async () => {
-  for (
-    const ip of [
-      "10.0.0.2",
-      "192.168.1.2",
-      "169.254.1.1",
-      "172.15.255.255",
-      "172.32.0.1",
-      "::1",
-      "fc00::1",
-      "8.8.8.8",
-    ]
-  ) {
+  for (const ip of [
+    "10.0.0.2",
+    "192.168.1.2",
+    "169.254.1.1",
+    "172.15.255.255",
+    "172.32.0.1",
+    "::1",
+    "fc00::1",
+    "8.8.8.8",
+  ]) {
     await assertRejects(
       () =>
         assertSafeRemoteUrlResolved("https://inst-b.takos.test/ap/users/tako", {

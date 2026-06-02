@@ -41,8 +41,10 @@ export function isPathWithinBasePath(
   candidatePath: string,
 ): boolean {
   const relative = path.relative(basePath, candidatePath);
-  return relative === "" ||
-    (!relative.startsWith("..") && !path.isAbsolute(relative));
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
 }
 
 export function resolvePathWithinBasePath(
@@ -60,10 +62,12 @@ export function resolvePathWithinBasePath(
 }
 
 function isNotFoundError(error: unknown): boolean {
-  return typeof error === "object" &&
+  return (
+    typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    (error as { code?: unknown }).code === "ENOENT";
+    (error as { code?: unknown }).code === "ENOENT"
+  );
 }
 
 export async function assertPathChainWithinBasePath(

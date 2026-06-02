@@ -76,14 +76,18 @@ messagesRouter.get("/:identifier/messages", async (c) => {
     : 50;
   const before = c.req.query("before");
 
-  const community = await db.select().from(communities)
+  const community = await db
+    .select()
+    .from(communities)
     .where(communityWhere(apId, identifier))
     .get();
   if (!community) {
     return c.json({ error: "Community not found" }, 404);
   }
 
-  const membership = await db.select().from(communityMembers)
+  const membership = await db
+    .select()
+    .from(communityMembers)
     .where(memberWhere(community.apId, actor.ap_id))
     .get();
 
@@ -98,14 +102,17 @@ messagesRouter.get("/:identifier/messages", async (c) => {
   }
 
   // Query objects addressed to this community (via object_recipients)
-  const recipients = await db.select({
-    objectApId: objectRecipients.objectApId,
-  })
+  const recipients = await db
+    .select({
+      objectApId: objectRecipients.objectApId,
+    })
     .from(objectRecipients)
-    .where(and(
-      eq(objectRecipients.recipientApId, community.apId),
-      eq(objectRecipients.type, "audience"),
-    ));
+    .where(
+      and(
+        eq(objectRecipients.recipientApId, community.apId),
+        eq(objectRecipients.type, "audience"),
+      ),
+    );
 
   const objectApIds = recipients.map((r) => r.objectApId);
   if (objectApIds.length === 0) {
@@ -120,7 +127,9 @@ messagesRouter.get("/:identifier/messages", async (c) => {
     whereConditions.push(lt(objects.published, before));
   }
 
-  const messages = await db.select().from(objects)
+  const messages = await db
+    .select()
+    .from(objects)
     .where(and(...whereConditions))
     .orderBy(desc(objects.published))
     .limit(limit);
@@ -167,19 +176,26 @@ messagesRouter.post(
       return c.json({ error: "Message content is required" }, 400);
     }
     if (content.length > MAX_COMMUNITY_MESSAGE_LENGTH) {
-      return c.json({
-        error: `Message too long (max ${MAX_COMMUNITY_MESSAGE_LENGTH} chars)`,
-      }, 400);
+      return c.json(
+        {
+          error: `Message too long (max ${MAX_COMMUNITY_MESSAGE_LENGTH} chars)`,
+        },
+        400,
+      );
     }
 
-    const community = await db.select().from(communities)
+    const community = await db
+      .select()
+      .from(communities)
       .where(communityWhere(apId, identifier))
       .get();
     if (!community) {
       return c.json({ error: "Community not found" }, 404);
     }
 
-    const membership = await db.select().from(communityMembers)
+    const membership = await db
+      .select()
+      .from(communityMembers)
       .where(memberWhere(community.apId, actor.ap_id))
       .get();
 
@@ -188,11 +204,15 @@ messagesRouter.post(
       membership ?? null,
     );
     if (policyError) {
-      return c.json({
-        error: policyError === "Not a community member"
-          ? "Not a member"
-          : policyError,
-      }, 403);
+      return c.json(
+        {
+          error:
+            policyError === "Not a community member"
+              ? "Not a member"
+              : policyError,
+        },
+        403,
+      );
     }
 
     const objectId = generateId();
@@ -230,24 +250,28 @@ messagesRouter.post(
       rawJson: JSON.stringify({ to: JSON.parse(toJson) }),
     });
 
-    await db.update(communities)
+    await db
+      .update(communities)
       .set({ lastMessageAt: now })
       .where(eq(communities.apId, community.apId));
 
-    return c.json({
-      message: {
-        id: objectApId,
-        sender: {
-          ap_id: actor.ap_id,
-          username: formatUsername(actor.ap_id),
-          preferred_username: actor.preferred_username,
-          name: actor.name,
-          icon_url: actor.icon_url,
+    return c.json(
+      {
+        message: {
+          id: objectApId,
+          sender: {
+            ap_id: actor.ap_id,
+            username: formatUsername(actor.ap_id),
+            preferred_username: actor.preferred_username,
+            name: actor.name,
+            icon_url: actor.icon_url,
+          },
+          content,
+          created_at: now,
         },
-        content,
-        created_at: now,
       },
-    }, 201);
+      201,
+    );
   },
 );
 
@@ -271,9 +295,12 @@ messagesRouter.patch("/:identifier/messages/:messageId", async (c) => {
     return c.json({ error: "Message content is required" }, 400);
   }
   if (content.length > MAX_COMMUNITY_MESSAGE_LENGTH) {
-    return c.json({
-      error: `Message too long (max ${MAX_COMMUNITY_MESSAGE_LENGTH} chars)`,
-    }, 400);
+    return c.json(
+      {
+        error: `Message too long (max ${MAX_COMMUNITY_MESSAGE_LENGTH} chars)`,
+      },
+      400,
+    );
   }
 
   // Check message exists and belongs to community (using raw SQL since ObjectRecipient FK expects Actor)
@@ -286,10 +313,11 @@ messagesRouter.patch("/:identifier/messages/:messageId", async (c) => {
     return c.json({ error: "Message not found" }, 404);
   }
 
-  const message = await db.select({
-    apId: objects.apId,
-    attributedTo: objects.attributedTo,
-  })
+  const message = await db
+    .select({
+      apId: objects.apId,
+      attributedTo: objects.attributedTo,
+    })
     .from(objects)
     .where(eq(objects.apId, messageId))
     .get();
@@ -301,7 +329,8 @@ messagesRouter.patch("/:identifier/messages/:messageId", async (c) => {
     return c.json({ error: "Only the author can edit this message" }, 403);
   }
 
-  await db.update(objects)
+  await db
+    .update(objects)
     .set({ content, updated: new Date().toISOString() })
     .where(eq(objects.apId, messageId));
 
@@ -332,10 +361,11 @@ messagesRouter.delete("/:identifier/messages/:messageId", async (c) => {
     return c.json({ error: "Message not found" }, 404);
   }
 
-  const message = await db.select({
-    apId: objects.apId,
-    attributedTo: objects.attributedTo,
-  })
+  const message = await db
+    .select({
+      apId: objects.apId,
+      attributedTo: objects.attributedTo,
+    })
     .from(objects)
     .where(eq(objects.apId, messageId))
     .get();
@@ -344,7 +374,9 @@ messagesRouter.delete("/:identifier/messages/:messageId", async (c) => {
   }
 
   // Check permission: author can delete, or moderator/owner can delete any
-  const membership = await db.select().from(communityMembers)
+  const membership = await db
+    .select()
+    .from(communityMembers)
     .where(memberWhere(community.apId, actor.ap_id))
     .get();
 

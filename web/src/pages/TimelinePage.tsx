@@ -6,8 +6,8 @@ import { LoadingSpinner } from "../components/LoadingSpinner.tsx";
 
 // Lazy load heavy components
 const StoryViewer = lazy(() => import("../components/story/StoryViewer.tsx"));
-const StoryComposer = lazy(() =>
-  import("../components/story/StoryComposer.tsx")
+const StoryComposer = lazy(
+  () => import("../components/story/StoryComposer.tsx"),
 );
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { TimelineHeader } from "../components/timeline/TimelineHeader.tsx";
@@ -62,7 +62,8 @@ export function TimelinePage() {
         currentApId={state.currentApId()}
         showAccountSwitcher={state.showAccountSwitcher()}
         onToggleAccountSwitcher={() =>
-          state.setShowAccountSwitcher((prev) => !prev)}
+          state.setShowAccountSwitcher((prev) => !prev)
+        }
         onSwitchAccount={state.handleSwitchAccount}
         onClose={state.handleCloseMenu}
         t={state.t()}
@@ -110,14 +111,16 @@ export function TimelinePage() {
                   <TimelinePostItem
                     post={post}
                     onReply={() =>
-                      navigate(`/post/${encodeURIComponent(post.ap_id)}`)}
+                      navigate(`/post/${encodeURIComponent(post.ap_id)}`)
+                    }
                     onRepost={state.handleRepost}
                     onLike={state.handleLike}
                     onBookmark={state.handleBookmark}
                   />
                   <Show
-                    when={index() === 2 ||
-                      (index() > 2 && (index() - 2) % 8 === 0)}
+                    when={
+                      index() === 2 || (index() > 2 && (index() - 2) % 8 === 0)
+                    }
                   >
                     <PluginSlot name="timeline.between-posts" />
                   </Show>

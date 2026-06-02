@@ -1,20 +1,20 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
   <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Story Canvas Editor 仕様 - Yurucommu</title>
     <meta
       name="description"
       content="Story Canvas Editorのレンダリング仕様。キャンバス座標系、要素描画、テキストレンダリング、エクスポート処理を定義"
-    >
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
-    >
-    <link rel="stylesheet" href="../styles.css">
+    />
+    <link rel="stylesheet" href="../styles.css" />
   </head>
   <body>
     <!-- Header -->
@@ -82,7 +82,8 @@
             </li>
             <li>
               <a href="https://www.w3.org/TR/activitystreams-core/"
-              >Activity Streams 2.0</a>
+                >Activity Streams 2.0</a
+              >
             </li>
           </ul>
         </div>
@@ -127,8 +128,7 @@
         </ul>
 
         <p>
-          エディタ表示時は、実際のキャンバスサイズと表示サイズの比率（<code
-          >canvasScale</code>）を計算し、座標変換を行います。
+          エディタ表示時は、実際のキャンバスサイズと表示サイズの比率（<code>canvasScale</code>）を計算し、座標変換を行います。
         </p>
         <pre><code>canvasScale = displayWidth / CANVAS_WIDTH
 displayX = canvasX * canvasScale
@@ -143,17 +143,29 @@ displayY = canvasY * canvasScale</code></pre>
           <thead>
             <tr style="border-bottom: 1px solid var(--border)">
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 プロパティ
               </th>
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 型
               </th>
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 説明
               </th>
@@ -213,17 +225,29 @@ displayY = canvasY * canvasScale</code></pre>
           <thead>
             <tr style="border-bottom: 1px solid var(--border)">
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 プロパティ
               </th>
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 型
               </th>
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 説明
               </th>
@@ -267,17 +291,29 @@ displayY = canvasY * canvasScale</code></pre>
           <thead>
             <tr style="border-bottom: 1px solid var(--border)">
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 プロパティ
               </th>
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 型
               </th>
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 説明
               </th>
@@ -330,12 +366,12 @@ displayY = canvasY * canvasScale</code></pre>
         <h3>3.1 背景タイプ</h3>
         <ul>
           <li>
-            <strong>単色</strong>: CSS color値（例: <code>#000000</code>, <code
-            >rgb(0,0,0)</code>）
+            <strong>単色</strong>: CSS color値（例: <code>#000000</code>,
+            <code>rgb(0,0,0)</code>）
           </li>
           <li>
-            <strong>グラデーション</strong>: CSS linear-gradient（例: <code
-            >linear-gradient(135deg, #667eea 0%, #764ba2 100%)</code>）
+            <strong>グラデーション</strong>: CSS linear-gradient（例:
+            <code>linear-gradient(135deg, #667eea 0%, #764ba2 100%)</code>）
           </li>
         </ul>
 
@@ -344,17 +380,29 @@ displayY = canvasY * canvasScale</code></pre>
           <thead>
             <tr style="border-bottom: 1px solid var(--border)">
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 ID
               </th>
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 名前
               </th>
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 値
               </th>
@@ -408,8 +456,10 @@ displayY = canvasY * canvasScale</code></pre>
               <td style="padding: 0.75rem"><code>night</code></td>
               <td style="padding: 0.75rem">夜</td>
               <td style="padding: 0.75rem">
-                <code>linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e
-                  100%)</code>
+                <code
+                  >linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e
+                  100%)</code
+                >
               </td>
             </tr>
             <tr style="border-bottom: 1px solid var(--border)">
@@ -708,17 +758,29 @@ displayY = canvasY * canvasScale</code></pre>
           <thead>
             <tr style="border-bottom: 1px solid var(--border)">
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 要素構成
               </th>
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 計算
               </th>
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 結果
               </th>
@@ -811,17 +873,29 @@ displayY = canvasY * canvasScale</code></pre>
           <thead>
             <tr style="border-bottom: 1px solid var(--border)">
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 要素
               </th>
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 初期位置
               </th>
               <th
-                style="text-align: left; padding: 0.75rem; color: var(--text-secondary)"
+                style="
+                  text-align: left;
+                  padding: 0.75rem;
+                  color: var(--text-secondary);
+                "
               >
                 初期サイズ
               </th>
@@ -859,7 +933,8 @@ displayY = canvasY * canvasScale</code></pre>
           <a href="/help/" class="footer-link">Docs</a>
           <a href="/specs/" class="footer-link">Specs</a>
           <a href="https://github.com/tako0614/yurucommu" class="footer-link"
-          >GitHub</a>
+            >GitHub</a
+          >
         </div>
         <p class="footer-copy">&copy; 2026 Yurucommu. AGPL v3.</p>
       </div>

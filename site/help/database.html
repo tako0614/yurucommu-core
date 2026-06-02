@@ -1,17 +1,17 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
   <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>データベース - Yurucommu</title>
-    <meta name="description" content="Yurucommuのデータベーススキーマ">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <meta name="description" content="Yurucommuのデータベーススキーマ" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
-    >
-    <link rel="stylesheet" href="../styles.css">
+    />
+    <link rel="stylesheet" href="../styles.css" />
   </head>
   <body>
     <header class="header">
@@ -607,8 +607,8 @@
         <p>
           ローカルの Bun サーバーは起動時に <code>MIGRATIONS_PATH</code> の SQL
           を自動適用します。Cloudflare D1
-          に対して手動で適用したい場合だけ、以下の <code>wrangler d1 migrations
-            apply</code> を使います。
+          に対して手動で適用したい場合だけ、以下の
+          <code>wrangler d1 migrations apply</code> を使います。
         </p>
         <pre><code># マイグレーション状態を確認
 bunx wrangler d1 migrations list yurucommu-db --remote
@@ -639,7 +639,8 @@ bunx wrangler d1 execute yurucommu-db --remote \
           <a href="/help/" class="footer-link">Docs</a>
           <a href="/specs/" class="footer-link">Specs</a>
           <a href="https://github.com/tako0614/yurucommu" class="footer-link"
-          >GitHub</a>
+            >GitHub</a
+          >
         </div>
         <p class="footer-copy">&copy; 2026 Yurucommu. AGPL v3.</p>
       </div>

@@ -69,52 +69,59 @@ const drawSnapGuides = (
 };
 
 export function useStoryCanvasRenderer(opts: StoryCanvasRendererOptions) {
-  createEffect(on(
-    () => [opts.renderKey, opts.snapGuides] as const,
-    ([, snapGuides]) => {
-      const storyCanvas = opts.storyCanvas;
-      if (!storyCanvas) return;
-      const displayCanvas = opts.displayCanvasRef;
-      if (!displayCanvas) return;
+  createEffect(
+    on(
+      () => [opts.renderKey, opts.snapGuides] as const,
+      ([, snapGuides]) => {
+        const storyCanvas = opts.storyCanvas;
+        if (!storyCanvas) return;
+        const displayCanvas = opts.displayCanvasRef;
+        if (!displayCanvas) return;
 
-      const render = async () => {
-        await storyCanvas.render();
+        const render = async () => {
+          await storyCanvas.render();
 
-        const displayCtx = displayCanvas.getContext("2d");
-        if (!displayCtx) return;
+          const displayCtx = displayCanvas.getContext("2d");
+          if (!displayCtx) return;
 
-        const displayWidth = displayCanvas.width;
-        const displayHeight = displayCanvas.height;
+          const displayWidth = displayCanvas.width;
+          const displayHeight = displayCanvas.height;
 
-        displayCtx.clearRect(0, 0, displayWidth, displayHeight);
-        displayCtx.drawImage(
-          storyCanvas.getCanvas(),
-          0,
-          0,
-          CANVAS_WIDTH,
-          CANVAS_HEIGHT,
-          0,
-          0,
-          displayWidth,
-          displayHeight,
-        );
+          displayCtx.clearRect(0, 0, displayWidth, displayHeight);
+          displayCtx.drawImage(
+            storyCanvas.getCanvas(),
+            0,
+            0,
+            CANVAS_WIDTH,
+            CANVAS_HEIGHT,
+            0,
+            0,
+            displayWidth,
+            displayHeight,
+          );
 
-        const scale = displayWidth / CANVAS_WIDTH;
-        drawSnapGuides(
-          displayCtx,
-          scale,
-          displayWidth,
-          displayHeight,
-          snapGuides,
-        );
+          const scale = displayWidth / CANVAS_WIDTH;
+          drawSnapGuides(
+            displayCtx,
+            scale,
+            displayWidth,
+            displayHeight,
+            snapGuides,
+          );
 
-        const selectedLayer = opts.getSelectedLayer();
-        if (selectedLayer && selectedLayer.type !== "background") {
-          drawSelectionIndicator(displayCtx, storyCanvas, selectedLayer, scale);
-        }
-      };
+          const selectedLayer = opts.getSelectedLayer();
+          if (selectedLayer && selectedLayer.type !== "background") {
+            drawSelectionIndicator(
+              displayCtx,
+              storyCanvas,
+              selectedLayer,
+              scale,
+            );
+          }
+        };
 
-      render();
-    },
-  ));
+        render();
+      },
+    ),
+  );
 }

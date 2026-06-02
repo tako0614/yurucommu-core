@@ -144,9 +144,10 @@ async function insertDirectNote(
     actor,
     recipient.apId,
   );
-  const conversationId = object.conversation === computedConversation
-    ? object.conversation
-    : computedConversation;
+  const conversationId =
+    object.conversation === computedConversation
+      ? object.conversation
+      : computedConversation;
 
   const attachments = object.attachment
     ? JSON.stringify(object.attachment)
@@ -154,7 +155,8 @@ async function insertDirectNote(
   const publishedAt = object.published || new Date().toISOString();
   const toJson = JSON.stringify([recipient.apId]);
 
-  const inserted = await db.insert(objects)
+  const inserted = await db
+    .insert(objects)
     .values({
       apId: objectId,
       type: "Note",
@@ -176,11 +178,13 @@ async function insertDirectNote(
 
   if (!inserted) return; // duplicate
 
-  await db.update(actors)
+  await db
+    .update(actors)
     .set({ postCount: sql`${actors.postCount} + 1` })
     .where(eq(actors.apId, actor));
 
-  await db.insert(objectRecipients)
+  await db
+    .insert(objectRecipients)
     .values({ objectApId: objectId, recipientApId: recipient.apId, type: "to" })
     .onConflictDoNothing();
 
@@ -239,7 +243,8 @@ export async function handleCreate(
   // is neither public nor follower-only belongs in the recipient's DM inbox /
   // message-request flow rather than the generic public Note insert.
   if (object.id && isDirectNote(object, recipient)) {
-    const existing = await db.select({ apId: objects.apId })
+    const existing = await db
+      .select({ apId: objects.apId })
       .from(objects)
       .where(eq(objects.apId, object.id))
       .get();
@@ -259,7 +264,8 @@ export async function handleCreate(
   const objectId = object.id || objectApId(baseUrl, generateId());
 
   // Check if object already exists
-  const existing = await db.select({ apId: objects.apId })
+  const existing = await db
+    .select({ apId: objects.apId })
     .from(objects)
     .where(eq(objects.apId, objectId))
     .get();
@@ -270,19 +276,22 @@ export async function handleCreate(
     : "[]";
   const publishedAt = object.published || new Date().toISOString();
   const parentObj = object.inReplyTo
-    ? await db.select({ attributedTo: objects.attributedTo })
-      .from(objects)
-      .where(eq(objects.apId, object.inReplyTo))
-      .get()
+    ? await db
+        .select({ attributedTo: objects.attributedTo })
+        .from(objects)
+        .where(eq(objects.apId, object.inReplyTo))
+        .get()
     : null;
-  const shouldNotifyParent =
-    !!(parentObj && isLocal(parentObj.attributedTo, baseUrl));
+  const shouldNotifyParent = !!(
+    parentObj && isLocal(parentObj.attributedTo, baseUrl)
+  );
   const replyActivityId = shouldNotifyParent
     ? activity.id || activityApId(baseUrl, generateId())
     : null;
 
   // Try to insert object; if duplicate, skip
-  const insertResult = await db.insert(objects)
+  const insertResult = await db
+    .insert(objects)
     .values({
       apId: objectId,
       type: "Note",
@@ -291,10 +300,11 @@ export async function handleCreate(
       summary: object.summary || null,
       attachmentsJson: attachments,
       inReplyTo: object.inReplyTo || null,
-      visibility:
-        object.to?.includes("https://www.w3.org/ns/activitystreams#Public")
-          ? "public"
-          : "unlisted",
+      visibility: object.to?.includes(
+        "https://www.w3.org/ns/activitystreams#Public",
+      )
+        ? "public"
+        : "unlisted",
       communityApId: null,
       published: publishedAt,
       isLocal: 0,
@@ -305,12 +315,14 @@ export async function handleCreate(
 
   if (!insertResult) return; // duplicate
 
-  await db.update(actors)
+  await db
+    .update(actors)
     .set({ postCount: sql`${actors.postCount} + 1` })
     .where(eq(actors.apId, actor));
 
   if (object.inReplyTo) {
-    await db.update(objects)
+    await db
+      .update(objects)
       .set({ replyCount: sql`${objects.replyCount} + 1` })
       .where(eq(objects.apId, object.inReplyTo));
   }
@@ -356,7 +368,8 @@ export async function handleCreateStory(
   const objectId = object.id || objectApId(baseUrl, generateId());
 
   // Check if story already exists
-  const existing = await db.select({ apId: objects.apId })
+  const existing = await db
+    .select({ apId: objects.apId })
     .from(objects)
     .where(eq(objects.apId, objectId))
     .get();
@@ -395,7 +408,8 @@ export async function handleCreateStory(
   if (Array.isArray(object.overlays)) {
     const filtered = (object.overlays as StoryOverlay[]).filter(
       (o: StoryOverlay) =>
-        o && o.position &&
+        o &&
+        o.position &&
         typeof o.position.x === "number" &&
         typeof o.position.y === "number",
     );
@@ -411,26 +425,25 @@ export async function handleCreateStory(
       width: attachment.width || 1080,
       height: attachment.height || 1920,
     },
-    displayDuration: (object as { displayDuration?: string }).displayDuration ||
-      "PT5S",
+    displayDuration:
+      (object as { displayDuration?: string }).displayDuration || "PT5S",
     overlays,
   };
 
   const now = new Date().toISOString();
-  const endTime = object.endTime ||
-    new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const endTime =
+    object.endTime || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
-  await db.insert(objects)
-    .values({
-      apId: objectId,
-      type: "Story",
-      attributedTo: actor,
-      content: "",
-      attachmentsJson: JSON.stringify(attachmentData),
-      endTime,
-      published: object.published || now,
-      isLocal: 0,
-    });
+  await db.insert(objects).values({
+    apId: objectId,
+    type: "Story",
+    attributedTo: actor,
+    content: "",
+    attachmentsJson: JSON.stringify(attachmentData),
+    endTime,
+    published: object.published || now,
+    isLocal: 0,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -451,11 +464,12 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
     return;
   }
 
-  const delObj = await db.select({
-    attributedTo: objects.attributedTo,
-    type: objects.type,
-    replyCount: objects.replyCount,
-  })
+  const delObj = await db
+    .select({
+      attributedTo: objects.attributedTo,
+      type: objects.type,
+      replyCount: objects.replyCount,
+    })
     .from(objects)
     .where(eq(objects.apId, objectId))
     .get();
@@ -483,7 +497,8 @@ export async function handleDelete(c: ActivityContext, activity: Activity) {
 
   await db.delete(objects).where(eq(objects.apId, objectId));
 
-  await db.update(actors)
+  await db
+    .update(actors)
     .set({ postCount: sql`${actors.postCount} - 1` })
     .where(eq(actors.apId, delObj.attributedTo));
 }
@@ -504,7 +519,8 @@ export async function handleUpdate(
   const objectId = object.id;
   if (!objectId) return;
 
-  const existing = await db.select({ attributedTo: objects.attributedTo })
+  const existing = await db
+    .select({ attributedTo: objects.attributedTo })
     .from(objects)
     .where(eq(objects.apId, objectId))
     .get();
@@ -515,7 +531,8 @@ export async function handleUpdate(
     const attachments = object.attachment
       ? JSON.stringify(object.attachment)
       : undefined;
-    await db.update(objects)
+    await db
+      .update(objects)
       .set({
         content: object.content || undefined,
         summary: object.summary || undefined,
@@ -558,49 +575,55 @@ export async function handleMove(
   await refreshActorCache(db, newActorApId);
 
   // Rewrite follow graph references from old -> new in batches.
-  const followerRows = await db.select({
-    followingApId: follows.followingApId,
-    status: follows.status,
-    activityApId: follows.activityApId,
-    createdAt: follows.createdAt,
-    acceptedAt: follows.acceptedAt,
-  })
+  const followerRows = await db
+    .select({
+      followingApId: follows.followingApId,
+      status: follows.status,
+      activityApId: follows.activityApId,
+      createdAt: follows.createdAt,
+      acceptedAt: follows.acceptedAt,
+    })
     .from(follows)
     .where(eq(follows.followerApId, oldActorApId));
 
-  const followingRows = await db.select({
-    followerApId: follows.followerApId,
-    status: follows.status,
-    activityApId: follows.activityApId,
-    createdAt: follows.createdAt,
-    acceptedAt: follows.acceptedAt,
-  })
+  const followingRows = await db
+    .select({
+      followerApId: follows.followerApId,
+      status: follows.status,
+      activityApId: follows.activityApId,
+      createdAt: follows.createdAt,
+      acceptedAt: follows.acceptedAt,
+    })
     .from(follows)
     .where(eq(follows.followingApId, oldActorApId));
 
   const followerTargets = followerRows.map((row) => row.followingApId);
   const followingSources = followingRows.map((row) => row.followerApId);
 
-  const existingFollowerPairs = followerTargets.length > 0
-    ? await db.select({ followingApId: follows.followingApId })
-      .from(follows)
-      .where(
-        and(
-          eq(follows.followerApId, newActorApId),
-          inArray(follows.followingApId, followerTargets),
-        ),
-      )
-    : [];
-  const existingFollowingPairs = followingSources.length > 0
-    ? await db.select({ followerApId: follows.followerApId })
-      .from(follows)
-      .where(
-        and(
-          inArray(follows.followerApId, followingSources),
-          eq(follows.followingApId, newActorApId),
-        ),
-      )
-    : [];
+  const existingFollowerPairs =
+    followerTargets.length > 0
+      ? await db
+          .select({ followingApId: follows.followingApId })
+          .from(follows)
+          .where(
+            and(
+              eq(follows.followerApId, newActorApId),
+              inArray(follows.followingApId, followerTargets),
+            ),
+          )
+      : [];
+  const existingFollowingPairs =
+    followingSources.length > 0
+      ? await db
+          .select({ followerApId: follows.followerApId })
+          .from(follows)
+          .where(
+            and(
+              inArray(follows.followerApId, followingSources),
+              eq(follows.followingApId, newActorApId),
+            ),
+          )
+      : [];
 
   const existingFollowerTargetSet = new Set(
     existingFollowerPairs.map((row) => row.followingApId),
@@ -663,7 +686,7 @@ async function refreshActorCache(
 ): Promise<void> {
   try {
     const res = await fetchWithTimeout(actorApIdValue, {
-      headers: { "Accept": "application/activity+json, application/ld+json" },
+      headers: { Accept: "application/activity+json, application/ld+json" },
       timeout: 15000,
     });
     if (!res.ok) return;
@@ -671,9 +694,12 @@ async function refreshActorCache(
     const raw: unknown = await res.json();
     const data = tryParseRemoteActor(raw);
     if (
-      !data || data.id !== actorApIdValue || !data.inbox ||
+      !data ||
+      data.id !== actorApIdValue ||
+      !data.inbox ||
       !isSafeRemoteUrl(data.inbox)
-    ) return;
+    )
+      return;
 
     const cacheFields = {
       type: data.type || "Person",
@@ -690,7 +716,8 @@ async function refreshActorCache(
       lastFetchedAt: new Date().toISOString(),
     };
 
-    await db.insert(actorCache)
+    await db
+      .insert(actorCache)
       .values({ apId: data.id, ...cacheFields })
       .onConflictDoUpdate({ target: actorCache.apId, set: cacheFields });
   } catch (e) {

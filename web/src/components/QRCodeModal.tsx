@@ -72,9 +72,9 @@ export function QRCodeModal(props: QRCodeModalProps) {
   // Generate QR URL - include username for ActivityPub lookup
   const currentDomain = window.location.host;
   const qrUrl = () =>
-    `${window.location.origin}/profile/${
-      encodeURIComponent(props.actor.ap_id)
-    }#${props.actor.preferred_username}`;
+    `${window.location.origin}/profile/${encodeURIComponent(
+      props.actor.ap_id,
+    )}#${props.actor.preferred_username}`;
 
   // Stop scanner when component unmounts
   onCleanup(() => {
@@ -279,101 +279,99 @@ export function QRCodeModal(props: QRCodeModalProps) {
             fallback={
               /* Scanner */
 
+              <div class="flex flex-col items-center space-y-4">
+                <Show when={lookingUp()}>
+                  {/* Loading State */}
+                  <div class="flex flex-col items-center space-y-4 py-8">
+                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
+                    <div class="text-neutral-400">Looking up user...</div>
+                  </div>
+                </Show>
 
-                <div class="flex flex-col items-center space-y-4">
-                  <Show when={lookingUp()}>
-                    {/* Loading State */}
-                    <div class="flex flex-col items-center space-y-4 py-8">
-                      <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
-                      <div class="text-neutral-400">Looking up user...</div>
-                    </div>
-                  </Show>
-
-                  <Show when={!lookingUp() && scanResult()}>
-                    {/* Scan Result */}
-                    <div class="flex flex-col items-center space-y-4 w-full">
-                      <UserAvatar
-                        avatarUrl={scanResult()!.icon_url}
-                        name={scanResult()!.name ||
-                          scanResult()!.preferred_username}
-                        size={80}
-                      />
-                      <div class="text-center">
-                        <div class="font-bold text-white text-xl">
-                          {scanResult()!.name ||
-                            scanResult()!.preferred_username}
-                        </div>
-                        <div class="text-neutral-500">
-                          @{scanResult()!.username}
-                        </div>
-                        <Show when={scanResult()!.summary}>
-                          <div class="text-neutral-400 text-sm mt-2 max-w-xs">
-                            {scanResult()!.summary}
-                          </div>
-                        </Show>
+                <Show when={!lookingUp() && scanResult()}>
+                  {/* Scan Result */}
+                  <div class="flex flex-col items-center space-y-4 w-full">
+                    <UserAvatar
+                      avatarUrl={scanResult()!.icon_url}
+                      name={
+                        scanResult()!.name || scanResult()!.preferred_username
+                      }
+                      size={80}
+                    />
+                    <div class="text-center">
+                      <div class="font-bold text-white text-xl">
+                        {scanResult()!.name || scanResult()!.preferred_username}
                       </div>
+                      <div class="text-neutral-500">
+                        @{scanResult()!.username}
+                      </div>
+                      <Show when={scanResult()!.summary}>
+                        <div class="text-neutral-400 text-sm mt-2 max-w-xs">
+                          {scanResult()!.summary}
+                        </div>
+                      </Show>
+                    </div>
 
+                    <Show
+                      when={!followSuccess()}
+                      fallback={
+                        <div class="px-6 py-2 bg-green-600 text-white rounded-full font-medium">
+                          Followed!
+                        </div>
+                      }
+                    >
                       <Show
-                        when={!followSuccess()}
+                        when={scanResult()!.ap_id !== props.actor.ap_id}
                         fallback={
-                          <div class="px-6 py-2 bg-green-600 text-white rounded-full font-medium">
-                            Followed!
-                          </div>
+                          <div class="text-neutral-500">This is you</div>
                         }
                       >
-                        <Show
-                          when={scanResult()!.ap_id !== props.actor.ap_id}
-                          fallback={
-                            <div class="text-neutral-500">This is you</div>
-                          }
+                        <button
+                          onClick={handleFollow}
+                          disabled={following()}
+                          class="px-6 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 text-white rounded-full font-medium transition-colors"
                         >
-                          <button
-                            onClick={handleFollow}
-                            disabled={following()}
-                            class="px-6 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 text-white rounded-full font-medium transition-colors"
-                          >
-                            {following() ? "Following..." : "Follow"}
-                          </button>
-                        </Show>
+                          {following() ? "Following..." : "Follow"}
+                        </button>
                       </Show>
-
-                      <button
-                        onClick={resetScan}
-                        class="text-neutral-400 hover:text-white text-sm"
-                      >
-                        Scan again
-                      </button>
-                    </div>
-                  </Show>
-
-                  <Show when={!lookingUp() && !scanResult() && scanError()}>
-                    {/* Error State */}
-                    <div class="flex flex-col items-center space-y-4">
-                      <div class="text-red-400 text-center">{scanError()}</div>
-                      <button
-                        onClick={resetScan}
-                        class="px-6 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-full transition-colors"
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  </Show>
-
-                  <Show when={!lookingUp() && !scanResult() && !scanError()}>
-                    {/* Scanner View */}
-                    <div
-                      id="qr-scanner"
-                      ref={scannerContainerRef}
-                      class="w-full aspect-square max-w-[300px] rounded-lg overflow-hidden bg-neutral-800"
-                    />
-                    <Show when={scanning()}>
-                      <div class="text-neutral-400 text-sm">
-                        Point camera at QR code
-                      </div>
                     </Show>
-                  </Show>
-                </div>
 
+                    <button
+                      onClick={resetScan}
+                      class="text-neutral-400 hover:text-white text-sm"
+                    >
+                      Scan again
+                    </button>
+                  </div>
+                </Show>
+
+                <Show when={!lookingUp() && !scanResult() && scanError()}>
+                  {/* Error State */}
+                  <div class="flex flex-col items-center space-y-4">
+                    <div class="text-red-400 text-center">{scanError()}</div>
+                    <button
+                      onClick={resetScan}
+                      class="px-6 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-full transition-colors"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                </Show>
+
+                <Show when={!lookingUp() && !scanResult() && !scanError()}>
+                  {/* Scanner View */}
+                  <div
+                    id="qr-scanner"
+                    ref={scannerContainerRef}
+                    class="w-full aspect-square max-w-[300px] rounded-lg overflow-hidden bg-neutral-800"
+                  />
+                  <Show when={scanning()}>
+                    <div class="text-neutral-400 text-sm">
+                      Point camera at QR code
+                    </div>
+                  </Show>
+                </Show>
+              </div>
             }
           >
             {/* My QR Code */}

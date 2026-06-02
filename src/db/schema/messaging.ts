@@ -82,18 +82,19 @@ export const deliveryCircuit = sqliteTable(
     consecutiveFailures: integer("consecutive_failures").notNull().default(0),
     recentOutcomesJson: text("recent_outcomes_json").notNull().default("[]"),
     openUntil: text("open_until"),
-    halfOpenProbeAttempts: integer("half_open_probe_attempts").notNull()
+    halfOpenProbeAttempts: integer("half_open_probe_attempts")
+      .notNull()
       .default(0),
-    halfOpenProbeSuccesses: integer("half_open_probe_successes").notNull()
+    halfOpenProbeSuccesses: integer("half_open_probe_successes")
+      .notNull()
       .default(0),
     createdAt: text("created_at").notNull().$defaultFn(nowIso),
-    updatedAt: text("updated_at").notNull().$defaultFn(nowIso).$onUpdateFn(
-      nowIso,
-    ),
+    updatedAt: text("updated_at")
+      .notNull()
+      .$defaultFn(nowIso)
+      .$onUpdateFn(nowIso),
   },
-  (t) => [
-    index("delivery_circuit_state_updated_idx").on(t.state, t.updatedAt),
-  ],
+  (t) => [index("delivery_circuit_state_updated_idx").on(t.state, t.updatedAt)],
 );
 
 // ---------------------------------------------------------------------------

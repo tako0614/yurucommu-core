@@ -102,10 +102,11 @@ async function resolveSigningActor(
   actorApId: string,
 ): Promise<{ apId: string; privateKeyPem: string } | null> {
   // Check actors table
-  const actorRow = await db.select({
-    apId: actors.apId,
-    privateKeyPem: actors.privateKeyPem,
-  })
+  const actorRow = await db
+    .select({
+      apId: actors.apId,
+      privateKeyPem: actors.privateKeyPem,
+    })
     .from(actors)
     .where(eq(actors.apId, actorApId))
     .get();
@@ -114,10 +115,11 @@ async function resolveSigningActor(
   }
 
   // Check communities table
-  const communityRow = await db.select({
-    apId: communities.apId,
-    privateKeyPem: communities.privateKeyPem,
-  })
+  const communityRow = await db
+    .select({
+      apId: communities.apId,
+      privateKeyPem: communities.privateKeyPem,
+    })
     .from(communities)
     .where(eq(communities.apId, actorApId))
     .get();
@@ -129,10 +131,11 @@ async function resolveSigningActor(
   }
 
   // Check instanceActor table
-  const instanceRow = await db.select({
-    apId: instanceActor.apId,
-    privateKeyPem: instanceActor.privateKeyPem,
-  })
+  const instanceRow = await db
+    .select({
+      apId: instanceActor.apId,
+      privateKeyPem: instanceActor.privateKeyPem,
+    })
     .from(instanceActor)
     .where(eq(instanceActor.apId, actorApId))
     .get();
@@ -149,7 +152,8 @@ async function failJob(
   error: string,
   message: Message<DeliveryQueueMessageV1>,
 ): Promise<void> {
-  await db.update(deliveryQueue)
+  await db
+    .update(deliveryQueue)
     .set({
       status: "failed",
       error,
@@ -164,10 +168,12 @@ async function incrementDeliveryAttempts(
   db: Database,
   jobId: string,
 ): Promise<number> {
-  await db.update(deliveryQueue)
+  await db
+    .update(deliveryQueue)
     .set({ attempts: sql`${deliveryQueue.attempts} + 1` })
     .where(eq(deliveryQueue.id, jobId));
-  const updated = await db.select({ attempts: deliveryQueue.attempts })
+  const updated = await db
+    .select({ attempts: deliveryQueue.attempts })
     .from(deliveryQueue)
     .where(eq(deliveryQueue.id, jobId))
     .get();
@@ -193,10 +199,11 @@ async function maybeShadowProbeInbox(
   if (sampleRate <= 0) return;
   if (sampleRate < 1 && Math.random() > sampleRate) return;
 
-  const rep = await db.select({
-    apId: actorCache.apId,
-    inbox: actorCache.inbox,
-  })
+  const rep = await db
+    .select({
+      apId: actorCache.apId,
+      inbox: actorCache.inbox,
+    })
     .from(actorCache)
     .where(eq(actorCache.sharedInbox, params.sharedInboxEndpoint))
     .limit(1)
@@ -248,15 +255,16 @@ export async function processDeliverEndpoint(
 ): Promise<void> {
   if (!requireQueue(env, "deliver_endpoint", message)) return;
 
-  const job = await db.select({
-    id: deliveryQueue.id,
-    activityApId: deliveryQueue.activityApId,
-    inboxUrl: deliveryQueue.inboxUrl,
-    attempts: deliveryQueue.attempts,
-    status: deliveryQueue.status,
-    nextAttemptAt: deliveryQueue.nextAttemptAt,
-    processingStartedAt: deliveryQueue.processingStartedAt,
-  })
+  const job = await db
+    .select({
+      id: deliveryQueue.id,
+      activityApId: deliveryQueue.activityApId,
+      inboxUrl: deliveryQueue.inboxUrl,
+      attempts: deliveryQueue.attempts,
+      status: deliveryQueue.status,
+      nextAttemptAt: deliveryQueue.nextAttemptAt,
+      processingStartedAt: deliveryQueue.processingStartedAt,
+    })
     .from(deliveryQueue)
     .where(eq(deliveryQueue.id, msg.jobId))
     .get();
@@ -332,17 +340,19 @@ export async function processDeliverEndpoint(
   await bulkhead.acquire(host);
   try {
     // Mark processing
-    await db.update(deliveryQueue)
+    await db
+      .update(deliveryQueue)
       .set({
         status: "processing",
         processingStartedAt: nowIso(),
       })
       .where(eq(deliveryQueue.id, job.id));
 
-    const activity = await db.select({
-      rawJson: activities.rawJson,
-      actorApId: activities.actorApId,
-    })
+    const activity = await db
+      .select({
+        rawJson: activities.rawJson,
+        actorApId: activities.actorApId,
+      })
       .from(activities)
       .where(eq(activities.apId, job.activityApId))
       .get();
@@ -382,7 +392,8 @@ export async function processDeliverEndpoint(
 
     if (response?.ok) {
       const now = nowIso();
-      await db.update(deliveryQueue)
+      await db
+        .update(deliveryQueue)
         .set({
           status: "delivered",
           deliveredAt: now,
@@ -431,10 +442,12 @@ export async function processDeliverEndpoint(
           job.activityApId,
           endpoint,
         );
-        await db.update(actorCache)
+        await db
+          .update(actorCache)
           .set({ sharedInbox: null, lastFetchedAt: EPOCH_ISO })
           .where(eq(actorCache.sharedInbox, endpoint));
-        await db.update(actorCache)
+        await db
+          .update(actorCache)
           .set({ lastFetchedAt: EPOCH_ISO })
           .where(eq(actorCache.inbox, endpoint));
       } catch (e) {
@@ -449,8 +462,8 @@ export async function processDeliverEndpoint(
     }
 
     // Non-retryable 4xx (except 429) => permanent failure
-    const nonRetryable = status !== null && status >= 400 && status < 500 &&
-      status !== 429;
+    const nonRetryable =
+      status !== null && status >= 400 && status < 500 && status !== 429;
     if (nonRetryable) {
       await failJob(db, job.id, errorMessage, message);
       emitMetric("delivery_success", 0, {
@@ -468,7 +481,8 @@ export async function processDeliverEndpoint(
 
     if (nextAttempts >= DELIVERY_MAX_ATTEMPTS) {
       const now = nowIso();
-      await db.update(deliveryQueue)
+      await db
+        .update(deliveryQueue)
         .set({
           status: "dead_letter",
           error: errorMessage,
@@ -494,10 +508,12 @@ export async function processDeliverEndpoint(
     }
 
     const delaySeconds = computeRetryDelaySeconds(nextAttempts);
-    const nextAttemptAtStr = new Date(Date.now() + delaySeconds * 1000)
-      .toISOString();
+    const nextAttemptAtStr = new Date(
+      Date.now() + delaySeconds * 1000,
+    ).toISOString();
 
-    await db.update(deliveryQueue)
+    await db
+      .update(deliveryQueue)
       .set({
         status: "retry_wait",
         error: errorMessage,

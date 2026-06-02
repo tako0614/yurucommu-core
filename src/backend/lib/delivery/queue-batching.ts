@@ -50,7 +50,7 @@ async function fetchAndCacheRemoteActor(
   if (!isSafeRemoteUrl(actorApId)) return;
 
   const res = await fetchWithTimeout(actorApId, {
-    headers: { "Accept": "application/activity+json, application/ld+json" },
+    headers: { Accept: "application/activity+json, application/ld+json" },
     timeout: DELIVERY_HTTP_TIMEOUT_MS,
   });
   if (!res.ok) return;
@@ -77,7 +77,8 @@ async function fetchAndCacheRemoteActor(
     lastFetchedAt: nowIso(),
   };
 
-  await db.insert(actorCache)
+  await db
+    .insert(actorCache)
     .values({ apId: data.id, ...actorFields })
     .onConflictDoUpdate({ target: actorCache.apId, set: actorFields });
 }
@@ -138,7 +139,8 @@ export async function processFanoutFollowers(
       conditions.push(sql`${follows.followerApId} > ${cursor}`);
     }
 
-    const page = await db.select({ followerApId: follows.followerApId })
+    const page = await db
+      .select({ followerApId: follows.followerApId })
       .from(follows)
       .where(and(...conditions))
       .orderBy(follows.followerApId)
@@ -150,8 +152,9 @@ export async function processFanoutFollowers(
 
     // Deduplicate within the page and drop local recipients (no remote
     // delivery needed for local followers).
-    const recipientApIds = [...new Set(page.map((f) => f.followerApId))]
-      .filter((apId) => !isLocal(apId, baseUrl));
+    const recipientApIds = [...new Set(page.map((f) => f.followerApId))].filter(
+      (apId) => !isLocal(apId, baseUrl),
+    );
 
     if (recipientApIds.length > 0) {
       const planned = await planEndpointsFromActorCache(db, recipientApIds, {
@@ -215,17 +218,19 @@ export async function processResolveActor(
 ): Promise<void> {
   if (!requireQueue(env, "resolve_actor", message)) return;
 
-  const cached = await db.select({
-    apId: actorCache.apId,
-    inbox: actorCache.inbox,
-    sharedInbox: actorCache.sharedInbox,
-    lastFetchedAt: actorCache.lastFetchedAt,
-  })
+  const cached = await db
+    .select({
+      apId: actorCache.apId,
+      inbox: actorCache.inbox,
+      sharedInbox: actorCache.sharedInbox,
+      lastFetchedAt: actorCache.lastFetchedAt,
+    })
     .from(actorCache)
     .where(eq(actorCache.apId, msg.recipientActorApId))
     .get();
   const lastFetchedMs = safeParseIsoTimeMs(cached?.lastFetchedAt ?? null);
-  const stale = lastFetchedMs === null ||
+  const stale =
+    lastFetchedMs === null ||
     Date.now() - lastFetchedMs > DELIVERY_ENDPOINT_CACHE_TTL_MS;
   if (!cached || stale) {
     try {
@@ -247,10 +252,11 @@ export async function processResolveActor(
     }
   }
 
-  const row = await db.select({
-    inbox: actorCache.inbox,
-    sharedInbox: actorCache.sharedInbox,
-  })
+  const row = await db
+    .select({
+      inbox: actorCache.inbox,
+      sharedInbox: actorCache.sharedInbox,
+    })
     .from(actorCache)
     .where(eq(actorCache.apId, msg.recipientActorApId))
     .get();
@@ -285,10 +291,11 @@ export async function processReconcileJob(
     return;
   }
 
-  const job = await db.select({
-    id: deliveryQueue.id,
-    status: deliveryQueue.status,
-  })
+  const job = await db
+    .select({
+      id: deliveryQueue.id,
+      status: deliveryQueue.status,
+    })
     .from(deliveryQueue)
     .where(eq(deliveryQueue.id, msg.jobId))
     .get();
@@ -298,7 +305,8 @@ export async function processReconcileJob(
     return;
   }
 
-  await db.update(deliveryQueue)
+  await db
+    .update(deliveryQueue)
     .set({
       status: "pending",
       error: null,
@@ -321,13 +329,15 @@ export async function runWithConcurrency<T>(
   const workers: Promise<void>[] = [];
 
   for (let i = 0; i < concurrency; i++) {
-    workers.push((async () => {
-      while (queue.length > 0) {
-        const item = queue.shift();
-        if (!item) break;
-        await fn(item);
-      }
-    })());
+    workers.push(
+      (async () => {
+        while (queue.length > 0) {
+          const item = queue.shift();
+          if (!item) break;
+          await fn(item);
+        }
+      })(),
+    );
   }
 
   await Promise.all(workers);

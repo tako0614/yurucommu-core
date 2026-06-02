@@ -42,17 +42,21 @@ test("webfinger resolves unknown local acct username to owner actor", async () =
     ),
     { APP_URL: "https://example.test" },
   );
-  const body = await res.json() as {
+  const body = (await res.json()) as {
     subject: string;
     links: Array<{ rel: string; href: string }>;
   };
 
   expect(res.status).toEqual(200);
   expect(body.subject).toEqual("acct:any@example.test");
-  expect(body.links.find((link) => link.rel === "self")?.href).toEqual("https://example.test/ap/users/tako");
-  expect(body.links.find((link) =>
-      link.rel === "http://webfinger.net/rel/profile-page"
-    )?.href).toEqual("https://example.test/users/tako");
+  expect(body.links.find((link) => link.rel === "self")?.href).toEqual(
+    "https://example.test/ap/users/tako",
+  );
+  expect(
+    body.links.find(
+      (link) => link.rel === "http://webfinger.net/rel/profile-page",
+    )?.href,
+  ).toEqual("https://example.test/users/tako");
 });
 
 test("webfinger keeps exact local actor resolution when username exists", async () => {
@@ -68,12 +72,14 @@ test("webfinger keeps exact local actor resolution when username exists", async 
     ),
     { APP_URL: "https://example.test" },
   );
-  const body = await res.json() as {
+  const body = (await res.json()) as {
     subject: string;
     links: Array<{ rel: string; href: string }>;
   };
 
   expect(res.status).toEqual(200);
   expect(body.subject).toEqual("acct:alice@example.test");
-  expect(body.links.find((link) => link.rel === "self")?.href).toEqual("https://example.test/ap/users/alice");
+  expect(body.links.find((link) => link.rel === "self")?.href).toEqual(
+    "https://example.test/ap/users/alice",
+  );
 });

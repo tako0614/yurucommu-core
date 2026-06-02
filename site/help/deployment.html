@@ -1,17 +1,17 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
   <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>デプロイ - Yurucommu</title>
-    <meta name="description" content="Yurucommuのビルドとデプロイ方法">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <meta name="description" content="Yurucommuのビルドとデプロイ方法" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
       rel="stylesheet"
-    >
-    <link rel="stylesheet" href="../styles.css">
+    />
+    <link rel="stylesheet" href="../styles.css" />
   </head>
   <body>
     <header class="header">
@@ -79,9 +79,7 @@
 
       <main class="docs-content">
         <h1>デプロイ</h1>
-        <p class="lead">
-          Yurucommuのビルドとデプロイの詳細な手順です。
-        </p>
+        <p class="lead">Yurucommuのビルドとデプロイの詳細な手順です。</p>
 
         <h2>ビルド</h2>
         <p>フロントエンドとバックエンドをビルドします。</p>
@@ -92,17 +90,22 @@
         </p>
 
         <p>
-          Takosumi install 用の worker entrypoint は CI / build service と同じ流れで生成します。
+          Takosumi install 用の worker entrypoint は CI / build service
+          と同じ流れで生成します。
         </p>
         <pre><code>bun run build:worker</code></pre>
         <p>
-          prepared source 内の worker entrypoint は <code>dist/worker.js</code> です。
+          prepared source 内の worker entrypoint は
+          <code>dist/worker.js</code> です。
         </p>
 
         <h2>Takosumiでinstall</h2>
         <p>
-          Takosumiを使う場合は、Takosumi install wizardでdry-runを確認してからInstallationを作成します。
-          起動はTakosumiがactivateしたpublic HTTP endpointを開き、Yurucommu側のTakosumi Accounts OIDCでサインインします。
+          Takosumiを使う場合は、Takosumi install
+          wizardでdry-runを確認してからInstallationを作成します。
+          起動はTakosumiがactivateしたpublic HTTP
+          endpointを開き、Yurucommu側のTakosumi Accounts
+          OIDCでサインインします。
         </p>
         <pre><code>https://accounts.takosumi.com/apps/install?git=https://github.com/tako0614/yurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autodryrun=1</code></pre>
 
@@ -118,23 +121,26 @@ Published yurucommu (X.XX sec)
         <p>Yurucommu は用途ごとに Cloudflare の設定ファイルを分けています。</p>
         <ul>
           <li>
-            <code>wrangler.toml</code> - 本体 Worker の <code
-            >test.yurucommu.com</code> 向け設定
+            <code>wrangler.toml</code> - 本体 Worker の
+            <code>test.yurucommu.com</code> 向け設定
           </li>
           <li>
-            <code>wrangler.tenant2.toml</code> - 別 tenant/test 用の <code
-            >test2.yurucommu.com</code> 向け設定
+            <code>wrangler.tenant2.toml</code> - 別 tenant/test 用の
+            <code>test2.yurucommu.com</code> 向け設定
           </li>
           <li><code>wrangler.local.toml</code> - ローカル開発用設定</li>
           <li><code>wrangler.site.toml</code> - 静的サイト用設定</li>
         </ul>
         <p>
-          ローカルで Worker を起動する場合は <code>bunx wrangler dev --config wrangler.local.toml</code> を使います
+          ローカルで Worker を起動する場合は
+          <code>bunx wrangler dev --config wrangler.local.toml</code> を使います
           （内部では <code>wrangler.local.toml</code> を参照します）。<code
-            >bun run deploy</code> は <code>wrangler.toml</code> を使って本体
-          Worker を <code>test.yurucommu.com</code> にデプロイします。別の
-          production hostname で運用する場合は、deploy 前に <code>APP_URL</code>
-          と <code>[[routes]].pattern</code> を canonical hostname に合わせます。
+            >bun run deploy</code
+          >
+          は <code>wrangler.toml</code> を使って本体 Worker を
+          <code>test.yurucommu.com</code> にデプロイします。別の production
+          hostname で運用する場合は、deploy 前に <code>APP_URL</code> と
+          <code>[[routes]].pattern</code> を canonical hostname に合わせます。
         </p>
 
         <h2>デプロイオプション</h2>
@@ -233,7 +239,8 @@ jobs:
           <a href="/help/" class="footer-link">Docs</a>
           <a href="/specs/" class="footer-link">Specs</a>
           <a href="https://github.com/tako0614/yurucommu" class="footer-link"
-          >GitHub</a>
+            >GitHub</a
+          >
         </div>
         <p class="footer-copy">&copy; 2026 Yurucommu. AGPL v3.</p>
       </div>

@@ -46,7 +46,7 @@ test("APC room collection uses Group and apc:postPolicy", async () => {
     new Request("https://example.test/ap/rooms"),
     { APP_URL: "https://example.test" },
   );
-  const body = await res.json() as {
+  const body = (await res.json()) as {
     orderedItems: Array<{ type: string; postPolicy: string }>;
   };
 
@@ -60,7 +60,7 @@ test("APC room object uses Group and apc:postPolicy", async () => {
     new Request("https://example.test/ap/rooms/books"),
     { APP_URL: "https://example.test" },
   );
-  const body = await res.json() as {
+  const body = (await res.json()) as {
     type: string;
     postPolicy: string;
     "@context": Array<Record<string, unknown>>;

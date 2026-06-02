@@ -57,7 +57,8 @@ async function handleInteraction(
   const activityId = activity.id || activityApId(baseUrl, generateId());
 
   // Try to insert; if duplicate, skip
-  const insertResult = await db.insert(table)
+  const insertResult = await db
+    .insert(table)
     .values({
       actorApId: actor,
       objectApId: objectId,
@@ -69,7 +70,8 @@ async function handleInteraction(
 
   if (!insertResult) return; // duplicate
 
-  await db.update(objects)
+  await db
+    .update(objects)
     .set({ [countField]: sql`${objects[countField]} + 1` })
     .where(eq(objects.apId, objectId));
 
@@ -127,7 +129,8 @@ export async function handleAdd(
 
   const db = c.get("db");
   const now = new Date().toISOString();
-  await db.insert(follows)
+  await db
+    .insert(follows)
     .values({
       followerApId: recipient.apId,
       followingApId,
@@ -159,7 +162,8 @@ export async function handleRemove(
   if (!followingApId) return;
 
   const db = c.get("db");
-  await db.delete(follows)
+  await db
+    .delete(follows)
     .where(
       and(
         eq(follows.followerApId, recipient.apId),
@@ -186,7 +190,8 @@ export async function handleBlock(
   if (blockedId !== recipient.apId) return;
 
   // Best-effort: sever follow relations in both directions.
-  await db.delete(follows)
+  await db
+    .delete(follows)
     .where(
       or(
         and(

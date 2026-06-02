@@ -73,8 +73,9 @@ function RequestItem(props: RequestItemProps) {
     <div class="flex items-start gap-3 p-4 border-b border-neutral-800">
       <img
         src={props.request.sender.icon_url || "/default-avatar.png"}
-        alt={props.request.sender.name ||
-          props.request.sender.preferred_username}
+        alt={
+          props.request.sender.name || props.request.sender.preferred_username
+        }
         class="w-12 h-12 rounded-full object-cover"
       />
       <div class="flex-1 min-w-0">
@@ -139,8 +140,8 @@ export function DMPage() {
   const { t } = useI18n();
 
   // Validate and decode contactId
-  const validContactId = createMemo(
-    () => validateAndDecodeContactId(params.contactId),
+  const validContactId = createMemo(() =>
+    validateAndDecodeContactId(params.contactId),
   );
 
   // Touch handling for swipe
@@ -301,9 +302,10 @@ export function DMPage() {
     // Apply search filter
     if (searchQuery().trim()) {
       const query = searchQuery().toLowerCase();
-      result = result.filter((c) =>
-        (c.name?.toLowerCase().includes(query)) ||
-        c.preferred_username.toLowerCase().includes(query)
+      result = result.filter(
+        (c) =>
+          c.name?.toLowerCase().includes(query) ||
+          c.preferred_username.toLowerCase().includes(query),
       );
     }
 
@@ -318,7 +320,7 @@ export function DMPage() {
     const sc = selectedContact();
     if (sc?.type === "user") {
       setContacts((prev) =>
-        prev.map((c) => c.ap_id === sc.ap_id ? { ...c, unread_count: 0 } : c)
+        prev.map((c) => (c.ap_id === sc.ap_id ? { ...c, unread_count: 0 } : c)),
       );
     }
   };
@@ -465,20 +467,22 @@ export function DMPage() {
                 <div
                   class="absolute bottom-0 h-0.5 bg-green-500 transition-all duration-200"
                   style={{
-                    width: tabIndex() === 0
-                      ? "52px"
-                      : tabIndex() === 1
-                      ? "52px"
-                      : tabIndex() === 2
-                      ? "64px"
-                      : "72px",
-                    left: tabIndex() === 0
-                      ? "0px"
-                      : tabIndex() === 1
-                      ? "68px"
-                      : tabIndex() === 2
-                      ? "136px"
-                      : "216px",
+                    width:
+                      tabIndex() === 0
+                        ? "52px"
+                        : tabIndex() === 1
+                          ? "52px"
+                          : tabIndex() === 2
+                            ? "64px"
+                            : "72px",
+                    left:
+                      tabIndex() === 0
+                        ? "0px"
+                        : tabIndex() === 1
+                          ? "68px"
+                          : tabIndex() === 2
+                            ? "136px"
+                            : "216px",
                   }}
                 />
               </div>
@@ -510,9 +514,11 @@ export function DMPage() {
                           <RequestItem
                             request={request}
                             onAccept={() =>
-                              handleAcceptRequest(request.sender.ap_id)}
+                              handleAcceptRequest(request.sender.ap_id)
+                            }
                             onReject={() =>
-                              handleRejectRequest(request.sender.ap_id)}
+                              handleRejectRequest(request.sender.ap_id)
+                            }
                           />
                         )}
                       </For>
@@ -539,14 +545,19 @@ export function DMPage() {
                       リクエストがありません
                     </p>
                     <p class="text-neutral-500 text-sm">
-                      新しいメッセージリクエストが<br />ここに表示されます
+                      新しいメッセージリクエストが
+                      <br />
+                      ここに表示されます
                     </p>
                   </div>
                 </Show>
               </Show>
               <Show
-                when={!loading() && activeTab() !== "requests" &&
-                  currentContacts().length === 0}
+                when={
+                  !loading() &&
+                  activeTab() !== "requests" &&
+                  currentContacts().length === 0
+                }
               >
                 <div class="flex-1 flex flex-col items-center justify-center p-8 text-center min-h-[50vh]">
                   <div class="w-20 h-20 mb-4 rounded-full bg-neutral-800 flex items-center justify-center">
@@ -568,25 +579,28 @@ export function DMPage() {
                     {searchQuery()
                       ? "検索結果がありません"
                       : activeTab() === "all"
-                      ? "トークがありません"
-                      : activeTab() === "friends"
-                      ? "友だちがいません"
-                      : "グループがありません"}
+                        ? "トークがありません"
+                        : activeTab() === "friends"
+                          ? "友だちがいません"
+                          : "グループがありません"}
                   </p>
                   <p class="text-neutral-500 text-sm">
                     {searchQuery()
                       ? "別のキーワードで検索してみてください"
                       : activeTab() === "all"
-                      ? "友だちやグループとの\nトークがここに表示されます"
-                      : activeTab() === "friends"
-                      ? "友だちとフォローすると\nトークがここに表示されます"
-                      : "参加しているコミュニティの\nトークがここに表示されます"}
+                        ? "友だちやグループとの\nトークがここに表示されます"
+                        : activeTab() === "friends"
+                          ? "友だちとフォローすると\nトークがここに表示されます"
+                          : "参加しているコミュニティの\nトークがここに表示されます"}
                   </p>
                 </div>
               </Show>
               <Show
-                when={!loading() && activeTab() !== "requests" &&
-                  currentContacts().length > 0}
+                when={
+                  !loading() &&
+                  activeTab() !== "requests" &&
+                  currentContacts().length > 0
+                }
               >
                 <div class="divide-y divide-neutral-900">
                   <For each={currentContacts()}>

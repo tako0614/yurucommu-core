@@ -74,7 +74,7 @@ export function LoginForm(props: LoginFormProps) {
         if (!res.ok) {
           throw new Error(`Failed to load auth providers: ${res.status}`);
         }
-        return await res.json() as AuthConfig;
+        return (await res.json()) as AuthConfig;
       })
       .then((data) => {
         setAuthConfig(data);

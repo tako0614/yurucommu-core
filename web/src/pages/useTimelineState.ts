@@ -120,8 +120,8 @@ export function useTimelineState() {
 
   // Story handlers
   const handleStoryClick = (stories: ActorStories, _index: number) => {
-    const actualIndex = actorStories().findIndex((as) =>
-      as.actor.ap_id === stories.actor.ap_id
+    const actualIndex = actorStories().findIndex(
+      (as) => as.actor.ap_id === stories.actor.ap_id,
     );
     if (actualIndex >= 0) {
       setStoryViewerActorIndex(actualIndex);

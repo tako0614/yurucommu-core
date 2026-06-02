@@ -29,9 +29,11 @@ export function renderStoryOverlay(
 ) {
   const { position } = overlay;
 
-  const left = position.x * containerSize.width -
+  const left =
+    position.x * containerSize.width -
     (position.width * containerSize.width) / 2;
-  const top = position.y * containerSize.height -
+  const top =
+    position.y * containerSize.height -
     (position.height * containerSize.height) / 2;
   const width = position.width * containerSize.width;
   const height = position.height * containerSize.height;
@@ -62,9 +64,10 @@ export function renderStoryOverlay(
             <For each={overlay.oneOf}>
               {(option, optionIndex) => {
                 const voteCount = votes?.[optionIndex()] || 0;
-                const percentage = hasVotes && votesTotal
-                  ? Math.round((voteCount / votesTotal) * 100)
-                  : 0;
+                const percentage =
+                  hasVotes && votesTotal
+                    ? Math.round((voteCount / votesTotal) * 100)
+                    : 0;
                 const isSelected = userVote === optionIndex();
 
                 return (

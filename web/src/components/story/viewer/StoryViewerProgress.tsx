@@ -15,11 +15,12 @@ export function StoryViewerProgress(props: StoryViewerProgressProps) {
             <div
               class="h-full bg-white transition-all duration-100"
               style={{
-                width: idx() < props.storyIndex
-                  ? "100%"
-                  : idx() === props.storyIndex
-                  ? `${props.progress}%`
-                  : "0%",
+                width:
+                  idx() < props.storyIndex
+                    ? "100%"
+                    : idx() === props.storyIndex
+                      ? `${props.progress}%`
+                      : "0%",
               }}
             />
           </div>

@@ -28,7 +28,10 @@ let loading: Promise<void> | null = null;
 
 // Custom error class for FFmpeg operations
 export class FFmpegError extends Error {
-  constructor(message: string, public override readonly cause?: unknown) {
+  constructor(
+    message: string,
+    public override readonly cause?: unknown,
+  ) {
     super(message);
     this.name = "FFmpegError";
   }
@@ -137,13 +140,10 @@ export async function exportCanvasToJpeg(
   try {
     // Convert canvas to PNG blob (lossless intermediate)
     const pngBlob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error("Failed to create PNG blob"));
-        },
-        "image/png",
-      );
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("Failed to create PNG blob"));
+      }, "image/png");
     });
 
     // Write to FFmpeg filesystem
@@ -156,7 +156,7 @@ export async function exportCanvasToJpeg(
         "-i",
         "input.png",
         "-q:v",
-        String(Math.round((100 - quality) / 100 * 31)), // FFmpeg quality scale (0-31, lower is better)
+        String(Math.round(((100 - quality) / 100) * 31)), // FFmpeg quality scale (0-31, lower is better)
         "-y",
         "output.jpg",
       ]),
@@ -170,10 +170,14 @@ export async function exportCanvasToJpeg(
     // Cleanup
     try {
       await ff.deleteFile("input.png");
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     try {
       await ff.deleteFile("output.jpg");
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     const blobData = data instanceof Uint8Array ? new Uint8Array(data) : data;
     return new Blob([blobData], { type: "image/jpeg" });
@@ -218,13 +222,10 @@ export async function exportCanvasWithVideo(
 
     // Convert canvas to PNG (for overlay)
     const pngBlob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error("Failed to create PNG blob"));
-        },
-        "image/png",
-      );
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("Failed to create PNG blob"));
+      }, "image/png");
     });
 
     // Write files to FFmpeg filesystem
@@ -237,12 +238,12 @@ export async function exportCanvasWithVideo(
 
     // Build video filter with transform
     let videoFilter: string;
-    const hasTransform = videoTransform && (
-      videoTransform.scale !== 1 ||
-      videoTransform.position.x !== 0 ||
-      videoTransform.position.y !== 0 ||
-      videoTransform.rotation !== 0
-    );
+    const hasTransform =
+      videoTransform &&
+      (videoTransform.scale !== 1 ||
+        videoTransform.position.x !== 0 ||
+        videoTransform.position.y !== 0 ||
+        videoTransform.rotation !== 0);
 
     if (hasTransform && videoTransform) {
       // Convert display coordinates to canvas coordinates
@@ -266,17 +267,14 @@ export async function exportCanvasWithVideo(
       // Scale video, rotate, then position on black background
       if (videoTransform.rotation !== 0) {
         // With rotation: scale -> rotate -> crop -> overlay
-        videoFilter =
-          `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,crop=${scaledW}:${scaledH},rotate=${rotationRad}:c=black:ow=${scaledW}:oh=${scaledH}[scaled];color=black:s=${CANVAS_WIDTH}x${CANVAS_HEIGHT}[bg];[bg][scaled]overlay=${posX}:${posY}[v];[v][1:v]overlay=0:0[out]`;
+        videoFilter = `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,crop=${scaledW}:${scaledH},rotate=${rotationRad}:c=black:ow=${scaledW}:oh=${scaledH}[scaled];color=black:s=${CANVAS_WIDTH}x${CANVAS_HEIGHT}[bg];[bg][scaled]overlay=${posX}:${posY}[v];[v][1:v]overlay=0:0[out]`;
       } else {
         // Without rotation: scale -> crop -> overlay
-        videoFilter =
-          `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,crop=${scaledW}:${scaledH}[scaled];color=black:s=${CANVAS_WIDTH}x${CANVAS_HEIGHT}[bg];[bg][scaled]overlay=${posX}:${posY}[v];[v][1:v]overlay=0:0[out]`;
+        videoFilter = `[0:v]scale=${scaledW}:${scaledH}:force_original_aspect_ratio=increase,crop=${scaledW}:${scaledH}[scaled];color=black:s=${CANVAS_WIDTH}x${CANVAS_HEIGHT}[bg];[bg][scaled]overlay=${posX}:${posY}[v];[v][1:v]overlay=0:0[out]`;
       }
     } else {
       // Default: scale to fit and center
-      videoFilter =
-        `[0:v]scale=${CANVAS_WIDTH}:${CANVAS_HEIGHT}:force_original_aspect_ratio=decrease,pad=${CANVAS_WIDTH}:${CANVAS_HEIGHT}:(ow-iw)/2:(oh-ih)/2[v];[v][1:v]overlay=0:0[out]`;
+      videoFilter = `[0:v]scale=${CANVAS_WIDTH}:${CANVAS_HEIGHT}:force_original_aspect_ratio=decrease,pad=${CANVAS_WIDTH}:${CANVAS_HEIGHT}:(ow-iw)/2:(oh-ih)/2[v];[v][1:v]overlay=0:0[out]`;
     }
 
     // Compose video with canvas overlay
@@ -317,13 +315,19 @@ export async function exportCanvasWithVideo(
     // Cleanup
     try {
       await ff.deleteFile(`input.${ext}`);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     try {
       await ff.deleteFile("overlay.png");
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     try {
       await ff.deleteFile("output.mp4");
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     const blobData = data instanceof Uint8Array ? new Uint8Array(data) : data;
     return {

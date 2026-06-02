@@ -33,7 +33,7 @@ test("nodeinfo discovery returns schema 2.1 link", async () => {
     new Request("https://example.test/.well-known/nodeinfo"),
     { APP_URL: "https://example.test/" },
   );
-  const body = await res.json() as Record<string, unknown>;
+  const body = (await res.json()) as Record<string, unknown>;
 
   expect(res.status).toEqual(200);
   expect(body).toEqual({
@@ -52,7 +52,7 @@ test("nodeinfo 2.1 returns required schema fields", async () => {
     new Request("https://example.test/nodeinfo/2.1"),
     { APP_URL: "https://example.test" },
   );
-  const body = await res.json() as {
+  const body = (await res.json()) as {
     version: string;
     software: { name: string; version: string };
     protocols: string[];
@@ -95,7 +95,7 @@ test("nodeinfo 2.1 reports build-injected software version", async () => {
       YURUCOMMU_SOFTWARE_VERSION: "1.4.2+build7",
     },
   );
-  const body = await res.json() as { software: { version: string } };
+  const body = (await res.json()) as { software: { version: string } };
 
   expect(res.status).toEqual(200);
   expect(body.software.version).toEqual("1.4.2+build7");

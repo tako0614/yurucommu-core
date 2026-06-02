@@ -69,9 +69,9 @@ export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
             {/* Follow/Follower counts */}
             <div class="flex gap-4 mt-3">
               <A
-                href={`/profile/${
-                  encodeURIComponent(props.actor.ap_id)
-                }/following`}
+                href={`/profile/${encodeURIComponent(
+                  props.actor.ap_id,
+                )}/following`}
                 onClick={props.onClose}
                 class="hover:underline"
               >
@@ -83,9 +83,9 @@ export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
                 </span>
               </A>
               <A
-                href={`/profile/${
-                  encodeURIComponent(props.actor.ap_id)
-                }/followers`}
+                href={`/profile/${encodeURIComponent(
+                  props.actor.ap_id,
+                )}/followers`}
                 onClick={props.onClose}
                 class="hover:underline"
               >

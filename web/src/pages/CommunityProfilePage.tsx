@@ -133,8 +133,8 @@ export function CommunityProfilePage() {
       setCommunity(data);
       const membersData = await fetchCommunityMembers(name);
       setMembers(membersData);
-      const canManageNow = data.member_role === "owner" ||
-        data.member_role === "moderator";
+      const canManageNow =
+        data.member_role === "owner" || data.member_role === "moderator";
       if (canManageNow) {
         setLoadingRequests(true);
         try {
@@ -171,18 +171,18 @@ export function CommunityProfilePage() {
       const result = await joinCommunity(comm.name, { inviteId });
       if (result.status === "pending") {
         setCommunity((prev) =>
-          prev ? { ...prev, join_status: "pending" } : null
+          prev ? { ...prev, join_status: "pending" } : null,
         );
       } else {
         setCommunity((prev) =>
           prev
             ? {
-              ...prev,
-              is_member: true,
-              join_status: null,
-              member_count: prev.member_count + 1,
-            }
-            : null
+                ...prev,
+                is_member: true,
+                join_status: null,
+                member_count: prev.member_count + 1,
+              }
+            : null,
         );
       }
     } catch (e) {
@@ -202,7 +202,7 @@ export function CommunityProfilePage() {
       setCommunity((prev) =>
         prev
           ? { ...prev, is_member: false, member_count: prev.member_count - 1 }
-          : null
+          : null,
       );
     } catch (e) {
       console.error("Failed to leave:", e);
@@ -223,7 +223,7 @@ export function CommunityProfilePage() {
       const membersData = await fetchCommunityMembers(comm.name);
       setMembers(membersData);
       setCommunity((prev) =>
-        prev ? { ...prev, member_count: prev.member_count + 1 } : null
+        prev ? { ...prev, member_count: prev.member_count + 1 } : null,
       );
     } catch (e) {
       console.error("Failed to accept join request:", e);
@@ -276,10 +276,10 @@ export function CommunityProfilePage() {
     try {
       await updateCommunityMemberRole(comm.name, member.ap_id, role);
       setMembers((prev) =>
-        prev.map((m) => (m.ap_id === member.ap_id ? { ...m, role } : m))
+        prev.map((m) => (m.ap_id === member.ap_id ? { ...m, role } : m)),
       );
       if (member.ap_id === actor.ap_id) {
-        setCommunity((prev) => prev ? { ...prev, member_role: role } : prev);
+        setCommunity((prev) => (prev ? { ...prev, member_role: role } : prev));
       }
     } catch (e) {
       console.error("Failed to update member role:", e);
@@ -334,27 +334,30 @@ export function CommunityProfilePage() {
     try {
       const normalizedSettings: CommunitySettings = {
         ...settingsForm(),
-        display_name: settingsForm().display_name !== undefined
-          ? settingsForm().display_name!.trim()
-          : undefined,
-        summary: settingsForm().summary !== undefined
-          ? settingsForm().summary!.trim()
-          : undefined,
+        display_name:
+          settingsForm().display_name !== undefined
+            ? settingsForm().display_name!.trim()
+            : undefined,
+        summary:
+          settingsForm().summary !== undefined
+            ? settingsForm().summary!.trim()
+            : undefined,
       };
       await updateCommunitySettings(comm.name, normalizedSettings);
       // Update local community state
       setCommunity((prev) =>
         prev
           ? {
-            ...prev,
-            display_name: normalizedSettings.display_name ?? prev.display_name,
-            summary: normalizedSettings.summary ?? prev.summary,
-            icon_url: normalizedSettings.icon_url ?? prev.icon_url,
-            visibility: normalizedSettings.visibility ?? prev.visibility,
-            join_policy: normalizedSettings.join_policy ?? prev.join_policy,
-            post_policy: normalizedSettings.post_policy ?? prev.post_policy,
-          }
-          : null
+              ...prev,
+              display_name:
+                normalizedSettings.display_name ?? prev.display_name,
+              summary: normalizedSettings.summary ?? prev.summary,
+              icon_url: normalizedSettings.icon_url ?? prev.icon_url,
+              visibility: normalizedSettings.visibility ?? prev.visibility,
+              join_policy: normalizedSettings.join_policy ?? prev.join_policy,
+              post_policy: normalizedSettings.post_policy ?? prev.post_policy,
+            }
+          : null,
       );
       // Cleanup ObjectURL and clear preview after successful save
       const preview = iconPreview();
@@ -496,7 +499,8 @@ export function CommunityProfilePage() {
               uploadingIcon={uploadingIcon()}
               iconPreview={iconPreview()}
               onChangeSettings={(updater) =>
-                setSettingsForm((prev) => updater(prev))}
+                setSettingsForm((prev) => updater(prev))
+              }
               onUploadIcon={handleIconUpload}
               onSaveSettings={handleSaveSettings}
             />

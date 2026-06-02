@@ -37,11 +37,15 @@ export function registerMembershipRequestRoutes(
         return c.json({ error: "Forbidden" }, 403);
       }
 
-      const requests = await db.select().from(communityJoinRequests)
-        .where(and(
-          eq(communityJoinRequests.communityApId, community.apId),
-          eq(communityJoinRequests.status, "pending"),
-        ))
+      const requests = await db
+        .select()
+        .from(communityJoinRequests)
+        .where(
+          and(
+            eq(communityJoinRequests.communityApId, community.apId),
+            eq(communityJoinRequests.status, "pending"),
+          ),
+        )
         .orderBy(desc(communityJoinRequests.createdAt));
 
       const requestActorApIds = requests.map((r) => r.actorApId);
@@ -88,18 +92,24 @@ export function registerMembershipRequestRoutes(
         return c.json({ error: "Forbidden" }, 403);
       }
 
-      const request = await db.select().from(communityJoinRequests)
-        .where(and(
-          eq(communityJoinRequests.communityApId, community.apId),
-          eq(communityJoinRequests.actorApId, body.actor_ap_id),
-          eq(communityJoinRequests.status, "pending"),
-        ))
+      const request = await db
+        .select()
+        .from(communityJoinRequests)
+        .where(
+          and(
+            eq(communityJoinRequests.communityApId, community.apId),
+            eq(communityJoinRequests.actorApId, body.actor_ap_id),
+            eq(communityJoinRequests.status, "pending"),
+          ),
+        )
         .get();
       if (!request) {
         return c.json({ error: "Join request not found" }, 404);
       }
 
-      const existingMember = await db.select().from(communityMembers)
+      const existingMember = await db
+        .select()
+        .from(communityMembers)
         .where(memberWhere(community.apId, body.actor_ap_id))
         .get();
 
@@ -112,17 +122,21 @@ export function registerMembershipRequestRoutes(
           joinedAt: now,
         });
 
-        await db.update(communities)
+        await db
+          .update(communities)
           .set({ memberCount: sql`${communities.memberCount} + 1` })
           .where(eq(communities.apId, community.apId));
       }
 
-      await db.update(communityJoinRequests)
+      await db
+        .update(communityJoinRequests)
         .set({ status: "accepted", processedAt: new Date().toISOString() })
-        .where(and(
-          eq(communityJoinRequests.communityApId, community.apId),
-          eq(communityJoinRequests.actorApId, body.actor_ap_id),
-        ));
+        .where(
+          and(
+            eq(communityJoinRequests.communityApId, community.apId),
+            eq(communityJoinRequests.actorApId, body.actor_ap_id),
+          ),
+        );
 
       return c.json({ success: true });
     },
@@ -153,23 +167,30 @@ export function registerMembershipRequestRoutes(
         return c.json({ error: "Forbidden" }, 403);
       }
 
-      const request = await db.select().from(communityJoinRequests)
-        .where(and(
-          eq(communityJoinRequests.communityApId, community.apId),
-          eq(communityJoinRequests.actorApId, body.actor_ap_id),
-          eq(communityJoinRequests.status, "pending"),
-        ))
+      const request = await db
+        .select()
+        .from(communityJoinRequests)
+        .where(
+          and(
+            eq(communityJoinRequests.communityApId, community.apId),
+            eq(communityJoinRequests.actorApId, body.actor_ap_id),
+            eq(communityJoinRequests.status, "pending"),
+          ),
+        )
         .get();
       if (!request) {
         return c.json({ error: "Join request not found" }, 404);
       }
 
-      await db.update(communityJoinRequests)
+      await db
+        .update(communityJoinRequests)
         .set({ status: "rejected", processedAt: new Date().toISOString() })
-        .where(and(
-          eq(communityJoinRequests.communityApId, community.apId),
-          eq(communityJoinRequests.actorApId, body.actor_ap_id),
-        ));
+        .where(
+          and(
+            eq(communityJoinRequests.communityApId, community.apId),
+            eq(communityJoinRequests.actorApId, body.actor_ap_id),
+          ),
+        );
 
       return c.json({ success: true });
     },

@@ -91,7 +91,7 @@ function createAuthTestApp(
     };
 
     const mockOwnerGet = spy(() =>
-      Promise.resolve(options.existingOwner === false ? null : actorData)
+      Promise.resolve(options.existingOwner === false ? null : actorData),
     );
     const mockGet = spy(() => Promise.resolve(actorData));
     const mockWhere = spy(() => ({ get: mockGet }));
@@ -104,9 +104,9 @@ function createAuthTestApp(
 
     type ThenResolve = ((value: unknown) => unknown) | null | undefined;
 
-    const capturedInserts =
-      (env as { _capturedInserts?: Array<Record<string, unknown>> })
-        ._capturedInserts;
+    const capturedInserts = (
+      env as { _capturedInserts?: Array<Record<string, unknown>> }
+    )._capturedInserts;
     const mockInsertValues = spy((values?: Record<string, unknown>) => {
       if (capturedInserts && values) capturedInserts.push(values);
       return {
@@ -147,21 +147,39 @@ test("auth login lockout - locks out after 5 failed login attempts", async () =>
     const headers = { "CF-Connecting-IP": "198.51.100.24" };
 
     for (let i = 0; i < 4; i++) {
-      const { res } = await request(app, env, "/api/auth/login", {
-        password: "wrong-password",
-      }, headers);
+      const { res } = await request(
+        app,
+        env,
+        "/api/auth/login",
+        {
+          password: "wrong-password",
+        },
+        headers,
+      );
       expect(res.status).toEqual(401);
     }
 
-    const { res: lockoutRes } = await request(app, env, "/api/auth/login", {
-      password: "wrong-password",
-    }, headers);
+    const { res: lockoutRes } = await request(
+      app,
+      env,
+      "/api/auth/login",
+      {
+        password: "wrong-password",
+      },
+      headers,
+    );
     expect(lockoutRes.status).toEqual(429);
     assert_not_null(lockoutRes.headers.get("Retry-After"));
 
-    const { res: blockedRes } = await request(app, env, "/api/auth/login", {
-      password: "correct-password",
-    }, headers);
+    const { res: blockedRes } = await request(
+      app,
+      env,
+      "/api/auth/login",
+      {
+        password: "correct-password",
+      },
+      headers,
+    );
     expect(blockedRes.status).toEqual(429);
   } finally {
     time.restore();
@@ -176,20 +194,38 @@ test("auth login lockout - clears lockout state after successful login", async (
     const headers = { "CF-Connecting-IP": "198.51.100.25" };
 
     for (let i = 0; i < 4; i++) {
-      const { res } = await request(app, env, "/api/auth/login", {
-        password: "wrong-password",
-      }, headers);
+      const { res } = await request(
+        app,
+        env,
+        "/api/auth/login",
+        {
+          password: "wrong-password",
+        },
+        headers,
+      );
       expect(res.status).toEqual(401);
     }
 
-    const { res: successRes } = await request(app, env, "/api/auth/login", {
-      password: "correct-password",
-    }, headers);
+    const { res: successRes } = await request(
+      app,
+      env,
+      "/api/auth/login",
+      {
+        password: "correct-password",
+      },
+      headers,
+    );
     expect(successRes.status).toEqual(200);
 
-    const { res: retryRes } = await request(app, env, "/api/auth/login", {
-      password: "wrong-password",
-    }, headers);
+    const { res: retryRes } = await request(
+      app,
+      env,
+      "/api/auth/login",
+      {
+        password: "wrong-password",
+      },
+      headers,
+    );
     expect(retryRes.status).toEqual(401);
   } finally {
     time.restore();
@@ -213,16 +249,28 @@ test("auth login lockout - allows retries again after lockout window passes", as
       );
     }
 
-    const { res: lockedRes } = await request(app, env, "/api/auth/login", {
-      password: "wrong-password",
-    }, headers);
+    const { res: lockedRes } = await request(
+      app,
+      env,
+      "/api/auth/login",
+      {
+        password: "wrong-password",
+      },
+      headers,
+    );
     expect(lockedRes.status).toEqual(429);
 
     time.tick(LOGIN_LOCKOUT_CONFIG.lockoutMs + 1_000);
 
-    const { res: postWindowRes } = await request(app, env, "/api/auth/login", {
-      password: "wrong-password",
-    }, headers);
+    const { res: postWindowRes } = await request(
+      app,
+      env,
+      "/api/auth/login",
+      {
+        password: "wrong-password",
+      },
+      headers,
+    );
     expect(postWindowRes.status).toEqual(401);
   } finally {
     time.restore();
@@ -231,13 +279,23 @@ test("auth login lockout - allows retries again after lockout window passes", as
 
 test("password login first run creates the fixed owner actor", async () => {
   const hashedPassword = await hashPassword("correct-password");
-  const { app, env } = createAuthTestApp(hashedPassword, {}, {
-    existingOwner: false,
-  });
+  const { app, env } = createAuthTestApp(
+    hashedPassword,
+    {},
+    {
+      existingOwner: false,
+    },
+  );
 
-  const { res, body } = await request(app, env, "/api/auth/login", {
-    password: "correct-password",
-  }, { "CF-Connecting-IP": "198.51.100.27" });
+  const { res, body } = await request(
+    app,
+    env,
+    "/api/auth/login",
+    {
+      password: "correct-password",
+    },
+    { "CF-Connecting-IP": "198.51.100.27" },
+  );
 
   expect(res.status).toEqual(200);
   expect(body).toEqual({ success: true });
@@ -246,14 +304,20 @@ test("password login first run creates the fixed owner actor", async () => {
 test("password login - stores a hashed session id and sets SameSite=Strict cookie", async () => {
   const hashedPassword = await hashPassword("correct-password");
   const inserted: Array<Record<string, unknown>> = [];
-  const { app, env } = createAuthTestApp(
-    hashedPassword,
-    { YURUCOMMU_SESSION_HASH_SALT: "test-salt", _capturedInserts: inserted },
-  );
+  const { app, env } = createAuthTestApp(hashedPassword, {
+    YURUCOMMU_SESSION_HASH_SALT: "test-salt",
+    _capturedInserts: inserted,
+  });
 
-  const { res } = await request(app, env, "/api/auth/login", {
-    password: "correct-password",
-  }, { "CF-Connecting-IP": "198.51.100.40" });
+  const { res } = await request(
+    app,
+    env,
+    "/api/auth/login",
+    {
+      password: "correct-password",
+    },
+    { "CF-Connecting-IP": "198.51.100.40" },
+  );
 
   expect(res.status).toEqual(200);
 

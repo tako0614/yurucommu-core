@@ -102,8 +102,8 @@ export function hashSessionIdForEnv(
   sessionId: string,
 ): Promise<string> {
   const strictValue = env.YURUCOMMU_STRICT_READINESS?.trim().toLowerCase();
-  const strict = strictValue === "1" || strictValue === "true" ||
-    strictValue === "yes";
+  const strict =
+    strictValue === "1" || strictValue === "true" || strictValue === "yes";
   return hashSessionId(sessionId, env.YURUCOMMU_SESSION_HASH_SALT, strict);
 }
 

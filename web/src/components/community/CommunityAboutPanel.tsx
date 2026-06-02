@@ -11,9 +11,7 @@ export function CommunityAboutPanel(props: CommunityAboutPanelProps) {
       <Show
         when={props.community.summary}
         fallback={
-          <div class="text-neutral-500 text-center py-8">
-            説明がありません
-          </div>
+          <div class="text-neutral-500 text-center py-8">説明がありません</div>
         }
       >
         <div>

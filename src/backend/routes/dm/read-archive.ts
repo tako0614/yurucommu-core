@@ -39,7 +39,8 @@ readArchive.post("/user/:encodedApId/read", async (c) => {
   );
   const now = new Date().toISOString();
 
-  await db.insert(dmReadStatus)
+  await db
+    .insert(dmReadStatus)
     .values({
       actorApId: actor.ap_id,
       conversationId,
@@ -66,7 +67,8 @@ readArchive.post("/user/:encodedApId/archive", async (c) => {
   const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
   const now = new Date().toISOString();
 
-  await db.insert(dmArchivedConversations)
+  await db
+    .insert(dmArchivedConversations)
     .values({
       actorApId: actor.ap_id,
       conversationId,
@@ -89,12 +91,14 @@ readArchive.delete("/user/:encodedApId/archive", async (c) => {
   const baseUrl = c.env.APP_URL;
   const conversationId = getConversationId(baseUrl, actor.ap_id, otherApId);
 
-  await db.delete(dmArchivedConversations).where(
-    and(
-      eq(dmArchivedConversations.actorApId, actor.ap_id),
-      eq(dmArchivedConversations.conversationId, conversationId),
-    ),
-  );
+  await db
+    .delete(dmArchivedConversations)
+    .where(
+      and(
+        eq(dmArchivedConversations.actorApId, actor.ap_id),
+        eq(dmArchivedConversations.conversationId, conversationId),
+      ),
+    );
 
   return c.json({ success: true });
 });
@@ -105,10 +109,11 @@ readArchive.get("/archived", async (c) => {
   if (!actor) return c.json({ error: "Unauthorized" }, 401);
   const db = c.get("db");
 
-  const archivedConversations = await db.select({
-    conversationId: dmArchivedConversations.conversationId,
-    archivedAt: dmArchivedConversations.archivedAt,
-  })
+  const archivedConversations = await db
+    .select({
+      conversationId: dmArchivedConversations.conversationId,
+      archivedAt: dmArchivedConversations.archivedAt,
+    })
     .from(dmArchivedConversations)
     .where(eq(dmArchivedConversations.actorApId, actor.ap_id));
 
@@ -120,21 +125,20 @@ readArchive.get("/archived", async (c) => {
     archivedConversations.map((a) => a.conversationId),
   );
 
-  const dmObjects = await db.select({
-    conversation: objects.conversation,
-    attributedTo: objects.attributedTo,
-    toJson: objects.toJson,
-    published: objects.published,
-  })
+  const dmObjects = await db
+    .select({
+      conversation: objects.conversation,
+      attributedTo: objects.attributedTo,
+      toJson: objects.toJson,
+      published: objects.published,
+    })
     .from(objects)
     .where(dmWhereForActor(actor.ap_id)!)
     .orderBy(desc(objects.published))
     .limit(2000);
 
-  const conversationMap = groupConversations(
-    dmObjects,
-    actor.ap_id,
-    (id) => archivedSet.has(id),
+  const conversationMap = groupConversations(dmObjects, actor.ap_id, (id) =>
+    archivedSet.has(id),
   );
 
   const otherApIds = uniqueValues(conversationMap, (c) => c.otherApId);

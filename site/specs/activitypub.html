@@ -1,147 +1,198 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ActivityPub拡張仕様 - Yurucommu</title>
-  <meta name="description" content="YurucommuのActivityPub拡張仕様。連合に配信される仕様一覧">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="../styles.css">
-</head>
-<body>
-  <header class="header">
-    <div class="header-inner">
-      <a href="/" class="logo">Yurucommu</a>
-      <div class="header-links">
-        <a href="/help/" class="header-link">Docs</a>
-        <a href="/specs/" class="header-link active">Specs</a>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ActivityPub拡張仕様 - Yurucommu</title>
+    <meta
+      name="description"
+      content="YurucommuのActivityPub拡張仕様。連合に配信される仕様一覧"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="header-inner">
+        <a href="/" class="logo">Yurucommu</a>
+        <div class="header-links">
+          <a href="/help/" class="header-link">Docs</a>
+          <a href="/specs/" class="header-link active">Specs</a>
+        </div>
+        <a href="https://github.com/tako0614/yurucommu" class="header-cta">
+          GitHub
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path
+              d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"
+            />
+          </svg>
+        </a>
       </div>
-      <a href="https://github.com/tako0614/yurucommu" class="header-cta">
-        GitHub
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
-        </svg>
-      </a>
-    </div>
-  </header>
+    </header>
 
-  <div class="docs-layout">
-    <aside class="docs-sidebar">
-      <p class="docs-sidebar-title">仕様</p>
-      <ul class="docs-sidebar-nav">
-        <li><a href="/specs/">概要</a></li>
-        <li><a href="/specs/activitypub.html" class="active">ActivityPub拡張</a></li>
-        <li><a href="/specs/yurucommu.html">Yurucommu仕様</a></li>
-        <li><a href="/specs/namespace.html">名前空間</a></li>
-      </ul>
-
-      <div class="docs-sidebar-section">
-        <p class="docs-sidebar-title">ActivityPub拡張</p>
+    <div class="docs-layout">
+      <aside class="docs-sidebar">
+        <p class="docs-sidebar-title">仕様</p>
         <ul class="docs-sidebar-nav">
-          <li><a href="/specs/apc.html">APC (Communities)</a></li>
-          <li><a href="/specs/single-user.html">Single-User Instance</a></li>
-          <li><a href="/specs/story.html">Story</a></li>
-          <li><a href="/specs/dmnote.html">DM Note</a></li>
+          <li><a href="/specs/">概要</a></li>
+          <li>
+            <a href="/specs/activitypub.html" class="active">ActivityPub拡張</a>
+          </li>
+          <li><a href="/specs/yurucommu.html">Yurucommu仕様</a></li>
+          <li><a href="/specs/namespace.html">名前空間</a></li>
         </ul>
-      </div>
 
-      <div class="docs-sidebar-section">
-        <p class="docs-sidebar-title">Yurucommu仕様</p>
-        <ul class="docs-sidebar-nav">
-          <li><a href="/specs/qr-exchange.html">QR Exchange</a></li>
-        </ul>
-      </div>
+        <div class="docs-sidebar-section">
+          <p class="docs-sidebar-title">ActivityPub拡張</p>
+          <ul class="docs-sidebar-nav">
+            <li><a href="/specs/apc.html">APC (Communities)</a></li>
+            <li><a href="/specs/single-user.html">Single-User Instance</a></li>
+            <li><a href="/specs/story.html">Story</a></li>
+            <li><a href="/specs/dmnote.html">DM Note</a></li>
+          </ul>
+        </div>
 
-      <div class="docs-sidebar-section">
-        <p class="docs-sidebar-title">リソース</p>
-        <ul class="docs-sidebar-nav">
-          <li><a href="https://www.w3.org/TR/activitypub/">ActivityPub (W3C)</a></li>
-          <li><a href="https://www.w3.org/TR/activitystreams-core/">Activity Streams 2.0</a></li>
-        </ul>
-      </div>
-    </aside>
+        <div class="docs-sidebar-section">
+          <p class="docs-sidebar-title">Yurucommu仕様</p>
+          <ul class="docs-sidebar-nav">
+            <li><a href="/specs/qr-exchange.html">QR Exchange</a></li>
+          </ul>
+        </div>
 
-    <main class="docs-content">
-      <span class="spec-scope federation">連合に配信</span>
-      <h1>ActivityPub拡張仕様</h1>
-      <p class="lead">
-        ActivityPubプロトコルを拡張し、他のFediverse実装（Mastodon、Misskey等）との相互運用性を確保する仕様です。
-        これらの拡張は連合に配信され、対応する実装間で機能します。
-      </p>
+        <div class="docs-sidebar-section">
+          <p class="docs-sidebar-title">リソース</p>
+          <ul class="docs-sidebar-nav">
+            <li>
+              <a href="https://www.w3.org/TR/activitypub/">ActivityPub (W3C)</a>
+            </li>
+            <li>
+              <a href="https://www.w3.org/TR/activitystreams-core/"
+                >Activity Streams 2.0</a
+              >
+            </li>
+          </ul>
+        </div>
+      </aside>
 
-      <h2>名前空間</h2>
-      <p>ActivityPub拡張プロパティは以下の名前空間を使用します：</p>
-      <pre><code>{
+      <main class="docs-content">
+        <span class="spec-scope federation">連合に配信</span>
+        <h1>ActivityPub拡張仕様</h1>
+        <p class="lead">
+          ActivityPubプロトコルを拡張し、他のFediverse実装（Mastodon、Misskey等）との相互運用性を確保する仕様です。
+          これらの拡張は連合に配信され、対応する実装間で機能します。
+        </p>
+
+        <h2>名前空間</h2>
+        <p>ActivityPub拡張プロパティは以下の名前空間を使用します：</p>
+        <pre><code>{
   "@context": [
     "https://www.w3.org/ns/activitystreams",
     "https://yurucommu.com/ns"
   ]
 }</code></pre>
-      <p>詳細は<a href="/specs/namespace.html">名前空間</a>を参照してください。</p>
+        <p>
+          詳細は<a href="/specs/namespace.html">名前空間</a>を参照してください。
+        </p>
 
-      <h2>設計方針</h2>
-      <ul>
-        <li><strong>標準相互運用</strong> - 標準のActivityPub実装で扱える ActivityStreams shape を維持する</li>
-        <li><strong>オプショナル</strong> - 拡張機能は必須ではなく、サポートしない実装でも基本機能は動作する</li>
-        <li><strong>名前空間の使用</strong> - 拡張プロパティには必ず名前空間を指定する</li>
-        <li><strong>ドキュメント</strong> - 実装の挙動を文書化し、テストケースを提供する</li>
-      </ul>
+        <h2>設計方針</h2>
+        <ul>
+          <li>
+            <strong>標準相互運用</strong> - 標準のActivityPub実装で扱える
+            ActivityStreams shape を維持する
+          </li>
+          <li>
+            <strong>オプショナル</strong> -
+            拡張機能は必須ではなく、サポートしない実装でも基本機能は動作する
+          </li>
+          <li>
+            <strong>名前空間の使用</strong> -
+            拡張プロパティには必ず名前空間を指定する
+          </li>
+          <li>
+            <strong>ドキュメント</strong> -
+            実装の挙動を文書化し、テストケースを提供する
+          </li>
+        </ul>
 
-      <h2>仕様一覧</h2>
+        <h2>仕様一覧</h2>
 
-      <div class="card-grid">
-        <a href="/specs/apc.html" class="card">
-          <span class="spec-status draft">Draft</span>
-          <h3 class="card-title">APC (ActivityPub Communities)</h3>
-          <p class="card-description">
-            コミュニティ（グループ）機能の仕様。Groupアクターを使用したコミュニティの作成、参加、投稿の配信について定義。
-          </p>
-        </a>
-        <a href="/specs/single-user.html" class="card">
-          <span class="spec-status draft">Draft</span>
-          <h3 class="card-title">Single-User Instance</h3>
-          <p class="card-description">
-            1インスタンス1ユーザーの設計に関する仕様。認証、権限、インスタンス管理について定義。
-          </p>
-        </a>
-        <a href="/specs/story.html" class="card">
-          <span class="spec-status draft">Draft</span>
-          <h3 class="card-title">Story</h3>
-          <p class="card-description">
-            24時間で消えるストーリー機能の仕様。Noteを拡張し、endTimeや単一attachment、displayDurationを追加。
-          </p>
-        </a>
-        <a href="/specs/dmnote.html" class="card">
-          <span class="spec-status draft">Draft</span>
-          <h3 class="card-title">DM Note</h3>
-          <p class="card-description">
-            一時的なダイレクトメッセージの仕様。消えるメッセージをActivityPubで実現。
-          </p>
-        </a>
-      </div>
+        <div class="card-grid">
+          <a href="/specs/apc.html" class="card">
+            <span class="spec-status draft">Draft</span>
+            <h3 class="card-title">APC (ActivityPub Communities)</h3>
+            <p class="card-description">
+              コミュニティ（グループ）機能の仕様。Groupアクターを使用したコミュニティの作成、参加、投稿の配信について定義。
+            </p>
+          </a>
+          <a href="/specs/single-user.html" class="card">
+            <span class="spec-status draft">Draft</span>
+            <h3 class="card-title">Single-User Instance</h3>
+            <p class="card-description">
+              1インスタンス1ユーザーの設計に関する仕様。認証、権限、インスタンス管理について定義。
+            </p>
+          </a>
+          <a href="/specs/story.html" class="card">
+            <span class="spec-status draft">Draft</span>
+            <h3 class="card-title">Story</h3>
+            <p class="card-description">
+              24時間で消えるストーリー機能の仕様。Noteを拡張し、endTimeや単一attachment、displayDurationを追加。
+            </p>
+          </a>
+          <a href="/specs/dmnote.html" class="card">
+            <span class="spec-status draft">Draft</span>
+            <h3 class="card-title">DM Note</h3>
+            <p class="card-description">
+              一時的なダイレクトメッセージの仕様。消えるメッセージをActivityPubで実現。
+            </p>
+          </a>
+        </div>
 
-      <h2>参考</h2>
-      <ul>
-        <li><a href="https://www.w3.org/TR/activitypub/">ActivityPub W3C Recommendation</a></li>
-        <li><a href="https://www.w3.org/TR/activitystreams-core/">Activity Streams 2.0</a></li>
-        <li><a href="https://www.w3.org/TR/activitystreams-vocabulary/">Activity Vocabulary</a></li>
-      </ul>
-    </main>
-  </div>
-
-  <footer class="footer">
-    <div class="footer-inner">
-      <div class="footer-logo">Yurucommu</div>
-      <div class="footer-links">
-        <a href="/" class="footer-link">ホーム</a>
-        <a href="/help/" class="footer-link">Docs</a>
-        <a href="/specs/" class="footer-link">Specs</a>
-        <a href="https://github.com/tako0614/yurucommu" class="footer-link">GitHub</a>
-      </div>
-      <p class="footer-copy">&copy; 2026 Yurucommu. AGPL v3.</p>
+        <h2>参考</h2>
+        <ul>
+          <li>
+            <a href="https://www.w3.org/TR/activitypub/"
+              >ActivityPub W3C Recommendation</a
+            >
+          </li>
+          <li>
+            <a href="https://www.w3.org/TR/activitystreams-core/"
+              >Activity Streams 2.0</a
+            >
+          </li>
+          <li>
+            <a href="https://www.w3.org/TR/activitystreams-vocabulary/"
+              >Activity Vocabulary</a
+            >
+          </li>
+        </ul>
+      </main>
     </div>
-  </footer>
-</body>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <div class="footer-logo">Yurucommu</div>
+        <div class="footer-links">
+          <a href="/" class="footer-link">ホーム</a>
+          <a href="/help/" class="footer-link">Docs</a>
+          <a href="/specs/" class="footer-link">Specs</a>
+          <a href="https://github.com/tako0614/yurucommu" class="footer-link"
+            >GitHub</a
+          >
+        </div>
+        <p class="footer-copy">&copy; 2026 Yurucommu. AGPL v3.</p>
+      </div>
+    </footer>
+  </body>
 </html>

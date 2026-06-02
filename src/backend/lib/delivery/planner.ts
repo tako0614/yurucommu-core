@@ -65,12 +65,13 @@ export async function planEndpointsFromActorCache(
   }
 
   // Batch-load actor_cache for recipient set.
-  const rows = await db.select({
-    apId: actorCache.apId,
-    inbox: actorCache.inbox,
-    sharedInbox: actorCache.sharedInbox,
-    lastFetchedAt: actorCache.lastFetchedAt,
-  })
+  const rows = await db
+    .select({
+      apId: actorCache.apId,
+      inbox: actorCache.inbox,
+      sharedInbox: actorCache.sharedInbox,
+      lastFetchedAt: actorCache.lastFetchedAt,
+    })
     .from(actorCache)
     .where(inArray(actorCache.apId, recipientActorApIds));
 
@@ -82,9 +83,8 @@ export async function planEndpointsFromActorCache(
   for (const apId of recipientActorApIds) {
     const row = byApId.get(apId);
     // Treat missing, stale, or unresolvable actors as unknown for resolve_actor jobs.
-    const chosen = row && isActorCacheFresh(row, nowMs)
-      ? chooseEndpoint(row)
-      : null;
+    const chosen =
+      row && isActorCacheFresh(row, nowMs) ? chooseEndpoint(row) : null;
     if (!chosen) {
       unknownRecipients.push(apId);
       continue;
@@ -97,16 +97,16 @@ export async function planEndpointsFromActorCache(
     );
   }
 
-  const groups: PlannedEndpointGroup[] = Array.from(endpointCounts.entries())
-    .map(([endpoint, recipientCount]) => ({
-      endpoint,
-      recipientCount,
-    }));
+  const groups: PlannedEndpointGroup[] = Array.from(
+    endpointCounts.entries(),
+  ).map(([endpoint, recipientCount]) => ({
+    endpoint,
+    recipientCount,
+  }));
 
   // Observability: sharedInbox aggregation ratio.
-  const ratio = totalRecipients > 0
-    ? sharedInboxRecipients / totalRecipients
-    : 0;
+  const ratio =
+    totalRecipients > 0 ? sharedInboxRecipients / totalRecipients : 0;
   emitMetric("delivery_shared_inbox_aggregation_ratio", ratio, {
     total_recipients: totalRecipients,
     shared_inbox_recipients: sharedInboxRecipients,

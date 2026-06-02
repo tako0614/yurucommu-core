@@ -261,9 +261,9 @@ export async function revokeCommunityInvite(
   inviteId: string,
 ): Promise<void> {
   const res = await apiDelete(
-    `/api/communities/${encodeURIComponent(identifier)}/invites/${
-      encodeURIComponent(inviteId)
-    }`,
+    `/api/communities/${encodeURIComponent(identifier)}/invites/${encodeURIComponent(
+      inviteId,
+    )}`,
   );
   await assertOk(res, "Failed to revoke invite");
 }
@@ -284,9 +284,9 @@ export async function removeCommunityMember(
   actorApId: string,
 ): Promise<void> {
   const res = await apiDelete(
-    `/api/communities/${encodeURIComponent(identifier)}/members/${
-      encodeURIComponent(actorApId)
-    }`,
+    `/api/communities/${encodeURIComponent(identifier)}/members/${encodeURIComponent(
+      actorApId,
+    )}`,
   );
   await assertOk(res, "Failed to remove member");
 }
@@ -297,9 +297,9 @@ export async function updateCommunityMemberRole(
   role: "owner" | "moderator" | "member",
 ): Promise<void> {
   const res = await apiPatch(
-    `/api/communities/${encodeURIComponent(identifier)}/members/${
-      encodeURIComponent(actorApId)
-    }`,
+    `/api/communities/${encodeURIComponent(identifier)}/members/${encodeURIComponent(
+      actorApId,
+    )}`,
     { role },
   );
   await assertOk(res, "Failed to update member role");
@@ -311,9 +311,9 @@ export async function editCommunityMessage(
   content: string,
 ): Promise<void> {
   const res = await apiPatch(
-    `/api/communities/${encodeURIComponent(identifier)}/messages/${
-      encodeURIComponent(messageId)
-    }`,
+    `/api/communities/${encodeURIComponent(identifier)}/messages/${encodeURIComponent(
+      messageId,
+    )}`,
     { content },
   );
   await assertOk(res, "Failed to edit message");
@@ -324,9 +324,9 @@ export async function deleteCommunityMessage(
   messageId: string,
 ): Promise<void> {
   const res = await apiDelete(
-    `/api/communities/${encodeURIComponent(identifier)}/messages/${
-      encodeURIComponent(messageId)
-    }`,
+    `/api/communities/${encodeURIComponent(identifier)}/messages/${encodeURIComponent(
+      messageId,
+    )}`,
   );
   await assertOk(res, "Failed to delete message");
 }

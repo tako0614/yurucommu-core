@@ -316,7 +316,8 @@ export function CommunityChatPage() {
                     fallback={
                       <span class="text-lg font-medium text-white">
                         {(community()!.display_name || community()!.name)
-                          .charAt(0).toUpperCase()}
+                          .charAt(0)
+                          .toUpperCase()}
                       </span>
                     }
                   >
@@ -379,7 +380,8 @@ export function CommunityChatPage() {
                       <For each={group.messages}>
                         {(msg, msgIndex) => {
                           const isMe = msg.sender.ap_id === actor.ap_id;
-                          const showAvatar = msgIndex() === 0 ||
+                          const showAvatar =
+                            msgIndex() === 0 ||
                             group.messages[msgIndex() - 1].sender.ap_id !==
                               msg.sender.ap_id;
 
@@ -393,14 +395,16 @@ export function CommunityChatPage() {
                                 <div class="w-8 flex-shrink-0">
                                   <Show when={showAvatar}>
                                     <A
-                                      href={`/profile/${
-                                        encodeURIComponent(msg.sender.ap_id)
-                                      }`}
+                                      href={`/profile/${encodeURIComponent(
+                                        msg.sender.ap_id,
+                                      )}`}
                                     >
                                       <UserAvatar
                                         avatarUrl={msg.sender.icon_url}
-                                        name={msg.sender.name ||
-                                          msg.sender.preferred_username}
+                                        name={
+                                          msg.sender.name ||
+                                          msg.sender.preferred_username
+                                        }
                                         size={32}
                                       />
                                     </A>

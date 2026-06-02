@@ -52,7 +52,8 @@ export async function resolveConversationId(
   otherApId: string,
 ): Promise<string> {
   // Find existing conversation between these two actors
-  const existing = await db.select({ conversation: objects.conversation })
+  const existing = await db
+    .select({ conversation: objects.conversation })
     .from(objects)
     .where(
       and(
@@ -75,6 +76,7 @@ export async function resolveConversationId(
     .limit(1)
     .get();
 
-  return existing?.conversation ||
-    getConversationId(baseUrl, actorApId, otherApId);
+  return (
+    existing?.conversation || getConversationId(baseUrl, actorApId, otherApId)
+  );
 }

@@ -54,7 +54,7 @@ test("requireBearerAuth introspects against the configured Accounts issuer", asy
           headers: { "Content-Type": "application/json" },
         },
       ),
-    )
+    ),
   );
   const fetchStub = stub(globalThis, "fetch", fetchImpl);
 
@@ -74,7 +74,9 @@ test("requireBearerAuth introspects against the configured Accounts issuer", asy
     expect(res.status).toEqual(200);
     expect(await res.json()).toEqual({ sub: "user-1" });
     assertSpyCalls(fetchImpl, 1);
-    expect(String(fetchImpl.calls[0].args[0])).toContain("https://accounts.example.com/oauth/introspect");
+    expect(String(fetchImpl.calls[0].args[0])).toContain(
+      "https://accounts.example.com/oauth/introspect",
+    );
   } finally {
     fetchStub.restore();
   }

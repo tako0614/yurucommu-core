@@ -2,9 +2,9 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export async function parseJsonObject(
-  c: { req: { json: () => Promise<unknown> } },
-): Promise<Record<string, unknown> | null> {
+export async function parseJsonObject(c: {
+  req: { json: () => Promise<unknown> };
+}): Promise<Record<string, unknown> | null> {
   try {
     const body = await c.req.json();
     if (!isRecord(body)) return null;

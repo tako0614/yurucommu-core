@@ -63,9 +63,9 @@ export const __archivedCleanupInternals = {
 };
 
 /** Require authenticated actor or return 401. */
-function requireActor(
-  c: { get(key: "actor"): { ap_id: string } | null },
-): { ap_id: string } | null {
+function requireActor(c: {
+  get(key: "actor"): { ap_id: string } | null;
+}): { ap_id: string } | null {
   return c.get("actor");
 }
 
@@ -82,7 +82,9 @@ async function batchArchiveInsert(
 
   for (let i = 0; i < rows.length; i += batchSize) {
     const batch = rows.slice(i, i + batchSize);
-    const result = await db.insert(notificationArchived).values(batch)
+    const result = await db
+      .insert(notificationArchived)
+      .values(batch)
       .onConflictDoNothing();
     inserted += (result as { meta?: { changes?: number } }).meta?.changes ?? 0;
   }
@@ -101,24 +103,34 @@ async function cleanupArchivedNotifications(
   const archivedToDelete = await db
     .select({ activityApId: notificationArchived.activityApId })
     .from(notificationArchived)
-    .where(and(
-      eq(notificationArchived.actorApId, actorApId),
-      lt(notificationArchived.archivedAt, retentionDateStr),
-    ));
+    .where(
+      and(
+        eq(notificationArchived.actorApId, actorApId),
+        lt(notificationArchived.archivedAt, retentionDateStr),
+      ),
+    );
 
   if (archivedToDelete.length === 0) return;
 
   const activityApIds = archivedToDelete.map((a) => a.activityApId);
 
-  await db.delete(inboxTable).where(and(
-    eq(inboxTable.actorApId, actorApId),
-    inArray(inboxTable.activityApId, activityApIds),
-  ));
+  await db
+    .delete(inboxTable)
+    .where(
+      and(
+        eq(inboxTable.actorApId, actorApId),
+        inArray(inboxTable.activityApId, activityApIds),
+      ),
+    );
 
-  await db.delete(notificationArchived).where(and(
-    eq(notificationArchived.actorApId, actorApId),
-    lt(notificationArchived.archivedAt, retentionDateStr),
-  ));
+  await db
+    .delete(notificationArchived)
+    .where(
+      and(
+        eq(notificationArchived.actorApId, actorApId),
+        lt(notificationArchived.archivedAt, retentionDateStr),
+      ),
+    );
 }
 
 async function maybeCleanupArchivedNotifications(
@@ -172,16 +184,17 @@ notifications.get("/", async (c) => {
   const showArchived = c.req.query("archived") === "true";
 
   const typeToActivityType: Record<string, string[]> = {
-    "follow": ["Follow"],
-    "like": ["Like"],
-    "announce": ["Announce"],
-    "reply": ["Create"],
-    "mention": ["Create"],
+    follow: ["Follow"],
+    like: ["Like"],
+    announce: ["Announce"],
+    reply: ["Create"],
+    mention: ["Create"],
   };
 
-  const activityTypes = (typeFilter && typeToActivityType[typeFilter])
-    ? typeToActivityType[typeFilter]
-    : NOTIFICATION_ACTIVITY_TYPES;
+  const activityTypes =
+    typeFilter && typeToActivityType[typeFilter]
+      ? typeToActivityType[typeFilter]
+      : NOTIFICATION_ACTIVITY_TYPES;
 
   // Get archived activity IDs for filtering
   const archivedActivities = await db
@@ -222,9 +235,9 @@ notifications.get("/", async (c) => {
   const actorApIds = [...new Set(inboxEntries.map((i) => i.activityActorApId))];
   const objectApIds = [
     ...new Set(
-      inboxEntries.map((i) => i.activityObjectApId).filter((id): id is string =>
-        id !== null
-      ),
+      inboxEntries
+        .map((i) => i.activityObjectApId)
+        .filter((id): id is string => id !== null),
     ),
   ];
   const activityApIdsArr = [
@@ -234,33 +247,36 @@ notifications.get("/", async (c) => {
   const [actorMap, objectRows, followRows] = await Promise.all([
     batchLoadActorInfo(db, actorApIds),
     objectApIds.length > 0
-      ? db.select({
-        apId: objects.apId,
-        content: objects.content,
-        inReplyTo: objects.inReplyTo,
-      })
-        .from(objects)
-        .where(inArray(objects.apId, objectApIds))
+      ? db
+          .select({
+            apId: objects.apId,
+            content: objects.content,
+            inReplyTo: objects.inReplyTo,
+          })
+          .from(objects)
+          .where(inArray(objects.apId, objectApIds))
       : Promise.resolve([]),
     activityApIdsArr.length > 0
-      ? db.select({
-        activityApId: follows.activityApId,
-        status: follows.status,
-      })
-        .from(follows)
-        .where(inArray(follows.activityApId, activityApIdsArr))
+      ? db
+          .select({
+            activityApId: follows.activityApId,
+            status: follows.status,
+          })
+          .from(follows)
+          .where(inArray(follows.activityApId, activityApIdsArr))
       : Promise.resolve([]),
   ]);
 
   const objectMap = new Map(
-    objectRows.map(
-      (o) => [o.apId, { content: o.content, inReplyTo: o.inReplyTo }],
-    ),
+    objectRows.map((o) => [
+      o.apId,
+      { content: o.content, inReplyTo: o.inReplyTo },
+    ]),
   );
   const followMap = new Map(
-    followRows.filter((f) => f.activityApId).map(
-      (f) => [f.activityApId!, f.status],
-    ),
+    followRows
+      .filter((f) => f.activityApId)
+      .map((f) => [f.activityApId!, f.status]),
   );
 
   // Filter and transform inbox entries into notifications in a single pass
@@ -292,12 +308,14 @@ notifications.get("/", async (c) => {
     const inReplyTo = objectData?.inReplyTo ?? null;
 
     // Distinguish reply vs mention for Create activities
+    if (typeFilter === "reply" && entry.activityType === "Create" && !inReplyTo)
+      continue;
     if (
-      typeFilter === "reply" && entry.activityType === "Create" && !inReplyTo
-    ) continue;
-    if (
-      typeFilter === "mention" && entry.activityType === "Create" && inReplyTo
-    ) continue;
+      typeFilter === "mention" &&
+      entry.activityType === "Create" &&
+      inReplyTo
+    )
+      continue;
 
     const followStatus = followMap.get(entry.activityApId) ?? null;
     const notifType = activityToNotificationType(
@@ -342,12 +360,14 @@ notifications.get("/unread/count", async (c) => {
     .select({ count: count() })
     .from(inboxTable)
     .innerJoin(activities, eq(inboxTable.activityApId, activities.apId))
-    .where(and(
-      eq(inboxTable.actorApId, actor.ap_id),
-      eq(inboxTable.read, 0),
-      ne(activities.actorApId, actor.ap_id),
-      inArray(activities.type, NOTIFICATION_ACTIVITY_TYPES),
-    ))
+    .where(
+      and(
+        eq(inboxTable.actorApId, actor.ap_id),
+        eq(inboxTable.read, 0),
+        ne(activities.actorApId, actor.ap_id),
+        inArray(activities.type, NOTIFICATION_ACTIVITY_TYPES),
+      ),
+    )
     .get();
 
   return c.json({ count: result?.count ?? 0 });
@@ -362,22 +382,29 @@ notifications.post("/read", async (c) => {
   const body = await c.req.json<{ ids?: string[]; read_all?: boolean }>();
 
   if (body.read_all) {
-    await db.update(inboxTable)
+    await db
+      .update(inboxTable)
       .set({ read: 1 })
       .where(eq(inboxTable.actorApId, actor.ap_id));
   } else if (body.ids && body.ids.length > 0) {
     if (body.ids.length > MAX_READ_BATCH_SIZE) {
-      return c.json({
-        error: "array_too_long",
-        message: `Batch size exceeds maximum of ${MAX_READ_BATCH_SIZE}`,
-      }, 400);
+      return c.json(
+        {
+          error: "array_too_long",
+          message: `Batch size exceeds maximum of ${MAX_READ_BATCH_SIZE}`,
+        },
+        400,
+      );
     }
-    await db.update(inboxTable)
+    await db
+      .update(inboxTable)
       .set({ read: 1 })
-      .where(and(
-        eq(inboxTable.actorApId, actor.ap_id),
-        inArray(inboxTable.activityApId, body.ids),
-      ));
+      .where(
+        and(
+          eq(inboxTable.actorApId, actor.ap_id),
+          inArray(inboxTable.activityApId, body.ids),
+        ),
+      );
   } else {
     return c.json(
       { error: "Either ids array or read_all flag is required" },
@@ -405,9 +432,12 @@ notifications.post("/archive", async (c) => {
     return c.json({ error: "ids array is required" }, 400);
   }
   if (body.ids.length > MAX_ARCHIVE_BATCH_SIZE) {
-    return c.json({
-      error: `Batch size exceeds maximum of ${MAX_ARCHIVE_BATCH_SIZE}`,
-    }, 400);
+    return c.json(
+      {
+        error: `Batch size exceeds maximum of ${MAX_ARCHIVE_BATCH_SIZE}`,
+      },
+      400,
+    );
   }
 
   const now = new Date().toISOString();
@@ -416,10 +446,12 @@ notifications.post("/archive", async (c) => {
   const alreadyArchived = await db
     .select({ activityApId: notificationArchived.activityApId })
     .from(notificationArchived)
-    .where(and(
-      eq(notificationArchived.actorApId, actor.ap_id),
-      inArray(notificationArchived.activityApId, uniqueIds),
-    ));
+    .where(
+      and(
+        eq(notificationArchived.actorApId, actor.ap_id),
+        inArray(notificationArchived.activityApId, uniqueIds),
+      ),
+    );
   const alreadyArchivedSet = new Set(
     alreadyArchived.map((row) => row.activityApId),
   );
@@ -450,16 +482,23 @@ notifications.delete("/archive", async (c) => {
     return c.json({ error: "ids array is required" }, 400);
   }
   if (body.ids.length > MAX_ARCHIVE_BATCH_SIZE) {
-    return c.json({
-      error: "array_too_long",
-      message: `Batch size exceeds maximum of ${MAX_ARCHIVE_BATCH_SIZE}`,
-    }, 400);
+    return c.json(
+      {
+        error: "array_too_long",
+        message: `Batch size exceeds maximum of ${MAX_ARCHIVE_BATCH_SIZE}`,
+      },
+      400,
+    );
   }
 
-  await db.delete(notificationArchived).where(and(
-    eq(notificationArchived.actorApId, actor.ap_id),
-    inArray(notificationArchived.activityApId, body.ids),
-  ));
+  await db
+    .delete(notificationArchived)
+    .where(
+      and(
+        eq(notificationArchived.actorApId, actor.ap_id),
+        inArray(notificationArchived.activityApId, body.ids),
+      ),
+    );
 
   return c.json({ success: true });
 });
@@ -473,11 +512,13 @@ notifications.post("/archive/all", async (c) => {
   const now = new Date().toISOString();
 
   const [alreadyArchived, inboxItems] = await Promise.all([
-    db.select({ activityApId: notificationArchived.activityApId })
+    db
+      .select({ activityApId: notificationArchived.activityApId })
       .from(notificationArchived)
       .where(eq(notificationArchived.actorApId, actor.ap_id))
       .limit(ARCHIVE_ALL_CAP),
-    db.select({ activityApId: inboxTable.activityApId })
+    db
+      .select({ activityApId: inboxTable.activityApId })
       .from(inboxTable)
       .where(eq(inboxTable.actorApId, actor.ap_id))
       .limit(ARCHIVE_ALL_CAP),
@@ -486,8 +527,8 @@ notifications.post("/archive/all", async (c) => {
   const alreadyArchivedIds = new Set(
     alreadyArchived.map((a) => a.activityApId),
   );
-  const toArchive = inboxItems.filter((item) =>
-    !alreadyArchivedIds.has(item.activityApId)
+  const toArchive = inboxItems.filter(
+    (item) => !alreadyArchivedIds.has(item.activityApId),
   );
 
   const rows = toArchive.map((item) => ({

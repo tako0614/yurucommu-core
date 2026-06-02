@@ -51,8 +51,12 @@ test("parseRemoteActor parses Mastodon actor", () => {
   expect(actor.id).toEqual("https://mastodon.example/users/alice");
   expect(actor.preferredUsername).toEqual("alice");
   expect(actor.inbox).toEqual("https://mastodon.example/users/alice/inbox");
-  expect(actor.endpoints?.sharedInbox).toEqual("https://mastodon.example/inbox");
-  expect(actor.publicKey?.publicKeyPem).toEqual("-----BEGIN PUBLIC KEY-----\nMIIB...\n-----END PUBLIC KEY-----");
+  expect(actor.endpoints?.sharedInbox).toEqual(
+    "https://mastodon.example/inbox",
+  );
+  expect(actor.publicKey?.publicKeyPem).toEqual(
+    "-----BEGIN PUBLIC KEY-----\nMIIB...\n-----END PUBLIC KEY-----",
+  );
   expect(actor.icon?.url).toEqual("https://mastodon.example/avatars/alice.png");
 });
 
@@ -258,8 +262,8 @@ test("parseWebFinger extracts self link", () => {
   };
   const wf = parseWebFinger(jrd);
   expect(wf.links?.length).toEqual(2);
-  const selfLink = wf.links?.find((l) =>
-    l.rel === "self" && l.type === "application/activity+json"
+  const selfLink = wf.links?.find(
+    (l) => l.rel === "self" && l.type === "application/activity+json",
   );
   expect(selfLink?.href).toEqual("https://mastodon.example/users/alice");
 });
@@ -271,11 +275,7 @@ test("parseWebFinger returns empty when links is missing or wrong type", () => {
 
 test("parseWebFinger skips non-object link entries", () => {
   const wf = parseWebFinger({
-    links: [
-      "not an object",
-      null,
-      { rel: "self", href: "https://example" },
-    ],
+    links: ["not an object", null, { rel: "self", href: "https://example" }],
   });
   expect(wf.links?.length).toEqual(1);
   expect(wf.links?.[0].href).toEqual("https://example");

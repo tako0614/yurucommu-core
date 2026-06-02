@@ -18,8 +18,8 @@ interface MediaPanelProps {
 }
 
 export function MediaPanel(props: MediaPanelProps) {
-  const currentFilter = createMemo(() =>
-    props.layer.filter || FILTER_PRESETS[0].filter
+  const currentFilter = createMemo(
+    () => props.layer.filter || FILTER_PRESETS[0].filter,
   );
 
   return (
@@ -60,7 +60,7 @@ export function MediaPanel(props: MediaPanelProps) {
                 onClick={() => props.onUpdate({ filter: preset.filter })}
                 class={`p-2 rounded-lg text-xs transition-colors ${
                   JSON.stringify(currentFilter()) ===
-                      JSON.stringify(preset.filter)
+                  JSON.stringify(preset.filter)
                     ? "bg-blue-500 text-white"
                     : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
                 }`}
@@ -89,7 +89,8 @@ export function MediaPanel(props: MediaPanelProps) {
                   ...currentFilter(),
                   brightness: parseInt(e.currentTarget.value),
                 },
-              })}
+              })
+            }
             class="w-full accent-blue-500"
           />
         </div>
@@ -108,7 +109,8 @@ export function MediaPanel(props: MediaPanelProps) {
                   ...currentFilter(),
                   contrast: parseInt(e.currentTarget.value),
                 },
-              })}
+              })
+            }
             class="w-full accent-blue-500"
           />
         </div>
@@ -127,7 +129,8 @@ export function MediaPanel(props: MediaPanelProps) {
                   ...currentFilter(),
                   saturation: parseInt(e.currentTarget.value),
                 },
-              })}
+              })
+            }
             class="w-full accent-blue-500"
           />
         </div>
@@ -144,7 +147,8 @@ export function MediaPanel(props: MediaPanelProps) {
           max="100"
           value={props.layer.opacity * 100}
           onInput={(e) =>
-            props.onUpdate({ opacity: parseInt(e.currentTarget.value) / 100 })}
+            props.onUpdate({ opacity: parseInt(e.currentTarget.value) / 100 })
+          }
           class="w-full accent-blue-500"
         />
       </div>
