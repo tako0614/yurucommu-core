@@ -1,18 +1,18 @@
 # Yurucommu
 
-This page has been reset for Takosumi v1. Takosumi installs a **Source** (Git, prepared archive, or local source) and records an **Installation** plus append-only **Deployment** entries. Source display metadata comes from generic repository information such as Git URL, ref, commit, tag, and package metadata.
+This page has been reset for Takosumi v1. Takosumi installs a plain OpenTofu module repository and records an **Installation**, **PlanRun**, **ApplyRun**, **Deployment**, and **DeploymentOutput** ledger. Source display metadata comes from generic repository information such as Git URL, ref, commit, tag, module path, and OpenTofu outputs.
 
 ## Current Flow
 
-1. Choose a Git URL/ref or a prepared source archive.
-2. Run install dry-run and review the returned InstallPlan, changes, warnings, and `planSnapshotDigest`.
-3. Apply with the reviewed expected guard. Git sources use `expected.commit` + `expected.planSnapshotDigest`; prepared sources use `expected.sourceDigest` + `expected.planSnapshotDigest`.
-4. Deployment dry-run/apply uses the same source guard plus `expected.currentDeploymentId` to prevent stale approvals.
-5. Provider materialization, credentials, OIDC clients, billing, domains, Terraform/OpenTofu/Helm state, and PlatformService inventory belong to the operator distribution.
+1. Choose a Git URL/ref and module path, or a prepared immutable source.
+2. Run PlanRun and review required providers, policy decision, plan artifact, and `planDigest`.
+3. Apply with the reviewed expected guard. Git sources use source commit/digest plus the reviewed `planDigest` and plan artifact digest.
+4. Update/destroy applies also guard the current Deployment pointer to prevent stale approvals.
+5. Provider materialization, credentials, OIDC clients, billing, domains, OpenTofu state, and platform service inventory belong to the operator distribution.
 
 ## Takos Boundary
 
-Takos owns product UI, chat, agent, memory, spaces, Git hosting, bundled app launcher metadata, file-handler metadata, and MCP-facing product metadata. Takosumi owns Source / Installation / Deployment records. Takosumi or another operator distribution owns account-plane policy and provider bindings.
+Takos owns product UI, chat, agent, memory, spaces, Git hosting, bundled app launcher metadata, file-handler metadata, and MCP-facing product metadata. Takosumi owns Installation / PlanRun / ApplyRun / Deployment / DeploymentOutput records. Takosumi or another operator distribution owns account-plane policy and provider bindings.
 
 ## API Shape
 
@@ -27,11 +27,11 @@ Takos owns product UI, chat, agent, memory, spaces, Git hosting, bundled app lau
 }
 ```
 
-Apply requests add the expected guard returned by dry-run. Takos product routes should call the Takosumi installer or Takosumi account-plane install flow instead of exposing a separate deployment proxy.
+Apply requests add the expected guard returned by PlanRun. Takos product routes should call the Takosumi installer or Takosumi account-plane install flow instead of exposing a separate deployment proxy.
 
 ## References
 
 - [Deploy overview](/deploy/)
 - [Install paths](/apps/install-paths)
-- [Takosumi specification](https://takosumi.com/docs/reference/core-spec)
-- [Takosumi installer API](https://takosumi.com/docs/reference/installer-api)
+- [Takosumi model](https://takosumi.com/docs/reference/model)
+- [Takosumi Deploy Control API](https://takosumi.com/docs/reference/deploy-control-api)

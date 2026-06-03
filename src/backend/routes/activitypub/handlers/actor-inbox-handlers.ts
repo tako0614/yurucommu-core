@@ -9,6 +9,7 @@ import {
 import {
   activityApId,
   generateId,
+  getDomain,
   isLocal,
   objectApId,
 } from "../../../federation-helpers.ts";
@@ -140,6 +141,19 @@ export async function handleGroupCreate(
   const db = c.get("db");
   const object = getActivityObject(activity);
   if (!object || object.type !== "Note") return;
+
+  if (object.id) {
+    try {
+      if (
+        isLocal(object.id, baseUrl) ||
+        getDomain(object.id) !== getDomain(actorApIdStr)
+      ) {
+        return;
+      }
+    } catch {
+      return;
+    }
+  }
 
   const roomUrl = object.room || activity.room;
   if (!roomUrl || typeof roomUrl !== "string") return;

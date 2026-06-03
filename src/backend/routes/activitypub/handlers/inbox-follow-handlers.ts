@@ -370,15 +370,26 @@ async function undoLike(
     .from(objects)
     .where(eq(objects.attributedTo, recipient.apId));
   if (recipientObjects.length > 0) {
-    await db.delete(likes).where(
-      and(
-        eq(likes.actorApId, actor),
-        inArray(
-          likes.objectApId,
-          recipientObjects.map((o) => o.apId),
+    const deleted = await db
+      .delete(likes)
+      .where(
+        and(
+          eq(likes.actorApId, actor),
+          inArray(
+            likes.objectApId,
+            recipientObjects.map((o) => o.apId),
+          ),
         ),
-      ),
-    );
+      )
+      .returning({ objectApId: likes.objectApId });
+    if (deleted.length > 0) {
+      await db
+        .update(objects)
+        .set({ likeCount: sql`${objects.likeCount} - 1` })
+        .where(
+          inArray(objects.apId, [...new Set(deleted.map((r) => r.objectApId))]),
+        );
+    }
   }
 }
 

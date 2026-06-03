@@ -95,19 +95,19 @@
         </p>
         <pre><code>bun run build:worker</code></pre>
         <p>
-          prepared source 内の worker entrypoint は
+          Takosumi の OpenTofu module から参照する worker entrypoint は
           <code>dist/worker.js</code> です。
         </p>
 
         <h2>Takosumiでinstall</h2>
         <p>
-          Takosumiを使う場合は、Takosumi install
-          wizardでdry-runを確認してからInstallationを作成します。
+          Takosumiを使う場合は、Takosumi install wizardでOpenTofu
+          PlanRunを確認してからInstallationを作成します。
           起動はTakosumiがactivateしたpublic HTTP
           endpointを開き、Yurucommu側のTakosumi Accounts
           OIDCでサインインします。
         </p>
-        <pre><code>https://accounts.takosumi.com/apps/install?git=https://github.com/tako0614/yurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autodryrun=1</code></pre>
+        <pre><code>https://accounts.takosumi.com/install?git=https://github.com/tako0614/yurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autoplan=1</code></pre>
 
         <h2>Cloudflareへ直接デプロイ</h2>
         <pre><code>bun run deploy</code></pre>

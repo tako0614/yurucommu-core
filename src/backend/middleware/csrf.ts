@@ -101,7 +101,18 @@ export function csrfProtection() {
     }
 
     if (!allowedOrigins.has(requestOrigin)) {
-      if (isDevLocalhost(appUrl) && requestOrigin.includes("localhost")) {
+      const ro = (() => {
+        try {
+          return new URL(requestOrigin).hostname;
+        } catch {
+          return null;
+        }
+      })();
+      if (
+        isDevLocalhost(appUrl) &&
+        ro &&
+        (ro === "localhost" || ro === "127.0.0.1" || ro === "[::1]")
+      ) {
         return next();
       }
       log.warn("CSRF check failed: origin mismatch", {

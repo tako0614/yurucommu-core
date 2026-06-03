@@ -120,3 +120,37 @@ test("csrfProtection (Wave M-D multi-origin): allowlist 外の origin は reject
   expect(res.status).toEqual(403);
   expect(await res.json()).toEqual({ error: "CSRF validation failed" });
 });
+
+test("csrfProtection (dev localhost): permits genuine localhost origin when APP_URL is dev", async () => {
+  const app = createApp();
+  const res = await app.fetch(
+    new Request("http://localhost:3000/api/resource", {
+      method: "POST",
+      headers: {
+        Origin: "http://localhost:5173",
+        Cookie: "session=session-id",
+      },
+    }),
+    { APP_URL: "http://localhost:3000" } as never,
+  );
+
+  expect(res.status).toEqual(200);
+  expect(await res.json()).toEqual({ ok: true });
+});
+
+test("csrfProtection (dev localhost): rejects localhost-substring attacker host", async () => {
+  const app = createApp();
+  const res = await app.fetch(
+    new Request("http://localhost:3000/api/resource", {
+      method: "POST",
+      headers: {
+        Origin: "https://localhost.attacker.example",
+        Cookie: "session=session-id",
+      },
+    }),
+    { APP_URL: "http://localhost:3000" } as never,
+  );
+
+  expect(res.status).toEqual(403);
+  expect(await res.json()).toEqual({ error: "CSRF validation failed" });
+});

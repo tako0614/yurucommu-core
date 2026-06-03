@@ -4,11 +4,11 @@ export function yurucommuTakosumiInstallUrl(
   const installHost = isLocalSubstrateHostname(hostname)
     ? "accounts.takosumi.test"
     : "accounts.takosumi.com";
-  const url = new URL(`https://${installHost}/apps/install`);
+  const url = new URL(`https://${installHost}/install`);
   url.searchParams.set("git", "https://github.com/tako0614/yurucommu.git");
   url.searchParams.set("ref", "main");
   url.searchParams.set("mode", "shared-cell");
-  url.searchParams.set("autodryrun", "1");
+  url.searchParams.set("autoplan", "1");
   return url.toString();
 }
 

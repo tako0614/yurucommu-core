@@ -338,6 +338,10 @@ search.get("/remote", async (c) => {
     const actorData = tryParseRemoteActor(actorRaw);
     if (!actorData) return c.json({ actors: [] });
 
+    if (actorData.id !== actorLink.href || !isSafeRemoteUrl(actorData.id)) {
+      return c.json({ actors: [] });
+    }
+
     // Cache the actor (upsert: check if exists, then insert or update)
     const db = c.get("db");
     const cacheFields = {

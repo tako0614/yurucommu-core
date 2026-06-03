@@ -341,6 +341,16 @@ async function fetchActorPublicKey(
         }
       }
 
+      if (actorData.id !== actorUrl) {
+        log.warn("Actor ID mismatch during signature key fetch", {
+          event: "ap.signature.actor_id_mismatch",
+          keyId,
+          actorUrl,
+          receivedId: actorData.id,
+        });
+        return cached?.publicKeyPem ?? null;
+      }
+
       if (
         actorData.id &&
         actorData.inbox &&

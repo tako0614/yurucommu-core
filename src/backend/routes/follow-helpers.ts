@@ -302,6 +302,10 @@ export async function handleRemoteFollow(
         return c.json({ error: "Invalid remote actor data" }, 400);
       }
 
+      if (actorData.id !== targetApId) {
+        return c.json({ error: "Remote actor id mismatch" }, 400);
+      }
+
       cachedActorRow = await db
         .insert(actorCache)
         .values({
