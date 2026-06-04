@@ -56,5 +56,5 @@ applied migration; the runner already has access to the on-disk SQL so the
 change is mechanical, but requires coordination with production data (existing
 rows have NULL checksums until backfilled).
 
-For restore / disaster-recovery procedures, see
-[`takos-private/docs/operations/`](../../takos-private/docs/operations/).
+For restore / disaster-recovery procedures, see the operator runbooks under
+[`takosumi/docs/operations/`](../../takosumi/docs/operations/).
