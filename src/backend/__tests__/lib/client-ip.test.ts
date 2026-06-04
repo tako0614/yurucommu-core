@@ -23,10 +23,21 @@ async function whoami(
   return await res.text();
 }
 
-test("CF-Connecting-IP is always honoured (set by the edge)", async () => {
+test("CF-Connecting-IP is ignored when TAKOS_TRUST_PROXY is unset", async () => {
+  // Non-Cloudflare deployments do not strip a client-supplied
+  // CF-Connecting-IP, so it must not be trusted without operator opt-in.
   expect(await whoami({}, { "CF-Connecting-IP": "203.0.113.10" })).toEqual(
-    "203.0.113.10",
+    "unknown",
   );
+});
+
+test("CF-Connecting-IP is honoured when TAKOS_TRUST_PROXY=true", async () => {
+  expect(
+    await whoami(
+      { TAKOS_TRUST_PROXY: "true" },
+      { "CF-Connecting-IP": "203.0.113.10" },
+    ),
+  ).toEqual("203.0.113.10");
 });
 
 test("X-Forwarded-For is ignored when TAKOS_TRUST_PROXY is unset", async () => {
@@ -51,7 +62,7 @@ test("X-Forwarded-For / X-Real-IP are honoured when TAKOS_TRUST_PROXY=true", asy
   ).toEqual("203.0.113.31");
 });
 
-test("CF-Connecting-IP wins even when proxy headers are trusted", async () => {
+test("CF-Connecting-IP wins over proxy headers when both are trusted", async () => {
   expect(
     await whoami(
       { TAKOS_TRUST_PROXY: "true" },
@@ -64,9 +75,14 @@ test("CF-Connecting-IP wins even when proxy headers are trusted", async () => {
 });
 
 test("Invalid IPs fall back to unknown", async () => {
-  expect(await whoami({}, { "CF-Connecting-IP": "not-an-ip" })).toEqual(
-    "unknown",
-  );
+  // Even with the edge/proxy trusted, a syntactically invalid header value
+  // must not be returned verbatim.
+  expect(
+    await whoami(
+      { TAKOS_TRUST_PROXY: "true" },
+      { "CF-Connecting-IP": "not-an-ip" },
+    ),
+  ).toEqual("unknown");
 });
 
 test("TAKOS_TRUST_PROXY=false / 0 / unset all reject proxy headers", async () => {

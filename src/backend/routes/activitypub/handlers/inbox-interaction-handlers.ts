@@ -6,7 +6,11 @@ import {
   likes,
   objects,
 } from "../../../../db/index.ts";
-import { activityApId, generateId } from "../../../federation-helpers.ts";
+import {
+  activityApId,
+  generateId,
+  getDomain,
+} from "../../../federation-helpers.ts";
 import {
   type Activity,
   type ActivityContext,
@@ -259,5 +263,19 @@ function resolveCollectionTarget(
   if (!objectId || objectId !== recipient.apId) return null;
 
   const targetId = getActivityTargetId(activity);
-  return normalizeCollectionTarget(targetId || actor) || null;
+  const followingApId = normalizeCollectionTarget(targetId || actor) || null;
+  if (!followingApId) return null;
+
+  // SECURITY (federated follow-graph forgery): `activity.target` is
+  // attacker-controlled and only the signing actor is authenticated, NOT the
+  // target. Without this check a signed Add/Remove could forge or delete a local
+  // user's follow edge to an ARBITRARY third party (followingApId on any host).
+  // Constrain the resolved target to the signing actor's own origin, so an
+  // Add/Remove can only affect a relationship involving the sending actor.
+  try {
+    if (getDomain(followingApId) !== getDomain(actor)) return null;
+  } catch {
+    return null;
+  }
+  return followingApId;
 }

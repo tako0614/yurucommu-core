@@ -9,6 +9,7 @@ import { and, desc, eq, isNotNull } from "drizzle-orm";
 import {
   activities,
   actors,
+  blocks,
   inbox,
   objectRecipients,
   objects,
@@ -51,6 +52,22 @@ export async function handleSendDm(
     .where(eq(actors.preferredUsername, recipient))
     .get();
   if (!target) return c.json(errNotFound("Recipient"), 404);
+
+  // SECURITY (#23, broken access control / block bypass): mirror the canonical
+  // DM send path (routes/dm/messages.ts) — reject when the recipient has blocked
+  // the sender. Respond with the same not-found shape as a missing recipient so
+  // the sender cannot distinguish a block from a non-existent user (no block leak).
+  const blockedBy = await db
+    .select({ blockerApId: blocks.blockerApId })
+    .from(blocks)
+    .where(
+      and(
+        eq(blocks.blockerApId, target.apId),
+        eq(blocks.blockedApId, actor.ap_id),
+      ),
+    )
+    .get();
+  if (blockedBy) return c.json(errNotFound("Recipient"), 404);
 
   const baseUrl = c.env.APP_URL;
   const now = new Date().toISOString();

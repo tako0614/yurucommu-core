@@ -571,6 +571,22 @@ export async function handleMove(
     return;
   }
 
+  // SECURITY (account-migration follow-graph hijack): a signed Move only proves
+  // the OLD actor consents to move; it does NOT prove the destination is the same
+  // person. Without verifying the destination's `alsoKnownAs` back-reference, a
+  // remote actor that accumulated local followers could redirect them all to an
+  // arbitrary unconsenting account (follower-stealing). Require the standard
+  // Mastodon Move guard: the destination actor document must list the old actor
+  // in `alsoKnownAs`. Fails closed.
+  if (!(await destinationDeclaresAlias(newActorApId, oldActorApId))) {
+    log.warn("Blocked Move without alsoKnownAs back-reference", {
+      event: "ap.move.unverified_alias",
+      newActor: newActorApId,
+      oldActor: oldActorApId,
+    });
+    return;
+  }
+
   // Refresh/cache the new actor document (best-effort).
   await refreshActorCache(db, newActorApId);
 
@@ -680,6 +696,37 @@ function getActivityTargetId(activity: Activity): string | null {
 }
 
 /** Fetch a remote actor document and cache it locally. Best-effort (errors are logged, not thrown). */
+/**
+ * Verify the destination actor of a Move declares the origin actor in its
+ * `alsoKnownAs` (the standard Mastodon account-migration consent check). Fetches
+ * the destination actor document fresh and fails closed on any error.
+ */
+async function destinationDeclaresAlias(
+  newActorApId: string,
+  oldActorApId: string,
+): Promise<boolean> {
+  try {
+    const res = await fetchWithTimeout(newActorApId, {
+      headers: { Accept: "application/activity+json, application/ld+json" },
+      timeout: 15000,
+    });
+    if (!res.ok) return false;
+    const raw: unknown = await res.json();
+    if (!raw || typeof raw !== "object") return false;
+    const doc = raw as { id?: unknown; alsoKnownAs?: unknown };
+    if (doc.id !== newActorApId) return false;
+    const aka = doc.alsoKnownAs;
+    const aliases = Array.isArray(aka)
+      ? aka
+      : typeof aka === "string"
+      ? [aka]
+      : [];
+    return aliases.includes(oldActorApId);
+  } catch {
+    return false;
+  }
+}
+
 async function refreshActorCache(
   db: Database,
   actorApIdValue: string,
