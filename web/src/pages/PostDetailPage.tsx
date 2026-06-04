@@ -1,7 +1,5 @@
-import { createEffect, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import { A, useNavigate, useParams } from "@solidjs/router";
-import { atom } from "jotai";
-import { useAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { MediaAttachment, Post } from "../types/index.ts";
 import {
@@ -24,14 +22,6 @@ import {
   ReplyIcon,
 } from "../components/icons/SocialIcons.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
-
-// Atoms defined at module level
-const postDetail_errorAtom = atom<string | null>(null);
-const postDetail_postAtom = atom<Post | null>(null);
-const postDetail_repliesAtom = atom<Post[]>([]);
-const postDetail_loadingAtom = atom(true);
-const postDetail_replyContentAtom = atom("");
-const postDetail_replyingAtom = atom(false);
 
 const BackIcon = () => (
   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -60,13 +50,13 @@ export function PostDetailPage() {
   const params = useParams();
   const navigate = useNavigate();
   const { t } = useI18n();
-  const [error, setError] = useAtom(postDetail_errorAtom);
+  const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
-  const [post, setPost] = useAtom(postDetail_postAtom);
-  const [replies, setReplies] = useAtom(postDetail_repliesAtom);
-  const [loading, setLoading] = useAtom(postDetail_loadingAtom);
-  const [replyContent, setReplyContent] = useAtom(postDetail_replyContentAtom);
-  const [replying, setReplying] = useAtom(postDetail_replyingAtom);
+  const [post, setPost] = createSignal<Post | null>(null);
+  const [replies, setReplies] = createSignal<Post[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [replyContent, setReplyContent] = createSignal("");
+  const [replying, setReplying] = createSignal(false);
 
   createEffect(() => {
     const postId = params.postId;

@@ -2,7 +2,6 @@ import type { Database } from "../../../../db/index.ts";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   activities,
-  actorCache,
   actors,
   follows,
   inbox as inboxTable,
@@ -23,7 +22,7 @@ import {
   objectApId,
 } from "../../../federation-helpers.ts";
 import { getConversationId } from "../../dm/query-helpers.ts";
-import { tryParseRemoteActor } from "../../../lib/activitypub-validators.ts";
+import { fetchAndUpsertActorCache } from "../../../lib/activitypub-actor-cache.ts";
 import { logger } from "../../../lib/logger.ts";
 import {
   type Activity,
@@ -719,8 +718,8 @@ async function destinationDeclaresAlias(
     const aliases = Array.isArray(aka)
       ? aka
       : typeof aka === "string"
-      ? [aka]
-      : [];
+        ? [aka]
+        : [];
     return aliases.includes(oldActorApId);
   } catch {
     return false;
@@ -731,47 +730,14 @@ async function refreshActorCache(
   db: Database,
   actorApIdValue: string,
 ): Promise<void> {
-  try {
-    const res = await fetchWithTimeout(actorApIdValue, {
-      headers: { Accept: "application/activity+json, application/ld+json" },
-      timeout: 15000,
-    });
-    if (!res.ok) return;
-
-    const raw: unknown = await res.json();
-    const data = tryParseRemoteActor(raw);
-    if (
-      !data ||
-      data.id !== actorApIdValue ||
-      !data.inbox ||
-      !isSafeRemoteUrl(data.inbox)
-    )
-      return;
-
-    const cacheFields = {
-      type: data.type || "Person",
-      preferredUsername: data.preferredUsername || null,
-      name: data.name || null,
-      summary: data.summary || null,
-      iconUrl: data.icon?.url || null,
-      inbox: data.inbox,
-      outbox: data.outbox || null,
-      sharedInbox: data.endpoints?.sharedInbox || null,
-      publicKeyId: data.publicKey?.id || null,
-      publicKeyPem: data.publicKey?.publicKeyPem || null,
-      rawJson: JSON.stringify(data),
-      lastFetchedAt: new Date().toISOString(),
-    };
-
-    await db
-      .insert(actorCache)
-      .values({ apId: data.id, ...cacheFields })
-      .onConflictDoUpdate({ target: actorCache.apId, set: cacheFields });
-  } catch (e) {
+  const result = await fetchAndUpsertActorCache(db, actorApIdValue, {
+    timeout: 15000,
+    mode: "upsert",
+  });
+  if (!result.ok && result.reason === "fetch_failed") {
     log.warn("Failed to refresh Move target actor cache", {
       event: "ap.move.cache_refresh_failed",
       actor: actorApIdValue,
-      error: e,
     });
   }
 }

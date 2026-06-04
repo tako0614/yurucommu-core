@@ -1,7 +1,5 @@
-import { For, onMount, Show } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import { A } from "@solidjs/router";
-import { atom } from "jotai";
-import { useAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Post } from "../types/index.ts";
 import {
@@ -17,18 +15,13 @@ import { PostContent } from "../components/PostContent.tsx";
 import { BookmarkIcon, HeartIcon } from "../components/icons/SocialIcons.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 
-// Atoms defined at module level
-const bookmarks_errorAtom = atom<string | null>(null);
-const bookmarks_postsAtom = atom<Post[]>([]);
-const bookmarks_loadingAtom = atom(true);
-
 export function BookmarksPage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
-  const [error, setError] = useAtom(bookmarks_errorAtom);
+  const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
-  const [posts, setPosts] = useAtom(bookmarks_postsAtom);
-  const [loading, setLoading] = useAtom(bookmarks_loadingAtom);
+  const [posts, setPosts] = createSignal<Post[]>([]);
+  const [loading, setLoading] = createSignal(true);
 
   onMount(() => {
     loadBookmarks();

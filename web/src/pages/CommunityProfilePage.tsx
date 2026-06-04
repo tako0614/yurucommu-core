@@ -1,7 +1,5 @@
-import { createEffect, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
-import { atom } from "jotai";
-import { useAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import {
   acceptCommunityJoinRequest,
@@ -28,78 +26,41 @@ import { CommunityMembersPanel } from "../components/community/CommunityMembersP
 import { CommunitySettingsPanel } from "../components/community/CommunitySettingsPanel.tsx";
 import type { CommunityMember } from "../lib/api/communities.ts";
 
-// Atoms defined at module level
-const communityProfile_errorAtom = atom<string | null>(null);
-const communityProfile_communityAtom = atom<CommunityDetail | null>(null);
-const communityProfile_membersAtom = atom<CommunityMember[]>([]);
-const communityProfile_loadingAtom = atom(true);
-const communityProfile_activeTabAtom = atom<"about" | "members" | "settings">(
-  "about",
-);
-const communityProfile_joiningAtom = atom(false);
-const communityProfile_joinRequestsAtom = atom<CommunityJoinRequest[]>([]);
-const communityProfile_loadingRequestsAtom = atom(false);
-const communityProfile_inviteCodeAtom = atom<string | null>(null);
-const communityProfile_creatingInviteAtom = atom(false);
-const communityProfile_requestActionAtom = atom<Record<string, boolean>>({});
-const communityProfile_memberActionErrorAtom = atom<string | null>(null);
-const communityProfile_updatingMemberRoleAtom = atom<Record<string, boolean>>(
-  {},
-);
-// Settings state
-const communityProfile_settingsFormAtom = atom<CommunitySettings>({});
-const communityProfile_savingSettingsAtom = atom(false);
-const communityProfile_settingsErrorAtom = atom<string | null>(null);
-const communityProfile_uploadingIconAtom = atom(false);
-const communityProfile_iconPreviewAtom = atom<string | null>(null);
-
 export function CommunityProfilePage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
-  const [error, setError] = useAtom(communityProfile_errorAtom);
+  const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const params = useParams();
   const navigate = useNavigate();
-  const [community, setCommunity] = useAtom(communityProfile_communityAtom);
-  const [members, setMembers] = useAtom(communityProfile_membersAtom);
-  const [loading, setLoading] = useAtom(communityProfile_loadingAtom);
-  const [activeTab, setActiveTab] = useAtom(communityProfile_activeTabAtom);
-  const [joining, setJoining] = useAtom(communityProfile_joiningAtom);
-  const [joinRequests, setJoinRequests] = useAtom(
-    communityProfile_joinRequestsAtom,
+  const [community, setCommunity] = createSignal<CommunityDetail | null>(null);
+  const [members, setMembers] = createSignal<CommunityMember[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [activeTab, setActiveTab] = createSignal<
+    "about" | "members" | "settings"
+  >("about");
+  const [joining, setJoining] = createSignal(false);
+  const [joinRequests, setJoinRequests] = createSignal<CommunityJoinRequest[]>(
+    [],
   );
-  const [loadingRequests, setLoadingRequests] = useAtom(
-    communityProfile_loadingRequestsAtom,
+  const [loadingRequests, setLoadingRequests] = createSignal(false);
+  const [inviteCode, setInviteCode] = createSignal<string | null>(null);
+  const [creatingInvite, setCreatingInvite] = createSignal(false);
+  const [requestAction, setRequestAction] = createSignal<
+    Record<string, boolean>
+  >({});
+  const [memberActionError, setMemberActionError] = createSignal<string | null>(
+    null,
   );
-  const [inviteCode, setInviteCode] = useAtom(communityProfile_inviteCodeAtom);
-  const [creatingInvite, setCreatingInvite] = useAtom(
-    communityProfile_creatingInviteAtom,
-  );
-  const [requestAction, setRequestAction] = useAtom(
-    communityProfile_requestActionAtom,
-  );
-  const [memberActionError, setMemberActionError] = useAtom(
-    communityProfile_memberActionErrorAtom,
-  );
-  const [updatingMemberRole, setUpdatingMemberRole] = useAtom(
-    communityProfile_updatingMemberRoleAtom,
-  );
+  const [updatingMemberRole, setUpdatingMemberRole] = createSignal<
+    Record<string, boolean>
+  >({});
   // Settings state
-  const [settingsForm, setSettingsForm] = useAtom(
-    communityProfile_settingsFormAtom,
-  );
-  const [savingSettings, setSavingSettings] = useAtom(
-    communityProfile_savingSettingsAtom,
-  );
-  const [settingsError, setSettingsError] = useAtom(
-    communityProfile_settingsErrorAtom,
-  );
-  const [uploadingIcon, setUploadingIcon] = useAtom(
-    communityProfile_uploadingIconAtom,
-  );
-  const [iconPreview, setIconPreview] = useAtom(
-    communityProfile_iconPreviewAtom,
-  );
+  const [settingsForm, setSettingsForm] = createSignal<CommunitySettings>({});
+  const [savingSettings, setSavingSettings] = createSignal(false);
+  const [settingsError, setSettingsError] = createSignal<string | null>(null);
+  const [uploadingIcon, setUploadingIcon] = createSignal(false);
+  const [iconPreview, setIconPreview] = createSignal<string | null>(null);
 
   // Cleanup iconPreview ObjectURL on unmount
   onCleanup(() => {

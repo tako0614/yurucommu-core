@@ -17,6 +17,7 @@ import {
   objects,
 } from "../../db/index.ts";
 import { batchLoadActorInfo } from "./communities/membership-shared.ts";
+import { requireActor } from "./actors-helpers.ts";
 
 const notifications = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -61,13 +62,6 @@ export const __archivedCleanupInternals = {
   maxEntries: ARCHIVED_CLEANUP_TIMESTAMPS_MAX,
   intervalMs: ARCHIVED_CLEANUP_INTERVAL_MS,
 };
-
-/** Require authenticated actor or return 401. */
-function requireActor(c: {
-  get(key: "actor"): { ap_id: string } | null;
-}): { ap_id: string } | null {
-  return c.get("actor");
-}
 
 /**
  * Batch-insert archive rows with unique-constraint tolerance.
@@ -172,7 +166,7 @@ function activityToNotificationType(
 // GET / -- List notifications with type/archive filters
 notifications.get("/", async (c) => {
   const actor = requireActor(c);
-  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  if (actor instanceof Response) return actor;
 
   const db = c.get("db");
   await maybeCleanupArchivedNotifications(db, actor.ap_id);
@@ -351,7 +345,7 @@ notifications.get("/", async (c) => {
 // GET /unread/count
 notifications.get("/unread/count", async (c) => {
   const actor = requireActor(c);
-  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  if (actor instanceof Response) return actor;
 
   const db = c.get("db");
   await maybeCleanupArchivedNotifications(db, actor.ap_id);
@@ -376,7 +370,7 @@ notifications.get("/unread/count", async (c) => {
 // POST /read -- Mark notifications as read
 notifications.post("/read", async (c) => {
   const actor = requireActor(c);
-  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  if (actor instanceof Response) return actor;
 
   const db = c.get("db");
   const body = await c.req.json<{ ids?: string[]; read_all?: boolean }>();
@@ -418,7 +412,7 @@ notifications.post("/read", async (c) => {
 // POST /archive -- Archive specific notifications
 notifications.post("/archive", async (c) => {
   const actor = requireActor(c);
-  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  if (actor instanceof Response) return actor;
 
   const db = c.get("db");
   const body = await c.req.json<{ ids: string[] }>();
@@ -474,7 +468,7 @@ notifications.post("/archive", async (c) => {
 // DELETE /archive -- Unarchive notifications
 notifications.delete("/archive", async (c) => {
   const actor = requireActor(c);
-  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  if (actor instanceof Response) return actor;
 
   const db = c.get("db");
   const body = await c.req.json<{ ids: string[] }>();
@@ -506,7 +500,7 @@ notifications.delete("/archive", async (c) => {
 // POST /archive/all -- Archive all notifications
 notifications.post("/archive/all", async (c) => {
   const actor = requireActor(c);
-  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  if (actor instanceof Response) return actor;
 
   const db = c.get("db");
   const now = new Date().toISOString();

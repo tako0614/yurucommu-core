@@ -35,7 +35,7 @@ function createTrackingDb() {
   };
 }
 
-function createApp(db: unknown, actor: { ap_id: string }) {
+function createApp(db: unknown, actor: { ap_id: string } | null) {
   const app = new Hono();
   app.use("*", async (c, next) => {
     const setter = c as unknown as {
@@ -118,4 +118,21 @@ test("DELETE /archive rejects oversized ids array with 400 array_too_long", asyn
   expect(res.status).toEqual(400);
   expect(body).toEqual(expect.any(Object));
   expect(tracker.deleteCalls).toEqual(0);
+});
+
+test("POST /read returns 401 Unauthorized when no actor is present", async () => {
+  const { db, tracker } = createTrackingDb();
+  // No authenticated actor: the canonical requireActor must short-circuit to 401
+  // before any DB access.
+  const app = createApp(db, null);
+
+  const { res, body } = await requestJson(app, "/api/notifications/read", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ read_all: true }),
+  });
+
+  expect(res.status).toEqual(401);
+  expect(body).toEqual({ error: "Unauthorized" });
+  expect(tracker.updateCalls).toEqual(0);
 });

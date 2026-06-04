@@ -12,13 +12,17 @@ import {
   isSafeRemoteUrl,
 } from "../../federation-helpers.ts";
 import { getInstanceActor } from "./query-helpers.ts";
-import type { Activity, RemoteActor } from "./inbox-types.ts";
+import type { Activity } from "./inbox-types.ts";
 import { getActivityObjectId } from "./inbox-types.ts";
 import {
   ActivityPubContractError,
   parseActivity,
   tryParseRemoteActor,
 } from "../../lib/activitypub-validators.ts";
+import {
+  buildActorCacheFields,
+  fetchAndUpsertActorCache,
+} from "../../lib/activitypub-actor-cache.ts";
 import { logger } from "../../lib/logger.ts";
 import { base64ToBytes, bufferToBase64 } from "../../lib/base64.ts";
 import { isActorBlocked, isDomainBlocked } from "../../lib/blocklist.ts";
@@ -357,11 +361,11 @@ async function fetchActorPublicKey(
         isSafeRemoteUrl(actorData.id) &&
         isSafeRemoteUrl(actorData.inbox)
       ) {
-        const narrowed = actorData as RemoteActor & {
-          inbox: string;
-          publicKey: { publicKeyPem: string };
-        };
-        const cacheFields = buildActorCacheFields(narrowed);
+        // Reuse the already-fetched signature actor document and write it
+        // through the ONE canonical superset cache shape, so this opportunistic
+        // upsert populates `outbox` / `followersUrl` / `sharedInbox` identically
+        // to every other entry path.
+        const cacheFields = buildActorCacheFields(actorData);
         // Single atomic upsert. A check-then-insert/update is racy across
         // Worker isolates: two isolates racing the same cold actor can both
         // miss the existence check and then both INSERT, and the loser hits a
@@ -871,26 +875,6 @@ async function deduplicateAndStoreActivity(
 // Remote actor caching
 // ---------------------------------------------------------------------------
 
-function buildActorCacheFields(
-  actorData: RemoteActor & {
-    inbox: string;
-    publicKey: { publicKeyPem: string };
-  },
-) {
-  return {
-    type: actorData.type || "Person",
-    preferredUsername: actorData.preferredUsername,
-    name: actorData.name,
-    summary: actorData.summary,
-    iconUrl: actorData.icon?.url,
-    inbox: actorData.inbox,
-    publicKeyId: actorData.publicKey.id ?? null,
-    publicKeyPem: actorData.publicKey.publicKeyPem,
-    rawJson: JSON.stringify(actorData),
-    lastFetchedAt: new Date().toISOString(),
-  };
-}
-
 async function cacheRemoteActor(
   c: HonoContext,
   actorApIdUrl: string,
@@ -914,68 +898,45 @@ async function cacheRemoteActor(
     return;
   }
 
-  try {
-    const res = await fetchWithTimeout(actorApIdUrl, {
-      headers: { Accept: "application/activity+json, application/ld+json" },
-      timeout: 15000,
-    });
-    if (!res.ok) return;
+  // `mode: "insert"` keeps this cache-when-absent and race-safe: the early
+  // `cached` check above is best-effort only, so two isolates racing the same
+  // cold actor can both reach the insert, and `onConflictDoNothing` avoids a
+  // spurious primary-key-violation error.
+  const result = await fetchAndUpsertActorCache(db, actorApIdUrl, {
+    timeout: 15000,
+    mode: "insert",
+    publicKey: "require-key",
+  });
+  if (result.ok) return;
 
-    const rawActor: unknown = await res.json();
-    const actorData = tryParseRemoteActor(rawActor);
-    if (!actorData) {
+  switch (result.reason) {
+    case "invalid_document":
       log.warn("Skipping actor cache: invalid actor document", {
         event: "ap.actor.cache_invalid_document",
         actor: actorApIdUrl,
       });
-      return;
-    }
-    if (actorData.id !== actorApIdUrl) {
+      break;
+    case "id_mismatch":
       log.warn("Actor ID mismatch during cache", {
         event: "ap.actor.cache_id_mismatch",
         actor: actorApIdUrl,
-        receivedId: actorData.id,
       });
-      return;
-    }
-    if (!actorData.publicKey?.publicKeyPem) {
+      break;
+    case "missing_public_key":
       log.warn("Skipping actor cache: missing public key", {
         event: "ap.actor.cache_missing_public_key",
         actor: actorApIdUrl,
       });
-      return;
-    }
-    if (
-      !actorData.inbox ||
-      !isSafeRemoteUrl(actorData.id) ||
-      !isSafeRemoteUrl(actorData.inbox)
-    ) {
-      return;
-    }
-
-    // publicKey.publicKeyPem and inbox are guaranteed by guards above
-    const narrowed = actorData as RemoteActor & {
-      inbox: string;
-      publicKey: { publicKeyPem: string };
-    };
-    // `onConflictDoNothing` keeps this race-safe: the early `cached` check is
-    // best-effort only, so two isolates racing the same cold actor can both
-    // reach this insert. Without the conflict clause the loser would throw a
-    // primary-key violation; doing nothing on conflict matches the intent
-    // (cache only when absent) and avoids the spurious error log.
-    await db
-      .insert(actorCache)
-      .values({
-        apId: actorData.id,
-        ...buildActorCacheFields(narrowed),
-      })
-      .onConflictDoNothing();
-  } catch (e) {
-    log.error("Failed to cache remote actor", {
-      event: "ap.actor.cache_failed",
-      actor: actorApIdUrl,
-      error: e,
-    });
+      break;
+    case "fetch_failed":
+      log.error("Failed to cache remote actor", {
+        event: "ap.actor.cache_failed",
+        actor: actorApIdUrl,
+      });
+      break;
+    // `fetch_not_ok` and `missing_inbox` were silently skipped before.
+    default:
+      break;
   }
 }
 

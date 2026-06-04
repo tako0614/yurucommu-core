@@ -8,13 +8,9 @@ import type { Env } from "../../types.ts";
 import type { Database } from "../../../db/index.ts";
 import { and, eq, or, sql } from "drizzle-orm";
 import { actorCache, deliveryQueue, follows } from "../../../db/index.ts";
-import {
-  fetchWithTimeout,
-  isLocal,
-  isSafeRemoteUrl,
-} from "../../federation-helpers.ts";
+import { isLocal, isSafeRemoteUrl } from "../../federation-helpers.ts";
 import { planEndpointsFromActorCache } from "./planner.ts";
-import { tryParseRemoteActor } from "../activitypub-validators.ts";
+import { fetchAndUpsertActorCache } from "../activitypub-actor-cache.ts";
 import {
   DELIVERY_QUEUE_MESSAGE_VERSION,
   type DeliveryFanoutFollowersMessageV1,
@@ -47,40 +43,10 @@ async function fetchAndCacheRemoteActor(
   db: Database,
   actorApId: string,
 ): Promise<void> {
-  if (!isSafeRemoteUrl(actorApId)) return;
-
-  const res = await fetchWithTimeout(actorApId, {
-    headers: { Accept: "application/activity+json, application/ld+json" },
+  await fetchAndUpsertActorCache(db, actorApId, {
     timeout: DELIVERY_HTTP_TIMEOUT_MS,
+    mode: "upsert",
   });
-  if (!res.ok) return;
-
-  const raw: unknown = await res.json();
-  const data = tryParseRemoteActor(raw);
-  if (!data || data.id !== actorApId) return;
-  if (!data.inbox || !isSafeRemoteUrl(data.inbox)) return;
-
-  const actorFields = {
-    type: data.type || "Person",
-    preferredUsername: data.preferredUsername || null,
-    name: data.name || null,
-    summary: data.summary || null,
-    iconUrl: data.icon?.url || null,
-    inbox: data.inbox,
-    outbox: data.outbox || null,
-    followersUrl: data.followers || null,
-    followingUrl: data.following || null,
-    sharedInbox: data.endpoints?.sharedInbox || null,
-    publicKeyId: data.publicKey?.id || null,
-    publicKeyPem: data.publicKey?.publicKeyPem || null,
-    rawJson: JSON.stringify(data),
-    lastFetchedAt: nowIso(),
-  };
-
-  await db
-    .insert(actorCache)
-    .values({ apId: data.id, ...actorFields })
-    .onConflictDoUpdate({ target: actorCache.apId, set: actorFields });
 }
 
 function resolvePreferredEndpoint(

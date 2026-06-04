@@ -39,12 +39,12 @@ import {
   insertPostAndHandleReply,
   processMentions,
   REPLY_TARGET_NOT_FOUND,
-  requireActor,
   validateContentEdit,
   validateCreatePostBody,
   validateEditBody,
   validateSummaryEdit,
 } from "./post-helpers.ts";
+import { requireActor } from "../actors-helpers.ts";
 import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "posts.routes" });
@@ -56,7 +56,7 @@ const posts = new Hono<{ Bindings: Env; Variables: Variables }>();
 // Create post
 posts.post("/", async (c) => {
   const actor = requireActor(c);
-  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  if (actor instanceof Response) return actor;
 
   const validation = await validateCreatePostBody(c);
   if (!validation.ok) {
@@ -305,7 +305,7 @@ posts.get("/:id/replies", async (c) => {
 // Edit post
 posts.patch("/:id", async (c) => {
   const actor = requireActor(c);
-  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  if (actor instanceof Response) return actor;
 
   const postId = c.req.param("id");
   const baseUrl = c.env.APP_URL;
@@ -394,7 +394,7 @@ posts.patch("/:id", async (c) => {
 // Delete post
 posts.delete("/:id", async (c) => {
   const actor = requireActor(c);
-  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  if (actor instanceof Response) return actor;
 
   const postId = c.req.param("id");
   const baseUrl = c.env.APP_URL;

@@ -1,6 +1,4 @@
-import { createEffect, onMount, Show } from "solid-js";
-import { atom } from "jotai";
-import { useAtom } from "solid-jotai";
+import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import type { Actor } from "../types/index.ts";
 import { useI18n } from "../lib/i18n.tsx";
@@ -23,49 +21,31 @@ import {
   unmuteUser,
 } from "../lib/api.ts";
 
-// Atoms defined at module level
-const settings_errorAtom = atom<string | null>(null);
-const settings_activeSectionAtom = atom<
-  "main" | "blocked" | "muted" | "delete" | "accounts"
->("main");
-const settings_blockedUsersAtom = atom<Actor[]>([]);
-const settings_mutedUsersAtom = atom<Actor[]>([]);
-const settings_loadingAtom = atom(false);
-const settings_deleteConfirmAtom = atom("");
-const settings_accountsAtom = atom<AccountInfo[]>([]);
-const settings_showCreateAccountAtom = atom(false);
-const settings_newUsernameAtom = atom("");
-const settings_newDisplayNameAtom = atom("");
-const settings_createErrorAtom = atom<string | null>(null);
-const settings_switchingAtom = atom(false);
-
 export function SettingsPage() {
   const actor = useRequiredActor();
   const { t, language, setLanguage } = useI18n();
-  const [error, setError] = useAtom(settings_errorAtom);
+  const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
-  const [activeSection, setActiveSection] = useAtom(settings_activeSectionAtom);
-  const [blockedUsers, setBlockedUsers] = useAtom(settings_blockedUsersAtom);
-  const [mutedUsers, setMutedUsers] = useAtom(settings_mutedUsersAtom);
-  const [loading, setLoading] = useAtom(settings_loadingAtom);
-  const [deleteConfirm, setDeleteConfirm] = useAtom(settings_deleteConfirmAtom);
+  const [activeSection, setActiveSection] = createSignal<
+    "main" | "blocked" | "muted" | "delete" | "accounts"
+  >("main");
+  const [blockedUsers, setBlockedUsers] = createSignal<Actor[]>([]);
+  const [mutedUsers, setMutedUsers] = createSignal<Actor[]>([]);
+  const [loading, setLoading] = createSignal(false);
+  const [deleteConfirm, setDeleteConfirm] = createSignal("");
 
   // Account switching
-  const [accounts, setAccounts] = useAtom(settings_accountsAtom);
-  const [showCreateAccount, setShowCreateAccount] = useAtom(
-    settings_showCreateAccountAtom,
-  );
-  const [newUsername, setNewUsername] = useAtom(settings_newUsernameAtom);
-  const [newDisplayName, setNewDisplayName] = useAtom(
-    settings_newDisplayNameAtom,
-  );
-  const [createError, setCreateError] = useAtom(settings_createErrorAtom);
+  const [accounts, setAccounts] = createSignal<AccountInfo[]>([]);
+  const [showCreateAccount, setShowCreateAccount] = createSignal(false);
+  const [newUsername, setNewUsername] = createSignal("");
+  const [newDisplayName, setNewDisplayName] = createSignal("");
+  const [createError, setCreateError] = createSignal<string | null>(null);
   const usernamePattern = /^[a-zA-Z0-9_]+$/;
   const normalizedUsername = () => newUsername().trim();
   const isUsernameValid = () =>
     normalizedUsername().length > 0 &&
     usernamePattern.test(normalizedUsername());
-  const [switching, setSwitching] = useAtom(settings_switchingAtom);
+  const [switching, setSwitching] = createSignal(false);
 
   const handleLogout = async () => {
     try {

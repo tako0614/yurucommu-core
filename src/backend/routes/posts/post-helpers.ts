@@ -2,7 +2,6 @@
  * Post route helper functions
  *
  * Extracted from base.ts to reduce file size. Contains:
- * - requireActor: auth check helper
  * - validateCreatePostBody: full validation for POST / body
  * - checkCommunityPostPermission: community policy enforcement
  * - processMentions: mention extraction, resolution, and notification
@@ -19,7 +18,6 @@ import {
   objects,
 } from "../../../db/index.ts";
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
-import type { Variables } from "../../types.ts";
 import type { Database } from "../../../db/index.ts";
 import type { Env } from "../../types.ts";
 import { activityApId, generateId, isLocal } from "../../federation-helpers.ts";
@@ -39,17 +37,6 @@ import {
 import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "posts.helpers" });
-
-// ---------------------------------------------------------------------------
-// Auth helper
-// ---------------------------------------------------------------------------
-
-/** Require an authenticated actor or return null (caller should 401). */
-export function requireActor(c: {
-  get: (key: "actor") => Variables["actor"];
-}): Variables["actor"] {
-  return c.get("actor");
-}
 
 // ---------------------------------------------------------------------------
 // Validation helpers

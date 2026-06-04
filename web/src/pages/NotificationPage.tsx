@@ -1,6 +1,4 @@
-import { createEffect, For, onCleanup, Show } from "solid-js";
-import { atom } from "jotai";
-import { useAtom } from "solid-jotai";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { Notification } from "../types/index.ts";
 import {
   acceptFollowRequest,
@@ -55,21 +53,16 @@ const FollowRequestIcon = () => (
 
 type FilterType = "all" | "follow" | "like" | "announce" | "mention" | "reply";
 
-// Atoms defined at module level
-const notif_errorAtom = atom<string | null>(null);
-const notif_notificationsAtom = atom<Notification[]>([]);
-const notif_loadingAtom = atom(true);
-const notif_pendingActionAtom = atom<Record<string, boolean>>({});
-const notif_filterAtom = atom<FilterType>("all");
-
 export function NotificationPage() {
   const { t } = useI18n();
-  const [error, setError] = useAtom(notif_errorAtom);
+  const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
-  const [notifications, setNotifications] = useAtom(notif_notificationsAtom);
-  const [loading, setLoading] = useAtom(notif_loadingAtom);
-  const [pendingAction, setPendingAction] = useAtom(notif_pendingActionAtom);
-  const [filter, setFilter] = useAtom(notif_filterAtom);
+  const [notifications, setNotifications] = createSignal<Notification[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [pendingAction, setPendingAction] = createSignal<
+    Record<string, boolean>
+  >({});
+  const [filter, setFilter] = createSignal<FilterType>("all");
 
   createEffect(() => {
     const currentFilter = filter();

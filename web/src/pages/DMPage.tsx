@@ -1,7 +1,12 @@
-import { createEffect, createMemo, For, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  onMount,
+  Show,
+} from "solid-js";
 import { useNavigate, useParams } from "@solidjs/router";
-import { atom } from "jotai";
-import { useAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import {
   acceptDMRequest,
@@ -112,30 +117,21 @@ function RequestItem(props: RequestItemProps) {
 
 type TabType = "all" | "friends" | "communities" | "requests";
 
-// Atoms defined at module level
-const dm_contactsAtom = atom<DMContact[]>([]);
-const dm_communitiesAtom = atom<DMContact[]>([]);
-const dm_requestsAtom = atom<DMRequest[]>([]);
-const dm_requestCountAtom = atom(0);
-const dm_selectedContactAtom = atom<DMContact | null>(null);
-const dm_loadingAtom = atom(true);
-const dm_listErrorAtom = atom<string | null>(null);
-const dm_activeTabAtom = atom<TabType>("all");
-const dm_searchQueryAtom = atom("");
-
 export function DMPage() {
   const actor = useRequiredActor();
   const params = useParams();
   const navigate = useNavigate();
-  const [contacts, setContacts] = useAtom(dm_contactsAtom);
-  const [communities, setCommunities] = useAtom(dm_communitiesAtom);
-  const [requests, setRequests] = useAtom(dm_requestsAtom);
-  const [requestCount, setRequestCount] = useAtom(dm_requestCountAtom);
-  const [selectedContact, setSelectedContact] = useAtom(dm_selectedContactAtom);
-  const [loading, setLoading] = useAtom(dm_loadingAtom);
-  const [listError, setListError] = useAtom(dm_listErrorAtom);
-  const [activeTab, setActiveTab] = useAtom(dm_activeTabAtom);
-  const [searchQuery, setSearchQuery] = useAtom(dm_searchQueryAtom);
+  const [contacts, setContacts] = createSignal<DMContact[]>([]);
+  const [communities, setCommunities] = createSignal<DMContact[]>([]);
+  const [requests, setRequests] = createSignal<DMRequest[]>([]);
+  const [requestCount, setRequestCount] = createSignal(0);
+  const [selectedContact, setSelectedContact] = createSignal<DMContact | null>(
+    null,
+  );
+  const [loading, setLoading] = createSignal(true);
+  const [listError, setListError] = createSignal<string | null>(null);
+  const [activeTab, setActiveTab] = createSignal<TabType>("all");
+  const [searchQuery, setSearchQuery] = createSignal("");
   let tabContainerRef!: HTMLDivElement;
   const { t } = useI18n();
 

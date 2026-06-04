@@ -1,7 +1,5 @@
-import { createEffect, on, onMount, Show } from "solid-js";
+import { createEffect, createSignal, on, onMount, Show } from "solid-js";
 import { useParams } from "@solidjs/router";
-import { atom } from "jotai";
-import { useAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Actor, Post } from "../types/index.ts";
 import {
@@ -26,63 +24,32 @@ import { ProfilePostsSection } from "../components/profile/ProfilePostsSection.t
 import { ProfileEditModal } from "../components/profile/ProfileEditModal.tsx";
 import { ProfileFollowModal } from "../components/profile/ProfileFollowModal.tsx";
 
-// Atoms defined at module level
-const profile_errorAtom = atom<string | null>(null);
-const profile_profileAtom = atom<Actor | null>(null);
-const profile_postsAtom = atom<Post[]>([]);
-const profile_loadingAtom = atom(true);
-const profile_isFollowingAtom = atom(false);
-const profile_activeTabAtom = atom<"posts" | "likes">("posts");
-const profile_showEditModalAtom = atom(false);
-const profile_editNameAtom = atom("");
-const profile_editSummaryAtom = atom("");
-const profile_savingAtom = atom(false);
-const profile_showMenuAtom = atom(false);
-const profile_showFollowModalAtom = atom<"followers" | "following" | null>(
-  null,
-);
-const profile_editIsPrivateAtom = atom(false);
-const profile_followModalActorsAtom = atom<Actor[]>([]);
-const profile_followModalLoadingAtom = atom(false);
-const profile_showAccountSwitcherAtom = atom(false);
-const profile_accountsAtom = atom<AccountInfo[]>([]);
-const profile_currentApIdAtom = atom<string>("");
-const profile_accountsLoadingAtom = atom(false);
-
 export function ProfilePage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
-  const [error, setError] = useAtom(profile_errorAtom);
+  const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const params = useParams();
-  const [profile, setProfile] = useAtom(profile_profileAtom);
-  const [posts, setPosts] = useAtom(profile_postsAtom);
-  const [loading, setLoading] = useAtom(profile_loadingAtom);
-  const [isFollowing, setIsFollowing] = useAtom(profile_isFollowingAtom);
-  const [activeTab, setActiveTab] = useAtom(profile_activeTabAtom);
-  const [showEditModal, setShowEditModal] = useAtom(profile_showEditModalAtom);
-  const [editName, setEditName] = useAtom(profile_editNameAtom);
-  const [editSummary, setEditSummary] = useAtom(profile_editSummaryAtom);
-  const [saving, setSaving] = useAtom(profile_savingAtom);
-  const [showMenu, setShowMenu] = useAtom(profile_showMenuAtom);
-  const [showFollowModal, setShowFollowModal] = useAtom(
-    profile_showFollowModalAtom,
-  );
-  const [editIsPrivate, setEditIsPrivate] = useAtom(profile_editIsPrivateAtom);
-  const [followModalActors, setFollowModalActors] = useAtom(
-    profile_followModalActorsAtom,
-  );
-  const [followModalLoading, setFollowModalLoading] = useAtom(
-    profile_followModalLoadingAtom,
-  );
-  const [showAccountSwitcher, setShowAccountSwitcher] = useAtom(
-    profile_showAccountSwitcherAtom,
-  );
-  const [accounts, setAccounts] = useAtom(profile_accountsAtom);
-  const [currentApId, setCurrentApId] = useAtom(profile_currentApIdAtom);
-  const [accountsLoading, setAccountsLoading] = useAtom(
-    profile_accountsLoadingAtom,
-  );
+  const [profile, setProfile] = createSignal<Actor | null>(null);
+  const [posts, setPosts] = createSignal<Post[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [isFollowing, setIsFollowing] = createSignal(false);
+  const [activeTab, setActiveTab] = createSignal<"posts" | "likes">("posts");
+  const [showEditModal, setShowEditModal] = createSignal(false);
+  const [editName, setEditName] = createSignal("");
+  const [editSummary, setEditSummary] = createSignal("");
+  const [saving, setSaving] = createSignal(false);
+  const [showMenu, setShowMenu] = createSignal(false);
+  const [showFollowModal, setShowFollowModal] = createSignal<
+    "followers" | "following" | null
+  >(null);
+  const [editIsPrivate, setEditIsPrivate] = createSignal(false);
+  const [followModalActors, setFollowModalActors] = createSignal<Actor[]>([]);
+  const [followModalLoading, setFollowModalLoading] = createSignal(false);
+  const [showAccountSwitcher, setShowAccountSwitcher] = createSignal(false);
+  const [accounts, setAccounts] = createSignal<AccountInfo[]>([]);
+  const [currentApId, setCurrentApId] = createSignal<string>("");
+  const [accountsLoading, setAccountsLoading] = createSignal(false);
 
   // Use current actor if no actorId in URL
   const targetActorId = () =>

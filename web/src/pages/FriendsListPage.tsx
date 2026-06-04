@@ -1,7 +1,5 @@
-import { For, onMount, Show } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import { A, useNavigate } from "@solidjs/router";
-import { atom } from "jotai";
-import { useAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Actor } from "../types/index.ts";
 import { fetchFollowers, fetchFollowing } from "../lib/api.ts";
@@ -44,25 +42,17 @@ const SearchIcon = () => (
 
 type TabType = "following" | "followers";
 
-// Atoms defined at module level
-const friends_errorAtom = atom<string | null>(null);
-const friends_activeTabAtom = atom<TabType>("following");
-const friends_followingAtom = atom<Actor[]>([]);
-const friends_followersAtom = atom<Actor[]>([]);
-const friends_loadingAtom = atom(true);
-const friends_searchQueryAtom = atom("");
-
 export function FriendsListPage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
-  const [error, setError] = useAtom(friends_errorAtom);
+  const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useAtom(friends_activeTabAtom);
-  const [following, setFollowing] = useAtom(friends_followingAtom);
-  const [followers, setFollowers] = useAtom(friends_followersAtom);
-  const [loading, setLoading] = useAtom(friends_loadingAtom);
-  const [searchQuery, setSearchQuery] = useAtom(friends_searchQueryAtom);
+  const [activeTab, setActiveTab] = createSignal<TabType>("following");
+  const [following, setFollowing] = createSignal<Actor[]>([]);
+  const [followers, setFollowers] = createSignal<Actor[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [searchQuery, setSearchQuery] = createSignal("");
 
   onMount(() => {
     setSearchQuery("");

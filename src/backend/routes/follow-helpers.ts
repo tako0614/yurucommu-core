@@ -11,7 +11,6 @@ import {
 } from "../../db/index.ts";
 import {
   activityApId,
-  fetchWithTimeout,
   generateId,
   isLocal,
   isSafeRemoteUrl,
@@ -22,7 +21,8 @@ import {
   parseJsonObject,
   parseNonEmptyString,
 } from "../lib/parse-helpers.ts";
-import { tryParseRemoteActor } from "../lib/activitypub-validators.ts";
+import { fetchAndUpsertActorCache } from "../lib/activitypub-actor-cache.ts";
+import { requireActor } from "./actors-helpers.ts";
 import { logger } from "../lib/logger.ts";
 
 const log = logger.child({ component: "follow.helpers" });
@@ -95,8 +95,8 @@ export function buildApActivity(
 export async function requireActorAndBody(
   c: HonoContext,
 ): Promise<RequestContext | Response> {
-  const actor = c.get("actor");
-  if (!actor) return c.json({ error: "Unauthorized" }, 401);
+  const actor = requireActor(c);
+  if (actor instanceof Response) return actor;
   const body = await parseJsonObject(c);
   if (!body) {
     return c.json({ error: "Invalid request body", code: "BAD_REQUEST" }, 400);
@@ -282,54 +282,26 @@ export async function handleRemoteFollow(
     .get();
 
   if (!cachedActorRow) {
-    try {
-      const res = await fetchWithTimeout(targetApId, {
-        headers: { Accept: "application/activity+json, application/ld+json" },
-        timeout: REMOTE_FETCH_TIMEOUT_MS,
-      });
-      if (!res.ok) {
-        return c.json({ error: "Could not fetch remote actor" }, 400);
+    const result = await fetchAndUpsertActorCache(db, targetApId, {
+      timeout: REMOTE_FETCH_TIMEOUT_MS,
+      mode: "upsert",
+    });
+    if (!result.ok) {
+      switch (result.reason) {
+        case "fetch_not_ok":
+          return c.json({ error: "Could not fetch remote actor" }, 400);
+        case "id_mismatch":
+          return c.json({ error: "Remote actor id mismatch" }, 400);
+        case "invalid_document":
+        case "missing_inbox":
+        case "missing_public_key":
+          return c.json({ error: "Invalid remote actor data" }, 400);
+        case "fetch_failed":
+        default:
+          return c.json({ error: "Failed to fetch remote actor" }, 400);
       }
-
-      const rawActor: unknown = await res.json();
-      const actorData = tryParseRemoteActor(rawActor);
-      if (
-        !actorData ||
-        !actorData.inbox ||
-        !isSafeRemoteUrl(actorData.id) ||
-        !isSafeRemoteUrl(actorData.inbox)
-      ) {
-        return c.json({ error: "Invalid remote actor data" }, 400);
-      }
-
-      if (actorData.id !== targetApId) {
-        return c.json({ error: "Remote actor id mismatch" }, 400);
-      }
-
-      cachedActorRow = await db
-        .insert(actorCache)
-        .values({
-          apId: actorData.id,
-          type: actorData.type || "Person",
-          preferredUsername: actorData.preferredUsername || null,
-          name: actorData.name || null,
-          summary: actorData.summary || null,
-          iconUrl: actorData.icon?.url || null,
-          inbox: actorData.inbox,
-          outbox: actorData.outbox || null,
-          followersUrl: actorData.followers || null,
-          followingUrl: actorData.following || null,
-          sharedInbox: actorData.endpoints?.sharedInbox || null,
-          publicKeyId: actorData.publicKey?.id || null,
-          publicKeyPem: actorData.publicKey?.publicKeyPem || null,
-          rawJson: JSON.stringify(actorData),
-          lastFetchedAt: new Date().toISOString(),
-        })
-        .returning()
-        .get();
-    } catch {
-      return c.json({ error: "Failed to fetch remote actor" }, 400);
     }
+    cachedActorRow = result.row;
   }
 
   if (!cachedActorRow?.inbox || !isSafeRemoteUrl(cachedActorRow.inbox)) {

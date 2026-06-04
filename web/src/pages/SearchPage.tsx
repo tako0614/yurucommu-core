@@ -1,7 +1,5 @@
-import { createEffect, For, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, onMount, Show } from "solid-js";
 import { A, useSearchParams } from "@solidjs/router";
-import { atom } from "jotai";
-import { useAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Actor, Post } from "../types/index.ts";
 import {
@@ -26,19 +24,6 @@ import { HeartIcon } from "../components/icons/SocialIcons.tsx";
 const REMOTE_ACTOR_QUERY_PATTERN = /^@?[^@\s]+@[^@\s]+$/;
 
 type SearchTab = "users" | "posts" | "communities";
-
-// Atoms defined at module level
-const search_errorAtom = atom<string | null>(null);
-const search_searchQueryAtom = atom("");
-const search_searchTabAtom = atom<SearchTab>("users");
-const search_searchUsersResultAtom = atom<Actor[]>([]);
-const search_searchPostsResultAtom = atom<Post[]>([]);
-const search_searchingAtom = atom(false);
-const search_searchedAtom = atom(false);
-const search_communitiesAtom = atom<CommunityDetail[]>([]);
-const search_filteredCommunitiesAtom = atom<CommunityDetail[]>([]);
-const search_followingAtom = atom<Actor[]>([]);
-const search_trendingHashtagsAtom = atom<{ tag: string; count: number }[]>([]);
 
 const CloseIcon = () => (
   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -74,31 +59,27 @@ function getSingleSearchParam(
 export function SearchPage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
-  const [error, setError] = useAtom(search_errorAtom);
+  const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [searchQuery, setSearchQuery] = useAtom(search_searchQueryAtom);
-  const [searchTab, setSearchTab] = useAtom(search_searchTabAtom);
-  const [searchUsersResult, setSearchUsersResult] = useAtom(
-    search_searchUsersResultAtom,
-  );
-  const [searchPostsResult, setSearchPostsResult] = useAtom(
-    search_searchPostsResultAtom,
-  );
-  const [searching, setSearching] = useAtom(search_searchingAtom);
-  const [searched, setSearched] = useAtom(search_searchedAtom);
+  const [searchQuery, setSearchQuery] = createSignal("");
+  const [searchTab, setSearchTab] = createSignal<SearchTab>("users");
+  const [searchUsersResult, setSearchUsersResult] = createSignal<Actor[]>([]);
+  const [searchPostsResult, setSearchPostsResult] = createSignal<Post[]>([]);
+  const [searching, setSearching] = createSignal(false);
+  const [searched, setSearched] = createSignal(false);
 
-  const [communities, setCommunities] = useAtom(search_communitiesAtom);
-  const [filteredCommunities, setFilteredCommunities] = useAtom(
-    search_filteredCommunitiesAtom,
-  );
+  const [communities, setCommunities] = createSignal<CommunityDetail[]>([]);
+  const [filteredCommunities, setFilteredCommunities] = createSignal<
+    CommunityDetail[]
+  >([]);
 
-  const [following, setFollowing] = useAtom(search_followingAtom);
+  const [following, setFollowing] = createSignal<Actor[]>([]);
 
-  const [trendingHashtags, setTrendingHashtags] = useAtom(
-    search_trendingHashtagsAtom,
-  );
+  const [trendingHashtags, setTrendingHashtags] = createSignal<
+    { tag: string; count: number }[]
+  >([]);
 
   onMount(() => {
     setSearchQuery("");

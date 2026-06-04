@@ -1,7 +1,13 @@
-import { createEffect, For, on, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { A, useNavigate, useParams } from "@solidjs/router";
-import { atom } from "jotai";
-import { useAtom } from "solid-jotai";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import {
   CommunityDetail,
@@ -122,32 +128,20 @@ function MembersModal(props: {
   );
 }
 
-// Atoms defined at module level
-const communityChat_communityAtom = atom<CommunityDetail | null>(null);
-const communityChat_messagesAtom = atom<CommunityMessage[]>([]);
-const communityChat_membersAtom = atom<CommunityMember[]>([]);
-const communityChat_loadingAtom = atom(true);
-const communityChat_inputValueAtom = atom("");
-const communityChat_sendingAtom = atom(false);
-const communityChat_showMembersAtom = atom(false);
-const communityChat_errorMessageAtom = atom<string | null>(null);
-
 export function CommunityChatPage() {
   const actor = useRequiredActor();
   const params = useParams();
   const navigate = useNavigate();
   const { t } = useI18n();
 
-  const [community, setCommunity] = useAtom(communityChat_communityAtom);
-  const [messages, setMessages] = useAtom(communityChat_messagesAtom);
-  const [members, setMembers] = useAtom(communityChat_membersAtom);
-  const [loading, setLoading] = useAtom(communityChat_loadingAtom);
-  const [inputValue, setInputValue] = useAtom(communityChat_inputValueAtom);
-  const [sending, setSending] = useAtom(communityChat_sendingAtom);
-  const [showMembers, setShowMembers] = useAtom(communityChat_showMembersAtom);
-  const [errorMessage, setErrorMessage] = useAtom(
-    communityChat_errorMessageAtom,
-  );
+  const [community, setCommunity] = createSignal<CommunityDetail | null>(null);
+  const [messages, setMessages] = createSignal<CommunityMessage[]>([]);
+  const [members, setMembers] = createSignal<CommunityMember[]>([]);
+  const [loading, setLoading] = createSignal(true);
+  const [inputValue, setInputValue] = createSignal("");
+  const [sending, setSending] = createSignal(false);
+  const [showMembers, setShowMembers] = createSignal(false);
+  const [errorMessage, setErrorMessage] = createSignal<string | null>(null);
 
   let messagesEndRef!: HTMLDivElement;
   let inputRef!: HTMLTextAreaElement;
