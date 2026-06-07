@@ -6,7 +6,6 @@ import {
   InternalError,
   isAppError,
   logError,
-  RateLimitError,
 } from "../lib/errors.ts";
 
 interface ErrorMiddlewareOptions {
@@ -57,10 +56,6 @@ export function createErrorMiddleware(
     const response = appError.toResponse();
     const errorBody = response.error as Record<string, unknown>;
     errorBody.correlation_id = correlationId;
-
-    if (appError instanceof RateLimitError && appError.retryAfter) {
-      c.header("Retry-After", String(appError.retryAfter));
-    }
 
     return c.json(response, appError.statusCode as ContentfulStatusCode);
   };

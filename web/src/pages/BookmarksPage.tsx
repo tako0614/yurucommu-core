@@ -2,12 +2,8 @@ import { createSignal, For, onMount, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Post } from "../types/index.ts";
-import {
-  fetchBookmarks,
-  likePost,
-  unbookmarkPost,
-  unlikePost,
-} from "../lib/api.ts";
+import { fetchBookmarks, unbookmarkPost } from "../lib/api.ts";
+import { toggleLike } from "../atoms/posts.ts";
 import { formatRelativeTime } from "../lib/datetime.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { UserAvatar } from "../components/UserAvatar.tsx";
@@ -43,25 +39,7 @@ export function BookmarksPage() {
 
   const handleLike = async (post: Post) => {
     try {
-      if (post.liked) {
-        await unlikePost(post.ap_id);
-        setPosts((prev) =>
-          prev.map((p) =>
-            p.ap_id === post.ap_id
-              ? { ...p, liked: false, like_count: p.like_count - 1 }
-              : p,
-          ),
-        );
-      } else {
-        await likePost(post.ap_id);
-        setPosts((prev) =>
-          prev.map((p) =>
-            p.ap_id === post.ap_id
-              ? { ...p, liked: true, like_count: p.like_count + 1 }
-              : p,
-          ),
-        );
-      }
+      await toggleLike(post, (fn) => setPosts(fn));
     } catch (e) {
       console.error("Failed to toggle like:", e);
       setError(t("common.error"));

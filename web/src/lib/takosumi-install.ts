@@ -1,13 +1,15 @@
 export function yurucommuTakosumiInstallUrl(
   hostname = browserHostname(),
 ): string {
+  // The Takosumi platform worker hosts the install surface at its bare origin
+  // (app.takosumi.com in production, app.takosumi.test in local-substrate);
+  // there is no accounts.takosumi.com host.
   const installHost = isLocalSubstrateHostname(hostname)
-    ? "accounts.takosumi.test"
-    : "accounts.takosumi.com";
+    ? "app.takosumi.test"
+    : "app.takosumi.com";
   const url = new URL(`https://${installHost}/install`);
   url.searchParams.set("git", "https://github.com/tako0614/yurucommu.git");
   url.searchParams.set("ref", "main");
-  url.searchParams.set("mode", "shared-cell");
   url.searchParams.set("autoplan", "1");
   return url.toString();
 }

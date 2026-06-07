@@ -9,8 +9,6 @@ import { maskSensitiveData, maskSensitiveString } from "./log-mask.ts";
 const log = logger.child({ component: "errors" });
 
 const ErrorCodes = {
-  NOT_FOUND: "NOT_FOUND",
-  RATE_LIMITED: "RATE_LIMITED",
   INTERNAL_ERROR: "INTERNAL_ERROR",
 } as const;
 
@@ -56,22 +54,8 @@ export class AppError extends Error {
 
 // --- Concrete error classes ---
 // Each binds a fixed error code and HTTP status to AppError.
-// Only classes with actual consumers are kept.
-
-export class NotFoundError extends AppError {
-  constructor(resource = "Resource", details?: unknown) {
-    super(`${resource} not found`, ErrorCodes.NOT_FOUND, 404, details);
-  }
-}
-
-export class RateLimitError extends AppError {
-  public readonly retryAfter?: number;
-
-  constructor(message = "Rate limit exceeded", retryAfter?: number) {
-    super(message, ErrorCodes.RATE_LIMITED, 429);
-    this.retryAfter = retryAfter;
-  }
-}
+// InternalError is the only subclass with an actual `new` site
+// (error-handler.ts resolveAppError fallback).
 
 export class InternalError extends AppError {
   constructor(message = "Internal server error", details?: unknown) {

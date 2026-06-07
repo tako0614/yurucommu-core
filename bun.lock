@@ -13,7 +13,7 @@
         "better-sqlite3": "^12.4.1",
         "drizzle-orm": "^0.45.1",
         "fdir": "^6.5.0",
-        "hono": "^4.11.4",
+        "hono": "^4.12.9",
         "html5-qrcode": "^2.3.8",
         "jotai": "^2.18.0",
         "merge-anything": "^5.1.7",

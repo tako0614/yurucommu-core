@@ -10,12 +10,11 @@ import {
   fetchFollowers,
   fetchFollowing,
   follow,
-  likePost,
   switchAccount,
   unfollow,
-  unlikePost,
   updateProfile,
 } from "../lib/api.ts";
+import { toggleLike } from "../atoms/posts.ts";
 import { useI18n } from "../lib/i18n.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { ProfileHeader } from "../components/profile/ProfileHeader.tsx";
@@ -146,25 +145,7 @@ export function ProfilePage() {
 
   const handleLike = async (post: Post) => {
     try {
-      if (post.liked) {
-        await unlikePost(post.ap_id);
-        setPosts((prev) =>
-          prev.map((p) =>
-            p.ap_id === post.ap_id
-              ? { ...p, liked: false, like_count: p.like_count - 1 }
-              : p,
-          ),
-        );
-      } else {
-        await likePost(post.ap_id);
-        setPosts((prev) =>
-          prev.map((p) =>
-            p.ap_id === post.ap_id
-              ? { ...p, liked: true, like_count: p.like_count + 1 }
-              : p,
-          ),
-        );
-      }
+      await toggleLike(post, (fn) => setPosts(fn));
     } catch (e) {
       console.error("Failed to toggle like:", e);
       setError(t("common.error"));
