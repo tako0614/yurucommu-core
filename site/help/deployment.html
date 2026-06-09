@@ -101,13 +101,14 @@
 
         <h2>Takosumiでinstall</h2>
         <p>
-          Takosumiを使う場合は、Takosumi install wizardでOpenTofu
-          PlanRunを確認してからInstallationを作成します。
-          起動はTakosumiがactivateしたpublic HTTP
-          endpointを開き、Yurucommu側のTakosumi Accounts
-          OIDCでサインインします。
+          Takosumiを使う場合は、Takosumi install wizardでGit URL / ref / module
+          pathからInstallationを作成し、pinned SourceSnapshot /
+          DependencySnapshotに基づくplan typeのRunとpolicy
+          decisionを確認します。 承認後のapply type RunがStateSnapshot /
+          OutputSnapshot / Deploymentを記録し、Deploymentのpublic
+          endpointを開きます。
         </p>
-        <pre><code>https://accounts.takosumi.com/install?git=https://github.com/tako0614/yurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autoplan=1</code></pre>
+        <pre><code>https://app.takosumi.com/install?git=https://github.com/tako0614/yurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autoplan=1</code></pre>
 
         <h2>Cloudflareへ直接デプロイ</h2>
         <pre><code>bun run deploy</code></pre>
