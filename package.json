@@ -7,7 +7,6 @@
     ".": "./src/backend/public.ts",
     "./server": "./src/backend/public.ts",
     "./web": "./web/public.ts",
-    "./web/styles.css": "./web/styles.css",
     "./plugins": "./src/plugin/public.ts"
   },
   "imports": {

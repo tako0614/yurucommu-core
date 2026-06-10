@@ -301,10 +301,6 @@ function applyGlobalMiddleware(app: YurucommuApp): void {
     "/ap/users/*/outbox",
     rateLimit(RateLimitConfigs.federationDiscovery),
   );
-  app.use(
-    "/ap/rooms/*/stream",
-    rateLimit(RateLimitConfigs.federationDiscovery),
-  );
 }
 
 function mountCoreRoutes(app: YurucommuApp): void {

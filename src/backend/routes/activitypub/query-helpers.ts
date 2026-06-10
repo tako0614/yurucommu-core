@@ -8,11 +8,6 @@ import { logger } from "../../lib/logger.ts";
 const log = logger.child({ component: "activitypub.query_helpers" });
 
 export const INSTANCE_ACTOR_USERNAME = "community";
-export const MAX_ROOM_STREAM_LIMIT = 50;
-
-export function roomApId(baseUrl: string, roomId: string): string {
-  return `${baseUrl}/ap/rooms/${roomId}`;
-}
 
 export type InstanceActorResult = {
   apId: string;

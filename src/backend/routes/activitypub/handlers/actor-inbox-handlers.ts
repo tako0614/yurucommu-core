@@ -14,7 +14,7 @@ import {
   objectApId,
 } from "../../../federation-helpers.ts";
 import { enqueueDeliveryToActor } from "../../../lib/delivery/queue.ts";
-import type { InstanceActorResult } from "../utils.ts";
+import type { InstanceActorResult } from "../query-helpers.ts";
 import {
   type Activity,
   type ActivityContext,

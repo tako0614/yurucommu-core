@@ -1,27 +1,20 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { and, asc, count, desc, eq, lt } from "drizzle-orm";
+import { and, asc, count, eq } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
 import {
   actors,
-  communities,
   objects as objectsTable,
 } from "../../db/index.ts";
 import { notDeleted } from "../../db/index.ts";
-import { actorApId, getDomain, parseLimit } from "../federation-helpers.ts";
+import { actorApId, getDomain } from "../federation-helpers.ts";
 import {
   getInstanceActor,
   INSTANCE_ACTOR_USERNAME,
-  MAX_ROOM_STREAM_LIMIT,
-  roomApId,
 } from "./activitypub/query-helpers.ts";
 import inboxRoutes from "./activitypub/inbox.ts";
 import outboxRoutes from "./activitypub/outbox.ts";
 import { CacheTags, CacheTTL, withCache } from "../middleware/cache.ts";
-import {
-  communityWhere,
-  resolveCommunityApId,
-} from "./communities/membership-shared.ts";
 
 type HonoContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -43,13 +36,6 @@ const AP_CONTEXT = [
   "https://www.w3.org/ns/activitystreams",
   "https://w3id.org/security/v1",
 ] as const;
-
-const APC_ROOM_CONTEXT = {
-  apc: "https://yurucommu.com/ns/apc#",
-  joinPolicy: "apc:joinPolicy",
-  postPolicy: "apc:postPolicy",
-  visibility: "apc:visibility",
-} as const;
 
 /** Build a standard WebFinger JRD response. */
 function buildWebFingerResponse(
@@ -390,163 +376,11 @@ ap.get(
         sharedInbox: `${baseUrl}/ap/inbox`,
       },
       publicKey: buildPublicKey(instanceActor.apId, instanceActor.publicKeyPem),
-      rooms: `${baseUrl}/ap/rooms`,
-      joinPolicy: instanceActor.joinPolicy || "open",
-      postPolicy: instanceActor.postingPolicy || "members",
-      visibility: instanceActor.visibility || "public",
     };
 
     return activityJson(c, actorResponse);
   },
 );
-
-// ---------------------------------------------------------------------------
-// Rooms (Communities) (cached 5 minutes)
-// ---------------------------------------------------------------------------
-
-ap.get(
-  "/ap/rooms",
-  withCache({
-    ttl: CacheTTL.COMMUNITY,
-    cacheTag: CacheTags.COMMUNITY,
-  }),
-  async (c) => {
-    const db = c.get("db");
-    const baseUrl = c.env.APP_URL;
-
-    const rooms = await db.query.communities.findMany({
-      where: notDeleted(communities),
-      columns: {
-        preferredUsername: true,
-        name: true,
-        summary: true,
-        visibility: true,
-        joinPolicy: true,
-        postPolicy: true,
-      },
-      orderBy: asc(communities.createdAt),
-    });
-
-    const items = rooms.map((room) => ({
-      id: roomApId(baseUrl, room.preferredUsername),
-      type: "Group",
-      name: room.name,
-      summary: room.summary || "",
-      visibility: room.visibility || "public",
-      joinPolicy: room.joinPolicy || "open",
-      postPolicy: room.postPolicy || "members",
-    }));
-
-    return c.json({
-      "@context": ["https://www.w3.org/ns/activitystreams", APC_ROOM_CONTEXT],
-      id: `${baseUrl}/ap/rooms`,
-      type: "OrderedCollection",
-      totalItems: items.length,
-      orderedItems: items,
-    });
-  },
-);
-
-ap.get("/ap/rooms/:roomId", async (c) => {
-  const db = c.get("db");
-  const baseUrl = c.env.APP_URL;
-  const roomId = c.req.param("roomId");
-
-  const room = await db.query.communities.findFirst({
-    where: and(
-      communityWhere(resolveCommunityApId(baseUrl, roomId), roomId),
-      notDeleted(communities),
-    ),
-    columns: {
-      apId: true,
-      preferredUsername: true,
-      name: true,
-      summary: true,
-      inbox: true,
-      outbox: true,
-      followersUrl: true,
-      visibility: true,
-      joinPolicy: true,
-      postPolicy: true,
-      publicKeyPem: true,
-    },
-  });
-
-  if (!room) return c.json({ error: "Room not found" }, 404);
-
-  const roomUrl = roomApId(baseUrl, room.preferredUsername);
-
-  return c.json({
-    "@context": [
-      "https://www.w3.org/ns/activitystreams",
-      { ...APC_ROOM_CONTEXT, stream: { "@id": "apc:stream", "@type": "@id" } },
-    ],
-    id: roomUrl,
-    type: "Group",
-    preferredUsername: room.preferredUsername,
-    name: room.name,
-    summary: room.summary || "",
-    inbox: room.inbox,
-    outbox: room.outbox,
-    followers: room.followersUrl,
-    publicKey: buildPublicKey(room.apId, room.publicKeyPem),
-    visibility: room.visibility || "public",
-    joinPolicy: room.joinPolicy || "open",
-    postPolicy: room.postPolicy || "members",
-    stream: `${roomUrl}/stream`,
-  });
-});
-
-ap.get("/ap/rooms/:roomId/stream", async (c) => {
-  const db = c.get("db");
-  const baseUrl = c.env.APP_URL;
-  const roomId = c.req.param("roomId");
-  const limit = parseLimit(c.req.query("limit"), 20, MAX_ROOM_STREAM_LIMIT);
-  const before = c.req.query("before");
-
-  const community = await db.query.communities.findFirst({
-    where: and(
-      communityWhere(resolveCommunityApId(baseUrl, roomId), roomId),
-      notDeleted(communities),
-    ),
-    columns: { apId: true, preferredUsername: true },
-  });
-
-  if (!community) return c.json({ error: "Room not found" }, 404);
-
-  const conditions = [
-    eq(objectsTable.type, "Note"),
-    eq(objectsTable.communityApId, community.apId),
-    notDeleted(objectsTable),
-  ];
-  if (before) conditions.push(lt(objectsTable.published, before));
-
-  const objects = await db.query.objects.findMany({
-    where: and(...conditions),
-    columns: { apId: true, attributedTo: true, content: true, published: true },
-    orderBy: desc(objectsTable.published),
-    limit,
-  });
-
-  const communityRoomUrl = roomApId(baseUrl, community.preferredUsername);
-
-  const items = objects.map((o) => ({
-    id: o.apId,
-    type: "Note",
-    attributedTo: o.attributedTo,
-    content: o.content,
-    published: o.published,
-    room: communityRoomUrl,
-  }));
-
-  return c.json({
-    "@context": "https://www.w3.org/ns/activitystreams",
-    id: `${communityRoomUrl}/stream`,
-    type: "OrderedCollection",
-    totalItems: items.length,
-    orderedItems: items,
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Shared inbox (Mastodon convention)

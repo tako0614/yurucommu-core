@@ -600,7 +600,7 @@
           <a href="/specs/" class="header-link">Specs</a>
         </div>
         <a
-          href="https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autoplan=1"
+          href="https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&amp;ref=main&amp;autoplan=1"
           class="header-cta"
           rel="noopener"
         >
@@ -1021,7 +1021,7 @@
         </p>
         <div class="cta-buttons">
           <a
-            href="https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&amp;ref=main&amp;mode=shared-cell&amp;autoplan=1"
+            href="https://app.takosumi.com/install?git=https%3A%2F%2Fgithub.com%2Ftako0614%2Fyurucommu.git&amp;ref=main&amp;autoplan=1"
             class="btn-primary"
             rel="noopener"
           >
@@ -1113,23 +1113,6 @@
         });
       });
 
-      // When this landing page is served from a local-substrate test domain
-      // (any *.test hostname or localhost), rewrite accounts.takosumi.com links
-      // to accounts.takosumi.test so the install button reaches the local cloud
-      // mirror instead of leaving the test environment.
-      if (
-        location.hostname.endsWith(".test") ||
-        location.hostname === "localhost"
-      ) {
-        document
-          .querySelectorAll('a[href*="accounts.takosumi.com"]')
-          .forEach((a) => {
-            a.href = a.href.replace(
-              "accounts.takosumi.com",
-              "accounts.takosumi.test",
-            );
-          });
-      }
     </script>
   </body>
 </html>

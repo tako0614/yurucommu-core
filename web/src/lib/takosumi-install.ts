@@ -3,7 +3,6 @@ export function yurucommuTakosumiInstallUrl(
 ): string {
   // The Takosumi platform worker hosts the install surface at its bare origin
   // (app.takosumi.com in production, app.takosumi.test in local-substrate);
-  // there is no accounts.takosumi.com host.
   const installHost = isLocalSubstrateHostname(hostname)
     ? "app.takosumi.test"
     : "app.takosumi.com";
