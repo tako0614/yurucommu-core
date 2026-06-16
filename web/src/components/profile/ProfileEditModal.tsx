@@ -88,9 +88,11 @@ export function ProfileEditModal(props: ProfileEditModalProps) {
             </div>
             <div class="flex items-center justify-between py-2">
               <div>
-                <div class="text-white font-medium">フォロー許可制</div>
+                <div class="text-white font-medium">
+                  {props.t("profile.followApproval")}
+                </div>
                 <div class="text-sm text-neutral-400">
-                  フォローリクエストを承認制にする
+                  {props.t("profile.followApprovalDesc")}
                 </div>
               </div>
               <button

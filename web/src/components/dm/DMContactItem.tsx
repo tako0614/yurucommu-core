@@ -1,6 +1,7 @@
 import { Show } from "solid-js";
 import { DMContact } from "../../lib/api.ts";
 import { formatConversationListTime } from "../../lib/datetime.ts";
+import { useI18n } from "../../lib/i18n.tsx";
 
 interface DMContactItemProps {
   contact: DMContact;
@@ -10,6 +11,7 @@ interface DMContactItemProps {
 }
 
 export function DMContactItem(props: DMContactItemProps) {
+  const { t } = useI18n();
   return (
     <button
       onClick={props.onClick}
@@ -76,13 +78,13 @@ export function DMContactItem(props: DMContactItemProps) {
           fallback={
             <p class="text-sm text-neutral-500 truncate mt-0.5">
               {props.contact.type === "community"
-                ? "グループチャット"
-                : "メッセージはありません"}
+                ? t("dm.groupChat")
+                : t("dm.noMessagePreview")}
             </p>
           }
         >
           <p class="text-sm text-neutral-400 truncate mt-0.5">
-            {props.contact.last_message!.is_mine ? "あなた: " : ""}
+            {props.contact.last_message!.is_mine ? t("dm.youPrefix") : ""}
             {props.contact.last_message!.content}
           </p>
         </Show>

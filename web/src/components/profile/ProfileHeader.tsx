@@ -3,6 +3,7 @@ import { A } from "@solidjs/router";
 import type { AccountInfo } from "../../lib/api.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { BackIcon } from "./ProfileIcons.tsx";
+import { useI18n } from "../../lib/i18n.tsx";
 
 interface ProfileHeaderProps {
   actorId?: string;
@@ -18,6 +19,7 @@ interface ProfileHeaderProps {
 }
 
 export function ProfileHeader(props: ProfileHeaderProps) {
+  const { t } = useI18n();
   return (
     <>
       <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
@@ -76,7 +78,7 @@ export function ProfileHeader(props: ProfileHeaderProps) {
               when={!props.accountsLoading}
               fallback={
                 <div class="p-4 text-center text-neutral-500">
-                  読み込み中...
+                  {t("common.loading")}
                 </div>
               }
             >

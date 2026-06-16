@@ -106,7 +106,7 @@ export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
                 when={!props.accountsLoading}
                 fallback={
                   <div class="p-4 text-center text-neutral-500">
-                    読み込み中...
+                    {props.t("common.loading")}
                   </div>
                 }
               >

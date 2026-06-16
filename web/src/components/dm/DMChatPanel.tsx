@@ -222,7 +222,12 @@ export function DMChatPanel(props: DMChatPanelProps) {
                 props.contact.member_count !== undefined
               }
             >
-              <span class="ml-2">{props.contact.member_count}人</span>
+              <span class="ml-2">
+                {t("dm.memberCount").replace(
+                  "{count}",
+                  String(props.contact.member_count),
+                )}
+              </span>
             </Show>
           </div>
         </div>

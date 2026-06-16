@@ -142,8 +142,8 @@ export function NotificationPage() {
       case "follow_request":
         return (
           <>
-            <span class="font-bold text-white">{actorName}</span> sent you a
-            follow request
+            <span class="font-bold text-white">{actorName}</span>
+            {t("notifications.followRequest")}
           </>
         );
       case "like":
@@ -175,7 +175,7 @@ export function NotificationPage() {
           </>
         );
       default:
-        return <>New notification</>;
+        return <>{t("notifications.new")}</>;
     }
   };
 
@@ -230,24 +230,34 @@ export function NotificationPage() {
   const filterTabs: { key: FilterType; label: string; icon: JSX.Element }[] = [
     {
       key: "all",
-      label: "すべて",
+      label: t("notifications.filterAll"),
       icon: (
-        <span class="w-4 h-4 flex items-center justify-center text-xs">全</span>
+        <span class="w-4 h-4 flex items-center justify-center text-xs">
+          {t("notifications.filterAllShort")}
+        </span>
       ),
     },
-    { key: "follow", label: "フォロー", icon: <FollowIcon /> },
+    { key: "follow", label: t("profile.follow"), icon: <FollowIcon /> },
     {
       key: "like",
-      label: "いいね",
+      label: t("posts.like"),
       icon: <HeartIcon class="w-4 h-4" filled stroke={false} />,
     },
     {
       key: "announce",
-      label: "リポスト",
+      label: t("posts.repost"),
       icon: <RepostIcon class="w-4 h-4" />,
     },
-    { key: "mention", label: "メンション", icon: <MentionIcon /> },
-    { key: "reply", label: "返信", icon: <ReplyIcon class="w-4 h-4" /> },
+    {
+      key: "mention",
+      label: t("notifications.filterMention"),
+      icon: <MentionIcon />,
+    },
+    {
+      key: "reply",
+      label: t("posts.reply"),
+      icon: <ReplyIcon class="w-4 h-4" />,
+    },
   ];
 
   return (
@@ -294,7 +304,7 @@ export function NotificationPage() {
               <div class="p-8 text-center text-neutral-500">
                 {filter() === "all"
                   ? t("notifications.empty")
-                  : "この種類の通知はありません"}
+                  : t("notifications.emptyFiltered")}
               </div>
             }
           >

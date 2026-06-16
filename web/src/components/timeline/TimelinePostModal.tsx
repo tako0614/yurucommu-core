@@ -3,6 +3,7 @@ import type { Actor } from "../../types/index.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { CloseIcon, CloseIconLarge, ImageIcon } from "./TimelineIcons.tsx";
 import type { UploadedMedia } from "./types.ts";
+import { useI18n } from "../../lib/i18n.tsx";
 
 interface TimelinePostModalProps {
   isOpen: boolean;
@@ -26,6 +27,7 @@ interface TimelinePostModalProps {
 }
 
 export function TimelinePostModal(props: TimelinePostModalProps) {
+  const { t } = useI18n();
   return (
     <Show when={props.isOpen}>
       <div class="fixed inset-0 bg-black/70 flex items-start justify-center z-50 p-4 pt-12">
@@ -120,7 +122,9 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
               <ImageIcon />
             </button>
             <Show when={props.uploading}>
-              <span class="text-sm text-neutral-500">アップロード中...</span>
+              <span class="text-sm text-neutral-500">
+                {t("common.uploading")}
+              </span>
             </Show>
             <Show when={props.uploadError}>
               <span class="text-sm text-red-500">{props.uploadError}</span>

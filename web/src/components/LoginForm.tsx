@@ -1,6 +1,7 @@
 import { createSignal, For, onMount, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { apiFetch } from "../lib/api/fetch.ts";
+import { useI18n } from "../lib/i18n.tsx";
 
 interface OAuthProvider {
   id: string;
@@ -63,6 +64,7 @@ const ProviderIcons: Record<string, JSX.Element> = {
 };
 
 export function LoginForm(props: LoginFormProps) {
+  const { t } = useI18n();
   const [password, setPassword] = createSignal("");
   const [submitting, setSubmitting] = createSignal(false);
   const [authConfig, setAuthConfig] = createSignal<AuthConfig | null>(null);
@@ -116,8 +118,8 @@ export function LoginForm(props: LoginFormProps) {
         when={hasOAuth() || hasPassword()}
         fallback={
           <div class="w-full max-w-sm text-center text-neutral-400">
-            <p>認証方法が設定されていません。</p>
-            <p class="text-sm mt-2">管理者に連絡してください。</p>
+            <p>{t("auth.noAuthMethods")}</p>
+            <p class="text-sm mt-2">{t("auth.contactAdmin")}</p>
           </div>
         }
       >
@@ -134,7 +136,9 @@ export function LoginForm(props: LoginFormProps) {
                     {ProviderIcons[provider.id] || (
                       <span class="w-5 h-5 bg-neutral-600 rounded-full" />
                     )}
-                    <span>{provider.name}でログイン</span>
+                    <span>
+                      {t("auth.loginWith").replace("{provider}", provider.name)}
+                    </span>
                   </a>
                 )}
               </For>
@@ -148,7 +152,9 @@ export function LoginForm(props: LoginFormProps) {
                 <div class="w-full border-t border-neutral-700" />
               </div>
               <div class="relative flex justify-center text-sm">
-                <span class="px-2 bg-neutral-900 text-neutral-500">または</span>
+                <span class="px-2 bg-neutral-900 text-neutral-500">
+                  {t("auth.or")}
+                </span>
               </div>
             </div>
           </Show>
@@ -161,7 +167,7 @@ export function LoginForm(props: LoginFormProps) {
                   for="password"
                   class="block text-sm font-medium text-neutral-300 mb-1"
                 >
-                  パスワード
+                  {t("auth.password")}
                 </label>
                 <input
                   id="password"
@@ -169,7 +175,7 @@ export function LoginForm(props: LoginFormProps) {
                   value={password()}
                   onInput={(e) => setPassword(e.currentTarget.value)}
                   class="w-full px-4 py-2 bg-neutral-800 border border-neutral-700 rounded-md text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="パスワードを入力"
+                  placeholder={t("auth.passwordPlaceholder")}
                   disabled={submitting()}
                   autocomplete="current-password"
                   autofocus={!hasOAuth()}
@@ -187,7 +193,7 @@ export function LoginForm(props: LoginFormProps) {
                 disabled={submitting() || !password()}
                 class="w-full bg-blue-600 text-white px-6 py-3 rounded-md font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {submitting() ? "ログイン中..." : "ログイン"}
+                {submitting() ? t("auth.loggingIn") : t("auth.login")}
               </button>
             </form>
           </Show>

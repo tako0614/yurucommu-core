@@ -5,11 +5,13 @@ import type { RecommendedUser } from "../../lib/api/recommendations.ts";
 import { fetchRecommendedUsers, follow } from "../../lib/api.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
 import { PluginSlot } from "../PluginSlot.tsx";
+import { useI18n } from "../../lib/i18n.tsx";
 
 function RecommendedUserCard(props: {
   user: RecommendedUser;
   onFollowed: (apId: string) => void;
 }) {
+  const { t } = useI18n();
   const [following, setFollowing] = createSignal(false);
   const [loading, setLoading] = createSignal(false);
 
@@ -57,13 +59,14 @@ function RecommendedUserCard(props: {
             : "bg-white text-black hover:bg-neutral-200"
         }`}
       >
-        {following() ? "フォロー中" : "フォロー"}
+        {following() ? t("profile.following") : t("profile.follow")}
       </button>
     </A>
   );
 }
 
 export function RightSidebar() {
+  const { t } = useI18n();
   const actor = useRequiredActor();
   const [users, setUsers] = createSignal<RecommendedUser[]>([]);
   const [loading, setLoading] = createSignal(true);
@@ -98,12 +101,14 @@ export function RightSidebar() {
       <Show when={showRecommendations()}>
         <div class="p-4 pb-0">
           <div class="bg-neutral-900/50 rounded-2xl overflow-hidden">
-            <h2 class="text-lg font-bold px-4 pt-4 pb-2">おすすめユーザー</h2>
+            <h2 class="text-lg font-bold px-4 pt-4 pb-2">
+              {t("profile.suggestedUsers")}
+            </h2>
             <Show
               when={!loading()}
               fallback={
                 <div class="px-4 py-6 text-center text-sm text-neutral-500">
-                  読み込み中...
+                  {t("common.loading")}
                 </div>
               }
             >
