@@ -1,6 +1,7 @@
 import { A } from "@solidjs/router";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { useI18n } from "../lib/i18n.tsx";
+import { looksLikeHtml, sanitizeHtml } from "../lib/sanitize-html.ts";
 
 interface PostContentProps {
   content: string;
@@ -14,11 +15,50 @@ type ContentPart =
   | { type: "text"; text: string; position: number }
   | { type: "mention"; username: string; position: number };
 
+// Linkify bare @mentions in the text regions of an already-sanitized HTML
+// string, without touching anything inside `<...>` tags (so existing href
+// attributes and anchor text are left intact). The mention link itself is
+// emitted as a safe http-relative anchor with the same rel/target policy the
+// sanitizer enforces.
+function linkifyMentionsInHtml(html: string): string {
+  const mentionRe = /@([a-zA-Z0-9_]+)/g;
+  let out = "";
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf("<", i);
+    const segmentEnd = lt === -1 ? html.length : lt;
+    const text = html.slice(i, segmentEnd);
+    out += text.replace(mentionRe, (_m, username: string) => {
+      const href = `/groups?search=@${encodeURIComponent(username)}`;
+      return (
+        `<a href="${href}" rel="noopener noreferrer nofollow"` +
+        ` data-mention="${username}">@${username}</a>`
+      );
+    });
+    if (lt === -1) break;
+    const gt = html.indexOf(">", lt + 1);
+    const tagEnd = gt === -1 ? html.length : gt + 1;
+    out += html.slice(lt, tagEnd);
+    i = tagEnd;
+  }
+  return out;
+}
+
 // Parse post content and render mentions as clickable links
 export function PostContent(props: PostContentProps) {
   const { t } = useI18n();
   const [revealed, setRevealed] = createSignal(false);
   const hasSummary = createMemo(() => !!props.summary && props.summary.trim());
+
+  // Remote ActivityPub posts arrive as HTML; local posts are plain text.
+  const isHtml = createMemo(() => looksLikeHtml(props.content));
+
+  // SECURITY: this string is assigned to innerHTML below. It is the output of
+  // the strict allowlist sanitizer (only safe formatting tags + http(s) links
+  // survive), then mentions are linkified only in text regions.
+  const sanitizedHtml = createMemo(() =>
+    linkifyMentionsInHtml(sanitizeHtml(props.content)),
+  );
 
   const parsedContent = createMemo(() => {
     // Regex to match @username (alphanumeric and underscores)
@@ -57,7 +97,7 @@ export function PostContent(props: PostContentProps) {
     return parts;
   });
 
-  const body = (
+  const plainBody = (
     <p class={`whitespace-pre-wrap break-words ${props.class ?? ""}`}>
       <For each={parsedContent()}>
         {(part) => {
@@ -78,6 +118,24 @@ export function PostContent(props: PostContentProps) {
       </For>
     </p>
   );
+
+  // Sanitized remote HTML. The container links inherit blue styling; the
+  // innerHTML payload is XSS-safe (see sanitizedHtml above).
+  const htmlBody = (
+    <div
+      class={`post-html break-words [&_a]:text-blue-400 [&_a:hover]:underline ${
+        props.class ?? ""
+      }`}
+      onClick={(e) => {
+        // Keep link clicks from also triggering the surrounding post link.
+        if ((e.target as HTMLElement)?.closest("a")) e.stopPropagation();
+      }}
+      // eslint-disable-next-line solid/no-innerhtml
+      innerHTML={sanitizedHtml()}
+    />
+  );
+
+  const body = isHtml() ? htmlBody : plainBody;
 
   return (
     <Show when={hasSummary()} fallback={body}>
