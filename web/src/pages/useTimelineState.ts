@@ -1,4 +1,4 @@
-import { onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
 import { tAtom } from "../atoms/i18n.ts";
 import {
@@ -47,7 +47,11 @@ export function useTimelineState() {
   const [error, setError] = useAtom(timelineErrorAtom);
   let fileInputRef!: HTMLInputElement;
   let scrollContainerRef!: HTMLDivElement;
-  let loadMoreSentinelRef!: HTMLDivElement;
+  // The sentinel is rendered only after posts load, so it appears (and can be
+  // re-created when the list re-mounts) after onMount. Track it as a signal so
+  // the IntersectionObserver effect can attach once the element exists.
+  const [loadMoreSentinel, setLoadMoreSentinel] =
+    createSignal<HTMLDivElement | null>(null);
 
   // State atoms
   const [posts, setPosts] = useAtom(timelinePostsAtom);
@@ -110,9 +114,12 @@ export function useTimelineState() {
 
   // Infinite scroll — auto-load when the bottom sentinel becomes visible.
   // loadMore() internally guards on loadingMore()/hasMore()/empty list, so
-  // repeated intersection callbacks never trigger duplicate fetches.
-  onMount(() => {
-    if (!loadMoreSentinelRef) return;
+  // repeated intersection callbacks never trigger duplicate fetches. The
+  // sentinel only exists once posts have rendered, so observe it reactively
+  // (createEffect re-runs and re-attaches whenever the element changes).
+  createEffect(() => {
+    const sentinel = loadMoreSentinel();
+    if (!sentinel) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
@@ -124,7 +131,7 @@ export function useTimelineState() {
         rootMargin: "400px",
       },
     );
-    observer.observe(loadMoreSentinelRef);
+    observer.observe(sentinel);
     onCleanup(() => observer.disconnect());
   });
 
@@ -251,11 +258,8 @@ export function useTimelineState() {
     set scrollContainerRef(el: HTMLDivElement) {
       scrollContainerRef = el;
     },
-    get loadMoreSentinelRef() {
-      return loadMoreSentinelRef;
-    },
     set loadMoreSentinelRef(el: HTMLDivElement) {
-      loadMoreSentinelRef = el;
+      setLoadMoreSentinel(el ?? null);
     },
     posts,
     loading,
