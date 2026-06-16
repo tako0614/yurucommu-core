@@ -1,6 +1,7 @@
 import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
 import { tAtom } from "../atoms/i18n.ts";
+import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import {
   accountsAtom,
   accountsLoadingAtom,
@@ -29,7 +30,6 @@ import {
   storiesLoadingAtom,
   storyViewerActorIndexAtom,
   switchAccountAtom,
-  timelineErrorAtom,
   timelineHasMoreAtom,
   timelineLoadErrorAtom,
   timelineLoadingAtom,
@@ -47,7 +47,9 @@ import type { ActorStories, Post } from "../types/index.ts";
 
 export function useTimelineState() {
   const t = useAtomValue(tAtom);
-  const [error, setError] = useAtom(timelineErrorAtom);
+  const setToasts = useSetAtom(toastsAtom);
+  const toastError = (key: Parameters<ReturnType<typeof t>>[0]) =>
+    pushToast(setToasts, t()(key), { kind: "error" });
   let fileInputRef!: HTMLInputElement;
   let scrollContainerRef!: HTMLDivElement;
   // The sentinel is rendered only after posts load, so it appears (and can be
@@ -226,7 +228,7 @@ export function useTimelineState() {
       await toggleLike(post, (fn) => setPosts(fn));
     } catch (e) {
       console.error("Failed to toggle like:", e);
-      setError(t()("common.error"));
+      toastError("common.error");
     }
   };
 
@@ -235,7 +237,7 @@ export function useTimelineState() {
       await toggleBookmark(post, (fn) => setPosts(fn));
     } catch (e) {
       console.error("Failed to toggle bookmark:", e);
-      setError(t()("common.error"));
+      toastError("common.error");
     }
   };
 
@@ -244,7 +246,7 @@ export function useTimelineState() {
       await toggleRepost(post, (fn) => setPosts(fn));
     } catch (e) {
       console.error("Failed to toggle repost:", e);
-      setError(t()("common.error"));
+      toastError("common.error");
     }
   };
 
@@ -263,9 +265,10 @@ export function useTimelineState() {
     try {
       await deletePost(post.ap_id);
       setPosts((prev) => prev.filter((p) => p.ap_id !== post.ap_id));
+      pushToast(setToasts, t()("feedback.postDeleted"), { kind: "success" });
     } catch (e) {
       console.error("Failed to delete post:", e);
-      setError(t()("common.error"));
+      toastError("feedback.deleteFailed");
     }
   };
 
@@ -277,9 +280,10 @@ export function useTimelineState() {
     try {
       await muteUser(post.author.ap_id);
       dropAuthorPosts(post.author.ap_id);
+      pushToast(setToasts, t()("feedback.muted"), { kind: "success" });
     } catch (e) {
       console.error("Failed to mute user:", e);
-      setError(t()("common.error"));
+      toastError("feedback.muteFailed");
     }
   };
 
@@ -287,16 +291,15 @@ export function useTimelineState() {
     try {
       await blockUser(post.author.ap_id);
       dropAuthorPosts(post.author.ap_id);
+      pushToast(setToasts, t()("feedback.blocked"), { kind: "success" });
     } catch (e) {
       console.error("Failed to block user:", e);
-      setError(t()("common.error"));
+      toastError("feedback.blockFailed");
     }
   };
 
   return {
     t: () => t(),
-    error,
-    clearError: () => setError(null),
     get fileInputRef() {
       return fileInputRef;
     },

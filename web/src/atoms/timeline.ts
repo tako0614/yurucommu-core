@@ -11,6 +11,7 @@ import {
   uploadMedia,
 } from "../lib/api.ts";
 import type { UploadedMedia } from "../components/timeline/types.ts";
+import { pushToast, toastWriter } from "./toast.ts";
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 
@@ -27,8 +28,6 @@ export const timelinePostsAtom = atom<Post[]>([]);
 export const timelineLoadingAtom = atom(true);
 export const timelineLoadingMoreAtom = atom(false);
 export const timelineHasMoreAtom = atom(true);
-// Transient action error (dismissable toast banner).
-export const timelineErrorAtom = atom<string | null>(null);
 // Primary-load failure (shown inline with a Retry button).
 export const timelineLoadErrorAtom = atom<string | null>(null);
 
@@ -143,7 +142,9 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
     set(timelineHasMoreAtom, newPosts.length >= 20);
   } catch (e) {
     console.error("Failed to load more:", e);
-    set(timelineErrorAtom, get(tAtom)("common.error"));
+    pushToast(toastWriter(set), get(tAtom)("common.loadFailed"), {
+      kind: "error",
+    });
   } finally {
     set(timelineLoadingMoreAtom, false);
   }
@@ -197,12 +198,17 @@ export const createPostAtom = atom(
         set(postContentAtom, "");
         media.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
         set(uploadedMediaAtom, []);
+        pushToast(toastWriter(set), get(tAtom)("feedback.postCreated"), {
+          kind: "success",
+        });
         return true;
       }
       return false;
     } catch (e) {
       console.error("Failed to create post:", e);
-      set(timelineErrorAtom, get(tAtom)("common.error"));
+      pushToast(toastWriter(set), get(tAtom)("feedback.postFailed"), {
+        kind: "error",
+      });
       return false;
     } finally {
       set(postingAtom, false);

@@ -1,5 +1,29 @@
 @import "tailwindcss";
 
+/*
+ * Single brand accent token. BLUE — used for primary affordances (login,
+ * new-posts pill, story-unviewed ring, primary confirm). The pink heart is a
+ * separate like-only semantic color and is intentionally NOT derived from this.
+ */
+:root {
+  --accent: #3b82f6; /* blue-500 */
+  --accent-hover: #2563eb; /* blue-600 */
+}
+
+/* Tailwind-usable helpers backed by the accent token. */
+.bg-accent {
+  background-color: var(--accent);
+}
+.bg-accent:hover {
+  background-color: var(--accent-hover);
+}
+.text-accent {
+  color: var(--accent);
+}
+.border-accent {
+  border-color: var(--accent);
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
@@ -68,7 +92,7 @@ input:focus-visible,
 textarea:focus-visible,
 select:focus-visible,
 [tabindex]:focus-visible {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 0.375rem;
 }

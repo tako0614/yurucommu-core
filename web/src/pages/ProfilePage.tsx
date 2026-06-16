@@ -16,6 +16,8 @@ import {
 } from "../lib/api.ts";
 import { toggleLike } from "../atoms/posts.ts";
 import { useI18n } from "../lib/i18n.tsx";
+import { useSetAtom } from "solid-jotai";
+import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { ProfileHeader } from "../components/profile/ProfileHeader.tsx";
 import { ProfileSummary } from "../components/profile/ProfileSummary.tsx";
@@ -27,6 +29,7 @@ import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 export function ProfilePage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
+  const setToasts = useSetAtom(toastsAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const params = useParams();
@@ -131,16 +134,18 @@ export function ProfilePage() {
         setProfile((prev) =>
           prev ? { ...prev, follower_count: prev.follower_count - 1 } : null,
         );
+        pushToast(setToasts, t("feedback.unfollowed"), { kind: "success" });
       } else {
         await follow(profile()!.ap_id);
         setIsFollowing(true);
         setProfile((prev) =>
           prev ? { ...prev, follower_count: prev.follower_count + 1 } : null,
         );
+        pushToast(setToasts, t("feedback.followed"), { kind: "success" });
       }
     } catch (e) {
       console.error("Failed to toggle follow:", e);
-      setError(t("common.error"));
+      pushToast(setToasts, t("feedback.followFailed"), { kind: "error" });
     }
   };
 
@@ -183,9 +188,10 @@ export function ProfilePage() {
           : null,
       );
       setShowEditModal(false);
+      pushToast(setToasts, t("feedback.settingsSaved"), { kind: "success" });
     } catch (e) {
       console.error("Failed to update profile:", e);
-      setError(t("common.error"));
+      pushToast(setToasts, t("feedback.settingsFailed"), { kind: "error" });
     } finally {
       setSaving(false);
     }

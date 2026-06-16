@@ -13,6 +13,9 @@ import {
   unlikePost,
 } from "../lib/api.ts";
 import { useI18n } from "../lib/i18n.tsx";
+import { useSetAtom } from "solid-jotai";
+import { pushToast, toastsAtom } from "../atoms/toast.ts";
+import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
 import { formatDateTime } from "../lib/datetime.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import { PostContent } from "../components/PostContent.tsx";
@@ -55,6 +58,7 @@ export function PostDetailPage() {
   const params = useParams();
   const navigate = useNavigate();
   const { t } = useI18n();
+  const setToasts = useSetAtom(toastsAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [post, setPost] = createSignal<Post | null>(null);
@@ -62,6 +66,11 @@ export function PostDetailPage() {
   const [loading, setLoading] = createSignal(true);
   const [replyContent, setReplyContent] = createSignal("");
   const [replying, setReplying] = createSignal(false);
+  // Pending delete target, staged so the shared ConfirmSheet can gate it.
+  const [pendingDelete, setPendingDelete] = createSignal<{
+    post: Post;
+    isReply: boolean;
+  } | null>(null);
   const lightbox = useMediaLightbox();
 
   createEffect(() => {
@@ -153,12 +162,20 @@ export function PostDetailPage() {
     }
   };
 
-  const handleDelete = async (targetPost: Post, isReply: boolean = false) => {
-    if (!confirm("Delete this post?")) return;
+  const handleDelete = (targetPost: Post, isReply: boolean = false) => {
+    setPendingDelete({ post: targetPost, isReply });
+  };
+
+  const confirmDelete = async () => {
+    const pending = pendingDelete();
+    if (!pending) return;
+    setPendingDelete(null);
     try {
-      await deletePost(targetPost.ap_id);
-      if (isReply) {
-        setReplies((prev) => prev.filter((r) => r.ap_id !== targetPost.ap_id));
+      await deletePost(pending.post.ap_id);
+      if (pending.isReply) {
+        setReplies((prev) =>
+          prev.filter((r) => r.ap_id !== pending.post.ap_id),
+        );
         const currentPost = post();
         if (currentPost) {
           setPost({
@@ -166,12 +183,13 @@ export function PostDetailPage() {
             reply_count: Math.max(0, currentPost.reply_count - 1),
           });
         }
+        pushToast(setToasts, t("feedback.postDeleted"), { kind: "success" });
       } else {
         navigate(-1);
       }
     } catch (e) {
       console.error("Failed to delete:", e);
-      setError(t("common.error"));
+      pushToast(setToasts, t("feedback.deleteFailed"), { kind: "error" });
     }
   };
 
@@ -451,6 +469,15 @@ export function PostDetailPage() {
           onClose={lightbox.close}
         />
       </Show>
+      <ConfirmSheet
+        open={pendingDelete() !== null}
+        title={t("confirm.deletePostTitle")}
+        body={t("confirm.deletePostBody")}
+        confirmLabel={t("common.delete")}
+        destructive
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

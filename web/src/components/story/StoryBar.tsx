@@ -100,7 +100,7 @@ export function StoryBar(props: StoryBarProps) {
                   class={`w-16 h-16 rounded-full p-0.5 ${
                     hasMyStories() && myStories()
                       ? myStories()!.has_unviewed
-                        ? "bg-gradient-to-tr from-green-400 to-green-500"
+                        ? "bg-gradient-to-tr from-blue-400 to-blue-500"
                         : "bg-neutral-600"
                       : "ring-2 ring-neutral-700"
                   }`}
@@ -139,7 +139,7 @@ export function StoryBar(props: StoryBarProps) {
                   <div
                     class={`w-16 h-16 rounded-full p-0.5 ${
                       as.has_unviewed
-                        ? "bg-gradient-to-tr from-green-400 to-green-500"
+                        ? "bg-gradient-to-tr from-blue-400 to-blue-500"
                         : "bg-neutral-600"
                     }`}
                   >

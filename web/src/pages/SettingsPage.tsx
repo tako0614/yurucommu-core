@@ -2,7 +2,10 @@ import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import type { Actor } from "../types/index.ts";
 import { useI18n } from "../lib/i18n.tsx";
+import { useSetAtom } from "solid-jotai";
+import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
+import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { SettingsAccountsSection } from "../components/settings/SettingsAccountsSection.tsx";
 import { SettingsDeleteSection } from "../components/settings/SettingsDeleteSection.tsx";
@@ -24,8 +27,11 @@ import {
 export function SettingsPage() {
   const actor = useRequiredActor();
   const { t, language, setLanguage } = useI18n();
+  const setToasts = useSetAtom(toastsAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
+  const [confirmingDeleteAccount, setConfirmingDeleteAccount] =
+    createSignal(false);
   const [activeSection, setActiveSection] = createSignal<
     "main" | "blocked" | "muted" | "delete" | "accounts"
   >("main");
@@ -156,7 +162,7 @@ export function SettingsPage() {
       setBlockedUsers((prev) => prev.filter((u) => u.ap_id !== userApId));
     } catch (e) {
       console.error("Failed to unblock:", e);
-      setError(t("common.error"));
+      pushToast(setToasts, t("feedback.actionFailed"), { kind: "error" });
     }
   };
 
@@ -166,21 +172,29 @@ export function SettingsPage() {
       setMutedUsers((prev) => prev.filter((u) => u.ap_id !== userApId));
     } catch (e) {
       console.error("Failed to unmute:", e);
-      setError(t("common.error"));
+      pushToast(setToasts, t("feedback.actionFailed"), { kind: "error" });
     }
   };
 
-  const handleDeleteAccount = async () => {
+  const handleDeleteAccount = () => {
     if (deleteConfirm() !== actor.preferred_username) {
       setError(t("settings.usernameMismatch"));
       return;
     }
+    // Username matched: gate the irreversible action behind a final confirm.
+    setConfirmingDeleteAccount(true);
+  };
+
+  const confirmDeleteAccount = async () => {
+    setConfirmingDeleteAccount(false);
     try {
       await deleteAccount();
       globalThis.location.href = "/";
     } catch (e: unknown) {
-      setError(
+      pushToast(
+        setToasts,
         e instanceof Error ? e.message : t("settings.deleteAccountFailed"),
+        { kind: "error" },
       );
     }
   };
@@ -344,6 +358,15 @@ export function SettingsPage() {
           </div>
         </div>
       </Show>
+      <ConfirmSheet
+        open={confirmingDeleteAccount()}
+        title={t("confirm.deleteAccountTitle")}
+        body={t("confirm.deleteAccountBody")}
+        confirmLabel={t("common.delete")}
+        destructive
+        onConfirm={confirmDeleteAccount}
+        onCancel={() => setConfirmingDeleteAccount(false)}
+      />
     </div>
   );
 }

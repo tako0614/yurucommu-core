@@ -1,6 +1,7 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import type { Post } from "../../types/index.ts";
 import { useI18n } from "../../lib/i18n.tsx";
+import { ConfirmSheet } from "../ConfirmSheet.tsx";
 
 interface PostActionsMenuProps {
   post: Post;
@@ -34,7 +35,6 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
 
   const close = () => {
     setOpen(false);
-    setConfirmingDelete(false);
   };
 
   const onDocClick = (e: MouseEvent) => {
@@ -90,41 +90,16 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
           </button>
 
           <Show when={props.isOwn}>
-            <Show
-              when={confirmingDelete()}
-              fallback={
-                <button
-                  role="menuitem"
-                  class={`${itemClass} text-red-400`}
-                  onClick={() => setConfirmingDelete(true)}
-                >
-                  {t("common.delete")}
-                </button>
-              }
+            <button
+              role="menuitem"
+              class={`${itemClass} text-red-400`}
+              onClick={() => {
+                setConfirmingDelete(true);
+                setOpen(false);
+              }}
             >
-              <div class="px-4 py-2.5 border-t border-neutral-800">
-                <p class="text-xs text-neutral-400 mb-2">
-                  {t("posts.deleteConfirm")}
-                </p>
-                <div class="flex gap-2">
-                  <button
-                    class="flex-1 px-2 py-1 text-xs rounded-md bg-red-500 hover:bg-red-600 text-white transition-colors"
-                    onClick={() => {
-                      props.onDelete(props.post);
-                      close();
-                    }}
-                  >
-                    {t("common.delete")}
-                  </button>
-                  <button
-                    class="flex-1 px-2 py-1 text-xs rounded-md bg-neutral-700 hover:bg-neutral-600 text-white transition-colors"
-                    onClick={() => setConfirmingDelete(false)}
-                  >
-                    {t("common.cancel")}
-                  </button>
-                </div>
-              </div>
-            </Show>
+              {t("common.delete")}
+            </button>
           </Show>
 
           <Show when={!props.isOwn}>
@@ -151,6 +126,19 @@ export function PostActionsMenu(props: PostActionsMenuProps) {
           </Show>
         </div>
       </Show>
+
+      <ConfirmSheet
+        open={confirmingDelete()}
+        title={t("confirm.deletePostTitle")}
+        body={t("confirm.deletePostBody")}
+        confirmLabel={t("common.delete")}
+        destructive
+        onConfirm={() => {
+          props.onDelete(props.post);
+          setConfirmingDelete(false);
+        }}
+        onCancel={() => setConfirmingDelete(false)}
+      />
     </div>
   );
 }

@@ -18,6 +18,9 @@ import {
   uploadMedia,
 } from "../lib/api.ts";
 import { useI18n } from "../lib/i18n.tsx";
+import { useSetAtom } from "solid-jotai";
+import { pushToast, toastsAtom } from "../atoms/toast.ts";
+import { ConfirmSheet } from "../components/ConfirmSheet.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { CommunityProfileHeader } from "../components/community/CommunityProfileHeader.tsx";
 import { CommunityProfileSummary } from "../components/community/CommunityProfileSummary.tsx";
@@ -29,8 +32,14 @@ import type { CommunityMember } from "../lib/api/communities.ts";
 export function CommunityProfilePage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
+  const setToasts = useSetAtom(toastsAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
+  // Pending join-request action, staged so the shared ConfirmSheet can gate it.
+  const [pendingRequest, setPendingRequest] = createSignal<{
+    request: CommunityJoinRequest;
+    action: "accept" | "reject";
+  } | null>(null);
   const params = useParams();
   const navigate = useNavigate();
   const [community, setCommunity] = createSignal<CommunityDetail | null>(null);
@@ -173,7 +182,29 @@ export function CommunityProfilePage() {
     }
   };
 
-  const handleAcceptRequest = async (request: CommunityJoinRequest) => {
+  // Panel buttons stage the action; the shared ConfirmSheet runs it.
+  const handleAcceptRequest = (request: CommunityJoinRequest) => {
+    if (requestAction()[request.ap_id]) return;
+    setPendingRequest({ request, action: "accept" });
+  };
+
+  const handleRejectRequest = (request: CommunityJoinRequest) => {
+    if (requestAction()[request.ap_id]) return;
+    setPendingRequest({ request, action: "reject" });
+  };
+
+  const confirmRequest = async () => {
+    const pending = pendingRequest();
+    setPendingRequest(null);
+    if (!pending) return;
+    if (pending.action === "accept") {
+      await runAcceptRequest(pending.request);
+    } else {
+      await runRejectRequest(pending.request);
+    }
+  };
+
+  const runAcceptRequest = async (request: CommunityJoinRequest) => {
     const comm = community();
     if (!comm) return;
     if (requestAction()[request.ap_id]) return;
@@ -186,15 +217,16 @@ export function CommunityProfilePage() {
       setCommunity((prev) =>
         prev ? { ...prev, member_count: prev.member_count + 1 } : null,
       );
+      pushToast(setToasts, t("feedback.requestApproved"), { kind: "success" });
     } catch (e) {
       console.error("Failed to accept join request:", e);
-      setError(t("common.error"));
+      pushToast(setToasts, t("feedback.actionFailed"), { kind: "error" });
     } finally {
       setRequestAction((prev) => ({ ...prev, [request.ap_id]: false }));
     }
   };
 
-  const handleRejectRequest = async (request: CommunityJoinRequest) => {
+  const runRejectRequest = async (request: CommunityJoinRequest) => {
     const comm = community();
     if (!comm) return;
     if (requestAction()[request.ap_id]) return;
@@ -202,9 +234,10 @@ export function CommunityProfilePage() {
     try {
       await rejectCommunityJoinRequest(comm.name, request.ap_id);
       setJoinRequests((prev) => prev.filter((r) => r.ap_id !== request.ap_id));
+      pushToast(setToasts, t("feedback.requestRejected"), { kind: "success" });
     } catch (e) {
       console.error("Failed to reject join request:", e);
-      setError(t("common.error"));
+      pushToast(setToasts, t("feedback.actionFailed"), { kind: "error" });
     } finally {
       setRequestAction((prev) => ({ ...prev, [request.ap_id]: false }));
     }
@@ -326,8 +359,10 @@ export function CommunityProfilePage() {
         URL.revokeObjectURL(preview);
       }
       setIconPreview(null);
+      pushToast(setToasts, t("feedback.settingsSaved"), { kind: "success" });
     } catch {
       setSettingsError("Failed to save settings");
+      pushToast(setToasts, t("feedback.settingsFailed"), { kind: "error" });
     } finally {
       setSavingSettings(false);
     }
@@ -471,6 +506,22 @@ export function CommunityProfilePage() {
           </Show>
         </div>
       </Show>
+      <ConfirmSheet
+        open={pendingRequest() !== null}
+        title={
+          pendingRequest()?.action === "reject"
+            ? t("confirm.rejectRequestTitle")
+            : t("confirm.approveRequestTitle")
+        }
+        confirmLabel={
+          pendingRequest()?.action === "reject"
+            ? t("dm.reject")
+            : t("common.confirm")
+        }
+        destructive={pendingRequest()?.action === "reject"}
+        onConfirm={confirmRequest}
+        onCancel={() => setPendingRequest(null)}
+      />
     </div>
   );
 }

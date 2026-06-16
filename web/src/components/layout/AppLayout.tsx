@@ -2,6 +2,7 @@ import type { JSX } from "solid-js";
 import { Sidebar } from "./Sidebar.tsx";
 import { BottomNav } from "./BottomNav.tsx";
 import { RightSidebar } from "./RightSidebar.tsx";
+import { ToastLayer } from "../ToastLayer.tsx";
 import { useNotificationPolling } from "../../hooks/useNotificationPolling.ts";
 
 export function AppLayout(props: { children?: JSX.Element }) {
@@ -18,6 +19,7 @@ export function AppLayout(props: { children?: JSX.Element }) {
         <RightSidebar />
       </div>
       <BottomNav />
+      <ToastLayer />
     </div>
   );
 }

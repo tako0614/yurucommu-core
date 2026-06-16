@@ -47,7 +47,7 @@ function AppContent() {
             <LoginForm onLogin={login} error={loginError()} />
             <a
               href={deployDocsUrl}
-              class="mt-6 inline-flex items-center justify-center rounded-lg border border-green-400/50 px-4 py-2 text-sm font-medium text-green-200 transition-colors hover:border-green-300 hover:bg-green-400/10"
+              class="mt-6 inline-flex items-center justify-center rounded-lg border border-accent px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-[var(--accent)]/10"
               rel="noopener"
             >
               Deploy docs
@@ -92,7 +92,7 @@ export default function App() {
             </p>
             <button
               onClick={() => window.location.reload()}
-              class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+              class="px-4 py-2 bg-accent text-white rounded-lg transition-colors"
             >
               Reload page
             </button>

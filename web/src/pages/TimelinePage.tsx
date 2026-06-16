@@ -9,7 +9,6 @@ const StoryViewer = lazy(() => import("../components/story/StoryViewer.tsx"));
 const StoryComposer = lazy(
   () => import("../components/story/StoryComposer.tsx"),
 );
-import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { TimelineHeader } from "../components/timeline/TimelineHeader.tsx";
@@ -38,12 +37,6 @@ export function TimelinePage() {
 
   return (
     <div class="relative flex flex-col h-full">
-      <Show when={state.error()}>
-        <InlineErrorBanner
-          message={state.error()!}
-          onClose={state.clearError}
-        />
-      </Show>
       {/* Story Viewer Modal */}
       <Show when={state.showStoryViewer() && state.actorStories().length > 0}>
         <Suspense fallback={<LoadingSpinner fullScreen={true} />}>
@@ -102,7 +95,7 @@ export function TimelinePage() {
         <div class="pointer-events-none absolute inset-x-0 top-16 z-20 flex justify-center">
           <button
             onClick={state.handleShowNewPosts}
-            class="pointer-events-auto flex items-center gap-2 rounded-full bg-green-500 px-4 py-2 text-sm font-bold text-white shadow-lg transition-colors hover:bg-green-400"
+            class="pointer-events-auto flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-bold text-white shadow-lg transition-colors"
           >
             <svg
               class="h-4 w-4"
