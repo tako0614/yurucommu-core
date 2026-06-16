@@ -1,6 +1,7 @@
-import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, on, onCleanup, onMount } from "solid-js";
 import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
 import { tAtom } from "../atoms/i18n.ts";
+import { scopeQueryAtom } from "../atoms/scope.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import {
   actorStoriesAtom,
@@ -39,6 +40,7 @@ export function useTimelineState() {
 
   // State atoms
   const [posts, setPosts] = useAtom(timelinePostsAtom);
+  const scopeQuery = useAtomValue(scopeQueryAtom);
   const loading = useAtomValue(timelineLoadingAtom);
   const loadingMore = useAtomValue(timelineLoadingMoreAtom);
   const hasMore = useAtomValue(timelineHasMoreAtom);
@@ -69,6 +71,25 @@ export function useTimelineState() {
     loadTimeline();
     loadStories();
   });
+
+  // Reactively reload when the inhabited scope changes (personal <-> a
+  // community). `defer: true` leaves the initial fetch to onMount above, so the
+  // effect only fires on a real scope switch. We key on the community ap_id (or
+  // "" for personal) so unrelated re-renders don't retrigger a fetch, and reset
+  // the list + hasMore before reloading so stale posts and the bottom sentinel
+  // don't survive the switch. loadTimeline() owns the loading/error/staged-head
+  // resets and the IntersectionObserver/poll guards stay intact (they read the
+  // same atoms loadTimeline mutates).
+  createEffect(
+    on(
+      () => scopeQuery()?.community ?? "",
+      () => {
+        setPosts([]);
+        loadTimeline();
+      },
+      { defer: true },
+    ),
+  );
 
   // Infinite scroll — auto-load when the bottom sentinel becomes visible.
   // loadMore() internally guards on loadingMore()/hasMore()/empty list, so

@@ -12,6 +12,7 @@ import {
 } from "../lib/api.ts";
 import type { UploadedMedia } from "../components/timeline/types.ts";
 import { pushToast, toastWriter } from "./toast.ts";
+import { scopeQueryAtom } from "./scope.ts";
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 
@@ -57,7 +58,8 @@ export const checkNewPostsAtom = atom(null, async (get, set) => {
   if (current.length === 0) return;
 
   try {
-    const head = await fetchTimeline({ limit: 20 });
+    const scope = get(scopeQueryAtom);
+    const head = await fetchTimeline({ limit: 20, community: scope?.community });
     if (head.length === 0) return;
 
     const knownIds = new Set([
@@ -110,7 +112,8 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
   set(timelineLoadErrorAtom, null);
   set(timelineHasMoreAtom, true);
   try {
-    const posts = await fetchTimeline({ limit: 20 });
+    const scope = get(scopeQueryAtom);
+    const posts = await fetchTimeline({ limit: 20, community: scope?.community });
     set(timelinePostsAtom, posts);
     set(timelineHasMoreAtom, posts.length >= 20);
     // A full reload already shows the freshest head; drop any staged posts.
@@ -132,7 +135,12 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
   set(timelineLoadingMoreAtom, true);
   try {
     const lastPost = posts[posts.length - 1];
-    const newPosts = await fetchTimeline({ limit: 20, before: lastPost.ap_id });
+    const scope = get(scopeQueryAtom);
+    const newPosts = await fetchTimeline({
+      limit: 20,
+      before: lastPost.ap_id,
+      community: scope?.community,
+    });
     if (newPosts.length > 0) {
       set(timelinePostsAtom, [...posts, ...newPosts]);
     }
