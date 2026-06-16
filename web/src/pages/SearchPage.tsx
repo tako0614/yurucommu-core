@@ -19,7 +19,21 @@ import { formatRelativeTime } from "../lib/datetime.ts";
 import { UserAvatar } from "../components/UserAvatar.tsx";
 import { PostContent } from "../components/PostContent.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
+import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
+import { EmptyState } from "../components/EmptyState.tsx";
+import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 import { HeartIcon } from "../components/icons/SocialIcons.tsx";
+
+const SearchEmptyIcon = () => (
+  <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width={1.5}
+      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+    />
+  </svg>
+);
 
 const REMOTE_ACTOR_QUERY_PATTERN = /^@?[^@\s]+@[^@\s]+$/;
 
@@ -69,6 +83,8 @@ export function SearchPage() {
   const [searchPostsResult, setSearchPostsResult] = createSignal<Post[]>([]);
   const [searching, setSearching] = createSignal(false);
   const [searched, setSearched] = createSignal(false);
+  const [searchError, setSearchError] = createSignal<string | null>(null);
+  const [lastQuery, setLastQuery] = createSignal("");
 
   const [communities, setCommunities] = createSignal<CommunityDetail[]>([]);
   const [filteredCommunities, setFilteredCommunities] = createSignal<
@@ -115,6 +131,8 @@ export function SearchPage() {
 
     setSearching(true);
     setSearched(true);
+    setSearchError(null);
+    setLastQuery(trimmedQuery);
     try {
       const [usersRes, postsRes, remoteUsersRes] = await Promise.all([
         searchActors(trimmedQuery),
@@ -145,7 +163,7 @@ export function SearchPage() {
       );
     } catch (e) {
       console.error("Search failed:", e);
-      setError(t("common.error"));
+      setSearchError(t("common.loadFailed"));
     } finally {
       setSearching(false);
     }
@@ -154,6 +172,7 @@ export function SearchPage() {
   const clearSearch = () => {
     setSearchQuery("");
     setSearched(false);
+    setSearchError(null);
     setSearchUsersResult([]);
     setSearchPostsResult([]);
     setFilteredCommunities([]);
@@ -289,244 +308,258 @@ export function SearchPage() {
 
       <div class="flex-1 overflow-y-auto">
         <Show
-          when={!searching()}
+          when={!searchError()}
           fallback={
-            <div class="p-8 text-center text-neutral-500">
-              {t("common.loading")}
-            </div>
+            <InlineErrorRetry
+              message={searchError()!}
+              retryLabel={t("common.retry")}
+              onRetry={() => performSearch(lastQuery())}
+            />
           }
         >
-          <Show
-            when={searched()}
-            fallback={
-              /* Trending hashtags when not searching */
+          <Show when={!searching()} fallback={<PostSkeleton count={5} />}>
+            <Show
+              when={searched()}
+              fallback={
+                /* Trending hashtags when not searching */
 
-              <div class="px-4 py-4">
-                <h2 class="text-lg font-bold text-white mb-4">
-                  {t("search.trending")}
-                </h2>
-                <Show
-                  when={trendingHashtags().length > 0}
-                  fallback={
-                    <div class="text-neutral-500 text-sm">
-                      {t("search.noResults")}
+                <div class="px-4 py-4">
+                  <h2 class="text-lg font-bold text-white mb-4">
+                    {t("search.trending")}
+                  </h2>
+                  <Show
+                    when={trendingHashtags().length > 0}
+                    fallback={
+                      <EmptyState
+                        icon={<SearchEmptyIcon />}
+                        title={t("search.empty")}
+                        hint={t("search.emptyHint")}
+                      />
+                    }
+                  >
+                    <div class="space-y-3">
+                      <For each={trendingHashtags()}>
+                        {({ tag, count }) => (
+                          <button
+                            onClick={() => {
+                              setSearchQuery(`#${tag}`);
+                              setSearchTab("posts");
+                              performSearch(`#${tag}`);
+                            }}
+                            class="block w-full text-left px-3 py-2.5 rounded-lg hover:bg-neutral-900/50 transition-colors"
+                          >
+                            <div class="font-medium text-white">#{tag}</div>
+                            <div class="text-xs text-neutral-500 mt-0.5">
+                              {count} {t("profile.posts").toLowerCase()}
+                            </div>
+                          </button>
+                        )}
+                      </For>
                     </div>
+                  </Show>
+                </div>
+              }
+            >
+              {/* Users tab */}
+              <Show when={searchTab() === "users"}>
+                <Show
+                  when={searchUsersResult().length > 0}
+                  fallback={
+                    <EmptyState
+                      icon={<SearchEmptyIcon />}
+                      title={t("search.noResults")}
+                      hint={t("search.noResultsHint")}
+                    />
                   }
                 >
-                  <div class="space-y-3">
-                    <For each={trendingHashtags()}>
-                      {({ tag, count }) => (
-                        <button
-                          onClick={() => {
-                            setSearchQuery(`#${tag}`);
-                            setSearchTab("posts");
-                            performSearch(`#${tag}`);
-                          }}
-                          class="block w-full text-left px-3 py-2.5 rounded-lg hover:bg-neutral-900/50 transition-colors"
-                        >
-                          <div class="font-medium text-white">#{tag}</div>
-                          <div class="text-xs text-neutral-500 mt-0.5">
-                            {count} {t("profile.posts").toLowerCase()}
-                          </div>
-                        </button>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-              </div>
-            }
-          >
-            {/* Users tab */}
-            <Show when={searchTab() === "users"}>
-              <Show
-                when={searchUsersResult().length > 0}
-                fallback={
-                  <div class="p-8 text-center text-neutral-500">
-                    {t("search.noResults")}
-                  </div>
-                }
-              >
-                <For each={searchUsersResult()}>
-                  {(user) => (
-                    <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
-                      <A href={`/profile/${encodeURIComponent(user.ap_id)}`}>
-                        <UserAvatar
-                          avatarUrl={user.icon_url}
-                          name={user.name || user.preferred_username}
-                          size={48}
-                        />
-                      </A>
-                      <div class="flex-1 min-w-0">
-                        <A
-                          href={`/profile/${encodeURIComponent(user.ap_id)}`}
-                          class="hover:underline"
-                        >
-                          <div class="font-bold text-white truncate">
-                            {user.name || user.preferred_username}
-                          </div>
+                  <For each={searchUsersResult()}>
+                    {(user) => (
+                      <div class="flex items-center gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
+                        <A href={`/profile/${encodeURIComponent(user.ap_id)}`}>
+                          <UserAvatar
+                            avatarUrl={user.icon_url}
+                            name={user.name || user.preferred_username}
+                            size={48}
+                          />
                         </A>
-                        <div class="text-neutral-500 truncate">
-                          @{user.username}
-                        </div>
-                        <Show when={user.summary}>
-                          <div class="text-sm text-neutral-400 truncate mt-1">
-                            {user.summary}
-                          </div>
-                        </Show>
-                      </div>
-                      <Show
-                        when={
-                          user.ap_id !== actor.ap_id && !isFollowing(user.ap_id)
-                        }
-                      >
-                        <button
-                          onClick={(e) => handleFollow(user, e)}
-                          class="px-4 py-1.5 bg-white text-black font-medium rounded-full hover:bg-neutral-200 transition-colors text-sm shrink-0"
-                        >
-                          {t("profile.follow")}
-                        </button>
-                      </Show>
-                      <Show when={isFollowing(user.ap_id)}>
-                        <span class="px-4 py-1.5 border border-neutral-700 text-neutral-400 font-medium rounded-full text-sm shrink-0">
-                          {t("profile.following")}
-                        </span>
-                      </Show>
-                    </div>
-                  )}
-                </For>
-              </Show>
-            </Show>
-
-            {/* Posts tab */}
-            <Show when={searchTab() === "posts"}>
-              <Show
-                when={searchPostsResult().length > 0}
-                fallback={
-                  <div class="p-8 text-center text-neutral-500">
-                    {t("search.noResults")}
-                  </div>
-                }
-              >
-                <For each={searchPostsResult()}>
-                  {(post) => (
-                    <div class="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
-                      <A
-                        href={`/profile/${encodeURIComponent(
-                          post.author.ap_id,
-                        )}`}
-                      >
-                        <UserAvatar
-                          avatarUrl={post.author.icon_url}
-                          name={
-                            post.author.name || post.author.preferred_username
-                          }
-                          size={48}
-                        />
-                      </A>
-                      <div class="flex-1 min-w-0">
-                        <div class="flex items-baseline gap-2">
+                        <div class="flex-1 min-w-0">
                           <A
-                            href={`/profile/${encodeURIComponent(
-                              post.author.ap_id,
-                            )}`}
-                            class="font-bold text-white truncate hover:underline"
+                            href={`/profile/${encodeURIComponent(user.ap_id)}`}
+                            class="hover:underline"
                           >
-                            {post.author.name || post.author.preferred_username}
+                            <div class="font-bold text-white truncate">
+                              {user.name || user.preferred_username}
+                            </div>
                           </A>
-                          <span class="text-neutral-500 truncate">
-                            @{post.author.username}
-                          </span>
-                          <span class="text-neutral-500">·</span>
-                          <span class="text-neutral-500 text-sm">
-                            {formatRelativeTime(post.published)}
-                          </span>
+                          <div class="text-neutral-500 truncate">
+                            @{user.username}
+                          </div>
+                          <Show when={user.summary}>
+                            <div class="text-sm text-neutral-400 truncate mt-1">
+                              {user.summary}
+                            </div>
+                          </Show>
                         </div>
-                        <A href={`/post/${encodeURIComponent(post.ap_id)}`}>
-                          <PostContent
-                            content={post.content}
-                            summary={post.summary}
-                            class="text-[15px] text-neutral-200 mt-1"
-                          />
-                        </A>
-                        <div class="flex items-center gap-6 mt-3">
-                          <button
-                            onClick={() => handleLike(post)}
-                            aria-label={post.liked ? "Unlike" : "Like"}
-                            aria-pressed={post.liked}
-                            class={`flex items-center gap-2 transition-colors ${
-                              post.liked
-                                ? "text-pink-500"
-                                : "text-neutral-500 hover:text-pink-500"
-                            }`}
-                          >
-                            <HeartIcon filled={post.liked || false} />
-                            <Show
-                              when={
-                                post.author.ap_id === actor.ap_id &&
-                                post.like_count > 0
-                              }
-                            >
-                              <span class="text-sm">{post.like_count}</span>
-                            </Show>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </For>
-              </Show>
-            </Show>
-
-            {/* Communities tab */}
-            <Show when={searchTab() === "communities"}>
-              <Show
-                when={filteredCommunities().length > 0}
-                fallback={
-                  <div class="p-8 text-center text-neutral-500">
-                    {t("search.noResults")}
-                  </div>
-                }
-              >
-                <For each={filteredCommunities()}>
-                  {(community) => (
-                    <A
-                      href={`/groups/${community.name}`}
-                      class="flex items-center gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors"
-                    >
-                      <div class="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center overflow-hidden shrink-0">
                         <Show
-                          when={community.icon_url}
-                          fallback={
-                            <span class="text-lg font-medium text-white">
-                              {(community.display_name || community.name)
-                                .charAt(0)
-                                .toUpperCase()}
-                            </span>
+                          when={
+                            user.ap_id !== actor.ap_id &&
+                            !isFollowing(user.ap_id)
                           }
                         >
-                          <img
-                            src={community.icon_url ?? undefined}
-                            alt=""
-                            class="w-full h-full object-cover"
+                          <button
+                            onClick={(e) => handleFollow(user, e)}
+                            class="px-4 py-1.5 bg-white text-black font-medium rounded-full hover:bg-neutral-200 transition-colors text-sm shrink-0"
+                          >
+                            {t("profile.follow")}
+                          </button>
+                        </Show>
+                        <Show when={isFollowing(user.ap_id)}>
+                          <span class="px-4 py-1.5 border border-neutral-700 text-neutral-400 font-medium rounded-full text-sm shrink-0">
+                            {t("profile.following")}
+                          </span>
+                        </Show>
+                      </div>
+                    )}
+                  </For>
+                </Show>
+              </Show>
+
+              {/* Posts tab */}
+              <Show when={searchTab() === "posts"}>
+                <Show
+                  when={searchPostsResult().length > 0}
+                  fallback={
+                    <EmptyState
+                      icon={<SearchEmptyIcon />}
+                      title={t("search.noResults")}
+                      hint={t("search.noResultsHint")}
+                    />
+                  }
+                >
+                  <For each={searchPostsResult()}>
+                    {(post) => (
+                      <div class="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
+                        <A
+                          href={`/profile/${encodeURIComponent(
+                            post.author.ap_id,
+                          )}`}
+                        >
+                          <UserAvatar
+                            avatarUrl={post.author.icon_url}
+                            name={
+                              post.author.name || post.author.preferred_username
+                            }
+                            size={48}
                           />
-                        </Show>
-                      </div>
-                      <div class="flex-1 min-w-0">
-                        <div class="font-bold text-white truncate">
-                          {community.display_name || community.name}
-                        </div>
-                        <Show when={community.summary}>
-                          <div class="text-sm text-neutral-400 truncate mt-0.5">
-                            {community.summary}
+                        </A>
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-baseline gap-2">
+                            <A
+                              href={`/profile/${encodeURIComponent(
+                                post.author.ap_id,
+                              )}`}
+                              class="font-bold text-white truncate hover:underline"
+                            >
+                              {post.author.name ||
+                                post.author.preferred_username}
+                            </A>
+                            <span class="text-neutral-500 truncate">
+                              @{post.author.username}
+                            </span>
+                            <span class="text-neutral-500">·</span>
+                            <span class="text-neutral-500 text-sm">
+                              {formatRelativeTime(post.published)}
+                            </span>
                           </div>
-                        </Show>
-                        <div class="text-xs text-neutral-500 mt-0.5">
-                          {community.member_count ?? 0} {t("groups.members")}
+                          <A href={`/post/${encodeURIComponent(post.ap_id)}`}>
+                            <PostContent
+                              content={post.content}
+                              summary={post.summary}
+                              class="text-[15px] text-neutral-200 mt-1"
+                            />
+                          </A>
+                          <div class="flex items-center gap-6 mt-3">
+                            <button
+                              onClick={() => handleLike(post)}
+                              aria-label={post.liked ? "Unlike" : "Like"}
+                              aria-pressed={post.liked}
+                              class={`flex items-center gap-2 transition-colors ${
+                                post.liked
+                                  ? "text-pink-500"
+                                  : "text-neutral-500 hover:text-pink-500"
+                              }`}
+                            >
+                              <HeartIcon filled={post.liked || false} />
+                              <Show
+                                when={
+                                  post.author.ap_id === actor.ap_id &&
+                                  post.like_count > 0
+                                }
+                              >
+                                <span class="text-sm">{post.like_count}</span>
+                              </Show>
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </A>
-                  )}
-                </For>
+                    )}
+                  </For>
+                </Show>
+              </Show>
+
+              {/* Communities tab */}
+              <Show when={searchTab() === "communities"}>
+                <Show
+                  when={filteredCommunities().length > 0}
+                  fallback={
+                    <EmptyState
+                      icon={<SearchEmptyIcon />}
+                      title={t("search.noResults")}
+                      hint={t("search.noResultsHint")}
+                    />
+                  }
+                >
+                  <For each={filteredCommunities()}>
+                    {(community) => (
+                      <A
+                        href={`/groups/${community.name}`}
+                        class="flex items-center gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors"
+                      >
+                        <div class="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center overflow-hidden shrink-0">
+                          <Show
+                            when={community.icon_url}
+                            fallback={
+                              <span class="text-lg font-medium text-white">
+                                {(community.display_name || community.name)
+                                  .charAt(0)
+                                  .toUpperCase()}
+                              </span>
+                            }
+                          >
+                            <img
+                              src={community.icon_url ?? undefined}
+                              alt=""
+                              class="w-full h-full object-cover"
+                            />
+                          </Show>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <div class="font-bold text-white truncate">
+                            {community.display_name || community.name}
+                          </div>
+                          <Show when={community.summary}>
+                            <div class="text-sm text-neutral-400 truncate mt-0.5">
+                              {community.summary}
+                            </div>
+                          </Show>
+                          <div class="text-xs text-neutral-500 mt-0.5">
+                            {community.member_count ?? 0} {t("groups.members")}
+                          </div>
+                        </div>
+                      </A>
+                    )}
+                  </For>
+                </Show>
               </Show>
             </Show>
           </Show>

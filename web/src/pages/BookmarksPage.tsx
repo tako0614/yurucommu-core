@@ -10,12 +10,16 @@ import { UserAvatar } from "../components/UserAvatar.tsx";
 import { PostContent } from "../components/PostContent.tsx";
 import { BookmarkIcon, HeartIcon } from "../components/icons/SocialIcons.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
+import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
+import { EmptyState } from "../components/EmptyState.tsx";
+import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 
 export function BookmarksPage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
+  const [loadError, setLoadError] = createSignal<string | null>(null);
   const [posts, setPosts] = createSignal<Post[]>([]);
   const [loading, setLoading] = createSignal(true);
 
@@ -26,12 +30,13 @@ export function BookmarksPage() {
   const loadBookmarks = async () => {
     // Only show loading if no cached data
     if (posts().length === 0) setLoading(true);
+    setLoadError(null);
     try {
       const data = await fetchBookmarks();
       setPosts(data);
     } catch (e) {
       console.error("Failed to load bookmarks:", e);
-      setError(t("common.error"));
+      setLoadError(t("common.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -62,95 +67,108 @@ export function BookmarksPage() {
         <InlineErrorBanner message={error()!} onClose={clearError} />
       </Show>
       <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-        <h1 class="text-xl font-bold px-4 py-3">Bookmarks</h1>
+        <h1 class="text-xl font-bold px-4 py-3">{t("bookmarks.title")}</h1>
       </header>
 
       <div class="flex-1 overflow-y-auto">
         <Show
-          when={!loading()}
+          when={!(loadError() && posts().length === 0)}
           fallback={
-            <div class="p-8 text-center text-neutral-500">
-              {t("common.loading")}
-            </div>
+            <InlineErrorRetry
+              message={loadError()!}
+              retryLabel={t("common.retry")}
+              onRetry={loadBookmarks}
+            />
           }
         >
           <Show
-            when={posts().length > 0}
-            fallback={
-              <div class="p-8 text-center text-neutral-500">
-                No bookmarks yet
-              </div>
-            }
+            when={!(loading() && posts().length === 0)}
+            fallback={<PostSkeleton count={5} />}
           >
-            <For each={posts()}>
-              {(post) => (
-                <div class="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
-                  <A href={`/profile/${encodeURIComponent(post.author.ap_id)}`}>
-                    <UserAvatar
-                      avatarUrl={post.author.icon_url}
-                      name={post.author.name || post.author.preferred_username}
-                      size={48}
-                    />
-                  </A>
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-baseline gap-2">
-                      <A
-                        href={`/profile/${encodeURIComponent(
-                          post.author.ap_id,
-                        )}`}
-                        class="font-bold text-white truncate hover:underline"
-                      >
-                        {post.author.name || post.author.preferred_username}
-                      </A>
-                      <span class="text-neutral-500 truncate">
-                        @{post.author.username}
-                      </span>
-                      <span class="text-neutral-500">·</span>
-                      <span class="text-neutral-500 text-sm">
-                        {formatRelativeTime(post.published)}
-                      </span>
-                    </div>
-                    <A href={`/post/${encodeURIComponent(post.ap_id)}`}>
-                      <PostContent
-                        content={post.content}
-                        summary={post.summary}
-                        class="text-[15px] text-neutral-200 mt-1"
+            <Show
+              when={posts().length > 0}
+              fallback={
+                <EmptyState
+                  icon={<BookmarkIcon class="w-10 h-10" />}
+                  title={t("bookmarks.empty")}
+                  hint={t("bookmarks.emptyHint")}
+                />
+              }
+            >
+              <For each={posts()}>
+                {(post) => (
+                  <div class="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
+                    <A
+                      href={`/profile/${encodeURIComponent(post.author.ap_id)}`}
+                    >
+                      <UserAvatar
+                        avatarUrl={post.author.icon_url}
+                        name={
+                          post.author.name || post.author.preferred_username
+                        }
+                        size={48}
                       />
                     </A>
-                    <div class="flex items-center gap-6 mt-3">
-                      <button
-                        onClick={() => handleLike(post)}
-                        aria-label={post.liked ? "Unlike" : "Like"}
-                        aria-pressed={post.liked}
-                        class={`flex items-center gap-2 transition-colors ${
-                          post.liked
-                            ? "text-pink-500"
-                            : "text-neutral-500 hover:text-pink-500"
-                        }`}
-                      >
-                        <HeartIcon filled={post.liked || false} />
-                        <Show
-                          when={
-                            post.author.ap_id === actor.ap_id &&
-                            post.like_count > 0
-                          }
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-baseline gap-2">
+                        <A
+                          href={`/profile/${encodeURIComponent(
+                            post.author.ap_id,
+                          )}`}
+                          class="font-bold text-white truncate hover:underline"
                         >
-                          <span class="text-sm">{post.like_count}</span>
-                        </Show>
-                      </button>
-                      <button
-                        onClick={() => handleUnbookmark(post.ap_id)}
-                        aria-label="Remove bookmark"
-                        class="flex items-center gap-2 text-blue-500 hover:text-blue-400 transition-colors"
-                        title="Remove bookmark"
-                      >
-                        <BookmarkIcon filled={true} />
-                      </button>
+                          {post.author.name || post.author.preferred_username}
+                        </A>
+                        <span class="text-neutral-500 truncate">
+                          @{post.author.username}
+                        </span>
+                        <span class="text-neutral-500">·</span>
+                        <span class="text-neutral-500 text-sm">
+                          {formatRelativeTime(post.published)}
+                        </span>
+                      </div>
+                      <A href={`/post/${encodeURIComponent(post.ap_id)}`}>
+                        <PostContent
+                          content={post.content}
+                          summary={post.summary}
+                          class="text-[15px] text-neutral-200 mt-1"
+                        />
+                      </A>
+                      <div class="flex items-center gap-6 mt-3">
+                        <button
+                          onClick={() => handleLike(post)}
+                          aria-label={post.liked ? "Unlike" : "Like"}
+                          aria-pressed={post.liked}
+                          class={`flex items-center gap-2 transition-colors ${
+                            post.liked
+                              ? "text-pink-500"
+                              : "text-neutral-500 hover:text-pink-500"
+                          }`}
+                        >
+                          <HeartIcon filled={post.liked || false} />
+                          <Show
+                            when={
+                              post.author.ap_id === actor.ap_id &&
+                              post.like_count > 0
+                            }
+                          >
+                            <span class="text-sm">{post.like_count}</span>
+                          </Show>
+                        </button>
+                        <button
+                          onClick={() => handleUnbookmark(post.ap_id)}
+                          aria-label={t("bookmarks.remove")}
+                          class="flex items-center gap-2 text-blue-500 hover:text-blue-400 transition-colors"
+                          title={t("bookmarks.remove")}
+                        >
+                          <BookmarkIcon filled={true} />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
-            </For>
+                )}
+              </For>
+            </Show>
           </Show>
         </Show>
       </div>

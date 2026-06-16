@@ -22,6 +22,7 @@ import { ProfileSummary } from "../components/profile/ProfileSummary.tsx";
 import { ProfilePostsSection } from "../components/profile/ProfilePostsSection.tsx";
 import { ProfileEditModal } from "../components/profile/ProfileEditModal.tsx";
 import { ProfileFollowModal } from "../components/profile/ProfileFollowModal.tsx";
+import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 
 export function ProfilePage() {
   const actor = useRequiredActor();
@@ -225,8 +226,8 @@ export function ProfilePage() {
           currentApId={currentApId()}
           onSwitchAccount={handleSwitchAccount}
         />
-        <div class="p-8 text-center text-neutral-500">
-          {t("common.loading")}
+        <div class="flex-1 overflow-y-auto">
+          <PostSkeleton count={5} />
         </div>
       </Show>
 

@@ -15,7 +15,21 @@ import {
   RepostIcon,
 } from "../components/icons/SocialIcons.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
+import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
+import { EmptyState } from "../components/EmptyState.tsx";
+import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 import type { JSX } from "solid-js";
+
+const BellIcon = () => (
+  <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width={1.5}
+      d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"
+    />
+  </svg>
+);
 
 // SVG Icons
 const FollowIcon = () => (
@@ -57,17 +71,22 @@ export function NotificationPage() {
   const { t } = useI18n();
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
+  const [loadError, setLoadError] = createSignal<string | null>(null);
   const [notifications, setNotifications] = createSignal<Notification[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [pendingAction, setPendingAction] = createSignal<
     Record<string, boolean>
   >({});
   const [filter, setFilter] = createSignal<FilterType>("all");
+  // Bumping this re-runs the load effect for the current filter (retry).
+  const [reloadKey, setReloadKey] = createSignal(0);
 
   createEffect(() => {
     const currentFilter = filter();
+    reloadKey();
 
     setNotifications([]);
+    setLoadError(null);
     setLoading(true);
 
     let cancelled = false;
@@ -91,7 +110,7 @@ export function NotificationPage() {
       } catch (e) {
         if (!cancelled) {
           console.error("Failed to load notifications:", e);
-          setError(t("common.error"));
+          setLoadError(t("common.loadFailed"));
         }
       } finally {
         if (!cancelled) {
@@ -106,6 +125,8 @@ export function NotificationPage() {
       cancelled = true;
     });
   });
+
+  const retryLoad = () => setReloadKey((k) => k + 1);
 
   const handleFollowRequest = async (
     notification: Notification,
@@ -291,76 +312,88 @@ export function NotificationPage() {
       {/* Notifications */}
       <div class="flex-1 overflow-y-auto">
         <Show
-          when={!loading()}
+          when={!loadError()}
           fallback={
-            <div class="p-8 text-center text-neutral-500">
-              {t("common.loading")}
-            </div>
+            <InlineErrorRetry
+              message={loadError()!}
+              retryLabel={t("common.retry")}
+              onRetry={retryLoad}
+            />
           }
         >
-          <Show
-            when={filteredNotifications().length > 0}
-            fallback={
-              <div class="p-8 text-center text-neutral-500">
-                {filter() === "all"
-                  ? t("notifications.empty")
-                  : t("notifications.emptyFiltered")}
-              </div>
-            }
-          >
-            <For each={filteredNotifications()}>
-              {(notification) => (
-                <div
-                  class={`flex items-start gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors ${
-                    !notification.read ? "bg-neutral-900/50" : ""
-                  }`}
-                >
-                  <div class="relative shrink-0">
-                    <UserAvatar
-                      avatarUrl={notification.actor.icon_url}
-                      name={
-                        notification.actor.name ||
-                        notification.actor.preferred_username
-                      }
-                      size={40}
-                    />
-                    <span class="absolute -bottom-1 -right-1">
-                      {getNotificationIcon(notification.type)}
-                    </span>
+          <Show when={!loading()} fallback={<PostSkeleton count={6} />}>
+            <Show
+              when={filteredNotifications().length > 0}
+              fallback={
+                <EmptyState
+                  icon={<BellIcon />}
+                  title={
+                    filter() === "all"
+                      ? t("notifications.empty")
+                      : t("notifications.emptyFiltered")
+                  }
+                  hint={
+                    filter() === "all"
+                      ? t("notifications.emptyHint")
+                      : undefined
+                  }
+                />
+              }
+            >
+              <For each={filteredNotifications()}>
+                {(notification) => (
+                  <div
+                    class={`flex items-start gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors ${
+                      !notification.read ? "bg-neutral-900/50" : ""
+                    }`}
+                  >
+                    <div class="relative shrink-0">
+                      <UserAvatar
+                        avatarUrl={notification.actor.icon_url}
+                        name={
+                          notification.actor.name ||
+                          notification.actor.preferred_username
+                        }
+                        size={40}
+                      />
+                      <span class="absolute -bottom-1 -right-1">
+                        {getNotificationIcon(notification.type)}
+                      </span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-[15px] text-neutral-400">
+                        {getNotificationText(notification)}
+                      </p>
+                      <Show when={notification.type === "follow_request"}>
+                        <div class="mt-2 flex gap-2">
+                          <button
+                            onClick={() =>
+                              handleFollowRequest(notification, "accept")
+                            }
+                            disabled={pendingAction()[notification.id]}
+                            class="px-3 py-1 text-xs bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            onClick={() =>
+                              handleFollowRequest(notification, "reject")
+                            }
+                            disabled={pendingAction()[notification.id]}
+                            class="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </Show>
+                      <p class="text-sm text-neutral-600 mt-1">
+                        {formatRelativeTime(notification.created_at)}
+                      </p>
+                    </div>
                   </div>
-                  <div class="flex-1 min-w-0">
-                    <p class="text-[15px] text-neutral-400">
-                      {getNotificationText(notification)}
-                    </p>
-                    <Show when={notification.type === "follow_request"}>
-                      <div class="mt-2 flex gap-2">
-                        <button
-                          onClick={() =>
-                            handleFollowRequest(notification, "accept")
-                          }
-                          disabled={pendingAction()[notification.id]}
-                          class="px-3 py-1 text-xs bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
-                        >
-                          Accept
-                        </button>
-                        <button
-                          onClick={() =>
-                            handleFollowRequest(notification, "reject")
-                          }
-                          disabled={pendingAction()[notification.id]}
-                          class="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                    </Show>
-                    <p class="text-sm text-neutral-600 mt-1">
-                      {formatRelativeTime(notification.created_at)}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </For>
+                )}
+              </For>
+            </Show>
           </Show>
         </Show>
       </div>

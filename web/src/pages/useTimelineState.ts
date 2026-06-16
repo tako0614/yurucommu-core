@@ -28,6 +28,7 @@ import {
   switchAccountAtom,
   timelineErrorAtom,
   timelineHasMoreAtom,
+  timelineLoadErrorAtom,
   timelineLoadingAtom,
   timelineLoadingMoreAtom,
   timelinePostsAtom,
@@ -46,12 +47,14 @@ export function useTimelineState() {
   const [error, setError] = useAtom(timelineErrorAtom);
   let fileInputRef!: HTMLInputElement;
   let scrollContainerRef!: HTMLDivElement;
+  let loadMoreSentinelRef!: HTMLDivElement;
 
   // State atoms
   const [posts, setPosts] = useAtom(timelinePostsAtom);
   const loading = useAtomValue(timelineLoadingAtom);
   const loadingMore = useAtomValue(timelineLoadingMoreAtom);
   const hasMore = useAtomValue(timelineHasMoreAtom);
+  const loadError = useAtomValue(timelineLoadErrorAtom);
   const [postContent, setPostContent] = useAtom(postContentAtom);
   const [postSummary, setPostSummary] = useAtom(postSummaryAtom);
   const [postVisibility, setPostVisibility] = useAtom(postVisibilityAtom);
@@ -105,25 +108,24 @@ export function useTimelineState() {
     });
   });
 
-  // Infinite scroll — set up after mount when ref is bound
+  // Infinite scroll — auto-load when the bottom sentinel becomes visible.
+  // loadMore() internally guards on loadingMore()/hasMore()/empty list, so
+  // repeated intersection callbacks never trigger duplicate fetches.
   onMount(() => {
-    const handleScroll = () => {
-      if (!scrollContainerRef) return;
-      const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef;
-      if (scrollHeight - scrollTop - clientHeight < 200) {
-        loadMore();
-      }
-    };
-
-    if (scrollContainerRef) {
-      scrollContainerRef.addEventListener("scroll", handleScroll);
-    }
-
-    onCleanup(() => {
-      if (scrollContainerRef) {
-        scrollContainerRef.removeEventListener("scroll", handleScroll);
-      }
-    });
+    if (!loadMoreSentinelRef) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          loadMore();
+        }
+      },
+      {
+        root: scrollContainerRef ?? null,
+        rootMargin: "400px",
+      },
+    );
+    observer.observe(loadMoreSentinelRef);
+    onCleanup(() => observer.disconnect());
   });
 
   // Story handlers
@@ -249,10 +251,18 @@ export function useTimelineState() {
     set scrollContainerRef(el: HTMLDivElement) {
       scrollContainerRef = el;
     },
+    get loadMoreSentinelRef() {
+      return loadMoreSentinelRef;
+    },
+    set loadMoreSentinelRef(el: HTMLDivElement) {
+      loadMoreSentinelRef = el;
+    },
     posts,
     loading,
     loadingMore,
     hasMore,
+    loadError,
+    loadTimeline,
     postContent,
     setPostContent,
     postSummary,

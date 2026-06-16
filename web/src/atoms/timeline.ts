@@ -27,7 +27,10 @@ export const timelinePostsAtom = atom<Post[]>([]);
 export const timelineLoadingAtom = atom(true);
 export const timelineLoadingMoreAtom = atom(false);
 export const timelineHasMoreAtom = atom(true);
+// Transient action error (dismissable toast banner).
 export const timelineErrorAtom = atom<string | null>(null);
+// Primary-load failure (shown inline with a Retry button).
+export const timelineLoadErrorAtom = atom<string | null>(null);
 
 // --- Post composition ---
 export const postContentAtom = atom("");
@@ -61,6 +64,7 @@ export const showMenuAtom = atom(false);
 // --- Actions ---
 export const loadTimelineAtom = atom(null, async (get, set) => {
   if (get(timelinePostsAtom).length === 0) set(timelineLoadingAtom, true);
+  set(timelineLoadErrorAtom, null);
   set(timelineHasMoreAtom, true);
   try {
     const posts = await fetchTimeline({ limit: 20 });
@@ -68,7 +72,7 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
     set(timelineHasMoreAtom, posts.length >= 20);
   } catch (e) {
     console.error("Failed to load timeline:", e);
-    set(timelineErrorAtom, get(tAtom)("common.error"));
+    set(timelineLoadErrorAtom, get(tAtom)("common.loadFailed"));
   } finally {
     set(timelineLoadingAtom, false);
   }

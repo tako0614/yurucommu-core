@@ -19,6 +19,7 @@ import {
 import { useI18n } from "../lib/i18n.tsx";
 import { DMChatPanel } from "../components/dm/DMChatPanel.tsx";
 import { DMContactItem } from "../components/dm/DMContactItem.tsx";
+import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 
 /**
  * Validate and decode contactId URL parameter
@@ -494,12 +495,18 @@ export function DMPage() {
               onTouchEnd={handleTouchEnd}
             >
               <Show when={listError()}>
-                <div class="px-4 py-2 text-sm text-red-400 bg-red-500/10">
-                  {listError()}
+                <div class="px-4 py-2 flex items-center justify-between gap-3 text-sm text-red-400 bg-red-500/10">
+                  <span>{listError()}</span>
+                  <button
+                    onClick={() => loadContacts()}
+                    class="shrink-0 px-3 py-1 rounded-full bg-red-500/20 text-red-200 hover:bg-red-500/30 transition-colors text-xs"
+                  >
+                    {t("common.retry")}
+                  </button>
                 </div>
               </Show>
               <Show when={loading()}>
-                <div class="p-8 text-center text-neutral-500">Loading...</div>
+                <PostSkeleton count={6} />
               </Show>
               <Show when={!loading() && activeTab() === "requests"}>
                 <Show
