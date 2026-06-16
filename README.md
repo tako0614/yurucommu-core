@@ -1,19 +1,24 @@
 # Yurucommu
 
 Yurucommu is a **self-hosted ActivityPub SNS you run for yourself** — on your
-own domain, with your own data. Free from algorithms and platform lock-in, it
-federates with the wider fediverse (Mastodon / Misskey and other ActivityPub
-servers) and runs cheaply on Cloudflare. You can also form small communities
-(groups) inside your instance, but the core identity is a personally operated
-fediverse instance — communities are a feature, not the headline. Yurucommu is
-an independent product: it ships as a first-party bundled app with the
-[Takos](https://takos.jp) distribution, but it runs standalone without Takos.
+own domain, with your own data, free from algorithms and platform lock-in, and
+running cheaply on Cloudflare. Its reach unit is the community (group): the goal
+is not to broadcast across the whole fediverse, but to keep dense connections
+within a community while follow graphs and communities extend that reach. ActivityPub
+federation is the substrate, not the goal — it keeps you independent of any single
+platform and links communities and connections across servers (Mastodon / Misskey
+and other ActivityPub servers). The three content types are Note (posts, surfaced
+as Post in the UI), Messaging (DMs, carried as direct-addressed Notes), and Story
+(ephemeral media). Communities (groups) are a feature inside your personal
+instance, not the headline. Yurucommu is an independent product: it ships as a
+first-party bundled app with the [Takos](https://takos.jp) distribution, but it
+runs standalone without Takos.
 
 ## Features
 
-- **ActivityPub federation** — follow, post, boost, like, and reply across the
-  fediverse, with HTTP-signature verification, SSRF-guarded fetches, and
-  actor/domain blocklists.
+- **ActivityPub federation** — follow, post, boost, like, and reply across
+  servers to link your communities and connections, with HTTP-signature
+  verification, SSRF-guarded fetches, and actor/domain blocklists.
 - **Timeline & posts** — home timeline, post detail, replies, bookmarks.
 - **Direct messages** — end-to-end-style private conversations.
 - **Communities** — group spaces with chat and profiles.
