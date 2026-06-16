@@ -7,6 +7,7 @@ import {
   type HostedUserInfo,
   type InstanceHealth,
 } from "../lib/plugin.ts";
+import { resetScopeAtom } from "./scope.ts";
 
 export type { HostedInstance };
 
@@ -85,6 +86,9 @@ export const logoutAtom = atom(null, async (get, set) => {
     set(authErrorAtom, get(tAtom)("auth.logoutFailed"));
   } finally {
     set(actorAtom, null);
+    // Reset the observation scope so a switched account never inherits the
+    // previous owner's community lens.
+    set(resetScopeAtom);
   }
 });
 
