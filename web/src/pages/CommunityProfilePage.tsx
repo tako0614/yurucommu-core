@@ -281,7 +281,7 @@ export function CommunityProfilePage() {
       }
       setIconPreview(URL.createObjectURL(file));
     } catch {
-      setSettingsError("アイコンのアップロードに失敗しました");
+      setSettingsError(t("community.iconUploadFailed"));
     } finally {
       setUploadingIcon(false);
     }
@@ -362,14 +362,17 @@ export function CommunityProfilePage() {
           onBack={() => navigate(-1)}
         />
         <div class="p-8 text-center text-neutral-500">
-          グループが見つかりません
+          {t("community.notFound")}
         </div>
       </Show>
 
       <Show when={!loading() && community()}>
         <CommunityProfileHeader
           title={community()!.display_name || community()!.name}
-          subtitle={`${community()!.member_count} メンバー`}
+          subtitle={t("community.members").replace(
+            "{count}",
+            String(community()!.member_count),
+          )}
           onBack={() => navigate(-1)}
         />
 
@@ -391,7 +394,7 @@ export function CommunityProfilePage() {
                   : "text-neutral-500 hover:bg-neutral-900/50"
               }`}
             >
-              概要
+              {t("community.tabAbout")}
               <Show when={activeTab() === "about"}>
                 <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
               </Show>
@@ -404,7 +407,7 @@ export function CommunityProfilePage() {
                   : "text-neutral-500 hover:bg-neutral-900/50"
               }`}
             >
-              メンバー
+              {t("members.title")}
               <Show when={activeTab() === "members"}>
                 <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
               </Show>
@@ -418,7 +421,7 @@ export function CommunityProfilePage() {
                     : "text-neutral-500 hover:bg-neutral-900/50"
                 }`}
               >
-                設定
+                {t("nav.settings")}
                 <Show when={activeTab() === "settings"}>
                   <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-1 bg-blue-500 rounded-full" />
                 </Show>

@@ -3,10 +3,10 @@ import { A } from "@solidjs/router";
 import type { CommunityDetail } from "../../lib/api.ts";
 import { formatMonthYear } from "../../lib/datetime.ts";
 import { CalendarIcon, ChatIcon, UsersIcon } from "./CommunityIcons.tsx";
+import { useI18n } from "../../lib/i18n.tsx";
+import type { Translate } from "../../lib/i18n.tsx";
 
 type JoinPolicy = "open" | "approval" | "invite";
-
-type Visibility = "public" | "private";
 
 interface CommunityProfileSummaryProps {
   community: CommunityDetail;
@@ -17,31 +17,36 @@ interface CommunityProfileSummaryProps {
 }
 
 function getJoinButtonLabel(
+  t: Translate,
   joinPolicy: JoinPolicy,
   joinStatus: "pending" | null | undefined,
   joining: boolean,
 ): string {
-  if (joining) return "参加中...";
-  if (joinStatus === "pending") return "承認待ち";
-  if (joinPolicy === "invite") return "招待コードで参加";
-  return "参加する";
+  if (joining) return t("community.joining");
+  if (joinStatus === "pending") return t("groups.pending");
+  if (joinPolicy === "invite") return t("community.joinWithInvite");
+  return t("groups.join");
 }
 
 export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
+  const { t } = useI18n();
   const joinLabel = () =>
     getJoinButtonLabel(
+      t,
       props.community.join_policy,
       props.community.join_status,
       props.joining,
     );
   const visibilityLabel = () =>
-    props.community.visibility === "public" ? "公開" : "非公開";
+    props.community.visibility === "public"
+      ? t("community.public")
+      : t("community.private");
   const joinPolicyLabel = () =>
     props.community.join_policy === "open"
-      ? "誰でも参加可能"
+      ? t("community.anyoneCanJoin")
       : props.community.join_policy === "approval"
-        ? "承認制"
-        : "招待制";
+        ? t("community.joinApproval")
+        : t("community.joinInvite");
 
   return (
     <>
@@ -93,14 +98,14 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
               class="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-bold transition-colors"
             >
               <ChatIcon />
-              <span>トーク</span>
+              <span>{t("dm.talks")}</span>
             </A>
             <button
               onClick={props.onLeave}
               disabled={props.joining}
               class="px-4 py-2 border border-neutral-600 text-white hover:border-red-500 hover:text-red-500 rounded-full font-bold transition-colors disabled:opacity-50"
             >
-              退出
+              {t("groups.leave")}
             </button>
           </Show>
         </div>
@@ -124,11 +129,21 @@ export function CommunityProfileSummary(props: CommunityProfileSummaryProps) {
         <div class="flex flex-wrap gap-4 text-neutral-500 text-sm mb-3">
           <div class="flex items-center gap-1">
             <UsersIcon />
-            <span>{props.community.member_count} メンバー</span>
+            <span>
+              {t("community.members").replace(
+                "{count}",
+                String(props.community.member_count),
+              )}
+            </span>
           </div>
           <div class="flex items-center gap-1">
             <CalendarIcon />
-            <span>作成日 {formatMonthYear(props.community.created_at)}</span>
+            <span>
+              {t("community.createdOn").replace(
+                "{date}",
+                formatMonthYear(props.community.created_at),
+              )}
+            </span>
           </div>
         </div>
 

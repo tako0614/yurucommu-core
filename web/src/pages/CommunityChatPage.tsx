@@ -72,12 +72,16 @@ function MembersModal(props: {
   members: CommunityMember[];
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div class="fixed inset-0 bg-neutral-900/80 z-50 flex items-center justify-center p-4">
       <div class="bg-neutral-900 rounded-xl w-full max-w-md max-h-[80vh] flex flex-col">
         <div class="flex items-center justify-between p-4 border-b border-neutral-800">
           <h2 class="text-lg font-bold text-white">
-            メンバー ({props.members.length})
+            {t("community.membersCount").replace(
+              "{count}",
+              String(props.members.length),
+            )}
           </h2>
           <button
             onClick={props.onClose}
@@ -111,12 +115,12 @@ function MembersModal(props: {
                 </div>
                 <Show when={member.role === "owner"}>
                   <span class="px-2 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
-                    オーナー
+                    {t("members.owner")}
                   </span>
                 </Show>
                 <Show when={member.role === "moderator"}>
                   <span class="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-400 rounded">
-                    モデレーター
+                    {t("members.moderator")}
                   </span>
                 </Show>
               </A>
@@ -328,7 +332,10 @@ export function CommunityChatPage() {
                     {community()!.display_name || community()!.name}
                   </div>
                   <div class="text-xs text-neutral-500">
-                    {community()!.member_count}人
+                    {t("dm.memberCount").replace(
+                      "{count}",
+                      String(community()!.member_count),
+                    )}
                   </div>
                 </div>
 

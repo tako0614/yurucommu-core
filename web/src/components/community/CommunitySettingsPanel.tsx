@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 import type { CommunityDetail, CommunitySettings } from "../../lib/api.ts";
+import { useI18n } from "../../lib/i18n.tsx";
 
 interface CommunitySettingsPanelProps {
   community: CommunityDetail;
@@ -16,6 +17,7 @@ interface CommunitySettingsPanelProps {
 }
 
 export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
+  const { t } = useI18n();
   return (
     <div class="p-4 space-y-6">
       <Show when={props.settingsError}>
@@ -27,7 +29,7 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
       {/* Icon Upload */}
       <div>
         <label class="block text-sm font-semibold text-neutral-300 mb-2">
-          アイコン
+          {t("community.icon")}
         </label>
         <div class="flex items-center gap-4">
           <div class="w-20 h-20 rounded-xl overflow-hidden bg-neutral-800 flex items-center justify-center">
@@ -49,7 +51,9 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
             </Show>
           </div>
           <label class="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg cursor-pointer transition-colors">
-            {props.uploadingIcon ? "アップロード中..." : "画像を選択"}
+            {props.uploadingIcon
+              ? t("common.uploading")
+              : t("community.selectImage")}
             <input
               type="file"
               accept="image/*"
@@ -64,7 +68,7 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
       {/* Display Name */}
       <div>
         <label class="block text-sm font-semibold text-neutral-300 mb-2">
-          表示名
+          {t("settings.displayName")}
         </label>
         <input
           type="text"
@@ -76,14 +80,14 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
             }))
           }
           class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:border-blue-500 focus:outline-none"
-          placeholder="グループの表示名"
+          placeholder={t("community.displayNamePlaceholder")}
         />
       </div>
 
       {/* Summary */}
       <div>
         <label class="block text-sm font-semibold text-neutral-300 mb-2">
-          説明
+          {t("groups.description")}
         </label>
         <textarea
           value={props.settingsForm.summary || ""}
@@ -95,14 +99,14 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
           }
           rows={4}
           class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:border-blue-500 focus:outline-none resize-none"
-          placeholder="グループの説明"
+          placeholder={t("groups.descriptionPlaceholder")}
         />
       </div>
 
       {/* Visibility */}
       <div>
         <label class="block text-sm font-semibold text-neutral-300 mb-2">
-          公開範囲
+          {t("community.visibility")}
         </label>
         <div class="space-y-2">
           <label class="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
@@ -119,9 +123,9 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
               class="w-4 h-4 text-blue-500"
             />
             <div>
-              <div class="text-white font-medium">公開</div>
+              <div class="text-white font-medium">{t("community.public")}</div>
               <div class="text-sm text-neutral-500">
-                誰でもグループを見つけて閲覧できます
+                {t("community.publicDesc")}
               </div>
             </div>
           </label>
@@ -139,9 +143,9 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
               class="w-4 h-4 text-blue-500"
             />
             <div>
-              <div class="text-white font-medium">非公開</div>
+              <div class="text-white font-medium">{t("community.private")}</div>
               <div class="text-sm text-neutral-500">
-                メンバーのみがグループの内容を閲覧できます
+                {t("community.privateDesc")}
               </div>
             </div>
           </label>
@@ -151,7 +155,7 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
       {/* Join Policy */}
       <div>
         <label class="block text-sm font-semibold text-neutral-300 mb-2">
-          参加ポリシー
+          {t("community.joinPolicy")}
         </label>
         <div class="space-y-2">
           <label class="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
@@ -168,8 +172,12 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
               class="w-4 h-4 text-blue-500"
             />
             <div>
-              <div class="text-white font-medium">オープン</div>
-              <div class="text-sm text-neutral-500">誰でも参加できます</div>
+              <div class="text-white font-medium">
+                {t("community.joinOpen")}
+              </div>
+              <div class="text-sm text-neutral-500">
+                {t("community.joinOpenDesc")}
+              </div>
             </div>
           </label>
           <label class="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
@@ -186,9 +194,11 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
               class="w-4 h-4 text-blue-500"
             />
             <div>
-              <div class="text-white font-medium">承認制</div>
+              <div class="text-white font-medium">
+                {t("community.joinApproval")}
+              </div>
               <div class="text-sm text-neutral-500">
-                参加にはオーナーまたはモデレーターの承認が必要です
+                {t("community.joinApprovalDesc")}
               </div>
             </div>
           </label>
@@ -206,9 +216,11 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
               class="w-4 h-4 text-blue-500"
             />
             <div>
-              <div class="text-white font-medium">招待制</div>
+              <div class="text-white font-medium">
+                {t("community.joinInvite")}
+              </div>
               <div class="text-sm text-neutral-500">
-                招待コードがないと参加できません
+                {t("community.joinInviteDesc")}
               </div>
             </div>
           </label>
@@ -218,7 +230,7 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
       {/* Post Policy */}
       <div>
         <label class="block text-sm font-semibold text-neutral-300 mb-2">
-          投稿ポリシー
+          {t("community.postPolicy")}
         </label>
         <div class="space-y-2">
           <label class="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
@@ -235,8 +247,12 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
               class="w-4 h-4 text-blue-500"
             />
             <div>
-              <div class="text-white font-medium">誰でも</div>
-              <div class="text-sm text-neutral-500">誰でも投稿できます</div>
+              <div class="text-white font-medium">
+                {t("community.postAnyone")}
+              </div>
+              <div class="text-sm text-neutral-500">
+                {t("community.postAnyoneDesc")}
+              </div>
             </div>
           </label>
           <label class="flex items-center gap-3 p-3 bg-neutral-900 border border-neutral-700 rounded-lg cursor-pointer hover:border-neutral-600">
@@ -253,9 +269,11 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
               class="w-4 h-4 text-blue-500"
             />
             <div>
-              <div class="text-white font-medium">メンバーのみ</div>
+              <div class="text-white font-medium">
+                {t("community.postMembers")}
+              </div>
               <div class="text-sm text-neutral-500">
-                グループメンバーのみが投稿できます
+                {t("community.postMembersDesc")}
               </div>
             </div>
           </label>
@@ -273,9 +291,11 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
               class="w-4 h-4 text-blue-500"
             />
             <div>
-              <div class="text-white font-medium">モデレーター以上</div>
+              <div class="text-white font-medium">
+                {t("community.postModerators")}
+              </div>
               <div class="text-sm text-neutral-500">
-                モデレーターとオーナーのみが投稿できます
+                {t("community.postModeratorsDesc")}
               </div>
             </div>
           </label>
@@ -293,9 +313,11 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
               class="w-4 h-4 text-blue-500"
             />
             <div>
-              <div class="text-white font-medium">オーナーのみ</div>
+              <div class="text-white font-medium">
+                {t("community.postOwner")}
+              </div>
               <div class="text-sm text-neutral-500">
-                オーナーのみが投稿できます
+                {t("community.postOwnerDesc")}
               </div>
             </div>
           </label>
@@ -309,7 +331,9 @@ export function CommunitySettingsPanel(props: CommunitySettingsPanelProps) {
           disabled={props.savingSettings}
           class="w-full px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-bold transition-colors disabled:opacity-50"
         >
-          {props.savingSettings ? "保存中..." : "設定を保存"}
+          {props.savingSettings
+            ? t("common.saving")
+            : t("community.saveSettings")}
         </button>
       </div>
     </div>

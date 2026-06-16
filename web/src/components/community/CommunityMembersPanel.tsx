@@ -99,7 +99,9 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
       <Show
         when={props.members.length > 0}
         fallback={
-          <div class="p-8 text-center text-neutral-500">メンバーがいません</div>
+          <div class="p-8 text-center text-neutral-500">
+            {props.t("members.noMembers")}
+          </div>
         }
       >
         <For each={props.members}>
@@ -120,12 +122,12 @@ export function CommunityMembersPanel(props: CommunityMembersPanelProps) {
                   </span>
                   <Show when={member.role === "owner"}>
                     <span class="px-1.5 py-0.5 text-xs bg-yellow-500/20 text-yellow-400 rounded">
-                      オーナー
+                      {props.t("members.owner")}
                     </span>
                   </Show>
                   <Show when={member.role === "moderator"}>
                     <span class="px-1.5 py-0.5 text-xs bg-blue-500/20 text-blue-400 rounded">
-                      モデレーター
+                      {props.t("members.moderator")}
                     </span>
                   </Show>
                 </div>
