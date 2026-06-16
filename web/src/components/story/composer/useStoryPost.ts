@@ -18,6 +18,11 @@ interface UseStoryPostOptions {
   displayScale: number;
   ffmpegReady: boolean;
   overlays: StoryOverlay[];
+  // Audience seam (B0.3): when the composer is opened inside a community scope,
+  // the story is bound to that community (reach == community members). Personal
+  // scope leaves this undefined so the story stays a personal (self + followed)
+  // story. Mirrors the post composer's `community_ap_id`.
+  communityApId?: string;
   setError: (message: string | null) => void;
   onSuccess: () => void;
   onClose: () => void;
@@ -117,6 +122,8 @@ export function useStoryPost(opts: UseStoryPostOptions) {
         },
         displayDuration: `PT${Math.round(duration)}S`,
         overlays: opts.overlays.length > 0 ? opts.overlays : undefined,
+        // Bind to the inhabited community scope when present (else personal).
+        community_ap_id: opts.communityApId,
       });
 
       setProgress(100);

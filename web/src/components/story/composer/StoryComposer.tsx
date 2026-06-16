@@ -11,6 +11,8 @@
  */
 
 import { createEffect, createSignal, onCleanup } from "solid-js";
+import { useAtomValue } from "solid-jotai";
+import { inhabitedScopeAtom } from "../../../atoms/scope.ts";
 import {
   CANVAS_HEIGHT,
   CANVAS_WIDTH,
@@ -52,6 +54,10 @@ const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100MB
 type ToolTab = "background" | "text" | "sticker" | "draw" | "video" | "none";
 
 export function StoryComposer(props: StoryComposerProps) {
+  // Inhabited scope seeds the story audience (B0.3): a community scope binds the
+  // story to that community; personal leaves it a personal story.
+  const scope = useAtomValue(inhabitedScopeAtom);
+
   // Canvas state
   const [storyCanvas, setStoryCanvas] = createSignal<StoryCanvas | null>(null);
   const [renderKey, setRenderKey] = createSignal(0);
@@ -147,6 +153,10 @@ export function StoryComposer(props: StoryComposerProps) {
     },
     get overlays() {
       return overlays();
+    },
+    get communityApId() {
+      const s = scope();
+      return s.kind === "community" ? s.ap_id : undefined;
     },
     setError,
     onSuccess: props.onSuccess,

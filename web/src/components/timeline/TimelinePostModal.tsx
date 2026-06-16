@@ -4,12 +4,20 @@ import { UserAvatar } from "../UserAvatar.tsx";
 import { CloseIcon, CloseIconLarge, ImageIcon } from "./TimelineIcons.tsx";
 import type { UploadedMedia } from "./types.ts";
 import type { PostVisibility } from "../../atoms/timeline.ts";
+import type { InhabitedScope } from "../../atoms/scope.ts";
 import { EmojiPicker } from "../story/EmojiPicker.tsx";
 import { useI18n } from "../../lib/i18n.tsx";
 
 interface TimelinePostModalProps {
   isOpen: boolean;
   actor: Actor;
+  // The currently inhabited scope. It seeds the post audience: a community
+  // scope binds the post to that community (members); personal keeps the
+  // personal public/followers visibility control. "Who sees it = what you view."
+  scope: InhabitedScope;
+  // Opens the ScopeSwitcherSheet so the audience (and the inhabited scope) can
+  // be changed from inside the composer.
+  onOpenScopeSwitcher: () => void;
   postContent: string;
   onPostContentChange: (value: string) => void;
   postSummary: string;
@@ -32,19 +40,38 @@ interface TimelinePostModalProps {
   uploadError: string | null;
 }
 
+// Composer visibility options. "direct" is intentionally absent: a DM is not a
+// post, so the composer never offers it. The personal-scope audience is the
+// only place this select appears; a community scope binds the audience to the
+// community (members) and hides the select.
 const VISIBILITY_OPTIONS: {
   value: PostVisibility;
   labelKey:
     | "posts.visibilityPublic"
     | "posts.visibilityUnlisted"
-    | "posts.visibilityFollowers"
-    | "posts.visibilityDirect";
+    | "posts.visibilityFollowers";
 }[] = [
   { value: "public", labelKey: "posts.visibilityPublic" },
   { value: "unlisted", labelKey: "posts.visibilityUnlisted" },
   { value: "followers", labelKey: "posts.visibilityFollowers" },
-  { value: "direct", labelKey: "posts.visibilityDirect" },
 ];
+
+const ChevronDownIcon = () => (
+  <svg
+    class="h-4 w-4 shrink-0 text-neutral-400"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width={2}
+      d="M19 9l-7 7-7-7"
+    />
+  </svg>
+);
 
 export function TimelinePostModal(props: TimelinePostModalProps) {
   const { t } = useI18n();
@@ -52,6 +79,28 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
   const [showEmoji, setShowEmoji] = createSignal(false);
   let textareaRef: HTMLTextAreaElement | undefined;
   let fileInputRef: HTMLInputElement | undefined;
+
+  // Scope-shaped audience: the chip names where the post lands. A community
+  // scope renders the community icon + name; personal renders the owner.
+  const scopeName = () => {
+    const s = props.scope;
+    if (s.kind === "community") return s.display_name || s.name;
+    return props.actor.name || props.actor.username;
+  };
+  const scopeAvatarUrl = () => {
+    const s = props.scope;
+    if (s.kind === "community") return s.icon_url ?? null;
+    return props.actor.icon_url;
+  };
+  // Read-only reach line — who the active scope ambiently surfaces the post to.
+  // Default post visibility stays public; this only describes the audience.
+  const reach = () => {
+    const s = props.scope;
+    if (s.kind === "community") {
+      return t("scope.reachCommunity").replace("{name}", scopeName());
+    }
+    return t("scope.reachPersonal");
+  };
 
   // Insert an emoji at the current caret position in the post textarea.
   const insertEmoji = (emoji: string) => {
@@ -106,28 +155,55 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
 
           {/* Modal Content */}
           <div class="p-4">
-            {/* Visibility selector */}
-            <div class="mb-3">
-              <label class="sr-only" for="post-visibility">
-                {t("posts.visibility")}
-              </label>
-              <select
-                id="post-visibility"
-                value={props.postVisibility}
-                onChange={(e) =>
-                  props.onPostVisibilityChange(
-                    e.currentTarget.value as PostVisibility,
-                  )
-                }
-                class="bg-neutral-800 text-white text-sm rounded-full px-3 py-1.5 outline-none border border-neutral-700 focus:border-blue-500 transition-colors"
+            {/* Scope-shaped audience control. The chip names the active scope
+                (icon + name) and the reach line states who sees it; tapping it
+                opens the scope switcher to re-aim the post. A personal scope
+                additionally exposes the public/unlisted/followers visibility
+                select; a community scope binds the audience to its members. */}
+            <div class="mb-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={props.onOpenScopeSwitcher}
+                aria-haspopup="dialog"
+                aria-label={t("posts.changeAudience")}
+                class="flex max-w-full items-center gap-2 rounded-full border border-neutral-700 bg-neutral-800 py-1 pl-1 pr-2.5 transition-colors hover:bg-neutral-700"
               >
-                <For each={VISIBILITY_OPTIONS}>
-                  {(opt) => (
-                    <option value={opt.value}>{t(opt.labelKey)}</option>
-                  )}
-                </For>
-              </select>
+                <UserAvatar
+                  avatarUrl={scopeAvatarUrl()}
+                  name={scopeName()}
+                  size={24}
+                />
+                <span class="min-w-0 truncate text-sm font-bold text-white">
+                  {scopeName()}
+                </span>
+                <ChevronDownIcon />
+              </button>
+
+              <Show when={props.scope.kind === "personal"}>
+                <label class="sr-only" for="post-visibility">
+                  {t("posts.visibility")}
+                </label>
+                <select
+                  id="post-visibility"
+                  value={props.postVisibility}
+                  onChange={(e) =>
+                    props.onPostVisibilityChange(
+                      e.currentTarget.value as PostVisibility,
+                    )
+                  }
+                  class="bg-neutral-800 text-white text-sm rounded-full px-3 py-1.5 outline-none border border-neutral-700 focus:border-blue-500 transition-colors"
+                >
+                  <For each={VISIBILITY_OPTIONS}>
+                    {(opt) => (
+                      <option value={opt.value}>{t(opt.labelKey)}</option>
+                    )}
+                  </For>
+                </select>
+              </Show>
             </div>
+
+            {/* "Who sees it = what you view." Read-only audience reach line. */}
+            <p class="mb-3 px-1 text-xs text-neutral-500">{reach()}</p>
 
             {/* Content warning input */}
             <Show when={showCw()}>

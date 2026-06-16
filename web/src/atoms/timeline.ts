@@ -22,6 +22,11 @@ export type CreatePostOptions = {
   content: string;
   summary?: string;
   visibility?: PostVisibility;
+  // When set, the post is bound to this community (audience = its members). It
+  // comes from the inhabited scope, not a visibility control: default post
+  // visibility stays public. Community-scoped posts only surface in that
+  // community's reach, so a created one is not prepended to the personal head.
+  community_ap_id?: string;
 };
 
 // --- Post state ---
@@ -188,6 +193,8 @@ export const createPostAtom = atom(
           options.visibility && options.visibility !== "public"
             ? options.visibility
             : undefined,
+        // Bind the post to the inhabited community scope (audience = members).
+        community_ap_id: options.community_ap_id,
         attachments:
           media.length > 0
             ? media.map((m) => ({
@@ -199,7 +206,13 @@ export const createPostAtom = atom(
             : undefined,
       });
       if (newPost) {
-        set(timelinePostsAtom, (prev) => [newPost, ...prev]);
+        // Optimistically prepend only for personal-scope posts: a community
+        // post switches the inhabited scope on submit, which resets and
+        // reloads the timeline (useTimelineState), so a prepend here would be
+        // wiped — let that reload surface it in the community feed instead.
+        if (!options.community_ap_id) {
+          set(timelinePostsAtom, (prev) => [newPost, ...prev]);
+        }
         set(postContentAtom, "");
         media.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
         set(uploadedMediaAtom, []);
