@@ -6,6 +6,7 @@ import { UserAvatar } from "../UserAvatar.tsx";
 import { PostContent } from "../PostContent.tsx";
 import { HeartIcon, ReplyIcon } from "../icons/SocialIcons.tsx";
 import type { Translate } from "../../lib/i18n.tsx";
+import { ScopeChip } from "../scope/ScopeChip.tsx";
 import {
   AttachmentGrid,
   MediaLightbox,
@@ -120,6 +121,10 @@ function ProfilePostItem(props: ProfilePostItemProps) {
           <span class="text-neutral-500 text-sm">
             {formatRelativeTime(props.post.published)}
           </span>
+          <ScopeChip
+            communityApId={props.post.community_ap_id}
+            class="ml-auto self-center"
+          />
         </div>
         <PostContent
           content={props.post.content}
