@@ -3,42 +3,22 @@ import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
 import { tAtom } from "../atoms/i18n.ts";
 import { pushToast, toastsAtom } from "../atoms/toast.ts";
 import {
-  accountsAtom,
-  accountsLoadingAtom,
   actorStoriesAtom,
   applyNewPostsAtom,
   checkNewPostsAtom,
-  closePostModalAtom,
-  createPostAtom,
-  currentApIdAtom,
-  loadAccountsAtom,
   loadMoreTimelineAtom,
   loadStoriesAtom,
   loadTimelineAtom,
   pendingNewPostsAtom,
-  postContentAtom,
-  postingAtom,
-  postSummaryAtom,
-  postVisibilityAtom,
-  removeMediaAtom,
-  setMediaAltAtom,
-  showAccountSwitcherAtom,
-  showMenuAtom,
-  showPostModalAtom,
   showStoryComposerAtom,
   showStoryViewerAtom,
   storiesLoadingAtom,
   storyViewerActorIndexAtom,
-  switchAccountAtom,
   timelineHasMoreAtom,
   timelineLoadErrorAtom,
   timelineLoadingAtom,
   timelineLoadingMoreAtom,
   timelinePostsAtom,
-  uploadedMediaAtom,
-  uploadErrorAtom,
-  uploadingAtom,
-  uploadMediaAtom as uploadMediaActionAtom,
 } from "../atoms/timeline.ts";
 import { toggleBookmark, toggleLike, toggleRepost } from "../atoms/posts.ts";
 import { deletePost } from "../lib/api/posts.ts";
@@ -50,7 +30,6 @@ export function useTimelineState() {
   const setToasts = useSetAtom(toastsAtom);
   const toastError = (key: Parameters<ReturnType<typeof t>>[0]) =>
     pushToast(setToasts, t()(key), { kind: "error" });
-  let fileInputRef!: HTMLInputElement;
   let scrollContainerRef!: HTMLDivElement;
   // The sentinel is rendered only after posts load, so it appears (and can be
   // re-created when the list re-mounts) after onMount. Track it as a signal so
@@ -64,14 +43,6 @@ export function useTimelineState() {
   const loadingMore = useAtomValue(timelineLoadingMoreAtom);
   const hasMore = useAtomValue(timelineHasMoreAtom);
   const loadError = useAtomValue(timelineLoadErrorAtom);
-  const [postContent, setPostContent] = useAtom(postContentAtom);
-  const [postSummary, setPostSummary] = useAtom(postSummaryAtom);
-  const [postVisibility, setPostVisibility] = useAtom(postVisibilityAtom);
-  const posting = useAtomValue(postingAtom);
-  const uploadedMedia = useAtomValue(uploadedMediaAtom);
-  const uploading = useAtomValue(uploadingAtom);
-  const uploadError = useAtomValue(uploadErrorAtom);
-  const [showPostModal, setShowPostModal] = useAtom(showPostModalAtom);
 
   // Story state
   const actorStories = useAtomValue(actorStoriesAtom);
@@ -83,26 +54,10 @@ export function useTimelineState() {
   );
   const setStoryViewerActorIndex = useSetAtom(storyViewerActorIndexAtom);
 
-  // Account state
-  const accounts = useAtomValue(accountsAtom);
-  const currentApId = useAtomValue(currentApIdAtom);
-  const accountsLoading = useAtomValue(accountsLoadingAtom);
-  const [showAccountSwitcher, setShowAccountSwitcher] = useAtom(
-    showAccountSwitcherAtom,
-  );
-  const [showMenu, setShowMenu] = useAtom(showMenuAtom);
-
   // Actions
   const loadTimeline = useSetAtom(loadTimelineAtom);
   const loadMore = useSetAtom(loadMoreTimelineAtom);
   const loadStories = useSetAtom(loadStoriesAtom);
-  const doCreatePost = useSetAtom(createPostAtom);
-  const doUploadMedia = useSetAtom(uploadMediaActionAtom);
-  const doRemoveMedia = useSetAtom(removeMediaAtom);
-  const doSetMediaAlt = useSetAtom(setMediaAltAtom);
-  const doLoadAccounts = useSetAtom(loadAccountsAtom);
-  const doSwitchAccount = useSetAtom(switchAccountAtom);
-  const doClosePostModal = useSetAtom(closePostModalAtom);
 
   // New-posts indicator
   const pendingNewPosts = useAtomValue(pendingNewPostsAtom);
@@ -113,13 +68,6 @@ export function useTimelineState() {
   onMount(() => {
     loadTimeline();
     loadStories();
-  });
-
-  // Cleanup object URLs on unmount
-  onCleanup(() => {
-    uploadedMedia().forEach((media) => {
-      if (media.preview) URL.revokeObjectURL(media.preview);
-    });
   });
 
   // Infinite scroll — auto-load when the bottom sentinel becomes visible.
@@ -199,29 +147,6 @@ export function useTimelineState() {
     }
   };
 
-  // Menu handlers
-  const handleOpenMenu = () => {
-    setShowMenu(true);
-    doLoadAccounts();
-  };
-
-  const handleCloseMenu = () => {
-    setShowMenu(false);
-    setShowAccountSwitcher(false);
-  };
-
-  // File upload handler
-  const handleFileSelect = async (
-    e: Event & { currentTarget: HTMLInputElement },
-  ) => {
-    const files = e.currentTarget.files;
-    if (!files || files.length === 0) return;
-    for (const file of Array.from(files)) {
-      await doUploadMedia(file);
-    }
-    if (fileInputRef) fileInputRef.value = "";
-  };
-
   // Post interactions using shared helpers
   const handleLike = async (post: Parameters<typeof toggleLike>[0]) => {
     try {
@@ -248,16 +173,6 @@ export function useTimelineState() {
       console.error("Failed to toggle repost:", e);
       toastError("common.error");
     }
-  };
-
-  const handlePost = async (): Promise<boolean> => {
-    return (
-      (await doCreatePost({
-        content: postContent(),
-        summary: postSummary(),
-        visibility: postVisibility(),
-      })) || false
-    );
   };
 
   // Remove a single post (after deleting your own) from the timeline.
@@ -300,12 +215,6 @@ export function useTimelineState() {
 
   return {
     t: () => t(),
-    get fileInputRef() {
-      return fileInputRef;
-    },
-    set fileInputRef(el: HTMLInputElement) {
-      fileInputRef = el;
-    },
     get scrollContainerRef() {
       return scrollContainerRef;
     },
@@ -323,20 +232,6 @@ export function useTimelineState() {
     loadTimeline,
     newPostsCount: () => pendingNewPosts().length,
     handleShowNewPosts,
-    postContent,
-    setPostContent,
-    postSummary,
-    setPostSummary,
-    postVisibility,
-    setPostVisibility,
-    posting,
-    handlePost,
-    uploadedMedia,
-    uploading,
-    uploadError,
-    handleFileSelect,
-    removeMedia: doRemoveMedia,
-    setMediaAlt: (index: number, alt: string) => doSetMediaAlt({ index, alt }),
     actorStories,
     storiesLoading,
     showStoryViewer,
@@ -348,24 +243,11 @@ export function useTimelineState() {
     handleAddStory: () => setShowStoryComposer(true),
     handleStorySuccess: loadStories,
     loadStories,
-    showMenu,
-    showAccountSwitcher,
-    setShowAccountSwitcher,
-    handleOpenMenu,
-    handleCloseMenu,
-    showPostModal,
-    setShowPostModal,
-    handleClosePostModal: doClosePostModal,
-    accounts,
-    accountsLoading,
-    currentApId,
-    handleSwitchAccount: doSwitchAccount,
     handleLike,
     handleBookmark,
     handleRepost,
     handleDelete,
     handleMute,
     handleBlock,
-    getPlaceholder: () => t()("posts.placeholder"),
   };
 }

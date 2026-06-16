@@ -104,9 +104,6 @@ export const accountsLoadingAtom = atom(false);
 export const accountsErrorAtom = atom<string | null>(null);
 export const showAccountSwitcherAtom = atom(false);
 
-// --- Mobile menu ---
-export const showMenuAtom = atom(false);
-
 // --- Actions ---
 export const loadTimelineAtom = atom(null, async (get, set) => {
   if (get(timelinePostsAtom).length === 0) set(timelineLoadingAtom, true);

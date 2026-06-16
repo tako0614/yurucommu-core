@@ -22,7 +22,6 @@ interface TimelinePostModalProps {
   onClose: () => void;
   onSubmit: () => Promise<boolean>;
   posting: boolean;
-  fileInputRef: HTMLInputElement | undefined;
   onFileSelect: (
     event: InputEvent & { currentTarget: HTMLInputElement },
   ) => void;
@@ -52,6 +51,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
   const [showCw, setShowCw] = createSignal(false);
   const [showEmoji, setShowEmoji] = createSignal(false);
   let textareaRef: HTMLTextAreaElement | undefined;
+  let fileInputRef: HTMLInputElement | undefined;
 
   // Insert an emoji at the current caret position in the post textarea.
   const insertEmoji = (emoji: string) => {
@@ -215,7 +215,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
           {/* Modal Footer */}
           <div class="flex items-center gap-2 px-4 py-3 border-t border-neutral-800">
             <input
-              ref={props.fileInputRef}
+              ref={fileInputRef}
               type="file"
               accept="image/*"
               multiple
@@ -223,7 +223,7 @@ export function TimelinePostModal(props: TimelinePostModalProps) {
               class="hidden"
             />
             <button
-              onClick={() => props.fileInputRef?.click()}
+              onClick={() => fileInputRef?.click()}
               disabled={props.uploading || props.uploadedMedia.length >= 4}
               aria-label="Add image"
               class="p-2 text-blue-500 hover:bg-blue-500/10 rounded-full disabled:opacity-50 transition-colors"

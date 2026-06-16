@@ -12,9 +12,7 @@ const StoryComposer = lazy(
 import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { TimelineHeader } from "../components/timeline/TimelineHeader.tsx";
-import { TimelineMobileMenu } from "../components/timeline/TimelineMobileMenu.tsx";
 import { TimelinePostItem } from "../components/timeline/TimelinePostItem.tsx";
-import { TimelinePostModal } from "../components/timeline/TimelinePostModal.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 import { PluginSlot } from "../components/PluginSlot.tsx";
 import { useTimelineState } from "./useTimelineState.ts";
@@ -61,25 +59,7 @@ export function TimelinePage() {
         </Suspense>
       </Show>
 
-      <TimelineMobileMenu
-        isOpen={state.showMenu()}
-        actor={actor}
-        accounts={state.accounts()}
-        accountsLoading={state.accountsLoading()}
-        currentApId={state.currentApId()}
-        showAccountSwitcher={state.showAccountSwitcher()}
-        onToggleAccountSwitcher={() =>
-          state.setShowAccountSwitcher((prev) => !prev)
-        }
-        onSwitchAccount={state.handleSwitchAccount}
-        onClose={state.handleCloseMenu}
-        t={state.t()}
-      />
-
-      <TimelineHeader
-        onCreatePost={() => state.setShowPostModal(true)}
-        title={state.t()("timeline.title")}
-      />
+      <TimelineHeader title={state.t()("timeline.title")} />
 
       {/* Story Bar */}
       <StoryBar
@@ -158,7 +138,7 @@ export function TimelinePage() {
                       onRepost={state.handleRepost}
                       onLike={state.handleLike}
                       onBookmark={state.handleBookmark}
-                      currentActorApId={state.currentApId()}
+                      currentActorApId={actor.ap_id}
                       onDelete={state.handleDelete}
                       onMute={state.handleMute}
                       onBlock={state.handleBlock}
@@ -200,30 +180,6 @@ export function TimelinePage() {
           </Show>
         </Show>
       </div>
-
-      <TimelinePostModal
-        isOpen={state.showPostModal()}
-        actor={actor}
-        postContent={state.postContent()}
-        onPostContentChange={state.setPostContent}
-        postSummary={state.postSummary()}
-        onPostSummaryChange={state.setPostSummary}
-        postVisibility={state.postVisibility()}
-        onPostVisibilityChange={state.setPostVisibility}
-        placeholder={state.getPlaceholder()}
-        submitLabel={state.t()("posts.post")}
-        submittingLabel={state.t()("posts.posting")}
-        onClose={state.handleClosePostModal}
-        onSubmit={state.handlePost}
-        posting={state.posting()}
-        fileInputRef={state.fileInputRef}
-        onFileSelect={state.handleFileSelect}
-        uploadedMedia={state.uploadedMedia()}
-        onRemoveMedia={state.removeMedia}
-        onMediaAltChange={state.setMediaAlt}
-        uploading={state.uploading()}
-        uploadError={state.uploadError()}
-      />
     </div>
   );
 }
