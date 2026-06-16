@@ -43,7 +43,10 @@ import {
   transformStoryData,
   validateOverlays,
 } from "./query-helpers.ts";
-import { enqueueFanoutToFollowers } from "../../lib/delivery/queue.ts";
+import {
+  enqueueFanoutToCommunity,
+  enqueueFanoutToFollowers,
+} from "../../lib/delivery/queue.ts";
 import { logger } from "../../lib/logger.ts";
 
 const log = logger.child({ component: "stories.routes" });
@@ -212,6 +215,7 @@ async function createAndFanoutActivity(
   actorApIdStr: string,
   objectApIdStr: string,
   activity: Record<string, unknown>,
+  communityApId?: string | null,
 ): Promise<void> {
   const id = activity.id as string;
   await db.insert(activities).values({
@@ -222,7 +226,15 @@ async function createAndFanoutActivity(
     rawJson: JSON.stringify(activity),
     direction: "outbound",
   });
-  await enqueueFanoutToFollowers(env, id, actorApIdStr);
+  // A community-scoped story has reach == community: fan its activity out to the
+  // community's members/followers (the same audience posts use), NOT the
+  // author's personal follower graph. A personal story keeps author-follower
+  // reach.
+  if (communityApId) {
+    await enqueueFanoutToCommunity(env, id, communityApId);
+  } else {
+    await enqueueFanoutToFollowers(env, id, actorApIdStr);
+  }
 }
 
 /** Delete all related data for a story, then the story object itself. */
@@ -703,15 +715,22 @@ stories.post("/", async (c) => {
     communityApIdValue && communityFollowersUrl
       ? [communityFollowersUrl]
       : [`${actor.ap_id}/followers`];
-  await createAndFanoutActivity(db, c.env, actor.ap_id, apId, {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    id: activityApId(baseUrl, generateId()),
-    type: "Create",
-    actor: actor.ap_id,
-    published: now,
-    to: storyTo,
-    object: storyObject,
-  });
+  await createAndFanoutActivity(
+    db,
+    c.env,
+    actor.ap_id,
+    apId,
+    {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: activityApId(baseUrl, generateId()),
+      type: "Create",
+      actor: actor.ap_id,
+      published: now,
+      to: storyTo,
+      object: storyObject,
+    },
+    communityApIdValue,
+  );
 
   return c.json({ story }, 201);
 });
@@ -737,17 +756,30 @@ stories.post("/delete", async (c) => {
     return c.json({ error: "Forbidden" }, 403);
   }
 
-  // Enqueue Delete(Story) activity to followers before deleting.
-  // Outbound delivery MUST NOT run in request path; enqueue is the sync boundary.
+  // Enqueue Delete(Story) activity before deleting. Outbound delivery MUST NOT
+  // run in request path; enqueue is the sync boundary. A community-scoped story
+  // tombstone is addressed to and fanned out to the community (reach ==
+  // community), mirroring its Create; a personal story keeps author-follower
+  // reach.
   const baseUrl = c.env.APP_URL;
-  await createAndFanoutActivity(db, c.env, actor.ap_id, apId, {
-    "@context": "https://www.w3.org/ns/activitystreams",
-    id: activityApId(baseUrl, generateId()),
-    type: "Delete",
-    actor: actor.ap_id,
-    to: ["https://www.w3.org/ns/activitystreams#Public"],
-    object: apId,
-  });
+  const deleteTo = story.communityApId
+    ? [`${story.communityApId}/followers`]
+    : ["https://www.w3.org/ns/activitystreams#Public"];
+  await createAndFanoutActivity(
+    db,
+    c.env,
+    actor.ap_id,
+    apId,
+    {
+      "@context": "https://www.w3.org/ns/activitystreams",
+      id: activityApId(baseUrl, generateId()),
+      type: "Delete",
+      actor: actor.ap_id,
+      to: deleteTo,
+      object: apId,
+    },
+    story.communityApId,
+  );
 
   await deleteStoryAndRelatedData(db, apId);
 

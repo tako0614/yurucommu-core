@@ -11,6 +11,10 @@ import { readFile } from "node:fs/promises";
  *  (ii)  it never leaks into the personal (self + followed) story feed, and
  *  (iii) personal stories are unaffected: they keep appearing in the personal
  *        feed and are NOT returned for a community scope.
+ *  (iv)  its federation REACH is the community: creating a community story
+ *        enqueues a `fanout_community` (NOT a `fanout_followers` against the
+ *        author's personal follower graph); a personal story keeps
+ *        author-follower reach.
  */
 
 import { Hono } from "hono";
@@ -117,14 +121,22 @@ async function insertCommunity(
   return { apId, followersUrl };
 }
 
-function envFor(db: Database): Env {
+type SentMessage = { type: string; communityApId?: string; [k: string]: unknown };
+
+function envFor(db: Database, sent?: SentMessage[]): Env {
+  const capture = sent ?? [];
   return {
     APP_URL,
     DB_INSTANCE: db,
-    // Fanout enqueue is a no-op queue: we only assert read-side scope here.
+    // Capturing queue: read-side-scope tests ignore it; the reach test below
+    // inspects what was enqueued.
     DELIVERY_QUEUE: {
-      async send() {},
-      async sendBatch() {},
+      async send(body: SentMessage) {
+        capture.push(body);
+      },
+      async sendBatch(reqs: Array<{ body: SentMessage }>) {
+        for (const r of reqs) capture.push(r.body);
+      },
     },
     DELIVERY_DLQ: {
       async send() {},
@@ -308,4 +320,39 @@ test("non-member cannot create a community story", async () => {
   );
   // postPolicy "members" + no membership -> 403.
   expect(res.status).toEqual(403);
+});
+
+// ---------------------------------------------------------------------------
+// (iv) Federation reach: a community story fans out to the community, a
+// personal story to the author's followers.
+// ---------------------------------------------------------------------------
+
+test("community story reach is the community fanout, not the author follower fanout", async () => {
+  const db = await freshDb();
+  const sent: SentMessage[] = [];
+  const env = envFor(db, sent);
+
+  const author = await insertLocalActor(db, "author");
+  const { apId: communityApId } = await insertCommunity(db, "town");
+  await db.insert(communityMembers).values({
+    communityApId,
+    actorApId: author,
+    role: "member",
+  });
+
+  const authorActor = fakeActor(author, "author");
+
+  // Community story -> exactly one fanout_community for THIS community, and no
+  // author-follower fanout (reach is NOT the author's personal follower graph).
+  await createStory(db, authorActor, env, { community_ap_id: communityApId });
+  const communityFanouts = sent.filter((m) => m.type === "fanout_community");
+  expect(communityFanouts.length).toEqual(1);
+  expect(communityFanouts[0].communityApId).toEqual(communityApId);
+  expect(sent.some((m) => m.type === "fanout_followers")).toBe(false);
+
+  // Personal story -> author-follower fanout, no community fanout.
+  sent.length = 0;
+  await createStory(db, authorActor, env, {});
+  expect(sent.some((m) => m.type === "fanout_followers")).toBe(true);
+  expect(sent.some((m) => m.type === "fanout_community")).toBe(false);
 });
