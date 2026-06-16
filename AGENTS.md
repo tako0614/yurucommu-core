@@ -1,8 +1,10 @@
 # AGENTS.md — yurucommu
 
-`yurucommu` は **self-hosted ActivityPub / community social app** で、
-自分のドメイン / 自分のデータ / 小さなコミュニティ
-単位のつながりを前提に設計された独立 product。 Takos distribution は新規 space
+`yurucommu` は **個人が自分のために立てる self-hosted ActivityPub SNS** で、
+自分のドメイン / 自分のデータ を前提に設計された独立 product。 アルゴリズムにも
+プラットフォームにも依存せず、 必要なら小さなコミュニティ (グループ) も作れる、
+個人運用のフェディバース・インスタンス。 community / group は headline の主語では
+なく、 個人インスタンス上の機能として位置づける。 Takos distribution は新規 space
 作成時に bundled 1st-party app として Takosumi 上へ auto-install するが、
 product root は独立管理で Takos core には吸収しない。
 
@@ -50,7 +52,7 @@ bun run check
 bun test
 bun run lint
 bun run fmt
-bun run deploy   # Cloudflare deploy
+bun run build
 ```
 
 ## 関連 docs

@@ -1,11 +1,13 @@
 # Yurucommu
 
-Yurucommu is a **self-hosted ActivityPub community social app** built for your
-own domain, your own data, and small-community-scale connections. It federates
-with the wider fediverse (Mastodon / Misskey and other ActivityPub servers) and
-runs cheaply on Cloudflare. Yurucommu is an independent product: it ships as a
-first-party bundled app with the [Takos](https://takos.jp) distribution, but it
-runs standalone without Takos.
+Yurucommu is a **self-hosted ActivityPub SNS you run for yourself** — on your
+own domain, with your own data. Free from algorithms and platform lock-in, it
+federates with the wider fediverse (Mastodon / Misskey and other ActivityPub
+servers) and runs cheaply on Cloudflare. You can also form small communities
+(groups) inside your instance, but the core identity is a personally operated
+fediverse instance — communities are a feature, not the headline. Yurucommu is
+an independent product: it ships as a first-party bundled app with the
+[Takos](https://takos.jp) distribution, but it runs standalone without Takos.
 
 ## Features
 
@@ -22,33 +24,25 @@ runs standalone without Takos.
 
 ## Self-host
 
-Yurucommu deploys to Cloudflare Workers. There are two supported paths.
+Yurucommu deploys as a plain OpenTofu Capsule. A self-hoster installs the Git
+URL / ref / module path through Takosumi, reviews the Compatibility Report and
+plan, then applies the Installation. The generated root owns the Worker,
+D1 / R2 / KV / Queue bindings, routes, and secret references; repository-local
+Wrangler files are contributor/debug material, not the product install path.
+See [`.env.example`](.env.example) and the
+[deployment guide](https://yurucommu.com/help/deployment.html) for the runtime
+variable names and local development notes.
 
-### 1. Direct self-host (wrangler)
-
-Provision and deploy the Worker yourself:
-
-```bash
-bun install
-bun run build           # vite build of the browser UI
-bunx wrangler deploy --config wrangler.toml
-```
-
-Configure the Worker via `wrangler.toml` (`[vars]`) and `wrangler secret put`
-for `ENCRYPTION_KEY`, auth credentials, and OAuth secrets. See
-[`.env.example`](.env.example) and the
-[deployment guide](https://yurucommu.com/help/deployment.html) for the full
-variable list, D1 / R2 / KV / Queue bindings, and migration steps.
-
-### 2. Bundled app with Takos
+### Bundled app with Takos
 
 Yurucommu is registered as a first-party default app in the Takos distribution
 and auto-installs into new Workspaces. The app exposes its deploy topology as a
-plain OpenTofu Capsule manifest ([`outputs.tf`](outputs.tf), the `takos_app`
-output) describing its compute, resources (D1 / R2 / KV / delivery queue +
-DLQ), routes, secrets, and launcher publication. The Takos distribution reads
-this manifest, provisions the resources, and publishes the launcher surface. No
-Yurucommu-specific manifest format or DSL is required.
+plain OpenTofu Capsule with well-known outputs ([`outputs.tf`](outputs.tf), the
+`takos_app` output) describing its compute, resources (D1 / R2 / KV / delivery
+queue + DLQ), routes, secrets, and launcher publication. The Takos distribution
+reads those outputs through the Takosumi Installation ledger, provisions the
+resources, and publishes the launcher surface. No Yurucommu-specific manifest
+format or DSL is required.
 
 ## Develop
 
