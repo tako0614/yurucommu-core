@@ -2,8 +2,12 @@ import type { JSX } from "solid-js";
 import { Sidebar } from "./Sidebar.tsx";
 import { BottomNav } from "./BottomNav.tsx";
 import { RightSidebar } from "./RightSidebar.tsx";
+import { useNotificationPolling } from "../../hooks/useNotificationPolling.ts";
 
 export function AppLayout(props: { children?: JSX.Element }) {
+  // Single mount point for unread-notification polling (pauses when hidden).
+  useNotificationPolling();
+
   return (
     <div class="flex justify-center h-screen bg-neutral-900 text-white">
       <Sidebar />

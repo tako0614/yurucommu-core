@@ -1,5 +1,7 @@
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { useSetAtom } from "solid-jotai";
 import { Notification } from "../types/index.ts";
+import { refreshNotificationUnreadAtom } from "../atoms/notifications.ts";
 import {
   acceptFollowRequest,
   fetchNotifications,
@@ -69,6 +71,7 @@ type FilterType = "all" | "follow" | "like" | "announce" | "mention" | "reply";
 
 export function NotificationPage() {
   const { t } = useI18n();
+  const refreshUnread = useSetAtom(refreshNotificationUnreadAtom);
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [loadError, setLoadError] = createSignal<string | null>(null);
@@ -105,6 +108,9 @@ export function NotificationPage() {
           await markNotificationsRead(unread.map((n) => n.id));
           if (!cancelled) {
             setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+            // Re-sync the shared badge from the backend (a filtered view may
+            // not have marked every unread item, so don't blindly zero it).
+            void refreshUnread();
           }
         }
       } catch (e) {

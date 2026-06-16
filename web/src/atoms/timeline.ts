@@ -43,6 +43,53 @@ export const uploadingAtom = atom(false);
 export const uploadErrorAtom = atom<string | null>(null);
 export const showPostModalAtom = atom(false);
 
+// --- New-posts indicator ---
+// Posts fetched from the timeline head that are newer than what is currently
+// displayed. They are staged here (not prepended automatically) so the user
+// keeps their scroll position; a pill surfaces the count and prepends on click.
+export const pendingNewPostsAtom = atom<Post[]>([]);
+
+// Poll the timeline head and stage any posts newer than the current top one.
+// Cheap and idempotent: it only stages posts not already shown or staged, and
+// silently no-ops on error (the indicator is non-critical).
+export const checkNewPostsAtom = atom(null, async (get, set) => {
+  const current = get(timelinePostsAtom);
+  // Nothing to compare against yet (or the primary list never loaded).
+  if (current.length === 0) return;
+
+  try {
+    const head = await fetchTimeline({ limit: 20 });
+    if (head.length === 0) return;
+
+    const knownIds = new Set([
+      ...current.map((p) => p.ap_id),
+      ...get(pendingNewPostsAtom).map((p) => p.ap_id),
+    ]);
+    const fresh = head.filter((p) => !knownIds.has(p.ap_id));
+    if (fresh.length === 0) return;
+
+    set(pendingNewPostsAtom, (prev) => {
+      const prevIds = new Set(prev.map((p) => p.ap_id));
+      const merged = [...fresh.filter((p) => !prevIds.has(p.ap_id)), ...prev];
+      // Bound the staged buffer so a busy timeline can't grow it unbounded.
+      return merged.slice(0, 100);
+    });
+  } catch (e) {
+    console.error("Failed to check for new posts:", e);
+  }
+});
+
+// Prepend staged posts to the visible timeline and clear the indicator.
+export const applyNewPostsAtom = atom(null, (get, set) => {
+  const pending = get(pendingNewPostsAtom);
+  if (pending.length === 0) return;
+  const current = get(timelinePostsAtom);
+  const currentIds = new Set(current.map((p) => p.ap_id));
+  const deduped = pending.filter((p) => !currentIds.has(p.ap_id));
+  set(timelinePostsAtom, [...deduped, ...current]);
+  set(pendingNewPostsAtom, []);
+});
+
 // --- Story state ---
 export const actorStoriesAtom = atom<ActorStories[]>([]);
 export const storiesLoadingAtom = atom(true);
@@ -70,6 +117,8 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
     const posts = await fetchTimeline({ limit: 20 });
     set(timelinePostsAtom, posts);
     set(timelineHasMoreAtom, posts.length >= 20);
+    // A full reload already shows the freshest head; drop any staged posts.
+    set(pendingNewPostsAtom, []);
   } catch (e) {
     console.error("Failed to load timeline:", e);
     set(timelineLoadErrorAtom, get(tAtom)("common.loadFailed"));

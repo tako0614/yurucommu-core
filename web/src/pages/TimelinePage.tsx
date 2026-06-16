@@ -37,7 +37,7 @@ export function TimelinePage() {
   const state = useTimelineState();
 
   return (
-    <div class="flex flex-col h-full">
+    <div class="relative flex flex-col h-full">
       <Show when={state.error()}>
         <InlineErrorBanner
           message={state.error()!}
@@ -96,6 +96,33 @@ export function TimelinePage() {
         onStoryClick={state.handleStoryClick}
         onAddStory={state.handleAddStory}
       />
+
+      {/* New-posts pill — prepends staged head posts and scrolls to top. */}
+      <Show when={state.newPostsCount() > 0}>
+        <div class="pointer-events-none absolute inset-x-0 top-16 z-20 flex justify-center">
+          <button
+            onClick={state.handleShowNewPosts}
+            class="pointer-events-auto flex items-center gap-2 rounded-full bg-green-500 px-4 py-2 text-sm font-bold text-white shadow-lg transition-colors hover:bg-green-400"
+          >
+            <svg
+              class="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width={2}
+                d="M5 15l7-7 7 7"
+              />
+            </svg>
+            {state
+              .t()("timeline.newPosts")
+              .replace("{count}", String(state.newPostsCount()))}
+          </button>
+        </div>
+      </Show>
 
       <div
         ref={(el) => {

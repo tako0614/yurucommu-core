@@ -1,5 +1,10 @@
+import { Show } from "solid-js";
 import { A } from "@solidjs/router";
+import { useAtomValue } from "solid-jotai";
 import { HeartIcon } from "../icons/SocialIcons.tsx";
+import { notificationUnreadAtom } from "../../atoms/notifications.ts";
+import { NavBadge } from "../layout/NavBadge.tsx";
+import { useI18n } from "../../lib/i18n.tsx";
 
 interface TimelineHeaderProps {
   onCreatePost: () => void;
@@ -7,6 +12,8 @@ interface TimelineHeaderProps {
 }
 
 export function TimelineHeader(props: TimelineHeaderProps) {
+  const { t } = useI18n();
+  const unreadCount = useAtomValue(notificationUnreadAtom);
   return (
     <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm z-10">
       <div class="flex items-center justify-between px-4 py-4">
@@ -36,9 +43,17 @@ export function TimelineHeader(props: TimelineHeaderProps) {
         <A
           href="/notifications"
           aria-label="Notifications"
-          class="md:hidden p-2 text-white hover:text-pink-500 transition-colors"
+          class="md:hidden relative p-2 text-white hover:text-pink-500 transition-colors"
         >
           <HeartIcon filled={false} />
+          <Show when={unreadCount() > 0}>
+            <span class="absolute top-0.5 right-0.5">
+              <NavBadge
+                count={unreadCount()}
+                label={t("nav.notifications")}
+              />
+            </span>
+          </Show>
         </A>
       </div>
     </header>

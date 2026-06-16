@@ -5,6 +5,8 @@ import {
   accountsAtom,
   accountsLoadingAtom,
   actorStoriesAtom,
+  applyNewPostsAtom,
+  checkNewPostsAtom,
   closePostModalAtom,
   createPostAtom,
   currentApIdAtom,
@@ -12,6 +14,7 @@ import {
   loadMoreTimelineAtom,
   loadStoriesAtom,
   loadTimelineAtom,
+  pendingNewPostsAtom,
   postContentAtom,
   postingAtom,
   postSummaryAtom,
@@ -99,6 +102,11 @@ export function useTimelineState() {
   const doSwitchAccount = useSetAtom(switchAccountAtom);
   const doClosePostModal = useSetAtom(closePostModalAtom);
 
+  // New-posts indicator
+  const pendingNewPosts = useAtomValue(pendingNewPostsAtom);
+  const checkNewPosts = useSetAtom(checkNewPostsAtom);
+  const applyNewPosts = useSetAtom(applyNewPostsAtom);
+
   // Initial load
   onMount(() => {
     loadTimeline();
@@ -134,6 +142,49 @@ export function useTimelineState() {
     observer.observe(sentinel);
     onCleanup(() => observer.disconnect());
   });
+
+  // New-posts polling — check the timeline head every ~30s. Pauses while the
+  // tab is hidden and refreshes immediately on return. checkNewPosts() guards
+  // on an empty list internally and de-dupes, so this never disrupts scroll.
+  onMount(() => {
+    const NEW_POSTS_POLL_MS = 30000;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const stop = () => {
+      if (intervalId !== null) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+    const start = () => {
+      if (intervalId !== null) return;
+      intervalId = setInterval(() => {
+        void checkNewPosts();
+      }, NEW_POSTS_POLL_MS);
+    };
+    const handleVisibility = () => {
+      if (document.hidden) {
+        stop();
+      } else {
+        void checkNewPosts();
+        start();
+      }
+    };
+
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    onCleanup(() => {
+      stop();
+      document.removeEventListener("visibilitychange", handleVisibility);
+    });
+  });
+
+  // Prepend staged new posts and scroll the list back to the top.
+  const handleShowNewPosts = () => {
+    applyNewPosts();
+    if (scrollContainerRef) scrollContainerRef.scrollTop = 0;
+  };
 
   // Story handlers
   const handleStoryClick = (stories: ActorStories, _index: number) => {
@@ -267,6 +318,8 @@ export function useTimelineState() {
     hasMore,
     loadError,
     loadTimeline,
+    newPostsCount: () => pendingNewPosts().length,
+    handleShowNewPosts,
     postContent,
     setPostContent,
     postSummary,

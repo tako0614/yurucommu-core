@@ -1,7 +1,10 @@
 import { A, useLocation } from "@solidjs/router";
-import { For } from "solid-js";
+import { For, Show } from "solid-js";
+import { useAtomValue } from "solid-jotai";
 import { useRequiredActor } from "../../hooks/useRequiredActor.ts";
 import { useI18n } from "../../lib/i18n.tsx";
+import { notificationUnreadAtom } from "../../atoms/notifications.ts";
+import { NavBadge } from "./NavBadge.tsx";
 import type { Component } from "solid-js";
 
 const HomeIcon: Component = () => (
@@ -80,11 +83,17 @@ export function Sidebar() {
   const actor = useRequiredActor();
   const { t } = useI18n();
   const location = useLocation();
+  const unreadCount = useAtomValue(notificationUnreadAtom);
 
   const navItems = [
     { to: "/", icon: HomeIcon, label: t("nav.home") },
     { to: "/dm", icon: MessageIcon, label: t("nav.messages") },
-    { to: "/notifications", icon: BellIcon, label: t("nav.notifications") },
+    {
+      to: "/notifications",
+      icon: BellIcon,
+      label: t("nav.notifications"),
+      badge: true,
+    },
     { to: "/bookmarks", icon: BookmarkIcon, label: t("nav.bookmarks") },
     { to: "/profile", icon: ProfileIcon, label: t("nav.profile") },
     { to: "/settings", icon: SettingsIcon, label: t("nav.settings") },
@@ -114,7 +123,17 @@ export function Sidebar() {
                       : "text-neutral-400 hover:bg-neutral-900/50 hover:text-white"
                   }`}
                 >
-                  <Icon />
+                  <span class="relative inline-flex">
+                    <Icon />
+                    <Show when={item.badge && unreadCount() > 0}>
+                      <span class="absolute -top-1.5 -right-2">
+                        <NavBadge
+                          count={unreadCount()}
+                          label={t("nav.notifications")}
+                        />
+                      </span>
+                    </Show>
+                  </span>
                   <span>{item.label}</span>
                 </A>
               );
