@@ -5,6 +5,8 @@
  */
 
 import { createSignal, For } from "solid-js";
+import { useI18n } from "../../lib/i18n.tsx";
+import type { TranslationKey } from "../../lib/i18n.tsx";
 
 interface EmojiPickerProps {
   onSelect: (emoji: string) => void;
@@ -13,7 +15,7 @@ interface EmojiPickerProps {
 // Emoji categories
 const EMOJI_CATEGORIES = [
   {
-    name: "顔",
+    name: "story.emojiFaces",
     emojis: [
       "😀",
       "😃",
@@ -114,7 +116,7 @@ const EMOJI_CATEGORIES = [
     ],
   },
   {
-    name: "ジェスチャー",
+    name: "story.emojiGestures",
     emojis: [
       "👋",
       "🤚",
@@ -167,7 +169,7 @@ const EMOJI_CATEGORIES = [
     ],
   },
   {
-    name: "ハート",
+    name: "story.emojiHearts",
     emojis: [
       "❤️",
       "🧡",
@@ -196,7 +198,7 @@ const EMOJI_CATEGORIES = [
     ],
   },
   {
-    name: "アニマル",
+    name: "story.emojiAnimals",
     emojis: [
       "🐶",
       "🐱",
@@ -265,7 +267,7 @@ const EMOJI_CATEGORIES = [
     ],
   },
   {
-    name: "食べ物",
+    name: "story.emojiFood",
     emojis: [
       "🍎",
       "🍐",
@@ -382,7 +384,7 @@ const EMOJI_CATEGORIES = [
     ],
   },
   {
-    name: "自然",
+    name: "story.emojiNature",
     emojis: [
       "🌸",
       "💮",
@@ -459,7 +461,7 @@ const EMOJI_CATEGORIES = [
     ],
   },
   {
-    name: "シンボル",
+    name: "story.emojiSymbols",
     emojis: [
       "⭐",
       "✨",
@@ -674,6 +676,7 @@ const EMOJI_CATEGORIES = [
 ];
 
 export function EmojiPicker(props: EmojiPickerProps) {
+  const { t } = useI18n();
   const [activeCategory, setActiveCategory] = createSignal(0);
 
   return (
@@ -690,7 +693,7 @@ export function EmojiPicker(props: EmojiPickerProps) {
                   : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
               }`}
             >
-              {category.name}
+              {t(category.name as TranslationKey)}
             </button>
           )}
         </For>

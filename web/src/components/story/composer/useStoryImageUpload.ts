@@ -1,5 +1,6 @@
 import { createEffect, onCleanup } from "solid-js";
 import type { StoryCanvas } from "../../../lib/story-canvas.ts";
+import { useI18n } from "../../../lib/i18n.tsx";
 
 // File size limit
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB
@@ -13,6 +14,7 @@ interface UseStoryImageUploadOptions {
 }
 
 export function useStoryImageUpload(opts: UseStoryImageUploadOptions) {
+  const { t } = useI18n();
   let fileInputRef!: HTMLInputElement;
   const objectUrls = new Set<string>();
 
@@ -33,13 +35,16 @@ export function useStoryImageUpload(opts: UseStoryImageUploadOptions) {
     if (!file || !opts.storyCanvas) return;
 
     if (!file.type.startsWith("image/")) {
-      opts.setError("画像ファイルを選択してください");
+      opts.setError(t("story.selectImageFile"));
       return;
     }
 
     if (file.size > MAX_IMAGE_SIZE) {
       opts.setError(
-        `画像サイズが大きすぎます（最大${MAX_IMAGE_SIZE / 1024 / 1024}MB）`,
+        t("story.imageTooLarge").replace(
+          "{size}",
+          String(MAX_IMAGE_SIZE / 1024 / 1024),
+        ),
       );
       return;
     }
@@ -55,7 +60,7 @@ export function useStoryImageUpload(opts: UseStoryImageUploadOptions) {
       opts.onUpdate();
     } catch (err) {
       console.error("Failed to add image:", err);
-      opts.setError("画像の追加に失敗しました");
+      opts.setError(t("story.mediaUploadFailed"));
     } finally {
       opts.setUploading(false);
       if (fileInputRef) fileInputRef.value = "";

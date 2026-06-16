@@ -1,4 +1,5 @@
 import { Show } from "solid-js";
+import { useI18n } from "../../../lib/i18n.tsx";
 
 interface StoryComposerFooterProps {
   caption: string;
@@ -20,6 +21,7 @@ const SendIcon = () => (
 );
 
 export function StoryComposerFooter(props: StoryComposerFooterProps) {
+  const { t } = useI18n();
   const postDisabled = () =>
     !props.canPost ||
     props.posting ||
@@ -37,7 +39,7 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
           type="text"
           value={props.caption}
           onInput={(e) => props.onCaptionChange(e.currentTarget.value)}
-          placeholder="キャプションを追加..."
+          placeholder={t("story.captionPlaceholder")}
           class="w-full bg-transparent text-white placeholder-white/50 text-base py-2 outline-none"
         />
       </div>
@@ -52,7 +54,9 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
             <span class="w-4 h-4 rounded-full bg-neutral-900"></span>
           </span>
           <span>
-            {props.posting ? `${Math.round(props.progress)}%` : "ストーリーズ"}
+            {props.posting
+              ? `${Math.round(props.progress)}%`
+              : t("story.stories")}
           </span>
         </button>
 
@@ -66,7 +70,7 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
               <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
             </svg>
           </span>
-          <span>親しい友達</span>
+          <span>{t("story.closeFriends")}</span>
         </button>
 
         <button
@@ -85,7 +89,7 @@ export function StoryComposerFooter(props: StoryComposerFooterProps) {
             onClick={props.onDismissError}
             class="text-red-400/70 text-xs mt-1 hover:text-red-400"
           >
-            閉じる
+            {t("story.close")}
           </button>
         </div>
       </Show>

@@ -6,6 +6,7 @@
 
 import { Show } from "solid-js";
 import { ColorPicker, GradientPicker } from "./ColorPicker.tsx";
+import { useI18n } from "../../lib/i18n.tsx";
 
 interface BackgroundPanelProps {
   fillType: "solid" | "gradient";
@@ -18,9 +19,10 @@ interface BackgroundPanelProps {
 }
 
 export function BackgroundPanel(props: BackgroundPanelProps) {
+  const { t } = useI18n();
   return (
     <div class="space-y-4">
-      <h3 class="text-white font-medium">背景</h3>
+      <h3 class="text-white font-medium">{t("story.background")}</h3>
 
       {/* Fill type toggle */}
       <div class="flex gap-2">
@@ -32,7 +34,7 @@ export function BackgroundPanel(props: BackgroundPanelProps) {
               : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
           }`}
         >
-          単色
+          {t("story.solid")}
         </button>
         <button
           onClick={() => props.onFillTypeChange("gradient")}
@@ -42,7 +44,7 @@ export function BackgroundPanel(props: BackgroundPanelProps) {
               : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700"
           }`}
         >
-          グラデーション
+          {t("story.gradient")}
         </button>
       </div>
 

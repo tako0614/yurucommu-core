@@ -126,32 +126,32 @@ export type Layer =
 export const FONTS = [
   {
     id: "sans",
-    name: "ゴシック",
+    name: "story.fontGothic",
     family: '"Hiragino Sans", "Noto Sans JP", sans-serif',
   },
   {
     id: "serif",
-    name: "明朝",
+    name: "story.fontMincho",
     family: '"Hiragino Mincho ProN", "Noto Serif JP", serif',
   },
   {
     id: "rounded",
-    name: "丸ゴシック",
+    name: "story.fontRounded",
     family: '"Hiragino Maru Gothic ProN", "M PLUS Rounded 1c", sans-serif',
   },
   {
     id: "handwriting",
-    name: "手書き",
+    name: "story.fontHandwriting",
     family: '"Zen Kurenaido", "Klee One", cursive',
   },
   {
     id: "pop",
-    name: "ポップ",
+    name: "story.fontPop",
     family: '"Kosugi Maru", "M PLUS Rounded 1c", sans-serif',
   },
   {
     id: "mono",
-    name: "等幅",
+    name: "story.fontMono",
     family: '"Source Code Pro", "Noto Sans Mono", monospace',
   },
 ];
@@ -164,7 +164,7 @@ export const FILTER_PRESETS: {
 }[] = [
   {
     id: "none",
-    name: "なし",
+    name: "story.none",
     filter: {
       brightness: 100,
       contrast: 100,
@@ -177,7 +177,7 @@ export const FILTER_PRESETS: {
   },
   {
     id: "vivid",
-    name: "ビビッド",
+    name: "story.filterVivid",
     filter: {
       brightness: 105,
       contrast: 110,
@@ -190,7 +190,7 @@ export const FILTER_PRESETS: {
   },
   {
     id: "warm",
-    name: "暖色",
+    name: "story.filterWarm",
     filter: {
       brightness: 105,
       contrast: 100,
@@ -203,7 +203,7 @@ export const FILTER_PRESETS: {
   },
   {
     id: "cool",
-    name: "寒色",
+    name: "story.filterCool",
     filter: {
       brightness: 100,
       contrast: 105,
@@ -216,7 +216,7 @@ export const FILTER_PRESETS: {
   },
   {
     id: "vintage",
-    name: "ヴィンテージ",
+    name: "story.filterVintage",
     filter: {
       brightness: 110,
       contrast: 85,
@@ -229,7 +229,7 @@ export const FILTER_PRESETS: {
   },
   {
     id: "bw",
-    name: "モノクロ",
+    name: "story.filterMonochrome",
     filter: {
       brightness: 100,
       contrast: 110,
@@ -242,7 +242,7 @@ export const FILTER_PRESETS: {
   },
   {
     id: "fade",
-    name: "フェード",
+    name: "story.filterFade",
     filter: {
       brightness: 110,
       contrast: 90,
@@ -255,7 +255,7 @@ export const FILTER_PRESETS: {
   },
   {
     id: "dramatic",
-    name: "ドラマチック",
+    name: "story.filterDramatic",
     filter: {
       brightness: 95,
       contrast: 130,
@@ -480,7 +480,7 @@ export class StoryCanvas {
   }
 
   // Create default text layer
-  createTextLayer(content: string = "テキスト"): TextLayer {
+  createTextLayer(content: string = ""): TextLayer {
     return {
       id: generateLayerId(),
       type: "text",

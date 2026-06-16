@@ -5,6 +5,7 @@
  */
 
 import { createSignal, For, Show } from "solid-js";
+import { useI18n } from "../../lib/i18n.tsx";
 
 interface ColorPickerProps {
   color: string;
@@ -45,6 +46,7 @@ const GRADIENT_PRESETS = [
 ];
 
 export function ColorPicker(props: ColorPickerProps) {
+  const { t } = useI18n();
   const [showCustom, setShowCustom] = createSignal(false);
   const [customColor, setCustomColor] = createSignal(props.color);
 
@@ -89,7 +91,7 @@ export function ColorPicker(props: ColorPickerProps) {
         onClick={() => setShowCustom(!showCustom())}
         class="text-neutral-400 text-xs hover:text-white transition-colors"
       >
-        カスタムカラー {showCustom() ? "▲" : "▼"}
+        {t("story.customColor")} {showCustom() ? "▲" : "▼"}
       </button>
 
       {/* Custom color input */}
@@ -123,6 +125,7 @@ interface GradientPickerProps {
 }
 
 export function GradientPicker(props: GradientPickerProps) {
+  const { t } = useI18n();
   const getGradientStyle = (c: string[], a: number) => {
     return `linear-gradient(${a}deg, ${c.join(", ")})`;
   };
@@ -155,7 +158,9 @@ export function GradientPicker(props: GradientPickerProps) {
       {/* Custom gradient controls */}
       <div class="flex gap-2">
         <div class="flex-1">
-          <label class="text-neutral-500 text-xs">開始色</label>
+          <label class="text-neutral-500 text-xs">
+            {t("story.startColor")}
+          </label>
           <input
             type="color"
             value={props.colors[0] || "#667eea"}
@@ -169,7 +174,7 @@ export function GradientPicker(props: GradientPickerProps) {
           />
         </div>
         <div class="flex-1">
-          <label class="text-neutral-500 text-xs">終了色</label>
+          <label class="text-neutral-500 text-xs">{t("story.endColor")}</label>
           <input
             type="color"
             value={props.colors[props.colors.length - 1] || "#764ba2"}
@@ -186,7 +191,9 @@ export function GradientPicker(props: GradientPickerProps) {
 
       {/* Angle slider */}
       <div>
-        <label class="text-neutral-500 text-xs">角度: {props.angle}°</label>
+        <label class="text-neutral-500 text-xs">
+          {t("story.angle").replace("{value}", String(props.angle))}
+        </label>
         <input
           type="range"
           min="0"

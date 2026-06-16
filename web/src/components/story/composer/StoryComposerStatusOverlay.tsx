@@ -1,4 +1,5 @@
 import { Show } from "solid-js";
+import { useI18n } from "../../../lib/i18n.tsx";
 
 interface StoryComposerStatusOverlayProps {
   ffmpegLoading: boolean;
@@ -9,13 +10,14 @@ interface StoryComposerStatusOverlayProps {
 export function StoryComposerStatusOverlay(
   props: StoryComposerStatusOverlayProps,
 ) {
+  const { t } = useI18n();
   return (
     <>
       <Show when={props.ffmpegLoading}>
         <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 bg-black/80 backdrop-blur-sm rounded-2xl px-6 py-4">
           <div class="flex items-center gap-3">
             <div class="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-            <span class="text-white">動画機能を準備中...</span>
+            <span class="text-white">{t("story.videoPreparing")}</span>
           </div>
         </div>
       </Show>
@@ -48,7 +50,7 @@ export function StoryComposerStatusOverlay(
                 {Math.round(props.progress)}%
               </span>
             </div>
-            <span class="text-white text-sm">投稿中...</span>
+            <span class="text-white text-sm">{t("posts.posting")}</span>
           </div>
         </div>
       </Show>

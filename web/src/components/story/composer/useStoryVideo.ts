@@ -9,6 +9,7 @@ import {
   initFFmpeg,
   isVideoFile,
 } from "../../../lib/ffmpeg.ts";
+import { useI18n } from "../../../lib/i18n.tsx";
 
 interface UseStoryVideoOptions {
   storyCanvas: StoryCanvas | null;
@@ -19,6 +20,7 @@ interface UseStoryVideoOptions {
 }
 
 export function useStoryVideo(opts: UseStoryVideoOptions) {
+  const { t } = useI18n();
   const [videoFile, setVideoFile] = createSignal<File | null>(null);
   const [videoPreview, setVideoPreview] = createSignal<string | null>(null);
   let videoPreviewRef: string | null = null;
@@ -59,9 +61,7 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
         setFfmpegReady(true);
       } catch (e) {
         console.error("Failed to load FFmpeg:", e);
-        opts.setError(
-          "FFmpegの読み込みに失敗しました。動画機能は使用できません。",
-        );
+        opts.setError(t("story.videoLoadFailed"));
       } finally {
         setFfmpegLoading(false);
       }
@@ -76,13 +76,16 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
     if (!file || !opts.storyCanvas) return;
 
     if (!isVideoFile(file)) {
-      opts.setError("動画ファイルを選択してください");
+      opts.setError(t("story.selectVideoFile"));
       return;
     }
 
     if (file.size > opts.maxVideoSize) {
       opts.setError(
-        `動画サイズが大きすぎます（最大${opts.maxVideoSize / 1024 / 1024}MB）`,
+        t("story.videoTooLarge").replace(
+          "{size}",
+          String(opts.maxVideoSize / 1024 / 1024),
+        ),
       );
       return;
     }
@@ -112,7 +115,7 @@ export function useStoryVideo(opts: UseStoryVideoOptions) {
       setVideoDuration(duration);
     } catch (err) {
       console.error("Failed to process video:", err);
-      opts.setError("動画の処理に失敗しました");
+      opts.setError(t("story.videoProcessFailed"));
     } finally {
       opts.setUploading(false);
       if (videoInputRef) videoInputRef.value = "";

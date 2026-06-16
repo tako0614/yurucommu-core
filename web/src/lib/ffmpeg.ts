@@ -4,10 +4,10 @@ import { fetchFile, toBlobURL } from "@ffmpeg/util";
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "./story-canvas.ts";
 
 // Timeout constants
-const FFMPEG_TIMEOUT = 120000; // 2分（120秒）
-const FFMPEG_INIT_TIMEOUT = 60000; // 1分（初期化用）
-const FFMPEG_DOWNLOAD_CORE_TIMEOUT = 30000; // 30秒（コアダウンロード用）
-const FFMPEG_DOWNLOAD_WASM_TIMEOUT = 60000; // 1分（WASMダウンロード用）
+const FFMPEG_TIMEOUT = 120000; // 2 min (120s)
+const FFMPEG_INIT_TIMEOUT = 60000; // 1 min (initialization)
+const FFMPEG_DOWNLOAD_CORE_TIMEOUT = 30000; // 30s (core download)
+const FFMPEG_DOWNLOAD_WASM_TIMEOUT = 60000; // 1 min (WASM download)
 
 // Timeout utility
 function withTimeout<T>(
@@ -42,11 +42,11 @@ export async function initFFmpeg(): Promise<FFmpeg> {
   if (ffmpeg && loaded) return ffmpeg;
 
   if (loading) {
-    // 初期化待ちにもタイムアウト
+    // Time out the wait for in-flight initialization too
     await withTimeout(
       loading,
       FFMPEG_INIT_TIMEOUT,
-      "FFmpegの初期化がタイムアウトしました。ページを再読み込みしてください。",
+      "FFmpeg initialization timed out. Please reload the page.",
     );
     return ffmpeg!;
   }
@@ -57,17 +57,17 @@ export async function initFFmpeg(): Promise<FFmpeg> {
     try {
       const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
 
-      // 各ファイルのダウンロードにもタイムアウト
+      // Time out each file download too
       const [coreURL, wasmURL] = await Promise.all([
         withTimeout(
           toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
           FFMPEG_DOWNLOAD_CORE_TIMEOUT,
-          "FFmpegコアのダウンロードがタイムアウトしました",
+          "FFmpeg core download timed out",
         ),
         withTimeout(
           toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
           FFMPEG_DOWNLOAD_WASM_TIMEOUT,
-          "FFmpeg WASMのダウンロードがタイムアウトしました",
+          "FFmpeg WASM download timed out",
         ),
       ]);
 
@@ -161,7 +161,7 @@ export async function exportCanvasToJpeg(
         "output.jpg",
       ]),
       FFMPEG_TIMEOUT,
-      "画像のエクスポートがタイムアウトしました",
+      "Image export timed out",
     );
 
     // Read output
@@ -306,7 +306,7 @@ export async function exportCanvasWithVideo(
         "output.mp4",
       ]),
       FFMPEG_TIMEOUT * 2,
-      "動画のエクスポートがタイムアウトしました",
+      "Video export timed out",
     );
 
     // Read output

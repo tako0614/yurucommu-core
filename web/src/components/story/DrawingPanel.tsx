@@ -5,6 +5,7 @@
  */
 
 import { ColorPicker } from "./ColorPicker.tsx";
+import { useI18n } from "../../lib/i18n.tsx";
 
 interface DrawingPanelProps {
   color: string;
@@ -18,36 +19,39 @@ interface DrawingPanelProps {
 }
 
 export function DrawingPanel(props: DrawingPanelProps) {
+  const { t } = useI18n();
   return (
     <div class="space-y-4">
       <div class="flex items-center justify-between">
-        <h3 class="text-white font-medium">描画</h3>
+        <h3 class="text-white font-medium">{t("story.drawing")}</h3>
         <div class="flex gap-2">
           <button
             onClick={props.onUndo}
             class="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-sm transition-colors"
           >
-            戻す
+            {t("story.undo")}
           </button>
           <button
             onClick={props.onClear}
             class="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm transition-colors"
           >
-            クリア
+            {t("story.clear")}
           </button>
         </div>
       </div>
 
       {/* Color */}
       <ColorPicker
-        label="色"
+        label={t("story.color")}
         color={props.color}
         onChange={props.onColorChange}
       />
 
       {/* Width */}
       <div>
-        <label class="text-neutral-400 text-sm">太さ: {props.width}px</label>
+        <label class="text-neutral-400 text-sm">
+          {t("story.thickness").replace("{value}", String(props.width))}
+        </label>
         <input
           type="range"
           min="2"
@@ -73,7 +77,10 @@ export function DrawingPanel(props: DrawingPanelProps) {
       {/* Opacity */}
       <div>
         <label class="text-neutral-400 text-sm">
-          不透明度: {Math.round(props.opacity * 100)}%
+          {t("story.opacity").replace(
+            "{value}",
+            String(Math.round(props.opacity * 100)),
+          )}
         </label>
         <input
           type="range"

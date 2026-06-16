@@ -9,6 +9,8 @@ import { For, Show } from "solid-js";
 import { FONTS, TextLayer } from "../../lib/story-canvas.ts";
 import { ColorPicker } from "./ColorPicker.tsx";
 import { LayerDownIcon, LayerUpIcon, TrashIcon } from "./ToolPanelIcons.tsx";
+import { useI18n } from "../../lib/i18n.tsx";
+import type { TranslationKey } from "../../lib/i18n.tsx";
 
 interface TextPanelProps {
   layer: TextLayer;
@@ -19,22 +21,23 @@ interface TextPanelProps {
 }
 
 export function TextPanel(props: TextPanelProps) {
+  const { t } = useI18n();
   return (
     <div class="space-y-4">
       <div class="flex items-center justify-between">
-        <h3 class="text-white font-medium">テキスト</h3>
+        <h3 class="text-white font-medium">{t("story.text")}</h3>
         <div class="flex gap-1">
           <button
             onClick={props.onBringToFront}
             class="p-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg transition-colors"
-            title="前面へ"
+            title={t("story.toFront")}
           >
             <LayerUpIcon />
           </button>
           <button
             onClick={props.onSendToBack}
             class="p-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg transition-colors"
-            title="背面へ"
+            title={t("story.toBack")}
           >
             <LayerDownIcon />
           </button>
@@ -49,7 +52,7 @@ export function TextPanel(props: TextPanelProps) {
 
       {/* Text content */}
       <div>
-        <label class="text-neutral-400 text-sm">テキスト</label>
+        <label class="text-neutral-400 text-sm">{t("story.text")}</label>
         <textarea
           value={props.layer.content}
           onInput={(e) => props.onUpdate({ content: e.currentTarget.value })}
@@ -60,7 +63,7 @@ export function TextPanel(props: TextPanelProps) {
 
       {/* Font family */}
       <div>
-        <label class="text-neutral-400 text-sm">フォント</label>
+        <label class="text-neutral-400 text-sm">{t("story.font")}</label>
         <div class="grid grid-cols-2 gap-2 mt-1">
           <For each={FONTS}>
             {(font) => (
@@ -73,7 +76,7 @@ export function TextPanel(props: TextPanelProps) {
                 }`}
                 style={{ "font-family": font.family }}
               >
-                {font.name}
+                {t(font.name as TranslationKey)}
               </button>
             )}
           </For>
@@ -83,7 +86,7 @@ export function TextPanel(props: TextPanelProps) {
       {/* Font size */}
       <div>
         <label class="text-neutral-400 text-sm">
-          サイズ: {props.layer.fontSize}px
+          {t("story.fontSize").replace("{value}", String(props.layer.fontSize))}
         </label>
         <input
           type="range"
@@ -132,7 +135,7 @@ export function TextPanel(props: TextPanelProps) {
 
       {/* Text alignment */}
       <div>
-        <label class="text-neutral-400 text-sm">配置</label>
+        <label class="text-neutral-400 text-sm">{t("story.align")}</label>
         <div class="flex gap-2 mt-1">
           <For each={["left", "center", "right"] as const}>
             {(align) => (
@@ -144,7 +147,11 @@ export function TextPanel(props: TextPanelProps) {
                     : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
                 }`}
               >
-                {align === "left" ? "左" : align === "center" ? "中央" : "右"}
+                {align === "left"
+                  ? t("story.alignLeft")
+                  : align === "center"
+                    ? t("story.alignCenter")
+                    : t("story.alignRight")}
               </button>
             )}
           </For>
@@ -153,14 +160,14 @@ export function TextPanel(props: TextPanelProps) {
 
       {/* Text color */}
       <ColorPicker
-        label="文字色"
+        label={t("story.textColor")}
         color={props.layer.color}
         onChange={(color) => props.onUpdate({ color })}
       />
 
       {/* Background */}
       <div>
-        <label class="text-neutral-400 text-sm">背景</label>
+        <label class="text-neutral-400 text-sm">{t("story.background")}</label>
         <div class="flex gap-2 mt-1">
           <button
             onClick={() => props.onUpdate({ backgroundColor: undefined })}
@@ -170,7 +177,7 @@ export function TextPanel(props: TextPanelProps) {
                 : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
-            なし
+            {t("story.none")}
           </button>
           <button
             onClick={() =>
@@ -182,7 +189,7 @@ export function TextPanel(props: TextPanelProps) {
                 : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
-            あり
+            {t("story.on")}
           </button>
         </div>
         <Show when={props.layer.backgroundColor}>
@@ -195,7 +202,7 @@ export function TextPanel(props: TextPanelProps) {
 
       {/* Stroke */}
       <div>
-        <label class="text-neutral-400 text-sm">縁取り</label>
+        <label class="text-neutral-400 text-sm">{t("story.stroke")}</label>
         <div class="flex gap-2 mt-1">
           <button
             onClick={() => props.onUpdate({ stroke: undefined })}
@@ -205,7 +212,7 @@ export function TextPanel(props: TextPanelProps) {
                 : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
-            なし
+            {t("story.none")}
           </button>
           <button
             onClick={() =>
@@ -217,7 +224,7 @@ export function TextPanel(props: TextPanelProps) {
                 : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
-            あり
+            {t("story.on")}
           </button>
         </div>
         <Show when={props.layer.stroke}>
@@ -232,7 +239,10 @@ export function TextPanel(props: TextPanelProps) {
             />
             <div>
               <label class="text-neutral-500 text-xs">
-                太さ: {props.layer.stroke!.width}px
+                {t("story.thickness").replace(
+                  "{value}",
+                  String(props.layer.stroke!.width),
+                )}
               </label>
               <input
                 type="range"
@@ -256,7 +266,7 @@ export function TextPanel(props: TextPanelProps) {
 
       {/* Shadow */}
       <div>
-        <label class="text-neutral-400 text-sm">影</label>
+        <label class="text-neutral-400 text-sm">{t("story.shadow")}</label>
         <div class="flex gap-2 mt-1">
           <button
             onClick={() => props.onUpdate({ shadow: undefined })}
@@ -266,7 +276,7 @@ export function TextPanel(props: TextPanelProps) {
                 : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
-            なし
+            {t("story.none")}
           </button>
           <button
             onClick={() =>
@@ -285,7 +295,7 @@ export function TextPanel(props: TextPanelProps) {
                 : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
             }`}
           >
-            あり
+            {t("story.on")}
           </button>
         </div>
       </div>

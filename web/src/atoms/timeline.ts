@@ -1,5 +1,6 @@
 import { atom } from "jotai";
 import type { ActorStories, Post } from "../types/index.ts";
+import { tAtom } from "./i18n.ts";
 import {
   type AccountInfo,
   createPost,
@@ -56,7 +57,7 @@ export const loadTimelineAtom = atom(null, async (get, set) => {
     set(timelineHasMoreAtom, posts.length >= 20);
   } catch (e) {
     console.error("Failed to load timeline:", e);
-    set(timelineErrorAtom, "エラーが発生しました");
+    set(timelineErrorAtom, get(tAtom)("common.error"));
   } finally {
     set(timelineLoadingAtom, false);
   }
@@ -78,20 +79,20 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
     set(timelineHasMoreAtom, newPosts.length >= 20);
   } catch (e) {
     console.error("Failed to load more:", e);
-    set(timelineErrorAtom, "エラーが発生しました");
+    set(timelineErrorAtom, get(tAtom)("common.error"));
   } finally {
     set(timelineLoadingMoreAtom, false);
   }
 });
 
-export const loadStoriesAtom = atom(null, async (_get, set) => {
+export const loadStoriesAtom = atom(null, async (get, set) => {
   set(storiesErrorAtom, null);
   try {
     const data = await fetchStories();
     set(actorStoriesAtom, data);
   } catch (e) {
     console.error("Failed to load stories:", e);
-    set(storiesErrorAtom, "ストーリーの読み込みに失敗しました");
+    set(storiesErrorAtom, get(tAtom)("story.loadFailed"));
   } finally {
     set(storiesLoadingAtom, false);
   }
@@ -124,7 +125,7 @@ export const createPostAtom = atom(null, async (get, set, content: string) => {
     return false;
   } catch (e) {
     console.error("Failed to create post:", e);
-    set(timelineErrorAtom, "エラーが発生しました");
+    set(timelineErrorAtom, get(tAtom)("common.error"));
     return false;
   } finally {
     set(postingAtom, false);
@@ -136,7 +137,10 @@ export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
   if (file.size > MAX_IMAGE_SIZE) {
     set(
       uploadErrorAtom,
-      `画像サイズが大きすぎます（最大${MAX_IMAGE_SIZE / 1024 / 1024}MB）`,
+      get(tAtom)("story.imageTooLarge").replace(
+        "{size}",
+        String(MAX_IMAGE_SIZE / 1024 / 1024),
+      ),
     );
     return;
   }
@@ -157,7 +161,7 @@ export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
     ]);
   } catch (e) {
     console.error("Failed to upload:", e);
-    set(uploadErrorAtom, "アップロードに失敗しました");
+    set(uploadErrorAtom, get(tAtom)("common.uploadFailed"));
   } finally {
     set(uploadingAtom, false);
   }
@@ -171,7 +175,7 @@ export const removeMediaAtom = atom(null, (_get, set, index: number) => {
   });
 });
 
-export const loadAccountsAtom = atom(null, async (_get, set) => {
+export const loadAccountsAtom = atom(null, async (get, set) => {
   set(accountsLoadingAtom, true);
   set(accountsErrorAtom, null);
   try {
@@ -180,7 +184,7 @@ export const loadAccountsAtom = atom(null, async (_get, set) => {
     set(currentApIdAtom, data.current_ap_id);
   } catch (e) {
     console.error("Failed to load accounts:", e);
-    set(accountsErrorAtom, "アカウント情報の読み込みに失敗しました");
+    set(accountsErrorAtom, get(tAtom)("settings.accountsLoadFailed"));
   } finally {
     set(accountsLoadingAtom, false);
   }

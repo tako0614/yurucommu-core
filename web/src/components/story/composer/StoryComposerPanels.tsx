@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 import { DrawingPanel, StickerPanel } from "../ToolPanel.tsx";
+import { useI18n } from "../../../lib/i18n.tsx";
 
 interface StoryComposerStickerPanelProps {
   open: boolean;
@@ -21,6 +22,7 @@ const CloseIcon = () => (
 export function StoryComposerStickerPanel(
   props: StoryComposerStickerPanelProps,
 ) {
+  const { t } = useI18n();
   return (
     <Show when={props.open}>
       <div
@@ -30,7 +32,7 @@ export function StoryComposerStickerPanel(
         }}
       >
         <div class="flex items-center justify-between mb-3">
-          <h3 class="text-white font-medium">スタンプ</h3>
+          <h3 class="text-white font-medium">{t("story.stamp")}</h3>
           <button
             onClick={props.onClose}
             aria-label="Close"
@@ -63,6 +65,7 @@ interface StoryComposerDrawingPanelProps {
 export function StoryComposerDrawingPanel(
   props: StoryComposerDrawingPanelProps,
 ) {
+  const { t } = useI18n();
   return (
     <Show when={props.isDrawing}>
       <div
@@ -94,7 +97,7 @@ export function StoryComposerDrawingPanel(
           onClick={props.onDone}
           class="mt-3 w-full py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm transition-colors"
         >
-          完了
+          {t("story.done")}
         </button>
       </div>
     </Show>

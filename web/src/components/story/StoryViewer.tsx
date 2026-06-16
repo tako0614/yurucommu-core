@@ -489,7 +489,7 @@ export function StoryViewer(props: StoryViewerProps) {
               <div class="absolute inset-0 flex items-center justify-center bg-neutral-900">
                 <div class="text-center text-neutral-400">
                   <ErrorIcon />
-                  <p class="mt-2">メディアを読み込めませんでした</p>
+                  <p class="mt-2">{t("story.mediaLoadFailed")}</p>
                 </div>
               </div>
             </Show>
@@ -502,6 +502,7 @@ export function StoryViewer(props: StoryViewerProps) {
                     {(overlay) => (
                       <div>
                         {renderStoryOverlay(
+                          t,
                           overlay,
                           containerSize(),
                           currentStory()!.ap_id,

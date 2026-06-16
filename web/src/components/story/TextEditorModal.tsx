@@ -10,12 +10,13 @@
 
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { FONTS } from "../../lib/story-canvas.ts";
+import { useI18n } from "../../lib/i18n.tsx";
 
 // Text style presets (Instagram-like A, A, A buttons)
 const TEXT_STYLES = [
-  { id: "none", label: "A", bg: "transparent", description: "なし" },
-  { id: "semi", label: "A", bg: "rgba(0,0,0,0.5)", description: "半透明" },
-  { id: "solid", label: "A", bg: "#000000", description: "塗り" },
+  { id: "none", label: "A", bg: "transparent" },
+  { id: "semi", label: "A", bg: "rgba(0,0,0,0.5)" },
+  { id: "solid", label: "A", bg: "#000000" },
 ] as const;
 
 // Color palette
@@ -64,6 +65,7 @@ const defaultTextData: TextData = {
 };
 
 export function TextEditorModal(props: TextEditorModalProps) {
+  const { t } = useI18n();
   const [text, setText] = createSignal<TextData>(
     props.initialText || defaultTextData,
   );
@@ -122,7 +124,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
             onClick={props.onClose}
             class="text-white text-lg font-medium"
           >
-            キャンセル
+            {t("common.cancel")}
           </button>
           <div class="flex gap-2">
             {/* Font picker toggle */}
@@ -153,7 +155,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
             onClick={handleSave}
             class="text-blue-400 text-lg font-semibold"
           >
-            完了
+            {t("story.done")}
           </button>
         </div>
 
@@ -237,7 +239,7 @@ export function TextEditorModal(props: TextEditorModalProps) {
                   content: e.currentTarget.value,
                 }))
               }
-              placeholder="テキストを入力"
+              placeholder={t("story.textPlaceholder")}
               class="w-full bg-transparent border-none outline-none resize-none text-center"
               style={{
                 "font-family": text().fontFamily,

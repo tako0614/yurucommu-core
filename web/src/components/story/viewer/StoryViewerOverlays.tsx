@@ -2,6 +2,7 @@ import type { JSX } from "solid-js";
 import { For, Show } from "solid-js";
 import { voteOnStory } from "../../../lib/api.ts";
 import type { StoryOverlay } from "../../../types/index.ts";
+import type { Translate } from "../../../lib/i18n.tsx";
 
 // Validate URL for XSS protection - only allow http: and https: protocols
 function isValidUrl(url: string): boolean {
@@ -19,6 +20,7 @@ interface OverlayContainerSize {
 }
 
 export function renderStoryOverlay(
+  t: Translate,
   overlay: StoryOverlay,
   containerSize: OverlayContainerSize,
   storyApId: string,
@@ -109,7 +111,9 @@ export function renderStoryOverlay(
             </For>
           </div>
           <Show when={hasVotes}>
-            <p class="text-white/60 text-xs text-center mt-2">{votesTotal}票</p>
+            <p class="text-white/60 text-xs text-center mt-2">
+              {t("story.votes").replace("{count}", String(votesTotal))}
+            </p>
           </Show>
         </div>
       </div>
@@ -140,7 +144,7 @@ export function renderStoryOverlay(
           class="bg-white text-black text-sm font-medium px-4 py-2 rounded-full hover:bg-neutral-200 transition-colors"
           onClick={(e) => e.stopPropagation()}
         >
-          {overlay.name || "リンクを開く"}
+          {overlay.name || t("story.openLink")}
         </a>
       </div>
     );

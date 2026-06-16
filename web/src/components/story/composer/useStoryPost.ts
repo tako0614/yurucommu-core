@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import type { StoryCanvas, TextLayer } from "../../../lib/story-canvas.ts";
 import type { StoryOverlay } from "../../../types/index.ts";
 import { createStory, uploadMedia } from "../../../lib/api.ts";
+import { useI18n } from "../../../lib/i18n.tsx";
 import {
   exportCanvasWithVideo,
   FFmpegError,
@@ -23,6 +24,7 @@ interface UseStoryPostOptions {
 }
 
 export function useStoryPost(opts: UseStoryPostOptions) {
+  const { t } = useI18n();
   const [posting, setPosting] = createSignal(false);
   const [progress, setProgress] = createSignal(0);
 
@@ -46,7 +48,7 @@ export function useStoryPost(opts: UseStoryPostOptions) {
     if (!opts.storyCanvas || posting()) return;
     // Video mode requires FFmpeg to be ready
     if (opts.videoFile && !opts.ffmpegReady) {
-      opts.setError("動画処理の準備中です。しばらくお待ちください。");
+      opts.setError(t("story.videoNotReady"));
       return;
     }
 
@@ -123,11 +125,15 @@ export function useStoryPost(opts: UseStoryPostOptions) {
     } catch (err) {
       console.error("Failed to create story:", err);
       if (err instanceof FFmpegError) {
-        opts.setError(`動画処理エラー: ${err.message}`);
+        opts.setError(
+          t("story.videoProcessError").replace("{message}", err.message),
+        );
       } else if (err instanceof Error) {
-        opts.setError(`エラー: ${err.message}`);
+        opts.setError(
+          t("story.genericError").replace("{message}", err.message),
+        );
       } else {
-        opts.setError("ストーリーの作成に失敗しました");
+        opts.setError(t("story.createFailed"));
       }
     } finally {
       setPosting(false);

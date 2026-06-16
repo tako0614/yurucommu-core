@@ -8,6 +8,8 @@
 import { createMemo, For } from "solid-js";
 import { FILTER_PRESETS, MediaLayer } from "../../lib/story-canvas.ts";
 import { LayerDownIcon, LayerUpIcon, TrashIcon } from "./ToolPanelIcons.tsx";
+import { useI18n } from "../../lib/i18n.tsx";
+import type { TranslationKey } from "../../lib/i18n.tsx";
 
 interface MediaPanelProps {
   layer: MediaLayer;
@@ -18,6 +20,7 @@ interface MediaPanelProps {
 }
 
 export function MediaPanel(props: MediaPanelProps) {
+  const { t } = useI18n();
   const currentFilter = createMemo(
     () => props.layer.filter || FILTER_PRESETS[0].filter,
   );
@@ -25,19 +28,19 @@ export function MediaPanel(props: MediaPanelProps) {
   return (
     <div class="space-y-4">
       <div class="flex items-center justify-between">
-        <h3 class="text-white font-medium">画像</h3>
+        <h3 class="text-white font-medium">{t("story.image")}</h3>
         <div class="flex gap-1">
           <button
             onClick={props.onBringToFront}
             class="p-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg transition-colors"
-            title="前面へ"
+            title={t("story.toFront")}
           >
             <LayerUpIcon />
           </button>
           <button
             onClick={props.onSendToBack}
             class="p-2 bg-neutral-800 hover:bg-neutral-700 rounded-lg transition-colors"
-            title="背面へ"
+            title={t("story.toBack")}
           >
             <LayerDownIcon />
           </button>
@@ -52,7 +55,7 @@ export function MediaPanel(props: MediaPanelProps) {
 
       {/* Filter presets */}
       <div>
-        <label class="text-neutral-400 text-sm">フィルター</label>
+        <label class="text-neutral-400 text-sm">{t("story.filter")}</label>
         <div class="grid grid-cols-4 gap-2 mt-2">
           <For each={FILTER_PRESETS}>
             {(preset) => (
@@ -65,7 +68,7 @@ export function MediaPanel(props: MediaPanelProps) {
                     : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
                 }`}
               >
-                {preset.name}
+                {t(preset.name as TranslationKey)}
               </button>
             )}
           </For>
@@ -76,7 +79,10 @@ export function MediaPanel(props: MediaPanelProps) {
       <div class="space-y-3">
         <div>
           <label class="text-neutral-500 text-xs">
-            明るさ: {currentFilter().brightness}%
+            {t("story.brightness").replace(
+              "{value}",
+              String(currentFilter().brightness),
+            )}
           </label>
           <input
             type="range"
@@ -96,7 +102,10 @@ export function MediaPanel(props: MediaPanelProps) {
         </div>
         <div>
           <label class="text-neutral-500 text-xs">
-            コントラスト: {currentFilter().contrast}%
+            {t("story.contrast").replace(
+              "{value}",
+              String(currentFilter().contrast),
+            )}
           </label>
           <input
             type="range"
@@ -116,7 +125,10 @@ export function MediaPanel(props: MediaPanelProps) {
         </div>
         <div>
           <label class="text-neutral-500 text-xs">
-            彩度: {currentFilter().saturation}%
+            {t("story.saturation").replace(
+              "{value}",
+              String(currentFilter().saturation),
+            )}
           </label>
           <input
             type="range"
@@ -139,7 +151,10 @@ export function MediaPanel(props: MediaPanelProps) {
       {/* Opacity */}
       <div>
         <label class="text-neutral-500 text-xs">
-          不透明度: {Math.round(props.layer.opacity * 100)}%
+          {t("story.opacity").replace(
+            "{value}",
+            String(Math.round(props.layer.opacity * 100)),
+          )}
         </label>
         <input
           type="range"

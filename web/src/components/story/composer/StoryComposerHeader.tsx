@@ -1,4 +1,5 @@
 import type { JSX } from "solid-js";
+import { useI18n } from "../../../lib/i18n.tsx";
 
 type Tool = "text" | "sticker" | "music" | "effect" | "resize";
 
@@ -103,6 +104,7 @@ const StickerIcon = () => (
 );
 
 export function StoryComposerHeader(props: StoryComposerHeaderProps) {
+  const { t } = useI18n();
   return (
     <>
       <button
@@ -122,31 +124,31 @@ export function StoryComposerHeader(props: StoryComposerHeaderProps) {
       >
         <ToolButton
           icon={<span class="text-lg font-bold text-white">Aa</span>}
-          label="テキスト"
+          label={t("story.text")}
           onClick={() => props.onToolClick("text")}
           active={props.activeTool === "text"}
         />
         <ToolButton
           icon={<StickerIcon />}
-          label="スタンプ"
+          label={t("story.stamp")}
           onClick={() => props.onToolClick("sticker")}
           active={props.activeTool === "sticker"}
         />
         <ToolButton
           icon={<MusicIcon />}
-          label="音楽"
+          label={t("story.music")}
           onClick={() => props.onToolClick("music")}
           active={props.activeTool === "music"}
         />
         <ToolButton
           icon={<EffectIcon />}
-          label="エフェクト"
+          label={t("story.effect")}
           onClick={() => props.onToolClick("effect")}
           active={props.activeTool === "effect"}
         />
         <ToolButton
           icon={<ResizeIcon />}
-          label="サイズ変更"
+          label={t("story.resize")}
           onClick={() => props.onToolClick("resize")}
           active={props.activeTool === "resize"}
         />

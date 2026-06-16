@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 import type { JSX } from "solid-js";
+import { useI18n } from "../../../lib/i18n.tsx";
 
 interface StoryComposerCanvasProps {
   canvasContainerRef: HTMLDivElement | undefined;
@@ -22,6 +23,7 @@ interface StoryComposerCanvasProps {
 }
 
 export function StoryComposerCanvas(props: StoryComposerCanvasProps) {
+  const { t } = useI18n();
   return (
     <div
       ref={props.canvasContainerRef}
@@ -64,7 +66,7 @@ export function StoryComposerCanvas(props: StoryComposerCanvasProps) {
           >
             <div class="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1.5 bg-black/70 rounded-full pointer-events-none">
               <span class="text-white/80 text-xs">
-                2本指で拡大縮小・回転・ドラッグで移動
+                {t("story.gestureHint")}
               </span>
             </div>
           </Show>

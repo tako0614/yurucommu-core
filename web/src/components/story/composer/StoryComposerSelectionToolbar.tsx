@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 import type { Layer } from "../../../lib/story-canvas.ts";
+import { useI18n } from "../../../lib/i18n.tsx";
 
 interface StoryComposerSelectionToolbarProps {
   selectedLayer: Layer | null;
@@ -12,6 +13,7 @@ interface StoryComposerSelectionToolbarProps {
 export function StoryComposerSelectionToolbar(
   props: StoryComposerSelectionToolbarProps,
 ) {
+  const { t } = useI18n();
   return (
     <Show
       when={props.selectedLayer && props.selectedLayer.type !== "background"}
@@ -21,7 +23,7 @@ export function StoryComposerSelectionToolbar(
           <button
             onClick={() => props.onEditText(props.selectedLayer!.id)}
             class="p-3 text-white hover:bg-white/20 rounded-xl transition-colors"
-            title="編集"
+            title={t("common.edit")}
           >
             <svg
               class="w-5 h-5"
@@ -41,7 +43,7 @@ export function StoryComposerSelectionToolbar(
         <button
           onClick={props.onBringToFront}
           class="p-3 text-white hover:bg-white/20 rounded-xl transition-colors"
-          title="前面へ"
+          title={t("story.toFront")}
         >
           <svg
             class="w-5 h-5"
@@ -60,7 +62,7 @@ export function StoryComposerSelectionToolbar(
         <button
           onClick={props.onSendToBack}
           class="p-3 text-white hover:bg-white/20 rounded-xl transition-colors"
-          title="背面へ"
+          title={t("story.toBack")}
         >
           <svg
             class="w-5 h-5"
@@ -79,7 +81,7 @@ export function StoryComposerSelectionToolbar(
         <button
           onClick={props.onDelete}
           class="p-3 text-red-400 hover:bg-red-500/20 rounded-xl transition-colors"
-          title="削除"
+          title={t("common.delete")}
         >
           <svg
             class="w-5 h-5"
