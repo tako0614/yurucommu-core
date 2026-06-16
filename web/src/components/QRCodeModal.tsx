@@ -10,6 +10,7 @@ import { Html5Qrcode } from "html5-qrcode";
 import { Actor } from "../types/index.ts";
 import { fetchActor, follow, searchRemote } from "../lib/api.ts";
 import { UserAvatar } from "./UserAvatar.tsx";
+import { useI18n } from "../lib/i18n.tsx";
 
 interface QRCodeModalProps {
   actor: Actor;
@@ -46,6 +47,8 @@ const ShareIcon = () => (
 );
 
 export function QRCodeModal(props: QRCodeModalProps) {
+  const { t } = useI18n();
+  const [copied, setCopied] = createSignal(false);
   const [tab, setTab] = createSignal<"myqr" | "scan">("myqr");
   const [scanning, setScanning] = createSignal(false);
   const [lookingUp, setLookingUp] = createSignal(false);
@@ -217,7 +220,8 @@ export function QRCodeModal(props: QRCodeModalProps) {
     } else {
       // Fallback: copy to clipboard
       navigator.clipboard.writeText(qrUrl());
-      alert("URL copied to clipboard");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
     }
   };
 
@@ -233,6 +237,11 @@ export function QRCodeModal(props: QRCodeModalProps) {
 
   return (
     <div class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+      <Show when={copied()}>
+        <div class="fixed bottom-8 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 bg-neutral-800 text-white text-sm rounded-full shadow-lg">
+          {t("settings.linkCopied")}
+        </div>
+      </Show>
       <div class="bg-neutral-900 rounded-2xl w-full max-w-md overflow-hidden">
         {/* Header */}
         <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">

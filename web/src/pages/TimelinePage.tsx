@@ -134,7 +134,7 @@ export function TimelinePage() {
             </Show>
             <Show when={!state.hasMore() && state.posts().length > 0}>
               <div class="p-4 text-center text-neutral-600 text-sm">
-                これ以上の投稿はありません
+                {state.t()("timeline.noMorePosts")}
               </div>
             </Show>
           </Show>
@@ -148,7 +148,7 @@ export function TimelinePage() {
         onPostContentChange={state.setPostContent}
         placeholder={state.getPlaceholder()}
         submitLabel={state.t()("posts.post")}
-        submittingLabel="投稿中..."
+        submittingLabel={state.t()("posts.posting")}
         onClose={state.handleClosePostModal}
         onSubmit={state.handlePost}
         posting={state.posting()}

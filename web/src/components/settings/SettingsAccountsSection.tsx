@@ -29,7 +29,10 @@ interface SettingsAccountsSectionProps {
 export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
   return (
     <div class="flex flex-col h-full">
-      <SettingsSectionHeader title="アカウント切り替え" onBack={props.onBack} />
+      <SettingsSectionHeader
+        title={props.t("settings.switchAccount")}
+        onBack={props.onBack}
+      />
       <div class="flex-1 overflow-y-auto">
         <Show
           when={!props.loading}
@@ -78,13 +81,13 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
                 <div class="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center">
                   <PlusIcon />
                 </div>
-                <span>新しいアカウントを作成</span>
+                <span>{props.t("settings.createNewAccount")}</span>
               </button>
             }
           >
             <div class="p-4 border-t border-neutral-900">
               <div class="flex items-center justify-between mb-4">
-                <h3 class="font-bold">新しいアカウント</h3>
+                <h3 class="font-bold">{props.t("settings.newAccount")}</h3>
                 <button
                   onClick={props.onResetCreate}
                   aria-label="Close"
@@ -101,7 +104,7 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
               <div class="space-y-3">
                 <div>
                   <label class="block text-sm text-neutral-400 mb-1">
-                    ユーザー名 *
+                    {props.t("settings.usernameLabel")}
                   </label>
                   <input
                     type="text"
@@ -115,12 +118,12 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
                     class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <p class="text-xs text-neutral-500 mt-1">
-                    英数字とアンダースコアのみ
+                    {props.t("settings.usernameHint")}
                   </p>
                 </div>
                 <div>
                   <label class="block text-sm text-neutral-400 mb-1">
-                    表示名
+                    {props.t("settings.displayName")}
                   </label>
                   <input
                     type="text"
@@ -128,7 +131,7 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
                     onInput={(e) =>
                       props.onChangeDisplayName(e.currentTarget.value)
                     }
-                    placeholder="Display Name"
+                    placeholder={props.t("settings.displayName")}
                     class="w-full bg-neutral-800 rounded-lg px-3 py-2 text-white placeholder-neutral-500 outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -137,7 +140,7 @@ export function SettingsAccountsSection(props: SettingsAccountsSectionProps) {
                   disabled={!props.isUsernameValid}
                   class="w-full py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-bold transition-colors disabled:opacity-50 disabled:hover:bg-blue-500"
                 >
-                  作成
+                  {props.t("groups.create")}
                 </button>
               </div>
             </div>

@@ -74,6 +74,7 @@ interface RequestItemProps {
 }
 
 function RequestItem(props: RequestItemProps) {
+  const { t } = useI18n();
   return (
     <div class="flex items-start gap-3 p-4 border-b border-neutral-800">
       <img
@@ -101,13 +102,13 @@ function RequestItem(props: RequestItemProps) {
             onClick={props.onAccept}
             class="px-4 py-1.5 bg-green-500 text-white text-sm font-medium rounded-full hover:bg-green-600 transition-colors"
           >
-            承認
+            {t("dm.accept")}
           </button>
           <button
             onClick={props.onReject}
             class="px-4 py-1.5 bg-neutral-700 text-white text-sm font-medium rounded-full hover:bg-neutral-600 transition-colors"
           >
-            拒否
+            {t("dm.reject")}
           </button>
         </div>
       </div>
@@ -332,7 +333,7 @@ export function DMPage() {
             <header class="sticky top-0 bg-neutral-900/95 backdrop-blur-sm z-10">
               {/* Title bar with icons */}
               <div class="flex items-center justify-between px-4 py-3">
-                <h1 class="text-xl font-bold text-white">トーク</h1>
+                <h1 class="text-xl font-bold text-white">{t("dm.talks")}</h1>
                 <div class="flex items-center gap-2">
                   {/* Search icon */}
                   <button
@@ -408,7 +409,7 @@ export function DMPage() {
                     type="text"
                     value={searchQuery()}
                     onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                    placeholder="検索"
+                    placeholder={t("nav.search")}
                     class="w-full pl-10 pr-4 py-2 bg-neutral-900 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-700"
                   />
                 </div>
@@ -422,7 +423,7 @@ export function DMPage() {
                     activeTab() === "all" ? "text-white" : "text-neutral-500"
                   }`}
                 >
-                  すべて
+                  {t("timeline.all")}
                 </button>
                 <button
                   onClick={() => setActiveTab("friends")}
@@ -432,7 +433,7 @@ export function DMPage() {
                       : "text-neutral-500"
                   }`}
                 >
-                  友だち
+                  {t("dm.filterFriends")}
                 </button>
                 <button
                   onClick={() => setActiveTab("communities")}
@@ -442,7 +443,7 @@ export function DMPage() {
                       : "text-neutral-500"
                   }`}
                 >
-                  グループ
+                  {t("nav.groups")}
                 </button>
                 <button
                   onClick={() => setActiveTab("requests")}
@@ -452,7 +453,7 @@ export function DMPage() {
                       : "text-neutral-500"
                   }`}
                 >
-                  リクエスト
+                  {t("dm.filterRequests")}
                   <Show when={requestCount() > 0}>
                     <span class="absolute top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-green-500 rounded-full text-[10px] flex items-center justify-center text-white font-bold">
                       {requestCount() > 99 ? "99+" : requestCount()}
@@ -538,12 +539,10 @@ export function DMPage() {
                       </svg>
                     </div>
                     <p class="text-neutral-400 mb-2 text-lg font-medium">
-                      リクエストがありません
+                      {t("dm.noRequests")}
                     </p>
                     <p class="text-neutral-500 text-sm">
-                      新しいメッセージリクエストが
-                      <br />
-                      ここに表示されます
+                      {t("dm.noRequestsHint")}
                     </p>
                   </div>
                 </Show>
@@ -573,21 +572,21 @@ export function DMPage() {
                   </div>
                   <p class="text-neutral-400 mb-2 text-lg font-medium">
                     {searchQuery()
-                      ? "検索結果がありません"
+                      ? t("search.noResults")
                       : activeTab() === "all"
-                        ? "トークがありません"
+                        ? t("dm.noTalks")
                         : activeTab() === "friends"
-                          ? "友だちがいません"
-                          : "グループがありません"}
+                          ? t("dm.noFriends")
+                          : t("groups.noGroups")}
                   </p>
                   <p class="text-neutral-500 text-sm">
                     {searchQuery()
-                      ? "別のキーワードで検索してみてください"
+                      ? t("dm.searchHint")
                       : activeTab() === "all"
-                        ? "友だちやグループとの\nトークがここに表示されます"
+                        ? t("dm.emptyAllHint")
                         : activeTab() === "friends"
-                          ? "友だちとフォローすると\nトークがここに表示されます"
-                          : "参加しているコミュニティの\nトークがここに表示されます"}
+                          ? t("dm.emptyFriendsHint")
+                          : t("dm.emptyGroupsHint")}
                   </p>
                 </div>
               </Show>

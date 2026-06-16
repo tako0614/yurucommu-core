@@ -172,17 +172,15 @@ export function SettingsPage() {
 
   const handleDeleteAccount = async () => {
     if (deleteConfirm() !== actor.preferred_username) {
-      alert("Username does not match");
+      setError(t("settings.usernameMismatch"));
       return;
     }
     try {
       await deleteAccount();
       globalThis.location.href = "/";
     } catch (e: unknown) {
-      alert(
-        e instanceof Error
-          ? e.message
-          : String(e) || "Failed to delete account",
+      setError(
+        e instanceof Error ? e.message : t("settings.deleteAccountFailed"),
       );
     }
   };
