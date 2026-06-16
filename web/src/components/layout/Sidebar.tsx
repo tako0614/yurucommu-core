@@ -8,7 +8,13 @@ import { NavBadge } from "./NavBadge.tsx";
 import type { Component } from "solid-js";
 
 const HomeIcon: Component = () => (
-  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-6 h-6"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -19,7 +25,13 @@ const HomeIcon: Component = () => (
 );
 
 const MessageIcon: Component = () => (
-  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-6 h-6"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -30,7 +42,13 @@ const MessageIcon: Component = () => (
 );
 
 const BellIcon: Component = () => (
-  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-6 h-6"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -41,7 +59,13 @@ const BellIcon: Component = () => (
 );
 
 const ProfileIcon: Component = () => (
-  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-6 h-6"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -52,7 +76,13 @@ const ProfileIcon: Component = () => (
 );
 
 const BookmarkIcon: Component = () => (
-  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-6 h-6"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -63,7 +93,13 @@ const BookmarkIcon: Component = () => (
 );
 
 const SettingsIcon: Component = () => (
-  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-6 h-6"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -117,6 +153,7 @@ export function Sidebar() {
               return (
                 <A
                   href={item.to}
+                  aria-current={isActive(item.to) ? "page" : undefined}
                   class={`flex items-center gap-4 px-4 py-3 rounded-full text-xl transition-colors ${
                     isActive(item.to)
                       ? "bg-neutral-900 text-white font-bold"

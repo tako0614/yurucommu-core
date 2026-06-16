@@ -56,3 +56,27 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/*
+ * Accessibility: visible keyboard focus ring.
+ * Uses :focus-visible so it only appears for keyboard / programmatic focus,
+ * not on mouse click — avoiding any visual regression for pointer users.
+ */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  border-radius: 0.375rem;
+}
+
+/* Inputs/textarea already use their own focus ring; avoid the rounded
+   outline fighting their shape by relying on outline only. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  border-radius: inherit;
+}

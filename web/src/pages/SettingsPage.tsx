@@ -195,9 +195,9 @@ export function SettingsPage() {
       {errorBanner()}
       <Show when={activeSection() === "blocked"}>
         <SettingsUserList
-          title="Blocked Users"
-          emptyLabel="No blocked users"
-          actionLabel="Unblock"
+          title={t("settings.blockedUsers")}
+          emptyLabel={t("settings.noBlockedUsers")}
+          actionLabel={t("settings.unblock")}
           loading={loading()}
           users={blockedUsers()}
           onBack={() => setActiveSection("main")}
@@ -208,9 +208,9 @@ export function SettingsPage() {
 
       <Show when={activeSection() === "muted"}>
         <SettingsUserList
-          title="Muted Users"
-          emptyLabel="No muted users"
-          actionLabel="Unmute"
+          title={t("settings.mutedUsers")}
+          emptyLabel={t("settings.noMutedUsers")}
+          actionLabel={t("settings.unmute")}
           loading={loading()}
           users={mutedUsers()}
           onBack={() => setActiveSection("main")}
@@ -253,22 +253,24 @@ export function SettingsPage() {
 
       <Show when={activeSection() === "main"}>
         <header class="sticky top-0 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-900 z-10">
-          <h1 class="text-xl font-bold px-4 py-3">Settings</h1>
+          <h1 class="text-xl font-bold px-4 py-3">{t("settings.title")}</h1>
         </header>
         <div class="flex-1 overflow-y-auto">
           {/* Language */}
           <div class="border-b border-neutral-900">
             <div class="px-4 py-2 text-sm text-neutral-500 uppercase">
-              Display
+              {t("settings.sectionDisplay")}
             </div>
             <button
               type="button"
               onClick={() => setLanguage(language === "ja" ? "en" : "ja")}
               class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
             >
-              <span>Language</span>
+              <span>{t("settings.language")}</span>
               <span class="text-neutral-500">
-                {language === "ja" ? "Japanese" : "English"}
+                {language === "ja"
+                  ? t("settings.languageJa")
+                  : t("settings.languageEn")}
               </span>
             </button>
           </div>
@@ -276,14 +278,14 @@ export function SettingsPage() {
           {/* Privacy */}
           <div class="border-b border-neutral-900">
             <div class="px-4 py-2 text-sm text-neutral-500 uppercase">
-              Privacy
+              {t("settings.sectionPrivacy")}
             </div>
             <button
               type="button"
               onClick={() => setActiveSection("blocked")}
               class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
             >
-              <span>Blocked Users</span>
+              <span>{t("settings.blockedUsers")}</span>
               <ChevronRightIcon />
             </button>
             <button
@@ -291,7 +293,7 @@ export function SettingsPage() {
               onClick={() => setActiveSection("muted")}
               class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
             >
-              <span>Muted Users</span>
+              <span>{t("settings.mutedUsers")}</span>
               <ChevronRightIcon />
             </button>
           </div>
@@ -299,7 +301,7 @@ export function SettingsPage() {
           {/* Account */}
           <div class="border-b border-neutral-900">
             <div class="px-4 py-2 text-sm text-neutral-500 uppercase">
-              Account
+              {t("settings.sectionAccount")}
             </div>
             <button
               type="button"
@@ -328,7 +330,7 @@ export function SettingsPage() {
               onClick={handleLogout}
               class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50"
             >
-              <span>Logout</span>
+              <span>{t("settings.logout")}</span>
               <ChevronRightIcon />
             </button>
             <button
@@ -336,7 +338,7 @@ export function SettingsPage() {
               onClick={() => setActiveSection("delete")}
               class="w-full flex items-center justify-between px-4 py-3 hover:bg-neutral-900/50 text-red-500"
             >
-              <span>Delete Account</span>
+              <span>{t("settings.deleteAccount")}</span>
               <ChevronRightIcon />
             </button>
           </div>

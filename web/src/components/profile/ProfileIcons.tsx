@@ -1,5 +1,11 @@
 export const BackIcon = () => (
-  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -10,7 +16,13 @@ export const BackIcon = () => (
 );
 
 export const CalendarIcon = () => (
-  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-4 h-4"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -21,7 +33,13 @@ export const CalendarIcon = () => (
 );
 
 export const CloseIcon = () => (
-  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -32,7 +50,13 @@ export const CloseIcon = () => (
 );
 
 export const MoreIcon = () => (
-  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"

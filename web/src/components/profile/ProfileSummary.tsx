@@ -53,18 +53,24 @@ export function ProfileSummary(props: ProfileSummaryProps) {
             <div class="relative">
               <button
                 onClick={props.onToggleMenu}
-                aria-label="More options"
+                aria-label={props.t("profile.moreOptions")}
+                aria-haspopup="menu"
+                aria-expanded={props.showMenu}
                 class="p-2 border border-neutral-600 rounded-full hover:bg-neutral-900 transition-colors"
               >
                 <MoreIcon />
               </button>
               <Show when={props.showMenu}>
-                <div class="absolute right-0 top-full mt-1 bg-neutral-900 rounded-xl shadow-lg py-1 min-w-[180px] z-20 border border-neutral-800">
+                <div
+                  role="menu"
+                  class="absolute right-0 top-full mt-1 bg-neutral-900 rounded-xl shadow-lg py-1 min-w-[180px] z-20 border border-neutral-800"
+                >
                   <button
+                    role="menuitem"
                     onClick={props.onCloseMenu}
                     class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-neutral-800 transition-colors"
                   >
-                    Report
+                    {props.t("profile.report")}
                   </button>
                 </div>
               </Show>
@@ -110,7 +116,11 @@ export function ProfileSummary(props: ProfileSummaryProps) {
         {/* Join Date */}
         <div class="flex items-center gap-1 text-neutral-500 text-sm mb-3">
           <CalendarIcon />
-          <span>Joined {formatMonthYear(props.profile.created_at)}</span>
+          <span>
+            {props
+              .t("profile.joined")
+              .replace("{date}", formatMonthYear(props.profile.created_at))}
+          </span>
         </div>
 
         {/* Follow Stats */}

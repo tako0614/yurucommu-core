@@ -19,6 +19,7 @@ export function HeartIcon(props: FilledIconProps) {
       stroke={stroke() ? "currentColor" : "none"}
       stroke-width={stroke() ? 2 : 0}
       viewBox="0 0 24 24"
+      aria-hidden="true"
     >
       <path
         stroke-linecap="round"
@@ -36,6 +37,7 @@ export function ReplyIcon(props: IconProps) {
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
+      aria-hidden="true"
     >
       <path
         stroke-linecap="round"
@@ -55,6 +57,7 @@ export function BookmarkIcon(props: FilledIconProps) {
       fill={filled() ? "currentColor" : "none"}
       stroke="currentColor"
       viewBox="0 0 24 24"
+      aria-hidden="true"
     >
       <path
         stroke-linecap="round"
@@ -74,6 +77,7 @@ export function RepostIcon(props: FilledIconProps) {
       fill="none"
       stroke="currentColor"
       viewBox="0 0 24 24"
+      aria-hidden="true"
     >
       <path
         stroke-linecap="round"

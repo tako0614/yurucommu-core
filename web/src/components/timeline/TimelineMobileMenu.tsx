@@ -42,6 +42,9 @@ export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
               />
               <button
                 onClick={props.onToggleAccountSwitcher}
+                aria-label={props.t("settings.switchAccount")}
+                aria-haspopup="menu"
+                aria-expanded={props.showAccountSwitcher}
                 class="p-2 rounded-full border border-neutral-700 hover:bg-neutral-800 transition-colors"
               >
                 <svg
@@ -51,6 +54,7 @@ export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
+                  aria-hidden="true"
                 >
                   <path
                     stroke-linecap="round"
@@ -69,9 +73,7 @@ export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
             {/* Follow/Follower counts */}
             <div class="flex gap-4 mt-3">
               <A
-                href={`/profile/${encodeURIComponent(
-                  props.actor.ap_id,
-                )}/following`}
+                href="/friends/list?tab=following"
                 onClick={props.onClose}
                 class="hover:underline"
               >
@@ -83,9 +85,7 @@ export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
                 </span>
               </A>
               <A
-                href={`/profile/${encodeURIComponent(
-                  props.actor.ap_id,
-                )}/followers`}
+                href="/friends/list?tab=followers"
                 onClick={props.onClose}
                 class="hover:underline"
               >
@@ -139,6 +139,7 @@ export function TimelineMobileMenu(props: TimelineMobileMenuProps) {
                             class="w-5 h-5 text-blue-500"
                             fill="currentColor"
                             viewBox="0 0 24 24"
+                            aria-hidden="true"
                           >
                             <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
                           </svg>

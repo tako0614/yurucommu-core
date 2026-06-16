@@ -24,7 +24,7 @@ export function ProfileFollowModal(props: ProfileFollowModalProps) {
             <div class="flex items-center gap-4">
               <button
                 onClick={props.onClose}
-                aria-label="Close"
+                aria-label={props.t("common.close")}
                 class="p-1 hover:bg-neutral-800 rounded-full transition-colors"
               >
                 <CloseIcon />
@@ -50,8 +50,8 @@ export function ProfileFollowModal(props: ProfileFollowModalProps) {
                 fallback={
                   <div class="p-8 text-center text-neutral-500">
                     {props.type === "followers"
-                      ? "No followers yet"
-                      : "Not following anyone"}
+                      ? props.t("profile.noFollowersYet")
+                      : props.t("profile.notFollowingAnyone")}
                   </div>
                 }
               >

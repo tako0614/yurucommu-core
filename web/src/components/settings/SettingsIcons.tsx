@@ -1,5 +1,11 @@
 export const ChevronRightIcon = () => (
-  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -10,7 +16,13 @@ export const ChevronRightIcon = () => (
 );
 
 export const PlusIcon = () => (
-  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -26,6 +38,7 @@ export const CheckIcon = () => (
     fill="none"
     stroke="currentColor"
     viewBox="0 0 24 24"
+    aria-hidden="true"
   >
     <path
       stroke-linecap="round"
@@ -37,7 +50,13 @@ export const CheckIcon = () => (
 );
 
 export const CloseIcon = () => (
-  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -48,7 +67,13 @@ export const CloseIcon = () => (
 );
 
 export const BackIcon = () => (
-  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"

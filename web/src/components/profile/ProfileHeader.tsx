@@ -29,7 +29,7 @@ export function ProfileHeader(props: ProfileHeaderProps) {
             <Show when={props.actorId}>
               <A
                 href="/"
-                aria-label="Back"
+                aria-label={t("common.back")}
                 class="p-2 -ml-2 hover:bg-neutral-900 rounded-full inline-block"
               >
                 <BackIcon />
@@ -46,6 +46,9 @@ export function ProfileHeader(props: ProfileHeaderProps) {
           >
             <button
               onClick={props.onToggleAccountSwitcher}
+              aria-label={t("settings.switchAccount")}
+              aria-haspopup="menu"
+              aria-expanded={props.showAccountSwitcher}
               class="flex items-center gap-1 hover:bg-neutral-900 px-3 py-1 rounded-full transition-colors"
             >
               <span class="font-bold text-white">@{props.username}</span>
@@ -56,6 +59,7 @@ export function ProfileHeader(props: ProfileHeaderProps) {
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
+                aria-hidden="true"
               >
                 <path
                   stroke-linecap="round"
@@ -111,6 +115,7 @@ export function ProfileHeader(props: ProfileHeaderProps) {
                           class="w-5 h-5 text-blue-500"
                           fill="currentColor"
                           viewBox="0 0 24 24"
+                          aria-hidden="true"
                         >
                           <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
                         </svg>

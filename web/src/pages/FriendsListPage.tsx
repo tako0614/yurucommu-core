@@ -1,5 +1,5 @@
 import { createSignal, For, onMount, Show } from "solid-js";
-import { A, useNavigate } from "@solidjs/router";
+import { A, useNavigate, useSearchParams } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { Actor } from "../types/index.ts";
 import { fetchFollowers, fetchFollowing } from "../lib/api.ts";
@@ -8,7 +8,13 @@ import { UserAvatar } from "../components/UserAvatar.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
 
 const BackIcon = () => (
-  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -19,7 +25,13 @@ const BackIcon = () => (
 );
 
 const MessageIcon = () => (
-  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -30,7 +42,13 @@ const MessageIcon = () => (
 );
 
 const SearchIcon = () => (
-  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -48,7 +66,10 @@ export function FriendsListPage() {
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = createSignal<TabType>("following");
+  const [searchParams] = useSearchParams();
+  const initialTab: TabType =
+    searchParams.tab === "followers" ? "followers" : "following";
+  const [activeTab, setActiveTab] = createSignal<TabType>(initialTab);
   const [following, setFollowing] = createSignal<Actor[]>([]);
   const [followers, setFollowers] = createSignal<Actor[]>([]);
   const [loading, setLoading] = createSignal(true);
@@ -106,12 +127,12 @@ export function FriendsListPage() {
         <div class="flex items-center gap-4 px-4 py-3">
           <button
             onClick={() => navigate(-1)}
-            aria-label="Back"
+            aria-label={t("common.back")}
             class="p-2 -ml-2 hover:bg-neutral-900 rounded-full"
           >
             <BackIcon />
           </button>
-          <h1 class="text-xl font-bold">{t("nav.friends") || "Friends"}</h1>
+          <h1 class="text-xl font-bold">{t("friends.title")}</h1>
         </div>
 
         {/* Tabs */}
@@ -153,7 +174,8 @@ export function FriendsListPage() {
             type="text"
             value={searchQuery()}
             onInput={(e) => setSearchQuery(e.currentTarget.value)}
-            placeholder="Search friends..."
+            placeholder={t("friends.searchPlaceholder")}
+            aria-label={t("common.search")}
             class="flex-1 bg-transparent text-white placeholder-neutral-500 outline-none"
           />
         </div>
@@ -174,10 +196,10 @@ export function FriendsListPage() {
             fallback={
               <div class="p-8 text-center text-neutral-500">
                 {searchQuery()
-                  ? "No results found"
+                  ? t("common.noResults")
                   : activeTab() === "following"
-                    ? "Not following anyone yet"
-                    : "No followers yet"}
+                    ? t("friends.notFollowing")
+                    : t("friends.noFollowers")}
               </div>
             }
           >
@@ -204,8 +226,9 @@ export function FriendsListPage() {
                   </A>
                   <button
                     onClick={() => handleStartDM(friend.ap_id)}
+                    aria-label={t("friends.sendMessage")}
                     class="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-full transition-colors"
-                    title="Send message"
+                    title={t("friends.sendMessage")}
                   >
                     <MessageIcon />
                   </button>

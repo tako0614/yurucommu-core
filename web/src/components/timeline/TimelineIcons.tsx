@@ -1,5 +1,11 @@
 export const ImageIcon = () => (
-  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-5 h-5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -10,7 +16,13 @@ export const ImageIcon = () => (
 );
 
 export const CloseIcon = () => (
-  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-4 h-4"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -21,7 +33,13 @@ export const CloseIcon = () => (
 );
 
 export const CloseIconLarge = () => (
-  <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <svg
+    class="w-6 h-6"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
     <path
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -38,6 +56,7 @@ export function HomeIconMenu(props: { active?: boolean }) {
       fill={props.active ? "currentColor" : "none"}
       stroke="currentColor"
       viewBox="0 0 24 24"
+      aria-hidden="true"
     >
       <path
         stroke-linecap="round"
@@ -56,6 +75,7 @@ export function GroupIconMenu(props: { active?: boolean }) {
       fill={props.active ? "currentColor" : "none"}
       stroke="currentColor"
       viewBox="0 0 24 24"
+      aria-hidden="true"
     >
       <path
         stroke-linecap="round"
@@ -74,6 +94,7 @@ export function MessageIconMenu(props: { active?: boolean }) {
       fill={props.active ? "currentColor" : "none"}
       stroke="currentColor"
       viewBox="0 0 24 24"
+      aria-hidden="true"
     >
       <path
         stroke-linecap="round"
@@ -92,6 +113,7 @@ export function BellIconMenu(props: { active?: boolean }) {
       fill={props.active ? "currentColor" : "none"}
       stroke="currentColor"
       viewBox="0 0 24 24"
+      aria-hidden="true"
     >
       <path
         stroke-linecap="round"
@@ -110,6 +132,7 @@ export function ProfileIconMenu(props: { active?: boolean }) {
       fill={props.active ? "currentColor" : "none"}
       stroke="currentColor"
       viewBox="0 0 24 24"
+      aria-hidden="true"
     >
       <path
         stroke-linecap="round"
@@ -128,6 +151,7 @@ export function BookmarkIconMenu(props: { active?: boolean }) {
       fill={props.active ? "currentColor" : "none"}
       stroke="currentColor"
       viewBox="0 0 24 24"
+      aria-hidden="true"
     >
       <path
         stroke-linecap="round"
@@ -146,6 +170,7 @@ export function SettingsIconMenu(props: { active?: boolean }) {
       fill={props.active ? "currentColor" : "none"}
       stroke="currentColor"
       viewBox="0 0 24 24"
+      aria-hidden="true"
     >
       <path
         stroke-linecap="round"

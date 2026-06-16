@@ -1,4 +1,5 @@
 import { BackIcon } from "./SettingsIcons.tsx";
+import { useI18n } from "../../lib/i18n.tsx";
 
 interface SettingsSectionHeaderProps {
   title: string;
@@ -7,6 +8,7 @@ interface SettingsSectionHeaderProps {
 }
 
 export function SettingsSectionHeader(props: SettingsSectionHeaderProps) {
+  const { t } = useI18n();
   const titleClass = () => (props.accent === "danger" ? "text-red-500" : "");
 
   return (
@@ -14,7 +16,7 @@ export function SettingsSectionHeader(props: SettingsSectionHeaderProps) {
       <div class="flex items-center gap-4 px-4 py-3">
         <button
           onClick={props.onBack}
-          aria-label="Back"
+          aria-label={t("common.back")}
           class="p-2 -ml-2 hover:bg-neutral-900 rounded-full"
         >
           <BackIcon />

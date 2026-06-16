@@ -10,6 +10,7 @@ const HomeIcon: Component<{ active: boolean }> = (props) => (
     fill={props.active ? "currentColor" : "none"}
     stroke="currentColor"
     viewBox="0 0 24 24"
+    aria-hidden="true"
   >
     <path
       stroke-linecap="round"
@@ -26,6 +27,7 @@ const SearchIcon: Component<{ active: boolean }> = (props) => (
     fill={props.active ? "currentColor" : "none"}
     stroke="currentColor"
     viewBox="0 0 24 24"
+    aria-hidden="true"
   >
     <path
       stroke-linecap="round"
@@ -42,6 +44,7 @@ const MessageIcon: Component<{ active: boolean }> = (props) => (
     fill={props.active ? "currentColor" : "none"}
     stroke="currentColor"
     viewBox="0 0 24 24"
+    aria-hidden="true"
   >
     <path
       stroke-linecap="round"
@@ -58,6 +61,7 @@ const BellIcon: Component<{ active: boolean }> = (props) => (
     fill={props.active ? "currentColor" : "none"}
     stroke="currentColor"
     viewBox="0 0 24 24"
+    aria-hidden="true"
   >
     <path
       stroke-linecap="round"
@@ -74,6 +78,7 @@ const ProfileIcon: Component<{ active: boolean }> = (props) => (
     fill={props.active ? "currentColor" : "none"}
     stroke="currentColor"
     viewBox="0 0 24 24"
+    aria-hidden="true"
   >
     <path
       stroke-linecap="round"
@@ -108,6 +113,8 @@ export function BottomNav() {
           return (
             <A
               href={item.to}
+              aria-label={item.label}
+              aria-current={isActive(item.to) ? "page" : undefined}
               class={`flex flex-col items-center justify-center p-2 ${
                 isActive(item.to) ? "text-white" : "text-neutral-500"
               }`}
