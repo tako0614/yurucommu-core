@@ -1,11 +1,21 @@
 // Story routes for Yurucommu backend
 // v2: 1 Story = 1 Media (Instagram style)
 import { Hono } from "hono";
-import { and, desc, eq, gt, inArray, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import type { Database } from "../../../db/index.ts";
 import {
   activities,
   actors,
+  communityMembers,
   follows,
   likes,
   objects,
@@ -22,6 +32,7 @@ import {
   objectApId,
 } from "../../federation-helpers.ts";
 import { storyToActivityPub } from "../../lib/activitypub-helpers.ts";
+import { checkCommunityPostPermission } from "../posts/post-helpers.ts";
 import { rateLimit, RateLimitConfigs } from "../../middleware/rate-limit.ts";
 import {
   cleanupExpiredStories,
@@ -110,6 +121,9 @@ type StoryCreateBody = {
   };
   displayDuration: string;
   overlays?: unknown[];
+  // Optional community scope. When set, the story is scoped to this community
+  // (members-only visibility) instead of the author's personal story feed.
+  community_ap_id?: string;
 };
 
 /** Build a StoryAuthor from available data sources. */
@@ -225,6 +239,41 @@ async function deleteStoryAndRelatedData(
   await db.delete(objects).where(eq(objects.apId, apId));
 }
 
+/**
+ * Resolve the scope of a stories read request.
+ *
+ * - No `community` query param -> personal scope (self + followed, and any
+ *   community-scoped story is excluded so it never leaks into the personal feed).
+ * - `community=<apId>` -> community scope; the viewer must be an accepted member
+ *   of that community, otherwise the scope resolves to "denied" and no stories
+ *   are returned.
+ */
+async function resolveStoryScope(
+  db: Database,
+  viewerApId: string,
+  communityParam: string | undefined,
+): Promise<
+  | { kind: "personal" }
+  | { kind: "community"; communityApId: string }
+  | { kind: "denied" }
+> {
+  if (!communityParam) return { kind: "personal" };
+
+  const member = await db
+    .select({ actorApId: communityMembers.actorApId })
+    .from(communityMembers)
+    .where(
+      and(
+        eq(communityMembers.communityApId, communityParam),
+        eq(communityMembers.actorApId, viewerApId),
+      ),
+    )
+    .get();
+
+  if (!member) return { kind: "denied" };
+  return { kind: "community", communityApId: communityParam };
+}
+
 // Get active stories from followed users and self (grouped by author)
 stories.get("/", async (c) => {
   const actor = c.get("actor");
@@ -232,6 +281,14 @@ stories.get("/", async (c) => {
 
   const db = c.get("db");
   const now = new Date().toISOString();
+
+  // Resolve the requested scope. `?community=<apId>` switches to community scope
+  // (members only); absence keeps the personal self+followed feed.
+  const communityParam = c.req.query("community") || undefined;
+  const scope = await resolveStoryScope(db, actor.ap_id, communityParam);
+  if (scope.kind === "denied") {
+    return c.json({ actor_stories: [] });
+  }
 
   // Opportunistic, best-effort expiry cleanup (see maybeCleanupExpiredStories).
   maybeCleanupExpiredStories(db);
@@ -255,12 +312,25 @@ stories.get("/", async (c) => {
   );
   const excludeIds = [...blockedIds, ...mutedIds];
 
-  // Get stories from followed users (excluding blocked/muted)
-  let storiesWhere = and(
-    eq(objects.type, "Story"),
-    gt(objects.endTime, now),
-    inArray(objects.attributedTo, followedIds),
-  );
+  // Scope filter:
+  //  - community scope: stories whose communityApId = the target community.
+  //    Author membership in the personal follow graph is irrelevant here; the
+  //    viewer's accepted membership (verified above) is what grants visibility.
+  //  - personal scope: self + followed authors, and NO community-scoped story
+  //    (communityApId IS NULL) so community stories never leak into the feed.
+  let storiesWhere =
+    scope.kind === "community"
+      ? and(
+          eq(objects.type, "Story"),
+          gt(objects.endTime, now),
+          eq(objects.communityApId, scope.communityApId),
+        )
+      : and(
+          eq(objects.type, "Story"),
+          gt(objects.endTime, now),
+          isNull(objects.communityApId),
+          inArray(objects.attributedTo, followedIds),
+        );
 
   if (excludeIds.length > 0) {
     storiesWhere = and(
@@ -414,6 +484,14 @@ stories.get("/:actorId", async (c) => {
     ? targetActorId
     : actorApId(baseUrl, targetActorId);
 
+  // Resolve scope. Community scope requires an authenticated, accepted member.
+  const communityParam = c.req.query("community") || undefined;
+  if (communityParam) {
+    if (!actor) return c.json({ stories: [] });
+    const scope = await resolveStoryScope(db, actor.ap_id, communityParam);
+    if (scope.kind === "denied") return c.json({ stories: [] });
+  }
+
   // Check blocked/muted (if authenticated)
   if (actor) {
     const { blockedIds, mutedIds } = await fetchBlockedAndMutedIds(
@@ -425,7 +503,13 @@ stories.get("/:actorId", async (c) => {
     }
   }
 
-  // Get stories for the target user
+  // Get stories for the target user, filtered by scope:
+  //  - community scope: only that community's stories,
+  //  - personal scope: only NON-community (personal) stories.
+  const scopeCondition = communityParam
+    ? eq(objects.communityApId, communityParam)
+    : isNull(objects.communityApId);
+
   const userStories = await db
     .select()
     .from(objects)
@@ -434,6 +518,7 @@ stories.get("/:actorId", async (c) => {
         eq(objects.type, "Story"),
         eq(objects.attributedTo, targetApId),
         gt(objects.endTime, now),
+        scopeCondition,
       ),
     )
     .orderBy(desc(objects.published));
@@ -531,6 +616,20 @@ stories.post("/", async (c) => {
     }
   }
 
+  // Optional community scope. Reuse the same post-permission policy as posts so
+  // story scope and post scope stay consistent (membership + postPolicy). A
+  // personal story leaves communityApId NULL.
+  const communityCheck = await checkCommunityPostPermission(
+    db,
+    actor.ap_id,
+    body.community_ap_id,
+  );
+  if (!communityCheck.allowed) {
+    return c.json({ error: communityCheck.error }, communityCheck.status);
+  }
+  const communityApIdValue = communityCheck.communityId;
+  const communityFollowersUrl = communityCheck.community?.followersUrl ?? null;
+
   const baseUrl = c.env.APP_URL;
   const apId = objectApId(baseUrl, generateId());
   const now = new Date().toISOString();
@@ -553,6 +652,7 @@ stories.post("/", async (c) => {
     attributedTo: actor.ap_id,
     content: "",
     attachmentsJson,
+    communityApId: communityApIdValue,
     endTime,
     published: now,
     isLocal: 1,
@@ -597,13 +697,19 @@ stories.post("/", async (c) => {
     actor,
     baseUrl,
   );
+  // Address a community-scoped story to the community's followers collection;
+  // a personal story stays addressed to the author's own followers.
+  const storyTo =
+    communityApIdValue && communityFollowersUrl
+      ? [communityFollowersUrl]
+      : [`${actor.ap_id}/followers`];
   await createAndFanoutActivity(db, c.env, actor.ap_id, apId, {
     "@context": "https://www.w3.org/ns/activitystreams",
     id: activityApId(baseUrl, generateId()),
     type: "Create",
     actor: actor.ap_id,
     published: now,
-    to: [`${actor.ap_id}/followers`],
+    to: storyTo,
     object: storyObject,
   });
 
