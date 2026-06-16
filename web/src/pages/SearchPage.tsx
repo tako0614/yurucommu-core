@@ -23,6 +23,11 @@ import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 import { HeartIcon } from "../components/icons/SocialIcons.tsx";
+import {
+  AttachmentGrid,
+  MediaLightbox,
+  useMediaLightbox,
+} from "../components/MediaLightbox.tsx";
 
 const SearchEmptyIcon = () => (
   <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -73,6 +78,7 @@ function getSingleSearchParam(
 export function SearchPage() {
   const actor = useRequiredActor();
   const { t } = useI18n();
+  const lightbox = useMediaLightbox();
   const [error, setError] = createSignal<string | null>(null);
   const clearError = () => setError(null);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -478,6 +484,20 @@ export function SearchPage() {
                               class="text-[15px] text-neutral-200 mt-1"
                             />
                           </A>
+                          <Show
+                            when={
+                              post.attachments && post.attachments.length > 0
+                            }
+                          >
+                            <AttachmentGrid
+                              attachments={post.attachments}
+                              onOpen={(idx, e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                lightbox.open(post.attachments, idx);
+                              }}
+                            />
+                          </Show>
                           <div class="flex items-center gap-6 mt-3">
                             <button
                               onClick={() => handleLike(post)}
@@ -565,6 +585,13 @@ export function SearchPage() {
           </Show>
         </Show>
       </div>
+      <Show when={lightbox.isOpen()}>
+        <MediaLightbox
+          attachments={lightbox.attachments()}
+          index={lightbox.index()}
+          onClose={lightbox.close}
+        />
+      </Show>
     </div>
   );
 }

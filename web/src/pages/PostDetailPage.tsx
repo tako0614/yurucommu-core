@@ -22,6 +22,11 @@ import {
   ReplyIcon,
 } from "../components/icons/SocialIcons.tsx";
 import { InlineErrorBanner } from "../components/InlineErrorBanner.tsx";
+import {
+  mediaAttachmentUrl,
+  MediaLightbox,
+  useMediaLightbox,
+} from "../components/MediaLightbox.tsx";
 
 const BackIcon = () => (
   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -57,6 +62,7 @@ export function PostDetailPage() {
   const [loading, setLoading] = createSignal(true);
   const [replyContent, setReplyContent] = createSignal("");
   const [replying, setReplying] = createSignal(false);
+  const lightbox = useMediaLightbox();
 
   createEffect(() => {
     const postId = params.postId;
@@ -267,11 +273,13 @@ export function PostDetailPage() {
                 <For each={post()!.attachments}>
                   {(m, idx) => (
                     <img
-                      src={
-                        m.url || `/media/${m.r2_key.replace(/^uploads\//, "")}`
-                      }
+                      src={mediaAttachmentUrl(m)}
                       alt={m.name || ""}
-                      class={`w-full object-cover ${
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        lightbox.open(post()!.attachments, idx());
+                      }}
+                      class={`w-full object-cover cursor-zoom-in ${
                         post()!.attachments.length === 1
                           ? "max-h-[500px]"
                           : post()!.attachments.length === 3 && idx() === 0
@@ -435,6 +443,13 @@ export function PostDetailPage() {
             <div class="p-8 text-center text-neutral-500">No replies yet</div>
           </Show>
         </div>
+      </Show>
+      <Show when={lightbox.isOpen()}>
+        <MediaLightbox
+          attachments={lightbox.attachments()}
+          index={lightbox.index()}
+          onClose={lightbox.close}
+        />
       </Show>
     </div>
   );

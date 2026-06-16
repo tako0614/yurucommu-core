@@ -6,6 +6,11 @@ import { UserAvatar } from "../UserAvatar.tsx";
 import { PostContent } from "../PostContent.tsx";
 import { HeartIcon, ReplyIcon } from "../icons/SocialIcons.tsx";
 import type { Translate } from "../../lib/i18n.tsx";
+import {
+  AttachmentGrid,
+  MediaLightbox,
+  useMediaLightbox,
+} from "../MediaLightbox.tsx";
 
 type ProfileTab = "posts" | "likes";
 
@@ -90,6 +95,7 @@ interface ProfilePostItemProps {
 }
 
 function ProfilePostItem(props: ProfilePostItemProps) {
+  const lightbox = useMediaLightbox();
   return (
     <div class="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
       <A href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}>
@@ -120,6 +126,18 @@ function ProfilePostItem(props: ProfilePostItemProps) {
           summary={props.post.summary}
           class="text-[15px] text-neutral-200 mt-1"
         />
+        <Show
+          when={props.post.attachments && props.post.attachments.length > 0}
+        >
+          <AttachmentGrid
+            attachments={props.post.attachments}
+            onOpen={(idx, e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              lightbox.open(props.post.attachments, idx);
+            }}
+          />
+        </Show>
         {/* Actions */}
         <div class="flex items-center gap-6 mt-3">
           <button
@@ -151,6 +169,13 @@ function ProfilePostItem(props: ProfilePostItemProps) {
           </button>
         </div>
       </div>
+      <Show when={lightbox.isOpen()}>
+        <MediaLightbox
+          attachments={lightbox.attachments()}
+          index={lightbox.index()}
+          onClose={lightbox.close}
+        />
+      </Show>
     </div>
   );
 }

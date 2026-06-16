@@ -1,5 +1,5 @@
 import { A } from "@solidjs/router";
-import { For, Show } from "solid-js";
+import { Show } from "solid-js";
 import type { Post } from "../../types/index.ts";
 import { formatRelativeTime } from "../../lib/datetime.ts";
 import { UserAvatar } from "../UserAvatar.tsx";
@@ -11,6 +11,11 @@ import {
   RepostIcon,
 } from "../icons/SocialIcons.tsx";
 import { PostActionsMenu } from "./PostActionsMenu.tsx";
+import {
+  AttachmentGrid,
+  MediaLightbox,
+  useMediaLightbox,
+} from "../MediaLightbox.tsx";
 
 interface TimelinePostItemProps {
   post: Post;
@@ -26,6 +31,7 @@ interface TimelinePostItemProps {
 }
 
 export function TimelinePostItem(props: TimelinePostItemProps) {
+  const lightbox = useMediaLightbox();
   return (
     <div class="flex gap-3 px-4 py-3 border-b border-neutral-900 hover:bg-neutral-900/30 transition-colors">
       <A href={`/profile/${encodeURIComponent(props.post.author.ap_id)}`}>
@@ -57,30 +63,19 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
             summary={props.post.summary}
             class="text-[15px] text-neutral-200 mt-1"
           />
-          <Show
-            when={props.post.attachments && props.post.attachments.length > 0}
-          >
-            <div
-              class={`mt-3 grid gap-1 rounded-xl overflow-hidden ${
-                props.post.attachments!.length === 1
-                  ? "grid-cols-1"
-                  : "grid-cols-2"
-              }`}
-            >
-              <For each={props.post.attachments}>
-                {(m) => (
-                  <img
-                    src={
-                      m.url || `/media/${m.r2_key.replace(/^uploads\//, "")}`
-                    }
-                    alt={m.name || ""}
-                    class="w-full object-cover max-h-96"
-                  />
-                )}
-              </For>
-            </div>
-          </Show>
         </A>
+        <Show
+          when={props.post.attachments && props.post.attachments.length > 0}
+        >
+          <AttachmentGrid
+            attachments={props.post.attachments!}
+            onOpen={(idx, e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              lightbox.open(props.post.attachments!, idx);
+            }}
+          />
+        </Show>
         <div class="flex items-center gap-6 mt-3">
           <button
             onClick={() => props.onReply(props.post)}
@@ -143,6 +138,13 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
           </Show>
         </div>
       </div>
+      <Show when={lightbox.isOpen()}>
+        <MediaLightbox
+          attachments={lightbox.attachments()}
+          index={lightbox.index()}
+          onClose={lightbox.close}
+        />
+      </Show>
     </div>
   );
 }
