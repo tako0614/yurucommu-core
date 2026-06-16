@@ -10,6 +10,7 @@ import {
   ReplyIcon,
   RepostIcon,
 } from "../icons/SocialIcons.tsx";
+import { PostActionsMenu } from "./PostActionsMenu.tsx";
 
 interface TimelinePostItemProps {
   post: Post;
@@ -17,6 +18,11 @@ interface TimelinePostItemProps {
   onRepost: (post: Post) => void;
   onLike: (post: Post) => void;
   onBookmark: (post: Post) => void;
+  // Optional overflow-menu wiring; when provided, a ⋯ menu is shown.
+  currentActorApId?: string;
+  onDelete?: (post: Post) => void;
+  onMute?: (post: Post) => void;
+  onBlock?: (post: Post) => void;
 }
 
 export function TimelinePostItem(props: TimelinePostItemProps) {
@@ -125,6 +131,15 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
           >
             <BookmarkIcon filled={props.post.bookmarked} />
           </button>
+          <Show when={props.onDelete && props.onMute && props.onBlock}>
+            <PostActionsMenu
+              post={props.post}
+              isOwn={props.currentActorApId === props.post.author.ap_id}
+              onDelete={props.onDelete!}
+              onMute={props.onMute!}
+              onBlock={props.onBlock!}
+            />
+          </Show>
         </div>
       </div>
     </div>

@@ -34,7 +34,9 @@ import {
   uploadMediaAtom as uploadMediaActionAtom,
 } from "../atoms/timeline.ts";
 import { toggleBookmark, toggleLike, toggleRepost } from "../atoms/posts.ts";
-import type { ActorStories } from "../types/index.ts";
+import { deletePost } from "../lib/api/posts.ts";
+import { blockUser, muteUser } from "../lib/api/actors.ts";
+import type { ActorStories, Post } from "../types/index.ts";
 
 export function useTimelineState() {
   const t = useAtomValue(tAtom);
@@ -184,6 +186,41 @@ export function useTimelineState() {
     return (await doCreatePost(postContent())) || false;
   };
 
+  // Remove a single post (after deleting your own) from the timeline.
+  const handleDelete = async (post: Post) => {
+    try {
+      await deletePost(post.ap_id);
+      setPosts((prev) => prev.filter((p) => p.ap_id !== post.ap_id));
+    } catch (e) {
+      console.error("Failed to delete post:", e);
+      setError(t()("common.error"));
+    }
+  };
+
+  // Mute/block an author and drop all of their posts from the timeline.
+  const dropAuthorPosts = (authorApId: string) =>
+    setPosts((prev) => prev.filter((p) => p.author.ap_id !== authorApId));
+
+  const handleMute = async (post: Post) => {
+    try {
+      await muteUser(post.author.ap_id);
+      dropAuthorPosts(post.author.ap_id);
+    } catch (e) {
+      console.error("Failed to mute user:", e);
+      setError(t()("common.error"));
+    }
+  };
+
+  const handleBlock = async (post: Post) => {
+    try {
+      await blockUser(post.author.ap_id);
+      dropAuthorPosts(post.author.ap_id);
+    } catch (e) {
+      console.error("Failed to block user:", e);
+      setError(t()("common.error"));
+    }
+  };
+
   return {
     t: () => t(),
     error,
@@ -239,6 +276,9 @@ export function useTimelineState() {
     handleLike,
     handleBookmark,
     handleRepost,
+    handleDelete,
+    handleMute,
+    handleBlock,
     getPlaceholder: () => t()("posts.placeholder"),
   };
 }

@@ -116,6 +116,10 @@ export function TimelinePage() {
                     onRepost={state.handleRepost}
                     onLike={state.handleLike}
                     onBookmark={state.handleBookmark}
+                    currentActorApId={state.currentApId()}
+                    onDelete={state.handleDelete}
+                    onMute={state.handleMute}
+                    onBlock={state.handleBlock}
                   />
                   <Show
                     when={
