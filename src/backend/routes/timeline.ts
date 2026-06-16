@@ -1,5 +1,6 @@
 // Timeline routes for Yurucommu backend
 import { Hono } from "hono";
+import type { Context } from "hono";
 import {
   and,
   desc,
@@ -18,6 +19,8 @@ import {
   announces,
   blocks,
   bookmarks,
+  communities,
+  communityMembers,
   follows,
   likes,
   mutes,
@@ -274,10 +277,133 @@ async function resolveAndFormatPosts(
   return posts.map((p) => formatPost(p, authorMap, interactions));
 }
 
+// Resolve a community by its ap_id (or preferred username) and the viewer's
+// accepted membership, enforcing read access by community visibility.
+//
+// Read access policy (mirrors GET /communities/:id/messages):
+//   - public community  -> readable by anyone (member or not, authed or not)
+//   - non-public        -> requires an accepted membership row
+// Returns:
+//   - { gate: "not_found" }            community does not exist / soft-deleted
+//   - { gate: "forbidden" }            non-public community, viewer not a member
+//   - { gate: "ok", community }        viewer may read this community's feed
+async function resolveCommunityRead(
+  db: Database,
+  communityParam: string,
+  viewerApId: string,
+): Promise<
+  | { gate: "not_found" }
+  | { gate: "forbidden" }
+  | { gate: "ok"; community: { apId: string; visibility: string } }
+> {
+  const community = await db
+    .select({
+      apId: communities.apId,
+      visibility: communities.visibility,
+    })
+    .from(communities)
+    .where(
+      and(
+        or(
+          eq(communities.apId, communityParam),
+          eq(communities.preferredUsername, communityParam),
+        ),
+        isNull(communities.deletedAt),
+      ),
+    )
+    .get();
+
+  if (!community) return { gate: "not_found" };
+
+  if ((community.visibility || "public") === "public") {
+    return { gate: "ok", community };
+  }
+
+  // Non-public community: an accepted membership row is required. Anonymous
+  // viewers (no ap_id) can never satisfy this, so do not leak the feed.
+  if (!viewerApId) return { gate: "forbidden" };
+
+  const membership = await db
+    .select({ actorApId: communityMembers.actorApId })
+    .from(communityMembers)
+    .where(
+      and(
+        eq(communityMembers.communityApId, community.apId),
+        eq(communityMembers.actorApId, viewerApId),
+      ),
+    )
+    .get();
+
+  if (!membership) return { gate: "forbidden" };
+  return { gate: "ok", community };
+}
+
+// Community-scoped read: returns the community's feed to viewers permitted by
+// `resolveCommunityRead`. Unlike the public feed this does NOT filter on
+// `visibility = "public"` — members are entitled to see every post in their
+// community (public / unlisted / followers), gated only by community access.
+async function handleCommunityTimeline(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  communityParam: string,
+): Promise<Response> {
+  const actor = c.get("actor");
+  const db = c.get("db");
+  const limit = parseLimit(c.req.query("limit"), 20, 100);
+  const offset = parseOffset(c.req.query("offset"), 0, 10000);
+  const before = c.req.query("before");
+  const viewerApId = actor?.ap_id || "";
+
+  const gate = await resolveCommunityRead(db, communityParam, viewerApId);
+  if (gate.gate === "not_found") {
+    return c.json({ error: "Community not found" }, 404);
+  }
+  if (gate.gate === "forbidden") {
+    return c.json({ error: "Not a community member" }, 403);
+  }
+
+  const { blockedApIds, mutedApIds } = await getBlockedAndMutedUsers(
+    db,
+    viewerApId,
+  );
+  const excludedApIds = buildExcludedApIds(blockedApIds, mutedApIds);
+
+  // Filter strictly by communityApId — community posts live outside the public
+  // feed (their audienceJson is non-"[]"), so scoping by community is what makes
+  // them visible to members here.
+  const conditions = [
+    eq(objects.type, "Note"),
+    eq(objects.communityApId, gate.community.apId),
+    isNull(objects.inReplyTo),
+    isNull(objects.deletedAt),
+  ];
+  if (excludedApIds.length > 0) {
+    conditions.push(notInArray(objects.attributedTo, excludedApIds));
+  }
+  if (before) conditions.push(lt(objects.published, before));
+
+  const posts = await db
+    .select()
+    .from(objects)
+    .where(and(...conditions))
+    .orderBy(desc(objects.published))
+    .limit(limit + 1)
+    .offset(offset);
+
+  const { results, has_more } = paginateResults(posts, limit);
+  const result = await resolveAndFormatPosts(db, results, viewerApId);
+
+  return c.json({ posts: result, limit, offset, has_more });
+}
+
 // Get public timeline
 // Supports both cursor (before) and offset pagination
 // Returns: posts, limit, offset (if used), has_more
-// Cached for 2 minutes for unauthenticated users
+// Cached for 2 minutes for unauthenticated users.
+//
+// `community` is handled by a dedicated, per-viewer code path (membership +
+// visibility gate). The withCache wrapper already bypasses the shared cache
+// whenever an authenticated actor is present (varyByActor is false), so a
+// member's community read is never served from another user's cached copy.
 timeline.get(
   "/",
   withCache({
@@ -286,12 +412,16 @@ timeline.get(
     queryParamsToInclude: ["limit", "offset", "before", "community"],
   }),
   async (c) => {
+    const communityParam = c.req.query("community");
+    if (communityParam) {
+      return handleCommunityTimeline(c, communityParam);
+    }
+
     const actor = c.get("actor");
     const db = c.get("db");
     const limit = parseLimit(c.req.query("limit"), 20, 100);
     const offset = parseOffset(c.req.query("offset"), 0, 10000);
     const before = c.req.query("before");
-    const communityApId = c.req.query("community");
     const viewerApId = actor?.ap_id || "";
 
     const { blockedApIds, mutedApIds } = await getBlockedAndMutedUsers(
@@ -300,6 +430,9 @@ timeline.get(
     );
     const excludedApIds = buildExcludedApIds(blockedApIds, mutedApIds);
 
+    // Public/home feed: only top-level public posts with no extra audience.
+    // The audienceJson = "[]" filter is what keeps community / addressed posts
+    // out of this feed.
     const conditions = [
       eq(objects.type, "Note"),
       eq(objects.visibility, "public"),
@@ -309,9 +442,6 @@ timeline.get(
     ];
     if (excludedApIds.length > 0) {
       conditions.push(notInArray(objects.attributedTo, excludedApIds));
-    }
-    if (communityApId) {
-      conditions.push(eq(objects.communityApId, communityApId));
     }
     if (before) conditions.push(lt(objects.published, before));
 
