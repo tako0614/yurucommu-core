@@ -99,16 +99,13 @@
           <code>dist/worker.js</code> です。
         </p>
 
-        <h2>Takosumiでinstall</h2>
+        <h2>Takosumi install について</h2>
         <p>
-          Takosumiを使う場合は、Takosumi install wizardでGit URL / ref / module
-          pathからInstallationを作成し、pinned SourceSnapshot /
-          DependencySnapshotに基づくplan typeのRunとpolicy
-          decisionを確認します。 承認後のapply type RunがStateSnapshot /
-          OutputSnapshot / Deploymentを記録し、Deploymentのpublic
-          endpointを開きます。
+          現在の yurucommu repo は Takosumi だけで public endpoint を作る
+          OpenTofu Capsule ではありません。Takosumi install CTA は、実際に
+          Worker / storage / routing を作る Capsule module
+          が揃うまで公開しません。
         </p>
-        <pre><code>https://app.takosumi.com/install?git=https://github.com/tako0614/yurucommu.git&amp;ref=main&amp;autoplan=1</code></pre>
 
         <h2>Cloudflareへ直接デプロイ</h2>
         <pre><code>bun run deploy</code></pre>

@@ -12,7 +12,7 @@ This page has been reset for Takosumi v1. Takosumi installs a Git-hosted OpenTof
 
 ## Takos Boundary
 
-Takos owns product UI, chat, agent, memory, spaces, Git hosting, bundled app launcher metadata, file-handler metadata, and MCP-facing product metadata. Takosumi records Installation / Run / StateSnapshot / OutputSnapshot / Deployment records. Takosumi or another operator distribution owns account-plane policy and provider bindings.
+Takos owns product UI, chat, agent, memory, spaces, Git hosting, bundled app launcher metadata, file-handler metadata, and MCP-facing product metadata. Takosumi records Installation / Run / StateSnapshot / OutputSnapshot / Deployment records. Takosumi or another operator distribution owns account-plane policy, Connections, Installation provider connection policy, and credential resolution.
 
 ## API Shape
 

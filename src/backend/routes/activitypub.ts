@@ -2,10 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { and, asc, count, eq } from "drizzle-orm";
 import type { Env, Variables } from "../types.ts";
-import {
-  actors,
-  objects as objectsTable,
-} from "../../db/index.ts";
+import { actors, objects as objectsTable } from "../../db/index.ts";
 import { notDeleted } from "../../db/index.ts";
 import { actorApId, getDomain } from "../federation-helpers.ts";
 import {

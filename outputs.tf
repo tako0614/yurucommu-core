@@ -1,4 +1,4 @@
-output "takos_app_manifest" {
+output "takos_app" {
   value = {
     name    = "yurucommu"
     version = "1.0.0"
