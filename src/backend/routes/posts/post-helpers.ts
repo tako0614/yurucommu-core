@@ -27,6 +27,7 @@ import {
   MAX_POST_SUMMARY_LENGTH,
 } from "./transformers.ts";
 import {
+  buildCommunityObjectAddressing,
   type CreatePostBody,
   isRecord,
   type MentionFailure,
@@ -144,8 +145,17 @@ export async function validateCreatePostBody(c: {
 // Community policy check
 // ---------------------------------------------------------------------------
 
+export type CommunityTarget = {
+  apId: string;
+  followersUrl: string;
+};
+
 export type CommunityCheckResult =
-  | { allowed: true; communityId: string | null }
+  | {
+      allowed: true;
+      communityId: string | null;
+      community: CommunityTarget | null;
+    }
   | { allowed: false; error: string; status: 403 | 404 };
 
 /**
@@ -157,11 +167,14 @@ export async function checkCommunityPostPermission(
   actorApId: string,
   communityApId: string | undefined,
 ): Promise<CommunityCheckResult> {
-  if (!communityApId) return { allowed: true, communityId: null };
+  if (!communityApId) {
+    return { allowed: true, communityId: null, community: null };
+  }
 
   const community = await db
     .select({
       apId: communities.apId,
+      followersUrl: communities.followersUrl,
       postPolicy: communities.postPolicy,
     })
     .from(communities)
@@ -207,7 +220,14 @@ export async function checkCommunityPostPermission(
     return { allowed: false, error: "Owner role required", status: 403 };
   }
 
-  return { allowed: true, communityId: community.apId };
+  return {
+    allowed: true,
+    communityId: community.apId,
+    community: {
+      apId: community.apId,
+      followersUrl: community.followersUrl,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -234,11 +254,21 @@ export async function insertPostAndHandleReply(
     inReplyTo: string | null;
     visibility: string;
     communityId: string | null;
+    community: CommunityTarget | null;
     baseUrl: string;
     now: string;
   },
 ): Promise<string | null> {
   let parentAuthor: string | null = null;
+
+  // Community-scoped posts are ADDRESSED to the community Group actor: the
+  // community (and its followers collection) goes into to/audience. A non-"[]"
+  // audienceJson is exactly what excludes the post from the public/home feed,
+  // so reach is the community — not the open public timeline.
+  const addressing = buildCommunityObjectAddressing(
+    params.visibility,
+    params.community,
+  );
 
   await db.insert(objects).values({
     apId: params.apId,
@@ -250,6 +280,9 @@ export async function insertPostAndHandleReply(
     inReplyTo: params.inReplyTo,
     visibility: params.visibility,
     communityApId: params.communityId,
+    toJson: JSON.stringify(addressing.to),
+    ccJson: JSON.stringify(addressing.cc),
+    audienceJson: JSON.stringify(addressing.audience),
     published: params.now,
     isLocal: 1,
   });

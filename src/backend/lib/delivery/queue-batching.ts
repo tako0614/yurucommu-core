@@ -7,12 +7,20 @@ import type { Message, MessageBatch } from "@cloudflare/workers-types";
 import type { Env } from "../../types.ts";
 import type { Database } from "../../../db/index.ts";
 import { and, eq, or, sql } from "drizzle-orm";
-import { actorCache, deliveryQueue, follows } from "../../../db/index.ts";
+import {
+  activities,
+  actorCache,
+  communityMembers,
+  deliveryQueue,
+  follows,
+  inbox as inboxTable,
+} from "../../../db/index.ts";
 import { isLocal, isSafeRemoteUrl } from "../../federation-helpers.ts";
 import { planEndpointsFromActorCache } from "./planner.ts";
 import { fetchAndUpsertActorCache } from "../activitypub-actor-cache.ts";
 import {
   DELIVERY_QUEUE_MESSAGE_VERSION,
+  type DeliveryFanoutCommunityMessageV1,
   type DeliveryFanoutFollowersMessageV1,
   type DeliveryQueueMessageV1,
   type DeliveryReconcileJobMessageV1,
@@ -172,6 +180,178 @@ export async function processFanoutFollowers(
       max: FANOUT_MAX_FOLLOWERS,
     });
   }
+
+  message.ack();
+}
+
+/**
+ * Fan an activity out to a community's audience instead of the author's
+ * personal follower graph. The community is a Group-style actor:
+ *
+ *  - LOCAL recipients (accepted `communityMembers` hosted on this server,
+ *    excluding the author) receive an inbox entry directly, so local members
+ *    see the post even though it never touched the author's follower set.
+ *  - REMOTE recipients (remote `communityMembers` plus accepted followers of
+ *    the community actor in `follows`) are planned to their inbox/sharedInbox
+ *    endpoints and delivered like a normal remote fan-out.
+ *
+ * This keeps reach == community: a community post is delivered to community
+ * members, never to the author's plain followers.
+ */
+export async function processFanoutCommunity(
+  db: Database,
+  env: Env,
+  msg: DeliveryFanoutCommunityMessageV1,
+  message: Message<DeliveryQueueMessageV1>,
+): Promise<void> {
+  const baseUrl = env.APP_URL;
+
+  if (!requireQueue(env, "fanout_community", message)) return;
+  const queueEnv = env as QueueEnv;
+
+  // Resolve the activity's author so we never echo the post back into the
+  // author's own inbox.
+  const activityRow = await db
+    .select({ actorApId: activities.actorApId })
+    .from(activities)
+    .where(eq(activities.apId, msg.activityId))
+    .get();
+  const authorApId = activityRow?.actorApId ?? null;
+
+  // ----- 1. Local members: deliver to their inbox directly. ----------------
+  let memberCursor: string | null = null;
+  while (true) {
+    const conditions = [eq(communityMembers.communityApId, msg.communityApId)];
+    if (memberCursor !== null) {
+      conditions.push(sql`${communityMembers.actorApId} > ${memberCursor}`);
+    }
+    const page = await db
+      .select({ actorApId: communityMembers.actorApId })
+      .from(communityMembers)
+      .where(and(...conditions))
+      .orderBy(communityMembers.actorApId)
+      .limit(FANOUT_FOLLOWER_PAGE_SIZE);
+
+    if (page.length === 0) break;
+    memberCursor = page[page.length - 1].actorApId;
+
+    const localRecipients = page
+      .map((m) => m.actorApId)
+      .filter((apId) => isLocal(apId, baseUrl) && apId !== authorApId);
+
+    if (localRecipients.length > 0) {
+      const now = nowIso();
+      await db
+        .insert(inboxTable)
+        .values(
+          localRecipients.map((actorApId) => ({
+            actorApId,
+            activityApId: msg.activityId,
+            read: 0,
+            createdAt: now,
+          })),
+        )
+        .onConflictDoNothing();
+    }
+
+    if (page.length < FANOUT_FOLLOWER_PAGE_SIZE) break;
+  }
+
+  // ----- 2. Remote recipients: plan endpoints and deliver. -----------------
+  // Remote members of the community plus accepted followers of the community
+  // actor. A community member set is typically modest; followers of the
+  // community actor capture remote servers that follow the Group to receive
+  // its activities. Both are deduped before planning.
+  const remoteRecipients = new Set<string>();
+
+  // Remote community members.
+  {
+    let cursor: string | null = null;
+    let processed = 0;
+    while (processed < FANOUT_MAX_FOLLOWERS) {
+      const conditions = [
+        eq(communityMembers.communityApId, msg.communityApId),
+      ];
+      if (cursor !== null) {
+        conditions.push(sql`${communityMembers.actorApId} > ${cursor}`);
+      }
+      const page = await db
+        .select({ actorApId: communityMembers.actorApId })
+        .from(communityMembers)
+        .where(and(...conditions))
+        .orderBy(communityMembers.actorApId)
+        .limit(FANOUT_FOLLOWER_PAGE_SIZE);
+      if (page.length === 0) break;
+      cursor = page[page.length - 1].actorApId;
+      for (const m of page) {
+        if (!isLocal(m.actorApId, baseUrl) && m.actorApId !== authorApId) {
+          remoteRecipients.add(m.actorApId);
+        }
+      }
+      processed += page.length;
+      if (page.length < FANOUT_FOLLOWER_PAGE_SIZE) break;
+    }
+  }
+
+  // Accepted followers of the community actor.
+  {
+    let cursor: string | null = null;
+    let processed = 0;
+    while (processed < FANOUT_MAX_FOLLOWERS) {
+      const conditions = [
+        eq(follows.followingApId, msg.communityApId),
+        eq(follows.status, "accepted"),
+      ];
+      if (cursor !== null) {
+        conditions.push(sql`${follows.followerApId} > ${cursor}`);
+      }
+      const page = await db
+        .select({ followerApId: follows.followerApId })
+        .from(follows)
+        .where(and(...conditions))
+        .orderBy(follows.followerApId)
+        .limit(FANOUT_FOLLOWER_PAGE_SIZE);
+      if (page.length === 0) break;
+      cursor = page[page.length - 1].followerApId;
+      for (const f of page) {
+        if (!isLocal(f.followerApId, baseUrl) && f.followerApId !== authorApId) {
+          remoteRecipients.add(f.followerApId);
+        }
+      }
+      processed += page.length;
+      if (page.length < FANOUT_FOLLOWER_PAGE_SIZE) break;
+    }
+  }
+
+  const remoteList = [...remoteRecipients];
+  if (remoteList.length > 0) {
+    const planned = await planEndpointsFromActorCache(db, remoteList, {
+      metricTags: {
+        community: msg.communityApId,
+        activity: msg.activityId,
+      },
+    });
+
+    const deliverRequests: Array<{ body: DeliveryQueueMessageV1 }> = [];
+    for (const group of planned.groups) {
+      const jobId = await computeDeliveryJobId(msg.activityId, group.endpoint);
+      await upsertDeliveryJob(db, jobId, msg.activityId, group.endpoint);
+      deliverRequests.push({ body: buildDeliverEndpointMessage(jobId) });
+    }
+
+    const resolveRequests = planned.unknownRecipients.map((apId) => ({
+      body: buildResolveActorMessage(msg.activityId, apId),
+    }));
+
+    await sendQueueBatchChunked(queueEnv.DELIVERY_QUEUE, deliverRequests);
+    await sendQueueBatchChunked(queueEnv.DELIVERY_QUEUE, resolveRequests);
+  }
+
+  // TODO(remote-inbox-optimization): when the community has a large remote
+  // footprint, prefer delivering once to each remote server's shared inbox via
+  // the community's own followers collection rather than expanding the full
+  // member/follower set here. Local delivery and community audience/addressing
+  // are already correct; this is purely a remote fan-out efficiency follow-up.
 
   message.ack();
 }

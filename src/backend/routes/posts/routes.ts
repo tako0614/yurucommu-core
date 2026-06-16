@@ -24,9 +24,11 @@ import {
 import {
   AUTHOR_WITH,
   buildAddressing,
+  buildCommunityObjectAddressing,
   loadCachedAuthorMap,
   loadInteractionFlags,
   persistAndFanout,
+  persistAndFanoutToCommunity,
   type PostDetailRow,
   postWhereByIdOrApId,
   type PostWithAuthor,
@@ -82,6 +84,7 @@ posts.post("/", async (c) => {
     return c.json({ error: communityCheck.error }, communityCheck.status);
   }
   const communityId = communityCheck.communityId;
+  const community = communityCheck.community;
 
   const baseUrl = c.env.APP_URL;
   const postId = generateId();
@@ -99,6 +102,7 @@ posts.post("/", async (c) => {
       inReplyTo: body.in_reply_to || null,
       visibility,
       communityId,
+      community,
       baseUrl,
       now,
     });
@@ -125,10 +129,30 @@ posts.post("/", async (c) => {
     now,
   });
 
-  // Federate to followers if visibility is not direct
+  // Federate if visibility is not direct.
+  //
+  // Community-scoped posts have reach == community: address the Create toward
+  // the community Group actor + its followers collection (NOT the author's
+  // personal followers), record the community in `audience`, and fan out to
+  // the community's members/followers. Non-community posts keep the existing
+  // author-follower addressing and fan-out.
   if (visibility !== "direct") {
-    const followersUrl = `${actor.ap_id}/followers`;
-    const { to, cc } = buildAddressing(visibility, followersUrl);
+    let to: string[];
+    let cc: string[];
+    let audience: string[] | undefined;
+
+    if (community) {
+      const objectAddressing = buildCommunityObjectAddressing(
+        visibility,
+        community,
+      );
+      to = objectAddressing.to;
+      cc = objectAddressing.cc;
+      audience = objectAddressing.audience;
+    } else {
+      const followersUrl = `${actor.ap_id}/followers`;
+      ({ to, cc } = buildAddressing(visibility, followersUrl));
+    }
 
     const createActivity = {
       "@context": "https://www.w3.org/ns/activitystreams",
@@ -138,6 +162,7 @@ posts.post("/", async (c) => {
       published: now,
       to,
       cc,
+      ...(audience ? { audience } : {}),
       object: {
         "@context": "https://www.w3.org/ns/activitystreams",
         id: apId,
@@ -150,10 +175,21 @@ posts.post("/", async (c) => {
         published: now,
         to,
         cc,
+        ...(audience ? { audience } : {}),
       },
     };
 
-    await persistAndFanout(db, c.env, createActivity, apId);
+    if (community) {
+      await persistAndFanoutToCommunity(
+        db,
+        c.env,
+        createActivity,
+        apId,
+        community.apId,
+      );
+    } else {
+      await persistAndFanout(db, c.env, createActivity, apId);
+    }
   }
 
   const createdPost = {

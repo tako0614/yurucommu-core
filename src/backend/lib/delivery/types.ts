@@ -8,6 +8,19 @@ export type DeliveryFanoutFollowersMessageV1 = {
   scheduledAt: string; // ISO8601 UTC
 };
 
+/**
+ * Fan-out of an activity to a community's audience (members + community
+ * followers) rather than the author's personal follower graph. Used for
+ * community-scoped posts so reach == community, not author-followers.
+ */
+export type DeliveryFanoutCommunityMessageV1 = {
+  version: typeof DELIVERY_QUEUE_MESSAGE_VERSION;
+  type: "fanout_community";
+  activityId: string;
+  communityApId: string;
+  scheduledAt: string; // ISO8601 UTC
+};
+
 export type DeliveryResolveActorMessageV1 = {
   version: typeof DELIVERY_QUEUE_MESSAGE_VERSION;
   type: "resolve_actor";
@@ -33,6 +46,7 @@ export type DeliveryReconcileJobMessageV1 = {
 
 export type DeliveryQueueMessageV1 =
   | DeliveryFanoutFollowersMessageV1
+  | DeliveryFanoutCommunityMessageV1
   | DeliveryResolveActorMessageV1
   | DeliveryDeliverEndpointMessageV1
   | DeliveryReconcileJobMessageV1;
@@ -61,6 +75,12 @@ export function isDeliveryQueueMessageV1(
       return (
         typeof v.activityId === "string" &&
         typeof v.followeeApId === "string" &&
+        typeof v.scheduledAt === "string"
+      );
+    case "fanout_community":
+      return (
+        typeof v.activityId === "string" &&
+        typeof v.communityApId === "string" &&
         typeof v.scheduledAt === "string"
       );
     case "resolve_actor":

@@ -19,7 +19,10 @@ import { and, eq, inArray, or } from "drizzle-orm";
 import type { Env } from "../../types.ts";
 import { formatUsername, objectApId } from "../../federation-helpers.ts";
 import { formatPost, PostRow } from "./transformers.ts";
-import { enqueueFanoutToFollowers } from "../../lib/delivery/queue.ts";
+import {
+  enqueueFanoutToCommunity,
+  enqueueFanoutToFollowers,
+} from "../../lib/delivery/queue.ts";
 import { isRecord, parseJsonObject } from "../../lib/parse-helpers.ts";
 import { logger } from "../../lib/logger.ts";
 
@@ -225,12 +228,14 @@ function classifyVisibility(value: string): Visibility {
   }
 }
 
+const PUBLIC_URL = "https://www.w3.org/ns/activitystreams#Public";
+
 /** Compute to/cc fields from visibility for ActivityPub delivery. */
 export function buildAddressing(
   visibility: string,
   followersUrl: string,
 ): { to: string[]; cc: string[] } {
-  const publicUrl = "https://www.w3.org/ns/activitystreams#Public";
+  const publicUrl = PUBLIC_URL;
   const narrowed = classifyVisibility(visibility);
   switch (narrowed) {
     case "public":
@@ -244,6 +249,43 @@ export function buildAddressing(
     default:
       return assertNever(narrowed);
   }
+}
+
+export type CommunityAddressingTarget = {
+  apId: string;
+  followersUrl: string;
+};
+
+/**
+ * Compute the stored object addressing (to/cc/audience) for a post.
+ *
+ * For a community-scoped post the reach is the COMMUNITY, not the open public
+ * timeline: the community Group actor and its followers collection are placed
+ * in `to`, and the community is recorded in `audience`. Because the public /
+ * home feed filters on `audienceJson = "[]"`, a non-empty audience is exactly
+ * what keeps the post out of those feeds while keeping it visible in the
+ * community-scoped feed (which filters by `communityApId`). `#Public` is
+ * downgraded to `cc` (unlisted-style) so the post is not boosted into the
+ * federated public stream even when the post visibility is "public".
+ *
+ * For a non-community post this returns empty arrays, preserving the prior
+ * object defaults (the activity-level addressing in the Create still drives
+ * follower delivery).
+ */
+export function buildCommunityObjectAddressing(
+  visibility: string,
+  community: CommunityAddressingTarget | null,
+): { to: string[]; cc: string[]; audience: string[] } {
+  if (!community) {
+    return { to: [], cc: [], audience: [] };
+  }
+  const narrowed = classifyVisibility(visibility);
+  const to = [community.apId, community.followersUrl];
+  const cc: string[] = [];
+  if (narrowed === "public" || narrowed === "unlisted") {
+    cc.push(PUBLIC_URL);
+  }
+  return { to, cc, audience: [community.apId] };
 }
 
 /** Batch-load liked and bookmarked object IDs for a set of posts. */
@@ -305,6 +347,41 @@ export async function persistAndFanout(
       activityType: activity.type,
       activityId: activity.id,
       actor: activity.actor,
+      error: err,
+    });
+  }
+}
+
+/**
+ * Persist an outbound activity and fan it out to a COMMUNITY's audience
+ * (members + community followers) instead of the author's personal followers.
+ * Used for community-scoped posts so reach == community.
+ */
+export async function persistAndFanoutToCommunity(
+  db: Database,
+  env: Env,
+  activity: { id: string; type: string; actor: string; [key: string]: unknown },
+  objectApIdValue: string,
+  communityApId: string,
+): Promise<void> {
+  await db.insert(activities).values({
+    apId: activity.id,
+    type: activity.type,
+    actorApId: activity.actor,
+    objectApId: objectApIdValue,
+    rawJson: JSON.stringify(activity),
+    direction: "outbound",
+  });
+
+  try {
+    await enqueueFanoutToCommunity(env, activity.id, communityApId);
+  } catch (err) {
+    log.error("Failed to enqueue community federation fanout", {
+      event: "posts.fanout.community_enqueue_failed",
+      activityType: activity.type,
+      activityId: activity.id,
+      actor: activity.actor,
+      communityApId,
       error: err,
     });
   }

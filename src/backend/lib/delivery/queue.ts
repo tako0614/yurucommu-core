@@ -334,6 +334,25 @@ export async function enqueueDeliveryToActor(
   );
 }
 
+/**
+ * Fan an activity out to a community's audience (members + community
+ * followers) instead of the author's personal follower graph. Used for
+ * community-scoped posts so reach == community.
+ */
+export async function enqueueFanoutToCommunity(
+  env: Env,
+  activityId: string,
+  communityApId: string,
+): Promise<void> {
+  await sendQueueMessage(env, {
+    version: DELIVERY_QUEUE_MESSAGE_VERSION,
+    type: "fanout_community",
+    activityId,
+    communityApId,
+    scheduledAt: nowIso(),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Batch handlers (top-level entry points for queue consumers)
 // ---------------------------------------------------------------------------
@@ -351,6 +370,7 @@ export async function handleDeliveryQueueBatch(
   // Lazy import sub-modules to avoid circular dependencies at module level
   const {
     processFanoutFollowers,
+    processFanoutCommunity,
     processResolveActor,
     processReconcileJob,
     runWithConcurrency,
@@ -378,6 +398,9 @@ export async function handleDeliveryQueueBatch(
       switch (body.type) {
         case "fanout_followers":
           await processFanoutFollowers(db, env, body, message);
+          break;
+        case "fanout_community":
+          await processFanoutCommunity(db, env, body, message);
           break;
         case "resolve_actor":
           await processResolveActor(db, env, body, message);
