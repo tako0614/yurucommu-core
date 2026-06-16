@@ -22,10 +22,21 @@ function createDbMock(publicKeyPem: string) {
           Promise.resolve({
             apId: "https://remote.example/users/alice",
             publicKeyPem,
+            // Fresh cache entry so signature verification resolves the key
+            // from cache instead of attempting a (failing) network fetch.
+            lastFetchedAt: new Date().toISOString(),
           }),
         ),
       },
       activities: {
+        findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
+      },
+      // Sender is not on either blocklist; exercise the not-blocked path
+      // instead of letting the lookups throw on an undefined relation.
+      blockedActors: {
+        findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
+      },
+      blockedDomains: {
         findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
       },
     },
@@ -103,6 +114,9 @@ function createBlocklistDbMock(publicKeyPem: string, blockedActorApId: string) {
           Promise.resolve({
             apId: blockedActorApId,
             publicKeyPem,
+            // Fresh cache entry so signature verification resolves the key
+            // from cache instead of attempting a (failing) network fetch.
+            lastFetchedAt: new Date().toISOString(),
           }),
         ),
       },
@@ -197,7 +211,19 @@ function createSharedInboxDbMock(
   publicKeyPem: string,
   localFollowerApIds: string[],
 ) {
-  const insertValues = spy((..._args: unknown[]) => Promise.resolve(undefined));
+  // The inbound-activity store path awaits `insert(activities).values(...)`
+  // directly; the Like dispatch chains `.onConflictDoNothing().returning()
+  // .get()`. Return an object that is both awaitable (→ undefined for the
+  // store) and chainable (→ null, i.e. treat the interaction as a duplicate so
+  // the per-recipient path completes instead of throwing on an unmocked
+  // method).
+  const insertChain = {
+    onConflictDoNothing: () => ({
+      returning: () => ({ get: () => Promise.resolve(null) }),
+    }),
+    then: (resolve: (value: undefined) => void) => resolve(undefined),
+  };
+  const insertValues = spy((..._args: unknown[]) => insertChain);
   // select(...).from(...).where(...).orderBy(...).limit(...) returns the
   // accepted-follower rows that the shared inbox pages over.
   const limit = spy((..._args: unknown[]) =>
@@ -233,10 +259,19 @@ function createSharedInboxDbMock(
           Promise.resolve({
             apId: "https://remote.example/users/alice",
             publicKeyPem,
+            // Fresh cache entry so signature verification resolves the key
+            // from cache instead of attempting a (failing) network fetch.
+            lastFetchedAt: new Date().toISOString(),
           }),
         ),
       },
       activities: {
+        findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
+      },
+      blockedActors: {
+        findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
+      },
+      blockedDomains: {
         findFirst: spy((..._args: unknown[]) => Promise.resolve(null)),
       },
     },
