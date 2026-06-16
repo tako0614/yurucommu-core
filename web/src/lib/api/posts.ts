@@ -59,7 +59,12 @@ export async function createPost(data: {
   visibility?: string;
   in_reply_to?: string;
   community_ap_id?: string;
-  attachments?: { url?: string; r2_key: string; content_type: string }[];
+  attachments?: {
+    url?: string;
+    r2_key: string;
+    content_type: string;
+    name?: string;
+  }[];
 }): Promise<Post> {
   const res = await apiPost("/api/posts", data);
   await assertOk(res, "Failed to create post");

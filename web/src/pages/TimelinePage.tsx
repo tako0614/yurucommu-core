@@ -150,6 +150,10 @@ export function TimelinePage() {
         actor={actor}
         postContent={state.postContent()}
         onPostContentChange={state.setPostContent}
+        postSummary={state.postSummary()}
+        onPostSummaryChange={state.setPostSummary}
+        postVisibility={state.postVisibility()}
+        onPostVisibilityChange={state.setPostVisibility}
         placeholder={state.getPlaceholder()}
         submitLabel={state.t()("posts.post")}
         submittingLabel={state.t()("posts.posting")}
@@ -160,6 +164,7 @@ export function TimelinePage() {
         onFileSelect={state.handleFileSelect}
         uploadedMedia={state.uploadedMedia()}
         onRemoveMedia={state.removeMedia}
+        onMediaAltChange={state.setMediaAlt}
         uploading={state.uploading()}
         uploadError={state.uploadError()}
       />

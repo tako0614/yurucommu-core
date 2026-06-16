@@ -248,6 +248,7 @@ export function PostDetailPage() {
             </div>
             <PostContent
               content={post()!.content}
+              summary={post()!.summary}
               class="text-lg text-neutral-100 mt-3"
             />
             {/* Post Images */}
@@ -269,7 +270,7 @@ export function PostDetailPage() {
                       src={
                         m.url || `/media/${m.r2_key.replace(/^uploads\//, "")}`
                       }
-                      alt=""
+                      alt={m.name || ""}
                       class={`w-full object-cover ${
                         post()!.attachments.length === 1
                           ? "max-h-[500px]"
@@ -400,6 +401,7 @@ export function PostDetailPage() {
                   </div>
                   <PostContent
                     content={reply.content}
+                    summary={reply.summary}
                     class="text-[15px] text-neutral-200 mt-1"
                   />
                   <div class="flex items-center gap-6 mt-2">

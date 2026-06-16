@@ -117,6 +117,7 @@ function ProfilePostItem(props: ProfilePostItemProps) {
         </div>
         <PostContent
           content={props.post.content}
+          summary={props.post.summary}
           class="text-[15px] text-neutral-200 mt-1"
         />
         {/* Actions */}

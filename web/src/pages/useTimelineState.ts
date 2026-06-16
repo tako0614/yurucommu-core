@@ -14,7 +14,10 @@ import {
   loadTimelineAtom,
   postContentAtom,
   postingAtom,
+  postSummaryAtom,
+  postVisibilityAtom,
   removeMediaAtom,
+  setMediaAltAtom,
   showAccountSwitcherAtom,
   showMenuAtom,
   showPostModalAtom,
@@ -50,6 +53,8 @@ export function useTimelineState() {
   const loadingMore = useAtomValue(timelineLoadingMoreAtom);
   const hasMore = useAtomValue(timelineHasMoreAtom);
   const [postContent, setPostContent] = useAtom(postContentAtom);
+  const [postSummary, setPostSummary] = useAtom(postSummaryAtom);
+  const [postVisibility, setPostVisibility] = useAtom(postVisibilityAtom);
   const posting = useAtomValue(postingAtom);
   const uploadedMedia = useAtomValue(uploadedMediaAtom);
   const uploading = useAtomValue(uploadingAtom);
@@ -82,6 +87,7 @@ export function useTimelineState() {
   const doCreatePost = useSetAtom(createPostAtom);
   const doUploadMedia = useSetAtom(uploadMediaActionAtom);
   const doRemoveMedia = useSetAtom(removeMediaAtom);
+  const doSetMediaAlt = useSetAtom(setMediaAltAtom);
   const doLoadAccounts = useSetAtom(loadAccountsAtom);
   const doSwitchAccount = useSetAtom(switchAccountAtom);
   const doClosePostModal = useSetAtom(closePostModalAtom);
@@ -183,7 +189,13 @@ export function useTimelineState() {
   };
 
   const handlePost = async (): Promise<boolean> => {
-    return (await doCreatePost(postContent())) || false;
+    return (
+      (await doCreatePost({
+        content: postContent(),
+        summary: postSummary(),
+        visibility: postVisibility(),
+      })) || false
+    );
   };
 
   // Remove a single post (after deleting your own) from the timeline.
@@ -243,6 +255,10 @@ export function useTimelineState() {
     hasMore,
     postContent,
     setPostContent,
+    postSummary,
+    setPostSummary,
+    postVisibility,
+    setPostVisibility,
     posting,
     handlePost,
     uploadedMedia,
@@ -250,6 +266,7 @@ export function useTimelineState() {
     uploadError,
     handleFileSelect,
     removeMedia: doRemoveMedia,
+    setMediaAlt: (index: number, alt: string) => doSetMediaAlt({ index, alt }),
     actorStories,
     storiesLoading,
     showStoryViewer,

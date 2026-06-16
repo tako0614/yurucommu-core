@@ -54,6 +54,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
         <A href={`/post/${encodeURIComponent(props.post.ap_id)}`} class="block">
           <PostContent
             content={props.post.content}
+            summary={props.post.summary}
             class="text-[15px] text-neutral-200 mt-1"
           />
           <Show
@@ -72,7 +73,7 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
                     src={
                       m.url || `/media/${m.r2_key.replace(/^uploads\//, "")}`
                     }
-                    alt=""
+                    alt={m.name || ""}
                     class="w-full object-cover max-h-96"
                   />
                 )}

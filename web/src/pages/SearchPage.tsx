@@ -444,6 +444,7 @@ export function SearchPage() {
                         <A href={`/post/${encodeURIComponent(post.ap_id)}`}>
                           <PostContent
                             content={post.content}
+                            summary={post.summary}
                             class="text-[15px] text-neutral-200 mt-1"
                           />
                         </A>

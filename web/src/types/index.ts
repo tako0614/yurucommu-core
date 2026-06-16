@@ -36,6 +36,8 @@ export interface MediaAttachment {
   url?: string;
   r2_key: string;
   content_type: string;
+  // ActivityPub-standard alt text for the attachment (`name` on a Document).
+  name?: string;
 }
 
 // Post author info

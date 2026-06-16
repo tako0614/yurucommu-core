@@ -14,6 +14,14 @@ import type { UploadedMedia } from "../components/timeline/types.ts";
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
 
+export type PostVisibility = "public" | "unlisted" | "followers" | "direct";
+
+export type CreatePostOptions = {
+  content: string;
+  summary?: string;
+  visibility?: PostVisibility;
+};
+
 // --- Post state ---
 export const timelinePostsAtom = atom<Post[]>([]);
 export const timelineLoadingAtom = atom(true);
@@ -23,6 +31,9 @@ export const timelineErrorAtom = atom<string | null>(null);
 
 // --- Post composition ---
 export const postContentAtom = atom("");
+export const postSummaryAtom = atom("");
+// Default visibility is public and is never changed implicitly.
+export const postVisibilityAtom = atom<PostVisibility>("public");
 export const postingAtom = atom(false);
 export const uploadedMediaAtom = atom<UploadedMedia[]>([]);
 export const uploadingAtom = atom(false);
@@ -98,39 +109,53 @@ export const loadStoriesAtom = atom(null, async (get, set) => {
   }
 });
 
-export const createPostAtom = atom(null, async (get, set, content: string) => {
-  const media = get(uploadedMediaAtom);
-  if ((!content.trim() && media.length === 0) || get(postingAtom)) return false;
-
-  set(postingAtom, true);
-  try {
-    const newPost = await createPost({
-      content: content.trim(),
-      attachments:
-        media.length > 0
-          ? media.map((m) => ({
-              url: m.url,
-              r2_key: m.r2_key,
-              content_type: m.content_type,
-            }))
-          : undefined,
-    });
-    if (newPost) {
-      set(timelinePostsAtom, (prev) => [newPost, ...prev]);
-      set(postContentAtom, "");
-      media.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
-      set(uploadedMediaAtom, []);
-      return true;
+export const createPostAtom = atom(
+  null,
+  async (get, set, options: CreatePostOptions) => {
+    const { content } = options;
+    const media = get(uploadedMediaAtom);
+    if ((!content.trim() && media.length === 0) || get(postingAtom)) {
+      return false;
     }
-    return false;
-  } catch (e) {
-    console.error("Failed to create post:", e);
-    set(timelineErrorAtom, get(tAtom)("common.error"));
-    return false;
-  } finally {
-    set(postingAtom, false);
-  }
-});
+
+    set(postingAtom, true);
+    try {
+      const summary = options.summary?.trim();
+      const newPost = await createPost({
+        content: content.trim(),
+        summary: summary ? summary : undefined,
+        // Default visibility stays public; only forward an explicit choice.
+        visibility:
+          options.visibility && options.visibility !== "public"
+            ? options.visibility
+            : undefined,
+        attachments:
+          media.length > 0
+            ? media.map((m) => ({
+                url: m.url,
+                r2_key: m.r2_key,
+                content_type: m.content_type,
+                name: m.name?.trim() ? m.name.trim() : undefined,
+              }))
+            : undefined,
+      });
+      if (newPost) {
+        set(timelinePostsAtom, (prev) => [newPost, ...prev]);
+        set(postContentAtom, "");
+        media.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
+        set(uploadedMediaAtom, []);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error("Failed to create post:", e);
+      set(timelineErrorAtom, get(tAtom)("common.error"));
+      return false;
+    } finally {
+      set(postingAtom, false);
+    }
+  },
+);
 
 export const uploadMediaAtom = atom(null, async (get, set, file: File) => {
   if (get(uploadedMediaAtom).length >= 4) return;
@@ -175,6 +200,18 @@ export const removeMediaAtom = atom(null, (_get, set, index: number) => {
   });
 });
 
+// Update the alt text (`name`) of an uploaded attachment. Client-only.
+export const setMediaAltAtom = atom(
+  null,
+  (_get, set, payload: { index: number; alt: string }) => {
+    set(uploadedMediaAtom, (prev) =>
+      prev.map((m, i) =>
+        i === payload.index ? { ...m, name: payload.alt } : m,
+      ),
+    );
+  },
+);
+
 export const loadAccountsAtom = atom(null, async (get, set) => {
   set(accountsLoadingAtom, true);
   set(accountsErrorAtom, null);
@@ -199,6 +236,9 @@ export const switchAccountAtom = atom(null, async (get, _set, apId: string) => {
 export const closePostModalAtom = atom(null, (_get, set) => {
   set(showPostModalAtom, false);
   set(postContentAtom, "");
+  set(postSummaryAtom, "");
+  // Reset to the default reach (public).
+  set(postVisibilityAtom, "public");
   set(uploadedMediaAtom, (prev) => {
     prev.forEach((m) => m.preview && URL.revokeObjectURL(m.preview));
     return [];

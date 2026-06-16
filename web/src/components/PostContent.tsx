@@ -1,8 +1,12 @@
 import { A } from "@solidjs/router";
-import { createMemo, For } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
+import { useI18n } from "../lib/i18n.tsx";
 
 interface PostContentProps {
   content: string;
+  // Optional content warning / summary. When present, the body is collapsed
+  // behind a reveal toggle.
+  summary?: string | null;
   class?: string;
 }
 
@@ -12,6 +16,10 @@ type ContentPart =
 
 // Parse post content and render mentions as clickable links
 export function PostContent(props: PostContentProps) {
+  const { t } = useI18n();
+  const [revealed, setRevealed] = createSignal(false);
+  const hasSummary = createMemo(() => !!props.summary && props.summary.trim());
+
   const parsedContent = createMemo(() => {
     // Regex to match @username (alphanumeric and underscores)
     const mentionRegex = /@([a-zA-Z0-9_]+)/g;
@@ -49,7 +57,7 @@ export function PostContent(props: PostContentProps) {
     return parts;
   });
 
-  return (
+  const body = (
     <p class={`whitespace-pre-wrap break-words ${props.class ?? ""}`}>
       <For each={parsedContent()}>
         {(part) => {
@@ -69,5 +77,29 @@ export function PostContent(props: PostContentProps) {
         }}
       </For>
     </p>
+  );
+
+  return (
+    <Show when={hasSummary()} fallback={body}>
+      <div class={props.class ?? ""}>
+        <p class="whitespace-pre-wrap break-words text-neutral-200">
+          {props.summary}
+        </p>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setRevealed((v) => !v);
+          }}
+          class="mt-1 px-3 py-1 rounded-full bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-sm font-bold transition-colors"
+        >
+          {revealed() ? t("posts.showLess") : t("posts.showMore")}
+        </button>
+        <Show when={revealed()}>
+          <div class="mt-2">{body}</div>
+        </Show>
+      </div>
+    </Show>
   );
 }
