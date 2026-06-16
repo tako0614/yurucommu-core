@@ -1,5 +1,5 @@
 import { Show } from "solid-js";
-import { A } from "@solidjs/router";
+import { A, useLocation } from "@solidjs/router";
 import { useAtomValue, useSetAtom } from "solid-jotai";
 import { useI18n } from "../../lib/i18n.tsx";
 import { actorAtom } from "../../atoms/auth.ts";
@@ -10,8 +10,10 @@ import { NavBadge } from "./NavBadge.tsx";
 
 // Minimal app-shell mobile header, mounted once in AppLayout so the AppMenu
 // trigger (avatar) plus DM and Notifications are reachable from EVERY route on
-// mobile. This is intentionally lightweight: Phase B's ScopeHeader will absorb
-// and replace it. Desktop uses the Sidebar instead, so this is hidden at md+.
+// mobile. On the home route (`/`) the Phase B ScopeHeader takes over the same
+// affordances (menu trigger + DM + notifications + compose) with the scope
+// identity, so this header hides itself there to avoid a doubled bar. Desktop
+// uses the Sidebar instead, so this is hidden at md+.
 const MessageIcon = () => (
   <svg
     class="w-6 h-6"
@@ -51,9 +53,14 @@ export function AppHeaderMobile() {
   const actor = useAtomValue(actorAtom);
   const openMenu = useSetAtom(appMenuOpenAtom);
   const unreadCount = useAtomValue(notificationUnreadAtom);
+  const location = useLocation();
+
+  // On the home route the ScopeHeader owns these affordances; suppress this bar
+  // there so the two never stack.
+  const onHome = () => location.pathname === "/";
 
   return (
-    <Show when={actor()}>
+    <Show when={onHome() ? null : actor()}>
       {(current) => (
         <header class="md:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-neutral-900/80 backdrop-blur-sm border-b border-neutral-800">
           {/* Avatar / menu trigger — opens the global AppMenu drawer. */}

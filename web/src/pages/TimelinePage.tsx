@@ -1,7 +1,10 @@
-import { For, lazy, Show, Suspense } from "solid-js";
+import { createSignal, For, lazy, Show, Suspense } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { useRequiredActor } from "../hooks/useRequiredActor.ts";
 import { StoryBar } from "../components/story/StoryBar.tsx";
+import { ScopeHeader } from "../components/scope/ScopeHeader.tsx";
+import { ScopeBar } from "../components/scope/ScopeBar.tsx";
+import { ScopeSwitcherSheet } from "../components/scope/ScopeSwitcherSheet.tsx";
 import { LoadingSpinner } from "../components/LoadingSpinner.tsx";
 
 // Lazy load heavy components
@@ -11,7 +14,6 @@ const StoryComposer = lazy(
 );
 import { InlineErrorRetry } from "../components/InlineErrorRetry.tsx";
 import { FirstFeedEmptyState } from "../components/FirstFeedEmptyState.tsx";
-import { TimelineHeader } from "../components/timeline/TimelineHeader.tsx";
 import { TimelinePostItem } from "../components/timeline/TimelinePostItem.tsx";
 import { PostSkeleton } from "../components/timeline/PostSkeleton.tsx";
 import { PluginSlot } from "../components/PluginSlot.tsx";
@@ -21,6 +23,10 @@ export function TimelinePage() {
   const actor = useRequiredActor();
   const navigate = useNavigate();
   const state = useTimelineState();
+
+  // Shared open state for the scope switcher sheet — both the ScopeHeader pill
+  // and the ScopeBar's trailing "+" drive the same instance.
+  const [switcherOpen, setSwitcherOpen] = createSignal(false);
 
   return (
     <div class="relative flex flex-col h-full">
@@ -48,7 +54,9 @@ export function TimelinePage() {
         </Suspense>
       </Show>
 
-      <TimelineHeader title={state.t()("timeline.title")} />
+      {/* Scope identity + ambient reach + DM/notify/compose (replaces the
+          plain timeline title and absorbs the mobile shell header). */}
+      <ScopeHeader onOpenSwitcher={() => setSwitcherOpen(true)} />
 
       {/* Story Bar */}
       <StoryBar
@@ -57,6 +65,16 @@ export function TimelinePage() {
         loading={state.storiesLoading()}
         onStoryClick={state.handleStoryClick}
         onAddStory={state.handleAddStory}
+      />
+
+      {/* One-tap inhabited-scope rail (second projection of the scope atom). */}
+      <ScopeBar onOpenSwitcher={() => setSwitcherOpen(true)} />
+
+      {/* Scope switcher sheet, shared by the header pill and the rail's "+".
+          Discover/Create fall through to the sheet's default /search route. */}
+      <ScopeSwitcherSheet
+        open={switcherOpen()}
+        onClose={() => setSwitcherOpen(false)}
       />
 
       {/* New-posts pill — prepends staged head posts and scrolls to top. */}

@@ -1,4 +1,5 @@
-import type { JSX } from "solid-js";
+import { onMount, type JSX } from "solid-js";
+import { useSetAtom } from "solid-jotai";
 import { Sidebar } from "./Sidebar.tsx";
 import { BottomNav } from "./BottomNav.tsx";
 import { RightSidebar } from "./RightSidebar.tsx";
@@ -7,10 +8,19 @@ import { AppMenu } from "./AppMenu.tsx";
 import { GlobalPostComposer } from "./GlobalPostComposer.tsx";
 import { ToastLayer } from "../ToastLayer.tsx";
 import { useNotificationPolling } from "../../hooks/useNotificationPolling.ts";
+import { hydrateScopeAtom } from "../../atoms/scope.ts";
 
 export function AppLayout(props: { children?: JSX.Element }) {
   // Single mount point for unread-notification polling (pauses when hidden).
   useNotificationPolling();
+
+  // Hydrate the inhabited-scope rail once per authenticated shell: reconcile the
+  // stored scope against live membership and populate the ScopeBar / switcher
+  // source. Runs here (not per-page) so the rail is ready on first paint.
+  const hydrateScope = useSetAtom(hydrateScopeAtom);
+  onMount(() => {
+    void hydrateScope();
+  });
 
   return (
     <div class="flex justify-center h-screen bg-neutral-900 text-white">
