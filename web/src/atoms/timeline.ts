@@ -163,7 +163,11 @@ export const loadMoreTimelineAtom = atom(null, async (get, set) => {
 export const loadStoriesAtom = atom(null, async (get, set) => {
   set(storiesErrorAtom, null);
   try {
-    const data = await fetchStories();
+    // Filter the StoryBar by the inhabited scope: personal observes self +
+    // followed (no community param); a community scope passes its ap_id so the
+    // backend returns only that community's members' stories (member-gated).
+    const scope = get(scopeQueryAtom);
+    const data = await fetchStories(scope?.community);
     set(actorStoriesAtom, data);
   } catch (e) {
     console.error("Failed to load stories:", e);

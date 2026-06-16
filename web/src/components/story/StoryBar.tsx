@@ -1,5 +1,6 @@
 import { For, Show } from "solid-js";
 import { Actor, ActorStories } from "../../types/index.ts";
+import { useI18n } from "../../lib/i18n.tsx";
 import { UserAvatar } from "../UserAvatar.tsx";
 
 interface StoryBarProps {
@@ -27,6 +28,7 @@ const PlusIcon = () => (
 );
 
 export function StoryBar(props: StoryBarProps) {
+  const { t } = useI18n();
   // Check if current user has any stories
   const myStories = () =>
     props.actorStories.find((as) => as.actor.ap_id === props.actor.ap_id);
@@ -75,7 +77,7 @@ export function StoryBar(props: StoryBarProps) {
                   </div>
                 </div>
                 <span class="text-xs text-neutral-400 max-w-16 truncate">
-                  Your story
+                  {t("story.yourStory")}
                 </span>
               </button>
             </div>
@@ -125,7 +127,7 @@ export function StoryBar(props: StoryBarProps) {
                 </button>
               </div>
               <span class="text-xs text-neutral-400 max-w-16 truncate">
-                {hasMyStories() ? "Your story" : "Add story"}
+                {hasMyStories() ? t("story.yourStory") : t("story.addStory")}
               </span>
             </div>
 

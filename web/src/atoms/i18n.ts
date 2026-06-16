@@ -269,6 +269,8 @@ const translations = {
     "story.genericError": "エラー: {message}",
     "story.createFailed": "ストーリーの作成に失敗しました",
     "story.loadFailed": "ストーリーの読み込みに失敗しました",
+    "story.yourStory": "あなたのストーリー",
+    "story.addStory": "ストーリーを追加",
     "story.videoLoadFailed":
       "FFmpegの読み込みに失敗しました。動画機能は使用できません。",
     "story.selectVideoFile": "動画ファイルを選択してください",
@@ -701,6 +703,8 @@ const translations = {
     "story.genericError": "Error: {message}",
     "story.createFailed": "Failed to create story",
     "story.loadFailed": "Failed to load stories",
+    "story.yourStory": "Your story",
+    "story.addStory": "Add story",
     "story.videoLoadFailed":
       "Failed to load FFmpeg. Video features are unavailable.",
     "story.selectVideoFile": "Please select a video file",

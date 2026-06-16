@@ -48,7 +48,9 @@ export function useTimelineState() {
 
   // Story state
   const actorStories = useAtomValue(actorStoriesAtom);
+  const setActorStories = useSetAtom(actorStoriesAtom);
   const storiesLoading = useAtomValue(storiesLoadingAtom);
+  const setStoriesLoading = useSetAtom(storiesLoadingAtom);
   const [showStoryViewer, setShowStoryViewer] = useAtom(showStoryViewerAtom);
   const storyViewerActorIndex = useAtomValue(storyViewerActorIndexAtom);
   const [showStoryComposer, setShowStoryComposer] = useAtom(
@@ -86,6 +88,12 @@ export function useTimelineState() {
       () => {
         setPosts([]);
         loadTimeline();
+        // The StoryBar is scope-filtered too (loadStoriesAtom reads the same
+        // scope): clear the stale group list and show the skeleton while the
+        // new scope's stories load so the bar never flashes the prior scope.
+        setActorStories([]);
+        setStoriesLoading(true);
+        loadStories();
       },
       { defer: true },
     ),
