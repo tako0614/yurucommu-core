@@ -1,10 +1,13 @@
-import { ErrorBoundary, lazy, Show, Suspense } from "solid-js";
+import { ErrorBoundary, lazy, Match, Show, Suspense, Switch } from "solid-js";
 import { Route, Router } from "@solidjs/router";
 import { Provider } from "solid-jotai";
 import { useAtomValue } from "solid-jotai";
 import { useAuth } from "./hooks/useAuth.ts";
 import { tAtom } from "./atoms/i18n.ts";
 import { LoginForm } from "./components/LoginForm.tsx";
+import { SetupScreen } from "./components/SetupScreen.tsx";
+import { InstancePendingScreen } from "./components/InstancePendingScreen.tsx";
+import { InstanceProblemScreen } from "./components/InstanceProblemScreen.tsx";
 import { AppLayout } from "./components/layout/index.ts";
 import { LoadingSpinner } from "./components/LoadingSpinner.tsx";
 import { yurucommuDeployDocsUrl } from "./lib/deploy-docs.ts";
@@ -24,57 +27,119 @@ const CommunityProfilePage = lazy(
 );
 const SearchPage = lazy(() => import("./pages/SearchPage.tsx"));
 
-function AppContent() {
-  const { actor, loading, loginError, login } = useAuth();
+function AppShell() {
+  return (
+    <Router>
+      <Route path="/" component={AppLayout}>
+        <Route path="/" component={TimelinePage} />
+        <Route path="/search" component={SearchPage} />
+        <Route path="/friends" component={FriendsListPage} />
+        <Route path="/friends/list" component={FriendsListPage} />
+        <Route path="/groups/:name" component={CommunityProfilePage} />
+        <Route path="/groups/:name/chat" component={CommunityChatPage} />
+        <Route path="/dm" component={DMPage} />
+        <Route path="/dm/:contactId" component={DMPage} />
+        <Route path="/profile" component={ProfilePage} />
+        <Route path="/profile/:actorId" component={ProfilePage} />
+        <Route path="/notifications" component={NotificationPage} />
+        <Route path="/post/:postId" component={PostDetailPage} />
+        <Route path="/bookmarks" component={BookmarksPage} />
+        <Route path="/settings" component={SettingsPage} />
+      </Route>
+    </Router>
+  );
+}
+
+function LoginScreen(props: {
+  onLogin: (password: string) => Promise<boolean>;
+  error: string | null;
+}) {
   const t = useAtomValue(tAtom);
   const deployDocsUrl = yurucommuDeployDocsUrl();
+  return (
+    <div class="flex min-h-screen flex-col items-center justify-center bg-neutral-950 p-8 text-neutral-100">
+      <h1 class="mb-2 text-4xl font-bold">Yurucommu</h1>
+      <p class="mb-1 text-neutral-300">{t()("app.tagline")}</p>
+      <p class="mb-8 max-w-xs text-center text-sm text-neutral-500">
+        {t()("app.taglineHint")}
+      </p>
+      <LoginForm onLogin={props.onLogin} error={props.error} />
+      <a
+        href={deployDocsUrl}
+        class="mt-6 inline-flex items-center justify-center rounded-lg border border-accent px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-[var(--accent)]/10"
+        rel="noopener"
+      >
+        {t()("instance.deployDocs")}
+      </a>
+    </div>
+  );
+}
+
+function AppContent() {
+  const {
+    actor,
+    loading,
+    loginError,
+    login,
+    needsSetup,
+    instancePending,
+    instanceMissing,
+    instanceBlocked,
+    instanceHealth,
+    selectedInstanceId,
+    completeSetup,
+    rebuildInstance,
+    refreshAuth,
+  } = useAuth();
+  const t = useAtomValue(tAtom);
+
+  // Health reports `provisioning`/`updating` while the instance is still coming
+  // up; treat those as pending alongside the explicit instancePending flag.
+  const healthPending = () => {
+    const state = instanceHealth()?.effective_state;
+    return state === "provisioning" || state === "updating";
+  };
 
   return (
-    <Show
-      when={!loading()}
+    <Switch
       fallback={
-        <div class="flex items-center justify-center h-screen bg-neutral-950 text-neutral-500">
-          {t()("common.loading")}
-        </div>
+        // Authenticated and healthy → the app shell/router.
+        <Show
+          when={actor()}
+          fallback={<LoginScreen onLogin={login} error={loginError()} />}
+        >
+          <AppShell />
+        </Show>
       }
     >
-      <Show
-        when={actor()}
-        fallback={
-          <div class="flex flex-col items-center justify-center min-h-screen bg-neutral-950 text-neutral-100 p-8">
-            <h1 class="text-4xl font-bold mb-4">Yurucommu</h1>
-            <p class="text-neutral-500 mb-8">Social Network</p>
-            <LoginForm onLogin={login} error={loginError()} />
-            <a
-              href={deployDocsUrl}
-              class="mt-6 inline-flex items-center justify-center rounded-lg border border-accent px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-[var(--accent)]/10"
-              rel="noopener"
-            >
-              Deploy docs
-            </a>
-          </div>
-        }
-      >
-        <Router>
-          <Route path="/" component={AppLayout}>
-            <Route path="/" component={TimelinePage} />
-            <Route path="/search" component={SearchPage} />
-            <Route path="/friends" component={FriendsListPage} />
-            <Route path="/friends/list" component={FriendsListPage} />
-            <Route path="/groups/:name" component={CommunityProfilePage} />
-            <Route path="/groups/:name/chat" component={CommunityChatPage} />
-            <Route path="/dm" component={DMPage} />
-            <Route path="/dm/:contactId" component={DMPage} />
-            <Route path="/profile" component={ProfilePage} />
-            <Route path="/profile/:actorId" component={ProfilePage} />
-            <Route path="/notifications" component={NotificationPage} />
-            <Route path="/post/:postId" component={PostDetailPage} />
-            <Route path="/bookmarks" component={BookmarksPage} />
-            <Route path="/settings" component={SettingsPage} />
-          </Route>
-        </Router>
-      </Show>
-    </Show>
+      <Match when={loading()}>
+        <div class="flex h-screen items-center justify-center bg-neutral-950 text-neutral-500">
+          {t()("common.loading")}
+        </div>
+      </Match>
+
+      <Match when={needsSetup()}>
+        <SetupScreen onComplete={completeSetup} />
+      </Match>
+
+      <Match when={instancePending() || healthPending()}>
+        <InstancePendingScreen
+          health={instanceHealth()}
+          instanceId={selectedInstanceId()}
+          onRefresh={refreshAuth}
+          onRebuild={rebuildInstance}
+        />
+      </Match>
+
+      <Match when={instanceMissing() || instanceBlocked()}>
+        <InstanceProblemScreen
+          variant={instanceBlocked() ? "blocked" : "missing"}
+          health={instanceHealth()}
+          instanceId={selectedInstanceId()}
+          onRebuild={rebuildInstance}
+        />
+      </Match>
+    </Switch>
   );
 }
 
