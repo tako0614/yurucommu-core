@@ -249,12 +249,29 @@ test("POST /me/delete snapshots follower inboxes into delivery jobs before teard
   );
   expect(res.status).toBe(200);
 
-  // Local actor row is gone (hard delete) and so are the follows rows.
+  // The actor row is TOMBSTONED, not hard-deleted: the snapshotted
+  // deliver_endpoint jobs for the Delete(actor) must later sign with this
+  // actor's private key, so the row (apId + signing material) is preserved and
+  // `deletedAt` is stamped, while every piece of personal data is scrubbed. A
+  // hard delete would destroy the signing key and the Delete could never be
+  // delivered.
   const remaining = await db
     .select()
     .from(actors)
     .where(eq(actors.apId, actor.ap_id));
-  expect(remaining.length).toBe(0);
+  expect(remaining.length).toBe(1);
+  const tombstone = remaining[0];
+  expect(tombstone.deletedAt).not.toBeNull();
+  // Personal data is scrubbed.
+  expect(tombstone.name).toBeNull();
+  expect(tombstone.summary).toBeNull();
+  expect(tombstone.iconUrl).toBeNull();
+  expect(tombstone.headerUrl).toBeNull();
+  expect(tombstone.takosUserId).toBeNull();
+  expect(tombstone.postCount).toBe(0);
+  // Signing material survives so the queued Delete jobs can be signed.
+  expect(tombstone.privateKeyPem).toBe("priv");
+  expect(tombstone.publicKeyPem).toBe("pub");
   const remainingFollows = await db
     .select()
     .from(follows)

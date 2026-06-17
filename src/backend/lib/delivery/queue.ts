@@ -20,6 +20,7 @@ import {
 import { computeDeliveryJobId, safeEndpointHost } from "./transformers.ts";
 import { emitMetric } from "./metrics.ts";
 import { logger } from "../logger.ts";
+import { isActorBlocked } from "../blocklist.ts";
 
 const log = logger.child({ component: "delivery.queue" });
 
@@ -295,10 +296,18 @@ export async function enqueueResolveForEndpointActors(
       i < page.length && enqueued < MAX_ACTORS;
       i += SEND_BATCH_SIZE
     ) {
-      const slice = page
+      const candidates = page
         .slice(i, i + SEND_BATCH_SIZE)
         .map((r) => r.apId)
         .filter((apId) => isSafeRemoteUrl(apId));
+
+      // Drop recipients the operator has defederated before re-enqueueing
+      // resolve_actor jobs (outbound blocklist enforcement).
+      const slice: string[] = [];
+      for (const apId of candidates) {
+        if (await isActorBlocked(db, apId)) continue;
+        slice.push(apId);
+      }
 
       if (slice.length === 0) continue;
 
@@ -353,6 +362,22 @@ export async function enqueueDeliveryToActor(
   activityId: string,
   recipientActorApId: string,
 ): Promise<void> {
+  // Enforce the operator blocklist on the OUTBOUND single-actor path (DMs,
+  // Accept/Follow responses, targeted post/story interactions). A defederated
+  // domain/actor must never receive our activities, mirroring the inbound
+  // enforcement in the inbox handler. Best-effort: if the db read fails,
+  // isActorBlocked returns false (never black-hole on a transient error).
+  const db = (env as Partial<Env>).DB_INSTANCE;
+  if (db && (await isActorBlocked(db, recipientActorApId))) {
+    log.info("Skipping outbound delivery to blocked actor", {
+      event: "delivery.blocklist.actor_skip",
+      actor: recipientActorApId,
+      activityId,
+    });
+    emitMetric("delivery.blocklist.actor_skip", 1, {});
+    return;
+  }
+
   await sendQueueMessage(
     env,
     buildResolveActorMessage(activityId, recipientActorApId),

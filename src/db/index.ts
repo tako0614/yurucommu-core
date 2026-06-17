@@ -47,13 +47,17 @@ export async function getDbSQLite(databasePath: string): Promise<Database> {
   const { drizzle } = await import("drizzle-orm/libsql");
 
   const client = createClient({ url: `file:${databasePath}` });
-  // Enable real FK enforcement so the ON DELETE CASCADE / SET NULL edges
-  // declared in the migrations are honoured at the engine level. SQLite has
-  // foreign keys OFF by default per connection; without this, deleting an
-  // object would orphan its likes/announces/bookmarks/recipients/story rows.
-  // (The application-level cascade in delete-cascade.ts still runs so the
-  // behaviour is identical on D1, which ignores this pragma.)
-  await client.execute("PRAGMA foreign_keys = ON");
+  // Foreign keys are explicitly turned OFF so the libsql engine matches
+  // Cloudflare D1, which ignores the FK constraints declared in the
+  // migrations. NOTE: libsql (unlike bun:sqlite / stock SQLite, which default
+  // OFF) defaults foreign_keys ON, so this must be set explicitly — simply
+  // not enabling it is not enough. Remote actors are stored in actor_cache
+  // (never in actors), yet objects.attributed_to / follows.* / likes.* /
+  // announces.* FK-reference actors(ap_id); enforcement would make every
+  // inbound federated activity from a remote actor violate the FK and fail to
+  // insert. Referential cleanup is handled at the app level by
+  // delete-cascade.ts, identically on D1.
+  await client.execute("PRAGMA foreign_keys = OFF");
   sqliteDb = drizzle(client, { schema });
   return sqliteDb;
 }

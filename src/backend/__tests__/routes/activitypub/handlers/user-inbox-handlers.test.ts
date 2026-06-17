@@ -194,8 +194,13 @@ test("userInboxHandlers hardening - handleDelete performs dependent deletes and 
 
   await handleDelete(context, activity);
 
-  // Verify select was called (lookup object)
-  assertSpyCalls(db.select, 1);
+  // Verify select was called twice: once in handleDelete (lookup object
+  // owner/type) and once inside deleteObjectCascade's media reaper, which
+  // selects the object's attachments_json to find attached media_uploads. The
+  // reaper's select returns undefined here (no second selectResult), so it
+  // short-circuits before any media delete — keeping the cascade delete count
+  // at 8.
+  assertSpyCalls(db.select, 2);
   // Verify delete was called for the full object cascade (likes, announces,
   // bookmarks, object_recipients, story_views, story_votes, story_shares) plus
   // the objects row itself = 8. The cascade now runs for every object type via

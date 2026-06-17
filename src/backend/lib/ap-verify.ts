@@ -491,9 +491,32 @@ export async function verifyHttpSignature(
     };
   }
 
+  // Require `host` among the signed headers (matching Mastodon's required
+  // header set). Without binding `host`, a signature captured for one target
+  // could be replayed against a different host — a cross-target replay
+  // surface. We also verify below that the signed Host value matches the
+  // request URL host so an attacker cannot forward the request elsewhere.
+  if (!parsed.headers.includes("host")) {
+    return {
+      valid: false,
+      error: "host header must be included in signature",
+    };
+  }
+
   // Build the signature string from headers
   const url = new URL(request.url);
   const requestTarget = `${url.pathname}${url.search}`;
+
+  // The signed Host value must match the host this request was actually
+  // delivered to, otherwise a validly-signed request for one origin could be
+  // replayed against another target that shares the same actor key.
+  const signedHost = request.headers.get("host");
+  if (!signedHost) {
+    return { valid: false, error: "Missing Host header required by signature" };
+  }
+  if (signedHost.toLowerCase() !== url.host.toLowerCase()) {
+    return { valid: false, error: "Host header does not match request target" };
+  }
   const signatureParts: string[] = [];
 
   for (const headerName of parsed.headers) {

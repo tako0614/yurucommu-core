@@ -134,7 +134,13 @@ export async function handleAdd(
 
   const db = c.get("db");
   const now = new Date().toISOString();
-  await db
+
+  // Atomically create the accepted follow edge. `returning().get()` only
+  // yields a row when a brand-new row was inserted; an existing edge hits the
+  // conflict clause and returns nothing. This gates the count maintenance so a
+  // duplicate Add cannot inflate the follower/following counters. Mirrors the
+  // new-row gating in `handleFollow`/`handleAccept`.
+  const inserted = await db
     .insert(follows)
     .values({
       followerApId: recipient.apId,
@@ -143,14 +149,22 @@ export async function handleAdd(
       activityApId: activity.id || null,
       acceptedAt: now,
     })
-    .onConflictDoUpdate({
-      target: [follows.followerApId, follows.followingApId],
-      set: {
-        status: "accepted",
-        acceptedAt: now,
-        activityApId: activity.id || undefined,
-      },
-    });
+    .onConflictDoNothing()
+    .returning()
+    .get();
+
+  if (!inserted) return; // edge already existed; counts unchanged
+
+  // A new accepted edge: recipient now follows `followingApId`. Mirror the
+  // count bookkeeping `handleAccept` performs on an accepted follow.
+  await db
+    .update(actors)
+    .set({ followingCount: sql`${actors.followingCount} + 1` })
+    .where(eq(actors.apId, recipient.apId));
+  await db
+    .update(actors)
+    .set({ followerCount: sql`${actors.followerCount} + 1` })
+    .where(eq(actors.apId, followingApId));
 }
 
 // ---------------------------------------------------------------------------
@@ -167,14 +181,29 @@ export async function handleRemove(
   if (!followingApId) return;
 
   const db = c.get("db");
-  await db
+  const deleted = await db
     .delete(follows)
     .where(
       and(
         eq(follows.followerApId, recipient.apId),
         eq(follows.followingApId, followingApId),
       ),
-    );
+    )
+    .returning({ status: follows.status });
+
+  // Only decrement when an accepted edge was actually removed. A duplicate
+  // Remove or a Remove of a never-accepted (pending) edge must not drift the
+  // counters negative. Mirrors `undoFollow`'s rows-affected gating.
+  if (deleted.some((row) => row.status === "accepted")) {
+    await db
+      .update(actors)
+      .set({ followingCount: sql`${actors.followingCount} - 1` })
+      .where(eq(actors.apId, recipient.apId));
+    await db
+      .update(actors)
+      .set({ followerCount: sql`${actors.followerCount} - 1` })
+      .where(eq(actors.apId, followingApId));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -195,7 +224,7 @@ export async function handleBlock(
   if (blockedId !== recipient.apId) return;
 
   // Best-effort: sever follow relations in both directions.
-  await db
+  const deleted = await db
     .delete(follows)
     .where(
       or(
@@ -208,7 +237,28 @@ export async function handleBlock(
           eq(follows.followingApId, recipient.apId),
         ),
       ),
-    );
+    )
+    .returning({
+      followerApId: follows.followerApId,
+      followingApId: follows.followingApId,
+      status: follows.status,
+    });
+
+  // Decrement counters per removed accepted edge: the follower loses a
+  // following, the followed loses a follower. Pending edges were never counted
+  // (mirrors `handleFollow`'s accepted-only increment), so skip them to avoid
+  // negative drift.
+  for (const row of deleted) {
+    if (row.status !== "accepted") continue;
+    await db
+      .update(actors)
+      .set({ followingCount: sql`${actors.followingCount} - 1` })
+      .where(eq(actors.apId, row.followerApId));
+    await db
+      .update(actors)
+      .set({ followerCount: sql`${actors.followerCount} - 1` })
+      .where(eq(actors.apId, row.followingApId));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -225,7 +275,11 @@ export async function handleFlag(
   // Flag activities carry a free-text reason in `content` (not part of the
   // narrowed Activity type, so read it defensively).
   const rawContent = (activity as { content?: unknown }).content;
-  const content = typeof rawContent === "string" ? rawContent : null;
+  // Cap the inbound reason length at ingest. The Flag `content` is fully
+  // attacker-controlled free text, so without a bound the reports table grows
+  // unbounded under report spam. 2000 chars is ample for a moderation reason.
+  const content =
+    typeof rawContent === "string" ? rawContent.slice(0, 2000) : null;
 
   // The report target is the flagged object (preferred) or the activity target.
   const reportTarget = objectId ?? targetId ?? null;

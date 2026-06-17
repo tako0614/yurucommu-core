@@ -7,6 +7,7 @@ import {
   safeParseIsoTimeMs,
 } from "./transformers.ts";
 import { isSafeRemoteUrl } from "../../federation-helpers.ts";
+import { isActorBlocked } from "../blocklist.ts";
 
 export type PlannedEndpointGroup = {
   endpoint: string;
@@ -18,6 +19,12 @@ export type PlanEndpointsResult = {
   unknownRecipients: string[];
   totalRecipients: number;
   sharedInboxRecipients: number;
+  /**
+   * Recipients dropped because the operator has blocked their actor AP-ID or
+   * hostname. These receive no outbound delivery and no resolve_actor enqueue
+   * (mirrors the inbound blocklist enforcement in the inbox handler).
+   */
+  blockedRecipients: string[];
 };
 
 type ActorCacheRow = {
@@ -61,6 +68,41 @@ export async function planEndpointsFromActorCache(
       unknownRecipients: [],
       totalRecipients: 0,
       sharedInboxRecipients: 0,
+      blockedRecipients: [],
+    };
+  }
+
+  // Enforce the operator blocklist on the OUTBOUND side too: drop any
+  // recipient whose actor AP-ID or hostname is defederated BEFORE grouping
+  // endpoints, so a blocked domain/actor never receives our posts or DMs.
+  // Uses the same isActorBlocked check (which also covers the hostname
+  // transitively) that the inbox handler uses inbound.
+  const allowedRecipients: string[] = [];
+  const blockedRecipients: string[] = [];
+  for (const apId of recipientActorApIds) {
+    if (await isActorBlocked(db, apId)) {
+      blockedRecipients.push(apId);
+    } else {
+      allowedRecipients.push(apId);
+    }
+  }
+
+  // After blocklist filtering, nothing left to plan.
+  if (allowedRecipients.length === 0) {
+    emitMetric("delivery_shared_inbox_aggregation_ratio", 0, {
+      total_recipients: totalRecipients,
+      shared_inbox_recipients: 0,
+      endpoints: 0,
+      unknown_recipients: 0,
+      blocked_recipients: blockedRecipients.length,
+      ...(options?.metricTags ?? {}),
+    });
+    return {
+      groups: [],
+      unknownRecipients: [],
+      totalRecipients,
+      sharedInboxRecipients: 0,
+      blockedRecipients,
     };
   }
 
@@ -73,14 +115,14 @@ export async function planEndpointsFromActorCache(
       lastFetchedAt: actorCache.lastFetchedAt,
     })
     .from(actorCache)
-    .where(inArray(actorCache.apId, recipientActorApIds));
+    .where(inArray(actorCache.apId, allowedRecipients));
 
   const byApId = new Map(rows.map((r) => [r.apId, r as ActorCacheRow]));
   const unknownRecipients: string[] = [];
   const endpointCounts = new Map<string, number>();
   let sharedInboxRecipients = 0;
 
-  for (const apId of recipientActorApIds) {
+  for (const apId of allowedRecipients) {
     const row = byApId.get(apId);
     // Treat missing, stale, or unresolvable actors as unknown for resolve_actor jobs.
     const chosen =
@@ -112,8 +154,15 @@ export async function planEndpointsFromActorCache(
     shared_inbox_recipients: sharedInboxRecipients,
     endpoints: groups.length,
     unknown_recipients: unknownRecipients.length,
+    blocked_recipients: blockedRecipients.length,
     ...(options?.metricTags ?? {}),
   });
 
-  return { groups, unknownRecipients, totalRecipients, sharedInboxRecipients };
+  return {
+    groups,
+    unknownRecipients,
+    totalRecipients,
+    sharedInboxRecipients,
+    blockedRecipients,
+  };
 }

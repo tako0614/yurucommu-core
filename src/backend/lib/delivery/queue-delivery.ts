@@ -101,7 +101,12 @@ async function resolveSigningActor(
   db: Database,
   actorApId: string,
 ): Promise<{ apId: string; privateKeyPem: string } | null> {
-  // Check actors table
+  // Check actors table. This MUST resolve tombstoned (soft-deleted) actors too:
+  // when an account is deleted, the outbound Delete(actor) deliver_endpoint jobs
+  // are snapshotted before teardown but drain afterwards, and the actor row is
+  // tombstoned (deletedAt set) rather than hard-deleted precisely so its private
+  // key survives for signing here. So this lookup deliberately does NOT filter
+  // on `deletedAt`.
   const actorRow = await db
     .select({
       apId: actors.apId,

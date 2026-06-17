@@ -324,6 +324,10 @@ ap.get(
       },
       publicKey: buildPublicKey(actor.apId, actor.publicKeyPem),
       discoverable: !actor.isPrivate,
+      // Advertise the lock so remote servers know inbound follows are held
+      // pending (handleFollow keeps them pending for private accounts). Mirrors
+      // the Update(Person) object built in actors.ts.
+      manuallyApprovesFollowers: Boolean(actor.isPrivate),
       published: actor.createdAt,
     };
 

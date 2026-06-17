@@ -67,6 +67,28 @@ type ActorInfo = {
 // Shared helpers (file-local, not exported)
 // ---------------------------------------------------------------------------
 
+/**
+ * Public-searchability guard shared by every anonymous-reachable post search
+ * (/posts, /hashtag, /hashtags/trending).
+ *
+ * Community-scoped Notes are persisted as visibility="public" but carry a
+ * non-"[]" audienceJson (the community read-gate). Filtering on visibility
+ * alone would leak private-community post content (and, via trending, tag
+ * names/counts) to anonymous or non-member callers. Both guards MUST be
+ * applied together; centralizing them here prevents the two conditions from
+ * drifting apart across the three search routes.
+ *
+ * Pass content/recency predicates as extra args; they are AND-ed with the
+ * public-scope guard.
+ */
+function publicSearchableWhere(...extra: Parameters<typeof and>) {
+  return and(
+    eq(objects.visibility, "public"),
+    eq(objects.audienceJson, "[]"),
+    ...extra,
+  );
+}
+
 /** Build orderBy for post queries. */
 function postOrderByDrizzle(sort: PostSort) {
   if (sort === "popular") {
@@ -332,13 +354,7 @@ search.get("/posts", async (c) => {
       likeCount: objects.likeCount,
     })
     .from(objects)
-    .where(
-      and(
-        like(objects.content, "%" + query + "%"),
-        eq(objects.visibility, "public"),
-        eq(objects.audienceJson, "[]"),
-      ),
-    )
+    .where(publicSearchableWhere(like(objects.content, "%" + query + "%")))
     .orderBy(...postOrderByDrizzle(sort))
     .limit(50);
 
@@ -467,9 +483,8 @@ search.get("/hashtag/:tag", async (c) => {
   const offset = parseOffset(c.req.query("offset"), 0, 10000);
   const hashtagPattern = `#${tag}`;
 
-  const postWhere = and(
+  const postWhere = publicSearchableWhere(
     like(objects.content, "%" + hashtagPattern + "%"),
-    eq(objects.visibility, "public"),
   );
 
   const [totalResult, posts] = await Promise.all([
@@ -523,9 +538,7 @@ search.get(
     const posts = await db
       .select({ content: objects.content })
       .from(objects)
-      .where(
-        and(eq(objects.visibility, "public"), gt(objects.published, sinceDate)),
-      )
+      .where(publicSearchableWhere(gt(objects.published, sinceDate)))
       .orderBy(desc(objects.published))
       .limit(TRENDING_SCAN_LIMIT);
 

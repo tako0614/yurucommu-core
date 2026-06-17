@@ -3,14 +3,12 @@ import type { Database } from "../../../db/index.ts";
 import {
   actorCache,
   blocks,
-  likes,
   mutes,
   objects,
-  storyShares,
-  storyViews,
   storyVotes,
 } from "../../../db/index.ts";
 import { objectApId, safeJsonParse } from "../../federation-helpers.ts";
+import { deleteObjectCascade } from "../posts/delete-cascade.ts";
 
 interface VoteResults {
   [optionIndex: number]: number;
@@ -231,16 +229,14 @@ export async function cleanupExpiredStories(db: Database): Promise<number> {
 
   const expiredApIds = expiredStories.map((s) => s.apId);
 
-  await db
-    .delete(storyVotes)
-    .where(inArray(storyVotes.storyApId, expiredApIds));
-  await db.delete(likes).where(inArray(likes.objectApId, expiredApIds));
-  await db
-    .delete(storyViews)
-    .where(inArray(storyViews.storyApId, expiredApIds));
-  await db
-    .delete(storyShares)
-    .where(inArray(storyShares.storyApId, expiredApIds));
+  // Reap every child edge for each expired story through the shared object
+  // cascade (likes / announces / bookmarks / object_recipients / story_views /
+  // story_votes / story_shares + attached media_uploads), so expiry can't
+  // orphan rows the hand-rolled list previously missed (announces, bookmarks,
+  // media). The helper reads each object row, so run it before deleting them.
+  for (const apId of expiredApIds) {
+    await deleteObjectCascade(db, apId);
+  }
 
   await db
     .delete(objects)

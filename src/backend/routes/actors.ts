@@ -27,6 +27,8 @@ import {
   mediaUploads,
   mutes,
   notDeleted,
+  notificationArchived,
+  nowIso,
   objectRecipients,
   objects,
   sessions,
@@ -343,6 +345,40 @@ actorsRoute.post("/me/delete", async (c) => {
     await db.delete(announces).where(eq(announces.actorApId, actorApIdVal));
 
     await db.delete(inbox).where(eq(inbox.actorApId, actorApIdVal));
+    // Notification rows for this actor: inbox (above) is the live notification
+    // source; the archived projection must go too so no per-actor notification
+    // data survives the deletion.
+    await db
+      .delete(notificationArchived)
+      .where(eq(notificationArchived.actorApId, actorApIdVal));
+
+    // Media: hard-delete the actor's uploads and best-effort purge the backing
+    // R2 objects so blobs do not leak. The DB rows are removed regardless of
+    // whether the object-store delete succeeds (R2 has its own GC fallback via
+    // the orphaned-key audit); never block deletion on storage availability.
+    const uploads = await db
+      .select({ r2Key: mediaUploads.r2Key })
+      .from(mediaUploads)
+      .where(eq(mediaUploads.uploaderApId, actorApIdVal));
+    if (uploads.length > 0) {
+      const media = c.env.MEDIA;
+      if (media) {
+        const keys = uploads.map((u) => u.r2Key);
+        try {
+          await media.delete(keys);
+        } catch (err) {
+          log.error("Failed to purge R2 objects for deleted account", {
+            event: "actors.account.delete_media_purge_failed",
+            actor: actorApIdVal,
+            count: keys.length,
+            error: err,
+          });
+        }
+      }
+      await db
+        .delete(mediaUploads)
+        .where(eq(mediaUploads.uploaderApId, actorApIdVal));
+    }
 
     const memberships = await db
       .select({
@@ -399,7 +435,35 @@ actorsRoute.post("/me/delete", async (c) => {
 
     // Phase 2: explicit ordered hard-delete to satisfy trigger expectations.
     await db.delete(objects).where(eq(objects.attributedTo, actorApIdVal));
-    await db.delete(actors).where(eq(actors.apId, actorApIdVal));
+
+    // Tombstone the actor identity instead of hard-deleting the row. The queued
+    // Delete(actor) deliver_endpoint jobs (snapshotted above) sign with THIS
+    // actor's private key when they later drain; a hard delete would destroy the
+    // signing material and the Delete could never be signed/delivered. We keep
+    // only what the delivery signer needs (apId + keyId-deriving fields +
+    // privateKeyPem/publicKeyPem) and scrub every piece of personal data. The
+    // `deletedAt` tombstone excludes this row from all federation-serving and
+    // counting queries (which filter `notDeleted(actors)`), and all auth paths
+    // are already severed because the sessions were deleted in Phase 1. A later
+    // sweep can hard-delete tombstones after the Delete jobs have drained.
+    await db
+      .update(actors)
+      .set({
+        name: null,
+        summary: null,
+        iconUrl: null,
+        headerUrl: null,
+        takosUserId: null,
+        followerCount: 0,
+        followingCount: 0,
+        postCount: 0,
+        fieldsJson: "[]",
+        alsoKnownAsJson: "[]",
+        movedTo: null,
+        ownerActorApId: null,
+        deletedAt: nowIso(),
+      })
+      .where(eq(actors.apId, actorApIdVal));
 
     deleteCookie(c, "session");
 

@@ -49,6 +49,23 @@ function isStoryType(type: string | string[] | undefined): boolean {
   return Array.isArray(type) ? type.includes("Story") : type === "Story";
 }
 
+// The actor object types whose inbound Update represents a remote
+// profile / avatar / public-key change that should refresh the actor cache.
+const ACTOR_OBJECT_TYPES = new Set([
+  "Person",
+  "Service",
+  "Group",
+  "Organization",
+  "Application",
+]);
+
+function isActorTypeUpdate(type: string | string[] | undefined): boolean {
+  if (!type) return false;
+  return Array.isArray(type)
+    ? type.some((t) => ACTOR_OBJECT_TYPES.has(t))
+    : ACTOR_OBJECT_TYPES.has(type);
+}
+
 // The ActivityStreams public-collection magic value, including the legacy
 // short forms some implementations still emit.
 const PUBLIC_COLLECTION = new Set([
@@ -533,6 +550,28 @@ export async function handleUpdate(
   const objectId = object.id;
   if (!objectId) return;
 
+  // Update(Person/Service/Group) — an inbound actor-document update (remote
+  // profile / avatar / public-key rotation). Apply it immediately by
+  // re-fetching and upserting the actor through the same canonical actor-cache
+  // path used by cacheRemoteActor, instead of waiting for the 24h actor-cache
+  // TTL to expire. A signed actor may only update its own document, so the
+  // updated object must be the actor itself (`object.id === activity.actor`,
+  // mirroring the actor==object self-update contract). The remote document is
+  // re-fetched from origin (never trusted from the wire) so a spoofed Update
+  // body cannot poison the cache.
+  if (isActorTypeUpdate(object.type) || objectId === actor) {
+    if (objectId !== actor) {
+      log.warn("Update(actor) rejected: object id does not match actor", {
+        event: "ap.update.actor_self_mismatch",
+        actor,
+        objectId,
+      });
+      return;
+    }
+    await refreshActorCache(db, objectId);
+    return;
+  }
+
   const existing = await db
     .select({ attributedTo: objects.attributedTo })
     .from(objects)
@@ -662,8 +701,17 @@ export async function handleMove(
     existingFollowingPairs.map((row) => row.followerApId),
   );
 
+  // Drop self-edges in addition to the existing-pair dedup: if the old and new
+  // actor were already connected (old followed/was-followed-by new, or vice
+  // versa), rewriting the endpoint to the new actor would produce a row where
+  // followerApId === followingApId (a self-follow). Filter those out so the
+  // migration never materializes a self-follow.
   const followerRewrites = followerRows
-    .filter((row) => !existingFollowerTargetSet.has(row.followingApId))
+    .filter(
+      (row) =>
+        !existingFollowerTargetSet.has(row.followingApId) &&
+        row.followingApId !== newActorApId,
+    )
     .map((row) => ({
       followerApId: newActorApId,
       followingApId: row.followingApId,
@@ -673,7 +721,11 @@ export async function handleMove(
       acceptedAt: row.acceptedAt,
     }));
   const followingRewrites = followingRows
-    .filter((row) => !existingFollowingSourceSet.has(row.followerApId))
+    .filter(
+      (row) =>
+        !existingFollowingSourceSet.has(row.followerApId) &&
+        row.followerApId !== newActorApId,
+    )
     .map((row) => ({
       followerApId: row.followerApId,
       followingApId: newActorApId,
@@ -750,8 +802,12 @@ async function refreshActorCache(
     mode: "upsert",
   });
   if (!result.ok && result.reason === "fetch_failed") {
-    log.warn("Failed to refresh Move target actor cache", {
-      event: "ap.move.cache_refresh_failed",
+    // Shared by Move (refresh the migration target) and Update(actor)
+    // (apply a remote profile / key rotation immediately). Best-effort: a
+    // failed refresh simply leaves the existing cache row in place until the
+    // normal TTL refresh, so it is logged rather than thrown.
+    log.warn("Failed to refresh remote actor cache", {
+      event: "ap.actor.cache_refresh_failed",
       actor: actorApIdValue,
     });
   }

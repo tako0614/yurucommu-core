@@ -15,7 +15,7 @@
  */
 
 import { Hono } from "hono";
-import { desc, isNull } from "drizzle-orm";
+import { desc, eq, isNull } from "drizzle-orm";
 
 import type { Env, Variables } from "../types.ts";
 import { parseLimit, parseOffset } from "../federation-helpers.ts";
@@ -25,7 +25,12 @@ import {
   unblockActor,
   unblockDomain,
 } from "../lib/blocklist.ts";
-import { blockedActors, blockedDomains, reports } from "../../db/index.ts";
+import {
+  blockedActors,
+  blockedDomains,
+  nowIso,
+  reports,
+} from "../../db/index.ts";
 import { requireActor } from "./actors-helpers.ts";
 
 export const moderationRoutes = new Hono<{
@@ -228,6 +233,51 @@ moderationRoutes.get("/reports", async (c) => {
       resolved_at: r.resolvedAt,
     })),
   });
+});
+
+/**
+ * Mark a report handled (or reopen it).
+ *
+ * `POST /reports/:id/resolve` stamps `reports.resolvedAt = nowIso()` so the row
+ * drops out of the `?status=open` queue. Sending `{ "reopen": true }` clears
+ * `resolvedAt` instead, putting the report back on the open queue. Without this
+ * route `resolvedAt` is never written, so `?status=open` would be dead and the
+ * queue would grow forever.
+ *
+ * Owner-gated like every other moderation mutation; CSRF + rate-limit are
+ * applied at the `/api/*` mount in index.ts.
+ */
+moderationRoutes.post("/reports/:id/resolve", async (c) => {
+  const owner = requireOwner(c);
+  if (owner instanceof Response) return owner;
+
+  const id = c.req.param("id");
+  if (typeof id !== "string" || id.trim().length === 0) {
+    return c.json({ error: "id required" }, 400);
+  }
+
+  let reopen = false;
+  try {
+    const body = (await c.req.json()) as { reopen?: unknown };
+    reopen = body?.reopen === true;
+  } catch {
+    // No body / invalid JSON => default resolve.
+    reopen = false;
+  }
+
+  const db = c.get("db");
+  const resolvedAt = reopen ? null : nowIso();
+  const updated = await db
+    .update(reports)
+    .set({ resolvedAt })
+    .where(eq(reports.id, id))
+    .returning({ id: reports.id });
+
+  if (updated.length === 0) {
+    return c.json({ error: "Report not found" }, 404);
+  }
+
+  return c.json({ success: true, resolved_at: resolvedAt });
 });
 
 export default moderationRoutes;

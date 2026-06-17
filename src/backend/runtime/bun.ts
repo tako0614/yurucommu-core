@@ -103,10 +103,14 @@ export class BunDatabase implements IDatabase {
     const Database = loadBunSqlite(require);
     const db = new Database(filename);
     db.exec("PRAGMA journal_mode = WAL");
-    // Enforce the migrations' ON DELETE CASCADE / SET NULL edges at the engine
-    // level. SQLite defaults foreign keys OFF per connection. The app-level
-    // cascade in delete-cascade.ts still runs so behaviour matches D1.
-    db.exec("PRAGMA foreign_keys = ON");
+    // Foreign keys are intentionally left OFF (SQLite's per-connection default)
+    // so the Bun/libsql engine matches Cloudflare D1, which ignores the FK
+    // constraints declared in the migrations. Remote actors live in
+    // actor_cache (never in actors), yet objects.attributed_to / follows.* /
+    // likes.* / announces.* FK-reference actors(ap_id); enabling enforcement
+    // would make every inbound federated activity from a remote actor violate
+    // the FK and fail to insert. Referential cleanup is handled at the app
+    // level by deleteObjectCascade()/delete-cascade.ts, identically on D1.
     return new BunDatabase(db);
   }
 

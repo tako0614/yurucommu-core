@@ -24,7 +24,7 @@ import {
   recordFailedLoginAttempt,
 } from "../lib/auth-lockout.ts";
 import { getClientIP } from "../lib/client-ip.ts";
-import { asc, eq, or } from "drizzle-orm";
+import { asc, count, eq, or } from "drizzle-orm";
 import { actors, sessions } from "../../db/index.ts";
 import { hashSessionIdForEnv } from "../lib/crypto.ts";
 import {
@@ -56,6 +56,10 @@ const KNOWN_OAUTH_ERRORS = new Set([
 ]);
 
 const auth = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// Maximum number of sub-accounts a single instance owner may mint, capping
+// abuse even from the legitimate owner session (#23).
+const MAX_SUB_ACCOUNTS = 20;
 
 // 認証設定取得
 auth.get("/providers", async (c) => {
@@ -457,6 +461,48 @@ auth.post("/accounts", async (c) => {
     typeof body.name === "string" ? body.name : undefined;
 
   const db = c.get("db");
+
+  // Resolve the root owner of the current session, then gate sub-account
+  // creation to the instance owner only (#23). Sub-accounts are minted with
+  // role "member", so an arbitrary logged-in member must never be able to
+  // create more accounts. We resolve the root actor (sub-accounts carry
+  // ownerActorApId pointing at their root) and require that root to be the
+  // instance owner. This still lets the owner manage accounts while switched
+  // into one of their own sub-accounts.
+  const creatorRecord = await db
+    .select({
+      ownerActorApId: actors.ownerActorApId,
+    })
+    .from(actors)
+    .where(eq(actors.apId, currentActor.ap_id))
+    .get();
+  const rootOwnerApId = creatorRecord?.ownerActorApId ?? currentActor.ap_id;
+
+  const rootOwnerRecord = await db
+    .select({ role: actors.role })
+    .from(actors)
+    .where(eq(actors.apId, rootOwnerApId))
+    .get();
+  if (!rootOwnerRecord || rootOwnerRecord.role !== "owner") {
+    return c.json({ error: "Forbidden" }, 403);
+  }
+
+  // Cap the number of sub-accounts owned by this root owner (#23).
+  const subAccountCount = await db
+    .select({ value: count() })
+    .from(actors)
+    .where(eq(actors.ownerActorApId, rootOwnerApId))
+    .get();
+  if ((subAccountCount?.value ?? 0) >= MAX_SUB_ACCOUNTS) {
+    return c.json(
+      {
+        error: "Sub-account limit reached",
+        code: "SUB_ACCOUNT_LIMIT_REACHED",
+      },
+      400,
+    );
+  }
+
   const apId = actorApId(c.env.APP_URL, username);
 
   const existing = await db
@@ -466,16 +512,6 @@ auth.post("/accounts", async (c) => {
     .get();
 
   if (existing) return c.json({ error: "Username already taken" }, 400);
-
-  // Resolve root owner to set ownership link on the sub-account (Issue 106).
-  const creatorRecord = await db
-    .select({
-      ownerActorApId: actors.ownerActorApId,
-    })
-    .from(actors)
-    .where(eq(actors.apId, currentActor.ap_id))
-    .get();
-  const rootOwnerApId = creatorRecord?.ownerActorApId ?? currentActor.ap_id;
 
   const newActor = await createActor(db, c.env, {
     username,
