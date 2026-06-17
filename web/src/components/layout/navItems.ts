@@ -3,6 +3,7 @@ import type { TranslationKey } from "../../atoms/i18n.ts";
 import {
   CreateNavIcon,
   HomeNavIcon,
+  MessagesNavIcon,
   ProfileNavIcon,
   ActivityNavIcon,
   SearchNavIcon,
@@ -14,7 +15,7 @@ import {
 // (`route`) or an in-app action (`onAction`, e.g. the center Create button that
 // opens the post composer).
 export interface NavItem {
-  id: "home" | "search" | "create" | "activity" | "profile";
+  id: "home" | "search" | "create" | "messages" | "activity" | "profile";
   // Icons receive an `active` flag so projections can render a filled vs.
   // outlined glyph.
   icon: Component<{ active: boolean }>;
@@ -41,6 +42,12 @@ export const NAV_ITEMS: NavItem[] = [
     icon: CreateNavIcon,
     labelKey: "posts.post",
     onAction: "create",
+  },
+  {
+    id: "messages",
+    icon: MessagesNavIcon,
+    labelKey: "nav.messages",
+    route: "/dm",
   },
   {
     id: "activity",

@@ -5,6 +5,7 @@ import { useRequiredActor } from "../../hooks/useRequiredActor.ts";
 import { useI18n } from "../../lib/i18n.tsx";
 import { notificationUnreadAtom } from "../../atoms/notifications.ts";
 import { showPostModalAtom } from "../../atoms/timeline.ts";
+import { appMenuOpenAtom, createScopeOpenAtom } from "../../atoms/shell.ts";
 import { NavBadge } from "./NavBadge.tsx";
 import { NAV_ITEMS, type NavItem } from "./navItems.ts";
 
@@ -16,6 +17,8 @@ export function Sidebar() {
   const location = useLocation();
   const unreadCount = useAtomValue(notificationUnreadAtom);
   const openComposer = useSetAtom(showPostModalAtom);
+  const openMenu = useSetAtom(appMenuOpenAtom);
+  const openCreateScope = useSetAtom(createScopeOpenAtom);
 
   const isActive = (route: string) => {
     if (route === "/") return location.pathname === "/";
@@ -85,16 +88,49 @@ export function Sidebar() {
         </div>
       </nav>
       <div class="px-4 pb-6">
-        <div class="mt-4 border-t border-neutral-900 pt-4">
-          <div class="w-full text-left px-3 py-2 rounded-xl bg-neutral-900/40">
-            <div class="text-xs text-neutral-500 mb-2">Account</div>
+        {/* Create a community — desktop entry to the layout-level
+            CreateScopeModal (mobile reaches it via the scope switcher). */}
+        <button
+          type="button"
+          onClick={() => openCreateScope(true)}
+          class="mb-3 flex w-full items-center gap-3 rounded-full border border-neutral-700 px-4 py-2.5 text-sm font-medium text-neutral-200 transition-colors hover:bg-neutral-900/50 hover:text-white"
+        >
+          <svg
+            class="h-5 w-5 shrink-0"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width={2}
+              d="M12 4v16m8-8H4"
+            />
+          </svg>
+          <span class="truncate">{t("scope.create")}</span>
+        </button>
+        <div class="border-t border-neutral-900 pt-4">
+          {/* Account block — opens the AppMenu (settings / bookmarks /
+              account switch / language / logout) as a desktop popover. */}
+          <button
+            type="button"
+            onClick={() => openMenu(true)}
+            aria-haspopup="menu"
+            aria-label={t("menu.open")}
+            class="w-full text-left px-3 py-2 rounded-xl bg-neutral-900/40 transition-colors hover:bg-neutral-900"
+          >
+            <div class="text-xs text-neutral-500 mb-2">
+              {t("settings.account")}
+            </div>
             <div class="text-sm font-medium truncate">
               {actor.name || actor.preferred_username}
             </div>
             <div class="text-xs text-neutral-500 truncate">
               @{actor.preferred_username}
             </div>
-          </div>
+          </button>
         </div>
       </div>
     </aside>

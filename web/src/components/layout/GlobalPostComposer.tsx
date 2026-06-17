@@ -1,7 +1,9 @@
 import { createEffect, createMemo, createSignal, on, Show } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import { useAtom, useAtomValue, useSetAtom } from "solid-jotai";
 import { actorAtom } from "../../atoms/auth.ts";
 import { tAtom } from "../../atoms/i18n.ts";
+import { createScopeOpenAtom } from "../../atoms/shell.ts";
 import { type InhabitedScope, inhabitedScopeAtom } from "../../atoms/scope.ts";
 import {
   closePostModalAtom,
@@ -20,6 +22,7 @@ import {
 } from "../../atoms/timeline.ts";
 import { TimelinePostModal } from "../timeline/TimelinePostModal.tsx";
 import { ScopeSwitcherSheet } from "../scope/ScopeSwitcherSheet.tsx";
+import { CreateScopeModal } from "../scope/CreateScopeModal.tsx";
 
 // App-shell-level post composer. The composer is opened by the `showPostModalAtom`
 // flag, so the IG-like center "Create" affordance works from any route (not just
@@ -49,9 +52,12 @@ function scopesEqual(a: InhabitedScope, b: InhabitedScope): boolean {
 
 export function GlobalPostComposer() {
   const t = useAtomValue(tAtom);
+  const navigate = useNavigate();
   const actor = useAtomValue(actorAtom);
   const [showModal] = useAtom(showPostModalAtom);
   const [scope, setScope] = useAtom(inhabitedScopeAtom);
+  // Layout-level "create a community" modal, shared with the desktop Sidebar.
+  const [createScopeOpen, setCreateScopeOpen] = useAtom(createScopeOpenAtom);
 
   // The scope the composer was opened on (the timeline the user is viewing).
   // Captured on open so a later audience change can be detected and reverted.
@@ -175,10 +181,21 @@ export function GlobalPostComposer() {
             uploadError={uploadError()}
           />
           {/* Re-aim the audience. Selecting a scope writes inhabitedScopeAtom,
-              so the composer's audience chip updates live. */}
+              so the composer's audience chip updates live. The sheet is mounted
+              at layout level here, so without these callbacks "Create a
+              community" / "Discover" would fall back to /search. Wire them to
+              the shared create modal and the discover surface. */}
           <ScopeSwitcherSheet
             open={scopeSwitcherOpen()}
             onClose={() => setScopeSwitcherOpen(false)}
+            onCreate={() => setCreateScopeOpen(true)}
+            onDiscover={() => navigate("/search")}
+          />
+          {/* Shared community composer. Driven by the layout-level atom so the
+              desktop Sidebar's "create a community" button opens the same one. */}
+          <CreateScopeModal
+            open={createScopeOpen()}
+            onClose={() => setCreateScopeOpen(false)}
           />
         </>
       )}

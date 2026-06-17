@@ -6,6 +6,10 @@ import { useI18n } from "../lib/i18n.tsx";
 interface FirstFeedEmptyStateProps {
   /** Triggers the Story composer (wired by the timeline). */
   onCreateStory: () => void;
+  /** Opens the community composer (CreateScopeModal). */
+  onCreateCommunity: () => void;
+  /** Routes to the discovery surface to find/join existing communities. */
+  onDiscoverCommunities: () => void;
 }
 
 const SearchIcon = () => (
@@ -64,8 +68,13 @@ export function FirstFeedEmptyState(props: FirstFeedEmptyStateProps) {
     },
     {
       icon: <CommunitiesIcon />,
-      label: t("firstFeed.communities"),
-      onClick: () => navigate("/search"),
+      label: t("firstFeed.createCommunity"),
+      onClick: () => props.onCreateCommunity(),
+    },
+    {
+      icon: <CommunitiesIcon />,
+      label: t("firstFeed.discoverCommunities"),
+      onClick: () => props.onDiscoverCommunities(),
     },
     {
       icon: <StoryIcon />,

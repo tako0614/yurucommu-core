@@ -140,7 +140,11 @@ export function TimelinePage() {
             <Show
               when={state.posts().length > 0}
               fallback={
-                <FirstFeedEmptyState onCreateStory={state.handleAddStory} />
+                <FirstFeedEmptyState
+                  onCreateStory={state.handleAddStory}
+                  onCreateCommunity={() => setCreateOpen(true)}
+                  onDiscoverCommunities={() => navigate("/search")}
+                />
               }
             >
               <For each={state.posts()}>

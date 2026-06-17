@@ -440,7 +440,8 @@ const translations = {
     "firstFeed.description":
       "まだ何も流れていません。届く範囲は、あなたが広げたつながりの中で育っていきます。",
     "firstFeed.findPeople": "フォローする人を探す",
-    "firstFeed.communities": "コミュニティを作る / 探す",
+    "firstFeed.createCommunity": "コミュニティを作る",
+    "firstFeed.discoverCommunities": "コミュニティを探す",
     "firstFeed.firstStory": "最初の Story を作る",
     "app.tagline": "あなたの instance",
     "app.taglineHint":
@@ -469,6 +470,7 @@ const translations = {
     "settings.linkCopied": "URLをコピーしました",
     "settings.accountsLoadFailed": "アカウント情報の読み込みに失敗しました",
     "settings.title": "設定",
+    "settings.account": "アカウント",
     "settings.sectionDisplay": "表示",
     "settings.sectionPrivacy": "プライバシー",
     "settings.sectionAccount": "アカウント",
@@ -916,7 +918,8 @@ const translations = {
     "firstFeed.description":
       "Nothing here yet. Your reach grows within the circle of people you connect with.",
     "firstFeed.findPeople": "Find people to follow",
-    "firstFeed.communities": "Create or find communities",
+    "firstFeed.createCommunity": "Create a community",
+    "firstFeed.discoverCommunities": "Discover communities",
     "firstFeed.firstStory": "Create your first Story",
     "app.tagline": "Your place on the fediverse",
     "app.taglineHint":
@@ -945,6 +948,7 @@ const translations = {
     "settings.linkCopied": "Link copied to clipboard",
     "settings.accountsLoadFailed": "Failed to load account information",
     "settings.title": "Settings",
+    "settings.account": "Account",
     "settings.sectionDisplay": "Display",
     "settings.sectionPrivacy": "Privacy",
     "settings.sectionAccount": "Account",

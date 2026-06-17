@@ -123,16 +123,18 @@ export function AppMenu() {
         const current = actor();
         if (!current) return null;
         return (
-          <div class="fixed inset-0 z-[60] md:hidden">
+          <div class="fixed inset-0 z-[60] flex md:items-center md:justify-center md:p-4">
             {/* Backdrop */}
             <div class="absolute inset-0 bg-black/60" onClick={close} />
-            {/* Slide-in Menu */}
+            {/* Mobile: left slide-in drawer. Desktop: centered popover card so the
+                same account / utility affordances are reachable from the Sidebar
+                (whose static account block opens this menu). */}
             <div
               ref={drawerRef}
               role="dialog"
               aria-modal="true"
               aria-label={t("menu.title")}
-              class="absolute left-0 top-0 bottom-0 w-72 bg-neutral-900 border-r border-neutral-800 animate-slide-in overflow-y-auto"
+              class="absolute left-0 top-0 bottom-0 w-72 bg-neutral-900 border-r border-neutral-800 animate-slide-in overflow-y-auto md:static md:max-h-[80vh] md:w-80 md:rounded-2xl md:border md:border-neutral-800 md:shadow-2xl"
             >
               {/* Profile Header */}
               <div class="p-4 border-b border-neutral-800">
