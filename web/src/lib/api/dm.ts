@@ -153,7 +153,9 @@ export async function markDMAsRead(userApId: string): Promise<void> {
 }
 
 // Mark a community (group chat) as read so its unread badge clears.
-export async function markCommunityAsRead(communityApId: string): Promise<void> {
+export async function markCommunityAsRead(
+  communityApId: string,
+): Promise<void> {
   const res = await apiPost(
     `/api/dm/community/${encodeURIComponent(communityApId)}/read`,
   );

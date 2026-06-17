@@ -92,9 +92,11 @@ export function ScopeChip(props: ScopeChipProps) {
     >
       <Show
         when={community()}
-        fallback={<Show when={isCommunity()} fallback={<PeopleGlyph />}>
-          <CommunityGlyph />
-        </Show>}
+        fallback={
+          <Show when={isCommunity()} fallback={<PeopleGlyph />}>
+            <CommunityGlyph />
+          </Show>
+        }
       >
         {(c) => (
           <Show when={c().icon_url} fallback={<CommunityGlyph />}>

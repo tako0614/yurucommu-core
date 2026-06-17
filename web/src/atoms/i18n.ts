@@ -979,7 +979,8 @@ const translations = {
     "search.searchOtherServersHint": "Look up other servers as @user@domain",
     "search.searchingRemote": "Searching other servers...",
     "search.remoteFormatHint": "Enter as @user@domain",
-    "search.remoteHandlePromptTitle": "This may be an account on another server",
+    "search.remoteHandlePromptTitle":
+      "This may be an account on another server",
     "search.remoteHandlePromptHint":
       "{handle} wasn't found on this server. Search other servers?",
     "bookmarks.title": "Bookmarks",
@@ -1057,7 +1058,8 @@ const translations = {
     "settings.usernameLabel": "Username *",
     "settings.usernameHint": "Letters, numbers, and underscores only",
     "settings.usernameRequired": "Username is required",
-    "settings.usernamePatternError": "Use letters, numbers, and underscores only",
+    "settings.usernamePatternError":
+      "Use letters, numbers, and underscores only",
     "settings.createAccountFailed": "Failed to create account",
     "settings.displayName": "Display name",
     "settings.usernameMismatch": "Username does not match",
@@ -1083,7 +1085,7 @@ const translations = {
     "settings.deleteAccountWarning":
       "This action cannot be undone. All posts, likes, and follows will be deleted.",
     "settings.deleteAccountConfirmLabel":
-      "Enter your username \"{username}\" to confirm",
+      'Enter your username "{username}" to confirm',
     "settings.deleteAccountConfirmPlaceholder": "Enter your username",
     "settings.deleteAccountButton": "Delete Account",
     "settings.deletingAccount": "Deleting...",

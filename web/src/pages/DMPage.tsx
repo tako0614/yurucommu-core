@@ -434,151 +434,185 @@ export function DMPage() {
             <>
               {/* Header - LINE style */}
               <header class="sticky top-0 bg-neutral-900/95 backdrop-blur-sm z-10">
-              {/* Title bar */}
-              <div class="flex items-center justify-between px-4 py-3">
-                <div class="min-w-0">
-                  <h1 class="text-xl font-bold text-white">{t("dm.talks")}</h1>
-                  <p class="text-xs text-neutral-500 truncate">
-                    {t("dm.directReachHint")}
-                  </p>
+                {/* Title bar */}
+                <div class="flex items-center justify-between px-4 py-3">
+                  <div class="min-w-0">
+                    <h1 class="text-xl font-bold text-white">
+                      {t("dm.talks")}
+                    </h1>
+                    <p class="text-xs text-neutral-500 truncate">
+                      {t("dm.directReachHint")}
+                    </p>
+                  </div>
                 </div>
-              </div>
 
-              {/* Search bar */}
-              <div class="px-4 pb-3">
-                <div class="relative">
-                  <svg
-                    class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width={2}
-                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                {/* Search bar */}
+                <div class="px-4 pb-3">
+                  <div class="relative">
+                    <svg
+                      class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-neutral-500"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width={2}
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                      />
+                    </svg>
+                    <input
+                      type="text"
+                      value={searchQuery()}
+                      onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                      placeholder={t("nav.search")}
+                      class="w-full pl-10 pr-4 py-2 bg-neutral-900 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-700"
                     />
-                  </svg>
-                  <input
-                    type="text"
-                    value={searchQuery()}
-                    onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                    placeholder={t("nav.search")}
-                    class="w-full pl-10 pr-4 py-2 bg-neutral-900 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-700"
+                  </div>
+                </div>
+
+                {/* Tab bar - LINE style with underline on active */}
+                <div class="relative flex overflow-x-auto scrollbar-hide border-b border-neutral-900">
+                  <button
+                    onClick={() => setActiveTab("all")}
+                    class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
+                      activeTab() === "all" ? "text-white" : "text-neutral-500"
+                    }`}
+                  >
+                    {t("timeline.all")}
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("friends")}
+                    class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
+                      activeTab() === "friends"
+                        ? "text-white"
+                        : "text-neutral-500"
+                    }`}
+                  >
+                    {t("dm.filterFriends")}
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("communities")}
+                    class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
+                      activeTab() === "communities"
+                        ? "text-white"
+                        : "text-neutral-500"
+                    }`}
+                  >
+                    {t("nav.groups")}
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("requests")}
+                    class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors relative ${
+                      activeTab() === "requests"
+                        ? "text-white"
+                        : "text-neutral-500"
+                    }`}
+                  >
+                    {t("dm.filterRequests")}
+                    <Show when={requestCount() > 0}>
+                      <span class="absolute top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-green-500 rounded-full text-[10px] flex items-center justify-center text-white font-bold">
+                        {requestCount() > 99 ? "99+" : requestCount()}
+                      </span>
+                    </Show>
+                  </button>
+                  {/* Tab indicator - underline style */}
+                  <div
+                    class="absolute bottom-0 h-0.5 bg-green-500 transition-all duration-200"
+                    style={{
+                      width:
+                        tabIndex() === 0
+                          ? "52px"
+                          : tabIndex() === 1
+                            ? "52px"
+                            : tabIndex() === 2
+                              ? "64px"
+                              : "72px",
+                      left:
+                        tabIndex() === 0
+                          ? "0px"
+                          : tabIndex() === 1
+                            ? "68px"
+                            : tabIndex() === 2
+                              ? "136px"
+                              : "216px",
+                    }}
                   />
                 </div>
-              </div>
+              </header>
 
-              {/* Tab bar - LINE style with underline on active */}
-              <div class="relative flex overflow-x-auto scrollbar-hide border-b border-neutral-900">
-                <button
-                  onClick={() => setActiveTab("all")}
-                  class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
-                    activeTab() === "all" ? "text-white" : "text-neutral-500"
-                  }`}
-                >
-                  {t("timeline.all")}
-                </button>
-                <button
-                  onClick={() => setActiveTab("friends")}
-                  class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
-                    activeTab() === "friends"
-                      ? "text-white"
-                      : "text-neutral-500"
-                  }`}
-                >
-                  {t("dm.filterFriends")}
-                </button>
-                <button
-                  onClick={() => setActiveTab("communities")}
-                  class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
-                    activeTab() === "communities"
-                      ? "text-white"
-                      : "text-neutral-500"
-                  }`}
-                >
-                  {t("nav.groups")}
-                </button>
-                <button
-                  onClick={() => setActiveTab("requests")}
-                  class={`px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors relative ${
-                    activeTab() === "requests"
-                      ? "text-white"
-                      : "text-neutral-500"
-                  }`}
-                >
-                  {t("dm.filterRequests")}
-                  <Show when={requestCount() > 0}>
-                    <span class="absolute top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-green-500 rounded-full text-[10px] flex items-center justify-center text-white font-bold">
-                      {requestCount() > 99 ? "99+" : requestCount()}
-                    </span>
-                  </Show>
-                </button>
-                {/* Tab indicator - underline style */}
-                <div
-                  class="absolute bottom-0 h-0.5 bg-green-500 transition-all duration-200"
-                  style={{
-                    width:
-                      tabIndex() === 0
-                        ? "52px"
-                        : tabIndex() === 1
-                          ? "52px"
-                          : tabIndex() === 2
-                            ? "64px"
-                            : "72px",
-                    left:
-                      tabIndex() === 0
-                        ? "0px"
-                        : tabIndex() === 1
-                          ? "68px"
-                          : tabIndex() === 2
-                            ? "136px"
-                            : "216px",
-                  }}
-                />
-              </div>
-            </header>
-
-            {/* Swipeable content area */}
-            <div
-              ref={tabContainerRef!}
-              class="flex-1 overflow-y-auto"
-              onTouchStart={handleTouchStart}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}
-            >
-              <Show when={listError()}>
-                <div class="px-4 py-2 flex items-center justify-between gap-3 text-sm text-red-400 bg-red-500/10">
-                  <span>{listError()}</span>
-                  <button
-                    onClick={() => loadContacts()}
-                    class="shrink-0 px-3 py-1 rounded-full bg-red-500/20 text-red-200 hover:bg-red-500/30 transition-colors text-xs"
+              {/* Swipeable content area */}
+              <div
+                ref={tabContainerRef!}
+                class="flex-1 overflow-y-auto"
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+              >
+                <Show when={listError()}>
+                  <div class="px-4 py-2 flex items-center justify-between gap-3 text-sm text-red-400 bg-red-500/10">
+                    <span>{listError()}</span>
+                    <button
+                      onClick={() => loadContacts()}
+                      class="shrink-0 px-3 py-1 rounded-full bg-red-500/20 text-red-200 hover:bg-red-500/30 transition-colors text-xs"
+                    >
+                      {t("common.retry")}
+                    </button>
+                  </div>
+                </Show>
+                <Show when={loading()}>
+                  <PostSkeleton count={6} />
+                </Show>
+                <Show when={!loading() && activeTab() === "requests"}>
+                  <Show
+                    when={requests().length === 0}
+                    fallback={
+                      <div>
+                        <For each={requests()}>
+                          {(request) => (
+                            <RequestItem
+                              request={request}
+                              onAccept={() => handleAcceptRequest(request)}
+                              onReject={() =>
+                                handleRejectRequest(request.sender.ap_id)
+                              }
+                            />
+                          )}
+                        </For>
+                      </div>
+                    }
                   >
-                    {t("common.retry")}
-                  </button>
-                </div>
-              </Show>
-              <Show when={loading()}>
-                <PostSkeleton count={6} />
-              </Show>
-              <Show when={!loading() && activeTab() === "requests"}>
-                <Show
-                  when={requests().length === 0}
-                  fallback={
-                    <div>
-                      <For each={requests()}>
-                        {(request) => (
-                          <RequestItem
-                            request={request}
-                            onAccept={() => handleAcceptRequest(request)}
-                            onReject={() =>
-                              handleRejectRequest(request.sender.ap_id)
-                            }
+                    <div class="flex-1 flex flex-col items-center justify-center p-8 text-center min-h-[50vh]">
+                      <div class="w-20 h-20 mb-4 rounded-full bg-neutral-800 flex items-center justify-center">
+                        <svg
+                          class="w-10 h-10 text-neutral-500"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width={1.5}
+                            d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
                           />
-                        )}
-                      </For>
+                        </svg>
+                      </div>
+                      <p class="text-neutral-400 mb-2 text-lg font-medium">
+                        {t("dm.noRequests")}
+                      </p>
+                      <p class="text-neutral-500 text-sm">
+                        {t("dm.noRequestsHint")}
+                      </p>
                     </div>
+                  </Show>
+                </Show>
+                <Show
+                  when={
+                    !loading() &&
+                    activeTab() !== "requests" &&
+                    currentContacts().length === 0
                   }
                 >
                   <div class="flex-1 flex flex-col items-center justify-center p-8 text-center min-h-[50vh]">
@@ -593,82 +627,50 @@ export function DMPage() {
                           stroke-linecap="round"
                           stroke-linejoin="round"
                           stroke-width={1.5}
-                          d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                          d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
                         />
                       </svg>
                     </div>
                     <p class="text-neutral-400 mb-2 text-lg font-medium">
-                      {t("dm.noRequests")}
+                      {searchQuery()
+                        ? t("search.noResults")
+                        : activeTab() === "all"
+                          ? t("dm.noTalks")
+                          : activeTab() === "friends"
+                            ? t("dm.noFriends")
+                            : t("groups.noGroups")}
                     </p>
                     <p class="text-neutral-500 text-sm">
-                      {t("dm.noRequestsHint")}
+                      {searchQuery()
+                        ? t("dm.searchHint")
+                        : activeTab() === "all"
+                          ? t("dm.emptyAllHint")
+                          : activeTab() === "friends"
+                            ? t("dm.emptyFriendsHint")
+                            : t("dm.emptyGroupsHint")}
                     </p>
                   </div>
                 </Show>
-              </Show>
-              <Show
-                when={
-                  !loading() &&
-                  activeTab() !== "requests" &&
-                  currentContacts().length === 0
-                }
-              >
-                <div class="flex-1 flex flex-col items-center justify-center p-8 text-center min-h-[50vh]">
-                  <div class="w-20 h-20 mb-4 rounded-full bg-neutral-800 flex items-center justify-center">
-                    <svg
-                      class="w-10 h-10 text-neutral-500"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width={1.5}
-                        d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                      />
-                    </svg>
+                <Show
+                  when={
+                    !loading() &&
+                    activeTab() !== "requests" &&
+                    currentContacts().length > 0
+                  }
+                >
+                  <div class="divide-y divide-neutral-900">
+                    <For each={currentContacts()}>
+                      {(contact) => (
+                        <DMContactItem
+                          contact={contact}
+                          onClick={() => handleSelectContact(contact)}
+                          unreadCount={contact.unread_count || 0}
+                        />
+                      )}
+                    </For>
                   </div>
-                  <p class="text-neutral-400 mb-2 text-lg font-medium">
-                    {searchQuery()
-                      ? t("search.noResults")
-                      : activeTab() === "all"
-                        ? t("dm.noTalks")
-                        : activeTab() === "friends"
-                          ? t("dm.noFriends")
-                          : t("groups.noGroups")}
-                  </p>
-                  <p class="text-neutral-500 text-sm">
-                    {searchQuery()
-                      ? t("dm.searchHint")
-                      : activeTab() === "all"
-                        ? t("dm.emptyAllHint")
-                        : activeTab() === "friends"
-                          ? t("dm.emptyFriendsHint")
-                          : t("dm.emptyGroupsHint")}
-                  </p>
-                </div>
-              </Show>
-              <Show
-                when={
-                  !loading() &&
-                  activeTab() !== "requests" &&
-                  currentContacts().length > 0
-                }
-              >
-                <div class="divide-y divide-neutral-900">
-                  <For each={currentContacts()}>
-                    {(contact) => (
-                      <DMContactItem
-                        contact={contact}
-                        onClick={() => handleSelectContact(contact)}
-                        unreadCount={contact.unread_count || 0}
-                      />
-                    )}
-                  </For>
-                </div>
-              </Show>
-            </div>
+                </Show>
+              </div>
             </>
           </Show>
         }

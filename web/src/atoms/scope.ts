@@ -67,9 +67,7 @@ export function reconcileScope(
   communities: CommunityDetail[],
 ): InhabitedScope {
   if (stored.kind === "personal") return PERSONAL_SCOPE;
-  const live = communities.find(
-    (c) => c.ap_id === stored.ap_id && c.is_member,
-  );
+  const live = communities.find((c) => c.ap_id === stored.ap_id && c.is_member);
   if (!live) return PERSONAL_SCOPE;
   return communityToScope(live) ?? PERSONAL_SCOPE;
 }

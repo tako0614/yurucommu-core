@@ -424,71 +424,71 @@ export function NotificationPage() {
                 {(notification) => {
                   const target = notificationTarget(notification);
                   return (
-                  <div
-                    class={`flex items-start gap-3 px-4 py-3 border-b border-neutral-900 transition-colors ${
-                      !notification.read ? "bg-neutral-900/50" : ""
-                    }`}
-                  >
-                    <Dynamic
-                      component={target ? "a" : "div"}
-                      href={target ?? undefined}
-                      onClick={
-                        target
-                          ? (e: MouseEvent) => {
-                              e.preventDefault();
-                              handleRowActivate(notification);
-                            }
-                          : undefined
-                      }
-                      class={`flex items-start gap-3 flex-1 min-w-0 rounded-md hover:bg-neutral-900/30 transition-colors ${
-                        target ? "cursor-pointer" : ""
+                    <div
+                      class={`flex items-start gap-3 px-4 py-3 border-b border-neutral-900 transition-colors ${
+                        !notification.read ? "bg-neutral-900/50" : ""
                       }`}
                     >
-                      <div class="relative shrink-0">
-                        <UserAvatar
-                          avatarUrl={notification.actor.icon_url}
-                          name={
-                            notification.actor.name ||
-                            notification.actor.preferred_username
-                          }
-                          size={40}
-                        />
-                        <span class="absolute -bottom-1 -right-1">
-                          {getNotificationIcon(notification.type)}
-                        </span>
-                      </div>
-                      <div class="flex-1 min-w-0">
-                        <p class="text-[15px] text-neutral-400">
-                          {getNotificationText(notification)}
-                        </p>
-                        <p class="text-sm text-neutral-600 mt-1">
-                          {formatRelativeTime(notification.created_at)}
-                        </p>
-                      </div>
-                    </Dynamic>
-                    <Show when={notification.type === "follow_request"}>
-                      <div class="flex gap-2 shrink-0 self-center">
-                        <button
-                          onClick={() =>
-                            handleFollowRequest(notification, "accept")
-                          }
-                          disabled={pendingAction()[notification.id]}
-                          class="px-3 py-1 text-xs bg-accent text-white rounded-full transition-colors disabled:opacity-50"
-                        >
-                          {t("dm.accept")}
-                        </button>
-                        <button
-                          onClick={() =>
-                            handleFollowRequest(notification, "reject")
-                          }
-                          disabled={pendingAction()[notification.id]}
-                          class="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
-                        >
-                          {t("dm.reject")}
-                        </button>
-                      </div>
-                    </Show>
-                  </div>
+                      <Dynamic
+                        component={target ? "a" : "div"}
+                        href={target ?? undefined}
+                        onClick={
+                          target
+                            ? (e: MouseEvent) => {
+                                e.preventDefault();
+                                handleRowActivate(notification);
+                              }
+                            : undefined
+                        }
+                        class={`flex items-start gap-3 flex-1 min-w-0 rounded-md hover:bg-neutral-900/30 transition-colors ${
+                          target ? "cursor-pointer" : ""
+                        }`}
+                      >
+                        <div class="relative shrink-0">
+                          <UserAvatar
+                            avatarUrl={notification.actor.icon_url}
+                            name={
+                              notification.actor.name ||
+                              notification.actor.preferred_username
+                            }
+                            size={40}
+                          />
+                          <span class="absolute -bottom-1 -right-1">
+                            {getNotificationIcon(notification.type)}
+                          </span>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <p class="text-[15px] text-neutral-400">
+                            {getNotificationText(notification)}
+                          </p>
+                          <p class="text-sm text-neutral-600 mt-1">
+                            {formatRelativeTime(notification.created_at)}
+                          </p>
+                        </div>
+                      </Dynamic>
+                      <Show when={notification.type === "follow_request"}>
+                        <div class="flex gap-2 shrink-0 self-center">
+                          <button
+                            onClick={() =>
+                              handleFollowRequest(notification, "accept")
+                            }
+                            disabled={pendingAction()[notification.id]}
+                            class="px-3 py-1 text-xs bg-accent text-white rounded-full transition-colors disabled:opacity-50"
+                          >
+                            {t("dm.accept")}
+                          </button>
+                          <button
+                            onClick={() =>
+                              handleFollowRequest(notification, "reject")
+                            }
+                            disabled={pendingAction()[notification.id]}
+                            class="px-3 py-1 text-xs bg-neutral-800 text-neutral-200 rounded-full hover:bg-neutral-700 transition-colors disabled:opacity-50"
+                          >
+                            {t("dm.reject")}
+                          </button>
+                        </div>
+                      </Show>
+                    </div>
                   );
                 }}
               </For>

@@ -118,7 +118,11 @@ export function ScopeBar(props: ScopeBarProps) {
                 aria-pressed={active()}
                 class={pillClass(active())}
               >
-                <UserAvatar avatarUrl={community.icon_url} name={label} size={22} />
+                <UserAvatar
+                  avatarUrl={community.icon_url}
+                  name={label}
+                  size={22}
+                />
                 <span class="max-w-32 truncate">{label}</span>
               </button>
             );

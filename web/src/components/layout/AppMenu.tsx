@@ -249,9 +249,7 @@ export function AppMenu() {
                           >
                             <UserAvatar
                               avatarUrl={account.icon_url}
-                              name={
-                                account.name || account.preferred_username
-                              }
+                              name={account.name || account.preferred_username}
                               size={40}
                             />
                             <div class="flex-1 text-left">

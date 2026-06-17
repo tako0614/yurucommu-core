@@ -51,7 +51,9 @@ test("sanitizeHtml - drops obfuscated javascript: hrefs", () => {
 });
 
 test("sanitizeHtml - drops data: and vbscript: hrefs", () => {
-  const data = sanitizeHtml(`<a href="data:text/html,<script>1</script>">x</a>`);
+  const data = sanitizeHtml(
+    `<a href="data:text/html,<script>1</script>">x</a>`,
+  );
   assertFalse(data.includes("data:"), "no data uri");
   assertFalse(data.includes("href"), "no href kept");
 
@@ -161,7 +163,9 @@ test("sanitizeHtml - quotes in href cannot break out of the attribute", () => {
   // Here `&quot;` is literal source text, so the whole string up to the real
   // closing quote is the href value. It must be emitted with no unescaped
   // quote (which would otherwise inject a separate `onmouseover` attribute).
-  const out = sanitizeHtml(`<a href="https://e.com/&quot; onmouseover=x">y</a>`);
+  const out = sanitizeHtml(
+    `<a href="https://e.com/&quot; onmouseover=x">y</a>`,
+  );
   assertFalse(out.includes(`" onmouseover`), "no attribute break-out");
   // The href value's own quote/lt/gt are escaped; the value stays inside href.
   assert(out.startsWith(`<a href="`), "single anchor open tag");

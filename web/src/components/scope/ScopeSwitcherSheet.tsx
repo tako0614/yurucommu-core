@@ -107,9 +107,7 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
   const isActive = (candidate: InhabitedScope) => {
     const current = scope();
     if (candidate.kind === "personal") return current.kind === "personal";
-    return (
-      current.kind === "community" && current.ap_id === candidate.ap_id
-    );
+    return current.kind === "community" && current.ap_id === candidate.ap_id;
   };
 
   const selectScope = (next: InhabitedScope, label: string) => {
@@ -167,77 +165,75 @@ export function ScopeSwitcherSheet(props: ScopeSwitcherSheetProps) {
                 Each row exposes aria-checked so SR users hear which scope they
                 inhabit, mirroring ScopeBar's aria-pressed pills. */}
             <div role="radiogroup" aria-labelledby="scope-switcher-heading">
-            {/* Personal scope — always first. */}
-            <button
-              type="button"
-              role="radio"
-              aria-checked={isActive({ kind: "personal" })}
-              onClick={selectPersonal}
-              class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-neutral-800"
-            >
-              <UserAvatar
-                avatarUrl={actor()?.icon_url ?? null}
-                name={
-                  actor()?.name || actor()?.preferred_username || "?"
-                }
-                size={40}
-              />
-              <div class="min-w-0 flex-1">
-                <p class="truncate font-bold text-white">
-                  {actor()
-                    ? actor()!.name || actor()!.preferred_username
-                    : t("scope.personal")}
-                </p>
-                <p class="truncate text-sm text-neutral-500">
-                  {t("scope.personalDesc")}
-                </p>
-              </div>
-              <Show when={isActive({ kind: "personal" })}>
-                <CheckIcon />
-              </Show>
-            </button>
+              {/* Personal scope — always first. */}
+              <button
+                type="button"
+                role="radio"
+                aria-checked={isActive({ kind: "personal" })}
+                onClick={selectPersonal}
+                class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-neutral-800"
+              >
+                <UserAvatar
+                  avatarUrl={actor()?.icon_url ?? null}
+                  name={actor()?.name || actor()?.preferred_username || "?"}
+                  size={40}
+                />
+                <div class="min-w-0 flex-1">
+                  <p class="truncate font-bold text-white">
+                    {actor()
+                      ? actor()!.name || actor()!.preferred_username
+                      : t("scope.personal")}
+                  </p>
+                  <p class="truncate text-sm text-neutral-500">
+                    {t("scope.personalDesc")}
+                  </p>
+                </div>
+                <Show when={isActive({ kind: "personal" })}>
+                  <CheckIcon />
+                </Show>
+              </button>
 
-            {/* Joined communities. */}
-            <For each={joined()}>
-              {(community) => {
-                const next = communityToScope(community);
-                if (!next) return null;
-                return (
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={isActive(next)}
-                    onClick={() =>
-                      selectScope(
-                        next,
-                        community.display_name || community.name,
-                      )
-                    }
-                    class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-neutral-800"
-                  >
-                    <UserAvatar
-                      avatarUrl={community.icon_url}
-                      name={community.display_name || community.name}
-                      size={40}
-                    />
-                    <div class="min-w-0 flex-1">
-                      <p class="truncate font-bold text-white">
-                        {community.display_name || community.name}
-                      </p>
-                      <p class="truncate text-sm text-neutral-500">
-                        {t("community.members").replace(
-                          "{count}",
-                          String(community.member_count ?? 0),
-                        )}
-                      </p>
-                    </div>
-                    <Show when={isActive(next)}>
-                      <CheckIcon />
-                    </Show>
-                  </button>
-                );
-              }}
-            </For>
+              {/* Joined communities. */}
+              <For each={joined()}>
+                {(community) => {
+                  const next = communityToScope(community);
+                  if (!next) return null;
+                  return (
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={isActive(next)}
+                      onClick={() =>
+                        selectScope(
+                          next,
+                          community.display_name || community.name,
+                        )
+                      }
+                      class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-neutral-800"
+                    >
+                      <UserAvatar
+                        avatarUrl={community.icon_url}
+                        name={community.display_name || community.name}
+                        size={40}
+                      />
+                      <div class="min-w-0 flex-1">
+                        <p class="truncate font-bold text-white">
+                          {community.display_name || community.name}
+                        </p>
+                        <p class="truncate text-sm text-neutral-500">
+                          {t("community.members").replace(
+                            "{count}",
+                            String(community.member_count ?? 0),
+                          )}
+                        </p>
+                      </div>
+                      <Show when={isActive(next)}>
+                        <CheckIcon />
+                      </Show>
+                    </button>
+                  );
+                }}
+              </For>
             </div>
 
             <div class="my-1 border-t border-neutral-800" />

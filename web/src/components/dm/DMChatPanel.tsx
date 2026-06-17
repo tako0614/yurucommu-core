@@ -97,7 +97,8 @@ export function DMChatPanel(props: DMChatPanelProps) {
         if (isCancelled()) return;
         let changed = false;
         setMessages((prev) => {
-          const next = mode === "initial" ? data : mergeMessagesById(prev, data);
+          const next =
+            mode === "initial" ? data : mergeMessagesById(prev, data);
           changed = next !== prev;
           return next;
         });
@@ -187,8 +188,7 @@ export function DMChatPanel(props: DMChatPanelProps) {
     const isInitial = !didInitialScroll && list.length > 0;
     const el = scrollContainerRef;
     const nearBottom =
-      !el ||
-      el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+      !el || el.scrollHeight - el.scrollTop - el.clientHeight < 120;
 
     prevLastId = lastId;
     prevCount = list.length;
@@ -421,7 +421,9 @@ export function DMChatPanel(props: DMChatPanelProps) {
                       <UserAvatar
                         avatarUrl={msg.sender.icon_url || null}
                         name={
-                          msg.sender.name || msg.sender.preferred_username || "?"
+                          msg.sender.name ||
+                          msg.sender.preferred_username ||
+                          "?"
                         }
                         size={32}
                         class="mr-2"

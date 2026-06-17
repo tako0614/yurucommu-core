@@ -147,8 +147,7 @@ export function CreateScopeModal(props: CreateScopeModalProps) {
       console.error("Failed to create community:", err);
       // Strip a leading HTTP status prefix (e.g. "400: ...") so the toast shows
       // the human-readable backend reason, not the raw status line.
-      const raw =
-        err instanceof Error && err.message ? err.message : "";
+      const raw = err instanceof Error && err.message ? err.message : "";
       const message =
         raw.replace(/^\s*\d{3}:\s*/, "").trim() || t("scope.createFailed");
       pushToast(setToasts, message, { kind: "error" });

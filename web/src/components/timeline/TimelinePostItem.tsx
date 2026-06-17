@@ -67,8 +67,10 @@ export function TimelinePostItem(props: TimelinePostItemProps) {
   // tap on a different image cancels the first pending open and schedules its
   // own (so it still opens the lightbox), rather than mis-firing a like and
   // swallowing the open.
-  let pendingOpen: { index: number; timer: ReturnType<typeof setTimeout> } | null =
-    null;
+  let pendingOpen: {
+    index: number;
+    timer: ReturnType<typeof setTimeout>;
+  } | null = null;
   let burstTimer: ReturnType<typeof setTimeout> | null = null;
   onCleanup(() => {
     if (pendingOpen) clearTimeout(pendingOpen.timer);
