@@ -2,6 +2,7 @@ import { onMount } from "solid-js";
 import { useAtomValue, useSetAtom } from "solid-jotai";
 import {
   actorAtom,
+  authErrorAtom,
   authLoadingAtom,
   checkAuthAtom,
   completeSetupAtom,
@@ -29,6 +30,7 @@ export type { HostedInstance };
 export function useAuth() {
   const actor = useAtomValue(actorAtom);
   const loading = useAtomValue(authLoadingAtom);
+  const authError = useAtomValue(authErrorAtom);
   const loginError = useAtomValue(loginErrorAtom);
   const needsSetup = useAtomValue(needsSetupAtom);
   const instancePending = useAtomValue(instancePendingAtom);
@@ -54,6 +56,7 @@ export function useAuth() {
   return {
     actor,
     loading,
+    authError,
     loginError,
     needsSetup,
     instancePending,

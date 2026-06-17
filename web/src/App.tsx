@@ -75,10 +75,44 @@ function LoginScreen(props: {
   );
 }
 
+function AuthErrorScreen(props: { onRetry: () => void }) {
+  const t = useAtomValue(tAtom);
+  return (
+    <div class="flex min-h-screen flex-col items-center justify-center bg-neutral-950 p-6 text-neutral-100">
+      <div class="w-full max-w-sm space-y-6 text-center">
+        <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-900/30 text-red-400">
+          <svg
+            class="h-6 w-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width={2}
+              d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z"
+            />
+          </svg>
+        </div>
+        <p class="text-sm text-neutral-400">{t()("auth.checkFailed")}</p>
+        <button
+          type="button"
+          onClick={() => props.onRetry()}
+          class="w-full rounded-md bg-accent px-4 py-3 text-sm font-medium text-white transition-colors"
+        >
+          {t()("common.retry")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AppContent() {
   const {
     actor,
     loading,
+    authError,
     loginError,
     login,
     needsSetup,
@@ -116,6 +150,10 @@ function AppContent() {
         <div class="flex h-screen items-center justify-center bg-neutral-950 text-neutral-500">
           {t()("common.loading")}
         </div>
+      </Match>
+
+      <Match when={authError() && !actor()}>
+        <AuthErrorScreen onRetry={refreshAuth} />
       </Match>
 
       <Match when={needsSetup()}>
